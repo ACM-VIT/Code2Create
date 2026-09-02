@@ -2,11 +2,15 @@
 
 ## 1. Authentication choice
 
-Code2Create uses Better Auth with Google as the only sign-in provider.
+Code2Create uses Better Auth with Google for every VIT student and with a
+six-digit email OTP as an additional sign-in method for external participants.
 
 Better Auth runs inside the Convex deployment through `@convex-dev/better-auth`, which is maintained by Convex. The auth component owns provider accounts, sessions, verification records, and cookies. Application tables own event membership, participant class, teams, reviewer profiles, role labels, and atomic permission grants.
 
-There is no Clerk tenant, participant password, magic link, or role stored in an unverified client claim.
+There is no Clerk tenant, participant password, magic link, or role stored in
+an unverified client claim. Better Auth stores only a hash of each email OTP,
+limits attempts and requests, expires it after ten minutes, and consumes it on
+successful sign-in.
 
 ## 2. Participant sign-in
 
@@ -15,41 +19,55 @@ The first screen has two choices:
 1. **VIT Student**
 2. **External Participant**
 
-After the choice, the user selects **Authenticate with Google**.
+VIT students continue with Google. External participants can continue with
+Google or paste a non-VIT email address and enter the code delivered to it.
 
 ### Participant-type selection
 
-The browser keeps the choice only for the current sign-in tab. If the choice is missing after the Google redirect, the portal asks for it again before provisioning.
+The browser keeps the choice only for the current sign-in tab. If the choice is
+missing after authentication, the portal asks for it again before provisioning.
 
-This choice improves the sign-in instructions. It grants no authority and does not decide the stored participant class. Better Auth owns OAuth state and validates the Google callback. The provisioning mutation identifies the event from its server-loaded slug and derives the participant class from the verified Google identity. Editing browser storage or a return URL cannot create a VIT membership.
+This choice improves the sign-in instructions. It grants no authority and does
+not decide the stored participant class. Better Auth owns OAuth state, validates
+the Google callback, and atomically verifies email OTPs. The provisioning
+mutation identifies the event from its server-loaded slug and derives the
+participant class from the verified identity. Editing browser storage or a
+return URL cannot create a VIT membership.
 
 ### Server classification
 
-After Google returns a verified account, the server reads:
+After authentication, the server reads the verified email plus the Better Auth
+user and session IDs. For Google accounts it additionally reads:
 
 - Google provider subject (`sub`);
-- verified email;
 - hosted-domain claim (`hd`), when present;
-- Better Auth user and session IDs.
 
 The server applies these rules:
 
-| Selected path | Verified Google result | Outcome |
+| Selected path | Verified result | Outcome |
 | --- | --- | --- |
 | VIT Student | `hd` matches an approved VIT student domain | Create or resume a `vit_student` event membership |
 | VIT Student | `hd` missing or not approved | Stop provisioning; explain that the VIT account is required and offer a restart as External |
 | External | `hd` matches an approved VIT student domain | Classify as `vit_student`; the selector cannot bypass VIT classification |
 | External | verified Google account with no approved VIT `hd` | Create or resume an `external` event membership |
+| External | verified email OTP with no Google `hd` | Create or resume an `external` event membership |
+| External | VIT-domain email OTP without a Google `hd` | Stop provisioning and require Google Workspace sign-in |
 
 Successful provisioning also creates or resumes the person’s event access subject. This is the common security boundary used by participants, rostered users, and explicitly invited accounts.
 
 The initial approved domain is `vitstudent.ac.in`. VIT IT must confirm the final list before production opens.
 
-Email suffix matching is not enough. Google documents `sub` as the stable user identifier and `hd` as the claim to check for Workspace-domain membership. The provider subject is stored as the external identity key; email remains a verified contact and roster-matching value.
+Email suffix matching is not enough for VIT membership. Google documents `sub`
+as the stable user identifier and `hd` as the claim to check for
+Workspace-domain membership. The Google subject is stored when present; the
+Better Auth user is the account key and email remains a verified contact and
+roster-matching value.
 
 ## 3. Reviewer and staff sign-in
 
 Reviewer and staff routes do not show the VIT/External selector.
+Email OTP sessions cannot bootstrap, claim, or enter operations access; those
+flows continue to require a verified Google identity.
 
 Before the event, an operator with event-scoped `access.roster.import` uploads one UTF-8 CSV whose exact headers are `email,name,role`. A logical row contains the verified Google email expected at claim, the person's display name, and one organizational label: `supreme`, `board`, `sc`, `jc`, or `external_judge`. The browser accepts at most 256 KB and the server accepts at most 200 non-empty rows per import. It rejects malformed addresses, duplicate normalized emails, duplicate/invalid source row numbers, unknown roles, and extra columns.
 

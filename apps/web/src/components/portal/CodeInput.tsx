@@ -17,6 +17,7 @@ export function CodeInput({
   label,
   autoFocus = false,
   shakeKey = 0,
+  enableSmsWebOtp = true,
 }: {
   value: string
   onChange: (next: string) => void
@@ -28,6 +29,8 @@ export function CodeInput({
   autoFocus?: boolean
   /** Bump to replay the shake, for a code that came back wrong. */
   shakeKey?: number
+  /** Email codes should disable the Android SMS-only WebOTP request. */
+  enableSmsWebOtp?: boolean
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [focused, setFocused] = useState(false)
@@ -47,7 +50,12 @@ export function CodeInput({
   // WebOTP: Android Chrome offers the code straight from the text message when
   // its last line reads "@<host> #<code>". Unsupported browsers skip this.
   useEffect(() => {
-    if (disabled || typeof window === 'undefined' || !('OTPCredential' in window)) return
+    if (
+      !enableSmsWebOtp ||
+      disabled ||
+      typeof window === 'undefined' ||
+      !('OTPCredential' in window)
+    ) return
     const credentials = navigator.credentials as
       | { get: (options: { otp: { transport: string[] }; signal: AbortSignal }) => Promise<unknown> }
       | undefined
@@ -63,13 +71,16 @@ export function CodeInput({
     return () => controller.abort()
     // `accept` reads the latest callbacks through a ref.
     // oxlint-disable-next-line react-hooks/exhaustive-deps
-  }, [disabled, length])
+  }, [disabled, enableSmsWebOtp, length])
 
   const digits = value.replace(/\D/gu, '').slice(0, length)
   const activeIndex = Math.min(digits.length, length - 1)
 
   return (
-    <div className={`relative flex min-w-0 flex-1 ${disabled ? 'opacity-60' : ''}`}>
+    <div
+      className={`relative flex min-w-0 flex-1 ${disabled ? 'opacity-60' : ''}`}
+      data-ph-sensitive
+    >
       <div
         key={shakeKey}
         aria-hidden

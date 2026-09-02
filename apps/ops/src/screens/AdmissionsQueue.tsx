@@ -1,26 +1,48 @@
 import { api } from '@code2create/backend/api'
+import { useProductAnalytics } from '@code2create/client-observability'
 import {
-  admissionRecommendationStateLabels,
+  applicationDecisionLabels,
   applicationStateLabels,
   type ApplicationState,
 } from '@code2create/domain'
 import { useMutation, usePaginatedQuery, useQuery } from 'convex/react'
+import { useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { useState } from 'react'
 
+import { LoadingLabel, SkeletonLine, SkeletonList } from '../components/Skeleton'
+import {
+  aiStateTag,
+  assignmentOutcomeSummary,
+  busiestStage,
+  needsAssignment,
+  ownReviewLine,
+  queueLeadSentence,
+  reviewStatus,
+  reviewerLeadSentence,
+  reviewerWorkloadLabel,
+  stageAcceptsReviews,
+  stageCountMap,
+  teamLine,
+  visibleStages,
+  type AssignmentOutcome,
+  type QueueApplication,
+  type QueueAssignment,
+  type ReviewerWorkload,
+} from '../lib/admissionsPresentation'
 import { eventSlug } from '../lib/config'
-import { readableError } from '../lib/errors'
+import { isConvexErrorCode, readableError } from '../lib/errors'
 import { useOperationRunner } from '../lib/operations'
-import { LoadingLabel, SkeletonList } from '../components/Skeleton'
 
 type AssignmentState = 'active' | 'completed'
 type QueueView = 'all' | 'mine'
 
 export function AdmissionsQueue({
+  canAssign,
   canReadApplications,
   canReadAssignments,
   isSupreme,
 }: {
+  canAssign: boolean
   canReadApplications: boolean
   canReadAssignments: boolean
   isSupreme: boolean
@@ -31,16 +53,16 @@ export function AdmissionsQueue({
     : (canReadAssignments ? 'mine' : 'all')
 
   return (
-    <section className="queue-shell">
-      <div className="page-heading">
+    <section className="queue-shell admissions-shell">
+      <header className="page-heading">
         <div>
           <p className="eyebrow">Before the event</p>
           <h1>Applications</h1>
         </div>
-      </div>
+      </header>
       {isSupreme ? <AdmissionResultsRelease /> : null}
       {canReadApplications && canReadAssignments ? (
-        <div className="configuration-tabs" role="tablist" aria-label="Admission queue view">
+        <div className="configuration-tabs admissions-views" role="tablist" aria-label="Admission queue view">
           <button
             aria-selected={view === 'all'}
             className={view === 'all' ? 'active' : ''}
@@ -61,7 +83,7 @@ export function AdmissionsQueue({
           </button>
         </div>
       ) : null}
-      {view === 'all' && canReadApplications ? <ApplicationList /> : null}
+      {view === 'all' && canReadApplications ? <ApplicationList canAssign={canAssign} /> : null}
       {view === 'mine' && canReadAssignments ? <AssignmentList /> : null}
     </section>
   )
@@ -71,6 +93,7 @@ function AdmissionResultsRelease() {
   const status = useQuery(api.admissions.admissionResultsReleaseStatus, { eventSlug })
   const release = useMutation(api.admissions.releaseAdmissionResults)
   const operations = useOperationRunner()
+  const { capture } = useProductAnalytics()
   const [armed, setArmed] = useState(false)
   const [reason, setReason] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -99,6 +122,9 @@ function AdmissionResultsRelease() {
           clientOperationId,
         }))
       }
+      capture('c2c_admission_results_released', {
+        c2c_application_count: status.total,
+      })
       setArmed(false)
       setReason('')
     } catch (caught) {
@@ -142,7 +168,7 @@ function AdmissionResultsRelease() {
               {status.decisions.map((row) => (
                 <tr key={row.applicationId}>
                   <td><Link to={`/admissions/${row.applicationId}`}>{row.teamName}</Link></td>
-                  <td>{decisionName(row.decision)}</td>
+                  <td>{applicationDecisionLabels[row.decision]}</td>
                   <td>{row.reasonLabel}</td>
                   <td>{row.decidedByName}</td>
                 </tr>
@@ -175,62 +201,106 @@ function AdmissionResultsRelease() {
   )
 }
 
-const stageOrder: ApplicationState[] = [
-  'submitted',
-  'under_review',
-  'needs_information',
-  'accepted',
-  'offer_sent',
-  'confirmed',
-  'waitlisted',
-  'declined',
-  'offer_expired',
-  'withdrawn',
-]
-
-function ApplicationList() {
+function ApplicationList({ canAssign }: { canAssign: boolean }) {
   const counts = useQuery(api.admissions.stageCounts, { eventSlug })
-  const countByState = new Map((counts ?? []).map((row) => [row.state, row.count]))
-  const busiest = stageOrder.find((candidate) => (countByState.get(candidate) ?? 0) > 0)
-  const [chosen, setState] = useState<ApplicationState | null>(null)
-  const state = chosen ?? busiest ?? 'submitted'
+  const countByState = stageCountMap(counts ?? [])
+  const [chosen, setChosen] = useState<ApplicationState | null>(null)
+  const stage = chosen ?? busiestStage(countByState) ?? 'submitted'
   const { results, status, loadMore } = usePaginatedQuery(
     api.admissions.list,
-    { eventSlug, state },
+    { eventSlug, state: stage },
     { initialNumItems: 30 },
   )
+  const [assigning, setAssigning] = useState(false)
+  const [unassignedOnly, setUnassignedOnly] = useState(false)
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
+  const reviewable = stageAcceptsReviews(stage)
+  const selecting = canAssign && assigning && reviewable
+  const shown = unassignedOnly && reviewable ? results.filter(needsAssignment) : results
+  const chosenApplications = shown.filter((application) => selected.has(application.id))
+
+  const toggle = (applicationId: string) => {
+    setSelected((current) => {
+      const next = new Set(current)
+      if (next.has(applicationId)) next.delete(applicationId)
+      else next.add(applicationId)
+      return next
+    })
+  }
 
   return (
     <>
-      <label className="filter queue-stage-filter">
-        <span>Status</span>
-        <select value={state} onChange={(event) => setState(parseQueueState(event.target.value))}>
-          {stageOrder.map((candidate) => (
-            <option key={candidate} value={candidate}>
-              {applicationStateLabels[candidate]} · {countByState.get(candidate) ?? 0}
-            </option>
+      {counts === undefined
+        ? <SkeletonLine width="48%" />
+        : <p className="muted admissions-lead">{queueLeadSentence(countByState)}</p>}
+      <div className="admissions-toolbar">
+        <div className="stage-filter admissions-stages">
+          {visibleStages(countByState, stage).map((candidate) => (
+            <button
+              aria-pressed={candidate === stage}
+              className={candidate === stage ? 'stage-chip active' : 'stage-chip'}
+              key={candidate}
+              type="button"
+              onClick={() => {
+                setChosen(candidate)
+                setSelected(new Set())
+              }}
+            >
+              {applicationStateLabels[candidate]}
+              <span>{countByState.get(candidate) ?? 0}</span>
+            </button>
           ))}
-        </select>
-      </label>
-      <div className="queue-list">
-        {results.map((application) => (
-          <Link className="queue-row" key={application.id} to={`/admissions/${application.id}`}>
-            <div>
-              <strong>{application.teamName}</strong>
-              <span>
-                {application.experienceBand ? experienceName(application.experienceBand) : 'Application'}
-              </span>
-            </div>
-            <div className="queue-meta">
-              <span>{countLabel(application.completedReviewCount, 'review')} · {application.assignedReviewCount} assigned</span>
-              {application.decisionStage === 'recorded' && application.humanDecision ? (
-                <span>Recorded · {decisionName(application.humanDecision)}</span>
-              ) : null}
-              {application.aiState ? (
-                <span>Idea agent · {admissionRecommendationStateLabels[application.aiState]}</span>
-              ) : null}
-            </div>
-          </Link>
+        </div>
+        {reviewable ? (
+          <div className="admissions-toolbar-actions">
+            <label className="check-filter">
+              <input
+                checked={unassignedOnly}
+                type="checkbox"
+                onChange={(event) => {
+                  setUnassignedOnly(event.target.checked)
+                  setSelected(new Set())
+                }}
+              />
+              Only nobody assigned
+            </label>
+            {canAssign ? (
+              <button
+                className={selecting ? 'secondary active' : 'secondary'}
+                type="button"
+                onClick={() => {
+                  setAssigning(!assigning)
+                  setSelected(new Set())
+                }}
+              >
+                {selecting ? 'Done assigning' : 'Assign reviewers'}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+      {selecting ? (
+        <AssignBar
+          applications={chosenApplications}
+          pageSize={shown.length}
+          onAssigned={(applicationIds) => setSelected((current) => {
+            const next = new Set(current)
+            for (const applicationId of applicationIds) next.delete(applicationId)
+            return next
+          })}
+          onClear={() => setSelected(new Set())}
+          onSelectAll={() => setSelected(new Set(shown.map((application) => application.id)))}
+        />
+      ) : null}
+      <div className="queue-list admissions-list">
+        {shown.map((application) => (
+          <ApplicationRow
+            application={application}
+            key={application.id}
+            selectable={selecting}
+            selected={selected.has(application.id)}
+            onToggle={() => toggle(application.id)}
+          />
         ))}
         {status === 'LoadingFirstPage' ? (
           <>
@@ -238,13 +308,13 @@ function ApplicationList() {
             <SkeletonList rows={5} />
           </>
         ) : null}
-        {status !== 'LoadingFirstPage' && results.length === 0 ? (
+        {status !== 'LoadingFirstPage' && shown.length === 0 ? (
           <p className="empty">
             {countByState.size === 0
               ? 'No team has applied yet.'
-              : `Nothing at this stage. ${[...countByState.entries()]
-                  .map(([key, value]) => `${value} ${applicationStateLabels[key].toLowerCase()}`)
-                  .join(', ')}.`}
+              : results.length > 0
+                ? 'Everyone shown here has a reviewer.'
+                : `Nothing at ${applicationStateLabels[stage]} right now.`}
           </p>
         ) : null}
       </div>
@@ -255,11 +325,160 @@ function ApplicationList() {
   )
 }
 
-function parseQueueState(value: string): ApplicationState {
-  return stageOrder.find((candidate) => candidate === value) ?? 'submitted'
+function ApplicationRow({ application, selectable, selected, onToggle }: {
+  application: QueueApplication
+  selectable: boolean
+  selected: boolean
+  onToggle: () => void
+}) {
+  const reviews = reviewStatus(application)
+  const ai = aiStateTag(application.aiState)
+  const content = (
+    <>
+      <span className="admission-row-main">
+        <strong>{application.teamName}</strong>
+        <span>{teamLine(application.memberCount, application.cohort)}</span>
+      </span>
+      <span className="admission-row-meta">
+        <span className={`admission-reviews ${reviews.tone}`}>{reviews.text}</span>
+        {application.decisionStage === 'recorded' && application.humanDecision ? (
+          <span>Recorded · {applicationDecisionLabels[application.humanDecision]}</span>
+        ) : null}
+        {ai ? <span className="admission-tag">{ai}</span> : null}
+      </span>
+    </>
+  )
+  if (selectable) {
+    return (
+      <label className={selected ? 'admission-row selectable selected' : 'admission-row selectable'}>
+        <span className="admission-check">
+          <input
+            aria-label={`Select ${application.teamName}`}
+            checked={selected}
+            type="checkbox"
+            onChange={onToggle}
+          />
+        </span>
+        <span className="admission-row-link">{content}</span>
+      </label>
+    )
+  }
+  return (
+    <div className="admission-row">
+      <Link className="admission-row-link" to={`/admissions/${application.id}`}>{content}</Link>
+    </div>
+  )
+}
+
+function AssignBar({ applications, pageSize, onAssigned, onClear, onSelectAll }: {
+  applications: QueueApplication[]
+  pageSize: number
+  onAssigned: (applicationIds: string[]) => void
+  onClear: () => void
+  onSelectAll: () => void
+}) {
+  const assignReview = useMutation(api.admissions.assignReview)
+  const workload = useQuery(api.admissions.reviewerWorkload, { eventSlug })
+  const [email, setEmail] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [outcome, setOutcome] = useState<{ email: string; results: AssignmentOutcome[] } | null>(null)
+  const reviewerEmail = email.trim().toLowerCase()
+  const ready = reviewerEmail.length > 0 && applications.length > 0
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault()
+    if (busy || !ready) return
+    setBusy(true)
+    const results: AssignmentOutcome[] = []
+    const assignedIds: string[] = []
+    for (const application of applications) {
+      try {
+        await assignReview({
+          eventSlug,
+          applicationId: application.id,
+          expectedApplicationVersion: application.version,
+          reviewerEmail,
+          clientOperationId: crypto.randomUUID(),
+        })
+        results.push({ teamName: application.teamName, ok: true })
+        assignedIds.push(application.id)
+      } catch (caught) {
+        results.push({ teamName: application.teamName, ok: false, message: readableError(caught) })
+        // A reviewer nobody can find fails the same way for every application, so stop at the first.
+        if (isConvexErrorCode(caught, 'REVIEWER_NOT_ACTIVE')) break
+      }
+    }
+    setOutcome({ email: reviewerEmail, results })
+    onAssigned(assignedIds)
+    setBusy(false)
+  }
+
+  const failures = outcome?.results.filter((result) => !result.ok) ?? []
+
+  return (
+    <form className="admission-assign-bar" onSubmit={(event) => void submit(event)}>
+      <div className="admission-assign-selection">
+        <strong>{applications.length} selected</strong>
+        <button className="text-button" disabled={busy} type="button" onClick={onSelectAll}>
+          Select all {pageSize} shown
+        </button>
+        <button className="text-button" disabled={busy || applications.length === 0} type="button" onClick={onClear}>
+          Clear
+        </button>
+      </div>
+      <label className="field admission-assign-email">
+        Reviewer Google email
+        <input
+          disabled={busy}
+          placeholder="name@vit.ac.in"
+          required
+          type="email"
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+        />
+      </label>
+      <button className="primary" disabled={busy || !ready} type="submit">
+        {busy
+          ? 'Assigning…'
+          : applications.length === 0
+            ? 'Assign'
+            : `Assign ${applications.length === 1 ? '1 application' : `${applications.length} applications`}`}
+      </button>
+      {workload !== undefined && workload.length > 0 ? (
+        <div className="admission-assign-reviewers">
+          <span>Reviewers so far</span>
+          {workload.map((reviewer: ReviewerWorkload) => (
+            <button
+              aria-pressed={reviewer.email === reviewerEmail}
+              className={reviewer.email === reviewerEmail ? 'stage-chip active' : 'stage-chip'}
+              disabled={busy}
+              key={reviewer.personId}
+              title={reviewer.email}
+              type="button"
+              onClick={() => setEmail(reviewer.email)}
+            >
+              {reviewer.displayName}
+              <span>{reviewerWorkloadLabel(reviewer)}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {outcome ? (
+        <div className="admission-assign-outcomes" role="status">
+          <p>{assignmentOutcomeSummary(outcome.results, outcome.email)}</p>
+          {failures.length > 0 ? (
+            <ul>
+              {failures.map((result) => <li key={result.teamName}>{result.teamName}: {result.message}</li>)}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
+    </form>
+  )
 }
 
 function AssignmentList() {
+  const counts = useQuery(api.admissions.myReviewAssignmentCounts, { eventSlug })
   const [state, setState] = useState<AssignmentState>('active')
   const { results, status, loadMore } = usePaginatedQuery(
     api.admissions.myReviewAssignments,
@@ -269,30 +488,31 @@ function AssignmentList() {
 
   return (
     <>
-      <div className="queue-toolbar">
-        <label className="filter">
-          <span>Show</span>
-          <select value={state} onChange={(event) => setState(parseAssignmentState(event.target.value))}>
-            <option value="active">To review</option>
-            <option value="completed">Completed</option>
-          </select>
-        </label>
+      {counts === undefined
+        ? <SkeletonLine width="40%" />
+        : <p className="muted admissions-lead">{reviewerLeadSentence(counts)}</p>}
+      <div className="stage-filter admissions-stages">
+        <button
+          aria-pressed={state === 'active'}
+          className={state === 'active' ? 'stage-chip active' : 'stage-chip'}
+          type="button"
+          onClick={() => setState('active')}
+        >
+          To review
+          {counts === undefined ? null : <span>{counts.active}</span>}
+        </button>
+        <button
+          aria-pressed={state === 'completed'}
+          className={state === 'completed' ? 'stage-chip active' : 'stage-chip'}
+          type="button"
+          onClick={() => setState('completed')}
+        >
+          Done
+          {counts === undefined ? null : <span>{counts.completed}</span>}
+        </button>
       </div>
-      <div className="queue-list">
-        {results.map((assignment) => (
-          <Link className="queue-row" key={assignment.assignmentId} to={`/admissions/${assignment.applicationId}`}>
-            <div>
-              <strong>{assignment.teamName}</strong>
-              <span>
-                {assignment.experienceBand ? experienceName(assignment.experienceBand) : 'Application'}
-              </span>
-            </div>
-            <div className="queue-meta">
-              <span>{assignment.ownRecommendation ? `Your review: ${decisionName(assignment.ownRecommendation)}` : 'Review not submitted'}</span>
-              <span>{applicationStateLabels[assignment.applicationState]}</span>
-            </div>
-          </Link>
-        ))}
+      <div className="queue-list admissions-list">
+        {results.map((assignment) => <AssignmentRow assignment={assignment} key={assignment.assignmentId} />)}
         {status === 'LoadingFirstPage' ? (
           <>
             <LoadingLabel>Loading your review work</LoadingLabel>
@@ -300,7 +520,9 @@ function AssignmentList() {
           </>
         ) : null}
         {status !== 'LoadingFirstPage' && results.length === 0 ? (
-          <p className="empty">No {assignmentStateName(state).toLowerCase()} review assignments.</p>
+          <p className="empty">
+            {state === 'active' ? 'Nothing to review right now.' : 'No completed reviews yet.'}
+          </p>
         ) : null}
       </div>
       {status === 'CanLoadMore' ? (
@@ -310,31 +532,22 @@ function AssignmentList() {
   )
 }
 
-function parseAssignmentState(value: string): AssignmentState {
-  if (value === 'active' || value === 'completed') return value
-  return 'active'
-}
-
-function assignmentStateName(value: AssignmentState) {
-  if (value === 'active') return 'Active'
-  return 'Completed'
-}
-
-function decisionName(value: string) {
-  if (value === 'accept') return 'Accept'
-  if (value === 'waitlist') return 'Waitlist'
-  if (value === 'decline') return 'Decline'
-  return 'Needs information'
-}
-
-function experienceName(value: string) {
-  if (value === 'first_year') return 'First-year expectations'
-  if (value === 'early_year') return 'Early-year expectations'
-  if (value === 'later_year') return 'Later-year expectations'
-  if (value === 'postgraduate_or_professional') return 'Postgraduate or professional expectations'
-  return 'Mixed or external context'
-}
-
-function countLabel(value: number, label: string) {
-  return `${value} ${label}${value === 1 ? '' : 's'}`
+function AssignmentRow({ assignment }: { assignment: QueueAssignment }) {
+  const own = ownReviewLine(assignment)
+  const ai = aiStateTag(assignment.aiState)
+  return (
+    <div className="admission-row">
+      <Link className="admission-row-link" to={`/admissions/${assignment.applicationId}`}>
+        <span className="admission-row-main">
+          <strong>{assignment.teamName}</strong>
+          <span>{teamLine(assignment.memberCount, assignment.cohort)}</span>
+        </span>
+        <span className="admission-row-meta">
+          <span className={own.done ? 'admission-reviews done' : 'admission-reviews waiting'}>{own.text}</span>
+          <span>{applicationStateLabels[assignment.applicationState]}</span>
+          {ai ? <span className="admission-tag">{ai}</span> : null}
+        </span>
+      </Link>
+    </div>
+  )
 }

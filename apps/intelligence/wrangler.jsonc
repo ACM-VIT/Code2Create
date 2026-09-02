@@ -5,6 +5,9 @@
 	"compatibility_flags": ["nodejs_compat"],
 	"workers_dev": true,
 	"preview_urls": false,
+	"vars": {
+		"POSTHOG_HOST": "https://i.c2c.sh"
+	},
 	"durable_objects": {
 		"bindings": [{
 			"name": "OPERATIONS_AUTONOMY_ADMISSION_FENCE",
@@ -23,6 +26,10 @@
 	"env": {
 		"staging": {
 			"name": "code2create-intelligence-staging",
+			"vars": {
+				"POSTHOG_HOST": "https://i.c2c.sh",
+				"C2C_DEPLOYMENT_ENVIRONMENT": "staging"
+			},
 			"durable_objects": {
 				"bindings": [{
 					"name": "OPERATIONS_AUTONOMY_ADMISSION_FENCE",
@@ -32,6 +39,10 @@
 		},
 		"production": {
 			"name": "code2create-intelligence",
+			"vars": {
+				"POSTHOG_HOST": "https://i.c2c.sh",
+				"C2C_DEPLOYMENT_ENVIRONMENT": "production"
+			},
 			"routes": [{
 				"pattern": "intelligence.c2c.sh",
 				"custom_domain": true

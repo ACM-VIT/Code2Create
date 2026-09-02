@@ -34,6 +34,7 @@ import { findOperation, operationFingerprint, recordOperation } from "./lib/oper
 import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
 import { normalizedText } from "./lib/strings";
 import { createOpenAiEmbeddings, OpenAiEmbeddingError } from "./lib/openAiEmbeddings";
+import { scheduledAiEmbeddingTelemetry } from "./lib/posthog";
 
 const noveltyPolicyInput = v.object({
   label: v.string(),
@@ -758,6 +759,19 @@ export const replaceEntries = action({
         model: begun.model,
         input: begun.entries.map((entry) => `${entry.themeLabel}\n${entry.summary}`),
         timeoutMs: 15_000,
+        telemetry: {
+          traceId: `${begun.corpusVersionId}:${args.clientOperationId}`,
+          sessionId: begun.corpusVersionId,
+          distinctId: begun.actorPersonId,
+          operation: "novelty.import_corpus",
+          capture: async (telemetry) => {
+            await ctx.scheduler.runAfter(
+              0,
+              internal.intelligenceActions.captureEmbeddingTelemetry,
+              scheduledAiEmbeddingTelemetry(telemetry),
+            );
+          },
+        },
       });
       const ordered = response.data.toSorted((left, right) => left.index - right.index);
       if (

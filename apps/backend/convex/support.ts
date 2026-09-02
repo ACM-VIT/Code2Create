@@ -1284,19 +1284,18 @@ async function supportCaseDetail(
 }
 
 export const detail = query({
-  args: { eventSlug: v.string(), supportCaseId: v.id("supportCases") },
+  args: { eventSlug: v.string(), supportCaseId: v.string() },
   returns: v.union(v.null(), detailView),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
-    const supportCase = await ctx.db.get("supportCases", args.supportCaseId);
-    if (!supportCase || supportCase.eventId !== event._id) {
-      throw new ConvexError({
-        code: "SUPPORT_CASE_NOT_FOUND",
-        message: "Support case not found.",
-      });
-    }
+    // The desk deep-links by id from the address bar, so the id is untrusted text.
+    const supportCaseId = ctx.db.normalizeId("supportCases", args.supportCaseId);
+    const supportCase = supportCaseId
+      ? await ctx.db.get("supportCases", supportCaseId)
+      : null;
+    if (!supportCase || supportCase.eventId !== event._id) return null;
     return await supportCaseDetail(ctx, {
       eventId: event._id,
       personId: person._id,

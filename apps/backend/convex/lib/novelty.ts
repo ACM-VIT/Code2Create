@@ -9,12 +9,32 @@ export const minimumNoveltyCorpusEntries = 5;
 export const maximumNoveltyCorpusEntries = 300;
 export const noveltyDensityMatchLimit = 50;
 export const noveltyEmbeddingSimilarityScale = 1.35;
+export const noveltyEmbeddingScoringVersion = "novelty-embedding-v1" as const;
+export const noveltyScoringVersion = "novelty-hybrid-v2" as const;
+export const noveltyJudgeCandidateLimit = 8;
 export const noveltyDensitySimilarityPolicy = {
   distinctSimilarityBoundary: 0.6,
   commonSimilarityBoundary: 0.9,
 } as const;
 
 export type NoveltyIdeaLifecycle = "editing" | "saved" | "submitted";
+export type NoveltyRelationship =
+  | "same_core_idea"
+  | "strong_overlap"
+  | "adjacent"
+  | "different";
+export type NoveltyJudgeConfidence = "high" | "medium" | "low";
+
+export type NoveltyScoringVersion =
+  | typeof noveltyEmbeddingScoringVersion
+  | typeof noveltyScoringVersion;
+
+export type CalibratedNoveltyMatch<Metadata> = {
+  metadata: Metadata;
+  rawSimilarity: number;
+  weight: number;
+  semanticOverlap: number;
+};
 
 export type NoveltyDensityMatch = {
   similarity: number;
@@ -212,7 +232,16 @@ export function normalizeNoveltyIdea(value: string, minimum: number, maximum: nu
 }
 
 export function noveltyInputFingerprint(value: string) {
+  // This identifies the content, not the scoring implementation. Keeping the
+  // two identities separate lets an existing score remain visible while a new
+  // scorer evaluates the same saved revision.
   return fingerprintText(value);
+}
+
+export function isCurrentNoveltyScoringVersion(
+  value: string | undefined,
+): value is NoveltyScoringVersion {
+  return value === noveltyEmbeddingScoringVersion || value === noveltyScoringVersion;
 }
 
 export function noveltySimilarityWeight(
@@ -242,6 +271,120 @@ export function noveltyLifecycleWeight(lifecycle: NoveltyIdeaLifecycle) {
   return 1;
 }
 
+export function noveltyRelationshipWeight(relationship: NoveltyRelationship) {
+  if (relationship === "same_core_idea") return 1;
+  if (relationship === "strong_overlap") return 0.72;
+  if (relationship === "adjacent") return 0.25;
+  return 0;
+}
+
+export function hybridNoveltyWeight(
+  embeddingWeight: number,
+  rawSimilarity: number,
+  relationship: NoveltyRelationship,
+  confidence: NoveltyJudgeConfidence,
+) {
+  if (!Number.isFinite(embeddingWeight)) {
+    throw new Error("Embedding novelty weight must be finite.");
+  }
+  if (!Number.isFinite(rawSimilarity)) {
+    throw new Error("Raw novelty similarity must be finite.");
+  }
+  const boundedEmbeddingWeight = Math.max(0, Math.min(1, embeddingWeight));
+  const boundedRawSimilarity = Math.max(-1, Math.min(1, rawSimilarity));
+  const calibratedRelationship = boundedRawSimilarity < 0.4
+    ? "different"
+    : boundedRawSimilarity < 0.54
+      && (relationship === "same_core_idea" || relationship === "strong_overlap")
+      ? "adjacent"
+      : boundedRawSimilarity < 0.6 && relationship === "same_core_idea"
+        ? "strong_overlap"
+        : relationship;
+  const judgeWeight = noveltyRelationshipWeight(calibratedRelationship);
+  const judgeInfluence = confidence === "high" ? 0.65 : confidence === "medium" ? 0.4 : 0.2;
+  const blended = boundedEmbeddingWeight
+    + judgeInfluence * (judgeWeight - boundedEmbeddingWeight);
+  if (confidence === "high" && calibratedRelationship === "same_core_idea") {
+    return Math.max(0.95, blended);
+  }
+  if (confidence === "high" && calibratedRelationship === "strong_overlap") {
+    return Math.max(0.72, blended);
+  }
+  if (confidence === "high" && calibratedRelationship === "different") {
+    return Math.min(0.15, blended);
+  }
+  return Math.max(0, Math.min(1, blended));
+}
+
+/**
+ * Cosine values need a stricter bar for a closest-match penalty than they do
+ * for aggregate density. This prevents a single broad-domain match from
+ * looking like an exact duplicate while still catching close paraphrases.
+ */
+export function semanticOverlapFromEmbedding(matchSimilarity: number) {
+  if (!Number.isFinite(matchSimilarity)) {
+    throw new Error("Novelty similarity must be finite.");
+  }
+  const lowerBoundary = 0.54;
+  const upperBoundary = 0.78;
+  return Math.max(
+    0,
+    Math.min(1, (matchSimilarity - lowerBoundary) / (upperBoundary - lowerBoundary)),
+  );
+}
+
+export function calibratedNoveltyMatch<Metadata>(args: {
+  metadata: Metadata;
+  rawSimilarity: number;
+  relationship?: NoveltyRelationship;
+  confidence?: NoveltyJudgeConfidence;
+}): CalibratedNoveltyMatch<Metadata> {
+  const embeddingWeight = noveltySimilarityWeight(
+    noveltyDensitySimilarity(args.rawSimilarity),
+    noveltyDensitySimilarityPolicy,
+  );
+  const embeddingOverlap = semanticOverlapFromEmbedding(args.rawSimilarity);
+  if (args.relationship === undefined || args.confidence === undefined) {
+    return {
+      metadata: args.metadata,
+      rawSimilarity: args.rawSimilarity,
+      weight: embeddingWeight,
+      semanticOverlap: embeddingOverlap,
+    };
+  }
+  return {
+    metadata: args.metadata,
+    rawSimilarity: args.rawSimilarity,
+    weight: hybridNoveltyWeight(
+      embeddingWeight,
+      args.rawSimilarity,
+      args.relationship,
+      args.confidence,
+    ),
+    semanticOverlap: hybridNoveltyWeight(
+      embeddingOverlap,
+      args.rawSimilarity,
+      args.relationship,
+      args.confidence,
+    ),
+  };
+}
+
+export function strongestCalibratedNoveltyMatch<Metadata>(
+  matches: readonly CalibratedNoveltyMatch<Metadata>[],
+) {
+  return matches.reduce<CalibratedNoveltyMatch<Metadata> | null>((strongest, match) => {
+    if (!strongest) return match;
+    if (match.weight !== strongest.weight) {
+      return match.weight > strongest.weight ? match : strongest;
+    }
+    if (match.semanticOverlap !== strongest.semanticOverlap) {
+      return match.semanticOverlap > strongest.semanticOverlap ? match : strongest;
+    }
+    return match.rawSimilarity > strongest.rawSimilarity ? match : strongest;
+  }, null);
+}
+
 export function effectiveSimilarTeams(
   matches: readonly NoveltyDensityMatch[],
   policy: Pick<NoveltyPolicy, "distinctSimilarityBoundary" | "commonSimilarityBoundary">,
@@ -254,11 +397,16 @@ export function effectiveSimilarTeams(
   );
 }
 
-export function strongestNoveltyMatchPerTeam<TeamId>(
-  matches: readonly TeamNoveltyDensityMatch<TeamId>[],
+export function strongestNoveltyMatchPerTeam<
+  TeamId,
+  Match extends TeamNoveltyDensityMatch<TeamId>,
+>(
+  matches: readonly Match[],
+  excludedTeamId?: TeamId,
 ) {
-  const strongest = new Map<TeamId, NoveltyDensityMatch>();
+  const strongest = new Map<TeamId, Match>();
   for (const match of matches) {
+    if (match.teamId === excludedTeamId) continue;
     const current = strongest.get(match.teamId);
     if (
       !current
@@ -268,10 +416,7 @@ export function strongestNoveltyMatchPerTeam<TeamId>(
         && match.similarity > current.similarity
       )
     ) {
-      strongest.set(match.teamId, {
-        similarity: match.similarity,
-        lifecycle: match.lifecycle,
-      });
+      strongest.set(match.teamId, match);
     }
   }
   return strongest;
@@ -283,6 +428,18 @@ export function noveltyScoreForDensity(similarTeams: number) {
   }
   const score = 100 * (1 - Math.log1p(similarTeams) / Math.log(21));
   return Math.round(Math.max(0, Math.min(100, score)));
+}
+
+export function noveltyScoreForEvidence(
+  similarTeams: number,
+  strongestOverlap: number,
+) {
+  if (!Number.isFinite(strongestOverlap) || strongestOverlap < 0) {
+    throw new Error("Strongest novelty overlap must be a non-negative finite number.");
+  }
+  const boundedOverlap = Math.min(1, strongestOverlap);
+  const closestMatchScore = Math.round(100 * (1 - boundedOverlap ** 1.25));
+  return Math.min(noveltyScoreForDensity(similarTeams), closestMatchScore);
 }
 
 export function noveltyBandForScore(score: number): NoveltyBand {

@@ -210,6 +210,12 @@ describe('intelligence readiness', () => {
 		expect(await ready.json()).toEqual({ ok: true });
 		expect(unready.status).toBe(503);
 		expect(await unready.json()).toEqual({ ok: false });
+
+		const stagingWithoutPostHog = await app.request('/health', undefined, {
+			...environment,
+			C2C_DEPLOYMENT_ENVIRONMENT: 'staging',
+		});
+		expect(stagingWithoutPostHog.status).toBe(503);
 	});
 });
 

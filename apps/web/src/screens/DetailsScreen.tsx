@@ -1,4 +1,5 @@
 import { api } from '@code2create/backend/api'
+import { useProductAnalytics } from '@code2create/client-observability'
 import {
   isVitHostelRoomNumber,
   normalizeParticipantName,
@@ -153,6 +154,7 @@ export function DetailsScreen({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const operations = useOperationRunner()
+  const { capture } = useProductAnalytics()
   const savePending = operations.hasPending('profile-save')
   const acceptPending = operations.hasPending('participant-policy-accept')
   const vitStudentIdentity = membership?.participantClass === 'vit_student'
@@ -248,6 +250,7 @@ export function DetailsScreen({
             clientOperationId,
           }),
       )
+      capture('c2c_phone_verification_requested')
       setVerificationCode('')
     } catch (caught) {
       setPhoneActionError(readableError(caught))
@@ -277,6 +280,7 @@ export function DetailsScreen({
           }),
       )) as Awaited<ReturnType<typeof verifyPhone>>
       if (result.outcome === 'incorrect') {
+        capture('c2c_phone_verification_attempted', { c2c_outcome: 'incorrect' })
         setCodeShake((count) => count + 1)
         setPhoneActionError(
           `wrong code · ${result.attemptsRemaining} ${
@@ -284,9 +288,11 @@ export function DetailsScreen({
           } left`,
         )
       } else if (result.outcome === 'locked') {
+        capture('c2c_phone_verification_attempted', { c2c_outcome: 'locked' })
         setCodeShake((count) => count + 1)
         setPhoneActionError('too many wrong tries')
       } else if (normalizedPhone) {
+        capture('c2c_phone_verification_attempted', { c2c_outcome: 'verified' })
         setConfirmedPhoneVerification({
           phone: normalizedPhone,
           verificationId: result.verificationId,
@@ -383,6 +389,14 @@ export function DetailsScreen({
             clientOperationId,
           }),
       )
+      capture('c2c_participant_profile_saved', {
+        c2c_participant_class: vitStudent ? 'vit_student' : 'external',
+        c2c_profile_variant: variant,
+        c2c_phone_verification_enabled: phoneVerificationEnabled,
+        ...(vitStudent && submittedResidenceType
+          ? { c2c_residence_type: submittedResidenceType }
+          : {}),
+      })
       onDone?.()
     } catch (caught) {
       setError(readableError(caught))
@@ -438,7 +452,10 @@ export function DetailsScreen({
         <PetalCard className="px-6 pt-6 pb-4 lg:px-[30px]">
           <form noValidate onSubmit={submit}>
             <fieldset disabled={disabled} className="contents">
-              <div className="grid grid-cols-1 gap-x-4 gap-y-3.5 sm:grid-flow-row-dense sm:grid-cols-2">
+              <div
+                className="grid grid-cols-1 gap-x-4 gap-y-3.5 sm:grid-flow-row-dense sm:grid-cols-2"
+                data-ph-sensitive
+              >
                 <PortalField
                   label="full name"
                   hint={vitStudent ? 'verified' : 'editable'}

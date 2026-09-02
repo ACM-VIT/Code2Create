@@ -1,4 +1,5 @@
 import { convexClient, crossDomainClient } from '@convex-dev/better-auth/client/plugins'
+import { emailOTPClient } from 'better-auth/client/plugins'
 import { createAuthClient } from 'better-auth/react'
 import { ConvexProviderWithAuth, type ConvexReactClient } from 'convex/react'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
@@ -23,7 +24,7 @@ export { GoogleFedCmButton, preloadGoogleIdentityServices } from './GoogleFedCmB
 export function createCode2CreateAuthClient(baseURL: string) {
   return createAuthClient({
     baseURL,
-    plugins: [convexClient(), crossDomainClient()],
+    plugins: [convexClient(), crossDomainClient(), emailOTPClient()],
   })
 }
 

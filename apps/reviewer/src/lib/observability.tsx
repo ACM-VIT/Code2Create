@@ -45,7 +45,11 @@ export function ReviewerObservabilityProvider({
   return (
     <PostHogProvider
       apiKey={configuration.projectToken}
-      autocapture={{ captureScreens: false, captureTouches: false }}
+      autocapture={{
+        captureScreens: false,
+        captureTouches: true,
+        propsToCapture: ['testID', 'ph-label'],
+      }}
       options={{
         host: configuration.host,
         before_send: scrubPostHogEvent,
@@ -53,7 +57,14 @@ export function ReviewerObservabilityProvider({
         capturePushNotificationOpened: false,
         capturePushNotificationSubscriptions: false,
         disableGeoip: true,
-        enableSessionReplay: false,
+        enableSessionReplay: true,
+        sessionReplayConfig: {
+          maskAllTextInputs: true,
+          maskAllImages: true,
+          maskAllSandboxedViews: true,
+          captureLog: false,
+          captureNetworkTelemetry: true,
+        },
         errorTracking: {
           autocapture: {
             console: [],
@@ -95,6 +106,10 @@ function ReviewerTelemetry({
   const { c2c_environment, c2c_release, c2c_surface } = commonProperties
   const previousDistinctId = useRef<string | null>(null)
   const distinctId = session?.user.id ?? null
+
+  useEffect(() => {
+    posthog.register({ c2c_environment, c2c_release, c2c_surface })
+  }, [c2c_environment, c2c_release, c2c_surface, posthog])
 
   useEffect(() => {
     if (distinctId) {

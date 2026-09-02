@@ -50,7 +50,6 @@ import {
   admissionAiDisposition,
   admissionDecision,
   admissionDecisionStage,
-  admissionExperienceBand,
   admissionInformationRequestState,
   admissionOfferState,
   admissionRecommendationState,
@@ -61,13 +60,20 @@ import {
   studyYear,
 } from "./values";
 
+/** Year and class of each locked roster member. Only readers with profile context get it. */
+const rosterCohortView = v.array(
+  v.object({ participantClass, yearOfStudy: studyYear }),
+);
+
 const listItem = v.object({
   id: v.id("applications"),
   teamName: v.string(),
   state: applicationState,
   decisionStage: admissionDecisionStage,
   humanDecision: v.optional(admissionDecision),
-  experienceBand: v.optional(admissionExperienceBand),
+  cohort: v.optional(rosterCohortView),
+  memberCount: v.number(),
+  minimumHumanReviews: v.number(),
   submittedAt: v.number(),
   aiState: v.optional(admissionRecommendationState),
   assignedReviewCount: v.number(),
@@ -76,6 +82,21 @@ const listItem = v.object({
 });
 
 const maximumScopedApplicationsForStageCounts = 2_000;
+const maximumCountedReviewAssignments = 500;
+const maximumWorkloadAssignments = 4_000;
+
+async function rosterCohort(ctx: QueryCtx, project: Doc<"projectVersions">) {
+  const members = await ctx.db
+    .query("teamSubmissionMembers")
+    .withIndex("by_submission_attempt_and_ordinal", (index) =>
+      index.eq("submissionAttemptId", project.lockedRosterSnapshotId),
+    )
+    .take(project.lockedMemberCount);
+  return members.map((member) => ({
+    participantClass: member.participantClass,
+    yearOfStudy: member.yearOfStudy,
+  }));
+}
 
 /** Returns stage counts only for applications covered by the caller's grants. */
 export const stageCounts = query({
@@ -447,7 +468,7 @@ export const list = query({
         scopeId: application._id,
       });
       if (grantIds.length === 0) continue;
-      const [profileGrantIds, aiGrantIds, team, project] = await Promise.all([
+      const [profileGrantIds, aiGrantIds, team, project, policy] = await Promise.all([
         matchingPermissionGrantIds(ctx, {
           eventId: event._id,
           eventAccessSubjectId: subject._id,
@@ -464,8 +485,9 @@ export const list = query({
         }),
         ctx.db.get(application.teamId),
         ctx.db.get(application.submittedProjectVersionId),
+        ctx.db.get(application.admissionPolicyVersionId),
       ]);
-      if (!team || !project) continue;
+      if (!team || !project || !policy) continue;
       const recommendation =
         aiGrantIds.length > 0 && application.aiRecommendationId
           ? await ctx.db.get(application.aiRecommendationId)
@@ -479,8 +501,10 @@ export const list = query({
           ? { humanDecision: application.humanDecision }
           : {}),
         ...(profileGrantIds.length > 0
-          ? { experienceBand: application.experienceBand }
+          ? { cohort: await rosterCohort(ctx, project) }
           : {}),
+        memberCount: project.lockedMemberCount,
+        minimumHumanReviews: policy.minimumHumanReviews,
         submittedAt: application.submittedAt,
         ...(recommendation ? { aiState: recommendation.state } : {}),
         assignedReviewCount: application.assignedReviewCount,
@@ -501,7 +525,8 @@ const assignedReviewItem = v.object({
   applicationState,
   applicationVersion: v.number(),
   teamName: v.string(),
-  experienceBand: v.optional(admissionExperienceBand),
+  cohort: v.optional(rosterCohortView),
+  memberCount: v.number(),
   aiState: v.optional(admissionRecommendationState),
   ownRecommendation: v.optional(admissionDecision),
 });
@@ -581,8 +606,9 @@ export const myReviewAssignments = query({
         applicationVersion: application.version,
         teamName: team.name,
         ...(profileGrantIds.length > 0
-          ? { experienceBand: application.experienceBand }
+          ? { cohort: await rosterCohort(ctx, project) }
           : {}),
+        memberCount: project.lockedMemberCount,
         ...(recommendation ? { aiState: recommendation.state } : {}),
         ...(ownReview?.applicationContentVersion === application.contentVersion
           ? { ownRecommendation: ownReview.recommendation }
@@ -590,6 +616,94 @@ export const myReviewAssignments = query({
       });
     }
     return { ...page, page: visible };
+  },
+});
+
+/** How much review work the caller has, so the queue can say it before the page loads. */
+export const myReviewAssignmentCounts = query({
+  args: { eventSlug: v.string() },
+  returns: v.object({ active: v.number(), completed: v.number() }),
+  handler: async (ctx, args) => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    await requireEventSubject(ctx, event._id, person._id);
+    const count = async (state: "active" | "completed") => {
+      const rows = await ctx.db
+        .query("admissionReviewAssignments")
+        .withIndex("by_event_reviewer_state_assigned", (index) =>
+          index
+            .eq("eventId", event._id)
+            .eq("reviewerPersonId", person._id)
+            .eq("state", state),
+        )
+        .take(maximumCountedReviewAssignments);
+      return rows.length;
+    };
+    return { active: await count("active"), completed: await count("completed") };
+  },
+});
+
+/** Every reviewer who holds or held an assignment, with how much is open, so coordinators can balance work. */
+export const reviewerWorkload = query({
+  args: { eventSlug: v.string() },
+  returns: v.array(
+    v.object({
+      personId: v.id("people"),
+      displayName: v.string(),
+      email: v.string(),
+      active: v.number(),
+      completed: v.number(),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    const canAssign = await hasAnyActivePermissionGrant(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey: "application.assign",
+    });
+    if (!canAssign) {
+      throw new ConvexError({
+        code: "ACCESS_DENIED",
+        message: "This account cannot assign application reviews.",
+      });
+    }
+    const rows = await ctx.db
+      .query("admissionReviewAssignments")
+      .withIndex("by_event_reviewer_state_assigned", (index) =>
+        index.eq("eventId", event._id),
+      )
+      .take(maximumWorkloadAssignments);
+    const totals = new Map<Id<"people">, { active: number; completed: number }>();
+    for (const row of rows) {
+      if (row.state === "cancelled") continue;
+      const current = totals.get(row.reviewerPersonId) ?? { active: 0, completed: 0 };
+      if (row.state === "active") current.active += 1;
+      else current.completed += 1;
+      totals.set(row.reviewerPersonId, current);
+    }
+    const reviewers = [];
+    for (const [personId, counts] of totals) {
+      const [reviewer, reviewerSubject] = await Promise.all([
+        ctx.db.get("people", personId),
+        ctx.db
+          .query("eventAccessSubjects")
+          .withIndex("by_event_person", (index) =>
+            index.eq("eventId", event._id).eq("personId", personId),
+          )
+          .unique(),
+      ]);
+      if (!reviewer || !reviewerSubject) continue;
+      reviewers.push({
+        personId,
+        displayName: reviewer.displayName,
+        email: reviewerSubject.emailNormalized,
+        ...counts,
+      });
+    }
+    return reviewers.sort((left, right) => left.displayName.localeCompare(right.displayName));
   },
 });
 
@@ -719,7 +833,7 @@ export const detail = query({
         id: v.id("applications"),
         state: applicationState,
         decisionStage: admissionDecisionStage,
-        experienceBand: v.optional(admissionExperienceBand),
+        cohort: v.optional(rosterCohortView),
         assignedReviewCount: v.number(),
         completedReviewCount: v.number(),
         contentVersion: v.number(),
@@ -805,6 +919,7 @@ export const detail = query({
         v.object({
           id: v.id("admissionHumanReviews"),
           reviewerName: v.string(),
+          own: v.boolean(),
           recommendation: admissionDecision,
           reasonCode: v.string(),
           note: v.optional(v.string()),
@@ -993,6 +1108,7 @@ export const detail = query({
       reviewViews.push({
         id: review._id,
         reviewerName: reviewer.displayName,
+        own: review.reviewerPersonId === person._id,
         recommendation: review.recommendation,
         reasonCode: review.reasonCode,
         ...(review.note !== undefined ? { note: review.note } : {}),
@@ -1042,7 +1158,7 @@ export const detail = query({
         state: application.state,
         decisionStage: application.decisionStage,
         ...(canReadProfileContext
-          ? { experienceBand: application.experienceBand }
+          ? { cohort: await rosterCohort(ctx, project) }
           : {}),
         assignedReviewCount: application.assignedReviewCount,
         completedReviewCount: application.completedReviewCount,

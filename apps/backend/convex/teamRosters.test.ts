@@ -1846,7 +1846,7 @@ describe("team roster backfill", () => {
         ],
         reason: "Invalid registration number",
       }),
-    ).rejects.toThrow("Google account email or a VIT registration number");
+    ).rejects.toThrow("email address or a VIT registration number");
 
     await expect(
       importer.person.query(api.teamRosters.previewImport, {
@@ -1863,7 +1863,7 @@ describe("team roster backfill", () => {
         ],
         reason: "Future registration number",
       }),
-    ).rejects.toThrow("Google account email or a VIT registration number");
+    ).rejects.toThrow("email address or a VIT registration number");
   }, 30_000);
 
   test("pending registration-number assignment blocks create and can be declined", async () => {

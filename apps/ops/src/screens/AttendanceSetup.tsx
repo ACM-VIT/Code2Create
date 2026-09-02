@@ -581,9 +581,9 @@ export function AttendanceSetup({ tabs }: { tabs: ConfigurationTabsVisibility })
                         </Field>
                       ) : null}
                     </div>
-                    <fieldset className="configuration-advanced">
+                    <fieldset className="choice-set">
                       <legend>Accepted credentials</legend>
-                      <div className="button-row">
+                      <div className="choice-list">
                         {credentialKinds.map((credential) => (
                           <label key={credential.value}>
                             <input

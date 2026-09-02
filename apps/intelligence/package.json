@@ -22,6 +22,7 @@
 		"@code2create/domain": "workspace:*",
 		"@flue/runtime": "2.0.3",
 		"hono": "^4.7.0",
+		"posthog-node": "^5.51.6",
 		"valibot": "^1.1.0"
 	},
 	"devDependencies": {

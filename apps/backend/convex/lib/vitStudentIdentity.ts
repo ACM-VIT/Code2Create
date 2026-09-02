@@ -87,13 +87,19 @@ export function isApprovedVitStudentIdentity(args: {
   hostedDomain?: string;
   allowedDomains: readonly string[];
 }) {
-  const email = args.verifiedEmail.trim().toLowerCase();
   const hostedDomain = args.hostedDomain?.trim().toLowerCase();
   return (
-    email.endsWith(`@${vitStudentEmailDomain}`) &&
-    hostedDomain === vitStudentEmailDomain &&
-    args.allowedDomains.some(
-      (domain) => domain.trim().toLowerCase() === vitStudentEmailDomain,
-    )
+    isVitStudentEmailAddress(args.verifiedEmail, args.allowedDomains) &&
+    hostedDomain === vitStudentEmailDomain
+  );
+}
+
+export function isVitStudentEmailAddress(
+  verifiedEmail: string,
+  allowedDomains: readonly string[],
+) {
+  const email = verifiedEmail.trim().toLowerCase();
+  return email.endsWith(`@${vitStudentEmailDomain}`) && allowedDomains.some(
+    (domain) => domain.trim().toLowerCase() === vitStudentEmailDomain,
   );
 }

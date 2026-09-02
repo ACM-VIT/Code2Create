@@ -12,7 +12,7 @@ function validBuildEnvironment(): Record<string, string | undefined> {
     VITE_EVENT_SLUG: 'code2create-7',
     VITE_RELEASE_ID: 'release-42',
     VITE_POSTHOG_PROJECT_TOKEN: 'phc_publicprojecttoken',
-    VITE_POSTHOG_HOST: 'https://eu.i.posthog.com',
+    VITE_POSTHOG_HOST: 'https://i.c2c.sh',
     POSTHOG_CLI_HOST: 'https://eu.posthog.com',
     POSTHOG_CLI_PROJECT_ID: '169929',
     POSTHOG_CLI_API_KEY: 'secret-token',

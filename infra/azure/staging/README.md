@@ -41,8 +41,12 @@ inventory. Do not expose port 6791 in the Azure network security group.
 The VM system identity reads only the staging Key Vault secrets. The database
 has private VNet access only and seven days of managed backups. The participant
 GitHub OAuth App must be configured separately from the read-only team GitHub App.
-Figma, email, voice, and native-push integrations remain deliberately
-unconfigured until their staging registrations are approved.
+Figma, voice, and native-push integrations remain deliberately unconfigured
+until their staging registrations are approved. Before testing external email
+sign-in, configure `CLOUDFLARE_EMAIL_ACCOUNT_ID`,
+`CLOUDFLARE_EMAIL_API_TOKEN`, and `CLOUDFLARE_EMAIL_FROM` with the staging
+sending identity; the portal keeps the email option disabled until all three
+are present.
 
 Phone verification uses AWS End User Messaging SMS in `ap-south-1`. The
 staging Convex environment needs `PHONE_VERIFICATION_HMAC_SECRET`,
@@ -65,6 +69,14 @@ The participant and operations Workers were deployed manually with the Azure
 origins above. Cloudflare currently reports no Git build trigger for either
 Worker, so a repository push cannot replace these deployments until those
 connections are deliberately created.
+
+Server-side PostHog ingestion uses the staging `posthog-project-token` from the
+staging Key Vault and the first-party `https://i.c2c.sh` ingest proxy. Apply the
+two Convex values without printing the token by running:
+
+```sh
+infra/azure/configure-posthog-environment.sh staging
+```
 
 Backend functions deploy automatically after backend checks pass on a push to
 the `staging` branch. `.github/workflows/backend-deploy.yml` signs in to Azure

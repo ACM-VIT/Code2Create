@@ -1,4 +1,5 @@
 import { api } from '@code2create/backend/api'
+import { useProductAnalytics } from '@code2create/client-observability'
 import { useMutation, useQuery } from 'convex/react'
 import type { FunctionReturnType } from 'convex/server'
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
@@ -449,6 +450,7 @@ function IntakeWorkspace({
   const applicationsClosed = useDeadlineReached(serverNow, intake.applicationsCloseAt)
   const applicationsOpen = !applicationsClosed
   const operations = useOperationRunner<IntakeOperationResult>()
+  const { capture } = useProductAnalytics()
   const ideaEditorOpen = !draft || draft.stage === 'opening' || editingIdea
   const { editors, markEditing, stopEditing } = useEditingPresence(team.canWriteProject)
   const closeDateLabel = new Date(intake.applicationsCloseAt).toLocaleDateString(undefined, {
@@ -1086,6 +1088,9 @@ function IntakeWorkspace({
           throw new Error('The idea save returned an unexpected result.')
         }
         completeIdeaSave(result, submittedDraftVersion)
+        capture('c2c_idea_saved', {
+          c2c_editing_existing_idea: submittedDraftVersion > 0,
+        })
       } catch (caught) {
         if (!operations.hasPending('idea')) pendingIdeaBaseVersion.current = null
         if (!isIntakeCollaborationConflict(caught)) throw caught
@@ -1126,6 +1131,7 @@ function IntakeWorkspace({
         return
       }
       clearSessionDraft(`c2c:${eventSlug}:${team.id}:follow-up:${submittedQuestion.id}`)
+      capture('c2c_follow_up_answered')
       setFollowUpConflict(false)
       setPeekQuestionId(null)
       stopEditing()
@@ -1159,6 +1165,9 @@ function IntakeWorkspace({
         setError(null)
         return
       }
+      capture('c2c_additional_information_saved', {
+        c2c_has_additional_information: value.trim().length > 0,
+      })
       setAdditionalInformationEdit(null)
     })
   }
@@ -2022,6 +2031,9 @@ function IntakeWorkspace({
                           clientOperationId,
                         }),
                       )
+                      capture('c2c_application_submitted', {
+                        c2c_team_size: preview.members.length,
+                      })
                     } catch (caught) {
                       if (!operations.hasPending('final-submit')) {
                         clearSubmissionCelebration()
@@ -2302,8 +2314,8 @@ function NoveltyExplainer() {
   return (
     <div className="text-left">
       <p className="m-0 text-[13px] leading-relaxed text-fg/85">
-        We compare your idea with ideas from other teams. A higher score means
-        fewer teams are working on something similar.
+        We compare your idea with other teams in this event and a reference set
+        of past projects. A higher score means fewer close matches.
       </p>
       <div className="mt-4 mb-1.5 flex h-1.5 overflow-hidden rounded-full" aria-hidden>
         <span className="flex-1 bg-rose/25" />

@@ -2,6 +2,7 @@ import { PostHogErrorBoundary, PostHogProvider, usePostHog } from '@posthog/reac
 import {
   Component,
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useRef,
@@ -15,12 +16,23 @@ import {
   requiredTelemetryRelease,
   validatePostHogHost,
 } from './environment.ts'
-import { scrubPostHogEvent } from './privacy.ts'
+import {
+  maskReplayAttribute,
+  maskReplayInput,
+  maskReplayText,
+  sanitizeTelemetryUrl,
+  scrubPostHogEvent,
+} from './privacy.ts'
 import { isChunkLoadFailure } from './browserRecovery.ts'
 
 export { installBrowserChunkRecovery } from './browserRecovery.ts'
 
 export type BrowserSurface = 'landing-web' | 'participant-web' | 'operations-web'
+
+export type ProductEventProperties = Record<
+  `c2c_${string}`,
+  string | number | boolean | null | undefined
+>
 
 export type BrowserObservabilityConfiguration = {
   projectToken: string | undefined
@@ -66,7 +78,6 @@ export function ClientObservabilityProvider({
     c2c_release: release,
     c2c_surface: configuration.surface,
   }
-
   return (
     <ObservabilityContext.Provider value>
       <PostHogProvider
@@ -74,17 +85,67 @@ export function ClientObservabilityProvider({
         options={{
           api_host: apiHost,
           defaults: '2026-05-30',
-          autocapture: false,
+          advanced_disable_feature_flags: false,
+          advanced_disable_feature_flags_on_first_load: false,
+          autocapture: {
+            dom_event_allowlist: ['click', 'change', 'submit'],
+            element_allowlist: ['a', 'button', 'form', 'input', 'select', 'textarea', 'label'],
+            css_selector_ignorelist: [
+              '.ph-no-capture',
+              '[data-ph-no-capture]',
+              '[data-posthog-block]',
+            ],
+            capture_copied_text: false,
+          },
           capture_pageview: 'history_change',
           capture_pageleave: true,
-          capture_exceptions: true,
-          capture_heatmaps: false,
-          capture_performance: false,
+          capture_dead_clicks: true,
+          capture_exceptions: {
+            capture_unhandled_errors: true,
+            capture_unhandled_rejections: true,
+            capture_console_errors: true,
+          },
+          capture_heatmaps: true,
+          capture_performance: {
+            network_timing: true,
+            web_vitals: true,
+          },
           disable_capture_url_hashes: true,
-          disable_session_recording: true,
-          mask_all_element_attributes: true,
-          mask_all_text: true,
+          disable_surveys: false,
+          disable_surveys_automatic_display: false,
+          disable_session_recording: false,
+          enable_recording_console_log: false,
+          mask_all_element_attributes: false,
+          mask_all_text: false,
           person_profiles: 'identified_only',
+          session_recording: {
+            blockSelector: '.ph-no-capture, [data-ph-no-capture], [data-posthog-block]',
+            maskAllElementAttributes: false,
+            maskAllInputs: false,
+            maskAttributeFn: maskReplayAttribute,
+            maskInputFn: maskReplayInput,
+            maskTextFn: maskReplayText,
+            maskTextSelector: '[data-ph-sensitive], .ph-sensitive',
+            recordBody: false,
+            recordHeaders: false,
+            recordCrossOriginIframes: false,
+            captureJsonLd: false,
+            collectFonts: false,
+            maskCapturedNetworkRequestFn: (request) => {
+              const {
+                requestBody: _requestBody,
+                requestHeaders: _requestHeaders,
+                responseBody: _responseBody,
+                responseHeaders: _responseHeaders,
+                ...safeRequest
+              } = request
+              return { ...safeRequest, name: sanitizeTelemetryUrl(request.name) }
+            },
+          },
+          error_tracking: {
+            captureExtensionExceptions: false,
+            exception_steps: { enabled: true },
+          },
           before_send: scrubPostHogEvent,
           loaded: (posthog) => posthog.register(commonProperties),
         }}
@@ -98,6 +159,30 @@ export function ClientObservabilityProvider({
       </PostHogProvider>
     </ObservabilityContext.Provider>
   )
+}
+
+export function useProductAnalytics() {
+  const enabled = useContext(ObservabilityContext)
+  const posthog = usePostHog()
+  const capture = useCallback((event: string, properties?: ProductEventProperties) => {
+    if (!enabled) return
+    posthog.capture(event, properties)
+  }, [enabled, posthog])
+
+  const captureLog = useCallback((
+    level: 'info' | 'warn' | 'error',
+    code: string,
+    properties?: ProductEventProperties,
+  ) => {
+    if (!enabled) return
+    posthog.capture('c2c_client_log', {
+      c2c_log_level: level,
+      c2c_log_code: code,
+      ...properties,
+    })
+  }, [enabled, posthog])
+
+  return { capture, captureLog }
 }
 
 export function ClientObservabilityIdentity({ distinctId }: { distinctId: string | null }) {

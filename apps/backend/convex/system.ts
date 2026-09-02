@@ -8,8 +8,9 @@ import {
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { mutation, query, type MutationCtx } from "./_generated/server";
+import { authenticationEmailConfigured } from "./lib/authenticationEmail";
 import {
-  ensurePerson,
+  ensureGooglePerson,
   requireVerifiedGoogleIdentity,
 } from "./lib/identity";
 import {
@@ -62,6 +63,7 @@ const publicEventPhase = v.object({
 const publicShellState = v.object({
   serverNow: v.number(),
   auth: v.object({
+    emailOtpConfigured: v.boolean(),
     googleConfigured: v.boolean(),
     googleClientId: v.union(v.string(), v.null()),
   }),
@@ -81,6 +83,7 @@ function publicAuthState() {
   const googleClientId = process.env.GOOGLE_CLIENT_ID?.trim() || null;
   const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim() || null;
   return {
+    emailOtpConfigured: authenticationEmailConfigured(),
     googleConfigured: googleClientId !== null && googleClientSecret !== null,
     googleClientId: googleClientSecret === null ? null : googleClientId,
   };
@@ -130,6 +133,7 @@ export const getPublicState = query({
   returns: v.object({
     serverNow: v.number(),
     auth: v.object({
+      emailOtpConfigured: v.boolean(),
       googleConfigured: v.boolean(),
       googleClientId: v.union(v.string(), v.null()),
     }),
@@ -265,7 +269,7 @@ export const bootstrapEvent = mutation({
   args: bootstrapEventInput.fields,
   returns: v.object({ eventId: v.id("events") }),
   handler: async (ctx, args) => {
-    const { user, person } = await ensurePerson(ctx);
+    const { user, person } = await ensureGooglePerson(ctx);
     if (!initialSupremeEmails().includes(normalizeEmail(user.email))) {
       throw new ConvexError({
         code: "BOOTSTRAP_NOT_ALLOWED",

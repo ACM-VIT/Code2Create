@@ -14,6 +14,10 @@ import {
   participantAssistantModelId,
   participantAssistantName,
 } from "./lib/participantAssistant";
+import {
+  scheduledAiGenerationTelemetry,
+  type AiGenerationTelemetry,
+} from "./lib/posthog";
 
 const bringInEventTeam = createTool({
   description:
@@ -75,6 +79,14 @@ export const generateReply = internalAction({
       args,
     );
     if (request === null) return null;
+    const scheduleGenerationTelemetry = async (telemetry: AiGenerationTelemetry) => {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.intelligenceActions.captureGenerationTelemetry,
+        scheduledAiGenerationTelemetry(telemetry),
+      );
+    };
+    let generationStartedAt: number | null = null;
 
     try {
       const grounding = await ctx.runQuery(
@@ -99,6 +111,7 @@ export const generateReply = internalAction({
           safetyIdentifier: request.personId,
         } satisfies OpenAIResponsesProviderOptions,
       };
+      generationStartedAt = Date.now();
       const result = await participantAssistant.streamText(
         ctx,
         {
@@ -119,7 +132,11 @@ export const generateReply = internalAction({
           },
         },
       );
-      const answer = await result.text;
+      const [answer, usage, finishReason] = await Promise.all([
+        result.text,
+        result.usage,
+        result.finishReason,
+      ]);
       if (answer.trim().length >= 2) {
         await ctx.runMutation(
           internal.participantAssistant.recordGuideReplyForHuman,
@@ -135,6 +152,23 @@ export const generateReply = internalAction({
         requestId: request.requestId,
         state: "completed",
       });
+      await scheduleGenerationTelemetry({
+        traceId: request.requestId,
+        sessionId: request.threadId,
+        distinctId: request.personId,
+        model: participantAssistantModelId,
+        provider: "openai",
+        operation: "participant_assistant.reply",
+        durationMs: Date.now() - generationStartedAt,
+        isError: false,
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        cacheReadTokens: usage.inputTokenDetails.cacheReadTokens,
+        cacheWriteTokens: usage.inputTokenDetails.cacheWriteTokens,
+        reasoningTokens: usage.outputTokenDetails.reasoningTokens,
+        totalTokens: usage.totalTokens,
+        finishReason,
+      });
     } catch (error) {
       const reason = error instanceof Error ? error.message : "Unknown error";
       console.error("Participant assistant reply failed", {
@@ -146,6 +180,17 @@ export const generateReply = internalAction({
         state: "failed",
         failureMessage:
           "I couldn’t finish that answer. Please try again, or ask me to bring in the event team.",
+      });
+      await scheduleGenerationTelemetry({
+        traceId: request.requestId,
+        sessionId: request.threadId,
+        distinctId: request.personId,
+        model: participantAssistantModelId,
+        provider: "openai",
+        operation: "participant_assistant.reply",
+        durationMs: generationStartedAt === null ? 0 : Date.now() - generationStartedAt,
+        isError: true,
+        errorCategory: "generation_failed",
       });
     }
     return null;

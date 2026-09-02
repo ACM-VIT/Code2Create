@@ -7,10 +7,18 @@ import {
 } from '../../../scripts/local-development.mjs'
 
 test('local intelligence uses one localhost-only signed service boundary', () => {
-	assert.equal(
-		localIntelligenceWorkerEnvironment.OPENAI_API_KEY,
-		localConvexEnvironment.OPENAI_API_KEY,
-	)
+  assert.equal(
+    localIntelligenceWorkerEnvironment.OPENAI_API_KEY,
+    localConvexEnvironment.OPENAI_API_KEY,
+  )
+  assert.equal(
+    localIntelligenceWorkerEnvironment.POSTHOG_PROJECT_TOKEN,
+    localConvexEnvironment.POSTHOG_PROJECT_TOKEN,
+  )
+  assert.equal(
+    localIntelligenceWorkerEnvironment.POSTHOG_HOST,
+    localConvexEnvironment.POSTHOG_HOST,
+  )
   assert.equal(localConvexEnvironment.C2C_DEPLOYMENT_ENVIRONMENT, 'development')
   assert.ok(localConvexEnvironment.BETTER_AUTH_SECRET.length >= 32)
   assert.equal(

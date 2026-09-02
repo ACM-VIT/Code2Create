@@ -9,6 +9,7 @@ import {
   vitStudentEmailDomain,
 } from '../lib/googleAuthorization'
 import { ClassCard } from '../components/portal/ClassCard'
+import { EmailOtpSignIn } from '../components/portal/EmailOtpSignIn'
 import { PortalScene } from '../components/portal/PortalScene'
 import { usePortalTheme } from '../lib/portalTheme'
 import { PortalButton } from '../components/portal/PortalButton'
@@ -81,6 +82,13 @@ export function EntryScreen({
   const vitOpen = publicState.event.registrationOpen && publicState.serverNow < publicState.event.applicationsCloseAt
   const externalOpen = publicState.event.registrationOpen && publicState.serverNow < publicState.event.externalApplicationsCloseAt
   const selectedClassOpen = participantClass === 'vit_student' ? vitOpen : externalOpen
+  const authUnavailableMessage = participantClass === 'vit_student'
+    ? publicState.auth.googleConfigured
+      ? null
+      : 'Google sign-in is unavailable right now. Ask an organizer for help.'
+    : publicState.auth.googleConfigured || publicState.auth.emailOtpConfigured
+      ? null
+      : 'Sign-in is unavailable right now. Ask an organizer for help.'
 
   const choose = (value: ParticipantClass) => {
     sessionStorage.setItem(participantClassStorageKey, value)
@@ -153,50 +161,66 @@ export function EntryScreen({
           className="mb-7 flex w-full flex-col gap-3 sm:flex-row sm:justify-center sm:gap-4"
           role="group"
           aria-label="Participant type"
-          >
-            <ClassCard
-              title="VIT student"
-              detail={`only @${vitStudentEmailDomain} Google accounts are accepted`}
-              disabled={!vitOpen}
-              selected={participantClass === 'vit_student'}
+        >
+          <ClassCard
+            title="VIT student"
+            detail={`only @${vitStudentEmailDomain} Google accounts are accepted`}
+            disabled={!vitOpen}
+            selected={participantClass === 'vit_student'}
             onSelect={() => choose('vit_student')}
           />
-            <ClassCard
-              title="external participant"
-              detail={externalOpen ? 'use your regular Google account' : 'applications have closed'}
-              disabled={!externalOpen}
-              selected={participantClass === 'external_participant'}
+          <ClassCard
+            title="external participant"
+            detail={
+              externalOpen
+                ? 'continue with Google or a non-VIT email address'
+                : 'applications have closed'
+            }
+            disabled={!externalOpen}
+            selected={participantClass === 'external_participant'}
             onSelect={() => choose('external_participant')}
           />
         </div>
-
-        {/* One fixed slot for whichever sign-in button is showing: swapping
-            the disabled outline for Google's own button changed the column's
-            height and nudged the whole scene. */}
-        <div className="flex min-h-[60px] w-full items-center justify-center">
-        {participantClass && selectedClassOpen && publicState.auth.googleClientId ? (
-          <GoogleFedCmButton
-            authClient={authClient}
-            appearance={portalTheme === 'daybreak' ? 'light' : 'dark'}
-            clientId={publicState.auth.googleClientId}
-            {...(participantClass === 'vit_student'
-              ? { hostedDomain: vitStudentEmailDomain }
-              : {})}
-            loading={immediateGoogleButton}
-            pending={<PortalButton disabled className="mx-auto w-full max-w-[320px]">Signing in…</PortalButton>}
-            fallback={immediateGoogleButton}
-            onError={(message) => setError(message)}
-          />
-        ) : (
-          <PortalButton type="button" disabled className="w-full max-w-[320px]">
-            Continue with Google
-          </PortalButton>
-        )}
+        <div className="flex w-full max-w-[320px] flex-col items-center gap-3">
+          <div className="flex min-h-[60px] w-full items-center justify-center">
+            {participantClass && selectedClassOpen && publicState.auth.googleClientId ? (
+              <GoogleFedCmButton
+                authClient={authClient}
+                appearance={portalTheme === 'daybreak' ? 'light' : 'dark'}
+                clientId={publicState.auth.googleClientId}
+                {...(participantClass === 'vit_student'
+                  ? { hostedDomain: vitStudentEmailDomain }
+                  : {})}
+                loading={immediateGoogleButton}
+                pending={<PortalButton disabled className="mx-auto w-full">Signing in…</PortalButton>}
+                fallback={immediateGoogleButton}
+                onError={(message) => setError(message)}
+              />
+            ) : (
+              <PortalButton type="button" disabled className="w-full">
+                Continue with Google
+              </PortalButton>
+            )}
+          </div>
+          <div className="flex w-full items-center gap-3 text-[10.5px] font-semibold tracking-[.08em] text-fg/40">
+            <span className="h-px flex-1 bg-petal-edge-soft" />
+            or
+            <span className="h-px flex-1 bg-petal-edge-soft" />
+          </div>
+          <div className="flex min-h-[100px] w-full flex-col items-stretch">
+            <EmailOtpSignIn
+              key={participantClass ?? 'none'}
+              authClient={authClient}
+              configured={publicState.auth.emailOtpConfigured}
+              disabled={participantClass !== 'external_participant' || !selectedClassOpen}
+              googleOnlyEmailDomain={vitStudentEmailDomain}
+            />
+          </div>
         </div>
 
-        {!publicState.auth.googleConfigured ? (
+        {authUnavailableMessage ? (
           <p className="mt-4 text-[11.5px] text-rose-light">
-            Google sign-in is unavailable right now. Ask an organizer for help.
+            {authUnavailableMessage}
           </p>
         ) : null}
         <PortalError message={error} reserve />

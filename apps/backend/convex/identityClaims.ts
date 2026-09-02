@@ -87,11 +87,26 @@ export const recordVerifiedGoogleIdentity = internalMutation({
       .withIndex("by_auth_user", (index) => index.eq("authUserId", args.authUserId))
       .unique();
     if (person) {
-      if (person.googleSubject !== args.googleSubject) {
+      if (person.googleSubject && person.googleSubject !== args.googleSubject) {
         throw new ConvexError({
           code: "GOOGLE_IDENTITY_CONFLICT",
           message: "This account is linked to another Google identity.",
         });
+      }
+      if (!person.googleSubject) {
+        const subjectOwner = await ctx.db
+          .query("people")
+          .withIndex("by_google_subject", (index) =>
+            index.eq("googleSubject", args.googleSubject),
+          )
+          .unique();
+        if (subjectOwner && subjectOwner._id !== person._id) {
+          throw new ConvexError({
+            code: "GOOGLE_IDENTITY_CONFLICT",
+            message: "This Google identity is already linked to another account.",
+          });
+        }
+        await ctx.db.patch(person._id, { googleSubject: args.googleSubject });
       }
       await refreshExistingPersonIdentity(ctx, {
         person,

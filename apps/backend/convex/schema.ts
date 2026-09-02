@@ -574,6 +574,7 @@ export default defineSchema({
     nearestSimilarity: v.optional(v.number()),
     nearestThemeLabel: v.optional(v.string()),
     reflectionPrompt: v.optional(v.string()),
+    scoringVersion: v.optional(v.string()),
     providerRequestId: v.optional(v.string()),
     providerRemainingRequests: v.optional(v.number()),
     providerRequestReset: v.optional(v.string()),
@@ -594,7 +595,7 @@ export default defineSchema({
 
   people: defineTable({
     authUserId: v.string(),
-    googleSubject: v.string(),
+    googleSubject: v.optional(v.string()),
     verifiedEmail: v.string(),
     displayName: v.string(),
     status: v.union(v.literal("active"), v.literal("suspended")),
@@ -1733,6 +1734,8 @@ export default defineSchema({
     noveltyBand: v.optional(noveltyBand),
     noveltyNearestThemeLabel: v.optional(v.string()),
     noveltyReflectionPrompt: v.optional(v.string()),
+    noveltyScoringVersion: v.optional(v.string()),
+    noveltyRefinementFailureCategory: v.optional(v.string()),
     noveltyPreviewRequestId: v.optional(v.id("noveltyPreviewRequests")),
     noveltyEvaluatedAt: v.optional(v.number()),
     adaptiveQuestionDeadlineAt: v.optional(v.number()),

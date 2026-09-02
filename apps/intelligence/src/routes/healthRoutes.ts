@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 
 import { requireStrongServiceSecret } from '../lib/serviceSecret.ts';
 import { serviceUrl } from '../lib/serviceUrl.ts';
+import { postHogIntelligenceObservabilityConfigured } from '../lib/posthogObservability.ts';
 
 function requireExactOpsOrigin(value: string) {
 	const url = new URL(value);
@@ -20,6 +21,13 @@ healthRoutes.get('/health', (context) => {
 	try {
 		if (context.env.OPENAI_API_KEY.trim().length === 0) {
 			throw new Error('OPENAI_API_KEY is unavailable.');
+		}
+		if (
+			context.env.C2C_DEPLOYMENT_ENVIRONMENT !== undefined
+			&& context.env.C2C_DEPLOYMENT_ENVIRONMENT !== 'development'
+			&& !postHogIntelligenceObservabilityConfigured(context.env)
+		) {
+			throw new Error('PostHog AI observability is unavailable.');
 		}
 		for (const [value, name] of [
 			[context.env.INTELLIGENCE_INGRESS_SECRET, 'INTELLIGENCE_INGRESS_SECRET'],

@@ -151,7 +151,7 @@ function exactTeamRosterIdentity(value: string, eventYear: number) {
     if (!emailPattern.test(email) || email.length > 254) {
       throw new ConvexError({
         code: "INVALID_TEAM_ROSTER_IDENTITY",
-        message: "Every team roster row needs a Google account email or a VIT registration number.",
+        message: "Every team roster row needs an email address or a VIT registration number.",
       });
     }
     return {
@@ -165,7 +165,7 @@ function exactTeamRosterIdentity(value: string, eventYear: number) {
   if (!parsed) {
     throw new ConvexError({
       code: "INVALID_TEAM_ROSTER_IDENTITY",
-      message: "Every team roster row needs a Google account email or a VIT registration number.",
+      message: "Every team roster row needs an email address or a VIT registration number.",
     });
   }
   return {

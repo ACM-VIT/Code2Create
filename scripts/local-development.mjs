@@ -1,9 +1,31 @@
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { loadEnvFile } from 'node:process'
+import { parseEnv } from 'node:util'
 
 // Explicit process values override the repository environment file.
 const rootEnvironmentPath = new URL('../.env.local', import.meta.url)
 if (existsSync(rootEnvironmentPath)) loadEnvFile(rootEnvironmentPath)
+
+// PostHog's browser token is intentionally public. Reuse the participant app's
+// ignored local environment so local server telemetry reaches the same project
+// without maintaining a second copy of the token.
+const participantEnvironmentPath = new URL('../apps/web/.env.local', import.meta.url)
+const participantEnvironment = existsSync(participantEnvironmentPath)
+  ? parseEnv(readFileSync(participantEnvironmentPath, 'utf8'))
+  : {}
+const localPostHogProjectToken =
+  process.env.POSTHOG_PROJECT_TOKEN?.trim() ||
+  participantEnvironment.VITE_POSTHOG_PROJECT_TOKEN?.trim()
+const localPostHogHost =
+  process.env.POSTHOG_HOST?.trim() ||
+  participantEnvironment.VITE_POSTHOG_HOST?.trim() ||
+  'https://i.c2c.sh'
+const localPostHogEnvironment = Object.freeze({
+  ...(localPostHogProjectToken
+    ? { POSTHOG_PROJECT_TOKEN: localPostHogProjectToken }
+    : {}),
+  POSTHOG_HOST: localPostHogHost,
+})
 
 const intelligenceIngressSecret = 'code2create-local-intelligence-ingress-2026-v1'
 const intelligenceCallbackSecret = 'code2create-local-intelligence-callback-2026-v1'
@@ -56,6 +78,8 @@ const privateEnvironmentKeys = [
   'OUTBOUND_CALL_WORKER_URL',
   'PHONE_VERIFICATION_HMAC_SECRET',
   'PHONE_VERIFICATION_MESSAGE_TEMPLATE',
+  'POSTHOG_HOST',
+  'POSTHOG_PROJECT_TOKEN',
   'PROVIDER_TOKEN_ENCRYPTION_KEY',
   'PROVIDER_TOKEN_ENCRYPTION_KEY_VERSION',
   'PROVIDER_TOKEN_PREVIOUS_ENCRYPTION_KEY',
@@ -81,6 +105,7 @@ const localOpenAiApiKey = process.env.OPENAI_API_KEY?.trim()
 
 export const localConvexEnvironment = Object.freeze({
   C2C_DEPLOYMENT_ENVIRONMENT: 'development',
+  C2C_RELEASE_ID: 'development',
   BETTER_AUTH_SECRET: localBetterAuthSecret,
   AUTH_SITE_URL: 'http://localhost:3211',
   PARTICIPANT_SITE_URL: 'http://localhost:5180',
@@ -94,10 +119,14 @@ export const localConvexEnvironment = Object.freeze({
   ATTENDANCE_WRAPPING_KEY_VERSION: 'local-v1',
   INITIAL_EVENT_SLUG: 'code2create-7',
   ...localPrivateEnvironment,
+  ...localPostHogEnvironment,
 })
 
 export const localIntelligenceWorkerEnvironment = Object.freeze({
-	...(localOpenAiApiKey ? { OPENAI_API_KEY: localOpenAiApiKey } : {}),
+  ...(localOpenAiApiKey ? { OPENAI_API_KEY: localOpenAiApiKey } : {}),
+  ...localPostHogEnvironment,
+  C2C_DEPLOYMENT_ENVIRONMENT: 'development',
+  C2C_RELEASE_ID: 'development',
   INTELLIGENCE_INGRESS_SECRET: intelligenceIngressSecret,
   INTELLIGENCE_CALLBACK_SECRET: intelligenceCallbackSecret,
   INTELLIGENCE_READ_SECRET: intelligenceReadSecret,
