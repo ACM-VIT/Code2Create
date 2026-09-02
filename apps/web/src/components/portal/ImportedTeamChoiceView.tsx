@@ -230,7 +230,7 @@ function TeamChoiceCard({
 
       {assignees.length > 0 ? (
         <ul className="m-0 mt-4 list-none border-t border-petal-line p-0 pt-2">
-          {assignees.slice(0, 4).map((assignee, index) => (
+          {assignees.map((assignee, index) => (
             <li
               key={`${assignee.role}:${assignee.displayName}:${index}`}
               className="flex items-center justify-between gap-3 py-1.5"
