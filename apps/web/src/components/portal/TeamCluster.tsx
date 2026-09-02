@@ -237,21 +237,11 @@ export function TeamRosterPanel({
             data-gallery-screen={item.galleryScreen}
             aria-current={item.active ? 'page' : undefined}
             onClick={onNavigate}
-            className={`group flex min-h-10 items-center justify-between gap-4 rounded-lg px-3 py-1.5 no-underline transition-colors duration-200 ${
+            className={`flex min-h-10 items-center rounded-lg px-3 py-1.5 no-underline transition-colors duration-200 ${
               item.active ? 'bg-rose/15 text-rose-light' : 'text-fg/80 hover:bg-fg/5 hover:text-fg'
             }`}
           >
             <span className="min-w-0 text-[13px] font-medium">{item.label}</span>
-            <svg
-              viewBox="0 0 20 20"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.6"
-              aria-hidden
-              className="size-4 flex-none text-fg/25 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:text-rose-light"
-            >
-              <path d="m7.5 4.5 5.5 5.5-5.5 5.5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
           </Link>
         ))}
       </nav>
