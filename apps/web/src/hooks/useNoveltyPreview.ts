@@ -35,7 +35,9 @@ type TrackedRequest = {
 }
 
 function normalizeIdea(value: string) {
-  return value.trim().replace(/\s+/g, ' ')
+  // Match the backend's stored idea normalization exactly so the preview
+  // fingerprint can be attached to the saved draft, including paragraphs.
+  return value.trim().replace(/\r\n/g, '\n')
 }
 
 export function normalizedIdeaLength(value: string) {

@@ -63,7 +63,7 @@ import {
 } from "./values";
 
 const additionalInformationMaxLength = 4_000;
-const draftNoveltyIndexSpreadMs = 5 * 60_000;
+const draftNoveltyIndexSpreadMs = 250;
 
 function draftNoveltyIndexDelayMs(
   draftId: Id<"projectDrafts">,
