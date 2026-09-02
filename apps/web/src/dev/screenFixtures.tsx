@@ -1042,7 +1042,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
   ['f12', () => (
       <PortalScene tree="left" onSignOut={noop} header={cluster}>
         <div className="flex w-full max-w-[480px] flex-col items-center">
-          <h1 className="mb-7 font-display font-light tracking-[-.01em] text-3xl lg:text-[40px]">Resources</h1>
+          <h1 className="mb-7 font-display font-light tracking-[-.01em] text-3xl lg:text-[40px]">More</h1>
           <PetalCard className="w-full px-6 py-2">
             {([
               ['Notifications', 'Email · delivered'],
@@ -1064,7 +1064,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
       </PortalScene>
     )],
   ['f12p', () => (
-    <DetailsFixture initialPhase="verified" title="Your profile" header={cluster} />
+    <DetailsFixture initialPhase="verified" title="Edit profile" header={cluster} />
   )],
   ['f13', () => <HelpThreadFixture />],
   ['f13b', () => <HelpEmptyFixture />],

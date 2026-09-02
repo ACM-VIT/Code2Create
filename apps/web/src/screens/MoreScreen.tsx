@@ -86,7 +86,7 @@ export function MoreScreen({
     <PortalScene tree="left" header={header} onSignOut={onSignOut}>
       <div className="flex w-full max-w-[480px] flex-col items-center">
         <h1 className="mb-7 font-display font-light tracking-[-.01em] text-3xl text-shadow-[0_4px_30px_var(--scene-text-glow)] lg:text-[40px]">
-          Resources
+          More
         </h1>
         <PetalCard className="w-full px-6 py-2">
           {capabilities?.notifications ? (

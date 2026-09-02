@@ -425,7 +425,7 @@ export function DetailsScreen({
             editingProfile ? 'mb-2' : 'mb-7'
           }`}
         >
-          {editingProfile ? 'Your profile' : 'A few details, once.'}
+          {editingProfile ? 'Edit profile' : 'A few details, once.'}
         </h1>
         {editingProfile ? (
           <p className="mb-7 text-xs text-fg/50">

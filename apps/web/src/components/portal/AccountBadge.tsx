@@ -68,7 +68,7 @@ export function AccountBadge({
               onClick={() => setOpen(false)}
               className="rounded-lg px-2 py-2 text-[12px] text-fg/65 no-underline transition-colors hover:bg-fg/5 hover:text-rose-light"
             >
-              Your profile
+              Edit profile
             </Link>
             <button
               type="button"

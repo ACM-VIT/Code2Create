@@ -97,7 +97,7 @@ export function TeamCluster({
         aria-expanded={open}
         aria-label={`Team ${team.name}`}
         onClick={() => setOpen((value) => !value)}
-        className={`flex min-h-10 items-center rounded-full border px-1.5 py-1 shadow-[0_8px_24px_var(--shade-1)] transition-colors duration-200 lg:min-h-12 lg:px-2 ${
+        className={`flex min-h-10 items-center rounded-full border px-1.5 py-1 shadow-[0_8px_24px_var(--shade-1)] lg:min-h-12 lg:px-2 ${
           open ? 'border-rose-light/80 bg-rose/15' : 'border-petal-line bg-tile hover:border-rose/70'
         }`}
       >
@@ -165,7 +165,7 @@ export function TeamRosterPanel({
       active: pathname === '/team',
     },
     {
-      label: 'Resources',
+      label: 'More',
       to: '/more',
       galleryScreen: 'f12',
       active:
@@ -175,7 +175,7 @@ export function TeamRosterPanel({
         pathname === '/support',
     },
     {
-      label: 'Your profile',
+      label: 'Edit profile',
       to: '/more/profile',
       galleryScreen: 'f12p',
       active: pathname === '/more/profile',
@@ -231,7 +231,7 @@ export function TeamRosterPanel({
             data-gallery-screen={item.galleryScreen}
             aria-current={item.active ? 'page' : undefined}
             onClick={onNavigate}
-            className={`flex min-h-10 items-center rounded-lg px-3 py-1.5 no-underline transition-colors duration-200 ${
+            className={`flex min-h-10 items-center rounded-lg px-3 py-1.5 no-underline ${
               item.active ? 'bg-rose/15 text-rose-light' : 'text-fg/80 hover:bg-fg/5 hover:text-fg'
             }`}
           >
@@ -249,7 +249,7 @@ export function TeamRosterPanel({
         <button
           type="button"
           onClick={onSignOut}
-          className="mt-3 flex w-full items-center justify-between border-t border-petal-line px-3 pt-3 pb-1 text-left text-[12px] text-fg/45 transition-colors hover:text-rose-light"
+          className="mt-3 flex w-full items-center justify-between border-t border-petal-line px-3 pt-3 pb-1 text-left text-[12px] text-fg/45 hover:text-rose-light"
         >
           Sign out
           <svg
