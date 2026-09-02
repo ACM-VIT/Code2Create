@@ -25,7 +25,8 @@ export function accessTokenExpiresAt(token: string): number | null {
   const payload = token.split('.')[1]
   if (!payload) return null
   try {
-    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/')
+    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/')
+    const normalized = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=')
     const decoded = JSON.parse(globalThis.atob(normalized))
     if (
       typeof decoded !== 'object' ||

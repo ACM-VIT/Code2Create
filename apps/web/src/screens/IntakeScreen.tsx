@@ -1580,7 +1580,7 @@ function IntakeWorkspace({
         teamEditable={teamEditable}
         onSignOut={onSignOut}
         title="Anything else you want us to see?"
-        hint="This is optional. Add a useful link or extra context, or skip this step. Please do not upload a PPT."
+        hint="This is optional. Add a useful link or extra context, or skip this step.s"
         presence={<EditingPresence editors={editors ?? []} members={members} />}
       >
         <PetalCard className="px-6 pt-[26px] pb-[18px] lg:px-[30px]">
@@ -1614,7 +1614,7 @@ function IntakeWorkspace({
               maxLength={draft.additionalInformationMaxLength}
               disabled={busy}
               value={value}
-              placeholder="Share a website, repository, document, demo link, or anything else useful."
+              placeholder="Share a website, repository, document or anything else useful."
               onChange={(event) => {
                 const nextValue = event.currentTarget.value
                 setAdditionalInformationEdit((current) => current
