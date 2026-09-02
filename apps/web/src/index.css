@@ -346,24 +346,28 @@
 }
 
 .delayed-bonsai-art i {
+  --petal-drift-x: 4px;
+  --petal-drift-y: -5px;
+  --petal-turn: 9deg;
   position: absolute;
   width: 9px;
   height: 6px;
   border-radius: 70% 30% 65% 35%;
   background: var(--color-petal-a);
   box-shadow: 0 0 10px var(--glow-rose);
+  transform-origin: 50% 70%;
   animation: c2c-bonsai-petal 1.7s ease-in-out infinite alternate;
 }
 
-.delayed-bonsai-art i:nth-of-type(1) { top: 7%; left: 48%; rotate: 24deg; }
-.delayed-bonsai-art i:nth-of-type(2) { top: 18%; left: 55%; rotate: -18deg; animation-delay: -.9s; }
-.delayed-bonsai-art i:nth-of-type(3) { top: 28%; left: 71%; rotate: 38deg; animation-delay: -.4s; }
-.delayed-bonsai-art i:nth-of-type(4) { top: 32%; left: 43%; rotate: -32deg; animation-delay: -1.2s; }
-.delayed-bonsai-art i:nth-of-type(5) { top: 39%; left: 30%; rotate: 16deg; animation-delay: -.6s; }
-.delayed-bonsai-art i:nth-of-type(6) { top: 44%; left: 63%; rotate: -12deg; animation-delay: -1.4s; }
-.delayed-bonsai-art i:nth-of-type(7) { top: 52%; left: 23%; rotate: 42deg; animation-delay: -.2s; }
-.delayed-bonsai-art i:nth-of-type(8) { top: 55%; left: 48%; rotate: -28deg; animation-delay: -1s; }
-.delayed-bonsai-art i:nth-of-type(9) { top: 61%; left: 34%; rotate: 12deg; animation-delay: -.7s; }
+.delayed-bonsai-art i:nth-of-type(1) { top: 7%; left: 48%; rotate: 24deg; --petal-drift-x: -3px; --petal-drift-y: -7px; }
+.delayed-bonsai-art i:nth-of-type(2) { top: 18%; left: 55%; rotate: -18deg; --petal-drift-x: 6px; --petal-turn: -12deg; animation-delay: -.9s; animation-duration: 2.1s; }
+.delayed-bonsai-art i:nth-of-type(3) { top: 28%; left: 71%; rotate: 38deg; --petal-drift-x: 5px; --petal-drift-y: -3px; animation-delay: -.4s; animation-duration: 1.45s; }
+.delayed-bonsai-art i:nth-of-type(4) { top: 32%; left: 43%; rotate: -32deg; --petal-drift-x: -6px; --petal-turn: -10deg; animation-delay: -1.2s; animation-duration: 2.25s; }
+.delayed-bonsai-art i:nth-of-type(5) { top: 39%; left: 30%; rotate: 16deg; --petal-drift-x: -4px; --petal-drift-y: -6px; animation-delay: -.6s; }
+.delayed-bonsai-art i:nth-of-type(6) { top: 44%; left: 63%; rotate: -12deg; --petal-drift-x: 7px; --petal-turn: -8deg; animation-delay: -1.4s; animation-duration: 1.55s; }
+.delayed-bonsai-art i:nth-of-type(7) { top: 52%; left: 23%; rotate: 42deg; --petal-drift-x: -5px; --petal-drift-y: -3px; animation-delay: -.2s; animation-duration: 2.3s; }
+.delayed-bonsai-art i:nth-of-type(8) { top: 55%; left: 48%; rotate: -28deg; --petal-drift-x: 5px; --petal-drift-y: -7px; --petal-turn: -11deg; animation-delay: -1s; }
+.delayed-bonsai-art i:nth-of-type(9) { top: 61%; left: 34%; rotate: 12deg; --petal-drift-x: -7px; animation-delay: -.7s; animation-duration: 2.05s; }
 
 .delayed-bonsai-label {
   font-family: var(--font-ui);
@@ -379,8 +383,14 @@
 }
 
 @keyframes c2c-bonsai-petal {
-  from { opacity: .35; transform: scale(.78); }
-  to { opacity: 1; transform: scale(1.12); }
+  from {
+    opacity: .35;
+    transform: translate3d(0, 2px, 0) rotate(0) scale(.78);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(var(--petal-drift-x), var(--petal-drift-y), 0) rotate(var(--petal-turn)) scale(1.12);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
