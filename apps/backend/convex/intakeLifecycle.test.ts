@@ -1282,6 +1282,9 @@ describe("participant intake lifecycle", () => {
     );
     if (!thirdTeamMember) throw new Error("The joined submitted-team member is missing.");
     if (!secondTeamMember) throw new Error("The existing submitted-team member is missing.");
+    expect(thirdTeamMember.githubAvatarUrl).toBe(
+      "https://avatars.githubusercontent.com/u/intake-github-user-3?v=4",
+    );
     const teamAfterJoin = await participant.query(api.teams.current, {
       eventSlug: fixture.eventSlug,
     });

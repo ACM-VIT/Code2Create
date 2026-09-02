@@ -9,7 +9,7 @@ import { PortalError } from '../components/portal/PortalField'
 import { PortalScene } from '../components/portal/PortalScene'
 import { TeamCluster } from '../components/portal/TeamCluster'
 import { JoinCodeBar } from '../components/portal/JoinCodeBar'
-import { Flower } from '../components/portal/FlowerAvatar'
+import { MemberAvatarVisual } from '../components/portal/MemberAvatarVisual'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 import { useOperationRunner } from '../lib/operations'
@@ -206,7 +206,13 @@ export function TeamLobbyScreen({
                       : 'cursor-default'
                   }`}
                 >
-                  <Flower seed={member.membershipId} lead={lead} size={38} />
+                  <MemberAvatarVisual
+                    displayName={member.displayName}
+                    githubAvatarUrl={member.githubAvatarUrl}
+                    seed={member.membershipId}
+                    lead={lead}
+                    flowerSize={38}
+                  />
                   {lead ? (
                     <span className="absolute -top-1.5 -right-1">
                       <Petal size={20} />

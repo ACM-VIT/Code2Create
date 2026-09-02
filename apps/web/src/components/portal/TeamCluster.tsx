@@ -3,8 +3,8 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Petal } from './Petal'
 import { usePortalSignOut } from './portalSceneContext'
-import { Flower } from './FlowerAvatar'
 import { assignFlowerVariants } from './flowerVariants'
+import { MemberAvatarVisual } from './MemberAvatarVisual'
 
 // Structural props rather than the generated Convex views: this is a
 // presentational component, and Convex `Id<T>` widens to `string`, so real
@@ -22,10 +22,12 @@ export type ClusterMember = {
   membershipId: string
   role: string
   displayName: string
+  githubAvatarUrl?: string | undefined
 }
 
 function Avatar({
   displayName,
+  githubAvatarUrl,
   seed,
   lead,
   variant,
@@ -33,6 +35,7 @@ function Avatar({
   className = '',
 }: {
   displayName: string
+  githubAvatarUrl?: string | undefined
   seed: string
   lead: boolean
   variant?: number
@@ -44,17 +47,19 @@ function Avatar({
   return (
     <div
       title={displayName}
-      className={`flex flex-none items-center justify-center rounded-full ${box} ${
+      className={`relative flex flex-none items-center justify-center rounded-full ${box} ${
         lead
           ? 'border-2 border-ring-lead bg-avatar-lead shadow-[0_0_18px_var(--avatar-glow)]'
           : 'border-2 border-rose/70 bg-avatar'
       } ${className}`}
     >
-      <Flower
+      <MemberAvatarVisual
+        displayName={displayName}
+        githubAvatarUrl={githubAvatarUrl}
         seed={seed}
         lead={lead}
         {...(variant === undefined ? {} : { variant })}
-        className="size-[62%]"
+        flowerClassName="size-[62%]"
       />
     </div>
   )
@@ -136,6 +141,7 @@ export function TeamCluster({
                 <Avatar
                   key={member.teamMemberId}
                   displayName={member.displayName}
+                  githubAvatarUrl={member.githubAvatarUrl}
                   seed={member.membershipId}
                   lead={member.role === 'lead'}
                   {...(variant === undefined ? {} : { variant })}
@@ -225,6 +231,7 @@ export function TeamRosterPanel({
             <li key={member.teamMemberId} className="flex items-center gap-3 py-2">
               <Avatar
                 displayName={member.displayName}
+                githubAvatarUrl={member.githubAvatarUrl}
                 seed={member.membershipId}
                 lead={member.role === 'lead'}
                 {...(variant === undefined ? {} : { variant })}
