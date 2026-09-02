@@ -18,6 +18,12 @@ import Rosette from './Rosette.js';
 import { useFallingLadder } from './fallingLadder/index.js';
 import Cards, { Emblem } from './Cards.js';
 import {
+  JOURNEY_SCROLL_DURATION,
+  JOURNEY_SCROLL_SEGMENTS,
+  journeyMasterTime,
+  journeyScrollProgress,
+} from './timing.js';
+import {
   LAYOUT,
   LOGO,
   CARD_RATIO,
@@ -29,6 +35,7 @@ import {
 } from './cardLayout.js';
 import { Plant, createBloomTimeline } from '../timeline/botanical.js';
 import { ideaSubmissionUrl } from '../lib/config.js';
+import { JOURNEY_LEAP_EVENT, type JourneyLeapDetail } from '../lib/journeyLeap.js';
 import FaqBoard from './FaqBoard.js';
 import type { PetalFieldHandle } from './Petals.js';
 import './journey.css';
@@ -587,12 +594,22 @@ export default function Journey({ petalsRef }: JourneyProps) {
         .to(rosette, { autoAlpha: 0, duration: 2.6 }, 273.4);
 
       const petalShown = rosettePetals.map(() => false);
-      const rosetteCue = (progress: number) => {
-        const at = progress * tl.duration();
+      const rosetteCue = (progress: number, immediate = false) => {
+        const at = journeyMasterTime(progress);
         rosettePetals.forEach((petal, index) => {
           const wanted = at >= 154 + index * 22;
-          if (wanted === petalShown[index]) return;
+          if (wanted === petalShown[index] && !immediate) return;
           petalShown[index] = wanted;
+          if (immediate) {
+            gsap.killTweensOf(petal);
+            gsap.set(
+              petal,
+              wanted
+                ? { autoAlpha: 1, scale: 1, rotation: 0 }
+                : { autoAlpha: 0, scale: 0.78, rotation: -9 },
+            );
+            return;
+          }
           gsap.to(
             petal,
             wanted
@@ -708,11 +725,11 @@ export default function Journey({ petalsRef }: JourneyProps) {
          smallest wobble around it. The hook itself ignores a repeat of what
          it is already doing. */
       let faqOn = false;
-      const ladderCue = (progress: number) => {
-        const at = progress * tl.duration();
+      const ladderCue = (progress: number, immediate = false) => {
+        const at = journeyMasterTime(progress);
         if (!faqOn && at >= FAQ_CUE) faqOn = true;
         else if (faqOn && at < FAQ_OFF) faqOn = false;
-        ladder.setActive(faqOn);
+        ladder.setActive(faqOn, immediate);
       };
 
       /* Firework progress comes only from scroll. Past its own span a sponsor
@@ -721,7 +738,7 @@ export default function Journey({ petalsRef }: JourneyProps) {
       const sponsorCue = (progress: number) => {
         const api = fireworksRef.current;
         if (!api) return;
-        const at = progress * tl.duration();
+        const at = journeyMasterTime(progress);
         SPONSOR_CUES.forEach((mark, index) => {
           const active = at >= mark && at < SPONSORS_OFF;
           const fireworkProgress = active
@@ -735,7 +752,7 @@ export default function Journey({ petalsRef }: JourneyProps) {
       const petalCue = (progress: number) => {
         const api = petalsRef.current;
         if (!api) return;
-        const at = progress * tl.duration();
+        const at = journeyMasterTime(progress);
         const ramp = (from: number, to: number) => gsap.utils.clamp(0, 1, (at - from) / (to - from));
 
         /* The petal canvas paints over the whole pinned stage, so the
@@ -787,17 +804,27 @@ export default function Journey({ petalsRef }: JourneyProps) {
        * The tow must be watched whole: while the ladder is being hauled back
        * in, the scroll is walled at the reel's door and let go the moment
        * the rig is off. Only the reverse direction is gated — a fall never
-       * holds the scroll. A nav jump is a deliberate leap rather than a
-       * scroll, so it stands the wall down — for a window long enough to
-       * carry the smooth scroll across the act and play its tow out, and
-       * re-armed sooner if the user takes the wheel back. Enforcement is an
-       * instant scroll: the page's own smooth behavior would turn the wall
-       * to rubber.
+       * holds the scroll. A nav jump bypasses the wall and resolves the rig
+       * immediately; grabbing the wheel re-arms it. Enforcement is an instant
+       * scroll: the page's own smooth behavior would turn the wall to rubber.
        */
+      /* The scroll timeline carries a weighted playhead over the unchanged
+         choreography. This doubles the wheel distance only for About and
+         Sponsors while preserving every animation cue's authored timing. */
+      tl.pause(0);
+      const playhead = { at: 0 };
+      const syncMaster = () => tl.time(playhead.at);
+      const scrollTimeline = gsap.timeline({ paused: true, defaults: { ease: 'none' } });
+      JOURNEY_SCROLL_SEGMENTS.forEach((segment) => {
+        scrollTimeline.to(playhead, {
+          at: segment.to,
+          duration: (segment.to - segment.from) * segment.distanceScale,
+          onUpdate: syncMaster,
+        });
+      });
+
       let leapUntil = 0;
-      const leap = () => {
-        leapUntil = performance.now() + 2000;
-      };
+      let leapInProgress = false;
       const grab = () => {
         leapUntil = 0;
       };
@@ -806,8 +833,8 @@ export default function Journey({ petalsRef }: JourneyProps) {
         const busy = ladder.getBusy();
         if (!busy) return;
         if (performance.now() < leapUntil) return;
-        const perSecond = (self.end - self.start) / tl.duration();
-        const wall = self.start + (busy === 'fall' ? FAQ_EXIT : FAQ_ENTRY) * perSecond;
+        const wallProgress = journeyScrollProgress(busy === 'fall' ? FAQ_EXIT : FAQ_ENTRY);
+        const wall = self.start + wallProgress * (self.end - self.start);
         const at = self.scroll();
         if (busy === 'fall' ? at > wall : at < wall) {
           window.scrollTo({ top: wall, behavior: 'auto' });
@@ -815,7 +842,7 @@ export default function Journey({ petalsRef }: JourneyProps) {
       };
 
       const trigger = ScrollTrigger.create({
-        animation: tl,
+        animation: scrollTimeline,
         trigger: root,
         start: 'top top',
         end: 'bottom bottom',
@@ -830,8 +857,8 @@ export default function Journey({ petalsRef }: JourneyProps) {
         },
         onUpdate: (self) => {
           petalCue(self.progress);
-          ladderCue(self.progress);
-          rosetteCue(self.progress);
+          ladderCue(self.progress, leapInProgress);
+          rosetteCue(self.progress, leapInProgress);
           sponsorCue(self.progress);
           gate(self);
         },
@@ -843,6 +870,24 @@ export default function Journey({ petalsRef }: JourneyProps) {
         },
       });
 
+      const leap = (event: CustomEvent<JourneyLeapDetail>) => {
+        const progress = event.detail.progress;
+        leapUntil = performance.now() + 2000;
+        leapInProgress = true;
+        trigger.getTween()?.pause();
+        scrollTimeline.progress(progress);
+        syncMaster();
+        trigger.update();
+        trigger.getTween()?.progress(1);
+        scrollTimeline.progress(progress);
+        syncMaster();
+        petalCue(progress);
+        ladderCue(progress, true);
+        rosetteCue(progress, true);
+        sponsorCue(progress);
+        leapInProgress = false;
+      };
+
       /* The trigger stops reporting once its progress pegs at an end, so the
          walls also stand on the raw scroll — added after the trigger, which
          keeps them downstream of the cue that starts the act. */
@@ -853,9 +898,13 @@ export default function Journey({ petalsRef }: JourneyProps) {
          every time an answer opened re-targeted the tilt and yanked the
          whole rig vertically mid-read. The tilt's clearance absorbs an open
          answer instead, and real viewport resizes still refresh normally. */
-      window.addEventListener('journey:leap', leap);
+      window.addEventListener(JOURNEY_LEAP_EVENT, leap);
       window.addEventListener('wheel', grab, { passive: true });
       window.addEventListener('touchstart', grab, { passive: true });
+
+      if (scrollTimeline.duration() !== JOURNEY_SCROLL_DURATION) {
+        throw new Error('The journey scroll timing does not match its segment map.');
+      }
 
       petalCue(0);
       /* Cue again once mounting has fully settled, so the opening state cannot
@@ -887,7 +936,7 @@ export default function Journey({ petalsRef }: JourneyProps) {
         cancelAnimationFrame(settledCue);
         window.removeEventListener('load', refresh);
         window.removeEventListener('scroll', guard);
-        window.removeEventListener('journey:leap', leap);
+        window.removeEventListener(JOURNEY_LEAP_EVENT, leap);
         window.removeEventListener('wheel', grab);
         window.removeEventListener('touchstart', grab);
         pending.forEach((img) => img.removeEventListener('load', refresh));

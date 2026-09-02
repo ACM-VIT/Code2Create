@@ -78,8 +78,11 @@ export function useFallingLadder(
   /* A stable handle: the effect hangs the real implementation off this ref, so
      the caller can hold the handle across re-runs without re-wiring anything,
      and calling it before the effect has run is simply ignored. */
-  const cue = useRef<((on: boolean) => void) | null>(null);
-  const setActive = useCallback((on: boolean) => cue.current?.(on), []);
+  const cue = useRef<((on: boolean, immediate: boolean) => void) | null>(null);
+  const setActive = useCallback(
+    (on: boolean, immediate = false) => cue.current?.(on, immediate),
+    [],
+  );
 
   /* Same arrangement for asking: 'fall' or 'reel' while the act is still
      playing, null once it has settled or been struck. The journey holds its
@@ -442,7 +445,29 @@ export function useFallingLadder(
       return true;
     };
 
-    cue.current = (on: boolean) => {
+    cue.current = (on: boolean, immediate: boolean) => {
+      if (immediate) {
+        wanted = on;
+        if (!on) {
+          idle();
+          return;
+        }
+
+        stop();
+        const measured = measure();
+        if (!measured) {
+          wanted = false;
+          return;
+        }
+        world = measured;
+        sim = createLadderSim(world);
+        mode = 'fall';
+        reveal(true);
+        sim.finish();
+        drawRest();
+        return;
+      }
+
       if (on === wanted && (!on || sim !== null)) return;
       wanted = on;
       if (!on) {

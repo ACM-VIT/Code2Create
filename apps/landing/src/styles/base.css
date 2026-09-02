@@ -64,20 +64,6 @@ html {
   -ms-overflow-style: none;
 }
 
-/* The nav warp: the scene blurs out, the jump lands instantly behind the
-   veil, and it blurs back in. The navbar itself stays crisp. */
-.journey__stage,
-.petals,
-.footer {
-  transition: filter 0.24s ease;
-}
-
-html.nav-warp .journey__stage,
-html.nav-warp .petals,
-html.nav-warp .footer {
-  filter: blur(18px);
-}
-
 html::-webkit-scrollbar,
 body::-webkit-scrollbar {
   width: 0;
