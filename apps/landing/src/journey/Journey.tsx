@@ -28,7 +28,7 @@ import {
   STAR_REACH,
 } from './cardLayout.js';
 import { Plant, createBloomTimeline } from '../timeline/botanical.js';
-import { eventRegistrationUrl } from '../lib/config.js';
+import { ideaSubmissionUrl } from '../lib/config.js';
 import FaqBoard from './FaqBoard.js';
 import type { PetalFieldHandle } from './Petals.js';
 import './journey.css';
@@ -158,7 +158,7 @@ const EMBERS = [
 const FAQ = [
   {
     id: 'register',
-    q: 'Who all can register?',
+    q: 'Who can submit an idea?',
     a: 'Students from all over the country are eligible to participate in Code2Create. Everybody is welcome to make a difference.',
   },
   {
@@ -179,7 +179,7 @@ const FAQ = [
   {
     id: 'team',
     q: 'How many members can constitute a team?',
-    a: 'There should be a minimum of 2 members and can be up to 5 members in a team. Each member of the team needs to register individually on the Gravitas portal.',
+    a: 'A team must have 2 to 5 members. Each member needs their own account on the Code2Create participant portal.',
   },
   {
     id: 'stay',
@@ -188,8 +188,8 @@ const FAQ = [
   },
   {
     id: 'how',
-    q: 'How to register?',
-    a: 'Registration opens soon. Pre-register now for updates.',
+    q: 'How do I submit an idea?',
+    a: 'Open the Code2Create participant portal, sign in, complete your team, and submit your idea.',
   },
   {
     id: 'early',
@@ -940,9 +940,9 @@ export default function Journey({ petalsRef }: JourneyProps) {
             <img src="/assets/svg/wordmark.svg" alt="Code2Create" width="669" height="85" />
           </h1>
           <p className="hero-tagline">Don’t just code for the vibes, Code2Create.</p>
-          <a className="hero-cta" href={eventRegistrationUrl}>
+          <a className="hero-cta" href={ideaSubmissionUrl}>
             <img src="/assets/svg/btn-box.svg" alt="" aria-hidden="true" />
-            <span>Register now</span>
+            <span>Submit idea</span>
           </a>
           <p className="hero-venue">6th September, 2026 · Anna Auditorium, VIT Vellore</p>
         </div>
