@@ -22,6 +22,7 @@ import { PortalScene } from '../components/portal/PortalScene'
 import { StackedSheet } from '../components/portal/StackedSheet'
 import { TreeLoader } from '../components/portal/TreeLoader'
 import { releaseBalloons } from '../lib/balloons'
+import { DashboardScreen } from '../screens/DashboardScreen'
 import { SglangInterlude } from '../screens/SglangInterlude'
 import { ConfirmCard } from '../screens/TeamLobbyScreen'
 import { NoveltyPill, NoveltyReviewRow, ReviewEditRow } from '../screens/IntakeScreen'
@@ -652,6 +653,14 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
           </div>
         </div>
       </PortalScene>
+    )],
+  ['dashboard', () => (
+      <DashboardScreen
+        team={team}
+        members={members}
+        teamEditable
+        onSignOut={noop}
+      />
     )],
   ['f2', () => (
       <PortalScene tree="left" onSignOut={noop} header={cluster}>
