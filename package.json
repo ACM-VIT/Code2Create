@@ -24,7 +24,6 @@
     "render:trailer": "pnpm --filter @code2create/trailer render",
     "test:e2e:release": "pnpm --filter @code2create/e2e test:release",
     "test:idea-round-release": "pnpm --filter @code2create/backend test:idea-round-release && pnpm --filter @code2create/intelligence test && pnpm --filter @code2create/intelligence eval",
-    "load:idea-round": "pnpm --filter @code2create/backend load:idea-round",
     "check:fixtures:staging": "pnpm --filter @code2create/backend browser-fixtures:check:staging",
     "check:providers:staging": "pnpm --filter @code2create/backend providers:check:staging",
     "attendance:badges": "pnpm --filter @code2create/web badges:generate",

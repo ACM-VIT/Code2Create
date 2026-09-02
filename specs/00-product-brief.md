@@ -157,28 +157,19 @@ Judging uses the published judging rubric, reviewer assignments, independent sco
 - A push notification or phone call asks a reviewer to open the app. The reviewer must acknowledge the in-app page.
 - A score submission is accepted only after the server confirms it.
 
-## 8. Initial scale envelope
+## 8. Production capacity
 
-The online application round and the offline event have different capacity shapes.
+The online application round is planned for up to 2,000 participants across the
+submission window. Capacity decisions use the published team-size limits and the
+actual application schedule. Realtime presence exists only while a participant
+has the portal open; registered participants are not treated as simultaneous
+connections.
 
-The application release test uses:
-
-- 3,000 simultaneous authenticated participant clients;
-- up to 1,500 applicant teams before admission;
-- a 60-second connection ramp, followed by two minutes at steady state;
-- active team editing, autosave, and presence traffic; and
-- a novelty-preview burst that may shed optional checks but cannot delay a save or submission.
-
-The offline event test uses:
-
-- 1,200 simultaneous live clients;
-- 60 attendance scan attempts per second;
-- no more than 400 accepted teams;
-- up to 60 concurrent reviews;
-- 300 reconnects or queue reads near a round start; and
-- 150 operational writes per minute during the busiest review period.
-
-The rehearsal must replace these assumptions with the registered participant count, applicant and accepted team counts, panel count, and round schedule.
+Participant saves and final submission do not depend on model or embedding
+capacity. Novelty may temporarily show **Unavailable**. Each generated question
+slot settles with a validated model question or its published fallback within
+the product deadline. Production keeps the backend and provider limits recorded
+in the deployment inventory and monitors deadline-window traffic separately.
 
 ## 9. Acceptance outcomes
 

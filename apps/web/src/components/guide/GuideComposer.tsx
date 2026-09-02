@@ -17,6 +17,7 @@ export function GuideComposer({
   onChange,
   onSend,
   disabled,
+  confirming = false,
   answering,
   leading,
   confirm,
@@ -26,12 +27,13 @@ export function GuideComposer({
   onChange: (value: string) => void
   onSend: () => void
   disabled: boolean
+  confirming?: boolean
   answering: boolean
   leading?: ReactNode
   confirm?: ComposerConfirm
   textareaRef: RefObject<HTMLTextAreaElement | null>
 }) {
-  const ready = value.trim().length >= 2 && !disabled
+  const ready = (confirming || value.trim().length >= 2) && !disabled
 
   if (confirm) {
     return (
@@ -81,7 +83,7 @@ export function GuideComposer({
           rows={1}
           aria-label="Ask the Guide"
           maxLength={messageMaximum}
-          disabled={disabled}
+          disabled={disabled || confirming}
           value={value}
           placeholder={answering ? 'The Guide is answering…' : 'What do you need help with?'}
           className="guide-input max-h-[176px] min-h-[36px] flex-1 resize-none text-[14.5px] text-fg placeholder:text-fg/40 disabled:cursor-not-allowed disabled:opacity-50"
@@ -93,7 +95,7 @@ export function GuideComposer({
         />
         <button
           type="submit"
-          aria-label="Send"
+          aria-label={confirming ? 'Confirm question' : 'Send'}
           disabled={!ready}
           className="inline-grid size-9 flex-none place-items-center rounded-full bg-rose text-wash shadow-[0_10px_24px_-12px_var(--glow-rose)] transition-[filter,opacity,transform] duration-250 hover:brightness-105 active:scale-95 disabled:cursor-not-allowed disabled:opacity-35"
         >

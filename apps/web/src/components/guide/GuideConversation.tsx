@@ -6,6 +6,7 @@ import { useMutation, useQuery } from 'convex/react'
 import { useEffect, useRef, useState } from 'react'
 import { eventSlug } from '../../lib/config'
 import { readableError } from '../../lib/errors'
+import { useMutationAttempt } from '../../lib/operations'
 import { BringTeamTool, GuideComposer } from './GuideComposer'
 import { LoadingLine } from './GuideLoader'
 import { GuideReasoning, type GuideStep } from './GuideReasoning'
@@ -24,9 +25,11 @@ import {
 } from './GuideTurns'
 
 type Conversation = FunctionReturnType<typeof api.participantAssistant.openConversation>
+type SendMessageResult = FunctionReturnType<typeof api.participantAssistant.sendMessage>
 type Message = UIMessage
 
 const escalationPrompt = 'Please bring someone from the event team into this conversation.'
+const sendMessageSlot = 'send-participant-assistant-message'
 
 function momentName(value: number) {
   return new Date(value).toLocaleString(undefined, {
@@ -130,6 +133,8 @@ export function GuideConversation() {
 
 function GuideThread({ conversation }: { conversation: Conversation }) {
   const sendMessage = useMutation(api.participantAssistant.sendMessage)
+  const sendAttempt = useMutationAttempt<SendMessageResult>()
+  const sendPending = sendAttempt.hasPending(sendMessageSlot)
   const liveState = useQuery(api.participantAssistant.conversationState, {
     eventSlug,
     threadId: conversation.threadId,
@@ -152,6 +157,7 @@ function GuideThread({ conversation }: { conversation: Conversation }) {
   const humanSupport = state.humanSupport
   const isAnswering = latestRequest?.state === 'scheduled' || latestRequest?.state === 'running'
   const disabled = sending || isAnswering
+  const interactionsDisabled = disabled || sendPending
 
   const spoken = messages.filter((message) => message.role !== 'system' && message.text.trim().length > 0)
   const lastMessage = messages.at(-1)
@@ -185,16 +191,19 @@ function GuideThread({ conversation }: { conversation: Conversation }) {
 
   const ask = async (value: string) => {
     const message = value.trim()
-    if (message.length < 2 || busyRef.current || isAnswering) return
+    if ((!sendPending && message.length < 2) || busyRef.current || isAnswering) return
     busyRef.current = true
     setSending(true)
     setError(null)
     try {
-      await sendMessage({
-        eventSlug,
-        threadId: conversation.threadId,
-        message,
-        clientRequestId: crypto.randomUUID(),
+      await sendAttempt.run(sendMessageSlot, () => {
+        const args = {
+          eventSlug,
+          threadId: conversation.threadId,
+          message,
+          clientRequestId: crypto.randomUUID(),
+        }
+        return () => sendMessage(args)
       })
       setQuestion('')
       setEscalating(false)
@@ -231,10 +240,11 @@ function GuideThread({ conversation }: { conversation: Conversation }) {
           onChange={setQuestion}
           onSend={() => void ask(question)}
           disabled={disabled}
+          confirming={sendPending}
           answering={isAnswering}
           textareaRef={textareaRef}
           {...(humanSupport === null
-            ? { leading: <BringTeamTool disabled={disabled || escalating} onClick={() => setEscalating(true)} /> }
+            ? { leading: <BringTeamTool disabled={interactionsDisabled || escalating} onClick={() => setEscalating(true)} /> }
             : {})}
           {...(escalating
             ? {
@@ -255,7 +265,7 @@ function GuideThread({ conversation }: { conversation: Conversation }) {
           <GuideHero
             description={state.phase.description}
             suggestions={state.suggestions}
-            disabled={disabled}
+            disabled={interactionsDisabled}
             onPick={(suggestion) => void ask(suggestion)}
           />
         </div>
@@ -319,7 +329,7 @@ function GuideThread({ conversation }: { conversation: Conversation }) {
                         : null}
                       {showFollowUps
                         ? followUps.map((suggestion) => (
-                            <GuideChip key={suggestion} disabled={disabled} onClick={() => void ask(suggestion)}>
+                            <GuideChip key={suggestion} disabled={interactionsDisabled} onClick={() => void ask(suggestion)}>
                               {suggestion}
                             </GuideChip>
                           ))
@@ -337,12 +347,12 @@ function GuideThread({ conversation }: { conversation: Conversation }) {
       {latestRequest?.state === 'failed' && latestRequest.failureMessage ? (
         <GuideNotice message={latestRequest.failureMessage}>
           {lastUserText ? (
-            <GuideChip accent disabled={disabled} onClick={() => void ask(lastUserText)}>
+            <GuideChip accent disabled={interactionsDisabled} onClick={() => void ask(lastUserText)}>
               Try again
             </GuideChip>
           ) : null}
           {humanSupport === null ? (
-            <GuideChip disabled={disabled} onClick={() => setEscalating(true)}>
+            <GuideChip disabled={interactionsDisabled} onClick={() => setEscalating(true)}>
               Bring in the team
             </GuideChip>
           ) : null}

@@ -45,6 +45,7 @@ export function GuideMarkdown({
           code: ({ children }) => (
             <code className="rounded-[6px] border border-petal-line bg-fg/5 px-1.5 py-0.5 font-mono text-[.84em]">{children}</code>
           ),
+          img: () => null,
           a: ({ href, children }) => {
             const candidate = href ?? '/'
             const safeHref =

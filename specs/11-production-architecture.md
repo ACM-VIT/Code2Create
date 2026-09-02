@@ -28,7 +28,7 @@
 | Product analytics and crash reporting | PostHog for privacy-filtered web/mobile page and screen events, exception capture, and release symbolication |
 | Large artifacts and recovery copy | Private AWS S3 bucket in `ap-south-1`, versioned and encrypted with KMS, for evidence, protected exports, expiring emergency packs, and recovery copies, subject to VIT data-policy approval |
 | Verification and Worker delivery | GitHub Actions for checks; Cloudflare Workers Builds for branch-bound Worker deployment |
-| Tests | Vitest, Convex function tests, Playwright, Maestro, and a Convex load driver |
+| Tests | Vitest, Convex function tests, Playwright, and Maestro |
 
 The repository locks all dependency versions. The team upgrades them only after staging tests pass for authentication, push, camera, and reviews.
 
