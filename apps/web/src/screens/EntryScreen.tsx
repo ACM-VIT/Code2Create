@@ -170,6 +170,10 @@ export function EntryScreen({
           />
         </div>
 
+        {/* One fixed slot for whichever sign-in button is showing: swapping
+            the disabled outline for Google's own button changed the column's
+            height and nudged the whole scene. */}
+        <div className="flex min-h-[60px] w-full items-center justify-center">
         {participantClass && selectedClassOpen && publicState.auth.googleClientId ? (
           <GoogleFedCmButton
             authClient={authClient}
@@ -188,6 +192,7 @@ export function EntryScreen({
             Continue with Google
           </PortalButton>
         )}
+        </div>
 
         {!publicState.auth.googleConfigured ? (
           <p className="mt-4 text-[11.5px] text-rose-light">

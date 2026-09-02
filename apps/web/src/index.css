@@ -518,7 +518,7 @@
 :root {
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   color: #ececee;
-  background: #0a0a0b;
+  background: var(--color-wash);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -542,7 +542,7 @@
    near-black, the same green accent pulled darker for contrast. */
 :root[data-theme='daybreak'] {
   color: #2b1420;
-  background: #f6eeeb;
+  background: var(--color-wash);
   --background: #f6eeeb;
   --surface: #fdf8f6;
   --surface-raised: #ffffff;
@@ -563,15 +563,22 @@
   box-sizing: border-box;
 }
 
+/* The document wears the scene's own ground, not the app-shell grey. Phone
+   browsers resize the viewport a beat after their toolbars animate, and in
+   that beat whatever is painted behind the scene shows as a band along the
+   bottom; in the wash it is invisible, in grey it was a "chin". */
 html {
-  background: var(--background);
+  background: var(--color-wash);
 }
 
 body {
   margin: 0;
   min-width: 320px;
-  min-height: 100vh;
-  background: var(--background);
+  /* The dynamic viewport, like the scene: on phones 100vh is the toolbars-
+     collapsed height, and the gap between the two showed as a black band
+     under the hills whenever a tap moved the browser chrome. */
+  min-height: 100dvh;
+  background: var(--color-wash);
 }
 
 button,

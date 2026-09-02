@@ -236,15 +236,25 @@ export function SglangInterlude({
         </div>
 
         <div className="mt-8 flex items-center justify-center gap-[26px] opacity-55 sm:mt-10">
-          <span className="inline-flex items-center gap-[7px]">
+          <a
+            href="https://github.com/sgl-project/sglang"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-[7px] text-fg no-underline transition-opacity hover:opacity-80"
+          >
             <img src="/assets/sglang-logo.png" alt="" className="w-5" />
             <span className="text-sm font-bold">SGLang</span>
-          </span>
+          </a>
           <span aria-hidden className="h-3.5 w-px bg-fg/30" />
-          <span className="inline-flex items-center gap-[7px]">
+          <a
+            href="https://lmsys.org"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-[7px] text-fg no-underline transition-opacity hover:opacity-80"
+          >
             <img src="/assets/lmsys-logo.svg" alt="" className="w-[17px] [filter:var(--mark-filter)]" />
             <span className="text-sm font-semibold tracking-[.1em]">LMSYS</span>
-          </span>
+          </a>
           <span aria-hidden className="h-3.5 w-px bg-fg/30" />
           <a
             href="https://acmvit.in"

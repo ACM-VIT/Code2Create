@@ -266,7 +266,9 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
               <p className="text-xs text-fg/55">visiting from another campus</p>
             </div>
           </div>
-          <PortalButton>Continue with Google</PortalButton>
+          <div className="flex min-h-[60px] w-full items-center justify-center">
+            <PortalButton>Continue with Google</PortalButton>
+          </div>
         </div>
       </PortalScene>
     )],

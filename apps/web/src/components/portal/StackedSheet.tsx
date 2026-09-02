@@ -13,8 +13,8 @@ export function StackedSheet({
   return (
     <button
       type="button"
-      style={{ marginInline: depth * 14 }}
-      className="relative -mb-1.5 overflow-hidden rounded-tl-box-sm border-2 border-b-0 border-glass-edge bg-[image:var(--sheet-bg)] px-5 pt-1.5 pb-3.5 text-left shadow-[inset_0_1px_0_var(--card-topline)] backdrop-blur-md transition-transform duration-250 hover:-translate-y-1"
+      style={{ marginInline: Math.min(depth, 4) * 6 }}
+      className="relative -mb-2.5 overflow-hidden rounded-tl-box-sm border-2 border-b-0 border-glass-edge bg-[image:var(--sheet-bg)] px-5 pt-1 pb-4 text-left shadow-[inset_0_1px_0_var(--card-topline)] backdrop-blur-md transition-transform duration-250 hover:-translate-y-1"
       {...buttonProps}
     >
       <span className="block truncate text-[12px] text-fg/75">{label}</span>

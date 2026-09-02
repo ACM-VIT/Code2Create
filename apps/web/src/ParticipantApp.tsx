@@ -2,8 +2,7 @@ import { api } from '@code2create/backend/api'
 import type { Code2CreateAuthClient } from '@code2create/web-auth'
 import { useMutation, usePaginatedQuery, useQuery } from 'convex/react'
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { Link, NavLink, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom'
-import { TeamPanel } from './components/TeamPanel'
+import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { AccountBadge } from './components/portal/AccountBadge'
 import { TeamCluster } from './components/portal/TeamCluster'
 import { ClassCard } from './components/portal/ClassCard'
@@ -187,6 +186,8 @@ export function ParticipantApp({
       />
     )
   }
+
+  if (team && joinCode.length > 0 && teamSwitch === null) return <Navigate replace to="/" />
 
   if (hasTeamMembership && canReadTeam && !team) return <PortalLoading />
 
@@ -376,63 +377,33 @@ export function ParticipantApp({
     )
   }
 
-  const portalContent = location.pathname === '/integrations/github/callback'
-    ? canOpenIntegrations ? <GitHubCallbackScreen /> : <Navigate replace to="/" />
+  // ---- callbacks and music: on the scene, not a separate shell ----------
+  const tenant =
+    location.pathname === '/integrations/github/callback'
+      ? canOpenIntegrations ? <GitHubCallbackScreen /> : null
       : location.pathname === '/integrations/figma/callback'
-      ? canOpenIntegrations ? <FigmaCallbackScreen /> : <Navigate replace to="/" />
-      : location.pathname === '/music'
-        ? acceptedFeatures ? <SynesthesiaScreen /> : <Navigate replace to="/" />
-        : (
-              <IntakeScreen
-                team={team}
-                members={teamMembers.results}
-                teamEditable={teamEditable}
-                serverNow={publicState.serverNow}
-                submissionInProgress={intakeStatus.submissionState === 'validating'}
-                onSignOut={signOut}
-                {...(intakeStatus.submissionFailureMessage === undefined
-                  ? {}
-                  : { submissionFailureMessage: intakeStatus.submissionFailureMessage })}
-              />
-            )
+        ? canOpenIntegrations ? <FigmaCallbackScreen /> : null
+        : location.pathname === '/music'
+          ? acceptedFeatures ? <SynesthesiaScreen /> : null
+          : null
+  if (!tenant) return <Navigate replace to="/" />
   return (
-    <div
-      className="portal-shell"
-      data-account-email={me.person.verifiedEmail}
-      data-app-surface="participant"
+    <PortalScene
+      tree="left"
+      onSignOut={signOut}
+      header={
+        <TeamCluster
+          team={team}
+          members={teamMembers.results}
+          editable={teamEditable}
+          canManage={team.currentRole === 'lead' && teamEditable}
+        />
+      }
     >
-      <PortalHeader
-        name={me.person.displayName}
-        email={me.person.verifiedEmail}
-        onSignOut={signOut}
-        showNavigation
-        showIntegrations={acceptedFeatures && canReadIntegrations}
-        showMusic={acceptedFeatures}
-        showSupport={canReadSupport}
-      />
-      {intakeStatus.applicationState !== null ? (
-        <div className="participant-home">
-          <details className="minimal-team-access submitted-team-access">
-            <summary>
-              <span>Team</span>
-              <strong>{team.name}</strong>
-              <small>{team.activeMemberCount} {team.activeMemberCount === 1 ? 'member' : 'members'}</small>
-            </summary>
-            <TeamPanel team={team} members={teamMembers.results} rosterStatus={teamMembers.status} loadMore={teamMembers.loadMore} editable={teamEditable} />
-          </details>
-          <main className="portal-main participant-home-main">
-            <Suspense fallback={<PortalContentLoading />}>{portalContent}</Suspense>
-          </main>
-        </div>
-      ) : (
-        <div className="portal-grid">
-          <TeamPanel team={team} members={teamMembers.results} rosterStatus={teamMembers.status} loadMore={teamMembers.loadMore} editable={teamEditable} />
-          <main className="portal-main">
-            <Suspense fallback={<PortalContentLoading />}>{portalContent}</Suspense>
-          </main>
-        </div>
-      )}
-    </div>
+      <div className="w-full max-w-[720px] text-left">
+        <Suspense fallback={null}>{tenant}</Suspense>
+      </div>
+    </PortalScene>
   )
 }
 
@@ -455,50 +426,6 @@ function PortalNotice({
         </PetalCard>
       </div>
     </PortalScene>
-  )
-}
-
-function PortalHeader({
-  name,
-  email,
-  onSignOut,
-  showNavigation = false,
-  showIntegrations = false,
-  showMusic = false,
-  showSupport = false,
-}: {
-  name?: string
-  email?: string
-  onSignOut: () => void
-  showNavigation?: boolean
-  showIntegrations?: boolean
-  showMusic?: boolean
-  showSupport?: boolean
-}) {
-  return (
-    <header className="portal-header">
-      <Link to="/" viewTransition className="wordmark">Code2Create</Link>
-      <div className="header-actions">
-        {showNavigation || showIntegrations || showMusic || showSupport ? (
-          <nav className="portal-navigation" aria-label="Portal">
-            {showNavigation ? <NavLink end to="/" viewTransition>Home</NavLink> : null}
-            {showIntegrations ? (
-              <NavLink to="/integrations" viewTransition onFocus={preloadIntegrations} onMouseEnter={preloadIntegrations}>Build</NavLink>
-            ) : null}
-            {showMusic ? (
-              <NavLink to="/music" viewTransition onFocus={preloadSynesthesia} onMouseEnter={preloadSynesthesia}>Music</NavLink>
-            ) : null}
-            {showSupport ? (
-              <NavLink to="/support" viewTransition onFocus={preloadSupport} onMouseEnter={preloadSupport}>Help</NavLink>
-            ) : null}
-          </nav>
-        ) : null}
-        <div className="account-line">
-          <span>{name ?? email ?? 'Signed in'}</span>
-          <button type="button" className="text-button" onClick={onSignOut}>Sign out</button>
-        </div>
-      </div>
-    </header>
   )
 }
 
@@ -589,22 +516,6 @@ function SwitchTeamScreen({
       </PetalCard>
     </PortalScene>
   )
-}
-
-function PortalContentLoading() {
-  return <DelayedBonsai compact />
-}
-
-function preloadIntegrations() {
-  void loadIntegrationsScreen()
-}
-
-function preloadSynesthesia() {
-  void loadSynesthesiaScreen()
-}
-
-function preloadSupport() {
-  void loadSupportScreen()
 }
 
 function ProvisionScreen({

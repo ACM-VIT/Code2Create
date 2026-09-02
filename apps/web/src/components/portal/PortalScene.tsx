@@ -129,7 +129,7 @@ export function PortalScene({
     <div
       data-portal-scene
       onMouseMove={onMove}
-      className={`relative flex flex-col overflow-hidden bg-wash bg-[image:var(--scene-sky)] font-ui text-fg ${
+      className={`relative flex flex-col overflow-x-hidden bg-wash bg-[image:var(--scene-sky)] font-ui text-fg ${
         fill ? 'h-dvh' : 'min-h-dvh'
       }`}
     >
@@ -137,7 +137,7 @@ export function PortalScene({
       {/* Hills sit furthest back, bleeding past both edges so the band never
           shows a seam on narrow viewports. */}
       <div
-        className="pointer-events-none absolute -inset-x-3 bottom-0 z-0"
+        className="pointer-events-none absolute -inset-x-3 bottom-[-6px] z-0"
         style={{ transform: hillsShift }}
       >
         <img
@@ -202,7 +202,7 @@ export function PortalScene({
 
       <main
         className={`relative z-[3] flex flex-1 flex-col items-center px-5 lg:px-12 ${
-          fill ? 'min-h-0 justify-start pt-[84px] pb-4 lg:pt-[100px] lg:pb-6 xl:pt-9' : 'justify-center pt-28 pb-16'
+          fill ? 'min-h-0 justify-start pt-[84px] pb-4 lg:pt-[100px] lg:pb-6 xl:pt-9' : 'justify-center-safe pt-28 pb-16'
         }`}
       >
         {children}
