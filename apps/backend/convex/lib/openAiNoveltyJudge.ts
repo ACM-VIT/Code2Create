@@ -7,7 +7,11 @@ import { readBoundedJsonResponse } from "./boundedHttpBody";
 export const noveltyJudgeModelId = "gpt-5.6-luna" as const;
 export const noveltyJudgePromptVersion = "novelty-hybrid-v1" as const;
 export const noveltyJudgeMaximumCandidates = 8;
-export const noveltyJudgeMaximumOutputTokens = 700;
+// Responses counts reasoning tokens against this limit as well as the JSON
+// payload. Leave enough headroom for all eight comparisons so a valid judge
+// result is not reported as incomplete solely because reasoning consumed the
+// small output budget.
+export const noveltyJudgeMaximumOutputTokens = 1_200;
 
 const maximumProviderResponseBytes = 256 * 1_024;
 const maximumOutputTextCharacters = 32_000;
@@ -248,7 +252,7 @@ export async function requestOpenAiNoveltyJudgments(args: {
       body: JSON.stringify({
         model: noveltyJudgeModelId,
         store: false,
-        reasoning: { effort: "medium" },
+        reasoning: { effort: "low" },
         max_output_tokens: noveltyJudgeMaximumOutputTokens,
         safety_identifier: parsedRequest.data.safetyIdentifier,
         instructions: systemInstruction,

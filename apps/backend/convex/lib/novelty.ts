@@ -9,6 +9,7 @@ export const minimumNoveltyCorpusEntries = 5;
 export const maximumNoveltyCorpusEntries = 300;
 export const noveltyDensityMatchLimit = 50;
 export const noveltyEmbeddingSimilarityScale = 1.35;
+export const noveltyEmbeddingScoringVersion = "novelty-embedding-v1" as const;
 export const noveltyScoringVersion = "novelty-hybrid-v2" as const;
 export const noveltyJudgeCandidateLimit = 8;
 export const noveltyDensitySimilarityPolicy = {
@@ -23,6 +24,17 @@ export type NoveltyRelationship =
   | "adjacent"
   | "different";
 export type NoveltyJudgeConfidence = "high" | "medium" | "low";
+
+export type NoveltyScoringVersion =
+  | typeof noveltyEmbeddingScoringVersion
+  | typeof noveltyScoringVersion;
+
+export type CalibratedNoveltyMatch<Metadata> = {
+  metadata: Metadata;
+  rawSimilarity: number;
+  weight: number;
+  semanticOverlap: number;
+};
 
 export type NoveltyDensityMatch = {
   similarity: number;
@@ -220,9 +232,16 @@ export function normalizeNoveltyIdea(value: string, minimum: number, maximum: nu
 }
 
 export function noveltyInputFingerprint(value: string) {
-  // Score identity includes the algorithm version so a rollout cannot reuse
-  // cached request or draft scores produced by the previous scorer.
-  return fingerprintText(`${noveltyScoringVersion}\n${value}`);
+  // This identifies the content, not the scoring implementation. Keeping the
+  // two identities separate lets an existing score remain visible while a new
+  // scorer evaluates the same saved revision.
+  return fingerprintText(value);
+}
+
+export function isCurrentNoveltyScoringVersion(
+  value: string | undefined,
+): value is NoveltyScoringVersion {
+  return value === noveltyEmbeddingScoringVersion || value === noveltyScoringVersion;
 }
 
 export function noveltySimilarityWeight(
@@ -314,6 +333,58 @@ export function semanticOverlapFromEmbedding(matchSimilarity: number) {
   );
 }
 
+export function calibratedNoveltyMatch<Metadata>(args: {
+  metadata: Metadata;
+  rawSimilarity: number;
+  relationship?: NoveltyRelationship;
+  confidence?: NoveltyJudgeConfidence;
+}): CalibratedNoveltyMatch<Metadata> {
+  const embeddingWeight = noveltySimilarityWeight(
+    noveltyDensitySimilarity(args.rawSimilarity),
+    noveltyDensitySimilarityPolicy,
+  );
+  const embeddingOverlap = semanticOverlapFromEmbedding(args.rawSimilarity);
+  if (args.relationship === undefined || args.confidence === undefined) {
+    return {
+      metadata: args.metadata,
+      rawSimilarity: args.rawSimilarity,
+      weight: embeddingWeight,
+      semanticOverlap: embeddingOverlap,
+    };
+  }
+  return {
+    metadata: args.metadata,
+    rawSimilarity: args.rawSimilarity,
+    weight: hybridNoveltyWeight(
+      embeddingWeight,
+      args.rawSimilarity,
+      args.relationship,
+      args.confidence,
+    ),
+    semanticOverlap: hybridNoveltyWeight(
+      embeddingOverlap,
+      args.rawSimilarity,
+      args.relationship,
+      args.confidence,
+    ),
+  };
+}
+
+export function strongestCalibratedNoveltyMatch<Metadata>(
+  matches: readonly CalibratedNoveltyMatch<Metadata>[],
+) {
+  return matches.reduce<CalibratedNoveltyMatch<Metadata> | null>((strongest, match) => {
+    if (!strongest) return match;
+    if (match.weight !== strongest.weight) {
+      return match.weight > strongest.weight ? match : strongest;
+    }
+    if (match.semanticOverlap !== strongest.semanticOverlap) {
+      return match.semanticOverlap > strongest.semanticOverlap ? match : strongest;
+    }
+    return match.rawSimilarity > strongest.rawSimilarity ? match : strongest;
+  }, null);
+}
+
 export function effectiveSimilarTeams(
   matches: readonly NoveltyDensityMatch[],
   policy: Pick<NoveltyPolicy, "distinctSimilarityBoundary" | "commonSimilarityBoundary">,
@@ -326,11 +397,16 @@ export function effectiveSimilarTeams(
   );
 }
 
-export function strongestNoveltyMatchPerTeam<TeamId>(
-  matches: readonly TeamNoveltyDensityMatch<TeamId>[],
+export function strongestNoveltyMatchPerTeam<
+  TeamId,
+  Match extends TeamNoveltyDensityMatch<TeamId>,
+>(
+  matches: readonly Match[],
+  excludedTeamId?: TeamId,
 ) {
-  const strongest = new Map<TeamId, NoveltyDensityMatch>();
+  const strongest = new Map<TeamId, Match>();
   for (const match of matches) {
+    if (match.teamId === excludedTeamId) continue;
     const current = strongest.get(match.teamId);
     if (
       !current
@@ -340,10 +416,7 @@ export function strongestNoveltyMatchPerTeam<TeamId>(
         && match.similarity > current.similarity
       )
     ) {
-      strongest.set(match.teamId, {
-        similarity: match.similarity,
-        lifecycle: match.lifecycle,
-      });
+      strongest.set(match.teamId, match);
     }
   }
   return strongest;

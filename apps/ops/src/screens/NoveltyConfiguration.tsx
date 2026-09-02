@@ -206,7 +206,9 @@ export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibili
         <div>
           <p className="eyebrow">Applications</p>
           <h1>Idea originality</h1>
-          <p className="muted">Compare new ideas with reviewed past projects.</p>
+          <p className="muted">
+            Compare new ideas with reviewed past projects and other ideas in this event.
+          </p>
         </div>
       </header>
 
@@ -221,7 +223,7 @@ export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibili
         </div>
         <div>
           <dt>Live comparison</dt>
-          <dd>{configuration.providerConfigured ? 'Ready' : 'Unavailable'}</dd>
+          <dd>{configuration.providerConfigured ? 'Current event included' : 'Unavailable'}</dd>
         </div>
       </dl>
 
@@ -237,7 +239,7 @@ export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibili
       {!operationPending && configuration.canDraft ? (
         <ConfigurationEditorDisclosure
           defaultOpen={Boolean(draft)}
-          description="Participant label and feedback timing. Density uses the event-wide 0.60–0.90 similarity scale."
+          description="Participant label and feedback timing. Scores include the historical reference set and other current-event ideas."
           title={draft ? 'Continue idea-originality draft' : 'Edit idea originality'}
         >
         <form className="configuration-editor intake-policy-editor" onSubmit={saveDraft}>
@@ -246,7 +248,9 @@ export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibili
             <div>
               <p className="eyebrow">{draft ? 'Replace draft changes' : 'Create a draft'}</p>
               <h2>Live feedback</h2>
-              <p className="muted">A new draft keeps the projects already in use.</p>
+              <p className="muted">
+                Current drafts, saved ideas, and submissions are compared as teams work. A team never compares with itself.
+              </p>
             </div>
           </div>
           <label className="field">

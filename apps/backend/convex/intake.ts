@@ -63,7 +63,10 @@ import {
 } from "./values";
 
 const additionalInformationMaxLength = 4_000;
-const draftNoveltyIndexSpreadMs = 250;
+// Every persisted revision schedules a scorer, but only the revision that is
+// still current after this quiet period reaches the embedding and Luna calls.
+const draftNoveltyStableDelayMs = 2_500;
+const draftNoveltyIndexSpreadMs = 500;
 
 function draftNoveltyIndexDelayMs(
   draftId: Id<"projectDrafts">,
@@ -75,7 +78,7 @@ function draftNoveltyIndexDelayMs(
   for (const character of key) {
     hash = Math.imul(hash ^ character.charCodeAt(0), 16_777_619);
   }
-  return (hash >>> 0) % draftNoveltyIndexSpreadMs;
+  return draftNoveltyStableDelayMs + (hash >>> 0) % draftNoveltyIndexSpreadMs;
 }
 
 function normalizedAdditionalInformation(value: string) {
@@ -1553,6 +1556,8 @@ export const saveInitialIdea = mutation({
         noveltyBand: undefined,
         noveltyNearestThemeLabel: undefined,
         noveltyReflectionPrompt: undefined,
+        noveltyScoringVersion: undefined,
+        noveltyRefinementFailureCategory: undefined,
         noveltyPreviewRequestId: undefined,
         noveltyEvaluatedAt: undefined,
         adaptiveQuestionDeadlineAt: undefined,

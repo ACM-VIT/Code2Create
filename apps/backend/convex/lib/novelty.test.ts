@@ -1,14 +1,16 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  calibratedNoveltyMatch,
   effectiveSimilarTeams,
   hybridNoveltyWeight,
+  noveltyDensitySimilarityPolicy,
   noveltyEmbeddingDimensions,
   noveltyInputFingerprint,
   noveltyScoreForEvidence,
   noveltyScoreForDensity,
-  noveltyScoringVersion,
   semanticOverlapFromEmbedding,
+  strongestCalibratedNoveltyMatch,
   strongestNoveltyMatchPerTeam,
   validEmbedding,
 } from "./novelty";
@@ -114,6 +116,25 @@ describe("novelty scoring", () => {
     expect(strongest.get("team-0")?.lifecycle).toBe("saved");
   });
 
+  it("includes current-event ideas without comparing a team with itself", () => {
+    const strongest = strongestNoveltyMatchPerTeam([
+      { teamId: "current-team", similarity: 0.99, lifecycle: "submitted" as const },
+      { teamId: "other-editing", similarity: 0.9, lifecycle: "editing" as const },
+      { teamId: "other-saved", similarity: 0.9, lifecycle: "saved" as const },
+      { teamId: "other-submitted", similarity: 0.9, lifecycle: "submitted" as const },
+    ], "current-team");
+
+    expect([...strongest.keys()]).toEqual([
+      "other-editing",
+      "other-saved",
+      "other-submitted",
+    ]);
+    expect(effectiveSimilarTeams(
+      [...strongest.values()],
+      noveltyDensitySimilarityPolicy,
+    )).toBeCloseTo(2.3);
+  });
+
   it("keeps the signal informative across practical crowd sizes", () => {
     const scenarios = [
       { similarTeams: 0, expectedScore: 100 },
@@ -134,12 +155,39 @@ describe("novelty scoring", () => {
     expect(hybridNoveltyWeight(2, 0.8, "adjacent", "low")).toBeLessThanOrEqual(1);
   });
 
-  it("invalidates cached scores when the scoring version changes", () => {
+  it("keeps content identity stable across scorer rollouts", () => {
     const idea = "A campus maintenance routing board";
-    expect(noveltyInputFingerprint(idea)).toBe(
-      fingerprintText(`${noveltyScoringVersion}\n${idea}`),
-    );
-    expect(noveltyInputFingerprint(idea)).not.toBe(fingerprintText(idea));
+    expect(noveltyInputFingerprint(idea)).toBe(fingerprintText(idea));
+  });
+
+  it("uses the strongest calibrated corpus match for participant feedback", () => {
+    const rawNearest = calibratedNoveltyMatch({
+      metadata: "raw-nearest",
+      rawSimilarity: 0.82,
+      relationship: "different",
+      confidence: "high",
+    });
+    const semanticNearest = calibratedNoveltyMatch({
+      metadata: "semantic-nearest",
+      rawSimilarity: 0.75,
+      relationship: "same_core_idea",
+      confidence: "high",
+    });
+
+    expect(strongestCalibratedNoveltyMatch([rawNearest, semanticNearest])?.metadata)
+      .toBe("semantic-nearest");
+  });
+
+  it("produces a deterministic embedding score when no judgment is available", () => {
+    const fallback = calibratedNoveltyMatch({
+      metadata: "embedding-match",
+      rawSimilarity: 0.72,
+    });
+
+    expect(fallback.weight).toBeGreaterThan(0);
+    expect(fallback.semanticOverlap).toBeGreaterThan(0);
+    expect(fallback.weight).toBeLessThanOrEqual(1);
+    expect(fallback.semanticOverlap).toBeLessThanOrEqual(1);
   });
 
   it("gates structured judgments with deterministic cosine evidence", () => {

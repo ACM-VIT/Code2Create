@@ -80,7 +80,7 @@ describe("requestOpenAiNoveltyJudgments", () => {
     expect(body).toMatchObject({
       model: noveltyJudgeModelId,
       store: false,
-      reasoning: { effort: "medium" },
+      reasoning: { effort: "low" },
       max_output_tokens: noveltyJudgeMaximumOutputTokens,
       safety_identifier: request.safetyIdentifier,
       text: {

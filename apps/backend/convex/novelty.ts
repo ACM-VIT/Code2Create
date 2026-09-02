@@ -19,13 +19,15 @@ import {
   requireMembership,
 } from "./lib/identity";
 import {
-  hybridNoveltyWeight,
+  calibratedNoveltyMatch,
+  isCurrentNoveltyScoringVersion,
   normalizeNoveltyIdea,
   noveltyBandForScore,
   noveltyDensitySimilarity,
   noveltyDensitySimilarityPolicy,
   noveltyEmbeddingDimensions,
   noveltyEmbeddingModel,
+  noveltyEmbeddingScoringVersion,
   noveltyInputFingerprint,
   noveltyJudgeCandidateLimit,
   noveltyLifecycleWeight,
@@ -34,7 +36,10 @@ import {
   noveltyDensityMatchLimit,
   noveltySimilarityWeight,
   semanticOverlapFromEmbedding,
+  strongestCalibratedNoveltyMatch,
+  strongestNoveltyMatchPerTeam,
   type NoveltyIdeaLifecycle,
+  type NoveltyScoringVersion,
   validEmbedding,
 } from "./lib/novelty";
 import { requirePermission } from "./lib/permissions";
@@ -44,6 +49,7 @@ import { normalizedText } from "./lib/strings";
 import { createOpenAiEmbeddings, OpenAiEmbeddingError } from "./lib/openAiEmbeddings";
 import {
   noveltyJudgeModelId,
+  noveltyJudgePromptVersion,
   OpenAiNoveltyJudgeError,
   requestOpenAiNoveltyJudgments,
 } from "./lib/openAiNoveltyJudge";
@@ -70,9 +76,14 @@ const noveltyIdeaLifecycle = v.union(
 const noveltyTeamVectorMatchLimit = 256;
 const noveltyEditingIdeaLifetimeMs = 45_000;
 const noveltyPreviewCacheLifetimeMs = 30_000;
-const noveltyPreviewRunningLifetimeMs = 30_000;
+const noveltyPreviewRunningLifetimeMs = 8_000;
 const noveltyPreviewProviderAttemptTimeoutMs = 1_500;
-const noveltyJudgeProviderTimeoutMs = 15_000;
+const noveltyJudgeProviderTimeoutMs = 10_000;
+
+const noveltyScoringVersionValue = v.union(
+  v.literal(noveltyEmbeddingScoringVersion),
+  v.literal(noveltyScoringVersion),
+);
 
 const readyPreview = v.object({
   state: v.literal("ready"),
@@ -185,7 +196,7 @@ function readyResult(
 ): ReadyPreview | null {
   if (
     request.state !== "succeeded" ||
-    request.agentVersion !== noveltyScoringVersion ||
+    !isCurrentNoveltyScoringVersion(request.scoringVersion) ||
     request.score === undefined ||
     request.band === undefined ||
     request.comparedTeamCount === undefined ||
@@ -615,23 +626,34 @@ type NoveltyEvaluation = {
   nearestSimilarity: number;
   nearestThemeLabel: string;
   reflectionPrompt: string;
-  agentVersion: string;
-  agentModel: string;
-  agentOperationId: string;
-  agentOutputChecksum: string;
+  scoringVersion: NoveltyScoringVersion;
+  refinementFailureCategory?: string;
+  agent?: {
+    version: string;
+    model: string;
+    operationId: string;
+    outputChecksum: string;
+  };
 };
+
+type NoveltyEvaluationRequest = {
+  eventId: Id<"events">;
+  teamId: Id<"teams">;
+  corpusVersionId: Id<"noveltyCorpusVersions">;
+  embedding: number[];
+} & (
+  | { mode: "embedding" }
+  | {
+      mode: "hybrid";
+      idea: string;
+      apiKey: string;
+      safetyIdentifier: string;
+    }
+);
 
 async function evaluateNoveltyEmbedding(
   ctx: ActionCtx,
-  args: {
-    eventId: Id<"events">;
-    teamId: Id<"teams">;
-    corpusVersionId: Id<"noveltyCorpusVersions">;
-    embedding: number[];
-    idea: string;
-    apiKey: string;
-    safetyIdentifier: string;
-  },
+  args: NoveltyEvaluationRequest,
 ): Promise<NoveltyEvaluation | null> {
   const [corpusMatches, teamMatches] = await Promise.all([
     ctx.vectorSearch(
@@ -656,14 +678,15 @@ async function evaluateNoveltyEmbedding(
   const nearest = corpusMatches[0];
   if (!nearest) return null;
 
-  const judgeCorpusMatches = corpusMatches.slice(0, noveltyJudgeCandidateLimit);
   const metadata = await ctx.runQuery(internal.novelty.readMatchMetadata, {
     corpusVersionId: args.corpusVersionId,
-    entryIds: judgeCorpusMatches.map((match) => match._id),
+    entryIds: corpusMatches.map((match) => match._id),
   });
-  const nearestMetadata = metadata[0];
-  if (!nearestMetadata || nearestMetadata.id !== nearest._id) {
-    throw new Error("The nearest novelty result has no approved metadata.");
+  if (
+    metadata.length !== corpusMatches.length
+    || metadata.some((entry, index) => entry.id !== corpusMatches[index]?._id)
+  ) {
+    throw new Error("A novelty result has no matching approved metadata.");
   }
 
   const teamMetadata = await ctx.runQuery(internal.novelty.readTeamIdeaMetadata, {
@@ -681,7 +704,7 @@ async function evaluateNoveltyEmbedding(
     lifecycle: NoveltyIdeaLifecycle;
   }> = [];
   for (const idea of teamMetadata) {
-    if (idea.teamId === args.teamId || !idea.active) continue;
+    if (!idea.active) continue;
     const rawSimilarity = teamSimilarityById.get(idea.id);
     if (rawSimilarity === undefined) {
       throw new Error("Team novelty metadata has no vector similarity.");
@@ -693,68 +716,64 @@ async function evaluateNoveltyEmbedding(
       lifecycle: idea.lifecycle,
     });
   }
-  const strongestTeamCandidates = new Map<Id<"teams">, (typeof teamCandidates)[number]>();
-  for (const candidate of teamCandidates) {
-    const current = strongestTeamCandidates.get(candidate.teamId);
-    if (
-      !current
-      || noveltyLifecycleWeight(candidate.lifecycle) > noveltyLifecycleWeight(current.lifecycle)
-      || (noveltyLifecycleWeight(candidate.lifecycle) === noveltyLifecycleWeight(current.lifecycle)
-        && candidate.similarity > current.similarity)
-    ) {
-      strongestTeamCandidates.set(candidate.teamId, candidate);
+  const strongestTeamCandidates = strongestNoveltyMatchPerTeam(
+    teamCandidates,
+    args.teamId,
+  );
+
+  const judgedMetadata = metadata.slice(0, noveltyJudgeCandidateLimit);
+  let judgeResponse: Awaited<ReturnType<typeof requestOpenAiNoveltyJudgments>> | undefined;
+  let refinementFailureCategory: string | undefined;
+  if (args.mode === "hybrid") {
+    try {
+      judgeResponse = await requestOpenAiNoveltyJudgments({
+        apiKey: args.apiKey,
+        query: redactProjectText(args.idea),
+        candidates: judgedMetadata.map((entry, index) => ({
+          key: `candidate-${index + 1}`,
+          text: `${entry.themeLabel}\n${entry.summary}`,
+        })),
+        safetyIdentifier: args.safetyIdentifier,
+        timeoutMs: noveltyJudgeProviderTimeoutMs,
+      });
+    } catch (error) {
+      if (!(error instanceof OpenAiNoveltyJudgeError)) throw error;
+      refinementFailureCategory = `judge_${error.failureCategory}`;
     }
   }
-
-  const response = await requestOpenAiNoveltyJudgments({
-    apiKey: args.apiKey,
-    query: redactProjectText(args.idea),
-    candidates: metadata.map((entry, index) => ({
-      key: `candidate-${index + 1}`,
-      text: `${entry.themeLabel}\n${entry.summary}`,
-    })),
-    safetyIdentifier: args.safetyIdentifier,
-    timeoutMs: noveltyJudgeProviderTimeoutMs,
-  });
   const judgmentByKey = new Map(
-    response.comparisons.map((comparison) => [comparison.candidateKey, comparison] as const),
+    (judgeResponse?.comparisons ?? []).map(
+      (comparison) => [comparison.candidateKey, comparison] as const,
+    ),
   );
   const candidateKeyByEntryId = new Map(
-    judgeCorpusMatches.map((match, index) => [match._id, `candidate-${index + 1}`] as const),
+    judgedMetadata.map((entry, index) => [entry.id, `candidate-${index + 1}`] as const),
   );
+  const corpusWeightedMatches = corpusMatches.map((match, index) => {
+    const entry = metadata[index];
+    if (!entry) throw new Error("A novelty result has no approved metadata.");
+    const candidateKey = candidateKeyByEntryId.get(match._id);
+    const judgment = candidateKey ? judgmentByKey.get(candidateKey) : undefined;
+    return calibratedNoveltyMatch({
+      metadata: entry,
+      rawSimilarity: match._score,
+      ...(judgment
+        ? { relationship: judgment.relationship, confidence: judgment.confidence }
+        : {}),
+    });
+  });
+  const strongestCorpusMatch = strongestCalibratedNoveltyMatch(corpusWeightedMatches);
+  if (!strongestCorpusMatch) return null;
 
   const weightedMatches: Array<{
     weight: number;
     lifecycle: NoveltyIdeaLifecycle;
     semanticOverlap: number;
-  }> = corpusMatches.map((match) => {
-    const embeddingWeight = noveltySimilarityWeight(
-      noveltyDensitySimilarity(match._score),
-      noveltyDensitySimilarityPolicy,
-    );
-    const embeddingOverlap = semanticOverlapFromEmbedding(match._score);
-    const candidateKey = candidateKeyByEntryId.get(match._id);
-    const judgment = candidateKey ? judgmentByKey.get(candidateKey) : undefined;
-    return {
-      weight: judgment
-        ? hybridNoveltyWeight(
-            embeddingWeight,
-            match._score,
-            judgment.relationship,
-            judgment.confidence,
-          )
-        : embeddingWeight,
-      lifecycle: "submitted" as const,
-      semanticOverlap: judgment
-        ? hybridNoveltyWeight(
-            embeddingOverlap,
-            match._score,
-            judgment.relationship,
-            judgment.confidence,
-          )
-        : embeddingOverlap,
-    };
-  });
+  }> = corpusWeightedMatches.map((match) => ({
+    weight: match.weight,
+    lifecycle: "submitted" as const,
+    semanticOverlap: match.semanticOverlap,
+  }));
   for (const candidate of strongestTeamCandidates.values()) {
     weightedMatches.push({
       weight: noveltySimilarityWeight(
@@ -789,13 +808,23 @@ async function evaluateNoveltyEmbedding(
     band: noveltyBandForScore(score),
     effectiveSimilarTeams: density,
     comparedTeamCount: densityMatches.length,
-    nearestSimilarity: nearest._score,
-    nearestThemeLabel: nearestMetadata.themeLabel,
-    reflectionPrompt: nearestMetadata.reflectionPrompt,
-    agentVersion: noveltyScoringVersion,
-    agentModel: `openai/${noveltyJudgeModelId}`,
-    agentOperationId: response.responseId,
-    agentOutputChecksum: response.outputChecksum,
+    nearestSimilarity: strongestCorpusMatch.rawSimilarity,
+    nearestThemeLabel: strongestCorpusMatch.metadata.themeLabel,
+    reflectionPrompt: strongestCorpusMatch.metadata.reflectionPrompt,
+    scoringVersion: judgeResponse
+      ? noveltyScoringVersion
+      : noveltyEmbeddingScoringVersion,
+    ...(refinementFailureCategory ? { refinementFailureCategory } : {}),
+    ...(judgeResponse
+      ? {
+          agent: {
+            version: noveltyJudgePromptVersion,
+            model: `openai/${noveltyJudgeModelId}`,
+            operationId: judgeResponse.responseId,
+            outputChecksum: judgeResponse.outputChecksum,
+          },
+        }
+      : {}),
   };
 }
 
@@ -939,17 +968,25 @@ export const finishDraftNovelty = internalMutation({
     band: noveltyBand,
     nearestThemeLabel: v.string(),
     reflectionPrompt: v.string(),
+    scoringVersion: noveltyScoringVersionValue,
+    refinementFailureCategory: v.optional(v.string()),
   },
-  returns: v.null(),
+  returns: v.boolean(),
   handler: async (ctx, args) => {
     const draft = await ctx.db.get(args.draftId);
     if (
       !draft?.initialIdea
-      || draft.stage === "submitted"
       || draft.noveltyCorpusVersionId !== args.corpusVersionId
       || noveltyInputFingerprint(draft.initialIdea) !== args.inputFingerprint
     ) {
-      return null;
+      return false;
+    }
+    if (
+      args.scoringVersion === noveltyEmbeddingScoringVersion
+      && draft.noveltyEvaluatedInputFingerprint === args.inputFingerprint
+      && draft.noveltyScoringVersion === noveltyScoringVersion
+    ) {
+      return false;
     }
     await ctx.db.patch(draft._id, {
       noveltyEvaluatedInputFingerprint: args.inputFingerprint,
@@ -957,9 +994,11 @@ export const finishDraftNovelty = internalMutation({
       noveltyBand: args.band,
       noveltyNearestThemeLabel: args.nearestThemeLabel,
       noveltyReflectionPrompt: args.reflectionPrompt,
+      noveltyScoringVersion: args.scoringVersion,
+      noveltyRefinementFailureCategory: args.refinementFailureCategory,
       noveltyEvaluatedAt: Date.now(),
     });
-    return null;
+    return true;
   },
 });
 
@@ -1048,12 +1087,13 @@ export const indexDraftIdea = internalAction({
         teamId: prepared.teamId,
         corpusVersionId: prepared.corpusVersionId,
         embedding,
+        mode: "hybrid",
         idea,
         apiKey,
         safetyIdentifier: String(prepared.teamId),
       });
       if (evaluation) {
-        await ctx.runMutation(internal.novelty.finishDraftNovelty, {
+        const applied: boolean = await ctx.runMutation(internal.novelty.finishDraftNovelty, {
           draftId: args.draftId,
           corpusVersionId: prepared.corpusVersionId,
           inputFingerprint: args.inputFingerprint,
@@ -1061,7 +1101,25 @@ export const indexDraftIdea = internalAction({
           band: evaluation.band,
           nearestThemeLabel: evaluation.nearestThemeLabel,
           reflectionPrompt: evaluation.reflectionPrompt,
+          scoringVersion: evaluation.scoringVersion,
+          ...(evaluation.refinementFailureCategory
+            ? { refinementFailureCategory: evaluation.refinementFailureCategory }
+            : {}),
         });
+        const attempt = args.attempt ?? 1;
+        if (applied && evaluation.refinementFailureCategory && attempt < 3) {
+          await ctx.scheduler.runAfter(
+            1_000 * (2 ** (attempt - 1)),
+            internal.novelty.indexDraftIdea,
+            {
+              draftId: args.draftId,
+              inputFingerprint: args.inputFingerprint,
+              sourceUpdatedAt: args.sourceUpdatedAt,
+              attempt: attempt + 1,
+              deduplicationReserved: true,
+            },
+          );
+        }
       }
     } catch {
       const attempt = args.attempt ?? 1;
@@ -1268,6 +1326,7 @@ export const finishPreview = internalMutation({
     nearestSimilarity: v.optional(v.number()),
     nearestThemeLabel: v.optional(v.string()),
     reflectionPrompt: v.optional(v.string()),
+    scoringVersion: v.optional(noveltyScoringVersionValue),
     providerRequestId: v.optional(v.string()),
     providerRemainingRequests: v.optional(v.number()),
     providerRequestReset: v.optional(v.string()),
@@ -1315,7 +1374,7 @@ export const finishPreview = internalMutation({
     if (
       args.score === undefined ||
       args.band === undefined ||
-      args.agentVersion !== noveltyScoringVersion ||
+      !isCurrentNoveltyScoringVersion(args.scoringVersion) ||
       args.effectiveSimilarTeams === undefined ||
       args.comparedTeamCount === undefined ||
       args.nearestSimilarity === undefined ||
@@ -1333,6 +1392,7 @@ export const finishPreview = internalMutation({
       nearestSimilarity: args.nearestSimilarity,
       nearestThemeLabel: args.nearestThemeLabel,
       reflectionPrompt: args.reflectionPrompt,
+      scoringVersion: args.scoringVersion,
       ...(args.providerRequestId ? { providerRequestId: args.providerRequestId } : {}),
       ...(args.providerRemainingRequests !== undefined
         ? { providerRemainingRequests: args.providerRemainingRequests }
@@ -1356,7 +1416,12 @@ export const finishPreview = internalMutation({
       draft?.initialIdea &&
       draft.stage !== "submitted" &&
       draft.noveltyCorpusVersionId === request.corpusVersionId &&
-      noveltyInputFingerprint(draft.initialIdea) === request.inputFingerprint
+      noveltyInputFingerprint(draft.initialIdea) === request.inputFingerprint &&
+      !(
+        args.scoringVersion === noveltyEmbeddingScoringVersion
+        && draft.noveltyEvaluatedInputFingerprint === request.inputFingerprint
+        && draft.noveltyScoringVersion === noveltyScoringVersion
+      )
     ) {
       await ctx.db.patch(draft._id, {
         noveltyEvaluatedInputFingerprint: request.inputFingerprint,
@@ -1364,6 +1429,8 @@ export const finishPreview = internalMutation({
         noveltyBand: args.band,
         noveltyNearestThemeLabel: args.nearestThemeLabel,
         noveltyReflectionPrompt: args.reflectionPrompt,
+        noveltyScoringVersion: args.scoringVersion,
+        noveltyRefinementFailureCategory: undefined,
         noveltyPreviewRequestId: request._id,
         noveltyEvaluatedAt: now,
       });
@@ -1540,16 +1607,12 @@ export const preview = action({
         inputFingerprint: begun.inputFingerprint,
         embedding,
       });
-      const idea = begun.embeddingInputs[0];
-      if (!idea) throw new Error("A novelty preview requires its normalized idea.");
       const evaluation = await evaluateNoveltyEmbedding(ctx, {
         eventId: begun.eventId,
         teamId: begun.teamId,
         corpusVersionId: begun.corpusVersionId,
         embedding,
-        idea,
-        apiKey,
-        safetyIdentifier: String(begun.teamId),
+        mode: "embedding",
       });
       if (!evaluation) {
         return ctx.runMutation(internal.novelty.finishPreview, {
@@ -1574,33 +1637,29 @@ export const preview = action({
         nearestSimilarity: evaluation.nearestSimilarity,
         nearestThemeLabel: evaluation.nearestThemeLabel,
         reflectionPrompt: evaluation.reflectionPrompt,
+        scoringVersion: evaluation.scoringVersion,
         ...(providerRequestId ? { providerRequestId } : {}),
         ...(providerRemainingRequests !== undefined ? { providerRemainingRequests } : {}),
         ...(providerRequestReset ? { providerRequestReset } : {}),
-        agentOperationId: evaluation.agentOperationId,
-        agentOutputChecksum: evaluation.agentOutputChecksum,
-        agentVersion: evaluation.agentVersion,
-        agentModel: evaluation.agentModel,
+        ...(evaluation.agent
+          ? {
+              agentOperationId: evaluation.agent.operationId,
+              agentOutputChecksum: evaluation.agent.outputChecksum,
+              agentVersion: evaluation.agent.version,
+              agentModel: evaluation.agent.model,
+            }
+          : {}),
         latencyMs: Date.now() - startedAt,
       });
     } catch (error) {
       const embeddingStatus = error instanceof OpenAiEmbeddingError ? error.status : undefined;
-      const judgeStatus = error instanceof OpenAiNoveltyJudgeError ? error.status : undefined;
-      const failureCategory = error instanceof OpenAiNoveltyJudgeError
-        ? judgeStatus === 429
-          ? "judge_provider_rate_limited"
-          : judgeStatus
-            ? `judge_provider_http_${judgeStatus}`
-            : error.timedOut
-              ? "judge_provider_timed_out"
-              : `judge_${error.failureCategory}`
-        : embeddingStatus === 429
-          ? "provider_rate_limited"
-          : embeddingStatus
-            ? `provider_http_${embeddingStatus}`
-            : error instanceof OpenAiEmbeddingError && error.timedOut
-              ? "provider_timed_out"
-              : "provider_request_failed";
+      const failureCategory = embeddingStatus === 429
+        ? "provider_rate_limited"
+        : embeddingStatus
+          ? `provider_http_${embeddingStatus}`
+          : error instanceof OpenAiEmbeddingError && error.timedOut
+            ? "provider_timed_out"
+            : "provider_request_failed";
       return ctx.runMutation(internal.novelty.finishPreview, {
         requestId: begun.requestId,
         inputFingerprint: begun.inputFingerprint,
