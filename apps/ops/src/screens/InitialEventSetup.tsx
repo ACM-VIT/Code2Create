@@ -78,7 +78,7 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
       externalApplicationsCloseAt === null ||
       applicationsCloseAt === null ||
       endsAt <= startsAt ||
-      externalApplicationsCloseAt > applicationsCloseAt ||
+      externalApplicationsCloseAt < applicationsCloseAt ||
       applicationsCloseAt > startsAt
     ) {
       setError('Choose a valid application deadline, event start, and event end.')
