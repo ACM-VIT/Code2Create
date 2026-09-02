@@ -235,7 +235,9 @@ export function TeamRosterPanel({
               item.active ? 'bg-rose/15 text-rose-light' : 'text-fg/80'
             }`}
           >
-            <span className="min-w-0 text-[13px] font-medium">{item.label}</span>
+            <span className="min-w-0 text-[13px] font-medium underline decoration-1 decoration-rose/70 underline-offset-[5px]">
+              {item.label}
+            </span>
           </Link>
         ))}
       </nav>
