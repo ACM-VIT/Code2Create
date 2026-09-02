@@ -2302,8 +2302,8 @@ function NoveltyExplainer() {
   return (
     <div className="text-left">
       <p className="m-0 text-[13px] leading-relaxed text-fg/85">
-        We compare your idea with ideas from other teams. A higher score means
-        fewer teams are working on something similar.
+        We compare your idea with other teams in this event and a reference set
+        of past projects. A higher score means fewer close matches.
       </p>
       <div className="mt-4 mb-1.5 flex h-1.5 overflow-hidden rounded-full" aria-hidden>
         <span className="flex-1 bg-rose/25" />

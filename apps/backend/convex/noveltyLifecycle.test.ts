@@ -12,7 +12,9 @@ import {
   noveltyBandForScore,
   noveltyEmbeddingDimensions,
   noveltyEmbeddingModel,
+  noveltyEmbeddingScoringVersion,
   noveltyInputFingerprint,
+  noveltyScoringVersion,
   noveltyScoreForDensity,
   noveltySimilarityWeight,
   type NoveltyCorpusEntryInput,
@@ -110,6 +112,28 @@ describe("live novelty", () => {
   test("settles one request exactly once and replays its result idempotently", async () => {
     const backend = noveltyBackend();
     const fixture = await seedFixture(backend);
+    const legacyRequest = previewArgs(fixture, "novelty-request-legacy", fixture.idea);
+    const legacyBegun = await backend.mutation(internal.novelty.beginPreview, legacyRequest);
+    if (legacyBegun.kind !== "run") throw new Error("The legacy request did not start.");
+    await backend.run((ctx) => ctx.db.patch(legacyBegun.requestId, {
+      state: "succeeded",
+      score: 77,
+      band: "distinct",
+      effectiveSimilarTeams: 1,
+      comparedTeamCount: 1,
+      nearestSimilarity: 0.9,
+      nearestThemeLabel: "Campus service routing",
+      reflectionPrompt: "What happens after a volunteer accepts a request?",
+      latencyMs: 90,
+      completedAt: fixture.now,
+    }));
+    await expect(
+      backend.mutation(internal.novelty.beginPreview, legacyRequest),
+    ).resolves.toMatchObject({
+      kind: "complete",
+      result: { state: "unavailable" },
+    });
+
     const request = previewArgs(fixture, "novelty-request-0001", fixture.idea);
     const begun = await backend.mutation(internal.novelty.beginPreview, request);
     if (begun.kind !== "run") throw new Error("The novelty request did not start.");
@@ -125,6 +149,7 @@ describe("live novelty", () => {
       requestId: begun.requestId,
       inputFingerprint: begun.inputFingerprint,
       state: "succeeded",
+      scoringVersion: noveltyEmbeddingScoringVersion,
       score: 74,
       band: "distinct",
       effectiveSimilarTeams: 1.1,
@@ -133,6 +158,7 @@ describe("live novelty", () => {
       nearestThemeLabel: "Campus service routing",
       reflectionPrompt: "What happens after a volunteer accepts a request?",
       latencyMs: 90,
+      failureCategory: "judge_provider_rate_limited",
     });
     expect(result).toMatchObject({ state: "ready", score: 74, band: "distinct" });
 
@@ -150,6 +176,10 @@ describe("live novelty", () => {
       noveltyScore: 74,
       noveltyBand: "distinct",
       noveltyPreviewRequestId: begun.requestId,
+    });
+    expect(state.request).toMatchObject({
+      state: "succeeded",
+      failureCategory: "judge_provider_rate_limited",
     });
     expect(state.request).not.toHaveProperty("idea");
     expect(state.request).not.toHaveProperty("initialIdea");
@@ -308,6 +338,7 @@ describe("live novelty", () => {
       requestId: begun.requestId,
       inputFingerprint: begun.inputFingerprint,
       state: "succeeded",
+      scoringVersion: noveltyEmbeddingScoringVersion,
       score: 61,
       band: "developing",
       effectiveSimilarTeams: 2.2,
@@ -536,7 +567,25 @@ describe("live novelty", () => {
       embedding,
     });
 
-    await backend.mutation(internal.novelty.finishDraftNovelty, {
+    const fallbackApplied = await backend.mutation(internal.novelty.finishDraftNovelty, {
+      draftId: fixture.projectDraftId,
+      corpusVersionId: fixture.publishedCorpusId,
+      inputFingerprint,
+      score: 68,
+      band: "developing",
+      nearestThemeLabel: "Embedding-only match",
+      reflectionPrompt: "Which workflow is most important to distinguish?",
+      scoringVersion: noveltyEmbeddingScoringVersion,
+      refinementFailureCategory: "judge_provider_request_timed_out",
+    });
+    expect(fallbackApplied).toBe(true);
+    await expect(backend.run((ctx) => ctx.db.get(fixture.projectDraftId))).resolves.toMatchObject({
+      noveltyScore: 68,
+      noveltyScoringVersion: noveltyEmbeddingScoringVersion,
+      noveltyRefinementFailureCategory: "judge_provider_request_timed_out",
+    });
+
+    const hybridApplied = await backend.mutation(internal.novelty.finishDraftNovelty, {
       draftId: fixture.projectDraftId,
       corpusVersionId: fixture.publishedCorpusId,
       inputFingerprint,
@@ -544,7 +593,21 @@ describe("live novelty", () => {
       band: "distinct",
       nearestThemeLabel: "Campus service routing",
       reflectionPrompt: "What happens after a volunteer accepts a request?",
+      scoringVersion: noveltyScoringVersion,
     });
+    expect(hybridApplied).toBe(true);
+    const downgradeApplied = await backend.mutation(internal.novelty.finishDraftNovelty, {
+      draftId: fixture.projectDraftId,
+      corpusVersionId: fixture.publishedCorpusId,
+      inputFingerprint,
+      score: 40,
+      band: "developing",
+      nearestThemeLabel: "Late fallback",
+      reflectionPrompt: "Should this replace the refined result?",
+      scoringVersion: noveltyEmbeddingScoringVersion,
+      refinementFailureCategory: "judge_provider_rate_limited",
+    });
+    expect(downgradeApplied).toBe(false);
     const draft = await backend.run((ctx) => ctx.db.get(fixture.projectDraftId));
     expect(draft).toMatchObject({
       noveltyEvaluatedInputFingerprint: inputFingerprint,
@@ -552,7 +615,9 @@ describe("live novelty", () => {
       noveltyBand: "distinct",
       noveltyNearestThemeLabel: "Campus service routing",
       noveltyReflectionPrompt: "What happens after a volunteer accepts a request?",
+      noveltyScoringVersion,
     });
+    expect(draft?.noveltyRefinementFailureCategory).toBeUndefined();
   });
 
   test("evaluates editing-vector expiry from the action-provided clock", async () => {

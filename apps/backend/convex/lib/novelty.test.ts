@@ -1,13 +1,21 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  calibratedNoveltyMatch,
   effectiveSimilarTeams,
+  hybridNoveltyWeight,
+  noveltyDensitySimilarityPolicy,
   noveltyEmbeddingDimensions,
+  noveltyInputFingerprint,
+  noveltyScoreForEvidence,
   noveltyScoreForDensity,
+  semanticOverlapFromEmbedding,
+  strongestCalibratedNoveltyMatch,
   strongestNoveltyMatchPerTeam,
   validEmbedding,
 } from "./novelty";
 import { containsSensitiveProjectText } from "./projectText";
+import { fingerprintText } from "./strings";
 
 const stopWords = new Set([
   "a", "and", "from", "in", "is", "of", "on", "or", "that", "the", "their", "through", "to", "with",
@@ -108,6 +116,25 @@ describe("novelty scoring", () => {
     expect(strongest.get("team-0")?.lifecycle).toBe("saved");
   });
 
+  it("includes current-event ideas without comparing a team with itself", () => {
+    const strongest = strongestNoveltyMatchPerTeam([
+      { teamId: "current-team", similarity: 0.99, lifecycle: "submitted" as const },
+      { teamId: "other-editing", similarity: 0.9, lifecycle: "editing" as const },
+      { teamId: "other-saved", similarity: 0.9, lifecycle: "saved" as const },
+      { teamId: "other-submitted", similarity: 0.9, lifecycle: "submitted" as const },
+    ], "current-team");
+
+    expect([...strongest.keys()]).toEqual([
+      "other-editing",
+      "other-saved",
+      "other-submitted",
+    ]);
+    expect(effectiveSimilarTeams(
+      [...strongest.values()],
+      noveltyDensitySimilarityPolicy,
+    )).toBeCloseTo(2.3);
+  });
+
   it("keeps the signal informative across practical crowd sizes", () => {
     const scenarios = [
       { similarTeams: 0, expectedScore: 100 },
@@ -119,5 +146,93 @@ describe("novelty scoring", () => {
     for (const scenario of scenarios) {
       expect(noveltyScoreForDensity(scenario.similarTeams)).toBe(scenario.expectedScore);
     }
+  });
+
+  it("lets a structured judge correct retrieval without owning the score", () => {
+    expect(hybridNoveltyWeight(0.9, 0.9, "different", "high")).toBeCloseTo(0.15);
+    expect(hybridNoveltyWeight(0.2, 0.8, "same_core_idea", "high")).toBeCloseTo(0.95);
+    expect(hybridNoveltyWeight(2, 0.8, "adjacent", "low")).toBeGreaterThanOrEqual(0);
+    expect(hybridNoveltyWeight(2, 0.8, "adjacent", "low")).toBeLessThanOrEqual(1);
+  });
+
+  it("keeps content identity stable across scorer rollouts", () => {
+    const idea = "A campus maintenance routing board";
+    expect(noveltyInputFingerprint(idea)).toBe(fingerprintText(idea));
+  });
+
+  it("uses the strongest calibrated corpus match for participant feedback", () => {
+    const rawNearest = calibratedNoveltyMatch({
+      metadata: "raw-nearest",
+      rawSimilarity: 0.82,
+      relationship: "different",
+      confidence: "high",
+    });
+    const semanticNearest = calibratedNoveltyMatch({
+      metadata: "semantic-nearest",
+      rawSimilarity: 0.75,
+      relationship: "same_core_idea",
+      confidence: "high",
+    });
+
+    expect(strongestCalibratedNoveltyMatch([rawNearest, semanticNearest])?.metadata)
+      .toBe("semantic-nearest");
+  });
+
+  it("produces a deterministic embedding score when no judgment is available", () => {
+    const fallback = calibratedNoveltyMatch({
+      metadata: "embedding-match",
+      rawSimilarity: 0.72,
+    });
+
+    expect(fallback.weight).toBeGreaterThan(0);
+    expect(fallback.semanticOverlap).toBeGreaterThan(0);
+    expect(fallback.weight).toBeLessThanOrEqual(1);
+    expect(fallback.semanticOverlap).toBeLessThanOrEqual(1);
+  });
+
+  it("gates structured judgments with deterministic cosine evidence", () => {
+    const embeddingWeight = 0.3;
+
+    expect(hybridNoveltyWeight(embeddingWeight, 0.39, "same_core_idea", "high")).toBe(
+      hybridNoveltyWeight(embeddingWeight, 0.39, "different", "high"),
+    );
+    expect(hybridNoveltyWeight(embeddingWeight, 0.53, "strong_overlap", "high")).toBe(
+      hybridNoveltyWeight(embeddingWeight, 0.53, "adjacent", "high"),
+    );
+    expect(hybridNoveltyWeight(embeddingWeight, 0.53, "same_core_idea", "high")).toBe(
+      hybridNoveltyWeight(embeddingWeight, 0.53, "adjacent", "high"),
+    );
+  });
+
+  it("only applies the same-core floor at cosine 0.60 or above", () => {
+    const embeddingWeight = 0.2;
+    const belowFloor = hybridNoveltyWeight(
+      embeddingWeight,
+      0.599,
+      "same_core_idea",
+      "high",
+    );
+
+    expect(belowFloor).toBe(
+      hybridNoveltyWeight(embeddingWeight, 0.599, "strong_overlap", "high"),
+    );
+    expect(belowFloor).toBeCloseTo(0.72);
+    expect(hybridNoveltyWeight(
+      embeddingWeight,
+      0.6,
+      "same_core_idea",
+      "high",
+    )).toBeCloseTo(0.95);
+  });
+
+  it("caps a sparse density score when one candidate is a close paraphrase", () => {
+    expect(semanticOverlapFromEmbedding(0.54)).toBe(0);
+    expect(semanticOverlapFromEmbedding(0.78)).toBe(1);
+    expect(semanticOverlapFromEmbedding(0.55)).toBeLessThan(0.05);
+    expect(semanticOverlapFromEmbedding(0.68)).toBeGreaterThan(0.55);
+    expect(noveltyScoreForEvidence(1, 1)).toBe(0);
+    expect(noveltyScoreForEvidence(1, 0)).toBe(77);
+    expect(noveltyScoreForEvidence(0, 0.8)).toBeLessThan(30);
+    expect(noveltyScoreForEvidence(0, 0.95)).toBeLessThanOrEqual(10);
   });
 });
