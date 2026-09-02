@@ -77,6 +77,7 @@ const readyPreview = v.object({
 });
 
 const unavailablePreview = v.object({ state: v.literal("unavailable") });
+const waitingPreview = v.object({ state: v.literal("waiting") });
 const pendingPreview = v.object({
   state: v.literal("pending"),
   requestId: v.id("noveltyPreviewRequests"),
@@ -84,7 +85,9 @@ const pendingPreview = v.object({
 });
 const settledPreviewResult = v.union(readyPreview, unavailablePreview);
 const previewResult = v.union(readyPreview, pendingPreview, unavailablePreview);
+const trackedPreviewResult = v.union(waitingPreview, previewResult);
 type PreviewResult = Infer<typeof previewResult>;
+type TrackedPreviewResult = Infer<typeof trackedPreviewResult>;
 type SettledPreviewResult = Infer<typeof settledPreviewResult>;
 
 type ReadyPreview = {
@@ -1093,6 +1096,61 @@ export const previewStatus = query({
       scopeType: "team",
       scopeId: member.teamId,
     });
+    if (request.state === "running") return pendingResult(request);
+    const corpus = await ctx.db.get(request.corpusVersionId);
+    if (
+      !corpus
+      || corpus.eventId !== event._id
+      || (corpus.status !== "published" && corpus.status !== "superseded")
+    ) {
+      return { state: "unavailable" };
+    }
+    return readyResult(request, corpus) ?? { state: "unavailable" };
+  },
+});
+
+export const previewStatusByClientRequest = query({
+  args: {
+    eventSlug: v.string(),
+    clientRequestId: v.string(),
+  },
+  returns: trackedPreviewResult,
+  handler: async (ctx, args): Promise<TrackedPreviewResult> => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    const membership = await requireMembership(ctx, event._id, person._id);
+    const member = await ctx.db
+      .query("teamMembers")
+      .withIndex("by_event_membership_status", (index) =>
+        index
+          .eq("eventId", event._id)
+          .eq("membershipId", membership._id)
+          .eq("status", "active"),
+      )
+      .unique();
+    if (!member) return { state: "waiting" };
+    await requirePermission(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey: "team.project.write",
+      scopeType: "team",
+      scopeId: member.teamId,
+    });
+    const clientRequestId = normalizedText(
+      args.clientRequestId,
+      "Client request ID",
+      8,
+      120,
+    );
+    const request = await ctx.db
+      .query("noveltyPreviewRequests")
+      .withIndex("by_team_client_request", (index) =>
+        index.eq("teamId", member.teamId).eq("clientRequestId", clientRequestId),
+      )
+      .unique();
+    if (!request) return { state: "waiting" };
+    if (request.eventId !== event._id) return { state: "unavailable" };
     if (request.state === "running") return pendingResult(request);
     const corpus = await ctx.db.get(request.corpusVersionId);
     if (

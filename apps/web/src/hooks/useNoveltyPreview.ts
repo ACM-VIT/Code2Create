@@ -28,6 +28,12 @@ type Recovery = {
   retryAt: number
 }
 
+type TrackedRequest = {
+  key: string
+  clientRequestId: string
+  attempt: number
+}
+
 function normalizeIdea(value: string) {
   return value.trim().replace(/\s+/g, ' ')
 }
@@ -58,6 +64,7 @@ export function useNoveltyPreview({
   const [state, setState] = useState<NoveltyState>({ status: 'idle' })
   const [pending, setPending] = useState<PendingPreview | null>(null)
   const [recovery, setRecovery] = useState<Recovery | null>(null)
+  const [trackedRequest, setTrackedRequest] = useState<TrackedRequest | null>(null)
   const sequence = useRef(0)
   const lastSignal = useRef<NoveltySignal | null>(null)
   const requestIdentity = useRef<{ key: string; id: string } | null>(null)
@@ -78,6 +85,12 @@ export function useNoveltyPreview({
       ? { eventSlug, requestId: pending.requestId }
       : 'skip',
   )
+  const trackedStatus = useQuery(
+    api.novelty.previewStatusByClientRequest,
+    trackedRequest !== null && trackedRequest.key === requestKey
+      ? { eventSlug, clientRequestId: trackedRequest.clientRequestId }
+      : 'skip',
+  )
 
   useEffect(() => {
     sequence.current += 1
@@ -93,12 +106,14 @@ export function useNoveltyPreview({
       // oxlint-disable-next-line react/set-state-in-effect -- Seed the async novelty state machine from the authoritative saved signal.
       setState({ status: 'ready', signal })
       setPending(null)
+      setTrackedRequest(null)
       return
     }
 
     if (!active) {
       setState({ status: 'idle' })
       setPending(null)
+      setTrackedRequest(null)
       return
     }
 
@@ -110,6 +125,7 @@ export function useNoveltyPreview({
     ) {
       setState({ status: 'idle' })
       setPending(null)
+      setTrackedRequest(null)
       return
     }
 
@@ -120,11 +136,13 @@ export function useNoveltyPreview({
       ? priorIdentity.id
       : crypto.randomUUID()
     requestIdentity.current = { key: requestKey, id: clientRequestId }
+    setTrackedRequest({ key: requestKey, clientRequestId, attempt: recoveryAttempt })
     const recover = () => {
       if (sequence.current !== current) return
       const attempt = recoveryAttempt + 1
       setState({ status: 'checking', previous: lastSignal.current })
       setPending(null)
+      setTrackedRequest(null)
       setRecovery({
         key: requestKey,
         attempt,
@@ -151,6 +169,7 @@ export function useNoveltyPreview({
           const signal = { score: result.score, band: result.band }
           lastSignal.current = signal
           setState({ status: 'ready', signal })
+          setTrackedRequest(null)
         })
         .catch(() => {
           recover()
@@ -188,12 +207,14 @@ export function useNoveltyPreview({
       // oxlint-disable-next-line react/set-state-in-effect -- A reactive backend job has settled.
       setState({ status: 'ready', signal })
       setPending(null)
+      setTrackedRequest(null)
       return
     }
     if (pendingStatus.state === 'unavailable') {
       const attempt = pending.attempt + 1
       setState({ status: 'checking', previous: lastSignal.current })
       setPending(null)
+      setTrackedRequest(null)
       setRecovery({
         key: requestKey,
         attempt,
@@ -201,6 +222,34 @@ export function useNoveltyPreview({
       })
     }
   }, [pending, pendingStatus, requestKey])
+
+  useEffect(() => {
+    if (
+      trackedRequest === null ||
+      trackedRequest.key !== requestKey ||
+      trackedStatus === undefined ||
+      trackedStatus.state === 'waiting' ||
+      trackedStatus.state === 'pending'
+    ) return
+    if (trackedStatus.state === 'ready') {
+      const signal = { score: trackedStatus.score, band: trackedStatus.band }
+      lastSignal.current = signal
+      // oxlint-disable-next-line react/set-state-in-effect -- The request result is delivered by the authoritative reactive query.
+      setState({ status: 'ready', signal })
+      setPending(null)
+      setTrackedRequest(null)
+      return
+    }
+    const attempt = trackedRequest.attempt + 1
+    setState({ status: 'checking', previous: lastSignal.current })
+    setPending(null)
+    setTrackedRequest(null)
+    setRecovery({
+      key: requestKey,
+      attempt,
+      retryAt: Date.now() + noveltyRetryDelayMs(attempt),
+    })
+  }, [requestKey, trackedRequest, trackedStatus])
 
   useEffect(() => {
     if (
@@ -212,6 +261,7 @@ export function useNoveltyPreview({
     const timer = window.setTimeout(() => {
       const attempt = pending.attempt + 1
       setPending(null)
+      setTrackedRequest(null)
       setRecovery({
         key: requestKey,
         attempt,
