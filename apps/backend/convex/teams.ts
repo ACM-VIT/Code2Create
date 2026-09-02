@@ -268,6 +268,7 @@ const teamMemberView = v.object({
   membershipId: v.id("eventMemberships"),
   role: memberRole,
   displayName: v.string(),
+  githubAvatarUrl: v.optional(v.string()),
   institution: v.optional(v.string()),
   participantClass,
 });
@@ -333,12 +334,18 @@ export const members = query({
       if (!eventMembership || eventMembership.eventId !== event._id) {
         throw new Error("Team member references an invalid event membership.");
       }
-      const [memberPerson, profile] = await Promise.all([
+      const [memberPerson, profile, githubCompletion] = await Promise.all([
         ctx.db.get(eventMembership.personId),
         ctx.db
           .query("participantProfiles")
           .withIndex("by_membership", (index) =>
             index.eq("membershipId", member.membershipId),
+          )
+          .unique(),
+        ctx.db
+          .query("githubStarCompletions")
+          .withIndex("by_event_membership", (index) =>
+            index.eq("eventId", event._id).eq("membershipId", member.membershipId),
           )
           .unique(),
       ]);
@@ -348,6 +355,9 @@ export const members = query({
         membershipId: member.membershipId,
         role: member.role,
         displayName: profile?.fullName ?? memberPerson.displayName,
+        ...(githubCompletion
+          ? { githubAvatarUrl: `https://avatars.githubusercontent.com/u/${githubCompletion.githubUserId}?v=4` }
+          : {}),
         ...(profile?.institution !== undefined ? { institution: profile.institution } : {}),
         participantClass: eventMembership.participantClass,
       };

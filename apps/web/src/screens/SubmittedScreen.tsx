@@ -30,7 +30,7 @@ import {
   AccordionItemTrigger,
   AccordionRoot,
 } from '../components/portal/Accordion'
-import { Flower } from '../components/portal/FlowerAvatar'
+import { MemberAvatarVisual } from '../components/portal/MemberAvatarVisual'
 import { SubmitCelebration } from '../components/portal/SubmitCelebration'
 import { consumeSubmissionCelebration } from '../lib/submissionCelebration'
 import {
@@ -818,13 +818,19 @@ function EventLiveScene({
                   <span
                     key={member.teamMemberId}
                     title={member.displayName}
-                    className={`flex size-[30px] items-center justify-center rounded-full text-[10px] font-semibold ${
+                    className={`relative flex size-[30px] items-center justify-center rounded-full text-[10px] font-semibold ${
                       member.role === 'lead'
                         ? 'border-[1.5px] border-ring-lead bg-avatar-lead'
                         : 'border-[1.5px] border-rose/70 bg-avatar'
                     } ${index > 0 ? '-ml-2' : ''}`}
                   >
-                    <Flower seed={member.membershipId} lead={member.role === 'lead'} size={16} />
+                    <MemberAvatarVisual
+                      displayName={member.displayName}
+                      githubAvatarUrl={member.githubAvatarUrl}
+                      seed={member.membershipId}
+                      lead={member.role === 'lead'}
+                      flowerSize={16}
+                    />
                   </span>
                 ))}
               </span>
