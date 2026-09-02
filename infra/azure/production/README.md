@@ -91,6 +91,14 @@ explicitly. Environment configuration grants one bootstrap email permission to
 create the event; it does not create the event or open either application
 window.
 
+Normal function releases use `.github/workflows/backend-deploy.yml`. Production
+deployment is an explicit workflow run from `main`; it does not run on a push.
+The production GitHub environment authenticates to Azure with OIDC, can read
+only the production Key Vault secrets allowed by its role, and passes the exact
+Git revision to `deploy-convex.sh`. No Azure client secret or Convex admin key is
+stored in GitHub. Environment configuration remains a separate operator action
+and is not part of an ordinary code deployment.
+
 The D32 backend admits 512 concurrent queries, 256 mutations, and 100 Node or V8
 actions. The intake workpool uses at most 32 Node actions at a time. Draft
 embedding uses the separate V8 action pool, so background novelty indexing

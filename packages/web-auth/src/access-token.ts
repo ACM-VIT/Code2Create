@@ -10,6 +10,7 @@ type AccessTokenRetryOptions = {
 }
 
 const retryDelaysMs = [250, 500, 1_000, 2_000, 5_000] as const
+export const accessTokenRefreshLeewayMs = 60_000
 
 function wait(delayMs: number) {
   return new Promise<void>((resolve) => window.setTimeout(resolve, delayMs))
@@ -18,6 +19,35 @@ function wait(delayMs: number) {
 export function isRetryableAccessTokenStatus(status: number | null) {
   return status === null || status === 0 || status === 408 || status === 425 ||
     status === 429 || status >= 500
+}
+
+export function accessTokenExpiresAt(token: string): number | null {
+  const payload = token.split('.')[1]
+  if (!payload) return null
+  try {
+    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/')
+    const normalized = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=')
+    const decoded = JSON.parse(globalThis.atob(normalized))
+    if (
+      typeof decoded !== 'object' ||
+      decoded === null ||
+      !('exp' in decoded) ||
+      typeof decoded.exp !== 'number' ||
+      !Number.isSafeInteger(decoded.exp)
+    ) {
+      return null
+    }
+    return decoded.exp * 1_000
+  } catch {
+    return null
+  }
+}
+
+export function accessTokenNeedsRefresh(
+  expiresAt: number | null,
+  now = Date.now(),
+) {
+  return expiresAt !== null && expiresAt <= now + accessTokenRefreshLeewayMs
 }
 
 /**

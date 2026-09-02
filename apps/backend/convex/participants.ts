@@ -50,7 +50,6 @@ import {
   vitInstitutionName,
 } from "./lib/vitStudentIdentity";
 import {
-  claimPendingTeamRosterEntry,
   pendingTeamAssignees,
   rosterIdentitiesForPerson,
   teamRosterPendingEntry,
@@ -262,6 +261,7 @@ export const me = query({
               displayName: v.string(),
               role: memberRole,
               signedIn: v.boolean(),
+              accepted: v.boolean(),
               isYou: v.boolean(),
             }),
           ),
@@ -470,10 +470,6 @@ export const provision = mutation({
       if (existingMembership.participantClass === "vit_student") {
         await repairVitStudentIdentity(ctx, event, person, existingMembership);
       }
-      await claimPendingTeamRosterEntry(ctx, {
-        event,
-        person,
-      });
       return { membershipId: existingMembership._id, created: false };
     }
 
@@ -634,11 +630,6 @@ export const provision = mutation({
         updatedAt: now,
       });
     }
-
-    await claimPendingTeamRosterEntry(ctx, {
-      event,
-      person,
-    });
 
     return { membershipId, created: true };
   },

@@ -97,7 +97,7 @@ Key fields:
 
 One active membership exists per event/person.
 
-`github_required` means the profile is complete but the participant has not completed the mandatory SGLang contribution step. The server requires a `githubStarCompletion` before team creation, team joining, or imported-roster claim.
+`github_required` means the profile is complete but the participant has not completed the mandatory SGLang contribution step. The server requires a `githubStarCompletion` before team creation, team joining, or imported-team acceptance.
 
 ### `participantEligibilityImports`
 
@@ -124,6 +124,18 @@ Key fields:
 - original source row number and creation time.
 
 External entry checks use the exact normalized verified Google email. VIT entry checks first require the approved Google Workspace domain and hosted-domain claim, then use the registration number parsed from the verified Google display name. The table stores no participant name, team assignment, profile answer, or workbook contents. Every production participant read and mutation rechecks the active event import. Staging uses a separate code-owned tester list.
+
+### `teamRosterImports`
+
+One immutable, preview-confirmed participant team-roster import. It stores the event, source name and optional filename, preview checksum, row and outcome counts, audited reason, authorizing grant IDs, creator, operation ID, and creation time. Confirmation inserts pending assignment rows only. It never creates a team or membership and `appliedNowCount` remains zero.
+
+### `teamRosterEntries`
+
+One participant's imported team offer and provenance. It stores one exact normalized Google email or VIT registration number, display name, team name, listed `lead | member` role, source row, monotonic version, and `pending | waiting_for_lead | identity_conflict | choice_required | claimed | revoked | superseded` status.
+
+`pending` means the participant has not accepted. `waiting_for_lead` means a listed member accepted but the listed lead has not formed the team. `choice_required` means the participant was already on another team when the row was imported. `claimed` records the exact membership, team, and time when available. Import, provisioning, GitHub completion, and refresh do not advance these states.
+
+The exact participant can accept or leave a current pending offer after profile, policy, GitHub, eligibility, permission, identity, and version checks. Acceptance is transactional. A lead acceptance creates the team and joins only same-team rows already in `waiting_for_lead`; a member acceptance waits when no live team exists. A participant who already has another team supplies its exact ID and version, and all leave and join changes commit together. A later import can supersede a still-open row but cannot rewrite a claimed membership.
 
 ### `githubStarSetupIntents`
 
@@ -2062,6 +2074,14 @@ The rehearsal result stores its source manifest/archive, exact staging target, o
 | `participantEligibilityEntries.by_import_identity` | Authorize one exact participant identity in the active import |
 | `participantEligibilityEntries.by_import_class` | Verify exact VIT and external import counts before activation |
 | `participantEligibilityEntries.by_event_import` | Audit the bounded entries for one event import |
+| `teamRosterImports.by_event_operation` | Return one idempotent confirmed participant-team import |
+| `teamRosterImports.by_event_created` | Page immutable participant-team import history |
+| `teamRosterEntries.by_event_email_status` | Resolve an external participant's current team offer |
+| `teamRosterEntries.by_event_vit_registration_status` | Resolve a VIT participant's current team offer |
+| `teamRosterEntries.by_event_team_status` | Resolve accepted members when the listed lead forms the team |
+| `teamRosterEntries.by_event_status` | Count participant-team assignment states |
+| `teamRosterEntries.by_import_row` | Audit one participant-team import by source row |
+| `teamRosterEntries.by_event_created` | Page participant-team assignment history |
 | `rosterImports.by_event_operation` | Return one idempotent confirmed CSV import |
 | `rosterImports.by_event_created` | Page immutable import history |
 | `rosterEntries.by_event_email_status` | First staff/reviewer claim |

@@ -1522,7 +1522,7 @@ function IntakeWorkspace({
                 )
                 markEditing('follow_up', activeFollowUp.id)
               }}
-              placeholder="Scope it in a sentence or two…"
+              placeholder="Answer the question here…"
               className="bare-field min-h-[174px] border-0 bg-transparent px-0 py-0 text-[16.5px] leading-[1.7] focus:border-0"
             />
             <PortalError message={error} />
@@ -1580,7 +1580,7 @@ function IntakeWorkspace({
         teamEditable={teamEditable}
         onSignOut={onSignOut}
         title="Anything else you want us to see?"
-        hint="This is optional. Add a useful link or extra context, or skip this step. Please do not upload a PPT."
+        hint="This is optional. Add a useful link or extra context, or skip this step.s"
         presence={<EditingPresence editors={editors ?? []} members={members} />}
       >
         <PetalCard className="px-6 pt-[26px] pb-[18px] lg:px-[30px]">
@@ -1614,7 +1614,7 @@ function IntakeWorkspace({
               maxLength={draft.additionalInformationMaxLength}
               disabled={busy}
               value={value}
-              placeholder="Share a website, repository, document, demo link, or anything else useful."
+              placeholder="Share a website, repository, document or anything else useful."
               onChange={(event) => {
                 const nextValue = event.currentTarget.value
                 setAdditionalInformationEdit((current) => current
@@ -1804,7 +1804,7 @@ function IntakeWorkspace({
                 setError(null)
                 markEditing('follow_up', reviewFollowUp.id)
               }}
-              placeholder="Scope it in a sentence or two…"
+              placeholder="Answer the question here…"
               className="bare-field min-h-[174px] border-0 bg-transparent px-0 py-0 text-[16.5px] leading-[1.7] focus:border-0"
             />
             <PortalError message={error ?? answerValidation} reserve />
@@ -2438,9 +2438,7 @@ export function NoveltyPill({
   const label =
     belowMinimum || state.status === 'idle'
       ? 'keep writing'
-      : state.status === 'checking'
-        ? 'checking…'
-        : 'score unavailable'
+      : 'checking…'
   return (
     <div className="pointer-events-auto relative">
       <div className="inline-flex items-center gap-2 rounded-[9px] border border-rose-light/55 bg-wash/92 py-2 pr-2.5 pl-4 text-[12.5px] font-semibold text-rose-light shadow-[0_8px_22px_var(--shade-1)] backdrop-blur-md">

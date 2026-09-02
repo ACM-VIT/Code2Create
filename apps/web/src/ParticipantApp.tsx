@@ -268,7 +268,7 @@ export function ParticipantApp({
     return <PortalNotice header={accountHeader} title="Team access is unavailable." body="You are still on your team. You cannot create or join another team until an organizer restores access." />
   }
 
-  if (team && me.pendingTeam?.status === 'choice_required') {
+  if (team && me.pendingTeam) {
     return (
       <ImportedTeamChoiceScreen
         header={accountHeader}

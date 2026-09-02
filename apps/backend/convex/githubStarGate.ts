@@ -15,7 +15,6 @@ import {
   isProfileCompleteForPolicy,
   loadPublishedParticipantPolicy,
 } from "./lib/participantPolicy";
-import { claimPendingTeamRosterEntry } from "./lib/teamBackfill";
 
 const setupLifetimeMs = 10 * 60 * 1_000;
 const providerClaimLifetimeMs = 60 * 1_000;
@@ -406,7 +405,6 @@ async function completeGitHubStar(
     onboardingStatus: "team_required",
     updatedAt: completedAt,
   });
-  await claimPendingTeamRosterEntry(ctx, { event: args.event, person: args.person });
   return { githubLogin: args.githubLogin, completedAt };
 }
 

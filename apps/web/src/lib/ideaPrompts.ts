@@ -37,7 +37,7 @@ export const ideaPromptSections: readonly IdeaPromptSection[] = [
       },
       {
         title: 'A universal sync engine',
-        detail: 'One that works everywhere — for any database, ORM, or language.',
+        detail: 'One that works everywhere: any database, ORM, or language.',
       },
       {
         title: 'Reproducible development environments without Docker',
@@ -142,7 +142,7 @@ export const ideaPromptSections: readonly IdeaPromptSection[] = [
     prompts: [
       {
         title: 'Spawning subagents, properly',
-        detail: 'We still haven’t figured out how to spawn subagents — or how to make them efficient.',
+        detail: 'We still haven’t figured out how to spawn subagents, or how to make them efficient.',
       },
       {
         title: 'A lightweight alternative to Electron',

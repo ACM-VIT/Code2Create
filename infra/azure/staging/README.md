@@ -66,6 +66,13 @@ origins above. Cloudflare currently reports no Git build trigger for either
 Worker, so a repository push cannot replace these deployments until those
 connections are deliberately created.
 
+Backend functions deploy automatically after backend checks pass on a push to
+the `staging` branch. `.github/workflows/backend-deploy.yml` signs in to Azure
+through the staging GitHub environment's OIDC identity, reads only the staging
+`convex-admin-key`, and runs `deploy-convex.sh` against
+`https://realtime-staging.c2c.sh`. GitHub stores no Azure client secret or
+Convex admin key.
+
 ## Remaining idea-round activation
 
 1. Create or update the staging Google Web OAuth client.

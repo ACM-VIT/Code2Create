@@ -33,7 +33,7 @@ export function ImportedTeamChoiceScreen({
   const busy = joining || keeping
 
   const joinImportedTeam = async () => {
-    if (!currentTeam || !canLeaveCurrentTeam(currentTeam) || busy) return
+    if ((currentTeam && !canLeaveCurrentTeam(currentTeam)) || busy) return
     setError(null)
     try {
       await operations.run('team-assignment-accept', (clientOperationId) => () =>
@@ -41,8 +41,9 @@ export function ImportedTeamChoiceScreen({
           eventSlug,
           teamRosterEntryId: importedTeam.id,
           expectedEntryVersion: importedTeam.version,
-          currentTeamId: currentTeam.id,
-          expectedCurrentTeamVersion: currentTeam.version,
+          currentTeam: currentTeam
+            ? { id: currentTeam.id, expectedVersion: currentTeam.version }
+            : null,
           clientOperationId,
         }),
       )
