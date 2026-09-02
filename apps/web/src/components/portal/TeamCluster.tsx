@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { usePortalTheme } from '../../lib/portalTheme'
 import { DaybreakToggle } from './DaybreakToggle'
 import { Flower } from './FlowerAvatar'
 import { assignFlowerVariants } from './flowerVariants'
@@ -62,8 +61,6 @@ function Avatar({
 export function TeamCluster({
   team,
   members,
-  editable = true,
-  canManage = false,
 }: {
   team: ClusterTeam
   members: readonly ClusterMember[]
@@ -133,8 +130,6 @@ export function TeamCluster({
           <TeamRosterPanel
             team={team}
             members={members}
-            editable={editable}
-            canManage={canManage}
             onNavigate={() => setOpen(false)}
           />
         </div>
@@ -143,64 +138,37 @@ export function TeamCluster({
   )
 }
 
-function CopyCode({ code }: { code: string }) {
-  const [copied, setCopied] = useState(false)
-  return (
-    <button
-      type="button"
-      title="Copy the join code"
-      onClick={() => {
-        void navigator.clipboard.writeText(code).then(() => {
-          setCopied(true)
-          window.setTimeout(() => setCopied(false), 1600)
-        })
-      }}
-      className="font-mono text-[12.5px] tracking-[.12em] text-rose-light transition-colors hover:text-fg"
-    >
-      {copied ? 'copied' : code}
-    </button>
-  )
-}
-
 /** Team context and the participant's complete navigation, grouped into one
- * menu without turning the roster itself into an undifferentiated link list. */
+ * compact menu without turning the roster itself into navigation. */
 export function TeamRosterPanel({
   team,
   members,
-  editable = true,
-  canManage = false,
   onNavigate,
 }: {
   team: ClusterTeam
   members: readonly ClusterMember[]
-  editable?: boolean
-  canManage?: boolean
   onNavigate: () => void
 }) {
   const { pathname } = useLocation()
-  const theme = usePortalTheme()
   const onSignOut = usePortalSignOut()
   const flowerVariants = assignFlowerVariants(
     members.filter((member) => member.role !== 'lead').map((member) => member.membershipId),
   )
   const navigation = [
     {
-      label: 'Overview',
-      detail: 'ideas',
+      label: 'Home (ideas)',
       to: '/',
       galleryScreen: 'f1',
       active: pathname === '/' || pathname === '/write',
     },
     {
       label: 'Team',
-      detail: canManage && editable ? 'manage team' : 'view team',
       to: '/team',
       galleryScreen: 'f10',
       active: pathname === '/team',
     },
     {
       label: 'Resources',
-      detail: 'tools and support',
       to: '/more',
       galleryScreen: 'f12',
       active:
@@ -211,7 +179,6 @@ export function TeamRosterPanel({
     },
     {
       label: 'Your profile',
-      detail: 'participant details',
       to: '/more/profile',
       galleryScreen: 'f12p',
       active: pathname === '/more/profile',
@@ -261,18 +228,7 @@ export function TeamRosterPanel({
           )
         })}
       </ul>
-      <div className="mt-3 flex items-center gap-3 border-t border-petal-line pt-3">
-        {editable ? (
-          <CopyCode code={team.publicCode} />
-        ) : (
-          <p className="m-0 flex items-center gap-1.5 text-[11.5px] text-fg/50">
-            <Petal size={12} />
-            changes closed
-          </p>
-        )}
-      </div>
-
-      <nav aria-label="Participant navigation" className="mt-3 border-t border-petal-line pt-2">
+      <nav aria-label="Participant navigation" className="mt-2 border-t border-petal-line pt-2">
         {navigation.map((item) => (
           <Link
             key={item.to}
@@ -281,16 +237,11 @@ export function TeamRosterPanel({
             data-gallery-screen={item.galleryScreen}
             aria-current={item.active ? 'page' : undefined}
             onClick={onNavigate}
-            className={`group flex min-h-12 items-center justify-between gap-4 rounded-xl px-3 py-2 no-underline transition-colors duration-200 ${
+            className={`group flex min-h-10 items-center justify-between gap-4 rounded-lg px-3 py-1.5 no-underline transition-colors duration-200 ${
               item.active ? 'bg-rose/15 text-rose-light' : 'text-fg/80 hover:bg-fg/5 hover:text-fg'
             }`}
           >
-            <span className="min-w-0">
-              <span className="block text-[13px] font-medium">{item.label}</span>
-              <span className={`block text-[10.5px] ${item.active ? 'text-rose-light/65' : 'text-fg/40'}`}>
-                {item.detail}
-              </span>
-            </span>
+            <span className="min-w-0 text-[13px] font-medium">{item.label}</span>
             <svg
               viewBox="0 0 20 20"
               fill="none"
@@ -305,13 +256,8 @@ export function TeamRosterPanel({
         ))}
       </nav>
 
-      <div className="mt-2 flex min-h-14 items-center justify-between gap-4 border-t border-petal-line px-3 pt-3">
-        <div>
-          <p className="m-0 text-[13px] font-medium text-fg/80">Appearance</p>
-          <p className="m-0 mt-0.5 text-[10.5px] text-fg/40">
-            {theme === 'daybreak' ? 'daybreak' : 'night garden'}
-          </p>
-        </div>
+      <div className="mt-2 flex min-h-12 items-center justify-between gap-4 border-t border-petal-line px-3 pt-2">
+        <p className="m-0 text-[13px] font-medium text-fg/80">Appearance</p>
         <DaybreakToggle />
       </div>
 
