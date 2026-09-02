@@ -20,7 +20,7 @@ import { TreeLoader } from '../components/portal/TreeLoader'
 import { releaseBalloons } from '../lib/balloons'
 import { SglangInterlude } from '../screens/SglangInterlude'
 import { ConfirmCard } from '../screens/TeamLobbyScreen'
-import { NoveltyPill, NoveltyReviewRow } from '../screens/IntakeScreen'
+import { NoveltyPill, NoveltyReviewRow, ReviewEditRow } from '../screens/IntakeScreen'
 import { IdeaPromptsLink } from '../components/portal/IdeaPromptsSheet'
 import { BringTeamTool, GuideComposer, type ComposerConfirm } from '../components/guide/GuideComposer'
 import { GuideReasoning } from '../components/guide/GuideReasoning'
@@ -197,16 +197,7 @@ function HelpEmptyFixture() {
       <GuideStage
         header={fixtureHeader()}
         composer={
-          <ComposerFixture
-            leading={<BringTeamTool disabled={false} onClick={noop} />}
-            confirm={{
-              question: 'Bring the event team into this thread?',
-              confirmLabel: 'Bring them in',
-              busy: false,
-              onConfirm: noop,
-              onCancel: noop,
-            }}
-          />
+          <ComposerFixture leading={<BringTeamTool disabled={false} onClick={noop} />} />
         }
       >
         <div className="flex min-h-full flex-1 items-center py-6">
@@ -760,19 +751,27 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
             editable until Aug 31, 4:00 PM · <span className="text-rose-light">back</span>
           </p>
           <div className="w-full text-left">
-            <PetalCard className="px-5 py-5 sm:px-7 sm:py-6">
-              <p className="whitespace-pre-line text-[15px] leading-relaxed wrap-anywhere text-fg/90">
-                A campus lost-and-found where finders post a photo and owners describe what they
-                lost. On-device image matching pairs the two; pickup at verified hostel desks.
-              </p>
-              <button type="button" className="mt-4 text-[12.5px] text-rose-light underline-offset-4 hover:underline">
-                view 2 answers
-              </button>
-              <div className="mt-5 flex justify-end border-t border-petal-line pt-3.5">
-                <button type="button" className="text-[12.5px] text-rose-light underline-offset-4 hover:underline">
-                  edit submission
-                </button>
-              </div>
+            <PetalCard className="px-6 py-2 sm:px-8">
+              <AccordionRoot allowMultiple defaultValue={['idea']}>
+                {[
+                  { id: 'idea', title: 'The idea', body: 'A campus lost-and-found where finders post a photo and owners describe what they lost. On-device image matching pairs the two; pickup at verified hostel desks.' },
+                  { id: 'q1', title: 'Who will use Foundling on day one?', body: 'Hostellers first · most losses happen in messes and reading halls. Security desks join in week two once verified pickup is proven.' },
+                  { id: 'q2', title: 'What will you build during the 48 hours?', body: 'The finder flow, the matcher, and one hostel desk pickup screen.' },
+                  { id: 'extra', title: 'Any additional information or links you want to share (please, no PPTs)', body: 'Nothing added.' },
+                ].map(({ id, title, body }) => (
+                  <AccordionItem key={id} value={id}>
+                    <AccordionItemTrigger>
+                      <AccordionItemHeader>
+                        <span className="text-[15px] font-semibold text-fg/85">{title}</span>
+                      </AccordionItemHeader>
+                    </AccordionItemTrigger>
+                    <AccordionItemContent className="text-[15px] leading-relaxed wrap-anywhere text-fg">
+                      <p className={id === 'extra' ? 'text-fg/45' : 'whitespace-pre-line'}>{body}</p>
+                      <ReviewEditRow busy={false} onEdit={noop} />
+                    </AccordionItemContent>
+                  </AccordionItem>
+                ))}
+              </AccordionRoot>
             </PetalCard>
           </div>
         </div>

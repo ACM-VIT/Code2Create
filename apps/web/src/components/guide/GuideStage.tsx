@@ -21,7 +21,7 @@ export function GuideStage({
           aria-live="polite"
           aria-label="Conversation with the Guide"
           scrollClassName="guide-scroll h-full overflow-y-auto overscroll-contain"
-          className="flex flex-col gap-6 px-4 pt-5 pb-6 sm:px-6"
+          className="flex min-h-full flex-col gap-6 px-4 pt-5 pb-6 sm:px-6"
         >
           {children}
         </StickToBottom.Content>

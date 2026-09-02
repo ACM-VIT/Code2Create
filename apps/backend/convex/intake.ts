@@ -103,6 +103,7 @@ const currentDraftView = v.object({
     minimumFollowUpCount: v.number(),
     maximumFollowUpCount: v.number(),
   }),
+  additionalInformationMaxLength: v.number(),
   stage: projectDraftStage,
   initialIdea: v.optional(v.string()),
   additionalInformation: v.optional(v.string()),
@@ -471,6 +472,7 @@ export const current = query({
           minimumFollowUpCount: pinnedPolicy.normalized.minimumFollowUpCount,
           maximumFollowUpCount: pinnedPolicy.normalized.maximumFollowUpCount,
         },
+        additionalInformationMaxLength,
         stage: draft.stage,
         ...(draft.initialIdea !== undefined ? { initialIdea: draft.initialIdea } : {}),
         ...(draft.additionalInformation !== undefined
@@ -1729,7 +1731,7 @@ export const respondToFollowUp = mutation({
       });
     }
     await ctx.db.patch(draft._id, {
-      stage: needsAnotherInterpretation ? "follow_up" : "review",
+      stage: needsAnotherInterpretation ? "follow_up" : "additional_information",
       adaptiveQuestionDeadlineAt: undefined,
       version: draftVersion,
       lastEditedByMembershipId: membership._id,
@@ -1916,7 +1918,10 @@ export const saveAdditionalInformation = mutation({
       .query("projectDrafts")
       .withIndex("by_team", (index) => index.eq("teamId", team._id))
       .unique();
-    if (!draft?.initialIdea || draft.stage !== "review") {
+    if (
+      !draft?.initialIdea ||
+      (draft.stage !== "additional_information" && draft.stage !== "review")
+    ) {
       throw new ConvexError({
         code: "ADDITIONAL_INFORMATION_NOT_EDITABLE",
         message: "Additional information can be edited after the project questions are complete.",
@@ -1931,7 +1936,8 @@ export const saveAdditionalInformation = mutation({
       requireDraftVersion(draft.version, args.expectedDraftVersion);
     }
     const now = Date.now();
-    if (draft.additionalInformation === additionalInformation) {
+    const completingStep = draft.stage === "additional_information";
+    if (draft.additionalInformation === additionalInformation && !completingStep) {
       await recordDraftOperation(ctx, {
         eventId: event._id,
         personId: person._id,
@@ -1946,6 +1952,7 @@ export const saveAdditionalInformation = mutation({
     const draftVersion = draft.version + 1;
     await ctx.db.patch(draft._id, {
       additionalInformation,
+      stage: "review",
       version: draftVersion,
       lastEditedByMembershipId: membership._id,
       updatedAt: now,

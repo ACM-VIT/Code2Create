@@ -81,8 +81,15 @@
 
   /* The updated mockup rounds every corner symmetrically: cards 18/16,
      fields 10, buttons 12/10. */
-  --radius-petal: 18px;
-  --radius-petal-sm: 16px;
+  /* Every box on the portal is cut the same way: curved at the top-left and
+     bottom-right, square at the other two. `box` and `box-sm` are the curve
+     sizes on their own, for the one-corner cases (a sheet's top edge);
+     `petal` and `petal-sm` are the whole diagonal shape. Buttons and fields
+     keep their own even radii. */
+  --radius-box: 20px;
+  --radius-box-sm: 16px;
+  --radius-petal: var(--radius-box) 0 var(--radius-box) 0;
+  --radius-petal-sm: var(--radius-box-sm) 0 var(--radius-box-sm) 0;
   --radius-petal-xs: 10px;
   --radius-btn: 12px;
   --radius-btn-sm: 10px;
@@ -682,4 +689,6 @@ p {
 [data-portal-scene] .guide-panel {
   border: 0;
   outline: 0;
+  background-image: none;
+  background-color: color-mix(in oklab, var(--color-wash) 55%, transparent);
 }

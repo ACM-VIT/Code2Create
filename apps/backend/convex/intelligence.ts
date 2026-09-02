@@ -132,7 +132,9 @@ async function applyDeterministicPath(
       now: args.now,
     });
   }
-  const stage = questionId ? "follow_up" as const : "review" as const;
+  const stage = questionId
+    ? "follow_up" as const
+    : "additional_information" as const;
   if (questionId || stage !== args.draft.stage) {
     await ctx.db.patch(args.draft._id, {
       stage,
@@ -171,9 +173,9 @@ export const beginIntakeInterpretation = internalMutation({
     const ordinal = nextQuestionOrdinal(responses);
     if (ordinal === null) return null;
     if (ordinal > normalized.maximumFollowUpCount) {
-      if (draft.stage !== "review") {
+      if (draft.stage !== "additional_information") {
         await ctx.db.patch(draft._id, {
-          stage: "review",
+          stage: "additional_information",
           adaptiveQuestionDeadlineAt: undefined,
           version: draft.version + 1,
           updatedAt: Date.now(),
@@ -484,7 +486,9 @@ export const finishIntakeInterpretation = internalMutation({
       return null;
     }
 
-    const stage = questionId ? "follow_up" as const : "review" as const;
+    const stage = questionId
+      ? "follow_up" as const
+      : "additional_information" as const;
     if (questionId || stage !== draft.stage) {
       await ctx.db.patch(draft._id, {
         stage,

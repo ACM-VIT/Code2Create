@@ -155,14 +155,14 @@ export function GuideHero({
       <p className="m-0 mb-7 max-w-[520px] text-balance text-[14px] leading-relaxed text-fg/60">
         {description}
       </p>
-      <div className="grid w-full gap-3 sm:grid-cols-3">
+      <div className="flex max-w-[560px] flex-wrap justify-center gap-2">
         {suggestions.map((suggestion) => (
           <button
             key={suggestion}
             type="button"
             disabled={disabled}
             onClick={() => onPick(suggestion)}
-            className="rounded-petal-sm bg-fg/[0.05] px-4 py-3.5 text-left text-[13px] leading-snug text-fg/80 transition-[background-color,color,transform] duration-250 hover:-translate-y-0.5 hover:bg-fg/[0.09] hover:text-fg disabled:cursor-not-allowed disabled:opacity-45"
+            className="rounded-full bg-fg/[0.06] px-4 py-2.5 text-[13px] leading-snug text-fg/80 transition-colors hover:bg-fg/10 hover:text-fg disabled:cursor-not-allowed disabled:opacity-45"
           >
             {suggestion}
           </button>

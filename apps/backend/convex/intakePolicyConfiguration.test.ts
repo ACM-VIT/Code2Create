@@ -429,7 +429,7 @@ describe("intake policy configuration", () => {
         .withIndex("by_draft_ordinal", (index) => index.eq("draftId", fixture.projectDraftId))
         .collect(),
     }));
-    expect(result.draft?.stage).toBe("review");
+    expect(result.draft?.stage).toBe("additional_information");
     expect(result.questions.map((question) => [question.ordinal, question.source])).toEqual([
       [1, "fixed"],
       [2, "fixed"],
@@ -866,7 +866,7 @@ async function answerQuestion(
       answeredAt: fixture.now + question.ordinal,
     });
     await ctx.db.patch(draft._id, {
-      stage: question.ordinal < 4 ? "follow_up" : "review",
+      stage: question.ordinal < 4 ? "follow_up" : "additional_information",
       version: draft.version + 1,
       updatedAt: fixture.now + question.ordinal,
     });

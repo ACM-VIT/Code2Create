@@ -288,17 +288,6 @@ export function ParticipantApp({
   if (!intakeStatus) return <PortalLoading />
   const teamEditable = !teamDeadlineReached
 
-  if (intakeStatus.submissionState === 'validating') {
-    return (
-      <PortalNotice
-        header={accountHeader}
-        title="Submitting your idea…"
-        body="We are confirming your team and answers. You can leave this page; the result appears here automatically."
-      />
-    )
-  }
-
-
   // ---- f10 · the squad lobby, any time a team exists -----------------------
   if (location.pathname === '/team') {
     return (
@@ -325,6 +314,7 @@ export function ParticipantApp({
           members={teamMembers.results}
           teamEditable={teamEditable}
           serverNow={publicState.serverNow}
+          submissionInProgress={intakeStatus.submissionState === 'validating'}
           onSignOut={signOut}
           {...(intakeStatus.submissionFailureMessage === undefined
             ? {}
@@ -398,6 +388,7 @@ export function ParticipantApp({
                 members={teamMembers.results}
                 teamEditable={teamEditable}
                 serverNow={publicState.serverNow}
+                submissionInProgress={intakeStatus.submissionState === 'validating'}
                 onSignOut={signOut}
                 {...(intakeStatus.submissionFailureMessage === undefined
                   ? {}
