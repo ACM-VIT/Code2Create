@@ -56,18 +56,23 @@ function validSubmittedIntakeResponses(
     ordinal: number;
     answer: string;
   }[],
+  intakePolicy: Pick<
+    Doc<"intakePolicyVersions">,
+    "minimumFollowUpCount" | "maximumFollowUpCount"
+  >,
 ) {
   return (
-    responses.length >= 1 &&
-    responses.length <= 2 &&
+    responses.length >= intakePolicy.minimumFollowUpCount &&
+    responses.length <= intakePolicy.maximumFollowUpCount &&
     responses.every((response, index) => response.ordinal === index + 1)
   );
 }
 
 function followUpSourceRef(ordinal: number): SourceRef {
-  if (ordinal === 1) return "follow_up_1";
-  if (ordinal === 2) return "follow_up_2";
-  throw new Error("A submitted intake response has an invalid ordinal.");
+  if (!Number.isSafeInteger(ordinal) || ordinal < 1) {
+    throw new Error("A submitted intake response has an invalid ordinal.");
+  }
+  return `follow_up_${ordinal}`;
 }
 
 export function admissionInformationSources(
@@ -99,6 +104,9 @@ export const beginRecommendation = internalMutation({
         ? ctx.db.get(recommendation.modelConfigVersionId)
         : Promise.resolve(null),
     ]);
+    const intakePolicy = project
+      ? await ctx.db.get(project.intakePolicyVersionId)
+      : null;
     const valid = Boolean(
       application &&
         application.eventId === recommendation.eventId &&
@@ -109,7 +117,10 @@ export const beginRecommendation = internalMutation({
         application.aiRecommendationId === recommendation._id &&
         project &&
         project.eventId === recommendation.eventId &&
-        validSubmittedIntakeResponses(project.intakeResponses) &&
+        intakePolicy &&
+        intakePolicy.eventId === recommendation.eventId &&
+        (intakePolicy.status === "published" || intakePolicy.status === "superseded") &&
+        validSubmittedIntakeResponses(project.intakeResponses, intakePolicy) &&
         policy &&
         policy.eventId === recommendation.eventId &&
         policy.status === "published" &&
@@ -368,10 +379,17 @@ export const finishRecommendation = internalMutation({
         ctx.db.get(recommendation.admissionPolicyVersionId),
         ctx.db.get(recommendation.projectVersionId),
       ]);
+      const intakePolicy = project
+        ? await ctx.db.get(project.intakePolicyVersionId)
+        : null;
       const expectedKeys = policy?.criteria.map((criterion) => criterion.criterionKey) ?? [];
-      const validProjectResponses = project
-        ? validSubmittedIntakeResponses(project.intakeResponses)
-        : false;
+      const validProjectResponses = Boolean(
+        project &&
+          intakePolicy &&
+          intakePolicy.eventId === recommendation.eventId &&
+          (intakePolicy.status === "published" || intakePolicy.status === "superseded") &&
+          validSubmittedIntakeResponses(project.intakeResponses, intakePolicy),
+      );
       const availableSourceRefs = new Set<SourceRef>(["initial_idea"]);
       if (project?.additionalInformation) {
         availableSourceRefs.add("additional_information");
