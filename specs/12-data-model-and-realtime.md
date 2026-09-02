@@ -99,6 +99,32 @@ One active membership exists per event/person.
 
 `github_required` means the profile is complete but the participant has not completed the mandatory SGLang contribution step. The server requires a `githubStarCompletion` before team creation, team joining, or imported-roster claim.
 
+### `participantEligibilityImports`
+
+One immutable production registration-list import for an event.
+
+Key fields:
+
+- `eventId`, stable batch key, and `status: preparing | active | superseded`;
+- expected external and VIT identity counts;
+- SHA-256 checksums for the external and VIT source workbooks; and
+- creation, activation, and optional supersession times.
+
+The server can create or activate an import only in production and only while the event is closed. Rows arrive in bounded batches. Publication requires exact agreement with both expected counts. It changes `events.publishedParticipantEligibilityImportId` and supersedes the prior import in one transaction. A failed or incomplete import remains inactive.
+
+### `participantEligibilityEntries`
+
+One normalized identity from a participant registration list.
+
+Key fields:
+
+- `eventId` and `participantEligibilityImportId`;
+- `participantClass: vit_student | external_participant`;
+- `identityKind: vit_registration | email` and its normalized value;
+- original source row number and creation time.
+
+External entry checks use the exact normalized verified Google email. VIT entry checks first require the approved Google Workspace domain and hosted-domain claim, then use the registration number parsed from the verified Google display name. The table stores no participant name, team assignment, profile answer, or workbook contents. Every production participant read and mutation rechecks the active event import. Staging uses a separate code-owned tester list.
+
 ### `githubStarSetupIntents`
 
 One short-lived, participant-scoped classic GitHub OAuth App authorization attempt. It stores the event, membership, person, hashed state, encrypted PKCE verifier, exact redirect URI, status, claim lease, expiry, and completion or failure metadata. The callback must contain the matching state and OAuth code. Raw OAuth state and tokens are never stored. A scheduled mutation expires unused attempts.
@@ -314,6 +340,7 @@ Completeness is derived against an exact policy version; it is not stored as a b
 - status;
 - active participant, admission, communications, attendance, integration, security, retention, and Synesthesia configuration IDs;
 - published event-phase-schedule, project-checkpoint-plan, atomic intake-policy, novelty-corpus, admission-policy, and admission-model-configuration version IDs;
+- published participant-eligibility-import ID;
 - hosted-domain allowlist;
 - active incident ID;
 - production release metadata.
@@ -2030,6 +2057,11 @@ The rehearsal result stores its source manifest/archive, exact staging target, o
 | `eventAccessInvitations.by_event_status_created` | Page open invitations for authorized event operators |
 | `eventMemberships.by_event_person` | Resolve participant access |
 | `eventMemberships.by_event_onboarding_status` | Read only the accepted venue cohort for a bounded emergency snapshot |
+| `participantEligibilityImports.by_event_batch` | Resume one checksum-pinned participant registration import |
+| `participantEligibilityImports.by_event_status` | Resolve active or preparing participant registration imports |
+| `participantEligibilityEntries.by_import_identity` | Authorize one exact participant identity in the active import |
+| `participantEligibilityEntries.by_import_class` | Verify exact VIT and external import counts before activation |
+| `participantEligibilityEntries.by_event_import` | Audit the bounded entries for one event import |
 | `rosterImports.by_event_operation` | Return one idempotent confirmed CSV import |
 | `rosterImports.by_event_created` | Page immutable import history |
 | `rosterEntries.by_event_email_status` | First staff/reviewer claim |

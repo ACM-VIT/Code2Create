@@ -196,9 +196,7 @@ export function DetailsScreen({
     : 0
   const phoneFieldError = phoneTouched
     ? phoneError ??
-      (participantProfileCodeConfiguration.phoneVerificationEnabled &&
-      phoneVerificationTouched &&
-      !phoneVerified
+      (phoneVerificationEnabled && phoneVerificationTouched && !phoneVerified && !codePanelOpen
         ? 'Verify this phone number.'
         : null)
     : null
@@ -440,7 +438,7 @@ export function DetailsScreen({
         <PetalCard className="px-6 pt-6 pb-4 lg:px-[30px]">
           <form noValidate onSubmit={submit}>
             <fieldset disabled={disabled} className="contents">
-              <div className="grid grid-cols-1 gap-x-4 gap-y-3.5 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-x-4 gap-y-3.5 sm:grid-flow-row-dense sm:grid-cols-2">
                 <PortalField
                   label="full name"
                   hint={vitStudent ? 'verified' : 'editable'}
@@ -521,7 +519,7 @@ export function DetailsScreen({
                 </PortalField>
 
                 {codePanelOpen && codePanelState && phoneVerification ? (
-                  <div className="sm:col-span-2">
+                  <div className="sm:col-start-2">
                     <PhoneCodePanel
                       maskedPhone={phoneVerification.maskedPhone}
                       state={codePanelState}
