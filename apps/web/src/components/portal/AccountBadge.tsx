@@ -1,12 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Flower } from './FlowerAvatar'
-import { PortalNavigation } from './PortalNavigation'
 
 /**
- * The signed-in person: one flower circle that opens identity, profile, and
- * sign-out actions. Primary destinations stay in PortalNavigation instead of
- * being mixed into this account panel.
+ * The signed-in person before there is a team to stand with: one flower circle
+ * that opens identity, profile, and sign-out actions.
  */
 export function AccountBadge({
   name,
@@ -14,14 +12,12 @@ export function AccountBadge({
   email,
   detail,
   onSignOut,
-  showNavigation = false,
 }: {
   name: string
   seed: string
   email?: string
   detail?: string
   onSignOut: () => void
-  showNavigation?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const anchor = useRef<HTMLDivElement>(null)
@@ -43,9 +39,7 @@ export function AccountBadge({
   }, [open])
 
   return (
-    <div className="flex items-start gap-2.5">
-      {showNavigation ? <PortalNavigation hasTeam={false} /> : null}
-      <div ref={anchor} className="relative">
+    <div ref={anchor} className="relative">
       <button
         type="button"
         aria-label={`Account, ${name}`}
@@ -101,7 +95,6 @@ export function AccountBadge({
           </div>
         </div>
       ) : null}
-      </div>
     </div>
   )
 }

@@ -529,6 +529,12 @@
   }
 }
 
+/* Once a team exists, its single menu owns appearance as well as navigation.
+   Pre-team screens keep the standalone corner toggle. */
+.portal-header-controls:has([data-team-cluster]) > [data-header-theme-toggle] {
+  display: none;
+}
+
 /* The portal scene animates artwork continuously; honour the OS setting. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

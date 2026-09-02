@@ -18,12 +18,12 @@ Quiet, warm, and assured. The portal's night-hanami scene, botanical avatars, re
 
 ## Anti-references
 
-Avoid dashboard chrome that fights the illustrated scene, generic SaaS card grids, dense admin navigation, and clever menus that hide unrelated destinations inside team or account details. In particular, do not combine roster inspection, team management, global navigation, and sign-out in one undifferentiated popover.
+Avoid dashboard chrome that fights the illustrated scene, generic SaaS card grids, dense admin navigation, and multiple competing header controls. For team members, prefer one clearly labeled team trigger whose panel groups roster context, participant destinations, appearance, and account actions into visibly distinct sections.
 
 ## Design Principles
 
 - Put the participant's next action and current state ahead of secondary destinations.
-- Give global navigation, team context, and account actions distinct, predictable homes.
+- Keep navigation, team context, appearance, and account actions in distinct, scannable sections within one predictable team menu.
 - Preserve the portal's calm botanical character while using familiar product affordances.
 - Reveal capability-dependent destinations without making the overall structure move unpredictably.
 - Use concise, human language that tells participants where they are and what happens next.

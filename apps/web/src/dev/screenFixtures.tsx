@@ -236,17 +236,25 @@ function IdeaCard({ children, footer }: { children: ReactNode; footer: ReactNode
  * The details form walking the phone flow on its own: send, type the texted
  * code (000000 comes back wrong), and land on the verified tick.
  */
-function DetailsFixture({ initialPhase }: { initialPhase: 'idle' | 'verified' }) {
+function DetailsFixture({
+  initialPhase,
+  title = 'A few details, once.',
+  header = account,
+}: {
+  initialPhase: 'idle' | 'verified'
+  title?: string
+  header?: ReactNode
+}) {
   const [phase, setPhase] = useState<'idle' | 'sent' | 'verified'>(initialPhase)
   const [code, setCode] = useState('')
   const [shake, setShake] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const verified = phase === 'verified'
   return (
-    <PortalScene tree="right" header={account}>
+    <PortalScene tree="right" header={header}>
       <div className="flex w-full max-w-[640px] flex-col items-center">
         <h1 className="mb-7 text-center font-display font-normal tracking-[-.01em] text-3xl text-shadow-[0_4px_30px_var(--scene-text-glow)] lg:text-[40px]">
-          A few details, once.
+          {title}
         </h1>
         <PetalCard className="px-6 pt-6 pb-4 lg:px-[30px]">
           <div className="grid grid-cols-1 gap-x-4 gap-y-3.5 sm:grid-flow-row-dense sm:grid-cols-2">
@@ -954,7 +962,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
       </PortalScene>
     )],
   ['f10', () => (
-      <PortalScene tree="right" header={<p className="m-0 font-ui text-[13.5px] text-rose-light/80">4 of 4 seats</p>}>
+      <PortalScene tree="right" onSignOut={noop} header={cluster}>
         <div className="flex w-full max-w-[860px] flex-col items-center text-center">
           <h1 className="mb-11 font-display font-light tracking-[-.01em] text-4xl lg:text-[54px]">Paper Cranes</h1>
           <div className="mb-10 flex flex-wrap items-start justify-center gap-[34px]">
@@ -993,7 +1001,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
       </PortalScene>
     )],
   ['f10b', () => (
-      <PortalScene tree="right" header={<p className="m-0 font-ui text-[13.5px] text-rose-light/80">4 of 4 seats</p>}>
+      <PortalScene tree="right" onSignOut={noop} header={cluster}>
         <div className="flex w-full max-w-[860px] flex-col items-center text-center">
           <h1 className="mb-11 font-display font-light tracking-[-.01em] text-4xl lg:text-[54px]">Paper Cranes</h1>
           <div className="mb-10 flex flex-wrap items-start justify-center gap-[34px]">
@@ -1034,19 +1042,8 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
   ['f12', () => (
       <PortalScene tree="left" onSignOut={noop} header={cluster}>
         <div className="flex w-full max-w-[480px] flex-col items-center">
-          <h1 className="mb-7 font-display font-light tracking-[-.01em] text-3xl lg:text-[40px]">More</h1>
+          <h1 className="mb-7 font-display font-light tracking-[-.01em] text-3xl lg:text-[40px]">Resources</h1>
           <PetalCard className="w-full px-6 py-2">
-            <div className="flex items-center gap-4 border-b border-petal-line py-4">
-              <span className="flex size-11 flex-none items-center justify-center rounded-full border-2 border-rose/70 bg-avatar">
-                <Flower seed="m1" className="size-[62%]" />
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="m-0 text-[15px] text-fg">Ananya Iyer</p>
-                <p className="m-0 mt-0.5 text-[12px] leading-snug wrap-anywhere text-fg/55">ananya@vitstudent.ac.in</p>
-                <p className="m-0 mt-0.5 text-[11.5px] text-rose-light/80">VIT student · 23BCE1847</p>
-              </div>
-              <span className="flex-none text-[12.5px] text-rose-light">Edit profile</span>
-            </div>
             {([
               ['Notifications', 'Email · delivered'],
               ['Integrations', 'Repos and Figma'],
@@ -1063,12 +1060,12 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
               </div>
             ))}
           </PetalCard>
-          <p className="mt-5 text-[11.5px] text-fg/45">
-            <span className="text-rose-light">back home</span>
-          </p>
         </div>
       </PortalScene>
     )],
+  ['f12p', () => (
+    <DetailsFixture initialPhase="verified" title="Your profile" header={cluster} />
+  )],
   ['f13', () => <HelpThreadFixture />],
   ['f13b', () => <HelpEmptyFixture />],
   ] as const),

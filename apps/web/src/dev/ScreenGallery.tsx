@@ -34,6 +34,7 @@ export function ScreenGallery() {
 
   const showScreen = (nextScreenId: string | null) => {
     cancelPending()
+    setOpen(false)
     const commit = () => {
       const update = () => flushSync(() => setScreenId(nextScreenId))
       if (document.startViewTransition) {
@@ -69,6 +70,26 @@ export function ScreenGallery() {
     }
   }, [])
 
+  useEffect(() => {
+    if (screenId === null) return
+
+    const onGalleryNavigation = (event: MouseEvent) => {
+      if (!(event.target instanceof Element)) return
+      const link = event.target.closest<HTMLAnchorElement>('a[data-gallery-screen]')
+      const nextScreenId = link?.dataset.galleryScreen
+      if (!nextScreenId || !GALLERY_SCREENS.some((screen) => screen.id === nextScreenId)) return
+
+      if (pendingTimer.current !== null) window.clearTimeout(pendingTimer.current)
+      pendingTimer.current = null
+      setPendingScreenId(null)
+      setScreenId(nextScreenId)
+      setOpen(false)
+    }
+
+    document.addEventListener('click', onGalleryNavigation)
+    return () => document.removeEventListener('click', onGalleryNavigation)
+  }, [screenId])
+
   const active = GALLERY_SCREENS.find((screen) => screen.id === screenId) ?? null
   const width = WIDTHS.find((option) => option.id === widthId)
   const activeIndex = active ? GALLERY_SCREENS.indexOf(active) : -1
@@ -92,7 +113,7 @@ export function ScreenGallery() {
               <DelayedBonsai />
             </div>
           ) : null}
-          <div className="fixed top-3 left-1/2 z-[9999] flex -translate-x-1/2 items-center overflow-hidden rounded-full border border-rose/50 bg-wash/92 font-mono text-[11px] text-rose-light shadow-lg backdrop-blur-md">
+          <div className="fixed bottom-3 left-1/2 z-[9999] flex -translate-x-1/2 items-center overflow-hidden rounded-full border border-rose/50 bg-wash/92 font-mono text-[11px] text-rose-light shadow-lg backdrop-blur-md sm:top-3 sm:bottom-auto">
             <button type="button" disabled={!previous || pendingScreenId !== null} onClick={() => previous && showScreen(previous.id)} className="px-3 py-1.5 hover:text-fg disabled:opacity-25">←</button>
             <span className="border-x border-rose/25 px-3.5 py-1.5">
               {pendingScreenId ? `${active.id} · holding for ${delay}ms` : `mock route · ${active.id}`}
