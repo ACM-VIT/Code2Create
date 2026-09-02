@@ -17,7 +17,7 @@ import { GpuSky } from '../components/portal/GpuSky'
 import { Flower } from '../components/portal/FlowerAvatar'
 import { PortalScene } from '../components/portal/PortalScene'
 import { StackedSheet } from '../components/portal/StackedSheet'
-import { TreeLoader } from '../components/portal/TreeLoader'
+import { DelayedBonsai } from '../components/portal/DelayedBonsai'
 import { releaseBalloons } from '../lib/balloons'
 import { SglangInterlude } from '../screens/SglangInterlude'
 import { ConfirmCard } from '../screens/TeamLobbyScreen'
@@ -708,7 +708,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
     )],
   ['loading', () => (
       <PortalScene tree="both">
-        <TreeLoader label="Loading your portal…" />
+        <DelayedBonsai />
       </PortalScene>
     )],
   ['notice', () => (
