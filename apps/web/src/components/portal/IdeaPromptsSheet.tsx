@@ -5,8 +5,8 @@ import { useDesktop } from '../../lib/useDesktop'
 
 /**
  * The quiet line under the idea box for teams who arrive empty-handed. It
- * opens the organisers' list of directions — a side sheet on wide screens,
- * a bottom sheet on phones — grouped as they wrote them.
+ * opens the organisers' list of directions (a side sheet on wide screens,
+ * a bottom sheet on phones), grouped as they wrote them.
  */
 export function IdeaPromptsLink({ className = '' }: { className?: string }) {
   const [open, setOpen] = useState(false)

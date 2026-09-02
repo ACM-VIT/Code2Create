@@ -61,7 +61,8 @@ const noveltyIdeaLifecycle = v.union(
 const noveltyTeamVectorMatchLimit = 256;
 const noveltyEditingIdeaLifetimeMs = 45_000;
 const noveltyPreviewCacheLifetimeMs = 30_000;
-const noveltyPreviewRunningLifetimeMs = 15_000;
+const noveltyPreviewRunningLifetimeMs = 8_000;
+const noveltyPreviewProviderAttemptTimeoutMs = 1_500;
 
 const readyPreview = v.object({
   state: v.literal("ready"),
@@ -1145,7 +1146,10 @@ export const preview = action({
         apiKey,
         model: begun.embeddingModel,
         input: begun.embeddingInputs,
-        timeoutMs: 6_000,
+        // OpenAI occasionally leaves a healthy embeddings request waiting for
+        // several seconds. A short retry is materially faster than waiting on
+        // that tail and still keeps the full preview outside the save path.
+        timeoutMs: noveltyPreviewProviderAttemptTimeoutMs,
         maximumAttempts: 2,
       });
       const embeddings = orderedEmbeddings(response.data, begun.embeddingInputs.length);

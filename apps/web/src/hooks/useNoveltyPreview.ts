@@ -3,6 +3,7 @@ import { useAction, useQuery } from 'convex/react'
 import type { FunctionReturnType } from 'convex/server'
 import { useEffect, useRef, useState } from 'react'
 import { eventSlug } from '../lib/config'
+import { noveltyRequestDelayMs, noveltyRetryDelayMs } from '../lib/noveltyPreview'
 
 export type NoveltyBand = 'familiar' | 'developing' | 'distinct'
 
@@ -15,12 +16,17 @@ export type NoveltyState =
   | { status: 'idle' }
   | { status: 'checking'; previous: NoveltySignal | null }
   | { status: 'ready'; signal: NoveltySignal }
-  | { status: 'unavailable' }
 
 type PendingPreview = Extract<
   FunctionReturnType<typeof api.novelty.preview>,
   { state: 'pending' }
-> & { key: string; recovery: 0 | 1 }
+> & { key: string; attempt: number }
+
+type Recovery = {
+  key: string
+  attempt: number
+  retryAt: number
+}
 
 function normalizeIdea(value: string) {
   return value.trim().replace(/\s+/g, ' ')
@@ -51,7 +57,7 @@ export function useNoveltyPreview({
   const previewNovelty = useAction(api.novelty.preview)
   const [state, setState] = useState<NoveltyState>({ status: 'idle' })
   const [pending, setPending] = useState<PendingPreview | null>(null)
-  const [recovery, setRecovery] = useState<{ key: string; attempt: 1 } | null>(null)
+  const [recovery, setRecovery] = useState<Recovery | null>(null)
   const sequence = useRef(0)
   const lastSignal = useRef<NoveltySignal | null>(null)
   const requestIdentity = useRef<{ key: string; id: string } | null>(null)
@@ -63,7 +69,9 @@ export function useNoveltyPreview({
   const savedBand = saved.band
   const normalizedIdea = normalizeIdea(idea)
   const requestKey = corpusVersionId === null ? '' : `${corpusVersionId}:${normalizedIdea}`
-  const recoveryAttempt = recovery?.key === requestKey ? recovery.attempt : 0
+  const matchingRecovery = recovery?.key === requestKey ? recovery : null
+  const recoveryAttempt = matchingRecovery?.attempt ?? 0
+  const recoveryRetryAt = matchingRecovery?.retryAt ?? null
   const pendingStatus = useQuery(
     api.novelty.previewStatus,
     pending !== null && pending.key === requestKey
@@ -108,10 +116,21 @@ export function useNoveltyPreview({
     setState({ status: 'checking', previous: lastSignal.current })
     setPending(null)
     const priorIdentity = requestIdentity.current
-    const clientRequestId = priorIdentity?.key === requestKey
+    const clientRequestId = recoveryAttempt === 0 && priorIdentity?.key === requestKey
       ? priorIdentity.id
       : crypto.randomUUID()
     requestIdentity.current = { key: requestKey, id: clientRequestId }
+    const recover = () => {
+      if (sequence.current !== current) return
+      const attempt = recoveryAttempt + 1
+      setState({ status: 'checking', previous: lastSignal.current })
+      setPending(null)
+      setRecovery({
+        key: requestKey,
+        attempt,
+        retryAt: Date.now() + noveltyRetryDelayMs(attempt),
+      })
+    }
     const check = () => {
       void previewNovelty({
         eventSlug,
@@ -122,11 +141,11 @@ export function useNoveltyPreview({
         .then((result) => {
           if (sequence.current !== current) return
           if (result.state === 'pending') {
-            setPending({ ...result, key: requestKey, recovery: recoveryAttempt })
+            setPending({ ...result, key: requestKey, attempt: recoveryAttempt })
             return
           }
           if (result.state === 'unavailable') {
-            setState({ status: 'unavailable' })
+            recover()
             return
           }
           const signal = { score: result.score, band: result.band }
@@ -134,10 +153,14 @@ export function useNoveltyPreview({
           setState({ status: 'ready', signal })
         })
         .catch(() => {
-          if (sequence.current === current) setState({ status: 'unavailable' })
+          recover()
         })
     }
-    const timer = window.setTimeout(check, recoveryAttempt === 0 ? debounceMs : 0)
+    const delayMs = noveltyRequestDelayMs({
+      configuredDebounceMs: debounceMs,
+      retryAt: recoveryRetryAt,
+    })
+    const timer = window.setTimeout(check, delayMs)
     return () => {
       window.clearTimeout(timer)
     }
@@ -150,6 +173,7 @@ export function useNoveltyPreview({
     normalizedIdea,
     previewNovelty,
     recoveryAttempt,
+    recoveryRetryAt,
     requestKey,
     savedBand,
     savedIdea,
@@ -167,8 +191,14 @@ export function useNoveltyPreview({
       return
     }
     if (pendingStatus.state === 'unavailable') {
-      setState({ status: 'unavailable' })
+      const attempt = pending.attempt + 1
+      setState({ status: 'checking', previous: lastSignal.current })
       setPending(null)
+      setRecovery({
+        key: requestKey,
+        attempt,
+        retryAt: Date.now() + noveltyRetryDelayMs(attempt),
+      })
     }
   }, [pending, pendingStatus, requestKey])
 
@@ -180,14 +210,13 @@ export function useNoveltyPreview({
     ) return
     const waitMs = Math.max(0, pending.retryAt - Date.now() + 250)
     const timer = window.setTimeout(() => {
-      if (pending.recovery === 1) {
-        setState({ status: 'unavailable' })
-        setPending(null)
-        return
-      }
-      requestIdentity.current = { key: requestKey, id: crypto.randomUUID() }
+      const attempt = pending.attempt + 1
       setPending(null)
-      setRecovery({ key: requestKey, attempt: 1 })
+      setRecovery({
+        key: requestKey,
+        attempt,
+        retryAt: Date.now() + noveltyRetryDelayMs(attempt),
+      })
     }, waitMs)
     return () => window.clearTimeout(timer)
   }, [pending, pendingStatus, requestKey])

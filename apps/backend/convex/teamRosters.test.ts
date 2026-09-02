@@ -288,6 +288,88 @@ describe("team roster backfill", () => {
     expect(participantTeam?.id).toBe(leadTeam?.id);
   }, 30_000);
 
+  test("lets a VIT lead leave a solo team and wait for their imported lead", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedEvent(backend);
+    const importer = await seedImporter(backend, fixture);
+    const participant = await provisionParticipant(backend, fixture, {
+      email: "ishita.joshi2024@vitstudent.ac.in",
+      googleSubject: "team-roster-vit-choice-subject",
+      vitHostedDomain: "vitstudent.ac.in",
+      displayName: "Ishita Joshi 24BEL0054",
+    });
+    await acceptPolicy(participant.person, fixture, "accept-policy-vit-choice");
+    const created = await participant.person.mutation(api.teams.create, {
+      eventSlug: fixture.eventSlug,
+      name: "Iloveacm",
+      clientOperationId: "team-create-vit-choice",
+    });
+
+    await importRows(importer, fixture, {
+      sourceName: "VIT team choice",
+      clientOperationId: "team-roster-import-vit-choice",
+      rows: [
+        {
+          rowNumber: 2,
+          identity: "24BIT0423",
+          displayName: "Divyam Agrawal",
+          teamName: "DESYNC",
+          role: "lead",
+        },
+        {
+          rowNumber: 3,
+          identity: "24BEL0054",
+          displayName: "Ishita Joshi",
+          teamName: "DESYNC",
+          role: "member",
+        },
+      ],
+    });
+    await drainScheduler(backend);
+
+    const me = await participant.person.query(api.participants.me, {
+      eventSlug: fixture.eventSlug,
+    });
+    const assignment = me?.pendingTeam;
+    const current = await participant.person.query(api.teams.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(assignment).toMatchObject({
+      teamName: "DESYNC",
+      role: "member",
+      status: "choice_required",
+    });
+    if (!assignment || !current) {
+      throw new Error("The VIT participant should choose between both teams.");
+    }
+
+    const accepted = await participant.person.mutation(api.teams.acceptAssignedTeam, {
+      eventSlug: fixture.eventSlug,
+      teamRosterEntryId: assignment.id,
+      expectedEntryVersion: assignment.version,
+      currentTeam: { id: current.id, expectedVersion: current.version },
+      clientOperationId: "team-roster-accept-vit-choice",
+    });
+    expect(accepted.status).toBe("waiting_for_lead");
+    expect(
+      await participant.person.query(api.teams.current, { eventSlug: fixture.eventSlug }),
+    ).toBeNull();
+    await backend.run(async (ctx) => {
+      const [entry, formerTeam] = await Promise.all([
+        ctx.db.get(assignment.id),
+        ctx.db.get(created.teamId),
+      ]);
+      expect(entry?.status).toBe("waiting_for_lead");
+      expect(formerTeam).toMatchObject({
+        status: "withdrawn",
+        activeMemberCount: 0,
+        activeVitMemberCount: 0,
+        activeExternalMemberCount: 0,
+      });
+    });
+  }, 30_000);
+
   test("keeps a team lead in place until leadership is transferred", async () => {
     const backend = convexTest(schema, modules);
     backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);

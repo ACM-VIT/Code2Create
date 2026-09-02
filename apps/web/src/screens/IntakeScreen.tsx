@@ -2438,9 +2438,7 @@ export function NoveltyPill({
   const label =
     belowMinimum || state.status === 'idle'
       ? 'keep writing'
-      : state.status === 'checking'
-        ? 'checking…'
-        : 'score unavailable'
+      : 'checking…'
   return (
     <div className="pointer-events-auto relative">
       <div className="inline-flex items-center gap-2 rounded-[9px] border border-rose-light/55 bg-wash/92 py-2 pr-2.5 pl-4 text-[12.5px] font-semibold text-rose-light shadow-[0_8px_22px_var(--shade-1)] backdrop-blur-md">
