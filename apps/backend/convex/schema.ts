@@ -4,6 +4,7 @@ import { v } from "convex/values";
 import {
   admissionAiDisposition,
   admissionDecision,
+  admissionDecisionStage,
   admissionExperienceBand,
   admissionOfferState,
   admissionRecommendationState,
@@ -69,6 +70,9 @@ import {
   participantGender,
   participantEligibilityStatus,
   participantOnboardingStatus,
+  participantEmailTemplateKey,
+  participantAssistantPhase,
+  participantAssistantRequestState,
   projectCheckpointKey,
   projectDraftStage,
   permissionBundleEntry,
@@ -246,6 +250,11 @@ export default defineSchema({
     publishedFloorPlanVersionId: v.optional(v.id("floorPlanVersions")),
     publishedIntegrationPolicyId: v.optional(v.id("integrationPolicyVersions")),
     publishedCommunicationsPolicyId: v.optional(v.id("communicationsPolicyVersions")),
+    admissionResultsReleasedAt: v.optional(v.number()),
+    admissionResultsReleasedByPersonId: v.optional(v.id("people")),
+    admissionResultsCommunicationsPolicyId: v.optional(
+      v.id("communicationsPolicyVersions"),
+    ),
     externalApplicationsCloseAt: v.optional(v.number()),
     applicationsCloseAt: v.number(),
     startsAt: v.optional(v.number()),
@@ -441,8 +450,15 @@ export default defineSchema({
     discordUrl: v.string(),
     discordLabel: v.string(),
     notificationProvider: v.literal("cloudflare_email"),
-    notificationSubject: v.string(),
-    notificationIntro: v.string(),
+    emailTemplates: v.array(
+      v.object({
+        templateKey: participantEmailTemplateKey,
+        subject: v.string(),
+        text: v.string(),
+        html: v.string(),
+        assetBundleId: v.optional(v.id("communicationsEmailAssetBundles")),
+      }),
+    ),
     checksum: v.string(),
     createdByPersonId: v.id("people"),
     createdAt: v.number(),
@@ -450,6 +466,27 @@ export default defineSchema({
   })
     .index("by_event_status", ["eventId", "status"])
     .index("by_event_version", ["eventId", "version"]),
+
+  communicationsEmailAssetBundles: defineTable({
+    eventId: v.id("events"),
+    templateKey: participantEmailTemplateKey,
+    sourceFileName: v.string(),
+    sourceByteCount: v.number(),
+    sourceSha256: v.string(),
+    assets: v.array(
+      v.object({
+        storageId: v.id("_storage"),
+        fileName: v.string(),
+        contentType: v.string(),
+        contentId: v.string(),
+        disposition: v.union(v.literal("inline"), v.literal("attachment")),
+        byteCount: v.number(),
+        sha256: v.string(),
+      }),
+    ),
+    createdByPersonId: v.id("people"),
+    createdAt: v.number(),
+  }).index("by_event_created", ["eventId", "createdAt"]),
 
   noveltyCorpusVersions: defineTable({
     eventId: v.id("events"),
@@ -710,8 +747,8 @@ export default defineSchema({
     rowCount: v.number(),
     createdCount: v.number(),
     replacedCount: v.number(),
-    unchangedCount: v.number(),
-    alreadyOnTeamCount: v.number(),
+    alreadyAssignedCount: v.number(),
+    choiceRequiredCount: v.number(),
     waitingForLeadCount: v.number(),
     identityConflictCount: v.number(),
     appliedNowCount: v.number(),
@@ -1219,6 +1256,35 @@ export default defineSchema({
     .index("by_status_valid_until", ["status", "validUntil"])
     .index("by_grant_batch", ["grantBatchId"]),
 
+  participantAssistantThreads: defineTable({
+    eventId: v.id("events"),
+    personId: v.id("people"),
+    threadId: v.string(),
+    supportCaseId: v.optional(v.id("supportCases")),
+    escalatedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_eventId_and_personId", ["eventId", "personId"])
+    .index("by_threadId", ["threadId"]),
+
+  participantAssistantRequests: defineTable({
+    eventId: v.id("events"),
+    personId: v.id("people"),
+    threadId: v.string(),
+    clientRequestId: v.string(),
+    promptMessageId: v.string(),
+    phaseAtRequest: participantAssistantPhase,
+    state: participantAssistantRequestState,
+    failureMessage: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    completedAt: v.optional(v.number()),
+  })
+    .index("by_threadId_and_clientRequestId", ["threadId", "clientRequestId"])
+    .index("by_threadId_and_state_and_updatedAt", ["threadId", "state", "updatedAt"])
+    .index("by_threadId_and_updatedAt", ["threadId", "updatedAt"]),
+
   supportCases: defineTable({
     eventId: v.id("events"),
     publicCode: v.string(),
@@ -1604,6 +1670,7 @@ export default defineSchema({
     noveltyReflectionPrompt: v.optional(v.string()),
     noveltyPreviewRequestId: v.optional(v.id("noveltyPreviewRequests")),
     noveltyEvaluatedAt: v.optional(v.number()),
+    adaptiveQuestionDeadlineAt: v.optional(v.number()),
     freshnessAttestedByMembershipId: v.optional(v.id("eventMemberships")),
     freshnessAttestedAt: v.optional(v.number()),
     version: v.number(),
@@ -1851,9 +1918,12 @@ export default defineSchema({
     aiRecommendationId: v.optional(v.id("admissionAIRecommendations")),
     aiDisposition: v.optional(admissionAiDisposition),
     humanDecision: v.optional(admissionDecision),
+    decisionStage: admissionDecisionStage,
     humanReasonCode: v.optional(v.string()),
     decidedByPersonId: v.optional(v.id("people")),
     decidedAt: v.optional(v.number()),
+    releasedByPersonId: v.optional(v.id("people")),
+    releasedAt: v.optional(v.number()),
     currentInformationRequestId: v.optional(v.id("admissionInformationRequests")),
     currentOfferId: v.optional(v.id("admissionOffers")),
     assignedReviewCount: v.number(),
@@ -1864,6 +1934,7 @@ export default defineSchema({
   })
     .index("by_team", ["teamId"])
     .index("by_event_submitted", ["eventId", "submittedAt"])
+    .index("by_event_decision_stage", ["eventId", "decisionStage", "submittedAt"])
     .index("by_event_state_submitted", ["eventId", "state", "submittedAt"]),
 
   participantNotificationDestinations: defineTable({
@@ -3847,6 +3918,7 @@ export default defineSchema({
     membershipId: v.id("eventMemberships"),
     personId: v.id("people"),
     stateDigest: v.string(),
+    // Present only until the one-time callback is consumed or expires.
     pkceVerifierCiphertext: v.optional(v.string()),
     redirectUri: v.string(),
     status: v.union(
@@ -3876,7 +3948,12 @@ export default defineSchema({
     githubLogin: v.string(),
     accessTokenCiphertext: v.string(),
     expiresAt: v.number(),
-    status: v.union(v.literal("active"), v.literal("starring")),
+    status: v.union(
+      v.literal("active"),
+      v.literal("starring"),
+      v.literal("revoking"),
+      v.literal("revoked"),
+    ),
     attemptId: v.optional(v.string()),
     claimExpiresAt: v.optional(v.number()),
     createdAt: v.number(),

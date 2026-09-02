@@ -168,7 +168,7 @@ export function SubmitCelebration({ onDone }: { onDone: () => void }) {
         onClick={() => finishRef.current()}
         className="absolute right-6 bottom-6 text-[12.5px] text-paper/50 transition-colors hover:text-rose-light"
       >
-        skip →
+        skip
       </button>
     </div>
   )

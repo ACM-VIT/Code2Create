@@ -1,5 +1,4 @@
 import betterAuthSchema from "../node_modules/@convex-dev/better-auth/src/component/schema.ts";
-import workpoolTest from "@convex-dev/workpool/test";
 import presenceTest from "@convex-dev/presence/test";
 import { convexTest, type TestConvex } from "convex-test";
 import { describe, expect, test } from "vitest";
@@ -36,7 +35,6 @@ describe("participant intake lifecycle", () => {
   test("moves one real application from idea through submission and a deadline-safe revision", async () => {
     const backend = convexTest(schema, modules);
     backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
-    workpoolTest.register(backend, "intakeWorkpool");
     presenceTest.register(backend, "intakePresence");
     const fixture = await seedFixture(backend);
     const participant = backend.withIdentity({
@@ -275,13 +273,51 @@ describe("participant intake lifecycle", () => {
       clientOperationId: "intake-idea-save",
     });
     expect(savedIdea.draftVersion).toBe(1);
+    const answerAdaptiveFallback = async (
+      ordinal: 3 | 4,
+      answer: string,
+      clientOperationId: string,
+    ) => {
+      await backend.mutation(internal.intelligence.beginIntakeInterpretation, {
+        draftId: savedIdea.draftId,
+        provider: { kind: "unavailable", reason: "api_key_not_configured" },
+      });
+      const state = await participant.query(api.intake.current, {
+        eventSlug: fixture.eventSlug,
+      });
+      const question = state?.draft?.followUps.find(
+        (candidate) => candidate.ordinal === ordinal && candidate.state === "active",
+      );
+      if (!state?.draft || !question) {
+        throw new Error(`Adaptive fallback ${ordinal} did not become active.`);
+      }
+      expect(question.source).toBe("fallback");
+      await participant.mutation(api.intake.respondToFollowUp, {
+        eventSlug: fixture.eventSlug,
+        questionId: question.id,
+        answer,
+        expectedDraftVersion: state.draft.version,
+        clientOperationId,
+      });
+      const answerId = await backend.run(async (ctx) => {
+        const row = await ctx.db
+          .query("intakeAnswerVersions")
+          .withIndex("by_generated_question_status", (index) =>
+            index.eq("generatedQuestionId", question.id).eq("status", "active"),
+          )
+          .unique();
+        if (!row) throw new Error(`Adaptive fallback ${ordinal} has no answer.`);
+        return row._id;
+      });
+      return { answerId, questionId: question.id };
+    };
     await expect(participant.query(api.intake.current, {
       eventSlug: fixture.eventSlug,
     })).resolves.toMatchObject({ workingFields: [] });
 
     await backend.mutation(internal.intelligence.beginIntakeInterpretation, {
       draftId: savedIdea.draftId,
-      providerAvailable: false,
+      provider: { kind: "unavailable", reason: "api_key_not_configured" },
     });
     const firstQuestionState = await participant.query(api.intake.current, {
       eventSlug: fixture.eventSlug,
@@ -405,51 +441,16 @@ describe("participant intake lifecycle", () => {
       expectedDraftVersion: withThirdQuestion.draft.version,
       clientOperationId: "intake-third-question-answer",
     });
-    await backend.mutation(internal.intelligence.beginIntakeInterpretation, {
-      draftId: savedIdea.draftId,
-      providerAvailable: false,
-    });
-    const adaptiveFixture = await backend.run(async (ctx) => {
-      const draft = await ctx.db.get(savedIdea.draftId);
-      if (!draft) throw new Error("The intake draft is missing before adaptive-question setup.");
-      const activeAnswers = await ctx.db
-        .query("intakeAnswerVersions")
-        .withIndex("by_draft_status", (index) =>
-          index.eq("draftId", draft._id).eq("status", "active"),
-        )
-        .collect();
-      const now = Date.now();
-      const questionId = await ctx.db.insert("intakeGeneratedQuestions", {
-        eventId: draft.eventId,
-        teamId: draft.teamId,
-        draftId: draft._id,
-        ordinal: 3,
-        text: "What would make this useful beyond the first request?",
-        purposeKey: "experience",
-        answerLength: "short",
-        source: "model",
-        sourceAnswerVersionIds: activeAnswers.map((answer) => answer._id),
-        intakePolicyVersionId: draft.intakePolicyVersionId,
-        state: "answered",
-        validationCategory: "test_adaptive_question",
-        answeredAt: now,
-        createdAt: now,
-      });
-      const answerId = await ctx.db.insert("intakeAnswerVersions", {
-        eventId: draft.eventId,
-        teamId: draft.teamId,
-        draftId: draft._id,
-        promptKey: "introduction_follow_up_3",
-        generatedQuestionId: questionId,
-        answerVersion: 1,
-        value: "It coordinates the handoff and confirms that somebody actually responded.",
-        status: "active",
-        writtenByMembershipId: fixture.membershipId,
-        writtenAt: now,
-        clientOperationId: "intake-adaptive-answer-fixture",
-      });
-      return { answerId, questionId };
-    });
+    const adaptiveFixture = await answerAdaptiveFallback(
+      3,
+      "It coordinates the handoff and confirms that somebody actually responded.",
+      "intake-adaptive-answer-fixture",
+    );
+    await answerAdaptiveFallback(
+      4,
+      "The prototype should prove that a request reaches the right owner and gets a visible update.",
+      "intake-second-adaptive-answer-fixture",
+    );
     const reviewBeforeAnswerEdit = await participant.query(api.intake.current, {
       eventSlug: fixture.eventSlug,
     });
@@ -499,8 +500,29 @@ describe("participant intake lifecycle", () => {
     });
     await backend.mutation(internal.intelligence.beginIntakeInterpretation, {
       draftId: savedIdea.draftId,
-      providerAvailable: false,
+      provider: { kind: "unavailable", reason: "api_key_not_configured" },
     });
+    const regeneratedThird = await participant.query(api.intake.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    const regeneratedThirdQuestion = regeneratedThird?.draft?.followUps.find(
+      (question) => question.ordinal === 3 && question.state === "active",
+    );
+    if (!regeneratedThird?.draft || !regeneratedThirdQuestion) {
+      throw new Error("The revised idea did not create its first adaptive fallback.");
+    }
+    await participant.mutation(api.intake.respondToFollowUp, {
+      eventSlug: fixture.eventSlug,
+      questionId: regeneratedThirdQuestion.id,
+      answer: "It should make the request handoff visible to students and the responsible staff.",
+      expectedDraftVersion: regeneratedThird.draft.version,
+      clientOperationId: "intake-regenerated-third-answer",
+    });
+    await answerAdaptiveFallback(
+      4,
+      "The prototype should prove that the handoff and completion update work end to end.",
+      "intake-regenerated-fourth-answer",
+    );
     const reviewAfterIdeaRegeneration = await participant.query(api.intake.current, {
       eventSlug: fixture.eventSlug,
     });
@@ -510,13 +532,16 @@ describe("participant intake lifecycle", () => {
     expect(reviewAfterIdeaRegeneration.draft).toMatchObject({
       stage: "review",
       initialIdea: ideaAfterFixedAnswers,
-      followUps: questionIdsBeforeAnswerEdit.map((id, index) => ({
+    });
+    expect(reviewAfterIdeaRegeneration.draft.followUps).toHaveLength(4);
+    expect(reviewAfterIdeaRegeneration.draft.followUps.slice(0, 2)).toMatchObject(
+      questionIdsBeforeAnswerEdit.map((id, index) => ({
         id,
         source: "fixed",
         state: "answered",
         answer: answersBeforeIdeaEdit[index],
       })),
-    });
+    );
     await participant.mutation(api.intake.reviseFollowUp, {
       eventSlug: fixture.eventSlug,
       questionId: firstAnsweredQuestion.id,
@@ -526,22 +551,40 @@ describe("participant intake lifecycle", () => {
     });
     await backend.mutation(internal.intelligence.beginIntakeInterpretation, {
       draftId: savedIdea.draftId,
-      providerAvailable: false,
+      provider: { kind: "unavailable", reason: "api_key_not_configured" },
     });
+    const revisedThird = await participant.query(api.intake.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    const revisedThirdQuestion = revisedThird?.draft?.followUps.find(
+      (question) => question.ordinal === 3 && question.state === "active",
+    );
+    if (!revisedThird?.draft || !revisedThirdQuestion) {
+      throw new Error("The revised answer did not create its first adaptive fallback.");
+    }
+    await participant.mutation(api.intake.respondToFollowUp, {
+      eventSlug: fixture.eventSlug,
+      questionId: revisedThirdQuestion.id,
+      answer: "It should help students with mobility requests reach the correct staff owner.",
+      expectedDraftVersion: revisedThird.draft.version,
+      clientOperationId: "intake-answer-revision-third-answer",
+    });
+    await answerAdaptiveFallback(
+      4,
+      "The prototype should prove that mobility requests receive a visible completion update.",
+      "intake-answer-revision-fourth-answer",
+    );
     const reviewAfterAnswerEdit = await participant.query(api.intake.current, {
       eventSlug: fixture.eventSlug,
     });
     if (!reviewAfterAnswerEdit?.draft) {
       throw new Error("The revised intake did not return to review.");
     }
-    await expect(participant.query(api.intake.current, {
-      eventSlug: fixture.eventSlug,
-    })).resolves.toMatchObject({
-      draft: {
-        stage: "review",
-        followUps: questionIdsBeforeAnswerEdit.map((id) => ({ id })),
-      },
-    });
+    expect(reviewAfterAnswerEdit.draft.stage).toBe("review");
+    expect(reviewAfterAnswerEdit.draft.followUps).toHaveLength(4);
+    expect(reviewAfterAnswerEdit.draft.followUps.slice(0, 2)).toMatchObject(
+      questionIdsBeforeAnswerEdit.map((id) => ({ id })),
+    );
     const additionalInformation =
       "Our working notes and demo links are at https://example.com/accessibility-demo.";
     await expect(participant.mutation(api.intake.saveAdditionalInformation, {
@@ -551,6 +594,11 @@ describe("participant intake lifecycle", () => {
       expectedDraftVersion: reviewAfterAnswerEdit.draft.version,
       clientOperationId: "intake-additional-information-too-long",
     })).rejects.toThrow("at most 4000 characters");
+    const unacknowledgedPreview = await participant.query(api.intake.submissionPreview, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(unacknowledgedPreview?.freshnessAttested).toBe(false);
+    expect(unacknowledgedPreview?.blockers).not.toContain("Accept the fresh-project rule.");
     const freshness = await participant.mutation(api.intake.setFreshnessAttestation, {
       eventSlug: fixture.eventSlug,
       accepted: true,
@@ -655,7 +703,7 @@ describe("participant intake lifecycle", () => {
       ],
       blockers: [],
     });
-    expect(preview.followUps).toHaveLength(2);
+    expect(preview.followUps).toHaveLength(4);
 
     const submitRequest = {
       eventSlug: fixture.eventSlug,

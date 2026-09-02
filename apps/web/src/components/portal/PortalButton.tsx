@@ -15,6 +15,8 @@ const sizes = {
   md: 'rounded-btn px-9 py-3.5 text-[15px] tracking-[.02em]',
   sm: 'rounded-btn px-8 py-[11px] text-sm tracking-[.03em]',
   xs: 'rounded-btn-sm px-[18px] py-2 text-[11.5px] tracking-[.01em]',
+  /* A square the height of a portal input, for a lone glyph. */
+  icon: 'size-[45px] rounded-btn-sm p-0',
 } as const
 
 export function PortalButton({
@@ -31,10 +33,46 @@ export function PortalButton({
   return (
     <button
       {...props}
-      className={`inline-flex items-center justify-center gap-2.5 font-ui font-semibold transition-[background,color] duration-250 disabled:cursor-not-allowed ${variants[variant]} ${sizes[size]} ${className}`}
+      className={`inline-flex items-center justify-center gap-2.5 font-ui font-semibold transition-[background,color] duration-250 disabled:cursor-not-allowed motion-safe:disabled:hover:animate-shake ${variants[variant]} ${sizes[size]} ${className}`}
     >
       {children}
     </button>
+  )
+}
+
+/**
+ * The compact confirm beside an inline field: a tick in a square the height
+ * of the input, so a short row keeps its room for typing. `label` names the
+ * action for assistive tech and the tooltip, since the tick says nothing.
+ */
+export function PortalTickButton({
+  label,
+  className = '',
+  ...props
+}: Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children'> & { label: string }) {
+  return (
+    <PortalButton
+      {...props}
+      size="icon"
+      aria-label={label}
+      title={label}
+      className={`flex-none ${className}`}
+    >
+      <svg
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="shrink-0"
+        aria-hidden
+      >
+        <path d="m5 12.5 4.5 4.5L19 7" />
+      </svg>
+    </PortalButton>
   )
 }
 
@@ -47,7 +85,7 @@ export function PortalTextButton({
   return (
     <button
       {...props}
-      className={`rounded-sm text-[12.5px] text-fg/55 transition-colors hover:text-fg disabled:cursor-not-allowed disabled:opacity-50 ${className}`}
+      className={`rounded-sm text-[12.5px] text-fg/55 transition-colors hover:text-fg disabled:cursor-not-allowed disabled:opacity-50 motion-safe:disabled:hover:animate-shake ${className}`}
     >
       {children}
     </button>

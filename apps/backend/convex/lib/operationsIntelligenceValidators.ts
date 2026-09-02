@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { operationsIntelligenceProtocolVersion } from "@code2create/domain";
 
 export const operationsHealthSignalKey = v.union(
   v.literal("critical_incidents"),
@@ -120,7 +121,7 @@ export const operationsBriefPriority = v.object({
 });
 
 const operationsIntelligenceCallbackBase = {
-  protocolVersion: v.literal("2026-08-13"),
+  protocolVersion: v.literal(operationsIntelligenceProtocolVersion),
   briefId: v.string(),
   sourceChecksum: v.string(),
   agentVersion: v.string(),

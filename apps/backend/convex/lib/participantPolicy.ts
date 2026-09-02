@@ -63,7 +63,7 @@ export const defaultParticipantPolicy: ParticipantPolicy = {
     "We use these details to run Code2Create.",
   projectTextNotice:
     "We may process submissions with AI tools to help us review.",
-  privacyNoticeUrl: "https://code2create.in/privacy",
+  privacyNoticeUrl: "https://c2c.acmvit.in/privacy",
   freshProjectAttestation,
   finalSubmissionWarning:
     "You can edit the team and proposal until the final deadline.",

@@ -498,6 +498,7 @@ async function seedFixture(backend: BackendTest, slug: string) {
       submittedProjectVersionId: projectId,
       admissionPolicyVersionId: admissionPolicyId,
       state: "needs_information",
+      decisionStage: "unrecorded",
       experienceBand: "mixed_or_external",
       humanDecision: "needs_information",
       humanReasonCode: "clarification_needed",

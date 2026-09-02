@@ -956,7 +956,7 @@ function admissionProposalBody(fixture: Fixture) {
     proposalKey: `${testConversationId}:admission-minimum-1`,
     conversationId: testConversationId,
     eventSlug: fixture.eventSlug,
-    agentVersion: "operations-copilot-v5",
+    agentVersion: "operations-copilot-v1",
     model: "cloudflare/test-model",
     statement: "Publish an admission policy that requires one completed human review.",
     reasoning:

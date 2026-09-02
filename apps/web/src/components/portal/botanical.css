@@ -1,17 +1,9 @@
-/* Plant + blossom styling, ported from apps/landing (src/styles/botanical.css).
-   Two deliberate divergences for the portal loader:
-   - .plant-shell is layout-neutral here (the landing pins it into its scene);
-     .tree-loader-stage owns the box and the theme grade.
-   - the ground shadow reads a --scene-* token so daybreak can soften it. */
 .plant-shell {
   position: relative;
   width: 100%;
   height: 100%;
 }
 
-/* The static plate under the blossoms. Kept out of the animated SVG so the
-   bloom's per-frame repaints never touch it; stacked between the pot shadow
-   and the vectors, exactly where the in-SVG <image> used to paint. */
 .plant-base {
   position: absolute;
   z-index: 2;

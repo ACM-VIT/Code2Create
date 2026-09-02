@@ -1,8 +1,8 @@
 import { safePolygon, useFloating, useHover, useInteractions } from '@floating-ui/react'
-import { SignOutCircle } from './SignOutCircle'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Petal } from './Petal'
+import { usePortalSignOut } from './portalSceneContext'
 import { Flower } from './FlowerAvatar'
 import { assignFlowerVariants } from './flowerVariants'
 
@@ -70,13 +70,11 @@ export function TeamCluster({
   members,
   editable = true,
   canManage = false,
-  onSignOut,
 }: {
   team: ClusterTeam
   members: readonly ClusterMember[]
   editable?: boolean
   canManage?: boolean
-  onSignOut?: () => void
 }) {
   // Hover previews the roster; a click pins it, while keyboard focus keeps the
   // whole cluster open for tabbing. Keeping those channels separate prevents a
@@ -151,10 +149,6 @@ export function TeamCluster({
             {team.name}
           </p>
         </button>
-        {onSignOut ? (
-          /* Sign-out rides the stack as one more circle — an exit door, not a person. */
-          <SignOutCircle onSignOut={onSignOut} className="-ml-2 lg:-ml-2.5" />
-        ) : null}
       </div>
 
       {open ? (
@@ -214,8 +208,9 @@ export function TeamRosterPanel({
   const flowerVariants = assignFlowerVariants(
     members.filter((member) => member.role !== 'lead').map((member) => member.membershipId),
   )
+  const onSignOut = usePortalSignOut()
   return (
-    <div className="rounded-petal-sm border border-rose-light/60 bg-[image:var(--roster-bg)] px-5 py-4 text-left shadow-[0_30px_60px_-18px_var(--shade-2)] backdrop-blur-lg">
+    <div className="rounded-petal-sm glass-menu px-5 py-4 text-left">
       <div className="mb-3 flex items-baseline justify-between">
         <span className="font-ui font-normal text-base text-rose-light">{team.name}</span>
         <span className="text-[10.5px] font-semibold tracking-[.08em] text-fg/50">
@@ -267,11 +262,31 @@ export function TeamRosterPanel({
         <Link
           to="/team"
           viewTransition
-          className="flex-none text-[11.5px] text-fg/55 transition-colors hover:text-rose-light"
+          className="flex-none text-[11.5px] text-fg/55 no-underline transition-colors hover:text-rose-light"
         >
-          {canManage && editable ? 'manage team' : 'view team'} →
+          {canManage && editable ? 'manage team' : 'view team'}
         </Link>
       </div>
+      {onSignOut ? (
+        /* The account row: everything else, and the way out — here, under the
+           avatars, instead of as more circles in the header. */
+        <div className="mt-2.5 flex items-center justify-between gap-3 border-t border-petal-line pt-2.5 text-[11.5px]">
+          <Link
+            to="/more"
+            viewTransition
+            className="text-fg/55 no-underline transition-colors hover:text-rose-light"
+          >
+            more
+          </Link>
+          <button
+            type="button"
+            onClick={onSignOut}
+            className="text-fg/45 transition-colors hover:text-rose-light"
+          >
+            sign out
+          </button>
+        </div>
+      ) : null}
     </div>
   )
 }

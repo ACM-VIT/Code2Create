@@ -8,10 +8,6 @@ import {
   type ReactNode,
 } from 'react'
 
-// A hand-written port of sona-ui's accordion (sona-ui.vercel.app): the same
-// composition, the same panel transition, and the same plus-to-minus mark,
-// rebuilt on portal tokens with local state rather than Base UI + cva.
-
 export type AccordionVariant = 'default' | 'outlined' | 'splitted'
 
 const wrapperVariants: Record<AccordionVariant, string> = {
@@ -165,7 +161,7 @@ export function AccordionItemTrigger({
         disabled={disabled}
         onClick={toggle}
         data-panel-open={open ? '' : undefined}
-        className={`group block w-full min-w-0 cursor-pointer rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-light/60 disabled:cursor-not-allowed disabled:opacity-50 ${className}`}
+        className={`group block w-full min-w-0 cursor-pointer rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-light/60 disabled:cursor-not-allowed motion-safe:disabled:hover:animate-shake disabled:opacity-50 ${className}`}
       >
         {children}
       </button>

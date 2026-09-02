@@ -1,5 +1,6 @@
 import { convexTest, type TestConvex } from "convex-test";
 import { describe, expect, test } from "vitest";
+import { defaultParticipantEmailTemplates } from "@code2create/domain";
 
 import { internal } from "./_generated/api.js";
 import {
@@ -46,7 +47,7 @@ describe("communications policy lifecycle", () => {
     });
   });
 
-  test("rejects non-Discord destinations and outcome-bearing email wording", () => {
+  test("rejects non-Discord destinations and unsafe email HTML", () => {
     const startsAt = Date.UTC(2027, 7, 8, 3, 30);
     const endsAt = startsAt + 48 * 60 * 60 * 1_000;
     expect(() => normalizeCommunicationsPolicy({
@@ -55,8 +56,11 @@ describe("communications policy lifecycle", () => {
     })).toThrow("must use discord.gg");
     expect(() => normalizeCommunicationsPolicy({
       ...policy(startsAt, endsAt, "initial"),
-      notificationSubject: "Your team was accepted",
-    })).toThrow("must remain generic");
+      emailTemplates: policy(startsAt, endsAt, "initial").emailTemplates.map((template) =>
+        template.templateKey === "accept"
+          ? { ...template, html: "<script>alert('no')</script>" }
+          : template),
+    })).toThrow("unsafe HTML");
   });
 
   test("allows one competing draft from the same observed state", async () => {
@@ -97,6 +101,7 @@ describe("communications policy lifecycle", () => {
 
     await backend.run((ctx) => ctx.db.patch(fixture.applicationId, {
       state: "accepted",
+      decisionStage: "released",
       humanDecision: "accept",
       humanReasonCode: "reviewed_accept",
       decidedByPersonId: fixture.personId,
@@ -109,11 +114,12 @@ describe("communications policy lifecycle", () => {
       teamId: fixture.teamId,
       lockedRosterSnapshotId: fixture.lockedRosterSnapshotId,
       lockedMemberCount: 1,
-    templateKey: "accept",
-    applicationVersion: 2,
-    now: fixture.now + 1,
-    schedule: false,
-  }));
+      communicationsPolicyVersionId: fixture.communicationsPolicyId,
+      templateKey: "accept",
+      applicationVersion: 2,
+      now: fixture.now + 1,
+      schedule: false,
+    }));
     const deliveryId = await runQueuedNotificationBatch(backend, fixture);
 
     const draft = await backend.run((ctx) => saveCommunicationsPolicyDraft(ctx, {
@@ -153,8 +159,10 @@ describe("communications policy lifecycle", () => {
       fixture.communicationsPolicyId,
     );
     expect(claim).toMatchObject({
-      notificationSubject: "Code2Create initial application update",
-      notificationIntro: "There is a generic initial update in your Code2Create portal.",
+      subjectTemplate: "Code2Create initial accept update",
+      textTemplate: "The initial accept update for {{team_name}} is ready: {{portal_url}}",
+      participantName: "Communications fixture",
+      teamName: "Quiet team",
     });
   });
 
@@ -186,7 +194,7 @@ describe("communications policy lifecycle", () => {
     expect(delivery?.nextAttemptAt).toBeUndefined();
   });
 
-  test("supersedes a queued notice when the application advances", async () => {
+  test("keeps a released result email valid when an accepted application advances to an offer", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedFixture(backend, "advanced-application");
     const deliveryId = await queueAcceptedNotification(backend, fixture);
@@ -199,15 +207,17 @@ describe("communications policy lifecycle", () => {
 
     const claim = await backend.mutation(internal.participantNotificationState.claimDelivery, {
       deliveryId,
-      attemptId: "must-not-send-stale-acceptance",
+      attemptId: "send-released-acceptance",
     });
     const delivery = await backend.run((ctx) => ctx.db.get(deliveryId));
 
-    expect(claim).toBeNull();
+    expect(claim).toMatchObject({
+      deliveryId,
+      subjectTemplate: "Code2Create initial accept update",
+    });
     expect(delivery).toMatchObject({
-      state: "superseded",
-      attemptCount: 0,
-      providerErrorCode: "application_state_changed",
+      state: "sending",
+      attemptCount: 1,
     });
   });
 
@@ -318,8 +328,11 @@ function policy(startsAt: number, endsAt: number, label: string): Communications
     discordUrl: `https://discord.gg/${label}-fixture`,
     discordLabel: `Open ${label} Discord`,
     notificationProvider: "cloudflare_email",
-    notificationSubject: `Code2Create ${label} application update`,
-    notificationIntro: `There is a generic ${label} update in your Code2Create portal.`,
+    emailTemplates: defaultParticipantEmailTemplates().map((template) => ({
+      ...template,
+      subject: `Code2Create ${label} ${template.templateKey} update`,
+      text: `The ${label} ${template.templateKey} update for {{team_name}} is ready: {{portal_url}}`,
+    })),
   };
 }
 
@@ -333,6 +346,7 @@ async function queueAcceptedNotification(
 ) {
   await backend.run((ctx) => ctx.db.patch(fixture.applicationId, {
     state: "accepted",
+    decisionStage: "released",
     humanDecision: "accept",
     humanReasonCode: "reviewed_accept",
     decidedByPersonId: fixture.personId,
@@ -345,6 +359,7 @@ async function queueAcceptedNotification(
     teamId: fixture.teamId,
     lockedRosterSnapshotId: fixture.lockedRosterSnapshotId,
     lockedMemberCount: 1,
+    communicationsPolicyVersionId: fixture.communicationsPolicyId,
     templateKey: "accept",
     applicationVersion: 2,
     now: fixture.now + 1,
@@ -541,6 +556,7 @@ async function seedFixture(backend: BackendTest, slug: string) {
       submittedProjectVersionId: projectId,
       admissionPolicyVersionId: admissionPolicyId,
       state: "submitted",
+      decisionStage: "unrecorded",
       experienceBand: "mixed_or_external",
       assignedReviewCount: 0,
       completedReviewCount: 0,

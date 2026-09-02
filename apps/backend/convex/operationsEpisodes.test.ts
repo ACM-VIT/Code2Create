@@ -261,7 +261,7 @@ describe("operations intelligence episodes", () => {
       hypotheses: [leadingHypothesis],
       predictions: [],
       counterfactuals: [],
-      agentVersion: "operations-episode-v2",
+      agentVersion: "operations-episode-v1",
       model: "openai/gpt-5-mini",
       completedAt,
     };
@@ -309,7 +309,7 @@ describe("operations intelligence episodes", () => {
     })).toBe("accepted");
     expect(await backend.run((ctx) => ctx.db.get(episode._id))).toMatchObject({
       analysisState: { kind: "ready", revision: episode.revision },
-      analysisAgentVersion: "operations-episode-v2",
+      analysisAgentVersion: "operations-episode-v1",
     });
   });
 });

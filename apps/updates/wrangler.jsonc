@@ -23,6 +23,12 @@
     },
     "production": {
       "name": "code2create-updates",
+      "routes": [
+        {
+          "pattern": "updates.c2c.sh",
+          "custom_domain": true
+        }
+      ],
       "vars": {
         "UPDATE_CHANNEL": "production"
       },

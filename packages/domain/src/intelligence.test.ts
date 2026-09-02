@@ -141,7 +141,7 @@ test("stream tickets have one canonical signed representation", () => {
 
   assert.equal(
     serialized,
-    '{"protocolVersion":"2026-08-13","eventSlug":"code2create-7","instanceId":"copilot:code2create-7:cv_abc","agentName":"operations-copilot","capability":"read","issuedAt":1000,"expiresAt":61000,"nonce":"nonce_123","conversationId":"cv_abc"}',
+    '{"protocolVersion":"operations-intelligence-v1","eventSlug":"code2create-7","instanceId":"copilot:code2create-7:cv_abc","agentName":"operations-copilot","capability":"read","issuedAt":1000,"expiresAt":61000,"nonce":"nonce_123","conversationId":"cv_abc"}',
   );
   assert.equal(
     Buffer.from(encodeOperationsIntelligenceStreamTicket(ticket), "base64url").toString("utf8"),
@@ -178,7 +178,7 @@ test("brief tickets cannot carry copilot conversation coordinates", () => {
 test("the copilot release uses one generalized command protocol without per-request skills", () => {
   const copilot = intelligenceAgentDefinition("operations-copilot");
   const systemPrompt = copilot.prompts.find((prompt) => prompt.name === "System prompt")?.text;
-  assert.equal(copilot.version, "operations-copilot-v5");
+  assert.equal(copilot.version, "operations-copilot-v1");
   assert.ok(systemPrompt);
   assert.match(systemPrompt, /first call inspect_event_commands/u);
   assert.match(systemPrompt, /only write is propose_event_command/u);

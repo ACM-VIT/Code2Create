@@ -2,10 +2,11 @@ import betterAuthSchema from "../node_modules/@convex-dev/better-auth/src/compon
 import { convexTest, type TestConvex } from "convex-test";
 import { describe, expect, test } from "vitest";
 
-import { api, components } from "./_generated/api";
+import { api, components, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { insertPermissionGrant } from "./lib/permissions";
 import schema from "./schema";
+import { appendParticipantAssistantSupportMessage } from "./support";
 
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
 const betterAuthModules = import.meta.glob(
@@ -362,6 +363,117 @@ describe("support projections", () => {
       }),
     ).resolves.toMatchObject({ supportCase: { version: 4 } });
   });
+
+  test("the Guide uses one human conversation and reopens it when the participant returns", async () => {
+    const backend = seededBackend();
+    const fixture = await seedOperator(backend);
+    const threadId = `guide-${crypto.randomUUID()}`;
+    await backend.run(async (ctx) => {
+      await ctx.db.insert("participantAssistantThreads", {
+        eventId: fixture.eventId,
+        personId: fixture.personId,
+        threadId,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+
+    const first = await backend.mutation(
+      internal.participantAssistant.escalateToHuman,
+      {
+        threadId,
+        category: "identity",
+        summary: "The participant cannot correct the name on their event profile.",
+        transcript:
+          "Participant: My name is wrong on my pass.\n\nGuide: I can bring in the event team to correct it.",
+      },
+    );
+    expect(first).toEqual({ status: "joined", state: "open" });
+    const second = await backend.mutation(
+      internal.participantAssistant.escalateToHuman,
+      {
+        threadId,
+        category: "identity",
+        summary: "The participant still needs the same profile correction.",
+        transcript: "Participant: Has someone seen this yet?",
+      },
+    );
+    expect(second).toEqual({ status: "already_joined", state: "open" });
+
+    const linked = await backend.run(async (ctx) => {
+      const conversation = await ctx.db
+        .query("participantAssistantThreads")
+        .withIndex("by_threadId", (index) => index.eq("threadId", threadId))
+        .unique();
+      const cases = await ctx.db
+        .query("supportCases")
+        .withIndex("by_event_reporter_updated", (index) =>
+          index
+            .eq("eventId", fixture.eventId)
+            .eq("reporterPersonId", fixture.personId),
+        )
+        .collect();
+      return { conversation, cases };
+    });
+    expect(linked.cases).toHaveLength(1);
+    const supportCaseId = linked.conversation?.supportCaseId;
+    if (supportCaseId === undefined) {
+      throw new Error("The Guide did not link the human support conversation.");
+    }
+
+    const operator = backend.withIdentity({
+      subject: fixture.authUserId,
+      sessionId: fixture.authSessionId,
+    });
+    await operator.mutation(api.support.updateStaff, {
+      eventSlug: fixture.eventSlug,
+      supportCaseId,
+      expectedVersion: 1,
+      nextState: "closed",
+      clearOwner: false,
+      publicNote: "We corrected the profile name.",
+      reason: "The participant profile now matches their identity document.",
+      clientOperationId: crypto.randomUUID(),
+    });
+    await backend.run((ctx) =>
+      appendParticipantAssistantSupportMessage(ctx, {
+        eventId: fixture.eventId,
+        personId: fixture.personId,
+        supportCaseId,
+        message: "The old spelling is still showing on my pass.",
+        now: Date.now(),
+      }),
+    );
+
+    await expect(
+      operator.query(api.support.detail, {
+        eventSlug: fixture.eventSlug,
+        supportCaseId,
+      }),
+    ).resolves.toMatchObject({
+      supportCase: {
+        state: "open",
+        version: 3,
+        awaitingStaffReply: true,
+      },
+      actions: expect.arrayContaining([
+        expect.objectContaining({
+          kind: "internal_note",
+          actorName: "Code2Create Guide",
+          body: expect.stringContaining("Conversation so far"),
+        }),
+        expect.objectContaining({
+          kind: "reporter_reply",
+          body: "The old spelling is still showing on my pass.",
+        }),
+        expect.objectContaining({
+          kind: "state_changed",
+          previousState: "closed",
+          nextState: "open",
+        }),
+      ]),
+    });
+  });
 });
 
 function seededBackend() {
@@ -428,6 +540,18 @@ async function seedOperator(backend: BackendTest) {
         reason: "Support projection test",
       });
     }
+    await insertPermissionGrant(ctx, {
+      eventId,
+      personId,
+      eventAccessSubjectId: subjectId,
+      permissionKey: "support.case.create",
+      scopeType: "self",
+      scopeId: subjectId,
+      sourceType: "manual",
+      sourceId: `${eventSlug}:create-self`,
+      grantedByPersonId: personId,
+      reason: "Support projection test",
+    });
     await insertPermissionGrant(ctx, {
       eventId,
       personId,

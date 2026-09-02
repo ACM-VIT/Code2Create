@@ -54,7 +54,6 @@ export function ClientObservabilityProvider({
     return (
       <>
         <LocalErrorBoundary>{children}</LocalErrorBoundary>
-        <ConnectivityNotice />
       </>
     )
   }
@@ -96,7 +95,6 @@ export function ClientObservabilityProvider({
         >
           {children}
         </PostHogErrorBoundary>
-        <ConnectivityNotice />
       </PostHogProvider>
     </ObservabilityContext.Provider>
   )
@@ -181,48 +179,6 @@ function ErrorFallback({ error }: { error: unknown }) {
         </button>
       </section>
     </main>
-  )
-}
-
-function ConnectivityNotice() {
-  const online = useOnlineStatus()
-  if (online) return null
-
-  return (
-    <div
-      role="status"
-      aria-label="Connection lost. Live updates will resume automatically."
-      title="Connection lost"
-      style={{
-        alignItems: 'center',
-        background: '#161512',
-        border: '1px solid rgb(240 238 232 / 18%)',
-        borderRadius: 999,
-        boxShadow: '0 6px 24px rgb(0 0 0 / 24%)',
-        color: '#f0eee8',
-        display: 'flex',
-        height: 34,
-        justifyContent: 'center',
-        position: 'fixed',
-        right: 14,
-        top: 14,
-        width: 34,
-        zIndex: 10000,
-      }}
-    >
-      <svg
-        aria-hidden="true"
-        fill="none"
-        height="19"
-        viewBox="0 0 24 24"
-        width="19"
-      >
-        <path d="M4.9 9.8a11.4 11.4 0 0 1 13.7-.5" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
-        <path d="M7.9 13.1a7.2 7.2 0 0 1 7.8-.7" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
-        <path d="M10.8 16.4a2.7 2.7 0 0 1 2.4-.1" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
-        <path d="M3 3l18 18" stroke="#ef6a5b" strokeLinecap="round" strokeWidth="2.1" />
-      </svg>
-    </div>
   )
 }
 

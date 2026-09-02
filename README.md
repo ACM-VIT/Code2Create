@@ -37,7 +37,7 @@ INITIAL_EVENT_SLUG=code2create-7
 
 Register `http://localhost:3211/api/auth/callback/google` as the Google OAuth redirect URI. Register `http://localhost:5180` and `http://localhost:5181` as browser origins.
 
-The mandatory SGLang onboarding step uses user authorization for the configured GitHub App. Give it **Starring: read and write**, set `GITHUB_APP_CLIENT_ID` and `GITHUB_APP_CLIENT_SECRET`, and register `http://localhost:5180/onboarding/github/callback` as the exact callback URL. Staging and production register the same path on their respective `PARTICIPANT_SITE_URL` origins. This short-lived participant authorization remains separate from the team-scoped App installation used later for repository evidence and does not require the App private key.
+The mandatory SGLang onboarding step uses a classic GitHub OAuth App with the `public_repo` scope. Set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`, and register `http://localhost:5180/onboarding/github/callback` as its exact callback URL. Use a separate OAuth App for each environment because GitHub OAuth Apps have one callback URL. After the participant connects GitHub, the backend stars SGLang and immediately revokes the OAuth grant. These credentials are separate from the read-only GitHub App used for team repository evidence.
 
 Start the ordinary product loop:
 

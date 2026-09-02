@@ -101,11 +101,11 @@ One active membership exists per event/person.
 
 ### `githubStarSetupIntents`
 
-One short-lived, participant-scoped GitHub OAuth attempt. It stores the event, membership, person, hashed state, encrypted PKCE verifier, exact redirect URI, status, claim lease, expiry, and completion or failure metadata. Raw OAuth state and tokens are never stored. A scheduled mutation expires unused attempts.
+One short-lived, participant-scoped classic GitHub OAuth App authorization attempt. It stores the event, membership, person, hashed state, encrypted PKCE verifier, exact redirect URI, status, claim lease, expiry, and completion or failure metadata. The callback must contain the matching state and OAuth code. Raw OAuth state and tokens are never stored. A scheduled mutation expires unused attempts.
 
 ### `githubStarAuthorizations`
 
-One temporary GitHub user authorization for a participant who connected GitHub but has not completed the star. It stores the event, membership, person, GitHub user ID/login, encrypted access token, hard expiry, and an optimistic provider-call lease. One GitHub user can be active for only one membership in an event. The record is deleted immediately after successful completion or when its authorization expires.
+One temporary GitHub OAuth authorization for a participant who connected GitHub but has not completed the star. It stores the event, membership, person, GitHub user ID/login, encrypted access token, hard expiry, and an optimistic provider-call lease. One GitHub user can be active for only one membership in an event. After the star succeeds, the provider grant is revoked and the record is deleted immediately.
 
 ### `githubStarCompletions`
 
@@ -382,9 +382,9 @@ One immutable version owns the complete pre-event introduction contract. These v
 
 - `eventId`, monotonic version, and `status: draft | published | superseded | retired`;
 - fixed opening **Hello.**, fixed first prompt **What is your project about?**, concise help text, and initial-answer limits;
-- follow-up answer limits, two required fixed questions, zero-to-two generated questions, and the generated-question length limit;
+- follow-up answer limits, two required fixed questions, two required generated-or-fallback questions, and the generated-question length limit;
 - unique allowed purpose keys from `user | problem | experience | event_goal | tradeoff | risk`;
-- exactly two ordered fixed questions with text, purpose, and `short | medium` answer length;
+- ordered question definitions with text, purpose, and `short | medium` answer length: one fixed definition for ordinals one and two, then at least two reviewed variants for each of fallback ordinals three and four;
 - required prohibited wording plus optional additional blocked terms;
 - zero to twenty reviewed common-idea patterns `{ stableKey, description, supportiveQuestionGuidance }`;
 - model contract `{ mode: deterministic }` or `{ mode: assisted, modelId, systemInstruction, instructionVersion, schemaVersion, redactionVersion, questionPolicyVersion, evaluationSuiteVersion }`;
@@ -392,7 +392,7 @@ One immutable version owns the complete pre-event introduction contract. These v
 
 `events.publishedIntakePolicyId` points to the one published version. At most one draft exists. Saving a changed complete draft retires the previous draft; publishing requires that exact draft ID and checksum, the current event version, a recent Google session, and a reason. It marks the old published row `superseded` and moves the event pointer in the same transaction. A participant draft pins the published ID when the first idea is saved and never adopts a later publication.
 
-The normalizer enforces the exact opening copy, numeric bounds, two-fixed-plus-two-optional contract, unique purposes and blocked terms, required safety terms, contiguous fixed-question ordinals, single-question wording, allowed purposes, unique pattern keys, and bounded assisted-model settings. Generated output must reference active answer versions and provide one to three grounding terms copied from those answers. At least one grounding term must appear in the question. Common-idea patterns contain no prior participant text, institution, outcome, embedding, or copied summary. They can guide a supportive question but cannot become an admission criterion.
+The normalizer enforces the exact opening copy, numeric bounds, two-fixed-plus-two-generated-or-fallback contract, unique purposes and blocked terms, required safety terms, required variant counts, unique single-question wording, allowed purposes, unique pattern keys, and bounded assisted-model settings. The runtime hashes the team ID with the target ordinal to choose a stable fallback variant; the selected immutable question is then shared by every teammate. Generated output must reference active answer versions and provide one to three grounding terms copied from those answers. At least one grounding term must appear in the question. Common-idea patterns contain no prior participant text, institution, outcome, embedding, or copied summary. They can guide a supportive question but cannot become an admission criterion.
 
 ### `noveltyCorpusVersions`
 
@@ -427,7 +427,7 @@ A corpus contains 5 to 300 entries. Source keys are unique. Source years cannot 
 
 The table stores no raw idea. One team has at most one current row for editing and one current durable row for saved or submitted text. Each row is the complete idea; the provider request, response, and retrieval path contain no segment embeddings. Editing rows expire after the short live-edit window. If retrieval sees both rows, the durable row is authoritative and the editing row does not add or replace that team's density contribution. An authoritative idea change deletes all older rows and makes running preview requests stale in the same transaction. Provider failure after that transaction leaves no current replacement row and therefore cannot preserve an obsolete idea in density results.
 
-Saved and submitted replacement indexing uses the rate-limiter component under a background-only sharded reservation budget. The default sustained budget is 300 embeddings per minute and is deployment-configurable through `NOVELTY_INDEX_REQUESTS_PER_MINUTE`; at most 1,500 future tokens can be reserved. A delayed action carries only record IDs, fingerprints, timestamps, retry count, and reservation state. It reloads the authoritative draft or submitted version before external work. Provider failure gets no more than two retries, and each retry reserves new background capacity. Participant preview capacity and proposal writes do not wait for this drain.
+Saved-draft replacement indexing is optional background work. A content change schedules it at a deterministic point in the next five minutes. It uses the sharded background budget without reserving capacity, so a burst can shed draft indexing instead of creating a future queue. Submitted replacement indexing uses the same sustained budget with reservations and drains completely; at most 1,500 future tokens can be reserved. The default is 300 embeddings per minute and is deployment-configurable through `NOVELTY_INDEX_REQUESTS_PER_MINUTE`. Each action carries only authoritative record IDs, fingerprints, timestamps, retry count, and, for submitted work, reservation state. It reloads the current draft or submitted version before provider work. Provider failure gets no more than two retries. Participant preview capacity and proposal writes never wait for either path.
 
 ### `noveltyPreviewRequests`
 
@@ -478,7 +478,7 @@ Participant, admission, intake, novelty, phase, checkpoint, communications, and 
 - checkpoint validation owns its three ordered definitions and phase references; and
 - admission validation owns complete band guidance, human-review coverage, capacity, and human reason coverage; the platform owns the paired model release.
 
-The release suite covers both fixed questions, no generated question, one or two generated questions, invalid/refused/timed-out model output, grounding rejection, answer revision and regeneration, late completion, and publication while participants are active. A referenced evaluation-suite version is audit metadata; the application must not claim that publication ran an external suite unless the release record proves it.
+The release suite covers both fixed questions, two successful generated questions, fallback in either or both generated slots, invalid/refused/timed-out model output, grounding rejection, answer revision and regeneration, queue delay, competing deadline settlement, late completion, and publication while participants are active. A referenced evaluation-suite version is audit metadata; the application must not claim that publication ran an external suite unless the release record proves it.
 
 Admission publication treats the human policy and its model as one release. Human review remains available when the configured provider later fails.
 
@@ -605,7 +605,7 @@ Append-only participant-written answers.
 - client operation ID;
 - status `active | superseded | inactive_for_route`.
 
-The initial idea uses `promptKey: initial_idea`; follow-ups use `introduction_follow_up_1` and `_2`. One active answer exists per draft/prompt and per generated question. Editing creates a new version. Replacing a route marks dependent active answers `inactive_for_route` and never deletes history.
+The initial idea uses `promptKey: initial_idea`; follow-ups use `introduction_follow_up_1` through `_4`. One active answer exists per draft/prompt and per generated question. Editing creates a new version. Replacing a route marks dependent active answers `inactive_for_route` and never deletes history.
 
 ### `intakeGeneratedQuestions`
 
@@ -615,7 +615,7 @@ Immutable model-written follow-ups and their validation outcome.
 - question text, `purposeKey`, and `answerLength: short | medium`;
 - exact source answer-version IDs;
 - pinned intake-policy-version ID and optional matched published idea-pattern key;
-- `source: model | fallback`;
+- `source: fixed | model | fallback`;
 - `state: active | answered | replaced | stale`;
 - deterministic validation result and non-sensitive rejection category;
 - interpretation ID and created time.
@@ -2903,7 +2903,7 @@ Attendance QR tokens expire quickly. Encrypted scanner queues expire after their
 - One team/checkpoint key has at most one immutable submission. It records the accepted schedule/window, due/close boundary, timing, source draft version, and actor.
 - Participant checkpoint submission never creates or changes queue, team-round, review, evidence-provider, evaluation, or score state. Late or missing is context, not an automatic penalty.
 - A review evidence transaction pins only a checkpoint submission that already existed at its capture time; reviewer reads and verified exports follow that exact ID after later team or provider changes.
-- Every introduction asks two published fixed questions. It then asks at most two validated, grounded generated questions and can terminate without either. Later checkpoints use their separately published fixed questions and do not reuse this route.
+- Every introduction asks two published fixed questions. It then fills exactly two more required slots with validated, grounded generated questions or their published fallbacks. Later checkpoints use their separately published fixed questions and do not reuse this route.
 - A novelty corpus publishes only from one complete 5–300-entry ready set whose embeddings are finite native 1,536-value `text-embedding-3-small` outputs. Draft, entry replacement, publication, and read fail independently without their exact event grants.
 - A novelty request stores no raw idea, performs no provider call for sensitive-looking text, applies the event's exact team rate limit, and returns only one whole-number result.
 - A repeated preview ID cannot create another row or name different text. Provider failure leaves intake usable. A completion attaches only while the saved idea fingerprint and pinned corpus match.

@@ -1,7 +1,6 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
-import { loadPublishedCommunicationsPolicy } from "./communicationsPolicy";
 import { appendParticipantDeliveryReadFactById } from "./operationsAutonomyReadFacts/participantDeliveries";
 
 type AdmissionDecision = NonNullable<Doc<"applications">["humanDecision"]>;
@@ -18,17 +17,28 @@ export function applicationMatchesNotification(
 ): boolean {
   if (
     application.eventId !== delivery.eventId ||
-    application.teamId !== delivery.teamId ||
-    application.version !== delivery.applicationVersion
+    application.teamId !== delivery.teamId
   ) {
     return false;
   }
+  const isReleasedResult =
+    delivery.templateKey === "accept" ||
+    delivery.templateKey === "waitlist" ||
+    delivery.templateKey === "decline";
+  if (!isReleasedResult && application.version !== delivery.applicationVersion) return false;
   switch (delivery.templateKey) {
     case "accept":
     case "waitlist":
     case "decline":
+      return (
+        application.decisionStage === "released" &&
+        application.humanDecision === delivery.templateKey
+      );
     case "needs_information":
-      return application.humanDecision === delivery.templateKey;
+      return (
+        application.state === "needs_information" &&
+        application.humanDecision === "needs_information"
+      );
     case "offer":
       return application.state === "offer_sent";
     case "offer_confirmed":
@@ -48,15 +58,21 @@ export async function enqueueApplicationNotifications(
     teamId: Id<"teams">;
     lockedRosterSnapshotId: Id<"teamSubmissionAttempts">;
     lockedMemberCount: number;
+    communicationsPolicyVersionId: Id<"communicationsPolicyVersions">;
     templateKey: ParticipantNotificationTemplate;
     applicationVersion: number;
     now: number;
     schedule?: false;
   },
 ) {
-  const event = await ctx.db.get(args.eventId);
-  if (!event) throw new Error("Participant notification event is missing.");
-  const { policy: communicationsPolicy } = await loadPublishedCommunicationsPolicy(ctx, event);
+  const communicationsPolicy = await ctx.db.get(args.communicationsPolicyVersionId);
+  if (
+    !communicationsPolicy ||
+    communicationsPolicy.eventId !== args.eventId ||
+    (communicationsPolicy.status !== "published" && communicationsPolicy.status !== "superseded")
+  ) {
+    throw new Error("Participant notification communications policy is invalid.");
+  }
   const snapshot = await ctx.db.get(args.lockedRosterSnapshotId);
   if (
     !snapshot ||
@@ -208,6 +224,7 @@ export async function enqueueAdmissionDecisionNotifications(
     teamId: Id<"teams">;
     lockedRosterSnapshotId: Id<"teamSubmissionAttempts">;
     lockedMemberCount: number;
+    communicationsPolicyVersionId: Id<"communicationsPolicyVersions">;
     decision: AdmissionDecision;
     applicationVersion: number;
     now: number;

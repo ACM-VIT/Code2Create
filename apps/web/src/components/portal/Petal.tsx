@@ -2,7 +2,6 @@ const PETAL_PATH = 'M12 2c5 4 5.5 10 .5 14.5l-.5.5-.5-.5C6.5 12 7 6 12 2z'
 
 type PetalState = 'done' | 'current' | 'todo'
 
-/** The sakura petal glyph — the portal's progress and accent mark. */
 export function Petal({ size = 14, state = 'done' }: { size?: number; state?: PetalState }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden>

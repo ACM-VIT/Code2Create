@@ -66,22 +66,24 @@ const previewCounts = v.object({
   pending: v.number(),
   identityConflicts: v.number(),
   superseded: v.number(),
-  alreadyOnTeam: v.number(),
+  alreadyAssigned: v.number(),
+  choiceRequired: v.number(),
   waitingForLead: v.number(),
 });
 
 const entryCounts = v.object({
   waiting: v.number(),
+  awaitingChoice: v.number(),
   identityConflicts: v.number(),
   claimed: v.number(),
-  skipped: v.number(),
   total: v.number(),
 });
 
 const previewRowOutcome = v.union(
   v.literal("pending"),
   v.literal("identity_conflict"),
-  v.literal("already_on_team"),
+  v.literal("already_assigned"),
+  v.literal("choice_required"),
   v.literal("waiting_for_lead"),
 );
 
@@ -118,7 +120,12 @@ type NormalizedImportRow = ImportRowInput & {
 };
 
 type PreviewRow = NormalizedImportRow & {
-  outcome: "pending" | "identity_conflict" | "already_on_team" | "waiting_for_lead";
+  outcome:
+    | "pending"
+    | "identity_conflict"
+    | "already_assigned"
+    | "choice_required"
+    | "waiting_for_lead";
 };
 
 type TeamRosterPreview = {
@@ -130,7 +137,8 @@ type TeamRosterPreview = {
     pending: number;
     identityConflicts: number;
     superseded: number;
-    alreadyOnTeam: number;
+    alreadyAssigned: number;
+    choiceRequired: number;
     waitingForLead: number;
   };
   reason: string;
@@ -320,33 +328,33 @@ async function countTeamRosterEntries(
 
 const emptyEntryCounts = {
   waiting: 0,
+  awaitingChoice: 0,
   identityConflicts: 0,
   claimed: 0,
-  skipped: 0,
   total: 0,
 };
 
 async function eventEntryCounts(ctx: ReadCtx, eventId: Id<"events">) {
-  const [pending, waitingForLead, identityConflicts, claimed, skipped] = await Promise.all([
+  const [pending, waitingForLead, awaitingChoice, identityConflicts, claimed] = await Promise.all([
     countTeamRosterEntries(ctx, eventId, "pending"),
     countTeamRosterEntries(ctx, eventId, "waiting_for_lead"),
+    countTeamRosterEntries(ctx, eventId, "choice_required"),
     countTeamRosterEntries(ctx, eventId, "identity_conflict"),
     countTeamRosterEntries(ctx, eventId, "claimed"),
-    countTeamRosterEntries(ctx, eventId, "skipped_has_team"),
   ]);
   return {
     waiting: pending + waitingForLead,
+    awaitingChoice,
     identityConflicts,
     claimed,
-    skipped,
-    total: pending + waitingForLead + identityConflicts + claimed + skipped,
+    total: pending + waitingForLead + awaitingChoice + identityConflicts + claimed,
   };
 }
 
 function entryStatusForPreviewOutcome(
   outcome: PreviewRow["outcome"],
 ): Doc<"teamRosterEntries">["status"] {
-  if (outcome === "already_on_team") return "skipped_has_team";
+  if (outcome === "choice_required") return "choice_required";
   if (outcome === "waiting_for_lead") return "waiting_for_lead";
   if (outcome === "identity_conflict") return "identity_conflict";
   return "pending";
@@ -394,8 +402,10 @@ async function prepareTeamRosterPreview(
     const liveTeam = teamByName.get(row.teamName) ?? null;
     if (state.identityConflict) {
       rows.push({ ...row, outcome: "identity_conflict" });
+    } else if (state.activeMember && state.activeMember.teamId === liveTeam?._id) {
+      rows.push({ ...row, outcome: "already_assigned" });
     } else if (state.activeMember) {
-      rows.push({ ...row, outcome: "already_on_team" });
+      rows.push({ ...row, outcome: "choice_required" });
     } else if (row.role === "member" && state.hasMembership && liveTeam === null) {
       rows.push({ ...row, outcome: "waiting_for_lead" });
     } else {
@@ -408,7 +418,7 @@ async function prepareTeamRosterPreview(
     const incoming = rows.filter(
       (row) =>
         row.teamName === teamName &&
-        row.outcome !== "already_on_team" &&
+        row.outcome !== "already_assigned" &&
         row.outcome !== "identity_conflict",
     ).length;
     const liveCount = liveTeam ? teamRosterCounts(liveTeam).activeMemberCount : 0;
@@ -464,7 +474,8 @@ async function prepareTeamRosterPreview(
       pending: rows.filter((row) => row.outcome === "pending").length,
       identityConflicts: rows.filter((row) => row.outcome === "identity_conflict").length,
       superseded: priorEntries.length,
-      alreadyOnTeam: rows.filter((row) => row.outcome === "already_on_team").length,
+      alreadyAssigned: rows.filter((row) => row.outcome === "already_assigned").length,
+      choiceRequired: rows.filter((row) => row.outcome === "choice_required").length,
       waitingForLead: rows.filter((row) => row.outcome === "waiting_for_lead").length,
     },
     reason: normalized.reason,
@@ -587,6 +598,7 @@ export const list = query({
         canRevoke:
           entry.status === "pending" ||
           entry.status === "waiting_for_lead" ||
+          entry.status === "choice_required" ||
           entry.status === "identity_conflict",
         createdAt: entry.createdAt,
       })),
@@ -717,8 +729,8 @@ export const confirmImport = mutation({
       rowCount: prepared.rows.length,
       createdCount: prepared.rows.length,
       replacedCount: prepared.counts.superseded,
-      unchangedCount: prepared.counts.alreadyOnTeam,
-      alreadyOnTeamCount: prepared.counts.alreadyOnTeam,
+      alreadyAssignedCount: prepared.counts.alreadyAssigned,
+      choiceRequiredCount: prepared.counts.choiceRequired,
       waitingForLeadCount: prepared.counts.waitingForLead,
       identityConflictCount: prepared.counts.identityConflicts,
       appliedNowCount: 0,
@@ -776,7 +788,8 @@ export const confirmImport = mutation({
       nextSummary: JSON.stringify({
         sourceName: prepared.sourceName,
         rowCount: prepared.rows.length,
-        alreadyOnTeamCount: prepared.counts.alreadyOnTeam,
+        alreadyAssignedCount: prepared.counts.alreadyAssigned,
+        choiceRequiredCount: prepared.counts.choiceRequired,
         waitingForLeadCount: prepared.counts.waitingForLead,
         identityConflictCount: prepared.counts.identityConflicts,
       }),
@@ -919,12 +932,13 @@ export const revoke = mutation({
     if (
       entry.status !== "pending" &&
       entry.status !== "waiting_for_lead" &&
+      entry.status !== "choice_required" &&
       entry.status !== "identity_conflict"
     ) {
       throw new ConvexError({
         code: "TEAM_ROSTER_ENTRY_NOT_REVOKABLE",
         message:
-          "Only entries still waiting or blocked by an identity conflict can be revoked. Use the team tools to remove a member.",
+          "Only entries still waiting, awaiting a participant choice, or blocked by an identity conflict can be revoked. Use the team tools to remove a member.",
       });
     }
     const now = Date.now();

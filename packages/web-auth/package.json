@@ -7,7 +7,7 @@
     ".": "./src/index.tsx"
   },
   "scripts": {
-    "test": "node --experimental-strip-types --test src/google-fedcm-config.test.ts src/one-time-token.test.ts",
+    "test": "node --experimental-strip-types --test src/auth-state.test.ts src/google-fedcm-config.test.ts src/one-time-token.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

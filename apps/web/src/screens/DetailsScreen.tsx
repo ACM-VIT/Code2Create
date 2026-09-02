@@ -13,7 +13,8 @@ import {
   type VitResidenceType,
 } from '@code2create/domain'
 import { useMutation } from 'convex/react'
-import { useState, type FormEvent } from 'react'
+import { useState, type FormEvent, type ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import { AccountBadge } from '../components/portal/AccountBadge'
 import { PetalCard } from '../components/portal/PetalCard'
 import { PortalButton } from '../components/portal/PortalButton'
@@ -81,12 +82,26 @@ function institutionValidationError(value: string, label: string) {
 /** VIT identity stays verified; external participants provide their event-facing name. */
 export function DetailsScreen({
   me,
+  profileSeed,
   canWriteProfile,
   onSignOut,
+  variant = 'onboarding',
+  header: headerOverride,
+  onDone,
 }: {
   me: ParticipantMe
+  profileSeed: string
   canWriteProfile: boolean
   onSignOut: () => void
+  /**
+   * `onboarding` is the first fill-in on the way to a team; `profile` is the
+   * same form reached later from More, with a return instead of a continue.
+   */
+  variant?: 'onboarding' | 'profile'
+  /** A header to wear instead of the plain account badge. */
+  header?: ReactNode
+  /** Called after a successful save — the profile variant's way back. */
+  onDone?: () => void
 }) {
   const membership = me.membership
   const existing = me.profile
@@ -223,6 +238,7 @@ export function DetailsScreen({
             clientOperationId,
           }),
       )
+      onDone?.()
     } catch (caught) {
       setError(readableError(caught))
     } finally {
@@ -230,9 +246,11 @@ export function DetailsScreen({
     }
   }
 
-  const header = (
+  const editingProfile = variant === 'profile'
+  const header = headerOverride ?? (
     <AccountBadge
       name={me.person.displayName}
+      seed={profileSeed}
       email={me.person.verifiedEmail}
       detail={vitStudent ? 'VIT student' : 'external participant'}
       onSignOut={onSignOut}
@@ -255,11 +273,22 @@ export function DetailsScreen({
   }
 
   return (
-    <PortalScene tree="right" header={header}>
+    <PortalScene tree="right" header={header} onSignOut={onSignOut}>
       <div className="flex w-full max-w-[640px] flex-col items-center">
-        <h1 className="mb-7 text-center font-display font-normal tracking-[-.01em] text-3xl text-shadow-[0_4px_30px_var(--scene-text-glow)] lg:text-[40px]">
-          A few details, once.
+        <h1
+          className={`text-center font-display font-normal tracking-[-.01em] text-3xl text-shadow-[0_4px_30px_var(--scene-text-glow)] lg:text-[40px] ${
+            editingProfile ? 'mb-2' : 'mb-7'
+          }`}
+        >
+          {editingProfile ? 'Your profile' : 'A few details, once.'}
         </h1>
+        {editingProfile ? (
+          <p className="mb-7 text-xs text-fg/50">
+            <Link to="/more" viewTransition className="text-rose-light no-underline">
+              back to more
+            </Link>
+          </p>
+        ) : null}
 
         <PetalCard className="px-6 pt-6 pb-4 lg:px-[30px]">
           <form noValidate onSubmit={submit}>
@@ -560,10 +589,20 @@ export function DetailsScreen({
 
             <div className="mt-3.5 flex items-center justify-between border-t border-petal-line pt-3.5">
               <span className="text-xs text-fg/45">
-                {savePending ? 'confirming your earlier save' : 'saved when you continue'}
+                {savePending
+                  ? 'confirming your earlier save'
+                  : editingProfile
+                    ? ''
+                    : 'saved when you continue'}
               </span>
               <PortalButton type="submit" size="sm" disabled={disabled || !accepted}>
-                {busy ? 'Saving…' : savePending || acceptPending ? 'Confirm' : 'Continue'}
+                {busy
+                  ? 'Saving…'
+                  : savePending || acceptPending
+                    ? 'Confirm'
+                    : editingProfile
+                      ? 'Save'
+                      : 'Continue'}
               </PortalButton>
             </div>
           </form>

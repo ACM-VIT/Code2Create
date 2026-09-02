@@ -126,7 +126,7 @@ export const intelligenceAgentDefinitions: readonly IntelligenceAgentDefinition[
   {
     id: "idea-submission",
     name: "Idea submission",
-    version: "idea-submission-v2",
+    version: "idea-submission-v1",
     description: "Continuously picks up each submitted or materially changed idea and publishes a policy-bound advisory assessment.",
     operation: "continuous",
     model: "Frozen by the published admissions model release",
@@ -161,7 +161,7 @@ export const intelligenceAgentDefinitions: readonly IntelligenceAgentDefinition[
   {
     id: "operations-episode",
     name: "Situation analyst",
-    version: "operations-episode-v2",
+    version: "operations-episode-v1",
     description: "Continuously re-analyzes a durable operational situation as its authorized facts change.",
     operation: "continuous",
     model: "openai/gpt-5.6-terra",
@@ -195,7 +195,7 @@ export const intelligenceAgentDefinitions: readonly IntelligenceAgentDefinition[
   {
     id: "operations-brief",
     name: "Brief generator",
-    version: "operations-brief-v4",
+    version: "operations-brief-v1",
     description: "Builds a bounded operator brief from one frozen operations-health snapshot on request.",
     operation: "on-demand",
     model: "openai/gpt-5.6-terra",
@@ -221,7 +221,7 @@ export const intelligenceAgentDefinitions: readonly IntelligenceAgentDefinition[
   {
     id: "operations-copilot",
     name: "Operations copilot",
-    version: "operations-copilot-v5",
+    version: "operations-copilot-v1",
     description: "Answers an operator using live, event-bound reads and can submit typed recommendations for human review.",
     operation: "interactive",
     model: "openai/gpt-5.6-terra",
@@ -252,7 +252,7 @@ export const intelligenceAgentDefinitions: readonly IntelligenceAgentDefinition[
   {
     id: "operations-autopilot",
     name: "Autonomous operations",
-    version: "operations-autopilot-v4",
+    version: "operations-autopilot-v1",
     description: "Continuously evaluates scheduled and signal-triggered work under a published, kill-switchable policy.",
     operation: "event-driven",
     model: "openai/gpt-5.6-terra",

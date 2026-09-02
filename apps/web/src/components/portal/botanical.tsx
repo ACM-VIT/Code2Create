@@ -1,10 +1,3 @@
-/*
- * Botanical bloom animation.
- * Blossom geometry, the Plant SVG and the GSAP growth timeline are ported
- * verbatim from apps/landing's timeline bonsai (src/timeline/botanical.tsx).
- * The landing scrubs the growth with scroll; here TreeLoader plays it on a
- * clock as the portal's loading indicator, so ScrollTrigger is not needed.
- */
 import gsap from 'gsap';
 import { MorphSVGPlugin } from 'gsap/MorphSVGPlugin';
 

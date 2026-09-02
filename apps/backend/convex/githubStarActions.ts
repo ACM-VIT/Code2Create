@@ -12,14 +12,16 @@ import { action } from "./_generated/server";
 import { readBoundedJsonResponse } from "./lib/boundedHttpBody";
 import {
   GitHubOctokit,
+  githubOAuthGrantRevocationRequest,
   githubRepositoryIsStarred,
-  githubUserAuthorizationConfiguration,
+  githubStarAuthorizationUrl,
+  githubStarOAuthConfiguration,
+  githubUserStarRequest,
   isGitHubRateLimit,
   timedGitHubFetch,
 } from "./lib/githubClient";
 import { decryptProviderSecret, encryptProviderSecret } from "./lib/providerSecrets";
 
-const githubAuthorizeUrl = "https://github.com/login/oauth/authorize";
 const githubTokenUrl = "https://github.com/login/oauth/access_token";
 const repositoryOwner = "sgl-project";
 const repositoryName = "sglang";
@@ -29,6 +31,7 @@ const maximumProviderResponseBytes = 64 * 1_024;
 const tokenResponse = z.object({
   access_token: z.string().min(1),
   expires_in: z.number().int().positive().optional(),
+  scope: z.string(),
   token_type: z.string().min(1),
 });
 
@@ -54,9 +57,13 @@ type SetupClaim =
 type StarClaim =
   | { kind: "completed"; githubLogin: string; completedAt: number }
   | {
-      kind: "star";
+      kind: "star" | "revoke";
       authorizationId: Id<"githubStarAuthorizations">;
       accessTokenCiphertext: string;
+    }
+  | {
+      kind: "finish";
+      authorizationId: Id<"githubStarAuthorizations">;
     };
 
 type CompleteConnectionResult =
@@ -123,7 +130,7 @@ function providerFailure(error: unknown) {
     if (error.status === 403) {
       return new ConvexError({
         code: "GITHUB_STAR_PERMISSION_REQUIRED",
-        message: "The Code2Create GitHub App needs Starring read and write access.",
+        message: "GitHub did not grant public repository access. Disconnect GitHub, then connect it again.",
       });
     }
   }
@@ -133,11 +140,41 @@ function providerFailure(error: unknown) {
   });
 }
 
+async function revokeGitHubOAuthGrant(accessToken: string) {
+  const request = githubOAuthGrantRevocationRequest(
+    githubStarOAuthConfiguration(),
+    accessToken,
+  );
+  const response = await timedGitHubFetch(request.url, request.init);
+  if (response.status === 204 || response.status === 404) return;
+  await response.body?.cancel();
+  if (response.status === 429 || response.status >= 500) {
+    throw new ConvexError({
+      code: "GITHUB_TEMPORARILY_UNAVAILABLE",
+      message: "GitHub is temporarily unavailable. Try again in a moment.",
+    });
+  }
+  throw new ConvexError({
+    code: "GITHUB_CONNECTION_CLEANUP_FAILED",
+    message: "GitHub could not finish this connection. Try again.",
+  });
+}
+
+function requirePublicRepositoryScope(scope: string) {
+  const scopes = new Set(scope.split(/[\s,]+/u).filter(Boolean));
+  if (!scopes.has("public_repo")) {
+    throw new ConvexError({
+      code: "GITHUB_STAR_PERMISSION_REQUIRED",
+      message: "GitHub did not grant public repository access. Connect GitHub again and approve it.",
+    });
+  }
+}
+
 export const beginConnection = action({
   args: { eventSlug: v.string() },
   returns: v.object({ authorizationUrl: v.string() }),
   handler: async (ctx, args): Promise<{ authorizationUrl: string }> => {
-    const configuration = githubUserAuthorizationConfiguration();
+    const configuration = githubStarOAuthConfiguration();
     const state = randomBytes(32).toString("base64url");
     const verifier = randomBytes(48).toString("base64url");
     const challenge = createHash("sha256").update(verifier, "utf8").digest("base64url");
@@ -148,13 +185,14 @@ export const beginConnection = action({
       pkceVerifierCiphertext: encryptProviderSecret(verifier),
       redirectUri,
     });
-    const authorizationUrl = new URL(githubAuthorizeUrl);
-    authorizationUrl.searchParams.set("client_id", configuration.clientId);
-    authorizationUrl.searchParams.set("redirect_uri", redirectUri);
-    authorizationUrl.searchParams.set("state", state);
-    authorizationUrl.searchParams.set("code_challenge", challenge);
-    authorizationUrl.searchParams.set("code_challenge_method", "S256");
-    return { authorizationUrl: authorizationUrl.toString() };
+    return {
+      authorizationUrl: githubStarAuthorizationUrl({
+        clientId: configuration.clientId,
+        redirectUri,
+        state,
+        codeChallenge: challenge,
+      }),
+    };
   },
 });
 
@@ -180,8 +218,11 @@ export const completeConnection = action({
     );
     if (claim.kind === "completed") return { state: "completed" as const };
 
+    let accessToken: string | undefined;
+    let authorizationStored = false;
+    let grantRevoked = false;
     try {
-      const configuration = githubUserAuthorizationConfiguration();
+      const configuration = githubStarOAuthConfiguration();
       const body = new URLSearchParams({
         client_id: configuration.clientId,
         client_secret: configuration.clientSecret,
@@ -217,7 +258,9 @@ export const completeConnection = action({
           message: "GitHub returned an invalid authorization. Connect GitHub again.",
         });
       }
-      const octokit = new GitHubOctokit({ auth: parsedToken.data.access_token });
+      requirePublicRepositoryScope(parsedToken.data.scope);
+      accessToken = parsedToken.data.access_token;
+      const octokit = new GitHubOctokit({ auth: accessToken });
       const userResponse = await octokit.rest.users.getAuthenticated();
       const parsedUser = githubUser.safeParse(userResponse.data);
       if (!parsedUser.success) {
@@ -239,6 +282,10 @@ export const completeConnection = action({
         providerLifetime,
         maximumAuthorizationLifetimeMs,
       );
+      if (alreadyStarred) {
+        await revokeGitHubOAuthGrant(accessToken);
+        grantRevoked = true;
+      }
       const result:
         | { kind: "connected"; githubLogin: string }
         | { kind: "completed"; githubLogin: string; completedAt: number } = await ctx.runMutation(
@@ -253,21 +300,55 @@ export const completeConnection = action({
             ? { kind: "already_starred" }
             : {
                 kind: "connected",
-                accessTokenCiphertext: encryptProviderSecret(parsedToken.data.access_token),
+                accessTokenCiphertext: encryptProviderSecret(accessToken),
                 authorizationExpiresAt,
               },
         },
       );
+      authorizationStored = result.kind === "connected";
+      if (!authorizationStored && !grantRevoked) {
+        await revokeGitHubOAuthGrant(accessToken);
+        grantRevoked = true;
+      }
       if (result.kind === "completed") return { state: "completed" as const };
       return { state: "connected" as const, githubLogin: result.githubLogin };
     } catch (error) {
+      let reportedError = error;
+      if (accessToken && !authorizationStored && !grantRevoked) {
+        try {
+          await revokeGitHubOAuthGrant(accessToken);
+        } catch (cleanupError) {
+          reportedError = cleanupError;
+        }
+      }
       await ctx.runMutation(internal.githubStarGate.failSetupIntent, {
         intentId: claim.intentId,
         attemptId,
-        failureCode: error instanceof ConvexError ? "authorization_rejected" : "provider_failed",
+        failureCode: reportedError instanceof ConvexError
+          ? "authorization_rejected"
+          : "provider_failed",
       });
-      throw providerFailure(error);
+      throw providerFailure(reportedError);
     }
+  },
+});
+
+export const disconnect = action({
+  args: { eventSlug: v.string() },
+  returns: v.object({ disconnected: v.boolean() }),
+  handler: async (ctx, args): Promise<{ disconnected: boolean }> => {
+    const claim = await ctx.runMutation(internal.githubStarGate.prepareDisconnect, {
+      eventSlug: args.eventSlug,
+    });
+    if (claim.kind === "revoke") {
+      await revokeGitHubOAuthGrant(decryptProviderSecret(claim.accessTokenCiphertext));
+    }
+    return await ctx.runMutation(
+      internal.githubStarGate.finishDisconnect,
+      claim.kind === "revoke"
+        ? { eventSlug: args.eventSlug, authorizationId: claim.authorizationId }
+        : { eventSlug: args.eventSlug },
+    );
   },
 });
 
@@ -276,32 +357,59 @@ export const star = action({
   returns: v.object({ githubLogin: v.string(), completedAt: v.number() }),
   handler: async (ctx, args): Promise<{ githubLogin: string; completedAt: number }> => {
     const attemptId = randomUUID();
-    const claim: StarClaim = await ctx.runMutation(internal.githubStarGate.claimStar, {
-      eventSlug: args.eventSlug,
-      attemptId,
-    });
+    const claim: StarClaim = await ctx.runMutation(
+      internal.githubStarGate.claimStar,
+      { eventSlug: args.eventSlug, attemptId },
+    );
     if (claim.kind === "completed") {
       return { githubLogin: claim.githubLogin, completedAt: claim.completedAt };
     }
     try {
-      const octokit = new GitHubOctokit({
-        auth: decryptProviderSecret(claim.accessTokenCiphertext),
-      });
-      await octokit.request("PUT /user/starred/{owner}/{repo}", {
-        owner: repositoryOwner,
-        repo: repositoryName,
-      });
+      if (claim.kind !== "finish") {
+        const accessToken = decryptProviderSecret(claim.accessTokenCiphertext);
+        if (claim.kind === "star") {
+          const request = githubUserStarRequest(
+            accessToken,
+            repositoryOwner,
+            repositoryName,
+          );
+          const response = await timedGitHubFetch(request.url, request.init);
+          if (response.status !== 204) {
+            await response.body?.cancel();
+            throw new RequestError("GitHub rejected the repository star.", response.status, {
+              request: { method: "PUT", url: request.url, headers: {} },
+              response: {
+                data: null,
+                status: response.status,
+                url: request.url,
+                headers: Object.fromEntries(response.headers),
+              },
+            });
+          }
+          await response.body?.cancel();
+          await ctx.runMutation(internal.githubStarGate.markStarSucceeded, {
+            authorizationId: claim.authorizationId,
+            attemptId,
+          });
+        }
+        await revokeGitHubOAuthGrant(accessToken);
+        await ctx.runMutation(internal.githubStarGate.markGrantRevoked, {
+          authorizationId: claim.authorizationId,
+          attemptId,
+        });
+      }
       return await ctx.runMutation(internal.githubStarGate.finishStar, {
         eventSlug: args.eventSlug,
         authorizationId: claim.authorizationId,
         attemptId,
       });
     } catch (error) {
-      const invalidAuthorization = error instanceof RequestError && error.status === 401;
       await ctx.runMutation(internal.githubStarGate.failStar, {
         authorizationId: claim.authorizationId,
         attemptId,
-        invalidateAuthorization: invalidAuthorization,
+        invalidateAuthorization: claim.kind === "star" &&
+          error instanceof RequestError &&
+          error.status === 401,
       });
       throw providerFailure(error);
     }

@@ -5,6 +5,42 @@ import { App, Octokit, RequestError } from "octokit";
 
 const githubApiVersion = "2026-03-10";
 const githubRequestTimeoutMs = 30_000;
+const githubUserAuthorizeUrl = "https://github.com/login/oauth/authorize";
+
+export function githubStarAuthorizationUrl(args: {
+  clientId: string;
+  redirectUri: string;
+  state: string;
+  codeChallenge: string;
+}) {
+  const authorizationUrl = new URL(githubUserAuthorizeUrl);
+  authorizationUrl.searchParams.set("client_id", args.clientId);
+  authorizationUrl.searchParams.set("redirect_uri", args.redirectUri);
+  authorizationUrl.searchParams.set("state", args.state);
+  authorizationUrl.searchParams.set("code_challenge", args.codeChallenge);
+  authorizationUrl.searchParams.set("code_challenge_method", "S256");
+  authorizationUrl.searchParams.set("scope", "public_repo");
+  authorizationUrl.searchParams.set("prompt", "select_account");
+  return authorizationUrl.toString();
+}
+
+export function githubUserStarRequest(accessToken: string, owner: string, repo: string) {
+  if (!accessToken || !owner || !repo) {
+    throw new Error("The GitHub star request is incomplete.");
+  }
+  return {
+    url: `https://api.github.com/user/starred/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`,
+    init: {
+      method: "PUT",
+      headers: {
+        accept: "application/vnd.github+json",
+        authorization: `Bearer ${accessToken}`,
+        "content-length": "0",
+        "x-github-api-version": githubApiVersion,
+      },
+    } satisfies RequestInit,
+  };
+}
 
 export function isGitHubRateLimit(
   status: number,
@@ -51,10 +87,34 @@ export type GitHubConfiguration = {
   clientSecret: string;
 };
 
-export type GitHubUserAuthorizationConfiguration = {
+export type GitHubStarOAuthConfiguration = {
   clientId: string;
   clientSecret: string;
 };
+
+export function githubOAuthGrantRevocationRequest(
+  configuration: GitHubStarOAuthConfiguration,
+  accessToken: string,
+) {
+  const clientId = configuration.clientId.trim();
+  const clientSecret = configuration.clientSecret.trim();
+  if (!clientId || !clientSecret || !accessToken) {
+    throw new Error("GitHub user grant revocation requires complete credentials.");
+  }
+  return {
+    url: `https://api.github.com/applications/${encodeURIComponent(clientId)}/grant`,
+    init: {
+      method: "DELETE",
+      headers: {
+        accept: "application/vnd.github+json",
+        authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
+        "content-type": "application/json",
+        "x-github-api-version": githubApiVersion,
+      },
+      body: JSON.stringify({ access_token: accessToken }),
+    } satisfies RequestInit,
+  };
+}
 
 type GitHubStarLookup = (
   route: "GET /user/starred/{owner}/{repo}",
@@ -72,12 +132,12 @@ function requiredEnvironment(name: string) {
   return value;
 }
 
-function requiredUserAuthorizationEnvironment(name: string) {
+function requiredStarOAuthEnvironment(name: string) {
   const value = process.env[name]?.trim();
   if (!value) {
     throw new ConvexError({
       code: "GITHUB_NOT_CONFIGURED",
-      message: "Participant GitHub authorization is not configured for this environment.",
+      message: "The GitHub star OAuth App is not configured for this environment.",
     });
   }
   return value;
@@ -92,10 +152,10 @@ export function githubConfiguration(): GitHubConfiguration {
   };
 }
 
-export function githubUserAuthorizationConfiguration(): GitHubUserAuthorizationConfiguration {
+export function githubStarOAuthConfiguration(): GitHubStarOAuthConfiguration {
   return {
-    clientId: requiredUserAuthorizationEnvironment("GITHUB_APP_CLIENT_ID"),
-    clientSecret: requiredUserAuthorizationEnvironment("GITHUB_APP_CLIENT_SECRET"),
+    clientId: requiredStarOAuthEnvironment("GITHUB_CLIENT_ID"),
+    clientSecret: requiredStarOAuthEnvironment("GITHUB_CLIENT_SECRET"),
   };
 }
 

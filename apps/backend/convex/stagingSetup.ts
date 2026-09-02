@@ -1,7 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import { z } from "zod";
 
-import { internal } from "./_generated/api";
+import { components, internal } from "./_generated/api";
 import type { DataModel, Doc } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
 import type { TableNamesInDataModel } from "convex/server";
@@ -336,7 +336,19 @@ export const resetParticipantTestingData = internalMutation({
 
     for (const grant of participantPermissionGrants) await ctx.db.delete(grant._id);
 
+    const participantAssistantThreads = await ctx.db
+      .query("participantAssistantThreads")
+      .collect();
+    for (const thread of participantAssistantThreads) {
+      await ctx.runMutation(
+        components.agent.threads.deleteAllForThreadIdAsync,
+        { threadId: thread.threadId },
+      );
+    }
+
     const deletedCounts = await Promise.all([
+      deleteAllFromTable(ctx, "participantAssistantRequests"),
+      deleteAllFromTable(ctx, "participantAssistantThreads"),
       deleteAllFromTable(ctx, "participantNotificationProviderEvents"),
       deleteAllFromTable(ctx, "participantNotificationDeliveries"),
       deleteAllFromTable(ctx, "participantNotificationDestinations"),

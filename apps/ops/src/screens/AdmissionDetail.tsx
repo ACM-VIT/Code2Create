@@ -74,10 +74,10 @@ export function AdmissionDetail() {
   )
   const offerActionable = canManageOffer &&
     (detail.currentOffer !== null || detail.application.state === 'accepted')
-  const canPublishDecision = canDecide && !applicationsOpen && reviewOpen && hasRequiredReviews
+  const canRecordDecision = canDecide && !applicationsOpen && reviewOpen && hasRequiredReviews
   const canManageAssignments = canAssign && reviewOpen && detail.reviewAssignments !== null
   const canReadDelivery = detail.application.humanDecision !== null && canReadParticipantDelivery
-  const hasActionPanel = canPublishDecision || offerActionable || canManageAssignments ||
+  const hasActionPanel = canRecordDecision || offerActionable || canManageAssignments ||
     (canReview && reviewOpen) || canReadDelivery
 
   return (
@@ -203,7 +203,7 @@ export function AdmissionDetail() {
       </div>
       {hasActionPanel ? (
         <aside className="application-actions" aria-label="Application actions">
-          {canPublishDecision ? <DecisionForm detail={detail} /> : null}
+          {canRecordDecision ? <DecisionForm detail={detail} /> : null}
           {canReview && reviewOpen ? <ReviewForm detail={detail} /> : null}
           {offerActionable ? <OfferControl detail={detail} /> : null}
           {canManageAssignments ? <ReviewAssignmentControl detail={detail} /> : null}
@@ -479,7 +479,7 @@ function HumanReviews({ detail, reviewOpen }: { detail: AdmissionDetailData; rev
         {!reviewOpen && decision
           ? decidedSentence(detail, decision)
           : outstanding > 0
-            ? `Still to come: ${outstanding} of ${detail.policy.minimumHumanReviews}. A decision cannot be published until they are in.`
+            ? `Still to come: ${outstanding} of ${detail.policy.minimumHumanReviews}. A final decision cannot be recorded until they are in.`
             : `All ${detail.policy.minimumHumanReviews} required reviews are in.`}
       </p>
       {reviews.length ? (
@@ -772,15 +772,27 @@ function ReviewForm({ detail }: { detail: AdmissionDetailData }) {
 function DecisionForm({ detail }: { detail: AdmissionDetailData }) {
   const decide = useMutation(api.admissions.decide)
   const operations = useOperationRunner()
-  const [decision, setDecision] = useState<ApplicationDecision | null>(null)
+  const [decision, setDecision] = useState<ApplicationDecision | null>(
+    detail.application.decisionStage === 'recorded'
+      ? detail.application.humanDecision ?? null
+      : null,
+  )
   const reasons = useMemo(
     () => decision === null
       ? []
       : detail.policy.decisionReasonCodes.filter((reason) => reason.allowedDecisions.includes(decision)),
     [decision, detail.policy.decisionReasonCodes],
   )
-  const [reason, setReason] = useState('')
-  const [aiDisposition, setAiDisposition] = useState<AiDisposition | null>(null)
+  const [reason, setReason] = useState(
+    detail.application.decisionStage === 'recorded'
+      ? detail.application.humanReasonCode ?? ''
+      : '',
+  )
+  const [aiDisposition, setAiDisposition] = useState<AiDisposition | null>(
+    detail.application.decisionStage === 'recorded'
+      ? detail.application.aiDisposition ?? null
+      : null,
+  )
   const [informationQuestions, setInformationQuestions] = useState([''])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -794,18 +806,18 @@ function DecisionForm({ detail }: { detail: AdmissionDetailData }) {
     : aiDisposition !== null && availableAiDispositions.includes(aiDisposition)
       ? aiDisposition
       : availableAiDispositions[0] ?? null
-  const publishPending = operations.hasPending('publish')
+  const recordPending = operations.hasPending('record')
 
-  const publish = async (event: FormEvent) => {
+  const record = async (event: FormEvent) => {
     event.preventDefault()
     setBusy(true)
     setError(null)
     try {
-      if (publishPending) {
-        await operations.retryPending('publish')
+      if (recordPending) {
+        await operations.retryPending('record')
       } else {
         if (decision === null || !selectedReason || selectedAiDisposition === null) return
-        await operations.run('publish', (clientOperationId) => {
+        await operations.run('record', (clientOperationId) => {
           const command = {
             eventSlug,
             applicationId: detail.application.id,
@@ -828,10 +840,12 @@ function DecisionForm({ detail }: { detail: AdmissionDetailData }) {
 
   return (
     <section className="detail-section command-section final-command">
-      <h2>Publish the decision</h2>
-      <p className="muted">Publishing updates the team portal immediately and queues an email notification. It cannot be undone.</p>
-      <form className="command-form" onSubmit={publish}>
-        <fieldset disabled={publishPending || busy} style={{ display: 'contents' }}>
+      <h2>{detail.application.decisionStage === 'recorded' ? 'Update the recorded decision' : 'Record the decision'}</h2>
+      <p className="muted">
+        Accept, waitlist, and decline stay internal until a Supreme reviews and releases all results together. A request for more information is sent to the team immediately.
+      </p>
+      <form className="command-form" onSubmit={record}>
+        <fieldset disabled={recordPending || busy} style={{ display: 'contents' }}>
           <Field label="Decision">
           <select
             required
@@ -851,7 +865,7 @@ function DecisionForm({ detail }: { detail: AdmissionDetailData }) {
             {applicationDecisions.map((value) => <option key={value} value={value}>{applicationDecisionLabels[value]}</option>)}
           </select>
           </Field>
-          <Field label="Published reason">
+          <Field label="Decision reason">
           <select value={selectedReason} onChange={(event) => setReason(event.target.value)}>
             {reasons.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}
           </select>
@@ -859,6 +873,7 @@ function DecisionForm({ detail }: { detail: AdmissionDetailData }) {
           {decision === 'needs_information' ? (
           <div className="field">
             <span>Questions for the team</span>
+            <small>This action is immediate. The team lead will see these questions and receive the configured email.</small>
             {informationQuestions.map((question, index) => (
               <textarea
                 key={`question_${index + 1}`}
@@ -896,7 +911,7 @@ function DecisionForm({ detail }: { detail: AdmissionDetailData }) {
         <button
           className="primary"
           type="submit"
-          disabled={busy || (!publishPending && (
+          disabled={busy || (!recordPending && (
             decision === null ||
             !selectedReason ||
             selectedAiDisposition === null ||
@@ -904,12 +919,14 @@ function DecisionForm({ detail }: { detail: AdmissionDetailData }) {
           ))}
         >
           {busy
-            ? 'Publishing…'
-            : publishPending
+            ? 'Saving…'
+            : recordPending
               ? 'Confirm earlier decision'
               : decision === null
                 ? 'Choose a decision'
-                : `Publish ${applicationDecisionLabels[decision].toLowerCase()}`}
+                : decision === 'needs_information'
+                  ? 'Send questions now'
+                  : `Record ${applicationDecisionLabels[decision].toLowerCase()}`}
         </button>
       </form>
     </section>
@@ -949,13 +966,13 @@ function nextStep(
     if (applicationsOpen) {
       return {
         title: 'Waiting for the application deadline',
-        detail: 'The team can still edit this proposal. Publish a decision after applications close.',
+        detail: 'The team can still edit this proposal. Record a decision after applications close.',
       }
     }
     return {
       title: 'Ready for a decision',
       detail: `All ${minimumHumanReviews} required reviews are in.`,
-      ...(permissions.canDecide ? {} : { blocker: 'You do not have access to publish a decision.' }),
+      ...(permissions.canDecide ? {} : { blocker: 'You do not have access to record a decision.' }),
     }
   }
   if (state === 'needs_information') {
@@ -1069,6 +1086,11 @@ function decidedSentence(detail: AdmissionDetailData, decision: ApplicationDecis
   const reason = detail.application.humanReasonCode
     ? reasonLabel(detail, detail.application.humanReasonCode)
     : null
+  if (detail.application.decisionStage === 'recorded') {
+    return reason
+      ? `${outcome} recorded with reason: ${reason}. It is not visible to the team yet.`
+      : `${outcome} recorded. It is not visible to the team yet.`
+  }
   return reason ? `${outcome}. The team was told: ${reason}.` : `${outcome}.`
 }
 

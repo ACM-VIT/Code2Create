@@ -5,6 +5,7 @@ import { internal } from "./_generated/api.js";
 import type { Id } from "./_generated/dataModel.js";
 import {
   defaultDeterministicIntakePolicy,
+  fixedQuestionForOrdinal,
   intakePolicyChecksum,
   normalizeIntakePolicy,
   publishIntakePolicy,
@@ -18,6 +19,10 @@ import schema from "./schema.ts";
 
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
 type BackendTest = TestConvex<typeof schema>;
+
+function createBackend() {
+  return convexTest(schema, modules);
+}
 
 describe("intake policy configuration", () => {
   afterEach(() => {
@@ -41,15 +46,35 @@ describe("intake policy configuration", () => {
       fallbackQuestions: defaultDeterministicIntakePolicy.fallbackQuestions.map(
         (question) => ({ ...question, ordinal: 1 }),
       ),
-    })).toThrow("ordinals must start at one");
+    })).toThrow("one fixed question for ordinals one and two");
     expect(() => normalizeIntakePolicy({
       ...defaultDeterministicIntakePolicy,
       minimumFollowUpCount: 1,
-    })).toThrow("two fixed questions and up to two generated questions");
+    })).toThrow("two fixed questions and two generated questions");
+    expect(() => normalizeIntakePolicy({
+      ...defaultDeterministicIntakePolicy,
+      maximumFollowUpCount: 2,
+      fallbackQuestions: defaultDeterministicIntakePolicy.fallbackQuestions.slice(0, 2),
+    })).toThrow("two fixed questions and two generated questions");
+  });
+
+  test("selects stable fallback variants for each team", () => {
+    const policy = defaultDeterministicIntakePolicy;
+    const selected = Array.from(
+      { length: 32 },
+      (_, index) => fixedQuestionForOrdinal(policy, 3, `team-${index}`).text,
+    );
+
+    expect(new Set(selected).size).toBeGreaterThan(1);
+    expect(fixedQuestionForOrdinal(policy, 3, "same-team")).toEqual(
+      fixedQuestionForOrdinal(policy, 3, "same-team"),
+    );
+    expect(policy.fallbackQuestions.filter((question) => question.ordinal === 3)).toHaveLength(8);
+    expect(policy.fallbackQuestions.filter((question) => question.ordinal === 4)).toHaveLength(8);
   });
 
   test("publishes a new default without moving an active participant draft", async () => {
-    const backend = convexTest(schema, modules);
+    const backend = createBackend();
     const fixture = await seedFixture(backend, "deterministic");
     const draft = await backend.run((ctx) => saveIntakePolicyDraft(ctx, {
       event: fixture.event,
@@ -88,7 +113,7 @@ describe("intake policy configuration", () => {
   });
 
   test("rejects a replaced policy draft", async () => {
-    const backend = convexTest(schema, modules);
+    const backend = createBackend();
     const fixture = await seedFixture(backend, "deterministic");
     const first = await backend.run((ctx) => saveIntakePolicyDraft(ctx, {
       event: fixture.event,
@@ -118,7 +143,7 @@ describe("intake policy configuration", () => {
   });
 
   test("allows one concurrent draft creation from the same observed state", async () => {
-    const backend = convexTest(schema, modules);
+    const backend = createBackend();
     const fixture = await seedFixture(backend, "deterministic");
     const attempts = await Promise.allSettled([
       backend.run((ctx) => saveIntakePolicyDraft(ctx, {
@@ -146,18 +171,18 @@ describe("intake policy configuration", () => {
   });
 
   test("uses the two published fixed questions before any model work", async () => {
-    const backend = convexTest(schema, modules);
+    const backend = createBackend();
     const fixture = await seedFixture(backend, "deterministic");
     await backend.mutation(internal.intelligence.beginIntakeInterpretation, {
       draftId: fixture.projectDraftId,
-      providerAvailable: false,
+      provider: { kind: "unavailable", reason: "api_key_not_configured" },
     });
     const first = await currentQuestion(backend, fixture.projectDraftId, 1);
     expect(first.text).toBe(defaultDeterministicIntakePolicy.fallbackQuestions[0]?.text);
     await answerQuestion(backend, fixture, first._id, "Local student teams would use it first.");
     await backend.mutation(internal.intelligence.beginIntakeInterpretation, {
       draftId: fixture.projectDraftId,
-      providerAvailable: false,
+      provider: { kind: "unavailable", reason: "api_key_not_configured" },
     });
     const second = await currentQuestion(backend, fixture.projectDraftId, 2);
     expect(second.text).toBe(defaultDeterministicIntakePolicy.fallbackQuestions[1]?.text);
@@ -166,7 +191,7 @@ describe("intake policy configuration", () => {
   });
 
   test("a deterministic policy never sends answers to an available provider", async () => {
-    const backend = convexTest(schema, modules);
+    const backend = createBackend();
     const fixture = await seedFixture(backend, "deterministic");
     await answerFixedQuestions(backend, fixture);
     vi.stubEnv("OPENAI_API_KEY", "configured-provider-key");
@@ -175,7 +200,7 @@ describe("intake policy configuration", () => {
     });
     vi.stubGlobal("fetch", providerRequest);
 
-    await backend.action(internal.intelligence.interpretIdea, {
+    await backend.action(internal.intelligenceActions.interpretIdea, {
       draftId: fixture.projectDraftId,
     });
 
@@ -195,16 +220,18 @@ describe("intake policy configuration", () => {
         .collect(),
     }));
     expect(providerRequest).not.toHaveBeenCalled();
-    expect(result.draft?.stage).toBe("review");
+    expect(result.draft?.stage).toBe("follow_up");
     expect(result.interpretations).toEqual([]);
-    expect(result.questions).toHaveLength(2);
-    expect(
-      result.questions.every((question) => question.source === "fixed"),
-    ).toBe(true);
+    expect(result.questions).toHaveLength(3);
+    expect(result.questions.map((question) => question.source)).toEqual([
+      "fixed",
+      "fixed",
+      "fallback",
+    ]);
   });
 
   test("an assisted policy starts generation only after both fixed answers", async () => {
-    const backend = convexTest(schema, modules);
+    const backend = createBackend();
     const fixture = await seedFixture(backend, "assisted");
     await answerFixedQuestions(backend, fixture);
     const firstContext = await beginAssisted(backend, fixture.projectDraftId);
@@ -229,7 +256,7 @@ describe("intake policy configuration", () => {
   });
 
   test("the OpenAI action can generate two additional questions through the provider contract", async () => {
-    const backend = convexTest(schema, modules);
+    const backend = createBackend();
     const fixture = await seedFixture(backend, "assisted");
     await answerFixedQuestions(backend, fixture);
     vi.stubEnv("OPENAI_API_KEY", "intake-provider-test-key");
@@ -257,7 +284,7 @@ describe("intake policy configuration", () => {
     });
 
     sourceAnswerIds = await activeAnswerIds(backend, fixture.projectDraftId);
-    await backend.action(internal.intelligence.interpretIdea, {
+    await backend.action(internal.intelligenceActions.interpretIdea, {
       draftId: fixture.projectDraftId,
     });
     const first = await currentQuestion(backend, fixture.projectDraftId, 3);
@@ -268,7 +295,7 @@ describe("intake policy configuration", () => {
       "Reports with a verified location and safety risk would be handled first.",
     );
     sourceAnswerIds = await activeAnswerIds(backend, fixture.projectDraftId);
-    await backend.action(internal.intelligence.interpretIdea, {
+    await backend.action(internal.intelligenceActions.interpretIdea, {
       draftId: fixture.projectDraftId,
     });
     const second = await currentQuestion(backend, fixture.projectDraftId, 4);
@@ -285,7 +312,7 @@ describe("intake policy configuration", () => {
   });
 
   test("rejects a generated question that is not grounded in its source answers", async () => {
-    const backend = convexTest(schema, modules);
+    const backend = createBackend();
     const fixture = await seedFixture(backend, "assisted");
     await answerFixedQuestions(backend, fixture);
     vi.stubEnv("OPENAI_API_KEY", "intake-provider-test-key");
@@ -303,7 +330,7 @@ describe("intake policy configuration", () => {
       stopReason: "needs_question",
     })));
 
-    await backend.action(internal.intelligence.interpretIdea, {
+    await backend.action(internal.intelligenceActions.interpretIdea, {
       draftId: fixture.projectDraftId,
     });
 
@@ -323,16 +350,17 @@ describe("intake policy configuration", () => {
         .order("desc")
         .first(),
     }));
-    expect(result.questions).toHaveLength(2);
-    expect(result.draft?.stage).toBe("review");
+    expect(result.questions).toHaveLength(3);
+    expect(result.questions.at(-1)).toMatchObject({ ordinal: 3, source: "fallback" });
+    expect(result.draft?.stage).toBe("follow_up");
     expect(result.interpretation).toMatchObject({
       state: "invalid",
       failureCategory: "invalid_or_disallowed_output",
     });
   });
 
-  test("a provider failure completes intake without adding a generic question", async () => {
-    const backend = convexTest(schema, modules);
+  test("a provider failure fills the generated slot with its published fallback", async () => {
+    const backend = createBackend();
     const fixture = await seedFixture(backend, "assisted");
     await answerFixedQuestions(backend, fixture);
     vi.stubEnv("OPENAI_API_KEY", "intake-provider-test-key");
@@ -340,7 +368,7 @@ describe("intake policy configuration", () => {
       throw new TypeError("The provider connection is unavailable.");
     });
 
-    await backend.action(internal.intelligence.interpretIdea, {
+    await backend.action(internal.intelligenceActions.interpretIdea, {
       draftId: fixture.projectDraftId,
     });
 
@@ -356,16 +384,101 @@ describe("intake policy configuration", () => {
         .collect(),
     }));
     const interpretation = result.interpretations.at(-1);
-    expect(result.draft?.stage).toBe("review");
-    expect(result.questions).toHaveLength(2);
+    expect(result.draft?.stage).toBe("follow_up");
+    expect(result.questions).toHaveLength(3);
+    expect(result.questions.at(-1)).toMatchObject({ ordinal: 3, source: "fallback" });
     expect(interpretation).toMatchObject({
       state: "failed",
       failureCategory: "provider_request_failed",
     });
   });
 
-  test("the settlement deadline adds no question and rejects a late provider result", async () => {
-    const backend = convexTest(schema, modules);
+  test("provider failures still produce exactly two fixed and two fallback questions", async () => {
+    const backend = createBackend();
+    const fixture = await seedFixture(backend, "assisted");
+    await answerFixedQuestions(backend, fixture);
+
+    for (const ordinal of [3, 4] as const) {
+      const context = await beginAssisted(backend, fixture.projectDraftId);
+      expect(context.ordinal).toBe(ordinal);
+      await backend.mutation(internal.intelligence.finishIntakeInterpretation, {
+        interpretationId: context.interpretationId,
+        inputFingerprint: context.inputFingerprint,
+        state: "failed",
+        coveragePurposeKeys: [],
+        nextQuestionSourceAnswerVersionIds: [],
+        latencyMs: 25,
+        failureCategory: "provider_request_failed",
+      });
+      const question = await currentQuestion(backend, fixture.projectDraftId, ordinal);
+      expect(question.source).toBe("fallback");
+      await answerQuestion(
+        backend,
+        fixture,
+        question._id,
+        ordinal === 3
+          ? "The service should make the next useful action obvious to the reporter."
+          : "The prototype should prove that a report reaches the right responsible group.",
+      );
+    }
+
+    const result = await backend.run(async (ctx) => ({
+      draft: await ctx.db.get(fixture.projectDraftId),
+      questions: await ctx.db
+        .query("intakeGeneratedQuestions")
+        .withIndex("by_draft_ordinal", (index) => index.eq("draftId", fixture.projectDraftId))
+        .collect(),
+    }));
+    expect(result.draft?.stage).toBe("review");
+    expect(result.questions.map((question) => [question.ordinal, question.source])).toEqual([
+      [1, "fixed"],
+      [2, "fixed"],
+      [3, "fallback"],
+      [4, "fallback"],
+    ]);
+  });
+
+  test("a provider result arriving after its settlement deadline becomes the fallback", async () => {
+    const backend = createBackend();
+    const fixture = await seedFixture(backend, "assisted");
+    await answerFixedQuestions(backend, fixture);
+    const context = await beginAssisted(backend, fixture.projectDraftId);
+    await backend.run((ctx) => ctx.db.patch(context.interpretationId, {
+      createdAt: Date.now() - 16_000,
+    }));
+
+    await backend.mutation(internal.intelligence.finishIntakeInterpretation, {
+      interpretationId: context.interpretationId,
+      inputFingerprint: context.inputFingerprint,
+      state: "succeeded",
+      coveragePurposeKeys: ["problem", "experience"],
+      nextQuestionText: "How will an authority know which report needs action first?",
+      nextQuestionPurposeKey: "tradeoff",
+      nextQuestionAnswerLength: "medium",
+      nextQuestionSourceAnswerVersionIds: context.answers.map((answer) => answer.id),
+      stopReason: "needs_question",
+      latencyMs: 16_000,
+    });
+
+    const result = await backend.run(async (ctx) => ({
+      interpretation: await ctx.db.get(context.interpretationId),
+      question: await ctx.db
+        .query("intakeGeneratedQuestions")
+        .withIndex("by_draft_ordinal", (index) =>
+          index.eq("draftId", fixture.projectDraftId).eq("ordinal", 3),
+        )
+        .filter((filter) => filter.neq(filter.field("state"), "replaced"))
+        .unique(),
+    }));
+    expect(result.interpretation).toMatchObject({
+      state: "timed_out",
+      failureCategory: "settlement_deadline_exceeded",
+    });
+    expect(result.question).toMatchObject({ source: "fallback" });
+  });
+
+  test("the settlement deadline creates the fallback and rejects a late provider result", async () => {
+    const backend = createBackend();
     const fixture = await seedFixture(backend, "assisted");
     await answerFixedQuestions(backend, fixture);
     const context = await beginAssisted(backend, fixture.projectDraftId);
@@ -398,21 +511,26 @@ describe("intake policy configuration", () => {
       state: "timed_out",
       failureCategory: "settlement_deadline_exceeded",
     });
-    expect(result.questions).toHaveLength(2);
+    expect(result.questions).toHaveLength(3);
+    expect(result.questions.at(-1)).toMatchObject({ ordinal: 3, source: "fallback" });
   });
 
   test("a queued interpretation cannot leave the participant waiting indefinitely", async () => {
-    const backend = convexTest(schema, modules);
+    const backend = createBackend();
     const fixture = await seedFixture(backend, "assisted");
     await answerFixedQuestions(backend, fixture);
     const draft = await backend.run((ctx) => ctx.db.get(fixture.projectDraftId));
     if (!draft) throw new Error("The intake draft is missing.");
     const enqueuedAt = Date.now() - ideaQuestionEndToEndDeadlineMs;
+    const deadlineAt = enqueuedAt + ideaQuestionEndToEndDeadlineMs;
+    await backend.run((ctx) => ctx.db.patch(draft._id, {
+      adaptiveQuestionDeadlineAt: deadlineAt,
+    }));
 
     await backend.mutation(internal.intelligence.expireQueuedIntakeInterpretation, {
       draftId: draft._id,
       draftVersion: draft.version,
-      enqueuedAt,
+      deadlineAt,
     });
 
     const result = await backend.run(async (ctx) => ({
@@ -426,21 +544,68 @@ describe("intake policy configuration", () => {
         .withIndex("by_draft_ordinal", (index) => index.eq("draftId", fixture.projectDraftId))
         .collect(),
     }));
-    expect(result.draft?.stage).toBe("review");
-    expect(result.questions).toHaveLength(2);
+    expect(result.draft?.stage).toBe("follow_up");
+    expect(result.questions).toHaveLength(3);
+    expect(result.questions.at(-1)).toMatchObject({
+      ordinal: 3,
+      source: "fallback",
+    });
     expect(result.interpretations.at(-1)).toMatchObject({
       state: "disabled",
-      failureCategory: "workpool_queue_deadline_exceeded",
+      failureCategory: "action_start_deadline_exceeded",
       createdAt: enqueuedAt,
     });
     expect(await backend.mutation(
       internal.intelligence.beginIntakeInterpretation,
-      { draftId: draft._id, providerAvailable: true },
+      { draftId: draft._id, provider: { kind: "available" } },
     )).toBeNull();
+
+    await backend.mutation(internal.intelligence.expireQueuedIntakeInterpretation, {
+      draftId: draft._id,
+      draftVersion: draft.version,
+      deadlineAt,
+    });
+    const currentQuestions = await backend.run((ctx) => ctx.db
+      .query("intakeGeneratedQuestions")
+      .withIndex("by_draft_ordinal", (index) => index.eq("draftId", fixture.projectDraftId))
+      .filter((filter) => filter.neq(filter.field("state"), "replaced"))
+      .collect());
+    expect(currentQuestions).toHaveLength(3);
   });
 
-  test("clear fixed answers allow the model to stop without a generated question", async () => {
-    const backend = convexTest(schema, modules);
+  test("an obsolete queue deadline cannot change a newer draft version", async () => {
+    const backend = createBackend();
+    const fixture = await seedFixture(backend, "assisted");
+    await answerFixedQuestions(backend, fixture);
+    const draft = await backend.run((ctx) => ctx.db.get(fixture.projectDraftId));
+    if (!draft) throw new Error("The intake draft is missing.");
+    const deadlineAt = Date.now() - 1;
+    await backend.run((ctx) => ctx.db.patch(draft._id, {
+      adaptiveQuestionDeadlineAt: deadlineAt + 10_000,
+      version: draft.version + 1,
+    }));
+
+    await backend.mutation(internal.intelligence.expireQueuedIntakeInterpretation, {
+      draftId: draft._id,
+      draftVersion: draft.version,
+      deadlineAt,
+    });
+
+    const result = await backend.run(async (ctx) => ({
+      draft: await ctx.db.get(fixture.projectDraftId),
+      ordinalThree: await ctx.db
+        .query("intakeGeneratedQuestions")
+        .withIndex("by_draft_ordinal", (index) =>
+          index.eq("draftId", fixture.projectDraftId).eq("ordinal", 3),
+        )
+        .collect(),
+    }));
+    expect(result.draft?.version).toBe(draft.version + 1);
+    expect(result.ordinalThree).toEqual([]);
+  });
+
+  test("a model attempt to skip a generated slot is invalid and uses the fallback", async () => {
+    const backend = createBackend();
     const fixture = await seedFixture(backend, "assisted");
     await answerFixedQuestions(backend, fixture);
     const secondContext = await beginAssisted(backend, fixture.projectDraftId);
@@ -457,15 +622,23 @@ describe("intake policy configuration", () => {
     const interpretation = await backend.run((ctx) =>
       ctx.db.get(secondContext.interpretationId),
     );
-    expect(interpretation).toMatchObject({
-      state: "succeeded",
-      stopReason: "enough_context",
-    });
-    expect((await backend.run((ctx) => ctx.db.get(fixture.projectDraftId)))?.stage).toBe("review");
+    expect(interpretation).toMatchObject({ state: "invalid" });
+    const result = await backend.run(async (ctx) => ({
+      draft: await ctx.db.get(fixture.projectDraftId),
+      question: await ctx.db
+        .query("intakeGeneratedQuestions")
+        .withIndex("by_draft_ordinal", (index) =>
+          index.eq("draftId", fixture.projectDraftId).eq("ordinal", 3),
+        )
+        .filter((filter) => filter.eq(filter.field("state"), "active"))
+        .unique(),
+    }));
+    expect(result.draft?.stage).toBe("follow_up");
+    expect(result.question).toMatchObject({ source: "fallback" });
   });
 
   test("a failed assisted run settles once and cannot add a late question", async () => {
-    const backend = convexTest(schema, modules);
+    const backend = createBackend();
     const fixture = await seedFixture(backend, "assisted");
     await answerFixedQuestions(backend, fixture);
     const context = await beginAssisted(backend, fixture.projectDraftId);
@@ -494,16 +667,20 @@ describe("intake policy configuration", () => {
       .query("intakeGeneratedQuestions")
       .withIndex("by_draft_ordinal", (index) => index.eq("draftId", fixture.projectDraftId))
       .collect());
-    expect(questions).toHaveLength(2);
-    expect(questions.every((question) => question.source === "fixed")).toBe(true);
+    expect(questions).toHaveLength(3);
+    expect(questions.map((question) => question.source)).toEqual([
+      "fixed",
+      "fixed",
+      "fallback",
+    ]);
   });
 
   test("replacing an idea removes routed questions and answers together", async () => {
-    const backend = convexTest(schema, modules);
+    const backend = createBackend();
     const fixture = await seedFixture(backend, "deterministic");
     await backend.mutation(internal.intelligence.beginIntakeInterpretation, {
       draftId: fixture.projectDraftId,
-      providerAvailable: false,
+      provider: { kind: "unavailable", reason: "api_key_not_configured" },
     });
     const question = await currentQuestion(backend, fixture.projectDraftId, 1);
     const answerId = await answerQuestion(
@@ -595,7 +772,7 @@ function assistedPolicy(): IntakePolicy {
 async function beginAssisted(backend: BackendTest, draftId: Id<"projectDrafts">) {
   const context = await backend.mutation(
     internal.intelligence.beginIntakeInterpretation,
-    { draftId, providerAvailable: true },
+    { draftId, provider: { kind: "available" } },
   );
   if (!context) throw new Error("The assisted interpretation did not begin.");
   return context;
@@ -607,7 +784,7 @@ async function answerFixedQuestions(
 ) {
   await backend.mutation(internal.intelligence.beginIntakeInterpretation, {
     draftId: fixture.projectDraftId,
-    providerAvailable: true,
+    provider: { kind: "available" },
   });
   const first = await currentQuestion(backend, fixture.projectDraftId, 1);
   await answerQuestion(
@@ -618,7 +795,7 @@ async function answerFixedQuestions(
   );
   await backend.mutation(internal.intelligence.beginIntakeInterpretation, {
     draftId: fixture.projectDraftId,
-    providerAvailable: true,
+    provider: { kind: "available" },
   });
   const second = await currentQuestion(backend, fixture.projectDraftId, 2);
   await answerQuestion(

@@ -1,5 +1,3 @@
-// Pure flower-dealing logic, split from the Flower component so fast refresh
-// keeps working. The counts must match FlowerAvatar's BLOOMS and TINTS sets.
 export const BLOOM_COUNT = 5
 export const TINT_COUNT = 4
 export const VARIANT_COUNT = BLOOM_COUNT * TINT_COUNT
@@ -12,13 +10,6 @@ export function hashSeed(seed: string) {
   return hash
 }
 
-/**
- * Deals every non-lead seed a distinct bloom+tint from the 20-combo set.
- * Each seed prefers its hashed combo and probes forward on collision, taking
- * a fresh silhouette before repeating one in a new tint, so small rosters
- * never show two of the same flower. Deterministic: seeds are sorted first,
- * so the deal doesn't depend on arrival order.
- */
 export function assignFlowerVariants(seeds: readonly string[]) {
   const variants = new Map<string, number>()
   const usedCombos = new Set<number>()

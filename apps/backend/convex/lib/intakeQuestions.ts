@@ -195,7 +195,11 @@ export async function createFixedIntakeQuestion(
     now: number;
   },
 ) {
-  const question = fixedQuestionForOrdinal(args.normalizedPolicy, args.ordinal);
+  const question = fixedQuestionForOrdinal(
+    args.normalizedPolicy,
+    args.ordinal,
+    args.draft.teamId,
+  );
   return createIntakeQuestion(ctx, {
     draft: args.draft,
     policy: args.policy,
@@ -203,9 +207,15 @@ export async function createFixedIntakeQuestion(
     text: question.text,
     purposeKey: question.purposeKey,
     answerLength: question.answerLength,
-    source: "fixed",
+    source:
+      args.ordinal <= args.normalizedPolicy.deterministicFollowUpCount
+        ? "fixed"
+        : "fallback",
     sourceAnswerVersionIds: args.sourceAnswerVersionIds,
-    validationCategory: "published_fixed_question",
+    validationCategory:
+      args.ordinal <= args.normalizedPolicy.deterministicFollowUpCount
+        ? "published_fixed_question"
+        : "published_timeout_fallback",
     now: args.now,
   });
 }
@@ -223,8 +233,7 @@ export function intakeSequenceComplete(
   responses: readonly { question: Doc<"intakeGeneratedQuestions"> }[],
 ) {
   return (
-    responses.length >= policy.minimumFollowUpCount &&
-    responses.length <= policy.maximumFollowUpCount &&
+    responses.length === policy.maximumFollowUpCount &&
     responses.every(
       ({ question }, index) =>
         question.ordinal === index + 1 &&

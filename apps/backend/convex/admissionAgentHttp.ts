@@ -138,7 +138,7 @@ export const ideaIntelligenceReadEndpoint = httpAction(async (ctx, request) => {
       ...(projection.additionalInformation
         ? [{
             sourceRef: "additional_information",
-            question: "Any additional information or links you want to share (please, no PPTs)",
+            question: "Additional information or links (optional, please no PPTs)",
             answer: redactProjectText(projection.additionalInformation),
           }]
         : []),

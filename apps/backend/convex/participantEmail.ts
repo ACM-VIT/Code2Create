@@ -1,7 +1,10 @@
 "use node";
 
 import { randomUUID } from "node:crypto";
+import { Buffer } from "node:buffer";
 
+import { sha256 } from "@noble/hashes/sha2.js";
+import { bytesToHex } from "@noble/hashes/utils.js";
 import { v } from "convex/values";
 
 import { internal } from "./_generated/api";
@@ -10,6 +13,47 @@ import { readBoundedJsonResponse } from "./lib/boundedHttpBody";
 import { interpretCloudflareEmailSendResponse } from "./lib/cloudflareEmailSending";
 
 const cloudflareApiBase = "https://api.cloudflare.com/client/v4/accounts";
+
+type TemplateVariables = {
+  participant_name: string;
+  team_name: string;
+  event_name: string;
+  portal_url: string;
+};
+
+function renderTemplate(template: string, variables: TemplateVariables) {
+  return template.replace(/\{\{\s*(participant_name|team_name|event_name|portal_url)\s*\}\}/gu, (
+    _match,
+    key: keyof TemplateVariables,
+  ) => variables[key]);
+}
+
+function htmlEscaped(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function rewriteInlineAssetReferences(
+  html: string,
+  assets: Array<{ fileName: string; contentId: string; disposition: "inline" | "attachment" }>,
+) {
+  let rewritten = html;
+  for (const asset of assets) {
+    if (asset.disposition !== "inline") continue;
+    const cid = `cid:${asset.contentId}`;
+    rewritten = rewritten
+      .replaceAll(`src="${asset.fileName}"`, `src="${cid}"`)
+      .replaceAll(`src='${asset.fileName}'`, `src='${cid}'`)
+      .replaceAll(`url("${asset.fileName}")`, `url("${cid}")`)
+      .replaceAll(`url('${asset.fileName}')`, `url('${cid}')`)
+      .replaceAll(`url(${asset.fileName})`, `url(${cid})`);
+  }
+  return rewritten;
+}
 
 function configuredPortalUrl(path: string) {
   const configured = process.env.PARTICIPANT_SITE_URL?.trim();
@@ -50,15 +94,56 @@ export const deliver = internalAction({
       });
       return null;
     }
-    const text = [
-      "Hello,",
-      "",
-      claim.notificationIntro,
-      "Sign in to view the authoritative status and next steps:",
-      portalUrl,
-      "",
-      "Email delivery does not confirm that you have read or accepted the update.",
-    ].join("\n");
+    const variables: TemplateVariables = {
+      participant_name: claim.participantName,
+      team_name: claim.teamName,
+      event_name: claim.eventName,
+      portal_url: portalUrl,
+    };
+    const htmlVariables: TemplateVariables = {
+      participant_name: htmlEscaped(claim.participantName),
+      team_name: htmlEscaped(claim.teamName),
+      event_name: htmlEscaped(claim.eventName),
+      portal_url: htmlEscaped(portalUrl),
+    };
+    const subject = renderTemplate(claim.subjectTemplate, variables);
+    const text = renderTemplate(claim.textTemplate, variables);
+    const html = rewriteInlineAssetReferences(
+      renderTemplate(claim.htmlTemplate, htmlVariables),
+      claim.assets,
+    );
+    const attachments = [];
+    for (const asset of claim.assets) {
+      const blob = await ctx.storage.get(asset.storageId);
+      if (!blob || blob.size !== asset.byteCount || blob.type !== asset.contentType) {
+        await ctx.runMutation(internal.participantNotificationState.recordSendFailure, {
+          deliveryId: claim.deliveryId,
+          attemptId,
+          errorCode: "email_asset_changed",
+          retryable: false,
+          ambiguous: false,
+        });
+        return null;
+      }
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      if (bytesToHex(sha256(bytes)) !== asset.sha256) {
+        await ctx.runMutation(internal.participantNotificationState.recordSendFailure, {
+          deliveryId: claim.deliveryId,
+          attemptId,
+          errorCode: "email_asset_changed",
+          retryable: false,
+          ambiguous: false,
+        });
+        return null;
+      }
+      attachments.push({
+        filename: asset.fileName,
+        type: asset.contentType,
+        content: Buffer.from(bytes).toString("base64"),
+        disposition: asset.disposition,
+        ...(asset.disposition === "inline" ? { content_id: asset.contentId } : {}),
+      });
+    }
     let response: Response;
     try {
       response = await fetch(
@@ -72,8 +157,10 @@ export const deliver = internalAction({
           body: JSON.stringify({
             from,
             to: claim.destinationEmail,
-            subject: claim.notificationSubject,
+            subject,
             text,
+            html,
+            ...(attachments.length > 0 ? { attachments } : {}),
             headers: { "X-Code2Create-Delivery-ID": claim.deliveryId },
             ...(replyTo ? { reply_to: replyTo } : {}),
           }),

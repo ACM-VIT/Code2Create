@@ -39,6 +39,12 @@
     },
     "production": {
       "name": "code2create-voice",
+      "routes": [
+        {
+          "pattern": "voice.c2c.sh",
+          "custom_domain": true
+        }
+      ],
       "durable_objects": {
         "bindings": [
           {
@@ -48,7 +54,7 @@
         ]
       },
       "vars": {
-        "PUBLIC_BASE_URL": "https://code2create-voice.acmvit.workers.dev"
+        "PUBLIC_BASE_URL": "https://voice.c2c.sh"
       }
     }
   }

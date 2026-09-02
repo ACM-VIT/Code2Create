@@ -3,6 +3,7 @@ import { createAuthClient } from 'better-auth/react'
 import { ConvexProviderWithAuth, type ConvexReactClient } from 'convex/react'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
+import { authProviderState, type SettledAuthentication } from './auth-state'
 import {
   abandonAuthTransfer,
   completeAuthTransfer,
@@ -12,7 +13,7 @@ import {
 import { readAuthPopupNonce, signalAuthPopupCompletion } from './popup'
 
 export { signInWithGooglePopup, type AuthPopupErrorCode } from './popup'
-export { GoogleFedCmButton } from './GoogleFedCmButton'
+export { GoogleFedCmButton, preloadGoogleIdentityServices } from './GoogleFedCmButton'
 
 export function createCode2CreateAuthClient(baseURL: string) {
   return createAuthClient({
@@ -43,6 +44,13 @@ export function Code2CreateAuthProvider({
       function useCode2CreateAuth() {
         const { data: session, isPending } = authClient.useSession()
         const sessionId = session?.session.id
+        const sessionAuthenticated = Boolean(session?.session)
+        const [settledAuthentication, setSettledAuthentication] =
+          useState<SettledAuthentication>(() => isPending ? null : sessionAuthenticated)
+
+        useEffect(() => {
+          if (!isPending) setSettledAuthentication(sessionAuthenticated)
+        }, [isPending, sessionAuthenticated])
 
         useEffect(() => {
           pendingToken.current = null
@@ -64,14 +72,13 @@ export function Code2CreateAuthProvider({
           [authClient],
         )
 
-        return useMemo(
-          () => ({
-            isLoading: isPending,
-            isAuthenticated: Boolean(session?.session),
-            fetchAccessToken,
-          }),
-          [fetchAccessToken, isPending, session],
+        const providerState = authProviderState(
+          isPending,
+          sessionAuthenticated,
+          settledAuthentication,
         )
+
+        return { ...providerState, fetchAccessToken }
       },
     [authClient],
   )

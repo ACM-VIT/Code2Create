@@ -32,8 +32,21 @@ const deliveryClaim = v.union(
     deliveryId: v.id("participantNotificationDeliveries"),
     destinationEmail: v.string(),
     portalPath: v.string(),
-    notificationSubject: v.string(),
-    notificationIntro: v.string(),
+    subjectTemplate: v.string(),
+    textTemplate: v.string(),
+    htmlTemplate: v.string(),
+    participantName: v.string(),
+    teamName: v.string(),
+    eventName: v.string(),
+    assets: v.array(v.object({
+      storageId: v.id("_storage"),
+      fileName: v.string(),
+      contentType: v.string(),
+      contentId: v.string(),
+      disposition: v.union(v.literal("inline"), v.literal("attachment")),
+      byteCount: v.number(),
+      sha256: v.string(),
+    })),
   }),
 );
 
@@ -81,12 +94,13 @@ export const claimDelivery = internalMutation({
       delivery.state === "pending" ||
       (delivery.state === "retry_wait" && (delivery.nextAttemptAt ?? 0) <= now);
     if (!canClaim) return null;
-    const [event, application, destination, person, communicationsPolicy] = await Promise.all([
+    const [event, application, destination, person, communicationsPolicy, team] = await Promise.all([
       ctx.db.get(delivery.eventId),
       ctx.db.get(delivery.applicationId),
       ctx.db.get(delivery.destinationId),
       ctx.db.get(delivery.personId),
       ctx.db.get(delivery.communicationsPolicyVersionId),
+      ctx.db.get(delivery.teamId),
     ]);
     if (!event || !application || !applicationMatchesNotification(application, delivery)) {
       await finishWithoutSend(ctx, delivery, "superseded", "application_state_changed", now);
@@ -121,8 +135,31 @@ export const claimDelivery = internalMutation({
       await finishWithoutSend(ctx, delivery, "suppressed", "verified_email_changed", now);
       return null;
     }
+    if (!team || team.eventId !== delivery.eventId) {
+      await finishWithoutSend(ctx, delivery, "failed", "team_context_invalid", now);
+      return null;
+    }
     if (delivery.attemptCount >= maxAutomaticAttempts) {
       await finishWithoutSend(ctx, delivery, "failed", "send_attempts_exhausted", now);
+      return null;
+    }
+    const emailTemplate = communicationsPolicy.emailTemplates.find(
+      (template) => template.templateKey === delivery.templateKey,
+    );
+    if (!emailTemplate) {
+      await finishWithoutSend(ctx, delivery, "failed", "email_template_missing", now);
+      return null;
+    }
+    const assetBundle = emailTemplate.assetBundleId
+      ? await ctx.db.get(emailTemplate.assetBundleId)
+      : null;
+    if (
+      emailTemplate.assetBundleId !== undefined &&
+      (!assetBundle ||
+        assetBundle.eventId !== delivery.eventId ||
+        assetBundle.templateKey !== delivery.templateKey)
+    ) {
+      await finishWithoutSend(ctx, delivery, "failed", "email_asset_bundle_invalid", now);
       return null;
     }
     const claimExpiresAt = now + sendClaimMs;
@@ -144,8 +181,21 @@ export const claimDelivery = internalMutation({
       deliveryId: delivery._id,
       destinationEmail: destination.emailNormalized,
       portalPath: delivery.portalPath,
-      notificationSubject: communicationsPolicy.notificationSubject,
-      notificationIntro: communicationsPolicy.notificationIntro,
+      subjectTemplate: emailTemplate.subject,
+      textTemplate: emailTemplate.text,
+      htmlTemplate: emailTemplate.html,
+      participantName: person.displayName,
+      teamName: team.name,
+      eventName: event.name,
+      assets: (assetBundle?.assets ?? []).map((asset) => ({
+        storageId: asset.storageId,
+        fileName: asset.fileName,
+        contentType: asset.contentType,
+        contentId: asset.contentId,
+        disposition: asset.disposition,
+        byteCount: asset.byteCount,
+        sha256: asset.sha256,
+      })),
     };
   },
 });

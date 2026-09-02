@@ -16,6 +16,9 @@ export default defineConfig(({ command }) => {
 		// Pre-bundle Worker dependencies so workerd never imports renamed stale chunks.
 		environments: {
 			code2create_intelligence: {
+				build: {
+					minify: true,
+				},
 				optimizeDeps: {
 					include: [
 						'@flue/runtime',

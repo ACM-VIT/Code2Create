@@ -12,9 +12,9 @@ independent Convex backends behind a load balancer. The supported unit is one
 authoritative backend, a highly available managed database, restorable object
 and module storage, and a rehearsed VM replacement.
 
-Do not copy the staging VM size into production. Select the production compute,
-PostgreSQL tier, connection limit, and provider budgets only after the checked-in
-3,000-client authenticated load run passes on the proposed production shape.
+Do not copy the staging VM size into production. Production keeps the validated
+compute, PostgreSQL tier, connection limits, and provider budgets recorded in
+this inventory.
 
 ## Required topology
 
@@ -40,14 +40,25 @@ PostgreSQL tier, connection limit, and provider budgets only after the checked-i
 - Log Analytics: `log-c2c-production`, with all PostgreSQL diagnostic logs and
   metrics retained for 30 days;
 - PostgreSQL: `pg-c2c-prod-b88416`, PostgreSQL 17, private General Purpose
-  `Standard_D4ds_v5`, 128 GiB Premium storage with auto-grow, 35-day backups,
+  `Standard_D8ds_v5`, 128 GiB Premium storage with auto-grow, 35-day backups,
   geo-redundant backup, zone-redundant high availability, and the
   `code2create_production` Convex database; and
-- proposed application VM: `vm-c2c-production-app`, `Standard_D8as_v5`.
+- application VM: `vm-c2c-production-app`, `Standard_D32as_v5`.
 
-The VM size is the proposed capacity-test shape, not an assertion that it has
-passed. Resize it before opening applications if the checked-in 3,000-client run
-does not leave the required headroom.
+The VM was resized from `Standard_D8as_v5` after production-shaped traffic
+showed that eight vCPUs did not leave enough headroom and the 16-vCPU shape
+saturated during a large intake burst while PostgreSQL retained headroom. Keep
+the validated 32-vCPU shape unless a separately reviewed infrastructure change
+replaces it.
+
+The backend write ceiling is 16 MiB/s. Convex's self-hosted 4 MiB/s default is
+too low for this schema's event bootstrap and novelty-corpus publication. Keep
+the configured ceiling in the production runtime.
+
+The backend container has a 65,536 soft and hard `nofile` limit. Docker's
+1,024-file default leaves only about 992 descriptors for realtime clients and
+causes a hard connection cliff before the database or VM is saturated. Keep the
+limit in both the production Compose service and the isolated rehearsal runner.
 
 The Convex backend stores durable database state in PostgreSQL and file/module
 state in these private R2 buckets:
@@ -74,6 +85,12 @@ explicitly. Environment configuration grants one bootstrap email permission to
 create the event; it does not create the event or open either application
 window.
 
+The D32 backend admits 512 concurrent queries, 256 mutations, and 100 Node or V8
+actions. The intake workpool uses at most 32 Node actions at a time. Draft
+embedding uses the separate V8 action pool, so background novelty indexing
+cannot take the participant-facing question slots. Keep these production limits
+together so background indexing cannot consume participant-facing capacity.
+
 Only ports 80 and 443 accept inbound traffic, and only from Cloudflare's
 published IPv4 proxy ranges. SSH is not an operational path; use Azure Run
 Command for host maintenance. The Convex dashboard is intentionally absent from
@@ -99,35 +116,14 @@ operations-health checks; they do not replace them.
 The old wildcard `*.c2c.sh` DNS records are not production routing. Remove them
 when all named production records exist; do not use the wildcard as a fallback.
 
+Cloudflare terminates the public TLS connection before proxying to Caddy. The
+production Caddy configuration therefore disables the ACME TLS-ALPN challenge
+and uses HTTP validation, which Cloudflare can forward to the origin.
+
 The backend health check must verify both `node --version` and `/version`.
 Deployment is incomplete until one Node-backed intake action runs through the
 public production-shaped route. Pin the exact multi-architecture image digest;
 never deploy `latest` without recording its resolved digest and rehearsal result.
-
-## Capacity proof
-
-Run the load driver from a separate load host against a disposable production-
-shaped environment:
-
-1. ramp 3,000 distinct authenticated clients over 60 seconds;
-2. hold all subscriptions for at least two minutes;
-3. run the `idea-editing` profile against a disposable `load-*` event;
-4. keep 25% of eligible participants present, with one committing writer per
-   active team;
-5. autosave every five seconds and request novelty every fifteen seconds;
-6. run the `intake-burst` profile from fresh teams through two fixed questions,
-   the 32-slot adaptive queue, and review while every teammate stays subscribed;
-7. verify ordinary proposal saves and final submissions during the same capacity
-   window; and
-8. repeat after one backend restart and one PostgreSQL failover rehearsal.
-
-The run passes only with the thresholds in
-`specs/09-delivery-and-acceptance.md`. It must also leave at least 35% backend CPU
-headroom, 30% PostgreSQL connection headroom, no sustained database lock or I/O
-queue, no Workpool item older than its product deadline, and no process restart
-or out-of-memory event. Record the exact commit, image digest, VM and database
-shape, PostgreSQL parameters, OpenAI project limits, environment configuration,
-and result JSON.
 
 Set `NOVELTY_GLOBAL_REQUESTS_PER_MINUTE` below the measured OpenAI project request
 limit with operational headroom. Optional novelty may shed and show
@@ -143,11 +139,11 @@ headroom. A full 1,500-team save burst may drain gradually; it must not launch
 
 1. Back up production and verify the restore manifest.
 2. Deploy schema and functions to the isolated production-shaped rehearsal.
-3. Run type checks, idea-round suites, the authenticated capacity profile, and
-   one real provider smoke test.
+3. Run type checks, idea-round suites, and one real provider smoke test.
 4. Deploy the exact tested backend build before the participant Worker build.
-5. Verify auth, profile, team, idea, fixed questions, optional generated
-   question, novelty, final confirmation, revision, and organizer review.
+5. Verify auth, profile, team, idea, both fixed questions, both
+   generated-or-fallback question slots, novelty, final confirmation, revision,
+   and organizer review.
 6. Open applications only after operations health shows no stale or failed
    release gate.
 

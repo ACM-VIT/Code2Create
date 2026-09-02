@@ -1,10 +1,12 @@
 import { api } from '@code2create/backend/api'
-import { useAction, useMutation, useQuery } from 'convex/react'
+import { useMutation, useQuery } from 'convex/react'
 import type { FunctionReturnType } from 'convex/server'
-import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Drawer } from 'vaul'
 import { EditingPresence } from '../components/EditingPresence'
 import { PortalScene } from '../components/portal/PortalScene'
+import { IdeaPromptsLink } from '../components/portal/IdeaPromptsSheet'
+import { useDesktop } from '../lib/useDesktop'
 import {
   AccordionItem,
   AccordionItemContent,
@@ -15,6 +17,7 @@ import {
 import { PetalCard } from '../components/portal/PetalCard'
 import { PortalButton, PortalTextButton } from '../components/portal/PortalButton'
 import { ShimmerText } from '../components/portal/ShimmerText'
+import { StackedSheet } from '../components/portal/StackedSheet'
 import { TeamCluster } from '../components/portal/TeamCluster'
 import { TeamMenu } from '../components/portal/TeamMenu'
 import { Flower } from '../components/portal/FlowerAvatar'
@@ -37,6 +40,7 @@ import {
   reconcileCommittedField,
   reconcileWorkingCopy,
   shouldRecoverFollowUpDraft,
+  shouldReplaceFollowUpEditorValue,
 } from '../lib/intakeCollaboration'
 import { useOperationRunner } from '../lib/operations'
 import { recoverProposalRevision } from '../lib/proposalRevision'
@@ -47,12 +51,16 @@ import {
   writeVersionedSessionDraft,
 } from '../lib/sessionDraft'
 import { useDeadlineReached } from '../lib/useDeadlineReached'
+import {
+  normalizedIdeaLength,
+  useNoveltyPreview,
+  type NoveltyBand,
+  type NoveltyState,
+} from '../hooks/useNoveltyPreview'
 import type { CurrentIntake, CurrentTeam, CurrentTeamMember } from '../types'
 
-type NoveltyBand = 'familiar' | 'developing' | 'distinct'
-
 const additionalInformationLabel =
-  'Any additional information or links you want to share (please, no PPTs)'
+  'Additional information or links (optional, please no PPTs)'
 
 // The pill's plain-speak read of each band: how close the idea sits to
 // what other teams are writing.
@@ -61,17 +69,6 @@ const noveltyBandLabels: Record<NoveltyBand, string> = {
   developing: 'somewhat similar',
   distinct: 'distinct',
 }
-
-type NoveltySignal = {
-  score: number
-  band: NoveltyBand | null
-}
-
-type NoveltyState =
-  | { status: 'idle' }
-  | { status: 'checking' }
-  | { status: 'ready'; signal: NoveltySignal }
-  | { status: 'unavailable' }
 
 type IntakeOperationResult =
   | FunctionReturnType<typeof api.intake.saveInitialIdea>
@@ -110,10 +107,6 @@ type AdditionalInformationEdit = {
   baseValue: string
   baseDraftVersion: number
   conflict: boolean
-}
-
-function normalizedIdeaLength(value: string) {
-  return value.trim().replace(/\s+/g, ' ').length
 }
 
 function editorLabel(
@@ -185,7 +178,6 @@ function IntakeStage({
   title,
   hint,
   presence,
-  topCenter,
   children,
   footer,
   width = 'max-w-[820px]',
@@ -200,8 +192,6 @@ function IntakeStage({
   hint?: string
   /** The centred live-presence line the mockup puts between title and card. */
   presence?: ReactNode
-  /** Floats at the top centre of the scene — the novelty pill's home. */
-  topCenter?: ReactNode
   children?: ReactNode
   footer?: ReactNode
   width?: string
@@ -211,6 +201,7 @@ function IntakeStage({
 }) {
   return (
     <PortalScene
+      onSignOut={onSignOut}
       tree="left"
       branch={branch}
       header={(
@@ -219,7 +210,6 @@ function IntakeStage({
           members={members}
           editable={teamEditable}
           canManage={team.currentRole === 'lead' && teamEditable}
-          onSignOut={onSignOut}
         />
       )}
       menu={(
@@ -232,11 +222,6 @@ function IntakeStage({
         />
       )}
     >
-      {topCenter ? (
-        <div className="pointer-events-none absolute inset-x-0 top-[38px] z-[6] flex justify-center">
-          {topCenter}
-        </div>
-      ) : null}
       <div className={`flex w-full flex-col items-center lg:mb-[8vh] ${width}`}>
         <h1
           className={`mb-6 max-w-[760px] text-center font-display font-light tracking-[-.01em] text-balance text-[26px] leading-tight text-shadow-[0_4px_30px_var(--scene-text-glow)] ${titleClass}`}
@@ -352,10 +337,12 @@ function IntakeWorkspace({
   onSignOut: () => void
 }) {
   const draft = intake.draft
-  const previewNovelty = useAction(api.novelty.preview)
   const autosaveWorkingField = useMutation(api.intake.autosaveWorkingField)
   const saveIdea = useMutation(api.intake.saveInitialIdea)
   const respondToFollowUp = useMutation(api.intake.respondToFollowUp)
+  const settleAdaptiveQuestionDeadline = useMutation(
+    api.intake.settleAdaptiveQuestionDeadline,
+  )
   const reviseFollowUp = useMutation(api.intake.reviseFollowUp)
   const saveAdditionalInformation = useMutation(api.intake.saveAdditionalInformation)
   const setFreshness = useMutation(api.intake.setFreshnessAttestation)
@@ -412,8 +399,6 @@ function IntakeWorkspace({
   const [collapsedSections, setCollapsedSections] = useState<readonly string[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [noveltyState, setNoveltyState] = useState<NoveltyState>({ status: 'idle' })
-  const noveltySequence = useRef(0)
   const commandInFlight = useRef(false)
   const applicationsClosed = useDeadlineReached(serverNow, intake.applicationsCloseAt)
   const applicationsOpen = !applicationsClosed
@@ -426,9 +411,6 @@ function IntakeWorkspace({
   })
 
   const novelty = draft?.novelty ?? opening?.novelty ?? null
-  const noveltyCorpusVersionId = novelty?.corpusVersionId ?? null
-  const noveltyMinimumIdeaLength = novelty?.minimumIdeaLength ?? null
-  const noveltyDebounceMs = novelty?.debounceMs ?? null
   const savedNoveltyScore = draft?.noveltySignal?.score ?? null
   const savedNoveltyBand = draft?.noveltySignal?.band ?? null
 
@@ -452,6 +434,52 @@ function IntakeWorkspace({
   useEffect(() => {
     if (applicationsClosed) stopEditing()
   }, [applicationsClosed, stopEditing])
+
+  useEffect(() => {
+    const deadlineAt = draft?.adaptiveQuestionDeadlineAt
+    if (
+      !applicationsOpen ||
+      draft?.stage !== 'follow_up' ||
+      activeFollowUp !== undefined ||
+      deadlineAt === undefined
+    ) {
+      return
+    }
+
+    let canceled = false
+    let timer: number | null = null
+    const memberGraceMs = intake.currentRole === 'lead' ? 50 : 2_000
+
+    const schedule = (delayMs: number) => {
+      timer = window.setTimeout(() => {
+        void settleAdaptiveQuestionDeadline({
+          eventSlug,
+          expectedDraftVersion: draft.version,
+          deadlineAt,
+        }).then((result) => {
+          if (canceled || result.state !== 'waiting') return
+          schedule(Math.max(50, deadlineAt - result.serverNow + memberGraceMs))
+        }).catch(() => {
+          if (!canceled) schedule(1_000)
+        })
+      }, Math.max(0, delayMs))
+    }
+
+    schedule(deadlineAt - intake.serverNow + memberGraceMs)
+    return () => {
+      canceled = true
+      if (timer !== null) window.clearTimeout(timer)
+    }
+  }, [
+    activeFollowUp,
+    applicationsOpen,
+    draft?.adaptiveQuestionDeadlineAt,
+    draft?.stage,
+    draft?.version,
+    intake.currentRole,
+    intake.serverNow,
+    settleAdaptiveQuestionDeadline,
+  ])
 
   useEffect(() => {
     const savedValue = draft?.initialIdea ?? ''
@@ -525,8 +553,9 @@ function IntakeWorkspace({
 
   useEffect(() => {
     const nextQuestionId = activeFollowUp?.id ?? null
-    if (followUpBase.current.questionId === nextQuestionId) return
+    if (!shouldReplaceFollowUpEditorValue(followUpBase.current.questionId, nextQuestionId)) return
     const priorQuestionId = followUpBase.current.questionId
+    setPendingFollowUp(null)
     const lastEditedByMembershipId = draft?.lastEditedByMembershipId
     if (shouldRecoverFollowUpDraft({
       answer,
@@ -658,82 +687,13 @@ function IntakeWorkspace({
       : null)
   }, [additionalInformationEdit, preview])
 
-  useEffect(() => {
-    noveltySequence.current += 1
-    const sequence = noveltySequence.current
-    const savedIdeaMatches =
-      draft?.initialIdea !== undefined &&
-      draft.initialIdea.trim().replace(/\s+/g, ' ') === idea.trim().replace(/\s+/g, ' ')
-    const hasSavedSignal =
-      noveltyCorpusVersionId !== null && savedNoveltyScore !== null && savedIdeaMatches
-
-    if (hasSavedSignal) {
-      // oxlint-disable-next-line react/set-state-in-effect -- Seed the async novelty state machine from the authoritative saved signal.
-      setNoveltyState({
-        status: 'ready',
-        signal: {
-          score: savedNoveltyScore,
-          band: savedNoveltyBand,
-        },
-      })
-    }
-
-    if (!ideaEditorOpen) {
-      if (!hasSavedSignal) setNoveltyState({ status: 'idle' })
-      return
-    }
-
-    if (
-      noveltyCorpusVersionId === null ||
-      noveltyMinimumIdeaLength === null ||
-      noveltyDebounceMs === null ||
-      normalizedIdeaLength(idea) < noveltyMinimumIdeaLength
-    ) {
-      setNoveltyState({ status: 'idle' })
-      return
-    }
-
-    if (!hasSavedSignal) setNoveltyState({ status: 'checking' })
-    const checkNovelty = () => {
-      void previewNovelty({
-        eventSlug,
-        corpusVersionId: noveltyCorpusVersionId,
-        idea,
-        clientRequestId: crypto.randomUUID(),
-      })
-        .then((result) => {
-          if (noveltySequence.current !== sequence) return
-          if (result.state === 'unavailable') {
-            if (!hasSavedSignal) setNoveltyState({ status: 'unavailable' })
-            return
-          }
-          setNoveltyState({ status: 'ready', signal: { score: result.score, band: result.band } })
-        })
-        .catch(() => {
-          if (noveltySequence.current === sequence && !hasSavedSignal) {
-            setNoveltyState({ status: 'unavailable' })
-          }
-        })
-    }
-    const initialTimer = window.setTimeout(
-      checkNovelty,
-      hasSavedSignal ? 0 : noveltyDebounceMs,
-    )
-
-    return () => {
-      window.clearTimeout(initialTimer)
-    }
-  }, [
-    draft?.initialIdea,
+  const noveltyState = useNoveltyPreview({
     idea,
-    ideaEditorOpen,
-    noveltyCorpusVersionId,
-    noveltyDebounceMs,
-    noveltyMinimumIdeaLength,
-    previewNovelty,
-    savedNoveltyBand,
-    savedNoveltyScore,
-  ])
+    ideaLength: normalizedIdeaLength(idea),
+    active: ideaEditorOpen,
+    config: novelty,
+    saved: { idea: draft?.initialIdea, score: savedNoveltyScore, band: savedNoveltyBand },
+  })
 
   // A successful submit hands this route to the submitted screen; warming its
   // chunk while the team reads the review keeps that handoff off the loader.
@@ -789,6 +749,7 @@ function IntakeWorkspace({
     enabled:
       applicationsOpen &&
       activeFollowUp !== undefined &&
+      pendingFollowUp === null &&
       !followUpConflict &&
       answer.length <= (draft?.intakePolicy.followUpAnswerMaxLength ?? 0),
     initialSavedValue: workingFollowUp?.value ?? '',
@@ -921,35 +882,40 @@ function IntakeWorkspace({
     })
   }
 
-  const submitAnswer = (event: FormEvent) => {
+  const submitAnswer = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (!activeFollowUp) return
+    if (!activeFollowUp || pendingFollowUp) return
+    const submittedAnswer = new FormData(event.currentTarget).get('follow-up-answer')
+    if (typeof submittedAnswer !== 'string') return
+    const submittedQuestion = activeFollowUp
+    const submittedDraftVersion = followUpBase.current.version
     void run(async () => {
-      const slot = `follow-up:${activeFollowUp.id}`
+      const slot = `follow-up:${submittedQuestion.id}`
       if (!operations.hasPending(slot)) {
-        setPendingFollowUp({ questionId: activeFollowUp.id })
+        setPendingFollowUp({ questionId: submittedQuestion.id })
       }
       try {
         await operations.run(slot, (clientOperationId) => () => respondToFollowUp({
             eventSlug,
-            questionId: activeFollowUp.id,
-            answer,
-            expectedDraftVersion: followUpBase.current.version,
+            questionId: submittedQuestion.id,
+            answer: submittedAnswer,
+            expectedDraftVersion: submittedDraftVersion,
             clientOperationId,
           }))
       } catch (caught) {
-        if (!isIntakeCollaborationConflict(caught)) throw caught
+        if (!isIntakeCollaborationConflict(caught)) {
+          if (!operations.hasPending(slot)) setPendingFollowUp(null)
+          throw caught
+        }
         setFollowUpConflict(true)
         setPendingFollowUp(null)
         setError(null)
         return
       }
-      clearSessionDraft(`c2c:${eventSlug}:${team.id}:follow-up:${activeFollowUp.id}`)
-      setAnswer('')
+      clearSessionDraft(`c2c:${eventSlug}:${team.id}:follow-up:${submittedQuestion.id}`)
       setFollowUpConflict(false)
       setPeekQuestionId(null)
       stopEditing()
-      setPendingFollowUp(null)
     })
   }
 
@@ -1095,13 +1061,6 @@ function IntakeWorkspace({
         hint={opening.initialHelpText}
         titleClass="lg:text-[42px]"
         presence={<EditingPresence editors={editors ?? []} members={members} />}
-        topCenter={
-          <NoveltyPill
-            state={noveltyState}
-            currentLength={normalizedIdeaLength(idea)}
-            minimumLength={novelty?.minimumIdeaLength ?? null}
-          />
-        }
       >
         <PortalError message={submissionFailureMessage ?? null} />
         <div className="relative w-full">
@@ -1154,7 +1113,6 @@ function IntakeWorkspace({
               value={idea}
               onChange={(event) => {
                 const nextIdea = event.currentTarget.value
-                noveltySequence.current += 1
                 setIdea(nextIdea)
                 setIdeaDirty(true)
                 writeVersionedSessionDraft(ideaStorageKey, {
@@ -1162,29 +1120,31 @@ function IntakeWorkspace({
                   value: nextIdea,
                 })
                 markEditing('idea')
-                setNoveltyState(
-                  novelty && normalizedIdeaLength(nextIdea) >= novelty.minimumIdeaLength
-                    ? { status: 'checking' }
-                    : { status: 'idle' },
-                )
               }}
               placeholder="Describe your idea…"
               className="bare-field min-h-[180px] border-0 bg-transparent px-0 py-0 text-[17px] leading-[1.7] focus:border-0"
             />
+            <IdeaPromptsLink className="mt-1" />
             <PortalError message={error} />
             <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-petal-line pt-3.5">
-              <span className="text-xs text-fg/45">
+              {/* The live score owns the left of the footer; the save state
+                  keeps to the button it describes. Near the limit the count
+                  shows everywhere, otherwise the note waits for wide screens. */}
+              <NoveltyPill
+                state={noveltyState}
+                currentLength={normalizedIdeaLength(idea)}
+                minimumLength={novelty?.minimumIdeaLength ?? null}
+              />
+              <div className="ml-auto flex items-center gap-4.5">
                 {idea.length > initialIdeaMaxLength * 0.8 ? (
-                  <span className="font-mono text-[11px] tracking-[.04em]">
+                  <span className="font-mono text-[11px] tracking-[.04em] text-fg/45">
                     {idea.length} / {initialIdeaMaxLength}
                   </span>
-                ) : ideaDirty ? (
-                  autosaveLabel(ideaAutosaveState)
                 ) : (
-                  `saved · editable until ${closeDateLabel}`
+                  <span className="hidden text-xs text-fg/45 sm:inline">
+                    {ideaDirty ? autosaveLabel(ideaAutosaveState) : `saved · editable until ${closeDateLabel}`}
+                  </span>
                 )}
-              </span>
-              <div className="flex items-center gap-4.5">
                 {editingIdea ? (
                   <PortalTextButton
                     type="button"
@@ -1248,8 +1208,8 @@ function IntakeWorkspace({
             sheet reopens its editor; an answer peeks open here and is
             rewritten at review, which the backend enforces. */}
         <div className="flex w-full flex-col">
-          <button
-            type="button"
+          <StackedSheet
+            depth={answeredSheets.length + 1}
             aria-label="Edit your idea"
             onClick={() => {
               ideaBase.current = {
@@ -1260,36 +1220,33 @@ function IntakeWorkspace({
               setIdeaDirty(false)
               setEditingIdea(true)
             }}
-            style={{ marginInline: (answeredSheets.length + 1) * 14 }}
-            className="relative -mb-1.5 overflow-hidden rounded-t-petal-sm border border-b-0 border-petal-line bg-[image:var(--tile-bg)] px-5 pt-1.5 pb-3.5 text-left backdrop-blur-md transition-transform duration-250 hover:-translate-y-1"
-          >
-            <span className="block truncate text-[11px] text-fg/50">
-              your idea <span className="text-fg/35">· {draft.initialIdea}</span>
-            </span>
-          </button>
+            label={(
+              <>
+                your idea <span className="text-fg/60">· {draft.initialIdea}</span>
+              </>
+            )}
+          />
           {answeredSheets.map((followUp, index) => {
             const peeked = peekQuestionId === followUp.id
             return (
-              <button
+              <StackedSheet
                 key={followUp.id}
-                type="button"
+                depth={answeredSheets.length - index}
                 aria-expanded={peeked}
                 onClick={() => setPeekQuestionId(peeked ? null : followUp.id)}
-                style={{ marginInline: (answeredSheets.length - index) * 14 }}
-                className="relative -mb-1.5 overflow-hidden rounded-t-petal-sm border border-b-0 border-petal-line bg-[image:var(--tile-bg)] px-5 pt-1.5 pb-3.5 text-left backdrop-blur-md transition-transform duration-250 hover:-translate-y-1"
+                label={followUp.question}
               >
-                <span className="block truncate text-[11px] text-fg/50">{followUp.question}</span>
                 {peeked ? (
                   <>
-                    <span className="mt-1 block text-[12.5px] leading-relaxed whitespace-pre-line wrap-anywhere text-fg/80">
+                    <span className="mt-1 block text-[13px] leading-relaxed whitespace-pre-line wrap-anywhere text-fg/85">
                       {followUp.answer}
                     </span>
-                    <span className="mt-1.5 block text-[10.5px] text-fg/40">
+                    <span className="mt-1.5 block text-[11px] text-fg/55">
                       rewritable at review, after the last question
                     </span>
                   </>
                 ) : null}
-              </button>
+              </StackedSheet>
             )
           })}
         <PetalCard className="px-6 pt-[26px] pb-[18px] lg:px-[30px]">
@@ -1324,12 +1281,13 @@ function IntakeWorkspace({
             ) : null}
             <PortalTextarea
               key={activeFollowUp?.id ?? 'cooking'}
+              name="follow-up-answer"
               autoFocus={activeFollowUp !== undefined}
               required
               minLength={minLength}
               maxLength={draft.intakePolicy.followUpAnswerMaxLength}
               rows={6}
-              disabled={busy || !activeFollowUp}
+              disabled={busy || pendingFollowUp !== null || !activeFollowUp}
               value={answer}
               onChange={(event) => {
                 if (!activeFollowUp) return
@@ -1364,9 +1322,15 @@ function IntakeWorkspace({
               <PortalButton
                 type="submit"
                 size="sm"
-                disabled={busy || !activeFollowUp || followUpConflict || answer.trim().length < minLength}
+                disabled={
+                  busy ||
+                  pendingFollowUp !== null ||
+                  !activeFollowUp ||
+                  followUpConflict ||
+                  answer.trim().length < minLength
+                }
               >
-                {busy ? 'Saving…' : 'Continue'}
+                {busy || pendingFollowUp ? 'Saving…' : 'Continue'}
               </PortalButton>
             </div>
           </form>
@@ -1392,6 +1356,7 @@ function IntakeWorkspace({
     }
     const canSubmit =
       preview.blockers.length === 0 &&
+      preview.freshnessAttested &&
       team.currentRole === 'lead' &&
       team.canSubmitApplication
 
@@ -1583,6 +1548,7 @@ function IntakeWorkspace({
 
     return (
       <PortalScene
+        onSignOut={onSignOut}
         tree="left"
         header={(
           <TeamCluster
@@ -1590,7 +1556,6 @@ function IntakeWorkspace({
             members={members}
             editable={teamEditable}
             canManage={team.currentRole === 'lead' && teamEditable}
-            onSignOut={onSignOut}
           />
         )}
         menu={(
@@ -1839,7 +1804,7 @@ function IntakeWorkspace({
                     maxLength={preview.additionalInformationMaxLength}
                     disabled={busy}
                     value={additionalInformationEdit?.value ?? ''}
-                    placeholder="Share a website, repository, document, demo link, or anything else useful."
+                    placeholder="Optional: share some reference website, other documents or anything else useful."
                     onChange={(event) => {
                       const value = event.currentTarget.value
                       setAdditionalInformationEdit((current) => current
@@ -1938,24 +1903,12 @@ function ReviewEditRow({ onEdit, busy }: { onEdit: () => void; busy: boolean }) 
         type="button"
         disabled={busy}
         onClick={onEdit}
-        className="text-[12.5px] text-rose-light underline-offset-4 hover:underline disabled:opacity-50"
+        className="text-[12.5px] text-rose-light underline-offset-4 hover:underline disabled:cursor-not-allowed disabled:opacity-50 motion-safe:disabled:hover:animate-shake"
       >
         edit
       </button>
     </div>
   )
-}
-
-const desktopQuery = '(min-width: 640px)'
-
-function subscribeDesktop(onChange: () => void) {
-  const media = window.matchMedia(desktopQuery)
-  media.addEventListener('change', onChange)
-  return () => media.removeEventListener('change', onChange)
-}
-
-function useDesktop() {
-  return useSyncExternalStore(subscribeDesktop, () => window.matchMedia(desktopQuery).matches)
 }
 
 /** What the number means, shared by the pill's popover and its mobile sheet. */
@@ -2000,7 +1953,14 @@ function NoveltyExplainer() {
  * The "?" beside every novelty read: a popover on desktop, a bottom sheet on
  * phones, both carrying the same explainer.
  */
-function NoveltyHelp({ align = 'center' }: { align?: 'center' | 'end' }) {
+function NoveltyHelp({
+  align = 'center',
+  placement = 'below',
+}: {
+  align?: 'start' | 'center' | 'end'
+  /** Where the panel opens relative to the ?; footer pills open above. */
+  placement?: 'above' | 'below'
+}) {
   const [explaining, setExplaining] = useState(false)
   const desktop = useDesktop()
   const anchorRef = useRef<HTMLDivElement>(null)
@@ -2036,8 +1996,10 @@ function NoveltyHelp({ align = 'center' }: { align?: 'center' | 'end' }) {
       </button>
       {explaining && desktop ? (
         <div
-          className={`absolute top-[calc(100%+10px)] z-[7] w-[320px] rounded-petal-sm border border-petal-edge bg-wash/92 px-6 py-5 shadow-[0_24px_50px_-18px_var(--shade-2)] backdrop-blur-md ${
-            align === 'center' ? 'left-1/2 -translate-x-1/2' : 'right-0'
+          className={`absolute z-[7] w-[320px] rounded-petal-sm glass-menu bg-wash/90 px-6 py-5 font-normal text-fg ${
+            placement === 'above' ? 'bottom-[calc(100%+12px)]' : 'top-[calc(100%+10px)]'
+          } ${
+            align === 'center' ? 'left-1/2 -translate-x-1/2' : align === 'end' ? 'right-0' : 'left-0'
           }`}
         >
           <p className="mb-2.5 text-[11px] font-semibold tracking-[.08em] text-rose-light/80">
@@ -2069,8 +2031,7 @@ function NoveltyHelp({ align = 'center' }: { align?: 'center' | 'end' }) {
 
 /**
  * The saved score woven into the review card: the number, its plain-speak
- * band, a thin meter, and one line that keeps it honest — a guide while
- * writing, not a shortlisting gate.
+ * band, and a thin meter — the ? beside it holds the explanation.
  */
 export function NoveltyReviewRow({
   score,
@@ -2094,10 +2055,6 @@ export function NoveltyReviewRow({
           style={{ width: `${Math.max(2, Math.min(100, score))}%` }}
         />
       </div>
-      <p className="mt-2 mb-0 text-[11px] leading-relaxed text-fg/45">
-        This score compares your idea with ideas from other teams. A higher score means fewer teams are working on something similar. It updates while you type and is saved with your idea.
-        We don't use this score to block submissions. Our team will see your idea, not this score.
-      </p>
     </div>
   )
 }
@@ -2122,7 +2079,7 @@ export function NoveltyPill({
         : 'score unavailable'
   return (
     <div className="pointer-events-auto relative">
-      <div className="inline-flex items-center gap-2 rounded-[8px] border border-rose-light/55 bg-wash/92 py-1.5 pr-2 pl-3.5 text-[11.5px] font-semibold text-rose-light shadow-[0_8px_22px_var(--shade-1)] backdrop-blur-md">
+      <div className="inline-flex items-center gap-2 rounded-[9px] border border-rose-light/55 bg-wash/92 py-2 pr-2.5 pl-4 text-[12.5px] font-semibold text-rose-light shadow-[0_8px_22px_var(--shade-1)] backdrop-blur-md">
         <span aria-live="polite" aria-label="Live idea comparison score">
           {signal === null ? (
             label
@@ -2145,7 +2102,7 @@ export function NoveltyPill({
             </>
           )}
         </span>
-        <NoveltyHelp />
+        <NoveltyHelp align="start" placement="above" />
       </div>
     </div>
   )

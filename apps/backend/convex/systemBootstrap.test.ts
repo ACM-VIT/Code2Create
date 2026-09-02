@@ -1,6 +1,7 @@
 import betterAuthSchema from "../node_modules/@convex-dev/better-auth/src/component/schema.ts";
 import { convexTest, type TestConvex } from "convex-test";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { defaultParticipantEmailTemplates } from "@code2create/domain";
 
 import { api, components } from "./_generated/api";
 import { defaultDeterministicIntakePolicy } from "./lib/intakePolicy.ts";
@@ -94,8 +95,7 @@ describe("event bootstrap", () => {
         discordUrl: "https://discord.gg/code2create",
         discordLabel: "Open event Discord",
         notificationProvider: "cloudflare_email",
-        notificationSubject: "Code2Create event update",
-        notificationIntro: "There is a new Code2Create event update in your portal.",
+        emailTemplates: defaultParticipantEmailTemplates(),
       },
       integrationPolicy: {
         version: "integrations-v1",
@@ -300,8 +300,7 @@ describe("event bootstrap", () => {
         discordUrl: "https://discord.gg/code2create",
         discordLabel: "Open event Discord",
         notificationProvider: "cloudflare_email",
-        notificationSubject: "Code2Create event update",
-        notificationIntro: "There is a new Code2Create event update in your portal.",
+        emailTemplates: defaultParticipantEmailTemplates(),
       },
       integrationPolicy: {
         version: "integrations-v1",
@@ -594,8 +593,7 @@ describe("event bootstrap", () => {
           discordUrl: "https://discord.gg/code2create",
           discordLabel: "Open event Discord",
           notificationProvider: "cloudflare_email",
-          notificationSubject: "Event update",
-          notificationIntro: "There is a new event update in your portal.",
+          emailTemplates: defaultParticipantEmailTemplates(),
         },
         integrationPolicy: {
           version: "integrations-v1",

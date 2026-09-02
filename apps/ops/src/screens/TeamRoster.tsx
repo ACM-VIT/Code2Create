@@ -21,16 +21,16 @@ type ImportRow = PreviewRequest['rows'][number]
 type PreviewResult = FunctionReturnType<typeof api.teamRosters.previewImport>
 type ImportResult = FunctionReturnType<typeof api.teamRosters.confirmImport>
 
-type EntryGroup = 'conflict' | 'waiting' | 'joined' | 'skipped' | 'ended'
+type EntryGroup = 'conflict' | 'choice' | 'waiting' | 'joined' | 'ended'
 type ImportShape = 'people' | 'teams'
 
 const maximumCsvBytes = 256 * 1024
 
 const teamRosterGroups: ReadonlyArray<{ key: EntryGroup; label: string }> = [
   { key: 'conflict', label: 'Identity conflicts to resolve' },
+  { key: 'choice', label: 'Waiting for a participant to choose' },
   { key: 'waiting', label: 'Waiting to sign in or for their lead' },
   { key: 'joined', label: 'On their team' },
-  { key: 'skipped', label: 'Already on a team' },
   { key: 'ended', label: 'Removed or replaced' },
 ]
 
@@ -71,9 +71,9 @@ export function TeamRoster() {
   const entries = entryPage.results
   const loadingPeople = entryPage.status === 'LoadingFirstPage'
   const waiting = workspace.entryCounts.waiting
+  const awaitingChoice = workspace.entryCounts.awaitingChoice
   const identityConflicts = workspace.entryCounts.identityConflicts
   const joined = workspace.entryCounts.claimed
-  const skipped = workspace.entryCounts.skipped
   const total = workspace.entryCounts.total
 
   const readCsv = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -148,7 +148,9 @@ export function TeamRoster() {
       setMessage(
         preview.counts.identityConflicts > 0
           ? `Recorded ${result.rowCount} ${people(result.rowCount)}. ${preview.counts.identityConflicts} identity ${preview.counts.identityConflicts === 1 ? 'conflict needs' : 'conflicts need'} duplicate-account cleanup; safe rows will continue joining normally.`
-          : `Recorded ${result.rowCount} ${people(result.rowCount)}. They join their team as soon as they sign in, or right away if they already have an account.`,
+          : preview.counts.choiceRequired > 0
+            ? `Recorded ${result.rowCount} ${people(result.rowCount)}. ${preview.counts.choiceRequired} ${people(preview.counts.choiceRequired)} must choose between their current team and the imported team.`
+            : `Recorded ${result.rowCount} ${people(result.rowCount)}. They join their team as soon as they sign in, or right away if they already have an account.`,
       )
       setPreviewRequest(null)
       setLoadedRoster(null)
@@ -170,7 +172,7 @@ export function TeamRoster() {
         <div>
           <h1>Participant teams</h1>
           <p className="muted">
-            Place participants on their assigned teams before they sign in. People already on a team are left there.
+            Place participants on their assigned teams before they sign in. Anyone already on a different team chooses which team to keep.
           </p>
         </div>
         {workspace.canImport ? (
@@ -201,15 +203,17 @@ export function TeamRoster() {
               <dl className="catalog-summary">
                 <div><dt>On their team</dt><dd>{joined}</dd></div>
                 <div><dt>Waiting</dt><dd>{waiting}</dd></div>
+                <div><dt>Needs a choice</dt><dd>{awaitingChoice}</dd></div>
                 <div><dt>Identity conflicts</dt><dd>{identityConflicts}</dd></div>
-                <div><dt>Already on a team</dt><dd>{skipped}</dd></div>
               </dl>
               <p>
-                {waiting === 0 && identityConflicts === 0
+                {waiting === 0 && awaitingChoice === 0 && identityConflicts === 0
                   ? 'Every current assignment is resolved.'
                   : identityConflicts > 0
-                    ? `${identityConflicts} ${people(identityConflicts)} need duplicate VIT accounts resolved; ${waiting} are still waiting to join.`
-                  : `${waiting} of ${total} ${people(total)} are still waiting to join their team.`}
+                    ? `${identityConflicts} ${people(identityConflicts)} need duplicate VIT accounts resolved; ${waiting} are waiting to join and ${awaitingChoice} need to choose a team.`
+                    : awaitingChoice > 0
+                      ? `${awaitingChoice} ${people(awaitingChoice)} need to choose a team; ${waiting} are still waiting to join.`
+                      : `${waiting} of ${total} ${people(total)} are still waiting to join their team.`}
               </p>
               {!workspace.canImport ? (
                 <p className="muted">You can read this list but not import team assignments.</p>
@@ -365,7 +369,8 @@ function TeamRosterPreview({
       <dl className="roster-preview-counts">
         <div><dt>Waiting to sign in</dt><dd>{preview.counts.pending}</dd></div>
         <div><dt>Identity conflicts</dt><dd>{preview.counts.identityConflicts}</dd></div>
-        <div><dt>Already on a team</dt><dd>{preview.counts.alreadyOnTeam}</dd></div>
+        <div><dt>Already assigned here</dt><dd>{preview.counts.alreadyAssigned}</dd></div>
+        <div><dt>Needs a choice</dt><dd>{preview.counts.choiceRequired}</dd></div>
         <div><dt>Team lead not signed in</dt><dd>{preview.counts.waitingForLead}</dd></div>
         <div><dt>Replaces an earlier row</dt><dd>{preview.counts.superseded}</dd></div>
       </dl>
@@ -380,9 +385,9 @@ function TeamRosterPreview({
         ))}
       </div>
       <p className="muted">
-        People already on a team stay where they are. Safe rows continue normally. Identity
-        conflicts are recorded without placement so Ops can resolve duplicate VIT accounts and
-        import those people again.
+        People already on the imported team stay there. People on a different team are asked which
+        team they want to keep. Identity conflicts are recorded without placement so Ops can resolve
+        duplicate VIT accounts and import those people again.
       </p>
       <div className="button-row">
         <button className="primary" type="button" disabled={busy} onClick={onConfirm}>
@@ -488,15 +493,15 @@ function orderedEntries(entries: readonly Entry[], group: EntryGroup) {
 
 function entryGroup(status: Entry['status']): EntryGroup {
   if (status === 'identity_conflict') return 'conflict'
+  if (status === 'choice_required') return 'choice'
   if (status === 'pending' || status === 'waiting_for_lead') return 'waiting'
   if (status === 'claimed') return 'joined'
-  if (status === 'skipped_has_team') return 'skipped'
   return 'ended'
 }
 
 function groupTone(group: EntryGroup) {
   if (group === 'conflict') return 'critical'
-  if (group === 'skipped') return 'watch'
+  if (group === 'choice') return 'watch'
   if (group === 'waiting') return 'watch'
   return ''
 }
@@ -505,7 +510,7 @@ function groupIcon(group: EntryGroup): IconName {
   if (group === 'conflict') return 'alert'
   if (group === 'waiting') return 'clock'
   if (group === 'joined') return 'users'
-  if (group === 'skipped') return 'pause'
+  if (group === 'choice') return 'pause'
   return 'alert'
 }
 
@@ -519,10 +524,10 @@ function statusStatement(entry: Entry) {
   if (entry.status === 'identity_conflict') {
     return 'This registration number belongs to multiple event accounts. Resolve the duplicate accounts, remove this row, then import it again.'
   }
-  if (entry.status === 'claimed') return 'On their team.'
-  if (entry.status === 'skipped_has_team') {
-    return 'Was already on a team, so this assignment was skipped.'
+  if (entry.status === 'choice_required') {
+    return 'Already on a different team. The participant must choose which team to keep.'
   }
+  if (entry.status === 'claimed') return 'On their team.'
   if (entry.status === 'revoked') return 'The assignment was removed.'
   return 'A newer assignment for the same person replaced this one.'
 }
@@ -539,6 +544,7 @@ function people(count: number) {
 function outcomeName(outcome: PreviewResult['rows'][number]['outcome']) {
   if (outcome === 'pending') return 'Waiting to sign in'
   if (outcome === 'identity_conflict') return 'Resolve duplicate VIT accounts'
-  if (outcome === 'already_on_team') return 'Already on a team'
+  if (outcome === 'already_assigned') return 'Already on this team'
+  if (outcome === 'choice_required') return 'Participant must choose'
   return 'Lead not signed in yet'
 }

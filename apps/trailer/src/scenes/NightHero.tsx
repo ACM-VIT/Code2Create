@@ -210,7 +210,7 @@ export const NightHero: React.FC = () => {
               color: COLORS.white,
             }}
           >
-            code2create.in
+            c2c.acmvit.in
           </EndLine>
         </div>
       </AbsoluteFill>

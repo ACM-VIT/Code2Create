@@ -64,7 +64,7 @@ async function readPolicy(ctx: QueryCtx, policy: Doc<"intakePolicyVersions">) {
     createdAt: policy.createdAt,
     ...(policy.publishedAt !== undefined ? { publishedAt: policy.publishedAt } : {}),
     activeDraftCount: await activeDraftCount(ctx, policy),
-    policy: intakePolicyFromDocument(policy),
+    policy: normalizeIntakePolicy(intakePolicyFromDocument(policy)),
   };
 }
 

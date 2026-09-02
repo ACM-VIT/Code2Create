@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import { usePortalTheme } from '../../lib/portalTheme'
 import { DaybreakToggle } from './DaybreakToggle'
+import { PortalSceneContext } from './portalSceneContext'
 import { Petals, PETAL_RADIUS } from './Petals'
 
 type TreePlacement = 'left' | 'right' | 'both' | 'none'
@@ -47,19 +48,29 @@ export function PortalScene({
   children,
   header,
   menu,
+  onSignOut,
   tree = 'left',
   branch = false,
   logo = 'corner',
   backdrop,
+  fill = false,
 }: {
   children: ReactNode
   header?: ReactNode
+  /**
+   * Pins the scene to the viewport height and lets the content own its own
+   * scrolling — the conversation screens, where the thread scrolls inside
+   * the page rather than with it.
+   */
+  fill?: boolean
   /**
    * Content for the mobile menu takeover. When given, small screens swap the
    * header cluster and theme toggle for a hamburger that opens a full-screen
    * menu holding this content plus the theme row; desktop is unchanged.
    */
   menu?: ReactNode
+  /** Signed-in screens: the roster panel under the avatars offers sign-out. */
+  onSignOut?: () => void
   tree?: TreePlacement
   branch?: boolean
   /** f0a centres its own large mark in the copy instead of the corner one. */
@@ -114,10 +125,13 @@ export function PortalScene({
   const branchShift = `translate(${pointer.x * 12}px, ${pointer.y * 7}px)`
 
   return (
+    <PortalSceneContext.Provider value={{ onSignOut: onSignOut ?? null }}>
     <div
       data-portal-scene
       onMouseMove={onMove}
-      className="relative flex min-h-dvh flex-col overflow-hidden bg-wash bg-[image:var(--scene-sky)] font-ui text-fg"
+      className={`relative flex flex-col overflow-hidden bg-wash bg-[image:var(--scene-sky)] font-ui text-fg ${
+        fill ? 'h-dvh' : 'min-h-dvh'
+      }`}
     >
       {backdrop}
       {/* Hills sit furthest back, bleeding past both edges so the band never
@@ -186,7 +200,11 @@ export function PortalScene({
         {menu ? <SceneMenuButton menu={menu} /> : null}
       </header>
 
-      <main className="relative z-[3] flex flex-1 flex-col items-center justify-center px-5 pt-28 pb-16 lg:px-12">
+      <main
+        className={`relative z-[3] flex flex-1 flex-col items-center px-5 lg:px-12 ${
+          fill ? 'min-h-0 justify-start pt-[84px] pb-4 lg:pt-[100px] lg:pb-6 xl:pt-9' : 'justify-center pt-28 pb-16'
+        }`}
+      >
         {children}
       </main>
 
@@ -197,6 +215,7 @@ export function PortalScene({
         className="pointer-events-none absolute inset-0 z-[5] bg-[image:var(--scene-vignette)]"
       />
     </div>
+    </PortalSceneContext.Provider>
   )
 }
 

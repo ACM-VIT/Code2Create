@@ -18,11 +18,12 @@ import { useMutationAttempt } from '../lib/operations'
 import { useVersionedState } from '@code2create/web-forms'
 import { PortalScene } from '../components/portal/PortalScene'
 import { PetalCard } from '../components/portal/PetalCard'
-import { Petal } from '../components/portal/Petal'
 import { TeamCluster } from '../components/portal/TeamCluster'
 import { TeamMenu } from '../components/portal/TeamMenu'
 import { PortalButton, PortalTextButton } from '../components/portal/PortalButton'
 import { PortalError, PortalField, PortalTextarea } from '../components/portal/PortalField'
+import { normalizedIdeaLength, useNoveltyPreview } from '../hooks/useNoveltyPreview'
+import { NoveltyPill } from './IntakeScreen'
 import { Flower } from '../components/portal/FlowerAvatar'
 import { SubmitCelebration } from '../components/portal/SubmitCelebration'
 import { consumeSubmissionCelebration } from '../lib/submissionCelebration'
@@ -46,7 +47,7 @@ type ApplicationState = CurrentApplication['state']
 type InformationRequest = NonNullable<CurrentApplication['informationRequest']>
 
 const additionalInformationLabel =
-  'Any additional information or links you want to share (please, no PPTs)'
+  'Additional information or links (optional, please no PPTs)'
 
 const deliveryStatusCopy: Record<ParticipantDeliveryState, string> = {
   pending: 'Email queued.',
@@ -265,20 +266,20 @@ function SubmittedWorkspace({
     }
   }
 
+  const proposalButton = (
+    <PortalButton type="button" onClick={() => setViewingProposal(true)}>
+      {canEditProposal ? 'Edit submission' : 'View submission'}
+    </PortalButton>
+  )
+  const deliveryNotice = delivery && deliveryNeedsAttention(delivery.state) ? (
+    <p role="status" className="mt-6 text-[12.5px] text-rose-light">
+      {deliveryStatusCopy[delivery.state]}
+    </p>
+  ) : null
   const proposalLink = (
     <>
-      <button
-        type="button"
-        onClick={() => setViewingProposal(true)}
-        className="mt-8 rounded-sm text-[13.5px] text-rose-light underline-offset-4 hover:underline"
-      >
-        {canEditProposal ? 'edit submission →' : 'view submission →'}
-      </button>
-      {delivery && deliveryNeedsAttention(delivery.state) ? (
-        <p role="status" className="mt-6 text-[12.5px] text-rose-light">
-          {deliveryStatusCopy[delivery.state]}
-        </p>
-      ) : null}
+      <div className="mt-8">{proposalButton}</div>
+      {deliveryNotice}
     </>
   )
 
@@ -286,8 +287,9 @@ function SubmittedWorkspace({
   if (viewingProposal) {
     return (
       <PortalScene
-        tree="none"
-        header={<TeamCluster team={team} members={members} editable={teamEditable} canManage={canManageTeam} onSignOut={onSignOut} />}
+        onSignOut={onSignOut}
+        tree="left"
+        header={<TeamCluster team={team} members={members} editable={teamEditable} canManage={canManageTeam} />}
         menu={<TeamMenu team={team} members={members} editable={teamEditable} canManage={canManageTeam} onSignOut={onSignOut} />}
       >
         <div className="flex w-full max-w-[840px] flex-col items-center">
@@ -330,15 +332,13 @@ function SubmittedWorkspace({
   if (!selected && QUEUED_STATES.includes(application.state)) {
     return (
       <PortalScene
-        tree="none"
-        header={<TeamCluster team={team} members={members} editable={teamEditable} canManage={canManageTeam} onSignOut={onSignOut} />}
+        onSignOut={onSignOut}
+        tree="left"
+        header={<TeamCluster team={team} members={members} editable={teamEditable} canManage={canManageTeam} />}
         menu={<TeamMenu team={team} members={members} editable={teamEditable} canManage={canManageTeam} onSignOut={onSignOut} />}
       >
         {celebration}
         <div className="flex w-full max-w-[760px] flex-col items-center text-center">
-          <div className="mb-5 drop-shadow-[0_0_14px_var(--glow-rose)]">
-            <Petal size={34} />
-          </div>
           <h1
             className={`mb-3.5 font-display font-light tracking-[-.01em] text-5xl leading-none text-shadow-[0_8px_50px_var(--scene-text-glow)] lg:text-[70px] ${
               /* Named only once the overlay is gone, so the celebration's
@@ -354,8 +354,11 @@ function SubmittedWorkspace({
               ? copy.message
               : `${team.name} is in the review queue`}
           </p>
+          {proposalButton}
 
-          <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-2 text-[13px] text-fg/65">
+          {/* The facts stay one quiet line under the action: boxes here turn
+              a still screen into a dashboard. */}
+          <div className="mt-10 flex flex-wrap items-center justify-center gap-x-8 gap-y-2 text-[13px] text-fg/65">
             <span>
               status <span className="text-fg">{copy.status.toLowerCase()}</span>
             </span>
@@ -392,8 +395,6 @@ function SubmittedWorkspace({
               </PetalCard>
             </div>
           ) : null}
-
-          {proposalLink}
 
           {delivery && deliveryNeedsAttention(delivery.state) ? (
             <p role="status" className="mt-6 text-[12.5px] text-rose-light">
@@ -432,8 +433,9 @@ function SubmittedWorkspace({
       team.canRespondToOffer
     return (
       <PortalScene
-        tree="none"
-        header={<TeamCluster team={team} members={members} editable={teamEditable} canManage={canManageTeam} onSignOut={onSignOut} />}
+        onSignOut={onSignOut}
+        tree="left"
+        header={<TeamCluster team={team} members={members} editable={teamEditable} canManage={canManageTeam} />}
         menu={<TeamMenu team={team} members={members} editable={teamEditable} canManage={canManageTeam} onSignOut={onSignOut} />}
         backdrop={
           <div aria-hidden className="pointer-events-none absolute inset-0 z-[2]">
@@ -601,7 +603,7 @@ function SubmittedWorkspace({
                 rel="noreferrer"
                 className="text-[13.5px] text-rose-light underline-offset-4 hover:underline"
               >
-                {communications.discordLabel || 'join the Discord'} →
+                {communications.discordLabel || 'join the Discord'}
               </a>
             ) : null}
           </div>
@@ -616,14 +618,12 @@ function SubmittedWorkspace({
   // ---- closed states: declined, waitlisted, expired, withdrawn ------------
   return (
     <PortalScene
-      tree="none"
-      header={<TeamCluster team={team} members={members} editable={teamEditable} canManage={canManageTeam} onSignOut={onSignOut} />}
+      onSignOut={onSignOut}
+      tree="left"
+      header={<TeamCluster team={team} members={members} editable={teamEditable} canManage={canManageTeam} />}
         menu={<TeamMenu team={team} members={members} editable={teamEditable} canManage={canManageTeam} onSignOut={onSignOut} />}
     >
       <div className="flex w-full max-w-[760px] flex-col items-center text-center">
-        <div className="mb-5 drop-shadow-[0_0_14px_var(--glow-rose)]">
-          <Petal size={34} />
-        </div>
         <h1 className="mb-3.5 font-display font-light tracking-[-.01em] text-5xl leading-none text-shadow-[0_8px_50px_var(--scene-text-glow)] lg:text-[64px]">
           {copy.heading}
         </h1>
@@ -657,7 +657,7 @@ function BentoBlock({
   const expandable = children !== undefined
   return (
     <div
-      className={`rounded-petal-sm border border-rose-light/45 bg-[image:var(--tile-bg)] px-[22px] py-[18px] shadow-[0_24px_50px_-18px_var(--shade-2),inset_0_1px_0_var(--card-topline)] backdrop-blur-[14px] transition-all duration-250 ${
+      className={`rounded-petal-sm glass-tile px-[22px] py-[18px] transition-all duration-250 ${
         expandable ? 'cursor-pointer' : ''
       }`}
       {...(expandable
@@ -713,18 +713,22 @@ function EventLiveScene({
   proposalLink: ReactNode
 }) {
   const capabilities = useQuery(api.access.participantCapabilities, { eventSlug })
+  const support = useQuery(api.support.mineSummary, capabilities?.supportRead ? { eventSlug } : 'skip')
+  const openRequests = support === undefined || support.openCount === 0
+    ? null
+    : `${support.countIsLowerBound ? '20+' : support.openCount} open`
   const nextPhase = event.phases.find((phase) => phase.startsAt > phaseTime)
   const latestStep = communications?.nextSteps[0]
   return (
     <PortalScene
-      tree="none"
+      onSignOut={onSignOut}
+      tree="left"
       header={(
         <TeamCluster
           team={team}
           members={members}
           editable={phaseTime < team.membershipEditableUntil}
           canManage={team.currentRole === 'lead' && phaseTime < team.membershipEditableUntil}
-          onSignOut={onSignOut}
         />
       )}
       menu={(
@@ -804,7 +808,7 @@ function EventLiveScene({
               {capabilities?.integrations ? (
                 <p className="mt-3 mb-0 text-xs">
                   <Link to="/integrations" viewTransition className="text-rose-light underline-offset-4 hover:underline">
-                    manage repos + Figma →
+                    manage repos + Figma
                   </Link>
                 </p>
               ) : null}
@@ -876,7 +880,7 @@ function EventLiveScene({
                 ) : null}
                 {capabilities?.supportRead ? (
                   <Link to="/support" viewTransition className="text-rose-light">
-                    support
+                    support{openRequests ? <span className="text-fg/55"> · {openRequests}</span> : null}
                   </Link>
                 ) : null}
                 <Link to="/more" viewTransition className="text-rose-light">
@@ -924,6 +928,14 @@ function ProposalSummary({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const { editors, markEditing, stopEditing } = useEditingPresence(canEdit && editing)
+  // The live comparison from the writing screen, back for the revision.
+  const noveltyState = useNoveltyPreview({
+    idea: draft.initialIdea,
+    ideaLength: normalizedIdeaLength(draft.initialIdea),
+    active: canEdit && editing,
+    config: intake.novelty,
+    saved: { idea: undefined, score: null, band: null },
+  })
 
   useEffect(() => {
     const latest = proposalRevisionBase(application, intake.project)
@@ -1074,6 +1086,15 @@ function ProposalSummary({
               />
             )}
           </PortalField>
+          {intake.novelty ? (
+            <div className="-mt-2 mb-5 flex justify-end">
+              <NoveltyPill
+                state={noveltyState}
+                currentLength={normalizedIdeaLength(draft.initialIdea)}
+                minimumLength={intake.novelty.minimumIdeaLength}
+              />
+            </div>
+          ) : null}
           {intake.project.intakeResponses.map((response, index) => (
             <PortalField key={response.questionId} label={response.question} className="mb-5">
               {(id) => (
@@ -1121,7 +1142,7 @@ function ProposalSummary({
                 maxLength={intake.editRules.additionalInformationMaxLength}
                 value={draft.additionalInformation}
                 disabled={busy || pending}
-                placeholder="Share a website, repository, document, demo link, or anything else useful."
+                    placeholder="Optional: share some reference website, other documents or anything else useful."
                 onChange={(event) => {
                   const value = event.currentTarget.value
                   const nextDraft = { ...draft, additionalInformation: value }
@@ -1208,9 +1229,9 @@ function ProposalSummary({
                 type="button"
                 disabled={busy || pending}
                 onClick={toggleEditing}
-                className="text-[12.5px] text-rose-light underline-offset-4 hover:underline disabled:opacity-50"
+                className="text-[12.5px] text-rose-light underline-offset-4 hover:underline disabled:cursor-not-allowed disabled:opacity-50 motion-safe:disabled:hover:animate-shake"
               >
-                edit submission →
+                edit submission
               </button>
             </div>
           ) : null}

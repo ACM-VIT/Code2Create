@@ -577,9 +577,13 @@ describe("participant onboarding lifecycle", () => {
       stateDigest: "github-gate-state-digest",
       attemptId: "github-gate-setup-attempt",
     });
-    expect(setupClaim.kind).toBe("verify");
+    expect(setupClaim).toEqual({
+      kind: "verify",
+      intentId: setup.intentId,
+      pkceVerifierCiphertext: "encrypted-verifier",
+      redirectUri: "https://participant.example.test/onboarding/github/callback",
+    });
     if (setupClaim.kind !== "verify") throw new Error("The setup intent was not claimed.");
-    expect(setupClaim.intentId).toBe(setup.intentId);
     await participant.mutation(internal.githubStarGate.finishSetupIntent, {
       eventSlug: fixture.eventSlug,
       intentId: setupClaim.intentId,
@@ -600,22 +604,73 @@ describe("participant onboarding lifecycle", () => {
       githubLogin: "aarav-github",
     });
 
-    const starClaim = await participant.mutation(internal.githubStarGate.claimStar, {
-      eventSlug: fixture.eventSlug,
-      attemptId: "github-gate-star-attempt",
-    });
+    const starClaim = await participant.mutation(
+      internal.githubStarGate.claimStar,
+      {
+        eventSlug: fixture.eventSlug,
+        attemptId: "github-gate-star-attempt",
+      },
+    );
     expect(starClaim.kind).toBe("star");
     if (starClaim.kind !== "star") throw new Error("The star authorization was not claimed.");
-    const completed = await participant.mutation(internal.githubStarGate.finishStar, {
-      eventSlug: fixture.eventSlug,
+    await participant.mutation(internal.githubStarGate.markStarSucceeded, {
       authorizationId: starClaim.authorizationId,
       attemptId: "github-gate-star-attempt",
     });
-    const replayed = await participant.mutation(internal.githubStarGate.finishStar, {
-      eventSlug: fixture.eventSlug,
+    await participant.mutation(internal.githubStarGate.failStar, {
       authorizationId: starClaim.authorizationId,
       attemptId: "github-gate-star-attempt",
+      invalidateAuthorization: false,
     });
+
+    const revocationClaim = await participant.mutation(
+      internal.githubStarGate.claimStar,
+      {
+        eventSlug: fixture.eventSlug,
+        attemptId: "github-gate-revocation-attempt",
+      },
+    );
+    expect(revocationClaim.kind).toBe("revoke");
+    if (revocationClaim.kind !== "revoke") {
+      throw new Error("The GitHub grant revocation was not resumed.");
+    }
+    await participant.mutation(internal.githubStarGate.markGrantRevoked, {
+      authorizationId: revocationClaim.authorizationId,
+      attemptId: "github-gate-revocation-attempt",
+    });
+    await participant.mutation(internal.githubStarGate.failStar, {
+      authorizationId: revocationClaim.authorizationId,
+      attemptId: "github-gate-revocation-attempt",
+      invalidateAuthorization: false,
+    });
+
+    const completionClaim = await participant.mutation(
+      internal.githubStarGate.claimStar,
+      {
+        eventSlug: fixture.eventSlug,
+        attemptId: "github-gate-completion-attempt",
+      },
+    );
+    expect(completionClaim.kind).toBe("finish");
+    if (completionClaim.kind !== "finish") {
+      throw new Error("The completed GitHub star was not resumed.");
+    }
+    const completed = await participant.mutation(
+      internal.githubStarGate.finishStar,
+      {
+        eventSlug: fixture.eventSlug,
+        authorizationId: completionClaim.authorizationId,
+        attemptId: "github-gate-completion-attempt",
+      },
+    );
+    const replayed = await participant.mutation(
+      internal.githubStarGate.finishStar,
+      {
+        eventSlug: fixture.eventSlug,
+        authorizationId: completionClaim.authorizationId,
+        attemptId: "github-gate-completion-attempt",
+      },
+    );
     expect(replayed).toEqual(completed);
     await expect(participant.query(api.githubStarGate.current, {
       eventSlug: fixture.eventSlug,
@@ -633,6 +688,109 @@ describe("participant onboarding lifecycle", () => {
         .unique()).toBeNull();
       expect((await ctx.db.get(fixture.membershipId))?.onboardingStatus).toBe("team_required");
     });
+    await expect(participant.mutation(internal.githubStarGate.prepareDisconnect, {
+      eventSlug: fixture.eventSlug,
+    })).rejects.toThrow("already complete");
+  });
+
+  test("disconnects an unfinished GitHub authorization and expires open callbacks", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedParticipant(backend);
+    const participant = backend.withIdentity({
+      subject: fixture.authUserId,
+      sessionId: fixture.authSessionId,
+    });
+    await participant.mutation(api.participants.acceptPolicy, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      accepted: true,
+      clientOperationId: "github-disconnect-policy",
+    });
+    await participant.mutation(api.participants.saveProfile, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      fullName: "Aarav Menon",
+      phone: "+91 90000 00000",
+      gender: "male",
+      yearOfStudy: "third",
+      externalUniversity: "Example University",
+      externalCollege: "Example College",
+      expectedProfileVersion: 0,
+      clientOperationId: "github-disconnect-profile",
+    });
+
+    await participant.mutation(internal.githubStarGate.createSetupIntent, {
+      eventSlug: fixture.eventSlug,
+      stateDigest: "github-disconnect-connected-state",
+      pkceVerifierCiphertext: "encrypted-verifier",
+      redirectUri: "https://participant.example.test/onboarding/github/callback",
+    });
+    const connectedClaim = await participant.mutation(
+      internal.githubStarGate.claimSetupIntent,
+      {
+        eventSlug: fixture.eventSlug,
+        stateDigest: "github-disconnect-connected-state",
+        attemptId: "github-disconnect-connected-attempt",
+      },
+    );
+    if (connectedClaim.kind !== "verify") throw new Error("The setup intent was not claimed.");
+    await participant.mutation(internal.githubStarGate.finishSetupIntent, {
+      eventSlug: fixture.eventSlug,
+      intentId: connectedClaim.intentId,
+      attemptId: "github-disconnect-connected-attempt",
+      githubUserId: "2010",
+      githubLogin: "aarav-disconnect",
+      authorization: {
+        kind: "connected",
+        accessTokenCiphertext: "encrypted-access-token",
+        authorizationExpiresAt: Date.now() + 60_000,
+      },
+    });
+    const openIntent = await participant.mutation(
+      internal.githubStarGate.createSetupIntent,
+      {
+        eventSlug: fixture.eventSlug,
+        stateDigest: "github-disconnect-open-state",
+        pkceVerifierCiphertext: "another-encrypted-verifier",
+        redirectUri: "https://participant.example.test/onboarding/github/callback",
+      },
+    );
+
+    const disconnectClaim = await participant.mutation(
+      internal.githubStarGate.prepareDisconnect,
+      { eventSlug: fixture.eventSlug },
+    );
+    expect(disconnectClaim).toMatchObject({
+      kind: "revoke",
+      accessTokenCiphertext: "encrypted-access-token",
+    });
+    if (disconnectClaim.kind !== "revoke") {
+      throw new Error("The GitHub grant was not prepared for revocation.");
+    }
+    await expect(participant.mutation(internal.githubStarGate.finishDisconnect, {
+      eventSlug: fixture.eventSlug,
+      authorizationId: disconnectClaim.authorizationId,
+    })).resolves.toEqual({ disconnected: true });
+    await expect(participant.query(api.githubStarGate.current, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toEqual({ connected: false, completed: false });
+    await backend.run(async (ctx) => {
+      expect(await ctx.db
+        .query("githubStarAuthorizations")
+        .withIndex("by_event_membership", (index) =>
+          index.eq("eventId", fixture.eventId).eq("membershipId", fixture.membershipId),
+        )
+        .unique()).toBeNull();
+      const expiredIntent = await ctx.db.get(openIntent.intentId);
+      expect(expiredIntent).toMatchObject({ status: "expired" });
+    });
+    await expect(participant.mutation(internal.githubStarGate.prepareDisconnect, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toEqual({ kind: "clear" });
+    await expect(participant.mutation(internal.githubStarGate.finishDisconnect, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toEqual({ disconnected: false });
   });
 
   test("completes GitHub onboarding immediately when the account already stars SGLang", async () => {
@@ -1599,6 +1757,7 @@ describe("participant onboarding lifecycle", () => {
         membershipId: fixture.membershipId,
         personId: fixture.personId,
         stateDigest: "staging-reset-state",
+        pkceVerifierCiphertext: "staging-reset-encrypted-verifier",
         redirectUri: "http://localhost:4173/onboarding/github/callback",
         status: "pending",
         expiresAt: fixture.now + 60_000,

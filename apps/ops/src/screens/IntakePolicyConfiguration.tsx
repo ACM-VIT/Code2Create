@@ -96,13 +96,13 @@ export function IntakePolicyConfiguration({
   }
 
   const updateFallback = (
-    ordinal: number,
+    fallbackIndex: number,
     patch: Partial<Policy['fallbackQuestions'][number]>,
   ) => {
     setPolicy((current) => current ? {
       ...current,
-      fallbackQuestions: current.fallbackQuestions.map((question) => (
-        question.ordinal === ordinal ? { ...question, ...patch } : question
+      fallbackQuestions: current.fallbackQuestions.map((question, questionIndex) => (
+        questionIndex === fallbackIndex ? { ...question, ...patch } : question
       )),
     } : current)
   }
@@ -271,7 +271,7 @@ export function IntakePolicyConfiguration({
                 <input disabled value="Two" />
               </label>
             </div>
-            <p className="muted intake-policy-note">Every introduction asks these two questions first. The platform may then ask up to two project-specific questions when useful.</p>
+            <p className="muted intake-policy-note">Every introduction has four questions: two fixed questions, then two project-specific questions. A published fallback fills either generated slot if the model does not answer within 20 seconds.</p>
           </PolicySection>
 
           <PolicySection title="Generated question goals" description="Any additional question uses one of these reviewed goals.">
@@ -294,28 +294,34 @@ export function IntakePolicyConfiguration({
             </div>
           </PolicySection>
 
-          <PolicySection title="Fixed questions" description="Every team answers these before any generated question.">
+          <PolicySection title="Question wording" description="Questions 1 and 2 are fixed. Each team receives one stable fallback variant for questions 3 and 4 when generation misses its deadline or fails validation.">
             <div className="phase-card-list">
-              {policy.fallbackQuestions.map((question) => (
-                <article className="phase-card" key={question.ordinal}>
-                  <header><span>Question {question.ordinal}</span><strong>{question.text}</strong></header>
-                  <label className="field"><span>Question</span><input required value={question.text} onChange={(event) => updateFallback(question.ordinal, { text: event.target.value })} /></label>
-                  <div className="intake-policy-grid">
-                    <label className="field">
-                      <span>Purpose</span>
-                      <select value={question.purposeKey} onChange={(event) => updateFallback(question.ordinal, { purposeKey: parsePurpose(event.target.value) })}>
-                        {purposeOptions.map((purpose) => <option key={purpose} value={purpose}>{humanize(purpose)}</option>)}
-                      </select>
-                    </label>
-                    <label className="field">
-                      <span>Answer length</span>
-                      <select value={question.answerLength} onChange={(event) => updateFallback(question.ordinal, { answerLength: parseAnswerLength(event.target.value) })}>
-                        {answerLengthOptions.map((length) => <option key={length} value={length}>{humanize(length)}</option>)}
-                      </select>
-                    </label>
-                  </div>
-                </article>
-              ))}
+              {policy.fallbackQuestions.map((question, questionIndex) => {
+                const variantNumber = policy.fallbackQuestions
+                  .slice(0, questionIndex + 1)
+                  .filter((candidate) => candidate.ordinal === question.ordinal)
+                  .length
+                return (
+                  <article className="phase-card" key={`${question.ordinal}:${questionIndex}`}>
+                    <header><span>{question.ordinal <= 2 ? `Fixed question ${question.ordinal}` : `Question ${question.ordinal}, variant ${variantNumber}`}</span><strong>{question.text}</strong></header>
+                    <label className="field"><span>Question</span><input required value={question.text} onChange={(event) => updateFallback(questionIndex, { text: event.target.value })} /></label>
+                    <div className="intake-policy-grid">
+                      <label className="field">
+                        <span>Purpose</span>
+                        <select value={question.purposeKey} onChange={(event) => updateFallback(questionIndex, { purposeKey: parsePurpose(event.target.value) })}>
+                          {purposeOptions.map((purpose) => <option key={purpose} value={purpose}>{humanize(purpose)}</option>)}
+                        </select>
+                      </label>
+                      <label className="field">
+                        <span>Answer length</span>
+                        <select value={question.answerLength} onChange={(event) => updateFallback(questionIndex, { answerLength: parseAnswerLength(event.target.value) })}>
+                          {answerLengthOptions.map((length) => <option key={length} value={length}>{humanize(length)}</option>)}
+                        </select>
+                      </label>
+                    </div>
+                  </article>
+                )
+              })}
             </div>
           </PolicySection>
 

@@ -21,6 +21,7 @@
     "queue:create:production:dlq": "wrangler queues create code2create-email-events-dlq --config wrangler.jsonc",
     "queue:create:production:events": "wrangler queues create code2create-email-events --config wrangler.jsonc",
     "subscription:create:staging": "wrangler queues subscription create code2create-email-events-staging --name code2create-email-sending-staging --source email.sending --zone-id 8e6e67e2f97951b41fa96cdbd40a0f50 --domain staging.code2create.acmvit.in --events message.delivered,message.deferred,message.bounced,message.failed,message.rejected,message.complained --enabled --config wrangler.jsonc",
+    "subscription:create:production": "wrangler queues subscription create code2create-email-events --name code2create-email-sending-production --source email.sending --zone-id ccdb65828260fc79f391fc5db53d6e0f --domain c2c.sh --events message.delivered,message.deferred,message.bounced,message.failed,message.rejected,message.complained --enabled --config wrangler.jsonc",
     "subscription:list:staging": "wrangler queues subscription list code2create-email-events-staging --json --config wrangler.jsonc",
     "subscription:list:production": "wrangler queues subscription list code2create-email-events --json --config wrangler.jsonc",
     "lint": "oxlint src",

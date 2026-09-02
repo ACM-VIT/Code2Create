@@ -1,8 +1,13 @@
 import { api } from '@code2create/backend/api'
+import {
+  participantEmailTemplateKeys,
+  participantEmailTemplateLabels,
+  type ParticipantEmailTemplateKey,
+} from '@code2create/domain'
 import { TZDateMini } from '@date-fns/tz'
 import type { FunctionReturnType } from 'convex/server'
-import { useMutation, useQuery } from 'convex/react'
-import { useState, type FormEvent } from 'react'
+import { useAction, useMutation, useQuery } from 'convex/react'
+import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
 
 import { ConfigurationTabs, type ConfigurationTabsVisibility } from '../components/ConfigurationTabs'
 import { ConfigurationEditorDisclosure } from '../components/ConfigurationEditorDisclosure'
@@ -21,6 +26,7 @@ type Policy = Configuration['publishedPolicy']['policy']
 type NextStep = Policy['nextSteps'][number]
 type EditorStep = Omit<NextStep, 'dueAt'> & { dueAt: string }
 type EditorPolicy = Omit<Policy, 'nextSteps'> & { nextSteps: EditorStep[] }
+type EmailTemplate = Policy['emailTemplates'][number]
 type CommunicationsPolicyOperationResult =
   | FunctionReturnType<typeof api.communicationsPolicyConfiguration.createDraft>
   | FunctionReturnType<typeof api.communicationsPolicyConfiguration.publish>
@@ -28,12 +34,12 @@ type CommunicationsPolicyOperationResult =
 const operationDescriptors = [
   {
     slot: 'communications-policy-publish',
-    title: 'Finish publishing the accepted-team details',
+    title: 'Finish publishing participant communications',
     action: 'Confirm earlier publication',
   },
   {
     slot: 'communications-policy-draft',
-    title: 'Finish saving the accepted-team details draft',
+    title: 'Finish saving the participant communications draft',
     action: 'Confirm earlier save',
   },
 ] satisfies readonly ConfigurationOperationDescriptor[]
@@ -46,6 +52,7 @@ export function CommunicationsPolicyConfiguration({
   const configuration = useQuery(api.communicationsPolicyConfiguration.current, { eventSlug })
   const createDraft = useMutation(api.communicationsPolicyConfiguration.createDraft)
   const publish = useMutation(api.communicationsPolicyConfiguration.publish)
+  const uploadEmailBundle = useAction(api.communicationsEmailAssetActions.uploadBundle)
   const operations = useConfigurationOperations<CommunicationsPolicyOperationResult>(
     operationDescriptors,
   )
@@ -67,6 +74,9 @@ export function CommunicationsPolicyConfiguration({
   const setPolicy = policyState.update
   const [draftReason, setDraftReason] = useState('')
   const [publishReason, setPublishReason] = useState('')
+  const [selectedEmail, setSelectedEmail] = useState<ParticipantEmailTemplateKey>('accept')
+  const [emailAssetError, setEmailAssetError] = useState<string | null>(null)
+  const [uploadingEmailBundle, setUploadingEmailBundle] = useState(false)
   const publishState = useVersionedState(sourceKey, false)
   const publishArmed = publishState.value
   const setPublishArmed = publishState.replace
@@ -78,7 +88,7 @@ export function CommunicationsPolicyConfiguration({
     return (
       <section className="intake-policy-shell">
         <ConfigurationTabs visibility={tabs} />
-        <LoadingLabel>Loading what accepted teams are told</LoadingLabel>
+        <LoadingLabel>Loading participant communications</LoadingLabel>
         <SkeletonStats columns={3} />
         <SkeletonCard lines={4} />
       </section>
@@ -120,6 +130,49 @@ export function CommunicationsPolicyConfiguration({
     updatePolicy('nextSteps', policy.nextSteps.filter((_, stepIndex) => stepIndex !== index))
   }
 
+  const selectedEmailTemplate = policy.emailTemplates.find(
+    (template) => template.templateKey === selectedEmail,
+  )
+  if (!selectedEmailTemplate) {
+    throw new Error(`The ${selectedEmail} participant email template is missing.`)
+  }
+
+  const updateEmailTemplate = (patch: Partial<EmailTemplate>) => {
+    updatePolicy('emailTemplates', policy.emailTemplates.map((template) => (
+      template.templateKey === selectedEmail ? { ...template, ...patch } : template
+    )))
+  }
+
+  const removeEmailAssetBundle = () => {
+    updatePolicy('emailTemplates', policy.emailTemplates.map((template) => {
+      if (template.templateKey !== selectedEmail) return template
+      const { assetBundleId: _removed, ...withoutBundle } = template
+      return withoutBundle
+    }))
+  }
+
+  const importEmailBundle = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.currentTarget.files?.[0]
+    event.currentTarget.value = ''
+    if (!file) return
+    setEmailAssetError(null)
+    setUploadingEmailBundle(true)
+    try {
+      const imported = await uploadEmailBundle({
+        eventSlug,
+        templateKey: selectedEmail,
+        fileName: file.name,
+        bytes: await file.arrayBuffer(),
+        clientOperationId: crypto.randomUUID(),
+      })
+      updateEmailTemplate({ html: imported.html, assetBundleId: imported.bundleId })
+    } catch (caught) {
+      setEmailAssetError(caught instanceof Error ? caught.message : 'The email ZIP could not be imported.')
+    } finally {
+      setUploadingEmailBundle(false)
+    }
+  }
+
   const saveDraft = (event: FormEvent) => {
     event.preventDefault()
     void operations.run('communications-policy-draft', (clientOperationId) => () => createDraft({
@@ -156,8 +209,8 @@ export function CommunicationsPolicyConfiguration({
       <ConfigurationTabs visibility={tabs} />
       <header className="page-heading configuration-heading">
         <div>
-          <h1>Accepted team details</h1>
-          <p className="muted">Controls the venue, next steps, Discord link, and email wording.</p>
+          <h1>Participant communications</h1>
+          <p className="muted">Controls accepted-team details and every admission email.</p>
         </div>
       </header>
 
@@ -221,8 +274,8 @@ export function CommunicationsPolicyConfiguration({
 
       {!operationPending && configuration.draftPolicy && configuration.canPublish && validation?.valid && publishArmed ? (
         <section className="publish-confirmation catalog-publish">
-          <h2>Publish these accepted-team details?</h2>
-          <p className="muted">Accepted and offer-stage teams see the changes immediately.</p>
+          <h2>Publish these participant communications?</h2>
+          <p className="muted">Portal details change immediately. New email deliveries use the published templates.</p>
           <label className="field">
             <span>Why this changed</span>
             <textarea disabled={publishPending} required value={publishReason} onChange={(event) => setPublishReason(event.currentTarget.value)} />
@@ -239,8 +292,8 @@ export function CommunicationsPolicyConfiguration({
       {!operationPending && configuration.canDraft ? (
         <ConfigurationEditorDisclosure
           defaultOpen={Boolean(configuration.draftPolicy)}
-          description="Venue details, participant next steps, Discord access, and the selection email."
-          title={configuration.draftPolicy ? 'Continue accepted-team details draft' : 'Edit accepted-team details'}
+          description="Venue details, participant next steps, Discord access, and all admission emails."
+          title={configuration.draftPolicy ? 'Continue participant communications draft' : 'Edit participant communications'}
         >
           <form className="configuration-editor intake-policy-editor" onSubmit={saveDraft}>
           <fieldset disabled={draftPending} style={{ display: 'contents' }}>
@@ -310,20 +363,60 @@ export function CommunicationsPolicyConfiguration({
             </div>
           </PolicySection>
 
-          <PolicySection title="Verified email" description="The message stays generic. Details live in the portal.">
-            <div className="intake-policy-grid">
-              <label className="field">
-                <span>Provider</span>
-                <input disabled value="Cloudflare Email Service" />
-              </label>
-              <label className="field">
-                <span>Subject</span>
-                <input required minLength={5} maxLength={120} value={policy.notificationSubject} onChange={(event) => updatePolicy('notificationSubject', event.currentTarget.value)} />
-              </label>
-              <label className="field field-wide">
-                <span>Introduction</span>
-                <textarea required minLength={10} maxLength={300} value={policy.notificationIntro} onChange={(event) => updatePolicy('notificationIntro', event.currentTarget.value)} />
-              </label>
+          <PolicySection title="Participant emails" description="Edit and preview every email sent by the admission workflow. Published templates are frozen into each queued delivery.">
+            <div className="email-template-workspace">
+              <nav className="email-template-rail" aria-label="Participant email type">
+                {participantEmailTemplateKeys.map((templateKey) => (
+                  <button
+                    className={templateKey === selectedEmail ? 'active' : ''}
+                    key={templateKey}
+                    type="button"
+                    onClick={() => {
+                      setSelectedEmail(templateKey)
+                      setEmailAssetError(null)
+                    }}
+                  >
+                    <span>{participantEmailTemplateLabels[templateKey]}</span>
+                    <small>{policy.emailTemplates.find((template) => template.templateKey === templateKey)?.assetBundleId ? 'HTML bundle' : 'HTML + text'}</small>
+                  </button>
+                ))}
+              </nav>
+              <div className="email-template-editor">
+                <div className="section-heading">
+                  <div>
+                    <p className="eyebrow">{participantEmailTemplateLabels[selectedEmail]}</p>
+                    <h3>Email content</h3>
+                  </div>
+                  <span className="tag">Cloudflare Email Service</span>
+                </div>
+                <p className="muted email-placeholder-help">
+                  Available fields: {'{{participant_name}}'}, {'{{team_name}}'}, {'{{event_name}}'}, and {'{{portal_url}}'}.
+                </p>
+                <label className="field">
+                  <span>Subject</span>
+                  <input required minLength={3} maxLength={160} value={selectedEmailTemplate.subject} onChange={(event) => updateEmailTemplate({ subject: event.currentTarget.value })} />
+                </label>
+                <label className="field">
+                  <span>Plain-text version</span>
+                  <textarea className="email-text-editor" required minLength={10} maxLength={20000} value={selectedEmailTemplate.text} onChange={(event) => updateEmailTemplate({ text: event.currentTarget.value })} />
+                </label>
+                <label className="field">
+                  <span>HTML version</span>
+                  <textarea className="email-html-editor" required minLength={20} maxLength={250000} spellCheck={false} value={selectedEmailTemplate.html} onChange={(event) => updateEmailTemplate({ html: event.currentTarget.value })} />
+                </label>
+                <div className="email-bundle-controls">
+                  <label className="secondary file-button">
+                    <input accept=".zip,application/zip" disabled={uploadingEmailBundle} type="file" onChange={(event) => void importEmailBundle(event)} />
+                    {uploadingEmailBundle ? 'Checking ZIP…' : 'Import HTML ZIP'}
+                  </label>
+                  {selectedEmailTemplate.assetBundleId ? (
+                    <button className="text-button" type="button" onClick={removeEmailAssetBundle}>Remove attached assets</button>
+                  ) : null}
+                </div>
+                <p className="muted">A ZIP must contain index.html and up to 24 PNG, JPEG, GIF, WebP, or PDF assets. Imported HTML remains editable.</p>
+                {emailAssetError ? <p className="notice error" role="alert">{emailAssetError}</p> : null}
+              </div>
+              <EmailTemplatePreview template={selectedEmailTemplate} />
             </div>
           </PolicySection>
 
@@ -361,6 +454,87 @@ function PolicySection({
       {children}
     </section>
   )
+}
+
+function EmailTemplatePreview({ template }: { template: EmailTemplate }) {
+  const readBundle = useAction(api.communicationsEmailAssetActions.readBundle)
+  const [assetPreview, setAssetPreview] = useState<{
+    bundleId: string
+    sourceFileName: string
+    urls: Array<{ fileName: string; url: string }>
+  } | null>(null)
+  const [previewError, setPreviewError] = useState<{ bundleId: string; message: string } | null>(null)
+
+  useEffect(() => {
+    let disposed = false
+    const createdUrls: string[] = []
+    const bundleId = template.assetBundleId
+    if (!bundleId) return
+    void readBundle({ eventSlug, bundleId })
+      .then((bundle) => {
+        if (disposed) return
+        const next = bundle.assets
+          .filter((asset) => asset.disposition === 'inline')
+          .map((asset) => {
+            const url = URL.createObjectURL(new Blob([asset.bytes], { type: asset.contentType }))
+            createdUrls.push(url)
+            return { fileName: asset.fileName, url }
+          })
+        setAssetPreview({ bundleId, sourceFileName: bundle.sourceFileName, urls: next })
+      })
+      .catch((caught) => {
+        if (!disposed) {
+          setPreviewError({
+            bundleId,
+            message: caught instanceof Error ? caught.message : 'The email assets could not be loaded.',
+          })
+        }
+      })
+    return () => {
+      disposed = true
+      for (const url of createdUrls) URL.revokeObjectURL(url)
+    }
+  }, [readBundle, template.assetBundleId])
+
+  const currentAssetPreview = assetPreview && assetPreview.bundleId === template.assetBundleId
+    ? assetPreview
+    : null
+  const currentPreviewError = previewError && previewError.bundleId === template.assetBundleId
+    ? previewError
+    : null
+  const assetUrls = currentAssetPreview?.urls ?? []
+  const error = currentPreviewError?.message ?? null
+  let preview = renderEmailPreview(template.html)
+  for (const asset of assetUrls) {
+    preview = preview
+      .replaceAll(`src="${asset.fileName}"`, `src="${asset.url}"`)
+      .replaceAll(`src='${asset.fileName}'`, `src='${asset.url}'`)
+      .replaceAll(`url("${asset.fileName}")`, `url("${asset.url}")`)
+      .replaceAll(`url('${asset.fileName}')`, `url('${asset.url}')`)
+      .replaceAll(`url(${asset.fileName})`, `url(${asset.url})`)
+  }
+
+  return (
+    <aside className="email-template-preview">
+      <div>
+        <p className="eyebrow">Live preview</p>
+        <strong>{renderEmailPreview(template.subject)}</strong>
+        {currentAssetPreview ? (
+          <small className="muted">Assets from {currentAssetPreview.sourceFileName}</small>
+        ) : null}
+      </div>
+      <iframe sandbox="" srcDoc={preview} title={`${participantEmailTemplateLabels[template.templateKey]} email preview`} />
+      {error ? <p className="notice error">{error}</p> : null}
+    </aside>
+  )
+}
+
+function renderEmailPreview(value: string) {
+  return value
+    .replaceAll('{{participant_name}}', 'Aarav')
+    .replaceAll('{{team_name}}', 'Team Sakura')
+    .replaceAll('{{event_name}}', 'Code2Create 7.0')
+    .replaceAll('{{portal_url}}', 'https://c2c.acmvit.in')
 }
 
 function toEditorPolicy(policy: Policy, timezone: string): EditorPolicy {

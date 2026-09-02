@@ -7,6 +7,7 @@ import { Petal } from '../components/portal/Petal'
 import { PortalButton, PortalTextButton } from '../components/portal/PortalButton'
 import { PortalError } from '../components/portal/PortalField'
 import { PortalScene } from '../components/portal/PortalScene'
+import { TeamCluster } from '../components/portal/TeamCluster'
 import { Flower } from '../components/portal/FlowerAvatar'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
@@ -43,7 +44,7 @@ export function ConfirmCard({
   busy: boolean
 }) {
   return (
-    <div className="w-full max-w-[380px] rounded-petal-sm border border-petal-edge bg-wash/60 px-7 pt-6 pb-4 text-center shadow-[0_24px_50px_-18px_var(--shade-2)] backdrop-blur-md">
+    <div className="w-full max-w-[380px] rounded-petal-sm glass-menu px-7 pt-6 pb-4 text-center">
       <p className={`m-0 text-[15px] text-fg/90 ${detail ? 'mb-1.5' : 'mb-5'}`}>{question}</p>
       {detail ? <p className="mb-5 text-xs leading-relaxed text-fg/50">{detail}</p> : null}
       <PortalButton type="button" size="sm" disabled={busy} onClick={onPrimary} className="w-full">
@@ -171,20 +172,8 @@ export function TeamLobbyScreen({
   return (
     <PortalScene
       tree="right"
-      header={
-        <div className="flex flex-col items-end gap-1">
-          <p className="m-0 font-ui text-[13.5px] text-rose-light/80">
-            {team.activeMemberCount} of {team.teamMaximumSize} seats
-          </p>
-          <button
-            type="button"
-            onClick={onSignOut}
-            className="text-[11.5px] text-fg/45 transition-colors hover:text-rose-light"
-          >
-            sign out
-          </button>
-        </div>
-      }
+      onSignOut={onSignOut}
+      header={<TeamCluster team={team} members={members} editable={editable} canManage={canManage} />}
     >
       <div className="flex w-full max-w-[860px] flex-col items-center text-center">
         <p className="mb-2 text-[12px] text-rose-light/70">
@@ -363,7 +352,7 @@ export function TeamLobbyScreen({
               </p>
             ) : null}
             {editable ? (
-          <div className="flex items-center gap-3 rounded-petal-sm border border-petal-edge bg-[image:var(--tile-bg-active)] px-5 py-3 shadow-[0_24px_50px_-18px_var(--shade-2)] backdrop-blur-md lg:gap-3.5 lg:px-6">
+          <div className="flex items-center gap-3 rounded-petal-sm glass-tile glass-active px-5 py-3 lg:gap-3.5 lg:px-6">
             <span className="whitespace-nowrap font-mono text-[17px] tracking-[.14em] text-rose-light lg:text-[19px]">
               {team.publicCode}
             </span>

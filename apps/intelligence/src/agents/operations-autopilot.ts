@@ -76,7 +76,7 @@ export function OperationsAutopilot() {
 	const currentWorkItemId = workItemId(delivery, input.runId);
 	const state = autonomyRunState(input);
 	const [persistedProgress, setProgress] = usePersistentState<AutonomyProgress>(
-		'autonomy-progress-v2',
+		'autonomy-progress-v1',
 		initialAutonomyProgress(),
 	);
 	const progress = v.parse(autonomyProgressSchema, persistedProgress);

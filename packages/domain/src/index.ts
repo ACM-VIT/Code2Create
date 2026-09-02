@@ -29,6 +29,14 @@ export const applicationDecisions = [
 ] as const;
 export type ApplicationDecision = (typeof applicationDecisions)[number];
 
+export {
+  defaultParticipantEmailTemplates,
+  participantEmailTemplateKeys,
+  participantEmailTemplateLabels,
+  type ParticipantEmailTemplate,
+  type ParticipantEmailTemplateKey,
+} from "./participantEmailTemplates.ts";
+
 export const admissionRecommendationOutcomes = [
   "recommend_accept",
   "recommend_waitlist",
@@ -122,5 +130,6 @@ export * from "./synesthesia.ts";
 export * from "./permissions.ts";
 export * from "./operationsEpisodes.ts";
 export * from "./ideaIntelligence.ts";
+export * from "./ideaIntake.ts";
 export * from "./intelligenceAgents.ts";
 export * from "./participantProfile.ts";

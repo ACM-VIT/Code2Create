@@ -121,6 +121,7 @@ describe("participant review queue projection", () => {
         submittedProjectVersionId: project._id,
         admissionPolicyVersionId: project.admissionPolicyVersionId,
         state: "submitted",
+        decisionStage: "unrecorded",
         experienceBand: "first_year",
         assignedReviewCount: 0,
         completedReviewCount: 0,

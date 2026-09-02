@@ -27,7 +27,7 @@ const environment: EmailBridgeEnvironment = {
 describe("Cloudflare Email Service bridge", () => {
   test("normalizes lifecycle events without retaining SMTP or message content", () => {
     expect(normalizeCloudflareEmailEvent(event({ kind: "delivered" }), domain)).toEqual({
-      protocolVersion: "2026-08-08",
+      protocolVersion: "participant-email-v1",
       eventId: "email-event-1",
       messageId: "provider-message-1",
       recipient: "participant@example.test",

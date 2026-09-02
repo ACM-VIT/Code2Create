@@ -20,7 +20,7 @@ export function RouteErrorScreen() {
             That screen didn’t load.
           </h1>
           <p className="mb-5 text-[13px] leading-relaxed text-fg/60">
-            Your saved work is safe. Reload once to reconnect.
+            Reload once to reconnect.
           </p>
           <PortalButton type="button" onClick={() => window.location.reload()}>
             Reload

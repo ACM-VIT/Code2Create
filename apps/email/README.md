@@ -56,7 +56,27 @@ Cloudflare sends a verification message before a new forwarding destination beco
 
 ## Production setup
 
-Use the equivalent `production` scripts only after O-034 fixes the production domain, sender, support alias, forwarding destination, reply policy, and retention policy. Production uses `code2create-email-events`, `code2create-email-events-dlq`, and the `code2create-email` Worker.
+Production uses:
+
+- Worker: `code2create-email` at `https://email.c2c.sh`
+- delivery-event queue: `code2create-email-events`
+- dead-letter queue: `code2create-email-events-dlq`
+- sending domain: `c2c.sh`
+- inbound support alias: `support@c2c.sh`
+
+Create the queues before the first deployment, onboard `c2c.sh` in Cloudflare
+Email Sending, and then create the delivery-event subscription:
+
+```sh
+pnpm --filter @code2create/email queue:create:production
+pnpm --filter @code2create/email subscription:create:production
+pnpm --filter @code2create/email subscription:list:production
+```
+
+Email Routing forwards only the literal `support@c2c.sh` address to the verified
+operations mailbox through `code2create-email`. The delivery-event subscription
+is separate from Email Routing and cannot be created until Cloudflare reports
+`c2c.sh` as an enabled Email Sending domain.
 
 ## Release checks
 

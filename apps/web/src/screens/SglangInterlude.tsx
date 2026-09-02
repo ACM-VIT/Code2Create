@@ -1,26 +1,35 @@
 import { api } from '@code2create/backend/api'
 import { useAction } from 'convex/react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { DaybreakToggle } from '../components/portal/DaybreakToggle'
 import { Petals } from '../components/portal/Petals'
-import { PortalButton } from '../components/portal/PortalButton'
+import { PortalButton, PortalTextButton } from '../components/portal/PortalButton'
+import { releaseBalloons } from '../lib/balloons'
 import { eventSlug } from '../lib/config'
-import { readableError } from '../lib/errors'
+import { convexErrorCode, readableError } from '../lib/errors'
 import type { GitHubStarConnectionResult, GitHubStarGateState } from '../types'
 
 const callbackAttempts = new Map<string, Promise<GitHubStarConnectionResult>>()
+type InterludeFailure = {
+  code: string | null
+  message: string
+}
 
 export function SglangInterlude({
   state,
   callback,
+  header,
 }: {
   state: GitHubStarGateState
   callback: boolean
+  /** The account badge, the same one every other pre-team screen wears. */
+  header: ReactNode
 }) {
   const beginConnection = useAction(api.githubStarActions.beginConnection)
   const completeConnection = useAction(api.githubStarActions.completeConnection)
   const starRepository = useAction(api.githubStarActions.star)
+  const disconnectGitHub = useAction(api.githubStarActions.disconnect)
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const callbackValues = useMemo(() => {
@@ -32,12 +41,14 @@ export function SglangInterlude({
     if (!code || !oauthState) return { kind: 'invalid' as const }
     return { kind: 'complete' as const, code, oauthState }
   }, [callback, searchParams])
-  const [busy, setBusy] = useState(callbackValues?.kind === 'complete')
-  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState<'callback' | 'connect' | 'disconnect' | 'star' | null>(
+    callbackValues?.kind === 'complete' ? 'callback' : null,
+  )
+  const [failure, setFailure] = useState<InterludeFailure | null>(null)
 
   useEffect(() => {
     if (callbackValues?.kind !== 'complete') return
-    const key = `${callbackValues.oauthState}:${callbackValues.code}`
+    const key = callbackValues.oauthState
     let attempt = callbackAttempts.get(key)
     if (!attempt) {
       attempt = completeConnection({
@@ -49,15 +60,18 @@ export function SglangInterlude({
     }
     let active = true
     attempt.then(
-      () => {
+      (result) => {
         if (!active) return
-        setBusy(false)
+        setBusy(null)
+        // A star that already existed completes the gate at the callback,
+        // so the release happens here rather than on the star button.
+        if (result.state === 'completed') releaseBalloons()
         navigate('/', { replace: true, viewTransition: true })
       },
       (reason: unknown) => {
         if (!active) return
-        setBusy(false)
-        setError(readableError(reason))
+        setBusy(null)
+        setFailure({ code: convexErrorCode(reason), message: readableError(reason) })
       },
     )
     return () => {
@@ -70,28 +84,44 @@ export function SglangInterlude({
     : callbackValues?.kind === 'invalid'
       ? 'This GitHub callback is incomplete. Connect GitHub again.'
       : null
-  const displayedError = error ?? callbackMessage
+  const displayedError = failure?.message ?? callbackMessage
+  const accountInUse = failure?.code === 'GITHUB_ACCOUNT_IN_USE'
 
   const connect = async () => {
-    setBusy(true)
-    setError(null)
+    setBusy('connect')
+    setFailure(null)
     try {
       const result = await beginConnection({ eventSlug })
       window.location.assign(result.authorizationUrl)
     } catch (reason) {
-      setBusy(false)
-      setError(readableError(reason))
+      setBusy(null)
+      setFailure({ code: convexErrorCode(reason), message: readableError(reason) })
     }
   }
 
   const star = async () => {
-    setBusy(true)
-    setError(null)
+    setBusy('star')
+    setFailure(null)
     try {
       await starRepository({ eventSlug })
+      setBusy(null)
+      releaseBalloons()
     } catch (reason) {
-      setBusy(false)
-      setError(readableError(reason))
+      setBusy(null)
+      setFailure({ code: convexErrorCode(reason), message: readableError(reason) })
+    }
+  }
+
+  const disconnect = async () => {
+    setBusy('disconnect')
+    setFailure(null)
+    try {
+      await disconnectGitHub({ eventSlug })
+      setBusy(null)
+      navigate('/', { replace: true, viewTransition: true })
+    } catch (reason) {
+      setBusy(null)
+      setFailure({ code: convexErrorCode(reason), message: readableError(reason) })
     }
   }
 
@@ -104,9 +134,10 @@ export function SglangInterlude({
       <img
         src="/assets/logo.svg"
         alt="Code2Create"
-        className="absolute top-9 left-6 w-[26px] drop-shadow-[0_0_14px_var(--logo-glow)] lg:left-11 lg:w-[30px]"
+        className="absolute top-7 left-6 size-10 drop-shadow-[0_0_14px_var(--logo-glow)] lg:top-9 lg:left-11 lg:size-12"
       />
-      <div className="absolute top-9 right-6 lg:right-11">
+      <div className="absolute top-7 right-6 z-10 flex items-start gap-2.5 lg:top-9 lg:right-11">
+        {header}
         <DaybreakToggle />
       </div>
       <div className="relative mx-auto flex w-full max-w-[760px] flex-1 flex-col justify-center pt-20 pb-14 text-center">
@@ -137,7 +168,7 @@ export function SglangInterlude({
               rel="noreferrer"
               className="font-semibold text-rose-light underline underline-offset-[3px]"
             >
-              Adarsh Shriwalmath ↗
+              Adarsh Shriwalmath
             </a>{' '}
             went from contributor to maintainer to{' '}
             <strong className="font-semibold text-fg/90">ML Engineer at Hugging Face</strong>.
@@ -149,31 +180,53 @@ export function SglangInterlude({
           </p>
         </div>
 
-        <div className="mt-8 flex min-h-[78px] flex-col items-center gap-3.5">
+        <div className="mt-8 flex min-h-[96px] flex-col items-center gap-3.5">
           {state.connected && state.githubLogin ? (
             <p className="m-0 text-[13px] text-fg/55">connected as @{state.githubLogin}</p>
           ) : null}
-          <PortalButton
-            type="button"
-            disabled={busy || state.completed}
-            onClick={state.connected ? () => void star() : () => void connect()}
-            className="min-w-[190px]"
-          >
-            {busy
-              ? callbackValues?.kind === 'complete'
-                ? 'Connecting…'
-                : state.connected
-                  ? 'Starring…'
-                  : 'Opening GitHub…'
-              : state.connected
-                ? 'Star SGLang'
-                : 'Connect GitHub'}
-          </PortalButton>
           {displayedError ? (
             <p role="alert" className="m-0 max-w-[440px] text-[13px] leading-relaxed text-rose-light">
               {displayedError}
             </p>
           ) : null}
+          {accountInUse ? (
+            <PortalButton
+              type="button"
+              disabled={busy !== null}
+              onClick={() => void disconnect()}
+              className="min-w-[190px]"
+            >
+              {busy === 'disconnect' ? 'Disconnecting…' : 'Disconnect GitHub'}
+            </PortalButton>
+          ) : (
+            <>
+              <PortalButton
+                type="button"
+                disabled={busy !== null || state.completed}
+                onClick={state.connected ? () => void star() : () => void connect()}
+                className="min-w-[190px]"
+              >
+                {busy === 'callback'
+                  ? 'Connecting…'
+                  : busy === 'connect'
+                    ? 'Opening GitHub…'
+                    : busy === 'star'
+                      ? 'Starring…'
+                      : state.connected
+                        ? 'Star SGLang'
+                        : 'Connect GitHub'}
+              </PortalButton>
+              {state.connected ? (
+                <PortalTextButton
+                  type="button"
+                  disabled={busy !== null}
+                  onClick={() => void disconnect()}
+                >
+                  {busy === 'disconnect' ? 'Disconnecting…' : 'Disconnect GitHub'}
+                </PortalTextButton>
+              ) : null}
+            </>
+          )}
         </div>
 
         <div className="mt-10 flex items-center justify-center gap-[26px] opacity-55">
@@ -187,10 +240,19 @@ export function SglangInterlude({
             <span className="text-sm font-semibold tracking-[.1em]">LMSYS</span>
           </span>
           <span aria-hidden className="h-3.5 w-px bg-fg/30" />
-          <span className="inline-flex items-center gap-1.5">
-            <img src="/assets/logo.svg" alt="" className="w-[15px]" />
-            <span className="text-sm font-semibold tracking-[.06em]">ACM-VIT</span>
-          </span>
+          <a
+            href="https://acmvit.in"
+            target="_blank"
+            rel="noreferrer"
+            aria-label="ACM-VIT"
+            className="inline-flex items-center transition-opacity hover:opacity-80"
+          >
+            <img
+              src="/assets/acm-mark.svg"
+              alt=""
+              className="h-7 w-auto [filter:var(--mark-filter)]"
+            />
+          </a>
         </div>
       </div>
     </div>

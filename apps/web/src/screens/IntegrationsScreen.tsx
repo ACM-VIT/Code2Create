@@ -13,13 +13,11 @@ import { FigmaIntegrationPanel } from '../components/FigmaIntegrationPanel'
 import { ErrorNotice } from '../components/Form'
 import { Link } from 'react-router-dom'
 import { PortalScene } from '../components/portal/PortalScene'
+import { TeamCluster } from '../components/portal/TeamCluster'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 import { useOperationRunner } from '../lib/operations'
-import type {
-  AvailableGitHubRepository,
-  CurrentGitHubIntegration,
-} from '../types'
+import type { AvailableGitHubRepository, CurrentGitHubIntegration, CurrentTeam, CurrentTeamMember } from '../types'
 
 type AvailableRepositoryPage = {
   connectionId: CurrentGitHubIntegration['connections'][number]['id']
@@ -55,10 +53,12 @@ type PendingGitHubOperation = {
 }
 
 export function IntegrationsScreen({
-  teamName,
+  team,
+  members,
   onSignOut,
 }: {
-  teamName: string
+  team: CurrentTeam
+  members: readonly CurrentTeamMember[]
   onSignOut: () => void
 }) {
   const integration = useQuery(api.githubIntegrations.current, { eventSlug })
@@ -90,14 +90,14 @@ export function IntegrationsScreen({
 
   if (integration === undefined) {
     return (
-      <IntegrationsScene teamName={teamName} onSignOut={onSignOut}>
+      <IntegrationsScene team={team} members={members} onSignOut={onSignOut}>
         <p className="text-[13px] text-[rgb(248_248_248/.6)]" role="status">Loading integrations…</p>
       </IntegrationsScene>
     )
   }
   if (!integration) {
     return (
-      <IntegrationsScene teamName={teamName} onSignOut={onSignOut}>
+      <IntegrationsScene team={team} members={members} onSignOut={onSignOut}>
         <p className="text-[13px] text-[rgb(248_248_248/.6)]">A team is required before connecting project tools.</p>
       </IntegrationsScene>
     )
@@ -318,7 +318,7 @@ export function IntegrationsScreen({
   )
 
   return (
-    <IntegrationsScene teamName={teamName} onSignOut={onSignOut}>
+    <IntegrationsScene team={team} members={members} onSignOut={onSignOut}>
     <section className="integration-shell">
       {pendingOperation ? (
         <div className="repository-form">
@@ -650,29 +650,21 @@ export function IntegrationsScreen({
 
 /** Mockup f11's stage: the night scene with the connected-tools heading. */
 function IntegrationsScene({
-  teamName,
+  team,
+  members,
   onSignOut,
   children,
 }: {
-  teamName: string
+  team: CurrentTeam
+  members: readonly CurrentTeamMember[]
   onSignOut: () => void
   children: ReactNode
 }) {
   return (
     <PortalScene
       tree="left"
-      header={
-        <div className="flex flex-col items-end gap-1 text-right">
-          <p className="m-0 font-ui text-[13.5px] text-rose-light">{teamName}</p>
-          <button
-            type="button"
-            onClick={onSignOut}
-            className="text-[11.5px] text-[rgb(248_248_248/.45)] transition-colors hover:text-rose-light"
-          >
-            sign out
-          </button>
-        </div>
-      }
+      onSignOut={onSignOut}
+      header={<TeamCluster team={team} members={members} />}
     >
       <div className="flex w-full max-w-[720px] flex-col items-center">
         <p className="mb-1.5 font-ui text-lg text-rose-light">connected tools</p>

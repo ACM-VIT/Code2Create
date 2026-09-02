@@ -433,7 +433,10 @@ async function caseActions(
     kind: action.kind,
     visibility: action.visibility,
     actorName:
-      includeInternal || action.actorPersonId === supportCase.reporterPersonId
+      action.kind === "internal_note" &&
+      action.body?.startsWith("Code2Create Guide") === true
+        ? "Code2Create Guide"
+        : includeInternal || action.actorPersonId === supportCase.reporterPersonId
         ? names.get(action.actorPersonId) ?? "Event member"
         : "Support",
     ...(action.body !== undefined ? { body: action.body } : {}),
@@ -725,6 +728,239 @@ async function insertSupportCase(
     now: args.now,
   });
   return { id: supportCaseId, publicCode, version: 1 };
+}
+
+export async function openParticipantAssistantSupportCase(
+  ctx: MutationCtx,
+  args: {
+    eventId: Id<"events">;
+    personId: Id<"people">;
+    category: SupportCaseDoc["category"];
+    summary: string;
+    transcript: string;
+    now: number;
+  },
+) {
+  const [person, subject] = await Promise.all([
+    ctx.db.get(args.personId),
+    requireEventSubject(ctx, args.eventId, args.personId),
+  ]);
+  if (person === null) {
+    throw new Error("The participant for this Guide conversation is unavailable.");
+  }
+  const summary = normalizedLongText(
+    args.summary,
+    "Handoff summary",
+    10,
+    1_600,
+  );
+  const transcript = normalizedLongText(
+    args.transcript,
+    "Guide conversation",
+    2,
+    16_000,
+  );
+  const grantIds = await requirePermission(ctx, {
+    eventId: args.eventId,
+    eventAccessSubjectId: subject._id,
+    permissionKey: "support.case.create",
+    scopeType: "self",
+    scopeId: subject._id,
+  });
+  const context = await selfContext(
+    ctx,
+    args.eventId,
+    args.personId,
+    undefined,
+    undefined,
+  );
+  const result = await insertSupportCase(ctx, {
+    eventId: args.eventId,
+    category: args.category,
+    description: `Guide handoff: ${summary}`,
+    reporterPersonId: args.personId,
+    reporterEventAccessSubjectId: subject._id,
+    contactEmail: person.verifiedEmail,
+    ...context,
+    now: args.now,
+  });
+  await ctx.db.insert("supportCaseActions", {
+    eventId: args.eventId,
+    supportCaseId: result.id,
+    kind: "internal_note",
+    visibility: "internal",
+    actorPersonId: args.personId,
+    body: `Code2Create Guide handoff\n\n${summary}\n\nConversation so far\n${transcript}`,
+    createdAt: args.now + 1,
+  });
+  await writeAuditEvent(ctx, {
+    eventId: args.eventId,
+    actorPersonId: args.personId,
+    permissionKey: "support.case.create",
+    grantIds,
+    scopeType: "self",
+    scopeId: subject._id,
+    action: "support.case_opened",
+    targetType: "support_case",
+    targetId: result.id,
+    nextSummary: JSON.stringify({
+      publicCode: result.publicCode,
+      category: args.category,
+      state: "open",
+      source: "participant_guide",
+    }),
+    reason: "The participant Guide brought the event team into the conversation.",
+  });
+  return result;
+}
+
+export async function appendParticipantAssistantSupportMessage(
+  ctx: MutationCtx,
+  args: {
+    eventId: Id<"events">;
+    personId: Id<"people">;
+    supportCaseId: Id<"supportCases">;
+    message: string;
+    now: number;
+  },
+) {
+  const message = normalizedLongText(
+    args.message,
+    "Conversation message",
+    2,
+    1_600,
+  );
+  const subject = await requireEventSubject(ctx, args.eventId, args.personId);
+  const grantIds = await requirePermission(ctx, {
+    eventId: args.eventId,
+    eventAccessSubjectId: subject._id,
+    permissionKey: "support.case.reply",
+    scopeType: "self",
+    scopeId: subject._id,
+  });
+  const supportCase = await ctx.db.get(args.supportCaseId);
+  if (
+    supportCase === null ||
+    supportCase.eventId !== args.eventId ||
+    supportCase.reporterPersonId !== args.personId
+  ) {
+    throw new Error("The human support conversation is unavailable.");
+  }
+
+  const nextState: SupportCaseState =
+    supportCase.state === "waiting" ||
+    supportCase.state === "resolved" ||
+    supportCase.state === "closed"
+      ? "open"
+      : supportCase.state;
+  const beforeCounters = counterSource(supportCase);
+  const afterCounters: SupportCaseCounterSource = {
+    state: nextState,
+    category: supportCase.category,
+    ...(supportCase.ownerPersonId !== undefined
+      ? { ownerPersonId: supportCase.ownerPersonId }
+      : {}),
+    awaitingStaffReply: true,
+  };
+  await ctx.db.patch(supportCase._id, {
+    state: nextState,
+    ...(nextState !== supportCase.state
+      ? { resolvedAt: undefined, closedAt: undefined }
+      : {}),
+    lastActionAt: args.now,
+    awaitingStaffReply: true,
+    version: supportCase.version + 1,
+    updatedAt: args.now,
+  });
+  await appendSupportCaseReadFactById(ctx, {
+    caseId: supportCase._id,
+    before: supportCase,
+    now: args.now,
+  });
+  await ctx.db.insert("supportCaseActions", {
+    eventId: args.eventId,
+    supportCaseId: supportCase._id,
+    kind: "reporter_reply",
+    visibility: "reporter",
+    actorPersonId: args.personId,
+    body: message,
+    createdAt: args.now,
+  });
+  if (nextState !== supportCase.state) {
+    await ctx.db.insert("supportCaseActions", {
+      eventId: args.eventId,
+      supportCaseId: supportCase._id,
+      kind: "state_changed",
+      visibility: "reporter",
+      actorPersonId: args.personId,
+      previousState: supportCase.state,
+      nextState,
+      createdAt: args.now,
+    });
+  }
+  await updateSupportCaseStats(ctx, {
+    eventId: args.eventId,
+    supportCaseId: supportCase._id,
+    before: beforeCounters,
+    after: afterCounters,
+    now: args.now,
+  });
+  await writeAuditEvent(ctx, {
+    eventId: args.eventId,
+    actorPersonId: args.personId,
+    permissionKey: "support.case.reply",
+    grantIds,
+    scopeType: "self",
+    scopeId: subject._id,
+    action: "support.reporter_replied",
+    targetType: "support_case",
+    targetId: supportCase._id,
+    previousSummary: JSON.stringify({
+      state: supportCase.state,
+      version: supportCase.version,
+    }),
+    nextSummary: JSON.stringify({
+      state: nextState,
+      version: supportCase.version + 1,
+      source: "participant_guide",
+    }),
+    reason: "The participant continued their shared Guide and event-team conversation.",
+  });
+}
+
+export async function appendParticipantAssistantGuideReply(
+  ctx: MutationCtx,
+  args: {
+    eventId: Id<"events">;
+    personId: Id<"people">;
+    supportCaseId: Id<"supportCases">;
+    message: string;
+    now: number;
+  },
+) {
+  const supportCase = await ctx.db.get(args.supportCaseId);
+  if (
+    supportCase === null ||
+    supportCase.eventId !== args.eventId ||
+    supportCase.reporterPersonId !== args.personId
+  ) {
+    throw new Error("The human support conversation is unavailable.");
+  }
+  const message = normalizedLongText(
+    args.message,
+    "Guide reply",
+    2,
+    12_000,
+  );
+  await ctx.db.insert("supportCaseActions", {
+    eventId: args.eventId,
+    supportCaseId: supportCase._id,
+    kind: "internal_note",
+    visibility: "internal",
+    actorPersonId: args.personId,
+    body: `Code2Create Guide reply\n\n${message}`,
+    createdAt: args.now,
+  });
 }
 
 export const mine = query({

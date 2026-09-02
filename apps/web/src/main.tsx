@@ -3,7 +3,11 @@ import {
   ClientObservabilityProvider,
   installBrowserChunkRecovery,
 } from '@code2create/client-observability'
-import { Code2CreateAuthProvider, createCode2CreateAuthClient } from '@code2create/web-auth'
+import {
+  Code2CreateAuthProvider,
+  createCode2CreateAuthClient,
+  preloadGoogleIdentityServices,
+} from '@code2create/web-auth'
 import { FormValidationBoundary } from '@code2create/web-forms'
 import { StrictMode, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -16,6 +20,7 @@ import { RouteErrorScreen } from './RouteErrorScreen.tsx'
 
 installBrowserChunkRecovery()
 initPortalTheme()
+void preloadGoogleIdentityServices().catch(() => undefined)
 
 const rootElement = document.getElementById('root')
 if (!rootElement) throw new Error('The application root element is missing.')

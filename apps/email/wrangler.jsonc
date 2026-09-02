@@ -26,6 +26,12 @@
     },
     "production": {
       "name": "code2create-email",
+      "routes": [
+        {
+          "pattern": "email.c2c.sh",
+          "custom_domain": true
+        }
+      ],
       "queues": {
         "consumers": [
           {

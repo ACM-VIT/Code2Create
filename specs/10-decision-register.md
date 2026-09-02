@@ -20,7 +20,7 @@ This file records current decisions only. It does not keep obsolete product path
 | P-012 | Every accepted post-submission team or proposal change creates an immutable version and invalidates stale human-review and AI-admission outputs. |
 | P-013 | Route proposals by current proposal content and reviewer-domain coverage. |
 | P-014 | Git tracked branches remain part of GitHub evidence. Synesthesia music tracks remain part of the music catalog. |
-| P-015 | Proposal intake is free text followed by two required fixed questions and up to two grounded AI questions when useful. |
+| P-015 | Proposal intake is free text followed by two required fixed questions and two required AI-attempted slots. Each AI slot uses a published fallback if it does not settle within 20 seconds or fails validation. |
 | P-016 | The proposal flow remains usable without OpenAI. |
 | P-017 | Live novelty appears only as a non-blocking number above the idea text box. |
 | P-018 | Novelty does not affect submission, admission, review routing, judging, awards, or exports. |
@@ -68,7 +68,7 @@ This file records current decisions only. It does not keep obsolete product path
 | T-017 | Store only a fingerprint and character count on novelty requests. | The proposal draft remains the only participant-text source. |
 | T-018 | Use OpenAI strict structured output with `store: false` for follow-up and admission requests. | The server validates a closed contract. |
 | T-019 | Give AI no event command tools. | Model output cannot carry product authority. |
-| T-020 | Use a GitHub App with repository Metadata read and Contents read. Give its user authorization Starring read and write. | Team evidence does not need repository writes. The separate participant onboarding action needs the minimum user permission that can star SGLang. |
+| T-020 | Use a read-only GitHub App for team evidence and a separate classic OAuth App with `public_repo` for the SGLang contribution step. | GitHub App user tokens cannot currently star repositories reliably. The OAuth grant is used once and revoked immediately, while team evidence remains read-only. |
 | T-021 | Bind several repositories to one team integration. | A product can span several repositories and organizations. |
 | T-022 | Use Figma OAuth with the minimum approved file scopes. | The system can capture exact design evidence without write access. |
 | T-023 | Pin GitHub SHAs and Figma file versions at review start. | Later provider changes cannot rewrite review evidence. |

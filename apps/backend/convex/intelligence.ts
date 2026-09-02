@@ -1,10 +1,8 @@
 import { v, type Infer } from "convex/values";
-import { z } from "zod";
-
 import { internal } from "./_generated/api";
-import type { DataModel, Doc, Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
-import { internalAction, internalMutation } from "./_generated/server";
+import { internalMutation } from "./_generated/server";
 import {
   requirePinnedIntakePolicy,
   type IntakePolicy,
@@ -15,7 +13,6 @@ import {
   ideaQuestionEndToEndDeadlineMs,
   ideaQuestionSettlementDeadlineMs,
   ideaQuestionSystemInstruction,
-  isBroadIdeaQuestion,
 } from "./lib/ideaSubmissionAi";
 import {
   createIntakeQuestion,
@@ -25,10 +22,8 @@ import {
   loadCurrentIntakeResponses,
   nextQuestionOrdinal,
 } from "./lib/intakeQuestions";
-import { redactProjectText } from "./lib/projectText";
 import { appendIntakeJobReadFactById } from "./lib/operationsAutonomyReadFacts/intakeJobs";
 import { intakeAnswerLength, intakeQuestionPurpose } from "./values";
-import { intakeWorkpool } from "./workpools";
 
 const sourceAnswer = v.object({
   id: v.id("intakeAnswerVersions"),
@@ -41,7 +36,6 @@ const intakeContext = v.object({
   draftId: v.id("projectDrafts"),
   inputFingerprint: v.string(),
   ordinal: v.number(),
-  minimumFollowUpCount: v.number(),
   modelId: v.string(),
   systemInstruction: v.string(),
   questionMaxLength: v.number(),
@@ -58,7 +52,62 @@ const intakeContext = v.object({
   ),
 });
 
-type IntakeContext = Infer<typeof intakeContext>;
+export type IntakeContext = Infer<typeof intakeContext>;
+
+function emptyCompletion() {
+  return {
+    coveragePurposeKeys: [],
+    nextQuestionSourceAnswerVersionIds: [],
+  };
+}
+
+const intakeInterpretationState = v.union(
+  v.literal("running"),
+  v.literal("succeeded"),
+  v.literal("refused"),
+  v.literal("invalid"),
+  v.literal("timed_out"),
+  v.literal("rate_limited"),
+  v.literal("failed"),
+  v.literal("stale"),
+  v.literal("disabled"),
+);
+
+function scheduleIntakeJobReadFact(
+  ctx: MutationCtx,
+  args: {
+    jobId: Id<"intakeInterpretations">;
+    expectedState: Doc<"intakeInterpretations">["state"];
+  },
+) {
+  const key = `${args.jobId}:${args.expectedState}`;
+  let hash = 2_166_136_261;
+  for (const character of key) {
+    hash = Math.imul(hash ^ character.charCodeAt(0), 16_777_619);
+  }
+  const delayMs = args.expectedState === "running"
+    ? 30_000
+    : (hash >>> 0) % 120_000;
+  return ctx.scheduler.runAfter(
+    delayMs,
+    internal.intelligence.publishIntakeJobReadFact,
+    args,
+  );
+}
+
+export const publishIntakeJobReadFact = internalMutation({
+  args: {
+    jobId: v.id("intakeInterpretations"),
+    expectedState: intakeInterpretationState,
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.jobId);
+    if (!row || row.state !== args.expectedState) return null;
+    await appendIntakeJobReadFactById(ctx, row._id, Date.now());
+    return null;
+  },
+});
 
 async function applyDeterministicPath(
   ctx: MutationCtx,
@@ -71,7 +120,7 @@ async function applyDeterministicPath(
     now: number;
   },
 ) {
-  const shouldAsk = args.ordinal <= args.normalizedPolicy.deterministicFollowUpCount;
+  const shouldAsk = args.ordinal <= args.normalizedPolicy.maximumFollowUpCount;
   let questionId: Id<"intakeGeneratedQuestions"> | null = null;
   if (shouldAsk) {
     questionId = await createFixedIntakeQuestion(ctx, {
@@ -87,6 +136,7 @@ async function applyDeterministicPath(
   if (questionId || stage !== args.draft.stage) {
     await ctx.db.patch(args.draft._id, {
       stage,
+      adaptiveQuestionDeadlineAt: undefined,
       version: args.draft.version + 1,
       updatedAt: args.now,
     });
@@ -97,7 +147,17 @@ async function applyDeterministicPath(
 export const beginIntakeInterpretation = internalMutation({
   args: {
     draftId: v.id("projectDrafts"),
-    providerAvailable: v.boolean(),
+    provider: v.union(
+      v.object({ kind: v.literal("available") }),
+      v.object({
+        kind: v.literal("unavailable"),
+        reason: v.union(
+          v.literal("api_key_not_configured"),
+          v.literal("generation_action_failed"),
+          v.literal("generation_canceled"),
+        ),
+      }),
+    ),
   },
   returns: v.union(v.null(), intakeContext),
   handler: async (ctx, args): Promise<IntakeContext | null> => {
@@ -114,6 +174,7 @@ export const beginIntakeInterpretation = internalMutation({
       if (draft.stage !== "review") {
         await ctx.db.patch(draft._id, {
           stage: "review",
+          adaptiveQuestionDeadlineAt: undefined,
           version: draft.version + 1,
           updatedAt: Date.now(),
         });
@@ -156,7 +217,7 @@ export const beginIntakeInterpretation = internalMutation({
       .first();
     if (prior) return null;
     const now = Date.now();
-    const assisted = args.providerAvailable;
+    const assisted = args.provider.kind === "available";
     const interpretationId = await ctx.db.insert("intakeInterpretations", {
       eventId: draft.eventId,
       teamId: draft.teamId,
@@ -170,13 +231,18 @@ export const beginIntakeInterpretation = internalMutation({
       modelId: ideaQuestionModelId,
       ...(!assisted
         ? {
-            failureCategory: "api_key_not_configured",
+            failureCategory: args.provider.kind === "unavailable"
+              ? args.provider.reason
+              : "api_key_not_configured",
             completedAt: now,
           }
         : {}),
       createdAt: now,
     });
-    await appendIntakeJobReadFactById(ctx, interpretationId, now);
+    await scheduleIntakeJobReadFact(ctx, {
+      jobId: interpretationId,
+      expectedState: assisted ? "running" : "disabled",
+    });
     if (!assisted) {
       await applyDeterministicPath(ctx, {
         draft,
@@ -198,7 +264,6 @@ export const beginIntakeInterpretation = internalMutation({
       draftId: draft._id,
       inputFingerprint,
       ordinal,
-      minimumFollowUpCount: normalized.minimumFollowUpCount,
       modelId: ideaQuestionModelId,
       systemInstruction: ideaQuestionSystemInstruction,
       questionMaxLength: normalized.questionMaxLength,
@@ -260,9 +325,13 @@ export const finishIntakeInterpretation = internalMutation({
         latencyMs: args.latencyMs,
         failureCategory: "draft_unavailable",
       });
-      await appendIntakeJobReadFactById(ctx, interpretation._id, Date.now());
+      await scheduleIntakeJobReadFact(ctx, {
+        jobId: interpretation._id,
+        expectedState: "stale",
+      });
       return null;
     }
+    const now = Date.now();
     const [{ policy, normalized }, responses, answers] = await Promise.all([
       requirePinnedIntakePolicy(ctx, draft),
       loadCurrentIntakeResponses(ctx, draft._id),
@@ -286,7 +355,37 @@ export const finishIntakeInterpretation = internalMutation({
         latencyMs: args.latencyMs,
         failureCategory: "input_or_question_changed",
       });
-      await appendIntakeJobReadFactById(ctx, interpretation._id, Date.now());
+      await scheduleIntakeJobReadFact(ctx, {
+        jobId: interpretation._id,
+        expectedState: "stale",
+      });
+      return null;
+    }
+
+    const settlementDeadlineAt = Math.min(
+      interpretation.createdAt + ideaQuestionSettlementDeadlineMs,
+      draft.adaptiveQuestionDeadlineAt ?? Number.POSITIVE_INFINITY,
+    );
+    if (now >= settlementDeadlineAt) {
+      await ctx.db.patch(interpretation._id, {
+        state: "timed_out",
+        coveragePurposeKeys: [],
+        completedAt: now,
+        latencyMs: Math.max(args.latencyMs, now - interpretation.createdAt),
+        failureCategory: "settlement_deadline_exceeded",
+      });
+      await scheduleIntakeJobReadFact(ctx, {
+        jobId: interpretation._id,
+        expectedState: "timed_out",
+      });
+      await applyDeterministicPath(ctx, {
+        draft,
+        policy,
+        normalizedPolicy: normalized,
+        ordinal: interpretation.ordinal,
+        sourceAnswerVersionIds: answers.map((answer) => answer._id),
+        now,
+      });
       return null;
     }
 
@@ -317,11 +416,7 @@ export const finishIntakeInterpretation = internalMutation({
       args.nextQuestionPurposeKey !== undefined &&
       args.nextQuestionAnswerLength !== undefined &&
       args.nextQuestionSourceAnswerVersionIds.length > 0;
-    const stopIsValid =
-      (args.stopReason === "needs_question" && asksQuestion) ||
-      ((args.stopReason === "enough_context" || args.stopReason === "question_limit") &&
-        !args.nextQuestionText &&
-        interpretation.ordinal > normalized.minimumFollowUpCount);
+    const stopIsValid = args.stopReason === "needs_question" && asksQuestion;
     const succeeded =
       args.state === "succeeded" &&
       sourceIdsValid &&
@@ -329,7 +424,6 @@ export const finishIntakeInterpretation = internalMutation({
       coverageValid &&
       stopIsValid;
     const settledState = succeeded ? "succeeded" as const : args.state === "succeeded" ? "invalid" as const : args.state;
-    const now = Date.now();
     await ctx.db.patch(interpretation._id, {
       state: settledState,
       coveragePurposeKeys: succeeded ? args.coveragePurposeKeys : [],
@@ -348,7 +442,10 @@ export const finishIntakeInterpretation = internalMutation({
           : args.failureCategory,
       completedAt: now,
     });
-    await appendIntakeJobReadFactById(ctx, interpretation._id, now);
+    await scheduleIntakeJobReadFact(ctx, {
+      jobId: interpretation._id,
+      expectedState: settledState,
+    });
 
     let questionId: Id<"intakeGeneratedQuestions"> | null = null;
     if (
@@ -391,6 +488,7 @@ export const finishIntakeInterpretation = internalMutation({
     if (questionId || stage !== draft.stage) {
       await ctx.db.patch(draft._id, {
         stage,
+        adaptiveQuestionDeadlineAt: undefined,
         version: draft.version + 1,
         updatedAt: now,
       });
@@ -431,12 +529,12 @@ export const expireQueuedIntakeInterpretation = internalMutation({
   args: {
     draftId: v.id("projectDrafts"),
     draftVersion: v.number(),
-    enqueuedAt: v.number(),
+    deadlineAt: v.number(),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
     const now = Date.now();
-    const remainingMs = args.enqueuedAt + ideaQuestionEndToEndDeadlineMs - now;
+    const remainingMs = args.deadlineAt - now;
     if (remainingMs > 0) {
       await ctx.scheduler.runAfter(
         remainingMs,
@@ -449,7 +547,8 @@ export const expireQueuedIntakeInterpretation = internalMutation({
     if (
       !draft?.initialIdea ||
       draft.stage !== "follow_up" ||
-      draft.version !== args.draftVersion
+      draft.version !== args.draftVersion ||
+      draft.adaptiveQuestionDeadlineAt !== args.deadlineAt
     ) return null;
     const [{ policy, normalized }, responses, answers] = await Promise.all([
       requirePinnedIntakePolicy(ctx, draft),
@@ -457,11 +556,18 @@ export const expireQueuedIntakeInterpretation = internalMutation({
       loadActiveIntakeAnswers(ctx, draft._id),
     ]);
     const ordinal = nextQuestionOrdinal(responses);
-    if (
-      ordinal === null ||
-      ordinal <= normalized.deterministicFollowUpCount ||
-      ordinal > normalized.maximumFollowUpCount
-    ) return null;
+    if (ordinal === null || ordinal > normalized.maximumFollowUpCount) return null;
+    if (ordinal <= normalized.deterministicFollowUpCount) {
+      await applyDeterministicPath(ctx, {
+        draft,
+        policy,
+        normalizedPolicy: normalized,
+        ordinal,
+        sourceAnswerVersionIds: answers.map((answer) => answer._id),
+        now,
+      });
+      return null;
+    }
     const inputFingerprint = intakeInputFingerprint({
       draftId: draft._id,
       policyChecksum: policy.checksum,
@@ -480,12 +586,25 @@ export const expireQueuedIntakeInterpretation = internalMutation({
         inputFingerprint,
         state: "timed_out",
         ...emptyCompletion(),
-        latencyMs: Math.max(0, now - args.enqueuedAt),
+        latencyMs: Math.max(
+          0,
+          now - (args.deadlineAt - ideaQuestionEndToEndDeadlineMs),
+        ),
         failureCategory: "end_to_end_deadline_exceeded",
       });
       return null;
     }
-    if (prior) return null;
+    if (prior) {
+      await applyDeterministicPath(ctx, {
+        draft,
+        policy,
+        normalizedPolicy: normalized,
+        ordinal,
+        sourceAnswerVersionIds: answers.map((answer) => answer._id),
+        now,
+      });
+      return null;
+    }
     const interpretationId = await ctx.db.insert("intakeInterpretations", {
       eventId: draft.eventId,
       teamId: draft.teamId,
@@ -497,12 +616,18 @@ export const expireQueuedIntakeInterpretation = internalMutation({
       state: "disabled",
       coveragePurposeKeys: [],
       modelId: ideaQuestionModelId,
-      latencyMs: Math.max(0, now - args.enqueuedAt),
-      failureCategory: "workpool_queue_deadline_exceeded",
+      latencyMs: Math.max(
+        0,
+        now - (args.deadlineAt - ideaQuestionEndToEndDeadlineMs),
+      ),
+      failureCategory: "action_start_deadline_exceeded",
       completedAt: now,
-      createdAt: args.enqueuedAt,
+      createdAt: args.deadlineAt - ideaQuestionEndToEndDeadlineMs,
     });
-    await appendIntakeJobReadFactById(ctx, interpretationId, now);
+    await scheduleIntakeJobReadFact(ctx, {
+      jobId: interpretationId,
+      expectedState: "disabled",
+    });
     await applyDeterministicPath(ctx, {
       draft,
       policy,
@@ -511,261 +636,6 @@ export const expireQueuedIntakeInterpretation = internalMutation({
       sourceAnswerVersionIds: answers.map((answer) => answer._id),
       now,
     });
-    return null;
-  },
-});
-
-const intakeGenerationContext = v.object({
-  draftId: v.id("projectDrafts"),
-  draftVersion: v.number(),
-});
-
-export const intakeGenerationFinished = intakeWorkpool.defineOnComplete<
-  DataModel,
-  typeof intakeGenerationContext
->({
-  context: intakeGenerationContext,
-  handler: async (ctx, { context, result }) => {
-    if (result.kind === "success") return;
-    const draft = await ctx.db.get(context.draftId);
-    if (
-      !draft?.initialIdea ||
-      draft.stage !== "follow_up" ||
-      draft.version !== context.draftVersion
-    ) return;
-    const latest = await ctx.db
-      .query("intakeInterpretations")
-      .withIndex("by_draft_created", (index) => index.eq("draftId", draft._id))
-      .order("desc")
-      .first();
-    if (latest?.state === "running") {
-      const settled: null = await ctx.runMutation(
-        internal.intelligence.finishIntakeInterpretation,
-        {
-          interpretationId: latest._id,
-          inputFingerprint: latest.inputFingerprint,
-          state: "failed",
-          ...emptyCompletion(),
-          latencyMs: Math.max(0, Date.now() - latest.createdAt),
-          failureCategory: result.kind === "canceled"
-            ? "generation_canceled"
-            : "generation_action_failed",
-        },
-      );
-      void settled;
-      return;
-    }
-    const started: IntakeContext | null = await ctx.runMutation(
-      internal.intelligence.beginIntakeInterpretation,
-      { draftId: draft._id, providerAvailable: false },
-    );
-    void started;
-  },
-});
-
-const modelSourceRef = z.string().min(1).max(200);
-const modelOutputSchema = z
-  .object({
-    coveragePurposeKeys: z
-      .array(z.enum(["user", "problem", "experience", "event_goal", "tradeoff", "risk"]))
-      .max(6),
-    nextQuestion: z
-      .object({
-        text: z.string().min(8).max(140),
-        purposeKey: z.enum(["user", "problem", "experience", "event_goal", "tradeoff", "risk"]),
-        answerLength: z.enum(["short", "medium"]),
-        sourceAnswerVersionIds: z.array(modelSourceRef).min(1).max(3),
-        groundingTerms: z.array(z.string().min(2).max(40)).min(1).max(3),
-      })
-      .strict()
-      .nullable(),
-    matchedIdeaPatternKey: z.string().min(1).max(60).nullable(),
-    stopReason: z.enum(["needs_question", "enough_context", "question_limit"]),
-  })
-  .strict();
-
-type ModelOutput = z.infer<typeof modelOutputSchema>;
-
-function parseModelOutput(value: string) {
-  try {
-    const result = modelOutputSchema.safeParse(JSON.parse(value));
-    return result.success ? result.data : null;
-  } catch {
-    return null;
-  }
-}
-
-function resolveSourceIds(
-  values: readonly string[],
-  answers: IntakeContext["answers"],
-) {
-  const byId = new Map<string, Id<"intakeAnswerVersions">>(
-    answers.map((answer) => [answer.id, answer.id]),
-  );
-  const resolved: Id<"intakeAnswerVersions">[] = [];
-  for (const value of values) {
-    const id = byId.get(value);
-    if (!id || resolved.includes(id)) return null;
-    resolved.push(id);
-  }
-  return resolved;
-}
-
-function validateModelOutput(output: ModelOutput, context: IntakeContext) {
-  const purposeKeys = new Set(context.allowedPurposeKeys);
-  const patternKeys = new Set(context.commonIdeaPatterns.map((pattern) => pattern.stableKey));
-  if (
-    new Set(output.coveragePurposeKeys).size !== output.coveragePurposeKeys.length ||
-    output.coveragePurposeKeys.some((purpose) => !purposeKeys.has(purpose)) ||
-    (output.matchedIdeaPatternKey !== null && !patternKeys.has(output.matchedIdeaPatternKey))
-  ) {
-    return null;
-  }
-  const questionSources = output.nextQuestion
-    ? resolveSourceIds(output.nextQuestion.sourceAnswerVersionIds, context.answers)
-    : [];
-  if (
-    questionSources === null ||
-    (output.nextQuestion && !purposeKeys.has(output.nextQuestion.purposeKey)) ||
-    (output.stopReason === "needs_question") !== Boolean(output.nextQuestion) ||
-    ((output.stopReason === "enough_context" || output.stopReason === "question_limit") &&
-      context.ordinal <= context.minimumFollowUpCount)
-  ) {
-    return null;
-  }
-  if (output.nextQuestion) {
-    const normalized = output.nextQuestion.text.trim().replace(/\s+/gu, " ");
-    const lower = normalized.toLocaleLowerCase("en");
-    const sourceAnswers = new Map(
-      context.answers.map((answer) => [answer.id, answer.value] as const),
-    );
-    const groundingTerms = output.nextQuestion.groundingTerms.map((term) =>
-      term.trim().replace(/\s+/gu, " ").toLocaleLowerCase("en"),
-    );
-    const groundedText = questionSources
-      .map((id) => sourceAnswers.get(id) ?? "")
-      .join(" ")
-      .toLocaleLowerCase("en");
-    if (
-      normalized.length > context.questionMaxLength ||
-      !isBroadIdeaQuestion(normalized) ||
-      !normalized.endsWith("?") ||
-      [...normalized].filter((character) => character === "?").length !== 1 ||
-      context.blockedTerms.some((term) => lower.includes(term)) ||
-      context.previousQuestions.some(
-        (question) => question.trim().replace(/\s+/gu, " ").toLocaleLowerCase("en") === lower,
-      ) ||
-      new Set(groundingTerms).size !== groundingTerms.length ||
-      groundingTerms.some((term) => !groundedText.includes(term)) ||
-      !groundingTerms.some((term) => lower.includes(term))
-    ) {
-      return null;
-    }
-  }
-  return {
-    coveragePurposeKeys: output.coveragePurposeKeys,
-    ...(output.nextQuestion
-      ? {
-          nextQuestionText: output.nextQuestion.text,
-          nextQuestionPurposeKey: output.nextQuestion.purposeKey,
-          nextQuestionAnswerLength: output.nextQuestion.answerLength,
-        }
-      : {}),
-    nextQuestionSourceAnswerVersionIds: questionSources,
-    ...(output.matchedIdeaPatternKey !== null
-      ? { matchedIdeaPatternKey: output.matchedIdeaPatternKey }
-      : {}),
-    stopReason: output.stopReason,
-  };
-}
-
-function emptyCompletion() {
-  return {
-    coveragePurposeKeys: [],
-    nextQuestionSourceAnswerVersionIds: [],
-  };
-}
-
-export const interpretIdea = internalAction({
-  args: { draftId: v.id("projectDrafts") },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const apiKey = process.env.OPENAI_API_KEY?.trim();
-    const context: IntakeContext | null = await ctx.runMutation(
-      internal.intelligence.beginIntakeInterpretation,
-      { draftId: args.draftId, providerAvailable: Boolean(apiKey) },
-    );
-    if (!context || !apiKey) return null;
-
-    const startedAt = Date.now();
-    try {
-      const provider = await ctx.runAction(
-        internal.intelligenceActions.requestIdeaQuestion,
-        {
-          modelId: context.modelId,
-          systemInstruction: context.systemInstruction,
-          input: JSON.stringify({
-            questionOrdinal: context.ordinal,
-            answers: context.answers.map((answer) => ({
-              answerVersionId: answer.id,
-              promptKey: answer.promptKey,
-              text: redactProjectText(answer.value),
-            })),
-            priorQuestions: context.previousQuestions,
-            allowedPurposeKeys: context.allowedPurposeKeys,
-            commonIdeaPatterns: context.commonIdeaPatterns,
-          }),
-        },
-      );
-      if (provider.kind === "failure") {
-        await ctx.runMutation(internal.intelligence.finishIntakeInterpretation, {
-          interpretationId: context.interpretationId,
-          inputFingerprint: context.inputFingerprint,
-          state: provider.state,
-          ...emptyCompletion(),
-          latencyMs: Date.now() - startedAt,
-          failureCategory: provider.failureCategory,
-        });
-        return null;
-      }
-      const parsed = provider.outputText ? parseModelOutput(provider.outputText) : null;
-      const validated = parsed ? validateModelOutput(parsed, context) : null;
-      if (!validated) {
-        await ctx.runMutation(internal.intelligence.finishIntakeInterpretation, {
-          interpretationId: context.interpretationId,
-          inputFingerprint: context.inputFingerprint,
-          state: provider.outputText ? "invalid" : "refused",
-          ...emptyCompletion(),
-          ...(provider.providerRequestId
-            ? { providerRequestId: provider.providerRequestId }
-            : {}),
-          latencyMs: Date.now() - startedAt,
-          failureCategory: provider.outputText
-            ? "invalid_or_disallowed_output"
-            : "empty_or_refused_output",
-        });
-        return null;
-      }
-      await ctx.runMutation(internal.intelligence.finishIntakeInterpretation, {
-        interpretationId: context.interpretationId,
-        inputFingerprint: context.inputFingerprint,
-        state: "succeeded",
-        ...validated,
-        ...(provider.providerRequestId
-          ? { providerRequestId: provider.providerRequestId }
-          : {}),
-        latencyMs: Date.now() - startedAt,
-      });
-    } catch {
-      await ctx.runMutation(internal.intelligence.finishIntakeInterpretation, {
-        interpretationId: context.interpretationId,
-        inputFingerprint: context.inputFingerprint,
-        state: "failed",
-        ...emptyCompletion(),
-        latencyMs: Date.now() - startedAt,
-        failureCategory: "provider_action_failed",
-      });
-    }
     return null;
   },
 });

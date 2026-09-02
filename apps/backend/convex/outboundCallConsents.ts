@@ -14,7 +14,7 @@ import {
 import { normalizedE164Phone } from "./lib/outboundCalls";
 import { requirePermission } from "./lib/permissions";
 
-export const reviewerCallConsentPolicyVersion = "reviewer-page-call-consent-2026-08-25";
+export const reviewerCallConsentPolicyVersion = "reviewer-page-call-consent-v1";
 export const reviewerCallScriptPolicyVersion = "reviewer-substitute-page-v1";
 
 const reviewerCallPurpose = "reviewer_substitute_page" as const;

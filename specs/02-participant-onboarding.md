@@ -38,16 +38,16 @@ The event stores one deadline for external participants and one later or equal d
 
 ## 3. GitHub contribution step
 
-After the profile is complete and before team creation or joining, each participant must connect a GitHub account and star `sgl-project/sglang`. The screen has one staged action:
+After the profile is complete and before team creation or joining, each participant must connect a GitHub account and star `sgl-project/sglang`. The screen has two clear actions:
 
 - before connection, it shows **Connect GitHub**;
 - after connection, the backend checks whether the verified account already stars the repository;
 - an existing star completes the step immediately, while a missing star shows the verified GitHub login and **Star SGLang**; and
-- after GitHub accepts the star, onboarding continues to team setup.
+- **Star SGLang** stars the repository through GitHub and continues to team setup.
 
-There is no skip action. Opening the repository link does not complete the step. The server, not the browser, calls GitHub's authenticated starring endpoint and records completion. One GitHub account can complete this step for only one participant in the event. A pending imported-roster assignment also waits at this boundary.
+There is no skip action. One GitHub account can complete this step for only one participant in the event. A pending imported-roster assignment also waits at this boundary.
 
-The OAuth request uses state and PKCE through GitHub App user authorization with Starring read/write access. The participant step requires only the App client ID and client secret; it does not load the App private key or an installation token. After identifying the account, the backend reads its exact star state. An existing star creates the durable completion without storing the access token. Otherwise, the server encrypts the short-lived token, uses it only to star this repository after the participant confirms, and deletes it immediately after success. An abandoned authorization expires within eight hours. This participant-scoped authorization is separate from the later team-scoped GitHub App installation used for repository evidence.
+The OAuth request uses state and PKCE through a classic GitHub OAuth App and requests only `public_repo`, the narrowest classic scope that can star a public repository. The participant step uses dedicated OAuth client credentials and never loads the separate GitHub App private key or an installation token. After identifying the account, the backend reads its exact star state. An existing star creates the durable completion immediately. Otherwise, the server encrypts the OAuth token, uses it once to star SGLang, revokes the OAuth grant, and deletes the encrypted token after success. An abandoned authorization expires within eight hours. This participant-scoped OAuth App is separate from the later team-scoped GitHub App installation used for repository evidence.
 
 Existing participants who already have an active team do not return to this new onboarding gate. Team creation, joining, and imported-roster claim all enforce the completion on the server for participants who have not joined a team.
 
@@ -104,7 +104,7 @@ After the first answer, the portal asks two published questions, one at a time:
 
 Both questions require answers. The first two questions are stored with the intake policy and appear immediately; they do not wait for an AI job.
 
-After both answers are committed, the AI may ask zero, one, or two additional questions. It asks only about material context that is still missing. A generated question must cite the source answer versions used to produce it and include project-specific grounding copied from those answers. If the same question would fit most unrelated projects, the model must stop. If generation is unavailable, invalid, or late, the portal proceeds with the two fixed answers instead of inserting a generic fallback.
+After both answers are committed, the system fills two additional required question slots. It attempts one AI-generated question for each slot. Each generated question must cite the source answer versions used to produce it and include project-specific grounding copied from those answers. If generation is unavailable, invalid, rate-limited, or not settled within 20 seconds from enqueue, that slot uses its published prewritten fallback. The next slot is evaluated only after the team answers the current slot. A late model result cannot replace a visible fallback.
 
 Each question must:
 
@@ -126,7 +126,7 @@ Confirming a changed initial idea invalidates the old question route and starts 
 
 Only the current team lead can make the final submission. The server checks both current leadership and exact-team `application.submit` authority in the accepting transaction. A direct permission grant to a non-lead does not make that member a submitter. The confirmation screen uses the same rule. Presence is advisory: an open or disconnected editor cannot veto submission. If another member is typing, the lead sees a warning that submission uses the committed preview and excludes text that has not advanced into it. Exact draft and team versions provide the race boundary.
 
-When `OPENAI_API_KEY` is configured, the service evaluates the optional generated-question route with the code-owned `gpt-5.6-luna` release. This is a platform capability, not an event-policy switch. The server validates the output, source-answer references, and grounding before publishing a question. The model cannot submit, reject, classify, route, or score the team. Missing configuration, delay, or failure cannot block the proposal.
+When `OPENAI_API_KEY` is configured, the service attempts both generated-question slots with the code-owned `gpt-5.6-luna` release. This is a platform capability, not an event-policy switch. The server validates the output, source-answer references, and grounding before publishing a question. The model cannot submit, reject, classify, route, or score the team. Missing configuration, delay, or failure selects the published fallback for that slot and cannot block the proposal.
 
 The sequence should clarify:
 
@@ -341,7 +341,7 @@ The participant cannot control playback or queue order. A music action cannot ch
 - The server rejects participant team and proposal writes at or after the applicable class deadline.
 - Every proposal save creates or advances an immutable version without deleting history.
 - A revision invalidates stale human and AI admission outputs.
-- The intake always asks two published questions, may add up to two grounded questions, and reaches review without OpenAI.
+- The intake always asks two published fixed questions and two more required questions. Each later slot uses a grounded AI question or its published fallback and reaches review without OpenAI.
 - The novelty feature shows only one number above the idea text box.
 - The novelty feature never blocks save or submission and never enters admission or judging.
 - Proposal routing uses the current proposal and reviewer-domain coverage.

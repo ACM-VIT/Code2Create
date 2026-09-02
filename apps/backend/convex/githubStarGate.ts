@@ -120,6 +120,104 @@ export const current = query({
   },
 });
 
+const disconnectClaim = v.union(
+  v.object({ kind: v.literal("clear") }),
+  v.object({
+    kind: v.literal("revoke"),
+    authorizationId: v.id("githubStarAuthorizations"),
+    accessTokenCiphertext: v.string(),
+  }),
+);
+
+export const prepareDisconnect = internalMutation({
+  args: { eventSlug: v.string() },
+  returns: disconnectClaim,
+  handler: async (ctx, args) => {
+    const { event, membership } = await onboardingContext(ctx, args.eventSlug);
+    const completion = await ctx.db
+      .query("githubStarCompletions")
+      .withIndex("by_event_membership", (index) =>
+        index.eq("eventId", event._id).eq("membershipId", membership._id),
+      )
+      .unique();
+    if (completion) {
+      throw new ConvexError({
+        code: "GITHUB_STAR_COMPLETE",
+        message: "This GitHub step is already complete.",
+      });
+    }
+    const authorization = await ctx.db
+      .query("githubStarAuthorizations")
+      .withIndex("by_event_membership", (index) =>
+        index.eq("eventId", event._id).eq("membershipId", membership._id),
+      )
+      .unique();
+    return authorization
+      ? {
+          kind: "revoke" as const,
+          authorizationId: authorization._id,
+          accessTokenCiphertext: authorization.accessTokenCiphertext,
+        }
+      : { kind: "clear" as const };
+  },
+});
+
+export const finishDisconnect = internalMutation({
+  args: {
+    eventSlug: v.string(),
+    authorizationId: v.optional(v.id("githubStarAuthorizations")),
+  },
+  returns: v.object({ disconnected: v.boolean() }),
+  handler: async (ctx, args) => {
+    const { event, membership } = await onboardingContext(ctx, args.eventSlug);
+    const completion = await ctx.db
+      .query("githubStarCompletions")
+      .withIndex("by_event_membership", (index) =>
+        index.eq("eventId", event._id).eq("membershipId", membership._id),
+      )
+      .unique();
+    if (completion) {
+      throw new ConvexError({
+        code: "GITHUB_STAR_COMPLETE",
+        message: "This GitHub step is already complete.",
+      });
+    }
+
+    let disconnected = false;
+    if (args.authorizationId) {
+      const authorization = await ctx.db.get(args.authorizationId);
+      if (
+        authorization &&
+        authorization.eventId === event._id &&
+        authorization.membershipId === membership._id
+      ) {
+        await ctx.db.delete(authorization._id);
+        disconnected = true;
+      }
+    }
+
+    for (const status of ["pending", "verifying", "failed"] as const) {
+      const intents = await ctx.db
+        .query("githubStarSetupIntents")
+        .withIndex("by_membership_status", (index) =>
+          index.eq("membershipId", membership._id).eq("status", status),
+        )
+        .collect();
+      for (const intent of intents) {
+        await ctx.db.patch(intent._id, {
+          status: "expired",
+          pkceVerifierCiphertext: undefined,
+          attemptId: undefined,
+          claimExpiresAt: undefined,
+          completedAt: Date.now(),
+        });
+        disconnected = true;
+      }
+    }
+    return { disconnected };
+  },
+});
+
 export const createSetupIntent = internalMutation({
   args: {
     eventSlug: v.string(),
@@ -223,7 +321,12 @@ export const claimSetupIntent = internalMutation({
         message: "This GitHub connection is already being verified.",
       });
     }
-    if (!intent.pkceVerifierCiphertext) throw new Error("The GitHub PKCE verifier is missing.");
+    if (!intent.pkceVerifierCiphertext) {
+      throw new ConvexError({
+        code: "GITHUB_SETUP_INVALID",
+        message: "This GitHub connection is invalid. Start again.",
+      });
+    }
     await ctx.db.patch(intent._id, {
       status: "verifying",
       attemptId: args.attemptId,
@@ -285,7 +388,7 @@ async function completeGitHubStar(
   if (githubCompletion) {
     throw new ConvexError({
       code: "GITHUB_ACCOUNT_IN_USE",
-      message: "That GitHub account has already completed this step for another participant.",
+      message: "That GitHub account was already used by another participant. Disconnect it, then connect a different GitHub account.",
     });
   }
   const completedAt = Date.now();
@@ -372,7 +475,7 @@ export const finishSetupIntent = internalMutation({
     if (githubCompletion && githubCompletion.membershipId !== membership._id) {
       throw new ConvexError({
         code: "GITHUB_ACCOUNT_IN_USE",
-        message: "That GitHub account has already completed this step for another participant.",
+        message: "That GitHub account was already used by another participant. Disconnect it, then connect a different GitHub account.",
       });
     }
     const githubAuthorization = await ctx.db
@@ -486,9 +589,13 @@ const starClaim = v.union(
     completedAt: v.number(),
   }),
   v.object({
-    kind: v.literal("star"),
+    kind: v.union(v.literal("star"), v.literal("revoke")),
     authorizationId: v.id("githubStarAuthorizations"),
     accessTokenCiphertext: v.string(),
+  }),
+  v.object({
+    kind: v.literal("finish"),
+    authorizationId: v.id("githubStarAuthorizations"),
   }),
 );
 type StarClaim = Infer<typeof starClaim>;
@@ -518,30 +625,95 @@ export const claimStar = internalMutation({
       )
       .unique();
     const now = Date.now();
-    if (!authorization || authorization.expiresAt <= now) {
+    if (
+      !authorization ||
+      (authorization.expiresAt <= now &&
+        authorization.status !== "revoking" &&
+        authorization.status !== "revoked")
+    ) {
       if (authorization) await ctx.db.delete(authorization._id);
       throw new ConvexError({
         code: "GITHUB_CONNECTION_REQUIRED",
         message: "Your GitHub connection expired. Connect GitHub again.",
       });
     }
-    if (authorization.status === "starring" && (authorization.claimExpiresAt ?? 0) > now) {
+    if (authorization.status !== "active" && (authorization.claimExpiresAt ?? 0) > now) {
       throw new ConvexError({
         code: "GITHUB_STAR_IN_PROGRESS",
         message: "The repository star is already being confirmed.",
       });
     }
+    const kind = authorization.status === "revoking"
+      ? "revoke" as const
+      : authorization.status === "revoked"
+        ? "finish" as const
+        : "star" as const;
     await ctx.db.patch(authorization._id, {
-      status: "starring",
+      status: kind === "star" ? "starring" : authorization.status,
       attemptId: args.attemptId,
       claimExpiresAt: now + providerClaimLifetimeMs,
       updatedAt: now,
     });
+    if (kind === "finish") {
+      return { kind, authorizationId: authorization._id };
+    }
     return {
-      kind: "star",
+      kind,
       authorizationId: authorization._id,
       accessTokenCiphertext: authorization.accessTokenCiphertext,
     };
+  },
+});
+
+export const markStarSucceeded = internalMutation({
+  args: {
+    authorizationId: v.id("githubStarAuthorizations"),
+    attemptId: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const authorization = await ctx.db.get(args.authorizationId);
+    if (
+      !authorization ||
+      authorization.status !== "starring" ||
+      authorization.attemptId !== args.attemptId
+    ) {
+      throw new ConvexError({
+        code: "GITHUB_STAR_STALE",
+        message: "The GitHub connection changed. Connect again.",
+      });
+    }
+    await ctx.db.patch(authorization._id, {
+      status: "revoking",
+      updatedAt: Date.now(),
+    });
+    return null;
+  },
+});
+
+export const markGrantRevoked = internalMutation({
+  args: {
+    authorizationId: v.id("githubStarAuthorizations"),
+    attemptId: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const authorization = await ctx.db.get(args.authorizationId);
+    if (
+      !authorization ||
+      authorization.status !== "revoking" ||
+      authorization.attemptId !== args.attemptId
+    ) {
+      throw new ConvexError({
+        code: "GITHUB_STAR_STALE",
+        message: "The GitHub connection changed. Connect again.",
+      });
+    }
+    await ctx.db.patch(authorization._id, {
+      status: "revoked",
+      updatedAt: Date.now(),
+    });
+    return null;
   },
 });
 
@@ -567,7 +739,7 @@ export const finishStar = internalMutation({
       authorization.eventId !== event._id ||
       authorization.membershipId !== membership._id ||
       authorization.personId !== person._id ||
-      authorization.status !== "starring" ||
+      authorization.status !== "revoked" ||
       authorization.attemptId !== args.attemptId
     ) {
       throw new ConvexError({
@@ -597,14 +769,15 @@ export const failStar = internalMutation({
   handler: async (ctx, args) => {
     const authorization = await ctx.db.get(args.authorizationId);
     if (
-      authorization?.status === "starring" &&
+      authorization &&
+      authorization.status !== "active" &&
       authorization.attemptId === args.attemptId
     ) {
-      if (args.invalidateAuthorization) {
+      if (args.invalidateAuthorization && authorization.status === "starring") {
         await ctx.db.delete(authorization._id);
       } else {
         await ctx.db.patch(authorization._id, {
-          status: "active",
+          status: authorization.status === "starring" ? "active" : authorization.status,
           attemptId: undefined,
           claimExpiresAt: undefined,
           updatedAt: Date.now(),
@@ -620,7 +793,12 @@ export const expireAuthorization = internalMutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     const authorization = await ctx.db.get(args.authorizationId);
-    if (authorization && authorization.expiresAt <= Date.now()) {
+    if (
+      authorization &&
+      authorization.expiresAt <= Date.now() &&
+      authorization.status !== "revoking" &&
+      authorization.status !== "revoked"
+    ) {
       await ctx.db.delete(authorization._id);
     }
     return null;
