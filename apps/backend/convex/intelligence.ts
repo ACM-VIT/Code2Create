@@ -22,6 +22,7 @@ import {
   loadCurrentIntakeResponses,
   nextQuestionOrdinal,
 } from "./lib/intakeQuestions";
+import { reconcileWorkingFieldsAfterDraftVersionChange } from "./lib/intakeWorkingFields";
 import { appendIntakeJobReadFactById } from "./lib/operationsAutonomyReadFacts/intakeJobs";
 import { intakeAnswerLength, intakeQuestionPurpose } from "./values";
 
@@ -136,6 +137,11 @@ async function applyDeterministicPath(
     ? "follow_up" as const
     : "additional_information" as const;
   if (questionId || stage !== args.draft.stage) {
+    await reconcileWorkingFieldsAfterDraftVersionChange(ctx, {
+      teamId: args.draft.teamId,
+      previousDraftVersion: args.draft.version,
+      nextDraftVersion: args.draft.version + 1,
+    });
     await ctx.db.patch(args.draft._id, {
       stage,
       adaptiveQuestionDeadlineAt: undefined,
@@ -174,6 +180,11 @@ export const beginIntakeInterpretation = internalMutation({
     if (ordinal === null) return null;
     if (ordinal > normalized.maximumFollowUpCount) {
       if (draft.stage !== "additional_information") {
+        await reconcileWorkingFieldsAfterDraftVersionChange(ctx, {
+          teamId: draft.teamId,
+          previousDraftVersion: draft.version,
+          nextDraftVersion: draft.version + 1,
+        });
         await ctx.db.patch(draft._id, {
           stage: "additional_information",
           adaptiveQuestionDeadlineAt: undefined,
@@ -490,6 +501,11 @@ export const finishIntakeInterpretation = internalMutation({
       ? "follow_up" as const
       : "additional_information" as const;
     if (questionId || stage !== draft.stage) {
+      await reconcileWorkingFieldsAfterDraftVersionChange(ctx, {
+        teamId: draft.teamId,
+        previousDraftVersion: draft.version,
+        nextDraftVersion: draft.version + 1,
+      });
       await ctx.db.patch(draft._id, {
         stage,
         adaptiveQuestionDeadlineAt: undefined,

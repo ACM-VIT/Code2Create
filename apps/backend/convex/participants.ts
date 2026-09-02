@@ -2,6 +2,7 @@ import { ConvexError, v } from "convex/values";
 import {
   normalizeParticipantName,
   normalizeParticipantPhone,
+  participantProfileCodeConfiguration,
   participantNameValidationError,
   participantPhoneValidationError,
 } from "@code2create/domain";
@@ -15,12 +16,13 @@ import { requireEventBySlug, requireRegistrationOpen } from "./lib/events";
 import {
   ensurePerson,
   findCurrentPerson,
+  participantGoogleAccessAllowed,
+  participantMembershipAccessAllowed,
+  requireParticipantGoogleAccess,
   requireCurrentPerson,
   requireEligibleMembership,
   requireEventSubject,
   requireMembership,
-  requireStagingParticipantAccess,
-  stagingParticipantAccessAllowed,
 } from "./lib/identity";
 import {
   addEventSubjectSelfGrants,
@@ -68,6 +70,8 @@ const profileView = v.object({
   participantClass,
   fullName: v.string(),
   phone: v.string(),
+  phoneVerificationId: v.optional(v.id("participantPhoneVerifications")),
+  phoneVerifiedAt: v.optional(v.number()),
   gender: participantGender,
   institution: v.string(),
   yearOfStudy: studyYear,
@@ -215,7 +219,18 @@ export const entryAllowed = query({
       authComponent.safeGetAuthUser(ctx),
     ]);
     if (!user?.emailVerified) return false;
-    return stagingParticipantAccessAllowed(ctx, event._id, user.email);
+    const googleIdentity = await ctx.db
+      .query("googleIdentityClaims")
+      .withIndex("by_auth_user", (index) => index.eq("authUserId", user._id))
+      .unique();
+    if (!googleIdentity?.displayName) return false;
+    return participantGoogleAccessAllowed(ctx, event, {
+      verifiedEmail: googleIdentity.verifiedEmail,
+      ...(googleIdentity.hostedDomain !== undefined
+        ? { hostedDomain: googleIdentity.hostedDomain }
+        : {}),
+      displayName: googleIdentity.displayName,
+    });
   },
 });
 
@@ -260,16 +275,32 @@ export const me = query({
     const person = await findCurrentPerson(ctx);
     if (!person) return null;
     const event = await requireEventBySlug(ctx, args.eventSlug);
-    if (!(await stagingParticipantAccessAllowed(ctx, event._id, person.verifiedEmail))) {
-      return null;
-    }
-    const participantPolicy = await loadPublishedParticipantPolicy(ctx, event);
     const membership = await ctx.db
       .query("eventMemberships")
       .withIndex("by_event_person", (index) =>
         index.eq("eventId", event._id).eq("personId", person._id),
       )
       .unique();
+    const participantAccessAllowed = membership
+      ? await participantMembershipAccessAllowed(ctx, event, person, membership)
+      : await (async () => {
+          const googleIdentity = await ctx.db
+            .query("googleIdentityClaims")
+            .withIndex("by_auth_user", (index) =>
+              index.eq("authUserId", person.authUserId),
+            )
+            .unique();
+          if (!googleIdentity?.displayName) return false;
+          return participantGoogleAccessAllowed(ctx, event, {
+            verifiedEmail: googleIdentity.verifiedEmail,
+            ...(googleIdentity.hostedDomain !== undefined
+              ? { hostedDomain: googleIdentity.hostedDomain }
+              : {}),
+            displayName: googleIdentity.displayName,
+          });
+        })();
+    if (!participantAccessAllowed) return null;
+    const participantPolicy = await loadPublishedParticipantPolicy(ctx, event);
     let canReadProfile = false;
     if (membership) {
       const subject = await requireEventSubject(ctx, event._id, person._id);
@@ -346,6 +377,12 @@ export const me = query({
             participantClass: profile.participantClass,
             fullName: profile.fullName,
             phone: profile.phone,
+            ...(profile.phoneVerificationId !== undefined
+              ? { phoneVerificationId: profile.phoneVerificationId }
+              : {}),
+            ...(profile.phoneVerifiedAt !== undefined
+              ? { phoneVerifiedAt: profile.phoneVerifiedAt }
+              : {}),
             gender: profile.gender,
             institution: profile.institution,
             yearOfStudy: profile.yearOfStudy,
@@ -392,7 +429,6 @@ export const provision = mutation({
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person, googleIdentity } = await ensurePerson(ctx);
-    await requireStagingParticipantAccess(ctx, event._id, person.verifiedEmail);
     const approvedVitIdentity = isApprovedVitStudentIdentity({
       verifiedEmail: googleIdentity.verifiedEmail,
       ...(googleIdentity.hostedDomain !== undefined
@@ -409,6 +445,13 @@ export const provision = mutation({
     const resolvedParticipantClass = approvedVitIdentity
       ? "vit_student"
       : "external_participant";
+    await requireParticipantGoogleAccess(ctx, event, {
+      verifiedEmail: googleIdentity.verifiedEmail,
+      ...(googleIdentity.hostedDomain !== undefined
+        ? { hostedDomain: googleIdentity.hostedDomain }
+        : {}),
+      displayName: googleIdentity.displayName,
+    });
     requireRegistrationOpen(event, resolvedParticipantClass);
 
     const existingMembership = await ctx.db
@@ -716,6 +759,7 @@ export const saveProfile = mutation({
     participantPolicyVersionId: v.id("participantPolicyVersions"),
     fullName: v.optional(v.string()),
     phone: v.string(),
+    phoneVerificationId: v.optional(v.id("participantPhoneVerifications")),
     gender: participantGender,
     yearOfStudy: v.optional(studyYear),
     vitResidenceType: v.optional(vitResidenceType),
@@ -734,6 +778,7 @@ export const saveProfile = mutation({
       args.participantPolicyVersionId,
       args.fullName ?? null,
       args.phone,
+      args.phoneVerificationId ?? null,
       args.gender,
       args.yearOfStudy ?? null,
       args.vitResidenceType ?? null,
@@ -802,6 +847,25 @@ export const saveProfile = mutation({
       throw new ConvexError({ code: "INVALID_PHONE", message: phoneError });
     }
     const phone = normalizeParticipantPhone(args.phone);
+    const phoneVerification = participantProfileCodeConfiguration.phoneVerificationEnabled &&
+      args.phoneVerificationId
+      ? await ctx.db.get(args.phoneVerificationId)
+      : null;
+    if (
+      participantProfileCodeConfiguration.phoneVerificationEnabled &&
+      (!phoneVerification ||
+        phoneVerification.eventId !== event._id ||
+        phoneVerification.membershipId !== membership._id ||
+        phoneVerification.personId !== person._id ||
+        phoneVerification.phone !== phone ||
+        phoneVerification.status !== "verified" ||
+        phoneVerification.verifiedAt === undefined)
+    ) {
+      throw new ConvexError({
+        code: "PHONE_VERIFICATION_REQUIRED",
+        message: "Verify this phone number before saving your details.",
+      });
+    }
     const yearOfStudy = vitStudentIdentity?.yearOfStudy ?? args.yearOfStudy;
     if (!yearOfStudy || yearOfStudy === "not_applicable") {
       throw new ConvexError({
@@ -881,6 +945,8 @@ export const saveProfile = mutation({
         participantClass: membership.participantClass,
         fullName,
         phone,
+        phoneVerificationId: phoneVerification?._id,
+        phoneVerifiedAt: phoneVerification?.verifiedAt,
         gender: args.gender,
         institution,
         yearOfStudy,
@@ -902,6 +968,12 @@ export const saveProfile = mutation({
         participantClass: membership.participantClass,
         fullName,
         phone,
+        ...(phoneVerification
+          ? {
+              phoneVerificationId: phoneVerification._id,
+              phoneVerifiedAt: phoneVerification.verifiedAt,
+            }
+          : {}),
         gender: args.gender,
         institution,
         yearOfStudy,
@@ -945,6 +1017,9 @@ export const saveProfile = mutation({
       nextSummary: JSON.stringify({
         profileVersion,
         participantPolicyVersionId: participantPolicy.policy._id,
+        ...(phoneVerification
+          ? { phoneVerificationId: phoneVerification._id }
+          : {}),
       }),
       reason: "Participant profile save",
     });

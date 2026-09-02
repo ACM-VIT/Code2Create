@@ -116,7 +116,10 @@ describe("live novelty", () => {
 
     await expect(
       backend.mutation(internal.novelty.beginPreview, request),
-    ).resolves.toEqual({ kind: "complete", result: { state: "unavailable" } });
+    ).resolves.toMatchObject({
+      kind: "complete",
+      result: { state: "pending", requestId: begun.requestId },
+    });
 
     const result = await backend.mutation(internal.novelty.finishPreview, {
       requestId: begun.requestId,
@@ -152,6 +155,80 @@ describe("live novelty", () => {
     expect(state.request).not.toHaveProperty("initialIdea");
   });
 
+  test("keeps the live score available while the lead revises a submitted proposal", async () => {
+    const backend = noveltyBackend();
+    const fixture = await seedFixture(backend);
+    const applicationId = await backend.run(async (ctx) => {
+      const projectVersionId = await ctx.db.insert("projectVersions", {
+        eventId: fixture.eventId,
+        teamId: fixture.teamId,
+        version: 1,
+        initialIdea: fixture.idea,
+        intakePolicyVersionId: fixture.intakePolicyId,
+        intakeResponses: [],
+        lockedRosterSnapshotId: fixture.submissionAttemptId,
+        lockedMemberCount: 1,
+        lockedLeadMembershipId: fixture.membershipId,
+        freshForEventAttestation: {
+          participantPolicyVersionId: fixture.participantPolicyId,
+          acceptedByMembershipId: fixture.membershipId,
+          acceptedAt: fixture.now,
+        },
+        finalConfirmation: {
+          participantPolicyVersionId: fixture.participantPolicyId,
+          previewedDraftVersion: 1,
+          previewedTeamVersion: 1,
+          confirmedByMembershipId: fixture.membershipId,
+          confirmedAt: fixture.now,
+        },
+        participantPolicyVersionId: fixture.participantPolicyId,
+        admissionPolicyVersionId: fixture.admissionPolicyId,
+        sourceDraftVersion: 1,
+        submittedByMembershipId: fixture.membershipId,
+        submittedAt: fixture.now,
+      });
+      const applicationId = await ctx.db.insert("applications", {
+        eventId: fixture.eventId,
+        teamId: fixture.teamId,
+        submittedProjectVersionId: projectVersionId,
+        admissionPolicyVersionId: fixture.admissionPolicyId,
+        state: "submitted",
+        experienceBand: "mixed_or_external",
+        decisionStage: "unrecorded",
+        assignedReviewCount: 0,
+        completedReviewCount: 0,
+        contentVersion: 1,
+        version: 1,
+        submittedAt: fixture.now,
+      });
+      await ctx.db.patch(fixture.teamId, {
+        membershipLocked: true,
+        lockedProjectVersionId: projectVersionId,
+      });
+      await ctx.db.patch(fixture.projectDraftId, { stage: "submitted" });
+      return applicationId;
+    });
+
+    await expect(backend.mutation(
+      internal.novelty.beginPreview,
+      previewArgs(
+        fixture,
+        "novelty-submitted-revision",
+        `${fixture.idea} The lead is clarifying the workflow before the deadline.`,
+      ),
+    )).resolves.toMatchObject({ kind: "run" });
+
+    await backend.run((ctx) => ctx.db.patch(applicationId, { state: "accepted" }));
+    await expect(backend.mutation(
+      internal.novelty.beginPreview,
+      previewArgs(
+        fixture,
+        "novelty-decided-revision",
+        `${fixture.idea} This revision is no longer eligible.`,
+      ),
+    )).rejects.toThrow("can no longer be edited");
+  });
+
   test("coalesces concurrent teammates by fingerprint and never sends sensitive text onward", async () => {
     const backend = noveltyBackend();
     const fixture = await seedFixture(backend);
@@ -169,16 +246,29 @@ describe("live novelty", () => {
         status: "fulfilled",
         value: expect.objectContaining({ kind: "run" }),
       }),
-      {
+      expect.objectContaining({
         status: "fulfilled",
-        value: { kind: "complete", result: { state: "unavailable" } },
-      },
+        value: expect.objectContaining({
+          kind: "complete",
+          result: expect.objectContaining({ state: "pending" }),
+        }),
+      }),
     ]));
     const requests = await backend.run((ctx) => ctx.db
       .query("noveltyPreviewRequests")
       .withIndex("by_team_requested")
       .collect());
     expect(requests).toHaveLength(1);
+    const pendingAttempt = attempts.find(
+      (attempt) => attempt.status === "fulfilled" && attempt.value.kind === "complete",
+    );
+    if (pendingAttempt?.status !== "fulfilled" || pendingAttempt.value.kind !== "complete") {
+      throw new Error("The coalesced novelty preview did not join the running request.");
+    }
+    expect(pendingAttempt.value.result).toMatchObject({
+      state: "pending",
+      requestId: requests[0]?._id,
+    });
 
     const sensitive = await backend.mutation(
       internal.novelty.beginPreview,
@@ -758,6 +848,7 @@ async function seedFixture(
   grantScope: "current_team" | "other_team" = "current_team",
 ) {
   const now = Date.UTC(2027, 8, 12, 9, 0, 0);
+  const applicationsCloseAt = Date.now() + 86_400_000;
   return backend.run(async (ctx) => {
     const authUserId = `novelty-user-${grantScope}-${now}`;
     const eventSlug = `novelty-${grantScope}-${now}`;
@@ -776,7 +867,8 @@ async function seedFixture(
       timezone: "Asia/Kolkata",
       status: "registration_open",
       vitEmailDomains: ["vitstudent.ac.in"],
-        applicationsCloseAt: Date.now() + 86_400_000,
+      applicationsCloseAt,
+      externalApplicationsCloseAt: applicationsCloseAt,
       createdByPersonId: personId,
       version: 1,
       createdAt: now,

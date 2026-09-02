@@ -45,6 +45,7 @@ async function requestOpenAiEmbeddings(args: {
   timeoutMs: number;
 }) {
   let response: Response;
+  const timeoutSignal = AbortSignal.timeout(args.timeoutMs);
   try {
     response = await fetch("https://api.openai.com/v1/embeddings", {
       method: "POST",
@@ -57,10 +58,10 @@ async function requestOpenAiEmbeddings(args: {
         encoding_format: "float",
         input: args.input,
       }),
-      signal: AbortSignal.timeout(args.timeoutMs),
+      signal: timeoutSignal,
     });
   } catch (error) {
-    const timedOut = isTimeoutError(error);
+    const timedOut = timeoutSignal.aborted || isTimeoutError(error);
     throw new OpenAiEmbeddingError(
       timedOut ? "The embedding request timed out." : "The embedding request failed.",
       undefined,

@@ -29,6 +29,12 @@ this inventory.
 - automated database backup verification plus a timed restore rehearsal into an
   isolated environment.
 
+Participant phone verification uses AWS End User Messaging SMS in Mumbai. The
+sender IAM identity may perform only `sms-voice:SendTextMessage`. Production
+must not open registration until the AWS account is out of the SMS sandbox and
+either the intended international route has been exercised or the India sender
+ID, entity ID, and exact DLT template are approved and configured.
+
 ## Provisioned inventory
 
 - resource group: `rg-code2create-production` in Central India;

@@ -44,6 +44,23 @@ GitHub OAuth App must be configured separately from the read-only team GitHub Ap
 Figma, email, voice, and native-push integrations remain deliberately
 unconfigured until their staging registrations are approved.
 
+Phone verification uses AWS End User Messaging SMS in `ap-south-1`. The
+staging Convex environment needs `PHONE_VERIFICATION_HMAC_SECRET`,
+`SMS_AWS_ACCESS_KEY_ID`, `SMS_AWS_SECRET_ACCESS_KEY`, and `SMS_AWS_REGION` from
+the matching Key Vault inventory. AWS must move the account out of the SMS
+sandbox before codes can be sent to unverified participant numbers. A local
+India route additionally requires an approved sender ID, entity ID, and exact
+message template ID.
+
+Set `PHONE_VERIFICATION_MESSAGE_TEMPLATE` to the following value so OTP
+autofill is bound to the participant Worker's exact hostname:
+
+```text
+Your Code2Create verification code is {{code}}. It expires in 10 minutes. Do not share it.
+
+@code2create-participant-staging.acmvit.workers.dev #{{code}}
+```
+
 The participant and operations Workers were deployed manually with the Azure
 origins above. Cloudflare currently reports no Git build trigger for either
 Worker, so a repository push cannot replace these deployments until those

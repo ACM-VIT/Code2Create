@@ -38,6 +38,19 @@ export const participantOnboardingStatus = v.union(
   v.literal("accepted"),
 );
 
+export const participantPhoneVerificationStatus = v.union(
+  v.literal("queued"),
+  v.literal("sending"),
+  v.literal("sent"),
+  v.literal("verified"),
+  v.literal("send_failed"),
+  v.literal("locked"),
+  v.literal("superseded"),
+);
+export type ParticipantPhoneVerificationStatus = Infer<
+  typeof participantPhoneVerificationStatus
+>;
+
 export const studyYear = v.union(
   v.literal("first"),
   v.literal("second"),

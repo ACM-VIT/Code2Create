@@ -40,7 +40,7 @@ export default function App({ authClient }: { authClient: Code2CreateAuthClient 
       <ConnectionNotice />
       {gallery}
       <StartupCover ready={startupReady} />
-      {publicState === undefined ? null : (
+      {publicState === undefined ? <LoadingScreen /> : (
         <>
           <AuthLoading>
             <LoadingScreen />

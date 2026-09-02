@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { AccountBadge } from '../components/portal/AccountBadge'
 import { ClassCard } from '../components/portal/ClassCard'
+import { FadeText } from '../components/portal/FadeText'
+import { PhoneCodePanel } from '../components/portal/PhoneCodePanel'
 import { PetalCard } from '../components/portal/PetalCard'
 import { Petal } from '../components/portal/Petal'
 import { PortalButton, PortalTextButton, PortalTickButton } from '../components/portal/PortalButton'
@@ -9,6 +11,7 @@ import {
   PortalError,
   PortalField,
   PortalInput,
+  PortalInputTick,
   PortalSelect,
   PortalTextarea,
 } from '../components/portal/PortalField'
@@ -44,13 +47,9 @@ import {
   AccordionRoot,
 } from '../components/portal/Accordion'
 import { TeamCluster, type ClusterMember, type ClusterTeam } from '../components/portal/TeamCluster'
-import { TeamMenu } from '../components/portal/TeamMenu'
 import { SubmitCelebration } from '../components/portal/SubmitCelebration'
 import { ImportedTeamChoiceView } from '../components/portal/ImportedTeamChoiceView'
 
-// Fixture content for the dev screen gallery. These compose the same portal
-// primitives the real screens use, so the design system is genuinely shared —
-// but the copy and data are stand-ins, not live queries.
 
 const team: ClusterTeam = {
   name: 'Paper Cranes',
@@ -70,7 +69,6 @@ const members: ClusterMember[] = [
 const noop = () => {}
 
 const cluster = <TeamCluster team={team} members={members} />
-const teamMenu = <TeamMenu team={team} members={members} onSignOut={noop} />
 const account = (
   <AccountBadge
     name="Ananya Iyer"
@@ -234,6 +232,140 @@ function IdeaCard({ children, footer }: { children: ReactNode; footer: ReactNode
   )
 }
 
+/**
+ * The details form walking the phone flow on its own: send, type the texted
+ * code (000000 comes back wrong), and land on the verified tick.
+ */
+function DetailsFixture({ initialPhase }: { initialPhase: 'idle' | 'verified' }) {
+  const [phase, setPhase] = useState<'idle' | 'sent' | 'verified'>(initialPhase)
+  const [code, setCode] = useState('')
+  const [shake, setShake] = useState(0)
+  const [error, setError] = useState<string | null>(null)
+  const verified = phase === 'verified'
+  return (
+    <PortalScene tree="right" header={account}>
+      <div className="flex w-full max-w-[640px] flex-col items-center">
+        <h1 className="mb-7 text-center font-display font-normal tracking-[-.01em] text-3xl text-shadow-[0_4px_30px_var(--scene-text-glow)] lg:text-[40px]">
+          A few details, once.
+        </h1>
+        <PetalCard className="px-6 pt-6 pb-4 lg:px-[30px]">
+          <div className="grid grid-cols-1 gap-x-4 gap-y-3.5 sm:grid-cols-2">
+            <PortalField label="full name" hint="verified">
+              {(id) => <PortalInput id={id} readOnly value="Ananya Iyer" />}
+            </PortalField>
+            <PortalField label="phone" {...(verified ? { hint: 'verified' } : {})}>
+              {(id) => (
+                <div className="flex items-stretch gap-2">
+                  <div className="relative min-w-0 flex-1">
+                    <PortalInput
+                      id={id}
+                      type="tel"
+                      className={`min-w-0 ${verified ? 'pr-10' : ''}`}
+                      defaultValue="+919876543210"
+                    />
+                    {verified ? <PortalInputTick /> : null}
+                  </div>
+                  {phase === 'idle' ? (
+                    <PortalButton
+                      type="button"
+                      size="xs"
+                      className="shrink-0 px-4"
+                      onClick={() => setPhase('sent')}
+                    >
+                      Send code
+                    </PortalButton>
+                  ) : null}
+                </div>
+              )}
+            </PortalField>
+            {phase !== 'sent' ? null : (
+              <div className="sm:col-span-2">
+                <PhoneCodePanel
+                  maskedPhone="••••3210"
+                  state="sent"
+                  canVerify
+                  expiresInMs={9 * 60_000 + 41_000}
+                  resendInMs={42_000}
+                  code={code}
+                  onCodeChange={(next) => {
+                    setError(null)
+                    setCode(next)
+                  }}
+                  onVerify={(entered) => {
+                    setCode('')
+                    if (entered === '000000') {
+                      setShake((count) => count + 1)
+                      setError('wrong code · 4 tries left')
+                      return
+                    }
+                    setPhase('verified')
+                  }}
+                  onResend={noop}
+                  busy={false}
+                  error={error}
+                  shakeKey={shake}
+                />
+              </div>
+            )}
+            <PortalField label="gender">
+              {(id) => (
+                <PortalSelect id={id} value="female" onValueChange={noop}>
+                  <option value="female">Female</option>
+                </PortalSelect>
+              )}
+            </PortalField>
+            <PortalField label="college or university" hint="fixed">
+              {(id) => <PortalInput id={id} readOnly value="Vellore Institute of Technology, Vellore" />}
+            </PortalField>
+            <PortalField label="year of study" hint="auto">
+              {(id) => <PortalInput id={id} readOnly value="Third year" />}
+            </PortalField>
+            <PortalField label="registration number" hint="verified">
+              {(id) => <PortalInput id={id} className="font-mono" readOnly value="23BCE1847" />}
+            </PortalField>
+            <PortalField label="programme code" hint="auto">
+              {(id) => <PortalInput id={id} readOnly value="BCE" />}
+            </PortalField>
+            <PortalField label="residence">
+              {(id) => (
+                <PortalSelect id={id} value="hosteller" onValueChange={noop}>
+                  <option value="hosteller">Hosteller</option>
+                </PortalSelect>
+              )}
+            </PortalField>
+            <PortalField label="hostel block">
+              {(id) => (
+                <PortalSelect id={id} value="lh_s" onValueChange={noop}>
+                  <option value="lh_s">Ladies' hostel · S block</option>
+                </PortalSelect>
+              )}
+            </PortalField>
+            <PortalField label="room number">
+              {(id) => <PortalInput id={id} className="font-mono" defaultValue="412" />}
+            </PortalField>
+          </div>
+          <div className="mt-4.5 border-t border-petal-line pt-4">
+            <PortalCheckRow checked onChange={noop}>
+              I accept the{' '}
+              <span className="text-rose-light underline decoration-rose-light/50 decoration-1 underline-offset-2">
+                participant policy
+              </span>{' '}
+              and the{' '}
+              <span className="text-rose-light underline decoration-rose-light/50 decoration-1 underline-offset-2">
+                privacy notice
+              </span>
+            </PortalCheckRow>
+          </div>
+          <div className="mt-3.5 flex items-center justify-between border-t border-petal-line pt-3.5">
+            <span className="text-xs text-fg/45">saved when you continue</span>
+            <PortalButton size="sm">Continue</PortalButton>
+          </div>
+        </PetalCard>
+      </div>
+    </PortalScene>
+  )
+}
+
 const screens: Record<string, () => ReactNode> = Object.fromEntries(
   ([
   ['f0a', () => (
@@ -272,67 +404,8 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
         </div>
       </PortalScene>
     )],
-  ['f0b', () => (
-      <PortalScene tree="right" header={account}>
-        <div className="flex w-full max-w-[640px] flex-col items-center">
-          <h1 className="mb-7 text-center font-display font-normal tracking-[-.01em] text-3xl lg:text-[40px]">
-            A few details, once.
-          </h1>
-          <PetalCard className="px-6 pt-[26px] pb-[18px] lg:px-[30px]">
-            <div className="grid grid-cols-1 gap-x-4 gap-y-3.5 sm:grid-cols-2">
-              <PortalField label="full name">
-                {(id) => <PortalInput id={id} defaultValue="Ananya Iyer" />}
-              </PortalField>
-              <PortalField label="preferred name" hint="optional">
-                {(id) => <PortalInput id={id} placeholder="what should we call you?" />}
-              </PortalField>
-              <PortalField label="registration number">
-                {(id) => <PortalInput id={id} className="font-mono" defaultValue="23BCE1847" />}
-              </PortalField>
-              <PortalField label="year of study">
-                {(id) => (
-                  <PortalSelect id={id} value="third" onValueChange={noop}>
-                    <option value="third">Third year</option>
-                  </PortalSelect>
-                )}
-              </PortalField>
-              <PortalField label="programme">
-                {(id) => <PortalInput id={id} defaultValue="B.Tech CSE" />}
-              </PortalField>
-              <PortalField label="campus">
-                {(id) => <PortalInput id={id} defaultValue="Vellore" />}
-              </PortalField>
-              <PortalField label="hostel">
-                {(id) => (
-                  <PortalSelect id={id} value="lh_s" onValueChange={noop}>
-                    <option value="lh_s">Ladies' hostel · S block</option>
-                  </PortalSelect>
-                )}
-              </PortalField>
-              <PortalField label="room number">
-                {(id) => <PortalInput id={id} className="font-mono" defaultValue="412" />}
-              </PortalField>
-            </div>
-            <div className="mt-4.5 border-t border-petal-line pt-4">
-              <PortalCheckRow checked onChange={noop}>
-                I accept the{' '}
-                <span className="text-rose-light underline decoration-rose-light/50 decoration-1 underline-offset-2">
-                  participant policy
-                </span>{' '}
-                and the{' '}
-                <span className="text-rose-light underline decoration-rose-light/50 decoration-1 underline-offset-2">
-                  privacy notice
-                </span>
-              </PortalCheckRow>
-            </div>
-            <div className="mt-3.5 flex items-center justify-between border-t border-petal-line pt-3.5">
-              <span className="text-xs text-fg/45">saved when you continue</span>
-              <PortalButton size="sm">Continue</PortalButton>
-            </div>
-          </PetalCard>
-        </div>
-      </PortalScene>
-    )],
+  ['f0b', () => <DetailsFixture key="idle" initialPhase="idle" />],
+  ['f0bv', () => <DetailsFixture key="verified" initialPhase="verified" />],
   ['f0d', () => (
       <PortalScene tree="both" header={account}>
         <div className="flex w-full max-w-[640px] flex-col items-center text-center">
@@ -400,13 +473,13 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
             </div>
           </div>
           <PortalError message={null} reserve />
-          <p className="mt-7 text-[12.5px] text-fg/50">
+          <p className="mt-7 inline-flex items-center gap-1 rounded-full bg-wash/45 px-3.5 py-1.5 text-[12.5px] text-fg/80 backdrop-blur-[6px]">
             can't find a team? join our{' '}
             <a
               href="https://discord.gg/hPkhtMcHq8"
               target="_blank"
               rel="noreferrer"
-              className="text-rose-light underline decoration-rose-light/50 decoration-1 underline-offset-2 transition-colors hover:decoration-rose-light"
+              className="text-rose-light underline decoration-rose-light/70 decoration-1 underline-offset-2 transition-colors hover:decoration-rose-light"
             >
               Discord
             </a>
@@ -437,8 +510,8 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
       />
     )],
   ['f1b', () => (
-      <PortalScene tree="left" backdrop={<GpuSky />} onSignOut={noop} header={cluster} menu={teamMenu}>
-        <div className="flex w-full max-w-[1048px] flex-1 flex-col items-end justify-center pb-40">
+      <PortalScene tree="left" backdrop={<GpuSky />} onSignOut={noop} header={cluster}>
+        <div className="flex w-full max-w-[1048px] flex-1 flex-col items-end justify-center pb-56 sm:pb-40">
           <div className="flex max-w-[680px] flex-col items-end text-right">
             <h1 className="mb-8 font-display font-light tracking-[-.01em] text-balance text-5xl leading-none lg:text-7xl">Start with the idea.</h1>
             <PortalButton>Write it</PortalButton>
@@ -455,7 +528,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
             <p className="mb-[5px] text-[10.5px] font-semibold tracking-[.08em] text-fg/50">deadline</p>
             <p className="m-0 font-display font-light tracking-[-.01em] text-[26px] text-rose-light">12 <span className="text-sm">days</span></p>
           </div>
-          <div className="flex-1 rounded-petal-sm glass-tile px-5 py-4">
+          <div className="hidden flex-1 rounded-petal-sm glass-tile px-5 py-4 sm:block">
             <p className="mb-2 text-[10.5px] font-semibold tracking-[.08em] text-fg/50">journey · 1 of 5</p>
             <div className="flex items-start pt-1">
               {(['idea', 'q1', 'q2', 'review', 'submit'] as const).map((label, index) => (
@@ -478,7 +551,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
       </PortalScene>
     )],
   ['f2', () => (
-      <PortalScene tree="left" onSignOut={noop} header={cluster} menu={teamMenu}>
+      <PortalScene tree="left" onSignOut={noop} header={cluster}>
         <div className="flex w-full max-w-[820px] flex-col items-center lg:mb-[8vh]">
           <h1 className="mb-6 max-w-[760px] text-center font-display font-light tracking-[-.01em] text-[26px] leading-tight lg:text-[42px]">
             What do you want to build?
@@ -509,7 +582,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
       </PortalScene>
     )],
   ['f3', () => (
-      <PortalScene tree="left" onSignOut={noop} header={cluster} menu={teamMenu}>
+      <PortalScene tree="left" onSignOut={noop} header={cluster}>
         <div className="flex w-full max-w-[820px] flex-col items-center lg:mb-[8vh]">
           <h1 className="mb-6 max-w-[760px] text-center font-display font-light tracking-[-.01em] text-[26px] leading-tight lg:text-[38px]">
             Who will use Foundling on day one?
@@ -545,7 +618,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
       </PortalScene>
     )],
   ['f4', () => (
-      <PortalScene tree="left" onSignOut={noop} header={cluster} menu={teamMenu}>
+      <PortalScene tree="left" onSignOut={noop} header={cluster}>
         <div className="flex w-full max-w-[820px] flex-col items-center lg:mb-[8vh]">
           <h1 className="mb-6 max-w-[760px] text-center font-display font-light tracking-[-.01em] text-[26px] leading-tight lg:text-[38px]">
             What will you build during the 48 hours?
@@ -583,7 +656,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
       </PortalScene>
     )],
   ['f5', () => (
-      <PortalScene tree="left" onSignOut={noop} header={cluster} menu={teamMenu}>
+      <PortalScene tree="left" onSignOut={noop} header={cluster}>
         <div className="flex w-full max-w-[760px] flex-col items-center">
           <h1 className="mb-7 text-center font-display font-light tracking-[-.01em] text-3xl lg:text-[44px]">Paper Cranes</h1>
           <PetalCard className="px-6 py-2 sm:px-8">
@@ -631,14 +704,14 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
       </PortalScene>
     )],
   ['f6', () => (
-      <PortalScene tree="left" branch onSignOut={noop} header={cluster} menu={teamMenu}>
+      <PortalScene tree="left" branch onSignOut={noop} header={cluster}>
         <div className="flex w-full max-w-[600px] flex-col items-center lg:mb-[8vh]">
           <h1 className="mb-6 text-center font-display font-light tracking-[-.01em] text-[26px] lg:text-[42px]">Ready to submit?</h1>
           <PetalCard className="px-8 pt-6 pb-4">
             <div className="flex items-baseline justify-between gap-4">
-              <p className="m-0 min-w-0 truncate text-left text-[15.5px] font-semibold">
-                Paper Cranes <span className="font-normal text-fg/55">· idea + 2 answers</span>
-              </p>
+              <FadeText as="p" className="m-0 min-w-0 text-left text-[15.5px] font-semibold">
+                Paper Cranes <span className="font-normal text-fg/55">· idea + 2 answers · novelty 87/100</span>
+              </FadeText>
               <button type="button" className="flex-none text-xs text-fg/55 transition-colors hover:text-rose-light">
                 review idea
               </button>
@@ -731,9 +804,9 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
       </PortalScene>
     )],
   ['f1', () => (
-      <PortalScene tree="left" backdrop={<GpuSky />} onSignOut={noop} header={cluster} menu={teamMenu}>
-        <div className="flex w-full max-w-[1048px] flex-1 flex-col items-end justify-center pb-40">
-          <div className="flex max-w-[680px] flex-col items-end text-right">
+      <PortalScene tree="left" backdrop={<GpuSky />} onSignOut={noop} header={cluster}>
+        <div className="flex w-full max-w-[1048px] flex-1 flex-col items-start justify-center pb-40 sm:items-end">
+          <div className="flex max-w-[680px] flex-col items-start text-left sm:items-end sm:text-right">
             <h1 className="mb-8 font-display font-light tracking-[-.01em] text-balance text-5xl leading-none lg:text-7xl">One answer left.</h1>
             <PortalButton>Answer it</PortalButton>
           </div>
@@ -786,7 +859,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
   )],
   ['fsc', () => <StarredFixture />],
   ['f7b', () => (
-      <PortalScene tree="left" onSignOut={noop} header={cluster} menu={teamMenu}>
+      <PortalScene tree="left" onSignOut={noop} header={cluster}>
         <div className="flex w-full max-w-[840px] flex-col items-center">
           <h1 className="mb-2 text-center font-display font-light tracking-[-.01em] text-3xl lg:text-[44px]">
             Paper Cranes

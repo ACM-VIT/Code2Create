@@ -12,19 +12,12 @@ export function DaybreakToggle() {
     if (seenTheme.current === theme) return
     seenTheme.current = theme
     turns.current += 1
-    const target = (parity.current + turns.current) * 180
-    let inner = 0
-    const outer = requestAnimationFrame(() => {
-      inner = requestAnimationFrame(() => setAngle(target))
-    })
-    return () => {
-      cancelAnimationFrame(outer)
-      cancelAnimationFrame(inner)
-    }
+    // oxlint-disable-next-line react/set-state-in-effect -- The orbit answers a theme change from anywhere (the other toggle, storage); it is painted at its old angle, so the transition needs no deferred frame.
+    setAngle((parity.current + turns.current) * 180)
   }, [theme])
 
-  const orbitTransition =
-    'transition-transform duration-700 [transition-timing-function:cubic-bezier(.5,.05,.2,1)] motion-reduce:transition-none'
+  const easing =
+    'duration-700 [transition-timing-function:cubic-bezier(.5,.05,.2,1)] motion-reduce:transition-none'
 
   return (
     <button
@@ -32,15 +25,15 @@ export function DaybreakToggle() {
       onClick={togglePortalTheme}
       aria-label={daybreak ? 'Switch to night' : 'Switch to daybreak'}
       title={daybreak ? 'Switch to night' : 'Switch to daybreak'}
-      className="relative size-10 flex-none overflow-hidden rounded-full border-2 border-rose/70 bg-avatar transition-colors duration-250 hover:border-rose-light lg:size-12"
+      className="relative size-10 flex-none overflow-hidden rounded-full border-2 border-rose/70 bg-avatar transition-colors duration-250 [view-transition-name:daybreak-toggle] hover:border-rose-light lg:size-12"
     >
       <span
         aria-hidden
-        className={`absolute inset-0 block ${orbitTransition}`}
+        className={`absolute inset-0 block transition-transform will-change-transform ${easing}`}
         style={{ transform: `rotate(${angle}deg)` }}
       >
         <span
-          className={`absolute top-[12%] left-1/2 block w-[36%] text-[#e8913d] ${orbitTransition} transition-[transform,opacity] ${
+          className={`absolute top-[12%] left-1/2 block w-[36%] text-[#e8913d] transition-[transform,opacity] ${easing} ${
             daybreak ? 'opacity-100' : 'opacity-40'
           }`}
           style={{ transform: `translateX(-50%) rotate(${-angle}deg)` }}
@@ -53,7 +46,7 @@ export function DaybreakToggle() {
           </svg>
         </span>
         <span
-          className={`absolute bottom-[12%] left-1/2 block w-[34%] text-rose-light ${orbitTransition} transition-[transform,opacity] ${
+          className={`absolute bottom-[12%] left-1/2 block w-[34%] text-rose-light transition-[transform,opacity] ${easing} ${
             daybreak ? 'opacity-40' : 'opacity-100'
           }`}
           style={{ transform: `translateX(-50%) rotate(${-angle}deg)` }}
@@ -65,7 +58,7 @@ export function DaybreakToggle() {
       </span>
 
       {/* The ground: a translucent hemisphere the set body glows through. */}
-      <span aria-hidden className="absolute inset-x-0 top-1/2 bottom-0 bg-rose/15 backdrop-blur-[1.5px]" />
+      <span aria-hidden className="absolute inset-x-0 top-1/2 bottom-0 bg-rose/20" />
       <span aria-hidden className="absolute inset-x-[10%] top-1/2 h-px bg-rose/45" />
     </button>
   )

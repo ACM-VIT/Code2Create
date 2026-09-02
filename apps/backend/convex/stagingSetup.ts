@@ -415,6 +415,7 @@ export const resetParticipantTestingData = internalMutation({
       deleteAllFromTable(ctx, "teamRosterEntries"),
       deleteAllFromTable(ctx, "teamRosterImports"),
       deleteAllFromTable(ctx, "participantProfiles"),
+      deleteAllFromTable(ctx, "participantPhoneVerifications"),
       deleteAllFromTable(ctx, "eventMemberships"),
     ]);
 

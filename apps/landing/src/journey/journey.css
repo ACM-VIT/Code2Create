@@ -192,7 +192,7 @@
   top: 56%;
   /* Above later acts that share the pinned stage. Those layers stay in the
      layout at opacity 0, and on a phone they sit over this copy — without
-     the extra stacking, Register now is an unclickable ghost. */
+     the extra stacking, Submit idea is an unclickable ghost. */
   z-index: 20;
   display: flex;
   flex-direction: column;

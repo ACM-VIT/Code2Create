@@ -4,6 +4,7 @@ import {
   normalizeParticipantName,
   normalizeParticipantPhone,
   normalizeVitHostelRoomNumberInput,
+  participantProfileCodeConfiguration,
   participantGenderLabels,
   participantNameValidationError,
   participantPhoneValidationError,
@@ -12,7 +13,7 @@ import {
   type ParticipantGender,
   type VitResidenceType,
 } from '@code2create/domain'
-import { useMutation } from 'convex/react'
+import { useMutation, useQuery } from 'convex/react'
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { AccountBadge } from '../components/portal/AccountBadge'
@@ -23,11 +24,14 @@ import {
   PortalError,
   PortalField,
   PortalInput,
+  PortalInputTick,
   PortalSelect,
 } from '../components/portal/PortalField'
+import { PhoneCodePanel } from '../components/portal/PhoneCodePanel'
 import { PortalScene } from '../components/portal/PortalScene'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { useClock } from '../hooks/useClock'
 import { useOperationRunner } from '../lib/operations'
 import type { ParticipantMe } from '../types'
 
@@ -35,6 +39,9 @@ const participantPolicyUrl = 'https://c2c.acmvit.in/policy'
 const vitInstitutionName = 'Vellore Institute of Technology, Vellore'
 
 type StudyYear = NonNullable<ParticipantMe['profile']>['yearOfStudy']
+type PhoneVerificationId = NonNullable<
+  NonNullable<ParticipantMe['profile']>['phoneVerificationId']
+>
 
 function parseStudyYear(value: string): StudyYear | null {
   switch (value) {
@@ -107,10 +114,25 @@ export function DetailsScreen({
   const existing = me.profile
   const saveProfile = useMutation(api.participants.saveProfile)
   const acceptPolicy = useMutation(api.participants.acceptPolicy)
+  const requestPhoneVerification = useMutation(api.phoneVerifications.request)
+  const verifyPhone = useMutation(api.phoneVerifications.verify)
   const [fullName, setFullName] = useState(existing?.fullName ?? me.person.displayName)
   const [phone, setPhone] = useState(existing?.phone ?? '')
   const [fullNameTouched, setFullNameTouched] = useState(false)
   const [phoneTouched, setPhoneTouched] = useState(false)
+  const [phoneVerificationTouched, setPhoneVerificationTouched] = useState(false)
+  const [verificationCode, setVerificationCode] = useState('')
+  const [confirmedPhoneVerification, setConfirmedPhoneVerification] = useState<{
+    phone: string
+    verificationId: PhoneVerificationId
+  } | null>(
+    existing?.phoneVerificationId
+      ? { phone: existing.phone, verificationId: existing.phoneVerificationId }
+      : null,
+  )
+  const [phoneActionBusy, setPhoneActionBusy] = useState(false)
+  const [phoneActionError, setPhoneActionError] = useState<string | null>(null)
+  const [codeShake, setCodeShake] = useState(0)
   const [genderTouched, setGenderTouched] = useState(false)
   const [gender, setGender] = useState<ParticipantGender | ''>(existing?.gender ?? '')
   const [yearOfStudyTouched, setYearOfStudyTouched] = useState(false)
@@ -139,6 +161,47 @@ export function DetailsScreen({
   const vitStudent = membership?.participantClass === 'vit_student'
   const fullNameError = vitStudent ? null : participantNameValidationError(fullName)
   const phoneError = participantPhoneValidationError(phone)
+  const normalizedPhone = phoneError ? null : normalizeParticipantPhone(phone)
+  const phoneVerification = useQuery(
+    api.phoneVerifications.status,
+    participantProfileCodeConfiguration.phoneVerificationEnabled && membership && normalizedPhone
+      ? { eventSlug, phone: normalizedPhone }
+      : 'skip',
+  )
+  const now = useClock(1_000)
+  const phoneVerificationState =
+    phoneVerification?.expiresAt !== undefined &&
+    phoneVerification.expiresAt <= now &&
+    ['sending', 'sent', 'send_failed'].includes(phoneVerification.state)
+      ? 'expired'
+      : phoneVerification?.state
+  const locallyConfirmedPhone =
+    normalizedPhone && confirmedPhoneVerification?.phone === normalizedPhone
+      ? confirmedPhoneVerification
+      : null
+  const phoneVerified =
+    !participantProfileCodeConfiguration.phoneVerificationEnabled ||
+    phoneVerificationState === 'verified' ||
+    locallyConfirmedPhone !== null
+  const verifiedPhoneVerificationId =
+    phoneVerificationState === 'verified'
+      ? phoneVerification?.verificationId
+      : locallyConfirmedPhone?.verificationId
+  const phoneVerificationEnabled = participantProfileCodeConfiguration.phoneVerificationEnabled
+  const codePanelState =
+    phoneVerificationState && phoneVerificationState !== 'verified' ? phoneVerificationState : null
+  const codePanelOpen = phoneVerificationEnabled && codePanelState !== null
+  const resendSeconds = phoneVerification
+    ? Math.max(0, Math.ceil((phoneVerification.resendAvailableAt - now) / 1_000))
+    : 0
+  const phoneFieldError = phoneTouched
+    ? phoneError ??
+      (participantProfileCodeConfiguration.phoneVerificationEnabled &&
+      phoneVerificationTouched &&
+      !phoneVerified
+        ? 'Verify this phone number.'
+        : null)
+    : null
   const genderError = gender ? null : 'Choose your gender.'
   const yearOfStudyError = !vitStudent && !yearOfStudy ? 'Choose your year of study.' : null
   const residenceTypeError = vitStudent && !residenceType ? 'Choose your residence.' : null
@@ -168,6 +231,77 @@ export function DetailsScreen({
     ? policy.vitHostelResidenceCatalog.filter((residence) => residence.kind === hostelKind)
     : []
 
+  const sendPhoneCode = async () => {
+    setPhoneTouched(true)
+    setPhoneVerificationTouched(true)
+    if (phoneError || !normalizedPhone) {
+      setPhoneActionError(phoneError)
+      return
+    }
+    setPhoneActionBusy(true)
+    setPhoneActionError(null)
+    try {
+      await operations.run(
+        'phone-verification-request',
+        (clientOperationId) => () =>
+          requestPhoneVerification({
+            eventSlug,
+            phone: normalizedPhone,
+            clientOperationId,
+          }),
+      )
+      setVerificationCode('')
+    } catch (caught) {
+      setPhoneActionError(readableError(caught))
+    } finally {
+      setPhoneActionBusy(false)
+    }
+  }
+
+  const confirmPhoneCode = async (code: string) => {
+    setPhoneVerificationTouched(true)
+    if (phoneActionBusy) return
+    if (!phoneVerification || code.length !== 6) {
+      setPhoneActionError('enter the six digits from the text message')
+      return
+    }
+    setPhoneActionBusy(true)
+    setPhoneActionError(null)
+    try {
+      const result = (await operations.run(
+        'phone-verification-confirm',
+        (clientOperationId) => () =>
+          verifyPhone({
+            eventSlug,
+            verificationId: phoneVerification.verificationId,
+            code,
+            clientOperationId,
+          }),
+      )) as Awaited<ReturnType<typeof verifyPhone>>
+      if (result.outcome === 'incorrect') {
+        setCodeShake((count) => count + 1)
+        setPhoneActionError(
+          `wrong code · ${result.attemptsRemaining} ${
+            result.attemptsRemaining === 1 ? 'try' : 'tries'
+          } left`,
+        )
+      } else if (result.outcome === 'locked') {
+        setCodeShake((count) => count + 1)
+        setPhoneActionError('too many wrong tries')
+      } else if (normalizedPhone) {
+        setConfirmedPhoneVerification({
+          phone: normalizedPhone,
+          verificationId: result.verificationId,
+        })
+      }
+      setVerificationCode('')
+    } catch (caught) {
+      setPhoneActionError(readableError(caught))
+    } finally {
+      setPhoneActionBusy(false)
+    }
+  }
+
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     setFullNameTouched(true)
@@ -185,11 +319,20 @@ export function DetailsScreen({
     if (
       fullNameError ||
       phoneError ||
+      (participantProfileCodeConfiguration.phoneVerificationEnabled &&
+        (!phoneVerified || !verifiedPhoneVerificationId)) ||
       !submittedGender ||
       (!vitStudent && (!submittedYearOfStudy || externalUniversityError || externalCollegeError)) ||
       (vitStudent && (!submittedResidenceType || hostelResidenceError || hostelRoomNumberError))
     ) {
-      setError('Complete the highlighted fields before continuing.')
+      setPhoneVerificationTouched(true)
+      setError(
+        participantProfileCodeConfiguration.phoneVerificationEnabled &&
+        !phoneVerified &&
+        !phoneError
+          ? 'Verify your phone number before continuing.'
+          : 'Complete the highlighted fields before continuing.',
+      )
       return
     }
     setBusy(true)
@@ -214,6 +357,10 @@ export function DetailsScreen({
             eventSlug,
             participantPolicyVersionId: me.participantPolicy.id,
             phone: normalizeParticipantPhone(phone),
+            ...(participantProfileCodeConfiguration.phoneVerificationEnabled &&
+            verifiedPhoneVerificationId
+              ? { phoneVerificationId: verifiedPhoneVerificationId }
+              : {}),
             gender: submittedGender,
             ...(!vitStudent && submittedYearOfStudy
               ? {
@@ -322,29 +469,82 @@ export function DetailsScreen({
                   )}
                 </PortalField>
 
-                <PortalField label="phone" error={phoneTouched ? phoneError : null}>
+                <PortalField
+                  label="phone"
+                  {...(phoneVerificationEnabled && phoneVerified ? { hint: 'verified' } : {})}
+                  error={phoneFieldError ?? (codePanelOpen ? null : phoneActionError)}
+                >
                   {(id) => (
-                    <PortalInput
-                      id={id}
-                      aria-invalid={phoneTouched && phoneError !== null}
-                      autoComplete="tel"
-                      inputMode="tel"
-                      maxLength={24}
-                      placeholder="+91 xxxxx xxxxx"
-                      required
-                      type="tel"
-                      value={phone}
-                      onBlur={() => {
-                        setPhoneTouched(true)
-                        setPhone((current) => normalizeParticipantPhone(current))
-                      }}
-                      onChange={(event) => {
-                        setPhoneTouched(true)
-                        setPhone(event.currentTarget.value)
-                      }}
-                    />
+                    <div className="flex items-stretch gap-2">
+                      <div className="relative min-w-0 flex-1">
+                        <PortalInput
+                          id={id}
+                          className={`min-w-0 ${
+                            phoneVerificationEnabled && phoneVerified ? 'pr-10' : ''
+                          }`}
+                          aria-invalid={phoneFieldError !== null}
+                          autoComplete="tel"
+                          inputMode="tel"
+                          maxLength={24}
+                          placeholder="+91 xxxxx xxxxx"
+                          required
+                          type="tel"
+                          value={phone}
+                          onBlur={() => {
+                            setPhoneTouched(true)
+                            setPhone((current) => normalizeParticipantPhone(current))
+                          }}
+                          onChange={(event) => {
+                            setPhoneTouched(true)
+                            setPhoneVerificationTouched(false)
+                            setConfirmedPhoneVerification(null)
+                            setPhoneActionError(null)
+                            setVerificationCode('')
+                            setPhone(event.currentTarget.value)
+                          }}
+                        />
+                        {phoneVerificationEnabled && phoneVerified ? <PortalInputTick /> : null}
+                      </div>
+                      {phoneVerificationEnabled && !phoneVerified && !codePanelOpen ? (
+                        <PortalButton
+                          type="button"
+                          size="xs"
+                          className="shrink-0 px-4"
+                          disabled={phoneActionBusy || Boolean(phoneError) || resendSeconds > 0}
+                          onClick={() => void sendPhoneCode()}
+                        >
+                          {phoneActionBusy ? 'Sending…' : 'Send code'}
+                        </PortalButton>
+                      ) : null}
+                    </div>
                   )}
                 </PortalField>
+
+                {codePanelOpen && codePanelState && phoneVerification ? (
+                  <div className="sm:col-span-2">
+                    <PhoneCodePanel
+                      maskedPhone={phoneVerification.maskedPhone}
+                      state={codePanelState}
+                      canVerify={phoneVerification.canVerify}
+                      expiresInMs={
+                        phoneVerification.expiresAt !== undefined
+                          ? phoneVerification.expiresAt - now
+                          : null
+                      }
+                      resendInMs={Math.max(0, phoneVerification.resendAvailableAt - now)}
+                      code={verificationCode}
+                      onCodeChange={(next) => {
+                        setPhoneActionError(null)
+                        setVerificationCode(next)
+                      }}
+                      onVerify={(code) => void confirmPhoneCode(code)}
+                      onResend={() => void sendPhoneCode()}
+                      busy={phoneActionBusy}
+                      error={phoneActionError}
+                      shakeKey={codeShake}
+                    />
+                  </div>
+                ) : null}
 
                 <PortalField label="gender" error={genderTouched ? genderError : null}>
                   {(id) => (

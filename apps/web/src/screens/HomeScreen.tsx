@@ -5,7 +5,6 @@ import { Link, useNavigate } from 'react-router-dom'
 import { GpuSky } from '../components/portal/GpuSky'
 import { TeamCluster } from '../components/portal/TeamCluster'
 import { JoinCodeBar } from '../components/portal/JoinCodeBar'
-import { TeamMenu } from '../components/portal/TeamMenu'
 import { Petal } from '../components/portal/Petal'
 import { PortalButton } from '../components/portal/PortalButton'
 import { PortalScene } from '../components/portal/PortalScene'
@@ -55,10 +54,6 @@ function Countdown({ deadline }: { deadline: number }) {
   )
 }
 
-/**
- * Mockup f1: the home stage while the proposal is being written. A live sky,
- * one headline for what's left, and three quiet cards along the bottom.
- */
 export function HomeScreen({
   team,
   members,
@@ -76,6 +71,7 @@ export function HomeScreen({
   const draft = intake?.draft ?? null
   const journey = journeyState(draft)
   const openSeats = Math.max(0, team.teamMaximumSize - team.activeMemberCount)
+  const showInvite = teamEditable && openSeats > 0
 
   return (
     <PortalScene
@@ -90,21 +86,9 @@ export function HomeScreen({
           canManage={team.currentRole === 'lead' && teamEditable}
         />
       )}
-      menu={(
-        <TeamMenu
-          team={team}
-          members={members}
-          editable={teamEditable}
-          canManage={team.currentRole === 'lead' && teamEditable}
-          onSignOut={onSignOut}
-        />
-      )}
     >
-      {/* The headline and its one action keep to the right, where the sky is
-          clear: the tree's canopy fills the left, and a button set over the
-          blossoms disappears into them. */}
-      <div className="flex w-full max-w-[1048px] flex-1 flex-col items-end justify-center pb-40">
-        <div className="flex max-w-[680px] flex-col items-end text-right">
+      <div className="flex w-full max-w-[1048px] flex-1 flex-col items-start justify-center pb-56 sm:items-end sm:pb-40">
+        <div className="flex max-w-[680px] flex-col items-start text-left sm:items-end sm:text-right">
           <h1 className="mb-8 font-display font-light tracking-[-.01em] text-balance text-5xl leading-none text-shadow-[0_8px_50px_var(--scene-text-glow)] lg:text-7xl">
             {journey.headline}
           </h1>
@@ -112,10 +96,8 @@ export function HomeScreen({
             {journey.action}
           </PortalButton>
 
-          {/* A fresh team is usually one person: while seats stay open the
-              code rides under the action so inviting is never a hunt. */}
-          {teamEditable && openSeats > 0 ? (
-            <div className="mt-9 flex flex-col items-end gap-2.5">
+          {showInvite ? (
+            <div className="mt-9 flex flex-col items-start gap-2.5 sm:items-end">
               <p className="m-0 text-[12.5px] text-fg/55">
                 {team.activeMemberCount === 1
                   ? `Just you so far · ${openSeats} ${openSeats === 1 ? 'seat' : 'seats'} open`
@@ -139,9 +121,10 @@ export function HomeScreen({
             <p className="m-0 font-display font-light tracking-[-.01em] text-[26px] text-rose-light">·</p>
           )}
         </QuietCard>
-        <QuietCard label={`journey · ${journey.current + 1} of ${JOURNEY_STAGES}`}>
-          {/* Each petal gets its stage name, joined by hairlines, so the row
-              reads as a path rather than decoration. */}
+        <QuietCard
+          label={`journey · ${journey.current + 1} of ${JOURNEY_STAGES}`}
+          className={showInvite ? 'hidden sm:block' : ''}
+        >
           <div className="flex items-start pt-1">
             {JOURNEY_LABELS.map((label, index) => {
               const state =

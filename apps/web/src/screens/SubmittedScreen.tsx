@@ -19,7 +19,6 @@ import { useVersionedState } from '@code2create/web-forms'
 import { PortalScene } from '../components/portal/PortalScene'
 import { PetalCard } from '../components/portal/PetalCard'
 import { TeamCluster } from '../components/portal/TeamCluster'
-import { TeamMenu } from '../components/portal/TeamMenu'
 import { PortalButton, PortalTextButton } from '../components/portal/PortalButton'
 import { PortalError, PortalTextarea } from '../components/portal/PortalField'
 import { normalizedIdeaLength, useNoveltyPreview } from '../hooks/useNoveltyPreview'
@@ -297,7 +296,6 @@ function SubmittedWorkspace({
         onSignOut={onSignOut}
         tree="left"
         header={<TeamCluster team={team} members={members} editable={teamEditable} canManage={canManageTeam} />}
-        menu={<TeamMenu team={team} members={members} editable={teamEditable} canManage={canManageTeam} onSignOut={onSignOut} />}
       >
         <div className="flex w-full max-w-[840px] flex-col items-center">
           <h1 className="mb-2 text-center font-display font-light tracking-[-.01em] text-3xl text-shadow-[0_6px_40px_var(--scene-text-glow)] lg:text-[44px]">
@@ -342,7 +340,6 @@ function SubmittedWorkspace({
         onSignOut={onSignOut}
         tree="left"
         header={<TeamCluster team={team} members={members} editable={teamEditable} canManage={canManageTeam} />}
-        menu={<TeamMenu team={team} members={members} editable={teamEditable} canManage={canManageTeam} onSignOut={onSignOut} />}
       >
         {celebration}
         <div className="flex w-full max-w-[760px] flex-col items-center text-center">
@@ -418,6 +415,7 @@ function SubmittedWorkspace({
   if (eventIsLive) {
     return (
       <EventLiveScene
+        capabilities={capabilities}
         team={team}
         members={members}
         communications={communications ?? null}
@@ -443,7 +441,6 @@ function SubmittedWorkspace({
         onSignOut={onSignOut}
         tree="left"
         header={<TeamCluster team={team} members={members} editable={teamEditable} canManage={canManageTeam} />}
-        menu={<TeamMenu team={team} members={members} editable={teamEditable} canManage={canManageTeam} onSignOut={onSignOut} />}
         backdrop={
           <div aria-hidden className="pointer-events-none absolute inset-0 z-[2]">
             <img
@@ -628,7 +625,6 @@ function SubmittedWorkspace({
       onSignOut={onSignOut}
       tree="left"
       header={<TeamCluster team={team} members={members} editable={teamEditable} canManage={canManageTeam} />}
-        menu={<TeamMenu team={team} members={members} editable={teamEditable} canManage={canManageTeam} onSignOut={onSignOut} />}
     >
       <div className="flex w-full max-w-[760px] flex-col items-center text-center">
         <h1 className="mb-3.5 font-display font-light tracking-[-.01em] text-5xl leading-none text-shadow-[0_8px_50px_var(--scene-text-glow)] lg:text-[64px]">
@@ -701,6 +697,7 @@ function BentoBlock({
  * the existing tool panels render inside their blocks.
  */
 function EventLiveScene({
+  capabilities,
   team,
   members,
   communications,
@@ -710,6 +707,7 @@ function EventLiveScene({
   onSignOut,
   proposalLink,
 }: {
+  capabilities: ParticipantCapabilities
   team: CurrentTeam
   members: CurrentTeamMember[]
   communications: ParticipantCommunications | null
@@ -719,7 +717,6 @@ function EventLiveScene({
   onSignOut: () => void
   proposalLink: ReactNode
 }) {
-  const capabilities = useQuery(api.access.participantCapabilities, { eventSlug })
   const support = useQuery(api.support.mineSummary, capabilities?.supportRead ? { eventSlug } : 'skip')
   const openRequests = support === undefined || support.openCount === 0
     ? null
@@ -736,15 +733,6 @@ function EventLiveScene({
           members={members}
           editable={phaseTime < team.membershipEditableUntil}
           canManage={team.currentRole === 'lead' && phaseTime < team.membershipEditableUntil}
-        />
-      )}
-      menu={(
-        <TeamMenu
-          team={team}
-          members={members}
-          editable={phaseTime < team.membershipEditableUntil}
-          canManage={team.currentRole === 'lead' && phaseTime < team.membershipEditableUntil}
-          onSignOut={onSignOut}
         />
       )}
     >
@@ -935,12 +923,10 @@ function ProposalSummary({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const { editors, markEditing, stopEditing } = useEditingPresence(canEdit && editing)
-  // Keep the live comparison visible for the whole proposal view so it does
-  // not disappear when a different section is being edited.
   const noveltyState = useNoveltyPreview({
     idea: draft.initialIdea,
     ideaLength: normalizedIdeaLength(draft.initialIdea),
-    active: intake.novelty !== null,
+    active: canEdit && editing,
     config: intake.novelty,
     saved: { idea: undefined, score: null, band: null },
   })

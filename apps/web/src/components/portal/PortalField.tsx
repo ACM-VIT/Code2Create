@@ -52,6 +52,32 @@ export const PortalInput = forwardRef<HTMLInputElement, InputHTMLAttributes<HTML
   },
 )
 
+/**
+ * A rose tick pinned inside an input's right edge, for a value that has been
+ * verified. Wrap the input in `relative` and give it `pr-10`.
+ */
+export function PortalInputTick() {
+  return (
+    <span
+      aria-hidden
+      className="pointer-events-none absolute inset-y-0 right-3.5 flex items-center text-rose-light"
+    >
+      <svg
+        width="15"
+        height="15"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="m5 12.5 4.5 4.5L19 7" />
+      </svg>
+    </span>
+  )
+}
+
 export { PortalSelect } from './PortalDropdown'
 
 export function PortalTextarea({

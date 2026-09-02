@@ -51,6 +51,7 @@ import {
   nextQuestionOrdinal,
   replaceIntakeQuestionsAfter,
 } from "./lib/intakeQuestions";
+import { reconcileWorkingFieldsAfterDraftVersionChange } from "./lib/intakeWorkingFields";
 import { ideaQuestionEndToEndDeadlineMs } from "./lib/ideaSubmissionAi";
 import { teamClassesMeetPolicy, teamRosterCounts } from "./lib/teamRoster";
 import {
@@ -448,8 +449,12 @@ export const current = query({
       participantApplicationForTeam(ctx, event, team),
       ctx.db
         .query("intakeWorkingFields")
-        .withIndex("by_team", (index) => index.eq("teamId", team._id))
-        .take(4),
+        .withIndex("by_team_base_version", (index) =>
+          index
+            .eq("teamId", team._id)
+            .eq("baseDraftVersion", draft?.version ?? 0),
+        )
+        .take(5),
     ]);
     let visibleDraft: Infer<typeof currentDraftView> | null = null;
     if (draft) {
@@ -522,19 +527,17 @@ export const current = query({
       draft: visibleDraft,
       workingFields: participantApplication
         ? []
-        : storedWorkingFields
-            .filter((field) => field.baseDraftVersion === (draft?.version ?? 0))
-            .map((field) => ({
-              kind: field.kind,
-              ...(field.questionId !== undefined
-                ? { questionId: field.questionId }
-                : {}),
-              value: field.value,
-              baseDraftVersion: field.baseDraftVersion,
-              revision: field.revision,
-              writtenByMembershipId: field.writtenByMembershipId,
-              updatedAt: field.updatedAt,
-            })),
+        : storedWorkingFields.map((field) => ({
+            kind: field.kind,
+            ...(field.questionId !== undefined
+              ? { questionId: field.questionId }
+              : {}),
+            value: field.value,
+            baseDraftVersion: field.baseDraftVersion,
+            revision: field.revision,
+            writtenByMembershipId: field.writtenByMembershipId,
+            updatedAt: field.updatedAt,
+          })),
       application: participantApplication?.view ?? null,
     };
   },
@@ -1349,26 +1352,50 @@ export const autosaveWorkingField = mutation({
       });
     }
     let followUpQuestion: Doc<"intakeGeneratedQuestions"> | null = null;
+    let followUpCommittedValue = "";
     if (args.field.kind === "follow_up") {
-      followUpQuestion = await ctx.db.get(args.field.questionId);
+      const questionId = args.field.questionId;
+      followUpQuestion = await ctx.db.get(questionId);
+      const response = draft
+        ? (await loadCurrentIntakeResponses(ctx, draft._id)).find(
+            ({ question }) => question._id === questionId,
+          )
+        : undefined;
+      const editingActiveQuestion =
+        draft?.stage === "follow_up" && followUpQuestion?.state === "active";
+      const editingReviewAnswer =
+        draft?.stage === "review" &&
+        followUpQuestion?.state === "answered" &&
+        response?.answer !== null &&
+        response?.answer !== undefined;
+      const delayedReviewAnswerStillCurrent =
+        draft !== null &&
+        draft.version !== args.baseDraftVersion &&
+        followUpQuestion?.state === "answered" &&
+        response?.answer?.value === args.baseCommittedValue;
       if (
         !draft ||
         !followUpQuestion ||
         followUpQuestion.eventId !== event._id ||
         followUpQuestion.teamId !== team._id ||
         followUpQuestion.draftId !== draft._id ||
-        followUpQuestion.state !== "active"
+        (
+          !editingActiveQuestion &&
+          !editingReviewAnswer &&
+          !delayedReviewAnswerStillCurrent
+        )
       ) {
         throw new ConvexError({
           code: "FOLLOW_UP_CHANGED",
           message: "That follow-up changed. Your text is still on this device.",
         });
       }
+      followUpCommittedValue = response?.answer?.value ?? "";
     }
     if (draftVersion !== args.baseDraftVersion) {
       const committedValueUnchanged = args.field.kind === "idea"
         ? (draft?.initialIdea ?? "") === args.baseCommittedValue
-        : followUpQuestion?.state === "active" && args.baseCommittedValue === "";
+        : followUpCommittedValue === args.baseCommittedValue;
       if (!committedValueUnchanged) {
         requireDraftVersion(draftVersion, args.baseDraftVersion);
       }
@@ -1506,12 +1533,13 @@ export const saveInitialIdea = mutation({
         existing._id,
         pinnedPolicy.normalized.deterministicFollowUpCount,
       );
-      for (const { question } of invalidatedResponses) {
-        await deleteWorkingField(ctx, team._id, {
-          kind: "follow_up",
-          questionId: question._id,
-        });
-      }
+      await reconcileWorkingFieldsAfterDraftVersionChange(ctx, {
+        teamId: team._id,
+        previousDraftVersion: existing.version,
+        nextDraftVersion: draftVersion,
+        removeIdea: true,
+        removedQuestionIds: invalidatedResponses.map(({ question }) => question._id),
+      });
       await ctx.db.patch(existing._id, {
         stage:
           fixedSequenceComplete && !shouldGenerateAdaptiveQuestion
@@ -1578,7 +1606,9 @@ export const saveInitialIdea = mutation({
         now,
       });
     }
-    await deleteWorkingField(ctx, team._id, { kind: "idea" });
+    if (!existing) {
+      await deleteWorkingField(ctx, team._id, { kind: "idea" });
+    }
 
     if (shouldGenerateAdaptiveQuestion) {
       await enqueueIntakeInterpretation(ctx, { draftId, draftVersion, enqueuedAt: now });
@@ -1707,12 +1737,14 @@ export const respondToFollowUp = mutation({
       generatedQuestionId: question._id,
       clientOperationId: args.clientOperationId,
     });
-    await deleteWorkingField(ctx, team._id, {
-      kind: "follow_up",
-      questionId: question._id,
-    });
     const draftVersion = draft.version + 1;
     const now = Date.now();
+    await reconcileWorkingFieldsAfterDraftVersionChange(ctx, {
+      teamId: team._id,
+      previousDraftVersion: draft.version,
+      nextDraftVersion: draftVersion,
+      removedQuestionIds: [question._id],
+    });
     await ctx.db.patch(question._id, {
       state: "answered",
       answeredAt: now,
@@ -1766,6 +1798,7 @@ export const reviseFollowUp = mutation({
     questionId: v.id("intakeGeneratedQuestions"),
     answer: v.string(),
     expectedDraftVersion: v.number(),
+    expectedWorkingRevision: v.number(),
     clientOperationId: v.string(),
   },
   returns: v.object({ draftVersion: v.number() }),
@@ -1775,6 +1808,7 @@ export const reviseFollowUp = mutation({
       team._id,
       args.questionId,
       args.expectedDraftVersion,
+      args.expectedWorkingRevision,
       args.answer,
     ]);
     const replay = await replayDraftOperation(
@@ -1820,8 +1854,24 @@ export const reviseFollowUp = mutation({
       policy.followUpAnswerMaxLength,
     );
     const unchanged = response.answer?.value === answer;
+    const workingField = await findWorkingField(ctx, team._id, {
+      kind: "follow_up",
+      questionId: response.question._id,
+    });
+    const workingValue = workingField?.value.trim().replace(/\r\n/g, "\n");
+    if (
+      (workingField?.revision ?? 0) !== args.expectedWorkingRevision ||
+      (workingField !== null && workingValue !== answer) ||
+      (!workingField && !unchanged)
+    ) {
+      throw new ConvexError({
+        code: "WORKING_FIELD_CHANGED",
+        message: "A teammate saved newer text in this field. Your text is still here.",
+      });
+    }
     const now = Date.now();
     if (unchanged) {
+      if (workingField) await ctx.db.delete(workingField._id);
       await recordDraftOperation(ctx, {
         eventId: event._id,
         personId: person._id,
@@ -1852,10 +1902,19 @@ export const reviseFollowUp = mutation({
       response.question.ordinal,
       policy.deterministicFollowUpCount,
     );
+    const invalidatedQuestionIds = responses.flatMap(({ question }) =>
+      question.ordinal > regenerateAfterOrdinal ? [question._id] : [],
+    );
     await replaceIntakeQuestionsAfter(ctx, draft._id, regenerateAfterOrdinal);
     const needsAnotherInterpretation =
       regenerateAfterOrdinal < policy.maximumFollowUpCount;
     const draftVersion = draft.version + 1;
+    await reconcileWorkingFieldsAfterDraftVersionChange(ctx, {
+      teamId: team._id,
+      previousDraftVersion: draft.version,
+      nextDraftVersion: draftVersion,
+      removedQuestionIds: [response.question._id, ...invalidatedQuestionIds],
+    });
     await ctx.db.patch(draft._id, {
       stage: needsAnotherInterpretation ? "follow_up" : "review",
       adaptiveQuestionDeadlineAt: undefined,
@@ -1950,6 +2009,11 @@ export const saveAdditionalInformation = mutation({
       return { draftVersion: draft.version };
     }
     const draftVersion = draft.version + 1;
+    await reconcileWorkingFieldsAfterDraftVersionChange(ctx, {
+      teamId: team._id,
+      previousDraftVersion: draft.version,
+      nextDraftVersion: draftVersion,
+    });
     await ctx.db.patch(draft._id, {
       additionalInformation,
       stage: "review",
@@ -2005,6 +2069,11 @@ export const setFreshnessAttestation = mutation({
     const now = Date.now();
     const acceptedAt = args.accepted ? now : undefined;
     const draftVersion = draft.version + 1;
+    await reconcileWorkingFieldsAfterDraftVersionChange(ctx, {
+      teamId: team._id,
+      previousDraftVersion: draft.version,
+      nextDraftVersion: draftVersion,
+    });
     await ctx.db.patch(draft._id, {
       freshnessAttestedByMembershipId: args.accepted ? membership._id : undefined,
       freshnessAttestedAt: acceptedAt,

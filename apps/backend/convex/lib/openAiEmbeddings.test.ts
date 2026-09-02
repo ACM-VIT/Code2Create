@@ -74,4 +74,24 @@ describe("createOpenAiEmbeddings", () => {
     await expect(result).rejects.toBeInstanceOf(OpenAiEmbeddingError);
     await expect(result).rejects.toMatchObject({ timedOut: true });
   });
+
+  test("classifies a transport error after its timeout signal aborts", async () => {
+    const fetch = vi.fn((_input: string | URL | Request, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        const signal = init?.signal;
+        if (!signal) throw new Error("The embedding request has no timeout signal.");
+        signal.addEventListener(
+          "abort",
+          () => reject(new TypeError("self-hosted fetch stopped")),
+          { once: true },
+        );
+      }));
+    vi.stubGlobal("fetch", fetch);
+
+    await expect(createOpenAiEmbeddings({
+      ...request,
+      timeoutMs: 5,
+    })).rejects.toMatchObject({ timedOut: true });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
 });

@@ -12,7 +12,10 @@
 .glass-menu {
   border: 2px solid var(--color-glass-edge);
   background-image: var(--petal-card-bg);
-  backdrop-filter: blur(10px);
+  /* 8px, as on the landing: the backdrop re-blurs on every frame the page
+     scrolls or the tree sways behind a card, and the cost grows with the
+     radius — a tall review card at 10px was enough to stutter a scroll. */
+  backdrop-filter: blur(8px);
 }
 .glass-tile {
   background-image: var(--tile-bg);
@@ -23,7 +26,7 @@
 }
 .glass-menu {
   background-image: var(--roster-bg);
-  backdrop-filter: blur(16px);
+  backdrop-filter: blur(12px);
   box-shadow: 0 24px 50px -18px var(--shade-2);
 }
 
@@ -216,6 +219,9 @@
   --flower-filter: none;
   --avatar-glow: rgb(254 180 203 / .5);
   --card-topline: transparent;
+  /* Scrollbar thumbs: rose at night, plum at daybreak, never the OS grey. */
+  --scrollbar-thumb: rgb(216 132 162 / .45);
+  --scrollbar-thumb-hover: rgb(216 132 162 / .7);
 
   /* Glass surfaces: the petal card, the quiet tiles, the roster popover.
      The landing's navbar recipe — a thin ink tint over a blurred backdrop —
@@ -381,6 +387,8 @@
   --flower-filter: saturate(1.45) brightness(.72);
   --avatar-glow: rgb(194 103 135 / .3);
   --card-topline: transparent;
+  --scrollbar-thumb: rgb(150 55 92 / .4);
+  --scrollbar-thumb-hover: rgb(150 55 92 / .65);
 
   /* The same glass, frosted white. The blur is what keeps the sky's warm
      horizon band from reading as a stain; the old gradient fills did not
@@ -401,6 +409,19 @@
 ::view-transition-new(root) {
   animation-duration: .55s;
   animation-timing-function: ease;
+}
+
+/* The light switch is its own group and renders live through the switch:
+   left in the page crossfade, the old snapshot of it fades out over the
+   turning orbit and the sun and moon ghost — slowly enough to see on a
+   phone, where the full-page snapshot takes a beat. */
+::view-transition-group(daybreak-toggle),
+::view-transition-old(daybreak-toggle),
+::view-transition-new(daybreak-toggle) {
+  animation: none;
+}
+::view-transition-old(daybreak-toggle) {
+  opacity: 0;
 }
 
 .cursor-petal {
@@ -604,6 +625,32 @@ select:focus-visible {
 
 a {
   color: inherit;
+}
+
+/* Scrollbars in the scene's own ink: a thin rose thumb on a clear track,
+   for the page and for anything that scrolls inside it (the idea box,
+   menus). Chrome and Firefox take the standard properties; Safari still
+   reads the WebKit pseudo-elements, which the standard ones supersede
+   wherever both are understood. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: var(--scrollbar-thumb);
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-thumb-hover);
 }
 
 h1,

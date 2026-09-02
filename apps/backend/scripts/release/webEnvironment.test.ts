@@ -13,7 +13,6 @@ function validBuildEnvironment(): Record<string, string | undefined> {
     VITE_RELEASE_ID: 'release-42',
     VITE_POSTHOG_PROJECT_TOKEN: 'phc_publicprojecttoken',
     VITE_POSTHOG_HOST: 'https://eu.i.posthog.com',
-    VITE_EVENT_REGISTRATION_URL: 'https://gravitas.example/events/code2create-7',
     POSTHOG_CLI_HOST: 'https://eu.posthog.com',
     POSTHOG_CLI_PROJECT_ID: '169929',
     POSTHOG_CLI_API_KEY: 'secret-token',
@@ -25,21 +24,12 @@ test('accepts a complete participant release build', () => {
   assert.doesNotThrow(() => validateWebReleaseEnvironment('participant', 'build', environment))
 })
 
-test('accepts a landing release with its event registration destination', () => {
+test('accepts a landing release without participant-only configuration', () => {
   const environment = validBuildEnvironment()
   environment.VITE_CONVEX_URL = undefined
   environment.VITE_CONVEX_SITE_URL = undefined
   environment.VITE_EVENT_SLUG = undefined
   assert.doesNotThrow(() => validateWebReleaseEnvironment('landing', 'build', environment))
-})
-
-test('rejects a landing release without its event registration destination', () => {
-  const environment = validBuildEnvironment()
-  environment.VITE_EVENT_REGISTRATION_URL = undefined
-  assert.throws(
-    () => validateWebReleaseEnvironment('landing', 'deploy', environment),
-    /Set VITE_EVENT_REGISTRATION_URL/u,
-  )
 })
 
 test('rejects a deployment-environment mismatch', () => {

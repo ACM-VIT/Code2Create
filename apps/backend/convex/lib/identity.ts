@@ -3,6 +3,11 @@ import { ConvexError } from "convex/values";
 import type { Doc } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { authComponent } from "../auth";
+import {
+  participantEligibilityLookupFromGoogleIdentity,
+  participantEligibilityLookupFromMembership,
+  productionParticipantEligibilityAllowed,
+} from "./participantEligibility";
 import { normalizeEmail } from "./strings";
 
 type ReadCtx = QueryCtx | MutationCtx;
@@ -50,6 +55,81 @@ export async function requireStagingParticipantAccess(
     code: "STAGING_PARTICIPANT_NOT_INVITED",
     message: "This staging portal is available only to invited testers.",
   });
+}
+
+export async function participantGoogleAccessAllowed(
+  ctx: ReadCtx,
+  event: Doc<"events">,
+  identity: {
+    verifiedEmail: string;
+    hostedDomain?: string;
+    displayName: string;
+  },
+) {
+  const environment = process.env.C2C_DEPLOYMENT_ENVIRONMENT?.trim();
+  if (environment === "staging") {
+    return stagingParticipantAccessAllowed(ctx, event._id, identity.verifiedEmail);
+  }
+  if (environment !== "production") return true;
+  return productionParticipantEligibilityAllowed(
+    ctx,
+    event,
+    participantEligibilityLookupFromGoogleIdentity(event, identity),
+  );
+}
+
+export async function participantMembershipAccessAllowed(
+  ctx: ReadCtx,
+  event: Doc<"events">,
+  person: Doc<"people">,
+  membership: Doc<"eventMemberships">,
+) {
+  const environment = process.env.C2C_DEPLOYMENT_ENVIRONMENT?.trim();
+  if (environment === "staging") {
+    return stagingParticipantAccessAllowed(ctx, event._id, person.verifiedEmail);
+  }
+  if (environment !== "production") return true;
+  let lookup = participantEligibilityLookupFromMembership(membership, person);
+  if (!lookup && membership.participantClass === "vit_student") {
+    const googleIdentity = await ctx.db
+      .query("googleIdentityClaims")
+      .withIndex("by_auth_user", (query) => query.eq("authUserId", person.authUserId))
+      .unique();
+    if (googleIdentity?.displayName) {
+      lookup = participantEligibilityLookupFromGoogleIdentity(event, {
+        verifiedEmail: googleIdentity.verifiedEmail,
+        ...(googleIdentity.hostedDomain !== undefined
+          ? { hostedDomain: googleIdentity.hostedDomain }
+          : {}),
+        displayName: googleIdentity.displayName,
+      });
+    }
+  }
+  return productionParticipantEligibilityAllowed(ctx, event, lookup);
+}
+
+export async function requireParticipantGoogleAccess(
+  ctx: ReadCtx,
+  event: Doc<"events">,
+  identity: {
+    verifiedEmail: string;
+    hostedDomain?: string;
+    displayName: string;
+  },
+) {
+  if (await participantGoogleAccessAllowed(ctx, event, identity)) return;
+  const environment = process.env.C2C_DEPLOYMENT_ENVIRONMENT?.trim();
+  throw new ConvexError(
+    environment === "staging"
+      ? {
+          code: "STAGING_PARTICIPANT_NOT_INVITED",
+          message: "This staging portal is available only to invited testers.",
+        }
+      : {
+          code: "PARTICIPANT_NOT_REGISTERED",
+          message: "This Google account is not registered for Code2Create.",
+        },
+  );
 }
 
 export async function requireAuthUser(ctx: ReadCtx) {
@@ -293,10 +373,26 @@ export async function requireMembership(
       message: "An active participant membership is required.",
     });
   }
-  if (process.env.C2C_DEPLOYMENT_ENVIRONMENT?.trim() === "staging") {
-    const person = await ctx.db.get(personId);
-    if (!person) throw new Error("The participant person does not exist.");
-    await requireStagingParticipantAccess(ctx, eventId, person.verifiedEmail);
+  const [person, event] = await Promise.all([
+    ctx.db.get(personId),
+    ctx.db.get(eventId),
+  ]);
+  if (!person || !event) {
+    throw new Error("The participant membership references missing event data.");
+  }
+  if (!(await participantMembershipAccessAllowed(ctx, event, person, membership))) {
+    const environment = process.env.C2C_DEPLOYMENT_ENVIRONMENT?.trim();
+    throw new ConvexError(
+      environment === "staging"
+        ? {
+            code: "STAGING_PARTICIPANT_NOT_INVITED",
+            message: "This staging portal is available only to invited testers.",
+          }
+        : {
+            code: "PARTICIPANT_NOT_REGISTERED",
+            message: "This participant is not in the active Code2Create roster.",
+          },
+    );
   }
   return membership;
 }

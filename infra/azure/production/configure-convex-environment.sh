@@ -9,6 +9,7 @@ C2C_REPOSITORY_ROOT="$(
   pwd
 )"
 C2C_ENV_FILE="$(mktemp)"
+C2C_PHONE_VERIFICATION_MESSAGE_TEMPLATE=$'Your Code2Create verification code is {{code}}. It expires in 10 minutes. Do not share it.\n\n@c2c.sh #{{code}}'
 
 cleanup() {
   rm -f "${C2C_ENV_FILE}"
@@ -41,6 +42,10 @@ INITIAL_EVENT_SLUG=code2create-7
 OPENAI_API_KEY=$(read_secret openai-api-key)
 NOVELTY_GLOBAL_REQUESTS_PER_MINUTE=1800
 NOVELTY_INDEX_REQUESTS_PER_MINUTE=300
+PHONE_VERIFICATION_HMAC_SECRET=$(read_secret phone-verification-hmac-secret)
+SMS_AWS_REGION=ap-south-1
+SMS_AWS_ACCESS_KEY_ID=$(read_secret sms-aws-access-key-id)
+SMS_AWS_SECRET_ACCESS_KEY=$(read_secret sms-aws-secret-access-key)
 GITHUB_APP_ID=$(read_secret github-app-id)
 GITHUB_APP_CLIENT_ID=$(read_secret github-app-client-id)
 GITHUB_APP_CLIENT_SECRET=$(read_secret github-app-client-secret)
@@ -65,6 +70,8 @@ EOF
 (
   cd "${C2C_REPOSITORY_ROOT}/apps/backend"
   pnpm exec convex env set --from-file "${C2C_ENV_FILE}" --force
+  printf '%s' "${C2C_PHONE_VERIFICATION_MESSAGE_TEMPLATE}" \
+    | pnpm exec convex env set PHONE_VERIFICATION_MESSAGE_TEMPLATE
 )
 
 echo "Configured the production Convex environment. No event or application window was changed."

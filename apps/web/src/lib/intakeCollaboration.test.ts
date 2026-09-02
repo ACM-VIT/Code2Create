@@ -3,12 +3,62 @@ import test from 'node:test'
 import { ConvexError } from 'convex/values'
 
 import {
+  firstReviewQuestionAfterIdeaSave,
   isIntakeCollaborationConflict,
+  nextReviewQuestionAfterAnswerSave,
+  nextReviewQuestionId,
   reconcileCommittedField,
   reconcileWorkingCopy,
   shouldRecoverFollowUpDraft,
   shouldReplaceFollowUpEditorValue,
 } from './intakeCollaboration.ts'
+
+test('moves through every saved review question in order', () => {
+  const questionIds = ['question-1', 'question-2', 'question-3', 'question-4']
+  assert.equal(nextReviewQuestionId(questionIds, null), 'question-1')
+  assert.equal(nextReviewQuestionId(questionIds, 'question-1'), 'question-2')
+  assert.equal(nextReviewQuestionId(questionIds, 'question-3'), 'question-4')
+  assert.equal(nextReviewQuestionId(questionIds, 'question-4'), null)
+})
+
+test('does not restart review when its current question is stale', () => {
+  assert.equal(nextReviewQuestionId(['question-1'], 'replaced-question'), null)
+})
+
+test('continues an unchanged idea edit at the first saved question', () => {
+  assert.equal(firstReviewQuestionAfterIdeaSave({
+    questionIds: ['question-1', 'question-2'],
+    reviewSequenceActive: true,
+    savedDraftVersion: 7,
+    submittedDraftVersion: 7,
+  }), 'question-1')
+})
+
+test('lets a changed idea follow the regenerated-question path', () => {
+  assert.equal(firstReviewQuestionAfterIdeaSave({
+    questionIds: ['old-question'],
+    reviewSequenceActive: true,
+    savedDraftVersion: 8,
+    submittedDraftVersion: 7,
+  }), null)
+})
+
+test('continues through saved answers only while their source is unchanged', () => {
+  const shared = {
+    currentQuestionId: 'question-1',
+    questionIds: ['question-1', 'question-2'],
+    reviewSequenceActive: true,
+    submittedDraftVersion: 7,
+  } as const
+  assert.equal(nextReviewQuestionAfterAnswerSave({
+    ...shared,
+    savedDraftVersion: 7,
+  }), 'question-2')
+  assert.equal(nextReviewQuestionAfterAnswerSave({
+    ...shared,
+    savedDraftVersion: 8,
+  }), null)
+})
 
 const changedQuestion = {
   answer: 'A local answer that has not been saved.',

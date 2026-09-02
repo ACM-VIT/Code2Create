@@ -5,6 +5,7 @@
   "workers_dev": true,
   "preview_urls": false,
   "assets": {
+    "html_handling": "auto-trailing-slash",
     "not_found_handling": "single-page-application"
   },
   "env": {

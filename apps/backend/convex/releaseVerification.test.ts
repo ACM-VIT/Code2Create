@@ -346,12 +346,25 @@ async function seedReleaseFixture(
       createdAt: now,
       updatedAt: now,
     });
+    const phoneVerificationId = await ctx.db.insert("participantPhoneVerifications", {
+      eventId,
+      membershipId: participantMembershipId,
+      personId: participantPersonId,
+      phone: "+919000000000",
+      status: "verified",
+      resendAvailableAt: now,
+      attemptCount: 0,
+      verifiedAt: now,
+      updatedAt: now,
+    });
     await ctx.db.insert("participantProfiles", {
       eventId,
       membershipId: participantMembershipId,
       participantClass: "external_participant",
       fullName: "Participant Release",
       phone: "+91 90000 00000",
+      phoneVerificationId,
+      phoneVerifiedAt: now,
       gender: "female",
       institution: "Fixture University",
       yearOfStudy: "first",

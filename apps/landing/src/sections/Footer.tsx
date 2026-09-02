@@ -1,7 +1,7 @@
 import type { MouseEvent } from 'react';
 
 import { JOURNEY_STOPS, leapTo } from '../lib/journeyLeap.js';
-import { eventRegistrationUrl } from '../lib/config.js';
+import { ideaSubmissionUrl } from '../lib/config.js';
 import './footer.css';
 
 /* Journey links stay on the page; external links open in a new tab. */
@@ -28,8 +28,8 @@ const groups: {
     ],
   },
   {
-    title: 'Register',
-    items: [{ label: 'Gravitas portal', href: eventRegistrationUrl }],
+    title: 'Submit',
+    items: [{ label: 'Submit idea', href: ideaSubmissionUrl }],
   },
   {
     title: 'ACM-VIT',

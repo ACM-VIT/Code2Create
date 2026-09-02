@@ -53,6 +53,7 @@ describe("participant intake lifecycle", () => {
       participantPolicyVersionId: fixture.participantPolicyId,
       fullName: "Anika Shah",
       phone: "+91 90000 00000",
+      phoneVerificationId: fixture.phoneVerificationId,
       gender: "female",
       yearOfStudy: "first",
       externalUniversity: "Example University",
@@ -542,6 +543,13 @@ describe("participant intake lifecycle", () => {
         answer: answersBeforeIdeaEdit[index],
       })),
     );
+    const adaptiveAnswerBeforeFixedRevision =
+      reviewAfterIdeaRegeneration.draft.followUps.find(
+        (question) => question.ordinal === 3,
+      );
+    if (!adaptiveAnswerBeforeFixedRevision?.answer) {
+      throw new Error("The adaptive answer was not ready for collaboration testing.");
+    }
     const reviewReadyAfterIdeaRegeneration = await participant.mutation(
       api.intake.saveAdditionalInformation,
       {
@@ -552,13 +560,143 @@ describe("participant intake lifecycle", () => {
         clientOperationId: "intake-additional-information-skip-after-idea-revision",
       },
     );
+    const secondFixedQuestionId = questionIdsBeforeAnswerEdit[1];
+    const secondFixedAnswer = answersBeforeIdeaEdit[1];
+    if (!secondFixedQuestionId || !secondFixedAnswer) {
+      throw new Error("The second fixed response was not available for collaboration testing.");
+    }
+    const teammateSecondAnswerDraft =
+      `${secondFixedAnswer} We will also show who owns the next action.`;
+    await secondParticipant.mutation(api.intake.autosaveWorkingField, {
+      eventSlug: fixture.eventSlug,
+      field: { kind: "follow_up", questionId: secondFixedQuestionId },
+      value: teammateSecondAnswerDraft,
+      baseDraftVersion: reviewReadyAfterIdeaRegeneration.draftVersion,
+      baseCommittedValue: secondFixedAnswer,
+      expectedRevision: 0,
+    });
+    await expect(participant.mutation(api.intake.reviseFollowUp, {
+      eventSlug: fixture.eventSlug,
+      questionId: secondFixedQuestionId,
+      answer: secondFixedAnswer,
+      expectedDraftVersion: reviewReadyAfterIdeaRegeneration.draftVersion,
+      expectedWorkingRevision: 0,
+      clientOperationId: "intake-unchanged-follow-up-with-teammate-draft",
+    })).rejects.toThrow("newer text");
+    await expect(participant.query(api.intake.current, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toMatchObject({
+      workingFields: expect.arrayContaining([
+        expect.objectContaining({
+          kind: "follow_up",
+          questionId: secondFixedQuestionId,
+          value: teammateSecondAnswerDraft,
+          revision: 1,
+        }),
+      ]),
+    });
+    const revisedFirstFollowUpAnswer =
+      `${firstFollowUpAnswer} The first release focuses on mobility requests.`;
+    await participant.mutation(api.intake.autosaveWorkingField, {
+      eventSlug: fixture.eventSlug,
+      field: { kind: "follow_up", questionId: firstAnsweredQuestion.id },
+      value: "",
+      baseDraftVersion: reviewReadyAfterIdeaRegeneration.draftVersion,
+      baseCommittedValue: firstFollowUpAnswer,
+      expectedRevision: 0,
+    });
+    await expect(participant.query(api.intake.current, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toMatchObject({
+      workingFields: expect.arrayContaining([
+        expect.objectContaining({
+          kind: "follow_up",
+          questionId: firstAnsweredQuestion.id,
+          value: "",
+        }),
+      ]),
+    });
+    await participant.mutation(api.intake.autosaveWorkingField, {
+      eventSlug: fixture.eventSlug,
+      field: { kind: "follow_up", questionId: firstAnsweredQuestion.id },
+      value: revisedFirstFollowUpAnswer,
+      baseDraftVersion: reviewReadyAfterIdeaRegeneration.draftVersion,
+      baseCommittedValue: firstFollowUpAnswer,
+      expectedRevision: 1,
+    });
+    const reviewWhileRevisingAnswer = await participant.query(api.intake.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(reviewWhileRevisingAnswer?.draft?.stage).toBe("review");
+    expect(reviewWhileRevisingAnswer?.draft?.followUps[0]?.answer).toBe(firstFollowUpAnswer);
+    expect(reviewWhileRevisingAnswer?.workingFields).toContainEqual(
+      expect.objectContaining({
+        kind: "follow_up",
+        questionId: firstAnsweredQuestion.id,
+        value: revisedFirstFollowUpAnswer,
+      }),
+    );
     await participant.mutation(api.intake.reviseFollowUp, {
       eventSlug: fixture.eventSlug,
       questionId: firstAnsweredQuestion.id,
-      answer: `${firstFollowUpAnswer} The first release focuses on mobility requests.`,
+      answer: revisedFirstFollowUpAnswer,
       expectedDraftVersion: reviewReadyAfterIdeaRegeneration.draftVersion,
+      expectedWorkingRevision: 2,
       clientOperationId: "intake-follow-up-revise",
     });
+    await expect(participant.query(api.intake.current, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toMatchObject({
+      workingFields: [
+        expect.objectContaining({
+          kind: "follow_up",
+          questionId: secondFixedQuestionId,
+          value: teammateSecondAnswerDraft,
+          baseDraftVersion: reviewReadyAfterIdeaRegeneration.draftVersion + 1,
+        }),
+      ],
+    });
+    const delayedSecondAnswerDraft =
+      `${teammateSecondAnswerDraft} This text arrived after the first answer saved.`;
+    await expect(secondParticipant.mutation(api.intake.autosaveWorkingField, {
+      eventSlug: fixture.eventSlug,
+      field: { kind: "follow_up", questionId: secondFixedQuestionId },
+      value: delayedSecondAnswerDraft,
+      baseDraftVersion: reviewReadyAfterIdeaRegeneration.draftVersion,
+      baseCommittedValue: secondFixedAnswer,
+      expectedRevision: 1,
+    })).resolves.toMatchObject({ revision: 2 });
+    await expect(participant.query(api.intake.current, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toMatchObject({
+      workingFields: [
+        expect.objectContaining({
+          kind: "follow_up",
+          questionId: secondFixedQuestionId,
+          value: delayedSecondAnswerDraft,
+          baseDraftVersion: reviewReadyAfterIdeaRegeneration.draftVersion + 1,
+        }),
+      ],
+    });
+    await expect(secondParticipant.mutation(api.intake.autosaveWorkingField, {
+      eventSlug: fixture.eventSlug,
+      field: { kind: "follow_up", questionId: secondFixedQuestionId },
+      value: `${delayedSecondAnswerDraft} A conflicting delayed rewrite.`,
+      baseDraftVersion: reviewReadyAfterIdeaRegeneration.draftVersion,
+      baseCommittedValue: secondFixedAnswer,
+      expectedRevision: 1,
+    })).rejects.toThrow("newer text");
+    await expect(secondParticipant.mutation(api.intake.autosaveWorkingField, {
+      eventSlug: fixture.eventSlug,
+      field: {
+        kind: "follow_up",
+        questionId: adaptiveAnswerBeforeFixedRevision.id,
+      },
+      value: `${adaptiveAnswerBeforeFixedRevision.answer} A delayed rewrite.`,
+      baseDraftVersion: reviewReadyAfterIdeaRegeneration.draftVersion,
+      baseCommittedValue: adaptiveAnswerBeforeFixedRevision.answer,
+      expectedRevision: 0,
+    })).rejects.toThrow("follow-up changed");
     await backend.mutation(internal.intelligence.beginIntakeInterpretation, {
       draftId: savedIdea.draftId,
       provider: { kind: "unavailable", reason: "api_key_not_configured" },
@@ -594,6 +732,14 @@ describe("participant intake lifecycle", () => {
     expect(reviewAfterAnswerEdit.draft.followUps).toHaveLength(4);
     expect(reviewAfterAnswerEdit.draft.followUps.slice(0, 2)).toMatchObject(
       questionIdsBeforeAnswerEdit.map((id) => ({ id })),
+    );
+    expect(reviewAfterAnswerEdit.workingFields).toContainEqual(
+      expect.objectContaining({
+        kind: "follow_up",
+        questionId: secondFixedQuestionId,
+        value: delayedSecondAnswerDraft,
+        baseDraftVersion: reviewAfterAnswerEdit.draft.version,
+      }),
     );
     const additionalInformation =
       "Our working notes and demo links are at https://example.com/accessibility-demo.";
@@ -675,12 +821,26 @@ describe("participant intake lifecycle", () => {
     await backend.run(async (ctx) => {
       const membership = await ctx.db.get(secondMembershipId);
       if (!membership) throw new Error("The second intake membership is missing.");
+      const phoneVerifiedAt = Date.now();
+      const phoneVerificationId = await ctx.db.insert("participantPhoneVerifications", {
+        eventId: membership.eventId,
+        membershipId: membership._id,
+        personId: membership.personId,
+        phone: "+919000000001",
+        status: "verified",
+        resendAvailableAt: phoneVerifiedAt,
+        attemptCount: 0,
+        verifiedAt: phoneVerifiedAt,
+        updatedAt: phoneVerifiedAt,
+      });
       await ctx.db.insert("participantProfiles", {
         eventId: membership.eventId,
         membershipId: membership._id,
         participantClass: "external_participant",
         fullName: "Ravi Menon",
         phone: "+91 90000 00001",
+        phoneVerificationId,
+        phoneVerifiedAt,
         gender: "male",
         institution: "Example Institute of Technology",
         yearOfStudy: "first",
@@ -819,6 +979,14 @@ describe("participant intake lifecycle", () => {
       version: 3,
       submissionAttemptId: started.submissionAttemptId,
     });
+    await expect(
+      participant.query(api.access.participantCapabilities, {
+        eventSlug: fixture.eventSlug,
+      }),
+    ).resolves.toMatchObject({
+      hasTeamMembership: true,
+      teamRead: true,
+    });
     await expect(participant.mutation(api.intake.saveInitialIdea, {
       eventSlug: fixture.eventSlug,
       idea: `${idea} Updated after confirmation.`,
@@ -831,6 +999,15 @@ describe("participant intake lifecycle", () => {
     });
     await backend.mutation(internal.intake.finalizeSubmission, {
       submissionAttemptId: started.submissionAttemptId,
+    });
+
+    await expect(
+      participant.query(api.access.participantCapabilities, {
+        eventSlug: fixture.eventSlug,
+      }),
+    ).resolves.toMatchObject({
+      hasTeamMembership: true,
+      teamRead: true,
     });
 
     const replay = await participant.mutation(api.intake.submit, submitRequest);
@@ -1027,12 +1204,25 @@ describe("participant intake lifecycle", () => {
         createdAt: event.createdAt,
         updatedAt: event.createdAt,
       });
+      const phoneVerificationId = await ctx.db.insert("participantPhoneVerifications", {
+        eventId: event._id,
+        membershipId,
+        personId,
+        phone: "+919000000002",
+        status: "verified",
+        resendAvailableAt: event.createdAt,
+        attemptCount: 0,
+        verifiedAt: event.createdAt,
+        updatedAt: event.createdAt,
+      });
       await ctx.db.insert("participantProfiles", {
         eventId: event._id,
         membershipId,
         participantClass: "external_participant",
         fullName: "Meera Kapoor",
         phone: "+91 90000 00002",
+        phoneVerificationId,
+        phoneVerifiedAt: event.createdAt,
         gender: "female",
         institution: "Example Institute of Technology",
         yearOfStudy: "first",
@@ -1300,6 +1490,17 @@ async function seedFixture(backend: BackendTest) {
       createdAt: now,
       updatedAt: now,
     });
+    const phoneVerificationId = await ctx.db.insert("participantPhoneVerifications", {
+      eventId,
+      membershipId,
+      personId,
+      phone: "+919000000000",
+      status: "verified",
+      resendAvailableAt: now,
+      attemptCount: 0,
+      verifiedAt: now,
+      updatedAt: now,
+    });
     for (const permissionKey of ["participant.profile.write", "team.join"] as const) {
       await insertPermissionGrant(ctx, {
         eventId,
@@ -1318,6 +1519,7 @@ async function seedFixture(backend: BackendTest) {
       authUserId,
       authSessionId,
       membershipId,
+      phoneVerificationId,
       participantPolicyId,
     };
   });

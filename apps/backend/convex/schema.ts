@@ -70,6 +70,7 @@ import {
   participantGender,
   participantEligibilityStatus,
   participantOnboardingStatus,
+  participantPhoneVerificationStatus,
   participantEmailTemplateKey,
   participantAssistantPhase,
   participantAssistantRequestState,
@@ -240,6 +241,9 @@ export default defineSchema({
     status: eventStatus,
     vitEmailDomains: v.array(v.string()),
     publishedParticipantPolicyId: v.optional(v.id("participantPolicyVersions")),
+    publishedParticipantEligibilityImportId: v.optional(
+      v.id("participantEligibilityImports"),
+    ),
     publishedEventPhaseScheduleId: v.optional(v.id("eventPhaseScheduleVersions")),
     publishedProjectCheckpointPlanId: v.optional(v.id("projectCheckpointPlanVersions")),
     publishedIntakePolicyId: v.optional(v.id("intakePolicyVersions")),
@@ -739,6 +743,45 @@ export default defineSchema({
     .index("by_import_row", ["rosterImportId", "sourceRowNumber"])
     .index("by_claimed_person", ["eventId", "claimedByPersonId"]),
 
+  participantEligibilityImports: defineTable({
+    eventId: v.id("events"),
+    batchKey: v.string(),
+    status: v.union(
+      v.literal("preparing"),
+      v.literal("active"),
+      v.literal("superseded"),
+    ),
+    expectedExternalCount: v.number(),
+    expectedVitCount: v.number(),
+    externalSourceChecksum: v.string(),
+    vitSourceChecksum: v.string(),
+    createdAt: v.number(),
+    activatedAt: v.optional(v.number()),
+    supersededAt: v.optional(v.number()),
+  })
+    .index("by_event_batch", ["eventId", "batchKey"])
+    .index("by_event_status", ["eventId", "status"]),
+
+  participantEligibilityEntries: defineTable({
+    eventId: v.id("events"),
+    participantEligibilityImportId: v.id("participantEligibilityImports"),
+    participantClass,
+    identityKind: v.union(v.literal("email"), v.literal("vit_registration")),
+    identityNormalized: v.string(),
+    sourceRowNumber: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_import_identity", [
+      "participantEligibilityImportId",
+      "participantClass",
+      "identityNormalized",
+    ])
+    .index("by_import_class", [
+      "participantEligibilityImportId",
+      "participantClass",
+    ])
+    .index("by_event_import", ["eventId", "participantEligibilityImportId"]),
+
   teamRosterImports: defineTable({
     eventId: v.id("events"),
     sourceName: v.string(),
@@ -924,12 +967,34 @@ export default defineSchema({
       "createdAt",
     ]),
 
+  participantPhoneVerifications: defineTable({
+    eventId: v.id("events"),
+    membershipId: v.id("eventMemberships"),
+    personId: v.id("people"),
+    phone: v.string(),
+    status: participantPhoneVerificationStatus,
+    codeDigest: v.optional(v.string()),
+    expiresAt: v.optional(v.number()),
+    resendAvailableAt: v.number(),
+    attemptCount: v.number(),
+    providerMessageId: v.optional(v.string()),
+    failureCode: v.optional(v.string()),
+    sentAt: v.optional(v.number()),
+    verifiedAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index("by_membership", ["membershipId"])
+    .index("by_membership_phone", ["membershipId", "phone"])
+    .index("by_event_phone", ["eventId", "phone"]),
+
   participantProfiles: defineTable({
     eventId: v.id("events"),
     membershipId: v.id("eventMemberships"),
     participantClass,
     fullName: v.string(),
     phone: v.string(),
+    phoneVerificationId: v.optional(v.id("participantPhoneVerifications")),
+    phoneVerifiedAt: v.optional(v.number()),
     gender: participantGender,
     institution: v.string(),
     yearOfStudy: studyYear,
@@ -1692,6 +1757,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_team", ["teamId"])
+    .index("by_team_base_version", ["teamId", "baseDraftVersion"])
     .index("by_team_kind_question", ["teamId", "kind", "questionId"]),
 
   intakeAnswerVersions: defineTable({

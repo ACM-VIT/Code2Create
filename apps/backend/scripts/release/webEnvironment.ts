@@ -29,9 +29,7 @@ export function validateWebReleaseEnvironment(
     throw new Error('VITE_DEPLOYMENT_ENVIRONMENT must match CLOUDFLARE_ENV.')
   }
 
-  if (surface === 'landing') {
-    requiredHttpsUrl(environment, 'VITE_EVENT_REGISTRATION_URL')
-  } else {
+  if (surface !== 'landing') {
     const convexUrl = requiredHttpsOrigin(environment, 'VITE_CONVEX_URL')
     const convexSiteUrl = requiredHttpsOrigin(environment, 'VITE_CONVEX_SITE_URL')
     const expectedOrigins = convexOrigins[cloudflareEnvironment]

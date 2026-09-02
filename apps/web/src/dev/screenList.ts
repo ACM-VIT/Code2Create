@@ -2,6 +2,7 @@
 export const GALLERY_SCREENS = [
   { id: 'f0a', label: 'Entry' },
   { id: 'f0b', label: 'Details' },
+  { id: 'f0bv', label: 'Details · phone verified' },
   { id: 'f0d', label: 'Participant type' },
   { id: 'fs', label: 'SGLang / GitHub' },
   { id: 'fsb', label: 'SGLang / connected GitHub' },

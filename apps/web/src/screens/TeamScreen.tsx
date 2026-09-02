@@ -149,13 +149,13 @@ export function TeamScreen({ header }: { header?: ReactNode }) {
         </div>
 
         <PortalError message={error} reserve />
-        <p className="mt-7 text-[12.5px] text-fg/50">
+        <p className="mt-7 inline-flex items-center gap-1 rounded-full bg-wash/45 px-3.5 py-1.5 text-[12.5px] text-fg/80 backdrop-blur-[6px]">
           can't find a team? join our{' '}
           <a
             href="https://discord.gg/hPkhtMcHq8"
             target="_blank"
             rel="noreferrer"
-            className="text-rose-light underline decoration-rose-light/50 decoration-1 underline-offset-2 transition-colors hover:decoration-rose-light"
+            className="text-rose-light underline decoration-rose-light/70 decoration-1 underline-offset-2 transition-colors hover:decoration-rose-light"
           >
             Discord
           </a>
