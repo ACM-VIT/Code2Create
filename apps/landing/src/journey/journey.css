@@ -8,13 +8,12 @@
  * tablets and phones rather than just scaling it down.
  * ------------------------------------------------------------------ */
 
-/* ~1888vh of travel over the timeline's 290s — the same glide-not-resist
-   pace as the 146s/1050vh cut; the added length is the schedule act
-   running at five times its old scroll span, plus the sponsor volley
-   between the lanterns and the hills going down. */
+/* ~2565vh of travel over the weighted 394-unit scroll track. About and
+   Sponsors receive twice the runway; every other act keeps its original
+   physical scroll pace. */
 .journey {
   position: relative;
-  height: 1988vh;
+  height: 2665vh;
 }
 
 .journey__stage {
@@ -640,24 +639,6 @@
   opacity: 0;
   visibility: hidden;
   will-change: transform, opacity;
-}
-
-.sponsor::before {
-  content: '';
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 145%;
-  height: 190%;
-  transform: translate(-50%, -50%);
-  border-radius: 50%;
-  background: radial-gradient(
-    ellipse,
-    var(--burst) 0%,
-    var(--burst-soft) 36%,
-    transparent 70%
-  );
-  opacity: 0.72;
 }
 
 .sponsor__logo {
