@@ -20,7 +20,7 @@ const checksumB = 'b'.repeat(64);
 
 function input(allowedReadTools: ('operations_health' | 'operations_attention' | 'support_load')[]) {
 	return v.parse(operationsAutonomyDispatchRequestSchema, {
-		protocolVersion: '2026-08-13',
+		protocolVersion: 'operations-intelligence-v1',
 		trigger: 'manual',
 		runId: 'run-pagination',
 		eventSlug: 'code2create-7',

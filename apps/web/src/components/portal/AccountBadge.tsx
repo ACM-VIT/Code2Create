@@ -1,30 +1,101 @@
-import { initialsOf } from './initials'
-import { SignOutCircle } from './SignOutCircle'
+import { useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { Flower } from './FlowerAvatar'
 
 /**
- * The onboarding header: the updated mockup shows only the avatar, so the
- * email and verified class ride in the tooltip while sign-out stays visible.
+ * The signed-in person, before there is a team to stand with: one flower
+ * circle that opens a small card — who you are, the way to everything else,
+ * and the way out. The same shape as the team cluster's panel, so those are
+ * always found under the avatar and never as circles of their own.
  */
 export function AccountBadge({
   name,
+  seed,
   email,
   detail,
   onSignOut,
 }: {
   name: string
+  seed: string
   email?: string
   detail?: string
-  onSignOut?: () => void
+  onSignOut: () => void
 }) {
+  const [open, setOpen] = useState(false)
+  const anchor = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Node && !anchor.current?.contains(event.target)) setOpen(false)
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
+
   return (
-    <div className="flex items-center">
-      <div
-        title={[email ?? name, detail].filter(Boolean).join(' · ')}
-        className="flex size-10 flex-none items-center justify-center rounded-full border-2 border-ring-lead bg-avatar-lead text-[11px] font-semibold lg:size-12 lg:text-[12.5px]"
+    <div ref={anchor} className="relative">
+      <button
+        type="button"
+        aria-label={`Account, ${name}`}
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className={`flex size-10 flex-none items-center justify-center rounded-full border-2 bg-avatar transition-colors duration-250 hover:border-rose-light lg:size-12 ${
+          open ? 'border-rose-light' : 'border-rose/70'
+        }`}
       >
-        {initialsOf(name)}
-      </div>
-      {onSignOut ? <SignOutCircle onSignOut={onSignOut} className="-ml-2 lg:-ml-2.5" /> : null}
+        <Flower seed={seed} className="size-[62%]" />
+      </button>
+
+      {open ? (
+        <div className="absolute top-[calc(100%+12px)] right-0 z-10 w-[240px] max-w-[calc(100vw-40px)] rounded-petal-sm glass-menu px-5 py-4 text-left">
+          <p className="m-0 truncate font-ui font-normal text-base text-rose-light">{name}</p>
+          {email || detail ? (
+            <p className="m-0 mt-1 truncate text-[11.5px] text-fg/55">
+              {[email, detail].filter(Boolean).join(' · ')}
+            </p>
+          ) : null}
+          <div className="mt-3 flex items-center justify-between gap-3 border-t border-petal-line pt-2.5">
+            <Link
+              to="/more"
+              viewTransition
+              onClick={() => setOpen(false)}
+              className="text-[11.5px] text-fg/55 no-underline transition-colors hover:text-rose-light"
+            >
+              more
+            </Link>
+            <button
+              type="button"
+              onClick={onSignOut}
+              className="flex items-center gap-2 text-[11.5px] text-fg/55 transition-colors hover:text-rose-light"
+            >
+              sign out
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
+                <path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3" />
+                <path d="M10 17l5-5-5-5" />
+                <path d="M15 12H3" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

@@ -1,6 +1,7 @@
 import { createHash, createHmac } from "node:crypto";
 
 import {
+  defaultParticipantEmailTemplates,
   participantEmailEventSignatureContext,
   signServiceBody,
 } from "@code2create/domain";
@@ -603,8 +604,7 @@ async function seedIntegrationTeam(backend: BackendTest) {
       discordUrl: "https://discord.gg/provider-fixture",
       discordLabel: "Open event Discord",
       notificationProvider: "cloudflare_email",
-      notificationSubject: "Code2Create application update",
-      notificationIntro: "There is an update to your team's Code2Create application.",
+      emailTemplates: defaultParticipantEmailTemplates(),
     });
     const communicationsPolicyVersionId = await ctx.db.insert(
       "communicationsPolicyVersions",
@@ -803,6 +803,7 @@ async function seedParticipantDelivery(
       submittedProjectVersionId: projectVersionId,
       admissionPolicyVersionId: policyId,
       state: "accepted",
+      decisionStage: "released",
       experienceBand: "mixed_or_external",
       humanDecision: "accept",
       humanReasonCode: "fixture_accept",
@@ -878,7 +879,7 @@ async function sendCloudflareEmailEvent(
   },
 ) {
   const payload = JSON.stringify({
-    protocolVersion: "2026-08-08",
+    protocolVersion: "participant-email-v1",
     eventId: args.eventId,
     messageId: args.messageId,
     recipient: "fixture@example.test",

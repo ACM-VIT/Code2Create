@@ -117,7 +117,7 @@ describe("team roster backfill", () => {
     expect(memberTeam?.activeMemberCount).toBe(2);
   }, 30_000);
 
-  test("skips a person who already has an active team", async () => {
+  test("lets a person leave their current team for the imported team", async () => {
     const backend = convexTest(schema, modules);
     backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
     const fixture = await seedEvent(backend);
@@ -160,7 +160,8 @@ describe("team roster backfill", () => {
       ],
       reason: "Committee team assignments",
     });
-    expect(preview.counts.alreadyOnTeam).toBe(1);
+    expect(preview.counts.choiceRequired).toBe(1);
+    expect(preview.counts.alreadyAssigned).toBe(0);
 
     await importer.person.mutation(api.teamRosters.confirmImport, {
       eventSlug: fixture.eventSlug,
@@ -183,33 +184,230 @@ describe("team roster backfill", () => {
       ],
       reason: "Committee team assignments",
       previewChecksum: preview.previewChecksum,
-      clientOperationId: "team-roster-import-skip",
+      clientOperationId: "team-roster-import-choice",
     });
     await drainScheduler(backend);
 
-    await backend.run(async (ctx) => {
-      const entry = await ctx.db
+    const entry = await backend.run(async (ctx) =>
+      ctx.db
         .query("teamRosterEntries")
         .withIndex("by_event_email_status", (index) =>
           index
             .eq("eventId", fixture.eventId)
             .eq("emailNormalized", "already@gmail.com")
-            .eq("status", "skipped_has_team"),
+            .eq("status", "choice_required"),
         )
-        .unique();
-      expect(entry).not.toBeNull();
-      const activeMembers = await ctx.db
-        .query("teamMembers")
-        .withIndex("by_event_membership_status", (index) =>
-          index
-            .eq("eventId", fixture.eventId)
-            .eq("membershipId", participant.membershipId)
-            .eq("status", "active"),
-        )
-        .collect();
-      expect(activeMembers).toHaveLength(1);
-      expect(activeMembers[0]?.teamId).toBe(created.teamId);
+        .unique(),
+    );
+    expect(entry).not.toBeNull();
+    if (!entry) throw new Error("The imported assignment should require a choice.");
+    const pending = await participant.person.query(api.participants.me, {
+      eventSlug: fixture.eventSlug,
     });
+    expect(pending?.pendingTeam).toMatchObject({
+      id: entry._id,
+      teamName: "Alpha",
+      status: "choice_required",
+    });
+    const current = await participant.person.query(api.teams.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    if (!current) throw new Error("The participant should still be on Beta.");
+
+    const accepted = await participant.person.mutation(api.teams.acceptAssignedTeam, {
+      eventSlug: fixture.eventSlug,
+      teamRosterEntryId: entry._id,
+      expectedEntryVersion: entry.version,
+      currentTeamId: created.teamId,
+      expectedCurrentTeamVersion: current.version,
+      clientOperationId: "team-roster-accept-choice",
+    });
+    expect(accepted.status).toBe("waiting_for_lead");
+    expect(
+      await participant.person.mutation(api.teams.acceptAssignedTeam, {
+        eventSlug: fixture.eventSlug,
+        teamRosterEntryId: entry._id,
+        expectedEntryVersion: entry.version,
+        currentTeamId: created.teamId,
+        expectedCurrentTeamVersion: current.version,
+        clientOperationId: "team-roster-accept-choice",
+      }),
+    ).toEqual(accepted);
+    expect(
+      await participant.person.query(api.teams.current, { eventSlug: fixture.eventSlug }),
+    ).toBeNull();
+
+    const lead = await provisionParticipant(backend, fixture, {
+      email: "lead2@gmail.com",
+      googleSubject: "team-roster-choice-lead-subject",
+    });
+    const leadTeam = await lead.person.query(api.teams.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    const participantTeam = await participant.person.query(api.teams.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(leadTeam?.name).toBe("Alpha");
+    expect(participantTeam?.id).toBe(leadTeam?.id);
+  }, 30_000);
+
+  test("keeps a team lead in place until leadership is transferred", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedEvent(backend);
+    const importer = await seedImporter(backend, fixture);
+    const current = await fillTeam(backend, fixture, "Current Team", 2);
+    await importRows(importer, fixture, {
+      sourceName: "Lead choice",
+      clientOperationId: "team-roster-import-lead-choice",
+      rows: [
+        {
+          rowNumber: 2,
+          identity: "imported-lead@gmail.com",
+          displayName: "Imported Lead",
+          teamName: "Imported Team",
+          role: "lead",
+        },
+        {
+          rowNumber: 3,
+          identity: current.leadEmail,
+          displayName: "Current Lead",
+          teamName: "Imported Team",
+          role: "member",
+        },
+      ],
+    });
+    await drainScheduler(backend);
+
+    const me = await current.lead.person.query(api.participants.me, {
+      eventSlug: fixture.eventSlug,
+    });
+    const assignment = me?.pendingTeam;
+    const currentTeam = await current.lead.person.query(api.teams.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    if (!assignment || !currentTeam) {
+      throw new Error("The team lead should have both a current and imported team.");
+    }
+
+    await expect(
+      current.lead.person.mutation(api.teams.acceptAssignedTeam, {
+        eventSlug: fixture.eventSlug,
+        teamRosterEntryId: assignment.id,
+        expectedEntryVersion: assignment.version,
+        currentTeamId: currentTeam.id,
+        expectedCurrentTeamVersion: currentTeam.version,
+        clientOperationId: "team-roster-accept-before-transfer",
+      }),
+    ).rejects.toThrow("Transfer leadership before joining the imported team.");
+    expect(
+      (await current.lead.person.query(api.teams.current, { eventSlug: fixture.eventSlug }))?.id,
+    ).toBe(current.teamId);
+    expect(
+      (await current.lead.person.query(api.participants.me, { eventSlug: fixture.eventSlug }))
+        ?.pendingTeam?.status,
+    ).toBe("choice_required");
+  }, 30_000);
+
+  test("lets a person keep their current team instead of the imported team", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedEvent(backend);
+    const importer = await seedImporter(backend, fixture);
+    const participant = await provisionParticipant(backend, fixture, {
+      email: "keep@gmail.com",
+      googleSubject: "team-roster-keep-subject",
+    });
+    await acceptPolicy(participant.person, fixture, "accept-policy-keep");
+    const currentTeam = await participant.person.mutation(api.teams.create, {
+      eventSlug: fixture.eventSlug,
+      name: "Keepers",
+      clientOperationId: "team-create-keepers",
+    });
+    await importRows(importer, fixture, {
+      sourceName: "Participant choice",
+      clientOperationId: "team-roster-import-keep-choice",
+      rows: [
+        {
+          rowNumber: 2,
+          identity: "imported-lead@gmail.com",
+          displayName: "Imported Lead",
+          teamName: "Imported Team",
+          role: "lead",
+        },
+        {
+          rowNumber: 3,
+          identity: "keep@gmail.com",
+          displayName: "Keep Person",
+          teamName: "Imported Team",
+          role: "member",
+        },
+      ],
+    });
+    await drainScheduler(backend);
+    const me = await participant.person.query(api.participants.me, {
+      eventSlug: fixture.eventSlug,
+    });
+    const assignment = me?.pendingTeam;
+    if (!assignment) throw new Error("The imported assignment should require a choice.");
+
+    await participant.person.mutation(api.participants.declineAssignedTeam, {
+      eventSlug: fixture.eventSlug,
+      teamRosterEntryId: assignment.id,
+      expectedVersion: assignment.version,
+      clientOperationId: "team-roster-keep-current",
+    });
+    const after = await participant.person.query(api.teams.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(after?.id).toBe(currentTeam.teamId);
+    expect(
+      (await participant.person.query(api.participants.me, { eventSlug: fixture.eventSlug }))
+        ?.pendingTeam,
+    ).toBeNull();
+  }, 30_000);
+
+  test("recognizes a participant who is already on the imported team", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedEvent(backend);
+    const importer = await seedImporter(backend, fixture);
+    const existing = await fillTeam(backend, fixture, "Already Correct", 1);
+    const rows = [
+      {
+        rowNumber: 2,
+        identity: existing.leadEmail,
+        displayName: "Existing Lead",
+        teamName: "Already Correct",
+        role: "lead" as const,
+      },
+    ];
+    const preview = await importer.person.query(api.teamRosters.previewImport, {
+      eventSlug: fixture.eventSlug,
+      sourceName: "Already correct",
+      rows,
+      reason: "Verify existing roster",
+    });
+    expect(preview.counts.alreadyAssigned).toBe(1);
+    expect(preview.counts.choiceRequired).toBe(0);
+    await importer.person.mutation(api.teamRosters.confirmImport, {
+      eventSlug: fixture.eventSlug,
+      sourceName: "Already correct",
+      rows,
+      reason: "Verify existing roster",
+      previewChecksum: preview.previewChecksum,
+      clientOperationId: "team-roster-import-already-correct",
+    });
+    await drainScheduler(backend);
+    expect(
+      (await existing.lead.person.query(api.participants.me, { eventSlug: fixture.eventSlug }))
+        ?.pendingTeam,
+    ).toBeNull();
+    const entries = await importer.person.query(api.teamRosters.list, {
+      eventSlug: fixture.eventSlug,
+      paginationOpts: { numItems: 10, cursor: null },
+    });
+    expect(entries.page[0]?.status).toBe("claimed");
   }, 30_000);
 
   test("member waits for lead, then joins when the lead provisions", async () => {
@@ -1001,7 +1199,7 @@ describe("team roster backfill", () => {
     expect(leadTeam?.activeMemberCount).toBe(1);
   }, 30_000);
 
-  test("already-on-a-team rows are skipped as soon as they are imported", async () => {
+  test("already-on-a-team rows require a choice as soon as they are imported", async () => {
     const backend = convexTest(schema, modules);
     backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
     const fixture = await seedEvent(backend);
@@ -1009,7 +1207,7 @@ describe("team roster backfill", () => {
     const busy = await fillTeam(backend, fixture, "Busy", 1);
 
     await importRows(importer, fixture, {
-      sourceName: "Skip busy",
+      sourceName: "Busy participant choice",
       clientOperationId: "team-roster-import-busy-pending",
       drain: false,
       rows: [
@@ -1034,7 +1232,7 @@ describe("team roster backfill", () => {
       paginationOpts: { numItems: 20, cursor: null },
     });
     const busyRow = listed.page.find((entry) => entry.identity === busy.leadEmail);
-    expect(busyRow?.status).toBe("skipped_has_team");
+    expect(busyRow?.status).toBe("choice_required");
   }, 30_000);
 
   test("a second lead for a live team is not silently saved as a member", async () => {
@@ -1136,7 +1334,7 @@ describe("team roster backfill", () => {
         )
         .collect();
       expect(entries.filter((entry) => entry.status === "claimed")).toHaveLength(5);
-      expect(entries.filter((entry) => entry.status === "skipped_has_team")).toHaveLength(0);
+      expect(entries.filter((entry) => entry.status === "choice_required")).toHaveLength(0);
     });
 
     await backend.mutation(internal.teamRosters.applyImport, {
@@ -1440,7 +1638,10 @@ describe("team roster backfill", () => {
       vitHostedDomain: "vitstudent.ac.in",
       displayName: "Dual Identity 24BCI0300",
     });
-    expect(participant.me.pendingTeam).toBeNull();
+    expect(participant.me.pendingTeam).toMatchObject({
+      teamName: "Registration Team",
+      status: "choice_required",
+    });
 
     const statuses = await backend.run(async (ctx) => {
       const entries = await ctx.db
@@ -1449,7 +1650,7 @@ describe("team roster backfill", () => {
         .take(2);
       return entries.map((entry) => entry.status).sort();
     });
-    expect(statuses).toEqual(["claimed", "skipped_has_team"]);
+    expect(statuses).toEqual(["choice_required", "claimed"]);
   }, 30_000);
 
   test("rejects a malformed or future-cohort registration number", async () => {

@@ -13,7 +13,7 @@ import {
 type TeamBackfillOutcome =
   | "still_pending"
   | "identity_conflict"
-  | "skipped_has_team"
+  | "choice_required"
   | "waiting_for_lead"
   | "claimed";
 
@@ -66,11 +66,11 @@ export async function activeTeamsWithName(
  * Places one roster entry's person on their assigned team. The person must
  * already be provisioned; otherwise the entry stays pending. Never moves a
  * person who already has an active team. Policy acceptance is deliberately not
- * required here: assignment is organizer-driven and consent happens on the
- * participant portal screens. The mandatory GitHub contribution step is still
- * required because team access is the boundary it unlocks. Placement failures
- * leave the entry pending instead of throwing, so signup and import apply can
- * commit around a bad row.
+ * required here: assignment is organizer-driven. People who already joined a
+ * different team must choose in the participant portal before they move. The
+ * mandatory GitHub contribution step is still required because team access is
+ * the boundary it unlocks. Placement failures leave the entry pending instead
+ * of throwing, so signup and import apply can commit around a bad row.
  */
 export async function applyTeamRosterEntry(
   ctx: MutationCtx,
@@ -82,6 +82,9 @@ export async function applyTeamRosterEntry(
   },
 ): Promise<TeamBackfillResult> {
   const entry = args.entry;
+  if (entry.status === "choice_required") {
+    return { outcome: "choice_required", claimedCount: 0 };
+  }
   const now = Date.now();
   const resolved = await resolveTeamRosterPerson(ctx, {
     eventId: args.event._id,
@@ -111,11 +114,29 @@ export async function applyTeamRosterEntry(
     )
     .unique();
   if (existingMember) {
+    const existingTeam = await ctx.db.get(existingMember.teamId);
+    if (!existingTeam || existingTeam.eventId !== args.event._id) {
+      throw new Error("The active team membership references an invalid team.");
+    }
+    if (
+      existingTeam.name === entry.teamName &&
+      existingTeam.status !== "withdrawn" &&
+      existingTeam.status !== "disqualified"
+    ) {
+      await ctx.db.patch(entry._id, {
+        status: "claimed",
+        version: entry.version + 1,
+        claimedByMembershipId: membership._id,
+        claimedTeamId: existingTeam._id,
+        claimedAt: now,
+      });
+      return { outcome: "claimed", claimedCount: 1 };
+    }
     await ctx.db.patch(entry._id, {
-      status: "skipped_has_team",
+      status: "choice_required",
       version: entry.version + 1,
     });
-    return { outcome: "skipped_has_team", claimedCount: 0 };
+    return { outcome: "choice_required", claimedCount: 0 };
   }
   const githubStarCompletion = await ctx.db
     .query("githubStarCompletions")
@@ -327,7 +348,7 @@ async function applyFollowingEntries(
  * Finds the one non-terminal roster entry for a person's identities, if any.
  * Import supersede rules keep at most one pending or waiting entry per identity.
  */
-type PendingTeamRosterEntryStatus = "pending" | "waiting_for_lead";
+type PendingTeamRosterEntryStatus = "pending" | "waiting_for_lead" | "choice_required";
 
 type PendingTeamRosterEntry = Omit<
   Doc<"teamRosterEntries">,
@@ -339,7 +360,11 @@ type PendingTeamRosterEntry = Omit<
 function isPendingTeamRosterEntry(
   entry: Doc<"teamRosterEntries">,
 ): entry is PendingTeamRosterEntry {
-  return entry.status === "pending" || entry.status === "waiting_for_lead";
+  return (
+    entry.status === "pending" ||
+    entry.status === "waiting_for_lead" ||
+    entry.status === "choice_required"
+  );
 }
 
 export function rosterIdentitiesForPerson(
@@ -383,6 +408,8 @@ export async function pendingEntryForIdentity(
   if (pending && isPendingTeamRosterEntry(pending)) return pending;
   const waiting = await byStatus("waiting_for_lead");
   if (waiting && isPendingTeamRosterEntry(waiting)) return waiting;
+  const choice = await byStatus("choice_required");
+  if (choice && isPendingTeamRosterEntry(choice)) return choice;
   return null;
 }
 
@@ -488,7 +515,16 @@ export async function pendingTeamAssignees(
         .eq("status", "waiting_for_lead"),
     )
     .take(maximumPendingAssignees);
-  const entries = [...pending, ...waiting]
+  const choices = await ctx.db
+    .query("teamRosterEntries")
+    .withIndex("by_event_team_status", (index) =>
+      index
+        .eq("eventId", args.eventId)
+        .eq("teamName", args.teamName)
+        .eq("status", "choice_required"),
+    )
+    .take(maximumPendingAssignees);
+  const entries = [...pending, ...waiting, ...choices]
     .sort((left, right) => {
       if (left.role !== right.role) return left.role === "lead" ? -1 : 1;
       return left.sourceRowNumber - right.sourceRowNumber;

@@ -1,4 +1,4 @@
-export const outboundCallProtocolVersion = "2026-08-25" as const;
+export const outboundCallProtocolVersion = "outbound-call-v1" as const;
 
 export const outboundCallRequestSignatureContext =
   "code2create.outbound-call.request.v1";

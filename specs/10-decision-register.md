@@ -20,7 +20,7 @@ This file records current decisions only. It does not keep obsolete product path
 | P-012 | Every accepted post-submission team or proposal change creates an immutable version and invalidates stale human-review and AI-admission outputs. |
 | P-013 | Route proposals by current proposal content and reviewer-domain coverage. |
 | P-014 | Git tracked branches remain part of GitHub evidence. Synesthesia music tracks remain part of the music catalog. |
-| P-015 | Proposal intake is free text followed by two required fixed questions and up to two grounded AI questions when useful. |
+| P-015 | Proposal intake is free text followed by two required fixed questions and two required AI-attempted slots. Each AI slot uses a published fallback if it does not settle within 20 seconds or fails validation. |
 | P-016 | The proposal flow remains usable without OpenAI. |
 | P-017 | Live novelty appears only as a non-blocking number above the idea text box. |
 | P-018 | Novelty does not affect submission, admission, review routing, judging, awards, or exports. |

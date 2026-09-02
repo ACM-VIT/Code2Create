@@ -3,12 +3,6 @@ import { Flower } from './FlowerAvatar'
 import { assignFlowerVariants } from './flowerVariants'
 import type { ClusterMember, ClusterTeam } from './TeamCluster'
 
-/**
- * The mobile overlay menu's content for team screens: the team name with one
- * quiet meta line, the roster as an aligned column of blooms and names, then
- * the navigation set large — the classic overlay-nav voice. The overlay
- * itself (scrim, close, theme row) lives in PortalScene.
- */
 export function TeamMenu({
   team,
   members,
@@ -81,6 +75,12 @@ export function TeamMenu({
           className="font-display font-light tracking-[-.01em] text-[22px] text-fg no-underline transition-colors hover:text-rose-light"
         >
           {canManage && editable ? 'manage team' : 'view team'}
+        </Link>
+        <Link
+          to="/more"
+          className="font-display font-light tracking-[-.01em] text-[22px] text-fg no-underline transition-colors hover:text-rose-light"
+        >
+          more
         </Link>
         {onSignOut ? (
           <button

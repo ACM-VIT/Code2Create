@@ -289,7 +289,7 @@ The current release has eight editors:
 
 1. **Participant policy:** the two application deadlines, class-aware profile fields, team bounds, participant notices, fresh-project acknowledgment, and final-submission warning. VIT and external teams stay separate.
 2. **Admission policy:** year-adjusted criteria, minimum human reviews, human decision reasons, and overall participant capacity. The platform owns the model release.
-3. **Intake policy:** the fixed opening, help and answer limits, two required questions, zero-to-two generated-question bound, allowed purposes, blocked wording, and optional reviewed common-idea guidance. The platform owns generation.
+3. **Intake policy:** the fixed opening, help and answer limits, two fixed questions, two generated-slot fallbacks, allowed purposes, blocked wording, and optional reviewed common-idea guidance. The platform owns generation and its 20-second settlement boundary.
 4. **Novelty corpus:** debounce and rate limits, a fixed embedding contract, and a curated set of non-identifying past-project summaries.
 5. **Event phases:** schedule-assigned `introduction`, `ideation`, `build`, `intermediate_update`, and `final_update` display definitions and windows.
 6. **Project checkpoints:** the separate ideation, intermediate-update, and final-update question definitions and grace periods.

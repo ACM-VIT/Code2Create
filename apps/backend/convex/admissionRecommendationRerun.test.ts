@@ -219,7 +219,7 @@ describe("manual admission analysis retry", () => {
       confidence: "medium" as const,
       limitations: ["The analysis uses only the submitted project answers."],
       operationId: `idea-analysis:${rerun.recommendationId}`,
-      agentVersion: "idea-submission-v2",
+      agentVersion: "idea-submission-v1",
       agentModel: "openai/gpt-4.1-mini",
     };
     expect(await backend.mutation(
@@ -327,7 +327,7 @@ describe("manual admission analysis retry", () => {
       confidence: "high",
       limitations: ["Only submitted evidence was considered."],
       operationId: "idea-analysis:prohibited-language",
-      agentVersion: "idea-submission-v2",
+      agentVersion: "idea-submission-v1",
       agentModel: "openai/gpt-4.1-mini",
     })).toBe("accepted");
     const stored = await backend.run((ctx) => ctx.db.get(rerun.recommendationId));
@@ -598,6 +598,7 @@ async function seedFixture(backend: BackendTest) {
       submittedProjectVersionId: projectId,
       admissionPolicyVersionId: admissionPolicyId,
       state: "under_review",
+      decisionStage: "unrecorded",
       experienceBand: "mixed_or_external",
       aiDisposition: "unavailable",
       assignedReviewCount: 0,

@@ -48,10 +48,10 @@ import {
   intakeSequenceComplete,
   loadActiveIntakeAnswers,
   loadCurrentIntakeResponses,
+  nextQuestionOrdinal,
   replaceIntakeQuestionsAfter,
 } from "./lib/intakeQuestions";
 import { ideaQuestionEndToEndDeadlineMs } from "./lib/ideaSubmissionAi";
-import { intakeWorkpool } from "./workpools";
 import { teamClassesMeetPolicy, teamRosterCounts } from "./lib/teamRoster";
 import {
   admissionDecision,
@@ -62,6 +62,20 @@ import {
 } from "./values";
 
 const additionalInformationMaxLength = 4_000;
+const draftNoveltyIndexSpreadMs = 5 * 60_000;
+
+function draftNoveltyIndexDelayMs(
+  draftId: Id<"projectDrafts">,
+  inputFingerprint: string,
+  sourceUpdatedAt: number,
+) {
+  let hash = 2_166_136_261;
+  const key = `${draftId}:${inputFingerprint}:${sourceUpdatedAt}`;
+  for (const character of key) {
+    hash = Math.imul(hash ^ character.charCodeAt(0), 16_777_619);
+  }
+  return (hash >>> 0) % draftNoveltyIndexSpreadMs;
+}
 
 function normalizedAdditionalInformation(value: string) {
   const normalized = value.trim().replace(/\r\n/g, "\n");
@@ -92,6 +106,7 @@ const currentDraftView = v.object({
   stage: projectDraftStage,
   initialIdea: v.optional(v.string()),
   additionalInformation: v.optional(v.string()),
+  adaptiveQuestionDeadlineAt: v.optional(v.number()),
   novelty: v.union(
     v.null(),
     v.object({
@@ -303,6 +318,18 @@ async function participantApplicationForTeam(
   if (application.eventId !== event._id) {
     throw new Error("A participant application belongs to another event.");
   }
+  const terminalDecisionReleased =
+    event.admissionResultsReleasedAt !== undefined &&
+    (application.decisionStage === "recorded" || application.decisionStage === "released") &&
+    application.humanDecision !== undefined &&
+    application.humanDecision !== "needs_information";
+  const visibleState = terminalDecisionReleased
+    ? application.humanDecision === "accept"
+      ? "accepted" as const
+      : application.humanDecision === "waitlist"
+        ? "waitlisted" as const
+        : "declined" as const
+    : application.state;
   const [currentOffer, informationRequest] = await Promise.all([
     application.currentOfferId
       ? ctx.db.get(application.currentOfferId)
@@ -333,14 +360,16 @@ async function participantApplicationForTeam(
     application,
     view: {
       id: application._id,
-      state: application.state,
+      state: visibleState,
       version: application.version,
       contentVersion: application.contentVersion,
       submittedAt: application.submittedAt,
-      ...(application.humanDecision !== undefined
+      ...((application.decisionStage === "released" || terminalDecisionReleased) &&
+      application.humanDecision !== undefined
         ? { humanDecision: application.humanDecision }
         : {}),
-      ...(application.humanReasonCode !== undefined
+      ...((application.decisionStage === "released" || terminalDecisionReleased) &&
+      application.humanReasonCode !== undefined
         ? { humanReasonCode: application.humanReasonCode }
         : {}),
       informationRequest: informationRequest
@@ -396,6 +425,7 @@ export const current = query({
   returns: v.union(
     v.null(),
     v.object({
+      serverNow: v.number(),
       teamId: v.id("teams"),
       teamVersion: v.number(),
       applicationsCloseAt: v.number(),
@@ -446,6 +476,9 @@ export const current = query({
         ...(draft.additionalInformation !== undefined
           ? { additionalInformation: draft.additionalInformation }
           : {}),
+        ...(draft.adaptiveQuestionDeadlineAt !== undefined
+          ? { adaptiveQuestionDeadlineAt: draft.adaptiveQuestionDeadlineAt }
+          : {}),
         novelty,
         noveltySignal:
           draft.initialIdea &&
@@ -479,6 +512,7 @@ export const current = query({
       };
     }
     return {
+      serverNow: Date.now(),
       teamId: team._id,
       teamVersion: team.version,
       applicationsCloseAt: applicationsCloseAtFor(event, membership.participantClass),
@@ -533,6 +567,9 @@ export const submitted = query({
       }),
       applicationsCloseAt: v.number(),
       canEdit: v.boolean(),
+      // The published corpus the revision editor previews against, as the
+      // writing screen has it from `opening`.
+      novelty: v.union(v.null(), participantNoveltyConfiguration),
       application: participantApplicationView,
     }),
   ),
@@ -601,6 +638,7 @@ export const submitted = query({
         ["submitted", "under_review"].includes(
           participantApplication.application.state,
         ),
+      novelty: await participantNoveltyConfig(ctx, event),
       application: participantApplication.view,
     };
   },
@@ -1097,25 +1135,87 @@ async function enqueueIntakeInterpretation(
     enqueuedAt: number;
   },
 ) {
-  await intakeWorkpool.enqueueAction(
-    ctx,
-    internal.intelligence.interpretIdea,
-    { draftId: args.draftId },
-    {
-      retry: false,
-      onComplete: internal.intelligence.intakeGenerationFinished,
-      context: {
-        draftId: args.draftId,
-        draftVersion: args.draftVersion,
-      },
-    },
-  );
+  const deadlineAt = args.enqueuedAt + ideaQuestionEndToEndDeadlineMs;
+  const draft = await ctx.db.get(args.draftId);
+  if (
+    !draft?.initialIdea ||
+    draft.stage !== "follow_up" ||
+    draft.version !== args.draftVersion
+  ) {
+    return;
+  }
+  const [{ normalized }, responses] = await Promise.all([
+    requirePinnedIntakePolicy(ctx, draft),
+    loadCurrentIntakeResponses(ctx, draft._id),
+  ]);
+  const ordinal = nextQuestionOrdinal(responses);
+  if (ordinal === null) return;
+  if (ordinal <= normalized.deterministicFollowUpCount) {
+    await ctx.runMutation(internal.intelligence.beginIntakeInterpretation, {
+      draftId: draft._id,
+      provider: { kind: "available" },
+    });
+    return;
+  }
+  if (ordinal > normalized.maximumFollowUpCount) return;
+  await ctx.db.patch(draft._id, { adaptiveQuestionDeadlineAt: deadlineAt });
+  await ctx.scheduler.runAfter(0, internal.intelligenceActions.interpretIdea, {
+    draftId: args.draftId,
+  });
   await ctx.scheduler.runAfter(
     ideaQuestionEndToEndDeadlineMs,
     internal.intelligence.expireQueuedIntakeInterpretation,
-    args,
+    {
+      draftId: args.draftId,
+      draftVersion: args.draftVersion,
+      deadlineAt,
+    },
   );
 }
+
+export const settleAdaptiveQuestionDeadline = mutation({
+  args: {
+    eventSlug: v.string(),
+    expectedDraftVersion: v.number(),
+    deadlineAt: v.number(),
+  },
+  returns: v.object({
+    state: v.union(
+      v.literal("waiting"),
+      v.literal("settled"),
+      v.literal("stale"),
+    ),
+    serverNow: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const { team } = await currentTeamContext(ctx, args.eventSlug);
+    const draft = await ctx.db
+      .query("projectDrafts")
+      .withIndex("by_team", (index) => index.eq("teamId", team._id))
+      .unique();
+    const now = Date.now();
+    if (
+      !draft?.initialIdea ||
+      draft.stage !== "follow_up" ||
+      draft.version !== args.expectedDraftVersion ||
+      draft.adaptiveQuestionDeadlineAt !== args.deadlineAt
+    ) {
+      return { state: "stale" as const, serverNow: now };
+    }
+    if (now < args.deadlineAt) {
+      return { state: "waiting" as const, serverNow: now };
+    }
+    await ctx.runMutation(
+      internal.intelligence.expireQueuedIntakeInterpretation,
+      {
+        draftId: draft._id,
+        draftVersion: draft.version,
+        deadlineAt: args.deadlineAt,
+      },
+    );
+    return { state: "settled" as const, serverNow: Date.now() };
+  },
+});
 
 async function saveAnswerVersion(
   ctx: MutationCtx,
@@ -1362,11 +1462,6 @@ export const saveInitialIdea = mutation({
       existing?.initialIdea === idea
     ) {
       await deleteWorkingField(ctx, team._id, { kind: "idea" });
-      await ctx.scheduler.runAfter(0, internal.novelty.indexDraftIdea, {
-        draftId: existing._id,
-        inputFingerprint: noveltyInputFingerprint(idea),
-        sourceUpdatedAt: now,
-      });
       await recordDraftOperation(ctx, {
         eventId: event._id,
         personId: person._id,
@@ -1429,6 +1524,7 @@ export const saveInitialIdea = mutation({
         noveltyReflectionPrompt: undefined,
         noveltyPreviewRequestId: undefined,
         noveltyEvaluatedAt: undefined,
+        adaptiveQuestionDeadlineAt: undefined,
         version: draftVersion,
         lastEditedByMembershipId: membership._id,
         updatedAt: now,
@@ -1486,11 +1582,16 @@ export const saveInitialIdea = mutation({
       await enqueueIntakeInterpretation(ctx, { draftId, draftVersion, enqueuedAt: now });
     }
 
-    await ctx.scheduler.runAfter(0, internal.novelty.indexDraftIdea, {
-      draftId,
-      inputFingerprint: noveltyInputFingerprint(idea),
-      sourceUpdatedAt: now,
-    });
+    const inputFingerprint = noveltyInputFingerprint(idea);
+    await ctx.scheduler.runAfter(
+      draftNoveltyIndexDelayMs(draftId, inputFingerprint, now),
+      internal.novelty.indexDraftIdea,
+      {
+        draftId,
+        inputFingerprint,
+        sourceUpdatedAt: now,
+      },
+    );
 
     await recordDraftOperation(ctx, {
       eventId: event._id,
@@ -1629,6 +1730,7 @@ export const respondToFollowUp = mutation({
     }
     await ctx.db.patch(draft._id, {
       stage: needsAnotherInterpretation ? "follow_up" : "review",
+      adaptiveQuestionDeadlineAt: undefined,
       version: draftVersion,
       lastEditedByMembershipId: membership._id,
       updatedAt: now,
@@ -1754,6 +1856,7 @@ export const reviseFollowUp = mutation({
     const draftVersion = draft.version + 1;
     await ctx.db.patch(draft._id, {
       stage: needsAnotherInterpretation ? "follow_up" : "review",
+      adaptiveQuestionDeadlineAt: undefined,
       version: draftVersion,
       lastEditedByMembershipId: membership._id,
       updatedAt: now,
@@ -2655,6 +2758,7 @@ export const finalizeSubmission = internalMutation({
       submittedProjectVersionId: projectVersionId,
       admissionPolicyVersionId: admissionPolicy._id,
       state: "submitted",
+      decisionStage: "unrecorded",
       experienceBand: submissionExperienceBand(attempt),
       ...(admissionConfiguration.model ? {} : { aiDisposition: "unavailable" }),
       assignedReviewCount: 0,
@@ -2684,11 +2788,12 @@ export const finalizeSubmission = internalMutation({
     });
     await ctx.db.patch(draft._id, {
       stage: "submitted",
+      adaptiveQuestionDeadlineAt: undefined,
       version: draft.version + 1,
       updatedAt: now,
     });
-    await ctx.scheduler.runAfter(0, internal.novelty.indexDraftIdea, {
-      draftId: draft._id,
+    await ctx.scheduler.runAfter(0, internal.novelty.indexSubmittedProjectIdea, {
+      projectVersionId,
       inputFingerprint: noveltyInputFingerprint(draft.initialIdea),
       sourceUpdatedAt: now,
     });

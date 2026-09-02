@@ -462,6 +462,7 @@ describe("score governance pagination", () => {
         submittedProjectVersionId: fixture.projectVersionId,
         admissionPolicyVersionId: fixture.admissionPolicyVersionId,
         state: "confirmed",
+        decisionStage: "released",
         experienceBand: "mixed_or_external",
         assignedReviewCount: 0,
         completedReviewCount: 0,
@@ -494,6 +495,7 @@ describe("score governance pagination", () => {
       },
       applicationsCloseAt: expect.any(Number),
       canEdit: false,
+      novelty: null,
       application: {
         id: applicationId,
         state: "confirmed",

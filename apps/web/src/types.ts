@@ -31,4 +31,7 @@ export type SubmissionPreview = NonNullable<
   FunctionReturnType<typeof api.intake.submissionPreview>
 >
 
+export type SupportCaseSummary = FunctionReturnType<typeof api.support.mine>[number]
+export type SupportCaseDetail = NonNullable<FunctionReturnType<typeof api.support.detail>>
+
 export type ParticipantClass = 'vit_student' | 'external_participant'

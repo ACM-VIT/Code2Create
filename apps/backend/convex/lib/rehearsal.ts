@@ -3,7 +3,7 @@ import type {
   RehearsalWorkstream,
 } from "../values";
 
-export const releaseRehearsalTemplateVersion = "code2create-7.0-release-5";
+export const releaseRehearsalTemplateVersion = "code2create-7.0-release-v1";
 
 export type RehearsalTemplateScenario = {
   stableKey: string;
@@ -281,7 +281,7 @@ export const releaseRehearsalTemplate = [
     36,
     "intake_admissions",
     "Year-adjusted admission fixtures are compared",
-    "Each recommendation uses its published experience band and neither AI result can publish a decision.",
+    "Each recommendation uses its published experience band and neither AI result can record or release a decision.",
     "Inspect the policy/source versions and route any malformed analysis to human-only review.",
   ),
   scenario(

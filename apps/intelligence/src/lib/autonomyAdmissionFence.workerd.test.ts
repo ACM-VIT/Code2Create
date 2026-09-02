@@ -26,7 +26,7 @@ let persistencePath = '';
 
 function autonomyInput(runId: string, eventSlug = 'code2create-7') {
 	return {
-		protocolVersion: '2026-08-13',
+		protocolVersion: 'operations-intelligence-v1',
 		trigger: 'manual',
 		runId,
 		eventSlug,
@@ -249,7 +249,7 @@ describe('durable autonomy admission fence', () => {
 		await request('/configure?mode=accept', runId);
 		for (let index = 0; index < 65; index += 1) {
 			const result = v.parse(stateOnlySchema, await json(await request('/continue', runId, {
-				protocolVersion: '2026-08-13',
+				protocolVersion: 'operations-intelligence-v1',
 				runId,
 				operationId: `continue:atomic:${index}`,
 				priorSubmissionId: `submission:atomic:${index}`,
@@ -290,7 +290,7 @@ describe('durable autonomy admission fence', () => {
 		});
 		expect(await debug(runId)).toMatchObject({ dispatches: 1, pending: 1 });
 		expect(await json(await request('/revoke', runId, {
-			protocolVersion: '2026-08-13',
+			protocolVersion: 'operations-intelligence-v1',
 			runId,
 			reason: 'kill_switch',
 			operationId: 'abort:run-revoked-cold-alarm',
@@ -353,7 +353,7 @@ describe('durable autonomy admission fence', () => {
 			await new Promise((resolve) => setTimeout(resolve, 10));
 		}
 		const abort = await json(await request('/revoke', runId, {
-			protocolVersion: '2026-08-13',
+			protocolVersion: 'operations-intelligence-v1',
 			runId,
 			reason: 'policy_superseded',
 			operationId: 'abort:run-active-race',
@@ -381,7 +381,7 @@ describe('durable autonomy admission fence', () => {
 			await new Promise((resolve) => setTimeout(resolve, 10));
 		}
 		expect(await json(await request('/revoke', runId, {
-			protocolVersion: '2026-08-13',
+			protocolVersion: 'operations-intelligence-v1',
 			runId,
 			reason: 'owner_revoked',
 			operationId: 'abort:run-revoke-before-dispatch',
@@ -410,7 +410,7 @@ describe('durable autonomy admission fence', () => {
 			await new Promise((resolve) => setTimeout(resolve, 10));
 		}
 		expect(await json(await request('/revoke', runId, {
-			protocolVersion: '2026-08-13',
+			protocolVersion: 'operations-intelligence-v1',
 			runId,
 			reason: 'kill_switch',
 			operationId: 'abort:run-alarm-active-race',
@@ -431,7 +431,7 @@ describe('durable autonomy admission fence', () => {
 		await request('/configure?mode=accept', runId);
 		for (let index = 0; index < 40; index += 1) {
 			const result = v.parse(stateOnlySchema, await json(await request('/continue', runId, {
-				protocolVersion: '2026-08-13',
+				protocolVersion: 'operations-intelligence-v1',
 				runId,
 				operationId: `continue:${index}`,
 				priorSubmissionId: `submission:${index}`,
@@ -441,7 +441,7 @@ describe('durable autonomy admission fence', () => {
 		}
 		expect(await debug(runId)).toMatchObject({ pending: 0, settled: 40 });
 		expect(await json(await request('/revoke', runId, {
-			protocolVersion: '2026-08-13',
+			protocolVersion: 'operations-intelligence-v1',
 			runId,
 			reason: 'event_not_live',
 			operationId: 'abort:run-many-settled',

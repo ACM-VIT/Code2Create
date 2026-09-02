@@ -49,6 +49,7 @@ import {
 import {
   admissionAiDisposition,
   admissionDecision,
+  admissionDecisionStage,
   admissionExperienceBand,
   admissionInformationRequestState,
   admissionOfferState,
@@ -64,6 +65,8 @@ const listItem = v.object({
   id: v.id("applications"),
   teamName: v.string(),
   state: applicationState,
+  decisionStage: admissionDecisionStage,
+  humanDecision: v.optional(admissionDecision),
   experienceBand: v.optional(admissionExperienceBand),
   submittedAt: v.number(),
   aiState: v.optional(admissionRecommendationState),
@@ -99,6 +102,291 @@ export const stageCounts = query({
       counts.set(application.state, (counts.get(application.state) ?? 0) + 1);
     }
     return [...counts.entries()].map(([state, count]) => ({ state, count }));
+  },
+});
+
+const terminalAdmissionDecision = v.union(
+  v.literal("accept"),
+  v.literal("waitlist"),
+  v.literal("decline"),
+);
+
+async function activeSupremeRole(
+  ctx: QueryCtx | MutationCtx,
+  eventId: Id<"events">,
+  personId: Id<"people">,
+) {
+  const role = await ctx.db
+    .query("eventRoles")
+    .withIndex("by_event_person_status", (index) =>
+      index.eq("eventId", eventId).eq("personId", personId).eq("status", "active"),
+    )
+    .unique();
+  return role?.role === "supreme" &&
+    (role.validUntil === undefined || role.validUntil > Date.now())
+    ? role
+    : null;
+}
+
+export const admissionResultsReleaseStatus = query({
+  args: { eventSlug: v.string() },
+  returns: v.object({
+    isSupreme: v.boolean(),
+    serverNow: v.number(),
+    eventVersion: v.number(),
+    applicationsCloseAt: v.number(),
+    releasedAt: v.optional(v.number()),
+    releasedByName: v.optional(v.string()),
+    total: v.number(),
+    unrecorded: v.number(),
+    recorded: v.number(),
+    released: v.number(),
+    accepted: v.number(),
+    waitlisted: v.number(),
+    declined: v.number(),
+    decisions: v.array(v.object({
+      applicationId: v.id("applications"),
+      teamName: v.string(),
+      decision: terminalAdmissionDecision,
+      reasonCode: v.string(),
+      reasonLabel: v.string(),
+      decidedByName: v.string(),
+      decidedAt: v.number(),
+      stage: admissionDecisionStage,
+    })),
+  }),
+  handler: async (ctx, args) => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    await requireEventSubject(ctx, event._id, person._id);
+    const supremeRole = await activeSupremeRole(ctx, event._id, person._id);
+    if (!supremeRole) {
+      return {
+        isSupreme: false,
+        serverNow: Date.now(),
+        eventVersion: event.version,
+        applicationsCloseAt: event.applicationsCloseAt,
+        ...(event.admissionResultsReleasedAt !== undefined
+          ? { releasedAt: event.admissionResultsReleasedAt }
+          : {}),
+        total: 0,
+        unrecorded: 0,
+        recorded: 0,
+        released: 0,
+        accepted: 0,
+        waitlisted: 0,
+        declined: 0,
+        decisions: [],
+      };
+    }
+    const applications = await ctx.db
+      .query("applications")
+      .withIndex("by_event_submitted", (index) => index.eq("eventId", event._id))
+      .collect();
+    const active = applications.filter(
+      (application) => application.state !== "withdrawn" || application.decisionStage === "released",
+    );
+    const decisions = [];
+    let accepted = 0;
+    let waitlisted = 0;
+    let declined = 0;
+    for (const application of active) {
+      if (
+        application.decisionStage === "unrecorded" ||
+        application.humanDecision === undefined ||
+        application.humanDecision === "needs_information" ||
+        application.humanReasonCode === undefined ||
+        application.decidedByPersonId === undefined ||
+        application.decidedAt === undefined
+      ) {
+        continue;
+      }
+      const [team, decider, policy] = await Promise.all([
+        ctx.db.get(application.teamId),
+        ctx.db.get(application.decidedByPersonId),
+        ctx.db.get(application.admissionPolicyVersionId),
+      ]);
+      const reason = policy?.decisionReasonCodes.find(
+        (candidate) => candidate.key === application.humanReasonCode,
+      );
+      if (!team || !decider || !policy || policy.eventId !== event._id || !reason) {
+        throw new Error("A recorded admission decision is incomplete.");
+      }
+      if (application.humanDecision === "accept") accepted += 1;
+      if (application.humanDecision === "waitlist") waitlisted += 1;
+      if (application.humanDecision === "decline") declined += 1;
+      decisions.push({
+        applicationId: application._id,
+        teamName: team.name,
+        decision: application.humanDecision,
+        reasonCode: application.humanReasonCode,
+        reasonLabel: reason.label,
+        decidedByName: decider.displayName,
+        decidedAt: application.decidedAt,
+        stage: application.decisionStage,
+      });
+    }
+    decisions.sort((left, right) => left.teamName.localeCompare(right.teamName));
+    const releaser = event.admissionResultsReleasedByPersonId
+      ? await ctx.db.get(event.admissionResultsReleasedByPersonId)
+      : null;
+    return {
+      isSupreme: true,
+      serverNow: Date.now(),
+      eventVersion: event.version,
+      applicationsCloseAt: event.applicationsCloseAt,
+      ...(event.admissionResultsReleasedAt !== undefined
+        ? { releasedAt: event.admissionResultsReleasedAt }
+        : {}),
+      ...(releaser ? { releasedByName: releaser.displayName } : {}),
+      total: active.length,
+      unrecorded: active.filter((application) => application.decisionStage === "unrecorded").length,
+      recorded: active.filter((application) => application.decisionStage === "recorded").length,
+      released: active.filter((application) => application.decisionStage === "released").length,
+      accepted,
+      waitlisted,
+      declined,
+      decisions,
+    };
+  },
+});
+
+const admissionResultsReleaseOperationResult = z.object({
+  releasedAt: z.number().int().positive(),
+  applicationCount: z.number().int().positive(),
+}).strict();
+
+export const releaseAdmissionResults = mutation({
+  args: {
+    eventSlug: v.string(),
+    expectedEventVersion: v.number(),
+    reason: v.string(),
+    clientOperationId: v.string(),
+  },
+  returns: v.object({ releasedAt: v.number(), applicationCount: v.number() }),
+  handler: async (ctx, args) => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    const requestFingerprint = operationFingerprint([
+      args.expectedEventVersion,
+      args.reason,
+    ]);
+    const prior = await findOperation(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      clientOperationId: args.clientOperationId,
+      commandName: "admissions.results.release",
+      requestFingerprint,
+    });
+    if (prior) {
+      return storedOperationResult(
+        prior.resultJson,
+        "admission-results release",
+        admissionResultsReleaseOperationResult,
+      );
+    }
+    if (!(await activeSupremeRole(ctx, event._id, person._id))) {
+      throw new ConvexError({
+        code: "SUPREME_ROLE_REQUIRED",
+        message: "Only an active Supreme can release admission results.",
+      });
+    }
+    const grantIds = await requirePermission(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey: "application.decide",
+      scopeType: "event",
+    });
+    if (event.version !== args.expectedEventVersion) {
+      throw new ConvexError({
+        code: "EVENT_CHANGED",
+        message: "Event state changed. Review the release summary again.",
+      });
+    }
+    if (event.admissionResultsReleasedAt !== undefined) {
+      throw new ConvexError({
+        code: "ADMISSION_RESULTS_RELEASED",
+        message: "Admission results have already been released.",
+      });
+    }
+    const now = Date.now();
+    if (now < event.applicationsCloseAt) {
+      throw new ConvexError({
+        code: "APPLICATIONS_STILL_OPEN",
+        message: "Results can be released only after applications close.",
+      });
+    }
+    const communicationsPolicyVersionId = await publishedCommunicationsPolicyId(ctx, event._id);
+    const applications = await ctx.db
+      .query("applications")
+      .withIndex("by_event_submitted", (index) => index.eq("eventId", event._id))
+      .collect();
+    const active = applications.filter((application) => application.state !== "withdrawn");
+    const incomplete = active.find((application) => application.decisionStage !== "recorded");
+    if (incomplete || active.length === 0) {
+      throw new ConvexError({
+        code: "ADMISSION_DECISIONS_INCOMPLETE",
+        message: active.length === 0
+          ? "There are no applications to release."
+          : "Every active application needs a recorded final decision before release.",
+      });
+    }
+    for (const application of active) {
+      if (
+        application.humanDecision === undefined ||
+        application.humanDecision === "needs_information" ||
+        application.humanReasonCode === undefined ||
+        application.decidedByPersonId === undefined ||
+        application.decidedAt === undefined
+      ) {
+        throw new Error("A recorded admission decision is incomplete.");
+      }
+    }
+    const reason = normalizedText(args.reason, "Release reason", 5, 500);
+    await ctx.db.patch(event._id, {
+      admissionResultsReleasedAt: now,
+      admissionResultsReleasedByPersonId: person._id,
+      admissionResultsCommunicationsPolicyId: communicationsPolicyVersionId,
+      version: event.version + 1,
+      updatedAt: now,
+    });
+    await ctx.scheduler.runAfter(0, internal.admissions.finalizeReleasedAdmissionResults, {
+      eventId: event._id,
+      releasedAt: now,
+      releasedByPersonId: person._id,
+      communicationsPolicyVersionId,
+    });
+    const result = { releasedAt: now, applicationCount: active.length };
+    await recordOperation(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      clientOperationId: args.clientOperationId,
+      commandName: "admissions.results.release",
+      requestFingerprint,
+      targetType: "event",
+      targetId: event._id,
+      resultJson: JSON.stringify(result),
+      createdAt: now,
+    });
+    await writeAuditEvent(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      permissionKey: "application.decide",
+      grantIds,
+      scopeType: "event",
+      action: "admission.results_released",
+      targetType: "event",
+      targetId: event._id,
+      previousSummary: JSON.stringify({ admissionResultsReleasedAt: null }),
+      nextSummary: JSON.stringify({
+        admissionResultsReleasedAt: now,
+        applicationCount: active.length,
+        communicationsPolicyVersionId,
+      }),
+      reason,
+    });
+    return result;
   },
 });
 
@@ -186,6 +474,10 @@ export const list = query({
         id: application._id,
         teamName: team.name,
         state: application.state,
+        decisionStage: application.decisionStage,
+        ...(application.humanDecision !== undefined
+          ? { humanDecision: application.humanDecision }
+          : {}),
         ...(profileGrantIds.length > 0
           ? { experienceBand: application.experienceBand }
           : {}),
@@ -426,6 +718,7 @@ export const detail = query({
       application: v.object({
         id: v.id("applications"),
         state: applicationState,
+        decisionStage: admissionDecisionStage,
         experienceBand: v.optional(admissionExperienceBand),
         assignedReviewCount: v.number(),
         completedReviewCount: v.number(),
@@ -747,6 +1040,7 @@ export const detail = query({
       application: {
         id: application._id,
         state: application.state,
+        decisionStage: application.decisionStage,
         ...(canReadProfileContext
           ? { experienceBand: application.experienceBand }
           : {}),
@@ -925,6 +1219,22 @@ function decisionState(decision: Doc<"applications">["humanDecision"]): Doc<"app
   if (decision === "waitlist") return "waitlisted";
   if (decision === "decline") return "declined";
   return "needs_information";
+}
+
+async function publishedCommunicationsPolicyId(
+  ctx: QueryCtx | MutationCtx,
+  eventId: Id<"events">,
+) {
+  const event = await ctx.db.get(eventId);
+  const policyId = event?.publishedCommunicationsPolicyId;
+  const policy = policyId ? await ctx.db.get(policyId) : null;
+  if (!event || !policy || policy.eventId !== eventId || policy.status !== "published") {
+    throw new ConvexError({
+      code: "COMMUNICATIONS_POLICY_UNAVAILABLE",
+      message: "Publish participant email templates before sending participant updates.",
+    });
+  }
+  return policy._id;
 }
 
 export function normalizeInformationQuestions(
@@ -1964,6 +2274,7 @@ async function releaseAdmissionCapacity(
 const admissionDecisionOperationResult = z
   .object({
     state: z.enum([
+      "under_review",
       "needs_information",
       "accepted",
       "waitlisted",
@@ -2005,7 +2316,7 @@ export const decide = mutation({
       eventId: event._id,
       actorPersonId: person._id,
       clientOperationId: args.clientOperationId,
-      commandName: "admissions.decision.publish",
+      commandName: "admissions.decision.record",
       requestFingerprint,
     });
     if (prior) {
@@ -2042,7 +2353,13 @@ export const decide = mutation({
     if (Date.now() < event.applicationsCloseAt) {
       throw new ConvexError({
         code: "APPLICATIONS_STILL_OPEN",
-        message: "Publish admission decisions after the application deadline.",
+        message: "Record admission decisions after the application deadline.",
+      });
+    }
+    if (event.admissionResultsReleasedAt !== undefined) {
+      throw new ConvexError({
+        code: "ADMISSION_RESULTS_RELEASED",
+        message: "Admission results have already been released and cannot be changed.",
       });
     }
     const aiReadGrantIds = await matchingPermissionGrantIds(ctx, {
@@ -2056,13 +2373,13 @@ export const decide = mutation({
     if (application.version !== args.expectedApplicationVersion) {
       throw new ConvexError({
         code: "APPLICATION_CHANGED",
-        message: "The application changed. Review it before publishing a decision.",
+        message: "The application changed. Review it before recording a decision.",
       });
     }
     if (["accepted", "waitlisted", "declined", "withdrawn"].includes(application.state)) {
       throw new ConvexError({
         code: "APPLICATION_DECIDED",
-        message: "This application already has a published terminal decision.",
+        message: "This application already has a released terminal decision.",
       });
     }
     const [project, policy, recommendation, reviews] = await Promise.all([
@@ -2129,7 +2446,7 @@ export const decide = mutation({
     ) {
       throw new ConvexError({
         code: "AI_DISPOSITION_INVALID",
-        message: "Record the unavailable or stale AI state before publishing.",
+        message: "Record the unavailable or stale AI state before saving the decision.",
       });
     }
     const now = Date.now();
@@ -2139,7 +2456,9 @@ export const decide = mutation({
       args.decision,
       args.reasonCode,
     );
-    const state = decisionState(args.decision);
+    const state: "needs_information" | "under_review" =
+      args.decision === "needs_information" ? "needs_information" : "under_review";
+    const decisionStage = args.decision === "needs_information" ? "unrecorded" : "recorded";
     const applicationVersion = application.version + 1;
     const informationRequest = await replaceAdmissionInformationRequest(ctx, {
       event,
@@ -2154,6 +2473,7 @@ export const decide = mutation({
     const informationRequestId = informationRequest.informationRequestId;
     await ctx.db.patch(application._id, {
       state,
+      decisionStage,
       humanDecision: args.decision,
       humanReasonCode: decisionReasonCode,
       aiDisposition: args.aiDisposition,
@@ -2162,39 +2482,29 @@ export const decide = mutation({
       currentInformationRequestId: informationRequestId ?? undefined,
       version: applicationVersion,
     });
-    if (args.decision === "accept") {
-      const team = await ctx.db.get(application.teamId);
-      if (!team || team.lockedProjectVersionId !== project._id) {
-        throw new Error("Locked team context is missing.");
-      }
-      await ctx.db.patch(team._id, {
-        status: "admitted",
-        version: team.version + 1,
-        updatedAt: now,
-      });
-      await ctx.scheduler.runAfter(0, internal.admissions.updateRosterOnboardingStatus, {
+    let notificationDeliveryIds = 0;
+    if (args.decision === "needs_information") {
+      const communicationsPolicyVersionId = await publishedCommunicationsPolicyId(
+        ctx,
+        event._id,
+      );
+      notificationDeliveryIds = await enqueueAdmissionDecisionNotifications(ctx, {
+        eventId: event._id,
         applicationId: application._id,
-        expectedApplicationVersion: applicationVersion,
+        teamId: application.teamId,
         lockedRosterSnapshotId: project.lockedRosterSnapshotId,
-        onboardingStatus: "selected",
-        cursor: null,
+        lockedMemberCount: project.lockedMemberCount,
+        communicationsPolicyVersionId,
+        decision: args.decision,
+        applicationVersion,
+        now,
       });
     }
-    const notificationDeliveryIds = await enqueueAdmissionDecisionNotifications(ctx, {
-      eventId: event._id,
-      applicationId: application._id,
-      teamId: application.teamId,
-      lockedRosterSnapshotId: project.lockedRosterSnapshotId,
-      lockedMemberCount: project.lockedMemberCount,
-      decision: args.decision,
-      applicationVersion,
-      now,
-    });
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
       clientOperationId: args.clientOperationId,
-      commandName: "admissions.decision.publish",
+      commandName: "admissions.decision.record",
       requestFingerprint,
       targetType: "application",
       targetId: application._id,
@@ -2208,12 +2518,15 @@ export const decide = mutation({
       grantIds,
       scopeType: "application",
       scopeId: application._id,
-      action: "admission.human_decision_published",
+      action: args.decision === "needs_information"
+        ? "admission.information_requested"
+        : "admission.human_decision_recorded",
       targetType: "application",
       targetId: application._id,
       previousSummary: JSON.stringify({ state: application.state, version: application.version }),
       nextSummary: JSON.stringify({
         state,
+        decisionStage,
         decision: args.decision,
         reasonCode: decisionReasonCode,
         aiDisposition: args.aiDisposition,
@@ -2222,7 +2535,9 @@ export const decide = mutation({
         notificationDeliveryCount: notificationDeliveryIds,
         version: applicationVersion,
       }),
-      reason: "Published the human admission decision",
+      reason: args.decision === "needs_information"
+        ? "Requested more information before a final decision"
+        : "Recorded the human admission decision for Supreme release",
     });
     return {
       applicationId: application._id,
@@ -2445,6 +2760,7 @@ export async function respondToAdmissionInformationRequest(
   await ctx.db.patch(args.application._id, {
     submittedProjectVersionId: responseProjectVersionId,
     state: "under_review",
+    decisionStage: "unrecorded",
     humanDecision: undefined,
     humanReasonCode: undefined,
     aiDisposition: undefined,
@@ -2799,12 +3115,17 @@ export async function transitionOffer(
         : args.transition === "declined"
           ? "offer_declined"
           : "offer_expired";
+    const communicationsPolicyVersionId = await publishedCommunicationsPolicyId(
+      ctx,
+      args.offer.eventId,
+    );
     await enqueueApplicationNotifications(ctx, {
       eventId: args.offer.eventId,
       applicationId: args.application._id,
       teamId: args.team._id,
       lockedRosterSnapshotId: args.project.lockedRosterSnapshotId,
       lockedMemberCount: args.project.lockedMemberCount,
+      communicationsPolicyVersionId,
       templateKey,
       applicationVersion,
       now: args.now,
@@ -2884,12 +3205,17 @@ export async function createAdmissionOffer(
     onboardingStatus: "offer_pending",
     cursor: null,
   });
+  const communicationsPolicyVersionId = await publishedCommunicationsPolicyId(
+    ctx,
+    args.event._id,
+  );
   await enqueueApplicationNotifications(ctx, {
     eventId: args.event._id,
     applicationId: args.application._id,
     teamId: args.team._id,
     lockedRosterSnapshotId: args.project.lockedRosterSnapshotId,
     lockedMemberCount: args.project.lockedMemberCount,
+    communicationsPolicyVersionId,
     templateKey: "offer",
     applicationVersion,
     now: args.now,
@@ -2910,6 +3236,99 @@ const rosterOnboardingStatus = v.union(
   v.literal("offer_pending"),
   v.literal("accepted"),
 );
+
+export const finalizeReleasedAdmissionResults = internalMutation({
+  args: {
+    eventId: v.id("events"),
+    releasedAt: v.number(),
+    releasedByPersonId: v.id("people"),
+    communicationsPolicyVersionId: v.id("communicationsPolicyVersions"),
+  },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    const event = await ctx.db.get(args.eventId);
+    if (
+      !event ||
+      event.admissionResultsReleasedAt !== args.releasedAt ||
+      event.admissionResultsReleasedByPersonId !== args.releasedByPersonId ||
+      event.admissionResultsCommunicationsPolicyId !== args.communicationsPolicyVersionId
+    ) {
+      return null;
+    }
+    const applications = await ctx.db
+      .query("applications")
+      .withIndex("by_event_decision_stage", (index) =>
+        index.eq("eventId", args.eventId).eq("decisionStage", "recorded"),
+      )
+      .take(25);
+    const now = Date.now();
+    for (const application of applications) {
+      if (application.state === "withdrawn") {
+        await ctx.db.patch(application._id, {
+          decisionStage: "released",
+          releasedByPersonId: args.releasedByPersonId,
+          releasedAt: args.releasedAt,
+          version: application.version + 1,
+        });
+        continue;
+      }
+      const decision = application.humanDecision;
+      if (!decision || decision === "needs_information") {
+        throw new Error("A released admission result has no terminal decision.");
+      }
+      const [project, team] = await Promise.all([
+        ctx.db.get(application.submittedProjectVersionId),
+        ctx.db.get(application.teamId),
+      ]);
+      if (
+        !project ||
+        !team ||
+        project.eventId !== args.eventId ||
+        project.teamId !== team._id ||
+        team.lockedProjectVersionId !== project._id
+      ) {
+        throw new Error("A released admission result has invalid locked team context.");
+      }
+      const applicationVersion = application.version + 1;
+      await ctx.db.patch(application._id, {
+        state: decisionState(decision),
+        decisionStage: "released",
+        releasedByPersonId: args.releasedByPersonId,
+        releasedAt: args.releasedAt,
+        version: applicationVersion,
+      });
+      if (decision === "accept") {
+        await ctx.db.patch(team._id, {
+          status: "admitted",
+          version: team.version + 1,
+          updatedAt: now,
+        });
+        await ctx.scheduler.runAfter(0, internal.admissions.updateRosterOnboardingStatus, {
+          applicationId: application._id,
+          expectedApplicationVersion: applicationVersion,
+          lockedRosterSnapshotId: project.lockedRosterSnapshotId,
+          onboardingStatus: "selected",
+          cursor: null,
+        });
+      }
+      await enqueueAdmissionDecisionNotifications(ctx, {
+        eventId: args.eventId,
+        applicationId: application._id,
+        teamId: application.teamId,
+        lockedRosterSnapshotId: project.lockedRosterSnapshotId,
+        lockedMemberCount: project.lockedMemberCount,
+        communicationsPolicyVersionId: args.communicationsPolicyVersionId,
+        decision,
+        applicationVersion,
+        now,
+      });
+    }
+    if (applications.length === 25) {
+      await ctx.scheduler.runAfter(0, internal.admissions.finalizeReleasedAdmissionResults, args);
+    }
+    return null;
+  },
+});
 
 export const updateRosterOnboardingStatus = internalMutation({
   args: {

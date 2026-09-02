@@ -104,7 +104,7 @@ After the first answer, the portal asks two published questions, one at a time:
 
 Both questions require answers. The first two questions are stored with the intake policy and appear immediately; they do not wait for an AI job.
 
-After both answers are committed, the AI may ask zero, one, or two additional questions. It asks only about material context that is still missing. A generated question must cite the source answer versions used to produce it and include project-specific grounding copied from those answers. If the same question would fit most unrelated projects, the model must stop. If generation is unavailable, invalid, or late, the portal proceeds with the two fixed answers instead of inserting a generic fallback.
+After both answers are committed, the system fills two additional required question slots. It attempts one AI-generated question for each slot. Each generated question must cite the source answer versions used to produce it and include project-specific grounding copied from those answers. If generation is unavailable, invalid, rate-limited, or not settled within 20 seconds from enqueue, that slot uses its published prewritten fallback. The next slot is evaluated only after the team answers the current slot. A late model result cannot replace a visible fallback.
 
 Each question must:
 
@@ -126,7 +126,7 @@ Confirming a changed initial idea invalidates the old question route and starts 
 
 Only the current team lead can make the final submission. The server checks both current leadership and exact-team `application.submit` authority in the accepting transaction. A direct permission grant to a non-lead does not make that member a submitter. The confirmation screen uses the same rule. Presence is advisory: an open or disconnected editor cannot veto submission. If another member is typing, the lead sees a warning that submission uses the committed preview and excludes text that has not advanced into it. Exact draft and team versions provide the race boundary.
 
-When `OPENAI_API_KEY` is configured, the service evaluates the optional generated-question route with the code-owned `gpt-5.6-luna` release. This is a platform capability, not an event-policy switch. The server validates the output, source-answer references, and grounding before publishing a question. The model cannot submit, reject, classify, route, or score the team. Missing configuration, delay, or failure cannot block the proposal.
+When `OPENAI_API_KEY` is configured, the service attempts both generated-question slots with the code-owned `gpt-5.6-luna` release. This is a platform capability, not an event-policy switch. The server validates the output, source-answer references, and grounding before publishing a question. The model cannot submit, reject, classify, route, or score the team. Missing configuration, delay, or failure selects the published fallback for that slot and cannot block the proposal.
 
 The sequence should clarify:
 
@@ -341,7 +341,7 @@ The participant cannot control playback or queue order. A music action cannot ch
 - The server rejects participant team and proposal writes at or after the applicable class deadline.
 - Every proposal save creates or advances an immutable version without deleting history.
 - A revision invalidates stale human and AI admission outputs.
-- The intake always asks two published questions, may add up to two grounded questions, and reaches review without OpenAI.
+- The intake always asks two published fixed questions and two more required questions. Each later slot uses a grounded AI question or its published fallback and reaches review without OpenAI.
 - The novelty feature shows only one number above the idea text box.
 - The novelty feature never blocks save or submission and never enters admission or judging.
 - Proposal routing uses the current proposal and reviewer-domain coverage.

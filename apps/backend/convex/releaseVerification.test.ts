@@ -1,5 +1,6 @@
 import { convexTest, type TestConvex } from "convex-test";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { defaultParticipantEmailTemplates } from "@code2create/domain";
 
 import type { Id } from "./_generated/dataModel.js";
 import type { MutationCtx } from "./_generated/server.js";
@@ -276,8 +277,7 @@ async function seedReleaseFixture(
       discordUrl: "https://discord.gg/code2create",
       discordLabel: "Open Discord",
       notificationProvider: "cloudflare_email",
-      notificationSubject: "Code2Create portal update",
-      notificationIntro: "There is a new update in your Code2Create portal.",
+      emailTemplates: defaultParticipantEmailTemplates(),
     });
     const communicationsPolicyId = await ctx.db.insert("communicationsPolicyVersions", {
       eventId,
@@ -426,6 +426,7 @@ async function seedReleaseFixture(
       submittedProjectVersionId: projectVersionId,
       admissionPolicyVersionId: admissionPolicyId,
       state: "confirmed",
+      decisionStage: "released",
       experienceBand: "mixed_or_external",
       aiDisposition: "unavailable",
       humanDecision: "accept",

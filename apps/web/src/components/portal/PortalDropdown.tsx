@@ -117,7 +117,7 @@ function DropdownItem({
       aria-disabled={option.disabled ?? false}
       tabIndex={active ? 0 : -1}
       className={`relative flex cursor-pointer items-center justify-between gap-3 rounded-btn-sm px-3 py-2 text-[13.5px] outline-none select-none ${
-        option.disabled ? 'cursor-not-allowed opacity-45' : ''
+        option.disabled ? 'cursor-not-allowed opacity-45 motion-safe:hover:animate-shake' : ''
       } ${selected ? 'text-rose-light' : 'text-fg/85'}`}
       {...getItemProps({
         onClick: () => {
@@ -307,7 +307,7 @@ export function PortalSelect({
             >
               <div
                 style={transitionStyles}
-                className="max-h-[var(--dropdown-max-height)] overflow-y-auto rounded-petal-xs border border-petal-edge bg-[image:var(--roster-bg)] p-1 shadow-[0_24px_50px_-18px_var(--shade-2)] backdrop-blur-lg"
+                className="max-h-[var(--dropdown-max-height)] overflow-y-auto rounded-petal-xs glass-menu p-1 font-ui text-fg"
               >
               <FloatingList elementsRef={elementsRef} labelsRef={labelsRef}>
                 <ul ref={listRef} className="relative m-0 list-none p-0">

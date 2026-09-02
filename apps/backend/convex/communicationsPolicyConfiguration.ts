@@ -191,11 +191,8 @@ function describeChanges(
   ) {
     changes.push("Update the accepted-team Discord destination.");
   }
-  if (
-    published.notificationSubject !== draft.notificationSubject ||
-    published.notificationIntro !== draft.notificationIntro
-  ) {
-    changes.push("Update the generic verified-email notification wording.");
+  if (JSON.stringify(published.emailTemplates) !== JSON.stringify(draft.emailTemplates)) {
+    changes.push("Update participant email templates.");
   }
   return changes.length > 0 ? changes : ["No participant-facing changes."];
 }

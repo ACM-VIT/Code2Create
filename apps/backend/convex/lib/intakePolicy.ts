@@ -1,4 +1,5 @@
 import { ConvexError, v } from "convex/values";
+import { ideaIntakeFallbackQuestions } from "@code2create/domain";
 
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
@@ -136,20 +137,7 @@ export const defaultDeterministicIntakePolicy: IntakePolicy = {
     "tradeoff",
     "risk",
   ],
-  fallbackQuestions: [
-    {
-      ordinal: 1,
-      text: "What problem are you solving, and who has it?",
-      purposeKey: "problem",
-      answerLength: "medium",
-    },
-    {
-      ordinal: 2,
-      text: "How will your solution work in practice?",
-      purposeKey: "experience",
-      answerLength: "medium",
-    },
-  ],
+  fallbackQuestions: ideaIntakeFallbackQuestions.map((question) => ({ ...question })),
   blockedTerms: [...requiredBlockedTerms],
   commonIdeaPatterns: [],
   model: { mode: "deterministic" },
@@ -254,12 +242,8 @@ export function normalizeIntakePolicy(input: IntakePolicy): IntakePolicy {
     200,
     2_000,
   );
-  const hasCurrentQuestionBounds =
-    input.minimumFollowUpCount === 2 && input.maximumFollowUpCount === 4;
-  const hasLegacyQuestionBounds =
-    input.minimumFollowUpCount === 2 && input.maximumFollowUpCount === 2;
-  if (!hasCurrentQuestionBounds && !hasLegacyQuestionBounds) {
-    invalidPolicy("The introduction must ask two fixed questions and up to two generated questions.");
+  if (input.minimumFollowUpCount !== 2 || input.maximumFollowUpCount !== 4) {
+    invalidPolicy("The introduction must ask two fixed questions and two generated questions.");
   }
   const deterministicFollowUpCount = wholeNumber(
     input.deterministicFollowUpCount,
@@ -291,15 +275,20 @@ export function normalizeIntakePolicy(input: IntakePolicy): IntakePolicy {
       invalidPolicy(`Blocked wording must include "${required}".`);
     }
   }
-  if (input.fallbackQuestions.length !== deterministicFollowUpCount) {
-    invalidPolicy("The policy needs exactly two fixed questions.");
+  if (input.fallbackQuestions.length > 40) {
+    invalidPolicy("The policy may contain at most forty question variants.");
   }
   const fallbackQuestions = input.fallbackQuestions
     .map((fallback) => ({
-      ordinal: wholeNumber(fallback.ordinal, "Fixed-question ordinal", 1, deterministicFollowUpCount),
+      ordinal: wholeNumber(
+        fallback.ordinal,
+        "Question-fallback ordinal",
+        1,
+        input.maximumFollowUpCount,
+      ),
       text: normalizeQuestion(
         fallback.text,
-        `Fixed question ${fallback.ordinal}`,
+        `Question fallback ${fallback.ordinal}`,
         questionMaxLength,
         blockedTerms,
       ),
@@ -307,11 +296,28 @@ export function normalizeIntakePolicy(input: IntakePolicy): IntakePolicy {
       answerLength: fallback.answerLength,
     }))
     .toSorted((left, right) => left.ordinal - right.ordinal);
-  if (fallbackQuestions.some((fallback, index) => fallback.ordinal !== index + 1)) {
-    invalidPolicy("Fixed-question ordinals must start at one with no gaps.");
+  const variantsByOrdinal = Array.from(
+    { length: input.maximumFollowUpCount },
+    (_, index) => fallbackQuestions.filter((fallback) => fallback.ordinal === index + 1),
+  );
+  const hasCurrentQuestionVariants =
+    input.maximumFollowUpCount === 4 &&
+    variantsByOrdinal[0]?.length === 1 &&
+    variantsByOrdinal[1]?.length === 1 &&
+    variantsByOrdinal[2] !== undefined &&
+    variantsByOrdinal[2].length >= 2 &&
+    variantsByOrdinal[3] !== undefined &&
+    variantsByOrdinal[3].length >= 2;
+  if (!hasCurrentQuestionVariants) {
+    invalidPolicy(
+      "The policy needs one fixed question for ordinals one and two and at least two variants for ordinals three and four.",
+    );
+  }
+  if (new Set(fallbackQuestions.map((fallback) => fallback.text)).size !== fallbackQuestions.length) {
+    invalidPolicy("Question variants must use unique wording.");
   }
   if (fallbackQuestions.some((fallback) => !allowedPurposeKeys.includes(fallback.purposeKey))) {
-    invalidPolicy("Every fixed-question purpose must be allowed by the question policy.");
+    invalidPolicy("Every question-fallback purpose must be allowed by the question policy.");
   }
   const commonIdeaPatterns = input.commonIdeaPatterns.map((pattern) => ({
     stableKey: normalizeStableKey(pattern.stableKey, "Idea-pattern key"),
@@ -517,9 +523,29 @@ export async function publishIntakePolicy(
   return { policyVersionId: draft._id, policyVersion: draft.version };
 }
 
-export function fixedQuestionForOrdinal(policy: IntakePolicy, ordinal: number) {
-  const fallback = policy.fallbackQuestions.find((entry) => entry.ordinal === ordinal);
-  if (!fallback) throw new Error(`The intake policy has no fixed question for ordinal ${ordinal}.`);
+export function fixedQuestionForOrdinal(
+  policy: IntakePolicy,
+  ordinal: number,
+  selectionKey?: string,
+) {
+  const policyVariants = policy.fallbackQuestions.filter(
+    (entry) => entry.ordinal === ordinal,
+  );
+  const variants = policyVariants.length > 0
+    ? policyVariants
+    : defaultDeterministicIntakePolicy.fallbackQuestions.filter(
+        (entry) => entry.ordinal === ordinal,
+      );
+  const variantIndex = selectionKey === undefined
+    ? 0
+    : Number.parseInt(
+        fingerprintText(`${selectionKey}:question-${ordinal}`).slice(0, 8),
+        16,
+      ) % variants.length;
+  const fallback = variants[variantIndex];
+  if (!fallback) {
+    throw new Error(`The intake policy has no question fallback for ordinal ${ordinal}.`);
+  }
   return fallback;
 }
 

@@ -40,14 +40,27 @@ PostgreSQL tier, connection limit, and provider budgets only after the checked-i
 - Log Analytics: `log-c2c-production`, with all PostgreSQL diagnostic logs and
   metrics retained for 30 days;
 - PostgreSQL: `pg-c2c-prod-b88416`, PostgreSQL 17, private General Purpose
-  `Standard_D4ds_v5`, 128 GiB Premium storage with auto-grow, 35-day backups,
+  `Standard_D8ds_v5`, 128 GiB Premium storage with auto-grow, 35-day backups,
   geo-redundant backup, zone-redundant high availability, and the
   `code2create_production` Convex database; and
-- proposed application VM: `vm-c2c-production-app`, `Standard_D8as_v5`.
+- application VM: `vm-c2c-production-app`, `Standard_D32as_v5`.
 
-The VM size is the proposed capacity-test shape, not an assertion that it has
-passed. Resize it before opening applications if the checked-in 3,000-client run
-does not leave the required headroom.
+The VM was resized from `Standard_D8as_v5` after the authenticated subscription
+rehearsal showed that eight vCPUs did not leave enough headroom. The 16-vCPU
+shape passed 3,000 idle authenticated subscriptions, but saturated during the
+750-team intake burst while PostgreSQL retained headroom. The 32-vCPU shape is
+still subject to the complete checked-in release gate; its presence here is not
+an assertion that every workload has passed.
+
+The backend write ceiling is 16 MiB/s. Convex's self-hosted 4 MiB/s default is
+too low for this schema's event bootstrap and novelty-corpus publication. Keep
+the configured ceiling in the production runtime and prove it again in the
+isolated 3,000-client rehearsal before every infrastructure-size change.
+
+The backend container has a 65,536 soft and hard `nofile` limit. Docker's
+1,024-file default leaves only about 992 descriptors for realtime clients and
+causes a hard connection cliff before the database or VM is saturated. Keep the
+limit in both the production Compose service and the isolated rehearsal runner.
 
 The Convex backend stores durable database state in PostgreSQL and file/module
 state in these private R2 buckets:
@@ -73,6 +86,20 @@ it as `convex-admin-key`, then run `configure-convex-environment.sh` followed by
 explicitly. Environment configuration grants one bootstrap email permission to
 create the event; it does not create the event or open either application
 window.
+
+The disposable production-shaped capacity deployment uses separate credentials,
+an exact `load-` event slug, and its own database. Run
+`configure-load-rehearsal-environment.sh` and `deploy-load-rehearsal.sh` for that
+deployment. These scripts select only the load origin and use the load-specific
+intelligence secrets from Key Vault.
+
+The D32 backend admits 512 concurrent queries, 256 mutations, and 100 Node or V8
+actions. The intake workpool uses at most 32 Node actions at a time. Draft
+embedding uses the separate V8 action pool, so background novelty indexing
+cannot take the participant-facing question slots. These limits are accepted
+only after the 3,000-client subscription and idea-round write gates pass against
+the production VM and database shape; changing one requires rerunning both
+gates before restarting the live container.
 
 Only ports 80 and 443 accept inbound traffic, and only from Cloudflare's
 published IPv4 proxy ranges. SSH is not an operational path; use Azure Run
@@ -150,8 +177,9 @@ headroom. A full 1,500-team save burst may drain gradually; it must not launch
 3. Run type checks, idea-round suites, the authenticated capacity profile, and
    one real provider smoke test.
 4. Deploy the exact tested backend build before the participant Worker build.
-5. Verify auth, profile, team, idea, fixed questions, optional generated
-   question, novelty, final confirmation, revision, and organizer review.
+5. Verify auth, profile, team, idea, both fixed questions, both
+   generated-or-fallback question slots, novelty, final confirmation, revision,
+   and organizer review.
 6. Open applications only after operations health shows no stale or failed
    release gate.
 

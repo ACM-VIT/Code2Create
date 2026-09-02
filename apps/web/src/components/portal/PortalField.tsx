@@ -89,10 +89,16 @@ export function PortalCheckRow({
   )
 }
 
-export function PortalError({ message }: { message: string | null }) {
-  if (!message) return null
+export function PortalError({
+  message,
+  reserve = false,
+}: {
+  message: string | null
+  reserve?: boolean
+}) {
+  if (!message && !reserve) return null
   return (
-    <p role="alert" className="mt-3 text-[12.5px] text-rose-light">
+    <p role="alert" className={`mt-3 text-[12.5px] text-rose-light ${reserve ? 'min-h-[1lh]' : ''}`}>
       {message}
     </p>
   )

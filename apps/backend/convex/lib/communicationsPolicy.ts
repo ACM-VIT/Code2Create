@@ -1,4 +1,8 @@
 import { ConvexError, v } from "convex/values";
+import {
+  participantEmailTemplateKeys,
+  type ParticipantEmailTemplateKey,
+} from "@code2create/domain";
 
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
@@ -14,6 +18,23 @@ export const communicationsNextStepInput = v.object({
   dueAt: v.optional(v.number()),
 });
 
+export const communicationsEmailTemplateInput = v.object({
+  templateKey: v.union(
+    v.literal("accept"),
+    v.literal("waitlist"),
+    v.literal("decline"),
+    v.literal("needs_information"),
+    v.literal("offer"),
+    v.literal("offer_confirmed"),
+    v.literal("offer_declined"),
+    v.literal("offer_expired"),
+  ),
+  subject: v.string(),
+  text: v.string(),
+  html: v.string(),
+  assetBundleId: v.optional(v.id("communicationsEmailAssetBundles")),
+});
+
 export const communicationsPolicyInput = v.object({
   venueName: v.string(),
   venueAddress: v.optional(v.string()),
@@ -24,8 +45,7 @@ export const communicationsPolicyInput = v.object({
   discordUrl: v.string(),
   discordLabel: v.string(),
   notificationProvider: v.literal("cloudflare_email"),
-  notificationSubject: v.string(),
-  notificationIntro: v.string(),
+  emailTemplates: v.array(communicationsEmailTemplateInput),
 });
 
 export type CommunicationsNextStep = {
@@ -46,17 +66,21 @@ export type CommunicationsPolicy = {
   discordUrl: string;
   discordLabel: string;
   notificationProvider: "cloudflare_email";
-  notificationSubject: string;
-  notificationIntro: string;
+  emailTemplates: Array<{
+    templateKey: ParticipantEmailTemplateKey;
+    subject: string;
+    text: string;
+    html: string;
+    assetBundleId?: Id<"communicationsEmailAssetBundles">;
+  }>;
 };
 
-const outcomeTerms = [
-  "accepted",
-  "declined",
-  "offer",
-  "selected",
-  "waitlist",
-] as const;
+const allowedPlaceholders = new Set([
+  "participant_name",
+  "team_name",
+  "event_name",
+  "portal_url",
+]);
 
 function invalidPolicy(message: string): never {
   throw new ConvexError({ code: "INVALID_COMMUNICATIONS_POLICY", message });
@@ -109,13 +133,65 @@ function normalizedDiscordUrl(value: string) {
   return normalized;
 }
 
-function genericNotificationText(value: string, label: string, minimum: number, maximum: number) {
-  const normalized = normalizedLongText(value, label, minimum, maximum);
-  const lower = normalized.toLocaleLowerCase("en");
-  if (outcomeTerms.some((term) => lower.includes(term))) {
-    invalidPolicy(`${label} must remain generic and must not disclose an application outcome.`);
+function validatePlaceholders(value: string, label: string) {
+  for (const match of value.matchAll(/\{\{\s*([^{}]+?)\s*\}\}/gu)) {
+    const placeholder = match[1];
+    if (!placeholder || !allowedPlaceholders.has(placeholder)) {
+      invalidPolicy(`${label} contains an unsupported placeholder: {{${placeholder ?? ""}}}.`);
+    }
   }
+}
+
+function normalizedEmailHtml(value: string, label: string) {
+  const normalized = normalizedLongText(value, label, 20, 250_000);
+  if (
+    /<(?:script|iframe|object|embed|form|base|meta)\b/iu.test(normalized) ||
+    /\son[a-z]+\s*=/iu.test(normalized) ||
+    /(?:href|src)\s*=\s*["']?\s*(?:javascript|data\s*:\s*text\/html)/iu.test(normalized)
+  ) {
+    invalidPolicy(`${label} contains executable or unsafe HTML.`);
+  }
+  validatePlaceholders(normalized, label);
   return normalized;
+}
+
+function normalizedEmailTemplates(input: CommunicationsPolicy["emailTemplates"]) {
+  if (input.length !== participantEmailTemplateKeys.length) {
+    invalidPolicy("Configure exactly one template for every participant email type.");
+  }
+  const seen = new Set<ParticipantEmailTemplateKey>();
+  return input.map((template) => {
+    if (seen.has(template.templateKey)) {
+      invalidPolicy(`The ${template.templateKey} email template is duplicated.`);
+    }
+    seen.add(template.templateKey);
+    const subject = normalizedLongText(
+      template.subject,
+      `${template.templateKey} email subject`,
+      3,
+      160,
+    );
+    if (/[\r\n]/u.test(subject)) {
+      invalidPolicy(`${template.templateKey} email subject must stay on one line.`);
+    }
+    const text = normalizedLongText(
+      template.text,
+      `${template.templateKey} email text`,
+      10,
+      20_000,
+    );
+    validatePlaceholders(subject, `${template.templateKey} email subject`);
+    validatePlaceholders(text, `${template.templateKey} email text`);
+    return {
+      templateKey: template.templateKey,
+      subject,
+      text,
+      html: normalizedEmailHtml(template.html, `${template.templateKey} email HTML`),
+      ...(template.assetBundleId !== undefined
+        ? { assetBundleId: template.assetBundleId }
+        : {}),
+    };
+  });
 }
 
 export function normalizeCommunicationsPolicy(input: CommunicationsPolicy): CommunicationsPolicy {
@@ -168,18 +244,7 @@ export function normalizeCommunicationsPolicy(input: CommunicationsPolicy): Comm
     discordUrl: normalizedDiscordUrl(input.discordUrl),
     discordLabel: normalizedText(input.discordLabel, "Discord label", 2, 60),
     notificationProvider: "cloudflare_email",
-    notificationSubject: genericNotificationText(
-      input.notificationSubject,
-      "Notification subject",
-      5,
-      120,
-    ),
-    notificationIntro: genericNotificationText(
-      input.notificationIntro,
-      "Notification introduction",
-      10,
-      300,
-    ),
+    emailTemplates: normalizedEmailTemplates(input.emailTemplates),
   };
 }
 
@@ -206,9 +271,30 @@ export function communicationsPolicyFromDocument(
     discordUrl: policy.discordUrl,
     discordLabel: policy.discordLabel,
     notificationProvider: policy.notificationProvider,
-    notificationSubject: policy.notificationSubject,
-    notificationIntro: policy.notificationIntro,
+    emailTemplates: policy.emailTemplates.map((template) => ({
+      templateKey: template.templateKey,
+      subject: template.subject,
+      text: template.text,
+      html: template.html,
+      ...(template.assetBundleId !== undefined
+        ? { assetBundleId: template.assetBundleId }
+        : {}),
+    })),
   };
+}
+
+async function assertEmailAssetBundles(
+  ctx: ReadCtx,
+  eventId: Id<"events">,
+  policy: CommunicationsPolicy,
+) {
+  await Promise.all(policy.emailTemplates.map(async (template) => {
+    if (template.assetBundleId === undefined) return;
+    const bundle = await ctx.db.get(template.assetBundleId);
+    if (!bundle || bundle.eventId !== eventId || bundle.templateKey !== template.templateKey) {
+      invalidPolicy(`The ${template.templateKey} email asset bundle is not valid for this event.`);
+    }
+  }));
 }
 
 export async function loadPublishedCommunicationsPolicy(
@@ -224,6 +310,7 @@ export async function loadPublishedCommunicationsPolicy(
     });
   }
   const normalized = normalizeCommunicationsPolicy(communicationsPolicyFromDocument(policy));
+  await assertEmailAssetBundles(ctx, event._id, normalized);
   if (communicationsPolicyChecksum(normalized) !== policy.checksum) {
     throw new Error("The published communications-policy checksum is invalid.");
   }
@@ -256,6 +343,7 @@ export async function saveCommunicationsPolicyDraft(
 ) {
   const normalized = normalizeCommunicationsPolicy(args.policy);
   assertEventWindow(args.event, normalized);
+  await assertEmailAssetBundles(ctx, args.event._id, normalized);
   const checksum = communicationsPolicyChecksum(normalized);
   const currentDraft = await ctx.db
     .query("communicationsPolicyVersions")
@@ -329,6 +417,7 @@ export async function publishCommunicationsPolicy(
   }
   const normalized = normalizeCommunicationsPolicy(communicationsPolicyFromDocument(draft));
   assertEventWindow(args.event, normalized);
+  await assertEmailAssetBundles(ctx, args.event._id, normalized);
   if (communicationsPolicyChecksum(normalized) !== draft.checksum) {
     throw new Error("The communications-policy draft checksum does not match its content.");
   }

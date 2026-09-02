@@ -675,7 +675,6 @@ export const indexDraftIdea = internalAction({
     sourceUpdatedAt: v.number(),
     attempt: v.optional(v.number()),
     deduplicationReserved: v.optional(v.boolean()),
-    providerCapacityReserved: v.optional(v.boolean()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -694,30 +693,12 @@ export const indexDraftIdea = internalAction({
       });
       if (!duplicate.ok) return null;
     }
-    if (!args.providerCapacityReserved) {
-      const capacity = await noveltyRateLimiter.limit(ctx, "backgroundIndexGlobal", {
-        config: backgroundNoveltyIndexRateLimit(
-          process.env.NOVELTY_INDEX_REQUESTS_PER_MINUTE,
-        ),
-        reserve: true,
-      });
-      if (capacity.retryAfter !== undefined) {
-        await ctx.scheduler.runAfter(
-          capacity.retryAfter,
-          internal.novelty.indexDraftIdea,
-          {
-            draftId: args.draftId,
-            inputFingerprint: args.inputFingerprint,
-            sourceUpdatedAt: args.sourceUpdatedAt,
-            ...(args.attempt !== undefined ? { attempt: args.attempt } : {}),
-            deduplicationReserved: true,
-            ...(capacity.ok ? { providerCapacityReserved: true } : {}),
-          },
-        );
-        return null;
-      }
-      if (!capacity.ok) return null;
-    }
+    const capacity = await noveltyRateLimiter.limit(ctx, "backgroundIndexGlobal", {
+      config: backgroundNoveltyIndexRateLimit(
+        process.env.NOVELTY_INDEX_REQUESTS_PER_MINUTE,
+      ),
+    });
+    if (!capacity.ok) return null;
     try {
       const response = await createOpenAiEmbeddings({
         apiKey,

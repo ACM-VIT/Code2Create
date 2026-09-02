@@ -91,7 +91,7 @@ function digest(args: {
 
 function input() {
 	return v.parse(operationsAutonomyDispatchRequestSchema, {
-		protocolVersion: '2026-08-13',
+		protocolVersion: 'operations-intelligence-v1',
 		trigger: 'manual',
 		runId: 'run-evidence',
 		eventSlug: 'code2create-7',

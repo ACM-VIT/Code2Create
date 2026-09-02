@@ -816,12 +816,12 @@ export const applyDecision = mutation({
     const completedReviewCount = reviews.filter(
       (review) => review.applicationContentVersion === application.contentVersion,
     ).length;
-    // Resolve the prior operation before terminal-state checks so retries replay.
+    // Resolve the prior operation before release-state checks so retries replay.
     const prior = await findOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
       clientOperationId: args.clientOperationId,
-      commandName: "admissions.decision.publish",
+      commandName: "admissions.decision.record",
       requestFingerprint: operationFingerprint([
         args.applicationId,
         args.expectedApplicationVersion,
@@ -844,13 +844,13 @@ export const applyDecision = mutation({
       if (Date.now() < event.applicationsCloseAt) {
         return refusal(
           "APPLICATIONS_STILL_OPEN",
-          "Publish admission decisions after the application deadline.",
+          "Record admission decisions after the application deadline.",
         );
       }
       if (["accepted", "waitlisted", "declined", "withdrawn"].includes(application.state)) {
         return refusal(
           "APPLICATION_DECIDED",
-          "This application already has a published terminal decision.",
+          "This application already has a released terminal decision.",
         );
       }
       if (application.version !== args.expectedApplicationVersion) {

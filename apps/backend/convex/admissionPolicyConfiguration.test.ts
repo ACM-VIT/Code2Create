@@ -147,7 +147,7 @@ describe("admission policy configuration", () => {
     });
     expect(published).toEqual({
       version: "admission-v2",
-      modelVersion: "admission-recommendation-v2",
+      modelVersion: "admission-recommendation-v1",
       capacity: 900,
       oldPolicyStatus: "superseded",
       bucketCapacities: [900, 1_000],
@@ -293,7 +293,7 @@ function configuration(
       ? {
           version: "admission-model-v2",
           modelId: "gpt-5-mini",
-          promptVersion: "admission-recommendation-v2",
+          promptVersion: "admission-recommendation-v1",
           schemaVersion: "admission-recommendation-v1",
           evaluationSuiteVersion: "admission-eval-v2",
         }
@@ -477,6 +477,7 @@ async function insertSubmittedApplication(
     submittedProjectVersionId: projectId,
     admissionPolicyVersionId: policyId,
     state: "submitted",
+    decisionStage: "unrecorded",
     experienceBand: "mixed_or_external",
     assignedReviewCount: 0,
     completedReviewCount: 0,

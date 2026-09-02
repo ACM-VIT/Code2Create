@@ -7,6 +7,10 @@ services:
     stop_grace_period: 30s
     stop_signal: SIGINT
     env_file: ${C2C_RUNTIME_ENV_FILE:-.env}
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     ports:
       - "127.0.0.1:3210:3210"
       - "127.0.0.1:3211:3211"

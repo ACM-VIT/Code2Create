@@ -8,6 +8,7 @@ import { TeamMenu } from '../components/portal/TeamMenu'
 import { Petal } from '../components/portal/Petal'
 import { PortalButton } from '../components/portal/PortalButton'
 import { PortalScene } from '../components/portal/PortalScene'
+import { QuietCard } from '../components/portal/QuietCard'
 import { eventSlug } from '../lib/config'
 import type { CurrentTeam, CurrentTeamMember } from '../types'
 
@@ -53,29 +54,6 @@ function Countdown({ deadline }: { deadline: number }) {
   )
 }
 
-function BottomCard({
-  label,
-  children,
-  grow = false,
-}: {
-  label: string
-  children: React.ReactNode
-  grow?: boolean
-}) {
-  return (
-    <div
-      className={`rounded-petal-sm border border-rose-light/45 bg-[image:var(--tile-bg)] px-5 py-4 backdrop-blur-[10px] ${
-        grow ? 'flex-[1.4]' : 'flex-1'
-      }`}
-    >
-      <p className="mb-[5px] text-[10.5px] font-semibold tracking-[.08em] text-fg/50">
-        {label}
-      </p>
-      {children}
-    </div>
-  )
-}
-
 /**
  * Mockup f1: the home stage while the proposal is being written. A live sky,
  * one headline for what's left, and three quiet cards along the bottom.
@@ -99,6 +77,7 @@ export function HomeScreen({
 
   return (
     <PortalScene
+      onSignOut={onSignOut}
       tree="left"
       backdrop={<GpuSky />}
       header={(
@@ -107,7 +86,6 @@ export function HomeScreen({
           members={members}
           editable={teamEditable}
           canManage={team.currentRole === 'lead' && teamEditable}
-          onSignOut={onSignOut}
         />
       )}
       menu={(
@@ -120,8 +98,11 @@ export function HomeScreen({
         />
       )}
     >
-      <div className="flex w-full max-w-[1048px] flex-1 flex-col justify-center pb-40">
-        <div className="max-w-[680px]">
+      {/* The headline and its one action keep to the right, where the sky is
+          clear: the tree's canopy fills the left, and a button set over the
+          blossoms disappears into them. */}
+      <div className="flex w-full max-w-[1048px] flex-1 flex-col items-end justify-center pb-40">
+        <div className="flex max-w-[680px] flex-col items-end text-right">
           <h1 className="mb-8 font-display font-light tracking-[-.01em] text-balance text-5xl leading-none text-shadow-[0_8px_50px_var(--scene-text-glow)] lg:text-7xl">
             {journey.headline}
           </h1>
@@ -132,14 +113,14 @@ export function HomeScreen({
       </div>
 
       <div className="absolute inset-x-5 bottom-8 z-[3] flex flex-col gap-3 sm:flex-row sm:gap-[18px] lg:inset-x-24 lg:bottom-14">
-        <BottomCard label="deadline">
+        <QuietCard label="deadline">
           {intake ? (
             <Countdown deadline={intake.applicationsCloseAt} />
           ) : (
             <p className="m-0 font-display font-light tracking-[-.01em] text-[26px] text-rose-light">·</p>
           )}
-        </BottomCard>
-        <BottomCard label={`journey · ${journey.current + 1} of ${JOURNEY_STAGES}`}>
+        </QuietCard>
+        <QuietCard label={`journey · ${journey.current + 1} of ${JOURNEY_STAGES}`}>
           {/* Each petal gets its stage name, joined by hairlines, so the row
               reads as a path rather than decoration. */}
           <div className="flex items-start pt-1">
@@ -178,8 +159,8 @@ export function HomeScreen({
               )
             })}
           </div>
-        </BottomCard>
-        <BottomCard label="editable until" grow>
+        </QuietCard>
+        <QuietCard label="editable until" grow>
           <p className="m-0 font-ui text-[14.5px] text-fg">
             {intake
               ? new Date(intake.applicationsCloseAt).toLocaleString(undefined, {
@@ -191,7 +172,7 @@ export function HomeScreen({
                 })
               : '—'}
           </p>
-        </BottomCard>
+        </QuietCard>
       </div>
     </PortalScene>
   )

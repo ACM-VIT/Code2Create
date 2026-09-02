@@ -198,6 +198,28 @@ html:has(.intelligence-workspace) { overflow: hidden; }
 .communications-step:first-child { padding-top: 0; border-top: 0; }
 .communications-step legend { margin-bottom: 12px; color: var(--muted); font-size: .72rem; }
 .communications-step .text-button { justify-self: start; }
+.email-template-workspace { display: grid; grid-template-columns: 170px minmax(0, 1fr) minmax(300px, .9fr); gap: 22px; align-items: start; }
+.email-template-rail { display: grid; gap: 6px; position: sticky; top: 18px; }
+.email-template-rail button { display: grid; gap: 3px; padding: 11px 12px; border: 1px solid transparent; border-radius: 10px; background: transparent; color: var(--muted); text-align: left; cursor: pointer; }
+.email-template-rail button:hover { border-color: var(--border); color: var(--text); }
+.email-template-rail button.active { border-color: var(--accent); background: var(--surface); color: var(--text); }
+.email-template-rail button span { font-weight: 700; }
+.email-template-rail button small { font-size: .66rem; color: var(--muted); }
+.email-template-editor { display: grid; gap: 16px; min-width: 0; }
+.email-template-editor .section-heading { align-items: start; }
+.email-placeholder-help { padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font-family: var(--font-mono); font-size: .68rem; }
+.email-text-editor { min-height: 160px; }
+.email-html-editor { min-height: 300px; font-family: var(--font-mono); font-size: .72rem; line-height: 1.55; tab-size: 2; }
+.email-bundle-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.file-button { display: inline-flex; align-items: center; cursor: pointer; }
+.file-button input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.email-template-preview { display: grid; gap: 14px; position: sticky; top: 18px; min-width: 0; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface); }
+.email-template-preview > div { display: grid; gap: 4px; }
+.email-template-preview > div :is(p, strong) { margin: 0; }
+.email-template-preview iframe { width: 100%; min-height: 520px; border: 1px solid var(--border); border-radius: 8px; background: white; }
+.admissions-release-panel { margin-bottom: 26px; }
+.admissions-release-panel .catalog-summary { margin: 0; }
+.admissions-release-panel .table-wrap { max-height: 360px; overflow: auto; }
 .intake-policy-note { margin: 0; font-size: .72rem; }
 .intake-purpose-list { display: flex; flex-wrap: wrap; gap: 9px 18px; }
 .intake-purpose-list label { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: .74rem; }
@@ -2763,6 +2785,9 @@ textarea:focus { border-color: color-mix(in srgb, var(--accent) 55%, var(--borde
 }
 
 @media (max-width: 900px) {
+  .email-template-workspace { grid-template-columns: minmax(0, 1fr); }
+  .email-template-rail { position: static; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .email-template-preview { position: static; }
   .configuration-context {
     display: grid;
     gap: 10px;

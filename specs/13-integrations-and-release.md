@@ -84,7 +84,7 @@ The system instruction states that participant text is untrusted project materia
 
 Each answer-set, pinned-policy, and ordinal tuple has one deduplicated interpretation. The intake Workpool has 32 independent slots. It disables Workpool retry for the provider action. The OpenAI client uses the pinned timeout with `maxRetries: 0`. A version-bound 20-second end-to-end deadline covers both queue wait and provider work. When that deadline expires, the backend records one terminal category and advances through the deterministic no-model path; a late worker cannot reopen the question or leave the participant on a loading screen.
 
-The pinned intake policy supplies the two fixed questions before provider work. Timeout, refusal, incomplete output, invalid schema, grounding rejection, rate limit, or service outage records a non-sensitive failure category and ends the optional generated route. Raw answers and submission remain available.
+The pinned intake policy supplies the two fixed questions before provider work and one published fallback for each later ordinal. Timeout, refusal, incomplete output, invalid schema, grounding rejection, rate limit, or service outage records a non-sensitive failure category and selects that ordinal's fallback. The system still evaluates the second AI slot after the team answers the first generated-or-fallback question.
 
 ### Model and prompt release
 
@@ -97,13 +97,13 @@ A model configuration cannot move to `published` until its evaluation suite pass
 - prompt-injection attempts and fake IDs;
 - claims without evidence;
 - potential repeated, compound, overlong, overly technical, market-proof, scoring, novelty, and “why should you win?” questions;
-- questions that should be answerable immediately in one to three sentences and cases where the model should stop after the first or second follow-up;
+- questions that should be answerable immediately in one to three sentences for each of the two generated slots;
 - common-idea cases that should invite useful differentiation/follow-through without comparison, discouragement, or a novelty verdict;
 - sensitive personal data pasted into a project answer;
 - redaction fixtures for email, phone, registration number, URL credentials, and common secret formats;
 - refusal, truncation, invalid output, timeout, and late-result fixtures.
 
-Assertions cover schema validity, source attribution, grounding, published pattern IDs, question relevance, easy-answer rate, length, and one-question form. They also cover duplicate, prohibited-topic and personal-data rates, the zero-to-two generated bound, no invented evidence, no authoritative selection, and no-model completion. Model or prompt changes publish a new immutable version. They do not rewrite active sessions.
+Assertions cover schema validity, source attribution, grounding, published pattern IDs, question relevance, easy-answer rate, length, and one-question form. They also cover duplicate, prohibited-topic and personal-data rates, the exact two generated-or-fallback slots, no invented evidence, no authoritative selection, and no-model completion. Model or prompt changes publish a new immutable version. They do not rewrite active sessions.
 
 The release suite uses a held-out set separate from prompt examples. Human reviewers label each question against short binary criteria: relevant to the team's text, answerable now without research, one idea, plain language, non-judgmental, and non-repetitive. Candidate and current configurations are compared on the same cases. The publication record stores thresholds and aggregate results. Opted-in production feedback adds new edge cases to a later suite; participant text does not enter an evaluation dataset by default.
 
@@ -824,10 +824,10 @@ Intelligence HMAC rotation uses the autonomy kill switch, pauses manual generati
 
 - Production auth callbacks accept only production origins/schemes.
 - The first intake frame is **Hello.**, followed by **What is your project about?**, with one text box and no form, chat, or PPT UI.
-- Every introduction asks two published fixed questions. When the provider key exists, the platform may add up to two validated questions grounded in current team answers. Provider failure adds no filler question and does not block review. Later checkpoints use their own published fixed-question plan.
+- Every introduction asks two published fixed questions followed by two required AI-attempted slots. Each later slot shows a validated question grounded in current team answers or its published fallback within 20 seconds. Later checkpoints use their own published fixed-question plan.
 - Novelty uses one immutable reviewed corpus, native 1,536-value `text-embedding-3-small` output, and a corpus-filtered vector index. The participant sees only the newest complete result; provider failure, sensitive input, duplicate requests, and stale completion leave submission usable and add nothing to application or judging evidence.
 - OpenAI Responses requests set `store: false`, expose no tools, exclude identity/judging fields, and accept only the strict versioned output schema. The embeddings endpoint has no `store` parameter.
-- A timeout, refusal, invalid output, quota error, or disabled model still lets a team finish and submit; a late result cannot replace the visible question.
+- A timeout, refusal, invalid output, quota error, or disabled model selects the published fallback and still lets a team finish and submit; a late result cannot replace the visible question.
 - A generated question is short, single-purpose, easy to answer, source/configuration-linked, validated before display, and never treated as a participant answer.
 - Event phase is server-assigned. The freshness attestation remains a separate participant fact. The submitted proposal uses participant-written answers, not generated prose.
 - Final submission requires a current explicit preview of the team and proposal. It atomically starts the first immutable application snapshot. Before the applicable class deadline, a valid team change or lead proposal revision appends a new immutable snapshot and invalidates stale human and AI output.

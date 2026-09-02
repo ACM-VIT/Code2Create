@@ -40,7 +40,7 @@ The participant portal is a Vite web application. It provides:
 - VIT-student and external-participant profiles;
 - realtime team formation and leadership transfer;
 - free-text proposal intake;
-- two fixed proposal questions followed by up to two useful AI follow-ups;
+- two fixed proposal questions followed by two useful AI-attempted follow-ups;
 - a non-blocking live novelty number above the idea text box;
 - proposal submission and revision;
 - admission status and information requests;
@@ -56,7 +56,7 @@ The participant portal is a Vite web application. It provides:
 
 One published participant-policy version controls profile fields, team bounds, notices, consent text, and the final-submission warning. VIT students and external participants always form separate teams. Each participant accepts the exact current policy version. A later publication does not rewrite an earlier profile, proposal version, or consent record.
 
-The proposal starts with **What is your project about?** The team writes free text. The server stores that text, then asks two published questions: **What problem are you solving, and who has it?** and **How will your solution work in practice?** Both require answers. Only then may the AI ask zero, one, or two short questions about material context that is still missing. A generated question must be grounded in the team’s answers and specific to that project. A model failure adds no generic filler question and cannot block review. The AI cannot choose participant state, admission state, review state, or judging state.
+The proposal starts with **What is your project about?** The team writes free text. The server stores that text, then asks two published questions: **What problem are you solving, and who has it?** and **How will your solution work in practice?** Both require answers. The system then fills two more required slots. It attempts one short, grounded AI question for each slot. If a slot does not settle within 20 seconds, or generation is unavailable or invalid, the system shows that slot's published fallback question. The team therefore always answers four questions. A late model result cannot replace a visible fallback. The AI cannot choose participant state, admission state, review state, or judging state.
 
 The live novelty feature is separate from the follow-up-question flow. It shows only one directional number from 0 through 100 above the idea text box. It has no label such as familiar or distinct. It shows no prior-project text, theme, or reflection prompt. A stale or failed request cannot block editing or submission. The number is absent from applications, admission analysis, human admission review, reviewer evidence, judging, awards, and exports.
 
@@ -83,7 +83,7 @@ The dashboard shows accepted state and legal next actions. Each protected comman
 1. Each participant signs in with Google and completes the permitted profile fields.
 2. A participant creates or joins one team.
 3. The team maintains exactly one lead. Leadership transfer requires acceptance by the new lead.
-4. The team writes its proposal, answers two fixed questions, and answers up to two generated questions when useful.
+4. The team writes its proposal and answers two fixed questions followed by two AI-attempted questions or their published fallbacks.
 5. The lead previews the active member list and current proposal.
 6. Final submission creates the first immutable team and proposal snapshot.
 7. The team can change membership or leadership, and the lead can revise the proposal, until the deadline for that team's participant class.

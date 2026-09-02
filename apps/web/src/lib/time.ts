@@ -51,3 +51,14 @@ export function queueWaitName(
     ? `Within ${upperMinutes} min`
     : `About ${lowerMinutes}–${upperMinutes} min`
 }
+
+/** How long ago something happened, in the coarse words a participant reads at a glance. */
+export function elapsedName(value: number, now: number) {
+  const minutes = Math.max(0, Math.round((now - value) / 60_000))
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes} min ago`
+  const hours = Math.round(minutes / 60)
+  if (hours < 24) return `${hours} ${hours === 1 ? 'hour' : 'hours'} ago`
+  const days = Math.round(hours / 24)
+  return `${days} ${days === 1 ? 'day' : 'days'} ago`
+}

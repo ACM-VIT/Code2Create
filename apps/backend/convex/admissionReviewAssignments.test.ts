@@ -555,6 +555,7 @@ async function seedAssignmentFixture(backend: BackendTest) {
       submittedProjectVersionId: projectId,
       admissionPolicyVersionId: policyId,
       state: "submitted",
+      decisionStage: "unrecorded",
       experienceBand: "mixed_or_external",
       assignedReviewCount: 0,
       completedReviewCount: 0,

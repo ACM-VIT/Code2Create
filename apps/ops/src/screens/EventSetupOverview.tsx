@@ -135,8 +135,8 @@ export function EventSetupOverview({ tabs }: { tabs: ConfigurationTabsVisibility
           {tabs.showCommunications ? (
             <SetupRow
               detail={communications
-                ? `${communications.publishedPolicy.policy.venueName} · ${communications.publishedPolicy.policy.nextSteps.length} next step${communications.publishedPolicy.policy.nextSteps.length === 1 ? '' : 's'}`
-                : 'Loading accepted-team details…'}
+                ? `${communications.publishedPolicy.policy.venueName} · ${communications.publishedPolicy.policy.emailTemplates.length} email templates`
+                : 'Loading participant communications…'}
               label="Accepted teams"
               state={publishedState(communications, Boolean(communications?.draftPolicy))}
               status={publishedStatus(communications, Boolean(communications?.draftPolicy))}

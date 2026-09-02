@@ -2,19 +2,6 @@ import { Workpool } from "@convex-dev/workpool";
 
 import { components } from "./_generated/api";
 
-export const intakeWorkpool = new Workpool(components.intakeWorkpool, {
-  // Participant question generation is latency-sensitive and independent per
-  // team. Keep enough slots to absorb an application-round burst while the
-  // provider timeout still places a hard upper bound on concurrent work.
-  maxParallelism: 32,
-  retryActionsByDefault: false,
-  defaultRetryBehavior: {
-    maxAttempts: 2,
-    initialBackoffMs: 750,
-    base: 2,
-  },
-});
-
 export const admissionWorkpool = new Workpool(components.admissionWorkpool, {
   // Recommendations are advisory and may trail submission, but the full
   // applicant cohort must drain before human review starts.

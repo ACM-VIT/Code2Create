@@ -7,6 +7,7 @@ import {
   reconcileCommittedField,
   reconcileWorkingCopy,
   shouldRecoverFollowUpDraft,
+  shouldReplaceFollowUpEditorValue,
 } from './intakeCollaboration.ts'
 
 const changedQuestion = {
@@ -37,6 +38,12 @@ test('does not recover a draft when the question did not change', () => {
 
 test('does not create an empty recovered draft', () => {
   assert.equal(shouldRecoverFollowUpDraft({ ...changedQuestion, answer: '   ' }), false)
+})
+
+test('keeps the submitted answer until the server advances the question', () => {
+  assert.equal(shouldReplaceFollowUpEditorValue('question-1', 'question-1'), false)
+  assert.equal(shouldReplaceFollowUpEditorValue('question-1', null), true)
+  assert.equal(shouldReplaceFollowUpEditorValue('question-1', 'question-2'), true)
 })
 
 test('acknowledges a block deletion that reached the collaborative working copy', () => {

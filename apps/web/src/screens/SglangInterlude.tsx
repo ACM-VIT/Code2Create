@@ -1,11 +1,11 @@
 import { api } from '@code2create/backend/api'
 import { useAction } from 'convex/react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { DaybreakToggle } from '../components/portal/DaybreakToggle'
 import { Petals } from '../components/portal/Petals'
 import { PortalButton, PortalTextButton } from '../components/portal/PortalButton'
-import { SignOutCircle } from '../components/portal/SignOutCircle'
+import { releaseBalloons } from '../lib/balloons'
 import { eventSlug } from '../lib/config'
 import { convexErrorCode, readableError } from '../lib/errors'
 import type { GitHubStarConnectionResult, GitHubStarGateState } from '../types'
@@ -19,11 +19,12 @@ type InterludeFailure = {
 export function SglangInterlude({
   state,
   callback,
-  onSignOut,
+  header,
 }: {
   state: GitHubStarGateState
   callback: boolean
-  onSignOut: () => void
+  /** The account badge, the same one every other pre-team screen wears. */
+  header: ReactNode
 }) {
   const beginConnection = useAction(api.githubStarActions.beginConnection)
   const completeConnection = useAction(api.githubStarActions.completeConnection)
@@ -59,9 +60,12 @@ export function SglangInterlude({
     }
     let active = true
     attempt.then(
-      () => {
+      (result) => {
         if (!active) return
         setBusy(null)
+        // A star that already existed completes the gate at the callback,
+        // so the release happens here rather than on the star button.
+        if (result.state === 'completed') releaseBalloons()
         navigate('/', { replace: true, viewTransition: true })
       },
       (reason: unknown) => {
@@ -101,6 +105,7 @@ export function SglangInterlude({
     try {
       await starRepository({ eventSlug })
       setBusy(null)
+      releaseBalloons()
     } catch (reason) {
       setBusy(null)
       setFailure({ code: convexErrorCode(reason), message: readableError(reason) })
@@ -132,7 +137,7 @@ export function SglangInterlude({
         className="absolute top-7 left-6 size-10 drop-shadow-[0_0_14px_var(--logo-glow)] lg:top-9 lg:left-11 lg:size-12"
       />
       <div className="absolute top-7 right-6 z-10 flex items-start gap-2.5 lg:top-9 lg:right-11">
-        <SignOutCircle onSignOut={onSignOut} />
+        {header}
         <DaybreakToggle />
       </div>
       <div className="relative mx-auto flex w-full max-w-[760px] flex-1 flex-col justify-center pt-20 pb-14 text-center">
@@ -163,7 +168,7 @@ export function SglangInterlude({
               rel="noreferrer"
               className="font-semibold text-rose-light underline underline-offset-[3px]"
             >
-              Adarsh Shriwalmath ↗
+              Adarsh Shriwalmath
             </a>{' '}
             went from contributor to maintainer to{' '}
             <strong className="font-semibold text-fg/90">ML Engineer at Hugging Face</strong>.

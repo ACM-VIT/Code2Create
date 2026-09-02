@@ -68,6 +68,24 @@ export const eventPhaseKey = v.union(
 
 export type EventPhaseKey = Infer<typeof eventPhaseKey>;
 
+export const participantAssistantPhase = v.union(
+  v.literal("idea_submission"),
+  v.literal("in_event"),
+);
+
+export type ParticipantAssistantPhase = Infer<typeof participantAssistantPhase>;
+
+export const participantAssistantRequestState = v.union(
+  v.literal("scheduled"),
+  v.literal("running"),
+  v.literal("completed"),
+  v.literal("failed"),
+);
+
+export type ParticipantAssistantRequestState = Infer<
+  typeof participantAssistantRequestState
+>;
+
 export const projectCheckpointKey = v.union(
   v.literal("ideation"),
   v.literal("intermediate_update"),
@@ -358,6 +376,29 @@ export const admissionDecision = v.union(
   v.literal("waitlist"),
   v.literal("decline"),
   v.literal("needs_information"),
+);
+
+export const terminalAdmissionDecision = v.union(
+  v.literal("accept"),
+  v.literal("waitlist"),
+  v.literal("decline"),
+);
+
+export const admissionDecisionStage = v.union(
+  v.literal("unrecorded"),
+  v.literal("recorded"),
+  v.literal("released"),
+);
+
+export const participantEmailTemplateKey = v.union(
+  v.literal("accept"),
+  v.literal("waitlist"),
+  v.literal("decline"),
+  v.literal("needs_information"),
+  v.literal("offer"),
+  v.literal("offer_confirmed"),
+  v.literal("offer_declined"),
+  v.literal("offer_expired"),
 );
 
 export const admissionReviewAssignmentState = v.union(
@@ -942,8 +983,8 @@ export const teamRosterEntryStatus = v.union(
   v.literal("pending"),
   v.literal("waiting_for_lead"),
   v.literal("identity_conflict"),
+  v.literal("choice_required"),
   v.literal("claimed"),
-  v.literal("skipped_has_team"),
   v.literal("revoked"),
   v.literal("superseded"),
 );

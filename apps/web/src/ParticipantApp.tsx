@@ -1,17 +1,17 @@
 import { api } from '@code2create/backend/api'
 import type { Code2CreateAuthClient } from '@code2create/web-auth'
-import type { FunctionReturnType } from 'convex/server'
 import { useMutation, usePaginatedQuery, useQuery } from 'convex/react'
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { TeamPanel } from './components/TeamPanel'
 import { AccountBadge } from './components/portal/AccountBadge'
+import { TeamCluster } from './components/portal/TeamCluster'
+import { ClassCard } from './components/portal/ClassCard'
 import { DelayedBonsai } from './components/portal/DelayedBonsai'
 import { PetalCard } from './components/portal/PetalCard'
 import { PortalButton, PortalTextButton } from './components/portal/PortalButton'
 import { PortalError } from './components/portal/PortalField'
 import { PortalScene } from './components/portal/PortalScene'
-import { SignOutCircle } from './components/portal/SignOutCircle'
 import { eventSlug } from './lib/config'
 import { readableError } from './lib/errors'
 import { useOperationRunner } from './lib/operations'
@@ -20,6 +20,7 @@ import { useDeadlineReached } from './lib/useDeadlineReached'
 import { participantClassStorageKey } from './screens/EntryScreen'
 import { DetailsScreen } from './screens/DetailsScreen'
 import { HomeScreen } from './screens/HomeScreen'
+import { ImportedTeamChoiceScreen } from './screens/ImportedTeamChoiceScreen'
 import { MoreScreen } from './screens/MoreScreen'
 import { IntakeScreen } from './screens/IntakeScreen'
 import { SglangInterlude } from './screens/SglangInterlude'
@@ -90,10 +91,18 @@ export function ParticipantApp({
     return <PortalLoading />
   }
   const signOut = () => void authClient.signOut()
+  const gateHeader = (
+    <AccountBadge
+      name={me?.person.displayName ?? me?.person.verifiedEmail ?? 'you'}
+      seed={me?.membership?.id ?? me?.person.verifiedEmail ?? 'account'}
+      {...(me?.person.verifiedEmail ? { email: me.person.verifiedEmail } : {})}
+      onSignOut={signOut}
+    />
+  )
   if (!entryAllowed) {
     return (
       <PortalNotice
-        header={<SignOutCircle onSignOut={signOut} />}
+        header={gateHeader}
         title="This account is not on the tester list."
         body="Use one of the Google accounts invited to staging."
       />
@@ -108,10 +117,18 @@ export function ParticipantApp({
   const teamAccessUnavailable = hasTeamMembership && !canReadTeam
   const canReadIntegrations = access?.integrations ?? false
   const canReadSupport = access?.supportRead ?? false
-  const canCreateSupport = access?.supportCreate ?? false
+  const applicationState = intakeStatus?.applicationState ?? null
+  const acceptedPortal =
+    applicationState !== null && ['accepted', 'offer_sent', 'confirmed'].includes(applicationState)
 
   if (!me?.membership) {
-    return <ProvisionScreen publicState={publicState} onSignOut={signOut} />
+    return (
+      <ProvisionScreen
+        publicState={publicState}
+        email={me?.person.verifiedEmail ?? null}
+        onSignOut={signOut}
+      />
+    )
   }
   if (
     me.membership.participantClass === 'vit_student' &&
@@ -119,7 +136,7 @@ export function ParticipantApp({
   ) {
     return (
       <PortalNotice
-        header={<SignOutCircle onSignOut={signOut} />}
+        header={gateHeader}
         title="Verify your VIT account again."
         body="Sign out, then continue with Google. Your saved profile, team, and proposal stay unchanged."
       />
@@ -129,11 +146,21 @@ export function ParticipantApp({
   const accountHeader = (
     <AccountBadge
       name={me.person.displayName}
+      seed={me.membership.id}
       email={me.person.verifiedEmail}
       onSignOut={signOut}
     />
   )
-  const supportRoute = location.pathname === '/support'
+  // ---- one participant conversation with the Guide and event team ---------
+  if (location.pathname === '/support') {
+    if (!canReadSupport) return <Navigate replace to="/" />
+    return (
+      <Suspense fallback={<PortalLoading />}>
+        <SupportScreen header={accountHeader} />
+      </Suspense>
+    )
+  }
+
   const joinCode = joinCodeParam?.trim().toUpperCase() ?? ''
   const finishTeamSwitch = () => {
     setPendingTeamSwitchCode(null)
@@ -168,48 +195,92 @@ export function ParticipantApp({
 
   // ---- f0b · details, with policy consent inline ---------------------------
   if (!me.profile?.isComplete && !canContinueWithoutProfileProjection) {
-    if (supportRoute) {
-      return canReadSupport ? <SupportRoute canCreate={canCreateSupport} /> : <Navigate replace to="/" />
-    }
     if (!canReadProfile) {
       return <PortalNotice header={accountHeader} title="Profile access is unavailable." body="Your saved profile has not been removed. Ask an organizer to restore profile access before submitting." />
     }
     const profileKey = `${me.participantPolicy.id}:${me.profile?.profileVersion ?? 0}`
     return (
-      <DetailsScreen key={profileKey} me={me} canWriteProfile={canWriteProfile} onSignOut={signOut} />
+      <DetailsScreen
+        key={profileKey}
+        me={me}
+        profileSeed={me.membership.id}
+        canWriteProfile={canWriteProfile}
+        onSignOut={signOut}
+      />
     )
   }
 
-  if (!hasTeamMembership && !supportRoute) {
+  // ---- f12 · everything else, one quiet list -------------------------------
+  const moreHeader = team ? (
+    <TeamCluster
+      team={team}
+      members={teamMembers.results}
+      editable={!teamDeadlineReached}
+      canManage={team.currentRole === 'lead' && !teamDeadlineReached}
+    />
+  ) : (
+    accountHeader
+  )
+  if (location.pathname === '/more') {
+    return (
+      <MoreScreen
+        me={me}
+        capabilities={access}
+        showIntegrations={acceptedPortal && canReadIntegrations}
+        showMusic={acceptedPortal}
+        header={moreHeader}
+        onSignOut={signOut}
+      />
+    )
+  }
+  if (location.pathname === '/more/profile') {
+    return (
+      <DetailsScreen
+        me={me}
+        profileSeed={me.membership.id}
+        canWriteProfile={canWriteProfile}
+        onSignOut={signOut}
+        variant="profile"
+        header={moreHeader}
+        onDone={() => navigate('/more', { replace: true, viewTransition: true })}
+      />
+    )
+  }
+
+  if (!hasTeamMembership) {
     if (githubStarGate === undefined || githubStarGate === null) return <PortalLoading />
     if (!githubStarGate.completed) {
       return (
         <SglangInterlude
           state={githubStarGate}
           callback={location.pathname === '/onboarding/github/callback'}
-          onSignOut={signOut}
+          header={accountHeader}
         />
       )
     }
   }
 
   if (teamAccessUnavailable) {
-    if (supportRoute) {
-      return canReadSupport ? <SupportRoute canCreate={canCreateSupport} /> : <Navigate replace to="/" />
-    }
     return <PortalNotice header={accountHeader} title="Team access is unavailable." body="You are still on your team. You cannot create or join another team until an organizer restores access." />
+  }
+
+  if (team && me.pendingTeam?.status === 'choice_required') {
+    return (
+      <ImportedTeamChoiceScreen
+        header={accountHeader}
+        currentTeam={team}
+        importedTeam={me.pendingTeam}
+      />
+    )
   }
 
   // ---- f0c · team start ----------------------------------------------------
   if (!team) {
-    if (supportRoute) {
-      return canReadSupport ? <SupportRoute canCreate={canCreateSupport} /> : <Navigate replace to="/" />
-    }
     if (!canJoinTeam) {
       return <PortalNotice header={accountHeader} title="Team setup is unavailable." body="This account cannot create or join a team. Ask an organizer to restore team setup access." />
     }
     if (me.pendingTeam) {
-      return <PendingTeamScreen header={accountHeader} pendingTeam={me.pendingTeam} />
+      return <ImportedTeamChoiceScreen header={accountHeader} importedTeam={me.pendingTeam} />
     }
     return <TeamScreen header={accountHeader} />
   }
@@ -227,25 +298,6 @@ export function ParticipantApp({
     )
   }
 
-  const acceptedPortal = intakeStatus.applicationState !== null
-    ? ['accepted', 'offer_sent', 'confirmed'].includes(intakeStatus.applicationState)
-    : false
-
-  // ---- f12 · everything else, one quiet list -------------------------------
-  if (location.pathname === '/more') {
-    return (
-      <MoreScreen
-        me={me}
-        capabilities={access}
-        showIntegrations={acceptedPortal && canReadIntegrations}
-        showMusic={acceptedPortal}
-        onSignOut={signOut}
-      />
-    )
-  }
-  if (location.pathname === '/more/profile') {
-    return <DetailsScreen me={me} canWriteProfile={canWriteProfile} onSignOut={signOut} />
-  }
 
   // ---- f10 · the squad lobby, any time a team exists -----------------------
   if (location.pathname === '/team') {
@@ -309,7 +361,7 @@ export function ParticipantApp({
     if (!canOpenIntegrations) return <Navigate replace to="/" />
     return (
       <Suspense fallback={<PortalLoading />}>
-        <IntegrationsScreen teamName={team.name} onSignOut={signOut} />
+        <IntegrationsScreen team={team} members={teamMembers.results} onSignOut={signOut} />
       </Suspense>
     )
   }
@@ -317,7 +369,7 @@ export function ParticipantApp({
   // ---- f8 / f9 / closed states, full-bleed ---------------------------------
   if (
     intakeStatus.applicationState !== null &&
-    !['/integrations/github/callback', '/integrations/figma/callback', '/support', '/music'].includes(
+    !['/integrations/github/callback', '/integrations/figma/callback', '/music'].includes(
       location.pathname,
     )
   ) {
@@ -338,10 +390,6 @@ export function ParticipantApp({
     ? canOpenIntegrations ? <GitHubCallbackScreen /> : <Navigate replace to="/" />
       : location.pathname === '/integrations/figma/callback'
       ? canOpenIntegrations ? <FigmaCallbackScreen /> : <Navigate replace to="/" />
-      : location.pathname === '/support'
-        ? canReadSupport
-          ? <SupportScreen canCreate={canCreateSupport} />
-          : <Navigate replace to="/" />
       : location.pathname === '/music'
         ? acceptedFeatures ? <SynesthesiaScreen /> : <Navigate replace to="/" />
         : (
@@ -393,18 +441,6 @@ export function ParticipantApp({
           </main>
         </div>
       )}
-    </div>
-  )
-}
-
-function SupportRoute({ canCreate }: { canCreate: boolean }) {
-  return (
-    <div className="portal-shell" data-app-surface="participant">
-      <main className="portal-main">
-        <Suspense fallback={<PortalContentLoading />}>
-          <SupportScreen canCreate={canCreate} />
-        </Suspense>
-      </main>
     </div>
   )
 }
@@ -564,105 +600,6 @@ function SwitchTeamScreen({
   )
 }
 
-type PendingTeam = NonNullable<FunctionReturnType<typeof api.participants.me>>['pendingTeam']
-
-function PendingTeamScreen({
-  header,
-  pendingTeam,
-}: {
-  header: ReactNode
-  pendingTeam: NonNullable<PendingTeam>
-}) {
-  const declineAssignedTeam = useMutation(api.participants.declineAssignedTeam)
-  const [confirmLeave, setConfirmLeave] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const operations = useOperationRunner()
-  const leavePending = operations.hasPending('team-assignment-leave')
-
-  const leaveAssignment = async () => {
-    setError(null)
-    try {
-      await operations.run('team-assignment-leave', (clientOperationId) => () =>
-        declineAssignedTeam({
-          eventSlug,
-          teamRosterEntryId: pendingTeam.id,
-          expectedVersion: pendingTeam.version,
-          clientOperationId,
-        }),
-      )
-      setConfirmLeave(false)
-    } catch (caught) {
-      setError(readableError(caught))
-    }
-  }
-
-  return (
-    <PortalScene tree="both" header={header}>
-      <PetalCard className="w-full max-w-[600px] px-7 py-7 sm:px-9">
-        <p className="mb-2 text-[11px] tracking-[.08em] text-rose-light">your team</p>
-        <h1 className="font-display font-light tracking-[-.01em] text-3xl">{pendingTeam.teamName}</h1>
-        <p className="mt-3 text-[13px] leading-relaxed text-fg/58">
-          {pendingTeam.status === 'waiting_for_lead'
-            ? 'Your team lead has not signed in yet. You will join automatically when they do.'
-            : `You will join as ${pendingTeam.role === 'lead' ? 'the lead' : 'a member'} shortly.`}
-        </p>
-        <ul className="m-0 mt-6 list-none divide-y divide-petal-line p-0">
-          {pendingTeam.assignees.map((assignee, index) => (
-            <li className="flex items-center justify-between gap-4 py-3" key={`${assignee.role}:${index}`}>
-              <span className="text-sm text-fg/86">{assignee.displayName}</span>
-              <small
-                className={`text-right text-[11px] ${
-                  assignee.isYou || assignee.role === 'lead' ? 'text-rose-light' : 'text-fg/45'
-                }`}
-              >
-                {assignee.role === 'lead' ? 'lead' : 'member'}
-                {assignee.isYou ? ' · you' : ''}
-                {` · ${assignee.signedIn ? 'signed in' : 'waiting'}`}
-              </small>
-            </li>
-          ))}
-        </ul>
-        {confirmLeave ? (
-          <div className="mt-6 border-t border-petal-line pt-5">
-            <p className="text-[13px] text-fg/65">
-              Leave this assignment? You can create or join another team afterward.
-            </p>
-            <div className="mt-4">
-              <PortalButton
-                type="button"
-                size="sm"
-                className="w-full"
-                disabled={leavePending}
-                onClick={() => void leaveAssignment()}
-              >
-                {leavePending ? 'Leaving…' : 'Leave team'}
-              </PortalButton>
-              <PortalTextButton
-                type="button"
-                disabled={leavePending}
-                onClick={() => setConfirmLeave(false)}
-                className="mx-auto mt-2 block px-4 py-2"
-              >
-                keep assignment
-              </PortalTextButton>
-            </div>
-          </div>
-        ) : (
-          <button
-            type="button"
-            className="mt-6 text-[12px] text-fg/40 underline-offset-4 hover:text-rose-light hover:underline"
-            disabled={leavePending}
-            onClick={() => setConfirmLeave(true)}
-          >
-            leave assignment
-          </button>
-        )}
-        <PortalError message={error} />
-      </PetalCard>
-    </PortalScene>
-  )
-}
-
 function PortalContentLoading() {
   return <DelayedBonsai compact />
 }
@@ -681,9 +618,11 @@ function preloadSupport() {
 
 function ProvisionScreen({
   publicState,
+  email,
   onSignOut,
 }: {
   publicState: PublicState
+  email: string | null
   onSignOut: () => void
 }) {
   const provision = useMutation(api.participants.provision)
@@ -750,32 +689,48 @@ function ProvisionScreen({
   return (
     <PortalScene
       tree="both"
-      header={<SignOutCircle onSignOut={onSignOut} />}
+      header={
+        <AccountBadge
+          name={email ?? 'you'}
+          seed={email ?? 'account'}
+          {...(email ? { email } : {})}
+          onSignOut={onSignOut}
+        />
+      }
     >
-      <div className="flex w-full max-w-[560px] flex-col items-center text-center">
-        <h1 className="mb-2 font-display font-light tracking-[-.01em] text-3xl lg:text-[40px]">
+      <div className="flex w-full max-w-[640px] flex-col items-center text-center">
+        <h1 className="mb-2 font-display font-light tracking-[-.01em] text-balance text-3xl lg:text-[40px]">
           Choose your participant type.
         </h1>
+        {/* The class is settled by the Google account, so the account is the
+            one fact worth showing: whoever signed in with the wrong one can
+            see it here and use the door in the corner. */}
         <p className="mb-7 text-[12.5px] text-fg/50">
-          VIT students must use their @vitstudent.ac.in Google account.
+          {email ? (
+            <>
+              signed in as <span className="text-fg/75">{email}</span>
+            </>
+          ) : (
+            'VIT students must use their @vitstudent.ac.in Google account.'
+          )}
         </p>
         <div className="mb-6 flex w-full flex-col gap-3 sm:flex-row sm:justify-center sm:gap-4">
-          <ProvisionChoice
+          <ClassCard
             title="VIT student"
-            detail="Only @vitstudent.ac.in accounts are accepted."
+            detail="only @vitstudent.ac.in Google accounts are accepted"
             disabled={!vitOpen}
             selected={participantClass === 'vit_student'}
             onSelect={() => choose('vit_student')}
           />
-          <ProvisionChoice
-            title="External participant"
-            detail={externalOpen ? 'College students and other eligible applicants.' : 'Applications have closed.'}
+          <ClassCard
+            title="external participant"
+            detail={externalOpen ? 'college students and other eligible applicants' : 'applications have closed'}
             disabled={!externalOpen}
             selected={participantClass === 'external_participant'}
             onSelect={() => choose('external_participant')}
           />
         </div>
-        <PortalError message={error} />
+        <PortalError message={error} reserve />
         {participantClass && error ? (
           <PortalButton
             type="button"
@@ -788,38 +743,5 @@ function ProvisionScreen({
         ) : null}
       </div>
     </PortalScene>
-  )
-}
-
-function ProvisionChoice({
-  title,
-  detail,
-  selected,
-  disabled,
-  onSelect,
-}: {
-  title: string
-  detail: string
-  selected: boolean
-  disabled: boolean
-  onSelect: () => void
-}) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      aria-pressed={selected}
-      onClick={onSelect}
-      className={`w-full rounded-petal-sm px-6 py-5 text-left backdrop-blur-md transition-all disabled:cursor-not-allowed disabled:opacity-45 sm:w-[250px] ${
-        selected
-          ? 'border-[1.5px] border-ring-lead bg-[image:var(--tile-bg-active)] shadow-[0_24px_50px_-18px_var(--shade-2)]'
-          : 'border-[1.5px] border-petal-edge-soft bg-[image:var(--tile-bg)] shadow-[0_24px_50px_-18px_var(--shade-2)]'
-      }`}
-    >
-      <p className={`mb-1 font-display font-light tracking-[-.01em] text-[19px] ${selected ? 'text-rose-light' : 'text-fg/85'}`}>
-        {title}
-      </p>
-      <p className="text-xs text-fg/55">{detail}</p>
-    </button>
   )
 }

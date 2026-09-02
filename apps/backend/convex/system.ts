@@ -1,4 +1,9 @@
 import { ConvexError, type Infer, v } from "convex/values";
+import {
+  ideaIntakeFallbackQuestions,
+  ideaQuestionRelease,
+  ideaQuestionSystemInstruction,
+} from "@code2create/domain";
 
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
@@ -320,7 +325,23 @@ export async function createInitialEvent(
       : {}),
   });
 
-  const intakePolicy = normalizeIntakePolicy(args.intakePolicy);
+  const intakePolicy = normalizeIntakePolicy({
+    ...args.intakePolicy,
+    minimumFollowUpCount: 2,
+    maximumFollowUpCount: 4,
+    deterministicFollowUpCount: 2,
+    fallbackQuestions: ideaIntakeFallbackQuestions.map((question) => ({ ...question })),
+    model: {
+      mode: "assisted",
+      modelId: ideaQuestionRelease.modelId,
+      systemInstruction: ideaQuestionSystemInstruction,
+      instructionVersion: ideaQuestionRelease.instructionVersion,
+      schemaVersion: ideaQuestionRelease.schemaVersion,
+      redactionVersion: ideaQuestionRelease.redactionVersion,
+      questionPolicyVersion: ideaQuestionRelease.questionPolicyVersion,
+      evaluationSuiteVersion: ideaQuestionRelease.evaluationSuiteVersion,
+    },
+  });
   const communicationsPolicy = normalizeCommunicationsPolicy(args.communicationsPolicy);
 
   const now = Date.now();

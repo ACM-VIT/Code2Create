@@ -79,7 +79,7 @@ const configurationGroups: readonly {
   {
     label: 'Participant experience',
     items: [
-      { label: 'Accepted teams', to: '/configuration/communications', visibility: 'showCommunications' },
+      { label: 'Communications', to: '/configuration/communications', visibility: 'showCommunications' },
       { label: 'Schedule', to: '/configuration/phases', visibility: 'showPhases' },
       { label: 'Team updates', to: '/configuration/checkpoints', visibility: 'showCheckpoints' },
     ],

@@ -1,10 +1,6 @@
 import type { ReactNode } from 'react'
 import { hashSeed, VARIANT_COUNT } from './flowerVariants'
 
-// Team avatars are flowers, not initials. Every member is dealt one bloom
-// from the hanami set — stable per person, varied across a roster — while
-// the cherry blossom is reserved for the lead.
-
 const TINTS = [
   { petal: '#feb4cb', heart: '#a04263' },
   { petal: '#e3a9bf', heart: '#a04263' },
@@ -19,8 +15,6 @@ function ring(count: number, offset: number, shape: (key: string, angle: number)
   )
 }
 
-// Distinct silhouettes at small sizes: round plum, pointed bellflower,
-// four-petal hydrangea, many-rayed chrysanthemum, layered camellia.
 const BLOOMS: readonly ((petal: string) => ReactNode)[] = [
   // ume · five round petals
   (petal) =>

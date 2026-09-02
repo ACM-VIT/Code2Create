@@ -4,6 +4,7 @@ import { afterAll, describe, expect, test } from "vitest";
 
 import {
   admissionIntelligenceReadSignatureContext,
+  defaultParticipantEmailTemplates,
   operationsIntelligenceProtocolVersion,
   signServiceBody,
 } from "@code2create/domain";
@@ -257,7 +258,7 @@ describe("admission cohort query and decisions", () => {
     ).rejects.toThrow();
   });
 
-  test("applyDecision refuses below the review minimum and otherwise decides as the operator", async () => {
+  test("applyDecision refuses below the review minimum and otherwise records the operator decision", async () => {
     const backend = seededBackend();
     const fixture = await seedCohortFixture(backend);
     const operator = backend.withIdentity({
@@ -295,19 +296,20 @@ describe("admission cohort query and decisions", () => {
       aiDisposition: "unavailable",
       clientOperationId: "cohort-apply-1",
     });
-    expect(applied).toMatchObject({ applied: true, state: "accepted" });
+    expect(applied).toMatchObject({ applied: true, state: "under_review" });
     const [application, audits] = await backend.run(async (ctx) => [
       await ctx.db.get(fixture.decidableApplicationId),
       await ctx.db.query("auditEvents").collect(),
     ] as const);
     expect(application).toMatchObject({
-      state: "accepted",
+      state: "under_review",
+      decisionStage: "recorded",
       humanDecision: "accept",
       humanReasonCode: "strong_fit",
       decidedByPersonId: fixture.operatorPersonId,
     });
     const decisionAudit = audits.find(
-      (event) => event.action === "admission.human_decision_published",
+      (event) => event.action === "admission.human_decision_recorded",
     );
     expect(decisionAudit?.actorPersonId).toBe(fixture.operatorPersonId);
 
@@ -321,7 +323,7 @@ describe("admission cohort query and decisions", () => {
       aiDisposition: "unavailable",
       clientOperationId: "cohort-apply-1",
     });
-    expect(retried).toMatchObject({ applied: true, state: "accepted" });
+    expect(retried).toMatchObject({ applied: true, state: "under_review" });
 
     const onlooker = backend.withIdentity({
       subject: fixture.onlookerAuthUserId,
@@ -339,6 +341,86 @@ describe("admission cohort query and decisions", () => {
         clientOperationId: "cohort-apply-denied-1",
       }),
     ).rejects.toThrow("permission");
+  });
+
+  test("only Supreme releases the complete recorded decision set", async () => {
+    const backend = seededBackend();
+    const fixture = await seedCohortFixture(backend);
+    const operator = backend.withIdentity({
+      subject: fixture.operatorAuthUserId,
+      sessionId: fixture.operatorAuthSessionId,
+    });
+    const onlooker = backend.withIdentity({
+      subject: fixture.onlookerAuthUserId,
+      sessionId: fixture.onlookerAuthSessionId,
+    });
+    await expect(onlooker.mutation(api.admissions.releaseAdmissionResults, {
+      eventSlug: fixture.eventSlug,
+      expectedEventVersion: 1,
+      reason: "Release the reviewed admissions set",
+      clientOperationId: "release-by-onlooker",
+    })).rejects.toThrow("Only an active Supreme");
+    await expect(operator.mutation(api.admissions.releaseAdmissionResults, {
+      eventSlug: fixture.eventSlug,
+      expectedEventVersion: 1,
+      reason: "Release the reviewed admissions set",
+      clientOperationId: "release-before-complete",
+    })).rejects.toThrow("Every active application");
+
+    await backend.run(async (ctx) => {
+      const decisions = [
+        [fixture.decidableApplicationId, "accept", "strong_fit"],
+        [fixture.shortApplicationId, "waitlist", "promising_fit"],
+        [fixture.splitApplicationId, "decline", "out_of_scope"],
+      ] as const;
+      for (const [applicationId, decision, reasonCode] of decisions) {
+        await ctx.db.patch(applicationId, {
+          decisionStage: "recorded",
+          humanDecision: decision,
+          humanReasonCode: reasonCode,
+          aiDisposition: "unavailable",
+          decidedByPersonId: fixture.operatorPersonId,
+          decidedAt: fixture.now,
+          version: 2,
+        });
+      }
+    });
+    const readiness = await operator.query(api.admissions.admissionResultsReleaseStatus, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(readiness).toMatchObject({
+      isSupreme: true,
+      total: 3,
+      unrecorded: 0,
+      recorded: 3,
+      accepted: 1,
+      waitlisted: 1,
+      declined: 1,
+    });
+    const released = await operator.mutation(api.admissions.releaseAdmissionResults, {
+      eventSlug: fixture.eventSlug,
+      expectedEventVersion: 1,
+      reason: "Release the reviewed admissions set",
+      clientOperationId: "release-complete-set",
+    });
+    expect(released.applicationCount).toBe(3);
+    await backend.mutation(internal.admissions.finalizeReleasedAdmissionResults, {
+      eventId: fixture.eventId,
+      releasedAt: released.releasedAt,
+      releasedByPersonId: fixture.operatorPersonId,
+      communicationsPolicyVersionId: fixture.communicationsPolicyId,
+    });
+    const applications = await backend.run((ctx) => Promise.all([
+      ctx.db.get(fixture.decidableApplicationId),
+      ctx.db.get(fixture.shortApplicationId),
+      ctx.db.get(fixture.splitApplicationId),
+    ]));
+    expect(applications.map((application) => [application?.state, application?.decisionStage]))
+      .toEqual([
+        ["accepted", "released"],
+        ["waitlisted", "released"],
+        ["declined", "released"],
+      ]);
   });
 
   test("keeps decisions unavailable while teams can still revise proposals", async () => {
@@ -583,8 +665,7 @@ async function insertPolicyChain(
     discordUrl: "https://discord.gg/cohort-fixture",
     discordLabel: "Open event Discord",
     notificationProvider: "cloudflare_email",
-    notificationSubject: "Code2Create application update",
-    notificationIntro: "There is an update to your team's Code2Create application.",
+    emailTemplates: defaultParticipantEmailTemplates(),
   });
   const communicationsPolicyId = await ctx.db.insert("communicationsPolicyVersions", {
     eventId,
@@ -671,6 +752,19 @@ async function seedCohortFixture(
         reason: "Cohort test",
       });
     }
+    await ctx.db.insert("eventRoles", {
+      eventId,
+      personId: operator.personId,
+      eventAccessSubjectId: operator.subjectId,
+      role: "supreme",
+      validFrom: now,
+      status: "active",
+      sourceType: "manual",
+      sourceId: `${eventSlug}:supreme`,
+      assignedByPersonId: operator.personId,
+      createdAt: now,
+      reason: "Admission release test owner",
+    });
     void onlooker;
 
     async function insertTeam(args: {
@@ -771,6 +865,7 @@ async function seedCohortFixture(
         submittedProjectVersionId: projectVersionId,
         admissionPolicyVersionId: chain.admissionPolicyId,
         state: "under_review",
+        decisionStage: "unrecorded",
         experienceBand: args.band,
         assignedReviewCount: args.reviews.length,
         completedReviewCount: args.reviews.length,
@@ -835,8 +930,10 @@ async function seedCohortFixture(
     }
 
     return {
+      now,
       eventSlug,
       eventId,
+      communicationsPolicyId: chain.communicationsPolicyId,
       operatorPersonId: operator.personId,
       operatorAuthUserId,
       operatorAuthSessionId,

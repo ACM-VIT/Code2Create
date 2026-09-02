@@ -50,6 +50,13 @@ export function shouldRecoverFollowUpDraft(args: {
   )
 }
 
+export function shouldReplaceFollowUpEditorValue(
+  currentQuestionId: string | null,
+  nextQuestionId: string | null,
+) {
+  return currentQuestionId !== nextQuestionId
+}
+
 export type WorkingCopyReconciliation =
   | { kind: 'unchanged' }
   | { kind: 'acknowledge'; revision: number }

@@ -414,6 +414,7 @@ function Operations({
               <AdmissionsQueue
                 canReadApplications={capabilities.applicationRead}
                 canReadAssignments={capabilities.applicationReviewRead}
+                isSupreme={capabilities.isSupreme}
               />
             )}
           />

@@ -1,5 +1,6 @@
 import { api } from '@code2create/backend/api'
 import { ClientObservabilityIdentity } from '@code2create/client-observability'
+import { ConnectionNotice } from './components/portal/ConnectionNotice'
 import type { Code2CreateAuthClient } from '@code2create/web-auth'
 import { AuthLoading, Authenticated, Unauthenticated, useQuery } from 'convex/react'
 import { lazy, Suspense, useEffect, useState } from 'react'
@@ -36,6 +37,7 @@ export default function App({ authClient }: { authClient: Code2CreateAuthClient 
   return (
     <>
       <ClientObservabilityIdentity distinctId={session?.user.id ?? null} />
+      <ConnectionNotice />
       {gallery}
       <StartupCover ready={startupReady} />
       {publicState === undefined ? null : (

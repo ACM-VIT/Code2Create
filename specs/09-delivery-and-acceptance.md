@@ -35,7 +35,7 @@ Deliver:
 - team leadership transfer;
 - free-text proposal intake;
 - two required fixed proposal questions;
-- up to two grounded AI follow-up questions;
+- two grounded AI-attempted follow-up slots with published fallbacks;
 - the live novelty number above the idea text box;
 - final preview and first immutable team snapshot;
 - immutable proposal versions;
@@ -231,8 +231,8 @@ Test:
 - rejection at or after the deadline;
 - immutable proposal versions;
 - stale review and AI invalidation;
-- two-fixed-plus-zero-to-two-generated question contract;
-- no-model and invalid-model completion without filler questions;
+- two-fixed-plus-two-AI-attempted question contract;
+- no-model and invalid-model completion through the published fallback for each AI slot;
 - stale novelty rejection;
 - no novelty use in admission or judging;
 - human control of admission;
@@ -257,7 +257,7 @@ Test:
 - realtime team updates;
 - leadership transfer;
 - free-text proposal flow;
-- two fixed questions followed by zero, one, or two generated questions;
+- two fixed questions followed by exactly two generated-or-fallback questions;
 - novelty number position above the idea box;
 - no novelty label, theme, or prompt;
 - final membership-lock preview;
@@ -321,7 +321,7 @@ The authenticated run passes only when every supplied token resolves to a distin
 
 Run the driver's separate `idea-editing` profile against a disposable `load-*` event with ordinary unsubmitted teams and a published staging novelty corpus. It spreads 25% of eligible participant clients across production presence heartbeats, chooses one committing writer per active team, and calls the working-field autosave and novelty paths. Other active teammates stay subscribed and present without turning expected optimistic conflicts into load failures. Autosave and presence p95 must be at or below two seconds, novelty action p99 at or below ten seconds, and failed workload operations must stay at or below one percent. Rate-limited novelty may return **Unavailable**; it must not become an action error or slow or block proposal editing.
 
-Run the separate `intake-burst` profile against a second fresh disposable `load-*` event. Supply every team member, with exactly one authenticated lead per team and no existing draft or application. The driver commits the idea through each lead, answers the two fixed questions, waits through the real adaptive Workpool path, and requires at least 99% of teams to reach review. Every team must see exactly two fixed questions, no team may see more than two model questions, and the run must contain at least one validated model question so a no-key or all-fallback deployment cannot pass. Save and answer p95 must be at most two seconds. Adaptive resolution p99 must remain inside 21 seconds, including propagation around the server's 20-second terminal deadline. A clear proposal may correctly receive no model question.
+Run the separate `intake-burst` profile against a second fresh disposable `load-*` event. Supply every team member, with exactly one authenticated lead per team and no existing draft or application. The driver commits the idea through each lead, answers the two fixed questions, waits through the real adaptive Workpool path, and requires at least 99% of teams to reach review. Every team must see exactly two fixed questions and exactly two model-or-fallback questions, no team may see more than two model questions, and the run must contain at least one validated model question so a no-key or all-fallback deployment cannot pass. Save and answer p95 must be at most two seconds. Adaptive resolution p99 must remain inside 21 seconds, including propagation around the server's 20-second terminal deadline. Either adaptive slot may use its published fallback; an all-fallback run cannot pass.
 
 The offline-event load run uses:
 

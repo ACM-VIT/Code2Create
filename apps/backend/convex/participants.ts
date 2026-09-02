@@ -237,7 +237,11 @@ export const me = query({
           version: v.number(),
           teamName: v.string(),
           role: memberRole,
-          status: v.union(v.literal("pending"), v.literal("waiting_for_lead")),
+          status: v.union(
+            v.literal("pending"),
+            v.literal("waiting_for_lead"),
+            v.literal("choice_required"),
+          ),
           assignees: v.array(
             v.object({
               displayName: v.string(),
@@ -1021,7 +1025,11 @@ export const declineAssignedTeam = mutation({
         message: "You are already on that team. Leave it from the team panel.",
       });
     }
-    if (entry.status !== "pending" && entry.status !== "waiting_for_lead") {
+    if (
+      entry.status !== "pending" &&
+      entry.status !== "waiting_for_lead" &&
+      entry.status !== "choice_required"
+    ) {
       throw new ConvexError({
         code: "TEAM_ASSIGNMENT_NOT_CURRENT",
         message: "That team assignment is no longer waiting.",
@@ -1044,7 +1052,10 @@ export const declineAssignedTeam = mutation({
       targetId: entry._id,
       previousSummary: JSON.stringify({ status: entry.status, version: entry.version }),
       nextSummary: JSON.stringify({ status: "revoked", version: entry.version + 1 }),
-      reason: "Participant left the assigned team before it formed",
+      reason:
+        entry.status === "choice_required"
+          ? "Participant kept their current team instead of the imported assignment"
+          : "Participant left the assigned team before it formed",
     });
     await recordOperation(ctx, {
       eventId: event._id,

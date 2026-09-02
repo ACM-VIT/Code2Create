@@ -4,11 +4,13 @@ import {
   applicationStateLabels,
   type ApplicationState,
 } from '@code2create/domain'
-import { usePaginatedQuery, useQuery } from 'convex/react'
+import { useMutation, usePaginatedQuery, useQuery } from 'convex/react'
 import { Link } from 'react-router-dom'
 import { useState } from 'react'
 
 import { eventSlug } from '../lib/config'
+import { readableError } from '../lib/errors'
+import { useOperationRunner } from '../lib/operations'
 import { LoadingLabel, SkeletonList } from '../components/Skeleton'
 
 type AssignmentState = 'active' | 'completed'
@@ -17,9 +19,11 @@ type QueueView = 'all' | 'mine'
 export function AdmissionsQueue({
   canReadApplications,
   canReadAssignments,
+  isSupreme,
 }: {
   canReadApplications: boolean
   canReadAssignments: boolean
+  isSupreme: boolean
 }) {
   const [selectedView, setSelectedView] = useState<QueueView>(canReadApplications ? 'all' : 'mine')
   const view = selectedView === 'all'
@@ -34,6 +38,7 @@ export function AdmissionsQueue({
           <h1>Applications</h1>
         </div>
       </div>
+      {isSupreme ? <AdmissionResultsRelease /> : null}
       {canReadApplications && canReadAssignments ? (
         <div className="configuration-tabs" role="tablist" aria-label="Admission queue view">
           <button
@@ -58,6 +63,114 @@ export function AdmissionsQueue({
       ) : null}
       {view === 'all' && canReadApplications ? <ApplicationList /> : null}
       {view === 'mine' && canReadAssignments ? <AssignmentList /> : null}
+    </section>
+  )
+}
+
+function AdmissionResultsRelease() {
+  const status = useQuery(api.admissions.admissionResultsReleaseStatus, { eventSlug })
+  const release = useMutation(api.admissions.releaseAdmissionResults)
+  const operations = useOperationRunner()
+  const [armed, setArmed] = useState(false)
+  const [reason, setReason] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const pending = operations.hasPending('admission-results-release')
+  if (status === undefined) {
+    return <section className="catalog-review"><LoadingLabel>Checking recorded decisions</LoadingLabel></section>
+  }
+  if (!status.isSupreme) return null
+  const ready = status.serverNow >= status.applicationsCloseAt &&
+    status.releasedAt === undefined &&
+    status.total > 0 &&
+    status.unrecorded === 0
+
+  const releaseResults = async () => {
+    setError(null)
+    setBusy(true)
+    try {
+      if (pending) {
+        await operations.retryPending('admission-results-release')
+      } else {
+        await operations.run('admission-results-release', (clientOperationId) => () => release({
+          eventSlug,
+          expectedEventVersion: status.eventVersion,
+          reason,
+          clientOperationId,
+        }))
+      }
+      setArmed(false)
+      setReason('')
+    } catch (caught) {
+      setError(readableError(caught))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section className="catalog-review admissions-release-panel">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">Supreme review</p>
+          <h2>{status.releasedAt ? 'Admission results released' : 'Release admission results'}</h2>
+          <p className="muted">
+            {status.releasedAt
+              ? `${status.releasedByName ?? 'Supreme'} released the results. Participant portals and emails use the same decision set.`
+              : 'Review every recorded decision here. Releasing makes all final results visible together and queues the configured emails.'}
+          </p>
+        </div>
+        {!status.releasedAt && !armed ? (
+          <button className="primary" type="button" disabled={!ready} onClick={() => setArmed(true)}>
+            Review release
+          </button>
+        ) : null}
+      </div>
+      <dl className="catalog-summary">
+        <div><dt>Applications</dt><dd>{status.total}</dd></div>
+        <div><dt>Decisions ready</dt><dd>{status.recorded + status.released}</dd></div>
+        <div><dt>Still needed</dt><dd>{status.unrecorded}</dd></div>
+        <div><dt>Selected</dt><dd>{status.accepted}</dd></div>
+        <div><dt>Waitlisted</dt><dd>{status.waitlisted}</dd></div>
+        <div><dt>Not selected</dt><dd>{status.declined}</dd></div>
+      </dl>
+      {status.decisions.length > 0 ? (
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Team</th><th>Decision</th><th>Reason</th><th>Recorded by</th></tr></thead>
+            <tbody>
+              {status.decisions.map((row) => (
+                <tr key={row.applicationId}>
+                  <td><Link to={`/admissions/${row.applicationId}`}>{row.teamName}</Link></td>
+                  <td>{decisionName(row.decision)}</td>
+                  <td>{row.reasonLabel}</td>
+                  <td>{row.decidedByName}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+      {!status.releasedAt && status.unrecorded > 0 ? (
+        <p className="notice">Record a final decision for all {status.unrecorded} remaining applications before release.</p>
+      ) : null}
+      {!status.releasedAt && armed ? (
+        <div className="publish-confirmation">
+          <h3>Release all {status.total} results?</h3>
+          <p className="muted">This is the participant-visible boundary. It cannot be rolled back.</p>
+          <label className="field">
+            <span>Release note</span>
+            <textarea required minLength={5} maxLength={500} value={reason} onChange={(event) => setReason(event.currentTarget.value)} />
+          </label>
+          <div className="button-row">
+            <button className="primary" type="button" disabled={busy || reason.trim().length < 5} onClick={() => void releaseResults()}>
+              {busy ? 'Releasing…' : pending ? 'Confirm earlier release' : 'Release all results'}
+            </button>
+            <button className="secondary" type="button" disabled={busy || pending} onClick={() => setArmed(false)}>Cancel</button>
+          </div>
+        </div>
+      ) : null}
+      {error ? <p className="notice error" role="alert">{error}</p> : null}
     </section>
   )
 }
@@ -110,6 +223,9 @@ function ApplicationList() {
             </div>
             <div className="queue-meta">
               <span>{countLabel(application.completedReviewCount, 'review')} · {application.assignedReviewCount} assigned</span>
+              {application.decisionStage === 'recorded' && application.humanDecision ? (
+                <span>Recorded · {decisionName(application.humanDecision)}</span>
+              ) : null}
               {application.aiState ? (
                 <span>Idea agent · {admissionRecommendationStateLabels[application.aiState]}</span>
               ) : null}

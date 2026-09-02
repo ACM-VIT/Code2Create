@@ -45,7 +45,16 @@ export async function acceptedTeamCommunicationsForTeam(
     .query("applications")
     .withIndex("by_team", (index) => index.eq("teamId", teamId))
     .unique();
-  if (!application || !visibleApplicationStates.has(application.state)) return null;
+  const acceptedByReleasedResults = Boolean(
+    application &&
+    event.admissionResultsReleasedAt !== undefined &&
+    (application.decisionStage === "recorded" || application.decisionStage === "released") &&
+    application.humanDecision === "accept",
+  );
+  if (
+    !application ||
+    (!visibleApplicationStates.has(application.state) && !acceptedByReleasedResults)
+  ) return null;
   const { policy, normalized } = await loadPublishedCommunicationsPolicy(ctx, event);
   return {
     policyVersionId: policy._id,

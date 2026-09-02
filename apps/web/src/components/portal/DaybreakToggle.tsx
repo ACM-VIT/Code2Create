@@ -1,18 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { togglePortalTheme, usePortalTheme } from '../../lib/portalTheme'
 
-/**
- * The light switch for the scene: one more circle in the header's avatar
- * row, holding a tiny world. Sun and moon sit on opposite ends of a hidden
- * wheel; switching the theme turns the wheel half a revolution — always the
- * same way round — so one body sets through the horizon while the other
- * rises, and the whole portal follows.
- */
 export function DaybreakToggle() {
   const theme = usePortalTheme()
   const daybreak = theme === 'daybreak'
-  // Keep the orbit moving forward across repeated theme changes. Two frames
-  // let the portal's view transition finish capturing before the wheel moves.
   const parity = useRef(daybreak ? 0 : 1)
   const turns = useRef(0)
   const [angle, setAngle] = useState(() => (daybreak ? 0 : 180))
@@ -43,8 +34,6 @@ export function DaybreakToggle() {
       title={daybreak ? 'Switch to night' : 'Switch to daybreak'}
       className="relative size-10 flex-none overflow-hidden rounded-full border-2 border-rose/70 bg-avatar transition-colors duration-250 hover:border-rose-light lg:size-12"
     >
-      {/* The wheel: sun riding the top, moon the bottom. Each body counter-
-          rotates so it stays upright while it orbits. */}
       <span
         aria-hidden
         className={`absolute inset-0 block ${orbitTransition}`}

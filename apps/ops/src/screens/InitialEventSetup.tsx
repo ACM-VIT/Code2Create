@@ -1,4 +1,10 @@
 import { api } from '@code2create/backend/api'
+import {
+  defaultParticipantEmailTemplates,
+  ideaIntakeFallbackQuestions,
+  ideaQuestionRelease,
+  ideaQuestionSystemInstruction,
+} from '@code2create/domain'
 import { defaultVitHostelResidenceCatalog } from '@code2create/domain'
 import type { Code2CreateAuthClient } from '@code2create/web-auth'
 import { useMutation, useQuery } from 'convex/react'
@@ -19,13 +25,13 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
   const [endsAtLocal, setEndsAtLocal] = useState('2026-09-09T15:00')
   const [externalApplicationsCloseAtLocal, setExternalApplicationsCloseAtLocal] = useState('')
   const [vitApplicationsCloseAtLocal, setVitApplicationsCloseAtLocal] = useState('')
-  const [venueName, setVenueName] = useState('Anna Auditorium, VIT Vellore')
+  const [venueName, setVenueName] = useState('Anna Auditorium')
   const [venueAddress, setVenueAddress] = useState(
     'Anna Auditorium, VIT Vellore, Vellore, Tamil Nadu 632014',
   )
-  const [discordUrl, setDiscordUrl] = useState('https://discord.gg/code2create')
+  const [discordUrl, setDiscordUrl] = useState('https://discord.gg/hPkhtMcHq8')
   const [vitEmailDomain, setVitEmailDomain] = useState('vitstudent.ac.in')
-  const [privacyNoticeUrl, setPrivacyNoticeUrl] = useState('https://code2create.in/privacy')
+  const [privacyNoticeUrl, setPrivacyNoticeUrl] = useState('https://c2c.acmvit.in/privacy')
   const [teamMinimumSize, setTeamMinimumSize] = useState('2')
   const [teamMaximumSize, setTeamMaximumSize] = useState('5')
   const [participantCapacity, setParticipantCapacity] = useState('1000')
@@ -133,20 +139,7 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
             'tradeoff',
             'risk',
           ],
-          fallbackQuestions: [
-            {
-              ordinal: 1,
-              text: 'What problem are you solving, and who has it?',
-              purposeKey: 'problem',
-              answerLength: 'medium',
-            },
-            {
-              ordinal: 2,
-              text: 'How will your solution work in practice?',
-              purposeKey: 'experience',
-              answerLength: 'medium',
-            },
-          ],
+          fallbackQuestions: ideaIntakeFallbackQuestions.map((question) => ({ ...question })),
           blockedTerms: [
             'unoriginal',
             'overdone',
@@ -159,7 +152,16 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
             'why should you win',
           ],
           commonIdeaPatterns: [],
-          model: { mode: 'deterministic' },
+          model: {
+            mode: 'assisted',
+            modelId: ideaQuestionRelease.modelId,
+            systemInstruction: ideaQuestionSystemInstruction,
+            instructionVersion: ideaQuestionRelease.instructionVersion,
+            schemaVersion: ideaQuestionRelease.schemaVersion,
+            redactionVersion: ideaQuestionRelease.redactionVersion,
+            questionPolicyVersion: ideaQuestionRelease.questionPolicyVersion,
+            evaluationSuiteVersion: ideaQuestionRelease.evaluationSuiteVersion,
+          },
         },
         communicationsPolicy: {
           venueName,
@@ -177,8 +179,7 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
           discordUrl,
           discordLabel: 'Open event Discord',
           notificationProvider: 'cloudflare_email',
-          notificationSubject: 'Code2Create event update',
-          notificationIntro: 'There is a new Code2Create event update in your portal.',
+          emailTemplates: defaultParticipantEmailTemplates(),
         },
         integrationPolicy: {
           version: integrationPolicyVersion,

@@ -395,6 +395,7 @@ async function seedScaleFixture(backend: BackendTest) {
         submittedProjectVersionId: projectVersionId,
         admissionPolicyVersionId: admissionPolicyId,
         state: "submitted",
+        decisionStage: "unrecorded",
         experienceBand: experienceBands[index % experienceBands.length] ?? "mixed_or_external",
         assignedReviewCount: 0,
         completedReviewCount: 0,

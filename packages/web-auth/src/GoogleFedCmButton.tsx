@@ -24,6 +24,11 @@ type ButtonAppearance = 'light' | 'dark'
 const googleIdentityScriptUrl = 'https://accounts.google.com/gsi/client'
 let googleIdentityScript: Promise<void> | null = null
 
+/** Starts the shared GIS download before a Google button needs to render. */
+export function preloadGoogleIdentityServices() {
+  return loadGoogleIdentityServices()
+}
+
 export function GoogleFedCmButton({
   authClient,
   clientId,
@@ -175,7 +180,10 @@ export function GoogleFedCmButton({
         overflow: 'hidden',
       }}
     >
-      <GoogleButtonBacking appearance={appearance} />
+      {/* The backing only stands in for a Google button that is actually
+          there; while the portal's own button covers loading or fallback,
+          two buttons must never show through each other. */}
+      {phase === 'ready' ? <GoogleButtonBacking appearance={appearance} /> : null}
       {googleLayer(0, firstContainer)}
       {googleLayer(1, secondContainer)}
       {phase === 'loading' ? <div style={{ gridArea: '1 / 1' }}>{loading}</div> : null}

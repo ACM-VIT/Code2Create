@@ -107,7 +107,7 @@ export function OperationsEpisode() {
 	const requestedRevision = delivery.kind === 'signal'
 		? delivery.attributes?.revision ?? 'current'
 		: 'current';
-	const [rawMemory, setMemory] = usePersistentState('episode-memory-v2', {
+	const [rawMemory, setMemory] = usePersistentState('episode-memory-v1', {
 		lastAnalyzedRevision: 0,
 		analysisCount: 0,
 		remindedRevision: '',

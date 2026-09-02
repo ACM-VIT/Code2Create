@@ -8,6 +8,7 @@ import {
   restrictGoogleAuthorizationToVitStudents,
   vitStudentEmailDomain,
 } from '../lib/googleAuthorization'
+import { ClassCard } from '../components/portal/ClassCard'
 import { PortalScene } from '../components/portal/PortalScene'
 import { usePortalTheme } from '../lib/portalTheme'
 import { PortalButton } from '../components/portal/PortalButton'
@@ -21,43 +22,6 @@ function popupErrorMessage(code: string | undefined) {
   if (code === 'POPUP_CLOSED') return 'Google sign-in was closed before it finished.'
   if (code === 'POPUP_TIMEOUT') return 'Google sign-in took too long. Try again.'
   return 'Google sign-in could not start. Try again.'
-}
-
-function ClassCard({
-  title,
-  detail,
-  selected,
-  disabled,
-  onSelect,
-}: {
-  title: string
-  detail: string
-  selected: boolean
-  disabled: boolean
-  onSelect: () => void
-}) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      aria-pressed={selected}
-      onClick={onSelect}
-      className={`w-full rounded-petal-sm px-6 py-5 text-left backdrop-blur-md transition-all duration-250 disabled:cursor-not-allowed disabled:opacity-45 sm:w-[250px] ${
-        selected
-          ? 'border-[1.5px] border-ring-lead bg-[image:var(--tile-bg-active)] shadow-[0_24px_50px_-18px_var(--shade-2)]'
-          : 'border-[1.5px] border-petal-edge-soft bg-[image:var(--tile-bg)] shadow-[0_24px_50px_-18px_var(--shade-2)]'
-      }`}
-    >
-      <p
-        className={`mb-1 font-display font-light tracking-[-.01em] text-[19px] ${
-          selected ? 'text-rose-light' : 'text-fg/85'
-        }`}
-      >
-        {title}
-      </p>
-      <p className="text-xs text-fg/55">{detail}</p>
-    </button>
-  )
 }
 
 export function EntryScreen({
@@ -144,6 +108,17 @@ export function EntryScreen({
     }
   }
 
+  const immediateGoogleButton = (
+    <PortalButton
+      type="button"
+      disabled={busy}
+      className="mx-auto w-full max-w-[320px]"
+      onClick={() => void fallbackSignIn()}
+    >
+      {busy ? 'Opening Google…' : 'Continue with Google'}
+    </PortalButton>
+  )
+
   return (
     <PortalScene tree="both" logo="none">
       {/* The organising club's mark, top-left — the portal's only ACM branding. */}
@@ -203,18 +178,9 @@ export function EntryScreen({
             {...(participantClass === 'vit_student'
               ? { hostedDomain: vitStudentEmailDomain }
               : {})}
-            loading={<PortalButton disabled className="mx-auto w-full max-w-[320px]">Loading Google…</PortalButton>}
+            loading={immediateGoogleButton}
             pending={<PortalButton disabled className="mx-auto w-full max-w-[320px]">Signing in…</PortalButton>}
-            fallback={(
-              <PortalButton
-                type="button"
-                disabled={busy}
-                className="mx-auto w-full max-w-[320px]"
-                onClick={() => void fallbackSignIn()}
-              >
-                {busy ? 'Opening Google…' : 'Continue with Google'}
-              </PortalButton>
-            )}
+            fallback={immediateGoogleButton}
             onError={(message) => setError(message)}
           />
         ) : (
@@ -228,7 +194,7 @@ export function EntryScreen({
             Google sign-in is unavailable right now. Ask an organizer for help.
           </p>
         ) : null}
-        <PortalError message={error} />
+        <PortalError message={error} reserve />
       </div>
     </PortalScene>
   )

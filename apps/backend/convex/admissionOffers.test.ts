@@ -1,5 +1,6 @@
 import { convexTest, type TestConvex } from "convex-test";
 import { describe, expect, test } from "vitest";
+import { defaultParticipantEmailTemplates } from "@code2create/domain";
 
 import { internal } from "./_generated/api.js";
 import { createAdmissionOffer, transitionOffer } from "./admissions.ts";
@@ -395,8 +396,7 @@ async function seedOfferedApplication(backend: BackendTest, expiresAt: number) {
       discordUrl: "https://discord.gg/offer-fixture",
       discordLabel: "Open event Discord",
       notificationProvider: "cloudflare_email",
-      notificationSubject: "Code2Create application update",
-      notificationIntro: "There is an update to your team's Code2Create application.",
+      emailTemplates: defaultParticipantEmailTemplates(),
     });
     const communicationsPolicyId = await ctx.db.insert("communicationsPolicyVersions", {
       eventId,
@@ -516,6 +516,7 @@ async function seedOfferedApplication(backend: BackendTest, expiresAt: number) {
       submittedProjectVersionId: projectId,
       admissionPolicyVersionId: policyId,
       state: "accepted",
+      decisionStage: "released",
       experienceBand: "mixed_or_external",
       humanDecision: "accept",
       humanReasonCode: "fixture_accept",

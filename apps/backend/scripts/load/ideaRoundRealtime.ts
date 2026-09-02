@@ -3,30 +3,53 @@ import { monitorEventLoopDelay } from "node:perf_hooks";
 import { resolve } from "node:path";
 
 import { ConvexClient } from "convex/browser";
-import type { FunctionReturnType } from "convex/server";
+import type { FunctionReturnType, UserIdentityAttributes } from "convex/server";
 import { z } from "zod";
 
 import { api } from "../../convex/_generated/api.js";
+import { validateLoadTarget } from "./target.ts";
+
+declare module "convex/browser" {
+  interface ConvexClient {
+    setAdminAuth(token: string, identity?: UserIdentityAttributes): void;
+  }
+}
 
 const configurationSchema = z.object({
   C2C_LOAD_ACKNOWLEDGE: z.string().optional(),
   C2C_LOAD_ACTIVE_PARTICIPANT_PERCENT: z.coerce.number().min(1).max(100).default(25),
+  C2C_LOAD_ADMIN_KEY: z.string().min(20).optional(),
   C2C_LOAD_AUTOSAVE_MS: z.coerce.number().int().min(1_000).max(60_000).default(5_000),
   C2C_LOAD_CLIENTS: z.coerce.number().int().min(1).max(5_000).default(3_000),
   C2C_LOAD_CONNECT_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(120_000).default(30_000),
+  C2C_LOAD_CONNECTION_RAMP_MS: z.coerce.number().int().min(1_000).max(600_000).default(60_000),
   C2C_LOAD_CONVEX_URL: z.url(),
   C2C_LOAD_EVENT_SLUG: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u).default("code2create-7"),
   C2C_LOAD_HOLD_MS: z.coerce.number().int().min(1_000).max(600_000).default(120_000),
+  C2C_LOAD_IDENTITY_FILE: z.string().min(1).optional(),
   C2C_LOAD_MODE: z.enum(["public", "participant"]).default("public"),
   C2C_LOAD_NOVELTY_MS: z.coerce.number().int().min(5_000).max(120_000).default(15_000),
-  C2C_LOAD_RAMP_MS: z.coerce.number().int().min(1_000).max(600_000).default(60_000),
   C2C_LOAD_TOKEN_FILE: z.string().min(1).optional(),
+  C2C_LOAD_WORKLOAD_RAMP_MS: z.coerce.number().int().min(1_000).max(600_000).default(60_000),
   C2C_LOAD_WORKLOAD: z
-    .enum(["subscriptions", "idea-editing", "intake-burst"])
+    .enum(["subscriptions", "idea-editing", "intake-burst", "submission-burst", "full-flow"])
     .default("subscriptions"),
 }).passthrough();
 
 const tokenFileSchema = z.array(z.string().min(20));
+const identitySchema = z.object({
+  subject: z.string().min(1),
+  issuer: z.url(),
+  sessionId: z.string().min(1),
+  email: z.email(),
+  emailVerified: z.literal(true),
+  name: z.string().min(1),
+});
+const identityFileSchema = z.array(identitySchema).min(1).max(5_000);
+
+type ParticipantCredentials =
+  | { kind: "admin-identities"; adminKey: string; identities: UserIdentityAttributes[] }
+  | { kind: "tokens"; tokens: string[] };
 
 type IntakeSnapshot = FunctionReturnType<typeof api.intake.current>;
 type ReadyIntakeSnapshot = NonNullable<IntakeSnapshot>;
@@ -73,10 +96,60 @@ type IntakeBurstMeasurements = {
   saveLatencies: number[];
   answerLatencies: number[];
   adaptiveResolutionLatencies: number[];
+  deadlineSettlementLatencies: number[];
   teamCompletionLatencies: number[];
   maximumModelQuestionsPerTeam: number;
   teamsWithExactlyTwoFixedQuestions: number;
+  teamsWithExactQuestionContract: number;
 };
+
+type SubmissionBurstMeasurements = {
+  attempted: number;
+  errors: number;
+  failedTeams: number;
+  teamsSubmitted: number;
+  attestationLatencies: number[];
+  previewLatencies: number[];
+  submissionLatencies: number[];
+  completionLatencies: number[];
+};
+
+type ConnectionMeasurements = {
+  abnormalCloses: number;
+  abnormalCloseClients: Set<number>;
+  inactiveServerReconnects: number;
+  inactiveServerClients: Set<number>;
+  reconnectAttempts: number;
+  reconnectingClients: Set<number>;
+};
+
+function logMessage(values: readonly unknown[]) {
+  return values.map((value) => String(value)).join(" ");
+}
+
+function createLoadLogger(measurements: ConnectionMeasurements, clientIndex: number) {
+  const observe = (...values: unknown[]) => {
+    const message = logMessage(values);
+    if (message.startsWith("WebSocket closed with code ")) {
+      measurements.abnormalCloses += 1;
+      measurements.abnormalCloseClients.add(clientIndex);
+    }
+    if (message.includes("disconnect due to InactiveServer")) {
+      measurements.inactiveServerReconnects += 1;
+      measurements.inactiveServerClients.add(clientIndex);
+    }
+    if (message.startsWith("Attempting reconnect in ")) {
+      measurements.reconnectAttempts += 1;
+      measurements.reconnectingClients.add(clientIndex);
+    }
+  };
+  return {
+    logVerbose: (..._values: unknown[]) => {},
+    log: observe,
+    warn: observe,
+    error: observe,
+  };
+}
 
 function delay(milliseconds: number) {
   return new Promise<void>((resolveDelay) => setTimeout(resolveDelay, milliseconds));
@@ -105,6 +178,30 @@ function waitForIntake(
       state.intakeListeners.delete(listener);
       rejectSnapshot(new Error(`Client ${state.clientIndex + 1} timed out waiting for intake state.`));
     }, timeoutMs);
+    state.intakeListeners.add(listener);
+    const current = state.intakeSnapshot;
+    if (current && predicate(current)) finish(current);
+  });
+}
+
+function waitForIntakeOrTimeout(
+  state: ClientState,
+  predicate: (snapshot: ReadyIntakeSnapshot) => boolean,
+  timeoutMs: number,
+) {
+  return new Promise<ReadyIntakeSnapshot | null>((resolveSnapshot) => {
+    let settled = false;
+    const finish = (snapshot: ReadyIntakeSnapshot | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      state.intakeListeners.delete(listener);
+      resolveSnapshot(snapshot);
+    };
+    const listener = (snapshot: IntakeSnapshot) => {
+      if (snapshot && predicate(snapshot)) finish(snapshot);
+    };
+    const timer = setTimeout(() => finish(null), Math.max(0, timeoutMs));
     state.intakeListeners.add(listener);
     const current = state.intakeSnapshot;
     if (current && predicate(current)) finish(current);
@@ -169,6 +266,44 @@ async function readTokens(path: string | undefined, clients: number) {
     throw new Error("Participant load testing requires one distinct token per simulated client.");
   }
   return tokens;
+}
+
+async function readParticipantCredentials(
+  configuration: z.infer<typeof configurationSchema>,
+  target: ReturnType<typeof validateLoadTarget>["target"],
+): Promise<ParticipantCredentials> {
+  if (configuration.C2C_LOAD_IDENTITY_FILE !== undefined) {
+    if (target !== "production-rehearsal" && target !== "local") {
+      throw new Error("Synthetic admin identities run only against local or rehearsal backends.");
+    }
+    if (configuration.C2C_LOAD_ADMIN_KEY === undefined) {
+      throw new Error("C2C_LOAD_ADMIN_KEY is required with C2C_LOAD_IDENTITY_FILE.");
+    }
+    if (configuration.C2C_LOAD_TOKEN_FILE !== undefined) {
+      throw new Error("Choose either synthetic identities or participant tokens, not both.");
+    }
+    const serialized = await readFile(resolve(configuration.C2C_LOAD_IDENTITY_FILE), "utf8");
+    const parsed: unknown = JSON.parse(serialized);
+    const identities = identityFileSchema.parse(parsed);
+    if (identities.length < configuration.C2C_LOAD_CLIENTS) {
+      throw new Error(
+        `The identity file has ${identities.length} identities for ${configuration.C2C_LOAD_CLIENTS} clients.`,
+      );
+    }
+    const selected = identities.slice(0, configuration.C2C_LOAD_CLIENTS);
+    if (new Set(selected.map((identity) => identity.subject)).size !== selected.length) {
+      throw new Error("Participant load testing requires one distinct synthetic identity per client.");
+    }
+    return {
+      kind: "admin-identities",
+      adminKey: configuration.C2C_LOAD_ADMIN_KEY,
+      identities: selected,
+    };
+  }
+  return {
+    kind: "tokens",
+    tokens: await readTokens(configuration.C2C_LOAD_TOKEN_FILE, configuration.C2C_LOAD_CLIENTS),
+  };
 }
 
 function syntheticIdea(teamId: string, sequence: number) {
@@ -288,6 +423,7 @@ async function runIdeaEditingWorkload(
     const ideaField = intake.workingFields.find((field) => field.kind === "idea");
     const editor = {
       baseDraftVersion: intake.draft.version,
+      baseCommittedValue: intake.draft.initialIdea ?? "",
       corpusVersionId: intake.draft.novelty.corpusVersionId,
       idea: syntheticIdea(intake.teamId, 0),
       ideaSequence: 0,
@@ -313,7 +449,7 @@ async function runIdeaEditingWorkload(
               field: { kind: "idea" },
               value: editor.idea,
               baseDraftVersion: editor.baseDraftVersion,
-              baseCommittedValue: "",
+              baseCommittedValue: editor.baseCommittedValue,
               expectedRevision: editor.revision,
             }),
           );
@@ -407,16 +543,89 @@ async function runIntakeBurstWorkload(
     saveLatencies: [],
     answerLatencies: [],
     adaptiveResolutionLatencies: [],
+    deadlineSettlementLatencies: [],
     teamCompletionLatencies: [],
     maximumModelQuestionsPerTeam: 0,
     teamsWithExactlyTwoFixedQuestions: 0,
+    teamsWithExactQuestionContract: 0,
   };
   const runId = Date.now().toString(36);
+
+  const waitForAdaptiveResolution = async (
+    state: ClientState,
+    minimumDraftVersion: number,
+    priorQuestionId: string,
+  ) => {
+    const resolved = (candidate: ReadyIntakeSnapshot) => {
+      const candidateDraft = candidate.draft;
+      return Boolean(
+        candidateDraft
+        && candidateDraft.version >= minimumDraftVersion
+        && (
+          candidateDraft.stage === "review"
+          || candidateDraft.followUps.some(
+            (question) => question.state === "active" && question.id !== priorQuestionId,
+          )
+        ),
+      );
+    };
+    let snapshot = await waitForIntake(
+      state,
+      (candidate) => resolved(candidate) || Boolean(
+        candidate.draft
+        && candidate.draft.version >= minimumDraftVersion
+        && candidate.draft.adaptiveQuestionDeadlineAt !== undefined
+      ),
+      5_000,
+    );
+    if (resolved(snapshot)) return snapshot;
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const draft = snapshot.draft;
+      const deadlineAt = draft?.adaptiveQuestionDeadlineAt;
+      if (!draft || deadlineAt === undefined) {
+        throw new Error("The adaptive question has no authoritative deadline.");
+      }
+      const early = await waitForIntakeOrTimeout(
+        state,
+        resolved,
+        Math.max(0, deadlineAt - snapshot.serverNow + 50),
+      );
+      if (early) return early;
+
+      const settlement = await measuredWorkloadCall(
+        measurements,
+        measurements.deadlineSettlementLatencies,
+        errorSamples,
+        () => state.client.mutation(api.intake.settleAdaptiveQuestionDeadline, {
+          eventSlug: configuration.C2C_LOAD_EVENT_SLUG,
+          expectedDraftVersion: draft.version,
+          deadlineAt,
+        }),
+      );
+      if (!settlement) {
+        throw new Error("The adaptive question deadline could not be settled.");
+      }
+      const afterSettlement = await waitForIntakeOrTimeout(state, resolved, 2_000);
+      if (afterSettlement) return afterSettlement;
+      const current = state.intakeSnapshot;
+      if (current && resolved(current)) return current;
+      if (settlement.state === "waiting") {
+        await delay(Math.max(50, deadlineAt - settlement.serverNow + 50));
+      }
+      if (current) snapshot = current;
+    }
+    throw new Error("The adaptive question did not resolve after its deadline was settled.");
+  };
 
   await Promise.all(leaders.map(async (state, leaderIndex) => {
     const initial = state.intakeSnapshot;
     if (!initial) return;
-    await delay(Math.floor(leaderIndex * configuration.C2C_LOAD_RAMP_MS / leaders.length));
+    await delay(
+      Math.floor(
+        leaderIndex * configuration.C2C_LOAD_WORKLOAD_RAMP_MS / leaders.length,
+      ),
+    );
     const teamStartedAt = performance.now();
     try {
       const saved = await measuredWorkloadCall(
@@ -456,14 +665,12 @@ async function runIntakeBurstWorkload(
         }
         let active = draft.followUps.find((question) => question.state === "active");
         if (!active) {
-          const waitingStartedAt = performance.now();
           snapshot = await waitForIntake(
             state,
             (candidate) => candidate.draft?.stage === "review"
               || candidate.draft?.followUps.some((question) => question.state === "active") === true,
-            22_000,
+            10_000,
           );
-          measurements.adaptiveResolutionLatencies.push(performance.now() - waitingStartedAt);
           if (snapshot.draft?.stage === "review") break;
           active = snapshot.draft?.followUps.find((question) => question.state === "active");
           if (!active) throw new Error("The adaptive intake wait completed without a question or review state.");
@@ -490,29 +697,44 @@ async function runIntakeBurstWorkload(
           measurements.failedTeams += 1;
           return;
         }
-        snapshot = await waitForIntake(
-          state,
-          (candidate) => {
-            const nextDraft = candidate.draft;
-            return Boolean(
-              nextDraft
-              && nextDraft.version >= answered.draftVersion
-              && (
-                nextDraft.stage === "review"
-                || nextDraft.followUps.some(
-                  (question) => question.state === "active" && question.id !== active.id,
-                )
-              ),
-            );
-          },
-          22_000,
-        );
+        const transitionStartedAt = performance.now();
+        if (active.ordinal === 2 || active.ordinal === 3) {
+          snapshot = await waitForAdaptiveResolution(
+            state,
+            answered.draftVersion,
+            active.id,
+          );
+          measurements.adaptiveResolutionLatencies.push(
+            performance.now() - transitionStartedAt,
+          );
+        } else {
+          snapshot = await waitForIntake(
+            state,
+            (candidate) => {
+              const nextDraft = candidate.draft;
+              return Boolean(
+                nextDraft
+                && nextDraft.version >= answered.draftVersion
+                && (
+                  nextDraft.stage === "review"
+                  || nextDraft.followUps.some(
+                    (question) => question.state === "active" && question.id !== active.id,
+                  )
+                ),
+              );
+            },
+            10_000,
+          );
+        }
       }
 
       measurements.fixedQuestions += fixedQuestions;
       measurements.modelQuestions += modelQuestions;
       measurements.fallbackQuestions += fallbackQuestions;
       if (fixedQuestions === 2) measurements.teamsWithExactlyTwoFixedQuestions += 1;
+      if (fixedQuestions === 2 && modelQuestions + fallbackQuestions === 2) {
+        measurements.teamsWithExactQuestionContract += 1;
+      }
       if (modelQuestions > 0) measurements.modelAssistedTeams += 1;
       measurements.maximumModelQuestionsPerTeam = Math.max(
         measurements.maximumModelQuestionsPerTeam,
@@ -531,42 +753,165 @@ async function runIntakeBurstWorkload(
   return { teamCount: leaders.length, measurements };
 }
 
-async function main() {
-  const configuration = configurationSchema.parse(process.env);
-  const endpoint = new URL(configuration.C2C_LOAD_CONVEX_URL);
-  const stagingTarget = endpoint.hostname === "localhost"
-    || endpoint.hostname === "127.0.0.1"
-    || endpoint.hostname.includes("staging");
-  if (!stagingTarget) {
-    throw new Error("The realtime load driver runs only against localhost or a staging hostname.");
-  }
-  if (
-    configuration.C2C_LOAD_CLIENTS > 250 &&
-    configuration.C2C_LOAD_ACKNOWLEDGE !== "code2create-staging" &&
-    configuration.C2C_LOAD_ACKNOWLEDGE !== "code2create-staging-writes"
-  ) {
-    throw new Error(
-      "Set C2C_LOAD_ACKNOWLEDGE=code2create-staging before opening more than 250 clients.",
-    );
-  }
-  if (configuration.C2C_LOAD_WORKLOAD !== "subscriptions") {
-    if (configuration.C2C_LOAD_MODE !== "participant") {
-      throw new Error("Mutating workloads require C2C_LOAD_MODE=participant.");
+async function runSubmissionBurstWorkload(
+  states: readonly ClientState[],
+  configuration: z.infer<typeof configurationSchema>,
+  errorSamples: Set<string>,
+) {
+  const leadersByTeam = new Map<string, ClientState>();
+  for (const state of states) {
+    const intake = state.intakeSnapshot;
+    if (!intake || intake.currentRole !== "lead") continue;
+    if (leadersByTeam.has(intake.teamId)) {
+      throw new Error(`The load fixture has more than one active lead for team ${intake.teamId}.`);
     }
-    if (!configuration.C2C_LOAD_EVENT_SLUG.startsWith("load-")) {
-      throw new Error("Mutating workloads run only against a disposable load-* event.");
-    }
-    if (configuration.C2C_LOAD_ACKNOWLEDGE !== "code2create-staging-writes") {
+    leadersByTeam.set(intake.teamId, state);
+  }
+  const leaders = [...leadersByTeam.values()];
+  if (leaders.length === 0) {
+    throw new Error("The submission burst needs at least one review-ready fixture team.");
+  }
+  for (const leader of leaders) {
+    const intake = leader.intakeSnapshot;
+    if (!intake || intake.application !== null || intake.draft?.stage !== "review") {
       throw new Error(
-        "Set C2C_LOAD_ACKNOWLEDGE=code2create-staging-writes for the mutating workload.",
+        "The submission burst requires one unsubmitted, review-ready draft per fixture team.",
       );
     }
   }
-  const tokens = configuration.C2C_LOAD_MODE === "participant"
-    ? await readTokens(configuration.C2C_LOAD_TOKEN_FILE, configuration.C2C_LOAD_CLIENTS)
-    : [];
+
+  const measurements: SubmissionBurstMeasurements = {
+    attempted: 0,
+    errors: 0,
+    failedTeams: 0,
+    teamsSubmitted: 0,
+    attestationLatencies: [],
+    previewLatencies: [],
+    submissionLatencies: [],
+    completionLatencies: [],
+  };
+  const runId = Date.now().toString(36);
+
+  await Promise.all(leaders.map(async (state, leaderIndex) => {
+    await delay(
+      Math.floor(
+        leaderIndex * configuration.C2C_LOAD_WORKLOAD_RAMP_MS / leaders.length,
+      ),
+    );
+    try {
+      let snapshot = state.intakeSnapshot;
+      if (!snapshot?.draft) throw new Error("The review-ready draft disappeared.");
+      if (!snapshot.draft.freshnessAttested) {
+        const draftVersion = snapshot.draft.version;
+        const attestation = await measuredWorkloadCall(
+          measurements,
+          measurements.attestationLatencies,
+          errorSamples,
+          () => state.client.mutation(api.intake.setFreshnessAttestation, {
+            eventSlug: configuration.C2C_LOAD_EVENT_SLUG,
+            accepted: true,
+            expectedDraftVersion: draftVersion,
+            clientOperationId: `load-${runId}-${state.clientIndex}-freshness`,
+          }),
+        );
+        if (!attestation) {
+          measurements.failedTeams += 1;
+          return;
+        }
+        snapshot = await waitForIntake(
+          state,
+          (candidate) => (
+            candidate.draft?.freshnessAttested === true
+            && candidate.draft.version >= attestation.draftVersion
+          ),
+          10_000,
+        );
+      }
+
+      const preview = await measuredWorkloadCall(
+        measurements,
+        measurements.previewLatencies,
+        errorSamples,
+        () => state.client.query(api.intake.submissionPreview, {
+          eventSlug: configuration.C2C_LOAD_EVENT_SLUG,
+        }),
+      );
+      if (!preview) throw new Error("The team did not receive a submission preview.");
+      if (preview.blockers.length > 0) {
+        throw new Error(`The submission preview is blocked: ${preview.blockers.join(" ")}`);
+      }
+      if (preview.teamId !== snapshot.teamId) {
+        throw new Error("The submission preview belongs to a different team.");
+      }
+
+      const completionStartedAt = performance.now();
+      const submitted = await measuredWorkloadCall(
+        measurements,
+        measurements.submissionLatencies,
+        errorSamples,
+        () => state.client.mutation(api.intake.submit, {
+          eventSlug: configuration.C2C_LOAD_EVENT_SLUG,
+          expectedDraftVersion: preview.draftVersion,
+          expectedTeamVersion: preview.teamVersion,
+          participantPolicyVersionId: preview.participantPolicyVersionId,
+          clientOperationId: `load-${runId}-${state.clientIndex}-submit`,
+        }),
+      );
+      if (!submitted) {
+        measurements.failedTeams += 1;
+        return;
+      }
+      if (submitted.state === "failed") {
+        throw new Error(submitted.failureMessage ?? "The submission attempt failed.");
+      }
+      if (submitted.state !== "complete") {
+        snapshot = await waitForIntake(
+          state,
+          (candidate) => candidate.application !== null,
+          60_000,
+        );
+      }
+      measurements.completionLatencies.push(performance.now() - completionStartedAt);
+      if (submitted.state === "complete" || snapshot.application !== null) {
+        measurements.teamsSubmitted += 1;
+      } else {
+        throw new Error("The submission completed without a visible application.");
+      }
+    } catch (error) {
+      measurements.failedTeams += 1;
+      if (errorSamples.size < 5) errorSamples.add(safeErrorMessage(error));
+    }
+  }));
+
+  return { teamCount: leaders.length, measurements };
+}
+
+async function main() {
+  const configuration = configurationSchema.parse(process.env);
+  const endpoint = new URL(configuration.C2C_LOAD_CONVEX_URL);
+  const { target } = validateLoadTarget({
+    ...(configuration.C2C_LOAD_ACKNOWLEDGE !== undefined
+      ? { acknowledgement: configuration.C2C_LOAD_ACKNOWLEDGE }
+      : {}),
+    clientCount: configuration.C2C_LOAD_CLIENTS,
+    endpoint,
+    eventSlug: configuration.C2C_LOAD_EVENT_SLUG,
+    mode: configuration.C2C_LOAD_MODE,
+    workload: configuration.C2C_LOAD_WORKLOAD,
+  });
+  const participantCredentials = configuration.C2C_LOAD_MODE === "participant"
+    ? await readParticipantCredentials(configuration, target)
+    : null;
   const states: ClientState[] = [];
   const errorSamples = new Set<string>();
+  const connectionMeasurements: ConnectionMeasurements = {
+    abnormalCloses: 0,
+    abnormalCloseClients: new Set(),
+    inactiveServerReconnects: 0,
+    inactiveServerClients: new Set(),
+    reconnectAttempts: 0,
+    reconnectingClients: new Set(),
+  };
   const eventLoop = monitorEventLoopDelay({ resolution: 20 });
   eventLoop.enable();
   let maximumResidentBytes = process.memoryUsage().rss;
@@ -575,23 +920,37 @@ async function main() {
   }, 1_000);
   const runStartedAt = performance.now();
   const batchIntervalMs = 100;
-  const batchCount = Math.max(1, Math.ceil(configuration.C2C_LOAD_RAMP_MS / batchIntervalMs));
+  const batchCount = Math.max(
+    1,
+    Math.ceil(configuration.C2C_LOAD_CONNECTION_RAMP_MS / batchIntervalMs),
+  );
   const clientsPerBatch = Math.max(1, Math.ceil(configuration.C2C_LOAD_CLIENTS / batchCount));
 
   let ideaEditing: Awaited<ReturnType<typeof runIdeaEditingWorkload>> | null = null;
   let intakeBurst: Awaited<ReturnType<typeof runIntakeBurstWorkload>> | null = null;
+  let submissionBurst: Awaited<ReturnType<typeof runSubmissionBurstWorkload>> | null = null;
   try {
     for (let offset = 0; offset < configuration.C2C_LOAD_CLIENTS; offset += clientsPerBatch) {
       const batchSize = Math.min(clientsPerBatch, configuration.C2C_LOAD_CLIENTS - offset);
       for (let index = 0; index < batchSize; index += 1) {
         const clientIndex = offset + index;
         const client = new ConvexClient(configuration.C2C_LOAD_CONVEX_URL, {
+          logger: createLoadLogger(connectionMeasurements, clientIndex),
           unsavedChangesWarning: false,
         });
         if (configuration.C2C_LOAD_MODE === "participant") {
-          const token = tokens[clientIndex];
-          if (!token) throw new Error(`Missing token for client ${clientIndex + 1}.`);
-          client.setAuth(async () => token);
+          if (participantCredentials === null) {
+            throw new Error("Participant credentials were not loaded.");
+          }
+          if (participantCredentials.kind === "tokens") {
+            const token = participantCredentials.tokens[clientIndex];
+            if (!token) throw new Error(`Missing token for client ${clientIndex + 1}.`);
+            client.setAuth(async () => token);
+          } else {
+            const identity = participantCredentials.identities[clientIndex];
+            if (!identity) throw new Error(`Missing identity for client ${clientIndex + 1}.`);
+            client.setAdminAuth(participantCredentials.adminKey, identity);
+          }
         }
         const state: ClientState = {
           client,
@@ -615,21 +974,34 @@ async function main() {
           state.errors += 1;
           if (errorSamples.size < 5) errorSamples.add(safeErrorMessage(error));
         };
-        state.unsubscribe.push(client.onUpdate(
-          api.system.getPublicState,
-          { eventSlug: configuration.C2C_LOAD_EVENT_SLUG },
-          (publicState) => {
-            state.updates += 1;
-            if (publicState.event?.slug !== configuration.C2C_LOAD_EVENT_SLUG) {
+        if (target === "production-readonly") {
+          state.unsubscribe.push(client.onUpdate(
+            api.system.getPublicShellState,
+            { eventSlug: configuration.C2C_LOAD_EVENT_SLUG },
+            () => {
+              state.updates += 1;
               state.teamMaximumSize = null;
-              markNotReady(state, "public", "The configured load event does not exist.");
-              return;
-            }
-            state.teamMaximumSize = publicState.event.teamMaxSize;
-            markReady(state, "public");
-          },
-          onError,
-        ));
+              markReady(state, "public");
+            },
+            onError,
+          ));
+        } else {
+          state.unsubscribe.push(client.onUpdate(
+            api.system.getPublicState,
+            { eventSlug: configuration.C2C_LOAD_EVENT_SLUG },
+            (publicState) => {
+              state.updates += 1;
+              if (publicState.event?.slug !== configuration.C2C_LOAD_EVENT_SLUG) {
+                state.teamMaximumSize = null;
+                markNotReady(state, "public", "The configured load event does not exist.");
+                return;
+              }
+              state.teamMaximumSize = publicState.event.teamMaxSize;
+              markReady(state, "public");
+            },
+            onError,
+          ));
+        }
         if (configuration.C2C_LOAD_MODE === "participant") {
           state.unsubscribe.push(client.onUpdate(
             api.participants.me,
@@ -691,10 +1063,22 @@ async function main() {
         errorSamples.add(reason);
       }
     }
+    const mutatingWorkload = configuration.C2C_LOAD_WORKLOAD !== "subscriptions";
+    const readyClientCount = states.filter((state) => state.completedAt !== null).length;
+    if (mutatingWorkload && readyClientCount !== configuration.C2C_LOAD_CLIENTS) {
+      throw new Error(
+        `The mutating load profile requires all ${configuration.C2C_LOAD_CLIENTS} authenticated clients to be ready; ${readyClientCount} were ready. No workload mutations were started.`,
+      );
+    }
     if (configuration.C2C_LOAD_WORKLOAD === "idea-editing") {
       ideaEditing = await runIdeaEditingWorkload(states, configuration, errorSamples);
     } else if (configuration.C2C_LOAD_WORKLOAD === "intake-burst") {
       intakeBurst = await runIntakeBurstWorkload(states, configuration, errorSamples);
+    } else if (configuration.C2C_LOAD_WORKLOAD === "submission-burst") {
+      submissionBurst = await runSubmissionBurstWorkload(states, configuration, errorSamples);
+    } else if (configuration.C2C_LOAD_WORKLOAD === "full-flow") {
+      intakeBurst = await runIntakeBurstWorkload(states, configuration, errorSamples);
+      submissionBurst = await runSubmissionBurstWorkload(states, configuration, errorSamples);
     } else {
       await delay(configuration.C2C_LOAD_HOLD_MS);
     }
@@ -712,11 +1096,12 @@ async function main() {
     .toSorted((left, right) => left - right);
   const readyClients = latencies.length;
   const totalErrors = states.reduce((total, state) => total + state.errors, 0);
+  const readyStates = states.filter((state) => state.completedAt !== null);
   const distinctParticipantIds = new Set(
-    states.flatMap((state) => state.personId ? [state.personId] : []),
+    readyStates.flatMap((state) => state.personId ? [state.personId] : []),
   );
   const teamClientCounts = new Map<string, number>();
-  for (const state of states) {
+  for (const state of readyStates) {
     if (!state.teamId) continue;
     teamClientCounts.set(state.teamId, (teamClientCounts.get(state.teamId) ?? 0) + 1);
   }
@@ -729,8 +1114,8 @@ async function main() {
     (state) => state.teamMaximumSize !== null,
   )?.teamMaximumSize ?? null;
   const participantFixturePassed = configuration.C2C_LOAD_MODE === "public" || (
-    distinctParticipantIds.size === configuration.C2C_LOAD_CLIENTS
-    && participantsInTeams === configuration.C2C_LOAD_CLIENTS
+    distinctParticipantIds.size === readyClients
+    && participantsInTeams === readyClients
     && teamClientCounts.size > 0
     && configuredTeamMaximum !== null
     && maximumClientsInOneTeam <= configuredTeamMaximum
@@ -740,6 +1125,8 @@ async function main() {
   const p95 = percentile(latencies, 0.95);
   const p99 = percentile(latencies, 0.99);
   const eventLoopP99Ms = eventLoop.percentile(99) / 1_000_000;
+  const reconnectRatio = connectionMeasurements.reconnectingClients.size
+    / configuration.C2C_LOAD_CLIENTS;
   const ideaEditingErrorRatio = ideaEditing
     ? ideaEditing.measurements.errors / Math.max(1, ideaEditing.measurements.attempted)
     : 0;
@@ -780,6 +1167,12 @@ async function main() {
         0.99,
       )
     : null;
+  const deadlineSettlementP95 = intakeBurst
+    ? percentile(
+        intakeBurst.measurements.deadlineSettlementLatencies.toSorted((a, b) => a - b),
+        0.95,
+      )
+    : null;
   const intakeCompletionP99 = intakeBurst
     ? percentile(
         intakeBurst.measurements.teamCompletionLatencies.toSorted((a, b) => a - b),
@@ -793,6 +1186,8 @@ async function main() {
     && intakeBurstFailedTeamRatio <= 0.01
     && intakeBurst.measurements.teamsReachedReview / intakeBurst.teamCount >= 0.99
     && intakeBurst.measurements.teamsWithExactlyTwoFixedQuestions === intakeBurst.teamCount
+    && intakeBurst.measurements.teamsWithExactQuestionContract === intakeBurst.teamCount
+    && intakeBurst.measurements.adaptiveResolutionLatencies.length === intakeBurst.teamCount * 2
     && intakeBurst.measurements.modelQuestions > 0
     && intakeBurst.measurements.maximumModelQuestionsPerTeam <= 2
     && intakeSaveP95 !== null
@@ -804,6 +1199,51 @@ async function main() {
     && intakeCompletionP99 !== null
     && intakeCompletionP99 <= 60_000
   );
+  const submissionBurstOperationErrorRatio = submissionBurst
+    ? submissionBurst.measurements.errors / Math.max(1, submissionBurst.measurements.attempted)
+    : 0;
+  const submissionBurstFailedTeamRatio = submissionBurst
+    ? submissionBurst.measurements.failedTeams / submissionBurst.teamCount
+    : 0;
+  const attestationP95 = submissionBurst
+    ? percentile(
+        submissionBurst.measurements.attestationLatencies.toSorted((a, b) => a - b),
+        0.95,
+      )
+    : null;
+  const submissionPreviewP95 = submissionBurst
+    ? percentile(
+        submissionBurst.measurements.previewLatencies.toSorted((a, b) => a - b),
+        0.95,
+      )
+    : null;
+  const submissionMutationP95 = submissionBurst
+    ? percentile(
+        submissionBurst.measurements.submissionLatencies.toSorted((a, b) => a - b),
+        0.95,
+      )
+    : null;
+  const submissionCompletionP99 = submissionBurst
+    ? percentile(
+        submissionBurst.measurements.completionLatencies.toSorted((a, b) => a - b),
+        0.99,
+      )
+    : null;
+  const submissionBurstPassed = submissionBurst === null || (
+    submissionBurst.teamCount > 0
+    && submissionBurst.measurements.attempted > 0
+    && submissionBurstOperationErrorRatio <= 0.01
+    && submissionBurstFailedTeamRatio <= 0.01
+    && submissionBurst.measurements.teamsSubmitted / submissionBurst.teamCount >= 0.99
+    && attestationP95 !== null
+    && attestationP95 <= 2_000
+    && submissionPreviewP95 !== null
+    && submissionPreviewP95 <= 2_000
+    && submissionMutationP95 !== null
+    && submissionMutationP95 <= 2_000
+    && submissionCompletionP99 !== null
+    && submissionCompletionP99 <= 60_000
+  );
   const passed = readyRatio >= 0.995
     && errorRatio <= 0.005
     && p95 !== null
@@ -811,15 +1251,19 @@ async function main() {
     && p99 !== null
     && p99 <= 10_000
     && eventLoopP99Ms <= 250
+    && reconnectRatio <= 0.005
     && participantFixturePassed
     && ideaEditingPassed
-    && intakeBurstPassed;
+    && intakeBurstPassed
+    && submissionBurstPassed;
   const result = {
-    schemaVersion: 3,
+    schemaVersion: 7,
     target: endpoint.origin,
+    targetKind: target,
     mode: configuration.C2C_LOAD_MODE,
     clients: configuration.C2C_LOAD_CLIENTS,
-    rampMs: configuration.C2C_LOAD_RAMP_MS,
+    connectionRampMs: configuration.C2C_LOAD_CONNECTION_RAMP_MS,
+    workloadRampMs: configuration.C2C_LOAD_WORKLOAD_RAMP_MS,
     holdMs: configuration.C2C_LOAD_HOLD_MS,
     workload: configuration.C2C_LOAD_WORKLOAD,
     elapsedMs: Math.round(performance.now() - runStartedAt),
@@ -837,6 +1281,16 @@ async function main() {
     driver: {
       maximumResidentMiB: Number((maximumResidentBytes / 1_048_576).toFixed(1)),
       eventLoopP99Ms: Number(eventLoopP99Ms.toFixed(1)),
+    },
+    connection: {
+      abnormalCloses: connectionMeasurements.abnormalCloses,
+      abnormalCloseClients: connectionMeasurements.abnormalCloseClients.size,
+      inactiveServerReconnects: connectionMeasurements.inactiveServerReconnects,
+      inactiveServerClients: connectionMeasurements.inactiveServerClients.size,
+      reconnectAttempts: connectionMeasurements.reconnectAttempts,
+      reconnectingClients: connectionMeasurements.reconnectingClients.size,
+      reconnectPercent: Number((reconnectRatio * 100).toFixed(3)),
+      passed: reconnectRatio <= 0.005,
     },
     participantFixture: configuration.C2C_LOAD_MODE === "participant"
       ? {
@@ -876,6 +1330,8 @@ async function main() {
           teamsReachedReview: intakeBurst.measurements.teamsReachedReview,
           teamsWithExactlyTwoFixedQuestions:
             intakeBurst.measurements.teamsWithExactlyTwoFixedQuestions,
+          teamsWithExactQuestionContract:
+            intakeBurst.measurements.teamsWithExactQuestionContract,
           fixedQuestions: intakeBurst.measurements.fixedQuestions,
           modelQuestions: intakeBurst.measurements.modelQuestions,
           fallbackQuestions: intakeBurst.measurements.fallbackQuestions,
@@ -885,8 +1341,25 @@ async function main() {
           saveLatencyMs: { p95: intakeSaveP95 },
           answerLatencyMs: { p95: intakeAnswerP95 },
           adaptiveResolutionLatencyMs: { p99: adaptiveResolutionP99 },
+          deadlineSettlementLatencyMs: { p95: deadlineSettlementP95 },
           teamCompletionLatencyMs: { p99: intakeCompletionP99 },
           passed: intakeBurstPassed,
+      }
+      : null,
+    submissionBurst: submissionBurst
+      ? {
+          teams: submissionBurst.teamCount,
+          operationsAttempted: submissionBurst.measurements.attempted,
+          operationErrors: submissionBurst.measurements.errors,
+          operationErrorPercent: Number((submissionBurstOperationErrorRatio * 100).toFixed(3)),
+          failedTeams: submissionBurst.measurements.failedTeams,
+          failedTeamPercent: Number((submissionBurstFailedTeamRatio * 100).toFixed(3)),
+          teamsSubmitted: submissionBurst.measurements.teamsSubmitted,
+          attestationLatencyMs: { p95: attestationP95 },
+          previewLatencyMs: { p95: submissionPreviewP95 },
+          submissionMutationLatencyMs: { p95: submissionMutationP95 },
+          completionLatencyMs: { p99: submissionCompletionP99 },
+          passed: submissionBurstPassed,
         }
       : null,
     errorSamples: [...errorSamples],
