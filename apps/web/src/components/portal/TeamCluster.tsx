@@ -95,7 +95,7 @@ export function TeamCluster({
       <button
         type="button"
         aria-expanded={open}
-        aria-label={`Team ${team.name}, ${team.activeMemberCount} of ${team.teamMaximumSize} members`}
+        aria-label={`Team ${team.name}`}
         onClick={() => setOpen((value) => !value)}
         className={`flex min-h-10 items-center rounded-full border px-1.5 py-1 shadow-[0_8px_24px_var(--shade-1)] transition-colors duration-200 lg:min-h-12 lg:px-2 ${
           open ? 'border-rose-light/80 bg-rose/15' : 'border-petal-line bg-tile hover:border-rose/70'
@@ -119,9 +119,6 @@ export function TeamCluster({
         </span>
         <span className="mr-2 ml-2.5 block max-w-28 min-w-0 text-left">
           <span className="block truncate text-[12px] font-medium text-fg/85">{team.name}</span>
-          <span className="block text-[10px] text-fg/45">
-            {team.activeMemberCount} of {team.teamMaximumSize} members
-          </span>
         </span>
       </button>
 
@@ -187,14 +184,11 @@ export function TeamRosterPanel({
 
   return (
     <section aria-label="Team menu" className="rounded-petal-sm glass-menu px-5 py-4 text-left">
-      <div className="mb-3 flex items-start justify-between gap-4">
+      <div className="mb-3">
         <div>
           <p className="m-0 text-[10.5px] font-semibold tracking-[.1em] text-fg/45 uppercase">Your team</p>
           <p className="mt-1.5 mb-0 font-ui font-normal text-base text-rose-light">{team.name}</p>
         </div>
-        <span className="mt-0.5 text-[10.5px] font-semibold tracking-[.08em] text-fg/50">
-          {team.activeMemberCount} of {team.teamMaximumSize}
-        </span>
       </div>
       <ul className="m-0 list-none p-0">
         {members.map((member) => {
