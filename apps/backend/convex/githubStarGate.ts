@@ -589,9 +589,13 @@ const starClaim = v.union(
     completedAt: v.number(),
   }),
   v.object({
-    kind: v.literal("verify"),
+    kind: v.union(v.literal("star"), v.literal("revoke")),
     authorizationId: v.id("githubStarAuthorizations"),
     accessTokenCiphertext: v.string(),
+  }),
+  v.object({
+    kind: v.literal("finish"),
+    authorizationId: v.id("githubStarAuthorizations"),
   }),
 );
 type StarClaim = Infer<typeof starClaim>;
@@ -621,30 +625,95 @@ export const claimStar = internalMutation({
       )
       .unique();
     const now = Date.now();
-    if (!authorization || authorization.expiresAt <= now) {
+    if (
+      !authorization ||
+      (authorization.expiresAt <= now &&
+        authorization.status !== "revoking" &&
+        authorization.status !== "revoked")
+    ) {
       if (authorization) await ctx.db.delete(authorization._id);
       throw new ConvexError({
         code: "GITHUB_CONNECTION_REQUIRED",
         message: "Your GitHub connection expired. Connect GitHub again.",
       });
     }
-    if (authorization.status === "starring" && (authorization.claimExpiresAt ?? 0) > now) {
+    if (authorization.status !== "active" && (authorization.claimExpiresAt ?? 0) > now) {
       throw new ConvexError({
         code: "GITHUB_STAR_IN_PROGRESS",
         message: "The repository star is already being confirmed.",
       });
     }
+    const kind = authorization.status === "revoking"
+      ? "revoke" as const
+      : authorization.status === "revoked"
+        ? "finish" as const
+        : "star" as const;
     await ctx.db.patch(authorization._id, {
-      status: "starring",
+      status: kind === "star" ? "starring" : authorization.status,
       attemptId: args.attemptId,
       claimExpiresAt: now + providerClaimLifetimeMs,
       updatedAt: now,
     });
+    if (kind === "finish") {
+      return { kind, authorizationId: authorization._id };
+    }
     return {
-      kind: "verify",
+      kind,
       authorizationId: authorization._id,
       accessTokenCiphertext: authorization.accessTokenCiphertext,
     };
+  },
+});
+
+export const markStarSucceeded = internalMutation({
+  args: {
+    authorizationId: v.id("githubStarAuthorizations"),
+    attemptId: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const authorization = await ctx.db.get(args.authorizationId);
+    if (
+      !authorization ||
+      authorization.status !== "starring" ||
+      authorization.attemptId !== args.attemptId
+    ) {
+      throw new ConvexError({
+        code: "GITHUB_STAR_STALE",
+        message: "The GitHub connection changed. Connect again.",
+      });
+    }
+    await ctx.db.patch(authorization._id, {
+      status: "revoking",
+      updatedAt: Date.now(),
+    });
+    return null;
+  },
+});
+
+export const markGrantRevoked = internalMutation({
+  args: {
+    authorizationId: v.id("githubStarAuthorizations"),
+    attemptId: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const authorization = await ctx.db.get(args.authorizationId);
+    if (
+      !authorization ||
+      authorization.status !== "revoking" ||
+      authorization.attemptId !== args.attemptId
+    ) {
+      throw new ConvexError({
+        code: "GITHUB_STAR_STALE",
+        message: "The GitHub connection changed. Connect again.",
+      });
+    }
+    await ctx.db.patch(authorization._id, {
+      status: "revoked",
+      updatedAt: Date.now(),
+    });
+    return null;
   },
 });
 
@@ -670,7 +739,7 @@ export const finishStar = internalMutation({
       authorization.eventId !== event._id ||
       authorization.membershipId !== membership._id ||
       authorization.personId !== person._id ||
-      authorization.status !== "starring" ||
+      authorization.status !== "revoked" ||
       authorization.attemptId !== args.attemptId
     ) {
       throw new ConvexError({
@@ -700,14 +769,15 @@ export const failStar = internalMutation({
   handler: async (ctx, args) => {
     const authorization = await ctx.db.get(args.authorizationId);
     if (
-      authorization?.status === "starring" &&
+      authorization &&
+      authorization.status !== "active" &&
       authorization.attemptId === args.attemptId
     ) {
-      if (args.invalidateAuthorization) {
+      if (args.invalidateAuthorization && authorization.status === "starring") {
         await ctx.db.delete(authorization._id);
       } else {
         await ctx.db.patch(authorization._id, {
-          status: "active",
+          status: authorization.status === "starring" ? "active" : authorization.status,
           attemptId: undefined,
           claimExpiresAt: undefined,
           updatedAt: Date.now(),
@@ -723,7 +793,12 @@ export const expireAuthorization = internalMutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     const authorization = await ctx.db.get(args.authorizationId);
-    if (authorization && authorization.expiresAt <= Date.now()) {
+    if (
+      authorization &&
+      authorization.expiresAt <= Date.now() &&
+      authorization.status !== "revoking" &&
+      authorization.status !== "revoked"
+    ) {
       await ctx.db.delete(authorization._id);
     }
     return null;

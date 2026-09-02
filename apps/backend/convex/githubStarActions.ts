@@ -57,9 +57,13 @@ type SetupClaim =
 type StarClaim =
   | { kind: "completed"; githubLogin: string; completedAt: number }
   | {
-      kind: "verify";
+      kind: "star" | "revoke";
       authorizationId: Id<"githubStarAuthorizations">;
       accessTokenCiphertext: string;
+    }
+  | {
+      kind: "finish";
+      authorizationId: Id<"githubStarAuthorizations">;
     };
 
 type CompleteConnectionResult =
@@ -360,42 +364,52 @@ export const star = action({
     if (claim.kind === "completed") {
       return { githubLogin: claim.githubLogin, completedAt: claim.completedAt };
     }
-    let grantRevoked = false;
     try {
-      const accessToken = decryptProviderSecret(claim.accessTokenCiphertext);
-      const request = githubUserStarRequest(
-        accessToken,
-        repositoryOwner,
-        repositoryName,
-      );
-      const response = await timedGitHubFetch(request.url, request.init);
-      if (response.status !== 204) {
-        await response.body?.cancel();
-        throw new RequestError("GitHub rejected the repository star.", response.status, {
-          request: { method: "PUT", url: request.url, headers: {} },
-          response: {
-            data: null,
-            status: response.status,
-            url: request.url,
-            headers: Object.fromEntries(response.headers),
-          },
+      if (claim.kind !== "finish") {
+        const accessToken = decryptProviderSecret(claim.accessTokenCiphertext);
+        if (claim.kind === "star") {
+          const request = githubUserStarRequest(
+            accessToken,
+            repositoryOwner,
+            repositoryName,
+          );
+          const response = await timedGitHubFetch(request.url, request.init);
+          if (response.status !== 204) {
+            await response.body?.cancel();
+            throw new RequestError("GitHub rejected the repository star.", response.status, {
+              request: { method: "PUT", url: request.url, headers: {} },
+              response: {
+                data: null,
+                status: response.status,
+                url: request.url,
+                headers: Object.fromEntries(response.headers),
+              },
+            });
+          }
+          await response.body?.cancel();
+          await ctx.runMutation(internal.githubStarGate.markStarSucceeded, {
+            authorizationId: claim.authorizationId,
+            attemptId,
+          });
+        }
+        await revokeGitHubOAuthGrant(accessToken);
+        await ctx.runMutation(internal.githubStarGate.markGrantRevoked, {
+          authorizationId: claim.authorizationId,
+          attemptId,
         });
       }
-      await response.body?.cancel();
-      await revokeGitHubOAuthGrant(accessToken);
-      grantRevoked = true;
       return await ctx.runMutation(internal.githubStarGate.finishStar, {
         eventSlug: args.eventSlug,
         authorizationId: claim.authorizationId,
         attemptId,
       });
     } catch (error) {
-      const invalidAuthorization = grantRevoked ||
-        (error instanceof RequestError && error.status === 401);
       await ctx.runMutation(internal.githubStarGate.failStar, {
         authorizationId: claim.authorizationId,
         attemptId,
-        invalidateAuthorization: invalidAuthorization,
+        invalidateAuthorization: claim.kind === "star" &&
+          error instanceof RequestError &&
+          error.status === 401,
       });
       throw providerFailure(error);
     }

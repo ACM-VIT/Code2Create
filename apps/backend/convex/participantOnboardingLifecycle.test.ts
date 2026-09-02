@@ -611,22 +611,64 @@ describe("participant onboarding lifecycle", () => {
         attemptId: "github-gate-star-attempt",
       },
     );
-    expect(starClaim.kind).toBe("verify");
-    if (starClaim.kind !== "verify") throw new Error("The star authorization was not claimed.");
+    expect(starClaim.kind).toBe("star");
+    if (starClaim.kind !== "star") throw new Error("The star authorization was not claimed.");
+    await participant.mutation(internal.githubStarGate.markStarSucceeded, {
+      authorizationId: starClaim.authorizationId,
+      attemptId: "github-gate-star-attempt",
+    });
+    await participant.mutation(internal.githubStarGate.failStar, {
+      authorizationId: starClaim.authorizationId,
+      attemptId: "github-gate-star-attempt",
+      invalidateAuthorization: false,
+    });
+
+    const revocationClaim = await participant.mutation(
+      internal.githubStarGate.claimStar,
+      {
+        eventSlug: fixture.eventSlug,
+        attemptId: "github-gate-revocation-attempt",
+      },
+    );
+    expect(revocationClaim.kind).toBe("revoke");
+    if (revocationClaim.kind !== "revoke") {
+      throw new Error("The GitHub grant revocation was not resumed.");
+    }
+    await participant.mutation(internal.githubStarGate.markGrantRevoked, {
+      authorizationId: revocationClaim.authorizationId,
+      attemptId: "github-gate-revocation-attempt",
+    });
+    await participant.mutation(internal.githubStarGate.failStar, {
+      authorizationId: revocationClaim.authorizationId,
+      attemptId: "github-gate-revocation-attempt",
+      invalidateAuthorization: false,
+    });
+
+    const completionClaim = await participant.mutation(
+      internal.githubStarGate.claimStar,
+      {
+        eventSlug: fixture.eventSlug,
+        attemptId: "github-gate-completion-attempt",
+      },
+    );
+    expect(completionClaim.kind).toBe("finish");
+    if (completionClaim.kind !== "finish") {
+      throw new Error("The completed GitHub star was not resumed.");
+    }
     const completed = await participant.mutation(
       internal.githubStarGate.finishStar,
       {
         eventSlug: fixture.eventSlug,
-        authorizationId: starClaim.authorizationId,
-        attemptId: "github-gate-star-attempt",
+        authorizationId: completionClaim.authorizationId,
+        attemptId: "github-gate-completion-attempt",
       },
     );
     const replayed = await participant.mutation(
       internal.githubStarGate.finishStar,
       {
         eventSlug: fixture.eventSlug,
-        authorizationId: starClaim.authorizationId,
-        attemptId: "github-gate-star-attempt",
+        authorizationId: completionClaim.authorizationId,
+        attemptId: "github-gate-completion-attempt",
       },
     );
     expect(replayed).toEqual(completed);

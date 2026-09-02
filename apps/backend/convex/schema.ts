@@ -3948,7 +3948,12 @@ export default defineSchema({
     githubLogin: v.string(),
     accessTokenCiphertext: v.string(),
     expiresAt: v.number(),
-    status: v.union(v.literal("active"), v.literal("starring")),
+    status: v.union(
+      v.literal("active"),
+      v.literal("starring"),
+      v.literal("revoking"),
+      v.literal("revoked"),
+    ),
     attemptId: v.optional(v.string()),
     claimExpiresAt: v.optional(v.number()),
     createdAt: v.number(),
