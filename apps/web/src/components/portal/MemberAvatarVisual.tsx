@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Flower } from './FlowerAvatar'
 
 export function MemberAvatarVisual({
@@ -17,6 +18,10 @@ export function MemberAvatarVisual({
   flowerSize?: number
   flowerClassName?: string
 }) {
+  const [failedAvatarUrl, setFailedAvatarUrl] = useState<string | null>(null)
+  const visibleAvatarUrl =
+    githubAvatarUrl && githubAvatarUrl !== failedAvatarUrl ? githubAvatarUrl : null
+
   return (
     <>
       <Flower
@@ -26,12 +31,12 @@ export function MemberAvatarVisual({
         {...(flowerSize === undefined ? {} : { size: flowerSize })}
         {...(flowerClassName === undefined ? {} : { className: flowerClassName })}
       />
-      {githubAvatarUrl ? (
+      {visibleAvatarUrl ? (
         <img
-          src={githubAvatarUrl}
+          src={visibleAvatarUrl}
           alt={`${displayName}'s GitHub profile photo`}
           referrerPolicy="no-referrer"
-          onError={(event) => event.currentTarget.remove()}
+          onError={() => setFailedAvatarUrl(visibleAvatarUrl)}
           className="absolute inset-0 size-full rounded-full object-cover"
         />
       ) : null}
