@@ -3,7 +3,11 @@ import { createAuthClient } from 'better-auth/react'
 import { ConvexProviderWithAuth, type ConvexReactClient } from 'convex/react'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
-import { fetchAccessTokenUntilSettled } from './access-token'
+import {
+  accessTokenExpiresAt,
+  accessTokenNeedsRefresh,
+  fetchAccessTokenUntilSettled,
+} from './access-token'
 import { authProviderState, type SettledAuthentication } from './auth-state'
 import {
   abandonAuthTransfer,
@@ -47,6 +51,8 @@ export function Code2CreateAuthProvider({
         const sessionId = session?.session.id
         const sessionAuthenticated = Boolean(session?.session)
         const tokenRequestControllers = useRef(new Set<AbortController>())
+        const tokenExpiresAt = useRef<number | null>(null)
+        const [resumeRefresh, setResumeRefresh] = useState(0)
         const [settledAuthentication, setSettledAuthentication] =
           useState<SettledAuthentication>(() => isPending ? null : sessionAuthenticated)
 
@@ -56,12 +62,35 @@ export function Code2CreateAuthProvider({
 
         useEffect(() => {
           pendingToken.current = null
+          tokenExpiresAt.current = null
           return () => {
             for (const controller of tokenRequestControllers.current) controller.abort()
             tokenRequestControllers.current.clear()
             pendingToken.current = null
           }
         }, [sessionId])
+
+        useEffect(() => {
+          const refreshExpiredToken = () => {
+            if (
+              document.visibilityState !== 'visible' ||
+              !accessTokenNeedsRefresh(tokenExpiresAt.current)
+            ) {
+              return
+            }
+            tokenExpiresAt.current = null
+            pendingToken.current = null
+            setResumeRefresh((current) => current + 1)
+          }
+          document.addEventListener('visibilitychange', refreshExpiredToken)
+          window.addEventListener('pageshow', refreshExpiredToken)
+          window.addEventListener('focus', refreshExpiredToken)
+          return () => {
+            document.removeEventListener('visibilitychange', refreshExpiredToken)
+            window.removeEventListener('pageshow', refreshExpiredToken)
+            window.removeEventListener('focus', refreshExpiredToken)
+          }
+        }, [])
 
         const fetchAccessToken = useCallback(
           ({ forceRefreshToken = false }: { forceRefreshToken?: boolean } = {}) => {
@@ -80,6 +109,9 @@ export function Code2CreateAuthProvider({
               },
               isActive: () => !controller.signal.aborted,
             })
+            void request.then((token) => {
+              tokenExpiresAt.current = token ? accessTokenExpiresAt(token) : null
+            })
             pendingToken.current = request
             void request.finally(() => {
               tokenRequestControllers.current.delete(controller)
@@ -87,7 +119,7 @@ export function Code2CreateAuthProvider({
             })
             return request
           },
-          [authClient, sessionId],
+          [authClient, resumeRefresh, sessionId],
         )
 
         const providerState = authProviderState(

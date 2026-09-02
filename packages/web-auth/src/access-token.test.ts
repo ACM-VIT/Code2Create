@@ -2,10 +2,25 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  accessTokenExpiresAt,
+  accessTokenNeedsRefresh,
   fetchAccessTokenUntilSettled,
   isRetryableAccessTokenStatus,
   type AccessTokenAttempt,
 } from './access-token.ts'
+
+function tokenWithPayload(payload: object) {
+  return `header.${Buffer.from(JSON.stringify(payload)).toString('base64url')}.signature`
+}
+
+test('reads JWT expiry and refreshes only inside the resume leeway', () => {
+  const expiresAt = accessTokenExpiresAt(tokenWithPayload({ exp: 1_800_000_000 }))
+  assert.equal(expiresAt, 1_800_000_000_000)
+  assert.equal(accessTokenNeedsRefresh(expiresAt, 1_799_999_939_999), false)
+  assert.equal(accessTokenNeedsRefresh(expiresAt, 1_799_999_940_000), true)
+  assert.equal(accessTokenNeedsRefresh(null, 1_799_999_940_000), false)
+  assert.equal(accessTokenExpiresAt('not-a-jwt'), null)
+})
 
 test('retries interrupted and temporary token requests without signing out', async () => {
   const attempts: Array<AccessTokenAttempt | Error> = [
