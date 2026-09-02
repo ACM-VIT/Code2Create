@@ -604,6 +604,89 @@ describe("event bootstrap", () => {
       }),
     ).rejects.toThrow("not configured to create that event");
   });
+  test("rejects application deadlines that break the external-VIT-start ordering", async () => {
+    vi.stubEnv("INITIAL_SUPREME_EMAILS", "owner@example.test");
+    vi.stubEnv("INITIAL_EVENT_SLUG", "code2create-7");
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const identity = await createGoogleIdentity(backend, "owner@example.test");
+    const owner = backend.withIdentity({
+      subject: identity.authUserId,
+      sessionId: identity.authSessionId,
+    });
+    const day = 24 * 60 * 60 * 1_000;
+    const startsAt = Date.now() + 7 * day;
+    const bootstrapInput = (deadlines: {
+      externalApplicationsCloseAt: number;
+      applicationsCloseAt: number;
+    }) => ({
+      eventSlug: "code2create-7",
+      eventName: "Code2Create 7.0",
+      timezone: "Asia/Kolkata",
+      ...deadlines,
+      vitEmailDomains: ["vitstudent.ac.in"],
+      participantPolicy: defaultParticipantPolicy,
+      admissionPolicyVersion: "admission-v1",
+      admissionParticipantCapacity: 1_000,
+      admissionMinimumHumanReviews: 2,
+      intakePolicy: defaultDeterministicIntakePolicy,
+      communicationsPolicy: {
+        venueName: "VIT Chennai",
+        startsAt,
+        endsAt: startsAt + 2 * day,
+        nextSteps: [{
+          stableKey: "join_discord",
+          title: "Join Discord",
+          detail: "Use the event server for announcements and participant support.",
+          actionUrl: "https://discord.gg/code2create",
+        }],
+        discordUrl: "https://discord.gg/code2create",
+        discordLabel: "Open event Discord",
+        notificationProvider: "cloudflare_email" as const,
+        emailTemplates: defaultParticipantEmailTemplates(),
+      },
+      integrationPolicy: {
+        version: "integrations-v1",
+        requiredGitHubTopic: "code2create-7",
+        maxActiveGitHubRepositoriesPerTeam: 10,
+        maxActiveFigmaFilesPerTeam: 10,
+      },
+    });
+    const rejection = "external must close no later than VIT";
+
+    await expect(
+      owner.mutation(api.system.bootstrapEvent, bootstrapInput({
+        externalApplicationsCloseAt: startsAt - day,
+        applicationsCloseAt: startsAt - 2 * day,
+      })),
+      "external deadline after the VIT deadline",
+    ).rejects.toThrow(rejection);
+    await expect(
+      owner.mutation(api.system.bootstrapEvent, bootstrapInput({
+        externalApplicationsCloseAt: startsAt - day,
+        applicationsCloseAt: startsAt + day,
+      })),
+      "VIT deadline after the event start",
+    ).rejects.toThrow(rejection);
+    await expect(
+      owner.mutation(api.system.bootstrapEvent, bootstrapInput({
+        externalApplicationsCloseAt: Date.now() - day,
+        applicationsCloseAt: startsAt - day,
+      })),
+      "external deadline in the past",
+    ).rejects.toThrow(rejection);
+    expect(await owner.query(api.system.bootstrapEligibility, {
+      eventSlug: "code2create-7",
+    })).toMatchObject({ allowed: true, eventExists: false });
+
+    await owner.mutation(api.system.bootstrapEvent, bootstrapInput({
+      externalApplicationsCloseAt: startsAt - 2 * day,
+      applicationsCloseAt: startsAt - day,
+    }));
+    expect(await owner.query(api.system.bootstrapEligibility, {
+      eventSlug: "code2create-7",
+    })).toMatchObject({ eventExists: true });
+  });
 });
 
 async function createGoogleIdentity(backend: BackendTest, email: string) {
