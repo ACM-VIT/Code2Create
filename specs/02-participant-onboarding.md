@@ -4,6 +4,10 @@
 
 The participant selects **VIT Student** or **External Participant**. The next action is **Authenticate with Google**. The server verifies the account class. The client does not authorize the selected class.
 
+Production also requires an active participant eligibility import for the event. An external participant must use the exact Google email in the external registration list. A VIT student must use a verified VIT Google Workspace account whose display name contains an exact registration number in the VIT registration list. The import contains only normalized emails or registration numbers. It does not import names, team assignments, or profile data. Staging uses its separate tester list and does not use the production registration list.
+
+An operator can replace the production eligibility import only while the event is closed. The server checks the expected VIT and external counts before it activates the import. Activation changes one event pointer in the same transaction, so participants never see a partial list.
+
 A returning participant goes to the first unfinished task.
 
 The event publishes one authoritative `externalApplicationsCloseAt` time and one authoritative VIT `applicationsCloseAt` time. The external deadline is no later than the VIT deadline. The server uses the deadline for the verified participant class. The browser clock is not authoritative.

@@ -249,7 +249,7 @@ function DetailsFixture({ initialPhase }: { initialPhase: 'idle' | 'verified' })
           A few details, once.
         </h1>
         <PetalCard className="px-6 pt-6 pb-4 lg:px-[30px]">
-          <div className="grid grid-cols-1 gap-x-4 gap-y-3.5 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-x-4 gap-y-3.5 sm:grid-flow-row-dense sm:grid-cols-2">
             <PortalField label="full name" hint="verified">
               {(id) => <PortalInput id={id} readOnly value="Ananya Iyer" />}
             </PortalField>
@@ -279,7 +279,7 @@ function DetailsFixture({ initialPhase }: { initialPhase: 'idle' | 'verified' })
               )}
             </PortalField>
             {phase !== 'sent' ? null : (
-              <div className="sm:col-span-2">
+              <div className="sm:col-start-2">
                 <PhoneCodePanel
                   maskedPhone="••••3210"
                   state="sent"

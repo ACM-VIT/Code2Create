@@ -69,11 +69,11 @@ export function CodeInput({
   const activeIndex = Math.min(digits.length, length - 1)
 
   return (
-    <div className={`relative flex min-w-0 flex-1 sm:flex-none ${disabled ? 'opacity-60' : ''}`}>
+    <div className={`relative flex min-w-0 flex-1 ${disabled ? 'opacity-60' : ''}`}>
       <div
         key={shakeKey}
         aria-hidden
-        className={`flex min-w-0 flex-1 gap-1.5 sm:gap-2 ${shakeKey > 0 ? 'motion-safe:animate-shake' : ''}`}
+        className={`flex min-w-0 flex-1 gap-1.5 ${shakeKey > 0 ? 'motion-safe:animate-shake' : ''}`}
       >
         {Array.from({ length }, (_, index) => {
           const digit = digits[index] ?? ''
@@ -81,7 +81,7 @@ export function CodeInput({
           return (
             <span
               key={index}
-              className={`flex h-[45px] min-w-0 flex-1 basis-0 items-center justify-center rounded-petal-xs border bg-wash/45 font-mono text-[18px] font-semibold text-fg transition-colors sm:w-[46px] sm:flex-none ${
+              className={`flex h-[45px] min-w-0 max-w-[46px] flex-1 basis-0 items-center justify-center rounded-petal-xs border bg-wash/45 font-mono text-[18px] font-semibold text-fg transition-colors ${
                 active ? 'border-rose-light' : 'border-petal-edge-soft'
               }`}
             >
@@ -102,7 +102,23 @@ export function CodeInput({
         onChange={(event) => accept(event.target.value)}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
-        className="absolute inset-0 h-full w-full cursor-text bg-transparent text-base text-transparent outline-none selection:bg-transparent [caret-color:transparent] disabled:cursor-not-allowed"
+        // Inline so the app's global input styling (colour, focus ring) cannot
+        // paint the overlay; the cells behind it are the whole visual.
+        style={{
+          color: 'transparent',
+          WebkitTextFillColor: 'transparent',
+          background: 'transparent',
+          caretColor: 'transparent',
+          outline: 'none',
+          boxShadow: 'none',
+          border: 0,
+          padding: 0,
+          textShadow: 'none',
+          // Chrome paints autofilled fields with its own colours at UA priority;
+          // a never-ending transition keeps that background from appearing.
+          transition: 'background-color 999999s',
+        }}
+        className="absolute inset-0 h-full w-full cursor-text text-base selection:bg-transparent selection:text-transparent disabled:cursor-not-allowed"
       />
     </div>
   )

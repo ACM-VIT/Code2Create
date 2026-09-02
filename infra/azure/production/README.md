@@ -116,7 +116,14 @@ operations-health checks; they do not replace them.
 3. Set the Google Web OAuth redirect URI to
    `https://api.c2c.sh/api/auth/callback/google` and its JavaScript origins to
    `https://c2c.sh` and `https://ops.c2c.sh`.
-4. Verify the public state contains no event, or an event whose internal and
+4. While the event is closed, import the validated participant eligibility
+   lists in bounded batches. Verify the source checksums and exact VIT and
+   external counts before activating the import. Import only external emails
+   and VIT registration numbers. Do not derive eligibility from names or team
+   rows.
+5. Import and publish the reviewed novelty corpus. Verify its source checksum,
+   entry count, embedding model, and embedding dimensions.
+6. Verify the public state contains no event, or an event whose internal and
    external application windows are both closed.
 
 The old wildcard `*.c2c.sh` DNS records are not production routing. Remove them
@@ -147,10 +154,12 @@ headroom. A full 1,500-team save burst may drain gradually; it must not launch
 2. Deploy schema and functions to the isolated production-shaped rehearsal.
 3. Run type checks, idea-round suites, and one real provider smoke test.
 4. Deploy the exact tested backend build before the participant Worker build.
-5. Verify auth, profile, team, idea, both fixed questions, both
+5. Verify that the active participant eligibility import has the approved
+   source checksums and exact class counts.
+6. Verify auth, profile, team, idea, both fixed questions, both
    generated-or-fallback question slots, novelty, final confirmation, revision,
    and organizer review.
-6. Open applications only after operations health shows no stale or failed
+7. Open applications only after operations health shows no stale or failed
    release gate.
 
 Rollback uses the prior pinned backend image and compatible function bundle.
