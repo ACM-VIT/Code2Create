@@ -49,11 +49,11 @@ After the profile is complete and before team creation or joining, each particip
 - an existing star completes the step immediately, while a missing star shows the verified GitHub login and **Star SGLang**; and
 - **Star SGLang** stars the repository through GitHub and continues to team setup.
 
-There is no skip action. One GitHub account can complete this step for only one participant in the event. A pending imported-roster assignment also waits at this boundary.
+There is no skip action. One GitHub account can complete this step for only one participant in the event. An imported team assignment appears only after this step is complete.
 
 The OAuth request uses state and PKCE through a classic GitHub OAuth App and requests only `public_repo`, the narrowest classic scope that can star a public repository. The participant step uses dedicated OAuth client credentials and never loads the separate GitHub App private key or an installation token. After identifying the account, the backend reads its exact star state. An existing star creates the durable completion immediately. Otherwise, the server encrypts the OAuth token, uses it once to star SGLang, revokes the OAuth grant, and deletes the encrypted token after success. An abandoned authorization expires within eight hours. This participant-scoped OAuth App is separate from the later team-scoped GitHub App installation used for repository evidence.
 
-Existing participants who already have an active team do not return to this new onboarding gate. Team creation, joining, and imported-roster claim all enforce the completion on the server for participants who have not joined a team.
+Existing participants who already have an active team do not return to this new onboarding gate. Team creation, joining, and imported-team acceptance all enforce the completion on the server for participants who have not joined a team.
 
 ## 4. Team formation
 
@@ -73,6 +73,14 @@ The server checks these facts in the join transaction:
 - The target team is active, still within its application window, and below capacity.
 - The invitation is current.
 - Every active member has the same verified participant class.
+
+### Assigned team
+
+An organizer can import the participant team roster before or after people sign in. The import creates pending assignments only. It never creates a team membership and never opts a participant in.
+
+After profile and GitHub onboarding, an exact roster match sees the listed team, role, and members. The participant must choose **Join [team]** or **Not my team**. A member who accepts before the listed lead waits without joining anything. When the lead accepts, the server creates the team and joins only members who already accepted. A participant can leave that waiting state before the lead accepts.
+
+If the participant already has another team, the screen shows both teams and asks which one to keep. A lead with other active members must transfer leadership before choosing the imported team. Acceptance reloads the assignment and current team, checks exact versions, and changes membership in one transaction. Import, sign-in, profile save, GitHub completion, refresh, and retries cannot join a participant automatically.
 
 ### Membership changes
 
@@ -331,7 +339,9 @@ The participant cannot control playback or queue order. A music action cannot ch
 
 - Google sign-in and server-side account classification work for both participant classes.
 - Profile fields and consent follow the published participant policy.
-- A participant without an active team cannot create, join, or claim an imported team before GitHub confirms the SGLang star.
+- A participant without an active team cannot create, join, or accept an imported team before GitHub confirms the SGLang star.
+- A roster import never creates a team membership. The exact participant must explicitly accept or leave the assignment after profile and GitHub onboarding.
+- A member who accepts before the listed lead stays off-team until the lead accepts; only already-accepted listed members join when that team is formed.
 - A participant whose verified GitHub account already stars SGLang proceeds immediately and leaves no temporary GitHub authorization row.
 - The SGLang step has no skip path, does not trust a browser click, and deletes its temporary GitHub token after success.
 - One GitHub account cannot complete the SGLang step for two participants in one event.

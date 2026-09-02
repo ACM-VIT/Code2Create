@@ -495,11 +495,29 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
           version: 2,
           teamName: 'Byte Bloom',
           role: 'member',
-          status: 'choice_required',
+          status: 'pending',
           assignees: [
-            { displayName: 'Rohan Mehta', role: 'lead', signedIn: true, isYou: false },
-            { displayName: 'Ananya Iyer', role: 'member', signedIn: true, isYou: true },
-            { displayName: 'Sara Thomas', role: 'member', signedIn: false, isYou: false },
+            {
+              displayName: 'Rohan Mehta',
+              role: 'lead',
+              signedIn: true,
+              accepted: false,
+              isYou: false,
+            },
+            {
+              displayName: 'Ananya Iyer',
+              role: 'member',
+              signedIn: true,
+              accepted: false,
+              isYou: true,
+            },
+            {
+              displayName: 'Sara Thomas',
+              role: 'member',
+              signedIn: false,
+              accepted: false,
+              isYou: false,
+            },
           ],
         }}
         joining={false}

@@ -5,10 +5,9 @@ import {
 import { ConvexError, v } from "convex/values";
 import { z } from "zod";
 
-import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { internalMutation, mutation, query } from "./_generated/server";
+import { mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
 import {
@@ -23,7 +22,6 @@ import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions
 import { normalizeEmail, normalizedText } from "./lib/strings";
 import {
   activeTeamsWithName,
-  applyTeamRosterEntry,
   pendingEntryForIdentity,
   resolveTeamRosterPerson,
 } from "./lib/teamBackfill";
@@ -37,7 +35,6 @@ import { memberRole, teamRosterEntryStatus } from "./values";
 type ReadCtx = QueryCtx | MutationCtx;
 
 const maximumRowsPerImport = 200;
-const maximumJoinsPerApplyRun = 5;
 
 const teamRosterImportOperationResult = z
   .object({
@@ -354,8 +351,8 @@ async function eventEntryCounts(ctx: ReadCtx, eventId: Id<"events">) {
 function entryStatusForPreviewOutcome(
   outcome: PreviewRow["outcome"],
 ): Doc<"teamRosterEntries">["status"] {
+  if (outcome === "already_assigned") return "claimed";
   if (outcome === "choice_required") return "choice_required";
-  if (outcome === "waiting_for_lead") return "waiting_for_lead";
   if (outcome === "identity_conflict") return "identity_conflict";
   return "pending";
 }
@@ -773,9 +770,6 @@ export const confirmImport = mutation({
           : {}),
       });
     }
-    await ctx.scheduler.runAfter(0, internal.teamRosters.applyImport, {
-      teamRosterImportId,
-    });
     await writeAuditEvent(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -808,70 +802,6 @@ export const confirmImport = mutation({
       createdAt: now,
     });
     return result;
-  },
-});
-
-export const applyImport = internalMutation({
-  args: { teamRosterImportId: v.id("teamRosterImports") },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const teamRosterImport = await ctx.db.get("teamRosterImports", args.teamRosterImportId);
-    if (!teamRosterImport) return null;
-    const event = await ctx.db.get(teamRosterImport.eventId);
-    if (!event) throw new Error("The team roster import references a missing event.");
-    const entries = await ctx.db
-      .query("teamRosterEntries")
-      .withIndex("by_import_row", (index) =>
-        index.eq("teamRosterImportId", teamRosterImport._id),
-      )
-      .take(maximumRowsPerImport + 1);
-    if (entries.length > maximumRowsPerImport) {
-      throw new Error("Team roster import contains more rows than its supported bound.");
-    }
-    const leads = entries
-      .filter((entry) => entry.role === "lead" && entry.status === "pending")
-      .sort((left, right) => left.sourceRowNumber - right.sourceRowNumber);
-    const members = entries
-      .filter(
-        (entry) =>
-          entry.role === "member" &&
-          (entry.status === "pending" || entry.status === "waiting_for_lead"),
-      )
-      .sort((left, right) => left.sourceRowNumber - right.sourceRowNumber);
-    let joinsPerformed = 0;
-    let deferredByCap = false;
-    for (const entry of [...leads, ...members]) {
-      const currentEntry = await ctx.db.get(entry._id);
-      if (
-        !currentEntry ||
-        currentEntry.teamRosterImportId !== teamRosterImport._id ||
-        (currentEntry.status !== "pending" && currentEntry.status !== "waiting_for_lead")
-      ) {
-        continue;
-      }
-      if (joinsPerformed >= maximumJoinsPerApplyRun) {
-        deferredByCap = true;
-        continue;
-      }
-      const result = await applyTeamRosterEntry(ctx, {
-        event,
-        entry: currentEntry,
-        actorPersonId: teamRosterImport.createdByPersonId,
-        maximumClaims: maximumJoinsPerApplyRun - joinsPerformed,
-      });
-      joinsPerformed += result.claimedCount;
-    }
-    if (joinsPerformed > 0) {
-      await ctx.db.patch(teamRosterImport._id, {
-        appliedNowCount: teamRosterImport.appliedNowCount + joinsPerformed,
-      });
-    }
-    if (deferredByCap) {
-      await ctx.scheduler.runAfter(0, internal.teamRosters.applyImport, {
-        teamRosterImportId: teamRosterImport._id,
-      });
-    }
-    return null;
   },
 });
 

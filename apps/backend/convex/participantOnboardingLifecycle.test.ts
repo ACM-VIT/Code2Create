@@ -1250,7 +1250,7 @@ describe("participant onboarding lifecycle", () => {
     });
   }, 10_000);
 
-  test("joins an imported roster team automatically during provision", async () => {
+  test("offers an imported roster team and joins only after explicit acceptance", async () => {
     const backend = convexTest(schema, modules);
     backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
     const fixture = await seedParticipant(backend);
@@ -1370,7 +1370,7 @@ describe("participant onboarding lifecycle", () => {
     expect(beforeProvision?.pendingTeam).toMatchObject({
       teamName: "Backfill Team",
       role: "member",
-      status: "waiting_for_lead",
+      status: "pending",
     });
 
     await backend.run(async (ctx) => {
@@ -1395,6 +1395,27 @@ describe("participant onboarding lifecycle", () => {
       eventSlug: fixture.eventSlug,
       participantClass: "external_participant",
     });
+    expect(await participant.query(api.teams.current, {
+      eventSlug: fixture.eventSlug,
+    })).toBeNull();
+    await participant.mutation(api.participants.acceptPolicy, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      accepted: true,
+      clientOperationId: "accept-roster-member-policy",
+    });
+    const memberAssignment = (
+      await participant.query(api.participants.me, { eventSlug: fixture.eventSlug })
+    )?.pendingTeam;
+    if (!memberAssignment) throw new Error("The roster member assignment is missing.");
+    const memberAcceptance = await participant.mutation(api.teams.acceptAssignedTeam, {
+      eventSlug: fixture.eventSlug,
+      teamRosterEntryId: memberAssignment.id,
+      expectedEntryVersion: memberAssignment.version,
+      currentTeam: null,
+      clientOperationId: "accept-roster-member-team",
+    });
+    expect(memberAcceptance.status).toBe("waiting_for_lead");
 
     const leadAuthUserId = await createAuthUser(
       backend,
@@ -1427,6 +1448,15 @@ describe("participant onboarding lifecycle", () => {
       eventSlug: fixture.eventSlug,
       participantClass: "external_participant",
     });
+    expect(await lead.query(api.teams.current, {
+      eventSlug: fixture.eventSlug,
+    })).toBeNull();
+    await lead.mutation(api.participants.acceptPolicy, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      accepted: true,
+      clientOperationId: "accept-roster-lead-policy",
+    });
     const provisionedLead = await lead.query(api.participants.me, {
       eventSlug: fixture.eventSlug,
     });
@@ -1441,6 +1471,17 @@ describe("participant onboarding lifecycle", () => {
     await lead.mutation(api.participants.provision, {
       eventSlug: fixture.eventSlug,
       participantClass: "external_participant",
+    });
+    const leadAssignment = (
+      await lead.query(api.participants.me, { eventSlug: fixture.eventSlug })
+    )?.pendingTeam;
+    if (!leadAssignment) throw new Error("The roster lead assignment is missing.");
+    await lead.mutation(api.teams.acceptAssignedTeam, {
+      eventSlug: fixture.eventSlug,
+      teamRosterEntryId: leadAssignment.id,
+      expectedEntryVersion: leadAssignment.version,
+      currentTeam: null,
+      clientOperationId: "accept-roster-lead-team",
     });
     const leadTeam = await lead.query(api.teams.current, {
       eventSlug: fixture.eventSlug,

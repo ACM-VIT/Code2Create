@@ -29,7 +29,7 @@ const maximumCsvBytes = 256 * 1024
 const teamRosterGroups: ReadonlyArray<{ key: EntryGroup; label: string }> = [
   { key: 'conflict', label: 'Identity conflicts to resolve' },
   { key: 'choice', label: 'Waiting for a participant to choose' },
-  { key: 'waiting', label: 'Waiting to sign in or for their lead' },
+  { key: 'waiting', label: 'Waiting for participants or team leads' },
   { key: 'joined', label: 'On their team' },
   { key: 'ended', label: 'Removed or replaced' },
 ]
@@ -367,11 +367,11 @@ function TeamRosterPreview({
   return (
     <div className="roster-preview">
       <dl className="roster-preview-counts">
-        <div><dt>Waiting to sign in</dt><dd>{preview.counts.pending}</dd></div>
+        <div><dt>Will be asked to join</dt><dd>{preview.counts.pending}</dd></div>
         <div><dt>Identity conflicts</dt><dd>{preview.counts.identityConflicts}</dd></div>
         <div><dt>Already assigned here</dt><dd>{preview.counts.alreadyAssigned}</dd></div>
         <div><dt>Needs a choice</dt><dd>{preview.counts.choiceRequired}</dd></div>
-        <div><dt>Team lead not signed in</dt><dd>{preview.counts.waitingForLead}</dd></div>
+        <div><dt>Team not formed yet</dt><dd>{preview.counts.waitingForLead}</dd></div>
         <div><dt>Replaces an earlier row</dt><dd>{preview.counts.superseded}</dd></div>
       </dl>
       <div className="roster-preview-rows">
@@ -385,9 +385,9 @@ function TeamRosterPreview({
         ))}
       </div>
       <p className="muted">
-        People already on the imported team stay there. People on a different team are asked which
-        team they want to keep. Identity conflicts are recorded without placement so Ops can resolve
-        duplicate VIT accounts and import those people again.
+        An import never joins anyone automatically. Each person must accept or leave the listed team.
+        People already on a different team choose which one to keep. Identity conflicts are recorded
+        without placement so Ops can resolve duplicate VIT accounts and import those people again.
       </p>
       <div className="button-row">
         <button className="primary" type="button" disabled={busy} onClick={onConfirm}>
@@ -516,10 +516,10 @@ function groupIcon(group: EntryGroup): IconName {
 
 function statusStatement(entry: Entry) {
   if (entry.status === 'pending') {
-    return 'Has not signed in yet. They join the team automatically when they do.'
+    return 'Waiting for this participant to accept or leave the assignment.'
   }
   if (entry.status === 'waiting_for_lead') {
-    return 'Signed in, but the team lead has not. They join as soon as the lead does.'
+    return 'Accepted. They will join when the listed team lead accepts.'
   }
   if (entry.status === 'identity_conflict') {
     return 'This registration number belongs to multiple event accounts. Resolve the duplicate accounts, remove this row, then import it again.'
@@ -542,9 +542,9 @@ function people(count: number) {
 }
 
 function outcomeName(outcome: PreviewResult['rows'][number]['outcome']) {
-  if (outcome === 'pending') return 'Waiting to sign in'
+  if (outcome === 'pending') return 'Will be asked to join'
   if (outcome === 'identity_conflict') return 'Resolve duplicate VIT accounts'
   if (outcome === 'already_assigned') return 'Already on this team'
   if (outcome === 'choice_required') return 'Participant must choose'
-  return 'Lead not signed in yet'
+  return 'Will be asked · team not formed'
 }

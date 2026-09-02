@@ -26,16 +26,16 @@ export type ImportedTeamChoice = {
     displayName: string
     role: 'lead' | 'member'
     signedIn: boolean
+    accepted: boolean
     isYou: boolean
   }[]
 }
 
 /**
  * The organisers' roster already lists this person on a team. Usually that
- * lands before they have made one of their own: one card says where they are
- * headed and what is holding it up, and the only decision is whether to go
- * their own way instead. If they somehow already lead or sit on a team here,
- * the two teams stand side by side and each card carries its own answer.
+ * lands before they have made one of their own. They explicitly accept or
+ * leave that assignment. If they already made a team here, the two teams
+ * stand side by side and each card carries its own answer.
  */
 export function ImportedTeamChoiceView({
   header,
@@ -54,7 +54,7 @@ export function ImportedTeamChoiceView({
   joining: boolean
   keeping: boolean
   error: string | null
-  /** Accept the imported team over the current one (two-team case only). */
+  /** Accept the imported team, optionally leaving the current one. */
   onJoin: () => void
   /** Decline the imported team: keep the current one, or go make your own. */
   onKeep: () => void
@@ -63,35 +63,60 @@ export function ImportedTeamChoiceView({
   const importedLead = importedTeam.assignees.find((assignee) => assignee.role === 'lead')
   const leadName = importedLead?.displayName.split(/\s+/)[0] ?? 'your lead'
   const listedAs = importedTeam.role === 'lead' ? 'the lead' : 'a member'
-  const arrival =
-    importedTeam.role === 'lead'
-      ? 'The team forms around you as soon as you continue.'
-      : importedLead && !importedLead.signedIn
-        ? `You’ll join automatically once ${leadName} signs in.`
-        : 'You’ll join automatically in a moment.'
 
   if (!currentTeam) {
+    const waitingForLead = importedTeam.status === 'waiting_for_lead'
     return (
       <PortalScene tree="both" header={header}>
         <div className="flex w-full max-w-[640px] flex-col items-center text-center">
           <h1 className="mb-3 font-display font-light tracking-[-.01em] text-balance text-3xl text-shadow-[0_4px_30px_var(--scene-text-glow)] lg:text-[42px]">
-            You’re already on a team.
+            {waitingForLead ? `Waiting for ${leadName}.` : 'Is this your team?'}
           </h1>
           <p className="mb-7 max-w-[480px] text-[13px] leading-relaxed text-fg/60">
-            The organisers’ roster lists you on{' '}
-            <span className="text-fg/90">{importedTeam.teamName}</span> as {listedAs}.
+            {waitingForLead ? (
+              <>
+                You accepted <span className="text-fg/90">{importedTeam.teamName}</span>. You’ll
+                join when its lead accepts too.
+              </>
+            ) : (
+              <>
+                You registered for{' '}
+                <span className="text-fg/90">{importedTeam.teamName}</span> as {listedAs}.
+              </>
+            )}
           </p>
 
           <TeamChoiceCard
+            className="max-w-[600px]"
             name={importedTeam.teamName}
-            meta={arrival}
+            meta={`you’re listed as ${listedAs}`}
             seed={`${importedTeam.id}:imported`}
             lead={importedTeam.role === 'lead'}
             assignees={importedTeam.assignees}
             action={
-              <PortalButton type="button" size="sm" className="w-full" disabled={busy} onClick={onKeep}>
-                {keeping ? 'Leaving…' : 'Find my own team instead'}
-              </PortalButton>
+              <div className="flex flex-col gap-2">
+                {!waitingForLead ? (
+                  <PortalButton
+                    type="button"
+                    size="sm"
+                    variant="solid"
+                    className="w-full"
+                    disabled={busy}
+                    onClick={onJoin}
+                  >
+                    {joining ? 'Joining…' : `Join ${importedTeam.teamName}`}
+                  </PortalButton>
+                ) : null}
+                <PortalButton
+                  type="button"
+                  size="sm"
+                  className="w-full"
+                  disabled={busy}
+                  onClick={onKeep}
+                >
+                  {keeping ? 'Leaving…' : waitingForLead ? 'Leave this team' : 'Not my team'}
+                </PortalButton>
+              </div>
             }
           />
 
@@ -171,6 +196,7 @@ function TeamChoiceCard({
   note = null,
   noteTone = 'muted',
   action,
+  className = '',
 }: {
   name: string
   meta: string
@@ -180,9 +206,10 @@ function TeamChoiceCard({
   note?: string | null
   noteTone?: 'muted' | 'rose'
   action: ReactNode
+  className?: string
 }) {
   return (
-    <section className="flex flex-col rounded-petal-sm glass-tile px-5 py-5 text-left">
+    <section className={`flex w-full flex-col rounded-petal-sm glass-tile px-5 py-5 text-left lg:px-7 lg:py-6 ${className}`}>
       <div className="flex items-center gap-3.5">
         <span
           className={`flex size-11 flex-none items-center justify-center rounded-full ${
@@ -214,7 +241,13 @@ function TeamChoiceCard({
               <span className="flex-none text-[10.5px] text-fg/45">
                 {[
                   assignee.role === 'lead' ? 'lead' : null,
-                  assignee.isYou ? 'you' : assignee.signedIn ? null : 'not signed in yet',
+                  assignee.isYou
+                    ? 'you'
+                    : assignee.accepted
+                      ? 'accepted'
+                      : assignee.signedIn
+                        ? 'not accepted yet'
+                        : 'not signed in yet',
                 ]
                   .filter(Boolean)
                   .join(' · ')}

@@ -1638,6 +1638,16 @@ label > span { color: var(--muted); font-size: .75rem; }
 
 .primary, .secondary, .row-action { justify-self: start; align-self: start; }
 .button-row .primary, .button-row .secondary { justify-self: auto; }
+/* Rows that pair a labelled field with its button align to the bottom edge,
+   so the button sits beside the input, not the label — and stands as tall. */
+:is(.email-search, .compact-command, .manual-inline-form, .manual-entry-row, .manual-source-upload,
+    .manual-verification, .permission-batch-row, .bundle-entry-row, .novelty-corpus-file-row,
+    .floor-landmark-row, .checkpoint-toolbar, .integration-toolbar)
+  > :is(.primary, .secondary, .row-action, .text-button) { align-self: end; }
+:is(.email-search, .compact-command, .manual-inline-form, .manual-entry-row, .manual-source-upload,
+    .manual-verification, .permission-batch-row, .bundle-entry-row, .novelty-corpus-file-row,
+    .floor-landmark-row)
+  > :is(.primary, .secondary) { min-height: 38px; }
 
 .manual-entry-heading, .manual-section-heading {
   display: flex;

@@ -63,14 +63,10 @@ export async function activeTeamsWithName(
 }
 
 /**
- * Places one roster entry's person on their assigned team. The person must
- * already be provisioned; otherwise the entry stays pending. Never moves a
- * person who already has an active team. Policy acceptance is deliberately not
- * required here: assignment is organizer-driven. People who already joined a
- * different team must choose in the participant portal before they move. The
- * mandatory GitHub contribution step is still required because team access is
- * the boundary it unlocks. Placement failures leave the entry pending instead
- * of throwing, so signup and import apply can commit around a bad row.
+ * Applies one participant's explicit acceptance of an imported team assignment.
+ * The caller owns policy, permission, and version checks. A member who accepts
+ * before the listed lead waits; accepting the lead forms the team and joins only
+ * members who already accepted. A roster import never opts a participant in.
  */
 export async function applyTeamRosterEntry(
   ctx: MutationCtx,
@@ -286,9 +282,9 @@ async function placeTeamRosterEntry(
 }
 
 /**
- * After a backfill lead creates a team, immediately joins same-team entries
- * whose people are already provisioned. Bounded by the team's maximum size and
- * never spills into other team names.
+ * After an imported lead accepts and creates a team, joins only same-team
+ * members who already accepted. Bounded by the team's maximum size and never
+ * spills into other team names.
  */
 async function applyFollowingEntries(
   ctx: MutationCtx,
@@ -302,12 +298,6 @@ async function applyFollowingEntries(
   },
 ) {
   if (args.maximumClaims === 0) return 0;
-  const followers = await ctx.db
-    .query("teamRosterEntries")
-    .withIndex("by_event_team_status", (index) =>
-      index.eq("eventId", args.event._id).eq("teamName", args.teamName).eq("status", "pending"),
-    )
-    .take(args.teamMaximumSize);
   const waiting = await ctx.db
     .query("teamRosterEntries")
     .withIndex("by_event_team_status", (index) =>
@@ -317,7 +307,7 @@ async function applyFollowingEntries(
         .eq("status", "waiting_for_lead"),
     )
     .take(args.teamMaximumSize);
-  const ordered = [...followers, ...waiting].sort(
+  const ordered = [...waiting].sort(
     (left, right) => left.sourceRowNumber - right.sourceRowNumber,
   );
   let claimedCount = 0;
@@ -329,7 +319,7 @@ async function applyFollowingEntries(
     const currentEntry = await ctx.db.get(entry._id);
     if (
       !currentEntry ||
-      (currentEntry.status !== "pending" && currentEntry.status !== "waiting_for_lead")
+      currentEntry.status !== "waiting_for_lead"
     ) {
       continue;
     }
@@ -484,6 +474,7 @@ export type PendingTeamAssignee = {
   displayName: string;
   role: Doc<"teamRosterEntries">["role"];
   signedIn: boolean;
+  accepted: boolean;
   isYou: boolean;
 };
 
@@ -524,7 +515,16 @@ export async function pendingTeamAssignees(
         .eq("status", "choice_required"),
     )
     .take(maximumPendingAssignees);
-  const entries = [...pending, ...waiting, ...choices]
+  const claimed = await ctx.db
+    .query("teamRosterEntries")
+    .withIndex("by_event_team_status", (index) =>
+      index
+        .eq("eventId", args.eventId)
+        .eq("teamName", args.teamName)
+        .eq("status", "claimed"),
+    )
+    .take(maximumPendingAssignees);
+  const entries = [...pending, ...waiting, ...choices, ...claimed]
     .sort((left, right) => {
       if (left.role !== right.role) return left.role === "lead" ? -1 : 1;
       return left.sourceRowNumber - right.sourceRowNumber;
@@ -540,52 +540,11 @@ export async function pendingTeamAssignees(
         displayName: entry.displayName,
         role: entry.role,
         signedIn: resolved.kind === "resolved",
+        accepted: entry.status === "waiting_for_lead" || entry.status === "claimed",
         isYou: args.viewerIdentities.includes(
           entry.emailNormalized ?? entry.vitRegistrationNumber ?? "",
         ),
       };
     }),
   );
-}
-
-/**
- * Called at the end of participants.provision: joins the person to their
- * assigned team now that membership and self grants exist. Placement failures
- * leave the roster entry pending so the membership commit is not rolled back.
- */
-export async function claimPendingTeamRosterEntry(
-  ctx: MutationCtx,
-  args: {
-    event: Doc<"events">;
-    person: Doc<"people">;
-  },
-) {
-  const membership = await ctx.db
-    .query("eventMemberships")
-    .withIndex("by_event_person", (index) =>
-      index.eq("eventId", args.event._id).eq("personId", args.person._id),
-    )
-    .unique();
-  if (!membership) return "still_pending" as const;
-  let outcome: TeamBackfillOutcome = "still_pending";
-  for (const identityNormalized of rosterIdentitiesForPerson(args.person, membership)) {
-    const entry = await pendingEntryForIdentity(ctx, {
-      eventId: args.event._id,
-      identityNormalized,
-    });
-    if (!entry) continue;
-    try {
-      const result = await applyTeamRosterEntry(ctx, {
-        event: args.event,
-        entry,
-        actorPersonId: args.person._id,
-      });
-      if (result.outcome === "claimed" || outcome === "still_pending") {
-        outcome = result.outcome;
-      }
-    } catch (error) {
-      if (!isTeamPlacementFailure(error)) throw error;
-    }
-  }
-  return outcome;
 }
