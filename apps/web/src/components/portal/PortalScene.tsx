@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type PointerEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { DaybreakToggle } from './DaybreakToggle'
 import { PortalSceneContext } from './portalSceneContext'
@@ -41,8 +41,8 @@ function CursorPetalLayer({ petals }: { petals: readonly CursorPetal[] }) {
 /**
  * The night-hanami stage every portal screen sits on: the rose horizon
  * gradient, the hills band, the swaying tree line, drifting petals, and the
- * vignette that keeps the centre legible. The artwork tracks the pointer at
- * three depths while a very light petal trail falls from pointer movement.
+ * vignette that keeps the centre legible. The artwork holds still; only a
+ * very light petal trail falls from mouse movement.
  */
 export function PortalScene({
   children,
@@ -73,7 +73,6 @@ export function PortalScene({
 }) {
   const showLeftTree = tree === 'left' || tree === 'both'
   const showRightTree = tree === 'right' || tree === 'both'
-  const [pointer, setPointer] = useState({ x: 0, y: 0 })
   const [cursorPetals, setCursorPetals] = useState<readonly CursorPetal[]>([])
   const cursorPetalId = useRef(0)
   const lastCursorPetal = useRef({ at: 0, x: -100, y: -100 })
@@ -84,14 +83,13 @@ export function PortalScene({
     cursorPetalTimers.current.clear()
   }, [])
 
-  const onMove = useCallback((event: MouseEvent<HTMLDivElement>) => {
+  // Only a real mouse sheds petals: a finger fires synthetic mouse moves at
+  // each tap, and pointer events tell the two apart.
+  const onMove = useCallback((event: PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType !== 'mouse') return
     const rect = event.currentTarget.getBoundingClientRect()
     const x = event.clientX - rect.left
     const y = event.clientY - rect.top
-    setPointer({
-      x: (x / rect.width - 0.5) * 2,
-      y: (y / rect.height - 0.5) * 2,
-    })
 
     const now = performance.now()
     const last = lastCursorPetal.current
@@ -113,15 +111,11 @@ export function PortalScene({
     cursorPetalTimers.current.add(timer)
   }, [])
 
-  const treeShift = `translate(${pointer.x * -16}px, ${pointer.y * -9}px)`
-  const hillsShift = `translate(${pointer.x * -7}px, ${pointer.y * -4}px)`
-  const branchShift = `translate(${pointer.x * 12}px, ${pointer.y * 7}px)`
-
   return (
     <PortalSceneContext.Provider value={{ onSignOut: onSignOut ?? null }}>
     <div
       data-portal-scene
-      onMouseMove={onMove}
+      onPointerMove={onMove}
       className={`relative flex flex-col overflow-clip bg-wash bg-[image:var(--scene-sky)] font-ui text-fg ${
         fill ? 'h-dvh' : 'min-h-dvh'
       }`}
@@ -133,8 +127,7 @@ export function PortalScene({
           container, and the tree's bleed below the edge then scrolls the
           whole scene up and bares the sky under the hills. */}
       <div
-        className="pointer-events-none absolute -inset-x-3 bottom-[-6px] z-0 will-change-transform"
-        style={{ transform: hillsShift }}
+        className="pointer-events-none absolute -inset-x-3 bottom-[-6px] z-0"
       >
         <img
           src="/assets/hills-band.webp"
@@ -144,7 +137,7 @@ export function PortalScene({
         />
       </div>
 
-      <div className="pointer-events-none absolute inset-0 z-[1] will-change-transform" style={{ transform: treeShift }}>
+      <div className="pointer-events-none absolute inset-0 z-[1]">
         {showLeftTree ? (
           <img
             src="/assets/tree.webp"
@@ -169,7 +162,6 @@ export function PortalScene({
           src="/assets/branch-plate.png"
           alt=""
           aria-hidden
-          style={{ transform: branchShift }}
           className="pointer-events-none absolute top-[-16px] left-[-70px] z-[1] hidden w-[500px] [filter:var(--scene-branch-filter)] lg:block"
         />
       ) : null}

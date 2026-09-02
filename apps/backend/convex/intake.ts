@@ -1368,13 +1368,22 @@ export const autosaveWorkingField = mutation({
         followUpQuestion?.state === "answered" &&
         response?.answer !== null &&
         response?.answer !== undefined;
+      const delayedReviewAnswerStillCurrent =
+        draft !== null &&
+        draft.version !== args.baseDraftVersion &&
+        followUpQuestion?.state === "answered" &&
+        response?.answer?.value === args.baseCommittedValue;
       if (
         !draft ||
         !followUpQuestion ||
         followUpQuestion.eventId !== event._id ||
         followUpQuestion.teamId !== team._id ||
         followUpQuestion.draftId !== draft._id ||
-        (!editingActiveQuestion && !editingReviewAnswer)
+        (
+          !editingActiveQuestion &&
+          !editingReviewAnswer &&
+          !delayedReviewAnswerStillCurrent
+        )
       ) {
         throw new ConvexError({
           code: "FOLLOW_UP_CHANGED",

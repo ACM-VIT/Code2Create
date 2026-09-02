@@ -90,6 +90,7 @@ import type * as lib_attendanceSessionTransition from "../lib/attendanceSessionT
 import type * as lib_attendanceStations from "../lib/attendanceStations.js";
 import type * as lib_attendanceTeamAvailability from "../lib/attendanceTeamAvailability.js";
 import type * as lib_audit from "../lib/audit.js";
+import type * as lib_awsSms from "../lib/awsSms.js";
 import type * as lib_boundedHttpBody from "../lib/boundedHttpBody.js";
 import type * as lib_cloudflareEmailSending from "../lib/cloudflareEmailSending.js";
 import type * as lib_communicationsPolicy from "../lib/communicationsPolicy.js";
@@ -163,6 +164,7 @@ import type * as lib_permissionDelegation from "../lib/permissionDelegation.js";
 import type * as lib_permissionGrantLifecycle from "../lib/permissionGrantLifecycle.js";
 import type * as lib_permissions from "../lib/permissions.js";
 import type * as lib_phaseSchedule from "../lib/phaseSchedule.js";
+import type * as lib_phoneVerification from "../lib/phoneVerification.js";
 import type * as lib_projectCheckpointPlan from "../lib/projectCheckpointPlan.js";
 import type * as lib_projectText from "../lib/projectText.js";
 import type * as lib_providerSecrets from "../lib/providerSecrets.js";
@@ -236,6 +238,8 @@ import type * as permissionBundleMigrations from "../permissionBundleMigrations.
 import type * as permissionBundles from "../permissionBundles.js";
 import type * as permissionGrantLifecycle from "../permissionGrantLifecycle.js";
 import type * as phaseConfiguration from "../phaseConfiguration.js";
+import type * as phoneVerificationActions from "../phoneVerificationActions.js";
+import type * as phoneVerifications from "../phoneVerifications.js";
 import type * as projectCheckpoints from "../projectCheckpoints.js";
 import type * as providerSecretRotation from "../providerSecretRotation.js";
 import type * as rehearsals from "../rehearsals.js";
@@ -355,6 +359,7 @@ declare const fullApi: ApiFromModules<{
   "lib/attendanceStations": typeof lib_attendanceStations;
   "lib/attendanceTeamAvailability": typeof lib_attendanceTeamAvailability;
   "lib/audit": typeof lib_audit;
+  "lib/awsSms": typeof lib_awsSms;
   "lib/boundedHttpBody": typeof lib_boundedHttpBody;
   "lib/cloudflareEmailSending": typeof lib_cloudflareEmailSending;
   "lib/communicationsPolicy": typeof lib_communicationsPolicy;
@@ -428,6 +433,7 @@ declare const fullApi: ApiFromModules<{
   "lib/permissionGrantLifecycle": typeof lib_permissionGrantLifecycle;
   "lib/permissions": typeof lib_permissions;
   "lib/phaseSchedule": typeof lib_phaseSchedule;
+  "lib/phoneVerification": typeof lib_phoneVerification;
   "lib/projectCheckpointPlan": typeof lib_projectCheckpointPlan;
   "lib/projectText": typeof lib_projectText;
   "lib/providerSecrets": typeof lib_providerSecrets;
@@ -501,6 +507,8 @@ declare const fullApi: ApiFromModules<{
   permissionBundles: typeof permissionBundles;
   permissionGrantLifecycle: typeof permissionGrantLifecycle;
   phaseConfiguration: typeof phaseConfiguration;
+  phoneVerificationActions: typeof phoneVerificationActions;
+  phoneVerifications: typeof phoneVerifications;
   projectCheckpoints: typeof projectCheckpoints;
   providerSecretRotation: typeof providerSecretRotation;
   rehearsals: typeof rehearsals;

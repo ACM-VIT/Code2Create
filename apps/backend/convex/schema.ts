@@ -70,6 +70,7 @@ import {
   participantGender,
   participantEligibilityStatus,
   participantOnboardingStatus,
+  participantPhoneVerificationStatus,
   participantEmailTemplateKey,
   participantAssistantPhase,
   participantAssistantRequestState,
@@ -924,12 +925,34 @@ export default defineSchema({
       "createdAt",
     ]),
 
+  participantPhoneVerifications: defineTable({
+    eventId: v.id("events"),
+    membershipId: v.id("eventMemberships"),
+    personId: v.id("people"),
+    phone: v.string(),
+    status: participantPhoneVerificationStatus,
+    codeDigest: v.optional(v.string()),
+    expiresAt: v.optional(v.number()),
+    resendAvailableAt: v.number(),
+    attemptCount: v.number(),
+    providerMessageId: v.optional(v.string()),
+    failureCode: v.optional(v.string()),
+    sentAt: v.optional(v.number()),
+    verifiedAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index("by_membership", ["membershipId"])
+    .index("by_membership_phone", ["membershipId", "phone"])
+    .index("by_event_phone", ["eventId", "phone"]),
+
   participantProfiles: defineTable({
     eventId: v.id("events"),
     membershipId: v.id("eventMemberships"),
     participantClass,
     fullName: v.string(),
     phone: v.string(),
+    phoneVerificationId: v.optional(v.id("participantPhoneVerifications")),
+    phoneVerifiedAt: v.optional(v.number()),
     gender: participantGender,
     institution: v.string(),
     yearOfStudy: studyYear,

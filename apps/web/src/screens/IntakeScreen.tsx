@@ -24,6 +24,7 @@ import {
   AccordionItemTrigger,
   AccordionRoot,
 } from '../components/portal/Accordion'
+import { FadeText } from '../components/portal/FadeText'
 import { PetalCard } from '../components/portal/PetalCard'
 import { PortalButton, PortalTextButton } from '../components/portal/PortalButton'
 import { ShimmerText } from '../components/portal/ShimmerText'
@@ -1865,14 +1866,16 @@ function IntakeWorkspace({
         >
           <PetalCard className="px-8 pt-6 pb-4">
             <div className="flex items-baseline justify-between gap-4">
-              <p className="m-0 min-w-0 truncate text-left text-[15.5px] font-semibold">
+              {/* On a phone the summary runs past the row; it fades out rather
+                  than ending in an ellipsis. */}
+              <FadeText as="p" className="m-0 min-w-0 text-left text-[15.5px] font-semibold">
                 {preview.teamName}{' '}
                 <span className="font-normal text-fg/55">
                   · idea + {preview.followUps.length}{' '}
                   {preview.followUps.length === 1 ? 'answer' : 'answers'}
                   {savedNoveltyScore !== null ? ` · novelty ${savedNoveltyScore}/100` : ''}
                 </span>
-              </p>
+              </FadeText>
               {!submissionInProgress ? (
                 <button
                   type="button"
@@ -2422,7 +2425,13 @@ export function NoveltyPill({
 }) {
   if (minimumLength === null) return null
   const belowMinimum = currentLength !== undefined && currentLength < minimumLength
-  const signal = !belowMinimum && state.status === 'ready' ? state.signal : null
+  const signal = belowMinimum
+    ? null
+    : state.status === 'ready'
+      ? state.signal
+      : state.status === 'checking'
+        ? state.previous
+        : null
   const label =
     belowMinimum || state.status === 'idle'
       ? 'keep writing'
@@ -2453,6 +2462,9 @@ export function NoveltyPill({
               </span>
             </>
           )}
+          {signal !== null && state.status === 'checking' ? (
+            <span className="sr-only">Updating</span>
+          ) : null}
         </span>
         <NoveltyHelp align="start" placement="above" />
       </div>

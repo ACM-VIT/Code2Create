@@ -2221,6 +2221,17 @@ async function completeMandatoryOnboarding(
     const membership = await ctx.db.get(participantMembership.id);
     if (!membership) throw new Error("The participant membership is missing.");
     const now = Date.now();
+    const phoneVerificationId = await ctx.db.insert("participantPhoneVerifications", {
+      eventId: fixture.eventId,
+      membershipId: membership._id,
+      personId: membership.personId,
+      phone: "+919000000000",
+      status: "verified",
+      resendAvailableAt: now,
+      attemptCount: 0,
+      verifiedAt: now,
+      updatedAt: now,
+    });
     if (membership.participantClass === "vit_student") {
       const vitIdentity = membership.vitStudentIdentity;
       if (!vitIdentity) throw new Error("The VIT identity is missing.");
@@ -2230,6 +2241,8 @@ async function completeMandatoryOnboarding(
         participantClass: "vit_student",
         fullName: vitIdentity.fullName,
         phone: "+91 90000 00000",
+        phoneVerificationId,
+        phoneVerifiedAt: now,
         gender: "male",
         institution: "VIT Vellore",
         yearOfStudy: vitIdentity.yearOfStudy,
@@ -2246,6 +2259,8 @@ async function completeMandatoryOnboarding(
         participantClass: "external_participant",
         fullName: participant.person.displayName,
         phone: "+91 90000 00000",
+        phoneVerificationId,
+        phoneVerifiedAt: now,
         gender: "male",
         institution: "Example University",
         yearOfStudy: "first",

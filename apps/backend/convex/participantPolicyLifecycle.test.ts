@@ -590,12 +590,25 @@ async function seedFixture(
       publishedParticipantPolicyId: policyId,
       publishedAdmissionPolicyId: admissionPolicyId,
     });
+    const phoneVerificationId = await ctx.db.insert("participantPhoneVerifications", {
+      eventId,
+      membershipId,
+      personId,
+      phone: "+919000000000",
+      status: "verified",
+      resendAvailableAt: now,
+      attemptCount: 0,
+      verifiedAt: now,
+      updatedAt: now,
+    });
     const profileId = await ctx.db.insert("participantProfiles", {
       eventId,
       membershipId,
       participantClass: "external_participant",
       fullName: "Aarav Menon",
       phone: "+91 90000 00000",
+      phoneVerificationId,
+      phoneVerifiedAt: now,
       gender: "male",
       institution: "Example University",
       yearOfStudy: "third",

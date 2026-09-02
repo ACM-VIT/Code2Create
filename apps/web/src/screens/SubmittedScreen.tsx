@@ -415,6 +415,7 @@ function SubmittedWorkspace({
   if (eventIsLive) {
     return (
       <EventLiveScene
+        capabilities={capabilities}
         team={team}
         members={members}
         communications={communications ?? null}
@@ -696,6 +697,7 @@ function BentoBlock({
  * the existing tool panels render inside their blocks.
  */
 function EventLiveScene({
+  capabilities,
   team,
   members,
   communications,
@@ -705,6 +707,7 @@ function EventLiveScene({
   onSignOut,
   proposalLink,
 }: {
+  capabilities: ParticipantCapabilities
   team: CurrentTeam
   members: CurrentTeamMember[]
   communications: ParticipantCommunications | null
@@ -714,7 +717,6 @@ function EventLiveScene({
   onSignOut: () => void
   proposalLink: ReactNode
 }) {
-  const capabilities = useQuery(api.access.participantCapabilities, { eventSlug })
   const support = useQuery(api.support.mineSummary, capabilities?.supportRead ? { eventSlug } : 'skip')
   const openRequests = support === undefined || support.openCount === 0
     ? null
@@ -921,12 +923,10 @@ function ProposalSummary({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const { editors, markEditing, stopEditing } = useEditingPresence(canEdit && editing)
-  // Keep the live comparison visible for the whole proposal view so it does
-  // not disappear when a different section is being edited.
   const noveltyState = useNoveltyPreview({
     idea: draft.initialIdea,
     ideaLength: normalizedIdeaLength(draft.initialIdea),
-    active: intake.novelty !== null,
+    active: canEdit && editing,
     config: intake.novelty,
     saved: { idea: undefined, score: null, band: null },
   })

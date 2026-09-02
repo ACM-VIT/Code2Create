@@ -7,11 +7,16 @@ import {
   internalAction,
   internalMutation,
   internalQuery,
+  query,
   type MutationCtx,
 } from "./_generated/server";
 import { authComponent } from "./auth";
-import { requireEventBySlug } from "./lib/events";
-import { requireEventSubject, requireMembership } from "./lib/identity";
+import { applicationsCloseAtFor, requireEventBySlug } from "./lib/events";
+import {
+  requireCurrentPerson,
+  requireEventSubject,
+  requireMembership,
+} from "./lib/identity";
 import {
   effectiveSimilarTeams,
   normalizeNoveltyIdea,
@@ -71,8 +76,15 @@ const readyPreview = v.object({
 });
 
 const unavailablePreview = v.object({ state: v.literal("unavailable") });
-const previewResult = v.union(readyPreview, unavailablePreview);
+const pendingPreview = v.object({
+  state: v.literal("pending"),
+  requestId: v.id("noveltyPreviewRequests"),
+  retryAt: v.number(),
+});
+const settledPreviewResult = v.union(readyPreview, unavailablePreview);
+const previewResult = v.union(readyPreview, pendingPreview, unavailablePreview);
 type PreviewResult = Infer<typeof previewResult>;
+type SettledPreviewResult = Infer<typeof settledPreviewResult>;
 
 type ReadyPreview = {
   state: "ready";
@@ -180,6 +192,14 @@ function readyResult(
   };
 }
 
+function pendingResult(request: Doc<"noveltyPreviewRequests">) {
+  return {
+    state: "pending" as const,
+    requestId: request._id,
+    retryAt: request.requestedAt + noveltyPreviewRunningLifetimeMs,
+  };
+}
+
 const beginPreviewResult = v.union(
   v.object({ kind: v.literal("complete"), result: previewResult }),
   v.object({
@@ -270,18 +290,27 @@ export const beginPreview = internalMutation({
       scopeType: "team",
       scopeId: team._id,
     });
-    if (team.membershipLocked) {
-      throw new ConvexError({
-        code: "SUBMISSION_LOCKED",
-        message: "This team has submitted and project intake is locked.",
-      });
-    }
     const draft = await ctx.db
       .query("projectDrafts")
       .withIndex("by_team", (index) => index.eq("teamId", team._id))
       .unique();
-    if (draft?.stage === "submitted") {
-      throw new ConvexError({ code: "SUBMISSION_LOCKED", message: "Project intake is locked." });
+    if (team.membershipLocked || draft?.stage === "submitted") {
+      const application = await ctx.db
+        .query("applications")
+        .withIndex("by_team", (index) => index.eq("teamId", team._id))
+        .unique();
+      if (
+        member.role !== "lead"
+        || team.leadMembershipId !== membership._id
+        || Date.now() >= applicationsCloseAtFor(event, membership.participantClass)
+        || !application
+        || (application.state !== "submitted" && application.state !== "under_review")
+      ) {
+        throw new ConvexError({
+          code: "SUBMISSION_LOCKED",
+          message: "This proposal can no longer be edited.",
+        });
+      }
     }
     const expectedCorpusId = draft?.noveltyCorpusVersionId
       ?? event.publishedNoveltyCorpusVersionId;
@@ -336,7 +365,7 @@ export const beginPreview = internalMutation({
         });
       }
       if (existingRequest.state === "running") {
-        return { kind: "complete", result: { state: "unavailable" } };
+        return { kind: "complete", result: pendingResult(existingRequest) };
       }
       return {
         kind: "complete",
@@ -357,7 +386,7 @@ export const beginPreview = internalMutation({
       cached.state === "running"
     ) {
       if (cached.requestedAt >= now - noveltyPreviewRunningLifetimeMs) {
-        return { kind: "complete", result: { state: "unavailable" } };
+        return { kind: "complete", result: pendingResult(cached) };
       }
       await ctx.db.patch(cached._id, {
         state: "failed",
@@ -933,8 +962,8 @@ export const finishPreview = internalMutation({
     latencyMs: v.number(),
     failureCategory: v.optional(v.string()),
   },
-  returns: v.union(readyPreview, unavailablePreview),
-  handler: async (ctx, args): Promise<PreviewResult> => {
+  returns: settledPreviewResult,
+  handler: async (ctx, args): Promise<SettledPreviewResult> => {
     const request = await ctx.db.get(args.requestId);
     if (!request || request.state !== "running") return { state: "unavailable" };
     if (request.inputFingerprint !== args.inputFingerprint) {
@@ -1032,6 +1061,50 @@ export const finishPreview = internalMutation({
   },
 });
 
+export const previewStatus = query({
+  args: {
+    eventSlug: v.string(),
+    requestId: v.id("noveltyPreviewRequests"),
+  },
+  returns: previewResult,
+  handler: async (ctx, args): Promise<PreviewResult> => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    const membership = await requireMembership(ctx, event._id, person._id);
+    const member = await ctx.db
+      .query("teamMembers")
+      .withIndex("by_event_membership_status", (index) =>
+        index
+          .eq("eventId", event._id)
+          .eq("membershipId", membership._id)
+          .eq("status", "active"),
+      )
+      .unique();
+    const request = await ctx.db.get(args.requestId);
+    if (!member || !request || request.eventId !== event._id || request.teamId !== member.teamId) {
+      return { state: "unavailable" };
+    }
+    await requirePermission(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey: "team.project.write",
+      scopeType: "team",
+      scopeId: member.teamId,
+    });
+    if (request.state === "running") return pendingResult(request);
+    const corpus = await ctx.db.get(request.corpusVersionId);
+    if (
+      !corpus
+      || corpus.eventId !== event._id
+      || (corpus.status !== "published" && corpus.status !== "superseded")
+    ) {
+      return { state: "unavailable" };
+    }
+    return readyResult(request, corpus) ?? { state: "unavailable" };
+  },
+});
+
 export const preview = action({
   args: {
     eventSlug: v.string(),
@@ -1073,6 +1146,7 @@ export const preview = action({
         model: begun.embeddingModel,
         input: begun.embeddingInputs,
         timeoutMs: 6_000,
+        maximumAttempts: 2,
       });
       const embeddings = orderedEmbeddings(response.data, begun.embeddingInputs.length);
       const embedding = embeddings?.[0];

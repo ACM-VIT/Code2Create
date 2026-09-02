@@ -87,8 +87,8 @@ export function HomeScreen({
         />
       )}
     >
-      <div className="flex w-full max-w-[1048px] flex-1 flex-col items-end justify-center pb-56 sm:pb-40">
-        <div className="flex max-w-[680px] flex-col items-end text-right">
+      <div className="flex w-full max-w-[1048px] flex-1 flex-col items-start justify-center pb-56 sm:items-end sm:pb-40">
+        <div className="flex max-w-[680px] flex-col items-start text-left sm:items-end sm:text-right">
           <h1 className="mb-8 font-display font-light tracking-[-.01em] text-balance text-5xl leading-none text-shadow-[0_8px_50px_var(--scene-text-glow)] lg:text-7xl">
             {journey.headline}
           </h1>
@@ -97,7 +97,7 @@ export function HomeScreen({
           </PortalButton>
 
           {showInvite ? (
-            <div className="mt-9 flex flex-col items-end gap-2.5">
+            <div className="mt-9 flex flex-col items-start gap-2.5 sm:items-end">
               <p className="m-0 text-[12.5px] text-fg/55">
                 {team.activeMemberCount === 1
                   ? `Just you so far · ${openSeats} ${openSeats === 1 ? 'seat' : 'seats'} open`

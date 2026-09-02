@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { AccountBadge } from '../components/portal/AccountBadge'
 import { ClassCard } from '../components/portal/ClassCard'
+import { FadeText } from '../components/portal/FadeText'
 import { PetalCard } from '../components/portal/PetalCard'
 import { Petal } from '../components/portal/Petal'
 import { PortalButton, PortalTextButton, PortalTickButton } from '../components/portal/PortalButton'
@@ -631,9 +632,9 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
           <h1 className="mb-6 text-center font-display font-light tracking-[-.01em] text-[26px] lg:text-[42px]">Ready to submit?</h1>
           <PetalCard className="px-8 pt-6 pb-4">
             <div className="flex items-baseline justify-between gap-4">
-              <p className="m-0 min-w-0 truncate text-left text-[15.5px] font-semibold">
-                Paper Cranes <span className="font-normal text-fg/55">· idea + 2 answers</span>
-              </p>
+              <FadeText as="p" className="m-0 min-w-0 text-left text-[15.5px] font-semibold">
+                Paper Cranes <span className="font-normal text-fg/55">· idea + 2 answers · novelty 87/100</span>
+              </FadeText>
               <button type="button" className="flex-none text-xs text-fg/55 transition-colors hover:text-rose-light">
                 review idea
               </button>
@@ -727,8 +728,8 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
     )],
   ['f1', () => (
       <PortalScene tree="left" backdrop={<GpuSky />} onSignOut={noop} header={cluster}>
-        <div className="flex w-full max-w-[1048px] flex-1 flex-col items-end justify-center pb-40">
-          <div className="flex max-w-[680px] flex-col items-end text-right">
+        <div className="flex w-full max-w-[1048px] flex-1 flex-col items-start justify-center pb-40 sm:items-end">
+          <div className="flex max-w-[680px] flex-col items-start text-left sm:items-end sm:text-right">
             <h1 className="mb-8 font-display font-light tracking-[-.01em] text-balance text-5xl leading-none lg:text-7xl">One answer left.</h1>
             <PortalButton>Answer it</PortalButton>
           </div>

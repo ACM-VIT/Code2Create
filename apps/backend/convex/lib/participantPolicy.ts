@@ -1,6 +1,7 @@
 import {
   defaultVitHostelResidenceCatalog,
   findVitHostelResidenceCatalogEntry,
+  participantProfileCodeConfiguration,
   type VitHostelResidenceCatalogEntry,
   type VitHostelResidenceKind,
 } from "@code2create/domain";
@@ -319,7 +320,9 @@ export function isProfileCompleteForPolicy(
     !membership.acceptedParticipantPolicyVersionIds.includes(policy._id) ||
     profile.fullName.length === 0 ||
     profile.institution.length === 0 ||
-    profile.phone.length === 0
+    profile.phone.length === 0 ||
+    (participantProfileCodeConfiguration.phoneVerificationEnabled &&
+      (profile.phoneVerifiedAt === undefined || profile.phoneVerifiedAt <= 0))
   ) {
     return false;
   }
