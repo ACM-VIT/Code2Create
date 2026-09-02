@@ -203,6 +203,7 @@
      marks are also white SVGs; those daybreak re-inks in plum. */
   --wordmark-filter: drop-shadow(0 8px 50px rgb(0 0 0 / .6));
   --mark-filter: none;
+  --balloon-logo-filter: drop-shadow(0 1px 1px rgb(0 0 0 / .18));
 
   /* Depth shadows (1 soft, 2 strong) and the rose glows that become warm
      sunlight at daybreak. */
@@ -365,6 +366,7 @@
   --color-petal-edge: rgb(169 77 114 / .62);
   --color-petal-edge-soft: rgb(169 77 114 / .42);
   --color-glass-edge: rgb(169 77 114 / .6);
+  --balloon-logo-filter: invert(1) drop-shadow(0 1px 1px rgb(255 255 255 / .2));
 
   --scene-sky: linear-gradient(180deg, #cfc5e4 0%, #e5ccdb 36%, #f4d5d0 64%, #fbdfc0 90%, #fff1d8 112%);
   --scene-vignette: radial-gradient(ellipse at 50% 30%, transparent 50%, rgb(255 234 214 / .5) 100%);
