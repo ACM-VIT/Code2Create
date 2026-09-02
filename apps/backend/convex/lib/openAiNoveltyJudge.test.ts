@@ -269,21 +269,21 @@ describe("requestOpenAiNoveltyJudgments", () => {
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 
-  test.each([401, 501, 505])("keeps the embedding score for HTTP %i errors", async (status) => {
+  test.each([401, 501, 505])("does not hide permanent HTTP %i errors", async (status) => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("provider error", { status })));
 
-    await expect(requestOpenAiNoveltyJudgmentsWithFallback(request)).resolves.toEqual({
-      kind: "embedding_fallback",
-      failureCategory: `judge_provider_http_${status}`,
+    await expect(requestOpenAiNoveltyJudgmentsWithFallback(request)).rejects.toMatchObject({
+      status,
+      failureCategory: "provider_http_error",
     });
   });
 
-  test("keeps the embedding score when the structured response is invalid", async () => {
+  test("does not hide an invalid structured response", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(providerResponse("not-json")));
 
-    await expect(requestOpenAiNoveltyJudgmentsWithFallback(request)).resolves.toEqual({
-      kind: "embedding_fallback",
-      failureCategory: "judge_provider_response_invalid",
+    await expect(requestOpenAiNoveltyJudgmentsWithFallback(request)).rejects.toMatchObject({
+      status: 200,
+      failureCategory: "provider_response_invalid",
     });
   });
 

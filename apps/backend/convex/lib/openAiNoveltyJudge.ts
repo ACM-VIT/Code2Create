@@ -341,12 +341,20 @@ export function noveltyJudgeFailureCategory(error: OpenAiNoveltyJudgeError) {
 }
 
 export function allowsEmbeddingFallback(error: OpenAiNoveltyJudgeError) {
-  // Embeddings are independently valid evidence. A provider transport,
-  // authorization, availability, or structured-output failure must not erase
-  // that score; retain the failure category so refinement can be retried and
-  // operators can still diagnose the underlying issue. Only a malformed
-  // request indicates an internal contract bug that should fail loudly.
-  return error.failureCategory !== "invalid_input";
+  if (
+    error.failureCategory === "provider_request_timed_out"
+    || error.failureCategory === "provider_request_failed"
+    || error.failureCategory === "provider_rate_limited"
+  ) {
+    return true;
+  }
+  return error.failureCategory === "provider_http_error"
+    && error.status !== undefined
+    && (error.status === 408
+      || error.status === 500
+      || error.status === 502
+      || error.status === 503
+      || error.status === 504);
 }
 
 export async function requestOpenAiNoveltyJudgmentsWithFallback(
