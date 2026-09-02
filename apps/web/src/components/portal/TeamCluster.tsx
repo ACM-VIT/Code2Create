@@ -232,7 +232,7 @@ export function TeamRosterPanel({
             aria-current={item.active ? 'page' : undefined}
             onClick={onNavigate}
             className={`flex min-h-10 items-center rounded-lg px-3 py-1.5 no-underline ${
-              item.active ? 'bg-rose/15 text-rose-light' : 'text-fg/80 hover:bg-fg/5 hover:text-fg'
+              item.active ? 'bg-rose/15 text-rose-light' : 'text-fg/80'
             }`}
           >
             <span className="min-w-0 text-[13px] font-medium">{item.label}</span>
