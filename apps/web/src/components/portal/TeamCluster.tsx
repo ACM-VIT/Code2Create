@@ -101,7 +101,6 @@ export function TeamCluster({
     handleClose: safePolygon({ buffer: 1 }),
   })
   const { getFloatingProps, getReferenceProps } = useInteractions([hover])
-  const shown = members.slice(0, 4)
   // One deal for the whole roster so no two members share a bloom.
   const flowerVariants = assignFlowerVariants(
     members.filter((member) => member.role !== 'lead').map((member) => member.membershipId),
@@ -136,7 +135,7 @@ export function TeamCluster({
           className="block cursor-pointer rounded-lg"
         >
           <div className="flex justify-end">
-            {shown.map((member, index) => {
+            {members.map((member, index) => {
               const variant = flowerVariants.get(member.membershipId)
               return (
                 <Avatar
