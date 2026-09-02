@@ -483,6 +483,7 @@
    buttons; reset them here rather than at every call site. */
 @layer base {
   [data-portal-scene] button,
+  [data-vaul-drawer] button,
   [data-dev-gallery] button {
     background: none;
     border: 0;
@@ -492,6 +493,7 @@
   }
 
   [data-portal-scene] button:disabled,
+  [data-vaul-drawer] button:disabled,
   [data-dev-gallery] button:disabled {
     cursor: not-allowed;
   }

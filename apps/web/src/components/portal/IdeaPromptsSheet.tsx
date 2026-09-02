@@ -39,15 +39,12 @@ export function IdeaPromptsLink({ className = '' }: { className?: string }) {
             <div className="flex flex-none items-start justify-between gap-4 px-7 pt-6 pb-3">
               <div>
                 <Drawer.Title className="m-0 font-display font-light tracking-[-.01em] text-[26px] text-fg">
-                  Can’t come up with an idea?
+                  Here’s some ideas
                 </Drawer.Title>
-                <Drawer.Description className="m-0 mt-1.5 text-[12.5px] leading-relaxed text-fg/55">
-                  Some directions we’d love to see. Take one, twist one, or ignore them all.
-                </Drawer.Description>
               </div>
               <Drawer.Close
                 aria-label="Close"
-                className="flex size-9 flex-none items-center justify-center rounded-full border border-rose/50 text-fg/60 transition-colors hover:border-rose-light hover:text-rose-light"
+                className="flex size-9 flex-none cursor-pointer appearance-none items-center justify-center rounded-full border border-rose/50 bg-transparent p-0 text-fg/60 transition-colors hover:border-rose-light hover:text-rose-light"
               >
                 <svg width="13" height="13" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
                   <path d="M6 6l12 12M18 6L6 18" />
