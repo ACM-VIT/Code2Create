@@ -1,5 +1,6 @@
 import gsap from 'gsap';
 import { MorphSVGPlugin } from 'gsap/MorphSVGPlugin';
+import bonsaiSource from '../../assets/plant-01.webp';
 
 gsap.registerPlugin(MorphSVGPlugin);
 
@@ -542,7 +543,7 @@ export function Plant() {
           viewBox). */}
       <img
         className="plant-base"
-        src="/plants/plant-01.webp"
+        src={bonsaiSource}
         width="387"
         height="493"
         alt=""

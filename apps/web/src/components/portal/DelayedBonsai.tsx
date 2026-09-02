@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
+import bonsaiSource from '../../assets/plant-01.webp'
 
 const revealDelay = 300
-const bonsaiSource = '/plants/plant-01.webp'
 const bonsaiDecoded = decodeBonsai()
 
 function decodeBonsai() {
