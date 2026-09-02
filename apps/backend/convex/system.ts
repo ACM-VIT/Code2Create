@@ -355,7 +355,8 @@ export async function createInitialEvent(
   ) {
     throw new ConvexError({
       code: "INVALID_APPLICATION_DEADLINE",
-      message: "The application deadline must be in the future and no later than the event start.",
+      message:
+        "Both deadlines must be in the future, external must close no later than VIT, and VIT must close no later than the event start.",
     });
   }
   const admissionPolicyVersion = normalizedText(

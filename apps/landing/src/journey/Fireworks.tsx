@@ -5,7 +5,6 @@ import {
   useLayoutEffect,
   useRef,
   useState,
-  type CSSProperties,
 } from 'react';
 import gsap from 'gsap';
 
@@ -32,39 +31,33 @@ interface SponsorSpec {
   from: number
   core: Color
   ember: Color
-  glow: string
-  glowSoft: string
   phone: { x: number; y: number; logoY: number; from: number }
 }
 
 const SPONSORS: readonly SponsorSpec[] = [
   {
-    name: 'ElevenLabs',
-    logo: '/assets/sponsors/elevenlabs.svg',
-    logoClass: 'sponsor__logo--elevenlabs',
-    x: 24,
-    y: 30,
-    logoY: 30,
-    from: 35,
-    core: [255, 255, 255],
-    ember: [148, 196, 255],
-    glow: 'rgba(178, 212, 255, 0.55)',
-    glowSoft: 'rgba(148, 196, 255, 0.3)',
-    phone: { x: 50, y: 23, logoY: 23, from: 20 },
-  },
-  {
     name: 'SGLang',
     logo: '/assets/sponsors/sglang.png',
     logoClass: 'sponsor__logo--sglang',
-    x: 76,
+    x: 24,
     y: 30,
     logoY: 22,
-    from: 85,
+    from: 35,
     core: [236, 186, 255],
     ember: [176, 112, 250],
-    glow: 'rgba(216, 156, 255, 0.55)',
-    glowSoft: 'rgba(176, 112, 250, 0.3)',
-    phone: { x: 50, y: 50, logoY: 40, from: 82 },
+    phone: { x: 50, y: 23, logoY: 20, from: 20 },
+  },
+  {
+    name: 'ElevenLabs',
+    logo: '/assets/sponsors/elevenlabs.svg',
+    logoClass: 'sponsor__logo--elevenlabs',
+    x: 76,
+    y: 30,
+    logoY: 30,
+    from: 85,
+    core: [255, 255, 255],
+    ember: [148, 196, 255],
+    phone: { x: 50, y: 50, logoY: 50, from: 82 },
   },
 ];
 
@@ -123,11 +116,6 @@ interface DrawPoint {
 
 interface StepCanvas extends HTMLCanvasElement {
   __peek?: () => { progresses: number[]; stars: number; letters: number }
-}
-
-interface SponsorStyle extends CSSProperties {
-  '--burst': string
-  '--burst-soft': string
 }
 
 const sampleText = (name: string): TextSample => {
@@ -588,11 +576,9 @@ const Fireworks = forwardRef<FireworksHandle, Record<never, never>>(function Fir
       <h2 className="sponsors__title">Our Sponsors</h2>
       {SPONSORS.map((base, index) => {
         const spec = sponsorAt(index, narrow);
-        const style: SponsorStyle = {
+        const style = {
           left: `${spec.x}%`,
           top: `${spec.logoY}%`,
-          '--burst': base.glow,
-          '--burst-soft': base.glowSoft,
         };
         return (
           <div

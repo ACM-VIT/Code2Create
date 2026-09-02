@@ -54,8 +54,8 @@ import { ImportedTeamChoiceView } from '../components/portal/ImportedTeamChoiceV
 const team: ClusterTeam = {
   name: 'Paper Cranes',
   publicCode: 'C2C-PCRN',
-  activeMemberCount: 4,
-  teamMaximumSize: 4,
+  activeMemberCount: 5,
+  teamMaximumSize: 5,
   currentMembershipId: 'm2',
 }
 
@@ -64,6 +64,7 @@ const members: ClusterMember[] = [
   { teamMemberId: '2', membershipId: 'm2', role: 'member', displayName: 'Rohan Mehta' },
   { teamMemberId: '3', membershipId: 'm3', role: 'member', displayName: 'Sara Thomas' },
   { teamMemberId: '4', membershipId: 'm4', role: 'member', displayName: 'Dev Patel' },
+  { teamMemberId: '5', membershipId: 'm5', role: 'member', displayName: 'Nikhil Rao' },
 ]
 
 const noop = () => {}
@@ -521,6 +522,20 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
             },
             {
               displayName: 'Sara Thomas',
+              role: 'member',
+              signedIn: false,
+              accepted: false,
+              isYou: false,
+            },
+            {
+              displayName: 'Dev Patel',
+              role: 'member',
+              signedIn: true,
+              accepted: true,
+              isYou: false,
+            },
+            {
+              displayName: 'Nikhil Rao',
               role: 'member',
               signedIn: false,
               accepted: false,

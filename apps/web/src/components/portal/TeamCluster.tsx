@@ -69,7 +69,7 @@ export function TeamCluster({
 }) {
   const [open, setOpen] = useState(false)
   const anchor = useRef<HTMLDivElement>(null)
-  const shown = members.slice(0, 3)
+  // One deal for the whole roster so no two members share a bloom.
   const flowerVariants = assignFlowerVariants(
     members.filter((member) => member.role !== 'lead').map((member) => member.membershipId),
   )
@@ -102,7 +102,7 @@ export function TeamCluster({
         }`}
       >
         <span className="flex justify-end">
-          {shown.map((member, index) => {
+          {members.map((member, index) => {
             const variant = flowerVariants.get(member.membershipId)
             return (
               <Avatar
