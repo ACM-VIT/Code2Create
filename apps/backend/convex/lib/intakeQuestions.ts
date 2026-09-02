@@ -8,6 +8,8 @@ import { fingerprintText } from "./strings";
 
 type ReadCtx = QueryCtx | MutationCtx;
 
+const intakeQuestionHistoryLimit = 1;
+
 type CurrentIntakeQuestion = Doc<"intakeGeneratedQuestions"> & {
   state: "active" | "answered";
 };
@@ -73,10 +75,29 @@ export async function loadActiveIntakeAnswers(
     .collect();
 }
 
+export async function loadIntakeQuestionHistory(
+  ctx: ReadCtx,
+  draftId: Id<"projectDrafts">,
+  ordinal: number,
+) {
+  const questions = await ctx.db
+    .query("intakeGeneratedQuestions")
+    .withIndex("by_draft_ordinal", (index) =>
+      index.eq("draftId", draftId).eq("ordinal", ordinal),
+    )
+    .order("desc")
+    .take(intakeQuestionHistoryLimit);
+  return {
+    latestPriorQuestionId: questions[0]?._id,
+    texts: questions.map((question) => question.text),
+  };
+}
+
 export function intakeInputFingerprint(args: {
   draftId: Id<"projectDrafts">;
   policyChecksum: string;
   ordinal: number;
+  latestPriorQuestionId?: Id<"intakeGeneratedQuestions">;
   answers: readonly Doc<"intakeAnswerVersions">[];
 }) {
   return fingerprintText(
@@ -84,6 +105,9 @@ export function intakeInputFingerprint(args: {
       draftId: args.draftId,
       policyChecksum: args.policyChecksum,
       ordinal: args.ordinal,
+      ...(args.latestPriorQuestionId !== undefined
+        ? { latestPriorQuestionId: args.latestPriorQuestionId }
+        : {}),
       answers: args.answers
         .map((answer) => ({ id: answer._id, promptKey: answer.promptKey }))
         .toSorted((left, right) => left.promptKey.localeCompare(right.promptKey)),
@@ -195,10 +219,16 @@ export async function createFixedIntakeQuestion(
     now: number;
   },
 ) {
+  const history = await loadIntakeQuestionHistory(
+    ctx,
+    args.draft._id,
+    args.ordinal,
+  );
   const question = fixedQuestionForOrdinal(
     args.normalizedPolicy,
     args.ordinal,
     args.draft.teamId,
+    history.texts,
   );
   return createIntakeQuestion(ctx, {
     draft: args.draft,

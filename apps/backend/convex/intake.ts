@@ -1,9 +1,10 @@
+import { DAY, RateLimiter } from "@convex-dev/rate-limiter";
 import { ConvexError, v, type Infer } from "convex/values";
 import { z } from "zod";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { internal } from "./_generated/api";
+import { components, internal } from "./_generated/api";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { loadPublishedAdmissionConfiguration } from "./lib/admissionPolicy";
@@ -64,6 +65,17 @@ import {
 
 const additionalInformationMaxLength = 4_000;
 const draftNoveltyIndexSpreadMs = 250;
+const intakeQuestionRefreshRateLimiter = new RateLimiter(
+  components.participantAssistantRateLimiter,
+  {
+    intakeGeneratedQuestionRefresh: {
+      kind: "token bucket",
+      rate: 1,
+      period: 365 * DAY,
+      capacity: 1,
+    },
+  },
+);
 
 function draftNoveltyIndexDelayMs(
   draftId: Id<"projectDrafts">,
@@ -1784,6 +1796,124 @@ export const respondToFollowUp = mutation({
       personId: person._id,
       clientOperationId: args.clientOperationId,
       commandName: "intake.follow_up.respond",
+      requestFingerprint,
+      draftId: draft._id,
+      createdAt: now,
+    });
+    return { draftVersion };
+  },
+});
+
+export const refreshFollowUpQuestion = mutation({
+  args: {
+    eventSlug: v.string(),
+    questionId: v.id("intakeGeneratedQuestions"),
+    expectedDraftVersion: v.number(),
+    expectedWorkingRevision: v.number(),
+    clientOperationId: v.string(),
+  },
+  returns: v.object({ draftVersion: v.number() }),
+  handler: async (ctx, args) => {
+    const { event, person, membership, team } = await currentTeamContext(ctx, args.eventSlug);
+    const requestFingerprint = operationFingerprint([
+      team._id,
+      args.questionId,
+      args.expectedDraftVersion,
+      args.expectedWorkingRevision,
+    ]);
+    const replay = await replayDraftOperation(
+      ctx,
+      event._id,
+      person._id,
+      args.clientOperationId,
+      "intake.follow_up.refresh",
+      requestFingerprint,
+    );
+    if (replay) return { draftVersion: replay.version };
+    requireRegistrationOpen(event, membership.participantClass);
+    requireEditableTeam(team);
+    const draft = await ctx.db
+      .query("projectDrafts")
+      .withIndex("by_team", (index) => index.eq("teamId", team._id))
+      .unique();
+    if (!draft?.initialIdea || draft.stage !== "follow_up") {
+      throw new ConvexError({
+        code: "FOLLOW_UP_NOT_READY",
+        message: "Wait for the current project question before refreshing it.",
+      });
+    }
+    requireDraftVersion(draft.version, args.expectedDraftVersion);
+    const question = await ctx.db.get(args.questionId);
+    if (
+      !question ||
+      question.draftId !== draft._id ||
+      question.teamId !== team._id ||
+      question.eventId !== event._id ||
+      question.state !== "active"
+    ) {
+      throw new ConvexError({
+        code: "FOLLOW_UP_CHANGED",
+        message: "That follow-up is no longer active. Review the current question.",
+      });
+    }
+    const { normalized: policy } = await requirePinnedIntakePolicy(ctx, draft);
+    if (
+      question.source === "fixed" ||
+      question.ordinal <= policy.deterministicFollowUpCount ||
+      question.ordinal > policy.maximumFollowUpCount
+    ) {
+      throw new ConvexError({
+        code: "FOLLOW_UP_REFRESH_NOT_ALLOWED",
+        message: "Only the last two generated questions can be refreshed.",
+      });
+    }
+    const workingField = await findWorkingField(ctx, team._id, {
+      kind: "follow_up",
+      questionId: question._id,
+    });
+    if ((workingField?.revision ?? 0) !== args.expectedWorkingRevision) {
+      throw new ConvexError({
+        code: "WORKING_FIELD_CHANGED",
+        message: "A teammate changed this answer. Review their text before refreshing the question.",
+      });
+    }
+    const limit = await intakeQuestionRefreshRateLimiter.limit(
+      ctx,
+      "intakeGeneratedQuestionRefresh",
+      { key: `${draft._id}:${question.ordinal}` },
+    );
+    if (!limit.ok) {
+      throw new ConvexError({
+        code: "FOLLOW_UP_REFRESH_LIMITED",
+        message: "This question has already been refreshed once.",
+      });
+    }
+
+    const now = Date.now();
+    const draftVersion = draft.version + 1;
+    await replaceIntakeQuestionsAfter(ctx, draft._id, question.ordinal - 1);
+    await reconcileWorkingFieldsAfterDraftVersionChange(ctx, {
+      teamId: team._id,
+      previousDraftVersion: draft.version,
+      nextDraftVersion: draftVersion,
+      removedQuestionIds: [question._id],
+    });
+    await ctx.db.patch(draft._id, {
+      adaptiveQuestionDeadlineAt: undefined,
+      version: draftVersion,
+      lastEditedByMembershipId: membership._id,
+      updatedAt: now,
+    });
+    await enqueueIntakeInterpretation(ctx, {
+      draftId: draft._id,
+      draftVersion,
+      enqueuedAt: now,
+    });
+    await recordDraftOperation(ctx, {
+      eventId: event._id,
+      personId: person._id,
+      clientOperationId: args.clientOperationId,
+      commandName: "intake.follow_up.refresh",
       requestFingerprint,
       draftId: draft._id,
       createdAt: now,

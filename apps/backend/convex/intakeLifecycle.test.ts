@@ -1,5 +1,6 @@
 import betterAuthSchema from "../node_modules/@convex-dev/better-auth/src/component/schema.ts";
 import presenceTest from "@convex-dev/presence/test";
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { convexTest, type TestConvex } from "convex-test";
 import { describe, expect, test } from "vitest";
 
@@ -36,6 +37,7 @@ describe("participant intake lifecycle", () => {
     const backend = convexTest(schema, modules);
     backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
     presenceTest.register(backend, "intakePresence");
+    rateLimiterTest.register(backend, "participantAssistantRateLimiter");
     const fixture = await seedFixture(backend);
     const participant = backend.withIdentity({
       subject: fixture.authUserId,
@@ -365,6 +367,13 @@ describe("participant intake lifecycle", () => {
       throw new Error("The deterministic intake question did not become visible.");
     }
     expect(withQuestion.draft.stage).toBe("follow_up");
+    await expect(participant.mutation(api.intake.refreshFollowUpQuestion, {
+      eventSlug: fixture.eventSlug,
+      questionId: activeQuestion.id,
+      expectedDraftVersion: withQuestion.draft.version,
+      expectedWorkingRevision: 0,
+      clientOperationId: "intake-fixed-question-refresh-rejected",
+    })).rejects.toThrow("Only the last two generated questions can be refreshed.");
 
     await expect(
       secondParticipant.mutation(api.intakePresence.heartbeat, {
@@ -442,11 +451,169 @@ describe("participant intake lifecycle", () => {
       expectedDraftVersion: withThirdQuestion.draft.version,
       clientOperationId: "intake-third-question-answer",
     });
-    const adaptiveFixture = await answerAdaptiveFallback(
-      3,
-      "It coordinates the handoff and confirms that somebody actually responded.",
-      "intake-adaptive-answer-fixture",
+    await backend.mutation(internal.intelligence.beginIntakeInterpretation, {
+      draftId: savedIdea.draftId,
+      provider: { kind: "unavailable", reason: "api_key_not_configured" },
+    });
+    const initialAdaptiveState = await participant.query(api.intake.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    const initialAdaptiveQuestion = initialAdaptiveState?.draft?.followUps.find(
+      (question) => question.ordinal === 3 && question.state === "active",
     );
+    if (!initialAdaptiveState?.draft || !initialAdaptiveQuestion) {
+      throw new Error("The first adaptive question did not become active.");
+    }
+    const fixedBeforeAdaptiveRefresh = initialAdaptiveState.draft.followUps
+      .filter((question) => question.source === "fixed")
+      .map((question) => ({
+        id: question.id,
+        state: question.state,
+        answer: question.answer,
+      }));
+    const initialAdaptiveInterpretation = await backend.run(async (ctx) => {
+      const rows = await ctx.db
+        .query("intakeInterpretations")
+        .withIndex("by_draft_created", (index) =>
+          index.eq("draftId", savedIdea.draftId),
+        )
+        .collect();
+      const row = rows.find((candidate) => candidate.ordinal === 3);
+      if (!row) throw new Error("The first adaptive interpretation did not persist.");
+      return row;
+    });
+    const unsavedAdaptiveAnswer =
+      "We were drafting how the request reaches the responsible staff member.";
+    await expect(participant.mutation(api.intake.autosaveWorkingField, {
+      eventSlug: fixture.eventSlug,
+      field: { kind: "follow_up", questionId: initialAdaptiveQuestion.id },
+      value: unsavedAdaptiveAnswer,
+      baseDraftVersion: initialAdaptiveState.draft.version,
+      baseCommittedValue: "",
+      expectedRevision: 0,
+    })).resolves.toMatchObject({ revision: 1 });
+    await expect(participant.mutation(api.intake.refreshFollowUpQuestion, {
+      eventSlug: fixture.eventSlug,
+      questionId: initialAdaptiveQuestion.id,
+      expectedDraftVersion: initialAdaptiveState.draft.version,
+      expectedWorkingRevision: 0,
+      clientOperationId: "intake-adaptive-refresh-stale-working-copy",
+    })).rejects.toThrow(
+      "A teammate changed this answer. Review their text before refreshing the question.",
+    );
+
+    const refreshRequest = {
+      eventSlug: fixture.eventSlug,
+      questionId: initialAdaptiveQuestion.id,
+      expectedDraftVersion: initialAdaptiveState.draft.version,
+      expectedWorkingRevision: 1,
+      clientOperationId: "intake-adaptive-question-refresh",
+    } as const;
+    const refreshed = await participant.mutation(
+      api.intake.refreshFollowUpQuestion,
+      refreshRequest,
+    );
+    await expect(participant.mutation(
+      api.intake.refreshFollowUpQuestion,
+      refreshRequest,
+    )).resolves.toEqual(refreshed);
+    await expect(participant.query(api.intake.current, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toMatchObject({
+      draft: {
+        version: refreshed.draftVersion,
+        stage: "follow_up",
+        followUps: fixedBeforeAdaptiveRefresh,
+      },
+      workingFields: [],
+    });
+    await expect(backend.run(async (ctx) =>
+      ctx.db.get(initialAdaptiveQuestion.id)
+    )).resolves.toMatchObject({ state: "replaced" });
+
+    await backend.mutation(internal.intelligence.beginIntakeInterpretation, {
+      draftId: savedIdea.draftId,
+      provider: { kind: "unavailable", reason: "api_key_not_configured" },
+    });
+    const refreshedAdaptiveState = await participant.query(api.intake.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    const refreshedAdaptiveQuestion = refreshedAdaptiveState?.draft?.followUps.find(
+      (question) => question.ordinal === 3 && question.state === "active",
+    );
+    if (!refreshedAdaptiveState?.draft || !refreshedAdaptiveQuestion) {
+      throw new Error("The refreshed adaptive question did not become active.");
+    }
+    expect(refreshedAdaptiveQuestion.id).not.toBe(initialAdaptiveQuestion.id);
+    expect(refreshedAdaptiveQuestion.question).not.toBe(initialAdaptiveQuestion.question);
+    expect(refreshedAdaptiveState.draft.followUps.slice(0, 2)).toMatchObject(
+      fixedBeforeAdaptiveRefresh,
+    );
+    const adaptiveInterpretations = await backend.run(async (ctx) => {
+      const rows = await ctx.db
+        .query("intakeInterpretations")
+        .withIndex("by_draft_created", (index) =>
+          index.eq("draftId", savedIdea.draftId),
+        )
+        .collect();
+      return rows.filter((candidate) => candidate.ordinal === 3);
+    });
+    expect(adaptiveInterpretations).toHaveLength(2);
+    const refreshedAdaptiveInterpretation = adaptiveInterpretations.find(
+      (candidate) => candidate._id !== initialAdaptiveInterpretation._id,
+    );
+    expect(refreshedAdaptiveInterpretation?.inputFingerprint).toBeDefined();
+    expect(refreshedAdaptiveInterpretation?.inputFingerprint).not.toBe(
+      initialAdaptiveInterpretation.inputFingerprint,
+    );
+
+    await expect(participant.mutation(api.intake.refreshFollowUpQuestion, {
+      eventSlug: fixture.eventSlug,
+      questionId: refreshedAdaptiveQuestion.id,
+      expectedDraftVersion: refreshedAdaptiveState.draft.version,
+      expectedWorkingRevision: 0,
+      clientOperationId: "intake-adaptive-question-second-refresh",
+    })).rejects.toThrow("This question has already been refreshed once.");
+    await expect(participant.query(api.intake.current, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toMatchObject({
+      draft: {
+        version: refreshedAdaptiveState.draft.version,
+        followUps: expect.arrayContaining([
+          expect.objectContaining({
+            id: refreshedAdaptiveQuestion.id,
+            question: refreshedAdaptiveQuestion.question,
+            state: "active",
+          }),
+        ]),
+      },
+    });
+
+    const refreshedAdaptiveAnswer =
+      "It coordinates the handoff and confirms that somebody actually responded.";
+    await participant.mutation(api.intake.respondToFollowUp, {
+      eventSlug: fixture.eventSlug,
+      questionId: refreshedAdaptiveQuestion.id,
+      answer: refreshedAdaptiveAnswer,
+      expectedDraftVersion: refreshedAdaptiveState.draft.version,
+      clientOperationId: "intake-adaptive-answer-fixture",
+    });
+    const refreshedAdaptiveAnswerId = await backend.run(async (ctx) => {
+      const row = await ctx.db
+        .query("intakeAnswerVersions")
+        .withIndex("by_generated_question_status", (index) =>
+          index
+            .eq("generatedQuestionId", refreshedAdaptiveQuestion.id)
+            .eq("status", "active"),
+        )
+        .unique();
+      if (!row) throw new Error("The refreshed adaptive question has no answer.");
+      return row._id;
+    });
+    const adaptiveFixture = {
+      answerId: refreshedAdaptiveAnswerId,
+      questionId: refreshedAdaptiveQuestion.id,
+    };
     await answerAdaptiveFallback(
       4,
       "The prototype should prove that a request reaches the right owner and gets a visible update.",
@@ -1424,6 +1591,17 @@ async function seedFixture(backend: BackendTest) {
     const intakePolicy = normalizeIntakePolicy({
       ...defaultDeterministicIntakePolicy,
       deterministicFollowUpCount: 2,
+      model: {
+        mode: "assisted",
+        modelId: "intake-lifecycle-test-model",
+        systemInstruction:
+          "Ask one supportive plain-language question grounded only in supplied project answers. Never judge, rank, reject, discourage, or request personal information.",
+        instructionVersion: "test-v1",
+        schemaVersion: "test-v1",
+        redactionVersion: "test-v1",
+        questionPolicyVersion: "test-v1",
+        evaluationSuiteVersion: "test-v1",
+      },
     });
     const intakePolicyId = await ctx.db.insert("intakePolicyVersions", {
       eventId,

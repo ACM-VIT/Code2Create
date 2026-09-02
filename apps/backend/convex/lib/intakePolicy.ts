@@ -527,6 +527,7 @@ export function fixedQuestionForOrdinal(
   policy: IntakePolicy,
   ordinal: number,
   selectionKey?: string,
+  previousQuestions: readonly string[] = [],
 ) {
   const policyVariants = policy.fallbackQuestions.filter(
     (entry) => entry.ordinal === ordinal,
@@ -542,7 +543,18 @@ export function fixedQuestionForOrdinal(
         fingerprintText(`${selectionKey}:question-${ordinal}`).slice(0, 8),
         16,
       ) % variants.length;
-  const fallback = variants[variantIndex];
+  const previousQuestionTexts = new Set(
+    previousQuestions.map((question) =>
+      question.trim().replace(/\s+/gu, " ").toLocaleLowerCase("en")
+    ),
+  );
+  const fallback = variants
+    .map((_, offset) => variants[(variantIndex + offset) % variants.length])
+    .find((candidate) =>
+      candidate !== undefined && !previousQuestionTexts.has(
+        candidate.text.toLocaleLowerCase("en"),
+      )
+    ) ?? variants[variantIndex];
   if (!fallback) {
     throw new Error(`The intake policy has no question fallback for ordinal ${ordinal}.`);
   }

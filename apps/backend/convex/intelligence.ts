@@ -20,6 +20,7 @@ import {
   intakeInputFingerprint,
   loadActiveIntakeAnswers,
   loadCurrentIntakeResponses,
+  loadIntakeQuestionHistory,
   nextQuestionOrdinal,
 } from "./lib/intakeQuestions";
 import { reconcileWorkingFieldsAfterDraftVersionChange } from "./lib/intakeWorkingFields";
@@ -216,10 +217,18 @@ export const beginIntakeInterpretation = internalMutation({
       });
       return null;
     }
+    const questionHistory = await loadIntakeQuestionHistory(
+      ctx,
+      draft._id,
+      ordinal,
+    );
     const inputFingerprint = intakeInputFingerprint({
       draftId: draft._id,
       policyChecksum: policy.checksum,
       ordinal,
+      ...(questionHistory.latestPriorQuestionId !== undefined
+        ? { latestPriorQuestionId: questionHistory.latestPriorQuestionId }
+        : {}),
       answers,
     });
     const prior = await ctx.db
@@ -289,7 +298,10 @@ export const beginIntakeInterpretation = internalMutation({
           promptKey: answer.promptKey,
           value: answer.value,
         })),
-      previousQuestions: responses.map(({ question }) => question.text),
+      previousQuestions: [
+        ...responses.map(({ question }) => question.text),
+        ...questionHistory.texts,
+      ],
       commonIdeaPatterns: normalized.commonIdeaPatterns,
     };
   },
@@ -350,10 +362,18 @@ export const finishIntakeInterpretation = internalMutation({
       loadCurrentIntakeResponses(ctx, draft._id),
       loadActiveIntakeAnswers(ctx, draft._id),
     ]);
+    const questionHistory = await loadIntakeQuestionHistory(
+      ctx,
+      draft._id,
+      interpretation.ordinal,
+    );
     const currentFingerprint = intakeInputFingerprint({
       draftId: draft._id,
       policyChecksum: policy.checksum,
       ordinal: interpretation.ordinal,
+      ...(questionHistory.latestPriorQuestionId !== undefined
+        ? { latestPriorQuestionId: questionHistory.latestPriorQuestionId }
+        : {}),
       answers,
     });
     if (
@@ -421,7 +441,10 @@ export const finishIntakeInterpretation = internalMutation({
         ? validateGeneratedIntakeQuestion(normalized, {
             text: args.nextQuestionText,
             purposeKey: args.nextQuestionPurposeKey,
-            previousQuestions: responses.map(({ question }) => question.text),
+            previousQuestions: [
+              ...responses.map(({ question }) => question.text),
+              ...questionHistory.texts,
+            ],
           })
         : null;
     const asksQuestion =
@@ -588,10 +611,18 @@ export const expireQueuedIntakeInterpretation = internalMutation({
       });
       return null;
     }
+    const questionHistory = await loadIntakeQuestionHistory(
+      ctx,
+      draft._id,
+      ordinal,
+    );
     const inputFingerprint = intakeInputFingerprint({
       draftId: draft._id,
       policyChecksum: policy.checksum,
       ordinal,
+      ...(questionHistory.latestPriorQuestionId !== undefined
+        ? { latestPriorQuestionId: questionHistory.latestPriorQuestionId }
+        : {}),
       answers,
     });
     const prior = await ctx.db

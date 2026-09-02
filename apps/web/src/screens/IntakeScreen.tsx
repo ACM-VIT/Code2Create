@@ -91,6 +91,7 @@ const noveltyBandLabels: Record<NoveltyBand, string> = {
 type IntakeOperationResult =
   | FunctionReturnType<typeof api.intake.saveInitialIdea>
   | FunctionReturnType<typeof api.intake.respondToFollowUp>
+  | FunctionReturnType<typeof api.intake.refreshFollowUpQuestion>
   | FunctionReturnType<typeof api.intake.reviseFollowUp>
   | FunctionReturnType<typeof api.intake.saveAdditionalInformation>
   | FunctionReturnType<typeof api.intake.setFreshnessAttestation>
@@ -100,10 +101,15 @@ type PendingFollowUp = {
   questionId: string
 }
 
+type PendingQuestionRefresh = {
+  questionId: string
+}
+
 type PendingIntakeOperation = {
   kind:
     | 'idea'
     | 'follow_up'
+    | 'refresh_question'
     | 'review_answer'
     | 'additional_information'
     | 'freshness'
@@ -380,6 +386,7 @@ function IntakeWorkspace({
   const autosaveWorkingField = useMutation(api.intake.autosaveWorkingField)
   const saveIdea = useMutation(api.intake.saveInitialIdea)
   const respondToFollowUp = useMutation(api.intake.respondToFollowUp)
+  const refreshFollowUpQuestion = useMutation(api.intake.refreshFollowUpQuestion)
   const settleAdaptiveQuestionDeadline = useMutation(
     api.intake.settleAdaptiveQuestionDeadline,
   )
@@ -437,6 +444,8 @@ function IntakeWorkspace({
   // Which tucked sheet in the follow-up pile is peeked open, by question id.
   const [peekQuestionId, setPeekQuestionId] = useState<string | null>(null)
   const [pendingFollowUp, setPendingFollowUp] = useState<PendingFollowUp | null>(null)
+  const [pendingQuestionRefresh, setPendingQuestionRefresh] =
+    useState<PendingQuestionRefresh | null>(null)
   const [pendingReviewAnswer, setPendingReviewAnswer] =
     useState<PendingReviewAnswer | null>(null)
   // The mockup splits the old single review screen into reading the proposal
@@ -473,6 +482,11 @@ function IntakeWorkspace({
   const ideaPending = operations.hasPending('idea')
   const followUpSlot = pendingFollowUp ? `follow-up:${pendingFollowUp.questionId}` : null
   const followUpPending = followUpSlot !== null && operations.hasPending(followUpSlot)
+  const questionRefreshSlot = pendingQuestionRefresh
+    ? `refresh-question:${pendingQuestionRefresh.questionId}`
+    : null
+  const questionRefreshPending =
+    questionRefreshSlot !== null && operations.hasPending(questionRefreshSlot)
   const reviewAnswerSlot = pendingReviewAnswer
     ? `review-answer:${pendingReviewAnswer.questionId}`
     : null
@@ -607,6 +621,7 @@ function IntakeWorkspace({
     if (!shouldReplaceFollowUpEditorValue(followUpBase.current.questionId, nextQuestionId)) return
     const priorQuestionId = followUpBase.current.questionId
     setPendingFollowUp(null)
+    setPendingQuestionRefresh(null)
     const lastEditedByMembershipId = draft?.lastEditedByMembershipId
     if (shouldRecoverFollowUpDraft({
       answer,
@@ -805,6 +820,7 @@ function IntakeWorkspace({
       applicationsOpen &&
       activeFollowUp !== undefined &&
       pendingFollowUp === null &&
+      pendingQuestionRefresh === null &&
       !followUpConflict &&
       answer.length <= (draft?.intakePolicy.followUpAnswerMaxLength ?? 0),
     initialSavedValue: workingFollowUp?.value ?? '',
@@ -1132,6 +1148,50 @@ function IntakeWorkspace({
     })
   }
 
+  const completeQuestionRefresh = (pending: PendingQuestionRefresh) => {
+    clearSessionDraft(`c2c:${eventSlug}:${team.id}:follow-up:${pending.questionId}`)
+    setAnswer('')
+    setFollowUpConflict(false)
+    setPeekQuestionId(null)
+    stopEditing()
+    setError(null)
+  }
+
+  const refreshQuestion = () => {
+    if (
+      !activeFollowUp ||
+      activeFollowUp.source === 'fixed' ||
+      pendingFollowUp !== null ||
+      pendingQuestionRefresh !== null
+    ) return
+    const pending = { questionId: activeFollowUp.id } satisfies PendingQuestionRefresh
+    const submittedDraftVersion = followUpBase.current.version
+    const submittedWorkingRevision = followUpWorkingRevision.current
+    const slot = `refresh-question:${pending.questionId}`
+    if (!operations.hasPending(slot)) setPendingQuestionRefresh(pending)
+    void run(async () => {
+      try {
+        const result = await operations.run(slot, (clientOperationId) => () =>
+          refreshFollowUpQuestion({
+            eventSlug,
+            questionId: pending.questionId,
+            expectedDraftVersion: submittedDraftVersion,
+            expectedWorkingRevision: submittedWorkingRevision,
+            clientOperationId,
+          }))
+        if (!isReviewAnswerResult(result)) {
+          throw new Error('The question refresh returned an unexpected result.')
+        }
+        completeQuestionRefresh(pending)
+      } catch (caught) {
+        if (!operations.hasPending(slot)) setPendingQuestionRefresh(null)
+        if (!isIntakeCollaborationConflict(caught)) throw caught
+        setFollowUpConflict(true)
+        setError(null)
+      }
+    })
+  }
+
   const submitAdditionalInformation = (event: FormEvent) => {
     event.preventDefault()
     const completingStep = draft?.stage === 'additional_information'
@@ -1171,6 +1231,12 @@ function IntakeWorkspace({
             slot: `follow-up:${pendingFollowUp.questionId}`,
             action: 'Confirm answer',
           }
+        : questionRefreshPending && pendingQuestionRefresh
+          ? {
+              kind: 'refresh_question',
+              slot: `refresh-question:${pendingQuestionRefresh.questionId}`,
+              action: 'Confirm refresh',
+            }
         : reviewAnswerPending && pendingReviewAnswer
           ? {
               kind: 'review_answer',
@@ -1199,6 +1265,10 @@ function IntakeWorkspace({
     }
     if (operation.kind === 'follow_up') {
       setPendingFollowUp(null)
+      return
+    }
+    if (operation.kind === 'refresh_question') {
+      setPendingQuestionRefresh(null)
       return
     }
     if (operation.kind === 'review_answer') {
@@ -1230,7 +1300,23 @@ function IntakeWorkspace({
           completeReviewAnswerSave(result, pendingReviewAnswer)
           return
         }
+        if (operation.kind === 'refresh_question') {
+          if (!pendingQuestionRefresh || !isReviewAnswerResult(result)) {
+            throw new Error('The pending question refresh could not be restored.')
+          }
+          completeQuestionRefresh(pendingQuestionRefresh)
+          return
+        }
       } catch (caught) {
+        if (
+          operation.kind === 'refresh_question' &&
+          isIntakeCollaborationConflict(caught)
+        ) {
+          setPendingQuestionRefresh(null)
+          setFollowUpConflict(true)
+          setError(null)
+          return
+        }
         if (!operations.hasPending(operation.slot)) {
           if (operation.kind === 'submit') clearSubmissionCelebration()
           clearPendingOperation(operation)
@@ -1512,7 +1598,12 @@ function IntakeWorkspace({
               minLength={minLength}
               maxLength={draft.intakePolicy.followUpAnswerMaxLength}
               rows={6}
-              disabled={busy || pendingFollowUp !== null || !activeFollowUp}
+              disabled={
+                busy ||
+                pendingFollowUp !== null ||
+                pendingQuestionRefresh !== null ||
+                !activeFollowUp
+              }
               value={answer}
               onChange={(event) => {
                 if (!activeFollowUp) return
@@ -1534,11 +1625,28 @@ function IntakeWorkspace({
               <div className="flex items-center gap-4">
                 <PortalTextButton
                   type="button"
-                  disabled={busy || pendingFollowUp !== null}
+                  disabled={
+                    busy || pendingFollowUp !== null || pendingQuestionRefresh !== null
+                  }
                   onClick={editIdeaFromQuestions}
                 >
                   ← edit idea
                 </PortalTextButton>
+                {activeFollowUp && activeFollowUp.source !== 'fixed' ? (
+                  <PortalTextButton
+                    type="button"
+                    disabled={
+                      busy ||
+                      pendingFollowUp !== null ||
+                      pendingQuestionRefresh !== null ||
+                      followUpConflict ||
+                      followUpAutosaveState === 'saving'
+                    }
+                    onClick={refreshQuestion}
+                  >
+                    refresh question
+                  </PortalTextButton>
+                ) : null}
                 <span className="text-xs text-fg/45">
                   {!activeFollowUp ? (
                     'the next question is on its way'
@@ -1559,6 +1667,7 @@ function IntakeWorkspace({
                 disabled={
                   busy ||
                   pendingFollowUp !== null ||
+                  pendingQuestionRefresh !== null ||
                   !activeFollowUp ||
                   followUpConflict ||
                   answer.trim().length < minLength
