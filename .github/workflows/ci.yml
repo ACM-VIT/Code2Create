@@ -2,7 +2,6 @@ name: Product checks
 
 on:
   pull_request:
-  push:
     branches:
       - main
       - staging
@@ -63,4 +62,9 @@ jobs:
           EXPO_PUBLIC_CONVEX_URL: https://ci-placeholder.convex.cloud
           EXPO_PUBLIC_DEPLOYMENT_ENVIRONMENT: development
           EXPO_PUBLIC_EVENT_SLUG: code2create-7
+          EXPO_PUBLIC_POSTHOG_HOST: https://eu.i.posthog.com
+          EXPO_PUBLIC_POSTHOG_PROJECT_TOKEN: phc_CIPlaceholder
           EXPO_PUBLIC_RELEASE_ID: ci
+          POSTHOG_CLI_API_KEY: phx_CIPlaceholder
+          POSTHOG_CLI_HOST: https://eu.posthog.com
+          POSTHOG_CLI_PROJECT_ID: "1"

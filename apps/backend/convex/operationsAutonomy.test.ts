@@ -54,6 +54,89 @@ afterAll(() => {
 });
 
 describe("operations autonomy durable boundaries", () => {
+  test("applications-open events can start and authorize autonomy work", async () => {
+    const backend = seededBackend();
+    const fixture = await seedRun(backend);
+    const operator = backend.withIdentity({
+      subject: fixture.authUserId,
+      sessionId: fixture.authSessionId,
+    });
+    await backend.run((ctx) => ctx.db.patch(fixture.eventId, {
+      status: "registration_open",
+      applicationsCloseAt: fixture.now + 86_400_000,
+    }));
+
+    await expect(operator.query(api.operationsAutonomy.status, {
+      eventSlug: fixture.slug,
+    })).resolves.toMatchObject({
+      eventStatus: "registration_open",
+      available: true,
+      canStart: true,
+    });
+    const schedulerId = await backend.run(async (ctx) => {
+      const scheduler = await ctx.db
+        .query("operationsAutonomyStates")
+        .withIndex("by_policy", (index) => index.eq("policyVersionId", fixture.policyId))
+        .unique();
+      if (!scheduler) throw new Error("The autonomy fixture scheduler is missing.");
+      return scheduler._id;
+    });
+    await expect(backend.mutation(
+      internal.operationsAutonomyScheduler.enqueueDueSchedules,
+      { stateId: schedulerId, now: fixture.now },
+    )).resolves.toMatchObject({ enqueued: 1 });
+    await expect(backend.mutation(
+      internal.operationsAutonomyOperations.authorizeWork,
+      {
+        request: workRequest(fixture, "applications-open-work", { kind: "model" }),
+        now: fixture.now,
+      },
+    )).resolves.toMatchObject({ state: "accepted" });
+    await backend.run(async (ctx) => {
+      await ctx.db.patch(fixture.runId, {
+        lifecycle: { kind: "succeeded", completedAt: fixture.now + 1 },
+      });
+      const supervision = await ctx.db
+        .query("operationsAutonomyRunSupervision")
+        .withIndex("by_run", (index) => index.eq("runId", fixture.runId))
+        .unique();
+      if (!supervision) throw new Error("The autonomy fixture supervision is missing.");
+      await ctx.db.patch(supervision._id, { lifecycle: { kind: "terminal" } });
+    });
+    await expect(operator.mutation(api.operationsAutonomy.startManual, {
+      eventSlug: fixture.slug,
+      clientOperationId: "applications-open-manual-run",
+    })).resolves.toMatchObject({ state: "started" });
+  });
+
+  test("registration status alone cannot extend autonomy past the application deadline", async () => {
+    const backend = seededBackend();
+    const fixture = await seedRun(backend);
+    const operator = backend.withIdentity({
+      subject: fixture.authUserId,
+      sessionId: fixture.authSessionId,
+    });
+    await backend.run((ctx) => ctx.db.patch(fixture.eventId, {
+      status: "registration_open",
+      applicationsCloseAt: fixture.now - 1,
+    }));
+
+    await expect(operator.query(api.operationsAutonomy.status, {
+      eventSlug: fixture.slug,
+    })).resolves.toMatchObject({
+      eventStatus: "registration_open",
+      available: false,
+      canStart: false,
+    });
+    await expect(backend.mutation(
+      internal.operationsAutonomyOperations.authorizeWork,
+      {
+        request: workRequest(fixture, "applications-closed-work", { kind: "model" }),
+        now: fixture.now,
+      },
+    )).resolves.toEqual({ state: "rejected", code: "authority_revoked" });
+  });
+
   test("a lost work response replays byte-for-byte after later work", async () => {
     const backend = seededBackend();
     const fixture = await seedRun(backend);

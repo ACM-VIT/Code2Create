@@ -1,6 +1,7 @@
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import { operationsAutonomyAvailable } from "./operationsAutonomyAvailability";
 import { requireValidAutonomyOwner } from "./operationsAutonomyPolicy";
 import { operationsAutonomyLeaseDurationMs } from "./operationsAutonomyLedger";
 
@@ -91,7 +92,7 @@ export async function activateOperationsAutonomyRun(
   if (active.length === 1) return false;
   if (
     !event ||
-    event.status !== "live" ||
+    !operationsAutonomyAvailable(event, now) ||
     !policy ||
     policy.status !== "published" ||
     !policy.enabled ||

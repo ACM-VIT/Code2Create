@@ -2,6 +2,7 @@ import { v } from "convex/values";
 
 import { internal } from "./_generated/api";
 import { internalMutation, internalQuery } from "./_generated/server";
+import { operationsAutonomyAvailable } from "./lib/operationsAutonomyAvailability";
 import { cancelAutonomyRun } from "./lib/operationsAutonomyCancellation";
 import { enqueueOperationsAutonomySchedule } from "./lib/operationsAutonomyInbox";
 import { operationsAutonomyLeaseDurationMs } from "./lib/operationsAutonomyLedger";
@@ -47,7 +48,10 @@ export const enqueueDueSchedules = internalMutation({
         .withIndex("by_event", (index) => index.eq("eventId", state.eventId))
         .unique(),
     ]);
-    if (!event || event.status !== "live" || !policy || !policy.enabled || !source) {
+    if (
+      !event || !operationsAutonomyAvailable(event, args.now) ||
+      !policy || !policy.enabled || !source
+    ) {
       await ctx.db.patch(state._id, {
         lastEvaluatedAt: args.now,
         nextEvaluationAt: args.now + retryDelayMs,
@@ -146,7 +150,7 @@ export const materializeInbox = internalMutation({
       .unique();
     if (!state || state.lifecycle.kind !== "active") return null;
     const event = await ctx.db.get(inbox.eventId);
-    if (!event || event.status !== "live") {
+    if (!event || !operationsAutonomyAvailable(event, args.now)) {
       const run = await materializeOperationsAutonomyInboxRun(ctx, inbox, args.now);
       if (!run) return null;
       const claimedInbox = await ctx.db.get(inbox._id);
@@ -191,7 +195,7 @@ export const materializeInbox = internalMutation({
     const activated = await activateOperationsAutonomyRun(ctx, run, args.now);
     if (!activated) {
       const currentEvent = await ctx.db.get(inbox.eventId);
-      if (!currentEvent || currentEvent.status !== "live") {
+      if (!currentEvent || !operationsAutonomyAvailable(currentEvent, args.now)) {
         const currentState = await ctx.db.get(state._id);
         const currentInbox = await ctx.db.get(inbox._id);
         if (!currentState || !currentInbox) throw new Error("The autonomy queue owner disappeared.");

@@ -126,8 +126,10 @@ export function IntelligenceActivity({ canGenerate }: { canGenerate: boolean }) 
           </div>
         </div>
         {startError === undefined ? null : <p className="notice error" role="alert">{startError}</p>}
-        {autonomy.eventStatus !== 'live' ? (
-          <p className="notice">Autonomy is unavailable because this event is no longer live.</p>
+        {!autonomy.available ? (
+          <p className="notice">
+            Autonomy is available while applications are open or the event is running.
+          </p>
         ) : !autonomy.policy.enabled || autonomy.scheduler.lifecycle === 'disabled' ? (
           <p className="notice">Autonomy is stopped. Publish an enabled policy before starting a run.</p>
         ) : null}
