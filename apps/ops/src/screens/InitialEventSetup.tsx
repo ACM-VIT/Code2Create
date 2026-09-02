@@ -12,6 +12,7 @@ import { useState, type FormEvent, type ReactNode } from 'react'
 
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { eventScheduleError } from '../lib/eventSchedule'
 import {
   indiaDateTimeToTimestamp,
   optionalIndiaDateTimeToTimestamp,
@@ -72,16 +73,20 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
     const endsAt = indiaDateTimeToTimestamp(endsAtLocal)
     const externalApplicationsCloseAt = indiaDateTimeToTimestamp(externalApplicationsCloseAtLocal)
     const applicationsCloseAt = indiaDateTimeToTimestamp(vitApplicationsCloseAtLocal)
+    const scheduleError = eventScheduleError({
+      startsAt,
+      endsAt,
+      externalApplicationsCloseAt,
+      applicationsCloseAt,
+    })
     if (
+      scheduleError !== null ||
       startsAt === null ||
       endsAt === null ||
       externalApplicationsCloseAt === null ||
-      applicationsCloseAt === null ||
-      endsAt <= startsAt ||
-      externalApplicationsCloseAt > applicationsCloseAt ||
-      applicationsCloseAt > startsAt
+      applicationsCloseAt === null
     ) {
-      setError('Choose a valid application deadline, event start, and event end.')
+      setError(scheduleError ?? 'Enter a valid date and time for every event date.')
       return
     }
     const githubFreezeAt = optionalIndiaDateTimeToTimestamp(githubFreezeAtLocal)
