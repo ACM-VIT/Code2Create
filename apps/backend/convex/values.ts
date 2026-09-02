@@ -325,6 +325,7 @@ export type TeamStatus = Infer<typeof teamStatus>;
 export const projectDraftStage = v.union(
   v.literal("opening"),
   v.literal("follow_up"),
+  v.literal("additional_information"),
   v.literal("review"),
   v.literal("submitted"),
 );

@@ -10,7 +10,7 @@ type SaveRecord = {
 }
 
 export function useDebouncedAutosave<Result>({
-  delayMs = 850,
+  delayMs = 350,
   enabled,
   initialSavedValue,
   onError,
@@ -159,7 +159,7 @@ export function useDebouncedAutosave<Result>({
 
 function autosaveDelayJitter(value: string) {
   let hash = 0
-  for (const character of value) hash = (hash * 31 + character.charCodeAt(0)) % 201
+  for (const character of value) hash = (hash * 31 + character.charCodeAt(0)) % 76
   return hash
 }
 

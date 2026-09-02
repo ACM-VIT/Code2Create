@@ -6,6 +6,7 @@ import { useMutation, useQuery } from 'convex/react'
 import { useEffect, useRef, useState } from 'react'
 import { eventSlug } from '../../lib/config'
 import { readableError } from '../../lib/errors'
+import { ShimmerText } from '../portal/ShimmerText'
 import { useMutationAttempt } from '../../lib/operations'
 import { BringTeamTool, GuideComposer } from './GuideComposer'
 import { LoadingLine } from './GuideLoader'
@@ -123,8 +124,8 @@ export function GuideConversation() {
   }
   if (conversation === null) {
     return (
-      <div className="flex h-full w-full max-w-[760px] items-center justify-center">
-        <LoadingLine label="Getting your Guide ready" />
+      <div role="status" className="flex h-full w-full max-w-[760px] items-center justify-center">
+        <ShimmerText className="text-[15px] text-fg/70">Getting your Guide ready</ShimmerText>
       </div>
     )
   }

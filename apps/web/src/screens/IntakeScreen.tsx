@@ -130,6 +130,7 @@ export function IntakeScreen({
   members,
   teamEditable,
   serverNow,
+  submissionInProgress,
   submissionFailureMessage,
   onSignOut,
 }: {
@@ -137,6 +138,7 @@ export function IntakeScreen({
   members: CurrentTeamMember[]
   teamEditable: boolean
   serverNow: number
+  submissionInProgress: boolean
   submissionFailureMessage?: string
   onSignOut: () => void
 }) {
@@ -161,6 +163,7 @@ export function IntakeScreen({
       members={members}
       teamEditable={teamEditable}
       serverNow={serverNow}
+      submissionInProgress={submissionInProgress}
       onSignOut={onSignOut}
       {...(submissionFailureMessage === undefined ? {} : { submissionFailureMessage })}
     />
@@ -325,6 +328,7 @@ function IntakeWorkspace({
   members,
   teamEditable,
   serverNow,
+  submissionInProgress,
   submissionFailureMessage,
   onSignOut,
 }: {
@@ -333,6 +337,7 @@ function IntakeWorkspace({
   members: CurrentTeamMember[]
   teamEditable: boolean
   serverNow: number
+  submissionInProgress: boolean
   submissionFailureMessage?: string
   onSignOut: () => void
 }) {
@@ -396,7 +401,7 @@ function IntakeWorkspace({
   // The mockup splits the old single review screen into reading the proposal
   // (f5) and confirming the lock (f6).
   const [confirming, setConfirming] = useState(false)
-  const [collapsedSections, setCollapsedSections] = useState<readonly string[]>([])
+  const [openSections, setOpenSections] = useState<readonly string[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const commandInFlight = useRef(false)
@@ -787,7 +792,7 @@ function IntakeWorkspace({
     ? undefined
     : draft?.followUps.find((followUp) => followUp.id === reviewAnswerEdit.questionId)
   const { retry: retryRevisionAutosave, state: revisionAutosaveState } = useDebouncedAutosave({
-    delayMs: 1_000,
+    delayMs: 400,
     enabled:
       applicationsOpen &&
       draft?.stage === 'review' &&
@@ -921,16 +926,22 @@ function IntakeWorkspace({
 
   const submitAdditionalInformation = (event: FormEvent) => {
     event.preventDefault()
-    if (!preview || additionalInformationEdit === null) return
+    const completingStep = draft?.stage === 'additional_information'
+    if (!completingStep && (!preview || additionalInformationEdit === null)) return
+    const value = additionalInformationEdit?.value ?? draft?.additionalInformation ?? ''
+    const baseValue = additionalInformationEdit?.baseValue ?? draft?.additionalInformation ?? ''
+    const expectedDraftVersion = additionalInformationEdit?.baseDraftVersion
+      ?? draft?.version
+    if (expectedDraftVersion === undefined) return
     void run(async () => {
       try {
         await operations.run(
           'additional-information',
           (clientOperationId) => () => saveAdditionalInformation({
             eventSlug,
-            value: additionalInformationEdit.value,
-            baseValue: additionalInformationEdit.baseValue,
-            expectedDraftVersion: additionalInformationEdit.baseDraftVersion,
+            value,
+            baseValue,
+            expectedDraftVersion,
             clientOperationId,
           }),
         )
@@ -1340,6 +1351,84 @@ function IntakeWorkspace({
     )
   }
 
+  // ---- f4.5 · optional supporting details ---------------------------------
+  if (draft.stage === 'additional_information') {
+    const value = additionalInformationEdit?.value ?? draft.additionalInformation ?? ''
+    return (
+      <IntakeStage
+        team={team}
+        members={members}
+        teamEditable={teamEditable}
+        onSignOut={onSignOut}
+        title="Anything else you want us to see?"
+        hint="This is optional. Add a useful link or extra context, or skip this step. Please do not upload a PPT."
+        presence={<EditingPresence editors={editors ?? []} members={members} />}
+      >
+        <PetalCard className="px-6 pt-[26px] pb-[18px] lg:px-[30px]">
+          <form onSubmit={submitAdditionalInformation}>
+            {additionalInformationEdit?.conflict ? (
+              <ConflictNotice
+                cloudValue={draft.additionalInformation ?? ''}
+                message={`${draftEditorLabel} saved newer additional information. Your text is still here.`}
+                onUseSaved={() => {
+                  setAdditionalInformationEdit(null)
+                  setError(null)
+                }}
+                onKeepMine={() => {
+                  setAdditionalInformationEdit((current) => current
+                    ? {
+                        ...current,
+                        baseValue: draft.additionalInformation ?? '',
+                        baseDraftVersion: draft.version,
+                        conflict: false,
+                      }
+                    : null)
+                  setError(null)
+                }}
+              />
+            ) : null}
+            <PortalLabel>{additionalInformationLabel}</PortalLabel>
+            <PortalTextarea
+              aria-label={additionalInformationLabel}
+              autoFocus
+              rows={6}
+              maxLength={draft.additionalInformationMaxLength}
+              disabled={busy}
+              value={value}
+              placeholder="Share a website, repository, document, demo link, or anything else useful."
+              onChange={(event) => {
+                const nextValue = event.currentTarget.value
+                setAdditionalInformationEdit((current) => current
+                  ? { ...current, value: nextValue }
+                  : {
+                      value: nextValue,
+                      baseValue: draft.additionalInformation ?? '',
+                      baseDraftVersion: draft.version,
+                      conflict: false,
+                    })
+                setError(null)
+                markEditing('proposal_revision')
+              }}
+            />
+            <PortalError message={error} />
+            <div className="mt-3 flex items-center justify-between gap-4 border-t border-petal-line pt-3.5">
+              <span className="font-mono text-[11px] tracking-[.04em] text-fg/45">
+                {value.length} / {draft.additionalInformationMaxLength}
+              </span>
+              <PortalButton
+                type="submit"
+                size="sm"
+                disabled={busy || additionalInformationPending || additionalInformationEdit?.conflict}
+              >
+                {busy ? 'Saving…' : value.trim() ? 'Save and continue' : 'Skip'}
+              </PortalButton>
+            </div>
+          </form>
+        </PetalCard>
+      </IntakeStage>
+    )
+  }
+
   // ---- f5 / f6 · review, then confirm --------------------------------------
   if (draft.stage === 'review') {
     if (preview === undefined || preview === null) {
@@ -1355,6 +1444,7 @@ function IntakeWorkspace({
       )
     }
     const canSubmit =
+      !submissionInProgress &&
       preview.blockers.length === 0 &&
       preview.freshnessAttested &&
       team.currentRole === 'lead' &&
@@ -1369,7 +1459,7 @@ function IntakeWorkspace({
     }
 
     // f6 · confirm
-    if (confirming) {
+    if (confirming || submissionInProgress) {
       return (
         <IntakeStage
           team={team}
@@ -1391,13 +1481,15 @@ function IntakeWorkspace({
                   {savedNoveltyScore !== null ? ` · novelty ${savedNoveltyScore}/100` : ''}
                 </span>
               </p>
-              <button
-                type="button"
-                onClick={() => setConfirming(false)}
-                className="flex-none text-xs text-fg/55 transition-colors hover:text-rose-light"
-              >
-                review idea
-              </button>
+              {!submissionInProgress ? (
+                <button
+                  type="button"
+                  onClick={() => setConfirming(false)}
+                  className="flex-none text-xs text-fg/55 transition-colors hover:text-rose-light"
+                >
+                  review idea
+                </button>
+              ) : null}
             </div>
 
             <div className="mt-4 flex gap-2 border-t border-petal-line pt-4">
@@ -1442,7 +1534,7 @@ function IntakeWorkspace({
 
             <PortalCheckRow
               checked={preview.freshnessAttested}
-              disabled={busy}
+              disabled={busy || submissionInProgress}
               onChange={(accepted) => {
                 void run(async () => {
                   try {
@@ -1495,15 +1587,26 @@ function IntakeWorkspace({
             <PortalError message={error ?? submissionFailureMessage ?? null} />
 
             <div className="mt-4 flex items-center justify-between border-t border-petal-line pt-3.5">
-              <PortalTextButton type="button" disabled={busy} onClick={() => setConfirming(false)}>
-                back
-              </PortalTextButton>
+              {submissionInProgress ? (
+                <p role="status" className="m-0 flex items-center gap-2 text-[12px] text-fg/55">
+                  <span
+                    aria-hidden
+                    className="size-1.5 animate-dot-pulse rounded-full bg-rose-light"
+                  />
+                  Confirming your team and answers
+                </p>
+              ) : (
+                <PortalTextButton type="button" disabled={busy} onClick={() => setConfirming(false)}>
+                  back
+                </PortalTextButton>
+              )}
               <PortalButton
                 type="button"
                 size="sm"
                 variant="solid"
-                disabled={busy || !canSubmit}
+                disabled={busy || submissionInProgress || !canSubmit}
                 onClick={() => {
+                  if (submissionInProgress) return
                   void run(async () => {
                     markSubmissionCelebration()
                     try {
@@ -1531,7 +1634,7 @@ function IntakeWorkspace({
                   })
                 }}
               >
-                {busy ? 'Submitting…' : 'Submit'}
+                {busy || submissionInProgress ? 'Submitting…' : 'Submit'}
               </PortalButton>
             </div>
           </PetalCard>
@@ -1541,10 +1644,8 @@ function IntakeWorkspace({
 
     // f5 · the proposal, together
     const ideaSectionId = 'idea'
-    const sectionIds = [ideaSectionId, ...preview.followUps.map((followUp) => followUp.id)]
-    const openSections = sectionIds.filter((id) => !collapsedSections.includes(id))
     const revealSection = (id: string) =>
-      setCollapsedSections((collapsed) => collapsed.filter((value) => value !== id))
+      setOpenSections((open) => (open.includes(id) ? open : [...open, id]))
 
     return (
       <PortalScene
@@ -1582,9 +1683,7 @@ function IntakeWorkspace({
             <AccordionRoot
               allowMultiple
               value={openSections}
-              onValueChange={(next) =>
-                setCollapsedSections(sectionIds.filter((id) => !next.includes(id)))
-              }
+              onValueChange={setOpenSections}
             >
             <AccordionItem value={ideaSectionId}>
               <AccordionItemTrigger>
@@ -1767,7 +1866,7 @@ function IntakeWorkspace({
 
             <div className="border-t border-petal-line py-5">
               <PortalLabel>{additionalInformationLabel}</PortalLabel>
-              {additionalInformationEdit !== null || preview.additionalInformation === undefined ? (
+              {additionalInformationEdit !== null ? (
                 <form onSubmit={submitAdditionalInformation}>
                   {additionalInformationEdit?.conflict ? (
                     <ConflictNotice
@@ -1796,10 +1895,7 @@ function IntakeWorkspace({
                   ) : null}
                   <PortalTextarea
                     aria-label={additionalInformationLabel}
-                    autoFocus={
-                      additionalInformationEdit !== null &&
-                      preview.additionalInformation !== undefined
-                    }
+                    autoFocus
                     rows={5}
                     maxLength={preview.additionalInformationMaxLength}
                     disabled={busy}
@@ -1824,15 +1920,13 @@ function IntakeWorkspace({
                       {preview.additionalInformationMaxLength}
                     </span>
                     <div className="flex items-center gap-4">
-                      {preview.additionalInformation !== undefined ? (
-                        <PortalTextButton
-                          type="button"
-                          disabled={busy}
-                          onClick={() => setAdditionalInformationEdit(null)}
-                        >
-                          cancel
-                        </PortalTextButton>
-                      ) : null}
+                      <PortalTextButton
+                        type="button"
+                        disabled={busy}
+                        onClick={() => setAdditionalInformationEdit(null)}
+                      >
+                        cancel
+                      </PortalTextButton>
                       <PortalButton
                         type="submit"
                         size="sm"
@@ -1851,9 +1945,13 @@ function IntakeWorkspace({
                 </form>
               ) : (
                 <div>
-                  <p className="whitespace-pre-line text-[15px] leading-relaxed wrap-anywhere text-fg">
-                    {preview.additionalInformation}
-                  </p>
+                  {preview.additionalInformation ? (
+                    <p className="whitespace-pre-line text-[15px] leading-relaxed wrap-anywhere text-fg">
+                      {preview.additionalInformation}
+                    </p>
+                  ) : (
+                    <p className="text-[15px] text-fg/45">Nothing added.</p>
+                  )}
                   <ReviewEditRow
                     busy={busy}
                     onEdit={() => {
@@ -1896,7 +1994,7 @@ function IntakeWorkspace({
 
 /** One labelled, separately-editable block of the review card (mockup f5). */
 /** The quiet "edit" at the foot of a review panel. */
-function ReviewEditRow({ onEdit, busy }: { onEdit: () => void; busy: boolean }) {
+export function ReviewEditRow({ onEdit, busy }: { onEdit: () => void; busy: boolean }) {
   return (
     <div className="mt-3 flex justify-end">
       <button
@@ -1934,31 +2032,15 @@ function NoveltyExplainer() {
         notice that early and try an approach that fewer teams are using. When
         teams work on different ideas, Code2Create is more fun for everyone.
       </p>
-      <p className="mt-3 mb-0 text-xs leading-relaxed text-fg/55">
-        The score updates while you type. The latest score is saved with your
-        idea. It cannot block your submission. Reviewers see your written idea.
-        They do not see this score.
-      </p>
     </div>
   )
 }
 
-/**
- * The live idea-comparison score shown above the idea card. Reads as "N / 100"
- * once the idea is long enough to score. Its help button opens the explainer
- * below the pill on desktop and in a bottom sheet on phones. Omit
- * `currentLength` where nobody is typing (review).
- */
-/**
- * The "?" beside every novelty read: a popover on desktop, a bottom sheet on
- * phones, both carrying the same explainer.
- */
 function NoveltyHelp({
   align = 'center',
   placement = 'below',
 }: {
   align?: 'start' | 'center' | 'end'
-  /** Where the panel opens relative to the ?; footer pills open above. */
   placement?: 'above' | 'below'
 }) {
   const [explaining, setExplaining] = useState(false)
@@ -2011,7 +2093,7 @@ function NoveltyHelp({
       <Drawer.Root open={explaining && !desktop} onOpenChange={setExplaining}>
         <Drawer.Portal>
           <Drawer.Overlay className="fixed inset-0 z-40 bg-[rgb(6_0_2/.5)]" />
-          <Drawer.Content className="fixed inset-x-0 bottom-0 z-50 rounded-t-petal border-t border-petal-edge bg-wash outline-none">
+          <Drawer.Content className="fixed inset-x-0 bottom-0 z-50 rounded-tl-box border-t border-petal-edge bg-wash outline-none">
             <div className="mx-auto mt-3 h-1 w-10 rounded-full bg-rose/40" aria-hidden />
             <div className="px-7 pt-5 pb-[calc(28px+env(safe-area-inset-bottom))]">
               <Drawer.Title className="mb-2.5 text-[11px] font-semibold tracking-[.08em] text-rose-light/80">
@@ -2029,10 +2111,6 @@ function NoveltyHelp({
   )
 }
 
-/**
- * The saved score woven into the review card: the number, its plain-speak
- * band, and a thin meter — the ? beside it holds the explanation.
- */
 export function NoveltyReviewRow({
   score,
   band,

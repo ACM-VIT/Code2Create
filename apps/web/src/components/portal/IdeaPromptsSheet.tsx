@@ -29,7 +29,7 @@ export function IdeaPromptsLink({ className = '' }: { className?: string }) {
             className={
               desktop
                 ? 'fixed inset-y-0 right-0 z-50 flex w-[460px] max-w-[92vw] flex-col border-l border-petal-edge bg-wash font-ui text-fg outline-none'
-                : 'fixed inset-x-0 bottom-0 z-50 flex max-h-[88dvh] flex-col rounded-t-petal border-t border-petal-edge bg-wash font-ui text-fg outline-none'
+                : 'fixed inset-x-0 bottom-0 z-50 flex max-h-[88dvh] flex-col rounded-tl-box border-t border-petal-edge bg-wash font-ui text-fg outline-none'
             }
           >
             {desktop ? null : (

@@ -21,9 +21,16 @@ import { PetalCard } from '../components/portal/PetalCard'
 import { TeamCluster } from '../components/portal/TeamCluster'
 import { TeamMenu } from '../components/portal/TeamMenu'
 import { PortalButton, PortalTextButton } from '../components/portal/PortalButton'
-import { PortalError, PortalField, PortalTextarea } from '../components/portal/PortalField'
+import { PortalError, PortalTextarea } from '../components/portal/PortalField'
 import { normalizedIdeaLength, useNoveltyPreview } from '../hooks/useNoveltyPreview'
-import { NoveltyPill } from './IntakeScreen'
+import { NoveltyPill, ReviewEditRow } from './IntakeScreen'
+import {
+  AccordionItem,
+  AccordionItemContent,
+  AccordionItemHeader,
+  AccordionItemTrigger,
+  AccordionRoot,
+} from '../components/portal/Accordion'
 import { Flower } from '../components/portal/FlowerAvatar'
 import { SubmitCelebration } from '../components/portal/SubmitCelebration'
 import { consumeSubmissionCelebration } from '../lib/submissionCelebration'
@@ -308,7 +315,7 @@ function SubmittedWorkspace({
             </button>
           </p>
           <div className="w-full text-left">
-            <PetalCard className="px-5 py-5 sm:px-7 sm:py-6">
+            <PetalCard className="px-6 py-2 sm:px-8">
               <ProposalSummary
                 application={application}
                 canEdit={canEditProposal}
@@ -914,7 +921,7 @@ function ProposalSummary({
   const [recoveredDraft] = useState(() => readVersionedSessionDraft(proposalStorageKey))
   const currentEditBase = proposalRevisionBase(application, intake.project)
   const [editing, setEditing] = useState(false)
-  const [expanded, setExpanded] = useState(false)
+  const [openSections, setOpenSections] = useState<readonly string[]>([])
   const [draft, setDraft] = useState(() => (
     recoveredDraft === null
       ? proposalDraft(intake)
@@ -928,11 +935,12 @@ function ProposalSummary({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const { editors, markEditing, stopEditing } = useEditingPresence(canEdit && editing)
-  // The live comparison from the writing screen, back for the revision.
+  // Keep the live comparison visible for the whole proposal view so it does
+  // not disappear when a different section is being edited.
   const noveltyState = useNoveltyPreview({
     idea: draft.initialIdea,
     ideaLength: normalizedIdeaLength(draft.initialIdea),
-    active: canEdit && editing,
+    active: intake.novelty !== null,
     config: intake.novelty,
     saved: { idea: undefined, score: null, band: null },
   })
@@ -999,244 +1007,231 @@ function ProposalSummary({
   const hasLocalChanges =
     serializeProposalDraft(draft) !== serializeProposalDraft(proposalDraft(intake))
 
-  const toggleEditing = () => {
-    if (editing) {
-      setDraft(proposalDraft(intake))
-      clearSessionDraft(proposalStorageKey)
-      setHasRecoveredDraft(false)
-      setEditConflict(false)
-      stopEditing()
-    } else {
-      editBase.current = proposalRevisionBase(application, intake.project)
-      if (!hasRecoveredDraft) setDraft(proposalDraft(intake))
-      setExpanded(true)
-    }
-    setEditing(!editing)
+  const locked = busy || pending
+  const ideaSectionId = 'idea'
+  const additionalSectionId = 'additional-information'
+
+  const beginEditing = (sectionId: string) => {
+    editBase.current = proposalRevisionBase(application, intake.project)
+    if (!hasRecoveredDraft) setDraft(proposalDraft(intake))
+    setEditing(true)
+    setError(null)
+    setOpenSections((current) => (current.includes(sectionId) ? current : [...current, sectionId]))
+  }
+
+  const cancelEditing = () => {
+    setDraft(proposalDraft(intake))
+    clearSessionDraft(proposalStorageKey)
+    setHasRecoveredDraft(false)
+    setEditConflict(false)
+    stopEditing()
+    setEditing(false)
     setError(null)
   }
 
+  const rememberDraft = (nextDraft: ProposalDraft) => {
+    writeVersionedSessionDraft(proposalStorageKey, {
+      base: proposalRevisionBaseFingerprint(editBase.current),
+      value: serializeProposalDraft(nextDraft),
+    })
+  }
+
+  const sectionTitle = (title: string) => (
+    <AccordionItemTrigger>
+      <AccordionItemHeader>
+        <span className="text-[15px] font-semibold text-fg/85">{title}</span>
+      </AccordionItemHeader>
+    </AccordionItemTrigger>
+  )
+  const contentClass = 'text-[15px] leading-relaxed wrap-anywhere text-fg'
+
+  // The submitted proposal reads and edits in the same accordion as the
+  // review before submission: every section closed until opened, an edit
+  // row under each answer, and one versioned save for the whole revision.
   return (
     <section className="text-left">
       <EditingPresence editors={editors ?? []} members={members} />
-      {editing && canEdit ? (
-        <form onSubmit={save}>
-          {hasRecoveredDraft ? (
-            <p
-              role="status"
-              className="mb-5 rounded-petal-xs border border-petal-edge-soft bg-wash/50 px-4 py-3 text-[12.5px] text-fg/75"
-            >
-              Recovered your unsaved changes from this tab.
+      <form onSubmit={save}>
+        {editing && hasRecoveredDraft ? (
+          <p role="status" className="my-3 rounded-petal-xs bg-wash/50 px-4 py-3 text-[12.5px] text-fg/75">
+            Recovered your unsaved changes from this tab.
+          </p>
+        ) : null}
+        {editing && editConflict ? (
+          <div role="status" className="my-3 rounded-petal-xs bg-wash/50 px-4 py-3">
+            <p className="text-[12.5px] text-fg/75">
+              A newer submission was saved. Your changes are still here.
             </p>
-          ) : null}
-          {editConflict ? (
-            <div
-              role="status"
-              className="mb-5 rounded-petal-xs border border-petal-edge-soft bg-wash/50 px-4 py-3"
-            >
-              <p className="text-[12.5px] text-fg/75">
-                A newer submission was saved. Your changes are still here.
+            <div className="mt-2 flex gap-5">
+              <PortalTextButton type="button" onClick={() => {
+                setDraft(proposalDraft(intake))
+                editBase.current = proposalRevisionBase(application, intake.project)
+                setEditConflict(false)
+                setHasRecoveredDraft(false)
+                clearSessionDraft(proposalStorageKey)
+              }}>
+                use the saved version
+              </PortalTextButton>
+              <PortalTextButton type="button" onClick={() => {
+                editBase.current = proposalRevisionBase(application, intake.project)
+                setEditConflict(false)
+                rememberDraft(draft)
+              }}>
+                keep mine
+              </PortalTextButton>
+            </div>
+          </div>
+        ) : null}
+
+        {intake.novelty ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-petal-line py-4">
+            <div>
+              <p className="text-[15px] font-semibold text-fg/85">Idea comparison</p>
+              <p className="mt-0.5 text-[11.5px] text-fg/45">
+                Updates while you edit your idea
               </p>
-              <div className="mt-2 flex gap-5">
-                <PortalTextButton type="button" onClick={() => {
-                  setDraft(proposalDraft(intake))
-                  editBase.current = proposalRevisionBase(application, intake.project)
-                  setEditConflict(false)
-                  setHasRecoveredDraft(false)
-                  clearSessionDraft(proposalStorageKey)
-                }}>
-                  use the saved version
-                </PortalTextButton>
-                <PortalTextButton type="button" onClick={() => {
-                  editBase.current = proposalRevisionBase(application, intake.project)
-                  setEditConflict(false)
-                  writeVersionedSessionDraft(proposalStorageKey, {
-                    base: proposalRevisionBaseFingerprint(editBase.current),
-                    value: serializeProposalDraft(draft),
-                  })
-                }}>
-                  keep mine
-                </PortalTextButton>
-              </div>
             </div>
-          ) : null}
-          <PortalField label="What do you want to build?" className="mb-5">
-            {(id) => (
-              <PortalTextarea
-                id={id}
-                autoFocus
-                required
-                rows={5}
-                minLength={intake.editRules.initialIdeaMinLength}
-                maxLength={intake.editRules.initialIdeaMaxLength}
-                value={draft.initialIdea}
-                disabled={busy || pending}
-                onChange={(event) => {
-                  const value = event.currentTarget.value
-                  setDraft((current) => ({
-                    ...current,
-                    initialIdea: value,
-                  }))
-                  const nextDraft = { ...draft, initialIdea: value }
-                  writeVersionedSessionDraft(proposalStorageKey, {
-                    base: proposalRevisionBaseFingerprint(editBase.current),
-                    value: serializeProposalDraft(nextDraft),
-                  })
-                  markEditing('proposal_revision')
-                }}
-              />
-            )}
-          </PortalField>
-          {intake.novelty ? (
-            <div className="-mt-2 mb-5 flex justify-end">
-              <NoveltyPill
-                state={noveltyState}
-                currentLength={normalizedIdeaLength(draft.initialIdea)}
-                minimumLength={intake.novelty.minimumIdeaLength}
-              />
-            </div>
-          ) : null}
+            <NoveltyPill
+              state={noveltyState}
+              currentLength={normalizedIdeaLength(draft.initialIdea)}
+              minimumLength={intake.novelty.minimumIdeaLength}
+            />
+          </div>
+        ) : null}
+
+        <AccordionRoot allowMultiple value={openSections} onValueChange={setOpenSections}>
+          <AccordionItem value={ideaSectionId}>
+            {sectionTitle('The idea')}
+            <AccordionItemContent className={contentClass}>
+              {editing ? (
+                <>
+                  <PortalTextarea
+                    aria-label="The idea"
+                    autoFocus
+                    required
+                    rows={5}
+                    minLength={intake.editRules.initialIdeaMinLength}
+                    maxLength={intake.editRules.initialIdeaMaxLength}
+                    value={draft.initialIdea}
+                    disabled={locked}
+                    onChange={(event) => {
+                      const nextDraft = { ...draft, initialIdea: event.currentTarget.value }
+                      setDraft(nextDraft)
+                      rememberDraft(nextDraft)
+                      markEditing('proposal_revision')
+                    }}
+                  />
+                </>
+              ) : (
+                <>
+                  <p className="whitespace-pre-line">{intake.project.initialIdea}</p>
+                  {canEdit ? <ReviewEditRow busy={locked} onEdit={() => beginEditing(ideaSectionId)} /> : null}
+                </>
+              )}
+            </AccordionItemContent>
+          </AccordionItem>
+
           {intake.project.intakeResponses.map((response, index) => (
-            <PortalField key={response.questionId} label={response.question} className="mb-5">
-              {(id) => (
+            <AccordionItem key={response.questionId} value={response.questionId}>
+              {sectionTitle(response.question)}
+              <AccordionItemContent className={contentClass}>
+                {editing ? (
+                  <PortalTextarea
+                    aria-label={response.question}
+                    required
+                    rows={4}
+                    minLength={intake.editRules.followUpAnswerMinLength}
+                    maxLength={intake.editRules.followUpAnswerMaxLength}
+                    value={draft.responses[index]?.answer ?? ''}
+                    disabled={locked}
+                    onChange={(event) => {
+                      const value = event.currentTarget.value
+                      const nextDraft = {
+                        ...draft,
+                        responses: draft.responses.map((item, itemIndex) => (
+                          itemIndex === index ? { ...item, answer: value } : item
+                        )),
+                      }
+                      setDraft(nextDraft)
+                      rememberDraft(nextDraft)
+                      markEditing('proposal_revision', response.questionId)
+                    }}
+                  />
+                ) : (
+                  <>
+                    <p className="whitespace-pre-line">{response.answer}</p>
+                    {canEdit ? (
+                      <ReviewEditRow busy={locked} onEdit={() => beginEditing(response.questionId)} />
+                    ) : null}
+                  </>
+                )}
+              </AccordionItemContent>
+            </AccordionItem>
+          ))}
+
+          <AccordionItem value={additionalSectionId}>
+            {sectionTitle(additionalInformationLabel)}
+            <AccordionItemContent className={contentClass}>
+              {editing ? (
                 <PortalTextarea
-                  id={id}
-                  required
-                  rows={3}
-                  minLength={intake.editRules.followUpAnswerMinLength}
-                  maxLength={intake.editRules.followUpAnswerMaxLength}
-                  value={draft.responses[index]?.answer ?? ''}
-                  disabled={busy || pending}
+                  aria-label={additionalInformationLabel}
+                  rows={5}
+                  maxLength={intake.editRules.additionalInformationMaxLength}
+                  value={draft.additionalInformation}
+                  disabled={locked}
+                  placeholder="Optional: share some reference website, other documents or anything else useful."
                   onChange={(event) => {
-                    const value = event.currentTarget.value
-                    setDraft((current) => ({
-                      ...current,
-                      responses: current.responses.map((item, itemIndex) => (
-                        itemIndex === index
-                          ? { ...item, answer: value }
-                          : item
-                      )),
-                    }))
-                    const nextDraft = {
-                      ...draft,
-                      responses: draft.responses.map((item, itemIndex) => (
-                        itemIndex === index
-                          ? { ...item, answer: value }
-                          : item
-                      )),
-                    }
-                    writeVersionedSessionDraft(proposalStorageKey, {
-                      base: proposalRevisionBaseFingerprint(editBase.current),
-                      value: serializeProposalDraft(nextDraft),
-                    })
-                    markEditing('proposal_revision', response.questionId)
+                    const nextDraft = { ...draft, additionalInformation: event.currentTarget.value }
+                    setDraft(nextDraft)
+                    rememberDraft(nextDraft)
+                    markEditing('proposal_revision')
                   }}
                 />
+              ) : (
+                <>
+                  {intake.project.additionalInformation ? (
+                    <p className="whitespace-pre-line">{intake.project.additionalInformation}</p>
+                  ) : (
+                    <p className="text-fg/45">Nothing added.</p>
+                  )}
+                  {canEdit ? (
+                    <ReviewEditRow busy={locked} onEdit={() => beginEditing(additionalSectionId)} />
+                  ) : null}
+                </>
               )}
-            </PortalField>
-          ))}
-          <PortalField label={additionalInformationLabel} className="mb-5">
-            {(id) => (
-              <PortalTextarea
-                id={id}
-                rows={5}
-                maxLength={intake.editRules.additionalInformationMaxLength}
-                value={draft.additionalInformation}
-                disabled={busy || pending}
-                    placeholder="Optional: share some reference website, other documents or anything else useful."
-                onChange={(event) => {
-                  const value = event.currentTarget.value
-                  const nextDraft = { ...draft, additionalInformation: value }
-                  setDraft(nextDraft)
-                  writeVersionedSessionDraft(proposalStorageKey, {
-                    base: proposalRevisionBaseFingerprint(editBase.current),
-                    value: serializeProposalDraft(nextDraft),
-                  })
-                  markEditing('proposal_revision')
-                }}
-              />
-            )}
-          </PortalField>
-          <PortalError message={error} />
-          <div className="mt-1 flex items-center gap-4 border-t border-petal-line pt-3.5">
-            <PortalTextButton type="button" disabled={busy || pending} onClick={toggleEditing}>
-              cancel
-            </PortalTextButton>
-            {hasLocalChanges ? (
-              <span className="mr-auto text-[11.5px] text-fg/45">
-                draft saved on this device
-              </span>
-            ) : (
-              <span className="mr-auto" />
-            )}
-            <PortalButton
-              type="submit"
-              size="sm"
-              disabled={
-                busy ||
-                editConflict ||
-                invalidIdea ||
-                invalidResponse ||
-                invalidAdditionalInformation
-              }
-            >
-              {busy ? 'Saving…' : pending ? 'Confirm earlier save' : 'Save submission'}
-            </PortalButton>
-          </div>
-        </form>
-      ) : (
-        <div>
-          <p className="whitespace-pre-line text-[15px] leading-relaxed wrap-anywhere text-fg/90">
-            {intake.project.initialIdea}
-          </p>
-          {intake.project.intakeResponses.length > 0 ? (
-            <button
-              type="button"
-              aria-controls="proposal-responses"
-              aria-expanded={expanded}
-              onClick={() => setExpanded((current) => !current)}
-              className="mt-4 text-[12.5px] text-rose-light underline-offset-4 hover:underline"
-            >
-              {expanded ? 'hide answers' : `view ${intake.project.intakeResponses.length} answers`}
-            </button>
-          ) : null}
-          {expanded ? (
-            <div className="mt-3" id="proposal-responses">
-              {intake.project.intakeResponses.map((response) => (
-                <div key={response.questionId} className="border-t border-petal-line py-4 last:pb-1">
-                  <p className="mb-1.5 text-[11px] tracking-[.06em] text-fg/45">
-                    {response.question}
-                  </p>
-                  <p className="whitespace-pre-line text-sm leading-relaxed wrap-anywhere text-fg/90">
-                    {response.answer}
-                  </p>
-                </div>
-              ))}
-            </div>
-          ) : null}
-          {intake.project.additionalInformation ? (
-            <div className="mt-4 border-t border-petal-line pt-4">
-              <p className="mb-1.5 text-[11px] tracking-[.06em] text-fg/45">
-                {additionalInformationLabel}
-              </p>
-              <p className="whitespace-pre-line text-sm leading-relaxed wrap-anywhere text-fg/90">
-                {intake.project.additionalInformation}
-              </p>
-            </div>
-          ) : null}
-          {canEdit ? (
-            <div className="mt-5 flex justify-end border-t border-petal-line pt-3.5">
-              <button
-                type="button"
-                disabled={busy || pending}
-                onClick={toggleEditing}
-                className="text-[12.5px] text-rose-light underline-offset-4 hover:underline disabled:cursor-not-allowed disabled:opacity-50 motion-safe:disabled:hover:animate-shake"
+            </AccordionItemContent>
+          </AccordionItem>
+        </AccordionRoot>
+
+        {editing ? (
+          <>
+            <PortalError message={error} />
+            <div className="mt-1 flex items-center gap-4 border-t border-petal-line py-3.5">
+              <PortalTextButton type="button" disabled={locked} onClick={cancelEditing}>
+                cancel
+              </PortalTextButton>
+              {hasLocalChanges ? (
+                <span className="mr-auto text-[11.5px] text-fg/45">draft saved on this device</span>
+              ) : (
+                <span className="mr-auto" />
+              )}
+              <PortalButton
+                type="submit"
+                size="sm"
+                disabled={
+                  busy ||
+                  editConflict ||
+                  invalidIdea ||
+                  invalidResponse ||
+                  invalidAdditionalInformation
+                }
               >
-                edit submission
-              </button>
+                {busy ? 'Saving…' : pending ? 'Confirm earlier save' : 'Save submission'}
+              </PortalButton>
             </div>
-          ) : null}
-        </div>
-      )}
+          </>
+        ) : null}
+      </form>
     </section>
   )
 }

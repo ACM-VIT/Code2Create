@@ -1,9 +1,10 @@
 import { api } from '@code2create/backend/api'
 import { useQuery } from 'convex/react'
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { GpuSky } from '../components/portal/GpuSky'
 import { TeamCluster } from '../components/portal/TeamCluster'
+import { JoinCodeBar } from '../components/portal/JoinCodeBar'
 import { TeamMenu } from '../components/portal/TeamMenu'
 import { Petal } from '../components/portal/Petal'
 import { PortalButton } from '../components/portal/PortalButton'
@@ -74,6 +75,7 @@ export function HomeScreen({
 
   const draft = intake?.draft ?? null
   const journey = journeyState(draft)
+  const openSeats = Math.max(0, team.teamMaximumSize - team.activeMemberCount)
 
   return (
     <PortalScene
@@ -109,6 +111,23 @@ export function HomeScreen({
           <PortalButton type="button" onClick={() => navigate('/write', { viewTransition: true })}>
             {journey.action}
           </PortalButton>
+
+          {/* A fresh team is usually one person: while seats stay open the
+              code rides under the action so inviting is never a hunt. */}
+          {teamEditable && openSeats > 0 ? (
+            <div className="mt-9 flex flex-col items-end gap-2.5">
+              <p className="m-0 text-[12.5px] text-fg/55">
+                {team.activeMemberCount === 1
+                  ? `Just you so far · ${openSeats} ${openSeats === 1 ? 'seat' : 'seats'} open`
+                  : `${team.activeMemberCount} of ${team.teamMaximumSize} on the team · ${openSeats} ${openSeats === 1 ? 'seat' : 'seats'} open`}
+                {' · '}
+                <Link to="/team" viewTransition className="text-rose-light no-underline hover:underline">
+                  manage team
+                </Link>
+              </p>
+              <JoinCodeBar code={team.publicCode} />
+            </div>
+          ) : null}
         </div>
       </div>
 

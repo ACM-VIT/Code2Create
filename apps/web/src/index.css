@@ -81,8 +81,15 @@
 
   /* The updated mockup rounds every corner symmetrically: cards 18/16,
      fields 10, buttons 12/10. */
-  --radius-petal: 18px;
-  --radius-petal-sm: 16px;
+  /* Every box on the portal is cut the same way: curved at the top-left and
+     bottom-right, square at the other two. `box` and `box-sm` are the curve
+     sizes on their own, for the one-corner cases (a sheet's top edge);
+     `petal` and `petal-sm` are the whole diagonal shape. Buttons and fields
+     keep their own even radii. */
+  --radius-box: 20px;
+  --radius-box-sm: 16px;
+  --radius-petal: var(--radius-box) 0 var(--radius-box) 0;
+  --radius-petal-sm: var(--radius-box-sm) 0 var(--radius-box-sm) 0;
   --radius-petal-xs: 10px;
   --radius-btn: 12px;
   --radius-btn-sm: 10px;
@@ -511,7 +518,7 @@
 :root {
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   color: #ececee;
-  background: #0a0a0b;
+  background: var(--color-wash);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -535,7 +542,7 @@
    near-black, the same green accent pulled darker for contrast. */
 :root[data-theme='daybreak'] {
   color: #2b1420;
-  background: #f6eeeb;
+  background: var(--color-wash);
   --background: #f6eeeb;
   --surface: #fdf8f6;
   --surface-raised: #ffffff;
@@ -556,15 +563,22 @@
   box-sizing: border-box;
 }
 
+/* The document wears the scene's own ground, not the app-shell grey. Phone
+   browsers resize the viewport a beat after their toolbars animate, and in
+   that beat whatever is painted behind the scene shows as a band along the
+   bottom; in the wash it is invisible, in grey it was a "chin". */
 html {
-  background: var(--background);
+  background: var(--color-wash);
 }
 
 body {
   margin: 0;
   min-width: 320px;
-  min-height: 100vh;
-  background: var(--background);
+  /* The dynamic viewport, like the scene: on phones 100vh is the toolbars-
+     collapsed height, and the gap between the two showed as a black band
+     under the hills whenever a tap moved the browser chrome. */
+  min-height: 100dvh;
+  background: var(--color-wash);
 }
 
 button,
@@ -682,4 +696,6 @@ p {
 [data-portal-scene] .guide-panel {
   border: 0;
   outline: 0;
+  background-image: none;
+  background-color: color-mix(in oklab, var(--color-wash) 55%, transparent);
 }

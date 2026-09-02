@@ -530,7 +530,7 @@ describe("participant intake lifecycle", () => {
       throw new Error("The revised idea did not complete question regeneration.");
     }
     expect(reviewAfterIdeaRegeneration.draft).toMatchObject({
-      stage: "review",
+      stage: "additional_information",
       initialIdea: ideaAfterFixedAnswers,
     });
     expect(reviewAfterIdeaRegeneration.draft.followUps).toHaveLength(4);
@@ -542,11 +542,21 @@ describe("participant intake lifecycle", () => {
         answer: answersBeforeIdeaEdit[index],
       })),
     );
+    const reviewReadyAfterIdeaRegeneration = await participant.mutation(
+      api.intake.saveAdditionalInformation,
+      {
+        eventSlug: fixture.eventSlug,
+        value: "",
+        baseValue: "",
+        expectedDraftVersion: reviewAfterIdeaRegeneration.draft.version,
+        clientOperationId: "intake-additional-information-skip-after-idea-revision",
+      },
+    );
     await participant.mutation(api.intake.reviseFollowUp, {
       eventSlug: fixture.eventSlug,
       questionId: firstAnsweredQuestion.id,
       answer: `${firstFollowUpAnswer} The first release focuses on mobility requests.`,
-      expectedDraftVersion: reviewAfterIdeaRegeneration.draft.version,
+      expectedDraftVersion: reviewReadyAfterIdeaRegeneration.draftVersion,
       clientOperationId: "intake-follow-up-revise",
     });
     await backend.mutation(internal.intelligence.beginIntakeInterpretation, {
@@ -580,7 +590,7 @@ describe("participant intake lifecycle", () => {
     if (!reviewAfterAnswerEdit?.draft) {
       throw new Error("The revised intake did not return to review.");
     }
-    expect(reviewAfterAnswerEdit.draft.stage).toBe("review");
+    expect(reviewAfterAnswerEdit.draft.stage).toBe("additional_information");
     expect(reviewAfterAnswerEdit.draft.followUps).toHaveLength(4);
     expect(reviewAfterAnswerEdit.draft.followUps.slice(0, 2)).toMatchObject(
       questionIdsBeforeAnswerEdit.map((id) => ({ id })),
@@ -594,6 +604,20 @@ describe("participant intake lifecycle", () => {
       expectedDraftVersion: reviewAfterAnswerEdit.draft.version,
       clientOperationId: "intake-additional-information-too-long",
     })).rejects.toThrow("at most 4000 characters");
+    const additionalInformationSave = await participant.mutation(
+      api.intake.saveAdditionalInformation,
+      {
+        eventSlug: fixture.eventSlug,
+        value: `  ${additionalInformation}  `,
+        baseValue: "",
+        expectedDraftVersion: reviewAfterAnswerEdit.draft.version,
+        clientOperationId: "intake-additional-information-save",
+      },
+    );
+    const finalReview = await participant.query(api.intake.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(finalReview?.draft?.stage).toBe("review");
     const unacknowledgedPreview = await participant.query(api.intake.submissionPreview, {
       eventSlug: fixture.eventSlug,
     });
@@ -602,7 +626,7 @@ describe("participant intake lifecycle", () => {
     const freshness = await participant.mutation(api.intake.setFreshnessAttestation, {
       eventSlug: fixture.eventSlug,
       accepted: true,
-      expectedDraftVersion: reviewAfterAnswerEdit.draft.version,
+      expectedDraftVersion: additionalInformationSave.draftVersion,
       clientOperationId: "intake-freshness-confirm",
     });
     await expect(participant.mutation(api.intake.autosaveWorkingField, {
@@ -627,16 +651,6 @@ describe("participant intake lifecycle", () => {
       baseCommittedValue: idea,
       expectedRevision: 0,
     })).rejects.toThrow("changed in another session");
-    const additionalInformationSave = await participant.mutation(
-      api.intake.saveAdditionalInformation,
-      {
-        eventSlug: fixture.eventSlug,
-        value: `  ${additionalInformation}  `,
-        baseValue: "",
-        expectedDraftVersion: reviewAfterAnswerEdit.draft.version,
-        clientOperationId: "intake-additional-information-save",
-      },
-    );
     await expect(participant.mutation(api.intake.saveAdditionalInformation, {
       eventSlug: fixture.eventSlug,
       value: "A different stale edit must not replace the saved information.",
@@ -684,7 +698,7 @@ describe("participant intake lifecycle", () => {
     expect(preview).toMatchObject({
       teamId: team.teamId,
       teamVersion: 2,
-      draftVersion: additionalInformationSave.draftVersion,
+      draftVersion: freshness.draftVersion,
       initialIdea: ideaAfterFixedAnswers,
       additionalInformation,
       freshnessAttested: true,

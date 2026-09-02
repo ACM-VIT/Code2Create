@@ -330,7 +330,7 @@ export function DetailsScreen({
                       autoComplete="tel"
                       inputMode="tel"
                       maxLength={24}
-                      placeholder="+91 98765 43210"
+                      placeholder="+91 xxxxx xxxxx"
                       required
                       type="tel"
                       value={phone}
