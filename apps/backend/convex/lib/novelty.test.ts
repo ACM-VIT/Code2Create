@@ -7,6 +7,7 @@ import {
   strongestNoveltyMatchPerTeam,
   validEmbedding,
 } from "./novelty";
+import { containsSensitiveProjectText } from "./projectText";
 
 const stopWords = new Set([
   "a", "and", "from", "in", "is", "of", "on", "or", "that", "the", "their", "through", "to", "with",
@@ -54,6 +55,15 @@ function cosine(left: readonly number[], right: readonly number[]) {
 }
 
 describe("novelty scoring", () => {
+  it("does not mistake regression tests for a registration number", () => {
+    expect(containsSensitiveProjectText(
+      "The project generates a verified fix with regression tests before deployment.",
+    )).toBe(false);
+    expect(containsSensitiveProjectText(
+      "Use registration number 23BCE1234 to open the project.",
+    )).toBe(true);
+  });
+
   it("is deterministic and uses the production vector width", () => {
     const first = testEmbedding("A pothole report that routes repair work to ward teams");
     const second = testEmbedding("A pothole report that routes repair work to ward teams");

@@ -741,7 +741,11 @@ function IntakeWorkspace({
   const noveltyState = useNoveltyPreview({
     idea,
     ideaLength: normalizedIdeaLength(idea),
-    active: ideaEditorOpen,
+    // Keep checking after Next when the user saved before the typing preview
+    // began. The result is persisted to the draft and appears reactively in
+    // the review instead of leaving an empty gap.
+    active:
+      ideaEditorOpen || (draft?.stage === 'review' && savedNoveltyScore === null),
     config: novelty,
     saved: { idea: draft?.initialIdea, score: savedNoveltyScore, band: savedNoveltyBand },
   })
@@ -2066,8 +2070,12 @@ function IntakeWorkspace({
           <EditingPresence editors={editors ?? []} members={members} />
 
           <PetalCard className="px-6 py-2 sm:px-8">
-            {savedNoveltyScore !== null ? (
-              <NoveltyReviewRow score={savedNoveltyScore} band={savedNoveltyBand} />
+            {novelty !== null ? (
+              <NoveltyReviewRow
+                score={savedNoveltyScore}
+                band={savedNoveltyBand}
+                checking={savedNoveltyScore === null && noveltyState.status === 'checking'}
+              />
             ) : null}
             <AccordionRoot
               allowMultiple
@@ -2394,23 +2402,30 @@ function NoveltyHelp({
 export function NoveltyReviewRow({
   score,
   band,
+  checking = false,
 }: {
-  score: number
+  score: number | null
   band: NoveltyBand | null
+  checking?: boolean
 }) {
   return (
     <div className="border-b border-petal-line pt-4 pb-4">
       <div className="flex items-center justify-between gap-3">
         <span className="text-[15px] font-semibold text-fg/85">Novelty</span>
-        <span className="flex items-center gap-2 text-[12.5px] font-semibold text-rose-light">
-          {score} / 100{band === null ? '' : ` · ${noveltyBandLabels[band]}`}
+        <span
+          className="flex items-center gap-2 text-[12.5px] font-semibold text-rose-light"
+          aria-live="polite"
+        >
+          {score === null
+            ? checking ? 'Checking' : 'Preparing score'
+            : `${score} / 100${band === null ? '' : ` · ${noveltyBandLabels[band]}`}`}
           <NoveltyHelp align="end" />
         </span>
       </div>
       <div className="mt-2.5 h-[3px] overflow-hidden rounded-full bg-petal-line" aria-hidden>
         <div
           className="h-full rounded-full bg-rose-light transition-[width] duration-700"
-          style={{ width: `${Math.max(2, Math.min(100, score))}%` }}
+          style={{ width: score === null ? '18%' : `${Math.max(2, Math.min(100, score))}%` }}
         />
       </div>
     </div>
@@ -2438,7 +2453,7 @@ export function NoveltyPill({
   const label =
     belowMinimum || state.status === 'idle'
       ? 'keep writing'
-      : 'checking…'
+      : 'checking'
   return (
     <div className="pointer-events-auto relative">
       <div className="inline-flex items-center gap-2 rounded-[9px] border border-rose-light/55 bg-wash/92 py-2 pr-2.5 pl-4 text-[12.5px] font-semibold text-rose-light shadow-[0_8px_22px_var(--shade-1)] backdrop-blur-md">

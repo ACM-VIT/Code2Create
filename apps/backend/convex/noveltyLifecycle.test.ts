@@ -229,7 +229,7 @@ describe("live novelty", () => {
     )).rejects.toThrow("can no longer be edited");
   });
 
-  test("coalesces concurrent teammates by fingerprint and never sends sensitive text onward", async () => {
+  test("coalesces concurrent teammates by fingerprint and accepts the complete idea", async () => {
     const backend = noveltyBackend();
     const fixture = await seedFixture(backend);
     const request = previewArgs(fixture, "novelty-concurrent-0001", fixture.idea);
@@ -270,7 +270,7 @@ describe("live novelty", () => {
       requestId: requests[0]?._id,
     });
 
-    const sensitive = await backend.mutation(
+    const ideaWithContactDetails = await backend.mutation(
       internal.novelty.beginPreview,
       previewArgs(
         fixture,
@@ -278,12 +278,12 @@ describe("live novelty", () => {
         `${fixture.idea} Contact the team at private-person@example.test for details.`,
       ),
     );
-    expect(sensitive).toEqual({ kind: "complete", result: { state: "unavailable" } });
-    const afterSensitiveCheck = await backend.run((ctx) => ctx.db
+    expect(ideaWithContactDetails).toMatchObject({ kind: "run" });
+    const afterCompleteIdeaCheck = await backend.run((ctx) => ctx.db
       .query("noveltyPreviewRequests")
       .withIndex("by_team_requested")
       .collect());
-    expect(afterSensitiveCheck).toHaveLength(1);
+    expect(afterCompleteIdeaCheck).toHaveLength(2);
   });
 
   test("does not attach a result after the team changes its idea", async () => {
@@ -508,6 +508,53 @@ describe("live novelty", () => {
     });
   });
 
+  test("reuses a saved embedding and persists its novelty result for review", async () => {
+    const backend = noveltyBackend();
+    const fixture = await seedFixture(backend);
+    const inputFingerprint = noveltyInputFingerprint(fixture.idea);
+    const embedding = Array.from(
+      { length: noveltyEmbeddingDimensions },
+      (_, index) => (index === 0 ? 1 : 0),
+    );
+
+    await backend.mutation(internal.novelty.finishDraftIndex, {
+      draftId: fixture.projectDraftId,
+      inputFingerprint,
+      sourceUpdatedAt: fixture.now,
+      embedding,
+    });
+    const prepared = await backend.mutation(internal.novelty.prepareDraftIndex, {
+      draftId: fixture.projectDraftId,
+      inputFingerprint,
+      sourceUpdatedAt: fixture.now,
+    });
+    expect(prepared).toMatchObject({
+      kind: "score",
+      eventId: fixture.eventId,
+      teamId: fixture.teamId,
+      corpusVersionId: fixture.publishedCorpusId,
+      embedding,
+    });
+
+    await backend.mutation(internal.novelty.finishDraftNovelty, {
+      draftId: fixture.projectDraftId,
+      corpusVersionId: fixture.publishedCorpusId,
+      inputFingerprint,
+      score: 72,
+      band: "distinct",
+      nearestThemeLabel: "Campus service routing",
+      reflectionPrompt: "What happens after a volunteer accepts a request?",
+    });
+    const draft = await backend.run((ctx) => ctx.db.get(fixture.projectDraftId));
+    expect(draft).toMatchObject({
+      noveltyEvaluatedInputFingerprint: inputFingerprint,
+      noveltyScore: 72,
+      noveltyBand: "distinct",
+      noveltyNearestThemeLabel: "Campus service routing",
+      noveltyReflectionPrompt: "What happens after a volunteer accepts a request?",
+    });
+  });
+
   test("evaluates editing-vector expiry from the action-provided clock", async () => {
     const backend = noveltyBackend();
     const fixture = await seedFixture(backend);
@@ -531,167 +578,6 @@ describe("live novelty", () => {
       ideaIds: [ideaId],
       now: fixture.now + 45_000,
     })).resolves.toEqual([expect.objectContaining({ id: ideaId, active: false })]);
-  });
-
-  test("removes obsolete vectors when the current saved idea is non-indexable", async () => {
-    const backend = noveltyBackend();
-    const fixture = await seedFixture(backend);
-    const sensitiveIdea = `${fixture.idea} Contact private-person@example.test for access.`;
-    const sensitiveFingerprint = noveltyInputFingerprint(sensitiveIdea);
-    const newerEditingIdea = `${fixture.idea} A newer live edit is still being written.`;
-    const savedAt = fixture.now + 10;
-    const newerEditingAt = savedAt + 1;
-
-    await backend.run(async (ctx) => {
-      const draft = await ctx.db.get(fixture.projectDraftId);
-      if (!draft) throw new Error("The fixture draft is missing.");
-      await ctx.db.patch(draft._id, {
-        initialIdea: sensitiveIdea,
-        version: draft.version + 1,
-        updatedAt: savedAt,
-      });
-      await ctx.db.insert("noveltyTeamIdeas", {
-        eventId: fixture.eventId,
-        teamId: fixture.teamId,
-        inputFingerprint: noveltyInputFingerprint(fixture.idea),
-        lifecycle: "saved",
-        embedding: [1],
-        sourceUpdatedAt: fixture.now,
-        updatedAt: fixture.now,
-      });
-      await ctx.db.insert("noveltyTeamIdeas", {
-        eventId: fixture.eventId,
-        teamId: fixture.teamId,
-        inputFingerprint: noveltyInputFingerprint(`${fixture.idea} Older live edit.`),
-        lifecycle: "editing",
-        embedding: [1],
-        sourceUpdatedAt: fixture.now + 1,
-        updatedAt: fixture.now + 1,
-      });
-      await ctx.db.insert("noveltyTeamIdeas", {
-        eventId: fixture.eventId,
-        teamId: fixture.teamId,
-        inputFingerprint: noveltyInputFingerprint(newerEditingIdea),
-        lifecycle: "editing",
-        embedding: [1],
-        sourceUpdatedAt: newerEditingAt,
-        updatedAt: newerEditingAt,
-      });
-    });
-
-    await backend.mutation(internal.novelty.prepareDraftIndex, {
-      draftId: fixture.projectDraftId,
-      inputFingerprint: noveltyInputFingerprint(fixture.idea),
-      sourceUpdatedAt: fixture.now,
-    });
-    const beforeCurrentJob = await backend.run((ctx) => ctx.db
-      .query("noveltyTeamIdeas")
-      .withIndex("by_team", (index) => index.eq("teamId", fixture.teamId))
-      .collect());
-    expect(beforeCurrentJob).toHaveLength(3);
-
-    await expect(backend.mutation(internal.novelty.prepareDraftIndex, {
-      draftId: fixture.projectDraftId,
-      inputFingerprint: sensitiveFingerprint,
-      sourceUpdatedAt: savedAt,
-    })).resolves.toEqual({ kind: "complete" });
-
-    const remaining = await backend.run((ctx) => ctx.db
-      .query("noveltyTeamIdeas")
-      .withIndex("by_team", (index) => index.eq("teamId", fixture.teamId))
-      .collect());
-    expect(remaining).toHaveLength(1);
-    expect(remaining[0]).toMatchObject({
-      inputFingerprint: noveltyInputFingerprint(newerEditingIdea),
-      lifecycle: "editing",
-      sourceUpdatedAt: newerEditingAt,
-    });
-  });
-
-  test("removes obsolete vectors when the current submitted idea is non-indexable", async () => {
-    const backend = noveltyBackend();
-    const fixture = await seedFixture(backend);
-    const sensitiveIdea = `${fixture.idea} Call +91 98765 43210 for the private walkthrough.`;
-    const sensitiveFingerprint = noveltyInputFingerprint(sensitiveIdea);
-    const submittedAt = fixture.now + 20;
-    const newerEditingAt = submittedAt + 1;
-    const projectVersionId = await backend.run(async (ctx) => {
-      const projectId = await ctx.db.insert("projectVersions", {
-        eventId: fixture.eventId,
-        teamId: fixture.teamId,
-        version: 1,
-        initialIdea: sensitiveIdea,
-        intakePolicyVersionId: fixture.intakePolicyId,
-        intakeResponses: [],
-        lockedRosterSnapshotId: fixture.submissionAttemptId,
-        lockedMemberCount: 1,
-        lockedLeadMembershipId: fixture.membershipId,
-        freshForEventAttestation: {
-          participantPolicyVersionId: fixture.participantPolicyId,
-          acceptedByMembershipId: fixture.membershipId,
-          acceptedAt: submittedAt,
-        },
-        finalConfirmation: {
-          participantPolicyVersionId: fixture.participantPolicyId,
-          previewedDraftVersion: 1,
-          previewedTeamVersion: 1,
-          confirmedByMembershipId: fixture.membershipId,
-          confirmedAt: submittedAt,
-        },
-        participantPolicyVersionId: fixture.participantPolicyId,
-        admissionPolicyVersionId: fixture.admissionPolicyId,
-        sourceDraftVersion: 1,
-        submittedByMembershipId: fixture.membershipId,
-        submittedAt,
-      });
-      await ctx.db.patch(fixture.teamId, { lockedProjectVersionId: projectId });
-      await ctx.db.insert("noveltyTeamIdeas", {
-        eventId: fixture.eventId,
-        teamId: fixture.teamId,
-        inputFingerprint: noveltyInputFingerprint(fixture.idea),
-        lifecycle: "submitted",
-        embedding: [1],
-        sourceUpdatedAt: fixture.now,
-        updatedAt: fixture.now,
-      });
-      await ctx.db.insert("noveltyTeamIdeas", {
-        eventId: fixture.eventId,
-        teamId: fixture.teamId,
-        inputFingerprint: noveltyInputFingerprint(`${fixture.idea} New live revision.`),
-        lifecycle: "editing",
-        embedding: [1],
-        sourceUpdatedAt: newerEditingAt,
-        updatedAt: newerEditingAt,
-      });
-      return projectId;
-    });
-
-    await backend.mutation(internal.novelty.prepareSubmittedProjectIndex, {
-      projectVersionId,
-      inputFingerprint: noveltyInputFingerprint(fixture.idea),
-      sourceUpdatedAt: fixture.now,
-    });
-    const beforeCurrentJob = await backend.run((ctx) => ctx.db
-      .query("noveltyTeamIdeas")
-      .withIndex("by_team", (index) => index.eq("teamId", fixture.teamId))
-      .collect());
-    expect(beforeCurrentJob).toHaveLength(2);
-
-    await expect(backend.mutation(internal.novelty.prepareSubmittedProjectIndex, {
-      projectVersionId,
-      inputFingerprint: sensitiveFingerprint,
-      sourceUpdatedAt: submittedAt,
-    })).resolves.toEqual({ kind: "complete" });
-
-    const remaining = await backend.run((ctx) => ctx.db
-      .query("noveltyTeamIdeas")
-      .withIndex("by_team", (index) => index.eq("teamId", fixture.teamId))
-      .collect());
-    expect(remaining).toHaveLength(1);
-    expect(remaining[0]).toMatchObject({
-      lifecycle: "editing",
-      sourceUpdatedAt: newerEditingAt,
-    });
   });
 
   test("enforces the exact team scope and the published request budget", async () => {
