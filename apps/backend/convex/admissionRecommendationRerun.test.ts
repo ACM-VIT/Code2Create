@@ -202,6 +202,12 @@ describe("manual admission analysis retry", () => {
     expect(firstRead.additionalInformation).toBe(
       "Demo notes: https://example.com/retry-petals",
     );
+    expect(firstRead.intakeResponses.map((response) => response.sourceRef)).toEqual([
+      "follow_up_1",
+      "follow_up_2",
+      "follow_up_3",
+      "follow_up_4",
+    ]);
     const criterionAssessments = firstRead.criteria.map((criterion) => ({
       criterionKey: criterion.criterionKey,
       assessment: "meets" as const,
@@ -240,6 +246,21 @@ describe("manual admission analysis retry", () => {
     expect(stored?.agentDispatchAttemptId).toBeUndefined();
     expect(stored?.agentSubmissionId).toBeUndefined();
     expect(stored?.agentAcceptedAt).toBeUndefined();
+
+    const reader = backend.withIdentity({
+      subject: fixture.readerAuthUserId,
+      sessionId: fixture.readerAuthSessionId,
+    });
+    const detail = await reader.query(api.admissions.detail, {
+      eventSlug: fixture.eventSlug,
+      applicationId: fixture.applicationId,
+    });
+    expect(detail?.aiRecommendation).toMatchObject({
+      id: rerun.recommendationId,
+      state: "succeeded",
+      recommendation: "accept",
+    });
+    expect(detail?.aiRecommendationRerun).toBeNull();
   });
 
   test("recovers only the exact accepted agent submission and permits one new dispatch", async () => {
@@ -529,22 +550,57 @@ async function seedFixture(backend: BackendTest) {
       writtenAt: now,
       clientOperationId: "admission-rerun-initial",
     });
-    const questionId = await ctx.db.insert("intakeGeneratedQuestions", {
-      eventId,
-      teamId,
-      draftId,
-      ordinal: 1,
-      text: "Who uses it first?",
-      purposeKey: "user",
-      answerLength: "short",
-      source: "fallback",
-      sourceAnswerVersionIds: [initialAnswerId],
-      intakePolicyVersionId: intakePolicyId,
-      state: "answered",
-      validationCategory: "test_fixture",
-      answeredAt: now,
-      createdAt: now,
-    });
+    const responseFixtures = [
+      {
+        question: "Who uses it first?",
+        purposeKey: "user" as const,
+        answer: "Volunteer coordinators use it first.",
+      },
+      {
+        question: "What problem does it solve?",
+        purposeKey: "problem" as const,
+        answer: "It prevents handoff details from getting lost during a busy event.",
+      },
+      {
+        question: "What is the most important tradeoff?",
+        purposeKey: "tradeoff" as const,
+        answer: "It favors a clear shared state over highly customized workflows.",
+      },
+      {
+        question: "What could stop it from working well?",
+        purposeKey: "risk" as const,
+        answer: "Volunteers may forget to record a handoff during a rush.",
+      },
+    ];
+    const intakeResponses = [];
+    for (const [index, response] of responseFixtures.entries()) {
+      const ordinal = index + 1;
+      const questionId = await ctx.db.insert("intakeGeneratedQuestions", {
+        eventId,
+        teamId,
+        draftId,
+        ordinal,
+        text: response.question,
+        purposeKey: response.purposeKey,
+        answerLength: "short",
+        source: ordinal <= 2 ? "fixed" : "fallback",
+        sourceAnswerVersionIds: [initialAnswerId],
+        intakePolicyVersionId: intakePolicyId,
+        state: "answered",
+        validationCategory: "test_fixture",
+        answeredAt: now,
+        createdAt: now,
+      });
+      intakeResponses.push({
+        questionId,
+        ordinal,
+        question: response.question,
+        purposeKey: response.purposeKey,
+        answerLength: "short" as const,
+        source: ordinal <= 2 ? "fixed" as const : "fallback" as const,
+        answer: response.answer,
+      });
+    }
     const lockedRosterSnapshotId = await createTestSubmissionSnapshot(ctx, {
       eventId,
       teamId,
@@ -561,15 +617,7 @@ async function seedFixture(backend: BackendTest) {
       initialIdea: "A calm handoff tool for volunteers at a busy venue.",
       additionalInformation: "Demo notes: https://example.com/retry-petals",
       intakePolicyVersionId: intakePolicyId,
-      intakeResponses: [{
-        questionId,
-        ordinal: 1,
-        question: "Who uses it first?",
-        purposeKey: "user",
-        answerLength: "short",
-        source: "fallback",
-        answer: "Volunteer coordinators use it first.",
-      }],
+      intakeResponses,
       lockedRosterSnapshotId,
       lockedMemberCount: 1,
       lockedLeadMembershipId: membershipId,

@@ -418,6 +418,10 @@ html:has(.intelligence-workspace) { overflow: hidden; }
 .filter { display: grid; min-width: 180px; gap: 6px; color: var(--muted); font-size: .75rem; }
 .queue-stage-filter { width: min(100%, 280px); margin-top: 20px; }
 .queue-toolbar { display: flex; justify-content: flex-end; margin-top: 26px; }
+/* Fieldsets group for disabling, not for drawing a box: no UA border,
+   padding, or min-width, so one dropped into a grid form lays out like
+   its siblings instead of a bordered half-width column. */
+fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
 input, select, textarea { width: 100%; color: var(--text); font-size: .8125rem; background: var(--background); border: 1px solid var(--border-strong); border-radius: var(--radius-control); }
 input { min-height: 32px; padding: 6px 10px; }
 select { min-height: 32px; padding: 6px 10px; }
