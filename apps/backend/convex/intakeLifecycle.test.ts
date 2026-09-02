@@ -552,12 +552,80 @@ describe("participant intake lifecycle", () => {
         clientOperationId: "intake-additional-information-skip-after-idea-revision",
       },
     );
+    const secondFixedQuestionId = questionIdsBeforeAnswerEdit[1];
+    const secondFixedAnswer = answersBeforeIdeaEdit[1];
+    if (!secondFixedQuestionId || !secondFixedAnswer) {
+      throw new Error("The second fixed response was not available for collaboration testing.");
+    }
+    const teammateSecondAnswerDraft =
+      `${secondFixedAnswer} We will also show who owns the next action.`;
+    await secondParticipant.mutation(api.intake.autosaveWorkingField, {
+      eventSlug: fixture.eventSlug,
+      field: { kind: "follow_up", questionId: secondFixedQuestionId },
+      value: teammateSecondAnswerDraft,
+      baseDraftVersion: reviewReadyAfterIdeaRegeneration.draftVersion,
+      baseCommittedValue: secondFixedAnswer,
+      expectedRevision: 0,
+    });
+    const revisedFirstFollowUpAnswer =
+      `${firstFollowUpAnswer} The first release focuses on mobility requests.`;
+    await participant.mutation(api.intake.autosaveWorkingField, {
+      eventSlug: fixture.eventSlug,
+      field: { kind: "follow_up", questionId: firstAnsweredQuestion.id },
+      value: "",
+      baseDraftVersion: reviewReadyAfterIdeaRegeneration.draftVersion,
+      baseCommittedValue: firstFollowUpAnswer,
+      expectedRevision: 0,
+    });
+    await expect(participant.query(api.intake.current, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toMatchObject({
+      workingFields: expect.arrayContaining([
+        expect.objectContaining({
+          kind: "follow_up",
+          questionId: firstAnsweredQuestion.id,
+          value: "",
+        }),
+      ]),
+    });
+    await participant.mutation(api.intake.autosaveWorkingField, {
+      eventSlug: fixture.eventSlug,
+      field: { kind: "follow_up", questionId: firstAnsweredQuestion.id },
+      value: revisedFirstFollowUpAnswer,
+      baseDraftVersion: reviewReadyAfterIdeaRegeneration.draftVersion,
+      baseCommittedValue: firstFollowUpAnswer,
+      expectedRevision: 1,
+    });
+    const reviewWhileRevisingAnswer = await participant.query(api.intake.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(reviewWhileRevisingAnswer?.draft?.stage).toBe("review");
+    expect(reviewWhileRevisingAnswer?.draft?.followUps[0]?.answer).toBe(firstFollowUpAnswer);
+    expect(reviewWhileRevisingAnswer?.workingFields).toContainEqual(
+      expect.objectContaining({
+        kind: "follow_up",
+        questionId: firstAnsweredQuestion.id,
+        value: revisedFirstFollowUpAnswer,
+      }),
+    );
     await participant.mutation(api.intake.reviseFollowUp, {
       eventSlug: fixture.eventSlug,
       questionId: firstAnsweredQuestion.id,
-      answer: `${firstFollowUpAnswer} The first release focuses on mobility requests.`,
+      answer: revisedFirstFollowUpAnswer,
       expectedDraftVersion: reviewReadyAfterIdeaRegeneration.draftVersion,
       clientOperationId: "intake-follow-up-revise",
+    });
+    await expect(participant.query(api.intake.current, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toMatchObject({
+      workingFields: [
+        expect.objectContaining({
+          kind: "follow_up",
+          questionId: secondFixedQuestionId,
+          value: teammateSecondAnswerDraft,
+          baseDraftVersion: reviewReadyAfterIdeaRegeneration.draftVersion + 1,
+        }),
+      ],
     });
     await backend.mutation(internal.intelligence.beginIntakeInterpretation, {
       draftId: savedIdea.draftId,
@@ -594,6 +662,14 @@ describe("participant intake lifecycle", () => {
     expect(reviewAfterAnswerEdit.draft.followUps).toHaveLength(4);
     expect(reviewAfterAnswerEdit.draft.followUps.slice(0, 2)).toMatchObject(
       questionIdsBeforeAnswerEdit.map((id) => ({ id })),
+    );
+    expect(reviewAfterAnswerEdit.workingFields).toContainEqual(
+      expect.objectContaining({
+        kind: "follow_up",
+        questionId: secondFixedQuestionId,
+        value: teammateSecondAnswerDraft,
+        baseDraftVersion: reviewAfterAnswerEdit.draft.version,
+      }),
     );
     const additionalInformation =
       "Our working notes and demo links are at https://example.com/accessibility-demo.";

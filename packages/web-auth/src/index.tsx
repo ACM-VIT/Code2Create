@@ -3,6 +3,7 @@ import { createAuthClient } from 'better-auth/react'
 import { ConvexProviderWithAuth, type ConvexReactClient } from 'convex/react'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
+import { fetchAccessTokenUntilSettled } from './access-token'
 import { authProviderState, type SettledAuthentication } from './auth-state'
 import {
   abandonAuthTransfer,
@@ -45,6 +46,7 @@ export function Code2CreateAuthProvider({
         const { data: session, isPending } = authClient.useSession()
         const sessionId = session?.session.id
         const sessionAuthenticated = Boolean(session?.session)
+        const tokenRequestControllers = useRef(new Set<AbortController>())
         const [settledAuthentication, setSettledAuthentication] =
           useState<SettledAuthentication>(() => isPending ? null : sessionAuthenticated)
 
@@ -54,22 +56,38 @@ export function Code2CreateAuthProvider({
 
         useEffect(() => {
           pendingToken.current = null
+          return () => {
+            for (const controller of tokenRequestControllers.current) controller.abort()
+            tokenRequestControllers.current.clear()
+            pendingToken.current = null
+          }
         }, [sessionId])
 
         const fetchAccessToken = useCallback(
           ({ forceRefreshToken = false }: { forceRefreshToken?: boolean } = {}) => {
             if (!forceRefreshToken && pendingToken.current) return pendingToken.current
-            const request = authClient.convex
-              .token({ fetchOptions: { throw: false } })
-              .then(({ data }) => data?.token ?? null)
-              .catch(() => null)
+            const controller = new AbortController()
+            tokenRequestControllers.current.add(controller)
+            const request = fetchAccessTokenUntilSettled({
+              request: async () => {
+                const { data, error } = await authClient.convex.token({
+                  fetchOptions: { signal: controller.signal, throw: false },
+                })
+                return {
+                  token: data?.token ?? null,
+                  status: error?.status ?? (data ? 200 : null),
+                }
+              },
+              isActive: () => !controller.signal.aborted,
+            })
             pendingToken.current = request
             void request.finally(() => {
+              tokenRequestControllers.current.delete(controller)
               if (pendingToken.current === request) pendingToken.current = null
             })
             return request
           },
-          [authClient],
+          [authClient, sessionId],
         )
 
         const providerState = authProviderState(

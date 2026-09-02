@@ -1,7 +1,7 @@
 import { api } from '@code2create/backend/api'
 import { useAction } from 'convex/react'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { DaybreakToggle } from '../components/portal/DaybreakToggle'
 import { Petals } from '../components/portal/Petals'
 import { PortalButton, PortalTextButton } from '../components/portal/PortalButton'
@@ -131,11 +131,13 @@ export function SglangInterlude({
       className="relative flex min-h-dvh flex-col items-center overflow-hidden bg-wash bg-[image:var(--note-bg)] px-5 font-ui text-fg"
     >
       <Petals className="opacity-25" />
-      <img
-        src="/assets/logo.svg"
-        alt="Code2Create"
-        className="absolute top-7 left-6 size-10 drop-shadow-[0_0_14px_var(--logo-glow)] lg:top-9 lg:left-11 lg:size-12"
-      />
+      <Link to="/" viewTransition aria-label="Home" className="absolute top-7 left-6 z-10 lg:top-9 lg:left-11">
+        <img
+          src="/assets/logo.svg"
+          alt="Code2Create"
+          className="block size-10 drop-shadow-[0_0_14px_var(--logo-glow)] lg:size-12"
+        />
+      </Link>
       <div className="absolute top-7 right-6 z-10 flex items-start gap-2.5 lg:top-9 lg:right-11">
         {header}
         <DaybreakToggle />
@@ -171,9 +173,12 @@ export function SglangInterlude({
             <strong className="font-semibold text-fg/90">ML Engineer at Hugging Face</strong>.
           </p>
           <p className="m-0 text-balance">
-            The SGLang team also generously sponsors{' '}
-            <strong className="font-semibold text-fg/90">Code2Create</strong>, and all they ask is
-            that you take a few seconds to star{' '}
+            The SGLang team also sponsors{' '}
+            <strong className="font-semibold text-fg/90">Code2Create 7.0</strong>, elevating the
+            participant experience and helping us raise an exciting prize pool.
+          </p>
+          <p className="m-0 text-balance">
+            All they ask for is that everyone takes a few seconds to star{' '}
             <a
               href="https://github.com/sgl-project/sglang"
               target="_blank"

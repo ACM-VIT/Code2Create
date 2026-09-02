@@ -44,13 +44,9 @@ import {
   AccordionRoot,
 } from '../components/portal/Accordion'
 import { TeamCluster, type ClusterMember, type ClusterTeam } from '../components/portal/TeamCluster'
-import { TeamMenu } from '../components/portal/TeamMenu'
 import { SubmitCelebration } from '../components/portal/SubmitCelebration'
 import { ImportedTeamChoiceView } from '../components/portal/ImportedTeamChoiceView'
 
-// Fixture content for the dev screen gallery. These compose the same portal
-// primitives the real screens use, so the design system is genuinely shared —
-// but the copy and data are stand-ins, not live queries.
 
 const team: ClusterTeam = {
   name: 'Paper Cranes',
@@ -70,7 +66,6 @@ const members: ClusterMember[] = [
 const noop = () => {}
 
 const cluster = <TeamCluster team={team} members={members} />
-const teamMenu = <TeamMenu team={team} members={members} onSignOut={noop} />
 const account = (
   <AccountBadge
     name="Ananya Iyer"
@@ -400,13 +395,13 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
             </div>
           </div>
           <PortalError message={null} reserve />
-          <p className="mt-7 text-[12.5px] text-fg/50">
+          <p className="mt-7 inline-flex items-center gap-1 rounded-full bg-wash/45 px-3.5 py-1.5 text-[12.5px] text-fg/80 backdrop-blur-[6px]">
             can't find a team? join our{' '}
             <a
               href="https://discord.gg/hPkhtMcHq8"
               target="_blank"
               rel="noreferrer"
-              className="text-rose-light underline decoration-rose-light/50 decoration-1 underline-offset-2 transition-colors hover:decoration-rose-light"
+              className="text-rose-light underline decoration-rose-light/70 decoration-1 underline-offset-2 transition-colors hover:decoration-rose-light"
             >
               Discord
             </a>
@@ -437,8 +432,8 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
       />
     )],
   ['f1b', () => (
-      <PortalScene tree="left" backdrop={<GpuSky />} onSignOut={noop} header={cluster} menu={teamMenu}>
-        <div className="flex w-full max-w-[1048px] flex-1 flex-col items-end justify-center pb-40">
+      <PortalScene tree="left" backdrop={<GpuSky />} onSignOut={noop} header={cluster}>
+        <div className="flex w-full max-w-[1048px] flex-1 flex-col items-end justify-center pb-56 sm:pb-40">
           <div className="flex max-w-[680px] flex-col items-end text-right">
             <h1 className="mb-8 font-display font-light tracking-[-.01em] text-balance text-5xl leading-none lg:text-7xl">Start with the idea.</h1>
             <PortalButton>Write it</PortalButton>
@@ -455,7 +450,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
             <p className="mb-[5px] text-[10.5px] font-semibold tracking-[.08em] text-fg/50">deadline</p>
             <p className="m-0 font-display font-light tracking-[-.01em] text-[26px] text-rose-light">12 <span className="text-sm">days</span></p>
           </div>
-          <div className="flex-1 rounded-petal-sm glass-tile px-5 py-4">
+          <div className="hidden flex-1 rounded-petal-sm glass-tile px-5 py-4 sm:block">
             <p className="mb-2 text-[10.5px] font-semibold tracking-[.08em] text-fg/50">journey · 1 of 5</p>
             <div className="flex items-start pt-1">
               {(['idea', 'q1', 'q2', 'review', 'submit'] as const).map((label, index) => (
@@ -478,7 +473,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
       </PortalScene>
     )],
   ['f2', () => (
-      <PortalScene tree="left" onSignOut={noop} header={cluster} menu={teamMenu}>
+      <PortalScene tree="left" onSignOut={noop} header={cluster}>
         <div className="flex w-full max-w-[820px] flex-col items-center lg:mb-[8vh]">
           <h1 className="mb-6 max-w-[760px] text-center font-display font-light tracking-[-.01em] text-[26px] leading-tight lg:text-[42px]">
             What do you want to build?
@@ -509,7 +504,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
       </PortalScene>
     )],
   ['f3', () => (
-      <PortalScene tree="left" onSignOut={noop} header={cluster} menu={teamMenu}>
+      <PortalScene tree="left" onSignOut={noop} header={cluster}>
         <div className="flex w-full max-w-[820px] flex-col items-center lg:mb-[8vh]">
           <h1 className="mb-6 max-w-[760px] text-center font-display font-light tracking-[-.01em] text-[26px] leading-tight lg:text-[38px]">
             Who will use Foundling on day one?
@@ -545,7 +540,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
       </PortalScene>
     )],
   ['f4', () => (
-      <PortalScene tree="left" onSignOut={noop} header={cluster} menu={teamMenu}>
+      <PortalScene tree="left" onSignOut={noop} header={cluster}>
         <div className="flex w-full max-w-[820px] flex-col items-center lg:mb-[8vh]">
           <h1 className="mb-6 max-w-[760px] text-center font-display font-light tracking-[-.01em] text-[26px] leading-tight lg:text-[38px]">
             What will you build during the 48 hours?
@@ -583,7 +578,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
       </PortalScene>
     )],
   ['f5', () => (
-      <PortalScene tree="left" onSignOut={noop} header={cluster} menu={teamMenu}>
+      <PortalScene tree="left" onSignOut={noop} header={cluster}>
         <div className="flex w-full max-w-[760px] flex-col items-center">
           <h1 className="mb-7 text-center font-display font-light tracking-[-.01em] text-3xl lg:text-[44px]">Paper Cranes</h1>
           <PetalCard className="px-6 py-2 sm:px-8">
@@ -631,7 +626,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
       </PortalScene>
     )],
   ['f6', () => (
-      <PortalScene tree="left" branch onSignOut={noop} header={cluster} menu={teamMenu}>
+      <PortalScene tree="left" branch onSignOut={noop} header={cluster}>
         <div className="flex w-full max-w-[600px] flex-col items-center lg:mb-[8vh]">
           <h1 className="mb-6 text-center font-display font-light tracking-[-.01em] text-[26px] lg:text-[42px]">Ready to submit?</h1>
           <PetalCard className="px-8 pt-6 pb-4">
@@ -731,7 +726,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
       </PortalScene>
     )],
   ['f1', () => (
-      <PortalScene tree="left" backdrop={<GpuSky />} onSignOut={noop} header={cluster} menu={teamMenu}>
+      <PortalScene tree="left" backdrop={<GpuSky />} onSignOut={noop} header={cluster}>
         <div className="flex w-full max-w-[1048px] flex-1 flex-col items-end justify-center pb-40">
           <div className="flex max-w-[680px] flex-col items-end text-right">
             <h1 className="mb-8 font-display font-light tracking-[-.01em] text-balance text-5xl leading-none lg:text-7xl">One answer left.</h1>
@@ -786,7 +781,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
   )],
   ['fsc', () => <StarredFixture />],
   ['f7b', () => (
-      <PortalScene tree="left" onSignOut={noop} header={cluster} menu={teamMenu}>
+      <PortalScene tree="left" onSignOut={noop} header={cluster}>
         <div className="flex w-full max-w-[840px] flex-col items-center">
           <h1 className="mb-2 text-center font-display font-light tracking-[-.01em] text-3xl lg:text-[44px]">
             Paper Cranes

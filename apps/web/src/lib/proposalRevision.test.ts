@@ -50,6 +50,20 @@ test('a pending answer revision survives navigation before autosave runs', () =>
   )
 })
 
+test('deleting an answer remains a pending revision instead of restoring saved text', () => {
+  assert.deepEqual(
+    recoverProposalRevision('Saved answer', 8, {
+      base: '8',
+      value: '',
+    }),
+    {
+      answer: '',
+      baseDraftVersion: 8,
+      recovered: true,
+    },
+  )
+})
+
 test('a redundant or malformed revision draft does not replace the saved answer', () => {
   assert.deepEqual(
     recoverProposalRevision('Saved answer', 8, {

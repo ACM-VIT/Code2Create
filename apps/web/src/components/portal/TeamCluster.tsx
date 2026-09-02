@@ -271,13 +271,22 @@ export function TeamRosterPanel({
         /* The account row: everything else, and the way out — here, under the
            avatars, instead of as more circles in the header. */
         <div className="mt-2.5 flex items-center justify-between gap-3 border-t border-petal-line pt-2.5 text-[11.5px]">
-          <Link
-            to="/more"
-            viewTransition
-            className="text-fg/55 no-underline transition-colors hover:text-rose-light"
-          >
-            more
-          </Link>
+          <div className="flex items-center gap-3.5">
+            <Link
+              to="/"
+              viewTransition
+              className="text-fg/55 no-underline transition-colors hover:text-rose-light"
+            >
+              home
+            </Link>
+            <Link
+              to="/more"
+              viewTransition
+              className="text-fg/55 no-underline transition-colors hover:text-rose-light"
+            >
+              more
+            </Link>
+          </div>
           <button
             type="button"
             onClick={onSignOut}

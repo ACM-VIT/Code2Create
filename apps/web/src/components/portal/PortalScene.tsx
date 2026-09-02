@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
-import { usePortalTheme } from '../../lib/portalTheme'
+import { Link } from 'react-router-dom'
 import { DaybreakToggle } from './DaybreakToggle'
 import { PortalSceneContext } from './portalSceneContext'
 import { Petals, PETAL_RADIUS } from './Petals'
@@ -47,7 +47,6 @@ function CursorPetalLayer({ petals }: { petals: readonly CursorPetal[] }) {
 export function PortalScene({
   children,
   header,
-  menu,
   onSignOut,
   tree = 'left',
   branch = false,
@@ -63,12 +62,6 @@ export function PortalScene({
    * the page rather than with it.
    */
   fill?: boolean
-  /**
-   * Content for the mobile menu takeover. When given, small screens swap the
-   * header cluster and theme toggle for a hamburger that opens a full-screen
-   * menu holding this content plus the theme row; desktop is unchanged.
-   */
-  menu?: ReactNode
   /** Signed-in screens: the roster panel under the avatars offers sign-out. */
   onSignOut?: () => void
   tree?: TreePlacement
@@ -129,26 +122,29 @@ export function PortalScene({
     <div
       data-portal-scene
       onMouseMove={onMove}
-      className={`relative flex flex-col overflow-x-hidden bg-wash bg-[image:var(--scene-sky)] font-ui text-fg ${
+      className={`relative flex flex-col overflow-clip bg-wash bg-[image:var(--scene-sky)] font-ui text-fg ${
         fill ? 'h-dvh' : 'min-h-dvh'
       }`}
     >
       {backdrop}
       {/* Hills sit furthest back, bleeding past both edges so the band never
-          shows a seam on narrow viewports. */}
+          shows a seam on narrow viewports. The root clips (not hides) its
+          overflow: `hidden` on one axis turns the other into a scroll
+          container, and the tree's bleed below the edge then scrolls the
+          whole scene up and bares the sky under the hills. */}
       <div
-        className="pointer-events-none absolute -inset-x-3 bottom-[-6px] z-0"
+        className="pointer-events-none absolute -inset-x-3 bottom-[-6px] z-0 will-change-transform"
         style={{ transform: hillsShift }}
       >
         <img
           src="/assets/hills-band.webp"
           alt=""
           aria-hidden
-          className="w-[160%] max-w-none opacity-[var(--scene-hills-opacity)] [filter:var(--scene-hills-filter)] sm:w-full"
+          className="block w-[160%] max-w-none opacity-[var(--scene-hills-opacity)] [filter:var(--scene-hills-filter)] sm:w-full"
         />
       </div>
 
-      <div className="pointer-events-none absolute inset-0 z-[1]" style={{ transform: treeShift }}>
+      <div className="pointer-events-none absolute inset-0 z-[1] will-change-transform" style={{ transform: treeShift }}>
         {showLeftTree ? (
           <img
             src="/assets/tree.webp"
@@ -183,21 +179,22 @@ export function PortalScene({
       {/* Wordmark and the per-screen header slot ride above the artwork. */}
       <header className="pointer-events-none absolute inset-x-0 top-0 z-[6] flex items-start justify-between px-6 pt-7 lg:px-11 lg:pt-9">
         {logo === 'corner' ? (
-          <img
-            src="/assets/logo.svg"
-            alt="Code2Create"
-            className="pointer-events-auto w-[52px] drop-shadow-[0_0_14px_var(--logo-glow)] lg:w-[60px]"
-          />
+          <Link to="/" viewTransition aria-label="Home" className="pointer-events-auto">
+            <img
+              src="/assets/logo.svg"
+              alt="Code2Create"
+              className="block w-10 drop-shadow-[0_0_14px_var(--logo-glow)] lg:w-[60px]"
+            />
+          </Link>
         ) : (
           <span />
         )}
         <div
-          className={`pointer-events-auto items-start gap-2.5 ${menu ? 'hidden lg:flex' : 'flex'}`}
+          className="pointer-events-auto flex items-start gap-2.5"
         >
           {header}
           <DaybreakToggle />
         </div>
-        {menu ? <SceneMenuButton menu={menu} /> : null}
       </header>
 
       <main
@@ -216,85 +213,5 @@ export function PortalScene({
       />
     </div>
     </PortalSceneContext.Provider>
-  )
-}
-
-/**
- * The small-screen menu: a hamburger in the avatar-circle family that opens
- * a full-screen takeover — the passed content (team details and the like)
- * stacked over a theme-tinted backdrop, with the light switch at the end.
- */
-function SceneMenuButton({ menu }: { menu: ReactNode }) {
-  const [open, setOpen] = useState(false)
-  const theme = usePortalTheme()
-
-  useEffect(() => {
-    if (!open) return
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false)
-    }
-    window.addEventListener('keydown', onKey)
-    document.documentElement.style.overflow = 'hidden'
-    return () => {
-      window.removeEventListener('keydown', onKey)
-      document.documentElement.style.overflow = ''
-    }
-  }, [open])
-
-  return (
-    <>
-      <button
-        type="button"
-        aria-label="Open menu"
-        onClick={() => setOpen(true)}
-        className="pointer-events-auto flex size-10 flex-none items-center justify-center rounded-full border-2 border-rose/70 bg-avatar text-fg/80 transition-colors hover:border-rose-light lg:hidden"
-      >
-        <svg width="16" height="16" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
-          <path d="M4 7h16M4 12h16M4 17h16" />
-        </svg>
-      </button>
-
-      {open ? (
-        /* The classic overlay nav: a translucent scrim the scene still shows
-           through, with the options floating in the middle of the screen. */
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="Menu"
-          className="pointer-events-auto fixed inset-0 z-[8] flex flex-col overflow-y-auto bg-wash/75 backdrop-blur-xl lg:hidden"
-        >
-          {/* A rose breath at the top and a few drifting petals keep the
-              scrim from reading as a flat void. */}
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_75%_50%_at_50%_-10%,var(--glow-rose-soft),transparent_60%)]"
-          />
-          <Petals className="opacity-20" />
-          <div className="relative flex flex-none items-center justify-between px-6 pt-7">
-            <img src="/assets/logo.svg" alt="Code2Create" className="w-[30px]" />
-            <button
-              type="button"
-              aria-label="Close menu"
-              autoFocus
-              onClick={() => setOpen(false)}
-              className="flex size-10 flex-none items-center justify-center rounded-full border-2 border-rose/70 bg-avatar text-fg/80 transition-colors hover:border-rose-light"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
-                <path d="M6 6l12 12M18 6L6 18" />
-              </svg>
-            </button>
-          </div>
-          <div className="relative flex flex-1 flex-col items-center justify-center gap-10 px-6 py-10">
-            {menu}
-            <div className="flex flex-col items-center gap-2">
-              <DaybreakToggle />
-              <span className="text-[11px] text-fg/50">
-                {theme === 'daybreak' ? 'daybreak' : 'night'}
-              </span>
-            </div>
-          </div>
-        </div>
-      ) : null}
-    </>
   )
 }

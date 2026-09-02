@@ -57,6 +57,43 @@ export function shouldReplaceFollowUpEditorValue(
   return currentQuestionId !== nextQuestionId
 }
 
+export function nextReviewQuestionId(
+  questionIds: readonly string[],
+  currentQuestionId: string | null,
+) {
+  if (currentQuestionId === null) return questionIds[0] ?? null
+  const currentIndex = questionIds.indexOf(currentQuestionId)
+  if (currentIndex < 0) return null
+  return questionIds[currentIndex + 1] ?? null
+}
+
+export function firstReviewQuestionAfterIdeaSave(args: {
+  questionIds: readonly string[]
+  reviewSequenceActive: boolean
+  savedDraftVersion: number
+  submittedDraftVersion: number
+}) {
+  if (
+    !args.reviewSequenceActive ||
+    args.savedDraftVersion !== args.submittedDraftVersion
+  ) return null
+  return nextReviewQuestionId(args.questionIds, null)
+}
+
+export function nextReviewQuestionAfterAnswerSave(args: {
+  currentQuestionId: string
+  questionIds: readonly string[]
+  reviewSequenceActive: boolean
+  savedDraftVersion: number
+  submittedDraftVersion: number
+}) {
+  if (
+    !args.reviewSequenceActive ||
+    args.savedDraftVersion !== args.submittedDraftVersion
+  ) return null
+  return nextReviewQuestionId(args.questionIds, args.currentQuestionId)
+}
+
 export type WorkingCopyReconciliation =
   | { kind: 'unchanged' }
   | { kind: 'acknowledge'; revision: number }

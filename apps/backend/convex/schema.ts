@@ -1692,6 +1692,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_team", ["teamId"])
+    .index("by_team_base_version", ["teamId", "baseDraftVersion"])
     .index("by_team_kind_question", ["teamId", "kind", "questionId"]),
 
   intakeAnswerVersions: defineTable({

@@ -113,6 +113,7 @@ import type * as lib_intakeEditingPresence from "../lib/intakeEditingPresence.js
 import type * as lib_intakePolicy from "../lib/intakePolicy.js";
 import type * as lib_intakeQuestionModel from "../lib/intakeQuestionModel.js";
 import type * as lib_intakeQuestions from "../lib/intakeQuestions.js";
+import type * as lib_intakeWorkingFields from "../lib/intakeWorkingFields.js";
 import type * as lib_integrationPolicy from "../lib/integrationPolicy.js";
 import type * as lib_intelligenceRecommendationValidators from "../lib/intelligenceRecommendationValidators.js";
 import type * as lib_intelligenceServiceConfiguration from "../lib/intelligenceServiceConfiguration.js";
@@ -377,6 +378,7 @@ declare const fullApi: ApiFromModules<{
   "lib/intakePolicy": typeof lib_intakePolicy;
   "lib/intakeQuestionModel": typeof lib_intakeQuestionModel;
   "lib/intakeQuestions": typeof lib_intakeQuestions;
+  "lib/intakeWorkingFields": typeof lib_intakeWorkingFields;
   "lib/integrationPolicy": typeof lib_integrationPolicy;
   "lib/intelligenceRecommendationValidators": typeof lib_intelligenceRecommendationValidators;
   "lib/intelligenceServiceConfiguration": typeof lib_intelligenceServiceConfiguration;
