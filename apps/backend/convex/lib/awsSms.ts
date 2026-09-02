@@ -61,14 +61,14 @@ export function readAwsSmsConfiguration(
       "Registered India SMS routes must use ap-south-1 or ap-south-2.",
     );
   }
+  // The code may appear more than once: origin-bound autofill (WebOTP on
+  // Android, domain-bound codes on iOS) needs a final line of the form
+  // "@c2c.acmvit.in #{{code}}" after the human-readable sentence.
   const messageTemplate =
     optional(environment, "PHONE_VERIFICATION_MESSAGE_TEMPLATE") ?? defaultMessageTemplate;
-  if (
-    messageTemplate.length > 320 ||
-    messageTemplate.split("{{code}}").length !== 2
-  ) {
+  if (messageTemplate.length > 320 || !messageTemplate.includes("{{code}}")) {
     throw new Error(
-      "PHONE_VERIFICATION_MESSAGE_TEMPLATE must contain {{code}} exactly once and stay under 320 characters.",
+      "PHONE_VERIFICATION_MESSAGE_TEMPLATE must contain {{code}} and stay under 320 characters.",
     );
   }
   const sessionToken = optional(environment, "SMS_AWS_SESSION_TOKEN");
@@ -87,7 +87,7 @@ export function readAwsSmsConfiguration(
 }
 
 export function buildPhoneVerificationMessage(template: string, code: string) {
-  return template.replace("{{code}}", code);
+  return template.replaceAll("{{code}}", code);
 }
 
 export function phoneVerificationSmsRequest(args: {

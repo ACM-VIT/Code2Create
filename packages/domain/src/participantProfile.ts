@@ -8,14 +8,11 @@ const obviousPhoneSequences = new Set([
   "0987654321",
 ]);
 
-/**
- * Temporary event-level product switches that must agree in the participant UI
- * and backend. Turn this back on when SMS verification is ready to ship.
- */
+/** Product switches that must agree in the participant UI and backend. */
 export const participantProfileCodeConfiguration: Readonly<{
   phoneVerificationEnabled: boolean;
 }> = {
-  phoneVerificationEnabled: false,
+  phoneVerificationEnabled: true,
 };
 
 export function normalizeParticipantName(value: string) {

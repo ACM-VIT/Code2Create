@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { AccountBadge } from '../components/portal/AccountBadge'
 import { ClassCard } from '../components/portal/ClassCard'
 import { FadeText } from '../components/portal/FadeText'
+import { PhoneCodePanel } from '../components/portal/PhoneCodePanel'
 import { PetalCard } from '../components/portal/PetalCard'
 import { Petal } from '../components/portal/Petal'
 import { PortalButton, PortalTextButton, PortalTickButton } from '../components/portal/PortalButton'
@@ -10,6 +11,7 @@ import {
   PortalError,
   PortalField,
   PortalInput,
+  PortalInputTick,
   PortalSelect,
   PortalTextarea,
 } from '../components/portal/PortalField'
@@ -230,6 +232,140 @@ function IdeaCard({ children, footer }: { children: ReactNode; footer: ReactNode
   )
 }
 
+/**
+ * The details form walking the phone flow on its own: send, type the texted
+ * code (000000 comes back wrong), and land on the verified tick.
+ */
+function DetailsFixture({ initialPhase }: { initialPhase: 'idle' | 'verified' }) {
+  const [phase, setPhase] = useState<'idle' | 'sent' | 'verified'>(initialPhase)
+  const [code, setCode] = useState('')
+  const [shake, setShake] = useState(0)
+  const [error, setError] = useState<string | null>(null)
+  const verified = phase === 'verified'
+  return (
+    <PortalScene tree="right" header={account}>
+      <div className="flex w-full max-w-[640px] flex-col items-center">
+        <h1 className="mb-7 text-center font-display font-normal tracking-[-.01em] text-3xl text-shadow-[0_4px_30px_var(--scene-text-glow)] lg:text-[40px]">
+          A few details, once.
+        </h1>
+        <PetalCard className="px-6 pt-6 pb-4 lg:px-[30px]">
+          <div className="grid grid-cols-1 gap-x-4 gap-y-3.5 sm:grid-cols-2">
+            <PortalField label="full name" hint="verified">
+              {(id) => <PortalInput id={id} readOnly value="Ananya Iyer" />}
+            </PortalField>
+            <PortalField label="phone" {...(verified ? { hint: 'verified' } : {})}>
+              {(id) => (
+                <div className="flex items-stretch gap-2">
+                  <div className="relative min-w-0 flex-1">
+                    <PortalInput
+                      id={id}
+                      type="tel"
+                      className={`min-w-0 ${verified ? 'pr-10' : ''}`}
+                      defaultValue="+919876543210"
+                    />
+                    {verified ? <PortalInputTick /> : null}
+                  </div>
+                  {phase === 'idle' ? (
+                    <PortalButton
+                      type="button"
+                      size="xs"
+                      className="shrink-0 px-4"
+                      onClick={() => setPhase('sent')}
+                    >
+                      Send code
+                    </PortalButton>
+                  ) : null}
+                </div>
+              )}
+            </PortalField>
+            {phase !== 'sent' ? null : (
+              <div className="sm:col-span-2">
+                <PhoneCodePanel
+                  maskedPhone="••••3210"
+                  state="sent"
+                  canVerify
+                  expiresInMs={9 * 60_000 + 41_000}
+                  resendInMs={42_000}
+                  code={code}
+                  onCodeChange={(next) => {
+                    setError(null)
+                    setCode(next)
+                  }}
+                  onVerify={(entered) => {
+                    setCode('')
+                    if (entered === '000000') {
+                      setShake((count) => count + 1)
+                      setError('wrong code · 4 tries left')
+                      return
+                    }
+                    setPhase('verified')
+                  }}
+                  onResend={noop}
+                  busy={false}
+                  error={error}
+                  shakeKey={shake}
+                />
+              </div>
+            )}
+            <PortalField label="gender">
+              {(id) => (
+                <PortalSelect id={id} value="female" onValueChange={noop}>
+                  <option value="female">Female</option>
+                </PortalSelect>
+              )}
+            </PortalField>
+            <PortalField label="college or university" hint="fixed">
+              {(id) => <PortalInput id={id} readOnly value="Vellore Institute of Technology, Vellore" />}
+            </PortalField>
+            <PortalField label="year of study" hint="auto">
+              {(id) => <PortalInput id={id} readOnly value="Third year" />}
+            </PortalField>
+            <PortalField label="registration number" hint="verified">
+              {(id) => <PortalInput id={id} className="font-mono" readOnly value="23BCE1847" />}
+            </PortalField>
+            <PortalField label="programme code" hint="auto">
+              {(id) => <PortalInput id={id} readOnly value="BCE" />}
+            </PortalField>
+            <PortalField label="residence">
+              {(id) => (
+                <PortalSelect id={id} value="hosteller" onValueChange={noop}>
+                  <option value="hosteller">Hosteller</option>
+                </PortalSelect>
+              )}
+            </PortalField>
+            <PortalField label="hostel block">
+              {(id) => (
+                <PortalSelect id={id} value="lh_s" onValueChange={noop}>
+                  <option value="lh_s">Ladies' hostel · S block</option>
+                </PortalSelect>
+              )}
+            </PortalField>
+            <PortalField label="room number">
+              {(id) => <PortalInput id={id} className="font-mono" defaultValue="412" />}
+            </PortalField>
+          </div>
+          <div className="mt-4.5 border-t border-petal-line pt-4">
+            <PortalCheckRow checked onChange={noop}>
+              I accept the{' '}
+              <span className="text-rose-light underline decoration-rose-light/50 decoration-1 underline-offset-2">
+                participant policy
+              </span>{' '}
+              and the{' '}
+              <span className="text-rose-light underline decoration-rose-light/50 decoration-1 underline-offset-2">
+                privacy notice
+              </span>
+            </PortalCheckRow>
+          </div>
+          <div className="mt-3.5 flex items-center justify-between border-t border-petal-line pt-3.5">
+            <span className="text-xs text-fg/45">saved when you continue</span>
+            <PortalButton size="sm">Continue</PortalButton>
+          </div>
+        </PetalCard>
+      </div>
+    </PortalScene>
+  )
+}
+
 const screens: Record<string, () => ReactNode> = Object.fromEntries(
   ([
   ['f0a', () => (
@@ -268,67 +404,8 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
         </div>
       </PortalScene>
     )],
-  ['f0b', () => (
-      <PortalScene tree="right" header={account}>
-        <div className="flex w-full max-w-[640px] flex-col items-center">
-          <h1 className="mb-7 text-center font-display font-normal tracking-[-.01em] text-3xl lg:text-[40px]">
-            A few details, once.
-          </h1>
-          <PetalCard className="px-6 pt-[26px] pb-[18px] lg:px-[30px]">
-            <div className="grid grid-cols-1 gap-x-4 gap-y-3.5 sm:grid-cols-2">
-              <PortalField label="full name">
-                {(id) => <PortalInput id={id} defaultValue="Ananya Iyer" />}
-              </PortalField>
-              <PortalField label="preferred name" hint="optional">
-                {(id) => <PortalInput id={id} placeholder="what should we call you?" />}
-              </PortalField>
-              <PortalField label="registration number">
-                {(id) => <PortalInput id={id} className="font-mono" defaultValue="23BCE1847" />}
-              </PortalField>
-              <PortalField label="year of study">
-                {(id) => (
-                  <PortalSelect id={id} value="third" onValueChange={noop}>
-                    <option value="third">Third year</option>
-                  </PortalSelect>
-                )}
-              </PortalField>
-              <PortalField label="programme">
-                {(id) => <PortalInput id={id} defaultValue="B.Tech CSE" />}
-              </PortalField>
-              <PortalField label="campus">
-                {(id) => <PortalInput id={id} defaultValue="Vellore" />}
-              </PortalField>
-              <PortalField label="hostel">
-                {(id) => (
-                  <PortalSelect id={id} value="lh_s" onValueChange={noop}>
-                    <option value="lh_s">Ladies' hostel · S block</option>
-                  </PortalSelect>
-                )}
-              </PortalField>
-              <PortalField label="room number">
-                {(id) => <PortalInput id={id} className="font-mono" defaultValue="412" />}
-              </PortalField>
-            </div>
-            <div className="mt-4.5 border-t border-petal-line pt-4">
-              <PortalCheckRow checked onChange={noop}>
-                I accept the{' '}
-                <span className="text-rose-light underline decoration-rose-light/50 decoration-1 underline-offset-2">
-                  participant policy
-                </span>{' '}
-                and the{' '}
-                <span className="text-rose-light underline decoration-rose-light/50 decoration-1 underline-offset-2">
-                  privacy notice
-                </span>
-              </PortalCheckRow>
-            </div>
-            <div className="mt-3.5 flex items-center justify-between border-t border-petal-line pt-3.5">
-              <span className="text-xs text-fg/45">saved when you continue</span>
-              <PortalButton size="sm">Continue</PortalButton>
-            </div>
-          </PetalCard>
-        </div>
-      </PortalScene>
-    )],
+  ['f0b', () => <DetailsFixture key="idle" initialPhase="idle" />],
+  ['f0bv', () => <DetailsFixture key="verified" initialPhase="verified" />],
   ['f0d', () => (
       <PortalScene tree="both" header={account}>
         <div className="flex w-full max-w-[640px] flex-col items-center text-center">

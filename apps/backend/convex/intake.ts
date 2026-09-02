@@ -1798,6 +1798,7 @@ export const reviseFollowUp = mutation({
     questionId: v.id("intakeGeneratedQuestions"),
     answer: v.string(),
     expectedDraftVersion: v.number(),
+    expectedWorkingRevision: v.number(),
     clientOperationId: v.string(),
   },
   returns: v.object({ draftVersion: v.number() }),
@@ -1807,6 +1808,7 @@ export const reviseFollowUp = mutation({
       team._id,
       args.questionId,
       args.expectedDraftVersion,
+      args.expectedWorkingRevision,
       args.answer,
     ]);
     const replay = await replayDraftOperation(
@@ -1852,12 +1854,24 @@ export const reviseFollowUp = mutation({
       policy.followUpAnswerMaxLength,
     );
     const unchanged = response.answer?.value === answer;
+    const workingField = await findWorkingField(ctx, team._id, {
+      kind: "follow_up",
+      questionId: response.question._id,
+    });
+    const workingValue = workingField?.value.trim().replace(/\r\n/g, "\n");
+    if (
+      (workingField?.revision ?? 0) !== args.expectedWorkingRevision ||
+      (workingField !== null && workingValue !== answer) ||
+      (!workingField && !unchanged)
+    ) {
+      throw new ConvexError({
+        code: "WORKING_FIELD_CHANGED",
+        message: "A teammate saved newer text in this field. Your text is still here.",
+      });
+    }
     const now = Date.now();
     if (unchanged) {
-      await deleteWorkingField(ctx, team._id, {
-        kind: "follow_up",
-        questionId: response.question._id,
-      });
+      if (workingField) await ctx.db.delete(workingField._id);
       await recordDraftOperation(ctx, {
         eventId: event._id,
         personId: person._id,

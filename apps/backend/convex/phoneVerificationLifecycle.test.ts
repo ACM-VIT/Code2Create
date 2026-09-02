@@ -27,8 +27,8 @@ const betterAuthModules = import.meta.glob(
 type BackendTest = TestConvex<typeof schema>;
 
 describe("participant phone verification lifecycle", () => {
-  test("keeps the idempotent OTP lifecycle available while profile verification is disabled", async () => {
-    expect(participantProfileCodeConfiguration.phoneVerificationEnabled).toBe(false);
+  test("requires the verified phone and keeps the OTP lifecycle idempotent", async () => {
+    expect(participantProfileCodeConfiguration.phoneVerificationEnabled).toBe(true);
     const backend = testBackend();
     const fixture = await seedParticipant(backend);
     const participant = backend.withIdentity({
@@ -102,6 +102,9 @@ describe("participant phone verification lifecycle", () => {
       verificationId: queued.verificationId,
       maskedPhone: "••••0000",
     });
+    if (verified.outcome !== "verified") {
+      throw new Error("The valid phone code was not accepted.");
+    }
     await expect(participant.query(api.phoneVerifications.status, {
       eventSlug: fixture.eventSlug,
       phone: "+919000000000",
@@ -119,17 +122,31 @@ describe("participant phone verification lifecycle", () => {
     };
     await expect(participant.mutation(api.participants.saveProfile, {
       ...profileArgs,
+      phone: "+91 90000 00000",
+      clientOperationId: "profile-without-verification",
+    })).rejects.toThrow("Verify this phone number");
+    await expect(participant.mutation(api.participants.saveProfile, {
+      ...profileArgs,
       phone: "+91 80000 00000",
-      clientOperationId: "profile-with-verification-disabled",
+      phoneVerificationId: queued.verificationId,
+      clientOperationId: "profile-with-mismatched-verification",
+    })).rejects.toThrow("Verify this phone number");
+    await expect(participant.mutation(api.participants.saveProfile, {
+      ...profileArgs,
+      phone: "+91 90000 00000",
+      phoneVerificationId: queued.verificationId,
+      clientOperationId: "profile-with-verification",
     })).resolves.toMatchObject({ profileVersion: 1 });
     await backend.run(async (ctx) => {
       const profile = await ctx.db
         .query("participantProfiles")
         .withIndex("by_membership", (index) => index.eq("membershipId", fixture.membershipId))
         .unique();
-      expect(profile).toMatchObject({ phone: "+918000000000" });
-      expect(profile?.phoneVerificationId).toBeUndefined();
-      expect(profile?.phoneVerifiedAt).toBeUndefined();
+      expect(profile).toMatchObject({
+        phone: "+919000000000",
+        phoneVerificationId: queued.verificationId,
+        phoneVerifiedAt: verified.verifiedAt,
+      });
     });
   });
 

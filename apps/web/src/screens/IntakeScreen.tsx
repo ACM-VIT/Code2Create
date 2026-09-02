@@ -138,6 +138,7 @@ type ReviewFollowUp = SubmissionPreview['followUps'][number]
 type PendingReviewAnswer = {
   questionId: ReviewFollowUp['id']
   submittedDraftVersion: number
+  submittedWorkingRevision: number
   sequenceActive: boolean
 }
 
@@ -1036,6 +1037,7 @@ function IntakeWorkspace({
     const pending = {
       questionId: followUp.id,
       submittedDraftVersion: reviewAnswerEdit.baseDraftVersion,
+      submittedWorkingRevision: reviewWorkingRevision.current,
       sequenceActive: reviewSequenceActive,
     } satisfies PendingReviewAnswer
     const submittedAnswer = reviewAnswerEdit.value
@@ -1048,6 +1050,7 @@ function IntakeWorkspace({
           questionId: followUp.id,
           answer: submittedAnswer,
           expectedDraftVersion: pending.submittedDraftVersion,
+          expectedWorkingRevision: pending.submittedWorkingRevision,
           clientOperationId,
         }))
         if (!isReviewAnswerResult(result)) {

@@ -575,6 +575,26 @@ describe("participant intake lifecycle", () => {
       baseCommittedValue: secondFixedAnswer,
       expectedRevision: 0,
     });
+    await expect(participant.mutation(api.intake.reviseFollowUp, {
+      eventSlug: fixture.eventSlug,
+      questionId: secondFixedQuestionId,
+      answer: secondFixedAnswer,
+      expectedDraftVersion: reviewReadyAfterIdeaRegeneration.draftVersion,
+      expectedWorkingRevision: 0,
+      clientOperationId: "intake-unchanged-follow-up-with-teammate-draft",
+    })).rejects.toThrow("newer text");
+    await expect(participant.query(api.intake.current, {
+      eventSlug: fixture.eventSlug,
+    })).resolves.toMatchObject({
+      workingFields: expect.arrayContaining([
+        expect.objectContaining({
+          kind: "follow_up",
+          questionId: secondFixedQuestionId,
+          value: teammateSecondAnswerDraft,
+          revision: 1,
+        }),
+      ]),
+    });
     const revisedFirstFollowUpAnswer =
       `${firstFollowUpAnswer} The first release focuses on mobility requests.`;
     await participant.mutation(api.intake.autosaveWorkingField, {
@@ -621,6 +641,7 @@ describe("participant intake lifecycle", () => {
       questionId: firstAnsweredQuestion.id,
       answer: revisedFirstFollowUpAnswer,
       expectedDraftVersion: reviewReadyAfterIdeaRegeneration.draftVersion,
+      expectedWorkingRevision: 2,
       clientOperationId: "intake-follow-up-revise",
     });
     await expect(participant.query(api.intake.current, {

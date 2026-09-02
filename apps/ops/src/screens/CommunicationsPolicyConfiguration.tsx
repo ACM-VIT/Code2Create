@@ -377,20 +377,20 @@ export function CommunicationsPolicyConfiguration({
                     }}
                   >
                     <span>{participantEmailTemplateLabels[templateKey]}</span>
-                    <small>{policy.emailTemplates.find((template) => template.templateKey === templateKey)?.assetBundleId ? 'HTML bundle' : 'HTML + text'}</small>
+                    <small>{policy.emailTemplates.find((template) => template.templateKey === templateKey)?.assetBundleId ? 'bundle' : 'html + text'}</small>
                   </button>
                 ))}
               </nav>
               <div className="email-template-editor">
-                <div className="section-heading">
-                  <div>
-                    <p className="eyebrow">{participantEmailTemplateLabels[selectedEmail]}</p>
-                    <h3>Email content</h3>
-                  </div>
+                <div className="section-heading email-template-heading">
+                  <h3>{participantEmailTemplateLabels[selectedEmail]}</h3>
                   <span className="tag">Cloudflare Email Service</span>
                 </div>
                 <p className="muted email-placeholder-help">
-                  Available fields: {'{{participant_name}}'}, {'{{team_name}}'}, {'{{event_name}}'}, and {'{{portal_url}}'}.
+                  Fields you can use:{' '}
+                  {(['participant_name', 'team_name', 'event_name', 'portal_url'] as const).map((field) => (
+                    <code key={field}>{`{{${field}}}`}</code>
+                  ))}
                 </p>
                 <label className="field">
                   <span>Subject</span>

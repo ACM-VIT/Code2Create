@@ -9,6 +9,7 @@ C2C_REPOSITORY_ROOT="$(
   pwd
 )"
 C2C_ENV_FILE="$(mktemp)"
+C2C_PHONE_VERIFICATION_MESSAGE_TEMPLATE=$'Your Code2Create verification code is {{code}}. It expires in 10 minutes. Do not share it.\n\n@c2c.sh #{{code}}'
 
 cleanup() {
   rm -f "${C2C_ENV_FILE}"
@@ -69,6 +70,8 @@ EOF
 (
   cd "${C2C_REPOSITORY_ROOT}/apps/backend"
   pnpm exec convex env set --from-file "${C2C_ENV_FILE}" --force
+  printf '%s' "${C2C_PHONE_VERIFICATION_MESSAGE_TEMPLATE}" \
+    | pnpm exec convex env set PHONE_VERIFICATION_MESSAGE_TEMPLATE
 )
 
 echo "Configured the production Convex environment. No event or application window was changed."

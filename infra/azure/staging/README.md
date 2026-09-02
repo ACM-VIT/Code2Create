@@ -52,6 +52,15 @@ sandbox before codes can be sent to unverified participant numbers. A local
 India route additionally requires an approved sender ID, entity ID, and exact
 message template ID.
 
+Set `PHONE_VERIFICATION_MESSAGE_TEMPLATE` to the following value so OTP
+autofill is bound to the participant Worker's exact hostname:
+
+```text
+Your Code2Create verification code is {{code}}. It expires in 10 minutes. Do not share it.
+
+@code2create-participant-staging.acmvit.workers.dev #{{code}}
+```
+
 The participant and operations Workers were deployed manually with the Azure
 origins above. Cloudflare currently reports no Git build trigger for either
 Worker, so a repository push cannot replace these deployments until those

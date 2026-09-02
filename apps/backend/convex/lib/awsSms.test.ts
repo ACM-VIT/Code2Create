@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import {
+  buildPhoneVerificationMessage,
   phoneVerificationSmsRequest,
   readAwsSmsConfiguration,
 } from "./awsSms";
@@ -71,14 +72,24 @@ describe("AWS phone verification SMS", () => {
     })).toThrow("ap-south-1 or ap-south-2");
   });
 
-  test("requires exactly one code placeholder in a bounded message", () => {
+  test("requires the code placeholder in a bounded message, allowing an origin-bound repeat", () => {
     expect(() => readAwsSmsConfiguration({
       ...baseEnvironment,
-      PHONE_VERIFICATION_MESSAGE_TEMPLATE: "Code {{code}} and {{code}}",
-    })).toThrow("contain {{code}} exactly once");
+      PHONE_VERIFICATION_MESSAGE_TEMPLATE: "Code {{code}}.\n\n@c2c.sh #{{code}}",
+    })).not.toThrow();
     expect(() => readAwsSmsConfiguration({
       ...baseEnvironment,
       PHONE_VERIFICATION_MESSAGE_TEMPLATE: "No verification value",
-    })).toThrow("contain {{code}} exactly once");
+    })).toThrow("contain {{code}}");
+    expect(() => readAwsSmsConfiguration({
+      ...baseEnvironment,
+      PHONE_VERIFICATION_MESSAGE_TEMPLATE: `Code {{code}} ${"x".repeat(320)}`,
+    })).toThrow("under 320 characters");
+  });
+
+  test("fills every code placeholder so the origin-bound line carries the same code", () => {
+    expect(
+      buildPhoneVerificationMessage("Code {{code}}.\n\n@c2c.sh #{{code}}", "482913"),
+    ).toBe("Code 482913.\n\n@c2c.sh #482913");
   });
 });

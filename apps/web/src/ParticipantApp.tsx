@@ -11,7 +11,7 @@ import { PetalCard } from './components/portal/PetalCard'
 import { PortalButton, PortalTextButton } from './components/portal/PortalButton'
 import { PortalError } from './components/portal/PortalField'
 import { PortalScene } from './components/portal/PortalScene'
-import { eventSlug } from './lib/config'
+import { clientConfiguration, eventSlug } from './lib/config'
 import { readableError } from './lib/errors'
 import { useOperationRunner } from './lib/operations'
 import { canLeaveByTeamRule, canLeaveCurrentTeam } from './lib/teamLeave'
@@ -99,11 +99,14 @@ export function ParticipantApp({
     />
   )
   if (!entryAllowed) {
+    const staging = clientConfiguration.deploymentEnvironment === 'staging'
     return (
       <PortalNotice
         header={gateHeader}
-        title="This account is not on the tester list."
-        body="Use one of the Google accounts invited to staging."
+        title={staging ? 'This account is not on the tester list.' : 'Registration not found.'}
+        body={staging
+          ? 'Use one of the Google accounts invited to staging.'
+          : 'Use the Google account registered for Code2Create.'}
       />
     )
   }

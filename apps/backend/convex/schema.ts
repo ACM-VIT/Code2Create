@@ -241,6 +241,9 @@ export default defineSchema({
     status: eventStatus,
     vitEmailDomains: v.array(v.string()),
     publishedParticipantPolicyId: v.optional(v.id("participantPolicyVersions")),
+    publishedParticipantEligibilityImportId: v.optional(
+      v.id("participantEligibilityImports"),
+    ),
     publishedEventPhaseScheduleId: v.optional(v.id("eventPhaseScheduleVersions")),
     publishedProjectCheckpointPlanId: v.optional(v.id("projectCheckpointPlanVersions")),
     publishedIntakePolicyId: v.optional(v.id("intakePolicyVersions")),
@@ -739,6 +742,45 @@ export default defineSchema({
     .index("by_event_status_created", ["eventId", "status", "createdAt"])
     .index("by_import_row", ["rosterImportId", "sourceRowNumber"])
     .index("by_claimed_person", ["eventId", "claimedByPersonId"]),
+
+  participantEligibilityImports: defineTable({
+    eventId: v.id("events"),
+    batchKey: v.string(),
+    status: v.union(
+      v.literal("preparing"),
+      v.literal("active"),
+      v.literal("superseded"),
+    ),
+    expectedExternalCount: v.number(),
+    expectedVitCount: v.number(),
+    externalSourceChecksum: v.string(),
+    vitSourceChecksum: v.string(),
+    createdAt: v.number(),
+    activatedAt: v.optional(v.number()),
+    supersededAt: v.optional(v.number()),
+  })
+    .index("by_event_batch", ["eventId", "batchKey"])
+    .index("by_event_status", ["eventId", "status"]),
+
+  participantEligibilityEntries: defineTable({
+    eventId: v.id("events"),
+    participantEligibilityImportId: v.id("participantEligibilityImports"),
+    participantClass,
+    identityKind: v.union(v.literal("email"), v.literal("vit_registration")),
+    identityNormalized: v.string(),
+    sourceRowNumber: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_import_identity", [
+      "participantEligibilityImportId",
+      "participantClass",
+      "identityNormalized",
+    ])
+    .index("by_import_class", [
+      "participantEligibilityImportId",
+      "participantClass",
+    ])
+    .index("by_event_import", ["eventId", "participantEligibilityImportId"]),
 
   teamRosterImports: defineTable({
     eventId: v.id("events"),

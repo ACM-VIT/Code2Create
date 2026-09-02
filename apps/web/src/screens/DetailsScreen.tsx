@@ -24,8 +24,10 @@ import {
   PortalError,
   PortalField,
   PortalInput,
+  PortalInputTick,
   PortalSelect,
 } from '../components/portal/PortalField'
+import { PhoneCodePanel } from '../components/portal/PhoneCodePanel'
 import { PortalScene } from '../components/portal/PortalScene'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
@@ -84,10 +86,6 @@ function institutionValidationError(value: string, label: string) {
   return null
 }
 
-function normalizeVerificationCode(value: string) {
-  return value.replace(/\D/gu, '').slice(0, 6)
-}
-
 /** VIT identity stays verified; external participants provide their event-facing name. */
 export function DetailsScreen({
   me,
@@ -134,6 +132,7 @@ export function DetailsScreen({
   )
   const [phoneActionBusy, setPhoneActionBusy] = useState(false)
   const [phoneActionError, setPhoneActionError] = useState<string | null>(null)
+  const [codeShake, setCodeShake] = useState(0)
   const [genderTouched, setGenderTouched] = useState(false)
   const [gender, setGender] = useState<ParticipantGender | ''>(existing?.gender ?? '')
   const [yearOfStudyTouched, setYearOfStudyTouched] = useState(false)
@@ -188,9 +187,10 @@ export function DetailsScreen({
     phoneVerificationState === 'verified'
       ? phoneVerification?.verificationId
       : locallyConfirmedPhone?.verificationId
-  const phoneCanVerify = Boolean(
-    phoneVerification?.canVerify && phoneVerificationState !== 'expired',
-  )
+  const phoneVerificationEnabled = participantProfileCodeConfiguration.phoneVerificationEnabled
+  const codePanelState =
+    phoneVerificationState && phoneVerificationState !== 'verified' ? phoneVerificationState : null
+  const codePanelOpen = phoneVerificationEnabled && codePanelState !== null
   const resendSeconds = phoneVerification
     ? Math.max(0, Math.ceil((phoneVerification.resendAvailableAt - now) / 1_000))
     : 0
@@ -258,10 +258,11 @@ export function DetailsScreen({
     }
   }
 
-  const confirmPhoneCode = async () => {
+  const confirmPhoneCode = async (code: string) => {
     setPhoneVerificationTouched(true)
-    if (!phoneVerification || verificationCode.length !== 6) {
-      setPhoneActionError('Enter the six-digit code from the text message.')
+    if (phoneActionBusy) return
+    if (!phoneVerification || code.length !== 6) {
+      setPhoneActionError('enter the six digits from the text message')
       return
     }
     setPhoneActionBusy(true)
@@ -273,18 +274,20 @@ export function DetailsScreen({
           verifyPhone({
             eventSlug,
             verificationId: phoneVerification.verificationId,
-            code: verificationCode,
+            code,
             clientOperationId,
           }),
       )) as Awaited<ReturnType<typeof verifyPhone>>
       if (result.outcome === 'incorrect') {
+        setCodeShake((count) => count + 1)
         setPhoneActionError(
-          `That code is incorrect. ${result.attemptsRemaining} ${
-            result.attemptsRemaining === 1 ? 'attempt' : 'attempts'
-          } remaining.`,
+          `wrong code · ${result.attemptsRemaining} ${
+            result.attemptsRemaining === 1 ? 'try' : 'tries'
+          } left`,
         )
       } else if (result.outcome === 'locked') {
-        setPhoneActionError('Too many incorrect attempts. Request a new code.')
+        setCodeShake((count) => count + 1)
+        setPhoneActionError('too many wrong tries')
       } else if (normalizedPhone) {
         setConfirmedPhoneVerification({
           phone: normalizedPhone,
@@ -468,17 +471,17 @@ export function DetailsScreen({
 
                 <PortalField
                   label="phone"
-                  {...(participantProfileCodeConfiguration.phoneVerificationEnabled && phoneVerified
-                    ? { hint: 'verified' }
-                    : {})}
-                  error={phoneFieldError}
+                  {...(phoneVerificationEnabled && phoneVerified ? { hint: 'verified' } : {})}
+                  error={phoneFieldError ?? (codePanelOpen ? null : phoneActionError)}
                 >
                   {(id) => (
-                    <>
-                      <div className="flex items-stretch gap-2">
+                    <div className="flex items-stretch gap-2">
+                      <div className="relative min-w-0 flex-1">
                         <PortalInput
                           id={id}
-                          className="min-w-0"
+                          className={`min-w-0 ${
+                            phoneVerificationEnabled && phoneVerified ? 'pr-10' : ''
+                          }`}
                           aria-invalid={phoneFieldError !== null}
                           autoComplete="tel"
                           inputMode="tel"
@@ -500,103 +503,48 @@ export function DetailsScreen({
                             setPhone(event.currentTarget.value)
                           }}
                         />
-                        {participantProfileCodeConfiguration.phoneVerificationEnabled ? (
-                          <PortalButton
-                            type="button"
-                            size="xs"
-                            className="min-w-[88px] shrink-0 px-3"
-                            disabled={
-                              phoneActionBusy ||
-                              Boolean(phoneError) ||
-                              phoneVerified ||
-                              resendSeconds > 0
-                            }
-                            onClick={() => void sendPhoneCode()}
-                          >
-                            {phoneVerified
-                              ? 'Verified'
-                              : resendSeconds > 0
-                                ? phoneVerificationState === 'queued' ||
-                                  phoneVerificationState === 'sending'
-                                  ? 'Sending…'
-                                  : `Wait ${resendSeconds}s`
-                                : phoneVerification
-                                  ? 'Send again'
-                                  : 'Send code'}
-                          </PortalButton>
-                        ) : null}
+                        {phoneVerificationEnabled && phoneVerified ? <PortalInputTick /> : null}
                       </div>
-
-                      {phoneVerification &&
-                      phoneVerificationState !== 'verified' &&
-                      ['queued', 'sending', 'sent', 'send_failed'].includes(
-                        phoneVerificationState ?? '',
-                      ) ? (
-                        <div className="mt-2 flex items-stretch gap-2">
-                          <PortalInput
-                            aria-label="Six-digit phone verification code"
-                            className="min-w-0 font-mono tracking-[.2em]"
-                            autoComplete="one-time-code"
-                            disabled={!phoneCanVerify || phoneActionBusy}
-                            inputMode="numeric"
-                            maxLength={6}
-                            pattern="[0-9]{6}"
-                            placeholder="6-digit code"
-                            value={verificationCode}
-                            onChange={(event) => {
-                              setPhoneActionError(null)
-                              setVerificationCode(normalizeVerificationCode(event.target.value))
-                            }}
-                          />
-                          <PortalButton
-                            type="button"
-                            size="xs"
-                            className="min-w-[88px] shrink-0 px-3"
-                            disabled={
-                              !phoneCanVerify ||
-                              verificationCode.length !== 6 ||
-                              phoneActionBusy
-                            }
-                            onClick={() => void confirmPhoneCode()}
-                          >
-                            Verify
-                          </PortalButton>
-                        </div>
-                      ) : null}
-
-                      {phoneVerification ? (
-                        <p
-                          role="status"
-                          className={`mt-1.5 text-[11px] leading-snug ${
-                            phoneVerificationState === 'verified'
-                              ? 'text-rose-light'
-                              : 'text-fg/48'
-                          }`}
+                      {phoneVerificationEnabled && !phoneVerified && !codePanelOpen ? (
+                        <PortalButton
+                          type="button"
+                          size="xs"
+                          className="shrink-0 px-4"
+                          disabled={phoneActionBusy || Boolean(phoneError) || resendSeconds > 0}
+                          onClick={() => void sendPhoneCode()}
                         >
-                          {phoneVerificationState === 'verified'
-                            ? 'Phone verified.'
-                            : phoneVerificationState === 'queued' ||
-                                phoneVerificationState === 'sending'
-                              ? `Sending a code to ${phoneVerification.maskedPhone}.`
-                              : phoneVerificationState === 'sent'
-                                ? `Code sent to ${phoneVerification.maskedPhone}. It expires in 10 minutes.`
-                                : phoneVerificationState === 'send_failed'
-                                  ? phoneCanVerify
-                                    ? 'Delivery was not confirmed. If the code arrived, you can still use it.'
-                                    : 'We could not send the text message. Try again when the button is ready.'
-                                  : phoneVerificationState === 'locked'
-                                    ? 'Too many incorrect attempts. Send a new code.'
-                                    : 'That code expired. Send a new one.'}
-                        </p>
+                          {phoneActionBusy ? 'Sending…' : 'Send code'}
+                        </PortalButton>
                       ) : null}
-                      {phoneActionError ? (
-                        <p role="alert" className="mt-1.5 text-[11.5px] leading-snug text-rose-light">
-                          {phoneActionError}
-                        </p>
-                      ) : null}
-                    </>
+                    </div>
                   )}
                 </PortalField>
+
+                {codePanelOpen && codePanelState && phoneVerification ? (
+                  <div className="sm:col-span-2">
+                    <PhoneCodePanel
+                      maskedPhone={phoneVerification.maskedPhone}
+                      state={codePanelState}
+                      canVerify={phoneVerification.canVerify}
+                      expiresInMs={
+                        phoneVerification.expiresAt !== undefined
+                          ? phoneVerification.expiresAt - now
+                          : null
+                      }
+                      resendInMs={Math.max(0, phoneVerification.resendAvailableAt - now)}
+                      code={verificationCode}
+                      onCodeChange={(next) => {
+                        setPhoneActionError(null)
+                        setVerificationCode(next)
+                      }}
+                      onVerify={(code) => void confirmPhoneCode(code)}
+                      onResend={() => void sendPhoneCode()}
+                      busy={phoneActionBusy}
+                      error={phoneActionError}
+                      shakeKey={codeShake}
+                    />
+                  </div>
+                ) : null}
 
                 <PortalField label="gender" error={genderTouched ? genderError : null}>
                   {(id) => (

@@ -156,6 +156,7 @@ import type * as lib_operationsHealthSnapshot from "../lib/operationsHealthSnaps
 import type * as lib_operationsIntelligenceValidators from "../lib/operationsIntelligenceValidators.js";
 import type * as lib_outboundCalls from "../lib/outboundCalls.js";
 import type * as lib_participantAssistant from "../lib/participantAssistant.js";
+import type * as lib_participantEligibility from "../lib/participantEligibility.js";
 import type * as lib_participantNotificationDelivery from "../lib/participantNotificationDelivery.js";
 import type * as lib_participantPolicy from "../lib/participantPolicy.js";
 import type * as lib_permissionBundleEntries from "../lib/permissionBundleEntries.js";
@@ -227,6 +228,7 @@ import type * as outboundCalls from "../outboundCalls.js";
 import type * as participantAssistant from "../participantAssistant.js";
 import type * as participantAssistantActions from "../participantAssistantActions.js";
 import type * as participantCommunications from "../participantCommunications.js";
+import type * as participantEligibility from "../participantEligibility.js";
 import type * as participantEmail from "../participantEmail.js";
 import type * as participantEmailEvent from "../participantEmailEvent.js";
 import type * as participantNotificationState from "../participantNotificationState.js";
@@ -425,6 +427,7 @@ declare const fullApi: ApiFromModules<{
   "lib/operationsIntelligenceValidators": typeof lib_operationsIntelligenceValidators;
   "lib/outboundCalls": typeof lib_outboundCalls;
   "lib/participantAssistant": typeof lib_participantAssistant;
+  "lib/participantEligibility": typeof lib_participantEligibility;
   "lib/participantNotificationDelivery": typeof lib_participantNotificationDelivery;
   "lib/participantPolicy": typeof lib_participantPolicy;
   "lib/permissionBundleEntries": typeof lib_permissionBundleEntries;
@@ -496,6 +499,7 @@ declare const fullApi: ApiFromModules<{
   participantAssistant: typeof participantAssistant;
   participantAssistantActions: typeof participantAssistantActions;
   participantCommunications: typeof participantCommunications;
+  participantEligibility: typeof participantEligibility;
   participantEmail: typeof participantEmail;
   participantEmailEvent: typeof participantEmailEvent;
   participantNotificationState: typeof participantNotificationState;
