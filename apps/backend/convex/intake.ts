@@ -489,7 +489,8 @@ export const current = query({
         novelty,
         noveltySignal:
           draft.initialIdea &&
-          draft.noveltyEvaluatedInputFingerprint &&
+          draft.noveltyEvaluatedInputFingerprint
+            === noveltyInputFingerprint(draft.initialIdea) &&
           draft.noveltyScore !== undefined &&
           draft.noveltyBand &&
           draft.noveltyNearestThemeLabel &&

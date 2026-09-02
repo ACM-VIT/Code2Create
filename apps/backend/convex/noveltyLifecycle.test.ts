@@ -13,6 +13,7 @@ import {
   noveltyEmbeddingDimensions,
   noveltyEmbeddingModel,
   noveltyInputFingerprint,
+  noveltyScoringVersion,
   noveltyScoreForDensity,
   noveltySimilarityWeight,
   type NoveltyCorpusEntryInput,
@@ -110,6 +111,28 @@ describe("live novelty", () => {
   test("settles one request exactly once and replays its result idempotently", async () => {
     const backend = noveltyBackend();
     const fixture = await seedFixture(backend);
+    const legacyRequest = previewArgs(fixture, "novelty-request-legacy", fixture.idea);
+    const legacyBegun = await backend.mutation(internal.novelty.beginPreview, legacyRequest);
+    if (legacyBegun.kind !== "run") throw new Error("The legacy request did not start.");
+    await backend.run((ctx) => ctx.db.patch(legacyBegun.requestId, {
+      state: "succeeded",
+      score: 77,
+      band: "distinct",
+      effectiveSimilarTeams: 1,
+      comparedTeamCount: 1,
+      nearestSimilarity: 0.9,
+      nearestThemeLabel: "Campus service routing",
+      reflectionPrompt: "What happens after a volunteer accepts a request?",
+      latencyMs: 90,
+      completedAt: fixture.now,
+    }));
+    await expect(
+      backend.mutation(internal.novelty.beginPreview, legacyRequest),
+    ).resolves.toMatchObject({
+      kind: "complete",
+      result: { state: "unavailable" },
+    });
+
     const request = previewArgs(fixture, "novelty-request-0001", fixture.idea);
     const begun = await backend.mutation(internal.novelty.beginPreview, request);
     if (begun.kind !== "run") throw new Error("The novelty request did not start.");
@@ -125,6 +148,7 @@ describe("live novelty", () => {
       requestId: begun.requestId,
       inputFingerprint: begun.inputFingerprint,
       state: "succeeded",
+      agentVersion: noveltyScoringVersion,
       score: 74,
       band: "distinct",
       effectiveSimilarTeams: 1.1,
@@ -308,6 +332,7 @@ describe("live novelty", () => {
       requestId: begun.requestId,
       inputFingerprint: begun.inputFingerprint,
       state: "succeeded",
+      agentVersion: noveltyScoringVersion,
       score: 61,
       band: "developing",
       effectiveSimilarTeams: 2.2,
