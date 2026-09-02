@@ -140,14 +140,11 @@ export function SglangInterlude({
         {header}
         <DaybreakToggle />
       </div>
-      <div className="relative mx-auto flex w-full max-w-[760px] flex-1 flex-col justify-center pt-20 pb-14 text-center">
-        <h1 className="mb-6 font-display font-light tracking-[-.01em] text-balance text-[28px] leading-[1.25] lg:text-[38px]">
+      <div className="relative mx-auto flex w-full max-w-[760px] flex-1 flex-col justify-center pt-[76px] pb-10 text-center sm:pt-20 sm:pb-14">
+        <h1 className="mb-4 font-display font-light tracking-[-.01em] text-balance text-[24px] leading-[1.2] sm:mb-6 sm:text-[28px] sm:leading-[1.25] lg:text-[38px]">
           Star SGLang to continue
         </h1>
-        {/* Centred copy only reads evenly when each paragraph is short enough
-            to balance, so the measure stays tight and every one is three
-            lines at most. */}
-        <div className="mx-auto flex max-w-[620px] flex-col gap-5 text-[15px] leading-[1.7] text-fg/70">
+        <div className="mx-auto flex max-w-[620px] flex-col gap-3.5 text-[13.5px] leading-[1.6] text-fg/70 sm:gap-5 sm:text-[15px] sm:leading-[1.7]">
           <p className="m-0 text-balance">
             SGLang is the leading open-source inference engine, outperforming vLLM across many
             workloads and serving{' '}
@@ -176,11 +173,20 @@ export function SglangInterlude({
           <p className="m-0 text-balance">
             The SGLang team also generously sponsors{' '}
             <strong className="font-semibold text-fg/90">Code2Create</strong>, and all they ask is
-            that you take a few seconds to star the project.
+            that you take a few seconds to star{' '}
+            <a
+              href="https://github.com/sgl-project/sglang"
+              target="_blank"
+              rel="noreferrer"
+              className="font-semibold text-rose-light underline underline-offset-[3px]"
+            >
+              the SGLang repository on GitHub
+            </a>
+            .
           </p>
         </div>
 
-        <div className="mt-8 flex min-h-[96px] flex-col items-center gap-3.5">
+        <div className="mt-6 flex min-h-[96px] flex-col items-center gap-3.5 sm:mt-8">
           {state.connected && state.githubLogin ? (
             <p className="m-0 text-[13px] text-fg/55">connected as @{state.githubLogin}</p>
           ) : null}
@@ -229,7 +235,7 @@ export function SglangInterlude({
           )}
         </div>
 
-        <div className="mt-10 flex items-center justify-center gap-[26px] opacity-55">
+        <div className="mt-8 flex items-center justify-center gap-[26px] opacity-55 sm:mt-10">
           <span className="inline-flex items-center gap-[7px]">
             <img src="/assets/sglang-logo.png" alt="" className="w-5" />
             <span className="text-sm font-bold">SGLang</span>

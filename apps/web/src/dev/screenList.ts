@@ -9,6 +9,7 @@ export const GALLERY_SCREENS = [
   { id: 'f0c', label: 'Team start' },
   { id: 'f0e', label: 'Imported team choice' },
   { id: 'f1', label: 'Home · in progress' },
+  { id: 'f1b', label: 'Home · new team' },
   { id: 'f2', label: 'Idea' },
   { id: 'f3', label: 'Follow-up' },
   { id: 'f4', label: 'Follow-up · empty' },

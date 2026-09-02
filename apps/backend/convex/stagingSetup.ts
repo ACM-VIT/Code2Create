@@ -6,6 +6,12 @@ import type { DataModel, Doc } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
 import type { TableNamesInDataModel } from "convex/server";
 import { operationFingerprint } from "./lib/operations";
+import {
+  normalizeNoveltyCorpusEntries,
+  normalizeNoveltyPolicy,
+  noveltyCorpusChecksum,
+  noveltyEmbeddingDimensions,
+} from "./lib/novelty";
 import { normalizeEmail, normalizedText } from "./lib/strings";
 import { bootstrapEventInput, createInitialEvent } from "./system";
 
@@ -295,6 +301,140 @@ export const addSupremeTesters = internalMutation({
       testers: normalizedTesters(args.supremeTesters),
     });
     return { eventId: event._id, createdTesterRosterEntries };
+  },
+});
+
+export const adoptRestoredNoveltyCorpus = internalMutation({
+  args: {
+    eventSlug: v.string(),
+    corpusVersionId: v.id("noveltyCorpusVersions"),
+  },
+  returns: v.object({
+    eventId: v.id("events"),
+    corpusVersionId: v.id("noveltyCorpusVersions"),
+    entryCount: v.number(),
+    changed: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    requireStagingDeployment();
+    const event = await ctx.db
+      .query("events")
+      .withIndex("by_slug", (index) => index.eq("slug", args.eventSlug.trim()))
+      .unique();
+    if (!event) {
+      throw new ConvexError({
+        code: "STAGING_EVENT_NOT_FOUND",
+        message: "The staging event does not exist.",
+      });
+    }
+    const corpus = await ctx.db.get(args.corpusVersionId);
+    if (!corpus) {
+      throw new ConvexError({
+        code: "STAGING_NOVELTY_CORPUS_NOT_FOUND",
+        message: "Import the staging novelty corpus before adopting it.",
+      });
+    }
+    const entries = await ctx.db
+      .query("noveltyCorpusEntries")
+      .withIndex("by_corpus_source", (index) =>
+        index.eq("corpusVersionId", corpus._id),
+      )
+      .collect();
+    if (
+      corpus.embeddingDimensions !== noveltyEmbeddingDimensions ||
+      entries.length !== corpus.entryCount ||
+      entries.some(
+        (entry) =>
+          entry.embedding.length !== noveltyEmbeddingDimensions ||
+          entry.embedding.some((component) => !Number.isFinite(component)),
+      )
+    ) {
+      throw new ConvexError({
+        code: "INVALID_STAGING_NOVELTY_CORPUS",
+        message: "The restored staging novelty corpus is incomplete.",
+      });
+    }
+    const policy = normalizeNoveltyPolicy({
+      label: corpus.label,
+      minimumIdeaLength: corpus.minimumIdeaLength,
+      debounceMs: corpus.debounceMs,
+      maximumRequestsPerMinute: corpus.maximumRequestsPerMinute,
+      distinctSimilarityBoundary: corpus.distinctSimilarityBoundary,
+      commonSimilarityBoundary: corpus.commonSimilarityBoundary,
+      embeddingModel: corpus.embeddingModel,
+      embeddingDimensions: noveltyEmbeddingDimensions,
+    });
+    const normalizedEntries = normalizeNoveltyCorpusEntries(
+      entries.map((entry) => ({
+        sourceKey: entry.sourceKey,
+        sourceYear: entry.sourceYear,
+        themeLabel: entry.themeLabel,
+        summary: entry.summary,
+        reflectionPrompt: entry.reflectionPrompt,
+      })),
+      new Date().getUTCFullYear(),
+    );
+    const checksum = noveltyCorpusChecksum(policy, normalizedEntries);
+    if (corpus.checksum !== checksum) {
+      throw new ConvexError({
+        code: "INVALID_STAGING_NOVELTY_CORPUS",
+        message: "The restored staging novelty corpus checksum does not match.",
+      });
+    }
+    const actor = await stagingActor(ctx);
+    const alreadyAdopted =
+      event.publishedNoveltyCorpusVersionId === corpus._id &&
+      corpus.eventId === event._id &&
+      corpus.status === "published" &&
+      entries.every((entry) => entry.eventId === event._id);
+    if (alreadyAdopted) {
+      return {
+        eventId: event._id,
+        corpusVersionId: corpus._id,
+        entryCount: entries.length,
+        changed: false,
+      };
+    }
+
+    const now = Date.now();
+    const previousCorpusId = event.publishedNoveltyCorpusVersionId;
+    if (previousCorpusId && previousCorpusId !== corpus._id) {
+      const previousCorpus = await ctx.db.get(previousCorpusId);
+      if (previousCorpus) {
+        await ctx.db.patch(previousCorpus._id, {
+          status: "superseded",
+          updatedAt: now,
+        });
+      }
+    }
+    for (const entry of entries) {
+      if (entry.eventId !== event._id) {
+        await ctx.db.patch(entry._id, { eventId: event._id });
+      }
+    }
+    await ctx.db.patch(corpus._id, {
+      eventId: event._id,
+      status: "published",
+      importState: "ready",
+      activeImportOperationId: undefined,
+      activeImportFingerprint: undefined,
+      importFailureCategory: undefined,
+      createdByPersonId: actor._id,
+      lastEditedByPersonId: actor._id,
+      updatedAt: now,
+      publishedAt: corpus.publishedAt ?? now,
+    });
+    await ctx.db.patch(event._id, {
+      publishedNoveltyCorpusVersionId: corpus._id,
+      version: event.version + 1,
+      updatedAt: now,
+    });
+    return {
+      eventId: event._id,
+      corpusVersionId: corpus._id,
+      entryCount: entries.length,
+      changed: true,
+    };
   },
 });
 

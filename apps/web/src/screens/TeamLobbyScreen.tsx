@@ -8,6 +8,7 @@ import { PortalButton, PortalTextButton } from '../components/portal/PortalButto
 import { PortalError } from '../components/portal/PortalField'
 import { PortalScene } from '../components/portal/PortalScene'
 import { TeamCluster } from '../components/portal/TeamCluster'
+import { JoinCodeBar } from '../components/portal/JoinCodeBar'
 import { Flower } from '../components/portal/FlowerAvatar'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
@@ -88,7 +89,6 @@ export function TeamLobbyScreen({
   const operations = useOperationRunner<TeamOperationResult>()
   const [mode, setMode] = useState<LobbyMode>('view')
   const [busy, setBusy] = useState(false)
-  const [copied, setCopied] = useState<'code' | 'link' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [selectedMemberId, setSelectedMemberId] = useState<CurrentTeamMember['membershipId'] | null>(null)
   const currentTransfer = team.pendingLeadershipTransfer
@@ -151,17 +151,6 @@ export function TeamLobbyScreen({
       })),
     )
 
-  const copyCode = async (value: string, which: 'code' | 'link') => {
-    try {
-      await navigator.clipboard.writeText(value)
-      setCopied(which)
-      window.setTimeout(() => setCopied((current) => (current === which ? null : current)), 1800)
-    } catch {
-      setError('Copying is unavailable in this browser.')
-    }
-  }
-
-  const joinLink = `${window.location.origin}/join/${team.publicCode}`
   const openSeats = Math.max(0, team.teamMaximumSize - team.activeMemberCount)
   const picking = mode === 'transfer' || mode === 'remove'
   const selectedMember = members.find((member) => member.membershipId === selectedMemberId)
@@ -352,26 +341,7 @@ export function TeamLobbyScreen({
               </p>
             ) : null}
             {editable ? (
-          <div className="flex items-center gap-3 rounded-petal-sm glass-tile glass-active px-5 py-3 lg:gap-3.5 lg:px-6">
-            <span className="whitespace-nowrap font-mono text-[17px] tracking-[.14em] text-rose-light lg:text-[19px]">
-              {team.publicCode}
-            </span>
-            <span aria-hidden className="h-[18px] w-px bg-rose/40" />
-            <button
-              type="button"
-              onClick={() => void copyCode(team.publicCode, 'code')}
-              className="text-[13px] text-fg transition-colors hover:text-rose-light"
-            >
-              {copied === 'code' ? 'copied' : 'copy'}
-            </button>
-            <button
-              type="button"
-              onClick={() => void copyCode(joinLink, 'link')}
-              className="whitespace-nowrap text-[13px] text-fg transition-colors hover:text-rose-light"
-            >
-              {copied === 'link' ? 'copied' : 'share link'}
-            </button>
-          </div>
+          <JoinCodeBar code={team.publicCode} />
             ) : null}
           </>
         )}

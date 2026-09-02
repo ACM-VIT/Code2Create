@@ -22,6 +22,7 @@ import { SglangInterlude } from '../screens/SglangInterlude'
 import { ConfirmCard } from '../screens/TeamLobbyScreen'
 import { NoveltyPill, NoveltyReviewRow, ReviewEditRow } from '../screens/IntakeScreen'
 import { IdeaPromptsLink } from '../components/portal/IdeaPromptsSheet'
+import { JoinCodeBar } from '../components/portal/JoinCodeBar'
 import { BringTeamTool, GuideComposer, type ComposerConfirm } from '../components/guide/GuideComposer'
 import { GuideReasoning } from '../components/guide/GuideReasoning'
 import { GuideStage } from '../components/guide/GuideStage'
@@ -432,6 +433,47 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
         onJoin={noop}
         onKeep={noop}
       />
+    )],
+  ['f1b', () => (
+      <PortalScene tree="left" backdrop={<GpuSky />} onSignOut={noop} header={cluster} menu={teamMenu}>
+        <div className="flex w-full max-w-[1048px] flex-1 flex-col items-end justify-center pb-40">
+          <div className="flex max-w-[680px] flex-col items-end text-right">
+            <h1 className="mb-8 font-display font-light tracking-[-.01em] text-balance text-5xl leading-none lg:text-7xl">Start with the idea.</h1>
+            <PortalButton>Write it</PortalButton>
+            <div className="mt-9 flex flex-col items-end gap-2.5">
+              <p className="m-0 text-[12.5px] text-fg/55">
+                Just you so far · 3 seats open · <span className="text-rose-light">manage team</span>
+              </p>
+              <JoinCodeBar code="C2C-PCRN" />
+            </div>
+          </div>
+        </div>
+        <div className="absolute inset-x-5 bottom-8 z-[3] flex flex-col gap-3 sm:flex-row sm:gap-[18px] lg:inset-x-24 lg:bottom-14">
+          <div className="flex-1 rounded-petal-sm glass-tile px-5 py-4">
+            <p className="mb-[5px] text-[10.5px] font-semibold tracking-[.08em] text-fg/50">deadline</p>
+            <p className="m-0 font-display font-light tracking-[-.01em] text-[26px] text-rose-light">12 <span className="text-sm">days</span></p>
+          </div>
+          <div className="flex-1 rounded-petal-sm glass-tile px-5 py-4">
+            <p className="mb-2 text-[10.5px] font-semibold tracking-[.08em] text-fg/50">journey · 1 of 5</p>
+            <div className="flex items-start pt-1">
+              {(['idea', 'q1', 'q2', 'review', 'submit'] as const).map((label, index) => (
+                <div key={label} className="flex flex-1 flex-col items-center first:flex-none first:items-start last:flex-none last:items-end">
+                  <div className="flex w-full items-center">
+                    {index > 0 ? <span aria-hidden className="h-px flex-1 bg-rose/25" /> : null}
+                    <Petal size={15} state={index === 0 ? 'current' : 'todo'} />
+                    {index < 4 ? <span aria-hidden className="h-px flex-1 bg-rose/25" /> : null}
+                  </div>
+                  <span className={`mt-1 text-[9.5px] leading-none ${index === 0 ? 'font-semibold text-rose-light' : 'text-fg/35'}`}>{label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="flex-[1.4] rounded-petal-sm glass-tile px-5 py-4">
+            <p className="mb-[5px] text-[10.5px] font-semibold tracking-[.08em] text-fg/50">editable until</p>
+            <p className="m-0 font-ui text-[14.5px] text-fg">Thu, Sep 25, 6:00 PM</p>
+          </div>
+        </div>
+      </PortalScene>
     )],
   ['f2', () => (
       <PortalScene tree="left" onSignOut={noop} header={cluster} menu={teamMenu}>

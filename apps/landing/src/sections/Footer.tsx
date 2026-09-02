@@ -4,8 +4,7 @@ import { JOURNEY_STOPS, leapTo } from '../lib/journeyLeap.js';
 import { eventRegistrationUrl } from '../lib/config.js';
 import './footer.css';
 
-/* Three columns, per the Figma frame — but with live destinations: journey
-   leaps for the pinned chapters, real URLs for everything off the page. */
+/* Journey links stay on the page; external links open in a new tab. */
 const groups: {
   title: string
   items: { label: string; at?: number; href?: string }[]
@@ -37,6 +36,13 @@ const groups: {
     items: [
       { label: 'Website', href: 'https://acmvit.in' },
       { label: 'GitHub', href: 'https://github.com/ACM-VIT' },
+    ],
+  },
+  {
+    title: 'Policies',
+    items: [
+      { label: 'Participant policy', href: '/policy' },
+      { label: 'Privacy notice', href: '/privacy' },
     ],
   },
 ];
@@ -71,10 +77,15 @@ export default function Footer() {
               <ul>
                 {group.items.map((item) => {
                   const chapterAt = item.at;
+                  const opensNewTab = item.href?.startsWith('http') ?? false;
                   return (
                     <li key={item.label}>
                       {chapterAt === undefined ? (
-                        <a href={item.href} target="_blank" rel="noreferrer">
+                        <a
+                          href={item.href}
+                          target={opensNewTab ? '_blank' : undefined}
+                          rel={opensNewTab ? 'noreferrer' : undefined}
+                        >
                           {item.label}
                         </a>
                       ) : (
