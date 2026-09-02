@@ -929,12 +929,17 @@ function ProposalSummary({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const { editors, markEditing, stopEditing } = useEditingPresence(canEdit && editing)
+  const noveltyIdea = editing ? draft.initialIdea : intake.project.initialIdea
   const noveltyState = useNoveltyPreview({
-    idea: draft.initialIdea,
-    ideaLength: normalizedIdeaLength(draft.initialIdea),
+    idea: noveltyIdea,
+    ideaLength: normalizedIdeaLength(noveltyIdea),
     active: canEdit && editing,
     config: intake.novelty,
-    saved: { idea: undefined, score: null, band: null },
+    saved: {
+      idea: intake.noveltySignal ? intake.project.initialIdea : undefined,
+      score: intake.noveltySignal?.score ?? null,
+      band: intake.noveltySignal?.band ?? null,
+    },
   })
 
   useEffect(() => {
@@ -1080,13 +1085,14 @@ function ProposalSummary({
             <div>
               <p className="text-[15px] font-semibold text-fg/85">Idea comparison</p>
               <p className="mt-0.5 text-[11.5px] text-fg/45">
-                Updates while you edit your idea
+                {editing ? 'Updates while you edit your idea' : 'Compared with past and current projects'}
               </p>
             </div>
             <NoveltyPill
               state={noveltyState}
-              currentLength={normalizedIdeaLength(draft.initialIdea)}
+              currentLength={normalizedIdeaLength(noveltyIdea)}
               minimumLength={intake.novelty.minimumIdeaLength}
+              idleLabel={editing ? 'keep writing' : 'score unavailable'}
             />
           </div>
         ) : null}

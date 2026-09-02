@@ -34,7 +34,10 @@ import {
   participantPolicyFromDocument,
 } from "./lib/participantPolicy";
 import { normalizeEmail, normalizedLongText } from "./lib/strings";
-import { noveltyInputFingerprint } from "./lib/novelty";
+import {
+  isCurrentNoveltyScoringVersion,
+  noveltyInputFingerprint,
+} from "./lib/novelty";
 import { invalidateTeamNoveltyIndex } from "./lib/noveltyIndex";
 import {
   intakePolicyChecksum,
@@ -93,6 +96,44 @@ function normalizedAdditionalInformation(value: string) {
   return normalized || undefined;
 }
 
+const participantNoveltySignal = v.object({
+  score: v.number(),
+  band: v.union(
+    v.literal("familiar"),
+    v.literal("developing"),
+    v.literal("distinct"),
+  ),
+  nearestThemeLabel: v.string(),
+  reflectionPrompt: v.string(),
+  evaluatedAt: v.number(),
+});
+
+function savedNoveltySignal(
+  draft: Doc<"projectDrafts">,
+  idea: string,
+  corpusVersionId?: Id<"noveltyCorpusVersions">,
+) {
+  if (
+    (corpusVersionId !== undefined && draft.noveltyCorpusVersionId !== corpusVersionId) ||
+    draft.noveltyEvaluatedInputFingerprint !== noveltyInputFingerprint(idea) ||
+    draft.noveltyScore === undefined ||
+    draft.noveltyBand === undefined ||
+    draft.noveltyNearestThemeLabel === undefined ||
+    draft.noveltyReflectionPrompt === undefined ||
+    draft.noveltyEvaluatedAt === undefined ||
+    !isCurrentNoveltyScoringVersion(draft.noveltyScoringVersion)
+  ) {
+    return null;
+  }
+  return {
+    score: draft.noveltyScore,
+    band: draft.noveltyBand,
+    nearestThemeLabel: draft.noveltyNearestThemeLabel,
+    reflectionPrompt: draft.noveltyReflectionPrompt,
+    evaluatedAt: draft.noveltyEvaluatedAt,
+  };
+}
+
 const currentDraftView = v.object({
   id: v.id("projectDrafts"),
   intakePolicyVersionId: v.id("intakePolicyVersions"),
@@ -123,20 +164,7 @@ const currentDraftView = v.object({
       debounceMs: v.number(),
     }),
   ),
-  noveltySignal: v.union(
-    v.null(),
-    v.object({
-      score: v.number(),
-      band: v.union(
-        v.literal("familiar"),
-        v.literal("developing"),
-        v.literal("distinct"),
-      ),
-      nearestThemeLabel: v.string(),
-      reflectionPrompt: v.string(),
-      evaluatedAt: v.number(),
-    }),
-  ),
+  noveltySignal: v.union(v.null(), participantNoveltySignal),
   followUps: v.array(
     v.object({
       id: v.id("intakeGeneratedQuestions"),
@@ -490,23 +518,9 @@ export const current = query({
           ? { adaptiveQuestionDeadlineAt: draft.adaptiveQuestionDeadlineAt }
           : {}),
         novelty,
-        noveltySignal:
-          draft.initialIdea &&
-          draft.noveltyEvaluatedInputFingerprint
-            === noveltyInputFingerprint(draft.initialIdea) &&
-          draft.noveltyScore !== undefined &&
-          draft.noveltyBand &&
-          draft.noveltyNearestThemeLabel &&
-          draft.noveltyReflectionPrompt &&
-          draft.noveltyEvaluatedAt !== undefined
-            ? {
-                score: draft.noveltyScore,
-                band: draft.noveltyBand,
-                nearestThemeLabel: draft.noveltyNearestThemeLabel,
-                reflectionPrompt: draft.noveltyReflectionPrompt,
-                evaluatedAt: draft.noveltyEvaluatedAt,
-              }
-            : null,
+        noveltySignal: draft.initialIdea
+          ? savedNoveltySignal(draft, draft.initialIdea, novelty?.corpusVersionId)
+          : null,
         followUps: followUps.map(({ question, answer }) => ({
           id: question._id,
           ordinal: question.ordinal,
@@ -579,6 +593,7 @@ export const submitted = query({
       // The published corpus the revision editor previews against, as the
       // writing screen has it from `opening`.
       novelty: v.union(v.null(), participantNoveltyConfiguration),
+      noveltySignal: v.union(v.null(), participantNoveltySignal),
       application: participantApplicationView,
     }),
   ),
@@ -603,7 +618,14 @@ export const submitted = query({
     ) {
       throw new Error("A participant application has an invalid submitted project.");
     }
-    const intakePolicy = await ctx.db.get(project.intakePolicyVersionId);
+    const [intakePolicy, draft, novelty] = await Promise.all([
+      ctx.db.get(project.intakePolicyVersionId),
+      ctx.db
+        .query("projectDrafts")
+        .withIndex("by_team", (index) => index.eq("teamId", team._id))
+        .unique(),
+      participantNoveltyConfig(ctx, event),
+    ]);
     if (
       !intakePolicy ||
       intakePolicy.eventId !== event._id ||
@@ -647,7 +669,11 @@ export const submitted = query({
         ["submitted", "under_review"].includes(
           participantApplication.application.state,
         ),
-      novelty: await participantNoveltyConfig(ctx, event),
+      novelty,
+      noveltySignal:
+        draft && novelty
+          ? savedNoveltySignal(draft, project.initialIdea, novelty.corpusVersionId)
+          : null,
       application: participantApplication.view,
     };
   },

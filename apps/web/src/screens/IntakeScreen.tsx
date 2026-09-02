@@ -2448,10 +2448,12 @@ export function NoveltyPill({
   state,
   currentLength,
   minimumLength,
+  idleLabel = 'keep writing',
 }: {
   state: NoveltyState
   currentLength?: number
   minimumLength: number | null
+  idleLabel?: string
 }) {
   if (minimumLength === null) return null
   const belowMinimum = currentLength !== undefined && currentLength < minimumLength
@@ -2464,7 +2466,7 @@ export function NoveltyPill({
         : null
   const label =
     belowMinimum || state.status === 'idle'
-      ? 'keep writing'
+      ? idleLabel
       : 'checking'
   return (
     <div className="pointer-events-auto relative">
