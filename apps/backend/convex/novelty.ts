@@ -43,9 +43,10 @@ import { redactProjectText } from "./lib/projectText";
 import { normalizedText } from "./lib/strings";
 import { createOpenAiEmbeddings, OpenAiEmbeddingError } from "./lib/openAiEmbeddings";
 import {
+  noveltyJudgeFailureCategory,
   noveltyJudgeModelId,
   OpenAiNoveltyJudgeError,
-  requestOpenAiNoveltyJudgments,
+  requestOpenAiNoveltyJudgmentsWithFallback,
 } from "./lib/openAiNoveltyJudge";
 import {
   backgroundNoveltyIndexDeduplicationLimit,
@@ -617,8 +618,9 @@ type NoveltyEvaluation = {
   reflectionPrompt: string;
   agentVersion: string;
   agentModel: string;
-  agentOperationId: string;
-  agentOutputChecksum: string;
+  agentOperationId?: string;
+  agentOutputChecksum?: string;
+  failureCategory?: string;
 };
 
 async function evaluateNoveltyEmbedding(
@@ -706,7 +708,7 @@ async function evaluateNoveltyEmbedding(
     }
   }
 
-  const response = await requestOpenAiNoveltyJudgments({
+  const judgeAttempt = await requestOpenAiNoveltyJudgmentsWithFallback({
     apiKey: args.apiKey,
     query: redactProjectText(args.idea),
     candidates: metadata.map((entry, index) => ({
@@ -716,8 +718,11 @@ async function evaluateNoveltyEmbedding(
     safetyIdentifier: args.safetyIdentifier,
     timeoutMs: noveltyJudgeProviderTimeoutMs,
   });
+  const judgments = judgeAttempt.kind === "judged"
+    ? judgeAttempt.result.comparisons
+    : [];
   const judgmentByKey = new Map(
-    response.comparisons.map((comparison) => [comparison.candidateKey, comparison] as const),
+    judgments.map((comparison) => [comparison.candidateKey, comparison] as const),
   );
   const candidateKeyByEntryId = new Map(
     judgeCorpusMatches.map((match, index) => [match._id, `candidate-${index + 1}`] as const),
@@ -794,8 +799,12 @@ async function evaluateNoveltyEmbedding(
     reflectionPrompt: nearestMetadata.reflectionPrompt,
     agentVersion: noveltyScoringVersion,
     agentModel: `openai/${noveltyJudgeModelId}`,
-    agentOperationId: response.responseId,
-    agentOutputChecksum: response.outputChecksum,
+    ...(judgeAttempt.kind === "judged"
+      ? {
+          agentOperationId: judgeAttempt.result.responseId,
+          agentOutputChecksum: judgeAttempt.result.outputChecksum,
+        }
+      : { failureCategory: judgeAttempt.failureCategory }),
   };
 }
 
@@ -1053,6 +1062,12 @@ export const indexDraftIdea = internalAction({
         safetyIdentifier: String(prepared.teamId),
       });
       if (evaluation) {
+        if (evaluation.failureCategory) {
+          console.warn("Novelty judge used embedding fallback.", {
+            draftId: String(args.draftId),
+            failureCategory: evaluation.failureCategory,
+          });
+        }
         await ctx.runMutation(internal.novelty.finishDraftNovelty, {
           draftId: args.draftId,
           corpusVersionId: prepared.corpusVersionId,
@@ -1343,6 +1358,7 @@ export const finishPreview = internalMutation({
       agentVersion: args.agentVersion,
       ...(args.agentModel ? { agentModel: args.agentModel } : {}),
       latencyMs: args.latencyMs,
+      ...(args.failureCategory ? { failureCategory: args.failureCategory } : {}),
       completedAt: now,
     });
     const team = await ctx.db.get(request.teamId);
@@ -1577,23 +1593,23 @@ export const preview = action({
         ...(providerRequestId ? { providerRequestId } : {}),
         ...(providerRemainingRequests !== undefined ? { providerRemainingRequests } : {}),
         ...(providerRequestReset ? { providerRequestReset } : {}),
-        agentOperationId: evaluation.agentOperationId,
-        agentOutputChecksum: evaluation.agentOutputChecksum,
+        ...(evaluation.agentOperationId
+          ? { agentOperationId: evaluation.agentOperationId }
+          : {}),
+        ...(evaluation.agentOutputChecksum
+          ? { agentOutputChecksum: evaluation.agentOutputChecksum }
+          : {}),
         agentVersion: evaluation.agentVersion,
         agentModel: evaluation.agentModel,
         latencyMs: Date.now() - startedAt,
+        ...(evaluation.failureCategory
+          ? { failureCategory: evaluation.failureCategory }
+          : {}),
       });
     } catch (error) {
       const embeddingStatus = error instanceof OpenAiEmbeddingError ? error.status : undefined;
-      const judgeStatus = error instanceof OpenAiNoveltyJudgeError ? error.status : undefined;
       const failureCategory = error instanceof OpenAiNoveltyJudgeError
-        ? judgeStatus === 429
-          ? "judge_provider_rate_limited"
-          : judgeStatus
-            ? `judge_provider_http_${judgeStatus}`
-            : error.timedOut
-              ? "judge_provider_timed_out"
-              : `judge_${error.failureCategory}`
+        ? noveltyJudgeFailureCategory(error)
         : embeddingStatus === 429
           ? "provider_rate_limited"
           : embeddingStatus

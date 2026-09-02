@@ -6,6 +6,7 @@ import {
   noveltyJudgePromptVersion,
   OpenAiNoveltyJudgeError,
   requestOpenAiNoveltyJudgments,
+  requestOpenAiNoveltyJudgmentsWithFallback,
 } from "./openAiNoveltyJudge";
 
 const request = {
@@ -212,6 +213,31 @@ describe("requestOpenAiNoveltyJudgments", () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
+  test.each([
+    [429, "judge_provider_rate_limited"],
+    [408, "judge_provider_http_408"],
+    [500, "judge_provider_http_500"],
+    [502, "judge_provider_http_502"],
+    [503, "judge_provider_http_503"],
+    [504, "judge_provider_http_504"],
+  ])("falls back to embeddings for transient HTTP %i", async (status, failureCategory) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("unavailable", { status })));
+
+    await expect(requestOpenAiNoveltyJudgmentsWithFallback(request)).resolves.toEqual({
+      kind: "embedding_fallback",
+      failureCategory,
+    });
+  });
+
+  test("falls back to embeddings for a transport failure", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("connection reset")));
+
+    await expect(requestOpenAiNoveltyJudgmentsWithFallback(request)).resolves.toEqual({
+      kind: "embedding_fallback",
+      failureCategory: "judge_provider_request_failed",
+    });
+  });
+
   test("classifies timeout aborts without retrying", async () => {
     const fetch = vi.fn((_input: string | URL | Request, init?: RequestInit) =>
       new Promise<Response>((_resolve, reject) => {
@@ -233,6 +259,31 @@ describe("requestOpenAiNoveltyJudgments", () => {
       timedOut: true,
       failureCategory: "provider_request_timed_out",
     });
-    expect(fetch).toHaveBeenCalledTimes(1);
+    await expect(requestOpenAiNoveltyJudgmentsWithFallback({
+      ...request,
+      timeoutMs: 5,
+    })).resolves.toEqual({
+      kind: "embedding_fallback",
+      failureCategory: "judge_provider_timed_out",
+    });
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  test.each([401, 501, 505])("does not hide permanent HTTP %i errors", async (status) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("provider error", { status })));
+
+    await expect(requestOpenAiNoveltyJudgmentsWithFallback(request)).rejects.toMatchObject({
+      status,
+      failureCategory: "provider_http_error",
+    });
+  });
+
+  test("does not hide an invalid structured response", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(providerResponse("not-json")));
+
+    await expect(requestOpenAiNoveltyJudgmentsWithFallback(request)).rejects.toMatchObject({
+      status: 200,
+      failureCategory: "provider_response_invalid",
+    });
   });
 });
