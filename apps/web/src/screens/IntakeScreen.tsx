@@ -1522,7 +1522,7 @@ function IntakeWorkspace({
                 )
                 markEditing('follow_up', activeFollowUp.id)
               }}
-              placeholder="Scope it in a sentence or two…"
+              placeholder="Answer the question here…"
               className="bare-field min-h-[174px] border-0 bg-transparent px-0 py-0 text-[16.5px] leading-[1.7] focus:border-0"
             />
             <PortalError message={error} />
@@ -1804,7 +1804,7 @@ function IntakeWorkspace({
                 setError(null)
                 markEditing('follow_up', reviewFollowUp.id)
               }}
-              placeholder="Scope it in a sentence or two…"
+              placeholder="Answer the question here…"
               className="bare-field min-h-[174px] border-0 bg-transparent px-0 py-0 text-[16.5px] leading-[1.7] focus:border-0"
             />
             <PortalError message={error ?? answerValidation} reserve />
