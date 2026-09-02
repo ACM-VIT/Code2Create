@@ -3,7 +3,6 @@ import type { FunctionReturnType } from 'convex/server'
 import { useQuery } from 'convex/react'
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { Flower } from '../components/portal/FlowerAvatar'
 import { PetalCard } from '../components/portal/PetalCard'
 import { PortalScene } from '../components/portal/PortalScene'
 import { eventSlug } from '../lib/config'
@@ -55,8 +54,8 @@ function Row({
 }
 
 /**
- * Mockup f12: everything else, one quiet list. Sign-out lives in the header
- * badge or cluster like everywhere else, so the list is only destinations.
+ * Secondary destinations in one quiet list. Account and team actions stay in
+ * their dedicated header controls instead of being mixed into this page.
  */
 export function MoreScreen({
   me,
@@ -83,39 +82,13 @@ export function MoreScreen({
   )
   const support = useQuery(api.support.mineSummary, capabilities?.supportRead ? { eventSlug } : 'skip')
   const policy = me.participantPolicy.policy
-  const fullName = me.profile?.fullName ?? me.person.displayName
-  const participantClass =
-    me.membership?.participantClass === 'vit_student' ? 'VIT student' : 'External participant'
-  const profileMeta = [participantClass, me.profile?.vitRegistrationNumber].filter(Boolean).join(' · ')
-
   return (
     <PortalScene tree="left" header={header} onSignOut={onSignOut}>
       <div className="flex w-full max-w-[480px] flex-col items-center">
         <h1 className="mb-7 font-display font-light tracking-[-.01em] text-3xl text-shadow-[0_4px_30px_var(--scene-text-glow)] lg:text-[40px]">
-          More
+          Resources
         </h1>
         <PetalCard className="w-full px-6 py-2">
-          {/* You, at the head of the list. */}
-          <div className="flex items-center gap-4 border-b border-petal-line py-4">
-            <span className="flex size-11 flex-none items-center justify-center rounded-full border-2 border-rose/70 bg-avatar">
-              <Flower seed={me.membership?.id ?? me.person.verifiedEmail} className="size-[62%]" />
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="m-0 text-[15px] text-fg">{fullName}</p>
-              <p className="m-0 mt-0.5 text-[12px] leading-snug wrap-anywhere text-fg/55">
-                {me.person.verifiedEmail}
-              </p>
-              <p className="m-0 mt-0.5 text-[11.5px] text-rose-light/80">{profileMeta}</p>
-            </div>
-            <Link
-              to="/more/profile"
-              viewTransition
-              className="flex-none text-[12.5px] text-rose-light no-underline hover:underline"
-            >
-              Edit profile
-            </Link>
-          </div>
-
           {capabilities?.notifications ? (
             <Row
               label="Notifications"
@@ -138,11 +111,6 @@ export function MoreScreen({
           ) : null}
           <Row label="Privacy" value="Notice" href={policy.privacyNoticeUrl} />
         </PetalCard>
-        <p className="mt-5 text-[11.5px] text-fg/45">
-          <Link to="/" viewTransition className="text-rose-light no-underline">
-            back home
-          </Link>
-        </p>
       </div>
     </PortalScene>
   )

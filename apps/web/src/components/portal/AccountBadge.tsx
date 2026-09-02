@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Flower } from './FlowerAvatar'
+import { PortalNavigation } from './PortalNavigation'
 
 /**
- * The signed-in person, before there is a team to stand with: one flower
- * circle that opens a small card — who you are, the way to everything else,
- * and the way out. The same shape as the team cluster's panel, so those are
- * always found under the avatar and never as circles of their own.
+ * The signed-in person: one flower circle that opens identity, profile, and
+ * sign-out actions. Primary destinations stay in PortalNavigation instead of
+ * being mixed into this account panel.
  */
 export function AccountBadge({
   name,
@@ -14,12 +14,14 @@ export function AccountBadge({
   email,
   detail,
   onSignOut,
+  showNavigation = false,
 }: {
   name: string
   seed: string
   email?: string
   detail?: string
   onSignOut: () => void
+  showNavigation?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const anchor = useRef<HTMLDivElement>(null)
@@ -41,13 +43,15 @@ export function AccountBadge({
   }, [open])
 
   return (
-    <div ref={anchor} className="relative">
+    <div className="flex items-start gap-2.5">
+      {showNavigation ? <PortalNavigation hasTeam={false} /> : null}
+      <div ref={anchor} className="relative">
       <button
         type="button"
         aria-label={`Account, ${name}`}
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        className={`flex size-10 flex-none items-center justify-center rounded-full border-2 bg-avatar transition-colors duration-250 hover:border-rose-light lg:size-12 ${
+        className={`flex size-10 flex-none items-center justify-center rounded-full border-2 bg-avatar shadow-[0_8px_24px_var(--shade-1)] transition-colors duration-200 hover:border-rose-light lg:size-12 ${
           open ? 'border-rose-light' : 'border-rose/70'
         }`}
       >
@@ -55,28 +59,29 @@ export function AccountBadge({
       </button>
 
       {open ? (
-        <div className="absolute top-[calc(100%+12px)] right-0 z-10 w-[240px] max-w-[calc(100vw-40px)] rounded-petal-sm glass-menu px-5 py-4 text-left">
-          <p className="m-0 truncate font-ui font-normal text-base text-rose-light">{name}</p>
+        <div className="fixed top-[84px] right-3 left-3 z-10 mx-auto w-auto max-w-[340px] rounded-petal-sm glass-menu px-5 py-4 text-left shadow-[0_18px_54px_var(--shade-1)] lg:absolute lg:top-[calc(100%+12px)] lg:right-0 lg:left-auto lg:mx-0 lg:w-[260px]">
+          <p className="m-0 text-[10.5px] font-semibold tracking-[.1em] text-fg/45 uppercase">Account</p>
+          <p className="mt-2 mb-0 truncate font-ui font-normal text-[15px] text-fg">{name}</p>
           {email || detail ? (
             <p className="m-0 mt-1 truncate text-[11.5px] text-fg/55">
               {[email, detail].filter(Boolean).join(' · ')}
             </p>
           ) : null}
-          <div className="mt-3 flex items-center justify-between gap-3 border-t border-petal-line pt-2.5">
+          <div className="mt-4 grid gap-1 border-t border-petal-line pt-2.5">
             <Link
-              to="/more"
+              to="/more/profile"
               viewTransition
               onClick={() => setOpen(false)}
-              className="text-[11.5px] text-fg/55 no-underline transition-colors hover:text-rose-light"
+              className="rounded-lg px-2 py-2 text-[12px] text-fg/65 no-underline transition-colors hover:bg-fg/5 hover:text-rose-light"
             >
-              more
+              Your profile
             </Link>
             <button
               type="button"
               onClick={onSignOut}
-              className="flex items-center gap-2 text-[11.5px] text-fg/55 transition-colors hover:text-rose-light"
+              className="flex items-center justify-between rounded-lg px-2 py-2 text-left text-[12px] text-fg/55 transition-colors hover:bg-fg/5 hover:text-rose-light"
             >
-              sign out
+              Sign out
               <svg
                 width="13"
                 height="13"
@@ -96,6 +101,7 @@ export function AccountBadge({
           </div>
         </div>
       ) : null}
+      </div>
     </div>
   )
 }

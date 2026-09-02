@@ -151,6 +151,7 @@ export function ParticipantApp({
       seed={me.membership.id}
       email={me.person.verifiedEmail}
       onSignOut={signOut}
+      showNavigation
     />
   )
   // ---- one participant conversation with the Guide and event team ---------

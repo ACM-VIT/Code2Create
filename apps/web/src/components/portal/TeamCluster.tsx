@@ -1,7 +1,8 @@
-import { safePolygon, useFloating, useHover, useInteractions } from '@floating-ui/react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { AccountBadge } from './AccountBadge'
 import { Petal } from './Petal'
+import { PortalNavigation } from './PortalNavigation'
 import { usePortalSignOut } from './portalSceneContext'
 import { Flower } from './FlowerAvatar'
 import { assignFlowerVariants } from './flowerVariants'
@@ -61,9 +62,9 @@ function Avatar({
 }
 
 /**
- * The top-right team presence: an overlapping avatar stack that opens the
- * roster on hover or focus. Only data the roster query actually returns is
- * shown — name, lead role, the join code, and the seat count.
+ * The top-right team presence: an overlapping avatar stack that opens team
+ * details on click. Global destinations and account actions remain separate,
+ * predictable controls beside it.
  */
 export function TeamCluster({
   team,
@@ -76,59 +77,47 @@ export function TeamCluster({
   editable?: boolean
   canManage?: boolean
 }) {
-  // Hover previews the roster; a click pins it, while keyboard focus keeps the
-  // whole cluster open for tabbing. Keeping those channels separate prevents a
-  // pointer-induced focus event from cancelling the click that should pin it.
-  const [pinned, setPinned] = useState(false)
-  const [hovered, setHovered] = useState(false)
-  const [keyboardFocused, setKeyboardFocused] = useState(false)
-  const [reference, setReference] = useState<HTMLElement | null>(null)
-  const [floating, setFloating] = useState<HTMLDivElement | null>(null)
-  const open = pinned || hovered || keyboardFocused
-  const { context } = useFloating({
-    elements: { reference, floating },
-    open: hovered,
-    onOpenChange: setHovered,
-    placement: 'bottom-end',
-  })
-  const hover = useHover(context, {
-    mouseOnly: true,
-    handleClose: safePolygon({ buffer: 1 }),
-  })
-  const { getFloatingProps, getReferenceProps } = useInteractions([hover])
-  const shown = members.slice(0, 4)
+  const [open, setOpen] = useState(false)
+  const anchor = useRef<HTMLDivElement>(null)
+  const shown = members.slice(0, 3)
+  const currentMember = members.find((member) => member.membershipId === team.currentMembershipId)
+  const onSignOut = usePortalSignOut()
   // One deal for the whole roster so no two members share a bloom.
   const flowerVariants = assignFlowerVariants(
     members.filter((member) => member.role !== 'lead').map((member) => member.membershipId),
   )
 
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Node && !anchor.current?.contains(event.target)) setOpen(false)
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
+
   return (
-    <div
-      className="relative text-right"
-      onFocus={(event) => {
-        const target = event.target
-        if (target instanceof HTMLElement && target.matches(':focus-visible')) {
-          setKeyboardFocused(true)
-        }
-      }}
-      onBlur={(event) => {
-        const nextTarget = event.relatedTarget
-        if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) return
-        setPinned(false)
-        setKeyboardFocused(false)
-      }}
-    >
+    <div className="flex items-start gap-2.5">
+      <PortalNavigation hasTeam />
       <div
-        ref={setReference}
-        className="flex items-start justify-end"
-        {...getReferenceProps({ onPointerDown: () => setKeyboardFocused(false) })}
+        ref={anchor}
+        className="relative text-right"
       >
         <button
           type="button"
           aria-expanded={open}
           aria-label={`Team ${team.name}, ${team.activeMemberCount} of ${team.teamMaximumSize} members`}
-          onClick={() => setPinned((value) => !value)}
-          className="block cursor-pointer rounded-lg"
+          onClick={() => setOpen((value) => !value)}
+          className={`flex min-h-10 items-center rounded-full border px-1.5 py-1 shadow-[0_8px_24px_var(--shade-1)] transition-colors duration-200 lg:min-h-12 lg:px-2 ${
+            open ? 'border-rose-light/80 bg-rose/15' : 'border-petal-line bg-tile hover:border-rose/70'
+          }`}
         >
           <div className="flex justify-end">
             {shown.map((member, index) => {
@@ -140,30 +129,39 @@ export function TeamCluster({
                   seed={member.membershipId}
                   lead={member.role === 'lead'}
                   {...(variant === undefined ? {} : { variant })}
-                  className={index > 0 ? '-ml-2 lg:-ml-2.5' : ''}
+                  size="sm"
+                  className={index > 0 ? '-ml-2' : ''}
                 />
               )
             })}
           </div>
-          <p className="mt-2 hidden font-ui font-normal text-[13.5px] text-rose-light sm:block">
-            {team.name}
-          </p>
+          <span className="mr-2 ml-2.5 hidden max-w-32 min-w-0 text-left lg:block">
+            <span className="block truncate text-[12px] font-medium text-fg/85">{team.name}</span>
+            <span className="block text-[10px] text-fg/45">
+              {team.activeMemberCount} of {team.teamMaximumSize} members
+            </span>
+          </span>
         </button>
-      </div>
 
-      {open ? (
-        <div
-          ref={setFloating}
-          className="absolute right-0 top-[96px] z-10 w-[300px] max-w-[calc(100vw-40px)] text-left lg:top-[104px]"
-          {...getFloatingProps()}
-        >
+        {open ? (
+          <div className="fixed top-[84px] right-3 left-3 z-10 mx-auto w-auto max-w-[420px] text-left shadow-[0_18px_54px_var(--shade-1)] lg:absolute lg:top-[calc(100%+12px)] lg:right-0 lg:left-auto lg:mx-0 lg:w-[320px]">
           <TeamRosterPanel
             team={team}
             members={members}
             editable={editable}
             canManage={canManage}
           />
-        </div>
+          </div>
+        ) : null}
+      </div>
+      {onSignOut && currentMember ? (
+        <AccountBadge
+          name={currentMember.displayName}
+          seed={currentMember.membershipId}
+          detail={`${currentMember.role === 'lead' ? 'Team lead' : 'Team member'} · ${team.name}`}
+          onSignOut={onSignOut}
+          showNavigation={false}
+        />
       ) : null}
     </div>
   )
@@ -208,12 +206,14 @@ export function TeamRosterPanel({
   const flowerVariants = assignFlowerVariants(
     members.filter((member) => member.role !== 'lead').map((member) => member.membershipId),
   )
-  const onSignOut = usePortalSignOut()
   return (
-    <div className="rounded-petal-sm glass-menu px-5 py-4 text-left">
-      <div className="mb-3 flex items-baseline justify-between">
-        <span className="font-ui font-normal text-base text-rose-light">{team.name}</span>
-        <span className="text-[10.5px] font-semibold tracking-[.08em] text-fg/50">
+    <section aria-label="Team details" className="rounded-petal-sm glass-menu px-5 py-4 text-left">
+      <div className="mb-3 flex items-start justify-between gap-4">
+        <div>
+          <p className="m-0 text-[10.5px] font-semibold tracking-[.1em] text-fg/45 uppercase">Your team</p>
+          <p className="mt-1.5 mb-0 font-ui font-normal text-base text-rose-light">{team.name}</p>
+        </div>
+        <span className="mt-0.5 text-[10.5px] font-semibold tracking-[.08em] text-fg/50">
           {team.activeMemberCount} of {team.teamMaximumSize}
         </span>
       </div>
@@ -267,35 +267,6 @@ export function TeamRosterPanel({
           {canManage && editable ? 'manage team' : 'view team'}
         </Link>
       </div>
-      {onSignOut ? (
-        /* The account row: everything else, and the way out — here, under the
-           avatars, instead of as more circles in the header. */
-        <div className="mt-2.5 flex items-center justify-between gap-3 border-t border-petal-line pt-2.5 text-[11.5px]">
-          <div className="flex items-center gap-3.5">
-            <Link
-              to="/"
-              viewTransition
-              className="text-fg/55 no-underline transition-colors hover:text-rose-light"
-            >
-              home
-            </Link>
-            <Link
-              to="/more"
-              viewTransition
-              className="text-fg/55 no-underline transition-colors hover:text-rose-light"
-            >
-              more
-            </Link>
-          </div>
-          <button
-            type="button"
-            onClick={onSignOut}
-            className="text-fg/45 transition-colors hover:text-rose-light"
-          >
-            sign out
-          </button>
-        </div>
-      ) : null}
-    </div>
+    </section>
   )
 }

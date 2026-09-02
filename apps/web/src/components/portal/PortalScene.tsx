@@ -191,7 +191,7 @@ export function PortalScene({
 
       <main
         className={`relative z-[3] flex flex-1 flex-col items-center px-5 lg:px-12 ${
-          fill ? 'min-h-0 justify-start pt-[84px] pb-4 lg:pt-[100px] lg:pb-6 xl:pt-9' : 'justify-center-safe pt-28 pb-16'
+          fill ? 'min-h-0 justify-start pt-[84px] pb-24 lg:pt-[100px] lg:pb-6 xl:pt-9' : 'justify-center-safe pt-28 pb-28 lg:pb-16'
         }`}
       >
         {children}
