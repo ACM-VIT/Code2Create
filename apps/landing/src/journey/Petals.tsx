@@ -93,8 +93,6 @@ const GRAVITY = 0.055;
 const DRAG = 0.986;
 const BUCKETS = 190;
 
-/* The first footer visit builds the drift from bare ground. */
-const BED_FILL_SECONDS = 10;
 /* Roughly how long a cursor-made hollow takes to fill back in. */
 const REFILL_SECONDS = 10;
 const REFILL_PER_FRAME = 7;
@@ -282,7 +280,6 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
     const slumped = new Float32Array(BUCKETS);
     let bedWidth = 0;
     let bedSeeded = false;
-    let bedFillStartedAt: number | null = null;
 
     /* Fixed per-column jitter so the crest keeps its shape frame to frame
        instead of boiling. */
@@ -459,7 +456,6 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
       buildTile(dpr);
       buildRoute();
       bedSeeded = false;
-      bedFillStartedAt = null;
     };
     resize();
     window.addEventListener("resize", resize);
@@ -754,27 +750,14 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
       }
 
       const floor = readFloor();
-      let bedFillProgress = 1;
 
       if (floor) {
-        /* Keep the floor bare until it enters the viewport, then grow the
-           original dune profile over a wall-clock ten seconds. */
+        /* Start on bare ground. The original falling-petal refill system
+           builds the drift instead of raising a synthetic height profile. */
         if (!bedSeeded) {
           bank.fill(0);
           slumped.fill(0);
           bedSeeded = true;
-        }
-        if (bedFillStartedAt === null && floor.rect.top < h) bedFillStartedAt = now;
-
-        bedFillProgress =
-          bedFillStartedAt === null
-            ? 0
-            : Math.min(1, Math.max(0, (now - bedFillStartedAt) / (BED_FILL_SECONDS * 1000)));
-
-        for (let i = 0; i < BUCKETS; i += 1) {
-          const dune = Math.sin(i * 0.07) * 0.06 + Math.sin(i * 0.021 + 1.7) * 0.05;
-          const desired = floor.target * (0.86 + dune + crest[i] * 0.07) * bedFillProgress;
-          bank[i] = Math.max(bank[i], desired);
         }
 
         /* Slump: each column pulls toward the mean of its neighbours, so a
@@ -944,11 +927,7 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
         if (floor && p.x > floor.rect.left && p.x < floor.rect.right) {
           const bucket = bucketAt(p.x - floor.rect.left);
           if (p.y >= floor.floorY - bank[bucket]) {
-            const fillLimit = floor.target * bedFillProgress;
-            bank[bucket] = Math.max(
-              bank[bucket],
-              Math.min(fillLimit, bank[bucket] + p.size * 0.5),
-            );
+            bank[bucket] = Math.min(floor.target, bank[bucket] + p.size * 0.5);
             p.dead = true;
             continue;
           }
@@ -975,7 +954,7 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
         }
         shortfall = low.length;
 
-        if (low.length && bedFillProgress >= 1) {
+        if (low.length) {
           let deficit = 0;
           for (const i of low) deficit += floor.target - bank[i];
           const perPetal = 10 * 0.5;
