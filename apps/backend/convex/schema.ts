@@ -2041,6 +2041,7 @@ export default defineSchema({
     cancelledByPersonId: v.optional(v.id("people")),
     cancellationReason: v.optional(v.string()),
   })
+    .index("by_state_assigned", ["state", "assignedAt"])
     .index("by_application_state_assigned", ["applicationId", "state", "assignedAt"])
     .index("by_application_reviewer_state", ["applicationId", "reviewerPersonId", "state"])
     .index("by_event_reviewer_state_assigned", [

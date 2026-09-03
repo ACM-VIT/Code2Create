@@ -197,6 +197,42 @@ describe("admission cohort query and decisions", () => {
     expect(continuation.isDone).toBe(true);
   });
 
+  test("keeps claimed applications visible until their required reviews are submitted", async () => {
+    const backend = seededBackend();
+    const fixture = await seedCohortFixture(backend);
+    const operator = backend.withIdentity({
+      subject: fixture.operatorAuthUserId,
+      sessionId: fixture.operatorAuthSessionId,
+    });
+
+    const [applications, matchingSearch, completedSearch] = await Promise.all([
+      operator.query(api.admissions.list, {
+        eventSlug: fixture.eventSlug,
+        state: "under_review",
+        needsReview: true,
+        paginationOpts: { cursor: null, numItems: 10 },
+      }),
+      operator.query(api.admissions.searchApplications, {
+        eventSlug: fixture.eventSlug,
+        state: "under_review",
+        search: "night",
+        needsReview: true,
+      }),
+      operator.query(api.admissions.searchApplications, {
+        eventSlug: fixture.eventSlug,
+        state: "under_review",
+        search: "steady",
+        needsReview: true,
+      }),
+    ]);
+
+    expect(applications.page.map((application) => application.teamName)).toEqual(["Night Kiln"]);
+    expect(matchingSearch.applications.map((application) => application.teamName)).toEqual([
+      "Night Kiln",
+    ]);
+    expect(completedSearch.applications).toEqual([]);
+  });
+
   test("ranks candidates, spends capacity in people, and marks review shortfalls", async () => {
     const backend = seededBackend();
     const fixture = await seedCohortFixture(backend);

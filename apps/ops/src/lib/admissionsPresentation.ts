@@ -135,7 +135,7 @@ export function reviewerLeadSentence(
       : `No ${teamOriginNoun(origin)} are assigned to you.`;
   }
   if (counts.active === 0) return `Nothing left to review. ${counts.completed} done.`;
-  return `${counts.active} ${counts.active === 1 ? "application" : "applications"} to review, ${counts.completed} done.`;
+  return `${counts.active} ${counts.active === 1 ? "application" : "applications"} to review, ${counts.completed} done. Open assignments expire after 30 minutes.`;
 }
 
 const numberedYears = [
@@ -207,7 +207,10 @@ export function reviewStatus(application: {
     assignedReviewCount: assigned,
     minimumHumanReviews: minimum,
   } = application;
-  const reviews = `${completed} of ${minimum} ${minimum === 1 ? "review" : "reviews"} in`;
+  const reviews =
+    completed > minimum
+      ? `${completed} reviews submitted (${minimum} required)`
+      : `${completed} of ${minimum} ${minimum === 1 ? "review" : "reviews"} in`;
   if (completed >= minimum) return { text: reviews, tone: "done" };
   if (assigned > 0) return { text: `${reviews} · ${assigned} assigned`, tone: "waiting" };
   return { text: `${reviews} · nobody assigned`, tone: "unassigned" };
@@ -313,16 +316,27 @@ function capitalize(value: string) {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
-/** Still short of reviews with nobody on it: the rows a coordinator hands out first. */
-export function needsAssignment(application: {
+/** A claim does not complete work; keep the row prioritized until enough reviews are submitted. */
+export function needsReview(application: {
   completedReviewCount: number;
-  assignedReviewCount: number;
   minimumHumanReviews: number;
 }) {
-  return (
-    application.assignedReviewCount === 0 &&
-    application.completedReviewCount < application.minimumHumanReviews
-  );
+  return application.completedReviewCount < application.minimumHumanReviews;
+}
+
+export function prioritizeReviewQueue<
+  Application extends {
+    completedReviewCount: number;
+    minimumHumanReviews: number;
+    submittedAt: number;
+  },
+>(applications: readonly Application[]): Application[] {
+  return [...applications].sort((left, right) => {
+    const byNeed = Number(needsReview(right)) - Number(needsReview(left));
+    if (byNeed !== 0) return byNeed;
+    const byCompletedReviews = left.completedReviewCount - right.completedReviewCount;
+    return byCompletedReviews || left.submittedAt - right.submittedAt;
+  });
 }
 
 export function reviewerWorkloadLabel(
