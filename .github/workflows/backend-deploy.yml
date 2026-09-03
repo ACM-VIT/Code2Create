@@ -24,7 +24,7 @@ concurrency:
 jobs:
   verify:
     name: Verify backend
-    if: github.ref_name == 'main'
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
@@ -44,7 +44,7 @@ jobs:
 
   deploy-production:
     name: Deploy production backend
-    if: github.ref_name == 'main'
+    if: github.ref == 'refs/heads/main'
     needs: verify
     runs-on: ubuntu-24.04
     timeout-minutes: 10

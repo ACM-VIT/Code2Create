@@ -24,7 +24,7 @@ concurrency:
 jobs:
   verify:
     name: Verify backend
-    if: github.ref_name == 'dev'
+    if: github.ref == 'refs/heads/dev'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
@@ -44,7 +44,7 @@ jobs:
 
   deploy-staging:
     name: Deploy staging backend
-    if: github.ref_name == 'dev'
+    if: github.ref == 'refs/heads/dev'
     needs: verify
     runs-on: ubuntu-24.04
     timeout-minutes: 10
