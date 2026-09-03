@@ -2052,8 +2052,39 @@ textarea {
   align-self: start;
 }
 .assignment-list li > p,
-.inline-cancel-form {
+.inline-cancel-form,
+.assignment-list li > .assignment-evidence {
   grid-column: 1 / -1;
+}
+.assignment-list li > .assignment-evidence {
+  display: grid;
+  gap: 18px;
+  padding: 14px 0 2px;
+  border-top: 1px solid var(--border);
+}
+.assignment-evidence section,
+.assignment-evidence .assignment-evidence-answer {
+  display: grid;
+  gap: 4px;
+}
+.assignment-evidence section {
+  gap: 7px;
+}
+.assignment-evidence .assignment-evidence-label,
+.assignment-evidence small {
+  color: var(--faint);
+  font-size: 0.72rem;
+}
+.assignment-evidence .assignment-evidence-verdict,
+.assignment-evidence .assignment-evidence-answer p,
+.assignment-evidence section > p {
+  margin: 0;
+}
+.assignment-evidence .assignment-evidence-verdict span {
+  font-size: inherit;
+}
+.assignment-evidence .assignment-evidence-answer + .assignment-evidence-answer {
+  margin-top: 8px;
 }
 .inline-cancel-form {
   display: grid;
@@ -5604,7 +5635,8 @@ button:disabled {
     grid-template-columns: 1fr;
   }
   .assignment-list li > p,
-  .inline-cancel-form {
+  .inline-cancel-form,
+  .assignment-list li > .assignment-evidence {
     grid-column: auto;
   }
   .synesthesia-window-heading,

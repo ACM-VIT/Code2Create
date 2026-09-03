@@ -934,6 +934,8 @@ const reviewAssignmentView = v.object({
   id: v.id("admissionReviewAssignments"),
   reviewerName: v.string(),
   reviewerEmail: v.string(),
+  applicationContentVersion: v.number(),
+  evidenceAvailable: v.boolean(),
   state: admissionReviewAssignmentState,
   version: v.number(),
   assignedAt: v.number(),
@@ -1296,6 +1298,9 @@ export const detail = query({
         id: assignment._id,
         reviewerName: reviewer.displayName,
         reviewerEmail: reviewerSubject.emailNormalized,
+        applicationContentVersion: assignment.applicationContentVersion,
+        evidenceAvailable:
+          canReadApplication || assignment.reviewerPersonId === person._id,
         state: assignment.state,
         version: assignment.version,
         assignedAt: assignment.assignedAt,
@@ -1420,6 +1425,150 @@ export const detail = query({
         offerManage: offerGrantIds.length > 0,
         participantDeliveryRead,
       },
+    };
+  },
+});
+
+const reviewAssignmentEvidenceView = v.object({
+  applicationContentVersion: v.number(),
+  project: v.object({
+    id: v.id("projectVersions"),
+    version: v.number(),
+    initialIdea: v.string(),
+    additionalInformation: v.optional(v.string()),
+    intakeResponses: v.array(
+      v.object({
+        ordinal: v.number(),
+        question: v.string(),
+        answer: v.string(),
+      }),
+    ),
+  }),
+  review: v.union(
+    v.null(),
+    v.object({
+      id: v.id("admissionHumanReviews"),
+      recommendation: admissionDecision,
+      reasonCode: v.string(),
+      note: v.optional(v.string()),
+      createdAt: v.number(),
+    }),
+  ),
+});
+
+export const reviewAssignmentEvidence = query({
+  args: {
+    eventSlug: v.string(),
+    applicationId: v.id("applications"),
+    assignmentId: v.id("admissionReviewAssignments"),
+  },
+  returns: reviewAssignmentEvidenceView,
+  handler: async (ctx, args) => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    const [application, assignment] = await Promise.all([
+      ctx.db.get(args.applicationId),
+      ctx.db.get(args.assignmentId),
+    ]);
+    if (
+      !application ||
+      application.eventId !== event._id ||
+      !assignment ||
+      assignment.eventId !== event._id ||
+      assignment.applicationId !== application._id
+    ) {
+      throw new ConvexError({
+        code: "APPLICATION_REVIEW_ASSIGNMENT_NOT_FOUND",
+        message: "That review assignment is unavailable.",
+      });
+    }
+    const [fullReadGrantIds, reviewReadGrantIds] = await Promise.all([
+      matchingPermissionGrantIds(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: subject._id,
+        permissionKey: "application.read",
+        scopeType: "application",
+        scopeId: application._id,
+      }),
+      matchingPermissionGrantIds(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: subject._id,
+        permissionKey: "application.review.read",
+        scopeType: "application",
+        scopeId: application._id,
+      }),
+    ]);
+    const canReadEvidence =
+      fullReadGrantIds.length > 0 ||
+      (reviewReadGrantIds.length > 0 && assignment.reviewerPersonId === person._id);
+    if (!canReadEvidence) {
+      throw new ConvexError({
+        code: "ACCESS_DENIED",
+        message: "This account cannot read that historical review.",
+      });
+    }
+
+    const currentProject = await ctx.db.get(application.submittedProjectVersionId);
+    if (
+      !currentProject ||
+      currentProject.eventId !== event._id ||
+      currentProject.teamId !== application.teamId
+    ) {
+      throw new Error("The current submitted project snapshot is missing.");
+    }
+    const projectVersion =
+      currentProject.version -
+      (application.contentVersion - assignment.applicationContentVersion);
+    if (projectVersion < 1 || assignment.applicationContentVersion > application.contentVersion) {
+      throw new Error("The assignment references an invalid application-content version.");
+    }
+    const [project, review] = await Promise.all([
+      ctx.db
+        .query("projectVersions")
+        .withIndex("by_team_version", (index) =>
+          index.eq("teamId", application.teamId).eq("version", projectVersion),
+        )
+        .unique(),
+      ctx.db
+        .query("admissionHumanReviews")
+        .withIndex("by_application_reviewer_content_version", (index) =>
+          index
+            .eq("applicationId", application._id)
+            .eq("reviewerPersonId", assignment.reviewerPersonId)
+            .eq("applicationContentVersion", assignment.applicationContentVersion),
+        )
+        .order("desc")
+        .first(),
+    ]);
+    if (!project || project.eventId !== event._id) {
+      throw new Error("The historical submitted project snapshot is missing.");
+    }
+
+    return {
+      applicationContentVersion: assignment.applicationContentVersion,
+      project: {
+        id: project._id,
+        version: project.version,
+        initialIdea: project.initialIdea,
+        ...(project.additionalInformation !== undefined
+          ? { additionalInformation: project.additionalInformation }
+          : {}),
+        intakeResponses: project.intakeResponses.map((response) => ({
+          ordinal: response.ordinal,
+          question: response.question,
+          answer: response.answer,
+        })),
+      },
+      review: review
+        ? {
+            id: review._id,
+            recommendation: review.recommendation,
+            reasonCode: review.reasonCode,
+            ...(review.note !== undefined ? { note: review.note } : {}),
+            createdAt: review.createdAt,
+          }
+        : null,
     };
   },
 });

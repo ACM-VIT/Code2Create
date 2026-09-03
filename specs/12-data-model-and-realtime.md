@@ -2106,6 +2106,7 @@ The rehearsal result stores its source manifest/archive, exact staging target, o
 | `admissionReviewAssignments.by_event_reviewer_state_assigned`                  | Page one person's active/completed review work                                                                 |
 | `admissionReviewAssignments.by_application_state_assigned`                     | Read assignment coverage and bounded history for one application                                               |
 | `admissionHumanReviews.by_application_reviewer_status`                         | Resolve and replace one reviewer's current recommendation                                                      |
+| `admissionHumanReviews.by_application_reviewer_content_version`                | Resolve the newest immutable review for one reviewer and application-content version                           |
 | `admissionHumanReviews.by_application_status`                                  | Count current recommendations and publish a human decision                                                     |
 | `admissionAIRecommendations.by_application_input_checksum`                     | Deduplicate analysis and reject stale application/model work                                                   |
 | `admissionAIRecommendations.by_event_state_created`                            | Bound recent unavailable/stalled analysis checks without reading application content                           |
@@ -2379,7 +2380,11 @@ Returns active or completed `admissionReviewAssignments` for the current person 
 
 ### `admissions.detail`
 
-Requires `application.read` or assigned `application.review.read` for the exact application. Profile context and the structured AI record still need their separate read keys. `application.ai_recommendation.run` adds only the current retry target when the server-side retry predicate passes. It does not add the recommendation body. The response updates when a retry advances the application pointer.
+Requires `application.read` or assigned `application.review.read` for the exact application. Profile context and the structured AI record still need their separate read keys. Assignment history includes each assignment's application-content version and whether the caller may open its evidence, so operations can distinguish reviews submitted on different versions without loading historical proposal text up front. `application.ai_recommendation.run` adds only the current retry target when the server-side retry predicate passes. It does not add the recommendation body. The response updates when a retry advances the application pointer.
+
+### `admissions.reviewAssignmentEvidence`
+
+Returns the most recently submitted human review for one reviewer and application-content version together with that version's immutable `projectVersions` snapshot. It requires exact `application.read`, or the assignment owner with exact `application.review.read`. The project snapshot is resolved from the stored project-version sequence and application-content-version offset; it does not reconstruct or overwrite historical content.
 
 ### `admissions.capacity`
 

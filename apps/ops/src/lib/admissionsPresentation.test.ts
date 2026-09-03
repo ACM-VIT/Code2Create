@@ -12,6 +12,8 @@ import {
   ownReviewLine,
   queueLeadSentence,
   remainingAssignmentsLine,
+  reviewAssignmentStatusLine,
+  reviewAssignmentSummary,
   reviewStatus,
   reviewerLeadSentence,
   reviewerWorkloadLabel,
@@ -211,6 +213,39 @@ test("bulk assignment reports what landed and what did not", () => {
       "p@x",
     ),
     "Assigned 2 applications to p@x.",
+  );
+});
+
+test("review assignment copy keeps every submitted application version visible", () => {
+  const assignments = [
+    { applicationContentVersion: 1, state: "completed" as const },
+    { applicationContentVersion: 2, state: "active" as const },
+    { applicationContentVersion: 2, state: "cancelled" as const },
+  ];
+
+  assert.equal(
+    reviewAssignmentSummary(assignments, 2),
+    "1 reviewer assigned to application version 2 still owes a review.",
+  );
+  assert.equal(
+    reviewAssignmentStatusLine(assignments[0]!, 2),
+    "Review submitted on application version 1",
+  );
+  assert.equal(
+    reviewAssignmentStatusLine(assignments[1]!, 2),
+    "Review due on application version 2 (current)",
+  );
+  assert.equal(
+    reviewAssignmentStatusLine(assignments[2]!, 2),
+    "Assignment cancelled on application version 2 (current)",
+  );
+  assert.equal(
+    reviewAssignmentSummary([{ applicationContentVersion: 1, state: "completed" }], 2),
+    "No one is assigned to application version 2.",
+  );
+  assert.equal(
+    reviewAssignmentSummary([{ applicationContentVersion: 2, state: "completed" }], 2),
+    "Every review assigned on application version 2 has been submitted.",
   );
 });
 

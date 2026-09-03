@@ -3,6 +3,7 @@ import {
   applicationDecisionLabels,
   studyYearLabels,
   type AdmissionRecommendationState,
+  type AdmissionReviewAssignmentState,
   type ApplicationDecision,
   type ApplicationState,
   type ParticipantClass,
@@ -40,6 +41,11 @@ export function teamOriginNoun(origin: TeamOriginFilter, plural = true): string 
   if (origin === "external") return plural ? "external teams" : "external team";
   return plural ? "teams" : "team";
 }
+
+export type VersionedReviewAssignment = {
+  applicationContentVersion: number;
+  state: AdmissionReviewAssignmentState;
+};
 
 export const applicationStageOrder: readonly ApplicationState[] = [
   "submitted",
@@ -250,6 +256,42 @@ export function assignmentOutcomeSummary(
     );
   if (failed > 0) sentences.push(`${failed} could not be assigned.`);
   return sentences.join(" ");
+}
+
+export function reviewAssignmentSummary(
+  assignments: readonly VersionedReviewAssignment[],
+  currentContentVersion: number,
+): string {
+  const currentAssignments = assignments.filter(
+    (assignment) =>
+      assignment.applicationContentVersion === currentContentVersion &&
+      assignment.state !== "cancelled",
+  );
+  const owing = currentAssignments.filter((assignment) => assignment.state === "active").length;
+  if (currentAssignments.length === 0) {
+    return `No one is assigned to application version ${currentContentVersion}.`;
+  }
+  if (owing === 0) {
+    return `Every review assigned on application version ${currentContentVersion} has been submitted.`;
+  }
+  if (currentAssignments.length === 1) {
+    return `1 reviewer assigned to application version ${currentContentVersion} still owes a review.`;
+  }
+  return `${owing} of ${currentAssignments.length} reviewers assigned to application version ${currentContentVersion} still owe a review.`;
+}
+
+export function reviewAssignmentStatusLine(
+  assignment: VersionedReviewAssignment,
+  currentContentVersion: number,
+): string {
+  const status = {
+    active: "Review due",
+    completed: "Review submitted",
+    cancelled: "Assignment cancelled",
+  }[assignment.state];
+  const current =
+    assignment.applicationContentVersion === currentContentVersion ? " (current)" : "";
+  return `${status} on application version ${assignment.applicationContentVersion}${current}`;
 }
 
 function joinClauses(parts: readonly string[]): string {
