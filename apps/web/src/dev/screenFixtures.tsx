@@ -1118,7 +1118,9 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries([
             Paper Cranes
           </h1>
           <PetalCard className="px-6 py-2 sm:px-8">
-            <NoveltyReviewRow score={87} band="distinct" />
+            <NoveltyReviewRow
+              state={{ status: "ready", signal: { score: 87, band: "distinct" } }}
+            />
             <AccordionRoot allowMultiple defaultValue={["idea", "q1", "q2"]}>
               {(
                 [

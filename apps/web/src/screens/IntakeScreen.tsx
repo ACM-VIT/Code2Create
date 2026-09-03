@@ -69,9 +69,12 @@ import { useDeadlineReached } from "../lib/useDeadlineReached";
 import {
   normalizedIdeaLength,
   useNoveltyPreview,
+} from "../hooks/useNoveltyPreview";
+import {
   type NoveltyBand,
   type NoveltyState,
-} from "../hooks/useNoveltyPreview";
+  visibleNoveltySignal,
+} from "../lib/noveltyPreview";
 import type { CurrentIntake, CurrentTeam, CurrentTeamMember, SubmissionPreview } from "../types";
 
 const additionalInformationLabel = "Additional information or links (optional, please no PPTs)";
@@ -2159,11 +2162,7 @@ function IntakeWorkspace({
 
           <PetalCard className="px-6 py-2 sm:px-8">
             {novelty !== null ? (
-              <NoveltyReviewRow
-                score={savedNoveltyScore}
-                band={savedNoveltyBand}
-                checking={savedNoveltyScore === null && noveltyState.status === "checking"}
-              />
+              <NoveltyReviewRow state={noveltyState} />
             ) : null}
             <AccordionRoot allowMultiple value={openSections} onValueChange={setOpenSections}>
               <AccordionItem value={ideaSectionId}>
@@ -2488,14 +2487,13 @@ function NoveltyHelp({
 }
 
 export function NoveltyReviewRow({
-  score,
-  band,
-  checking = false,
+  state,
 }: {
-  score: number | null;
-  band: NoveltyBand | null;
-  checking?: boolean;
+  state: NoveltyState;
 }) {
+  const signal = visibleNoveltySignal(state);
+  const score = signal?.score ?? null;
+  const band = signal?.band ?? null;
   return (
     <div className="border-b border-petal-line pt-4 pb-4">
       <div className="flex items-center justify-between gap-3">
@@ -2505,7 +2503,7 @@ export function NoveltyReviewRow({
           aria-live="polite"
         >
           {score === null
-            ? checking
+            ? state.status === "checking"
               ? "Checking"
               : "Preparing score"
             : `${score} / 100${band === null ? "" : ` · ${noveltyBandLabels[band]}`}`}

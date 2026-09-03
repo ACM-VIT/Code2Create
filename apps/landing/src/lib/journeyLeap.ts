@@ -1,9 +1,9 @@
 /*
  * Every chapter lives inside one pinned stage, so navigation can't jump to an
  * anchor — it has to land the scroll at the point in the journey where that
- * chapter is on screen. About and Sponsors use twice the physical scroll
- * distance, so the stops are derived from master-timeline positions through
- * the same weighted mapping as the ScrollTrigger.
+ * chapter is on screen. About and the sponsor reveals use twice the physical
+ * scroll distance, so the stops are derived from master-timeline positions
+ * through the same weighted mapping as the ScrollTrigger.
  */
 import { journeyScrollProgress } from "../journey/timing.js";
 

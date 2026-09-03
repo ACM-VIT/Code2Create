@@ -1383,14 +1383,11 @@ export const finishPreview = internalMutation({
       ...(args.failureCategory ? { failureCategory: args.failureCategory } : {}),
       completedAt: now,
     });
-    const team = await ctx.db.get(request.teamId);
     const draft = await ctx.db
       .query("projectDrafts")
       .withIndex("by_team", (index) => index.eq("teamId", request.teamId))
       .unique();
     if (
-      team &&
-      !team.membershipLocked &&
       draft?.initialIdea &&
       draft.stage !== "submitted" &&
       draft.noveltyCorpusVersionId === request.corpusVersionId &&
