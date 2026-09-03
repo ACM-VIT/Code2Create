@@ -5,6 +5,7 @@ type PostHogEvent = {
 
 type SafeException = {
   type?: string
+  value?: string
   mechanism?: {
     handled?: boolean
     synthetic?: boolean
@@ -50,9 +51,10 @@ const replaySensitiveContextSelector = [
   '[class*="support" i]',
 ].join(', ')
 const replaySensitiveFieldPattern = /(?:account|college|credential|email|full.?name|gender|hostel|identity|invitee|member|name|one.?time|otp|owner|participant|password|person|phone|recipient|registration|reviewer|room|secret|student.?id|tel|token|university|verification.?code)/iu
-const replayEmailPattern = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/giu
-const replayPhonePattern = /(?<!\d)(?:\+?\d[\d\s().-]{8,}\d)(?!\d)/gu
-const replayRegistrationPattern = /\b\d{2}[A-Z]{2,5}\d{3,6}\b/gu
+const emailPattern = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/giu
+const phonePattern = /(?<!\d)(?:\+?\d[\d\s().-]{8,}\d)(?!\d)/gu
+const registrationPattern = /\b\d{2}[A-Z]{2,5}\d{3,6}\b/gu
+const generatedFilenamePattern = /^\/[A-Za-z0-9._~/-]+\.[cm]?js$/u
 const safeScalarProperties = new Set([
   'token',
   'distinct_id',
@@ -135,11 +137,11 @@ export function sanitizeTelemetryUrl(value: string) {
 }
 
 export function maskReplayInput(value: string, element?: HTMLElement) {
-  return replayElementIsSensitive(element) ? maskedReplayValue(value) : redactReplayPii(value)
+  return replayElementIsSensitive(element) ? maskedReplayValue(value) : redactPii(value)
 }
 
 export function maskReplayText(value: string, element?: HTMLElement) {
-  return replayElementIsSensitive(element) ? maskedReplayValue(value) : redactReplayPii(value)
+  return replayElementIsSensitive(element) ? maskedReplayValue(value) : redactPii(value)
 }
 
 export function maskReplayAttribute(name: string, value: string, element?: Element) {
@@ -151,7 +153,7 @@ export function maskReplayAttribute(name: string, value: string, element?: Eleme
       ? '[redacted-url]'
       : sanitizeTelemetryUrl(value)
   }
-  return redactReplayPii(value)
+  return redactPii(value)
 }
 
 function replayElementIsSensitive(element: Element | undefined) {
@@ -169,11 +171,11 @@ function replayElementIsSensitive(element: Element | undefined) {
   return replaySensitiveFieldPattern.test(metadata)
 }
 
-function redactReplayPii(value: string) {
+function redactPii(value: string) {
   return value
-    .replace(replayEmailPattern, '[redacted email]')
-    .replace(replayPhonePattern, '[redacted phone]')
-    .replace(replayRegistrationPattern, '[redacted registration]')
+    .replace(emailPattern, '[redacted email]')
+    .replace(phonePattern, '[redacted phone]')
+    .replace(registrationPattern, '[redacted registration]')
 }
 
 function maskedReplayValue(value: string) {
@@ -259,6 +261,7 @@ function safeExceptionList(value: unknown): SafeException[] | null {
     if (!isRecord(entry)) return []
     const exception: SafeException = {}
     if (typeof entry.type === 'string') exception.type = entry.type
+    if (typeof entry.value === 'string') exception.value = redactPii(entry.value)
     if (isRecord(entry.mechanism)) {
       const mechanism: SafeException['mechanism'] = {}
       if (typeof entry.mechanism.handled === 'boolean') mechanism.handled = entry.mechanism.handled
@@ -298,8 +301,8 @@ function safeStackFrame(frame: Record<string, unknown>): SafeStackFrame {
 function safeGeneratedFilename(value: string) {
   try {
     const url = new URL(value, 'https://local.invalid')
-    if (!url.pathname.startsWith('/assets/')) return null
-    if (!/^\/[A-Za-z0-9._~/-]+$/u.test(url.pathname)) return null
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return null
+    if (!generatedFilenamePattern.test(url.pathname)) return null
     return url.origin === 'https://local.invalid' ? url.pathname : `${url.origin}${url.pathname}`
   } catch {
     return null

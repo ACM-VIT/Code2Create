@@ -60,6 +60,7 @@ test('PostHog events remove identity properties, content, and opaque route segme
       $pathname: '/reviews/:id',
       $exception_list: [{
         type: 'Error',
+        value: 'Participant [redacted email] submitted private idea text',
         mechanism: { type: 'generic', handled: true },
         stacktrace: {
           type: 'raw',
@@ -74,6 +75,44 @@ test('PostHog events remove identity properties, content, and opaque route segme
             filename: 'https://event.example.org/assets/index-a71f.js',
             chunk_id: 'chunk-1',
           }],
+        },
+      }],
+    },
+  })
+})
+
+test('exception values are forwarded with PII redacted and bundle frames kept for symbolication', () => {
+  const event = scrubPostHogEvent({
+    event: '$exception',
+    properties: {
+      $exception_list: [{
+        type: 'Error',
+        value: 'Join failed for +91 98765 43210 and 23BCE1234',
+        stacktrace: {
+          type: 'raw',
+          frames: [
+            { function: '_.H', lineno: 88, filename: 'https://c2c.sh/participant/index-9f2c.js' },
+            { function: 'onDocument', lineno: 3, filename: 'https://c2c.sh/join/abc123' },
+            { function: 'onDisk', lineno: 1, filename: 'file:///Users/dev/src/join.tsx' },
+          ],
+        },
+      }],
+    },
+  })
+
+  assert.deepEqual(event, {
+    event: '$exception',
+    properties: {
+      $exception_list: [{
+        type: 'Error',
+        value: 'Join failed for [redacted phone] and [redacted registration]',
+        stacktrace: {
+          type: 'raw',
+          frames: [
+            { function: '_.H', lineno: 88, filename: 'https://c2c.sh/participant/index-9f2c.js' },
+            { function: 'onDocument', lineno: 3 },
+            { function: 'onDisk', lineno: 1 },
+          ],
         },
       }],
     },
