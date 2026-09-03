@@ -36,7 +36,7 @@ import type { UpdatesTileModel } from "../components/dashboard/UpdatesTile";
 import { DashboardScreen } from "../screens/DashboardScreen";
 import { SglangInterlude } from "../screens/SglangInterlude";
 import { ConfirmCard } from "../screens/TeamLobbyScreen";
-import { NoveltyPill, NoveltyReviewRow, ReviewEditRow } from "../screens/IntakeScreen";
+import { NoveltyPill, NoveltyReviewRow } from "../screens/IntakeScreen";
 import { IdeaPromptsLink } from "../components/portal/IdeaPromptsSheet";
 import { JoinCodeBar } from "../components/portal/JoinCodeBar";
 import {
@@ -1391,30 +1391,59 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries([
           </p>
           <div className="w-full text-left">
             <PetalCard className="px-6 py-2 sm:px-8">
-              <AccordionRoot allowMultiple defaultValue={["idea"]}>
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-petal-line py-4">
+                <div>
+                  <p className="text-[15px] font-semibold text-fg/85">Idea comparison</p>
+                  <p className="mt-0.5 text-[11.5px] text-fg/45">
+                    Compared with past and current projects
+                  </p>
+                </div>
+                <NoveltyPill
+                  state={{ status: "idle" }}
+                  currentLength={164}
+                  minimumLength={20}
+                  idleLabel="score unavailable"
+                />
+              </div>
+              <AccordionRoot allowMultiple defaultValue={["q3"]}>
                 {[
                   {
                     id: "idea",
                     title: "The idea",
                     body: "A campus lost-and-found where finders post a photo and owners describe what they lost. On-device image matching pairs the two; pickup at verified hostel desks.",
+                    refreshable: false,
                   },
                   {
                     id: "q1",
-                    title: "Who will use Foundling on day one?",
-                    body: "Hostellers first · most losses happen in messes and reading halls. Security desks join in week two once verified pickup is proven.",
+                    title: "What problem are you solving?",
+                    body: "Students lose everyday items across campus, but there is no reliable way to match a found item with its owner.",
+                    refreshable: false,
                   },
                   {
                     id: "q2",
-                    title: "What will you build during the 48 hours?",
-                    body: "The finder flow, the matcher, and one hostel desk pickup screen.",
+                    title: "How will your solution work in practice?",
+                    body: "Finders post a photo, owners describe what they lost, and the app suggests likely matches for a verified pickup.",
+                    refreshable: false,
+                  },
+                  {
+                    id: "q3",
+                    title: "Who is the intended first user of Foundling?",
+                    body: "Hostellers first, because most losses happen in messes, reading halls, and shared common areas.",
+                    refreshable: true,
+                  },
+                  {
+                    id: "q4",
+                    title: "What is the first concrete task you want Foundling to complete?",
+                    body: "Match one lost-item description to a finder’s photo and route both people to the same hostel desk.",
+                    refreshable: true,
                   },
                   {
                     id: "extra",
-                    title:
-                      "Any additional information or links you want to share (please, no PPTs)",
+                    title: "Additional information or links (optional, please no PPTs)",
                     body: "Nothing added.",
+                    refreshable: false,
                   },
-                ].map(({ id, title, body }) => (
+                ].map(({ id, title, body, refreshable }) => (
                   <AccordionItem key={id} value={id}>
                     <AccordionItemTrigger>
                       <AccordionItemHeader>
@@ -1425,7 +1454,22 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries([
                       <p className={id === "extra" ? "text-fg/45" : "whitespace-pre-line"}>
                         {body}
                       </p>
-                      <ReviewEditRow busy={false} onEdit={noop} />
+                      <div className="mt-3 flex justify-end gap-5">
+                        {refreshable ? (
+                          <button
+                            type="button"
+                            className="text-[12.5px] text-rose-light underline-offset-4 hover:underline"
+                          >
+                            refresh question
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="text-[12.5px] text-rose-light underline-offset-4 hover:underline"
+                        >
+                          edit
+                        </button>
+                      </div>
                     </AccordionItemContent>
                   </AccordionItem>
                 ))}

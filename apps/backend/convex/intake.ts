@@ -479,6 +479,7 @@ export const submitted = query({
             questionId: v.id("intakeGeneratedQuestions"),
             ordinal: v.number(),
             question: v.string(),
+            source: v.union(v.literal("fixed"), v.literal("model"), v.literal("fallback")),
             answer: v.string(),
           }),
         ),
@@ -551,6 +552,7 @@ export const submitted = query({
           questionId: response.questionId,
           ordinal: response.ordinal,
           question: response.question,
+          source: response.source,
           answer: response.answer,
         })),
         version: project.version,
@@ -1279,6 +1281,236 @@ export const beginSubmittedRevision = mutation({
         regenerateAfterOrdinal,
       }),
       reason: "Team lead changed proposal content that determines later questions",
+    });
+    return { draftId: draft._id, draftVersion };
+  },
+});
+
+export const refreshSubmittedFollowUpQuestion = mutation({
+  args: {
+    eventSlug: v.string(),
+    applicationId: v.id("applications"),
+    questionId: v.id("intakeGeneratedQuestions"),
+    expectedApplicationContentVersion: v.number(),
+    expectedProjectVersionId: v.id("projectVersions"),
+    expectedProjectVersion: v.number(),
+    clientOperationId: v.string(),
+  },
+  returns: submittedRevisionDraftResult,
+  handler: async (ctx, args) => {
+    const { event, person, subject, membership, member, team } = await currentTeamContext(
+      ctx,
+      args.eventSlug,
+    );
+    const requestFingerprint = operationFingerprint([
+      args.applicationId,
+      args.questionId,
+      args.expectedApplicationContentVersion,
+      args.expectedProjectVersionId,
+      args.expectedProjectVersion,
+    ]);
+    const replay = await replayDraftOperation(
+      ctx,
+      event._id,
+      person._id,
+      args.clientOperationId,
+      "intake.submission.question.refresh",
+      requestFingerprint,
+    );
+    if (replay) return { draftId: replay._id, draftVersion: replay.version };
+
+    const now = Date.now();
+    requireRegistrationOpen(event, membership.participantClass, now);
+    if (member.role !== "lead" || team.leadMembershipId !== membership._id) {
+      throw new ConvexError({
+        code: "TEAM_LEAD_REQUIRED",
+        message: "Only the current team lead can refresh a submitted question.",
+      });
+    }
+    const grantIds = await requirePermission(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey: "application.submit",
+      scopeType: "team",
+      scopeId: team._id,
+    });
+    const [application, draft] = await Promise.all([
+      ctx.db.get(args.applicationId),
+      ctx.db
+        .query("projectDrafts")
+        .withIndex("by_team", (index) => index.eq("teamId", team._id))
+        .unique(),
+    ]);
+    if (!application || application.eventId !== event._id || application.teamId !== team._id) {
+      throw new ConvexError({
+        code: "APPLICATION_NOT_FOUND",
+        message: "That application is unavailable.",
+      });
+    }
+    if (
+      application.contentVersion !== args.expectedApplicationContentVersion ||
+      (application.state !== "submitted" && application.state !== "under_review")
+    ) {
+      throw new ConvexError({
+        code: "APPLICATION_CHANGED",
+        message: "The application changed. Review the current proposal before refreshing.",
+      });
+    }
+    const project = await ctx.db.get(application.submittedProjectVersionId);
+    if (
+      !project ||
+      project._id !== args.expectedProjectVersionId ||
+      project.version !== args.expectedProjectVersion ||
+      project.eventId !== event._id ||
+      project.teamId !== team._id ||
+      team.lockedProjectVersionId !== project._id ||
+      !team.membershipLocked
+    ) {
+      throw new ConvexError({
+        code: "PROJECT_CHANGED",
+        message: "The proposal changed. Review the current version before refreshing.",
+      });
+    }
+    if (!draft || draft.stage !== "submitted" || draft.intakePolicyVersionId !== project.intakePolicyVersionId) {
+      throw new ConvexError({
+        code: "PROPOSAL_REVISION_IN_PROGRESS",
+        message: "Finish the question update already in progress before refreshing again.",
+      });
+    }
+    const [latestProject, intakePolicy, currentResponses, activeAnswers] = await Promise.all([
+      ctx.db
+        .query("projectVersions")
+        .withIndex("by_team_version", (index) => index.eq("teamId", team._id))
+        .order("desc")
+        .first(),
+      ctx.db.get(project.intakePolicyVersionId),
+      loadCurrentIntakeResponses(ctx, draft._id),
+      loadActiveIntakeAnswers(ctx, draft._id),
+    ]);
+    if (latestProject?._id !== project._id) {
+      throw new Error("The application does not point to the latest project version.");
+    }
+    if (
+      !intakePolicy ||
+      intakePolicy.eventId !== event._id ||
+      (intakePolicy.status !== "published" && intakePolicy.status !== "superseded")
+    ) {
+      throw new Error("The proposal references an invalid intake policy.");
+    }
+    const policy = normalizeIntakePolicy(intakePolicyFromDocument(intakePolicy));
+    if (intakePolicyChecksum(policy) !== intakePolicy.checksum) {
+      throw new Error("The proposal's intake policy checksum is invalid.");
+    }
+    const response = currentResponses.find(({ question }) => question._id === args.questionId);
+    const submittedResponse = project.intakeResponses.find(
+      (candidate) => candidate.questionId === args.questionId,
+    );
+    if (
+      !response?.answer ||
+      !submittedResponse ||
+      response.question.state !== "answered" ||
+      response.question.eventId !== event._id ||
+      response.question.teamId !== team._id
+    ) {
+      throw new ConvexError({
+        code: "FOLLOW_UP_CHANGED",
+        message: "That question is no longer part of the submitted proposal.",
+      });
+    }
+    if (
+      response.question.source === "fixed" ||
+      response.question.ordinal <= policy.deterministicFollowUpCount ||
+      response.question.ordinal > policy.maximumFollowUpCount
+    ) {
+      throw new ConvexError({
+        code: "FOLLOW_UP_REFRESH_NOT_ALLOWED",
+        message: "Only the last two generated questions can be refreshed.",
+      });
+    }
+    const limit = await intakeQuestionRefreshRateLimiter.limit(
+      ctx,
+      "intakeGeneratedQuestionRefresh",
+      { key: `${draft._id}:${response.question.ordinal}` },
+    );
+    if (!limit.ok) {
+      throw new ConvexError({
+        code: "FOLLOW_UP_REFRESH_LIMITED",
+        message: "This question has already been refreshed once.",
+      });
+    }
+
+    const initialAnswer = activeAnswers.find(
+      (answer) => answer.promptKey === "initial_idea" && answer.generatedQuestionId === undefined,
+    );
+    if (!initialAnswer || !draft.initialIdea) {
+      throw new Error("The submitted project has no active initial-idea answer.");
+    }
+    const retainedAnswerIds: Id<"intakeAnswerVersions">[] = [];
+    for (const retained of currentResponses) {
+      if (retained.question.ordinal >= response.question.ordinal) break;
+      if (!retained.answer) throw new Error("A retained submitted response is incomplete.");
+      await ctx.db.patch(retained.question._id, {
+        sourceAnswerVersionIds: [initialAnswer._id, ...retainedAnswerIds],
+      });
+      retainedAnswerIds.push(retained.answer._id);
+    }
+
+    const removedQuestionIds = currentResponses
+      .filter(({ question }) => question.ordinal >= response.question.ordinal)
+      .map(({ question }) => question._id);
+    const draftVersion = draft.version + 1;
+    await replaceIntakeQuestionsAfter(ctx, draft._id, response.question.ordinal - 1);
+    await reconcileWorkingFieldsAfterDraftVersionChange(ctx, {
+      teamId: team._id,
+      previousDraftVersion: draft.version,
+      nextDraftVersion: draftVersion,
+      removeIdea: true,
+      removedQuestionIds,
+    });
+    await ctx.db.patch(draft._id, {
+      stage: "follow_up",
+      adaptiveQuestionDeadlineAt: undefined,
+      version: draftVersion,
+      lastEditedByMembershipId: membership._id,
+      updatedAt: now,
+    });
+    await enqueueIntakeInterpretation(ctx, {
+      draftId: draft._id,
+      draftVersion,
+      enqueuedAt: now,
+    });
+    await recordDraftOperation(ctx, {
+      eventId: event._id,
+      personId: person._id,
+      clientOperationId: args.clientOperationId,
+      commandName: "intake.submission.question.refresh",
+      requestFingerprint,
+      draftId: draft._id,
+      createdAt: now,
+    });
+    await writeAuditEvent(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      permissionKey: "application.submit",
+      grantIds,
+      scopeType: "team",
+      scopeId: team._id,
+      action: "application.proposal_question_refresh_started",
+      targetType: "application",
+      targetId: application._id,
+      previousSummary: JSON.stringify({
+        projectVersionId: project._id,
+        projectVersion: project.version,
+        applicationContentVersion: application.contentVersion,
+        questionId: response.question._id,
+        questionOrdinal: response.question.ordinal,
+      }),
+      nextSummary: JSON.stringify({
+        draftId: draft._id,
+        draftVersion,
+        regenerateFromOrdinal: response.question.ordinal,
+      }),
+      reason: "Team lead refreshed a generated question in the submitted proposal",
     });
     return { draftId: draft._id, draftVersion };
   },

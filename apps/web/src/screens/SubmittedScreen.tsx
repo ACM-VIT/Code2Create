@@ -46,6 +46,7 @@ type ParticipantDeliveryState = NonNullable<ParticipantDelivery>["state"];
 type ParticipantCapabilities = FunctionReturnType<typeof api.access.participantCapabilities>;
 type CurrentApplication = SubmittedIntake["application"];
 type ApplicationState = CurrentApplication["state"];
+type SubmittedIntakeResponse = SubmittedIntake["project"]["intakeResponses"][number];
 
 const additionalInformationLabel = "Additional information or links (optional, please no PPTs)";
 
@@ -683,11 +684,18 @@ function ProposalSummary({
   const navigate = useNavigate();
   const reviseSubmission = useMutation(api.intake.reviseSubmission);
   const beginSubmittedRevision = useMutation(api.intake.beginSubmittedRevision);
+  const refreshSubmittedFollowUpQuestion = useMutation(
+    api.intake.refreshSubmittedFollowUpQuestion,
+  );
   const revisionAttempt = useMutationAttempt<
     | FunctionReturnType<typeof api.intake.reviseSubmission>
     | FunctionReturnType<typeof api.intake.beginSubmittedRevision>
+    | FunctionReturnType<typeof api.intake.refreshSubmittedFollowUpQuestion>
   >();
   const pending = revisionAttempt.hasPending("proposal-revision");
+  const pendingQuestionRefresh = intake.project.intakeResponses.some((response) =>
+    revisionAttempt.hasPending(submittedQuestionRefreshSlot(response.questionId)),
+  );
   const proposalStorageKey = `c2c:${eventSlug}:${application.id}:proposal`;
   const [recoveredDraft] = useState(() => readVersionedSessionDraft(proposalStorageKey));
   const currentEditBase = proposalRevisionBase(application, intake.project);
@@ -704,6 +712,7 @@ function ProposalSummary({
     sessionDraftConflicts(recoveredDraft, proposalRevisionBaseFingerprint(currentEditBase)),
   );
   const [busy, setBusy] = useState(false);
+  const [refreshingQuestionId, setRefreshingQuestionId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { editors, markEditing, stopEditing } = useEditingPresence(canEdit && editing);
   const noveltyIdea = editing ? draft.initialIdea : intake.project.initialIdea;
@@ -782,6 +791,37 @@ function ProposalSummary({
     }
   };
 
+  const refreshQuestion = async (response: SubmittedIntakeResponse) => {
+    const slot = submittedQuestionRefreshSlot(response.questionId);
+    setBusy(true);
+    setRefreshingQuestionId(response.questionId);
+    setError(null);
+    try {
+      await revisionAttempt.run(slot, () => {
+        const args = {
+          eventSlug,
+          applicationId: application.id,
+          questionId: response.questionId,
+          expectedApplicationContentVersion: application.contentVersion,
+          expectedProjectVersionId: intake.project.id,
+          expectedProjectVersion: intake.project.version,
+          clientOperationId: crypto.randomUUID(),
+        };
+        return () => refreshSubmittedFollowUpQuestion(args);
+      });
+      clearSessionDraft(proposalStorageKey);
+      setHasRecoveredDraft(false);
+      setEditConflict(false);
+      stopEditing();
+      void navigate("/write", { replace: true, viewTransition: true });
+    } catch (caught) {
+      setError(readableError(caught));
+    } finally {
+      setBusy(false);
+      setRefreshingQuestionId(null);
+    }
+  };
+
   const ideaLength = draft.initialIdea.trim().length;
   const ideaMaximumLength = initialIdeaMaximumLength(intake.editRules.initialIdeaMaxLength);
   const invalidResponse = draft.responses.some(
@@ -797,7 +837,7 @@ function ProposalSummary({
   const hasLocalChanges =
     serializeProposalDraft(draft) !== serializeProposalDraft(proposalDraft(intake));
 
-  const locked = busy || pending;
+  const locked = busy || pending || pendingQuestionRefresh;
   const ideaSectionId = "idea";
   const additionalSectionId = "additional-information";
 
@@ -943,46 +983,79 @@ function ProposalSummary({
             </AccordionItemContent>
           </AccordionItem>
 
-          {intake.project.intakeResponses.map((response, index) => (
-            <AccordionItem key={response.questionId} value={response.questionId}>
-              {sectionTitle(response.question)}
-              <AccordionItemContent className={contentClass}>
-                {editing ? (
-                  <PortalTextarea
-                    aria-label={response.question}
-                    required
-                    rows={4}
-                    minLength={intake.editRules.followUpAnswerMinLength}
-                    maxLength={intake.editRules.followUpAnswerMaxLength}
-                    value={draft.responses[index]?.answer ?? ""}
-                    disabled={locked}
-                    onChange={(event) => {
-                      const value = event.currentTarget.value;
-                      const nextDraft = {
-                        ...draft,
-                        responses: draft.responses.map((item, itemIndex) =>
-                          itemIndex === index ? { ...item, answer: value } : item,
-                        ),
-                      };
-                      setDraft(nextDraft);
-                      rememberDraft(nextDraft);
-                      markEditing("proposal_revision", response.questionId);
-                    }}
-                  />
-                ) : (
-                  <>
-                    <p className="whitespace-pre-line">{response.answer}</p>
-                    {canEdit ? (
-                      <ReviewEditRow
-                        busy={locked}
-                        onEdit={() => beginEditing(response.questionId)}
-                      />
-                    ) : null}
-                  </>
-                )}
-              </AccordionItemContent>
-            </AccordionItem>
-          ))}
+          {intake.project.intakeResponses.map((response, index) => {
+            const refreshable =
+              response.source !== "fixed" &&
+              response.ordinal > intake.editRules.deterministicFollowUpCount &&
+              response.ordinal <= intake.editRules.maximumFollowUpCount;
+            const refreshSlot = submittedQuestionRefreshSlot(response.questionId);
+            const refreshPending = revisionAttempt.hasPending(refreshSlot);
+            const refreshing = busy && refreshingQuestionId === response.questionId;
+            return (
+              <AccordionItem key={response.questionId} value={response.questionId}>
+                {sectionTitle(response.question)}
+                <AccordionItemContent className={contentClass}>
+                  {editing ? (
+                    <PortalTextarea
+                      aria-label={response.question}
+                      required
+                      rows={4}
+                      minLength={intake.editRules.followUpAnswerMinLength}
+                      maxLength={intake.editRules.followUpAnswerMaxLength}
+                      value={draft.responses[index]?.answer ?? ""}
+                      disabled={locked}
+                      onChange={(event) => {
+                        const value = event.currentTarget.value;
+                        const nextDraft = {
+                          ...draft,
+                          responses: draft.responses.map((item, itemIndex) =>
+                            itemIndex === index ? { ...item, answer: value } : item,
+                          ),
+                        };
+                        setDraft(nextDraft);
+                        rememberDraft(nextDraft);
+                        markEditing("proposal_revision", response.questionId);
+                      }}
+                    />
+                  ) : (
+                    <>
+                      <p className="whitespace-pre-line">{response.answer}</p>
+                      {canEdit ? (
+                        <div className="mt-3 flex justify-end gap-5">
+                          {refreshable ? (
+                            <button
+                              type="button"
+                              disabled={
+                                busy ||
+                                pending ||
+                                (pendingQuestionRefresh && !refreshPending)
+                              }
+                              onClick={() => void refreshQuestion(response)}
+                              className="text-[12.5px] text-rose-light underline-offset-4 hover:underline disabled:cursor-not-allowed disabled:opacity-50 motion-safe:disabled:hover:animate-shake"
+                            >
+                              {refreshing
+                                ? "refreshing…"
+                                : refreshPending
+                                  ? "confirm refresh"
+                                  : "refresh question"}
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            disabled={locked}
+                            onClick={() => beginEditing(response.questionId)}
+                            className="text-[12.5px] text-rose-light underline-offset-4 hover:underline disabled:cursor-not-allowed disabled:opacity-50 motion-safe:disabled:hover:animate-shake"
+                          >
+                            edit
+                          </button>
+                        </div>
+                      ) : null}
+                    </>
+                  )}
+                </AccordionItemContent>
+              </AccordionItem>
+            );
+          })}
 
           <AccordionItem value={additionalSectionId}>
             {sectionTitle(additionalInformationLabel)}
@@ -1020,6 +1093,8 @@ function ProposalSummary({
             </AccordionItemContent>
           </AccordionItem>
         </AccordionRoot>
+
+        {!editing ? <PortalError message={error} /> : null}
 
         {editing ? (
           <>
@@ -1064,6 +1139,10 @@ function ProposalSummary({
       </form>
     </section>
   );
+}
+
+function submittedQuestionRefreshSlot(questionId: string) {
+  return `submitted-question-refresh:${questionId}`;
 }
 
 function proposalDraft(intake: SubmittedIntake) {

@@ -1543,6 +1543,75 @@ describe("participant intake lifecycle", () => {
       confirmedAt: stored.attempt?.createdAt,
     });
 
+    const submittedBeforeQuestionRefresh = await participant.query(api.intake.submitted, {
+      eventSlug: fixture.eventSlug,
+    });
+    if (!submittedBeforeQuestionRefresh) {
+      throw new Error("The revised submission is unavailable for a question refresh.");
+    }
+    const fixedSubmittedQuestion = submittedBeforeQuestionRefresh.project.intakeResponses[0];
+    const generatedSubmittedQuestion = submittedBeforeQuestionRefresh.project.intakeResponses.find(
+      (response) => response.ordinal === 4,
+    );
+    if (!fixedSubmittedQuestion || !generatedSubmittedQuestion) {
+      throw new Error("The submitted refresh fixture is missing its expected questions.");
+    }
+    expect(fixedSubmittedQuestion.source).toBe("fixed");
+    expect(generatedSubmittedQuestion.source).toBe("fallback");
+    await expect(
+      participant.mutation(api.intake.refreshSubmittedFollowUpQuestion, {
+        eventSlug: fixture.eventSlug,
+        applicationId: submittedBeforeQuestionRefresh.application.id,
+        questionId: fixedSubmittedQuestion.questionId,
+        expectedApplicationContentVersion:
+          submittedBeforeQuestionRefresh.application.contentVersion,
+        expectedProjectVersionId: submittedBeforeQuestionRefresh.project.id,
+        expectedProjectVersion: submittedBeforeQuestionRefresh.project.version,
+        clientOperationId: "intake-submitted-fixed-question-refresh-rejected",
+      }),
+    ).rejects.toThrow("Only the last two generated questions can be refreshed.");
+    const submittedQuestionRefreshRequest = {
+      eventSlug: fixture.eventSlug,
+      applicationId: submittedBeforeQuestionRefresh.application.id,
+      questionId: generatedSubmittedQuestion.questionId,
+      expectedApplicationContentVersion: submittedBeforeQuestionRefresh.application.contentVersion,
+      expectedProjectVersionId: submittedBeforeQuestionRefresh.project.id,
+      expectedProjectVersion: submittedBeforeQuestionRefresh.project.version,
+      clientOperationId: "intake-submitted-generated-question-refresh",
+    } as const;
+    const startedSubmittedQuestionRefresh = await participant.mutation(
+      api.intake.refreshSubmittedFollowUpQuestion,
+      submittedQuestionRefreshRequest,
+    );
+    await expect(
+      participant.mutation(
+        api.intake.refreshSubmittedFollowUpQuestion,
+        submittedQuestionRefreshRequest,
+      ),
+    ).resolves.toEqual(startedSubmittedQuestionRefresh);
+    await expect(
+      participant.query(api.intake.status, { eventSlug: fixture.eventSlug }),
+    ).resolves.toMatchObject({ revisionInProgress: true });
+    const submittedQuestionRefreshDraft = await participant.query(api.intake.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(submittedQuestionRefreshDraft).toMatchObject({
+      application: { contentVersion: submittedBeforeQuestionRefresh.application.contentVersion },
+      draft: {
+        id: startedSubmittedQuestionRefresh.draftId,
+        version: startedSubmittedQuestionRefresh.draftVersion,
+        stage: "follow_up",
+        followUps: submittedBeforeQuestionRefresh.project.intakeResponses
+          .filter((response) => response.ordinal < generatedSubmittedQuestion.ordinal)
+          .map((response) => ({
+            id: response.questionId,
+            ordinal: response.ordinal,
+            state: "answered",
+            answer: response.answer,
+          })),
+      },
+    });
+
     const thirdAuthUserId = await createAuthUser(
       backend,
       Date.now(),
