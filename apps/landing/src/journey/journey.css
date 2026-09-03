@@ -612,12 +612,12 @@
   contain: strict;
 }
 
-/* Its GSAP start is low in the viewport, then it settles here before the first
-   firework launches. */
+/* Its GSAP start is above the viewport. It descends with the clearing sky and
+   settles into this lower band before the first firework launches. */
 .sponsors__title {
   position: absolute;
   left: 50%;
-  top: 12%;
+  top: 86%;
   z-index: 1;
   transform: translateX(-50%);
   font-family: var(--font-display);
@@ -1188,10 +1188,10 @@
     font-size: clamp(11px, 4vw, 18px);
   }
 
-  /* The title owns the top band; two leaders and two supporting rows stack
-     below it without crossing into the navigation. */
+  /* The title closes the composition beneath two leaders and two supporting
+     rows, with a clear gap above the viewport edge. */
   .sponsors__title {
-    top: 10%;
+    top: 88%;
     font-size: clamp(18px, 5.4vw, 26px);
   }
 

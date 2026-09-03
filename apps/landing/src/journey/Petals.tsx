@@ -93,8 +93,11 @@ const GRAVITY = 0.055;
 const DRAG = 0.986;
 const BUCKETS = 190;
 
-/* Roughly how long a hollow takes to fill back in. */
-const REFILL_SECONDS = 6;
+/* The footer drift grows from bare ground to its finished depth over this
+   real-time window, independent of display refresh rate. */
+const BED_FILL_SECONDS = 10;
+/* Cursor-made hollows recover gently after the initial bed has formed. */
+const HOLLOW_REFILL_SECONDS = 6;
 const REFILL_PER_FRAME = 7;
 
 /* How fast the pile slumps sideways. Higher settles quicker; too high and the
@@ -280,6 +283,7 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
     const slumped = new Float32Array(BUCKETS);
     let bedWidth = 0;
     let bedSeeded = false;
+    let bedFillStartedAt: number | null = null;
 
     /* Fixed per-column jitter so the crest keeps its shape frame to frame
        instead of boiling. */
@@ -456,6 +460,7 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
       buildTile(dpr);
       buildRoute();
       bedSeeded = false;
+      bedFillStartedAt = null;
     };
     resize();
     window.addEventListener("resize", resize);
@@ -750,19 +755,35 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
       }
 
       const floor = readFloor();
+      let bedLimit = 0;
 
       if (floor) {
-        /* Lay the drift down in one go the first time its floor can be
-           measured — the ground should be there when you arrive, not build
-           itself while you watch. */
+        /* Begin on bare ground. The timed growth below builds the complete
+           drift over BED_FILL_SECONDS instead of presenting a nearly full
+           bed on the first visible frame. */
         if (!bedSeeded) {
-          for (let i = 0; i < BUCKETS; i += 1) {
-            /* Low-frequency undulation plus per-column jitter, so the crest
-               has dunes in it rather than a ruled edge. */
-            const dune = Math.sin(i * 0.07) * 0.06 + Math.sin(i * 0.021 + 1.7) * 0.05;
-            bank[i] = floor.target * (0.86 + dune + crest[i] * 0.07);
-          }
+          bank.fill(0);
+          slumped.fill(0);
+          bedFillStartedAt = now;
           bedSeeded = true;
+        }
+
+        const fillProgress = Math.min(
+          1,
+          Math.max(0, (now - (bedFillStartedAt ?? now)) / (BED_FILL_SECONDS * 1000)),
+        );
+        bedLimit = floor.target * fillProgress;
+
+        /* Raise the whole drift at a real-time pace while retaining a lightly
+           irregular crest. Falling petals can add local detail, but the cap
+           below prevents them from completing the bed ahead of this clock. */
+        for (let i = 0; i < BUCKETS; i += 1) {
+          const dune = Math.sin(i * 0.07) * 0.012 + Math.sin(i * 0.021 + 1.7) * 0.008;
+          const desired = Math.min(
+            bedLimit,
+            bedLimit * (0.98 + dune + crest[i] * 0.016),
+          );
+          bank[i] = Math.max(bank[i], desired);
         }
 
         /* Slump: each column pulls toward the mean of its neighbours, so a
@@ -932,7 +953,7 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
         if (floor && p.x > floor.rect.left && p.x < floor.rect.right) {
           const bucket = bucketAt(p.x - floor.rect.left);
           if (p.y >= floor.floorY - bank[bucket]) {
-            bank[bucket] = Math.min(floor.target, bank[bucket] + p.size * 0.5);
+            bank[bucket] = Math.min(bedLimit, bank[bucket] + p.size * 0.5);
             p.dead = true;
             continue;
           }
@@ -959,13 +980,18 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
         }
         shortfall = low.length;
 
-        if (low.length) {
+        const initialFillComplete =
+          bedFillStartedAt !== null && now - bedFillStartedAt >= BED_FILL_SECONDS * 1000;
+        if (low.length && initialFillComplete) {
           let deficit = 0;
           for (const i of low) deficit += floor.target - bank[i];
           const perPetal = 10 * 0.5;
           const budget = Math.max(
             1,
-            Math.min(REFILL_PER_FRAME, Math.ceil(deficit / perPetal / (REFILL_SECONDS * 60))),
+            Math.min(
+              REFILL_PER_FRAME,
+              Math.ceil(deficit / perPetal / (HOLLOW_REFILL_SECONDS * 60)),
+            ),
           );
 
           for (let n = 0; n < budget; n += 1) {
