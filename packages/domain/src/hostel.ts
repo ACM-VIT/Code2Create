@@ -9,6 +9,7 @@ export type VitHostelResidenceCatalogEntry = {
 export const defaultVitHostelResidenceCatalog: VitHostelResidenceCatalogEntry[] = [
   { stableKey: "mh_a", label: "A block", kind: "mens" },
   { stableKey: "mh_b", label: "B block", kind: "mens" },
+  { stableKey: "mh_b_annex", label: "B annex", kind: "mens" },
   { stableKey: "mh_c", label: "C block", kind: "mens" },
   { stableKey: "mh_d", label: "D block", kind: "mens" },
   { stableKey: "mh_d_annex", label: "D annex", kind: "mens" },
