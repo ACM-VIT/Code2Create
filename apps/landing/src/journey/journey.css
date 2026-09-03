@@ -1188,8 +1188,8 @@
     font-size: clamp(11px, 4vw, 18px);
   }
 
-  /* The bursts cascade down the middle of a phone frame, so the heading
-     drops beneath the lowest of them. */
+  /* The two leaders stack above two supporting rows on a phone, so the
+     heading stays beneath the lowest sponsor. */
   .sponsors__title {
     top: 80%;
     font-size: clamp(18px, 5.4vw, 26px);
