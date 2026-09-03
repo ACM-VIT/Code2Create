@@ -1891,12 +1891,7 @@ export async function saveAdmissionHumanReview(
     activeReview?.applicationContentVersion === args.application.contentVersion;
   if (activeReview) await ctx.db.patch(activeReview._id, { status: "superseded" });
   const note = optionalNormalizedText(args.note, "Review note", 600);
-  const reviewReasonCode = await requirePolicyReason(
-    ctx,
-    args.application,
-    args.recommendation,
-    args.reasonCode,
-  );
+  const reviewReasonCode = normalizedText(args.reasonCode, "Review reason", 3, 240);
   const reviewId = await ctx.db.insert("admissionHumanReviews", {
     eventId: args.application.eventId,
     applicationId: args.application._id,
