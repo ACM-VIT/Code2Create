@@ -51,6 +51,9 @@ const streamAccess = v.object({
   signature: v.string(),
 });
 
+const autonomyTickLeaseDurationMs = 60_000;
+const autonomyTickLeaseRenewalWindowMs = 15_000;
+
 async function signedPost(args: { path: string; context: string; body: string; signedAt: number }) {
   const timestamp = String(args.signedAt);
   const signature = await signServiceBody({
@@ -217,13 +220,28 @@ export const tick = internalAction({
   returns: v.object({ evaluated: v.number(), queued: v.number(), monitored: v.number() }),
   handler: async (ctx): Promise<{ evaluated: number; queued: number; monitored: number }> => {
     const leaseId = crypto.randomUUID();
+    const claimedAt = Date.now();
     const claimed = await ctx.runMutation(internal.operationsBackground.claim, {
       holder: "autonomy_tick",
       leaseId,
-      now: Date.now(),
-      leaseDurationMs: 60_000,
+      now: claimedAt,
+      leaseDurationMs: autonomyTickLeaseDurationMs,
     });
     if (!claimed) return { evaluated: 0, queued: 0, monitored: 0 };
+
+    let leaseExpiresAt = claimedAt + autonomyTickLeaseDurationMs;
+    const progress = { evaluated: 0, queued: 0, monitored: 0 };
+    const retainLease = async () => {
+      const now = Date.now();
+      if (now < leaseExpiresAt - autonomyTickLeaseRenewalWindowMs) return true;
+      const renewed = await ctx.runMutation(internal.operationsBackground.renew, {
+        leaseId,
+        now,
+        leaseDurationMs: autonomyTickLeaseDurationMs,
+      });
+      if (renewed) leaseExpiresAt = now + autonomyTickLeaseDurationMs;
+      return renewed;
+    };
 
     try {
       const now = Date.now();
@@ -232,26 +250,31 @@ export const tick = internalAction({
         { now },
       );
       for (const supervisionId of supervisionIds) {
+        if (!(await retainLease())) return progress;
         await ctx.runMutation(internal.operationsAutonomyScheduler.reconcileSupervision, {
           supervisionId,
           now,
         });
+        progress.monitored += 1;
       }
       const stateIds: Id<"operationsAutonomyStates">[] = await ctx.runQuery(
         internal.operationsAutonomyScheduler.dueStates,
         { now },
       );
       for (const stateId of stateIds) {
+        if (!(await retainLease())) return progress;
         await ctx.runMutation(internal.operationsAutonomyScheduler.enqueueDueSchedules, {
           stateId,
           now,
         });
+        progress.evaluated += 1;
       }
       const cancellationPolicies: Id<"operationsAutonomyPolicyVersions">[] = await ctx.runQuery(
         internal.operationsAutonomyScheduler.pendingCancellationPolicies,
         {},
       );
       for (const policyVersionId of cancellationPolicies) {
+        if (!(await retainLease())) return progress;
         await ctx.runMutation(internal.operationsAutonomyScheduler.cancelPendingInboxPage, {
           policyVersionId,
           now,
@@ -262,25 +285,24 @@ export const tick = internalAction({
         { now },
       );
       for (const inboxId of inboxIds) {
+        if (!(await retainLease())) return progress;
         await ctx.runMutation(internal.operationsAutonomyScheduler.materializeInbox, {
           inboxId,
           now,
         });
+        progress.queued += 1;
       }
       const continuationIds: Id<"operationsAutonomyContinuations">[] = await ctx.runQuery(
         internal.operationsAutonomyDispatch.dueContinuations,
         { now },
       );
       for (const continuationId of continuationIds) {
+        if (!(await retainLease())) return progress;
         await ctx.scheduler.runAfter(0, internal.operationsAutonomyActions.continueRun, {
           continuationId,
         });
       }
-      return {
-        evaluated: stateIds.length,
-        queued: inboxIds.length,
-        monitored: supervisionIds.length,
-      };
+      return progress;
     } finally {
       await ctx.runMutation(internal.operationsBackground.release, { leaseId });
     }

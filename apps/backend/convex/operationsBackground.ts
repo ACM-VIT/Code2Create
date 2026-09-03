@@ -31,6 +31,27 @@ export const claim = internalMutation({
   },
 });
 
+export const renew = internalMutation({
+  args: {
+    leaseId: v.string(),
+    now: v.number(),
+    leaseDurationMs: v.number(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("operationsBackgroundLeases")
+      .withIndex("by_key", (index) => index.eq("key", backgroundLeaseKey))
+      .unique();
+    if (!existing || existing.leaseId !== args.leaseId) return false;
+
+    await ctx.db.patch(existing._id, {
+      leaseExpiresAt: args.now + args.leaseDurationMs,
+    });
+    return true;
+  },
+});
+
 export const release = internalMutation({
   args: { leaseId: v.string() },
   returns: v.boolean(),

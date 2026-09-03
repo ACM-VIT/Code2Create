@@ -1103,6 +1103,12 @@ export const refresh = internalAction({
       } = await ctx.runQuery(internal.operationsHealth.computeSnapshot, {
         eventId: target.eventId,
       });
+      const renewed = await ctx.runMutation(internal.operationsBackground.renew, {
+        leaseId,
+        now: Date.now(),
+        leaseDurationMs: operationsHealthMaximumAgeMs,
+      });
+      if (!renewed) return "in_progress";
       return await ctx.runMutation(internal.operationsHealth.upsertSnapshot, {
         eventId: target.eventId,
         eventVersion: computed.eventVersion,
