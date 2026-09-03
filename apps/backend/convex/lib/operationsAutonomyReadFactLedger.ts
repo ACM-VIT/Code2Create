@@ -2,8 +2,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { enqueueOperationsAutonomySignal } from "./operationsAutonomyInbox";
 
-export type OperationsAutonomyFactSource =
-  Doc<"operationsAutonomyReadFactStates">["source"];
+export type OperationsAutonomyFactSource = Doc<"operationsAutonomyReadFactStates">["source"];
 
 function canonicalFactValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalFactValue);
@@ -19,11 +18,7 @@ export function sameOperationsAutonomyFactValue(left: unknown, right: unknown) {
   return JSON.stringify(canonicalFactValue(left)) === JSON.stringify(canonicalFactValue(right));
 }
 
-async function enqueueCurrentSignalEpisode(
-  ctx: MutationCtx,
-  eventId: Id<"events">,
-  now: number,
-) {
+async function enqueueCurrentSignalEpisode(ctx: MutationCtx, eventId: Id<"events">, now: number) {
   const materialized = await ctx.db
     .query("operationsHealthSnapshots")
     .withIndex("by_event", (index) => index.eq("eventId", eventId))
@@ -44,9 +39,7 @@ export async function nextOperationsAutonomyFactSequence(
 ) {
   const current = await ctx.db
     .query("operationsAutonomyReadFactStates")
-    .withIndex("by_event_source", (index) =>
-      index.eq("eventId", eventId).eq("source", source),
-    )
+    .withIndex("by_event_source", (index) => index.eq("eventId", eventId).eq("source", source))
     .unique();
   if (current) {
     if (current.source === "support_load") {
@@ -79,10 +72,7 @@ export async function closeOperationsAutonomyFactVersion(
   const current = await ctx.db
     .query("operationsAutonomyReadFacts")
     .withIndex("by_event_source_entity_sequence", (index) =>
-      index
-        .eq("eventId", args.eventId)
-        .eq("source", args.source)
-        .eq("entityKey", args.entityKey),
+      index.eq("eventId", args.eventId).eq("source", args.source).eq("entityKey", args.entityKey),
     )
     .order("desc")
     .first();

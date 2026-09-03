@@ -1,25 +1,15 @@
-import {
-  paginationOptsValidator,
-} from "convex/server";
+import { paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import { z } from "zod";
 
 import { internal } from "./_generated/api";
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import {
-  internalMutation,
-  internalQuery,
-  mutation,
-  query,
-} from "./_generated/server";
+import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
 import { teamRoundTableLabel } from "./lib/floor";
-import {
-  requireCurrentPerson,
-  requireEventSubject,
-} from "./lib/identity";
+import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import {
   findOperation,
   operationFingerprint,
@@ -158,9 +148,7 @@ function sameNumber(left: number, right: number) {
   return Math.abs(left - right) <= 1e-9;
 }
 
-function requireActiveExportState(
-  state: Doc<"roundExports">["state"],
-): ActiveExportState {
+function requireActiveExportState(state: Doc<"roundExports">["state"]): ActiveExportState {
   switch (state) {
     case "generating":
     case "uploaded":
@@ -176,11 +164,7 @@ function isoTime(value: number | undefined) {
   return value === undefined ? "" : new Date(value).toISOString();
 }
 
-async function requireRound(
-  ctx: ReadCtx,
-  eventId: Id<"events">,
-  roundId: Id<"reviewRounds">,
-) {
+async function requireRound(ctx: ReadCtx, eventId: Id<"events">, roundId: Id<"reviewRounds">) {
   const round = await ctx.db.get(roundId);
   if (!round || round.eventId !== eventId) {
     throw new ConvexError({
@@ -191,10 +175,7 @@ async function requireRound(
   return round;
 }
 
-async function activeExportForRound(
-  ctx: ReadCtx,
-  round: Doc<"reviewRounds">,
-) {
+async function activeExportForRound(ctx: ReadCtx, round: Doc<"reviewRounds">) {
   if (!round.activeRoundExportId) return null;
   const exportRecord = await ctx.db.get(round.activeRoundExportId);
   if (!exportRecord || exportRecord.roundId !== round._id) {
@@ -317,13 +298,9 @@ export const workspace = query({
         version: exportRecord.version,
         requestedByName: requester.displayName,
         requestedAt: exportRecord.requestedAt,
-        ...(exportRecord.uploadedAt !== undefined
-          ? { uploadedAt: exportRecord.uploadedAt }
-          : {}),
+        ...(exportRecord.uploadedAt !== undefined ? { uploadedAt: exportRecord.uploadedAt } : {}),
         ...(verifier ? { verifiedByName: verifier.displayName } : {}),
-        ...(exportRecord.verifiedAt !== undefined
-          ? { verifiedAt: exportRecord.verifiedAt }
-          : {}),
+        ...(exportRecord.verifiedAt !== undefined ? { verifiedAt: exportRecord.verifiedAt } : {}),
         counts: exportRecord.counts,
         ...(readGrants.length > 0 && exportRecord.files
           ? {
@@ -422,10 +399,7 @@ export const start = mutation({
         roundCloseStartOperationResult,
       );
       const roundExportId = ctx.db.normalizeId("roundExports", result.roundExportId);
-      const closeSnapshotId = ctx.db.normalizeId(
-        "roundCloseSnapshots",
-        result.closeSnapshotId,
-      );
+      const closeSnapshotId = ctx.db.normalizeId("roundCloseSnapshots", result.closeSnapshotId);
       if (!roundExportId || !closeSnapshotId || roundExportId !== prior.targetId) {
         throw new Error("The stored round-close start is invalid.");
       }
@@ -478,9 +452,7 @@ export const start = mutation({
         .collect(),
       ctx.db
         .query("teamRoundStates")
-        .withIndex("by_round_state_priority_queued", (index) =>
-          index.eq("roundId", round._id),
-        )
+        .withIndex("by_round_state_priority_queued", (index) => index.eq("roundId", round._id))
         .collect(),
       ctx.db
         .query("scorecardCorrectionCases")
@@ -515,9 +487,7 @@ export const start = mutation({
       });
     }
     if (
-      manualRecords.some(
-        (record) => record.status === "draft" || record.status === "submitted",
-      )
+      manualRecords.some((record) => record.status === "draft" || record.status === "submitted")
     ) {
       throw new ConvexError({
         code: "PAPER_REVIEWS_UNRESOLVED",
@@ -568,7 +538,8 @@ export const start = mutation({
       if (valid.length > 1) {
         throw new ConvexError({
           code: "DUPLICATE_VALID_RESULTS",
-          message: "A team has more than one valid completed result. Void the duplicate explicitly.",
+          message:
+            "A team has more than one valid completed result. Void the duplicate explicitly.",
         });
       }
       const result = valid[0];
@@ -595,8 +566,7 @@ export const start = mutation({
       }
       const excluded = teamSessions.flatMap((session) => {
         const evaluation = evaluations.find(
-          (candidate) =>
-            candidate.reviewSessionId === session._id && candidate.state === "void",
+          (candidate) => candidate.reviewSessionId === session._id && candidate.state === "void",
         );
         if (!evaluation) return [];
         const voidCase = cases
@@ -638,12 +608,8 @@ export const start = mutation({
       JSON.stringify(entries),
     ]);
     const resultCount = entries.filter((entry) => entry.payload.kind === "result").length;
-    const exclusionCount = entries.filter(
-      (entry) => entry.payload.kind === "excluded",
-    ).length;
-    const withdrawnCount = entries.filter(
-      (entry) => entry.payload.kind === "withdrawn",
-    ).length;
+    const exclusionCount = entries.filter((entry) => entry.payload.kind === "excluded").length;
+    const withdrawnCount = entries.filter((entry) => entry.payload.kind === "withdrawn").length;
     const closeSnapshotId = await ctx.db.insert("roundCloseSnapshots", {
       eventId: event._id,
       roundId: round._id,
@@ -672,9 +638,7 @@ export const start = mutation({
     const closingRoundVersion = round.version + 1;
     const exportedReviewIds = new Set(
       entries.flatMap((entry) =>
-        entry.payload.kind === "withdrawn"
-          ? []
-          : [entry.payload.reviewSessionId],
+        entry.payload.kind === "withdrawn" ? [] : [entry.payload.reviewSessionId],
       ),
     );
     const counts = {
@@ -683,9 +647,8 @@ export const start = mutation({
       excluded: exclusionCount,
       withdrawn: withdrawnCount,
       reviewSession: exportedReviewIds.size,
-      scorecard: scorecards.filter((scorecard) =>
-        exportedReviewIds.has(scorecard.reviewSessionId),
-      ).length,
+      scorecard: scorecards.filter((scorecard) => exportedReviewIds.has(scorecard.reviewSessionId))
+        .length,
       scorecardVersion: scorecardVersions.filter((scorecardVersion) =>
         exportedReviewIds.has(scorecardVersion.reviewSessionId),
       ).length,
@@ -827,9 +790,7 @@ export const generationContext = internalQuery({
       ctx.db.get(round.rubricVersionId),
       ctx.db
         .query("reviewRubricCriteria")
-        .withIndex("by_rubric_order", (index) =>
-          index.eq("rubricVersionId", round.rubricVersionId),
-        )
+        .withIndex("by_rubric_order", (index) => index.eq("rubricVersionId", round.rubricVersionId))
         .collect(),
       ctx.db
         .query("reviewPanels")
@@ -838,7 +799,9 @@ export const generationContext = internalQuery({
     ]);
     if (!rubric) throw new Error("The closing round rubric no longer resolves.");
     const panelSnapshots = [];
-    for (const panel of panels.sort((left, right) => left.stableKey.localeCompare(right.stableKey))) {
+    for (const panel of panels.sort((left, right) =>
+      left.stableKey.localeCompare(right.stableKey),
+    )) {
       const members = await ctx.db
         .query("reviewPanelMembers")
         .withIndex("by_panel_status", (index) => index.eq("panelId", panel._id))
@@ -967,8 +930,7 @@ async function teamExportContext(
   const projectVersion = projectVersionId ? await ctx.db.get(projectVersionId) : null;
   if (
     projectVersion &&
-    (projectVersion.eventId !== entry.eventId ||
-      projectVersion.teamId !== team._id)
+    (projectVersion.eventId !== entry.eventId || projectVersion.teamId !== team._id)
   ) {
     throw new Error("A close entry references an invalid submitted project version.");
   }
@@ -997,40 +959,42 @@ async function teamExportContext(
         disposition: "withdrawn",
         team: teamSnapshot,
       }),
-      csvRows: [roundExportCsvRow({
-        roundReference: String(round._id),
-        roundName: round.name,
-        teamReference: String(team._id),
-        teamName: team.name,
-        teamState: "withdrawn",
-        applicationState: application?.state ?? "",
-        reviewReference: "",
-        reviewState: "",
-        panelReference: "",
-        panelName: "",
-        teamTableLabel: "",
-        reviewerReference: "",
-        reviewerName: "",
-        scorecardReference: "",
-        scorecardVersionReference: "",
-        scorecardVersion: "",
-        submissionSource: "",
-        submittedAt: "",
-        criterionKey: "",
-        criterionLabel: "",
-        criterionWeight: "",
-        rating: "",
-        evidenceNote: "",
-        privateNote: "",
-        evaluationScoreCount: "",
-        evaluationMean: "",
-        evaluationWeightedPoints: "",
-        spreadFlag: "",
-        totalPoints: "",
-        sharedFindings: "",
-        sharedCommitments: "",
-        disposition: "withdrawn",
-      })],
+      csvRows: [
+        roundExportCsvRow({
+          roundReference: String(round._id),
+          roundName: round.name,
+          teamReference: String(team._id),
+          teamName: team.name,
+          teamState: "withdrawn",
+          applicationState: application?.state ?? "",
+          reviewReference: "",
+          reviewState: "",
+          panelReference: "",
+          panelName: "",
+          teamTableLabel: "",
+          reviewerReference: "",
+          reviewerName: "",
+          scorecardReference: "",
+          scorecardVersionReference: "",
+          scorecardVersion: "",
+          submissionSource: "",
+          submittedAt: "",
+          criterionKey: "",
+          criterionLabel: "",
+          criterionWeight: "",
+          rating: "",
+          evidenceNote: "",
+          privateNote: "",
+          evaluationScoreCount: "",
+          evaluationMean: "",
+          evaluationWeightedPoints: "",
+          spreadFlag: "",
+          totalPoints: "",
+          sharedFindings: "",
+          sharedCommitments: "",
+          disposition: "withdrawn",
+        }),
+      ],
       counts: {
         team: 1,
         result: 0,
@@ -1054,33 +1018,23 @@ async function teamExportContext(
       ctx.db.get(session.evidenceCheckpointSetId),
       ctx.db
         .query("reviewAssignments")
-        .withIndex("by_session_person", (index) =>
-          index.eq("reviewSessionId", session._id),
-        )
+        .withIndex("by_session_person", (index) => index.eq("reviewSessionId", session._id))
         .collect(),
       ctx.db
         .query("scorecards")
-        .withIndex("by_session_status", (index) =>
-          index.eq("reviewSessionId", session._id),
-        )
+        .withIndex("by_session_status", (index) => index.eq("reviewSessionId", session._id))
         .collect(),
       ctx.db
         .query("scorecardVersions")
-        .withIndex("by_session_reviewer", (index) =>
-          index.eq("reviewSessionId", session._id),
-        )
+        .withIndex("by_session_reviewer", (index) => index.eq("reviewSessionId", session._id))
         .collect(),
       ctx.db
         .query("scorecardCorrectionCases")
-        .withIndex("by_session_kind", (index) =>
-          index.eq("reviewSessionId", session._id),
-        )
+        .withIndex("by_session_kind", (index) => index.eq("reviewSessionId", session._id))
         .collect(),
       ctx.db
         .query("manualReviewRecords")
-        .withIndex("by_review_status_created", (index) =>
-          index.eq("reviewSessionId", session._id),
-        )
+        .withIndex("by_review_status_created", (index) => index.eq("reviewSessionId", session._id))
         .collect(),
       ctx.db
         .query("reviewEvaluations")
@@ -1136,12 +1090,8 @@ async function teamExportContext(
   });
   const assigned = assignments.filter((assignment) => assignment.status === "assigned");
   const assignedIds = new Set(assigned.map((assignment) => assignment._id));
-  const assignedReviewerIds = new Set(
-    assigned.map((assignment) => assignment.reviewerPersonId),
-  );
-  const activeReviewerIds = new Set(
-    activeVersions.map(({ version }) => version.reviewerPersonId),
-  );
+  const assignedReviewerIds = new Set(assigned.map((assignment) => assignment.reviewerPersonId));
+  const activeReviewerIds = new Set(activeVersions.map(({ version }) => version.reviewerPersonId));
   const csvRows: CsvRow[] = [];
   if (entry.payload.kind === "result") {
     if (
@@ -1226,9 +1176,7 @@ async function teamExportContext(
       const scores = ratings.map((rating) => rating.score);
       return {
         criterionId: criterion._id,
-        inputScorecardVersionIds: ratings.map(
-          (rating) => rating.scorecardVersionId,
-        ),
+        inputScorecardVersionIds: ratings.map((rating) => rating.scorecardVersionId),
         scoreCount: ratings.length,
         scoreSum,
         meanScore,
@@ -1241,9 +1189,7 @@ async function teamExportContext(
       0,
     );
     for (const expected of entry.payload.criterionResults) {
-      const actual = recomputed.find(
-        (candidate) => candidate.criterionId === expected.criterionId,
-      );
+      const actual = recomputed.find((candidate) => candidate.criterionId === expected.criterionId);
       const saved = evaluation.criterionResults.find(
         (candidate) => candidate.criterionId === expected.criterionId,
       );
@@ -1290,47 +1236,47 @@ async function teamExportContext(
         if (!criterion || !criterionResult) {
           throw new Error("A scorecard rating references an invalid rubric criterion.");
         }
-        csvRows.push(roundExportCsvRow({
-          roundReference: String(round._id),
-          roundName: round.name,
-          teamReference: String(team._id),
-          teamName: team.name,
-          teamState: "completed",
-          applicationState: application?.state ?? "",
-          reviewReference: String(session._id),
-          reviewState: session.status,
-          panelReference: String(panel._id),
-          panelName: panel.name,
-          teamTableLabel: exportTableLabel,
-          reviewerReference: String(reviewer.id),
-          reviewerName: reviewer.name,
-          scorecardReference: String(scorecard._id),
-          scorecardVersionReference: String(version._id),
-          scorecardVersion: String(version.version),
-          submissionSource: version.manualReviewRecordId ? "paper_import" : "digital",
-          submittedAt: isoTime(version.submittedAt),
-          criterionKey: criterion.stableKey,
-          criterionLabel: criterion.label,
-          criterionWeight: String(criterion.weight),
-          rating: String(rating.score),
-          evidenceNote: rating.evidenceNote ?? "",
-          privateNote: version.privateNote ?? "",
-          evaluationScoreCount: String(criterionResult.scoreCount),
-          evaluationMean: String(criterionResult.meanScore),
-          evaluationWeightedPoints: String(criterionResult.weightedPoints),
-          spreadFlag: criterionResult.spreadFlag ? "yes" : "no",
-          totalPoints: String(entry.payload.totalPoints),
-          sharedFindings: session.sharedFindings ?? "",
-          sharedCommitments: session.sharedCommitments ?? "",
-          disposition: "result",
-        }));
+        csvRows.push(
+          roundExportCsvRow({
+            roundReference: String(round._id),
+            roundName: round.name,
+            teamReference: String(team._id),
+            teamName: team.name,
+            teamState: "completed",
+            applicationState: application?.state ?? "",
+            reviewReference: String(session._id),
+            reviewState: session.status,
+            panelReference: String(panel._id),
+            panelName: panel.name,
+            teamTableLabel: exportTableLabel,
+            reviewerReference: String(reviewer.id),
+            reviewerName: reviewer.name,
+            scorecardReference: String(scorecard._id),
+            scorecardVersionReference: String(version._id),
+            scorecardVersion: String(version.version),
+            submissionSource: version.manualReviewRecordId ? "paper_import" : "digital",
+            submittedAt: isoTime(version.submittedAt),
+            criterionKey: criterion.stableKey,
+            criterionLabel: criterion.label,
+            criterionWeight: String(criterion.weight),
+            rating: String(rating.score),
+            evidenceNote: rating.evidenceNote ?? "",
+            privateNote: version.privateNote ?? "",
+            evaluationScoreCount: String(criterionResult.scoreCount),
+            evaluationMean: String(criterionResult.meanScore),
+            evaluationWeightedPoints: String(criterionResult.weightedPoints),
+            spreadFlag: criterionResult.spreadFlag ? "yes" : "no",
+            totalPoints: String(entry.payload.totalPoints),
+            sharedFindings: session.sharedFindings ?? "",
+            sharedCommitments: session.sharedCommitments ?? "",
+            disposition: "result",
+          }),
+        );
       }
     }
   } else {
     const correctionCaseId = entry.payload.correctionCaseId;
-    const exclusionCase = cases.find(
-      (candidate) => candidate._id === correctionCaseId,
-    );
+    const exclusionCase = cases.find((candidate) => candidate._id === correctionCaseId);
     if (
       evaluation.state !== "void" ||
       !exclusionCase ||
@@ -1341,40 +1287,42 @@ async function teamExportContext(
     ) {
       throw new Error("The excluded review no longer matches its approved void record.");
     }
-    csvRows.push(roundExportCsvRow({
-      roundReference: String(round._id),
-      roundName: round.name,
-      teamReference: String(team._id),
-      teamName: team.name,
-      teamState: "completed",
-      applicationState: application?.state ?? "",
-      reviewReference: String(session._id),
-      reviewState: session.status,
-      panelReference: String(panel._id),
-      panelName: panel.name,
-      teamTableLabel: exportTableLabel,
-      reviewerReference: "",
-      reviewerName: "",
-      scorecardReference: "",
-      scorecardVersionReference: "",
-      scorecardVersion: "",
-      submissionSource: "",
-      submittedAt: "",
-      criterionKey: "",
-      criterionLabel: "",
-      criterionWeight: "",
-      rating: "",
-      evidenceNote: "",
-      privateNote: "",
-      evaluationScoreCount: "",
-      evaluationMean: "",
-      evaluationWeightedPoints: "",
-      spreadFlag: "",
-      totalPoints: "",
-      sharedFindings: session.sharedFindings ?? "",
-      sharedCommitments: session.sharedCommitments ?? "",
-      disposition: `excluded:${entry.payload.category}`,
-    }));
+    csvRows.push(
+      roundExportCsvRow({
+        roundReference: String(round._id),
+        roundName: round.name,
+        teamReference: String(team._id),
+        teamName: team.name,
+        teamState: "completed",
+        applicationState: application?.state ?? "",
+        reviewReference: String(session._id),
+        reviewState: session.status,
+        panelReference: String(panel._id),
+        panelName: panel.name,
+        teamTableLabel: exportTableLabel,
+        reviewerReference: "",
+        reviewerName: "",
+        scorecardReference: "",
+        scorecardVersionReference: "",
+        scorecardVersion: "",
+        submissionSource: "",
+        submittedAt: "",
+        criterionKey: "",
+        criterionLabel: "",
+        criterionWeight: "",
+        rating: "",
+        evidenceNote: "",
+        privateNote: "",
+        evaluationScoreCount: "",
+        evaluationMean: "",
+        evaluationWeightedPoints: "",
+        spreadFlag: "",
+        totalPoints: "",
+        sharedFindings: session.sharedFindings ?? "",
+        sharedCommitments: session.sharedCommitments ?? "",
+        disposition: `excluded:${entry.payload.category}`,
+      }),
+    );
   }
   return {
     json: JSON.stringify({
@@ -1470,8 +1418,7 @@ export const exportPage = internalQuery({
         scorecard: total.scorecard + row.counts.scorecard,
         scorecardVersion: total.scorecardVersion + row.counts.scorecardVersion,
         correctionCase: total.correctionCase + row.counts.correctionCase,
-        manualReviewRecord:
-          total.manualReviewRecord + row.counts.manualReviewRecord,
+        manualReviewRecord: total.manualReviewRecord + row.counts.manualReviewRecord,
       }),
       {
         team: 0,
@@ -1567,10 +1514,7 @@ export const retry = mutation({
     clientOperationId: v.string(),
   },
   returns: v.object({ exportVersion: v.number(), state: activeExportState }),
-  handler: async (
-    ctx,
-    args,
-  ): Promise<{ exportVersion: number; state: ActiveExportState }> => {
+  handler: async (ctx, args): Promise<{ exportVersion: number; state: ActiveExportState }> => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
@@ -1707,10 +1651,7 @@ export const downloadContext = internalQuery({
       scopeType: "round",
       scopeId: exportRecord.roundId,
     });
-    if (
-      !exportRecord.files ||
-      !["uploaded", "verified"].includes(exportRecord.state)
-    ) {
+    if (!exportRecord.files || !["uploaded", "verified"].includes(exportRecord.state)) {
       throw new ConvexError({
         code: "ROUND_EXPORT_NOT_AVAILABLE",
         message: "This round export is not ready to download.",
@@ -2118,10 +2059,15 @@ export const reopen = mutation({
     if (release) {
       throw new ConvexError({
         code: "ROUND_RELEASED",
-        message: "Participant feedback is already published. Reopening needs a separate incident remedy.",
+        message:
+          "Participant feedback is already published. Reopening needs a separate incident remedy.",
       });
     }
-    if (laterRounds.some((candidate) => candidate.sequence > round.sequence && candidate.status !== "draft")) {
+    if (
+      laterRounds.some(
+        (candidate) => candidate.sequence > round.sequence && candidate.status !== "draft",
+      )
+    ) {
       throw new ConvexError({
         code: "LATER_ROUND_STARTED",
         message: "A later round has already moved beyond draft. Resolve that dependency first.",

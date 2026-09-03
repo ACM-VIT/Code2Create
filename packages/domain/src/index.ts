@@ -21,12 +21,7 @@ export type StudyYear = (typeof studyYears)[number];
 export const memberRoles = ["lead", "member"] as const;
 export type MemberRole = (typeof memberRoles)[number];
 
-export const applicationDecisions = [
-  "accept",
-  "waitlist",
-  "decline",
-  "needs_information",
-] as const;
+export const applicationDecisions = ["accept", "waitlist", "decline", "needs_information"] as const;
 export type ApplicationDecision = (typeof applicationDecisions)[number];
 
 export {
@@ -43,8 +38,7 @@ export const admissionRecommendationOutcomes = [
   "recommend_decline",
   "needs_human_review",
 ] as const;
-export type AdmissionRecommendationOutcome =
-  (typeof admissionRecommendationOutcomes)[number];
+export type AdmissionRecommendationOutcome = (typeof admissionRecommendationOutcomes)[number];
 
 export const repositoryKinds = [
   "full_product",

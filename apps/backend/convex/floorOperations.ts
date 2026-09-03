@@ -2,12 +2,7 @@ import { ConvexError, v } from "convex/values";
 
 import { query } from "./_generated/server";
 import { requireEventBySlug } from "./lib/events";
-import {
-  floorAreaLoad,
-  placedTeamsInZone,
-  publishedFloorPlan,
-  teamCanBeMapped,
-} from "./lib/floor";
+import { floorAreaLoad, placedTeamsInZone, publishedFloorPlan, teamCanBeMapped } from "./lib/floor";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import { matchingPermissionGrantIds } from "./lib/permissions";
 import { floorActiveMappingState, floorArea } from "./values";
@@ -94,7 +89,10 @@ export const overview = query({
       : zones.filter((_, index) => (grantsByZone[index]?.length ?? 0) > 0);
     if (visibleZones.length === 0) {
       // Refuse access explicitly so a missing grant cannot look like an empty hall.
-      throw new ConvexError({ code: "ACCESS_DENIED", message: "This account cannot read a floor-plan zone." });
+      throw new ConvexError({
+        code: "ACCESS_DENIED",
+        message: "This account cannot read a floor-plan zone.",
+      });
     }
     const [landmarks, locations, teams] = await Promise.all([
       ctx.db
@@ -103,7 +101,9 @@ export const overview = query({
         .collect(),
       ctx.db
         .query("teamFloorLocations")
-        .withIndex("by_plan_state", (index) => index.eq("planVersionId", plan._id).eq("state", "active"))
+        .withIndex("by_plan_state", (index) =>
+          index.eq("planVersionId", plan._id).eq("state", "active"),
+        )
         .collect(),
       ctx.db
         .query("teams")

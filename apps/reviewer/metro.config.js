@@ -1,10 +1,7 @@
-const { getPostHogExpoConfig } = require('posthog-react-native/metro')
+const { getPostHogExpoConfig } = require("posthog-react-native/metro");
 
-const config = getPostHogExpoConfig(__dirname)
+const config = getPostHogExpoConfig(__dirname);
 
-config.resolver.blockList = [
-  ...config.resolver.blockList,
-  /(?:^|[\\/])\.env(?:\.[^\\/]*)?$/,
-]
+config.resolver.blockList = [...config.resolver.blockList, /(?:^|[\\/])\.env(?:\.[^\\/]*)?$/];
 
-module.exports = config
+module.exports = config;

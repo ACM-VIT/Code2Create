@@ -319,10 +319,10 @@ function branch() {
     const tan = spine.getTangentAt(u);
     const q = new THREE.Quaternion().setFromUnitVectors(
       new THREE.Vector3(0, 1, 0),
-      new THREE.Vector3(rand(-1, 1), rand(-0.6, 1), rand(0.4, 1.4)).normalize()
+      new THREE.Vector3(rand(-1, 1), rand(-0.6, 1), rand(0.4, 1.4)).normalize(),
     );
     q.multiply(
-      new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), rand(0, Math.PI * 2))
+      new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), rand(0, Math.PI * 2)),
     );
     leaves.push({
       pos: p.clone().addScaledVector(tan, rand(-0.1, 0.1)),
@@ -438,7 +438,7 @@ export function createFlowerScene(canvas: HTMLCanvasElement): FlowerScene {
       clearcoatRoughness: 0.5,
       sheen: 0.3,
       sheenColor: new THREE.Color(0x4d3742),
-    })
+    }),
   );
   group.add(wood);
 
@@ -490,11 +490,7 @@ export function createFlowerScene(canvas: HTMLCanvasElement): FlowerScene {
 
   /* blooms: one instanced mesh for every petal on the branch */
   const localPetals = blooms.map(() => whorlPetals());
-  const petalMesh = new THREE.InstancedMesh(
-    petalGeo,
-    petalMat,
-    blooms.length * PETALS_PER_BLOOM
-  );
+  const petalMesh = new THREE.InstancedMesh(petalGeo, petalMat, blooms.length * PETALS_PER_BLOOM);
   petalMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   petalMesh.frustumCulled = false;
   group.add(petalMesh);
@@ -518,11 +514,7 @@ export function createFlowerScene(canvas: HTMLCanvasElement): FlowerScene {
     roughness: 0.5,
   });
   const STAMENS = 24;
-  const stamenMesh = new THREE.InstancedMesh(
-    stamenGeo,
-    stamenMat,
-    bloomState.length * STAMENS
-  );
+  const stamenMesh = new THREE.InstancedMesh(stamenGeo, stamenMat, bloomState.length * STAMENS);
   stamenMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   stamenMesh.frustumCulled = false;
   group.add(stamenMesh);
@@ -532,16 +524,10 @@ export function createFlowerScene(canvas: HTMLCanvasElement): FlowerScene {
     for (let i = 0; i < STAMENS; i += 1) {
       const az = rand(0, Math.PI * 2);
       const tilt = rand(0.1, 0.55);
-      const q = new THREE.Quaternion().setFromEuler(
-        new THREE.Euler(tilt, az, 0, "YXZ")
-      );
+      const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(tilt, az, 0, "YXZ"));
       const s = rand(0.7, 1.15);
       arr.push(
-        new THREE.Matrix4().compose(
-          new THREE.Vector3(0, 0.02, 0),
-          q,
-          new THREE.Vector3(s, s, s)
-        )
+        new THREE.Matrix4().compose(new THREE.Vector3(0, 0.02, 0), q, new THREE.Vector3(s, s, s)),
       );
     }
     return arr;
@@ -561,8 +547,8 @@ export function createFlowerScene(canvas: HTMLCanvasElement): FlowerScene {
         new THREE.Vector2(window.innerWidth, window.innerHeight),
         0.3,
         0.75,
-        0.92
-      )
+        0.92,
+      ),
     );
   }
 
@@ -597,12 +583,12 @@ export function createFlowerScene(canvas: HTMLCanvasElement): FlowerScene {
     tgtPos.set(
       lerp(a.pos[0], b.pos[0], k),
       lerp(a.pos[1], b.pos[1], k),
-      lerp(a.pos[2], b.pos[2], k)
+      lerp(a.pos[2], b.pos[2], k),
     );
     tgtLook.set(
       lerp(a.look[0], b.look[0], k),
       lerp(a.look[1], b.look[1], k),
-      lerp(a.look[2], b.look[2], k)
+      lerp(a.look[2], b.look[2], k),
     );
     if (portrait) {
       tgtPos.z += 5.0;
@@ -679,7 +665,7 @@ export function createFlowerScene(canvas: HTMLCanvasElement): FlowerScene {
     camera.position.set(
       camPos.x + pointer.x * 0.42,
       camPos.y - pointer.y * 0.3 + Math.sin(t * 0.3) * 0.06,
-      camPos.z
+      camPos.z,
     );
     camera.lookAt(camLook);
     camera.rotation.z = shot.roll + Math.sin(t * 0.21) * 0.006;
@@ -696,11 +682,7 @@ export function createFlowerScene(canvas: HTMLCanvasElement): FlowerScene {
     group.rotation.z = Math.sin(t * 0.18) * 0.012 - exit * 0.16;
     group.visible = shown < 0.965;
 
-    glow.position.set(
-      camera.position.x - 2.4,
-      camera.position.y + 2.6,
-      camera.position.z - 5.2
-    );
+    glow.position.set(camera.position.x - 2.4, camera.position.y + 2.6, camera.position.z - 5.2);
     glow.intensity = 7 + Math.sin(t * 1.6) * 1.4;
 
     /* leaves come in just ahead of the flowers */
@@ -727,7 +709,7 @@ export function createFlowerScene(canvas: HTMLCanvasElement): FlowerScene {
 
         const sway = Math.sin(t * b.speed + b.phase);
         qv.setFromEuler(
-          ev.set(sway * 0.05, sway * 0.09, Math.cos(t * b.speed * 0.8 + b.phase) * 0.05)
+          ev.set(sway * 0.05, sway * 0.09, Math.cos(t * b.speed * 0.8 + b.phase) * 0.05),
         );
         qv.premultiply(b.quat);
         const s = b.size * bud * (1 + sway * 0.018);

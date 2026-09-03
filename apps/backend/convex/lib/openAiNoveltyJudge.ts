@@ -16,19 +16,9 @@ export const noveltyJudgeMaximumOutputTokens = 1_200;
 const maximumProviderResponseBytes = 256 * 1_024;
 const maximumOutputTextCharacters = 32_000;
 
-const relationshipSchema = z.enum([
-  "same_core_idea",
-  "strong_overlap",
-  "adjacent",
-  "different",
-]);
+const relationshipSchema = z.enum(["same_core_idea", "strong_overlap", "adjacent", "different"]);
 const confidenceSchema = z.enum(["high", "medium", "low"]);
-const sharedDimensionSchema = z.enum([
-  "audience",
-  "problem",
-  "mechanism",
-  "outcome",
-]);
+const sharedDimensionSchema = z.enum(["audience", "problem", "mechanism", "outcome"]);
 
 export type NoveltyRelationship = z.infer<typeof relationshipSchema>;
 export type NoveltyJudgmentConfidence = z.infer<typeof confidenceSchema>;
@@ -76,39 +66,71 @@ export class OpenAiNoveltyJudgeError extends Error {
   }
 }
 
-const requestSchema = z.object({
-  apiKey: z.string().trim().min(1),
-  query: z.string().trim().min(1).max(8_000),
-  candidates: z.array(z.object({
-    key: z.string().trim().min(1).max(200),
-    text: z.string().trim().min(1).max(8_000),
-  }).strict()).min(1).max(noveltyJudgeMaximumCandidates),
-  safetyIdentifier: z.string().trim().min(1).max(64),
-  timeoutMs: z.number().int().positive().max(60_000),
-}).strict();
+const requestSchema = z
+  .object({
+    apiKey: z.string().trim().min(1),
+    query: z.string().trim().min(1).max(8_000),
+    candidates: z
+      .array(
+        z
+          .object({
+            key: z.string().trim().min(1).max(200),
+            text: z.string().trim().min(1).max(8_000),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(noveltyJudgeMaximumCandidates),
+    safetyIdentifier: z.string().trim().min(1).max(64),
+    timeoutMs: z.number().int().positive().max(60_000),
+  })
+  .strict();
 
-const providerEnvelopeSchema = z.object({
-  id: z.string().trim().min(1).max(256),
-  status: z.literal("completed"),
-  output: z.array(z.object({
-    type: z.string(),
-    content: z.array(z.object({
-      type: z.string(),
-      text: z.string().optional(),
-    }).passthrough()).max(32).optional(),
-  }).passthrough()).max(64),
-}).passthrough();
+const providerEnvelopeSchema = z
+  .object({
+    id: z.string().trim().min(1).max(256),
+    status: z.literal("completed"),
+    output: z
+      .array(
+        z
+          .object({
+            type: z.string(),
+            content: z
+              .array(
+                z
+                  .object({
+                    type: z.string(),
+                    text: z.string().optional(),
+                  })
+                  .passthrough(),
+              )
+              .max(32)
+              .optional(),
+          })
+          .passthrough(),
+      )
+      .max(64),
+  })
+  .passthrough();
 
-const judgmentEnvelopeSchema = z.object({
-  comparisons: z.array(z.object({
-    // Candidate keys are opaque identifiers. Do not normalize provider output:
-    // even surrounding whitespace means the model did not return the exact key.
-    candidateKey: z.string().min(1).max(200),
-    relationship: relationshipSchema,
-    confidence: confidenceSchema,
-    sharedDimensions: z.array(sharedDimensionSchema).max(4),
-  }).strict()).max(noveltyJudgeMaximumCandidates),
-}).strict();
+const judgmentEnvelopeSchema = z
+  .object({
+    comparisons: z
+      .array(
+        z
+          .object({
+            // Candidate keys are opaque identifiers. Do not normalize provider output:
+            // even surrounding whitespace means the model did not return the exact key.
+            candidateKey: z.string().min(1).max(200),
+            relationship: relationshipSchema,
+            confidence: confidenceSchema,
+            sharedDimensions: z.array(sharedDimensionSchema).max(4),
+          })
+          .strict(),
+      )
+      .max(noveltyJudgeMaximumCandidates),
+  })
+  .strict();
 
 const systemInstruction = [
   "You are a narrow semantic novelty-comparison component.",
@@ -135,8 +157,7 @@ function invalidProviderResponse(status: number) {
 }
 
 function isTimeoutError(error: unknown) {
-  return error instanceof Error
-    && (error.name === "AbortError" || error.name === "TimeoutError");
+  return error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError");
 }
 
 function responseOutputText(envelope: z.infer<typeof providerEnvelopeSchema>) {
@@ -217,12 +238,7 @@ function outputSchema(candidateKeys: string[]) {
               maxItems: 4,
             },
           },
-          required: [
-            "candidateKey",
-            "relationship",
-            "confidence",
-            "sharedDimensions",
-          ],
+          required: ["candidateKey", "relationship", "confidence", "sharedDimensions"],
           additionalProperties: false,
         },
       },
@@ -282,9 +298,7 @@ export async function requestOpenAiNoveltyJudgments(args: OpenAiNoveltyJudgeRequ
         ? "The novelty judge request timed out."
         : "The novelty judge request failed.",
       timedOut,
-      failureCategory: timedOut
-        ? "provider_request_timed_out"
-        : "provider_request_failed",
+      failureCategory: timedOut ? "provider_request_timed_out" : "provider_request_failed",
     });
   }
 
@@ -292,9 +306,7 @@ export async function requestOpenAiNoveltyJudgments(args: OpenAiNoveltyJudgeRequ
     throw new OpenAiNoveltyJudgeError({
       message: `The novelty judge returned HTTP ${response.status}.`,
       status: response.status,
-      failureCategory: response.status === 429
-        ? "provider_rate_limited"
-        : "provider_http_error",
+      failureCategory: response.status === 429 ? "provider_rate_limited" : "provider_http_error",
     });
   }
 
@@ -342,24 +354,24 @@ export function noveltyJudgeFailureCategory(error: OpenAiNoveltyJudgeError) {
 
 export function allowsEmbeddingFallback(error: OpenAiNoveltyJudgeError) {
   if (
-    error.failureCategory === "provider_request_timed_out"
-    || error.failureCategory === "provider_request_failed"
-    || error.failureCategory === "provider_rate_limited"
+    error.failureCategory === "provider_request_timed_out" ||
+    error.failureCategory === "provider_request_failed" ||
+    error.failureCategory === "provider_rate_limited"
   ) {
     return true;
   }
-  return error.failureCategory === "provider_http_error"
-    && error.status !== undefined
-    && (error.status === 408
-      || error.status === 500
-      || error.status === 502
-      || error.status === 503
-      || error.status === 504);
+  return (
+    error.failureCategory === "provider_http_error" &&
+    error.status !== undefined &&
+    (error.status === 408 ||
+      error.status === 500 ||
+      error.status === 502 ||
+      error.status === 503 ||
+      error.status === 504)
+  );
 }
 
-export async function requestOpenAiNoveltyJudgmentsWithFallback(
-  args: OpenAiNoveltyJudgeRequest,
-) {
+export async function requestOpenAiNoveltyJudgmentsWithFallback(args: OpenAiNoveltyJudgeRequest) {
   try {
     return {
       kind: "judged" as const,

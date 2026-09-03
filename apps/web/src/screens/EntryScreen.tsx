@@ -1,44 +1,44 @@
-import { useState } from 'react'
+import { useState } from "react";
 import {
   GoogleFedCmButton,
   signInWithGooglePopup,
   type Code2CreateAuthClient,
-} from '@code2create/web-auth'
+} from "@code2create/web-auth";
 import {
   restrictGoogleAuthorizationToVitStudents,
   vitStudentEmailDomain,
-} from '../lib/googleAuthorization'
-import { ClassCard } from '../components/portal/ClassCard'
-import { EmailOtpSignIn } from '../components/portal/EmailOtpSignIn'
-import { PortalScene } from '../components/portal/PortalScene'
-import { usePortalTheme } from '../lib/portalTheme'
-import { PortalButton } from '../components/portal/PortalButton'
-import { PortalError } from '../components/portal/PortalField'
-import type { ParticipantClass, PublicState } from '../types'
+} from "../lib/googleAuthorization";
+import { ClassCard } from "../components/portal/ClassCard";
+import { EmailOtpSignIn } from "../components/portal/EmailOtpSignIn";
+import { PortalScene } from "../components/portal/PortalScene";
+import { usePortalTheme } from "../lib/portalTheme";
+import { PortalButton } from "../components/portal/PortalButton";
+import { PortalError } from "../components/portal/PortalField";
+import type { ParticipantClass, PublicState } from "../types";
 
-export const participantClassStorageKey = 'code2create.participant-class'
+export const participantClassStorageKey = "code2create.participant-class";
 
 function popupErrorMessage(code: string | undefined) {
-  if (code === 'POPUP_BLOCKED') return 'Allow pop-ups for this site, then try again.'
-  if (code === 'POPUP_CLOSED') return 'Google sign-in was closed before it finished.'
-  if (code === 'POPUP_TIMEOUT') return 'Google sign-in took too long. Try again.'
-  return 'Google sign-in could not start. Try again.'
+  if (code === "POPUP_BLOCKED") return "Allow pop-ups for this site, then try again.";
+  if (code === "POPUP_CLOSED") return "Google sign-in was closed before it finished.";
+  if (code === "POPUP_TIMEOUT") return "Google sign-in took too long. Try again.";
+  return "Google sign-in could not start. Try again.";
 }
 
 export function EntryScreen({
   publicState,
   authClient,
 }: {
-  publicState: PublicState
-  authClient: Code2CreateAuthClient
+  publicState: PublicState;
+  authClient: Code2CreateAuthClient;
 }) {
-  const portalTheme = usePortalTheme()
+  const portalTheme = usePortalTheme();
   const [participantClass, setParticipantClass] = useState<ParticipantClass | null>(() => {
-    const stored = sessionStorage.getItem(participantClassStorageKey)
-    return stored === 'vit_student' || stored === 'external_participant' ? stored : null
-  })
-  const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
+    const stored = sessionStorage.getItem(participantClassStorageKey);
+    return stored === "vit_student" || stored === "external_participant" ? stored : null;
+  });
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   // Before the event is published there is nothing to sign into — tease,
   // don't explain.
@@ -76,45 +76,48 @@ export function EntryScreen({
           <p className="text-[13px] text-fg/50">come back in a little while</p>
         </div>
       </PortalScene>
-    )
+    );
   }
 
-  const vitOpen = publicState.event.registrationOpen && publicState.serverNow < publicState.event.applicationsCloseAt
-  const externalOpen = publicState.event.registrationOpen && publicState.serverNow < publicState.event.externalApplicationsCloseAt
-  const selectedClassOpen = participantClass === 'vit_student' ? vitOpen : externalOpen
-  const authUnavailableMessage = participantClass === 'vit_student'
-    ? publicState.auth.googleConfigured
-      ? null
-      : 'Google sign-in is unavailable right now. Ask an organizer for help.'
-    : publicState.auth.googleConfigured || publicState.auth.emailOtpConfigured
-      ? null
-      : 'Sign-in is unavailable right now. Ask an organizer for help.'
+  const vitOpen =
+    publicState.event.registrationOpen &&
+    publicState.serverNow < publicState.event.applicationsCloseAt;
+  const externalOpen =
+    publicState.event.registrationOpen &&
+    publicState.serverNow < publicState.event.externalApplicationsCloseAt;
+  const selectedClassOpen = participantClass === "vit_student" ? vitOpen : externalOpen;
+  const authUnavailableMessage =
+    participantClass === "vit_student"
+      ? publicState.auth.googleConfigured
+        ? null
+        : "Google sign-in is unavailable right now. Ask an organizer for help."
+      : publicState.auth.googleConfigured || publicState.auth.emailOtpConfigured
+        ? null
+        : "Sign-in is unavailable right now. Ask an organizer for help.";
 
   const choose = (value: ParticipantClass) => {
-    sessionStorage.setItem(participantClassStorageKey, value)
-    setParticipantClass(value)
-    setError(null)
-  }
+    sessionStorage.setItem(participantClassStorageKey, value);
+    setParticipantClass(value);
+    setError(null);
+  };
 
   const fallbackSignIn = async () => {
-    if (!participantClass || !publicState.auth.googleConfigured) return
-    setBusy(true)
-    setError(null)
+    if (!participantClass || !publicState.auth.googleConfigured) return;
+    setBusy(true);
+    setError(null);
     try {
       const result = await signInWithGooglePopup(
         authClient,
         window.location.href,
-        participantClass === 'vit_student'
-          ? restrictGoogleAuthorizationToVitStudents
-          : undefined,
-      )
-      if (result.error) setError(popupErrorMessage(result.error.code))
+        participantClass === "vit_student" ? restrictGoogleAuthorizationToVitStudents : undefined,
+      );
+      if (result.error) setError(popupErrorMessage(result.error.code));
     } catch {
-      setError(popupErrorMessage(undefined))
+      setError(popupErrorMessage(undefined));
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
-  }
+  };
 
   const immediateGoogleButton = (
     <PortalButton
@@ -123,9 +126,9 @@ export function EntryScreen({
       className="mx-auto w-full max-w-[320px]"
       onClick={() => void fallbackSignIn()}
     >
-      {busy ? 'Opening Google…' : 'Continue with Google'}
+      {busy ? "Opening Google…" : "Continue with Google"}
     </PortalButton>
-  )
+  );
 
   return (
     <PortalScene tree="both" logo="none">
@@ -166,19 +169,19 @@ export function EntryScreen({
             title="VIT student"
             detail={`only @${vitStudentEmailDomain} Google accounts are accepted`}
             disabled={!vitOpen}
-            selected={participantClass === 'vit_student'}
-            onSelect={() => choose('vit_student')}
+            selected={participantClass === "vit_student"}
+            onSelect={() => choose("vit_student")}
           />
           <ClassCard
             title="external participant"
             detail={
               externalOpen
-                ? 'continue with Google or a non-VIT email address'
-                : 'applications have closed'
+                ? "continue with Google or a non-VIT email address"
+                : "applications have closed"
             }
             disabled={!externalOpen}
-            selected={participantClass === 'external_participant'}
-            onSelect={() => choose('external_participant')}
+            selected={participantClass === "external_participant"}
+            onSelect={() => choose("external_participant")}
           />
         </div>
         <div className="flex w-full max-w-[320px] flex-col items-center gap-3">
@@ -186,13 +189,17 @@ export function EntryScreen({
             {participantClass && selectedClassOpen && publicState.auth.googleClientId ? (
               <GoogleFedCmButton
                 authClient={authClient}
-                appearance={portalTheme === 'daybreak' ? 'light' : 'dark'}
+                appearance={portalTheme === "daybreak" ? "light" : "dark"}
                 clientId={publicState.auth.googleClientId}
-                {...(participantClass === 'vit_student'
+                {...(participantClass === "vit_student"
                   ? { hostedDomain: vitStudentEmailDomain }
                   : {})}
                 loading={immediateGoogleButton}
-                pending={<PortalButton disabled className="mx-auto w-full">Signing in…</PortalButton>}
+                pending={
+                  <PortalButton disabled className="mx-auto w-full">
+                    Signing in…
+                  </PortalButton>
+                }
                 fallback={immediateGoogleButton}
                 onError={(message) => setError(message)}
               />
@@ -209,22 +216,20 @@ export function EntryScreen({
           </div>
           <div className="flex min-h-[100px] w-full flex-col items-stretch">
             <EmailOtpSignIn
-              key={participantClass ?? 'none'}
+              key={participantClass ?? "none"}
               authClient={authClient}
               configured={publicState.auth.emailOtpConfigured}
-              disabled={participantClass !== 'external_participant' || !selectedClassOpen}
+              disabled={participantClass !== "external_participant" || !selectedClassOpen}
               googleOnlyEmailDomain={vitStudentEmailDomain}
             />
           </div>
         </div>
 
         {authUnavailableMessage ? (
-          <p className="mt-4 text-[11.5px] text-rose-light">
-            {authUnavailableMessage}
-          </p>
+          <p className="mt-4 text-[11.5px] text-rose-light">{authUnavailableMessage}</p>
         ) : null}
         <PortalError message={error} reserve />
       </div>
     </PortalScene>
-  )
+  );
 }

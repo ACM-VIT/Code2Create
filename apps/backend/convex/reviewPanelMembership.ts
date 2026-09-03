@@ -6,10 +6,7 @@ import type { MutationCtx } from "./_generated/server";
 import { mutation } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
-import {
-  requireCurrentPerson,
-  requireEventSubject,
-} from "./lib/identity";
+import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import {
   findOperation,
   operationFingerprint,
@@ -67,10 +64,7 @@ async function resolveJoiningReviewer(
   const seated = await ctx.db
     .query("reviewPanelMembers")
     .withIndex("by_round_person_status", (index) =>
-      index
-        .eq("roundId", args.round._id)
-        .eq("personId", args.personId)
-        .eq("status", "active"),
+      index.eq("roundId", args.round._id).eq("personId", args.personId).eq("status", "active"),
     )
     .unique();
   if (seated) {
@@ -237,9 +231,7 @@ export const swapPanelMember = mutation({
         .collect(),
     ]);
     if (
-      sessions.some((session) =>
-        liveReviewStatuses.some((status) => status === session.status),
-      )
+      sessions.some((session) => liveReviewStatuses.some((status) => status === session.status))
     ) {
       throw new ConvexError({
         code: "REVIEW_IN_PROGRESS",
@@ -250,7 +242,8 @@ export const swapPanelMember = mutation({
     if (activeChain) {
       throw new ConvexError({
         code: "SUBSTITUTE_PAGE_ACTIVE",
-        message: "A substitute page is out for this panel. Wait for it before changing the panel by hand.",
+        message:
+          "A substitute page is out for this panel. Wait for it before changing the panel by hand.",
       });
     }
     const activeMembers = panelMembers.filter((member) => member.status === "active");

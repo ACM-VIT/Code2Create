@@ -1,114 +1,114 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
-import { readableError } from '../../lib/errors'
-import { PortalButton } from '../portal/PortalButton'
-import { Tile, TileEyebrow } from './Tile'
-import { useReducedMotion } from './useReducedMotion'
+import { readableError } from "../../lib/errors";
+import { PortalButton } from "../portal/PortalButton";
+import { Tile, TileEyebrow } from "./Tile";
+import { useReducedMotion } from "./useReducedMotion";
 
 export type MusicRequestState =
-  | 'pending'
-  | 'approved'
-  | 'queued'
-  | 'playing'
-  | 'played'
-  | 'skipped'
-  | 'rejected'
-  | 'hidden'
+  | "pending"
+  | "approved"
+  | "queued"
+  | "playing"
+  | "played"
+  | "skipped"
+  | "rejected"
+  | "hidden";
 
 export type MusicRequestView = {
-  id: string
-  videoId: string | null
-  title: string
-  artist: string
-  durationSeconds: number
-  state: MusicRequestState
-  voteCount: number
-  hasVoted: boolean
-  canVote: boolean
-  isMine: boolean
-  publicReason?: string
+  id: string;
+  videoId: string | null;
+  title: string;
+  artist: string;
+  durationSeconds: number;
+  state: MusicRequestState;
+  voteCount: number;
+  hasVoted: boolean;
+  canVote: boolean;
+  isMine: boolean;
+  publicReason?: string;
   /** Server time the desk marked it playing; drives the progress bar. */
-  playbackStartedAt?: number
-}
+  playbackStartedAt?: number;
+};
 
 export type MusicSearchResult = {
-  videoId: string
-  title: string
-  channelTitle: string
-  durationSeconds: number
-  thumbnailUrl?: string
-}
+  videoId: string;
+  title: string;
+  channelTitle: string;
+  durationSeconds: number;
+  thumbnailUrl?: string;
+};
 
 export type MusicTileModel = {
-  eligible: boolean
-  suspended: boolean
+  eligible: boolean;
+  suspended: boolean;
   window: {
-    name: string
-    endsAt: number
-    requestsOpen: boolean
-    votingOpen: boolean
-    playbackPaused: boolean
-    requestsUsed: number
-    requestsAllowed: number
-    votesUsed: number
-    votesAllowed: number
-  } | null
-  nowPlaying: MusicRequestView | null
+    name: string;
+    endsAt: number;
+    requestsOpen: boolean;
+    votingOpen: boolean;
+    playbackPaused: boolean;
+    requestsUsed: number;
+    requestsAllowed: number;
+    votesUsed: number;
+    votesAllowed: number;
+  } | null;
+  nowPlaying: MusicRequestView | null;
   /** Everything else visible in the window, in play order. */
-  queue: readonly MusicRequestView[]
-  search: (query: string) => Promise<readonly MusicSearchResult[]>
+  queue: readonly MusicRequestView[];
+  search: (query: string) => Promise<readonly MusicSearchResult[]>;
   /** A video id, a search result's id, or a pasted link. */
-  request: (video: string) => Promise<{ created: boolean }>
-  toggleVote: (request: MusicRequestView) => Promise<void>
-}
+  request: (video: string) => Promise<{ created: boolean }>;
+  toggleVote: (request: MusicRequestView) => Promise<void>;
+};
 
 const stateLabels: Record<MusicRequestState, string> = {
-  pending: 'waiting for the desk',
-  approved: 'approved',
-  queued: 'queued',
-  playing: 'playing',
-  played: 'played',
-  skipped: 'skipped',
-  rejected: 'not added',
-  hidden: 'hidden',
-}
+  pending: "waiting for the desk",
+  approved: "approved",
+  queued: "queued",
+  playing: "playing",
+  played: "played",
+  skipped: "skipped",
+  rejected: "not added",
+  hidden: "hidden",
+};
 
 function durationLabel(seconds: number) {
-  return `${Math.floor(seconds / 60)}:${String(Math.max(0, Math.floor(seconds % 60))).padStart(2, '0')}`
+  return `${Math.floor(seconds / 60)}:${String(Math.max(0, Math.floor(seconds % 60))).padStart(2, "0")}`;
 }
 
 function timeLabel(timestamp: number) {
-  return new Date(timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+  return new Date(timestamp).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
 function statusLine(model: MusicTileModel) {
-  if (!model.eligible) return 'Music opens for accepted teams during the event.'
-  if (model.suspended) return 'Your music actions are paused. You can still follow the queue.'
-  if (model.window === null) return 'No music window is open right now.'
-  if (model.window.playbackPaused) return 'Playback is paused by the desk.'
-  return null
+  if (!model.eligible) return "Music opens for accepted teams during the event.";
+  if (model.suspended) return "Your music actions are paused. You can still follow the queue.";
+  if (model.window === null) return "No music window is open right now.";
+  if (model.window.playbackPaused) return "Playback is paused by the desk.";
+  return null;
 }
 
 /** A pasted id or any YouTube address; anything else is a search phrase. */
 function looksLikeYouTubeLink(value: string) {
-  return /^[A-Za-z0-9_-]{11}$/.test(value) || /youtu\.?be/i.test(value)
+  return /^[A-Za-z0-9_-]{11}$/.test(value) || /youtu\.?be/i.test(value);
 }
 
 function canRequestIn(model: MusicTileModel) {
-  return model.eligible && !model.suspended && model.window?.requestsOpen === true
+  return model.eligible && !model.suspended && model.window?.requestsOpen === true;
 }
 
 /** Seconds into the current track, ticking once a second while it plays. */
 function useElapsed(playing: MusicRequestView | null) {
-  const startedAt = playing?.playbackStartedAt
-  const [now, setNow] = useState(() => Date.now())
+  const startedAt = playing?.playbackStartedAt;
+  const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    if (startedAt === undefined) return
-    const timer = window.setInterval(() => setNow(Date.now()), 1_000)
-    return () => window.clearInterval(timer)
-  }, [startedAt])
-  if (!playing || startedAt === undefined) return null
-  return Math.min(playing.durationSeconds, Math.max(0, (now - startedAt) / 1_000))
+    if (startedAt === undefined) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [startedAt]);
+  if (!playing || startedAt === undefined) return null;
+  return Math.min(playing.durationSeconds, Math.max(0, (now - startedAt) / 1_000));
 }
 
 /**
@@ -118,9 +118,12 @@ function useElapsed(playing: MusicRequestView | null) {
  * player's own UI can appear. Under reduced motion, the still frame instead.
  */
 function VideoBackdrop({ videoId, still }: { videoId: string; still: boolean }) {
-  const source = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&mute=1&controls=0&loop=1&playlist=${videoId}&playsinline=1&rel=0&iv_load_policy=3&disablekb=1`
+  const source = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&mute=1&controls=0&loop=1&playlist=${videoId}&playsinline=1&rel=0&iv_load_policy=3&disablekb=1`;
   return (
-    <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden [container-type:size]">
+    <div
+      aria-hidden
+      className="pointer-events-none absolute inset-0 overflow-hidden [container-type:size]"
+    >
       {still ? (
         <img
           src={`https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`}
@@ -138,19 +141,27 @@ function VideoBackdrop({ videoId, still }: { videoId: string; still: boolean }) 
       )}
       <div className="absolute inset-0 bg-[linear-gradient(to_bottom,color-mix(in_srgb,var(--color-wash)_65%,transparent)_0%,transparent_26%),linear-gradient(to_top,var(--color-wash)_0%,color-mix(in_srgb,var(--color-wash)_55%,transparent)_42%,color-mix(in_srgb,var(--color-wash)_12%,transparent)_100%)]" />
     </div>
-  )
+  );
 }
 
-function ProgressBar({ elapsed, duration, thin = false }: { elapsed: number | null; duration: number; thin?: boolean }) {
-  const ratio = elapsed === null || duration <= 0 ? 0 : Math.min(1, elapsed / duration)
+function ProgressBar({
+  elapsed,
+  duration,
+  thin = false,
+}: {
+  elapsed: number | null;
+  duration: number;
+  thin?: boolean;
+}) {
+  const ratio = elapsed === null || duration <= 0 ? 0 : Math.min(1, elapsed / duration);
   return (
-    <div className={`w-full overflow-hidden bg-fg/15 ${thin ? 'h-[3px]' : 'h-1 rounded-full'}`}>
+    <div className={`w-full overflow-hidden bg-fg/15 ${thin ? "h-[3px]" : "h-1 rounded-full"}`}>
       <div
-        className={`h-full bg-rose-light shadow-[0_0_12px_var(--glow-rose)] transition-[width] duration-1000 ease-linear ${thin ? '' : 'rounded-full'}`}
+        className={`h-full bg-rose-light shadow-[0_0_12px_var(--glow-rose)] transition-[width] duration-1000 ease-linear ${thin ? "" : "rounded-full"}`}
         style={{ width: `${ratio * 100}%` }}
       />
     </div>
-  )
+  );
 }
 
 function VoteButton({
@@ -158,37 +169,39 @@ function VoteButton({
   busy,
   onToggle,
 }: {
-  request: MusicRequestView
-  busy: boolean
-  onToggle: () => void
+  request: MusicRequestView;
+  busy: boolean;
+  onToggle: () => void;
 }) {
   return (
     <button
       type="button"
       disabled={busy || !request.canVote}
       onClick={(event) => {
-        event.stopPropagation()
-        onToggle()
+        event.stopPropagation();
+        onToggle();
       }}
       aria-pressed={request.hasVoted}
-      aria-label={request.hasVoted ? `Remove your vote for ${request.title}` : `Vote for ${request.title}`}
+      aria-label={
+        request.hasVoted ? `Remove your vote for ${request.title}` : `Vote for ${request.title}`
+      }
       className={`flex h-7 min-w-11 items-center justify-center gap-1 rounded-full border px-2.5 text-[12px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
         request.hasVoted
-          ? 'border-rose-light bg-rose-light text-wash'
-          : 'border-rose/60 text-rose-light hover:border-rose-light'
+          ? "border-rose-light bg-rose-light text-wash"
+          : "border-rose/60 text-rose-light hover:border-rose-light"
       }`}
     >
       <svg viewBox="0 0 16 16" className="size-3" aria-hidden>
         <path
           d="M8 3.2c1.1-1.6 3.6-1.6 4.6.3.9 1.7 0 3.3-1.1 4.4L8 12.4 4.5 7.9c-1.1-1.1-2-2.7-1.1-4.4 1-1.9 3.5-1.9 4.6-.3z"
-          fill={request.hasVoted ? 'currentColor' : 'none'}
+          fill={request.hasVoted ? "currentColor" : "none"}
           stroke="currentColor"
           strokeWidth="1.3"
         />
       </svg>
       {request.voteCount}
     </button>
-  )
+  );
 }
 
 /** A quiet pill button for the player's action row. */
@@ -197,9 +210,9 @@ function PlayerAction({
   onClick,
   children,
 }: {
-  active?: boolean
-  onClick: () => void
-  children: React.ReactNode
+  active?: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
 }) {
   return (
     <button
@@ -207,89 +220,98 @@ function PlayerAction({
       onClick={onClick}
       className={`flex h-8 items-center gap-1.5 rounded-full border px-3.5 text-[12.5px] font-semibold backdrop-blur-md transition-colors ${
         active
-          ? 'border-rose-light bg-rose-light text-wash'
-          : 'border-rose/55 bg-wash/45 text-fg/85 hover:border-rose-light hover:text-fg'
+          ? "border-rose-light bg-rose-light text-wash"
+          : "border-rose/55 bg-wash/45 text-fg/85 hover:border-rose-light hover:text-fg"
       }`}
     >
       {children}
     </button>
-  )
+  );
 }
 
 type SearchOutcome =
   | { query: string; list: readonly MusicSearchResult[] }
-  | { query: string; failure: string }
+  | { query: string; failure: string };
 
-type Panel = 'queue' | 'search'
+type Panel = "queue" | "search";
 
 function OpenMusic({ model }: { model: MusicTileModel }) {
-  const [panel, setPanel] = useState<Panel | null>(null)
-  const [query, setQuery] = useState('')
-  const [outcome, setOutcome] = useState<SearchOutcome | null>(null)
-  const [busy, setBusy] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
-  const latestSearch = useRef(0)
+  const [panel, setPanel] = useState<Panel | null>(null);
+  const [query, setQuery] = useState("");
+  const [outcome, setOutcome] = useState<SearchOutcome | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const latestSearch = useRef(0);
   // Live updates hand in a fresh model every render; only the query should
   // start a new search, so the search function rides along in a ref.
-  const searchRef = useRef(model.search)
+  const searchRef = useRef(model.search);
   useEffect(() => {
-    searchRef.current = model.search
-  }, [model.search])
-  const { window: musicWindow, nowPlaying } = model
-  const elapsed = useElapsed(nowPlaying)
-  const canRequest = canRequestIn(model)
-  const trimmed = query.trim()
-  const activeQuery = canRequest && trimmed.length >= 2 ? trimmed : null
-  const searching = activeQuery !== null && outcome?.query !== activeQuery
-  const results = activeQuery !== null && outcome?.query === activeQuery && 'list' in outcome ? outcome.list : null
-  const searchFailure = activeQuery !== null && outcome?.query === activeQuery && 'failure' in outcome ? outcome.failure : null
-  const status = statusLine(model)
+    searchRef.current = model.search;
+  }, [model.search]);
+  const { window: musicWindow, nowPlaying } = model;
+  const elapsed = useElapsed(nowPlaying);
+  const canRequest = canRequestIn(model);
+  const trimmed = query.trim();
+  const activeQuery = canRequest && trimmed.length >= 2 ? trimmed : null;
+  const searching = activeQuery !== null && outcome?.query !== activeQuery;
+  const results =
+    activeQuery !== null && outcome?.query === activeQuery && "list" in outcome
+      ? outcome.list
+      : null;
+  const searchFailure =
+    activeQuery !== null && outcome?.query === activeQuery && "failure" in outcome
+      ? outcome.failure
+      : null;
+  const status = statusLine(model);
 
   useEffect(() => {
-    if (activeQuery === null) return
-    const run = ++latestSearch.current
+    if (activeQuery === null) return;
+    const run = ++latestSearch.current;
     const timer = window.setTimeout(() => {
       void searchRef
         .current(activeQuery)
         .then((list) => {
-          if (latestSearch.current === run) setOutcome({ query: activeQuery, list })
+          if (latestSearch.current === run) setOutcome({ query: activeQuery, list });
         })
         .catch((caught: unknown) => {
-          if (latestSearch.current === run) setOutcome({ query: activeQuery, failure: readableError(caught) })
-        })
-    }, 420)
-    return () => window.clearTimeout(timer)
-  }, [activeQuery])
+          if (latestSearch.current === run)
+            setOutcome({ query: activeQuery, failure: readableError(caught) });
+        });
+    }, 420);
+    return () => window.clearTimeout(timer);
+  }, [activeQuery]);
 
   const run = async (key: string, work: () => Promise<void>) => {
-    setBusy(key)
-    setError(null)
-    setNotice(null)
+    setBusy(key);
+    setError(null);
+    setNotice(null);
     try {
-      await work()
+      await work();
     } catch (caught) {
-      setError(readableError(caught))
+      setError(readableError(caught));
     } finally {
-      setBusy(null)
+      setBusy(null);
     }
-  }
+  };
 
   const request = (video: string, title: string) =>
     run(`request:${video}`, async () => {
-      const result = await model.request(video)
-      setNotice(result.created ? `${title} joined the queue.` : `${title} is already in the queue.`)
-      setQuery('')
-      setPanel('queue')
-    })
+      const result = await model.request(video);
+      setNotice(
+        result.created ? `${title} joined the queue.` : `${title} is already in the queue.`,
+      );
+      setQuery("");
+      setPanel("queue");
+    });
 
   const submitLink = (event: FormEvent) => {
-    event.preventDefault()
-    if (!canRequest || !looksLikeYouTubeLink(trimmed)) return
-    void request(trimmed, 'That link')
-  }
+    event.preventDefault();
+    if (!canRequest || !looksLikeYouTubeLink(trimmed)) return;
+    void request(trimmed, "That link");
+  };
 
-  const message = error ?? notice
+  const message = error ?? notice;
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
@@ -298,7 +320,7 @@ function OpenMusic({ model }: { model: MusicTileModel }) {
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
           <TileEyebrow>music</TileEyebrow>
           <span className="text-[12px] text-fg/55">
-            {musicWindow ? `${musicWindow.name} · until ${timeLabel(musicWindow.endsAt)}` : 'quiet'}
+            {musicWindow ? `${musicWindow.name} · until ${timeLabel(musicWindow.endsAt)}` : "quiet"}
           </span>
         </div>
 
@@ -310,14 +332,16 @@ function OpenMusic({ model }: { model: MusicTileModel }) {
               </p>
             </div>
           ) : (
-            <p className="m-0 font-display text-xl text-fg/85">{status ?? 'Nothing playing yet.'}</p>
+            <p className="m-0 font-display text-xl text-fg/85">
+              {status ?? "Nothing playing yet."}
+            </p>
           )}
 
           {nowPlaying ? (
             <div className="flex flex-col gap-1.5">
               <ProgressBar elapsed={elapsed} duration={nowPlaying.durationSeconds} />
               <div className="flex justify-between text-[11px] text-fg/55">
-                <span>{elapsed === null ? '–:––' : durationLabel(elapsed)}</span>
+                <span>{elapsed === null ? "–:––" : durationLabel(elapsed)}</span>
                 <span>{durationLabel(nowPlaying.durationSeconds)}</span>
               </div>
             </div>
@@ -328,16 +352,23 @@ function OpenMusic({ model }: { model: MusicTileModel }) {
               <VoteButton
                 request={nowPlaying}
                 busy={busy !== null}
-                onToggle={() => void run(`vote:${nowPlaying.id}`, () => model.toggleVote(nowPlaying))}
+                onToggle={() =>
+                  void run(`vote:${nowPlaying.id}`, () => model.toggleVote(nowPlaying))
+                }
               />
             ) : null}
-            <PlayerAction onClick={() => setPanel('queue')}>
+            <PlayerAction onClick={() => setPanel("queue")}>
               queue
               <span className="text-fg/55">{model.queue.length}</span>
             </PlayerAction>
-            {canRequest ? <PlayerAction onClick={() => setPanel('search')}>search</PlayerAction> : null}
+            {canRequest ? (
+              <PlayerAction onClick={() => setPanel("search")}>search</PlayerAction>
+            ) : null}
             {message ? (
-              <span role={error ? 'alert' : 'status'} className={`text-[12px] ${error ? 'text-rose-light' : 'text-fg/65'}`}>
+              <span
+                role={error ? "alert" : "status"}
+                className={`text-[12px] ${error ? "text-rose-light" : "text-fg/65"}`}
+              >
                 {message}
               </span>
             ) : status && nowPlaying ? (
@@ -351,12 +382,20 @@ function OpenMusic({ model }: { model: MusicTileModel }) {
       {panel ? (
         <div className="absolute inset-0 z-10 flex translate-y-0 flex-col bg-wash/[.97] opacity-100 backdrop-blur-3xl motion-safe:transition-[transform,opacity] motion-safe:duration-[380ms] motion-safe:ease-[cubic-bezier(.22,1,.36,1)] starting:translate-y-6 starting:opacity-0">
           <div className="flex items-center gap-2 px-5 pt-4 pr-14 pb-3">
-            <PlayerAction active={panel === 'queue'} onClick={() => setPanel(panel === 'queue' ? null : 'queue')}>
+            <PlayerAction
+              active={panel === "queue"}
+              onClick={() => setPanel(panel === "queue" ? null : "queue")}
+            >
               queue
-              <span className={panel === 'queue' ? 'text-wash/70' : 'text-fg/55'}>{model.queue.length}</span>
+              <span className={panel === "queue" ? "text-wash/70" : "text-fg/55"}>
+                {model.queue.length}
+              </span>
             </PlayerAction>
             {canRequest ? (
-              <PlayerAction active={panel === 'search'} onClick={() => setPanel(panel === 'search' ? null : 'search')}>
+              <PlayerAction
+                active={panel === "search"}
+                onClick={() => setPanel(panel === "search" ? null : "search")}
+              >
                 search
               </PlayerAction>
             ) : null}
@@ -367,7 +406,7 @@ function OpenMusic({ model }: { model: MusicTileModel }) {
             ) : null}
           </div>
 
-          {panel === 'search' && canRequest && musicWindow ? (
+          {panel === "search" && canRequest && musicWindow ? (
             <form onSubmit={submitLink} className="relative px-5 pb-3">
               <input
                 type="text"
@@ -390,23 +429,34 @@ function OpenMusic({ model }: { model: MusicTileModel }) {
           ) : null}
 
           <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-3 [scrollbar-width:thin]">
-            {panel === 'search' ? (
+            {panel === "search" ? (
               searchFailure ? (
                 <p className="m-0 text-[13px] text-rose-light">{searchFailure}</p>
               ) : results ? (
                 results.length === 0 ? (
-                  <p className="m-0 text-[13px] text-fg/55">Nothing playable matches that. Try another phrase or paste a link.</p>
+                  <p className="m-0 text-[13px] text-fg/55">
+                    Nothing playable matches that. Try another phrase or paste a link.
+                  </p>
                 ) : (
                   <ul className="m-0 flex list-none flex-col p-0">
                     {results.map((video) => (
-                      <li key={video.videoId} className="flex items-center gap-3 border-b border-rose/20 py-2 last:border-b-0">
+                      <li
+                        key={video.videoId}
+                        className="flex items-center gap-3 border-b border-rose/20 py-2 last:border-b-0"
+                      >
                         {video.thumbnailUrl ? (
-                          <img src={video.thumbnailUrl} alt="" className="h-8 w-14 flex-none rounded-[6px] object-cover" />
+                          <img
+                            src={video.thumbnailUrl}
+                            alt=""
+                            className="h-8 w-14 flex-none rounded-[6px] object-cover"
+                          />
                         ) : (
                           <span className="h-8 w-14 flex-none rounded-[6px] bg-fg/10" />
                         )}
                         <span className="min-w-0 flex-1">
-                          <span className="block truncate text-[13.5px] text-fg">{video.title}</span>
+                          <span className="block truncate text-[13.5px] text-fg">
+                            {video.title}
+                          </span>
                           <span className="block truncate text-[11.5px] text-fg/55">
                             {video.channelTitle} · {durationLabel(video.durationSeconds)}
                           </span>
@@ -417,7 +467,7 @@ function OpenMusic({ model }: { model: MusicTileModel }) {
                           disabled={busy !== null}
                           onClick={() => void request(video.videoId, video.title)}
                         >
-                          {busy === `request:${video.videoId}` ? 'Adding…' : 'Request'}
+                          {busy === `request:${video.videoId}` ? "Adding…" : "Request"}
                         </PortalButton>
                       </li>
                     ))}
@@ -425,25 +475,33 @@ function OpenMusic({ model }: { model: MusicTileModel }) {
                 )
               ) : (
                 <p className="m-0 text-[13px] text-fg/55">
-                  {activeQuery !== null ? '' : 'Type a title or artist, or paste a YouTube link.'}
+                  {activeQuery !== null ? "" : "Type a title or artist, or paste a YouTube link."}
                 </p>
               )
             ) : model.queue.length === 0 ? (
               <p className="m-0 text-[13px] text-fg/55">
-                {canRequest ? 'The queue is empty. Search for something the room would like.' : 'The queue is empty.'}
+                {canRequest
+                  ? "The queue is empty. Search for something the room would like."
+                  : "The queue is empty."}
               </p>
             ) : (
               <ul className="m-0 flex list-none flex-col p-0">
                 {model.queue.map((item) => (
-                  <li key={item.id} className="flex items-center gap-3 border-b border-rose/20 py-2 last:border-b-0">
+                  <li
+                    key={item.id}
+                    className="flex items-center gap-3 border-b border-rose/20 py-2 last:border-b-0"
+                  >
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[13.5px] text-fg">
                         {item.title}
-                        {item.isMine ? <span className="ml-1.5 text-[11px] text-rose-light">yours</span> : null}
+                        {item.isMine ? (
+                          <span className="ml-1.5 text-[11px] text-rose-light">yours</span>
+                        ) : null}
                       </span>
                       <span className="block truncate text-[11.5px] text-fg/55">
-                        {item.artist} · {durationLabel(item.durationSeconds)} · {stateLabels[item.state]}
-                        {item.publicReason ? ` · ${item.publicReason}` : ''}
+                        {item.artist} · {durationLabel(item.durationSeconds)} ·{" "}
+                        {stateLabels[item.state]}
+                        {item.publicReason ? ` · ${item.publicReason}` : ""}
                       </span>
                     </span>
                     <VoteButton
@@ -458,7 +516,10 @@ function OpenMusic({ model }: { model: MusicTileModel }) {
           </div>
 
           {message ? (
-            <p role={error ? 'alert' : 'status'} className={`m-0 px-5 pb-3 text-[12px] ${error ? 'text-rose-light' : 'text-fg/60'}`}>
+            <p
+              role={error ? "alert" : "status"}
+              className={`m-0 px-5 pb-3 text-[12px] ${error ? "text-rose-light" : "text-fg/60"}`}
+            >
               {message}
             </p>
           ) : null}
@@ -468,20 +529,33 @@ function OpenMusic({ model }: { model: MusicTileModel }) {
             aria-label="Back to the player"
             className="group flex flex-col border-t border-rose/25 text-left transition-colors hover:bg-fg/5"
           >
-            {nowPlaying ? <ProgressBar elapsed={elapsed} duration={nowPlaying.durationSeconds} thin /> : null}
+            {nowPlaying ? (
+              <ProgressBar elapsed={elapsed} duration={nowPlaying.durationSeconds} thin />
+            ) : null}
             <span className="flex items-center gap-3 px-5 py-3">
               <span className="min-w-0 flex-1 truncate text-[13px] text-fg/85">
-                {nowPlaying ? nowPlaying.title : 'Nothing playing yet.'}
+                {nowPlaying ? nowPlaying.title : "Nothing playing yet."}
               </span>
-              <svg viewBox="0 0 16 16" className="size-3.5 flex-none text-fg/60 transition-colors group-hover:text-fg" aria-hidden>
-                <path d="M3 6l5 5 5-5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+              <svg
+                viewBox="0 0 16 16"
+                className="size-3.5 flex-none text-fg/60 transition-colors group-hover:text-fg"
+                aria-hidden
+              >
+                <path
+                  d="M3 6l5 5 5-5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
               </svg>
             </span>
           </button>
         </div>
       ) : null}
     </div>
-  )
+  );
 }
 
 /**
@@ -494,24 +568,31 @@ export function MusicTile({
   onFocus,
   onRelease,
 }: {
-  model: MusicTileModel
-  focused: boolean
-  onFocus: () => void
-  onRelease: () => void
+  model: MusicTileModel;
+  focused: boolean;
+  onFocus: () => void;
+  onRelease: () => void;
 }) {
-  const reducedMotion = useReducedMotion()
-  const { nowPlaying } = model
-  const elapsed = useElapsed(nowPlaying)
-  const status = statusLine(model)
+  const reducedMotion = useReducedMotion();
+  const { nowPlaying } = model;
+  const elapsed = useElapsed(nowPlaying);
+  const status = statusLine(model);
   const waiting = model.queue.filter(
-    (request) => request.state === 'pending' || request.state === 'approved' || request.state === 'queued',
-  ).length
+    (request) =>
+      request.state === "pending" || request.state === "approved" || request.state === "queued",
+  ).length;
   const backdrop = nowPlaying?.videoId ? (
     <VideoBackdrop videoId={nowPlaying.videoId} still={reducedMotion} />
-  ) : undefined
+  ) : undefined;
 
   return (
-    <Tile area="music" focused={focused} onFocus={onFocus} onRelease={onRelease} backdrop={backdrop}>
+    <Tile
+      area="music"
+      focused={focused}
+      onFocus={onFocus}
+      onRelease={onRelease}
+      backdrop={backdrop}
+    >
       {focused ? (
         <OpenMusic model={model} />
       ) : (
@@ -526,7 +607,8 @@ export function MusicTile({
               </>
             ) : (
               <p className="m-0 text-[13px] leading-snug text-fg/65">
-                {status ?? (waiting > 0 ? `${waiting} waiting in the queue` : 'Nothing playing yet.')}
+                {status ??
+                  (waiting > 0 ? `${waiting} waiting in the queue` : "Nothing playing yet.")}
               </p>
             )}
           </div>
@@ -538,5 +620,5 @@ export function MusicTile({
         </div>
       )}
     </Tile>
-  )
+  );
 }

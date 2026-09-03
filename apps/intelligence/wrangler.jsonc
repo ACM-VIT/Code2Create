@@ -1,58 +1,66 @@
 {
-	"$schema": "./node_modules/wrangler/config-schema.json",
-	"name": "code2create-intelligence",
-	"compatibility_date": "2026-08-07",
-	"compatibility_flags": ["nodejs_compat"],
-	"workers_dev": true,
-	"preview_urls": false,
-	"vars": {
-		"POSTHOG_HOST": "https://i.c2c.sh"
-	},
-	"durable_objects": {
-		"bindings": [{
-			"name": "OPERATIONS_AUTONOMY_ADMISSION_FENCE",
-			"class_name": "OperationsAutonomyAdmissionFence"
-		}]
-	},
-	"observability": { "enabled": true, "traces": { "enabled": true } },
-	"migrations": [
-		{ "tag": "v1", "new_sqlite_classes": ["FlueOperationsBriefAgent"] },
-		{ "tag": "v2", "new_sqlite_classes": ["FlueOperationsCopilotAgent"] },
-		{ "tag": "v3", "new_sqlite_classes": ["FlueOperationsAutopilotAgent"] },
-		{ "tag": "v4", "new_sqlite_classes": ["OperationsAutonomyAdmissionFence"] },
-		{ "tag": "v5", "new_sqlite_classes": ["FlueOperationsEpisodeAgent"] },
-		{ "tag": "v6", "new_sqlite_classes": ["FlueIdeaSubmissionAgent"] }
-	],
-	"env": {
-		"staging": {
-			"name": "code2create-intelligence-staging",
-			"vars": {
-				"POSTHOG_HOST": "https://i.c2c.sh",
-				"C2C_DEPLOYMENT_ENVIRONMENT": "staging"
-			},
-			"durable_objects": {
-				"bindings": [{
-					"name": "OPERATIONS_AUTONOMY_ADMISSION_FENCE",
-					"class_name": "OperationsAutonomyAdmissionFence"
-				}]
-			}
-		},
-		"production": {
-			"name": "code2create-intelligence",
-			"vars": {
-				"POSTHOG_HOST": "https://i.c2c.sh",
-				"C2C_DEPLOYMENT_ENVIRONMENT": "production"
-			},
-			"routes": [{
-				"pattern": "intelligence.c2c.sh",
-				"custom_domain": true
-			}],
-			"durable_objects": {
-				"bindings": [{
-					"name": "OPERATIONS_AUTONOMY_ADMISSION_FENCE",
-					"class_name": "OperationsAutonomyAdmissionFence"
-				}]
-			}
-		}
-	}
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "code2create-intelligence",
+  "compatibility_date": "2026-08-07",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": false,
+  "vars": {
+    "POSTHOG_HOST": "https://i.c2c.sh",
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "OPERATIONS_AUTONOMY_ADMISSION_FENCE",
+        "class_name": "OperationsAutonomyAdmissionFence",
+      },
+    ],
+  },
+  "observability": { "enabled": true, "traces": { "enabled": true } },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["FlueOperationsBriefAgent"] },
+    { "tag": "v2", "new_sqlite_classes": ["FlueOperationsCopilotAgent"] },
+    { "tag": "v3", "new_sqlite_classes": ["FlueOperationsAutopilotAgent"] },
+    { "tag": "v4", "new_sqlite_classes": ["OperationsAutonomyAdmissionFence"] },
+    { "tag": "v5", "new_sqlite_classes": ["FlueOperationsEpisodeAgent"] },
+    { "tag": "v6", "new_sqlite_classes": ["FlueIdeaSubmissionAgent"] },
+  ],
+  "env": {
+    "staging": {
+      "name": "code2create-intelligence-staging",
+      "vars": {
+        "POSTHOG_HOST": "https://i.c2c.sh",
+        "C2C_DEPLOYMENT_ENVIRONMENT": "staging",
+      },
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "OPERATIONS_AUTONOMY_ADMISSION_FENCE",
+            "class_name": "OperationsAutonomyAdmissionFence",
+          },
+        ],
+      },
+    },
+    "production": {
+      "name": "code2create-intelligence",
+      "vars": {
+        "POSTHOG_HOST": "https://i.c2c.sh",
+        "C2C_DEPLOYMENT_ENVIRONMENT": "production",
+      },
+      "routes": [
+        {
+          "pattern": "intelligence.c2c.sh",
+          "custom_domain": true,
+        },
+      ],
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "OPERATIONS_AUTONOMY_ADMISSION_FENCE",
+            "class_name": "OperationsAutonomyAdmissionFence",
+          },
+        ],
+      },
+    },
+  },
 }

@@ -6,7 +6,7 @@
   "workers_dev": true,
   "preview_urls": false,
   "observability": {
-    "enabled": true
+    "enabled": true,
   },
   "env": {
     "staging": {
@@ -19,18 +19,18 @@
             "max_batch_timeout": 5,
             "max_retries": 5,
             "retry_delay": 30,
-            "dead_letter_queue": "code2create-email-events-staging-dlq"
-          }
-        ]
-      }
+            "dead_letter_queue": "code2create-email-events-staging-dlq",
+          },
+        ],
+      },
     },
     "production": {
       "name": "code2create-email",
       "routes": [
         {
           "pattern": "email.c2c.sh",
-          "custom_domain": true
-        }
+          "custom_domain": true,
+        },
       ],
       "queues": {
         "consumers": [
@@ -40,10 +40,10 @@
             "max_batch_timeout": 5,
             "max_retries": 5,
             "retry_delay": 30,
-            "dead_letter_queue": "code2create-email-events-dlq"
-          }
-        ]
-      }
-    }
-  }
+            "dead_letter_queue": "code2create-email-events-dlq",
+          },
+        ],
+      },
+    },
+  },
 }

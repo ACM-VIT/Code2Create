@@ -1,4 +1,4 @@
-import { FAN, WEDGES, WEDGE_FILLS } from './cardLayout.js';
+import { FAN, WEDGES, WEDGE_FILLS } from "./cardLayout.js";
 
 /** The emblem itself, inline so its shell can outlive its wedges. */
 export function Emblem() {
@@ -28,7 +28,7 @@ export function Emblem() {
         {WEDGES.map((wedge, index) => (
           <path
             key={index}
-            d={`M${wedge.points.map((point) => point.join(' ')).join('L')}Z`}
+            d={`M${wedge.points.map((point) => point.join(" ")).join("L")}Z`}
             fill={wedge.fill}
           />
         ))}
@@ -38,11 +38,11 @@ export function Emblem() {
 }
 
 const FACES = [
-  '/assets/svg/card-ace.svg',
-  '/assets/svg/card-king.svg',
-  '/assets/svg/card-queen.svg',
-  '/assets/svg/card-jack.svg',
-  '/assets/svg/card-10.svg',
+  "/assets/svg/card-ace.svg",
+  "/assets/svg/card-king.svg",
+  "/assets/svg/card-queen.svg",
+  "/assets/svg/card-jack.svg",
+  "/assets/svg/card-10.svg",
 ];
 
 export default function Cards() {

@@ -155,7 +155,9 @@ export function emergencyPackSerial(
   sequence: number,
 ) {
   if (!/^[A-F0-9]{16}$/.test(prefix)) {
-    throw new Error("Emergency-pack serial prefix must be sixteen uppercase hexadecimal characters.");
+    throw new Error(
+      "Emergency-pack serial prefix must be sixteen uppercase hexadecimal characters.",
+    );
   }
   if (!Number.isSafeInteger(sequence) || sequence < 1 || sequence > 999) {
     throw new Error("Emergency-pack sheet sequence must be from one to 999.");
@@ -169,13 +171,9 @@ function attendanceSheets(
   serialPrefix: string,
   spareCount: number,
 ) {
-  const assignedStations = snapshot.stations.filter(
-    (station) => station.status === "active",
-  );
+  const assignedStations = snapshot.stations.filter((station) => station.status === "active");
   const sheets: AttendanceSheet[] = assignedStations.map((station, index) => {
-    const session = snapshot.sessions.find(
-      (candidate) => candidate.zoneId === station.zoneId,
-    );
+    const session = snapshot.sessions.find((candidate) => candidate.zoneId === station.zoneId);
     return {
       serial: emergencyPackSerial(serialPrefix, "attendance", index + 1),
       station,
@@ -193,11 +191,7 @@ function attendanceSheets(
   return sheets;
 }
 
-function reviewSheets(
-  snapshot: EmergencyPackSnapshot,
-  serialPrefix: string,
-  spareCount: number,
-) {
+function reviewSheets(snapshot: EmergencyPackSnapshot, serialPrefix: string, spareCount: number) {
   const sheets: ReviewSheet[] = [];
   for (const round of snapshot.rounds) {
     for (const panel of round.panels) {
@@ -358,8 +352,11 @@ function roster(snapshot: EmergencyPackSnapshot) {
 }
 
 function blankAttendanceRows() {
-  return Array.from({ length: 25 }, (_, index) => `
-    <tr><td>${index + 1}</td><td></td><td></td><td></td><td></td><td></td></tr>`).join("");
+  return Array.from(
+    { length: 25 },
+    (_, index) => `
+    <tr><td>${index + 1}</td><td></td><td></td><td></td><td></td><td></td></tr>`,
+  ).join("");
 }
 
 function attendanceForm(sheet: AttendanceSheet, snapshot: EmergencyPackSnapshot) {
@@ -408,7 +405,9 @@ function reviewCriteriaRows(round: EmergencyPackRound | undefined) {
 function reviewForm(sheet: ReviewSheet, snapshot: EmergencyPackSnapshot) {
   const round = sheet.round;
   const panel = sheet.panel;
-  const scoreRange = round ? `${round.scoreMinimum}–${round.scoreMaximum}` : "published rubric range";
+  const scoreRange = round
+    ? `${round.scoreMinimum}–${round.scoreMaximum}`
+    : "published rubric range";
   return `
     <section class="paper-sheet review-form wide" data-serial="${escapeHtml(sheet.serial)}">
       <div class="form-title"><div><p class="kicker">Review manual recovery</p><h2>Serialised panel record</h2></div><strong class="serial">${escapeHtml(sheet.serial)}</strong></div>
@@ -506,11 +505,7 @@ export function buildEmergencyPackHtml(args: {
     args.spareReviewSheetCount,
     "Spare review-sheet count",
   );
-  const attendance = attendanceSheets(
-    args.snapshot,
-    args.serialPrefix,
-    spareAttendanceSheetCount,
-  );
+  const attendance = attendanceSheets(args.snapshot, args.serialPrefix, spareAttendanceSheetCount);
   const reviews = reviewSheets(args.snapshot, args.serialPrefix, spareReviewSheetCount);
   const title = `${args.snapshot.event.name} emergency pack`;
   const html = `<!doctype html>

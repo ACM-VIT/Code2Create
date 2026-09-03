@@ -1,7 +1,7 @@
-import { Composition } from 'remotion'
-import { Trailer } from './Trailer.tsx'
-import { Reel } from './reel/Reel.tsx'
-import { R, T } from './theme.ts'
+import { Composition } from "remotion";
+import { Trailer } from "./Trailer.tsx";
+import { Reel } from "./reel/Reel.tsx";
+import { R, T } from "./theme.ts";
 
 export const RemotionRoot: React.FC = () => {
   return (
@@ -23,5 +23,5 @@ export const RemotionRoot: React.FC = () => {
         height={1920}
       />
     </>
-  )
-}
+  );
+};

@@ -20,14 +20,14 @@ export async function revokeOperationsAutonomyPolicy(
   },
 ) {
   const active = await ctx.db
-      .query("operationsAutonomyRuns")
-      .withIndex("by_event_policy_lifecycle", (index) =>
-        index
-          .eq("eventId", args.eventId)
-          .eq("policyVersionId", args.policyVersionId)
-          .eq("lifecycle.kind", "active"),
-      )
-      .take(2);
+    .query("operationsAutonomyRuns")
+    .withIndex("by_event_policy_lifecycle", (index) =>
+      index
+        .eq("eventId", args.eventId)
+        .eq("policyVersionId", args.policyVersionId)
+        .eq("lifecycle.kind", "active"),
+    )
+    .take(2);
   if (active.length > 1) throw new Error("An event policy has multiple active autonomy runs.");
   if (active[0]) {
     await cancelAutonomyRun(ctx, { runId: active[0]._id, reason: args.reason, now: args.now });

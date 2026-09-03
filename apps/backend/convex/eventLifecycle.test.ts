@@ -84,7 +84,9 @@ describe("event lifecycle", () => {
   });
 
   test("names incomplete setup before applications open or the event starts", () => {
-    expect(eventLifecycleBlockers("registration_open", emptyConfiguration).map((item) => item.key)).toEqual([
+    expect(
+      eventLifecycleBlockers("registration_open", emptyConfiguration).map((item) => item.key),
+    ).toEqual([
       "future_application_deadline",
       "event_dates",
       "participant_policy",
@@ -101,14 +103,13 @@ describe("event lifecycle", () => {
       "integration_policy",
       "review_round",
     ]);
-    expect(eventLifecycleBlockers("complete", {
-      ...emptyConfiguration,
-      hasActiveAttendanceSession: true,
-      hasActiveReviewRound: true,
-    }).map((item) => item.key)).toEqual([
-      "active_attendance_session",
-      "active_review_round",
-    ]);
+    expect(
+      eventLifecycleBlockers("complete", {
+        ...emptyConfiguration,
+        hasActiveAttendanceSession: true,
+        hasActiveReviewRound: true,
+      }).map((item) => item.key),
+    ).toEqual(["active_attendance_session", "active_review_round"]);
   });
 
   test("closes and reopens applications with permission, audit, and idempotency", async () => {
@@ -120,7 +121,9 @@ describe("event lifecycle", () => {
       sessionId: fixture.authSessionId,
     });
 
-    const before = await operator.query(api.eventLifecycle.current, { eventSlug: fixture.eventSlug });
+    const before = await operator.query(api.eventLifecycle.current, {
+      eventSlug: fixture.eventSlug,
+    });
     expect(before).toMatchObject({
       status: "registration_open",
       eventVersion: 1,
@@ -139,17 +142,22 @@ describe("event lifecycle", () => {
     expect(closed).toEqual({ status: "registration_closed", eventVersion: 2 });
     expect(await operator.mutation(api.eventLifecycle.transition, closeRequest)).toEqual(closed);
 
-    const afterClose = await operator.query(api.eventLifecycle.current, { eventSlug: fixture.eventSlug });
-    expect(afterClose.status).toBe("registration_closed");
-    expect(afterClose.transitions.find((transition) => transition.targetStatus === "live")?.blockers)
-      .toHaveLength(7);
-    await expect(operator.mutation(api.eventLifecycle.transition, {
+    const afterClose = await operator.query(api.eventLifecycle.current, {
       eventSlug: fixture.eventSlug,
-      targetStatus: "live",
-      expectedEventVersion: 2,
-      reason: "Begin the event build window.",
-      clientOperationId: "start-with-incomplete-setup",
-    })).rejects.toThrow("Finish this setup first");
+    });
+    expect(afterClose.status).toBe("registration_closed");
+    expect(
+      afterClose.transitions.find((transition) => transition.targetStatus === "live")?.blockers,
+    ).toHaveLength(7);
+    await expect(
+      operator.mutation(api.eventLifecycle.transition, {
+        eventSlug: fixture.eventSlug,
+        targetStatus: "live",
+        expectedEventVersion: 2,
+        reason: "Begin the event build window.",
+        clientOperationId: "start-with-incomplete-setup",
+      }),
+    ).rejects.toThrow("Finish this setup first");
 
     const reopened = await operator.mutation(api.eventLifecycle.transition, {
       eventSlug: fixture.eventSlug,
@@ -164,18 +172,23 @@ describe("event lifecycle", () => {
       const event = await ctx.db.get(fixture.eventId);
       expect(event?.status).toBe("registration_open");
       expect(event?.version).toBe(3);
-      expect(await ctx.db
-        .query("operationResults")
-        .withIndex("by_actor_operation", (index) =>
-          index.eq("actorPersonId", fixture.personId).eq("clientOperationId", closeRequest.clientOperationId),
-        )
-        .collect()).toHaveLength(1);
+      expect(
+        await ctx.db
+          .query("operationResults")
+          .withIndex("by_actor_operation", (index) =>
+            index
+              .eq("actorPersonId", fixture.personId)
+              .eq("clientOperationId", closeRequest.clientOperationId),
+          )
+          .collect(),
+      ).toHaveLength(1);
       const auditEvents = await ctx.db
         .query("auditEvents")
         .withIndex("by_event_time", (index) => index.eq("eventId", fixture.eventId))
         .collect();
-      expect(auditEvents.filter((event) => event.action === "event_lifecycle_transitioned"))
-        .toHaveLength(2);
+      expect(
+        auditEvents.filter((event) => event.action === "event_lifecycle_transitioned"),
+      ).toHaveLength(2);
     });
   });
 
@@ -256,8 +269,7 @@ describe("event lifecycle", () => {
     }
     const request = {
       eventId: fixture.eventId,
-      expectedExternalApplicationsCloseAt:
-        eventBefore.externalApplicationsCloseAt,
+      expectedExternalApplicationsCloseAt: eventBefore.externalApplicationsCloseAt,
     } as const;
 
     await backend.mutation(
@@ -279,18 +291,14 @@ describe("event lifecycle", () => {
         const event = await ctx.db.get(fixture.eventId);
         const auditEvents = await ctx.db
           .query("auditEvents")
-          .withIndex("by_event_time", (index) =>
-            index.eq("eventId", fixture.eventId),
-          )
+          .withIndex("by_event_time", (index) => index.eq("eventId", fixture.eventId))
           .collect();
         return {
           status: event?.status,
           version: event?.version,
           updatedAt: event?.updatedAt,
           deadlineAuditCount: auditEvents.filter(
-            (auditEvent) =>
-              auditEvent.action ===
-              "event_external_registration_closed_at_deadline",
+            (auditEvent) => auditEvent.action === "event_external_registration_closed_at_deadline",
           ).length,
         };
       });
@@ -306,7 +314,10 @@ describe("event lifecycle", () => {
   });
 });
 
-async function lifecycleState(backend: BackendTest, eventId: Awaited<ReturnType<typeof seedOperator>>["eventId"]) {
+async function lifecycleState(
+  backend: BackendTest,
+  eventId: Awaited<ReturnType<typeof seedOperator>>["eventId"],
+) {
   return backend.run(async (ctx) => {
     const event = await ctx.db.get(eventId);
     if (!event) throw new Error("Lifecycle fixture event is missing.");

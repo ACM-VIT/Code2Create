@@ -1,4 +1,4 @@
-import { api } from '@code2create/backend/api'
+import { api } from "@code2create/backend/api";
 import {
   rehearsalRunStateLabels,
   rehearsalScenarioStateLabels,
@@ -6,57 +6,58 @@ import {
   type RehearsalRunState,
   type RehearsalScenarioState,
   type RehearsalWorkstream,
-} from '@code2create/domain'
-import type { FunctionReturnType } from 'convex/server'
-import { useMutation, usePaginatedQuery, useQuery } from 'convex/react'
-import { useRef, useState, type FormEvent } from 'react'
+} from "@code2create/domain";
+import type { FunctionReturnType } from "convex/server";
+import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
+import { useRef, useState, type FormEvent } from "react";
 
-import { LoadingLabel, SkeletonCard, SkeletonList } from '../components/Skeleton'
-import { eventSlug } from '../lib/config'
-import { formatMediumDateTime as formatTime } from '../lib/dateTime'
-import { readableError } from '../lib/errors'
-import { useMutationAttempt } from '../lib/operations'
-import { useEstimatedServerNow } from '../lib/useEstimatedServerNow'
+import { LoadingLabel, SkeletonCard, SkeletonList } from "../components/Skeleton";
+import { eventSlug } from "../lib/config";
+import { formatMediumDateTime as formatTime } from "../lib/dateTime";
+import { readableError } from "../lib/errors";
+import { useMutationAttempt } from "../lib/operations";
+import { useEstimatedServerNow } from "../lib/useEstimatedServerNow";
 
-type RehearsalList = FunctionReturnType<typeof api.rehearsals.list>
-type RehearsalRun = RehearsalList['runs'][number]
-type RehearsalRunId = RehearsalRun['id']
-type RehearsalDetail = FunctionReturnType<typeof api.rehearsals.detail>
-type RehearsalScenario = RehearsalDetail['scenarios'][number]
-type RehearsalScenarioId = RehearsalScenario['id']
-type AssignResult = FunctionReturnType<typeof api.rehearsals.assignWorkstreamOwner>
-type CreateResult = FunctionReturnType<typeof api.rehearsals.create>
+type RehearsalList = FunctionReturnType<typeof api.rehearsals.list>;
+type RehearsalRun = RehearsalList["runs"][number];
+type RehearsalRunId = RehearsalRun["id"];
+type RehearsalDetail = FunctionReturnType<typeof api.rehearsals.detail>;
+type RehearsalScenario = RehearsalDetail["scenarios"][number];
+type RehearsalScenarioId = RehearsalScenario["id"];
+type AssignResult = FunctionReturnType<typeof api.rehearsals.assignWorkstreamOwner>;
+type CreateResult = FunctionReturnType<typeof api.rehearsals.create>;
 type RunControlResult =
   | FunctionReturnType<typeof api.rehearsals.start>
   | FunctionReturnType<typeof api.rehearsals.complete>
-  | FunctionReturnType<typeof api.rehearsals.cancel>
+  | FunctionReturnType<typeof api.rehearsals.cancel>;
 
 const scenarioStateOrder: RehearsalScenarioState[] = [
-  'failed',
-  'blocked',
-  'running',
-  'pending',
-  'passed',
-]
+  "failed",
+  "blocked",
+  "running",
+  "pending",
+  "passed",
+];
 
 const runOrder: Record<RehearsalRunState, number> = {
   active: 0,
   draft: 1,
   completed: 2,
   cancelled: 3,
-}
+};
 
-type StateFilter = RehearsalScenarioState | 'all'
-type WorkstreamFilter = RehearsalWorkstream | 'all'
+type StateFilter = RehearsalScenarioState | "all";
+type WorkstreamFilter = RehearsalWorkstream | "all";
 
 export function Rehearsal() {
-  const list = useQuery(api.rehearsals.list, { eventSlug })
-  const serverNow = useEstimatedServerNow(list?.serverNow)
-  const [selectedId, setSelectedId] = useState<RehearsalRunId | null>(null)
+  const list = useQuery(api.rehearsals.list, { eventSlug });
+  const serverNow = useEstimatedServerNow(list?.serverNow);
+  const [selectedId, setSelectedId] = useState<RehearsalRunId | null>(null);
   const runs = [...(list?.runs ?? [])].sort(
-    (left, right) => runOrder[left.state] - runOrder[right.state] || right.createdAt - left.createdAt,
-  )
-  const visibleSelectedId = selectedId ?? runs.at(0)?.id ?? null
+    (left, right) =>
+      runOrder[left.state] - runOrder[right.state] || right.createdAt - left.createdAt,
+  );
+  const visibleSelectedId = selectedId ?? runs.at(0)?.id ?? null;
 
   return (
     <section className="rehearsal-shell">
@@ -82,8 +83,8 @@ export function Rehearsal() {
             <>
               <p>No test run has been held.</p>
               <p className="muted">
-                A test run works through every way this event can break, one check at a time,
-                with a named owner for each area.
+                A test run works through every way this event can break, one check at a time, with a
+                named owner for each area.
               </p>
             </>
           ) : (
@@ -105,16 +106,20 @@ export function Rehearsal() {
           {runs.map((run) => (
             <button
               aria-pressed={visibleSelectedId === run.id}
-              className={visibleSelectedId === run.id ? 'rehearsal-run selected' : 'rehearsal-run'}
+              className={visibleSelectedId === run.id ? "rehearsal-run selected" : "rehearsal-run"}
               key={run.id}
               type="button"
               onClick={() => setSelectedId(run.id)}
             >
               <span>
                 <strong>{run.name}</strong>
-                <small>{run.counts.total - run.counts.passed} of {run.counts.total} checks still to pass</small>
+                <small>
+                  {run.counts.total - run.counts.passed} of {run.counts.total} checks still to pass
+                </small>
               </span>
-              <span className={`rehearsal-state ${run.state}`}>{rehearsalRunStateLabels[run.state]}</span>
+              <span className={`rehearsal-state ${run.state}`}>
+                {rehearsalRunStateLabels[run.state]}
+              </span>
             </button>
           ))}
         </div>
@@ -127,28 +132,30 @@ export function Rehearsal() {
 
       {visibleSelectedId ? <RunDetail rehearsalRunId={visibleSelectedId} /> : null}
     </section>
-  )
+  );
 }
 
 function RunLead({ run }: { run: RehearsalRun | undefined }) {
-  if (!run) return null
-  const wrong = run.counts.failed + run.counts.blocked
-  const untried = run.counts.pending + run.counts.running
-  if (run.state === 'completed') {
+  if (!run) return null;
+  const wrong = run.counts.failed + run.counts.blocked;
+  const untried = run.counts.pending + run.counts.running;
+  if (run.state === "completed") {
     return (
       <>
-        <p>{run.name} has been signed off. All {run.counts.total} checks passed.</p>
+        <p>
+          {run.name} has been signed off. All {run.counts.total} checks passed.
+        </p>
       </>
-    )
+    );
   }
-  if (run.state === 'cancelled') {
+  if (run.state === "cancelled") {
     return (
       <>
         <p>{run.name} was cancelled, so nothing about this event has been rehearsed.</p>
       </>
-    )
+    );
   }
-  if (run.state === 'draft') {
+  if (run.state === "draft") {
     return (
       <>
         <p>
@@ -156,25 +163,26 @@ function RunLead({ run }: { run: RehearsalRun | undefined }) {
         </p>
         <p className="muted">
           {run.assignedWorkstreamCount === run.requiredWorkstreamCount
-            ? 'Every area has an owner.'
+            ? "Every area has an owner."
             : `${run.requiredWorkstreamCount - run.assignedWorkstreamCount} of ${run.requiredWorkstreamCount} areas have no owner, so the run cannot start.`}
         </p>
       </>
-    )
+    );
   }
   return (
     <>
       <p>
-        {run.name}: {wrong > 0 ? `${wrong} ${wrong === 1 ? 'check' : 'checks'} went wrong and ` : ''}
+        {run.name}:{" "}
+        {wrong > 0 ? `${wrong} ${wrong === 1 ? "check" : "checks"} went wrong and ` : ""}
         {untried} of {run.counts.total} have not been tried yet.
       </p>
       <p className="muted">
         {wrong > 0
-          ? 'Fix each failure, then run the check again.'
-          : 'The event should not open until every check has a passing result.'}
+          ? "Fix each failure, then run the check again."
+          : "The event should not open until every check has a passing result."}
       </p>
     </>
-  )
+  );
 }
 
 function CreateRun({
@@ -182,50 +190,50 @@ function CreateRun({
   serverNow,
   onCreated,
 }: {
-  defaultOpen: boolean
-  serverNow: number
-  onCreated: () => void
+  defaultOpen: boolean;
+  serverNow: number;
+  onCreated: () => void;
 }) {
-  const create = useMutation(api.rehearsals.create)
-  const [name, setName] = useState('Full event test')
-  const [scheduledFor, setScheduledFor] = useState('')
-  const [reason, setReason] = useState('Preparing the event team for launch')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const busyRef = useRef(false)
-  const createAttempt = useMutationAttempt<CreateResult>()
-  const createPending = createAttempt.hasPending('create-rehearsal')
+  const create = useMutation(api.rehearsals.create);
+  const [name, setName] = useState("Full event test");
+  const [scheduledFor, setScheduledFor] = useState("");
+  const [reason, setReason] = useState("Preparing the event team for launch");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const busyRef = useRef(false);
+  const createAttempt = useMutationAttempt<CreateResult>();
+  const createPending = createAttempt.hasPending("create-rehearsal");
 
   const submit = async (event: FormEvent) => {
-    event.preventDefault()
-    if (busyRef.current || name.trim().length < 3 || reason.trim().length < 5) return
-    const schedule = scheduledFor ? new Date(scheduledFor).getTime() : undefined
+    event.preventDefault();
+    if (busyRef.current || name.trim().length < 3 || reason.trim().length < 5) return;
+    const schedule = scheduledFor ? new Date(scheduledFor).getTime() : undefined;
     if (schedule !== undefined && (!Number.isFinite(schedule) || schedule <= serverNow)) {
-      setError('Choose a future rehearsal time or leave it blank.')
-      return
+      setError("Choose a future rehearsal time or leave it blank.");
+      return;
     }
-    busyRef.current = true
-    setBusy(true)
-    setError(null)
+    busyRef.current = true;
+    setBusy(true);
+    setError(null);
     try {
-      await createAttempt.run('create-rehearsal', () => {
+      await createAttempt.run("create-rehearsal", () => {
         const args = {
           eventSlug,
           name: name.trim(),
           ...(schedule !== undefined ? { scheduledFor: schedule } : {}),
           reason: reason.trim(),
           clientOperationId: crypto.randomUUID(),
-        }
-        return () => create(args)
-      })
-      onCreated()
+        };
+        return () => create(args);
+      });
+      onCreated();
     } catch (caught) {
-      setError(readableError(caught))
+      setError(readableError(caught));
     } finally {
-      busyRef.current = false
-      setBusy(false)
+      busyRef.current = false;
+      setBusy(false);
     }
-  }
+  };
 
   return (
     <details className="rehearsal-create" open={defaultOpen}>
@@ -266,20 +274,20 @@ function CreateRun({
           />
         </label>
         <button className="secondary" disabled={busy} type="submit">
-          {busy ? 'Creating…' : createPending ? 'Confirm test run' : 'Create test run'}
+          {busy ? "Creating…" : createPending ? "Confirm test run" : "Create test run"}
         </button>
         {error ? <p className="notice error">{error}</p> : null}
       </form>
     </details>
-  )
+  );
 }
 
 function RunDetail({ rehearsalRunId }: { rehearsalRunId: RehearsalRunId }) {
-  const detail = useQuery(api.rehearsals.detail, { eventSlug, rehearsalRunId })
-  const [stateFilter, setStateFilter] = useState<StateFilter>('all')
-  const [workstreamFilter, setWorkstreamFilter] = useState<WorkstreamFilter>('all')
-  const [selectedScenarioId, setSelectedScenarioId] = useState<RehearsalScenarioId | null>(null)
-  const [lockedScenarioId, setLockedScenarioId] = useState<RehearsalScenarioId | null>(null)
+  const detail = useQuery(api.rehearsals.detail, { eventSlug, rehearsalRunId });
+  const [stateFilter, setStateFilter] = useState<StateFilter>("all");
+  const [workstreamFilter, setWorkstreamFilter] = useState<WorkstreamFilter>("all");
+  const [selectedScenarioId, setSelectedScenarioId] = useState<RehearsalScenarioId | null>(null);
+  const [lockedScenarioId, setLockedScenarioId] = useState<RehearsalScenarioId | null>(null);
 
   if (detail === undefined) {
     return (
@@ -287,25 +295,28 @@ function RunDetail({ rehearsalRunId }: { rehearsalRunId: RehearsalRunId }) {
         <LoadingLabel>Loading this test run</LoadingLabel>
         <SkeletonList rows={6} />
       </div>
-    )
+    );
   }
 
-  const runWorkstreams = runAreas(detail)
+  const runWorkstreams = runAreas(detail);
   const scenarios = detail.scenarios
     .filter(
       (scenario) =>
-        (stateFilter === 'all' || scenario.state === stateFilter) &&
-        (workstreamFilter === 'all' || scenario.workstream === workstreamFilter),
+        (stateFilter === "all" || scenario.state === stateFilter) &&
+        (workstreamFilter === "all" || scenario.workstream === workstreamFilter),
     )
     .sort(
       (left, right) =>
-        scenarioStateOrder.indexOf(left.state) - scenarioStateOrder.indexOf(right.state)
-        || left.sequence - right.sequence,
-    )
-  const visibleScenarioId = lockedScenarioId ?? (scenarios.some((scenario) => scenario.id === selectedScenarioId)
-    ? selectedScenarioId
-    : scenarios.at(0)?.id ?? null)
-  const selectedScenario = detail.scenarios.find((scenario) => scenario.id === visibleScenarioId) ?? null
+        scenarioStateOrder.indexOf(left.state) - scenarioStateOrder.indexOf(right.state) ||
+        left.sequence - right.sequence,
+    );
+  const visibleScenarioId =
+    lockedScenarioId ??
+    (scenarios.some((scenario) => scenario.id === selectedScenarioId)
+      ? selectedScenarioId
+      : (scenarios.at(0)?.id ?? null));
+  const selectedScenario =
+    detail.scenarios.find((scenario) => scenario.id === visibleScenarioId) ?? null;
 
   return (
     <div className="rehearsal-detail">
@@ -314,10 +325,12 @@ function RunDetail({ rehearsalRunId }: { rehearsalRunId: RehearsalRunId }) {
           <h2>{detail.run.name}</h2>
           <p className="muted">
             Created {formatTime(detail.run.createdAt)}
-            {detail.run.scheduledFor ? ` · scheduled ${formatTime(detail.run.scheduledFor)}` : ''}
+            {detail.run.scheduledFor ? ` · scheduled ${formatTime(detail.run.scheduledFor)}` : ""}
           </p>
         </div>
-        <span className={`rehearsal-state ${detail.run.state}`}>{rehearsalRunStateLabels[detail.run.state]}</span>
+        <span className={`rehearsal-state ${detail.run.state}`}>
+          {rehearsalRunStateLabels[detail.run.state]}
+        </span>
       </header>
 
       <RunCounts run={detail.run} />
@@ -330,8 +343,8 @@ function RunDetail({ rehearsalRunId }: { rehearsalRunId: RehearsalRunId }) {
             <h2>Checks</h2>
             <p className="muted">
               {detail.run.counts.failed + detail.run.counts.blocked > 0
-                ? 'Fix what went wrong, then run the check again.'
-                : 'Work through each check and record what happened.'}
+                ? "Fix what went wrong, then run the check again."
+                : "Work through each check and record what happened."}
             </p>
           </div>
           <div className="rehearsal-filters">
@@ -344,7 +357,9 @@ function RunDetail({ rehearsalRunId }: { rehearsalRunId: RehearsalRunId }) {
               >
                 <option value="all">Every check</option>
                 {scenarioStateOrder.map((value) => (
-                  <option key={value} value={value}>{rehearsalScenarioStateLabels[value]}</option>
+                  <option key={value} value={value}>
+                    {rehearsalScenarioStateLabels[value]}
+                  </option>
                 ))}
               </select>
             </label>
@@ -353,11 +368,15 @@ function RunDetail({ rehearsalRunId }: { rehearsalRunId: RehearsalRunId }) {
               <select
                 disabled={lockedScenarioId !== null}
                 value={workstreamFilter}
-                onChange={(event) => setWorkstreamFilter(parseWorkstreamFilter(event.target.value, runWorkstreams))}
+                onChange={(event) =>
+                  setWorkstreamFilter(parseWorkstreamFilter(event.target.value, runWorkstreams))
+                }
               >
                 <option value="all">Every area</option>
                 {runWorkstreams.map((value) => (
-                  <option key={value} value={value}>{rehearsalWorkstreamLabels[value]}</option>
+                  <option key={value} value={value}>
+                    {rehearsalWorkstreamLabels[value]}
+                  </option>
                 ))}
               </select>
             </label>
@@ -369,7 +388,11 @@ function RunDetail({ rehearsalRunId }: { rehearsalRunId: RehearsalRunId }) {
             {scenarios.map((scenario) => (
               <button
                 aria-pressed={visibleScenarioId === scenario.id}
-                className={visibleScenarioId === scenario.id ? 'rehearsal-scenario-row selected' : 'rehearsal-scenario-row'}
+                className={
+                  visibleScenarioId === scenario.id
+                    ? "rehearsal-scenario-row selected"
+                    : "rehearsal-scenario-row"
+                }
                 disabled={lockedScenarioId !== null && lockedScenarioId !== scenario.id}
                 key={scenario.id}
                 type="button"
@@ -379,7 +402,8 @@ function RunDetail({ rehearsalRunId }: { rehearsalRunId: RehearsalRunId }) {
                 <span>
                   <strong>{scenario.title}</strong>
                   <small>
-                    {rehearsalWorkstreamLabels[scenario.workstream]} · {rehearsalScenarioStateLabels[scenario.state]}
+                    {rehearsalWorkstreamLabels[scenario.workstream]} ·{" "}
+                    {rehearsalScenarioStateLabels[scenario.state]}
                   </small>
                 </span>
                 <span
@@ -404,41 +428,57 @@ function RunDetail({ rehearsalRunId }: { rehearsalRunId: RehearsalRunId }) {
         </div>
       </section>
     </div>
-  )
+  );
 }
 
 function RunCounts({ run }: { run: RehearsalRun }) {
   return (
     <dl className="rehearsal-counts">
-      <div><dt>Did not work</dt><dd>{run.counts.failed}</dd></div>
-      <div><dt>Could not be tried</dt><dd>{run.counts.blocked}</dd></div>
-      <div><dt>Being tried now</dt><dd>{run.counts.running}</dd></div>
-      <div><dt>Not tried yet</dt><dd>{run.counts.pending}</dd></div>
-      <div><dt>Worked</dt><dd>{run.counts.passed}</dd></div>
+      <div>
+        <dt>Did not work</dt>
+        <dd>{run.counts.failed}</dd>
+      </div>
+      <div>
+        <dt>Could not be tried</dt>
+        <dd>{run.counts.blocked}</dd>
+      </div>
+      <div>
+        <dt>Being tried now</dt>
+        <dd>{run.counts.running}</dd>
+      </div>
+      <div>
+        <dt>Not tried yet</dt>
+        <dd>{run.counts.pending}</dd>
+      </div>
+      <div>
+        <dt>Worked</dt>
+        <dd>{run.counts.passed}</dd>
+      </div>
     </dl>
-  )
+  );
 }
 
 function WorkstreamOwners({
   areas,
   detail,
 }: {
-  areas: RehearsalWorkstream[]
-  detail: RehearsalDetail
+  areas: RehearsalWorkstream[];
+  detail: RehearsalDetail;
 }) {
-  const missing = detail.run.requiredWorkstreamCount - detail.run.assignedWorkstreamCount
-  const inactive = detail.workstreamOwners.filter((owner) => !owner.accessActive)
+  const missing = detail.run.requiredWorkstreamCount - detail.run.assignedWorkstreamCount;
+  const inactive = detail.workstreamOwners.filter((owner) => !owner.accessActive);
   const rows = areas
     .map((workstream) => ({
       workstream,
       owner: detail.workstreamOwners.find((candidate) => candidate.workstream === workstream),
     }))
-    .sort((left, right) => ownerRank(left.owner) - ownerRank(right.owner))
-  const statusCopy = missing > 0
-    ? `${missing} of ${detail.run.requiredWorkstreamCount} areas have no owner, so the run cannot start.`
-    : inactive.length > 0
-      ? `Every area has an owner, but ${inactive.length === 1 ? 'one has' : `${inactive.length} have`} inactive access.`
-      : `All ${detail.run.requiredWorkstreamCount} areas have an owner who can record results.`
+    .sort((left, right) => ownerRank(left.owner) - ownerRank(right.owner));
+  const statusCopy =
+    missing > 0
+      ? `${missing} of ${detail.run.requiredWorkstreamCount} areas have no owner, so the run cannot start.`
+      : inactive.length > 0
+        ? `Every area has an owner, but ${inactive.length === 1 ? "one has" : `${inactive.length} have`} inactive access.`
+        : `All ${detail.run.requiredWorkstreamCount} areas have an owner who can record results.`;
 
   return (
     <details className="workspace-disclosure rehearsal-owners">
@@ -450,68 +490,69 @@ function WorkstreamOwners({
         <span className="workspace-disclosure-toggle" aria-hidden="true" />
       </summary>
       <div className="workspace-disclosure-body">
-      <div className="rehearsal-owner-list">
-        {rows.map(({ owner, workstream }) => (
-          <div className="rehearsal-owner-row" key={workstream}>
-            <strong>{rehearsalWorkstreamLabels[workstream]}</strong>
-            <span>{owner?.displayName ?? 'Nobody yet'}</span>
-            <small>
-              {!owner
-                ? 'The run cannot start without an owner.'
-                : owner.accessActive
-                  ? owner.email
-                  : 'Their event access is inactive, so they cannot record results.'}
-            </small>
-          </div>
-        ))}
-      </div>
-      {detail.run.canManage && (detail.run.state === 'draft' || detail.run.state === 'active') ? (
-        <OwnerAssignment areas={areas} detail={detail} />
-      ) : null}
+        <div className="rehearsal-owner-list">
+          {rows.map(({ owner, workstream }) => (
+            <div className="rehearsal-owner-row" key={workstream}>
+              <strong>{rehearsalWorkstreamLabels[workstream]}</strong>
+              <span>{owner?.displayName ?? "Nobody yet"}</span>
+              <small>
+                {!owner
+                  ? "The run cannot start without an owner."
+                  : owner.accessActive
+                    ? owner.email
+                    : "Their event access is inactive, so they cannot record results."}
+              </small>
+            </div>
+          ))}
+        </div>
+        {detail.run.canManage && (detail.run.state === "draft" || detail.run.state === "active") ? (
+          <OwnerAssignment areas={areas} detail={detail} />
+        ) : null}
       </div>
     </details>
-  )
+  );
 }
 
-function ownerRank(owner: RehearsalDetail['workstreamOwners'][number] | undefined) {
-  if (!owner) return 0
-  return owner.accessActive ? 2 : 1
+function ownerRank(owner: RehearsalDetail["workstreamOwners"][number] | undefined) {
+  if (!owner) return 0;
+  return owner.accessActive ? 2 : 1;
 }
 
 function OwnerAssignment({
   areas,
   detail,
 }: {
-  areas: RehearsalWorkstream[]
-  detail: RehearsalDetail
+  areas: RehearsalWorkstream[];
+  detail: RehearsalDetail;
 }) {
-  const assign = useMutation(api.rehearsals.assignWorkstreamOwner)
+  const assign = useMutation(api.rehearsals.assignWorkstreamOwner);
   const options = usePaginatedQuery(
     api.rehearsals.ownerOptions,
     { eventSlug, rehearsalRunId: detail.run.id },
     { initialNumItems: 100 },
-  )
-  const firstMissing = areas.find(
-    (candidate) => !detail.workstreamOwners.some((owner) => owner.workstream === candidate),
-  ) ?? areas[0]
-  const [workstream, setWorkstream] = useState<RehearsalWorkstream>(firstMissing ?? 'auth_access')
-  const [ownerPersonId, setOwnerPersonId] = useState('')
-  const [reason, setReason] = useState('Assigning rehearsal accountability')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const busyRef = useRef(false)
-  const assignmentAttempt = useMutationAttempt<AssignResult>()
-  const assignmentPending = assignmentAttempt.hasPending('assign-workstream-owner')
+  );
+  const firstMissing =
+    areas.find(
+      (candidate) => !detail.workstreamOwners.some((owner) => owner.workstream === candidate),
+    ) ?? areas[0];
+  const [workstream, setWorkstream] = useState<RehearsalWorkstream>(firstMissing ?? "auth_access");
+  const [ownerPersonId, setOwnerPersonId] = useState("");
+  const [reason, setReason] = useState("Assigning rehearsal accountability");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const busyRef = useRef(false);
+  const assignmentAttempt = useMutationAttempt<AssignResult>();
+  const assignmentPending = assignmentAttempt.hasPending("assign-workstream-owner");
 
   const submit = async (event: FormEvent) => {
-    event.preventDefault()
-    const owner = options.results.find((candidate) => candidate.id === ownerPersonId)
-    if (busyRef.current || !owner || reason.trim().length < 5) return
-    busyRef.current = true
-    setBusy(true)
-    setError(null)
+    event.preventDefault();
+    const owner = options.results.find((candidate) => candidate.id === ownerPersonId);
+    if (busyRef.current || !owner || reason.trim().length < 5) return;
+    busyRef.current = true;
+    setBusy(true);
+    setError(null);
     try {
-      await assignmentAttempt.run('assign-workstream-owner', () => {
+      await assignmentAttempt.run("assign-workstream-owner", () => {
         const args = {
           eventSlug,
           rehearsalRunId: detail.run.id,
@@ -520,17 +561,17 @@ function OwnerAssignment({
           expectedRunVersion: detail.run.version,
           reason: reason.trim(),
           clientOperationId: crypto.randomUUID(),
-        }
-        return () => assign(args)
-      })
-      setOwnerPersonId('')
+        };
+        return () => assign(args);
+      });
+      setOwnerPersonId("");
     } catch (caught) {
-      setError(readableError(caught))
+      setError(readableError(caught));
     } finally {
-      busyRef.current = false
-      setBusy(false)
+      busyRef.current = false;
+      setBusy(false);
     }
-  }
+  };
 
   return (
     <form className="rehearsal-owner-form" onSubmit={(event) => void submit(event)}>
@@ -542,10 +583,14 @@ function OwnerAssignment({
         <select
           disabled={busy || assignmentPending}
           value={workstream}
-          onChange={(event) => setWorkstream(parseWorkstream(event.target.value, workstream, areas))}
+          onChange={(event) =>
+            setWorkstream(parseWorkstream(event.target.value, workstream, areas))
+          }
         >
           {areas.map((value) => (
-            <option key={value} value={value}>{rehearsalWorkstreamLabels[value]}</option>
+            <option key={value} value={value}>
+              {rehearsalWorkstreamLabels[value]}
+            </option>
           ))}
         </select>
       </label>
@@ -559,7 +604,9 @@ function OwnerAssignment({
         >
           <option value="">Choose an active event account</option>
           {options.results.map((person) => (
-            <option key={person.id} value={person.id}>{person.displayName} · {person.email}</option>
+            <option key={person.id} value={person.id}>
+              {person.displayName} · {person.email}
+            </option>
           ))}
         </select>
       </label>
@@ -574,127 +621,135 @@ function OwnerAssignment({
           onChange={(event) => setReason(event.target.value)}
         />
       </label>
-      <button className="secondary self-end" disabled={busy || !ownerPersonId || reason.trim().length < 5} type="submit">
-        {busy ? 'Assigning…' : assignmentPending ? 'Confirm assignment' : 'Assign owner'}
+      <button
+        className="secondary self-end"
+        disabled={busy || !ownerPersonId || reason.trim().length < 5}
+        type="submit"
+      >
+        {busy ? "Assigning…" : assignmentPending ? "Confirm assignment" : "Assign owner"}
       </button>
-      {options.status === 'CanLoadMore' ? (
-        <button className="text-button" type="button" onClick={() => options.loadMore(100)}>Load more accounts</button>
+      {options.status === "CanLoadMore" ? (
+        <button className="text-button" type="button" onClick={() => options.loadMore(100)}>
+          Load more accounts
+        </button>
       ) : null}
       {error ? <p className="notice error">{error}</p> : null}
     </form>
-  )
+  );
 }
 
-type RunOperationKind = 'start' | 'complete' | 'cancel'
+type RunOperationKind = "start" | "complete" | "cancel";
 
 function RunControls({ detail }: { detail: RehearsalDetail }) {
-  const start = useMutation(api.rehearsals.start)
-  const complete = useMutation(api.rehearsals.complete)
-  const cancel = useMutation(api.rehearsals.cancel)
-  const [note, setNote] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const busyRef = useRef(false)
-  const operationAttempt = useMutationAttempt<RunControlResult>()
-  const [pendingKind, setPendingKind] = useState<RunOperationKind | null>(null)
-  const operationPending = operationAttempt.hasPending('rehearsal-run-control')
+  const start = useMutation(api.rehearsals.start);
+  const complete = useMutation(api.rehearsals.complete);
+  const cancel = useMutation(api.rehearsals.cancel);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const busyRef = useRef(false);
+  const operationAttempt = useMutationAttempt<RunControlResult>();
+  const [pendingKind, setPendingKind] = useState<RunOperationKind | null>(null);
+  const operationPending = operationAttempt.hasPending("rehearsal-run-control");
 
-  if (detail.run.state === 'completed') {
+  if (detail.run.state === "completed") {
     return (
       <p className="notice rehearsal-final-note">
         Signed off, so nothing more can be recorded: {detail.run.completionSummary}
       </p>
-    )
+    );
   }
-  if (detail.run.state === 'cancelled') {
+  if (detail.run.state === "cancelled") {
     return (
       <p className="notice rehearsal-final-note">
         Cancelled before it finished: {detail.run.cancellationReason}
       </p>
-    )
+    );
   }
-  const canControl = detail.run.state === 'draft'
-    ? detail.run.canManage
-    : detail.run.canManage || detail.run.canComplete
-  if (!canControl) return null
+  const canControl =
+    detail.run.state === "draft"
+      ? detail.run.canManage
+      : detail.run.canManage || detail.run.canComplete;
+  if (!canControl) return null;
 
   const startReady =
-    detail.run.state === 'draft' &&
+    detail.run.state === "draft" &&
     detail.run.canManage &&
-    detail.run.assignedWorkstreamCount === detail.run.requiredWorkstreamCount
+    detail.run.assignedWorkstreamCount === detail.run.requiredWorkstreamCount;
   const completionReady =
-    detail.run.state === 'active' &&
+    detail.run.state === "active" &&
     detail.run.canComplete &&
     detail.run.counts.total > 0 &&
-    detail.run.counts.passed === detail.run.counts.total
+    detail.run.counts.passed === detail.run.counts.total;
 
   const run = async (kind: RunOperationKind) => {
-    if (pendingKind !== null && pendingKind !== kind) return
-    const normalizedNote = note.trim()
-    const minimum = kind === 'complete' ? 10 : 5
-    if (busyRef.current || normalizedNote.length < minimum) return
-    if (kind === 'start' && !startReady) return
-    if (kind === 'complete' && !completionReady) return
-    if (kind === 'cancel' && !detail.run.canManage) return
-    busyRef.current = true
-    setBusy(true)
-    setError(null)
-    if (!operationPending) setPendingKind(kind)
+    if (pendingKind !== null && pendingKind !== kind) return;
+    const normalizedNote = note.trim();
+    const minimum = kind === "complete" ? 10 : 5;
+    if (busyRef.current || normalizedNote.length < minimum) return;
+    if (kind === "start" && !startReady) return;
+    if (kind === "complete" && !completionReady) return;
+    if (kind === "cancel" && !detail.run.canManage) return;
+    busyRef.current = true;
+    setBusy(true);
+    setError(null);
+    if (!operationPending) setPendingKind(kind);
     try {
-      if (kind === 'start') {
-        await operationAttempt.run('rehearsal-run-control', () => {
+      if (kind === "start") {
+        await operationAttempt.run("rehearsal-run-control", () => {
           const args = {
             eventSlug,
             rehearsalRunId: detail.run.id,
             expectedVersion: detail.run.version,
             reason: normalizedNote,
             clientOperationId: crypto.randomUUID(),
-          }
-          return () => start(args)
-        })
-      } else if (kind === 'complete') {
-        await operationAttempt.run('rehearsal-run-control', () => {
+          };
+          return () => start(args);
+        });
+      } else if (kind === "complete") {
+        await operationAttempt.run("rehearsal-run-control", () => {
           const args = {
             eventSlug,
             rehearsalRunId: detail.run.id,
             expectedVersion: detail.run.version,
             summary: normalizedNote,
             clientOperationId: crypto.randomUUID(),
-          }
-          return () => complete(args)
-        })
+          };
+          return () => complete(args);
+        });
       } else {
-        await operationAttempt.run('rehearsal-run-control', () => {
+        await operationAttempt.run("rehearsal-run-control", () => {
           const args = {
             eventSlug,
             rehearsalRunId: detail.run.id,
             expectedVersion: detail.run.version,
             reason: normalizedNote,
             clientOperationId: crypto.randomUUID(),
-          }
-          return () => cancel(args)
-        })
+          };
+          return () => cancel(args);
+        });
       }
-      setPendingKind(null)
-      setNote('')
+      setPendingKind(null);
+      setNote("");
     } catch (caught) {
-      if (!operationAttempt.hasPending('rehearsal-run-control')) setPendingKind(null)
-      setError(readableError(caught))
+      if (!operationAttempt.hasPending("rehearsal-run-control")) setPendingKind(null);
+      setError(readableError(caught));
     } finally {
-      busyRef.current = false
-      setBusy(false)
+      busyRef.current = false;
+      setBusy(false);
     }
-  }
+  };
 
-  const missingOwners = detail.run.requiredWorkstreamCount - detail.run.assignedWorkstreamCount
-  const outstanding = detail.run.counts.total - detail.run.counts.passed
-  const controlSummary = detail.run.state === 'draft'
-    ? missingOwners > 0
-      ? `Blocked until ${missingOwners} ${missingOwners === 1 ? 'area has' : 'areas have'} an owner.`
-      : 'Ready to start once a run note is added.'
-    : completionReady
-      ? 'Every check passed. This run can be signed off.'
-      : `${outstanding} ${outstanding === 1 ? 'check still needs' : 'checks still need'} a passing result.`
+  const missingOwners = detail.run.requiredWorkstreamCount - detail.run.assignedWorkstreamCount;
+  const outstanding = detail.run.counts.total - detail.run.counts.passed;
+  const controlSummary =
+    detail.run.state === "draft"
+      ? missingOwners > 0
+        ? `Blocked until ${missingOwners} ${missingOwners === 1 ? "area has" : "areas have"} an owner.`
+        : "Ready to start once a run note is added."
+      : completionReady
+        ? "Every check passed. This run can be signed off."
+        : `${outstanding} ${outstanding === 1 ? "check still needs" : "checks still need"} a passing result.`;
 
   return (
     <details className="workspace-disclosure rehearsal-controls">
@@ -706,48 +761,80 @@ function RunControls({ detail }: { detail: RehearsalDetail }) {
         <span className="workspace-disclosure-toggle" aria-hidden="true" />
       </summary>
       <div className="workspace-disclosure-body rehearsal-run-controls">
-      {detail.run.state === 'draft' && missingOwners > 0 ? (
-        <p className="notice">
-          This run cannot start: {missingOwners} of its {detail.run.requiredWorkstreamCount} areas have no owner.
-        </p>
-      ) : null}
-      {detail.run.state === 'active' && !completionReady && detail.run.canComplete ? (
-        <p className="notice">
-          {detail.run.counts.total === 0
-            ? 'This run has no checks, so there is nothing to sign off.'
-            : `This run cannot be signed off yet: ${outstanding} of its ${detail.run.counts.total} checks have no passing result.`}
-        </p>
-      ) : null}
-      <label className="field">
-        Run note
-        <textarea
-          maxLength={1000}
-          disabled={operationPending}
-          value={note}
-          onChange={(event) => setNote(event.target.value)}
-        />
-      </label>
-      <div className="rehearsal-control-actions items-center">
-        {startReady ? (
-          <button className="primary" disabled={busy || note.trim().length < 5 || (pendingKind !== null && pendingKind !== 'start')} type="button" onClick={() => void run('start')}>
-            {busy ? 'Working…' : pendingKind === 'start' ? 'Confirm earlier start' : 'Start test run'}
-          </button>
+        {detail.run.state === "draft" && missingOwners > 0 ? (
+          <p className="notice">
+            This run cannot start: {missingOwners} of its {detail.run.requiredWorkstreamCount} areas
+            have no owner.
+          </p>
         ) : null}
-        {completionReady ? (
-          <button className="primary" disabled={busy || note.trim().length < 10 || (pendingKind !== null && pendingKind !== 'complete')} type="button" onClick={() => void run('complete')}>
-            {busy ? 'Working…' : pendingKind === 'complete' ? 'Confirm earlier sign-off' : 'Sign off test run'}
-          </button>
+        {detail.run.state === "active" && !completionReady && detail.run.canComplete ? (
+          <p className="notice">
+            {detail.run.counts.total === 0
+              ? "This run has no checks, so there is nothing to sign off."
+              : `This run cannot be signed off yet: ${outstanding} of its ${detail.run.counts.total} checks have no passing result.`}
+          </p>
         ) : null}
-        {detail.run.canManage ? (
-          <button className="secondary" disabled={busy || note.trim().length < 5 || (pendingKind !== null && pendingKind !== 'cancel')} type="button" onClick={() => void run('cancel')}>
-            {pendingKind === 'cancel' ? 'Confirm earlier cancellation' : 'Cancel run'}
-          </button>
-        ) : null}
-      </div>
-      {error ? <p className="notice error">{error}</p> : null}
+        <label className="field">
+          Run note
+          <textarea
+            maxLength={1000}
+            disabled={operationPending}
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+          />
+        </label>
+        <div className="rehearsal-control-actions items-center">
+          {startReady ? (
+            <button
+              className="primary"
+              disabled={
+                busy || note.trim().length < 5 || (pendingKind !== null && pendingKind !== "start")
+              }
+              type="button"
+              onClick={() => void run("start")}
+            >
+              {busy
+                ? "Working…"
+                : pendingKind === "start"
+                  ? "Confirm earlier start"
+                  : "Start test run"}
+            </button>
+          ) : null}
+          {completionReady ? (
+            <button
+              className="primary"
+              disabled={
+                busy ||
+                note.trim().length < 10 ||
+                (pendingKind !== null && pendingKind !== "complete")
+              }
+              type="button"
+              onClick={() => void run("complete")}
+            >
+              {busy
+                ? "Working…"
+                : pendingKind === "complete"
+                  ? "Confirm earlier sign-off"
+                  : "Sign off test run"}
+            </button>
+          ) : null}
+          {detail.run.canManage ? (
+            <button
+              className="secondary"
+              disabled={
+                busy || note.trim().length < 5 || (pendingKind !== null && pendingKind !== "cancel")
+              }
+              type="button"
+              onClick={() => void run("cancel")}
+            >
+              {pendingKind === "cancel" ? "Confirm earlier cancellation" : "Cancel run"}
+            </button>
+          ) : null}
+        </div>
+        {error ? <p className="notice error">{error}</p> : null}
       </div>
     </details>
-  )
+  );
 }
 
 function ScenarioDetail({
@@ -757,40 +844,41 @@ function ScenarioDetail({
   scenario,
   onOperationLock,
 }: {
-  canExecute: boolean
-  rehearsalRunId: RehearsalRunId
-  runState: RehearsalRun['state']
-  scenario: RehearsalScenario
-  onOperationLock: (scenarioId: RehearsalScenarioId | null) => void
+  canExecute: boolean;
+  rehearsalRunId: RehearsalRunId;
+  runState: RehearsalRun["state"];
+  scenario: RehearsalScenario;
+  onOperationLock: (scenarioId: RehearsalScenarioId | null) => void;
 }) {
   const history = useQuery(api.rehearsals.scenarioHistory, {
     eventSlug,
     rehearsalRunId,
     rehearsalScenarioId: scenario.id,
-  })
-  const update = useMutation(api.rehearsals.updateScenario)
-  const [note, setNote] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const busyRef = useRef(false)
-  const updateAttempt = useMutationAttempt<FunctionReturnType<typeof api.rehearsals.updateScenario>>()
-  const [pendingState, setPendingState] = useState<RehearsalScenarioState | null>(null)
-  const updatePending = updateAttempt.hasPending('rehearsal-scenario-update')
+  });
+  const update = useMutation(api.rehearsals.updateScenario);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const busyRef = useRef(false);
+  const updateAttempt =
+    useMutationAttempt<FunctionReturnType<typeof api.rehearsals.updateScenario>>();
+  const [pendingState, setPendingState] = useState<RehearsalScenarioState | null>(null);
+  const updatePending = updateAttempt.hasPending("rehearsal-scenario-update");
 
   const record = async (nextState: RehearsalScenarioState) => {
-    if (pendingState !== null && pendingState !== nextState) return
-    const normalizedNote = note.trim()
-    const noteRequired = nextState !== 'running' || scenario.state !== 'pending'
-    if (busyRef.current || (noteRequired && normalizedNote.length < 5)) return
-    busyRef.current = true
-    setBusy(true)
-    setError(null)
+    if (pendingState !== null && pendingState !== nextState) return;
+    const normalizedNote = note.trim();
+    const noteRequired = nextState !== "running" || scenario.state !== "pending";
+    if (busyRef.current || (noteRequired && normalizedNote.length < 5)) return;
+    busyRef.current = true;
+    setBusy(true);
+    setError(null);
     if (!updatePending) {
-      setPendingState(nextState)
-      onOperationLock(scenario.id)
+      setPendingState(nextState);
+      onOperationLock(scenario.id);
     }
     try {
-      await updateAttempt.run('rehearsal-scenario-update', () => {
+      await updateAttempt.run("rehearsal-scenario-update", () => {
         const args = {
           eventSlug,
           rehearsalRunId,
@@ -799,31 +887,34 @@ function ScenarioDetail({
           ...(normalizedNote ? { note: normalizedNote } : {}),
           expectedVersion: scenario.version,
           clientOperationId: crypto.randomUUID(),
-        }
-        return () => update(args)
-      })
-      setPendingState(null)
-      onOperationLock(null)
-      setNote('')
+        };
+        return () => update(args);
+      });
+      setPendingState(null);
+      onOperationLock(null);
+      setNote("");
     } catch (caught) {
-      if (!updateAttempt.hasPending('rehearsal-scenario-update')) {
-        setPendingState(null)
-        onOperationLock(null)
+      if (!updateAttempt.hasPending("rehearsal-scenario-update")) {
+        setPendingState(null);
+        onOperationLock(null);
       }
-      setError(readableError(caught))
+      setError(readableError(caught));
     } finally {
-      busyRef.current = false
-      setBusy(false)
+      busyRef.current = false;
+      setBusy(false);
     }
-  }
+  };
 
-  const terminal = scenario.state === 'passed' || scenario.state === 'failed' || scenario.state === 'blocked'
+  const terminal =
+    scenario.state === "passed" || scenario.state === "failed" || scenario.state === "blocked";
 
   return (
     <article className="rehearsal-scenario-detail">
       <header>
         <div>
-          <p className="eyebrow">Check {scenario.sequence} · {rehearsalWorkstreamLabels[scenario.workstream]}</p>
+          <p className="eyebrow">
+            Check {scenario.sequence} · {rehearsalWorkstreamLabels[scenario.workstream]}
+          </p>
           <h2>{scenario.title}</h2>
         </div>
         <span className={`rehearsal-state ${scenario.state}`}>
@@ -831,15 +922,22 @@ function ScenarioDetail({
         </span>
       </header>
       <dl className="rehearsal-expectation">
-        <div><dt>What should happen</dt><dd>{scenario.expectedState}</dd></div>
-        <div><dt>What to do if it does not</dt><dd>{scenario.recoveryAction}</dd></div>
+        <div>
+          <dt>What should happen</dt>
+          <dd>{scenario.expectedState}</dd>
+        </div>
+        <div>
+          <dt>What to do if it does not</dt>
+          <dd>{scenario.recoveryAction}</dd>
+        </div>
       </dl>
       {scenario.resultSummary ? <p className="rehearsal-result">{scenario.resultSummary}</p> : null}
 
-      {canExecute && runState === 'active' ? (
+      {canExecute && runState === "active" ? (
         <div className="rehearsal-scenario-command">
           <label className="field">
-            Result note {scenario.state === 'pending' ? <small>optional only when starting</small> : null}
+            Result note{" "}
+            {scenario.state === "pending" ? <small>optional only when starting</small> : null}
             <textarea
               maxLength={1000}
               disabled={updatePending}
@@ -849,28 +947,84 @@ function ScenarioDetail({
           </label>
           <div className="rehearsal-result-actions items-center">
             {pendingState !== null ? (
-              <button className="primary" disabled={busy} type="button" onClick={() => void record(pendingState)}>
+              <button
+                className="primary"
+                disabled={busy}
+                type="button"
+                onClick={() => void record(pendingState)}
+              >
                 Confirm earlier {scenarioActionName(pendingState)}
               </button>
-            ) : scenario.state === 'pending' ? (
-              <button className="secondary" disabled={busy || (pendingState !== null && pendingState !== 'running')} type="button" onClick={() => void record('running')}>{pendingState === 'running' ? 'Confirm earlier start' : 'Start'}</button>
+            ) : scenario.state === "pending" ? (
+              <button
+                className="secondary"
+                disabled={busy || (pendingState !== null && pendingState !== "running")}
+                type="button"
+                onClick={() => void record("running")}
+              >
+                {pendingState === "running" ? "Confirm earlier start" : "Start"}
+              </button>
             ) : null}
             {pendingState === null && !terminal ? (
               <>
-                <button className="primary" disabled={busy || note.trim().length < 5 || (pendingState !== null && pendingState !== 'passed')} type="button" onClick={() => void record('passed')}>{pendingState === 'passed' ? 'Confirm earlier pass' : 'Pass'}</button>
-                <button className="secondary" disabled={busy || note.trim().length < 5 || (pendingState !== null && pendingState !== 'failed')} type="button" onClick={() => void record('failed')}>{pendingState === 'failed' ? 'Confirm earlier failure' : 'Fail'}</button>
-                <button className="secondary" disabled={busy || note.trim().length < 5 || (pendingState !== null && pendingState !== 'blocked')} type="button" onClick={() => void record('blocked')}>{pendingState === 'blocked' ? 'Confirm earlier block' : 'Block'}</button>
+                <button
+                  className="primary"
+                  disabled={
+                    busy ||
+                    note.trim().length < 5 ||
+                    (pendingState !== null && pendingState !== "passed")
+                  }
+                  type="button"
+                  onClick={() => void record("passed")}
+                >
+                  {pendingState === "passed" ? "Confirm earlier pass" : "Pass"}
+                </button>
+                <button
+                  className="secondary"
+                  disabled={
+                    busy ||
+                    note.trim().length < 5 ||
+                    (pendingState !== null && pendingState !== "failed")
+                  }
+                  type="button"
+                  onClick={() => void record("failed")}
+                >
+                  {pendingState === "failed" ? "Confirm earlier failure" : "Fail"}
+                </button>
+                <button
+                  className="secondary"
+                  disabled={
+                    busy ||
+                    note.trim().length < 5 ||
+                    (pendingState !== null && pendingState !== "blocked")
+                  }
+                  type="button"
+                  onClick={() => void record("blocked")}
+                >
+                  {pendingState === "blocked" ? "Confirm earlier block" : "Block"}
+                </button>
               </>
             ) : pendingState === null ? (
-              <button className="secondary" disabled={busy || note.trim().length < 5 || (pendingState !== null && pendingState !== 'running')} type="button" onClick={() => void record('running')}>{pendingState === 'running' ? 'Confirm earlier rerun' : 'Run again'}</button>
+              <button
+                className="secondary"
+                disabled={
+                  busy ||
+                  note.trim().length < 5 ||
+                  (pendingState !== null && pendingState !== "running")
+                }
+                type="button"
+                onClick={() => void record("running")}
+              >
+                {pendingState === "running" ? "Confirm earlier rerun" : "Run again"}
+              </button>
             ) : null}
           </div>
           {error ? <p className="notice error">{error}</p> : null}
         </div>
       ) : (
         <p className="notice">
-          {runState === 'active'
-            ? 'You can read this check but not record a result. The area owner does that.'
+          {runState === "active"
+            ? "You can read this check but not record a result. The area owner does that."
             : `Results can only be recorded while a run is under way, and this one is ${rehearsalRunStateLabels[runState].toLowerCase()}.`}
         </p>
       )}
@@ -900,41 +1054,49 @@ function ScenarioDetail({
         </ol>
       </div>
     </article>
-  )
+  );
 }
 
 function runAreas(detail: RehearsalDetail): RehearsalWorkstream[] {
-  const seen: RehearsalWorkstream[] = []
-  for (const scenario of [...detail.scenarios].sort((left, right) => left.sequence - right.sequence)) {
-    if (!seen.includes(scenario.workstream)) seen.push(scenario.workstream)
+  const seen: RehearsalWorkstream[] = [];
+  for (const scenario of [...detail.scenarios].sort(
+    (left, right) => left.sequence - right.sequence,
+  )) {
+    if (!seen.includes(scenario.workstream)) seen.push(scenario.workstream);
   }
-  return seen
+  return seen;
 }
 
 function parseStateFilter(value: string): StateFilter {
-  return scenarioStateOrder.find((state) => state === value) ?? 'all'
+  return scenarioStateOrder.find((state) => state === value) ?? "all";
 }
 
 function parseWorkstreamFilter(value: string, areas: RehearsalWorkstream[]): WorkstreamFilter {
-  return areas.find((workstream) => workstream === value) ?? 'all'
+  return areas.find((workstream) => workstream === value) ?? "all";
 }
 
-function parseWorkstream(value: string, fallback: RehearsalWorkstream, areas: RehearsalWorkstream[]) {
-  return areas.find((workstream) => workstream === value) ?? fallback
+function parseWorkstream(
+  value: string,
+  fallback: RehearsalWorkstream,
+  areas: RehearsalWorkstream[],
+) {
+  return areas.find((workstream) => workstream === value) ?? fallback;
 }
 
-function historyLabel(kind: FunctionReturnType<typeof api.rehearsals.scenarioHistory>[number]['kind']) {
-  if (kind === 'started') return 'Started'
-  if (kind === 'passed') return 'Worked'
-  if (kind === 'failed') return 'Did not work'
-  if (kind === 'blocked') return 'Could not be tried'
-  return 'Tried again'
+function historyLabel(
+  kind: FunctionReturnType<typeof api.rehearsals.scenarioHistory>[number]["kind"],
+) {
+  if (kind === "started") return "Started";
+  if (kind === "passed") return "Worked";
+  if (kind === "failed") return "Did not work";
+  if (kind === "blocked") return "Could not be tried";
+  return "Tried again";
 }
 
 function scenarioActionName(state: RehearsalScenarioState) {
-  if (state === 'running') return 'start'
-  if (state === 'passed') return 'pass'
-  if (state === 'failed') return 'failure'
-  if (state === 'blocked') return 'block'
-  return 'update'
+  if (state === "running") return "start";
+  if (state === "passed") return "pass";
+  if (state === "failed") return "failure";
+  if (state === "blocked") return "block";
+  return "update";
 }

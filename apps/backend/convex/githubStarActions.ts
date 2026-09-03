@@ -83,8 +83,8 @@ function participantSiteOrigin() {
     });
   }
   const url = new URL(configured);
-  const localHttp = url.protocol === "http:" &&
-    (url.hostname === "localhost" || url.hostname === "127.0.0.1");
+  const localHttp =
+    url.protocol === "http:" && (url.hostname === "localhost" || url.hostname === "127.0.0.1");
   if (
     (url.protocol !== "https:" && !localHttp) ||
     url.username ||
@@ -130,7 +130,8 @@ function providerFailure(error: unknown) {
     if (error.status === 403) {
       return new ConvexError({
         code: "GITHUB_STAR_PERMISSION_REQUIRED",
-        message: "GitHub did not grant public repository access. Disconnect GitHub, then connect it again.",
+        message:
+          "GitHub did not grant public repository access. Disconnect GitHub, then connect it again.",
       });
     }
   }
@@ -141,10 +142,7 @@ function providerFailure(error: unknown) {
 }
 
 async function revokeGitHubOAuthGrant(accessToken: string) {
-  const request = githubOAuthGrantRevocationRequest(
-    githubStarOAuthConfiguration(),
-    accessToken,
-  );
+  const request = githubOAuthGrantRevocationRequest(githubStarOAuthConfiguration(), accessToken);
   const response = await timedGitHubFetch(request.url, request.init);
   if (response.status === 204 || response.status === 404) return;
   await response.body?.cancel();
@@ -165,7 +163,8 @@ function requirePublicRepositoryScope(scope: string) {
   if (!scopes.has("public_repo")) {
     throw new ConvexError({
       code: "GITHUB_STAR_PERMISSION_REQUIRED",
-      message: "GitHub did not grant public repository access. Connect GitHub again and approve it.",
+      message:
+        "GitHub did not grant public repository access. Connect GitHub again and approve it.",
     });
   }
 }
@@ -212,10 +211,11 @@ export const completeConnection = action({
       return invalidCallback();
     }
     const attemptId = randomUUID();
-    const claim: SetupClaim = await ctx.runMutation(
-      internal.githubStarGate.claimSetupIntent,
-      { eventSlug: args.eventSlug, stateDigest: opaqueDigest(args.state), attemptId },
-    );
+    const claim: SetupClaim = await ctx.runMutation(internal.githubStarGate.claimSetupIntent, {
+      eventSlug: args.eventSlug,
+      stateDigest: opaqueDigest(args.state),
+      attemptId,
+    });
     if (claim.kind === "completed") return { state: "completed" as const };
 
     let accessToken: string | undefined;
@@ -238,17 +238,15 @@ export const completeConnection = action({
         },
         body,
       });
-      const responseBody = await readBoundedJsonResponse(
-        response,
-        maximumProviderResponseBytes,
-      );
+      const responseBody = await readBoundedJsonResponse(response, maximumProviderResponseBytes);
       const failure = tokenFailure.safeParse(responseBody);
       if (!response.ok || failure.success) {
         throw new ConvexError({
           code: "GITHUB_AUTHORIZATION_REJECTED",
-          message: failure.success && failure.data.error_description
-            ? failure.data.error_description
-            : "GitHub rejected this connection. Connect GitHub again.",
+          message:
+            failure.success && failure.data.error_description
+              ? failure.data.error_description
+              : "GitHub rejected this connection. Connect GitHub again.",
         });
       }
       const parsedToken = tokenResponse.safeParse(responseBody);
@@ -275,13 +273,12 @@ export const completeConnection = action({
         repositoryName,
       );
       const now = Date.now();
-      const providerLifetime = parsedToken.data.expires_in === undefined
-        ? maximumAuthorizationLifetimeMs
-        : parsedToken.data.expires_in * 1_000;
-      const authorizationExpiresAt = now + Math.min(
-        providerLifetime,
-        maximumAuthorizationLifetimeMs,
-      );
+      const providerLifetime =
+        parsedToken.data.expires_in === undefined
+          ? maximumAuthorizationLifetimeMs
+          : parsedToken.data.expires_in * 1_000;
+      const authorizationExpiresAt =
+        now + Math.min(providerLifetime, maximumAuthorizationLifetimeMs);
       if (alreadyStarred) {
         await revokeGitHubOAuthGrant(accessToken);
         grantRevoked = true;
@@ -324,9 +321,8 @@ export const completeConnection = action({
       await ctx.runMutation(internal.githubStarGate.failSetupIntent, {
         intentId: claim.intentId,
         attemptId,
-        failureCode: reportedError instanceof ConvexError
-          ? "authorization_rejected"
-          : "provider_failed",
+        failureCode:
+          reportedError instanceof ConvexError ? "authorization_rejected" : "provider_failed",
       });
       throw providerFailure(reportedError);
     }
@@ -357,10 +353,10 @@ export const star = action({
   returns: v.object({ githubLogin: v.string(), completedAt: v.number() }),
   handler: async (ctx, args): Promise<{ githubLogin: string; completedAt: number }> => {
     const attemptId = randomUUID();
-    const claim: StarClaim = await ctx.runMutation(
-      internal.githubStarGate.claimStar,
-      { eventSlug: args.eventSlug, attemptId },
-    );
+    const claim: StarClaim = await ctx.runMutation(internal.githubStarGate.claimStar, {
+      eventSlug: args.eventSlug,
+      attemptId,
+    });
     if (claim.kind === "completed") {
       return { githubLogin: claim.githubLogin, completedAt: claim.completedAt };
     }
@@ -368,11 +364,7 @@ export const star = action({
       if (claim.kind !== "finish") {
         const accessToken = decryptProviderSecret(claim.accessTokenCiphertext);
         if (claim.kind === "star") {
-          const request = githubUserStarRequest(
-            accessToken,
-            repositoryOwner,
-            repositoryName,
-          );
+          const request = githubUserStarRequest(accessToken, repositoryOwner, repositoryName);
           const response = await timedGitHubFetch(request.url, request.init);
           if (response.status !== 204) {
             await response.body?.cancel();
@@ -407,9 +399,8 @@ export const star = action({
       await ctx.runMutation(internal.githubStarGate.failStar, {
         authorizationId: claim.authorizationId,
         attemptId,
-        invalidateAuthorization: claim.kind === "star" &&
-          error instanceof RequestError &&
-          error.status === 401,
+        invalidateAuthorization:
+          claim.kind === "star" && error instanceof RequestError && error.status === 401,
       });
       throw providerFailure(error);
     }

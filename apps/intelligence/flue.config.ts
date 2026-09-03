@@ -1,6 +1,6 @@
-import { defineConfig } from '@flue/runtime/config';
+import { defineConfig } from "@flue/runtime/config";
 
 export default defineConfig({
-	target: 'cloudflare',
-	providers: ['openai'],
+  target: "cloudflare",
+  providers: ["openai"],
 });

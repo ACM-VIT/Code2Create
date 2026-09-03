@@ -22,10 +22,10 @@ type TemplateVariables = {
 };
 
 function renderTemplate(template: string, variables: TemplateVariables) {
-  return template.replace(/\{\{\s*(participant_name|team_name|event_name|portal_url)\s*\}\}/gu, (
-    _match,
-    key: keyof TemplateVariables,
-  ) => variables[key]);
+  return template.replace(
+    /\{\{\s*(participant_name|team_name|event_name|portal_url)\s*\}\}/gu,
+    (_match, key: keyof TemplateVariables) => variables[key],
+  );
 }
 
 function htmlEscaped(value: string) {

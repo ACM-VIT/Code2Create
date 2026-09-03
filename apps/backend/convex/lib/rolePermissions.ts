@@ -12,9 +12,7 @@ import {
   type PermissionGrantPlan,
 } from "./permissions";
 
-export const supremeSelfPermissionKeys: readonly PermissionKey[] = Object.keys(
-  permissionCatalog,
-)
+export const supremeSelfPermissionKeys: readonly PermissionKey[] = Object.keys(permissionCatalog)
   .filter(isPermissionKey)
   .filter((permissionKey) => {
     const definition = permissionCatalog[permissionKey];

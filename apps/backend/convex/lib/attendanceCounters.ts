@@ -119,19 +119,12 @@ export async function moveZoneCounter(
   if (counted(args.nextState) && args.nextZoneId === undefined) {
     throw new Error("A counted attendance venue state must own a zone.");
   }
-  if (
-    args.previousState === args.nextState &&
-    args.previousZoneId === args.nextZoneId
-  ) {
+  if (args.previousState === args.nextState && args.previousZoneId === args.nextZoneId) {
     return;
   }
   const shard = attendanceCounterShardFor(args.membershipId);
   const deltas = new Map<Id<"attendanceZones">, { inside: number; unknown: number }>();
-  const add = (
-    zoneId: Id<"attendanceZones"> | undefined,
-    state: VenueState,
-    amount: -1 | 1,
-  ) => {
+  const add = (zoneId: Id<"attendanceZones"> | undefined, state: VenueState, amount: -1 | 1) => {
     if (!counted(state)) return;
     if (zoneId === undefined) throw new Error("A counted attendance venue state has no zone.");
     const delta = deltas.get(zoneId) ?? { inside: 0, unknown: 0 };
@@ -146,9 +139,7 @@ export async function moveZoneCounter(
     if (delta.inside === 0 && delta.unknown === 0) continue;
     const current = await ctx.db
       .query("attendanceZoneCounterShards")
-      .withIndex("by_zone_shard", (index) =>
-        index.eq("zoneId", zoneId).eq("shard", shard),
-      )
+      .withIndex("by_zone_shard", (index) => index.eq("zoneId", zoneId).eq("shard", shard))
       .unique();
     const inside = (current?.inside ?? 0) + delta.inside;
     const unknown = (current?.unknown ?? 0) + delta.unknown;

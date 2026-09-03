@@ -85,9 +85,7 @@ describe("provider secret encryption", () => {
   test("rejects an incomplete previous-key pair", () => {
     useCurrent("provider-k2", key(4));
     vi.stubEnv("PROVIDER_TOKEN_PREVIOUS_ENCRYPTION_KEY_VERSION", "provider-k1");
-    expect(() => decryptProviderSecret(encryptProviderSecret("token"))).toThrow(
-      "not configured",
-    );
+    expect(() => decryptProviderSecret(encryptProviderSecret("token"))).toThrow("not configured");
   });
 
   test("rejects a cosmetic rotation that reuses current key material", () => {

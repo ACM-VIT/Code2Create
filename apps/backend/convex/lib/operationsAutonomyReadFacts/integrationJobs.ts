@@ -14,7 +14,11 @@ function githubFailure(row: Doc<"githubRepositoryBindings">) {
 
 function figmaFailure(row: Doc<"figmaFileBindings">) {
   if (row.state === "inaccessible") return "inaccessible" as const;
-  if (row.syncState === "rate_limited" || row.rateLimitRetryAt !== undefined || row.metadataRateLimitRetryAt !== undefined) {
+  if (
+    row.syncState === "rate_limited" ||
+    row.rateLimitRetryAt !== undefined ||
+    row.metadataRateLimitRetryAt !== undefined
+  ) {
     return "rate_limited" as const;
   }
   if (row.syncState === "error") return "sync_error" as const;
@@ -31,10 +35,18 @@ export async function appendGithubIntegrationReadFact(
   const source = "integration_jobs" as const;
   const entityKey = `github:${row._id}`;
   const sequence = await nextOperationsAutonomyFactSequence(ctx, row.eventId, source, now);
-  await closeOperationsAutonomyFactVersion(ctx, { eventId: row.eventId, source, entityKey, sequence });
+  await closeOperationsAutonomyFactVersion(ctx, {
+    eventId: row.eventId,
+    source,
+    entityKey,
+    sequence,
+  });
   const classified = githubFailure(row);
   await ctx.db.insert("operationsAutonomyReadFacts", {
-    eventId: row.eventId, source, entityKey, sequence,
+    eventId: row.eventId,
+    source,
+    entityKey,
+    sequence,
     value: {
       provider: "github",
       bindingId: row._id,
@@ -61,11 +73,19 @@ export async function appendFigmaIntegrationReadFact(
   const source = "integration_jobs" as const;
   const entityKey = `figma:${row._id}`;
   const sequence = await nextOperationsAutonomyFactSequence(ctx, row.eventId, source, now);
-  await closeOperationsAutonomyFactVersion(ctx, { eventId: row.eventId, source, entityKey, sequence });
+  await closeOperationsAutonomyFactVersion(ctx, {
+    eventId: row.eventId,
+    source,
+    entityKey,
+    sequence,
+  });
   const classified = figmaFailure(row);
   const retryAt = row.rateLimitRetryAt ?? row.metadataRateLimitRetryAt;
   await ctx.db.insert("operationsAutonomyReadFacts", {
-    eventId: row.eventId, source, entityKey, sequence,
+    eventId: row.eventId,
+    source,
+    entityKey,
+    sequence,
     value: {
       provider: "figma",
       bindingId: row._id,

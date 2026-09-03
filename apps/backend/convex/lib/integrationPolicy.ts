@@ -50,16 +50,9 @@ function optionalTimestamp(value: number | undefined, label: string) {
 }
 
 export function normalizeIntegrationPolicy(input: IntegrationPolicy): IntegrationPolicy {
-  const requiredGitHubTopic = input.requiredGitHubTopic
-    .trim()
-    .toLocaleLowerCase("en");
-  if (
-    requiredGitHubTopic.length > 50 ||
-    !/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(requiredGitHubTopic)
-  ) {
-    invalidPolicy(
-      "Required GitHub topic must use lowercase letters, numbers, and single hyphens.",
-    );
+  const requiredGitHubTopic = input.requiredGitHubTopic.trim().toLocaleLowerCase("en");
+  if (requiredGitHubTopic.length > 50 || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(requiredGitHubTopic)) {
+    invalidPolicy("Required GitHub topic must use lowercase letters, numbers, and single hyphens.");
   }
   const githubFreezeAt = optionalTimestamp(input.githubFreezeAt, "GitHub freeze time");
   const figmaFreezeAt = optionalTimestamp(input.figmaFreezeAt, "Figma freeze time");
@@ -114,16 +107,10 @@ export function githubTopicVerificationIsCurrent(
   },
   requiredGitHubTopic: string,
 ) {
-  return (
-    binding.requiredTopic === requiredGitHubTopic &&
-    binding.topicState !== "unknown"
-  );
+  return binding.requiredTopic === requiredGitHubTopic && binding.topicState !== "unknown";
 }
 
-export async function loadPublishedIntegrationPolicy(
-  ctx: ReadCtx,
-  event: Doc<"events">,
-) {
+export async function loadPublishedIntegrationPolicy(ctx: ReadCtx, event: Doc<"events">) {
   const policyId = event.publishedIntegrationPolicyId;
   const policy = policyId ? await ctx.db.get(policyId) : null;
   if (!policy || policy.eventId !== event._id || policy.status !== "published") {
@@ -296,7 +283,6 @@ export async function publishIntegrationPolicy(
   return {
     policyVersionId: draft._id,
     policyVersion: draft.version,
-    requiredGitHubTopicChanged:
-      previous.requiredGitHubTopic !== normalized.requiredGitHubTopic,
+    requiredGitHubTopicChanged: previous.requiredGitHubTopic !== normalized.requiredGitHubTopic,
   };
 }

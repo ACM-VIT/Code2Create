@@ -141,10 +141,7 @@ export async function downloadExactRecoveryObject(args: {
   const body = response.Body;
   if (!(body instanceof Readable)) throw new Error("S3 returned no readable backup body.");
   try {
-    await pipeline(
-      body,
-      createWriteStream(args.destinationPath, { flags: "wx", mode: 0o600 }),
-    );
+    await pipeline(body, createWriteStream(args.destinationPath, { flags: "wx", mode: 0o600 }));
   } catch (error) {
     await rm(args.destinationPath, { force: true });
     throw error;

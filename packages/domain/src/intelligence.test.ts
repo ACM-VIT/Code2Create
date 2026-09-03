@@ -52,10 +52,12 @@ test("idea analysis policy accepts only exact, grounded, non-scoring output", ()
     ideaIntelligenceAnalysisPolicyViolation({
       analysis: {
         ...validIdeaAnalysis,
-        criterionAssessments: [{
-          ...validIdeaAnalysis.criterionAssessments[0]!,
-          sourceRefs: ["invented_source"],
-        }],
+        criterionAssessments: [
+          {
+            ...validIdeaAnalysis.criterionAssessments[0]!,
+            sourceRefs: ["invented_source"],
+          },
+        ],
       },
       ...context,
     }),
@@ -131,7 +133,7 @@ test("stream tickets have one canonical signed representation", () => {
     eventSlug: "code2create-7",
     conversationId: "cv_abc",
     instanceId: "copilot:code2create-7:cv_abc",
-    agentName: 'operations-copilot' as const,
+    agentName: "operations-copilot" as const,
     capability: operationsIntelligenceStreamCapability,
     issuedAt: 1_000,
     expiresAt: 61_000,
@@ -187,7 +189,10 @@ test("the copilot release uses one generalized command protocol without per-requ
   assert.doesNotMatch(systemPrompt, /manage-admission-policy/u);
   assert.doesNotMatch(systemPrompt, /minimumHumanReviews/u);
   assert.doesNotMatch(systemPrompt, /under \d+ words|at most \d+ total tool calls/u);
-  assert.match(systemPrompt, /do not impose an artificial response, token, turn, or tool-call ceiling/u);
+  assert.match(
+    systemPrompt,
+    /do not impose an artificial response, token, turn, or tool-call ceiling/u,
+  );
   assert.ok(copilot.tools.includes("scoped event-command catalog"));
   assert.ok(copilot.tools.includes("propose_event_command"));
 });

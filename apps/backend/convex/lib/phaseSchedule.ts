@@ -49,7 +49,8 @@ export function phaseScheduleIssues(phases: readonly NormalizedPhase[]) {
   const keys = phases.map((phase) => phase.phaseKey);
   if (new Set(keys).size !== keys.length) issues.push("Every event phase may appear only once.");
   for (const phaseKey of eventPhaseKeys) {
-    if (!keys.includes(phaseKey)) issues.push(`The ${phaseKey.replaceAll("_", " ")} phase is missing.`);
+    if (!keys.includes(phaseKey))
+      issues.push(`The ${phaseKey.replaceAll("_", " ")} phase is missing.`);
   }
   for (const phase of phases) {
     if (
@@ -85,17 +86,17 @@ export function phaseScheduleIssues(phases: readonly NormalizedPhase[]) {
   return issues;
 }
 
-export function normalizePhaseSchedule(
-  phases: readonly PhaseScheduleInput[],
-): NormalizedPhase[] {
-  const normalized = phases.map((phase) => ({
-    phaseKey: phase.phaseKey,
-    displayName: normalizedText(phase.displayName, "Phase name", 2, 80),
-    description: normalizedText(phase.description, "Phase description", 5, 500),
-    startsAt: phase.startsAt,
-    endsAt: phase.endsAt,
-    displayOrder: phaseOrder(phase.phaseKey),
-  })).toSorted((left, right) => left.displayOrder - right.displayOrder);
+export function normalizePhaseSchedule(phases: readonly PhaseScheduleInput[]): NormalizedPhase[] {
+  const normalized = phases
+    .map((phase) => ({
+      phaseKey: phase.phaseKey,
+      displayName: normalizedText(phase.displayName, "Phase name", 2, 80),
+      description: normalizedText(phase.description, "Phase description", 5, 500),
+      startsAt: phase.startsAt,
+      endsAt: phase.endsAt,
+      displayOrder: phaseOrder(phase.phaseKey),
+    }))
+    .toSorted((left, right) => left.displayOrder - right.displayOrder);
   const issue = phaseScheduleIssues(normalized)[0];
   if (issue) invalidSchedule(issue);
   return normalized;
@@ -111,9 +112,7 @@ export async function loadPhaseScheduleWindows(
 ) {
   return ctx.db
     .query("eventPhaseWindows")
-    .withIndex("by_schedule_order", (index) =>
-      index.eq("scheduleVersionId", scheduleVersionId),
-    )
+    .withIndex("by_schedule_order", (index) => index.eq("scheduleVersionId", scheduleVersionId))
     .collect();
 }
 
@@ -128,10 +127,7 @@ export function phaseWindowInput(phase: Doc<"eventPhaseWindows">): NormalizedPha
   };
 }
 
-export async function loadPublishedPhaseSchedule(
-  ctx: ReadCtx,
-  event: Doc<"events">,
-) {
+export async function loadPublishedPhaseSchedule(ctx: ReadCtx, event: Doc<"events">) {
   if (!event.publishedEventPhaseScheduleId) return null;
   const schedule = await ctx.db.get(event.publishedEventPhaseScheduleId);
   if (!schedule || schedule.eventId !== event._id || schedule.status !== "published") {
@@ -324,11 +320,7 @@ export async function publishPhaseSchedule(
     ) {
       throw new Error("The event's published phase schedule is incomplete.");
     }
-    const issues = phaseSchedulePublicationIssues(
-      publishedPhases,
-      phases,
-      args.now,
-    );
+    const issues = phaseSchedulePublicationIssues(publishedPhases, phases, args.now);
     const issue = issues[0];
     if (issue) {
       throw new ConvexError({ code: "PHASE_SCHEDULE_RETROACTIVE", message: issue });

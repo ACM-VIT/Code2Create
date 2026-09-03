@@ -1,20 +1,20 @@
-import { interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion'
-import { COLORS, CLAMP } from '../theme.ts'
-import { FACETS, LOGO_VIEWBOX, PLATE, PLATE_STROKE_WIDTH, RIM } from './logoPaths.ts'
+import { interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
+import { COLORS, CLAMP } from "../theme.ts";
+import { FACETS, LOGO_VIEWBOX, PLATE, PLATE_STROKE_WIDTH, RIM } from "./logoPaths.ts";
 
 export const LogoMark: React.FC<{ start: number; height: number }> = ({ start, height }) => {
-  const frame = useCurrentFrame()
-  const { fps } = useVideoConfig()
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
 
   const punchRaw = spring({
     frame,
     fps,
     delay: start,
     config: { damping: 200, mass: 0.7 },
-  })
-  const punch = interpolate(punchRaw, [0, 0.95], [0, 1], CLAMP)
-  const scale = interpolate(punch, [0, 1], [1.55, 1])
-  const opacity = interpolate(punch, [0, 0.35], [0, 1], CLAMP)
+  });
+  const punch = interpolate(punchRaw, [0, 0.95], [0, 1], CLAMP);
+  const scale = interpolate(punch, [0, 1], [1.55, 1]);
+  const opacity = interpolate(punch, [0, 0.35], [0, 1], CLAMP);
 
   const facetIn = (i: number) => {
     const p = spring({
@@ -22,9 +22,9 @@ export const LogoMark: React.FC<{ start: number; height: number }> = ({ start, h
       fps,
       delay: start + 6 + i * 3,
       config: { damping: 200 },
-    })
-    return interpolate(p, [0, 0.95], [0, 1], CLAMP)
-  }
+    });
+    return interpolate(p, [0, 0.95], [0, 1], CLAMP);
+  };
 
   return (
     <svg
@@ -33,7 +33,7 @@ export const LogoMark: React.FC<{ start: number; height: number }> = ({ start, h
         height,
         opacity,
         transform: `scale(${scale})`,
-        filter: 'drop-shadow(0 20px 44px rgba(12, 0, 4, 0.55))',
+        filter: "drop-shadow(0 20px 44px rgba(12, 0, 4, 0.55))",
       }}
     >
       <defs>
@@ -56,5 +56,5 @@ export const LogoMark: React.FC<{ start: number; height: number }> = ({ start, h
         <path key={i} d={facet.d} fill={`url(#c2cf${i})`} opacity={facetIn(i)} />
       ))}
     </svg>
-  )
-}
+  );
+};

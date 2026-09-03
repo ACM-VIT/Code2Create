@@ -3,8 +3,7 @@ import type { OperationsHealthSignalKey } from "./operationsHealth.ts";
 
 export const operationsAutonomyCallbackSignatureContext =
   "code2create.operations-autonomy.callback.v1";
-export const operationsAutonomyAbortSignatureContext =
-  "code2create.operations-autonomy.abort.v1";
+export const operationsAutonomyAbortSignatureContext = "code2create.operations-autonomy.abort.v1";
 
 export const operationsAutonomyRunStates = [
   "pending",
@@ -70,8 +69,7 @@ export const operationsAutonomyCallbackStatuses = [
   "escalated",
   "failed",
 ] as const;
-export type OperationsAutonomyCallbackStatus =
-  (typeof operationsAutonomyCallbackStatuses)[number];
+export type OperationsAutonomyCallbackStatus = (typeof operationsAutonomyCallbackStatuses)[number];
 
 type OperationsAutonomyCallbackBase = {
   protocolVersion: typeof operationsIntelligenceProtocolVersion;
@@ -99,11 +97,7 @@ export type OperationsAutonomyCallback = OperationsAutonomyCallbackBase &
     | {
         status: "failed";
         phase: "terminal";
-        failureCode:
-          | "provider_failed"
-          | "tool_failed"
-          | "policy_violation"
-          | "callback_rejected";
+        failureCode: "provider_failed" | "tool_failed" | "policy_violation" | "callback_rejected";
       }
   );
 

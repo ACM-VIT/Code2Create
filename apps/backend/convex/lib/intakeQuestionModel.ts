@@ -83,10 +83,7 @@ function validateModelOutput(output: ModelOutput, context: IntakeQuestionModelCo
     output.nextQuestion.sourceAnswerVersionIds,
     context.answers,
   );
-  if (
-    questionSources === null ||
-    !purposeKeys.has(output.nextQuestion.purposeKey)
-  ) {
+  if (questionSources === null || !purposeKeys.has(output.nextQuestion.purposeKey)) {
     return null;
   }
   const normalized = output.nextQuestion.text.trim().replace(/\s+/gu, " ");

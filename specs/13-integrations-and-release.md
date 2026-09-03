@@ -198,20 +198,20 @@ The reorder command accepts the complete current non-archived ID/version sequenc
 
 Repository kind is a required enum:
 
-| Value | Use |
-| --- | --- |
-| `full_product` | Full product or monorepo containing several application layers |
-| `frontend` | Web or other client-facing interface |
-| `backend_api` | API, server, worker, or backend service |
-| `mobile_app` | Android, iOS, or cross-platform mobile client |
-| `desktop_app` | Desktop client |
-| `ai_ml` | Model, agent, inference, training, or evaluation code |
-| `data_pipeline` | Data ingestion, transformation, analytics, or dataset tooling |
-| `hardware_firmware` | Firmware, embedded software, HDL, or hardware-control code |
-| `infrastructure` | Deployment, cloud, containers, observability, or infrastructure-as-code |
-| `library_sdk` | Shared package, SDK, plugin, or reusable library |
-| `docs_research` | Project documentation, specifications, experiments, or research material |
-| `other` | Another role; a custom kind label is required |
+| Value               | Use                                                                      |
+| ------------------- | ------------------------------------------------------------------------ |
+| `full_product`      | Full product or monorepo containing several application layers           |
+| `frontend`          | Web or other client-facing interface                                     |
+| `backend_api`       | API, server, worker, or backend service                                  |
+| `mobile_app`        | Android, iOS, or cross-platform mobile client                            |
+| `desktop_app`       | Desktop client                                                           |
+| `ai_ml`             | Model, agent, inference, training, or evaluation code                    |
+| `data_pipeline`     | Data ingestion, transformation, analytics, or dataset tooling            |
+| `hardware_firmware` | Firmware, embedded software, HDL, or hardware-control code               |
+| `infrastructure`    | Deployment, cloud, containers, observability, or infrastructure-as-code  |
+| `library_sdk`       | Shared package, SDK, plugin, or reusable library                         |
+| `docs_research`     | Project documentation, specifications, experiments, or research material |
+| `other`             | Another role; a custom kind label is required                            |
 
 The portal does not infer kind from languages or filenames. A team can change the kind or purpose before the integration freeze; the history records the previous values. External dependencies that the team cannot administer belong in the prior-work/tool disclosure, not in the connected-repository set.
 
@@ -589,23 +589,23 @@ If VIT policy requires another provider/region, replace this decision before pro
 
 ## 10. Environment matrix
 
-| Item | Development | Staging | Production |
-| --- | --- | --- | --- |
-| Web | local/preview | protected staging domain | event domain |
-| Convex | developer deployment | rehearsal deployment | production deployment |
-| Better Auth | dev secret/clients | staging secret/clients | production secret/clients |
-| OpenAI | dev project/key and synthetic corpus/input | staging project/key, approved staging novelty corpus, and intake/admission evals | production project/key, published privacy-reviewed novelty corpus, and separately published intake/admission model configs |
-| Intelligence | local Flue Worker, repository development OpenAI key, synthetic aggregate snapshots, exact local service URLs, and four development HMAC domains | `code2create-intelligence-staging`, encrypted staging OpenAI key, exact staging Convex service URLs, and four staging-only HMAC domains | `code2create-intelligence`, encrypted production OpenAI key, approved pinned OpenAI model, exact production Convex service URLs, and four production-only HMAC domains |
-| Event app | local development build/scheme with synthetic barcode fixtures | locally signed build, staging update Worker/R2 bucket, representative VIT IDs, and rehearsal scanners | locally signed production build, production update Worker/R2 bucket, and provisioned scanner/reviewer fleet |
-| GitHub | dev App | staging App/test repos | production App/team repos |
-| Figma | dev OAuth/webhook/test files | staging OAuth/webhook/test files | approved production OAuth App and webhook endpoint |
-| Push | test devices | reviewer training devices | registered event devices |
-| Outbound calls | local signed callback fixtures and test destinations | staging voice Worker/provider account, consent fixtures, approved synthesized reviewer script, and test phones | event-owned voice service, approved provider account and reviewer script, consented destinations, consent records, rate limits, audit, and runner fallback |
-| Participant email | local normalized-event fixtures and test forwarding target | staging Cloudflare sending domain/identity, Event Subscription Queue/DLQ, email Worker/HMAC pair, Email Routing alias, and test recipients | verified Cloudflare production sending domain/identity, least-privilege send token, generic approved text, production Queue/DLQ and Worker, approved Email Routing alias/forward target, bounce/support procedure, and smoke-test recipient |
-| Synesthesia | synthetic catalog and operator | approved staging catalog, scoped test operators, and licensed test account | frozen event catalog, named scoped operators/moderators, and approved licensed venue account |
-| S3 | local/test bucket | staging integration/export prefixes | production integration/export prefixes |
-| Recovery operator | no production key | exact disposable staging target and restore key | data-read export key only; destructive production restore uses a separate incident-controlled identity |
-| PostHog | one EU project with development release tags | the Code2Create EU project with staging release tags and source maps | the Code2Create EU project with production release tags and source maps |
+| Item              | Development                                                                                                                                      | Staging                                                                                                                                    | Production                                                                                                                                                                                                                                  |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Web               | local/preview                                                                                                                                    | protected staging domain                                                                                                                   | event domain                                                                                                                                                                                                                                |
+| Convex            | developer deployment                                                                                                                             | rehearsal deployment                                                                                                                       | production deployment                                                                                                                                                                                                                       |
+| Better Auth       | dev secret/clients                                                                                                                               | staging secret/clients                                                                                                                     | production secret/clients                                                                                                                                                                                                                   |
+| OpenAI            | dev project/key and synthetic corpus/input                                                                                                       | staging project/key, approved staging novelty corpus, and intake/admission evals                                                           | production project/key, published privacy-reviewed novelty corpus, and separately published intake/admission model configs                                                                                                                  |
+| Intelligence      | local Flue Worker, repository development OpenAI key, synthetic aggregate snapshots, exact local service URLs, and four development HMAC domains | `code2create-intelligence-staging`, encrypted staging OpenAI key, exact staging Convex service URLs, and four staging-only HMAC domains    | `code2create-intelligence`, encrypted production OpenAI key, approved pinned OpenAI model, exact production Convex service URLs, and four production-only HMAC domains                                                                      |
+| Event app         | local development build/scheme with synthetic barcode fixtures                                                                                   | locally signed build, staging update Worker/R2 bucket, representative VIT IDs, and rehearsal scanners                                      | locally signed production build, production update Worker/R2 bucket, and provisioned scanner/reviewer fleet                                                                                                                                 |
+| GitHub            | dev App                                                                                                                                          | staging App/test repos                                                                                                                     | production App/team repos                                                                                                                                                                                                                   |
+| Figma             | dev OAuth/webhook/test files                                                                                                                     | staging OAuth/webhook/test files                                                                                                           | approved production OAuth App and webhook endpoint                                                                                                                                                                                          |
+| Push              | test devices                                                                                                                                     | reviewer training devices                                                                                                                  | registered event devices                                                                                                                                                                                                                    |
+| Outbound calls    | local signed callback fixtures and test destinations                                                                                             | staging voice Worker/provider account, consent fixtures, approved synthesized reviewer script, and test phones                             | event-owned voice service, approved provider account and reviewer script, consented destinations, consent records, rate limits, audit, and runner fallback                                                                                  |
+| Participant email | local normalized-event fixtures and test forwarding target                                                                                       | staging Cloudflare sending domain/identity, Event Subscription Queue/DLQ, email Worker/HMAC pair, Email Routing alias, and test recipients | verified Cloudflare production sending domain/identity, least-privilege send token, generic approved text, production Queue/DLQ and Worker, approved Email Routing alias/forward target, bounce/support procedure, and smoke-test recipient |
+| Synesthesia       | synthetic catalog and operator                                                                                                                   | approved staging catalog, scoped test operators, and licensed test account                                                                 | frozen event catalog, named scoped operators/moderators, and approved licensed venue account                                                                                                                                                |
+| S3                | local/test bucket                                                                                                                                | staging integration/export prefixes                                                                                                        | production integration/export prefixes                                                                                                                                                                                                      |
+| Recovery operator | no production key                                                                                                                                | exact disposable staging target and restore key                                                                                            | data-read export key only; destructive production restore uses a separate incident-controlled identity                                                                                                                                      |
+| PostHog           | one EU project with development release tags                                                                                                     | the Code2Create EU project with staging release tags and source maps                                                                       | the Code2Create EU project with production release tags and source maps                                                                                                                                                                     |
 
 No callback URL, provider key, auth secret, user record, or push token is shared across staging and production.
 
@@ -648,46 +648,46 @@ Cloudflare Workers Builds owns Worker deployment from GitHub. `staging` is the s
 
 Each Worker connects separately to `ACM-VIT/Code2Create`. This preserves independent build logs, runtime bindings, secrets, rollback, and failure state. No build deploys another Worker as a side effect.
 
-| Staging Worker | Root directory | Build command | Deploy command |
-| --- | --- | --- | --- |
-| `code2create-landing-staging` | `apps/landing` | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
-| `code2create-participant-staging` | `apps/web` | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
-| `code2create-operations-staging` | `apps/ops` | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
+| Staging Worker                     | Root directory      | Build command                   | Deploy command                   |
+| ---------------------------------- | ------------------- | ------------------------------- | -------------------------------- |
+| `code2create-landing-staging`      | `apps/landing`      | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
+| `code2create-participant-staging`  | `apps/web`          | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
+| `code2create-operations-staging`   | `apps/ops`          | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
 | `code2create-intelligence-staging` | `apps/intelligence` | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
-| `code2create-updates-staging` | `apps/updates` | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
-| `code2create-email-staging` | `apps/email` | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
-| `code2create-voice-staging` | `apps/voice` | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
+| `code2create-updates-staging`      | `apps/updates`      | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
+| `code2create-email-staging`        | `apps/email`        | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
+| `code2create-voice-staging`        | `apps/voice`        | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
 
 Production uses the same one-Worker-per-application shape from `main`:
 
-| Production Worker | Public domain | Root directory | Build command | Deploy command |
-| --- | --- | --- | --- | --- |
-| `code2create-landing` | `c2c.acmvit.in`, `code2create.acmvit.in` | `apps/landing` | `pnpm cloudflare:build:production` | `pnpm cloudflare:deploy:production` |
-| `code2create-participant` | `c2c.sh` | `apps/web` | `pnpm cloudflare:build:production` | `pnpm cloudflare:deploy:production` |
-| `code2create-operations` | `ops.c2c.sh` | `apps/ops` | `pnpm cloudflare:build:production` | `pnpm cloudflare:deploy:production` |
-| `code2create-intelligence` | `intelligence.c2c.sh` | `apps/intelligence` | `pnpm cloudflare:build:production` | `pnpm cloudflare:deploy:production` |
-| `code2create-updates` | `updates.c2c.sh` | `apps/updates` | `pnpm cloudflare:build:production` | `pnpm cloudflare:deploy:production` |
-| `code2create-email` | `email.c2c.sh` | `apps/email` | `pnpm cloudflare:build:production` | `pnpm cloudflare:deploy:production` |
-| `code2create-voice` | `voice.c2c.sh` | `apps/voice` | `pnpm cloudflare:build:production` | `pnpm cloudflare:deploy:production` |
+| Production Worker          | Public domain                            | Root directory      | Build command                      | Deploy command                      |
+| -------------------------- | ---------------------------------------- | ------------------- | ---------------------------------- | ----------------------------------- |
+| `code2create-landing`      | `c2c.acmvit.in`, `code2create.acmvit.in` | `apps/landing`      | `pnpm cloudflare:build:production` | `pnpm cloudflare:deploy:production` |
+| `code2create-participant`  | `c2c.sh`                                 | `apps/web`          | `pnpm cloudflare:build:production` | `pnpm cloudflare:deploy:production` |
+| `code2create-operations`   | `ops.c2c.sh`                             | `apps/ops`          | `pnpm cloudflare:build:production` | `pnpm cloudflare:deploy:production` |
+| `code2create-intelligence` | `intelligence.c2c.sh`                    | `apps/intelligence` | `pnpm cloudflare:build:production` | `pnpm cloudflare:deploy:production` |
+| `code2create-updates`      | `updates.c2c.sh`                         | `apps/updates`      | `pnpm cloudflare:build:production` | `pnpm cloudflare:deploy:production` |
+| `code2create-email`        | `email.c2c.sh`                           | `apps/email`        | `pnpm cloudflare:build:production` | `pnpm cloudflare:deploy:production` |
+| `code2create-voice`        | `voice.c2c.sh`                           | `apps/voice`        | `pnpm cloudflare:build:production` | `pnpm cloudflare:deploy:production` |
 
 Every Worker build sets `NODE_VERSION=24.18.0` and `PNPM_VERSION=11.18.0`. Cloudflare supplies `WORKERS_CI`, `WORKERS_CI_BRANCH`, and `WORKERS_CI_COMMIT_SHA`. Cloudflare's production-branch setting owns the branch boundary. The environment-specific package commands set `CLOUDFLARE_ENV` and `VITE_DEPLOYMENT_ENVIRONMENT`, and the Vite deployments use `WORKERS_CI_COMMIT_SHA` as `VITE_RELEASE_ID`. Do not create user-defined copies of the `WORKERS_CI_*` values.
 
 The three browser applications use these additional build values:
 
-| Application | Plain build variables | Secret build variables |
-| --- | --- | --- |
-| Landing | `VITE_POSTHOG_PROJECT_TOKEN`, `VITE_POSTHOG_HOST`, `POSTHOG_CLI_HOST`, `POSTHOG_CLI_PROJECT_ID` | `POSTHOG_CLI_API_KEY` |
-| Participant | `VITE_CONVEX_URL`, `VITE_CONVEX_SITE_URL`, `VITE_EVENT_SLUG`, `VITE_POSTHOG_PROJECT_TOKEN`, `VITE_POSTHOG_HOST`, `POSTHOG_CLI_HOST`, `POSTHOG_CLI_PROJECT_ID` | `POSTHOG_CLI_API_KEY` |
-| Operations | `VITE_CONVEX_URL`, `VITE_CONVEX_SITE_URL`, `VITE_EVENT_SLUG`, `VITE_POSTHOG_PROJECT_TOKEN`, `VITE_POSTHOG_HOST`, `POSTHOG_CLI_HOST`, `POSTHOG_CLI_PROJECT_ID` | `POSTHOG_CLI_API_KEY` |
+| Application | Plain build variables                                                                                                                                         | Secret build variables |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| Landing     | `VITE_POSTHOG_PROJECT_TOKEN`, `VITE_POSTHOG_HOST`, `POSTHOG_CLI_HOST`, `POSTHOG_CLI_PROJECT_ID`                                                               | `POSTHOG_CLI_API_KEY`  |
+| Participant | `VITE_CONVEX_URL`, `VITE_CONVEX_SITE_URL`, `VITE_EVENT_SLUG`, `VITE_POSTHOG_PROJECT_TOKEN`, `VITE_POSTHOG_HOST`, `POSTHOG_CLI_HOST`, `POSTHOG_CLI_PROJECT_ID` | `POSTHOG_CLI_API_KEY`  |
+| Operations  | `VITE_CONVEX_URL`, `VITE_CONVEX_SITE_URL`, `VITE_EVENT_SLUG`, `VITE_POSTHOG_PROJECT_TOKEN`, `VITE_POSTHOG_HOST`, `POSTHOG_CLI_HOST`, `POSTHOG_CLI_PROJECT_ID` | `POSTHOG_CLI_API_KEY`  |
 
 The remaining Workers need only the common build-tool versions. Their operational configuration belongs to the matching Worker runtime, not to Workers Builds:
 
-| Worker | Wrangler-owned bindings and plain runtime values | Runtime secrets |
-| --- | --- | --- |
+| Worker       | Wrangler-owned bindings and plain runtime values                                                                                                                                                                     | Runtime secrets                                                                                                                                                                                                   |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Intelligence | OpenAI Responses, admission-fence Durable Object, exact Ops origin, exact Convex callback/read/work/recommendation URLs, `POSTHOG_PROJECT_TOKEN`, `POSTHOG_HOST`, `C2C_DEPLOYMENT_ENVIRONMENT`, and `C2C_RELEASE_ID` | `OPENAI_API_KEY`, `INTELLIGENCE_INGRESS_SECRET`, `INTELLIGENCE_CALLBACK_SECRET`, `INTELLIGENCE_READ_SECRET`, `INTELLIGENCE_STREAM_SECRET`; the URLs and Ops origin may also be stored as encrypted Worker secrets |
-| Updates | environment-specific R2 bucket and `UPDATE_CHANNEL` | `C2C_UPDATES_ADMIN_TOKEN` |
-| Email | environment-specific Queue consumer and dead-letter Queue | `CONVEX_EMAIL_EVENT_CALLBACK_URL`, `EMAIL_EVENT_CALLBACK_SECRET`, `EMAIL_ROUTING_ADDRESS`, `EMAIL_ROUTING_FORWARD_TO`, `EMAIL_SENDING_DOMAIN` |
-| Voice | outbound-call Durable Object and environment-specific `PUBLIC_BASE_URL` | `OUTBOUND_CALL_REQUEST_SECRET`, `OUTBOUND_CALL_EVENT_SECRET`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`, `SARVAM_API_KEY` |
+| Updates      | environment-specific R2 bucket and `UPDATE_CHANNEL`                                                                                                                                                                  | `C2C_UPDATES_ADMIN_TOKEN`                                                                                                                                                                                         |
+| Email        | environment-specific Queue consumer and dead-letter Queue                                                                                                                                                            | `CONVEX_EMAIL_EVENT_CALLBACK_URL`, `EMAIL_EVENT_CALLBACK_SECRET`, `EMAIL_ROUTING_ADDRESS`, `EMAIL_ROUTING_FORWARD_TO`, `EMAIL_SENDING_DOMAIN`                                                                     |
+| Voice        | outbound-call Durable Object and environment-specific `PUBLIC_BASE_URL`                                                                                                                                              | `OUTBOUND_CALL_REQUEST_SECRET`, `OUTBOUND_CALL_EVENT_SECRET`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`, `SARVAM_API_KEY`                                                                   |
 
 The PostHog project token is an ingestion identifier rather than an administrative credential. Store it as a Worker runtime value and a Convex deployment environment value; never use the personal `POSTHOG_CLI_API_KEY` at runtime. The matching PostHog ingest host is the first-party proxy `https://i.c2c.sh`. Server-side AI telemetry is content-free and must use the same environment-specific project as the corresponding clients.
 

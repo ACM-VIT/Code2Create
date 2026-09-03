@@ -1,7 +1,4 @@
-import {
-  normalizeParticipantPhone,
-  participantPhoneValidationError,
-} from "@code2create/domain";
+import { normalizeParticipantPhone, participantPhoneValidationError } from "@code2create/domain";
 import { ConvexError, v } from "convex/values";
 
 import { internal } from "./_generated/api";
@@ -28,11 +25,7 @@ import {
   phoneVerificationResendDelayMs,
   requirePhoneVerificationSecret,
 } from "./lib/phoneVerification";
-import {
-  findOperation,
-  operationFingerprint,
-  recordOperation,
-} from "./lib/operations";
+import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
 import { requirePermission } from "./lib/permissions";
 
 const activeDeliveryStates = new Set<Doc<"participantPhoneVerifications">["status"]>([
@@ -118,10 +111,7 @@ function storedVerificationResult(
     throw new Error("The stored phone verification result is invalid.");
   }
   const candidate = result as Record<string, unknown>;
-  if (
-    candidate.verificationId !== verificationId ||
-    typeof candidate.maskedPhone !== "string"
-  ) {
+  if (candidate.verificationId !== verificationId || typeof candidate.maskedPhone !== "string") {
     throw new Error("The stored phone verification result is invalid.");
   }
   if (
@@ -167,9 +157,7 @@ async function requireVerificationAccess(
 ): Promise<VerificationAccess> {
   const event = await requireEventBySlug(ctx, eventSlug);
   const { person } = await requireCurrentPerson(ctx);
-  const membership = requireEligibleMembership(
-    await requireMembership(ctx, event._id, person._id),
-  );
+  const membership = requireEligibleMembership(await requireMembership(ctx, event._id, person._id));
   const subject = await requireEventSubject(ctx, event._id, person._id);
   const grantIds = await requirePermission(ctx, {
     eventId: event._id,
@@ -181,10 +169,7 @@ async function requireVerificationAccess(
   return { event, person, membership, grantIds };
 }
 
-function verifiedState(
-  verification: Doc<"participantPhoneVerifications">,
-  now = Date.now(),
-) {
+function verifiedState(verification: Doc<"participantPhoneVerifications">, now = Date.now()) {
   if (
     activeDeliveryStates.has(verification.status) &&
     verification.expiresAt !== undefined &&
@@ -207,22 +192,15 @@ function verificationProjection(
     maskedPhone: maskedPhone(verification.phone),
     state,
     resendAvailableAt: verification.resendAvailableAt,
-    ...(verification.expiresAt !== undefined
-      ? { expiresAt: verification.expiresAt }
-      : {}),
-    attemptsRemaining: Math.max(
-      0,
-      phoneVerificationMaximumAttempts - verification.attemptCount,
-    ),
+    ...(verification.expiresAt !== undefined ? { expiresAt: verification.expiresAt } : {}),
+    attemptsRemaining: Math.max(0, phoneVerificationMaximumAttempts - verification.attemptCount),
     canVerify: Boolean(
       verification.codeDigest &&
       verification.expiresAt !== undefined &&
       verification.expiresAt > now &&
       verification.attemptCount < phoneVerificationMaximumAttempts,
     ),
-    ...(verification.verifiedAt !== undefined
-      ? { verifiedAt: verification.verifiedAt }
-      : {}),
+    ...(verification.verifiedAt !== undefined ? { verifiedAt: verification.verifiedAt } : {}),
   };
 }
 
@@ -287,10 +265,7 @@ export const request = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const verificationId = ctx.db.normalizeId(
-        "participantPhoneVerifications",
-        prior.targetId,
-      );
+      const verificationId = ctx.db.normalizeId("participantPhoneVerifications", prior.targetId);
       const verification = verificationId ? await ctx.db.get(verificationId) : null;
       if (
         !verification ||
@@ -311,9 +286,7 @@ export const request = mutation({
     const latest = await latestForPhone(ctx, membership._id, phone);
     if (
       latest?.status === "verified" ||
-      (latest &&
-        latest.resendAvailableAt > now &&
-        latest.status !== "superseded")
+      (latest && latest.resendAvailableAt > now && latest.status !== "superseded")
     ) {
       const projection = verificationProjection(latest, now);
       if (!projection) throw new Error("The active phone verification is invalid.");
@@ -341,10 +314,7 @@ export const request = mutation({
       ctx.db
         .query("participantPhoneVerifications")
         .withIndex("by_event_phone", (index) =>
-          index
-            .eq("eventId", event._id)
-            .eq("phone", phone)
-            .gte("_creationTime", windowStart),
+          index.eq("eventId", event._id).eq("phone", phone).gte("_creationTime", windowStart),
         )
         .take(phoneVerificationMaximumHourlyRequests + 1),
     ]);
@@ -458,10 +428,7 @@ export const verify = mutation({
       phone: verification.phone,
       code: args.code,
     });
-    const requestFingerprint = operationFingerprint([
-      args.verificationId,
-      codeDigest,
-    ]);
+    const requestFingerprint = operationFingerprint([args.verificationId, codeDigest]);
     const prior = await findOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -534,19 +501,17 @@ export const verify = mutation({
     }
     if (!constantTimeDigestEqual(verification.codeDigest, codeDigest)) {
       const attemptCount = verification.attemptCount + 1;
-      const attemptsRemaining = Math.max(
-        0,
-        phoneVerificationMaximumAttempts - attemptCount,
-      );
+      const attemptsRemaining = Math.max(0, phoneVerificationMaximumAttempts - attemptCount);
       await ctx.db.patch(verification._id, {
         attemptCount,
         ...(attemptCount >= phoneVerificationMaximumAttempts ? { status: "locked" } : {}),
         updatedAt: now,
       });
       const result: VerificationResult = {
-        outcome: attemptCount >= phoneVerificationMaximumAttempts
-          ? "locked" as const
-          : "incorrect" as const,
+        outcome:
+          attemptCount >= phoneVerificationMaximumAttempts
+            ? ("locked" as const)
+            : ("incorrect" as const),
         verificationId: verification._id,
         maskedPhone: maskedPhone(verification.phone),
         attemptsRemaining,

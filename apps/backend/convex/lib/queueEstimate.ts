@@ -46,10 +46,7 @@ export function observedPace(
 }
 
 export function estimateQueueWindow(input: QueueEstimateInput): QueueEstimate {
-  const pace = observedPace(
-    input.configuredDurationSeconds,
-    input.completedDurationsSeconds,
-  );
+  const pace = observedPace(input.configuredDurationSeconds, input.completedDurationsSeconds);
   const boundedPace = pace.paceSeconds;
   const activeReviewSeconds =
     input.activeReviewPlannedEndAt === undefined

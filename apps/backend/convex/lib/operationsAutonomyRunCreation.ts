@@ -98,7 +98,8 @@ export async function activateOperationsAutonomyRun(
     !policy.enabled ||
     !state ||
     state.lifecycle.kind !== "active"
-  ) return false;
+  )
+    return false;
   await requireValidAutonomyOwner(
     ctx,
     event._id,

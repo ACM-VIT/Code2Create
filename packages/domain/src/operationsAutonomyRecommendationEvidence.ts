@@ -15,17 +15,16 @@ export type OperationsAutonomyRecommendationEvidenceSeal = {
   sealedSequence: number;
 };
 
-export type OperationsAutonomyRecommendationEvidenceChunkRequest =
-  OperationsAutonomyRunIdentity & {
-    proposalKey: string;
-    evidenceSetId: string;
-    pageIndex: number;
-    /** Absent only for page zero. */
-    previousPageHash?: string;
-    citations: OperationsAutonomyRecommendationCitation[];
-    /** The terminal chunk atomically seals the complete evidence set. */
-    isDone: boolean;
-  };
+export type OperationsAutonomyRecommendationEvidenceChunkRequest = OperationsAutonomyRunIdentity & {
+  proposalKey: string;
+  evidenceSetId: string;
+  pageIndex: number;
+  /** Absent only for page zero. */
+  previousPageHash?: string;
+  citations: OperationsAutonomyRecommendationCitation[];
+  /** The terminal chunk atomically seals the complete evidence set. */
+  isDone: boolean;
+};
 
 export type OperationsAutonomyRecommendationEvidenceChunkReceipt = {
   state: "accepted";

@@ -8,15 +8,11 @@ verifyAuditReport(runAudit());
 console.log("Production dependency audit passed with no moderate-or-higher advisory.");
 
 function runAudit() {
-  const result = spawnSync(
-    "pnpm",
-    ["audit", "--prod", "--audit-level=moderate", "--json"],
-    {
-      cwd: workspaceRoot,
-      encoding: "utf8",
-      maxBuffer: 32 * 1024 * 1024,
-    },
-  );
+  const result = spawnSync("pnpm", ["audit", "--prod", "--audit-level=moderate", "--json"], {
+    cwd: workspaceRoot,
+    encoding: "utf8",
+    maxBuffer: 32 * 1024 * 1024,
+  });
   if (result.error || (result.status !== 0 && result.status !== 1)) {
     fail(`pnpm audit could not complete: ${result.stderr.trim()}`);
   }

@@ -11,13 +11,15 @@ describe("outbound call policy", () => {
   });
 
   test("builds a concise reviewer page script with optional location", () => {
-    expect(reviewerPageCallScript({
-      roundName: "Final review",
-      tableLabel: "Hall A, north side",
-      responseWindowSeconds: 90,
-    })).toBe(
+    expect(
+      reviewerPageCallScript({
+        roundName: "Final review",
+        tableLabel: "Hall A, north side",
+        responseWindowSeconds: 90,
+      }),
+    ).toBe(
       "Code2Create needs you as a substitute reviewer for Final review at Hall A, north side. " +
-      "Open the reviewer app now and accept or decline within 90 seconds.",
+        "Open the reviewer app now and accept or decline within 90 seconds.",
     );
   });
 });

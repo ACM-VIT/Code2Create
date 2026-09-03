@@ -5,8 +5,8 @@ import {
   useLayoutEffect,
   useRef,
   useState,
-} from 'react';
-import gsap from 'gsap';
+} from "react";
+import gsap from "gsap";
 
 /*
  * The sponsor volley is a scroll animation. No firework physics continues
@@ -16,29 +16,29 @@ import gsap from 'gsap';
  */
 
 export interface FireworksHandle {
-  setProgress(index: number, progress: number, twinklePhase: number): void
+  setProgress(index: number, progress: number, twinklePhase: number): void;
 }
 
 type Color = readonly [number, number, number];
 
 interface SponsorSpec {
-  name: string
-  logo: string
-  logoClass: string
-  x: number
-  y: number
-  logoY: number
-  from: number
-  core: Color
-  ember: Color
-  phone: { x: number; y: number; logoY: number; from: number }
+  name: string;
+  logo: string;
+  logoClass: string;
+  x: number;
+  y: number;
+  logoY: number;
+  from: number;
+  core: Color;
+  ember: Color;
+  phone: { x: number; y: number; logoY: number; from: number };
 }
 
 const SPONSORS: readonly SponsorSpec[] = [
   {
-    name: 'SGLang',
-    logo: '/assets/sponsors/sglang.png',
-    logoClass: 'sponsor__logo--sglang',
+    name: "SGLang",
+    logo: "/assets/sponsors/sglang.png",
+    logoClass: "sponsor__logo--sglang",
     x: 24,
     y: 30,
     logoY: 22,
@@ -48,9 +48,9 @@ const SPONSORS: readonly SponsorSpec[] = [
     phone: { x: 50, y: 23, logoY: 20, from: 20 },
   },
   {
-    name: 'ElevenLabs',
-    logo: '/assets/sponsors/elevenlabs.svg',
-    logoClass: 'sponsor__logo--elevenlabs',
+    name: "ElevenLabs",
+    logo: "/assets/sponsors/elevenlabs.svg",
+    logoClass: "sponsor__logo--elevenlabs",
     x: 76,
     y: 30,
     logoY: 30,
@@ -79,58 +79,58 @@ const sponsorAt = (index: number, phone: boolean) =>
   phone ? { ...SPONSORS[index], ...SPONSORS[index].phone } : SPONSORS[index];
 
 interface TextPoint {
-  x: number
-  y: number
+  x: number;
+  y: number;
 }
 
 interface TextSample {
-  points: TextPoint[]
-  minX: number
-  maxX: number
-  minY: number
-  maxY: number
+  points: TextPoint[];
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
 }
 
 interface PreparedStar {
-  angle: number
-  radius: number
-  targetX: number
-  targetY: number
-  size: number
-  arc: number
-  twinkleGroup: number
+  angle: number;
+  radius: number;
+  targetX: number;
+  targetY: number;
+  size: number;
+  arc: number;
+  twinkleGroup: number;
 }
 
 interface PreparedSponsor {
-  burstX: number
-  burstY: number
-  mortarX: number
-  mortarY: number
-  stars: PreparedStar[]
+  burstX: number;
+  burstY: number;
+  mortarX: number;
+  mortarY: number;
+  stars: PreparedStar[];
 }
 
 interface DrawPoint {
-  x: number
-  y: number
+  x: number;
+  y: number;
 }
 
 interface StepCanvas extends HTMLCanvasElement {
-  __peek?: () => { progresses: number[]; stars: number; letters: number }
+  __peek?: () => { progresses: number[]; stars: number; letters: number };
 }
 
 const sampleText = (name: string): TextSample => {
-  const canvas = document.createElement('canvas');
-  const context = canvas.getContext('2d', { willReadFrequently: true });
-  if (!context) throw new Error('The browser could not create the firework text sampler.');
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) throw new Error("The browser could not create the firework text sampler.");
 
-  const font = '700 72px Arial, sans-serif';
+  const font = "700 72px Arial, sans-serif";
   context.font = font;
   canvas.width = Math.ceil(context.measureText(name).width + 32);
   canvas.height = 112;
   context.font = font;
-  context.fillStyle = '#fff';
-  context.textAlign = 'center';
-  context.textBaseline = 'middle';
+  context.fillStyle = "#fff";
+  context.textAlign = "center";
+  context.textBaseline = "middle";
   context.fillText(name, canvas.width / 2, canvas.height / 2);
 
   const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
@@ -151,7 +151,8 @@ const sampleText = (name: string): TextSample => {
     }
   }
 
-  if (points.length === 0) throw new Error(`The firework text sampler returned no points for ${name}.`);
+  if (points.length === 0)
+    throw new Error(`The firework text sampler returned no points for ${name}.`);
   return { points, minX, maxX, minY, maxY };
 };
 
@@ -176,429 +177,424 @@ const randomSequence = (seed: number) => {
   };
 };
 
-const Fireworks = forwardRef<FireworksHandle, Record<never, never>>(function Fireworks(_props, ref) {
-  const canvasRef = useRef<StepCanvas>(null);
-  const logoRefs = useRef<(HTMLDivElement | null)[]>([]);
-  const progresses = useRef(SPONSORS.map(() => 0));
-  const twinklePhases = useRef(SPONSORS.map(() => 0));
-  const renderer = useRef<{ request(): void } | null>(null);
+const Fireworks = forwardRef<FireworksHandle, Record<never, never>>(
+  function Fireworks(_props, ref) {
+    const canvasRef = useRef<StepCanvas>(null);
+    const logoRefs = useRef<(HTMLDivElement | null)[]>([]);
+    const progresses = useRef(SPONSORS.map(() => 0));
+    const twinklePhases = useRef(SPONSORS.map(() => 0));
+    const renderer = useRef<{ request(): void } | null>(null);
 
-  const [narrow, setNarrow] = useState(
-    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 760px)').matches,
-  );
+    const [narrow, setNarrow] = useState(
+      () => typeof window !== "undefined" && window.matchMedia("(max-width: 760px)").matches,
+    );
 
-  useEffect(() => {
-    const query = window.matchMedia('(max-width: 760px)');
-    const sync = () => setNarrow(query.matches);
-    sync();
-    query.addEventListener('change', sync);
-    return () => query.removeEventListener('change', sync);
-  }, []);
+    useEffect(() => {
+      const query = window.matchMedia("(max-width: 760px)");
+      const sync = () => setNarrow(query.matches);
+      sync();
+      query.addEventListener("change", sync);
+      return () => query.removeEventListener("change", sync);
+    }, []);
 
-  const setLogoProgress = (index: number, progress: number) => {
-    const logo = logoRefs.current[index];
-    if (!logo) return;
-    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const revealFrom = reduced ? 0.08 : FORM_END - 0.04;
-    const revealDuration = reduced ? 0.12 : 0.14;
-    const reveal = smoothstep(clamp01((progress - revealFrom) / revealDuration));
-    gsap.set(logo, {
-      autoAlpha: reveal,
-      scale: 0.9 + reveal * 0.1,
-      y: (1 - reveal) * 12,
-    });
-  };
+    const setLogoProgress = (index: number, progress: number) => {
+      const logo = logoRefs.current[index];
+      if (!logo) return;
+      const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const revealFrom = reduced ? 0.08 : FORM_END - 0.04;
+      const revealDuration = reduced ? 0.12 : 0.14;
+      const reveal = smoothstep(clamp01((progress - revealFrom) / revealDuration));
+      gsap.set(logo, {
+        autoAlpha: reveal,
+        scale: 0.9 + reveal * 0.1,
+        y: (1 - reveal) * 12,
+      });
+    };
 
-  useImperativeHandle(ref, () => ({
-    setProgress(index, progress, twinklePhase) {
-      const next = clamp01(progress);
-      const nextTwinkle = Math.max(0, twinklePhase);
-      const progressChanged = Math.abs(progresses.current[index] - next) >= 0.0001;
-      const twinkleChanged = Math.abs(twinklePhases.current[index] - nextTwinkle) >= 0.0001;
-      if (!progressChanged && !twinkleChanged) return;
-      progresses.current[index] = next;
-      twinklePhases.current[index] = nextTwinkle;
-      if (progressChanged) setLogoProgress(index, next);
-      renderer.current?.request();
-    },
-  }));
+    useImperativeHandle(ref, () => ({
+      setProgress(index, progress, twinklePhase) {
+        const next = clamp01(progress);
+        const nextTwinkle = Math.max(0, twinklePhase);
+        const progressChanged = Math.abs(progresses.current[index] - next) >= 0.0001;
+        const twinkleChanged = Math.abs(twinklePhases.current[index] - nextTwinkle) >= 0.0001;
+        if (!progressChanged && !twinkleChanged) return;
+        progresses.current[index] = next;
+        twinklePhases.current[index] = nextTwinkle;
+        if (progressChanged) setLogoProgress(index, next);
+        renderer.current?.request();
+      },
+    }));
 
-  useLayoutEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) throw new Error('The fireworks canvas did not mount.');
-    const context = canvas.getContext('2d');
-    if (!context) throw new Error('The browser could not create the fireworks canvas.');
+    useLayoutEffect(() => {
+      const canvas = canvasRef.current;
+      if (!canvas) throw new Error("The fireworks canvas did not mount.");
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("The browser could not create the fireworks canvas.");
 
-    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const lowPower = navigator.hardwareConcurrency > 0 && navigator.hardwareConcurrency <= 4;
-    const textSamples = SPONSORS.map((sponsor) => sampleText(sponsor.name));
+      const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const lowPower = navigator.hardwareConcurrency > 0 && navigator.hardwareConcurrency <= 4;
+      const textSamples = SPONSORS.map((sponsor) => sampleText(sponsor.name));
 
-    let width = 1;
-    let height = 1;
-    let prepared: PreparedSponsor[] = [];
-    let canvasVisible = true;
-    let raf = 0;
-    let renderQueued = false;
+      let width = 1;
+      let height = 1;
+      let prepared: PreparedSponsor[] = [];
+      let canvasVisible = true;
+      let raf = 0;
+      let renderQueued = false;
 
-    const prepareSponsor = (sponsorIndex: number): PreparedSponsor => {
-      const phone = width < 760;
-      const spec = sponsorAt(sponsorIndex, phone);
-      const sample = textSamples[sponsorIndex];
-      const budget = phone
-        ? PHONE_STAR_BUDGET
-        : lowPower
-          ? LOW_POWER_STAR_BUDGET
-          : DESKTOP_STAR_BUDGET;
-      const points = pickEvenly(sample.points, budget);
-      const sourceWidth = Math.max(1, sample.maxX - sample.minX);
-      const sourceHeight = Math.max(1, sample.maxY - sample.minY);
-      const targetWidth = width * (phone ? 0.74 : 0.31);
-      const targetHeight = height * (phone ? 0.072 : 0.082);
-      const textScale = Math.min(targetWidth / sourceWidth, targetHeight / sourceHeight);
-      const sourceCenterX = (sample.minX + sample.maxX) / 2;
-      const sourceCenterY = (sample.minY + sample.maxY) / 2;
-      const burstX = (spec.x / 100) * width;
-      const burstY = (spec.y / 100) * height;
-      const textCenterY = burstY + height * (phone ? 0.14 : 0.17);
-      const random = randomSequence(0x9e3779b9 + sponsorIndex * 104729);
+      const prepareSponsor = (sponsorIndex: number): PreparedSponsor => {
+        const phone = width < 760;
+        const spec = sponsorAt(sponsorIndex, phone);
+        const sample = textSamples[sponsorIndex];
+        const budget = phone
+          ? PHONE_STAR_BUDGET
+          : lowPower
+            ? LOW_POWER_STAR_BUDGET
+            : DESKTOP_STAR_BUDGET;
+        const points = pickEvenly(sample.points, budget);
+        const sourceWidth = Math.max(1, sample.maxX - sample.minX);
+        const sourceHeight = Math.max(1, sample.maxY - sample.minY);
+        const targetWidth = width * (phone ? 0.74 : 0.31);
+        const targetHeight = height * (phone ? 0.072 : 0.082);
+        const textScale = Math.min(targetWidth / sourceWidth, targetHeight / sourceHeight);
+        const sourceCenterX = (sample.minX + sample.maxX) / 2;
+        const sourceCenterY = (sample.minY + sample.maxY) / 2;
+        const burstX = (spec.x / 100) * width;
+        const burstY = (spec.y / 100) * height;
+        const textCenterY = burstY + height * (phone ? 0.14 : 0.17);
+        const random = randomSequence(0x9e3779b9 + sponsorIndex * 104729);
 
-      const stars = points.map((point, index) => {
-        const angle = (index / points.length) * TAU + (random() - 0.5) * 0.16;
-        /* Most stars ride the outside of the bloom; a smaller inner group
+        const stars = points.map((point, index) => {
+          const angle = (index / points.length) * TAU + (random() - 0.5) * 0.16;
+          /* Most stars ride the outside of the bloom; a smaller inner group
            keeps the crack dense without introducing secondary particles. */
-        const rim = index % 5 !== 0;
-        const radius = height * (rim ? 0.14 + random() * 0.075 : 0.07 + random() * 0.075);
+          const rim = index % 5 !== 0;
+          const radius = height * (rim ? 0.14 + random() * 0.075 : 0.07 + random() * 0.075);
+          return {
+            angle,
+            radius,
+            targetX: burstX + (point.x - sourceCenterX) * textScale,
+            targetY: textCenterY + (point.y - sourceCenterY) * textScale,
+            size: 0.72 + random() * 0.62,
+            arc: (random() - 0.5) * height * 0.045,
+            twinkleGroup: Math.floor(random() * TWINKLE_GROUPS),
+          };
+        });
+
         return {
-          angle,
-          radius,
-          targetX: burstX + (point.x - sourceCenterX) * textScale,
-          targetY: textCenterY + (point.y - sourceCenterY) * textScale,
-          size: 0.72 + random() * 0.62,
-          arc: (random() - 0.5) * height * 0.045,
-          twinkleGroup: Math.floor(random() * TWINKLE_GROUPS),
+          burstX,
+          burstY,
+          mortarX: (spec.from / 100) * width,
+          mortarY: height * 1.06,
+          stars,
         };
-      });
-
-      return {
-        burstX,
-        burstY,
-        mortarX: (spec.from / 100) * width,
-        mortarY: height * 1.06,
-        stars,
       };
-    };
 
-    const prepare = () => {
-      prepared = SPONSORS.map((_sponsor, index) => prepareSponsor(index));
-    };
-
-    const resize = () => {
-      const box = canvas.getBoundingClientRect();
-      width = Math.max(1, box.width);
-      height = Math.max(1, box.height);
-      const pixelRatio = Math.min(window.devicePixelRatio || 1, 1.25);
-      canvas.width = Math.round(width * pixelRatio);
-      canvas.height = Math.round(height * pixelRatio);
-      context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
-      context.lineCap = 'round';
-      prepare();
-    };
-
-    const rocketPoint = (sponsor: PreparedSponsor, progress: number): DrawPoint => {
-      const remaining = 1 - progress;
-      const wobble = Math.sin(progress * Math.PI * 13) * width * 0.0035 * remaining;
-      return {
-        x: sponsor.mortarX + (sponsor.burstX - sponsor.mortarX) * progress + wobble,
-        y: sponsor.burstY + (sponsor.mortarY - sponsor.burstY) * remaining * remaining,
+      const prepare = () => {
+        prepared = SPONSORS.map((_sponsor, index) => prepareSponsor(index));
       };
-    };
 
-    const burstPoint = (
-      sponsor: PreparedSponsor,
-      star: PreparedStar,
-      progress: number,
-    ): DrawPoint => {
-      const expansion = easeOutCubic(clamp01(progress));
-      return {
-        x: sponsor.burstX + Math.cos(star.angle) * star.radius * expansion,
-        y:
-          sponsor.burstY
-          + Math.sin(star.angle) * star.radius * expansion
-          + height * 0.018 * progress * progress,
+      const resize = () => {
+        const box = canvas.getBoundingClientRect();
+        width = Math.max(1, box.width);
+        height = Math.max(1, box.height);
+        const pixelRatio = Math.min(window.devicePixelRatio || 1, 1.25);
+        canvas.width = Math.round(width * pixelRatio);
+        canvas.height = Math.round(height * pixelRatio);
+        context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+        context.lineCap = "round";
+        prepare();
       };
-    };
 
-    const formedPoint = (
-      sponsor: PreparedSponsor,
-      star: PreparedStar,
-      progress: number,
-    ): DrawPoint => {
-      const start = burstPoint(sponsor, star, 1);
-      const travel = smoothstep(clamp01(progress));
-      return {
-        x: start.x + (star.targetX - start.x) * travel,
-        y: start.y + (star.targetY - start.y) * travel + Math.sin(travel * Math.PI) * star.arc,
+      const rocketPoint = (sponsor: PreparedSponsor, progress: number): DrawPoint => {
+        const remaining = 1 - progress;
+        const wobble = Math.sin(progress * Math.PI * 13) * width * 0.0035 * remaining;
+        return {
+          x: sponsor.mortarX + (sponsor.burstX - sponsor.mortarX) * progress + wobble,
+          y: sponsor.burstY + (sponsor.mortarY - sponsor.burstY) * remaining * remaining,
+        };
       };
-    };
 
-    const drawRocket = (sponsor: PreparedSponsor, progress: number) => {
-      const point = rocketPoint(sponsor, progress);
-      const previous = rocketPoint(sponsor, Math.max(0, progress - 0.055));
+      const burstPoint = (
+        sponsor: PreparedSponsor,
+        star: PreparedStar,
+        progress: number,
+      ): DrawPoint => {
+        const expansion = easeOutCubic(clamp01(progress));
+        return {
+          x: sponsor.burstX + Math.cos(star.angle) * star.radius * expansion,
+          y:
+            sponsor.burstY +
+            Math.sin(star.angle) * star.radius * expansion +
+            height * 0.018 * progress * progress,
+        };
+      };
 
-      context.strokeStyle = 'rgba(255, 132, 52, 0.38)';
-      context.lineWidth = 7;
-      context.beginPath();
-      context.moveTo(previous.x, previous.y);
-      context.lineTo(point.x, point.y);
-      context.stroke();
+      const formedPoint = (
+        sponsor: PreparedSponsor,
+        star: PreparedStar,
+        progress: number,
+      ): DrawPoint => {
+        const start = burstPoint(sponsor, star, 1);
+        const travel = smoothstep(clamp01(progress));
+        return {
+          x: start.x + (star.targetX - start.x) * travel,
+          y: start.y + (star.targetY - start.y) * travel + Math.sin(travel * Math.PI) * star.arc,
+        };
+      };
 
-      context.strokeStyle = 'rgba(255, 242, 210, 0.98)';
-      context.lineWidth = 2.4;
-      context.beginPath();
-      context.moveTo(previous.x, previous.y);
-      context.lineTo(point.x, point.y);
-      context.stroke();
+      const drawRocket = (sponsor: PreparedSponsor, progress: number) => {
+        const point = rocketPoint(sponsor, progress);
+        const previous = rocketPoint(sponsor, Math.max(0, progress - 0.055));
 
-      /* A fixed tail sampled from the same scroll path: it never creates or
-         retires particle objects while the user moves the wheel. */
-      context.fillStyle = 'rgba(255, 158, 72, 0.58)';
-      context.beginPath();
-      for (let index = 1; index <= 10; index += 1) {
-        const tailProgress = Math.max(0, progress - index * 0.012);
-        const tail = rocketPoint(sponsor, tailProgress);
-        const radius = Math.max(0.45, 1.9 - index * 0.13);
-        context.moveTo(tail.x + radius, tail.y);
-        context.arc(tail.x, tail.y, radius, 0, TAU);
-      }
-      context.fill();
-    };
-
-    const drawFlash = (sponsorIndex: number, sponsor: PreparedSponsor, progress: number) => {
-      if (progress >= 0.52) return;
-      const spec = SPONSORS[sponsorIndex];
-      const flash = progress / 0.52;
-      const radius = height * (0.055 + easeOutCubic(flash) * 0.25);
-      const alpha = 1 - flash;
-      const gradient = context.createRadialGradient(
-        sponsor.burstX,
-        sponsor.burstY,
-        0,
-        sponsor.burstX,
-        sponsor.burstY,
-        radius,
-      );
-      gradient.addColorStop(0, `rgba(255, 255, 255, ${0.96 * alpha})`);
-      gradient.addColorStop(0.28, `rgba(${channels(spec.core)}, ${0.54 * alpha})`);
-      gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
-      context.fillStyle = gradient;
-      context.beginPath();
-      context.arc(sponsor.burstX, sponsor.burstY, radius, 0, TAU);
-      context.fill();
-    };
-
-    const drawTwinkles = (
-      sponsorIndex: number,
-      sponsor: PreparedSponsor,
-      phase: number,
-      radiusScale: number,
-      pointAt: (star: PreparedStar) => DrawPoint,
-    ) => {
-      const spec = SPONSORS[sponsorIndex];
-      const paths = Array.from({ length: TWINKLE_GROUPS }, () => new Path2D());
-      sponsor.stars.forEach((star) => {
-        const point = pointAt(star);
-        const radius = star.size * radiusScale;
-        const path = paths[star.twinkleGroup];
-        path.moveTo(point.x + radius, point.y);
-        path.arc(point.x, point.y, radius, 0, TAU);
-      });
-
-      context.shadowBlur = 6;
-      context.shadowColor = `rgba(${channels(spec.ember)}, 0.88)`;
-      paths.forEach((path, group) => {
-        const wave = Math.sin(phase * TAU * 2.6 + group * 1.67);
-        const twinkle = 0.62 + wave * wave * 0.38;
-        context.fillStyle = `rgba(${channels(spec.core)}, ${twinkle})`;
-        context.fill(path);
-      });
-      context.shadowBlur = 0;
-      context.shadowColor = 'transparent';
-    };
-
-    const drawBurst = (
-      sponsorIndex: number,
-      sponsor: PreparedSponsor,
-      progress: number,
-      twinklePhase: number,
-    ) => {
-      const spec = SPONSORS[sponsorIndex];
-      drawFlash(sponsorIndex, sponsor, progress);
-      context.beginPath();
-      sponsor.stars.forEach((star) => {
-        const point = burstPoint(sponsor, star, progress);
-        const tail = burstPoint(sponsor, star, Math.max(0, progress - 0.075));
-        context.moveTo(tail.x, tail.y);
+        context.strokeStyle = "rgba(255, 132, 52, 0.38)";
+        context.lineWidth = 7;
+        context.beginPath();
+        context.moveTo(previous.x, previous.y);
         context.lineTo(point.x, point.y);
-      });
-      context.strokeStyle = `rgba(${channels(spec.ember)}, 0.52)`;
-      context.lineWidth = 3.2;
-      context.stroke();
-      context.strokeStyle = `rgba(${channels(spec.core)}, 0.98)`;
-      context.lineWidth = 1.05;
-      context.stroke();
-      drawTwinkles(
-        sponsorIndex,
-        sponsor,
-        twinklePhase,
-        0.9,
-        (star) => burstPoint(sponsor, star, progress),
-      );
-    };
+        context.stroke();
 
-    const drawLetters = (
-      sponsorIndex: number,
-      sponsor: PreparedSponsor,
-      progress: number,
-      twinklePhase: number,
-    ) => {
-      const formed = smoothstep(clamp01(progress));
-      drawTwinkles(
-        sponsorIndex,
-        sponsor,
-        twinklePhase * 1.35 + formed * 0.4,
-        0.82 + formed * 0.18,
-        (star) => formedPoint(sponsor, star, progress),
-      );
-    };
+        context.strokeStyle = "rgba(255, 242, 210, 0.98)";
+        context.lineWidth = 2.4;
+        context.beginPath();
+        context.moveTo(previous.x, previous.y);
+        context.lineTo(point.x, point.y);
+        context.stroke();
 
-    const drawSponsor = (sponsorIndex: number) => {
-      const progress = progresses.current[sponsorIndex];
-      if (progress <= 0) return;
-      const sponsor = prepared[sponsorIndex];
+        /* A fixed tail sampled from the same scroll path: it never creates or
+         retires particle objects while the user moves the wheel. */
+        context.fillStyle = "rgba(255, 158, 72, 0.58)";
+        context.beginPath();
+        for (let index = 1; index <= 10; index += 1) {
+          const tailProgress = Math.max(0, progress - index * 0.012);
+          const tail = rocketPoint(sponsor, tailProgress);
+          const radius = Math.max(0.45, 1.9 - index * 0.13);
+          context.moveTo(tail.x + radius, tail.y);
+          context.arc(tail.x, tail.y, radius, 0, TAU);
+        }
+        context.fill();
+      };
 
-      if (progress < LAUNCH_END) {
-        drawRocket(sponsor, progress / LAUNCH_END);
-        return;
-      }
-      if (progress < BURST_END) {
-        drawBurst(
+      const drawFlash = (sponsorIndex: number, sponsor: PreparedSponsor, progress: number) => {
+        if (progress >= 0.52) return;
+        const spec = SPONSORS[sponsorIndex];
+        const flash = progress / 0.52;
+        const radius = height * (0.055 + easeOutCubic(flash) * 0.25);
+        const alpha = 1 - flash;
+        const gradient = context.createRadialGradient(
+          sponsor.burstX,
+          sponsor.burstY,
+          0,
+          sponsor.burstX,
+          sponsor.burstY,
+          radius,
+        );
+        gradient.addColorStop(0, `rgba(255, 255, 255, ${0.96 * alpha})`);
+        gradient.addColorStop(0.28, `rgba(${channels(spec.core)}, ${0.54 * alpha})`);
+        gradient.addColorStop(1, "rgba(0, 0, 0, 0)");
+        context.fillStyle = gradient;
+        context.beginPath();
+        context.arc(sponsor.burstX, sponsor.burstY, radius, 0, TAU);
+        context.fill();
+      };
+
+      const drawTwinkles = (
+        sponsorIndex: number,
+        sponsor: PreparedSponsor,
+        phase: number,
+        radiusScale: number,
+        pointAt: (star: PreparedStar) => DrawPoint,
+      ) => {
+        const spec = SPONSORS[sponsorIndex];
+        const paths = Array.from({ length: TWINKLE_GROUPS }, () => new Path2D());
+        sponsor.stars.forEach((star) => {
+          const point = pointAt(star);
+          const radius = star.size * radiusScale;
+          const path = paths[star.twinkleGroup];
+          path.moveTo(point.x + radius, point.y);
+          path.arc(point.x, point.y, radius, 0, TAU);
+        });
+
+        context.shadowBlur = 6;
+        context.shadowColor = `rgba(${channels(spec.ember)}, 0.88)`;
+        paths.forEach((path, group) => {
+          const wave = Math.sin(phase * TAU * 2.6 + group * 1.67);
+          const twinkle = 0.62 + wave * wave * 0.38;
+          context.fillStyle = `rgba(${channels(spec.core)}, ${twinkle})`;
+          context.fill(path);
+        });
+        context.shadowBlur = 0;
+        context.shadowColor = "transparent";
+      };
+
+      const drawBurst = (
+        sponsorIndex: number,
+        sponsor: PreparedSponsor,
+        progress: number,
+        twinklePhase: number,
+      ) => {
+        const spec = SPONSORS[sponsorIndex];
+        drawFlash(sponsorIndex, sponsor, progress);
+        context.beginPath();
+        sponsor.stars.forEach((star) => {
+          const point = burstPoint(sponsor, star, progress);
+          const tail = burstPoint(sponsor, star, Math.max(0, progress - 0.075));
+          context.moveTo(tail.x, tail.y);
+          context.lineTo(point.x, point.y);
+        });
+        context.strokeStyle = `rgba(${channels(spec.ember)}, 0.52)`;
+        context.lineWidth = 3.2;
+        context.stroke();
+        context.strokeStyle = `rgba(${channels(spec.core)}, 0.98)`;
+        context.lineWidth = 1.05;
+        context.stroke();
+        drawTwinkles(sponsorIndex, sponsor, twinklePhase, 0.9, (star) =>
+          burstPoint(sponsor, star, progress),
+        );
+      };
+
+      const drawLetters = (
+        sponsorIndex: number,
+        sponsor: PreparedSponsor,
+        progress: number,
+        twinklePhase: number,
+      ) => {
+        const formed = smoothstep(clamp01(progress));
+        drawTwinkles(
           sponsorIndex,
           sponsor,
-          (progress - LAUNCH_END) / (BURST_END - LAUNCH_END),
+          twinklePhase * 1.35 + formed * 0.4,
+          0.82 + formed * 0.18,
+          (star) => formedPoint(sponsor, star, progress),
+        );
+      };
+
+      const drawSponsor = (sponsorIndex: number) => {
+        const progress = progresses.current[sponsorIndex];
+        if (progress <= 0) return;
+        const sponsor = prepared[sponsorIndex];
+
+        if (progress < LAUNCH_END) {
+          drawRocket(sponsor, progress / LAUNCH_END);
+          return;
+        }
+        if (progress < BURST_END) {
+          drawBurst(
+            sponsorIndex,
+            sponsor,
+            (progress - LAUNCH_END) / (BURST_END - LAUNCH_END),
+            twinklePhases.current[sponsorIndex],
+          );
+          return;
+        }
+        drawLetters(
+          sponsorIndex,
+          sponsor,
+          clamp01((progress - BURST_END) / (FORM_END - BURST_END)),
           twinklePhases.current[sponsorIndex],
         );
-        return;
-      }
-      drawLetters(
-        sponsorIndex,
-        sponsor,
-        clamp01((progress - BURST_END) / (FORM_END - BURST_END)),
-        twinklePhases.current[sponsorIndex],
-      );
-    };
+      };
 
-    const draw = () => {
-      renderQueued = false;
-      context.clearRect(0, 0, width, height);
-      if (!canvasVisible || document.hidden || reduced) return;
-      context.save();
-      context.globalCompositeOperation = 'lighter';
-      SPONSORS.forEach((_sponsor, index) => drawSponsor(index));
-      context.restore();
-    };
-
-    const requestRender = () => {
-      if (renderQueued || !canvasVisible || document.hidden) return;
-      renderQueued = true;
-      raf = requestAnimationFrame(draw);
-    };
-
-    renderer.current = { request: requestRender };
-    resize();
-    SPONSORS.forEach((_sponsor, index) => setLogoProgress(index, progresses.current[index]));
-    requestRender();
-
-    const onResize = () => {
-      resize();
-      requestRender();
-    };
-    window.addEventListener('resize', onResize);
-
-    const intersectionObserver = new IntersectionObserver(([entry]) => {
-      canvasVisible = entry?.isIntersecting ?? false;
-      if (!canvasVisible) {
-        cancelAnimationFrame(raf);
+      const draw = () => {
         renderQueued = false;
         context.clearRect(0, 0, width, height);
-      } else {
-        requestRender();
-      }
-    });
-    intersectionObserver.observe(canvas);
-
-    const onVisibilityChange = () => {
-      if (document.hidden) {
-        cancelAnimationFrame(raf);
-        renderQueued = false;
-      } else {
-        requestRender();
-      }
-    };
-    document.addEventListener('visibilitychange', onVisibilityChange);
-
-    if (import.meta.env.DEV) {
-      canvas.__peek = () => {
-        const activeStars = progresses.current.reduce(
-          (total, progress, index) => total + (progress > 0 ? prepared[index].stars.length : 0),
-          0,
-        );
-        const letters = progresses.current.reduce(
-          (total, progress, index) => total + (progress >= BURST_END ? prepared[index].stars.length : 0),
-          0,
-        );
-        return { progresses: [...progresses.current], stars: activeStars, letters };
+        if (!canvasVisible || document.hidden || reduced) return;
+        context.save();
+        context.globalCompositeOperation = "lighter";
+        SPONSORS.forEach((_sponsor, index) => drawSponsor(index));
+        context.restore();
       };
-    }
 
-    return () => {
-      renderer.current = null;
-      cancelAnimationFrame(raf);
-      intersectionObserver.disconnect();
-      document.removeEventListener('visibilitychange', onVisibilityChange);
-      window.removeEventListener('resize', onResize);
-      delete canvas.__peek;
-    };
-  }, []);
+      const requestRender = () => {
+        if (renderQueued || !canvasVisible || document.hidden) return;
+        renderQueued = true;
+        raf = requestAnimationFrame(draw);
+      };
 
-  return (
-    <div className="sponsors" id="sponsors">
-      <canvas ref={canvasRef} className="fireworks" aria-hidden="true" />
-      <h2 className="sponsors__title">Our Sponsors</h2>
-      {SPONSORS.map((base, index) => {
-        const spec = sponsorAt(index, narrow);
-        const style = {
-          left: `${spec.x}%`,
-          top: `${spec.logoY}%`,
+      renderer.current = { request: requestRender };
+      resize();
+      SPONSORS.forEach((_sponsor, index) => setLogoProgress(index, progresses.current[index]));
+      requestRender();
+
+      const onResize = () => {
+        resize();
+        requestRender();
+      };
+      window.addEventListener("resize", onResize);
+
+      const intersectionObserver = new IntersectionObserver(([entry]) => {
+        canvasVisible = entry?.isIntersecting ?? false;
+        if (!canvasVisible) {
+          cancelAnimationFrame(raf);
+          renderQueued = false;
+          context.clearRect(0, 0, width, height);
+        } else {
+          requestRender();
+        }
+      });
+      intersectionObserver.observe(canvas);
+
+      const onVisibilityChange = () => {
+        if (document.hidden) {
+          cancelAnimationFrame(raf);
+          renderQueued = false;
+        } else {
+          requestRender();
+        }
+      };
+      document.addEventListener("visibilitychange", onVisibilityChange);
+
+      if (import.meta.env.DEV) {
+        canvas.__peek = () => {
+          const activeStars = progresses.current.reduce(
+            (total, progress, index) => total + (progress > 0 ? prepared[index].stars.length : 0),
+            0,
+          );
+          const letters = progresses.current.reduce(
+            (total, progress, index) =>
+              total + (progress >= BURST_END ? prepared[index].stars.length : 0),
+            0,
+          );
+          return { progresses: [...progresses.current], stars: activeStars, letters };
         };
-        return (
-          <div
-            className="sponsor"
-            key={base.name}
-            style={style}
-            ref={(node) => {
-              logoRefs.current[index] = node;
-            }}
-          >
-            <img
-              className={`sponsor__logo ${base.logoClass}`}
-              src={base.logo}
-              alt={base.name}
-            />
-          </div>
-        );
-      })}
-    </div>
-  );
-});
+      }
+
+      return () => {
+        renderer.current = null;
+        cancelAnimationFrame(raf);
+        intersectionObserver.disconnect();
+        document.removeEventListener("visibilitychange", onVisibilityChange);
+        window.removeEventListener("resize", onResize);
+        delete canvas.__peek;
+      };
+    }, []);
+
+    return (
+      <div className="sponsors" id="sponsors">
+        <canvas ref={canvasRef} className="fireworks" aria-hidden="true" />
+        <h2 className="sponsors__title">Our Sponsors</h2>
+        {SPONSORS.map((base, index) => {
+          const spec = sponsorAt(index, narrow);
+          const style = {
+            left: `${spec.x}%`,
+            top: `${spec.logoY}%`,
+          };
+          return (
+            <div
+              className="sponsor"
+              key={base.name}
+              style={style}
+              ref={(node) => {
+                logoRefs.current[index] = node;
+              }}
+            >
+              <img className={`sponsor__logo ${base.logoClass}`} src={base.logo} alt={base.name} />
+            </div>
+          );
+        })}
+      </div>
+    );
+  },
+);
 
 export default Fireworks;

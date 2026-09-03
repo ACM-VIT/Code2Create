@@ -38,15 +38,17 @@ const deliveryClaim = v.union(
     participantName: v.string(),
     teamName: v.string(),
     eventName: v.string(),
-    assets: v.array(v.object({
-      storageId: v.id("_storage"),
-      fileName: v.string(),
-      contentType: v.string(),
-      contentId: v.string(),
-      disposition: v.union(v.literal("inline"), v.literal("attachment")),
-      byteCount: v.number(),
-      sha256: v.string(),
-    })),
+    assets: v.array(
+      v.object({
+        storageId: v.id("_storage"),
+        fileName: v.string(),
+        contentType: v.string(),
+        contentId: v.string(),
+        disposition: v.union(v.literal("inline"), v.literal("attachment")),
+        byteCount: v.number(),
+        sha256: v.string(),
+      }),
+    ),
   }),
 );
 
@@ -94,14 +96,16 @@ export const claimDelivery = internalMutation({
       delivery.state === "pending" ||
       (delivery.state === "retry_wait" && (delivery.nextAttemptAt ?? 0) <= now);
     if (!canClaim) return null;
-    const [event, application, destination, person, communicationsPolicy, team] = await Promise.all([
-      ctx.db.get(delivery.eventId),
-      ctx.db.get(delivery.applicationId),
-      ctx.db.get(delivery.destinationId),
-      ctx.db.get(delivery.personId),
-      ctx.db.get(delivery.communicationsPolicyVersionId),
-      ctx.db.get(delivery.teamId),
-    ]);
+    const [event, application, destination, person, communicationsPolicy, team] = await Promise.all(
+      [
+        ctx.db.get(delivery.eventId),
+        ctx.db.get(delivery.applicationId),
+        ctx.db.get(delivery.destinationId),
+        ctx.db.get(delivery.personId),
+        ctx.db.get(delivery.communicationsPolicyVersionId),
+        ctx.db.get(delivery.teamId),
+      ],
+    );
     if (!event || !application || !applicationMatchesNotification(application, delivery)) {
       await finishWithoutSend(ctx, delivery, "superseded", "application_state_changed", now);
       return null;
@@ -109,8 +113,7 @@ export const claimDelivery = internalMutation({
     if (
       !communicationsPolicy ||
       communicationsPolicy.eventId !== delivery.eventId ||
-      (communicationsPolicy.status !== "published" &&
-        communicationsPolicy.status !== "superseded")
+      (communicationsPolicy.status !== "published" && communicationsPolicy.status !== "superseded")
     ) {
       await finishWithoutSend(ctx, delivery, "failed", "communications_policy_invalid", now);
       return null;
@@ -269,12 +272,15 @@ async function applyProviderEvent(
       ...common,
       state: "delivery_delayed",
       completedAt: undefined,
-      providerErrorCode:
-        providerEvent.providerErrorCode ?? "cloudflare_email_deferred",
+      providerErrorCode: providerEvent.providerErrorCode ?? "cloudflare_email_deferred",
     });
   } else {
-    const state = providerEvent.eventType === "email.bounced" ? "bounced" :
-      providerEvent.eventType === "email.failed" ? "failed" : "suppressed";
+    const state =
+      providerEvent.eventType === "email.bounced"
+        ? "bounced"
+        : providerEvent.eventType === "email.failed"
+          ? "failed"
+          : "suppressed";
     const reasonCode =
       providerEvent.providerErrorCode ?? providerEvent.eventType.replaceAll(".", "_");
     await ctx.db.patch(delivery._id, {
@@ -305,8 +311,12 @@ export const recordSent = internalMutation({
       return null;
     }
     const now = Date.now();
-    const state = args.initialOutcome === "queued" ? "sent" :
-      args.initialOutcome === "delivered" ? "delivered" : "bounced";
+    const state =
+      args.initialOutcome === "queued"
+        ? "sent"
+        : args.initialOutcome === "delivered"
+          ? "delivered"
+          : "bounced";
     await ctx.db.patch(delivery._id, {
       state,
       attemptId: undefined,
@@ -339,8 +349,9 @@ export const recordSent = internalMutation({
         index.eq("providerMessageId", args.providerMessageId),
       )
       .collect();
-    providerEvents.sort((left, right) =>
-      left.providerAt - right.providerAt || left.eventId.localeCompare(right.eventId),
+    providerEvents.sort(
+      (left, right) =>
+        left.providerAt - right.providerAt || left.eventId.localeCompare(right.eventId),
     );
     for (const providerEvent of providerEvents) {
       const current = await ctx.db.get(delivery._id);
@@ -388,13 +399,7 @@ export const recordSendFailure = internalMutation({
       });
       return null;
     }
-    await finishWithoutSend(
-      ctx,
-      delivery,
-      "failed",
-      args.errorCode,
-      now,
-    );
+    await finishWithoutSend(ctx, delivery, "failed", args.errorCode, now);
     return null;
   },
 });

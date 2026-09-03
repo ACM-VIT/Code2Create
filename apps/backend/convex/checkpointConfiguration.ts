@@ -11,10 +11,7 @@ import {
   storedConfigurationPublicationResult,
 } from "./lib/configurationOperationResult";
 import { requireEventBySlug } from "./lib/events";
-import {
-  requireCurrentPerson,
-  requireEventSubject,
-} from "./lib/identity";
+import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
 import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
 import {
@@ -91,34 +88,33 @@ export const current = query({
       permissionKey: "configuration.checkpoint.read",
       scopeType: "event",
     });
-    const [published, draft, draftGrantIds, validateGrantIds, publishGrantIds] =
-      await Promise.all([
-        loadPublishedProjectCheckpointPlan(ctx, event),
-        ctx.db
-          .query("projectCheckpointPlanVersions")
-          .withIndex("by_event_status", (index) =>
-            index.eq("eventId", event._id).eq("status", "draft"),
-          )
-          .unique(),
-        matchingPermissionGrantIds(ctx, {
-          eventId: event._id,
-          eventAccessSubjectId: subject._id,
-          permissionKey: "configuration.checkpoint.draft.create",
-          scopeType: "event",
-        }),
-        matchingPermissionGrantIds(ctx, {
-          eventId: event._id,
-          eventAccessSubjectId: subject._id,
-          permissionKey: "configuration.checkpoint.validate",
-          scopeType: "event",
-        }),
-        matchingPermissionGrantIds(ctx, {
-          eventId: event._id,
-          eventAccessSubjectId: subject._id,
-          permissionKey: "configuration.checkpoint.publish",
-          scopeType: "event",
-        }),
-      ]);
+    const [published, draft, draftGrantIds, validateGrantIds, publishGrantIds] = await Promise.all([
+      loadPublishedProjectCheckpointPlan(ctx, event),
+      ctx.db
+        .query("projectCheckpointPlanVersions")
+        .withIndex("by_event_status", (index) =>
+          index.eq("eventId", event._id).eq("status", "draft"),
+        )
+        .unique(),
+      matchingPermissionGrantIds(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: subject._id,
+        permissionKey: "configuration.checkpoint.draft.create",
+        scopeType: "event",
+      }),
+      matchingPermissionGrantIds(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: subject._id,
+        permissionKey: "configuration.checkpoint.validate",
+        scopeType: "event",
+      }),
+      matchingPermissionGrantIds(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: subject._id,
+        permissionKey: "configuration.checkpoint.publish",
+        scopeType: "event",
+      }),
+    ]);
     return {
       eventVersion: event.version,
       hasPublishedPhaseSchedule: event.publishedEventPhaseScheduleId !== undefined,
@@ -200,15 +196,9 @@ export const createDraft = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const planVersionId = ctx.db.normalizeId(
-        "projectCheckpointPlanVersions",
-        prior.targetId,
-      );
+      const planVersionId = ctx.db.normalizeId("projectCheckpointPlanVersions", prior.targetId);
       if (!planVersionId) throw new Error("The prior checkpoint-draft result is invalid.");
-      const stored = storedConfigurationDraftResult(
-        prior.resultJson,
-        "checkpoint-draft",
-      );
+      const stored = storedConfigurationDraftResult(prior.resultJson, "checkpoint-draft");
       return {
         planVersionId,
         planVersion: stored.version,
@@ -306,10 +296,7 @@ export const publish = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const planVersionId = ctx.db.normalizeId(
-        "projectCheckpointPlanVersions",
-        prior.targetId,
-      );
+      const planVersionId = ctx.db.normalizeId("projectCheckpointPlanVersions", prior.targetId);
       if (!planVersionId) throw new Error("The prior checkpoint publication is invalid.");
       const stored = storedConfigurationPublicationResult(
         prior.resultJson,

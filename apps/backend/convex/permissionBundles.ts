@@ -7,10 +7,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
-import {
-  requireCurrentPerson,
-  requireEventSubject,
-} from "./lib/identity";
+import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import {
   bundleBindingRequirements,
   bundleContentChecksum,
@@ -28,10 +25,7 @@ import {
   recordOperation,
   storedOperationResult,
 } from "./lib/operations";
-import {
-  permissionCatalog,
-  type PermissionKey,
-} from "./lib/permissionCatalog";
+import { permissionCatalog, type PermissionKey } from "./lib/permissionCatalog";
 import {
   insertPermissionGrant,
   currentSourceGrants,
@@ -39,11 +33,7 @@ import {
   requirePermission,
 } from "./lib/permissions";
 import { normalizedText } from "./lib/strings";
-import {
-  eventRole,
-  permissionBundleEntry,
-  scopeType,
-} from "./values";
+import { eventRole, permissionBundleEntry, scopeType } from "./values";
 
 type ReadCtx = QueryCtx | MutationCtx;
 type BundleDoc = Doc<"permissionBundles">;
@@ -87,11 +77,7 @@ const versionSummary = v.object({
   version: v.number(),
   revision: v.number(),
   label: v.string(),
-  status: v.union(
-    v.literal("draft"),
-    v.literal("published"),
-    v.literal("retired"),
-  ),
+  status: v.union(v.literal("draft"), v.literal("published"), v.literal("retired")),
   entryCount: v.number(),
   checksum: v.string(),
   updatedAt: v.number(),
@@ -245,8 +231,7 @@ function coversScope(
 ) {
   return grants.some(
     (grant) =>
-      (grant.scopeType === scopeType && grant.scopeId === scopeId) ||
-      grant.scopeType === "event",
+      (grant.scopeType === scopeType && grant.scopeId === scopeId) || grant.scopeType === "event",
   );
 }
 
@@ -292,25 +277,20 @@ function summarizeVersion(version: BundleVersionDoc) {
     entryCount: version.entries.length,
     checksum: version.checksum,
     updatedAt: version.updatedAt,
-    ...(version.publishedAt !== undefined
-      ? { publishedAt: version.publishedAt }
-      : {}),
+    ...(version.publishedAt !== undefined ? { publishedAt: version.publishedAt } : {}),
   };
 }
 
 async function bundleVersions(ctx: ReadCtx, bundle: BundleDoc) {
   const [draft, published] = await Promise.all([
-    bundle.draftVersionId
-      ? ctx.db.get("permissionBundleVersions", bundle.draftVersionId)
-      : null,
+    bundle.draftVersionId ? ctx.db.get("permissionBundleVersions", bundle.draftVersionId) : null,
     bundle.publishedVersionId
       ? ctx.db.get("permissionBundleVersions", bundle.publishedVersionId)
       : null,
   ]);
   if (
     (draft && (draft.bundleId !== bundle._id || draft.status !== "draft")) ||
-    (published &&
-      (published.bundleId !== bundle._id || published.status !== "published"))
+    (published && (published.bundleId !== bundle._id || published.status !== "published"))
   ) {
     throw new Error("Permission bundle version pointers are inconsistent.");
   }
@@ -337,21 +317,9 @@ export const workspace = query({
     const { person } = await requireCurrentPerson(ctx);
     const actorSubject = await requireEventSubject(ctx, event._id, person._id);
     const [readGrants, publishGrants, migrateGrants] = await Promise.all([
-      activePermissionGrants(
-        ctx,
-        actorSubject._id,
-        "access.permission_bundles.read",
-      ),
-      activePermissionGrants(
-        ctx,
-        actorSubject._id,
-        "access.permission_bundles.publish",
-      ),
-      activePermissionGrants(
-        ctx,
-        actorSubject._id,
-        "access.permission_bundles.migrate",
-      ),
+      activePermissionGrants(ctx, actorSubject._id, "access.permission_bundles.read"),
+      activePermissionGrants(ctx, actorSubject._id, "access.permission_bundles.publish"),
+      activePermissionGrants(ctx, actorSubject._id, "access.permission_bundles.migrate"),
     ]);
     if (readGrants.length === 0) {
       throw new ConvexError({
@@ -370,9 +338,7 @@ export const workspace = query({
     }
     const visible = hasEventScope(readGrants)
       ? allBundles
-      : allBundles.filter((bundle) =>
-          coversScope(readGrants, "permission_bundle", bundle._id),
-        );
+      : allBundles.filter((bundle) => coversScope(readGrants, "permission_bundle", bundle._id));
     const bundles = await Promise.all(
       visible.map(async (bundle) => {
         const { draft, published } = await bundleVersions(ctx, bundle);
@@ -380,9 +346,7 @@ export const workspace = query({
           id: bundle._id,
           key: bundle.key,
           label: bundle.label,
-          ...(bundle.defaultRole !== undefined
-            ? { defaultRole: bundle.defaultRole }
-            : {}),
+          ...(bundle.defaultRole !== undefined ? { defaultRole: bundle.defaultRole } : {}),
           publishedVersion: bundle.publishedVersion,
           version: bundle.version,
           canEdit:
@@ -401,8 +365,7 @@ export const workspace = query({
       catalog: Object.entries(permissionCatalog)
         .filter(
           ([key]) =>
-            key !== "access.permissions.grant_scoped" &&
-            key !== "access.permissions.revoke_scoped",
+            key !== "access.permissions.grant_scoped" && key !== "access.permissions.revoke_scoped",
         )
         .map(([key, definition]) => ({
           key,
@@ -445,9 +408,7 @@ export const detail = query({
         id: bundle._id,
         key: bundle.key,
         label: bundle.label,
-        ...(bundle.defaultRole !== undefined
-          ? { defaultRole: bundle.defaultRole }
-          : {}),
+        ...(bundle.defaultRole !== undefined ? { defaultRole: bundle.defaultRole } : {}),
         publishedVersion: bundle.publishedVersion,
         version: bundle.version,
       },
@@ -458,9 +419,7 @@ export const detail = query({
               version: draft.version,
               revision: draft.revision,
               label: draft.label,
-              ...(draft.defaultRole !== undefined
-                ? { defaultRole: draft.defaultRole }
-                : {}),
+              ...(draft.defaultRole !== undefined ? { defaultRole: draft.defaultRole } : {}),
               entries: draft.entries,
               checksum: draft.checksum,
               updatedAt: draft.updatedAt,
@@ -522,12 +481,7 @@ export const saveDraft = mutation({
     const key = checkedBundleKey(args.key);
     const label = normalizedText(args.label, "Bundle label", 3, 80);
     const reason = normalizedText(args.reason, "Reason", 5, 300);
-    const operationId = normalizedText(
-      args.clientOperationId,
-      "Client operation ID",
-      10,
-      100,
-    );
+    const operationId = normalizedText(args.clientOperationId, "Client operation ID", 10, 100);
     const entries = normalizeBundleEntries(args.entries);
     const defaultRole = args.defaultRole ?? undefined;
     const checksum = bundleContentChecksum({ key, label, defaultRole, entries });
@@ -554,14 +508,8 @@ export const saveDraft = mutation({
         "permission bundle draft",
         savedDraftOperationResult,
       );
-      const bundleId = ctx.db.normalizeId(
-        "permissionBundles",
-        stored.bundleId,
-      );
-      const draftVersionId = ctx.db.normalizeId(
-        "permissionBundleVersions",
-        stored.draftVersionId,
-      );
+      const bundleId = ctx.db.normalizeId("permissionBundles", stored.bundleId);
+      const draftVersionId = ctx.db.normalizeId("permissionBundleVersions", stored.draftVersionId);
       if (!bundleId || !draftVersionId) {
         throw new Error("Prior permission bundle draft IDs are invalid.");
       }
@@ -603,9 +551,7 @@ export const saveDraft = mutation({
       }
       const existing = await ctx.db
         .query("permissionBundles")
-        .withIndex("by_event_key", (index) =>
-          index.eq("eventId", event._id).eq("key", key),
-        )
+        .withIndex("by_event_key", (index) => index.eq("eventId", event._id).eq("key", key))
         .unique();
       if (existing) {
         throw new ConvexError({
@@ -685,10 +631,7 @@ export const saveDraft = mutation({
         eventId: event._id,
         actorSubjectId: actorSubject._id,
         bundleId: existingBundle._id,
-        permissionKeys: [
-          "access.permission_bundles.read",
-          "access.permission_bundles.publish",
-        ],
+        permissionKeys: ["access.permission_bundles.read", "access.permission_bundles.publish"],
       });
       if (existingBundle.version !== args.expectedBundleVersion) {
         throw new ConvexError({
@@ -697,21 +640,15 @@ export const saveDraft = mutation({
         });
       }
       const existingDraft = existingBundle.draftVersionId
-        ? await ctx.db.get(
-            "permissionBundleVersions",
-            existingBundle.draftVersionId,
-          )
+        ? await ctx.db.get("permissionBundleVersions", existingBundle.draftVersionId)
         : null;
       if (
         existingDraft &&
-        (existingDraft.bundleId !== existingBundle._id ||
-          existingDraft.status !== "draft")
+        (existingDraft.bundleId !== existingBundle._id || existingDraft.status !== "draft")
       ) {
         throw new Error("Permission bundle draft pointer is inconsistent.");
       }
-      if (
-        (existingDraft?.revision ?? null) !== args.expectedDraftRevision
-      ) {
+      if ((existingDraft?.revision ?? null) !== args.expectedDraftRevision) {
         throw new ConvexError({
           code: "BUNDLE_CHANGED",
           message: "This permission bundle draft changed. Review it and try again.",
@@ -720,9 +657,7 @@ export const saveDraft = mutation({
       if (existingDraft) {
         await ctx.db.patch("permissionBundleVersions", existingDraft._id, {
           label,
-          ...(defaultRole !== undefined
-            ? { defaultRole }
-            : { defaultRole: undefined }),
+          ...(defaultRole !== undefined ? { defaultRole } : { defaultRole: undefined }),
           revision: existingDraft.revision + 1,
           entries,
           checksum,
@@ -735,25 +670,22 @@ export const saveDraft = mutation({
         });
         draft = await ctx.db.get("permissionBundleVersions", existingDraft._id);
       } else {
-        const draftVersionId = await ctx.db.insert(
-          "permissionBundleVersions",
-          {
-            eventId: event._id,
-            bundleId: existingBundle._id,
-            key,
-            label,
-            ...(defaultRole !== undefined ? { defaultRole } : {}),
-            version: existingBundle.publishedVersion + 1,
-            revision: 1,
-            status: "draft",
-            entries,
-            checksum,
-            createdByPersonId: person._id,
-            createdAt: now,
-            updatedByPersonId: person._id,
-            updatedAt: now,
-          },
-        );
+        const draftVersionId = await ctx.db.insert("permissionBundleVersions", {
+          eventId: event._id,
+          bundleId: existingBundle._id,
+          key,
+          label,
+          ...(defaultRole !== undefined ? { defaultRole } : {}),
+          version: existingBundle.publishedVersion + 1,
+          revision: 1,
+          status: "draft",
+          entries,
+          checksum,
+          createdByPersonId: person._id,
+          createdAt: now,
+          updatedByPersonId: person._id,
+          updatedAt: now,
+        });
         await ctx.db.patch("permissionBundles", existingBundle._id, {
           draftVersionId,
           version: existingBundle.version + 1,
@@ -761,10 +693,7 @@ export const saveDraft = mutation({
         });
         draft = await ctx.db.get("permissionBundleVersions", draftVersionId);
       }
-      const updatedBundle = await ctx.db.get(
-        "permissionBundles",
-        existingBundle._id,
-      );
+      const updatedBundle = await ctx.db.get("permissionBundles", existingBundle._id);
       if (!updatedBundle) throw new Error("Permission bundle disappeared during draft save.");
       bundle = updatedBundle;
     }
@@ -820,12 +749,7 @@ export const publish = mutation({
     const { person } = await requireCurrentPerson(ctx);
     const actorSubject = await requireEventSubject(ctx, event._id, person._id);
     const reason = normalizedText(args.reason, "Reason", 5, 300);
-    const operationId = normalizedText(
-      args.clientOperationId,
-      "Client operation ID",
-      10,
-      100,
-    );
+    const operationId = normalizedText(args.clientOperationId, "Client operation ID", 10, 100);
     const requestFingerprint = operationFingerprint([
       args.bundleId,
       args.expectedBundleVersion,
@@ -845,10 +769,7 @@ export const publish = mutation({
         "permission bundle publication",
         publishedOperationResult,
       );
-      const bundleId = ctx.db.normalizeId(
-        "permissionBundles",
-        stored.bundleId,
-      );
+      const bundleId = ctx.db.normalizeId("permissionBundles", stored.bundleId);
       const publishedVersionId = ctx.db.normalizeId(
         "permissionBundleVersions",
         stored.publishedVersionId,
@@ -876,10 +797,7 @@ export const publish = mutation({
       eventId: event._id,
       actorSubjectId: actorSubject._id,
       bundleId: bundle._id,
-      permissionKeys: [
-        "access.permission_bundles.read",
-        "access.permission_bundles.publish",
-      ],
+      permissionKeys: ["access.permission_bundles.read", "access.permission_bundles.publish"],
     });
     if (bundle.version !== args.expectedBundleVersion || !bundle.draftVersionId) {
       throw new ConvexError({
@@ -1023,13 +941,8 @@ async function publishedBundle(
   eventId: Id<"events">,
   bundleVersionId: Id<"permissionBundleVersions">,
 ) {
-  const version = await ctx.db.get(
-    "permissionBundleVersions",
-    bundleVersionId,
-  );
-  const bundle = version
-    ? await ctx.db.get("permissionBundles", version.bundleId)
-    : null;
+  const version = await ctx.db.get("permissionBundleVersions", bundleVersionId);
+  const bundle = version ? await ctx.db.get("permissionBundles", version.bundleId) : null;
   if (
     !version ||
     !bundle ||
@@ -1058,42 +971,30 @@ async function applicationContext(
     requestedValidUntil: number | undefined;
   },
 ) {
-  const targetSubject = await requireEventSubject(
-    ctx,
-    args.event._id,
-    args.targetPersonId,
-  );
-  const { bundle, version } = await publishedBundle(
-    ctx,
-    args.event._id,
-    args.bundleVersionId,
-  );
-  const [targetReadGrantIds, bundleGrantIds, targetApplyGrantIds] =
-    await Promise.all([
-      requirePermission(ctx, {
-        eventId: args.event._id,
-        eventAccessSubjectId: args.actorSubjectId,
-        permissionKey: "access.permissions.read",
-        scopeType: "person",
-        scopeId: args.targetPersonId,
-      }),
-      requireBundlePermissions(ctx, {
-        eventId: args.event._id,
-        actorSubjectId: args.actorSubjectId,
-        bundleId: bundle._id,
-        permissionKeys: [
-          "access.permission_bundles.read",
-          "access.permission_bundles.apply",
-        ],
-      }),
-      requirePermission(ctx, {
-        eventId: args.event._id,
-        eventAccessSubjectId: args.actorSubjectId,
-        permissionKey: "access.permission_bundles.apply",
-        scopeType: "person",
-        scopeId: args.targetPersonId,
-      }),
-    ]);
+  const targetSubject = await requireEventSubject(ctx, args.event._id, args.targetPersonId);
+  const { bundle, version } = await publishedBundle(ctx, args.event._id, args.bundleVersionId);
+  const [targetReadGrantIds, bundleGrantIds, targetApplyGrantIds] = await Promise.all([
+    requirePermission(ctx, {
+      eventId: args.event._id,
+      eventAccessSubjectId: args.actorSubjectId,
+      permissionKey: "access.permissions.read",
+      scopeType: "person",
+      scopeId: args.targetPersonId,
+    }),
+    requireBundlePermissions(ctx, {
+      eventId: args.event._id,
+      actorSubjectId: args.actorSubjectId,
+      bundleId: bundle._id,
+      permissionKeys: ["access.permission_bundles.read", "access.permission_bundles.apply"],
+    }),
+    requirePermission(ctx, {
+      eventId: args.event._id,
+      eventAccessSubjectId: args.actorSubjectId,
+      permissionKey: "access.permission_bundles.apply",
+      scopeType: "person",
+      scopeId: args.targetPersonId,
+    }),
+  ]);
   const bindings = normalizeBundleBindings(
     bundleBindingRequirements(version.entries),
     args.bindings,
@@ -1104,11 +1005,7 @@ async function applicationContext(
     entries: version.entries,
     bindings,
   });
-  const validUntil = checkedValidUntil(
-    args.event,
-    args.requestedValidUntil,
-    Date.now(),
-  );
+  const validUntil = checkedValidUntil(args.event, args.requestedValidUntil, Date.now());
   const previewChecksum = resolvedBundleChecksum({
     bundleChecksum: version.checksum,
     targetPersonId: args.targetPersonId,
@@ -1125,11 +1022,7 @@ async function applicationContext(
     validUntil,
     previewChecksum,
     authorizingGrantIds: [
-      ...new Set([
-        ...targetReadGrantIds,
-        ...bundleGrantIds,
-        ...targetApplyGrantIds,
-      ]),
+      ...new Set([...targetReadGrantIds, ...bundleGrantIds, ...targetApplyGrantIds]),
     ],
   };
 }
@@ -1153,16 +1046,8 @@ export const applicableToTarget = query({
       scopeId: args.targetPersonId,
     });
     const [readGrants, applyGrants, bundles] = await Promise.all([
-      activePermissionGrants(
-        ctx,
-        actorSubject._id,
-        "access.permission_bundles.read",
-      ),
-      activePermissionGrants(
-        ctx,
-        actorSubject._id,
-        "access.permission_bundles.apply",
-      ),
+      activePermissionGrants(ctx, actorSubject._id, "access.permission_bundles.read"),
+      activePermissionGrants(ctx, actorSubject._id, "access.permission_bundles.apply"),
       ctx.db
         .query("permissionBundles")
         .withIndex("by_event_status_label", (index) =>
@@ -1183,10 +1068,7 @@ export const applicableToTarget = query({
     return Promise.all(
       applicable.map(async (bundle) => {
         const version = bundle.publishedVersionId
-          ? await ctx.db.get(
-              "permissionBundleVersions",
-              bundle.publishedVersionId,
-            )
+          ? await ctx.db.get("permissionBundleVersions", bundle.publishedVersionId)
           : null;
         if (!version || version.status !== "published") {
           throw new Error("Published permission bundle pointer is inconsistent.");
@@ -1251,9 +1133,7 @@ export const previewApplication = query({
       bundleVersion: context.version.version,
       targetPersonId: args.targetPersonId,
       expectedAccessVersion: context.targetSubject.accessVersion,
-      ...(context.validUntil !== undefined
-        ? { validUntil: context.validUntil }
-        : {}),
+      ...(context.validUntil !== undefined ? { validUntil: context.validUntil } : {}),
       previewChecksum: context.previewChecksum,
       grants,
     };
@@ -1291,12 +1171,7 @@ export const apply = mutation({
     const { person } = await requireCurrentPerson(ctx);
     const actorSubject = await requireEventSubject(ctx, event._id, person._id);
     const reason = normalizedText(args.reason, "Reason", 5, 300);
-    const operationId = normalizedText(
-      args.clientOperationId,
-      "Client operation ID",
-      10,
-      100,
-    );
+    const operationId = normalizedText(args.clientOperationId, "Client operation ID", 10, 100);
     const bindingFingerprint = operationFingerprint(
       args.bindings.flatMap((binding) => [binding.key, binding.scopeId]),
     );
@@ -1379,9 +1254,7 @@ export const apply = mutation({
       authorizingGrantIds: context.authorizingGrantIds,
       expectedAccessVersion: args.expectedAccessVersion,
       previewChecksum: args.previewChecksum,
-      ...(context.validUntil !== undefined
-        ? { validUntil: context.validUntil }
-        : {}),
+      ...(context.validUntil !== undefined ? { validUntil: context.validUntil } : {}),
       status: "applying",
       resultGrantIds: [],
       createdCount: 0,
@@ -1391,9 +1264,7 @@ export const apply = mutation({
     const resultGrantIds: Id<"permissionGrants">[] = [];
     let createdCount = 0;
     for (const planned of context.grants) {
-      const existing = existingSourceGrants.find((grant) =>
-        sameResolvedGrant(grant, planned),
-      );
+      const existing = existingSourceGrants.find((grant) => sameResolvedGrant(grant, planned));
       if (existing) {
         resultGrantIds.push(existing._id);
         continue;
@@ -1411,9 +1282,7 @@ export const apply = mutation({
         grantBatchId: batchId,
         grantedByPersonId: person._id,
         reason,
-        ...(context.validUntil !== undefined
-          ? { validUntil: context.validUntil }
-          : {}),
+        ...(context.validUntil !== undefined ? { validUntil: context.validUntil } : {}),
       });
       resultGrantIds.push(result.grantId);
       if (result.created) createdCount += 1;

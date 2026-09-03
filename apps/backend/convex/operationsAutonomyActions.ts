@@ -23,20 +23,24 @@ import { readBoundedJsonResponse } from "./lib/boundedHttpBody";
 import { requireIntelligenceHmacSecret } from "./lib/intelligenceServiceConfiguration";
 import { intelligenceWorkerUrl, signedStreamAccess } from "./operationsIntelligenceActions";
 
-const workerReceipt = z.object({
-  state: z.literal("accepted"),
-  runId: z.string().min(1).max(200),
-  instanceId: z.string().min(1).max(200),
-  submissionId: z.string().min(1).max(200),
-  acceptedAt: z.iso.datetime(),
-  uid: z.string().min(1).max(400),
-}).strict();
+const workerReceipt = z
+  .object({
+    state: z.literal("accepted"),
+    runId: z.string().min(1).max(200),
+    instanceId: z.string().min(1).max(200),
+    submissionId: z.string().min(1).max(200),
+    acceptedAt: z.iso.datetime(),
+    uid: z.string().min(1).max(400),
+  })
+  .strict();
 
-const abortReceipt = z.object({
-  state: z.literal("accepted"),
-  runId: z.string().min(1).max(200),
-  operationId: z.string().min(8).max(200),
-}).strict();
+const abortReceipt = z
+  .object({
+    state: z.literal("accepted"),
+    runId: z.string().min(1).max(200),
+    operationId: z.string().min(8).max(200),
+  })
+  .strict();
 
 const streamAccess = v.object({
   conversationUrl: v.string(),
@@ -47,12 +51,7 @@ const streamAccess = v.object({
   signature: v.string(),
 });
 
-async function signedPost(args: {
-  path: string;
-  context: string;
-  body: string;
-  signedAt: number;
-}) {
+async function signedPost(args: { path: string; context: string; body: string; signedAt: number }) {
   const timestamp = String(args.signedAt);
   const signature = await signServiceBody({
     context: args.context,
@@ -195,7 +194,8 @@ export const abortRun = internalAction({
         !parsed.success ||
         parsed.data.runId !== args.runId ||
         parsed.data.operationId !== args.operationId
-      ) throw new Error("The autonomy Worker returned an invalid abort receipt.");
+      )
+        throw new Error("The autonomy Worker returned an invalid abort receipt.");
       await ctx.runMutation(internal.operationsAutonomyDispatch.acknowledgeAbort, {
         runId: args.runId,
         operationId: args.operationId,

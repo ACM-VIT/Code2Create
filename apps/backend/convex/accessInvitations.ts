@@ -1,16 +1,9 @@
-import {
-  paginationOptsValidator,
-  paginationResultValidator,
-} from "convex/server";
+import { paginationOptsValidator, paginationResultValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import { z } from "zod";
 
 import { internal } from "./_generated/api";
-import {
-  internalMutation,
-  mutation,
-  query,
-} from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
 import {
@@ -26,10 +19,7 @@ import {
   storedOperationResult,
 } from "./lib/operations";
 import { requirePermission } from "./lib/permissions";
-import {
-  normalizeEmail,
-  normalizedText,
-} from "./lib/strings";
+import { normalizeEmail, normalizedText } from "./lib/strings";
 
 const invitationEmail = z.email().max(254);
 const minimumInvitationLifetimeMs = 5 * 60 * 1_000;
@@ -109,10 +99,7 @@ function checkedInvitationExpiry(validUntil: number, now: number) {
     });
   }
   const lifetime = validUntil - now;
-  if (
-    lifetime < minimumInvitationLifetimeMs ||
-    lifetime > maximumInvitationLifetimeMs
-  ) {
+  if (lifetime < minimumInvitationLifetimeMs || lifetime > maximumInvitationLifetimeMs) {
     throw new ConvexError({
       code: "INVALID_EXPIRY",
       message: "Invitation expiry must be between five minutes and 30 days from now.",
@@ -140,10 +127,7 @@ export const mine = query({
     const invitation = await ctx.db
       .query("eventAccessInvitations")
       .withIndex("by_event_email_status", (index) =>
-        index
-          .eq("eventId", event._id)
-          .eq("emailNormalized", email)
-          .eq("status", "pending"),
+        index.eq("eventId", event._id).eq("emailNormalized", email).eq("status", "pending"),
       )
       .unique();
     if (!invitation || invitation.validUntil <= Date.now()) return null;
@@ -215,19 +199,10 @@ export const create = mutation({
     const actorSubject = await requireEventSubject(ctx, event._id, person._id);
     const email = exactInvitationEmail(args.email);
     const reason = normalizedText(args.reason, "Reason", 5, 300);
-    const operationId = normalizedText(
-      args.clientOperationId,
-      "Client operation ID",
-      10,
-      100,
-    );
+    const operationId = normalizedText(args.clientOperationId, "Client operation ID", 10, 100);
     const now = Date.now();
     const validUntil = checkedInvitationExpiry(args.validUntil, now);
-    const requestFingerprint = operationFingerprint([
-      email,
-      validUntil,
-      reason,
-    ]);
+    const requestFingerprint = operationFingerprint([email, validUntil, reason]);
     const prior = await findOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -246,10 +221,7 @@ export const create = mutation({
         if (!linkedSubjectId) throw new Error("The stored linked-account result is invalid.");
         return { outcome: alreadyLinkedOutcome };
       }
-      const invitationId = ctx.db.normalizeId(
-        "eventAccessInvitations",
-        result.invitationId,
-      );
+      const invitationId = ctx.db.normalizeId("eventAccessInvitations", result.invitationId);
       if (!invitationId || invitationId !== prior.targetId) {
         throw new Error("The stored invitation result is invalid.");
       }
@@ -272,7 +244,8 @@ export const create = mutation({
       if (linkedSubject.status !== "active") {
         throw new ConvexError({
           code: "EVENT_ACCESS_NOT_ACTIVE",
-          message: "That event account exists but is not active. Use the separate reactivation workflow.",
+          message:
+            "That event account exists but is not active. Use the separate reactivation workflow.",
         });
       }
       const result = { outcome: alreadyLinkedOutcome };
@@ -293,10 +266,7 @@ export const create = mutation({
     const existing = await ctx.db
       .query("eventAccessInvitations")
       .withIndex("by_event_email_status", (index) =>
-        index
-          .eq("eventId", event._id)
-          .eq("emailNormalized", email)
-          .eq("status", "pending"),
+        index.eq("eventId", event._id).eq("emailNormalized", email).eq("status", "pending"),
       )
       .unique();
     if (existing && existing.validUntil > now) {
@@ -382,16 +352,8 @@ export const claim = mutation({
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await ensureGooglePerson(ctx);
-    const operationId = normalizedText(
-      args.clientOperationId,
-      "Client operation ID",
-      10,
-      100,
-    );
-    const requestFingerprint = operationFingerprint([
-      args.invitationId,
-      args.expectedVersion,
-    ]);
+    const operationId = normalizedText(args.clientOperationId, "Client operation ID", 10, 100);
+    const requestFingerprint = operationFingerprint([args.invitationId, args.expectedVersion]);
     const prior = await findOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -484,9 +446,7 @@ export const claim = mutation({
     const emailOwner = await ctx.db
       .query("eventAccessSubjects")
       .withIndex("by_event_email", (index) =>
-        index
-          .eq("eventId", event._id)
-          .eq("emailNormalized", person.verifiedEmail),
+        index.eq("eventId", event._id).eq("emailNormalized", person.verifiedEmail),
       )
       .unique();
     if (emailOwner && emailOwner.personId !== person._id) {
@@ -597,12 +557,7 @@ export const revoke = mutation({
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const reason = normalizedText(args.reason, "Reason", 5, 300);
-    const operationId = normalizedText(
-      args.clientOperationId,
-      "Client operation ID",
-      10,
-      100,
-    );
+    const operationId = normalizedText(args.clientOperationId, "Client operation ID", 10, 100);
     const requestFingerprint = operationFingerprint([
       args.invitationId,
       args.expectedVersion,
@@ -616,10 +571,7 @@ export const revoke = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const invitationId = ctx.db.normalizeId(
-        "eventAccessInvitations",
-        prior.targetId,
-      );
+      const invitationId = ctx.db.normalizeId("eventAccessInvitations", prior.targetId);
       if (!invitationId) throw new Error("Prior invitation revocation is invalid.");
       return { invitationId, status: revokedStatus };
     }

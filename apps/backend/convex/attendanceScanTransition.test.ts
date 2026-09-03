@@ -134,9 +134,7 @@ describe("attendance scan direction", () => {
       stableKey: "overlapping_session",
       bindStation: false,
     });
-    await backend.run((ctx) =>
-      ctx.db.patch(fixture.stationId, { mode: "session_confirm" }),
-    );
+    await backend.run((ctx) => ctx.db.patch(fixture.stationId, { mode: "session_confirm" }));
 
     const receipt = await operator.mutation(internal.attendanceScan.recordScan, {
       ...scanArguments(fixture),
@@ -340,9 +338,7 @@ describe("attendance scan direction", () => {
         .unique(),
       zoneB: await ctx.db
         .query("attendanceZoneCounterShards")
-        .withIndex("by_zone_shard", (index) =>
-          index.eq("zoneId", zoneBId).eq("shard", shard),
-        )
+        .withIndex("by_zone_shard", (index) => index.eq("zoneId", zoneBId).eq("shard", shard))
         .unique(),
     }));
     expect(counters.zoneA).toMatchObject({ inside: 0, unknown: 0 });
@@ -576,7 +572,7 @@ async function seedScannerFixture(backend: BackendTest) {
       timezone: "Asia/Kolkata",
       status: "live",
       vitEmailDomains: ["vitstudent.ac.in"],
-        applicationsCloseAt: Date.now() + 86_400_000,
+      applicationsCloseAt: Date.now() + 86_400_000,
       startsAt: now - 60_000,
       endsAt: now + 3_600_000,
       version: 1,
@@ -638,10 +634,7 @@ async function seedScannerFixture(backend: BackendTest) {
       deviceInstallationId,
       operatorPersonId: operator.personId,
     });
-    for (const permissionKey of [
-      "attendance.scan.execute",
-      "attendance.station.read",
-    ] as const) {
+    for (const permissionKey of ["attendance.scan.execute", "attendance.station.read"] as const) {
       await insertPermissionGrant(ctx, {
         eventId,
         personId: operator.personId,

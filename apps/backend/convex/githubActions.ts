@@ -211,9 +211,7 @@ export const completeConnection = action({
         accountId: String(account.id),
         accountLogin,
         targetType: targetType(verifiedInstallation.data.target_type),
-        repositorySelection: installationSelection(
-          verifiedInstallation.data.repository_selection,
-        ),
+        repositorySelection: installationSelection(verifiedInstallation.data.repository_selection),
       });
       return { connectionId: result.connectionId };
     } catch (error) {
@@ -419,8 +417,8 @@ export const reconcileRepository = internalAction({
     const sync: RepositorySyncContext | null = await ctx.runMutation(
       internal.githubIntegrations.beginRepositorySync,
       {
-      bindingId: args.bindingId,
-      leaseId,
+        bindingId: args.bindingId,
+        leaseId,
       },
     );
     if (!sync) return null;
@@ -472,8 +470,7 @@ export const reconcileRepository = internalAction({
         const relevantFiles = sync.rootPath
           ? files.filter(
               (file) =>
-                file.filename === sync.rootPath ||
-                file.filename.startsWith(`${sync.rootPath}/`),
+                file.filename === sync.rootPath || file.filename.startsWith(`${sync.rootPath}/`),
             )
           : files;
         additions = relevantFiles.reduce(
@@ -489,8 +486,7 @@ export const reconcileRepository = internalAction({
         const returnedCommitShas = comparison.data.commits.map((commit) => commit.sha);
         observedCommitShas = sync.rootPath ? [] : returnedCommitShas;
         commitIdentityComplete =
-          commitCount === 0 ||
-          (!sync.rootPath && returnedCommitShas.length === commitCount);
+          commitCount === 0 || (!sync.rootPath && returnedCommitShas.length === commitCount);
         if (compareTruncated || sync.rootPath || !commitIdentityComplete) {
           completeness = "partial";
         }

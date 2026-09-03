@@ -1,12 +1,7 @@
 const whitespace = /\s+/gu;
 const phoneFormatting = /[\s().-]+/gu;
 const unicodeLetter = /\p{L}/gu;
-const obviousPhoneSequences = new Set([
-  "0123456789",
-  "1234567890",
-  "9876543210",
-  "0987654321",
-]);
+const obviousPhoneSequences = new Set(["0123456789", "1234567890", "9876543210", "0987654321"]);
 
 /** Product switches that must agree in the participant UI and backend. */
 export const participantProfileCodeConfiguration: Readonly<{

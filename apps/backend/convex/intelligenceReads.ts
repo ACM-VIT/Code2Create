@@ -12,15 +12,10 @@ import { z } from "zod";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { httpAction, internalQuery, type ActionCtx, type QueryCtx } from "./_generated/server";
-import {
-  HttpBodyTooLargeError,
-  readBoundedRequestText,
-} from "./lib/boundedHttpBody";
+import { HttpBodyTooLargeError, readBoundedRequestText } from "./lib/boundedHttpBody";
 import { redactProjectText } from "./lib/projectText";
 import { requireIntelligenceHmacSecret } from "./lib/intelligenceServiceConfiguration";
-import {
-  intelligenceRecommendationStatus,
-} from "./lib/intelligenceRecommendationValidators";
+import { intelligenceRecommendationStatus } from "./lib/intelligenceRecommendationValidators";
 import { operationsAttentionIntelligenceStatement } from "./lib/operationsAutonomyReadFacts";
 import { maximumAttendanceSessionsPerPlan } from "./lib/attendancePlanLimits";
 import { attendanceCounterShardCount } from "./lib/attendanceCounters";
@@ -124,14 +119,17 @@ export const intelligenceReadEndpoint = httpAction(async (ctx, request) => {
   if (!resolved) return Response.json({ error: "event_not_found" }, { status: 404 });
   const eventId = resolved.eventId;
   const now = Date.now();
-  const data = await runIntelligenceRead(ctx, parsed.data.read === "recommendation_history"
-    ? {
-        read: parsed.data.read,
-        eventId,
-        now,
-        conversationId: parsed.data.conversationId,
-      }
-    : { read: parsed.data.read, eventId, now });
+  const data = await runIntelligenceRead(
+    ctx,
+    parsed.data.read === "recommendation_history"
+      ? {
+          read: parsed.data.read,
+          eventId,
+          now,
+          conversationId: parsed.data.conversationId,
+        }
+      : { read: parsed.data.read, eventId, now },
+  );
   if (data === null) {
     return Response.json({ error: "operations_health_unavailable" }, { status: 503 });
   }
@@ -300,35 +298,36 @@ export const reviewRoundsRead = internalQuery({
     const reviewableTeams = eventTeams.filter(isReviewableTeam);
     const views = [];
     for (const round of rounds.sort((left, right) => left.startsAt - right.startsAt)) {
-      const [panels, states, awaitingSessions, activeSessions, overdueSessions, isPaused] = await Promise.all([
-        ctx.db
-          .query("reviewPanels")
-          .withIndex("by_round_status", (index) => index.eq("roundId", round._id))
-          .take(maximumReviewPanelsPerRound + 1),
-        ctx.db
-          .query("teamRoundStates")
-          .withIndex("by_round_state_priority_queued", (index) => index.eq("roundId", round._id))
-          .take(maximumReviewTeamsPerEvent + 1),
-        ctx.db
-          .query("reviewSessions")
-          .withIndex("by_round_status_updated", (index) =>
-            index.eq("roundId", round._id).eq("status", "awaiting_presence"),
-          )
-          .take(maximumReviewPanelsPerRound + 1),
-        ctx.db
-          .query("reviewSessions")
-          .withIndex("by_round_status_updated", (index) =>
-            index.eq("roundId", round._id).eq("status", "active"),
-          )
-          .take(maximumReviewPanelsPerRound + 1),
-        ctx.db
-          .query("reviewSessions")
-          .withIndex("by_round_status_updated", (index) =>
-            index.eq("roundId", round._id).eq("status", "overdue"),
-          )
-          .take(maximumReviewPanelsPerRound + 1),
-        activeRoundPauseExists(ctx, round._id),
-      ]);
+      const [panels, states, awaitingSessions, activeSessions, overdueSessions, isPaused] =
+        await Promise.all([
+          ctx.db
+            .query("reviewPanels")
+            .withIndex("by_round_status", (index) => index.eq("roundId", round._id))
+            .take(maximumReviewPanelsPerRound + 1),
+          ctx.db
+            .query("teamRoundStates")
+            .withIndex("by_round_state_priority_queued", (index) => index.eq("roundId", round._id))
+            .take(maximumReviewTeamsPerEvent + 1),
+          ctx.db
+            .query("reviewSessions")
+            .withIndex("by_round_status_updated", (index) =>
+              index.eq("roundId", round._id).eq("status", "awaiting_presence"),
+            )
+            .take(maximumReviewPanelsPerRound + 1),
+          ctx.db
+            .query("reviewSessions")
+            .withIndex("by_round_status_updated", (index) =>
+              index.eq("roundId", round._id).eq("status", "active"),
+            )
+            .take(maximumReviewPanelsPerRound + 1),
+          ctx.db
+            .query("reviewSessions")
+            .withIndex("by_round_status_updated", (index) =>
+              index.eq("roundId", round._id).eq("status", "overdue"),
+            )
+            .take(maximumReviewPanelsPerRound + 1),
+          activeRoundPauseExists(ctx, round._id),
+        ]);
       if (panels.length > maximumReviewPanelsPerRound) {
         throw new Error("A review round exceeds the published panel limit.");
       }
@@ -346,8 +345,7 @@ export const reviewRoundsRead = internalQuery({
         queuedCount: states.filter(
           (state) => state.panelId === panel._id && state.state === "queued",
         ).length,
-        activeReviewCount: liveSessions.filter((session) => session.panelId === panel._id)
-          .length,
+        activeReviewCount: liveSessions.filter((session) => session.panelId === panel._id).length,
       }));
       const stateTeamIds = new Set(states.map((state) => state.teamId));
       const count = (state: Doc<"teamRoundStates">["state"]) =>
@@ -438,9 +436,7 @@ export const reviewExceptionsRead = internalQuery({
           panelVersion: panel.version,
           roundId: round._id,
           roundName: round.name,
-          ...(removedMember.endedAt !== undefined
-            ? { vacantSince: removedMember.endedAt }
-            : {}),
+          ...(removedMember.endedAt !== undefined ? { vacantSince: removedMember.endedAt } : {}),
         });
       }
     }
@@ -455,8 +451,7 @@ export const reviewExceptionsRead = internalQuery({
     }
     const exceptionStates = ["queued", "called", "at_table", "held", "missed"] as const;
     const teams = [];
-    roundLoop:
-    for (const round of rounds) {
+    roundLoop: for (const round of rounds) {
       for (const state of exceptionStates) {
         const rows = await ctx.db
           .query("teamRoundStates")
@@ -735,9 +730,7 @@ export const floorMappingProgressRead = internalQuery({
       throw new Error("A floor plan exceeds the floor intelligence team limit.");
     }
     const eligibleTeamIds = new Set(eligibleTeams.map((team) => team._id));
-    const eligibleLocations = locations.filter((location) =>
-      eligibleTeamIds.has(location.teamId),
-    );
+    const eligibleLocations = locations.filter((location) => eligibleTeamIds.has(location.teamId));
     const mappedTeamIds = new Set(eligibleLocations.map((location) => location.teamId));
     return {
       generatedAt: args.now,
@@ -769,9 +762,7 @@ export const supportLoadRead = internalQuery({
       resolved: v.number(),
       closed: v.number(),
     }),
-    openByCategory: v.array(
-      v.object({ category: supportCaseCategory, count: v.number() }),
-    ),
+    openByCategory: v.array(v.object({ category: supportCaseCategory, count: v.number() })),
     unassignedActiveCount: v.number(),
     oldestOpenAt: v.optional(v.number()),
     atLeast: v.boolean(),
@@ -779,11 +770,7 @@ export const supportLoadRead = internalQuery({
       v.object({
         caseId: v.id("supportCases"),
         category: supportCaseCategory,
-        state: v.union(
-          v.literal("open"),
-          v.literal("investigating"),
-          v.literal("waiting"),
-        ),
+        state: v.union(v.literal("open"), v.literal("investigating"), v.literal("waiting")),
         createdAt: v.number(),
         teamId: v.optional(v.id("teams")),
         roundId: v.optional(v.id("reviewRounds")),
@@ -851,13 +838,13 @@ export const supportLoadRead = internalQuery({
       row: Doc<"supportCases">,
       state: "open" | "investigating" | "waiting",
     ) => ({
-        caseId: row._id,
-        category: row.category,
-        state,
-        createdAt: row.createdAt,
-        ...(row.teamId !== undefined ? { teamId: row.teamId } : {}),
-        ...(row.roundId !== undefined ? { roundId: row.roundId } : {}),
-      });
+      caseId: row._id,
+      category: row.category,
+      state,
+      createdAt: row.createdAt,
+      ...(row.teamId !== undefined ? { teamId: row.teamId } : {}),
+      ...(row.roundId !== undefined ? { roundId: row.roundId } : {}),
+    });
     const activeCases = [
       ...openRows.map((row) => supportCaseView(row, "open")),
       ...investigatingRows.map((row) => supportCaseView(row, "investigating")),
@@ -912,8 +899,8 @@ export const recommendationHistoryRead = internalQuery({
       .withIndex("by_event_copilot_conversation_proposed", (index) =>
         index
           .eq("eventId", args.eventId)
-        .eq("provenance.kind", "copilot")
-        .eq("provenance.conversationId", args.conversationId),
+          .eq("provenance.kind", "copilot")
+          .eq("provenance.conversationId", args.conversationId),
       )
       .order("desc")
       .take(50);
@@ -921,17 +908,19 @@ export const recommendationHistoryRead = internalQuery({
       generatedAt: args.now,
       recommendations: rows.flatMap((row) => {
         if (row.arguments.kind === "set_admission_minimum_human_reviews") return [];
-        return [{
-          proposalKey: row.proposalKey,
-          kind: row.arguments.kind,
-          statement: redactProjectText(row.statement),
-          status: row.status,
-          ...(row.operatorNote !== undefined
-            ? { operatorNote: redactProjectText(row.operatorNote) }
-            : {}),
-          proposedAt: row.proposedAt,
-          ...(row.decidedAt !== undefined ? { decidedAt: row.decidedAt } : {}),
-        }];
+        return [
+          {
+            proposalKey: row.proposalKey,
+            kind: row.arguments.kind,
+            statement: redactProjectText(row.statement),
+            status: row.status,
+            ...(row.operatorNote !== undefined
+              ? { operatorNote: redactProjectText(row.operatorNote) }
+              : {}),
+            proposedAt: row.proposedAt,
+            ...(row.decidedAt !== undefined ? { decidedAt: row.decidedAt } : {}),
+          },
+        ];
       }),
     };
   },

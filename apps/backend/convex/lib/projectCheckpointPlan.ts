@@ -42,8 +42,9 @@ export type ProjectCheckpointDefinitionInput = {
   graceMinutes: number;
 };
 
-export type NormalizedProjectCheckpointDefinition =
-  ProjectCheckpointDefinitionInput & { displayOrder: number };
+export type NormalizedProjectCheckpointDefinition = ProjectCheckpointDefinitionInput & {
+  displayOrder: number;
+};
 
 function invalidPlan(message: string): never {
   throw new ConvexError({ code: "INVALID_CHECKPOINT_PLAN", message });
@@ -100,12 +101,7 @@ export function normalizeProjectCheckpointPlan(
       phaseKey: definition.phaseKey,
       displayName: normalizedText(definition.displayName, "Checkpoint name", 2, 80),
       prompt: normalizedText(definition.prompt, "Checkpoint prompt", 5, 500),
-      followUpQuestion: normalizedText(
-        definition.followUpQuestion,
-        "Checkpoint follow-up",
-        5,
-        180,
-      ),
+      followUpQuestion: normalizedText(definition.followUpQuestion, "Checkpoint follow-up", 5, 180),
       graceMinutes: definition.graceMinutes,
       displayOrder: checkpointOrder(definition.checkpointKey),
     }))
@@ -145,19 +141,14 @@ export function projectCheckpointDefinitionFromRow(
   };
 }
 
-export async function loadPublishedProjectCheckpointPlan(
-  ctx: ReadCtx,
-  event: Doc<"events">,
-) {
+export async function loadPublishedProjectCheckpointPlan(ctx: ReadCtx, event: Doc<"events">) {
   if (!event.publishedProjectCheckpointPlanId) return null;
   const plan = await ctx.db.get(event.publishedProjectCheckpointPlanId);
   if (!plan || plan.eventId !== event._id || plan.status !== "published") {
     throw new Error("The event's published project-checkpoint plan is invalid.");
   }
   const rows = await loadProjectCheckpointDefinitions(ctx, plan._id);
-  const definitions = normalizeProjectCheckpointPlan(
-    rows.map(projectCheckpointDefinitionFromRow),
-  );
+  const definitions = normalizeProjectCheckpointPlan(rows.map(projectCheckpointDefinitionFromRow));
   if (
     rows.some((row) => row.eventId !== event._id || row.status !== "published") ||
     projectCheckpointPlanChecksum(definitions) !== plan.checksum
@@ -268,9 +259,7 @@ export async function publishProjectCheckpointPlan(
     });
   }
   const rows = await loadProjectCheckpointDefinitions(ctx, draft._id);
-  const definitions = normalizeProjectCheckpointPlan(
-    rows.map(projectCheckpointDefinitionFromRow),
-  );
+  const definitions = normalizeProjectCheckpointPlan(rows.map(projectCheckpointDefinitionFromRow));
   if (
     rows.some((row) => row.eventId !== args.event._id || row.status !== "draft") ||
     projectCheckpointPlanChecksum(definitions) !== draft.checksum

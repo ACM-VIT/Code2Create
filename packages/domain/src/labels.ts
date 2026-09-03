@@ -262,12 +262,7 @@ export const admissionExperienceBandLabels: Record<AdmissionExperienceBand, stri
   mixed_or_external: "Review as a mixed or external team",
 };
 
-export type AdmissionOfferState =
-  | "offered"
-  | "confirmed"
-  | "declined"
-  | "expired"
-  | "revoked";
+export type AdmissionOfferState = "offered" | "confirmed" | "declined" | "expired" | "revoked";
 
 export const admissionOfferStateLabels: Record<AdmissionOfferState, string> = {
   offered: "Waiting for the team to accept",
@@ -290,14 +285,12 @@ export const admissionInformationRequestStateLabels: Record<
 
 export type AdmissionReviewAssignmentState = "active" | "completed" | "cancelled";
 
-export const admissionReviewAssignmentStateLabels: Record<
-  AdmissionReviewAssignmentState,
-  string
-> = {
-  active: "Has not reviewed yet",
-  completed: "Review submitted",
-  cancelled: "Cancelled",
-};
+export const admissionReviewAssignmentStateLabels: Record<AdmissionReviewAssignmentState, string> =
+  {
+    active: "Has not reviewed yet",
+    completed: "Review submitted",
+    cancelled: "Cancelled",
+  };
 
 export type AdmissionRecommendationState =
   | "pending"
@@ -324,12 +317,7 @@ export const admissionRecommendationStateLabels: Record<AdmissionRecommendationS
   disabled: "Turned off for this event",
 };
 
-export type AdmissionAiDisposition =
-  | "used"
-  | "cleared"
-  | "overridden"
-  | "stale"
-  | "unavailable";
+export type AdmissionAiDisposition = "used" | "cleared" | "overridden" | "stale" | "unavailable";
 
 export const admissionAiDispositionLabels: Record<AdmissionAiDisposition, string> = {
   used: "I agreed with the recommendation",
@@ -450,10 +438,7 @@ export const rollCallPresenceStateLabels: Record<RollCallPresenceState, string> 
   unknown: "Unknown",
 };
 
-export type AttendancePresenceSourceKind =
-  | "scanner"
-  | "staff_reconciliation"
-  | "manual_import";
+export type AttendancePresenceSourceKind = "scanner" | "staff_reconciliation" | "manual_import";
 
 export type AttendancePresenceTransition =
   | "venue_entry"
@@ -558,10 +543,7 @@ export const synesthesiaWindowKindLabels: Record<SynesthesiaWindowKind, string> 
 
 export type SynesthesiaCatalogTrackStatus = "active" | "disabled";
 
-export const synesthesiaCatalogTrackStatusLabels: Record<
-  SynesthesiaCatalogTrackStatus,
-  string
-> = {
+export const synesthesiaCatalogTrackStatusLabels: Record<SynesthesiaCatalogTrackStatus, string> = {
   active: "Participants can request it",
   disabled: "Withdrawn, nobody can request it",
 };
@@ -596,12 +578,7 @@ export const rehearsalRunStateLabels: Record<RehearsalRunState, string> = {
   cancelled: "Cancelled",
 };
 
-export type RehearsalScenarioState =
-  | "pending"
-  | "running"
-  | "passed"
-  | "failed"
-  | "blocked";
+export type RehearsalScenarioState = "pending" | "running" | "passed" | "failed" | "blocked";
 
 export const rehearsalScenarioStateLabels: Record<RehearsalScenarioState, string> = {
   pending: "Not tried yet",
@@ -710,12 +687,7 @@ export const reviewEvaluationStateLabels: Record<ReviewEvaluationState, string> 
   void: "Result voided",
 };
 
-export type RoundExportState =
-  | "generating"
-  | "uploaded"
-  | "verified"
-  | "failed"
-  | "superseded";
+export type RoundExportState = "generating" | "uploaded" | "verified" | "failed" | "superseded";
 
 export const roundExportStateLabels: Record<RoundExportState, string> = {
   generating: "Being written",
@@ -769,12 +741,7 @@ export const integrationProviderHealthLabels: Record<IntegrationProviderHealth, 
   not_connected: "Nothing connected",
 };
 
-export type GithubRepositorySyncState =
-  | "pending"
-  | "running"
-  | "ready"
-  | "rate_limited"
-  | "error";
+export type GithubRepositorySyncState = "pending" | "running" | "ready" | "rate_limited" | "error";
 
 export const githubRepositorySyncStateLabels: Record<GithubRepositorySyncState, string> = {
   pending: "Waiting to read",
@@ -800,12 +767,7 @@ export const githubRepositoryCoverageLabels: Record<GithubRepositoryCoverage, st
   unknown: "Changes not counted yet",
 };
 
-export type FigmaFileSyncState =
-  | "pending"
-  | "running"
-  | "ready"
-  | "rate_limited"
-  | "error";
+export type FigmaFileSyncState = "pending" | "running" | "ready" | "rate_limited" | "error";
 
 export const figmaFileSyncStateLabels: Record<FigmaFileSyncState, string> = {
   pending: "Waiting to read",

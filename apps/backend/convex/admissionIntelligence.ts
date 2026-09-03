@@ -56,10 +56,7 @@ function validSubmittedIntakeResponses(
     ordinal: number;
     answer: string;
   }[],
-  intakePolicy: Pick<
-    Doc<"intakePolicyVersions">,
-    "minimumFollowUpCount" | "maximumFollowUpCount"
-  >,
+  intakePolicy: Pick<Doc<"intakePolicyVersions">, "minimumFollowUpCount" | "maximumFollowUpCount">,
 ) {
   return (
     responses.length >= intakePolicy.minimumFollowUpCount &&
@@ -95,7 +92,8 @@ export const beginRecommendation = internalMutation({
     if (
       !recommendation ||
       (recommendation.state !== "pending" && recommendation.state !== "running")
-    ) return null;
+    )
+      return null;
     const [application, project, policy, modelConfig] = await Promise.all([
       ctx.db.get(recommendation.applicationId),
       ctx.db.get(recommendation.projectVersionId),
@@ -104,30 +102,28 @@ export const beginRecommendation = internalMutation({
         ? ctx.db.get(recommendation.modelConfigVersionId)
         : Promise.resolve(null),
     ]);
-    const intakePolicy = project
-      ? await ctx.db.get(project.intakePolicyVersionId)
-      : null;
+    const intakePolicy = project ? await ctx.db.get(project.intakePolicyVersionId) : null;
     const valid = Boolean(
       application &&
-        application.eventId === recommendation.eventId &&
-        application.teamId === recommendation.teamId &&
-        application.submittedProjectVersionId === recommendation.projectVersionId &&
-        application.contentVersion === recommendation.applicationContentVersion &&
-        application.admissionPolicyVersionId === recommendation.admissionPolicyVersionId &&
-        application.aiRecommendationId === recommendation._id &&
-        project &&
-        project.eventId === recommendation.eventId &&
-        intakePolicy &&
-        intakePolicy.eventId === recommendation.eventId &&
-        (intakePolicy.status === "published" || intakePolicy.status === "superseded") &&
-        validSubmittedIntakeResponses(project.intakeResponses, intakePolicy) &&
-        policy &&
-        policy.eventId === recommendation.eventId &&
-        policy.status === "published" &&
-        modelConfig &&
-        modelConfig.eventId === recommendation.eventId &&
-        modelConfig.status === "published" &&
-        modelConfig.admissionPolicyVersionId === policy._id,
+      application.eventId === recommendation.eventId &&
+      application.teamId === recommendation.teamId &&
+      application.submittedProjectVersionId === recommendation.projectVersionId &&
+      application.contentVersion === recommendation.applicationContentVersion &&
+      application.admissionPolicyVersionId === recommendation.admissionPolicyVersionId &&
+      application.aiRecommendationId === recommendation._id &&
+      project &&
+      project.eventId === recommendation.eventId &&
+      intakePolicy &&
+      intakePolicy.eventId === recommendation.eventId &&
+      (intakePolicy.status === "published" || intakePolicy.status === "superseded") &&
+      validSubmittedIntakeResponses(project.intakeResponses, intakePolicy) &&
+      policy &&
+      policy.eventId === recommendation.eventId &&
+      policy.status === "published" &&
+      modelConfig &&
+      modelConfig.eventId === recommendation.eventId &&
+      modelConfig.status === "published" &&
+      modelConfig.admissionPolicyVersionId === policy._id,
     );
     if (!valid || !application || !project || !policy || !modelConfig) {
       await ctx.db.patch(recommendation._id, {
@@ -191,16 +187,11 @@ export const beginRecommendation = internalMutation({
         question: response.question,
         answer: response.answer,
       })),
-      informationResponses: admissionInformationSources(
-        project.admissionInformationResponses,
-      ),
+      informationResponses: admissionInformationSources(project.admissionInformationResponses),
       criteria: policy.criteria.map((criterion) => ({
         criterionKey: criterion.criterionKey,
         label: criterion.label,
-        guidance: admissionGuidanceForBand(
-          criterion.guidanceByBand,
-          application.experienceBand,
-        ),
+        guidance: admissionGuidanceForBand(criterion.guidanceByBand, application.experienceBand),
       })),
     };
   },
@@ -234,7 +225,8 @@ export const agentDispatchFinished = admissionWorkpool.defineOnComplete<
       recommendation.state !== "pending" ||
       recommendation.agentDispatchAttemptId ||
       recommendation.agentSubmissionId
-    ) return;
+    )
+      return;
     await ctx.db.patch(recommendation._id, {
       limitations: ["The idea agent dispatch is retrying; human review remains available."],
       failureCategory: "agent_dispatch_retry",
@@ -257,7 +249,8 @@ export const retryAgentDispatch = internalMutation({
       recommendation.state !== "pending" ||
       recommendation.agentDispatchAttemptId ||
       recommendation.agentSubmissionId
-    ) return false;
+    )
+      return false;
     await admissionWorkpool.enqueueAction(
       ctx,
       internal.admissionAgentActions.dispatchRecommendation,
@@ -284,7 +277,8 @@ export const recoverAgentRecommendation = internalMutation({
       !recommendation ||
       (recommendation.state !== "pending" && recommendation.state !== "running") ||
       recommendation.agentSubmissionId !== args.submissionId
-    ) return false;
+    )
+      return false;
     await ctx.db.patch(recommendation._id, {
       state: "pending",
       agentSubmissionId: undefined,
@@ -353,7 +347,8 @@ export const finishRecommendation = internalMutation({
       recommendation?.agentOperationId !== undefined &&
       args.operationId === recommendation.agentOperationId &&
       agentOutputChecksum === recommendation.agentOutputChecksum
-    ) return "already_exists";
+    )
+      return "already_exists";
     if (!recommendation || recommendation.state !== "running") return "stale";
     const application = await ctx.db.get(recommendation.applicationId);
     if (
@@ -379,16 +374,14 @@ export const finishRecommendation = internalMutation({
         ctx.db.get(recommendation.admissionPolicyVersionId),
         ctx.db.get(recommendation.projectVersionId),
       ]);
-      const intakePolicy = project
-        ? await ctx.db.get(project.intakePolicyVersionId)
-        : null;
+      const intakePolicy = project ? await ctx.db.get(project.intakePolicyVersionId) : null;
       const expectedKeys = policy?.criteria.map((criterion) => criterion.criterionKey) ?? [];
       const validProjectResponses = Boolean(
         project &&
-          intakePolicy &&
-          intakePolicy.eventId === recommendation.eventId &&
-          (intakePolicy.status === "published" || intakePolicy.status === "superseded") &&
-          validSubmittedIntakeResponses(project.intakeResponses, intakePolicy),
+        intakePolicy &&
+        intakePolicy.eventId === recommendation.eventId &&
+        (intakePolicy.status === "published" || intakePolicy.status === "superseded") &&
+        validSubmittedIntakeResponses(project.intakeResponses, intakePolicy),
       );
       const availableSourceRefs = new Set<SourceRef>(["initial_idea"]);
       if (project?.additionalInformation) {
@@ -400,27 +393,26 @@ export const finishRecommendation = internalMutation({
         }
       }
       if (project) {
-        for (const response of admissionInformationSources(
-          project.admissionInformationResponses,
-        )) {
+        for (const response of admissionInformationSources(project.admissionInformationResponses)) {
           availableSourceRefs.add(response.sourceRef);
         }
       }
-      const policyViolation = args.recommendation && args.confidence
-        ? ideaIntelligenceAnalysisPolicyViolation({
-            analysis: {
-              recommendation: args.recommendation,
-              criterionAssessments: args.criterionAssessments,
-              strengths: args.strengths,
-              concerns: args.concerns,
-              proposedQuestions: args.proposedQuestions,
-              confidence: args.confidence,
-              limitations: args.limitations,
-            },
-            criterionKeys: expectedKeys,
-            sourceRefs: [...availableSourceRefs],
-          })
-        : "shape_mismatch";
+      const policyViolation =
+        args.recommendation && args.confidence
+          ? ideaIntelligenceAnalysisPolicyViolation({
+              analysis: {
+                recommendation: args.recommendation,
+                criterionAssessments: args.criterionAssessments,
+                strengths: args.strengths,
+                concerns: args.concerns,
+                proposedQuestions: args.proposedQuestions,
+                confidence: args.confidence,
+                limitations: args.limitations,
+              },
+              criterionKeys: expectedKeys,
+              sourceRefs: [...availableSourceRefs],
+            })
+          : "shape_mismatch";
       const valid =
         project?.eventId === recommendation.eventId &&
         validProjectResponses &&

@@ -21,10 +21,10 @@
  * reel on screen long enough to be seen.
  */
 
-import { useCallback, useLayoutEffect, useMemo, useRef, type RefObject } from 'react';
-import gsap from 'gsap';
+import { useCallback, useLayoutEffect, useMemo, useRef, type RefObject } from "react";
+import gsap from "gsap";
 
-import { limbAt } from '../limbCurve.js';
+import { limbAt } from "../limbCurve.js";
 import {
   createLadderSim,
   createReelSim,
@@ -36,7 +36,7 @@ import {
   type LadderColumn,
   type LadderSimulation,
   type LadderWorld,
-} from './ladderPhysics.js';
+} from "./ladderPhysics.js";
 
 /** Where a bough turns, as a fraction of its own box. Matches the artwork. */
 const PIVOT_X = 0.04;
@@ -69,12 +69,9 @@ function boxWithin(el: HTMLElement, stageRect: DOMRect) {
  * never pinned, and their ropes hung from nowhere after a live resize
  * across the breakpoint.
  */
-export type LadderActivity = 'fall' | 'reel';
+export type LadderActivity = "fall" | "reel";
 
-export function useFallingLadder(
-  stageRef: RefObject<HTMLElement | null>,
-  remountKey: boolean,
-) {
+export function useFallingLadder(stageRef: RefObject<HTMLElement | null>, remountKey: boolean) {
   /* A stable handle: the effect hangs the real implementation off this ref, so
      the caller can hold the handle across re-runs without re-wiring anything,
      and calling it before the effect has run is simply ignored. */
@@ -94,17 +91,17 @@ export function useFallingLadder(
     const stage = stageRef.current;
     if (!stage) return undefined;
 
-    const boughEls = Array.from(stage.querySelectorAll<HTMLElement>('.bough'));
-    const columnEls = Array.from(stage.querySelectorAll<HTMLElement>('.faq-column'));
+    const boughEls = Array.from(stage.querySelectorAll<HTMLElement>(".bough"));
+    const columnEls = Array.from(stage.querySelectorAll<HTMLElement>(".faq-column"));
     if (!boughEls.length || !columnEls.length) return undefined;
 
-    const shellEl = stage.querySelector<HTMLElement>('.faq-shell');
-    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const shellEl = stage.querySelector<HTMLElement>(".faq-shell");
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
     let world: LadderWorld | null = null;
     let sim: LadderSimulation | null = null;
     /* 'rest' — off screen; 'fall' — being paid out; 'reel' — being hauled in. */
-    let mode: 'rest' | LadderActivity = 'rest';
+    let mode: "rest" | LadderActivity = "rest";
     let running = false;
     let wanted = false;
 
@@ -114,28 +111,28 @@ export function useFallingLadder(
     const reveal = (on: boolean) => {
       const shown = shellEl ? [...boughEls, shellEl] : boughEls;
       shown.forEach((el) => {
-        el.style.visibility = on ? 'visible' : 'hidden';
-        el.style.opacity = on ? '1' : '0';
+        el.style.visibility = on ? "visible" : "hidden";
+        el.style.opacity = on ? "1" : "0";
       });
     };
 
     const clearStyles = () => {
       boughEls.forEach((el) => {
-        el.style.transform = '';
-        el.style.transformOrigin = '';
+        el.style.transform = "";
+        el.style.transformOrigin = "";
       });
       columnEls.forEach((column) => {
-        column.querySelectorAll<HTMLElement>('.plank').forEach((el) => {
-          el.style.transform = '';
-          el.style.transformOrigin = '';
+        column.querySelectorAll<HTMLElement>(".plank").forEach((el) => {
+          el.style.transform = "";
+          el.style.transformOrigin = "";
         });
-        column.querySelectorAll<HTMLElement>('.rope').forEach((el) => {
-          el.style.left = '';
-          el.style.right = '';
-          el.style.top = '';
-          el.style.height = '';
-          el.style.transform = '';
-          el.style.transformOrigin = '';
+        column.querySelectorAll<HTMLElement>(".rope").forEach((el) => {
+          el.style.left = "";
+          el.style.right = "";
+          el.style.top = "";
+          el.style.height = "";
+          el.style.transform = "";
+          el.style.transformOrigin = "";
         });
       });
     };
@@ -147,7 +144,7 @@ export function useFallingLadder(
       const stageRect = stage.getBoundingClientRect();
 
       const boughs: LadderBough[] = boughEls.map((el) => {
-        const dir = el.dataset.boughSide === 'right' ? -1 : 1;
+        const dir = el.dataset.boughSide === "right" ? -1 : 1;
         const box = boxWithin(el, stageRect);
         return {
           el,
@@ -183,7 +180,7 @@ export function useFallingLadder(
         if (el.offsetParent === null) return;
 
         const box = boxWithin(el, stageRect);
-        const rungs = Array.from(el.querySelectorAll<HTMLElement>('.plank')).map((plank) => {
+        const rungs = Array.from(el.querySelectorAll<HTMLElement>(".plank")).map((plank) => {
           const rung = boxWithin(plank, stageRect);
           return {
             el: plank,
@@ -198,59 +195,59 @@ export function useFallingLadder(
         });
         if (!rungs.length) return;
 
-        const anchors: LadderAnchor[] = Array.from(el.querySelectorAll<HTMLElement>('.rope')).map((rope) => {
-          const cord = boxWithin(rope, stageRect);
-          const width = cord.width || 2.5;
-          const worldX = cord.left + width / 2;
-          const restX = worldX - box.left;
+        const anchors: LadderAnchor[] = Array.from(el.querySelectorAll<HTMLElement>(".rope")).map(
+          (rope) => {
+            const cord = boxWithin(rope, stageRect);
+            const width = cord.width || 2.5;
+            const worldX = cord.left + width / 2;
+            const restX = worldX - box.left;
 
-          /* Whichever bough covers this cord, and the lowest of them where two
+            /* Whichever bough covers this cord, and the lowest of them where two
              overlap — the ladder hangs off the limb in front. */
-          let best: { bough: LadderBough; ay: number; y: number } | null = null;
-          boughs.forEach((bough) => {
-            if (worldX < bough.left || worldX > bough.left + bough.width) return;
-            let t = (worldX - bough.left) / bough.width;
-            if (bough.dir < 0) t = 1 - t;
-            const under = limbAt(t);
-            if (under == null) return;
-            const ay = under * bough.height;
-            if (!best || bough.top + ay > best.y) {
+            let best: { bough: LadderBough; ay: number; y: number } | null = null;
+            boughs.forEach((bough) => {
+              if (worldX < bough.left || worldX > bough.left + bough.width) return;
+              let t = (worldX - bough.left) / bough.width;
+              if (bough.dir < 0) t = 1 - t;
+              const under = limbAt(t);
+              if (under == null) return;
+              const ay = under * bough.height;
+              if (!best || bough.top + ay > best.y) {
+                best = { bough, ay, y: bough.top + ay };
+              }
+            });
+
+            /* Past the end of every plate: tie to the nearest one rather than
+             leave the cord hanging off nothing. */
+            if (!best) {
+              const bough = boughs.reduce((closest, candidate) => {
+                const centre = candidate.left + candidate.width / 2;
+                const rival = closest.left + closest.width / 2;
+                return Math.abs(worldX - centre) < Math.abs(worldX - rival) ? candidate : closest;
+              }, boughs[0]);
+              const raw = Math.min(1, Math.max(0, (worldX - bough.left) / bough.width));
+              const under = limbAt(bough.dir < 0 ? 1 - raw : raw) ?? 0.5;
+              const ay = under * bough.height;
               best = { bough, ay, y: bough.top + ay };
             }
-          });
 
-          /* Past the end of every plate: tie to the nearest one rather than
-             leave the cord hanging off nothing. */
-          if (!best) {
-            const bough = boughs.reduce((closest, candidate) => {
-              const centre = candidate.left + candidate.width / 2;
-              const rival = closest.left + closest.width / 2;
-              return Math.abs(worldX - centre) < Math.abs(worldX - rival)
-                ? candidate
-                : closest;
-            }, boughs[0]);
-            const raw = Math.min(1, Math.max(0, (worldX - bough.left) / bough.width));
-            const under = limbAt(bough.dir < 0 ? 1 - raw : raw) ?? 0.5;
-            const ay = under * bough.height;
-            best = { bough, ay, y: bough.top + ay };
-          }
-
-          return {
-            el: rope,
-            bough: best.bough,
-            halfWidth: width / 2,
-            restX,
-            /* Where the knot sits in the bough's own unturned box. */
-            ax: worldX - best.bough.left,
-            ay: best.ay,
-            /* Rewritten by the solver every step. */
-            x: worldX,
-            y: best.y,
-            vy: 0,
-            accX: 0,
-            rx: 0,
-          };
-        });
+            return {
+              el: rope,
+              bough: best.bough,
+              halfWidth: width / 2,
+              restX,
+              /* Where the knot sits in the bough's own unturned box. */
+              ax: worldX - best.bough.left,
+              ay: best.ay,
+              /* Rewritten by the solver every step. */
+              x: worldX,
+              y: best.y,
+              vy: 0,
+              accX: 0,
+              rx: 0,
+            };
+          },
+        );
         if (!anchors.length) return;
 
         const anchorRest = {
@@ -284,7 +281,7 @@ export function useFallingLadder(
         boughs,
         columns,
         stageWidth: stageRect.width,
-        towUp: window.matchMedia('(max-width: 1100px)').matches,
+        towUp: window.matchMedia("(max-width: 1100px)").matches,
       };
     };
 
@@ -292,21 +289,16 @@ export function useFallingLadder(
 
     /* The cord is a 2.5px bar, so it is hung from the knot and turned to face
        the foot of the ladder rather than redrawn as a line. */
-    const placeRope = (
-      anchor: LadderAnchor,
-      column: LadderColumn,
-      endX: number,
-      endY: number,
-    ) => {
+    const placeRope = (anchor: LadderAnchor, column: LadderColumn, endX: number, endY: number) => {
       const dx = endX - anchor.x;
       const dy = endY - anchor.y;
       const length = Math.max(1, Math.hypot(dx, dy));
       const el = anchor.el;
-      el.style.right = 'auto';
+      el.style.right = "auto";
       el.style.left = `${(anchor.x - column.left - anchor.halfWidth).toFixed(2)}px`;
       el.style.top = `${(anchor.y - column.top).toFixed(2)}px`;
       el.style.height = `${length.toFixed(2)}px`;
-      el.style.transformOrigin = '50% 0';
+      el.style.transformOrigin = "50% 0";
       el.style.transform = `rotate(${Math.atan2(-dx, dy).toFixed(5)}rad)`;
     };
 
@@ -315,13 +307,13 @@ export function useFallingLadder(
     const drawRest = () => {
       if (!world) return;
       world.boughs.forEach((bough) => {
-        bough.el.style.transform = '';
-        bough.el.style.transformOrigin = '';
+        bough.el.style.transform = "";
+        bough.el.style.transformOrigin = "";
       });
       world.columns.forEach((column) => {
         column.rungs.forEach((rung) => {
-          rung.el.style.transform = '';
-          rung.el.style.transformOrigin = '';
+          rung.el.style.transform = "";
+          rung.el.style.transformOrigin = "";
         });
         const last = column.rungs[column.rungs.length - 1];
         const foot = last.rest + last.height;
@@ -353,7 +345,7 @@ export function useFallingLadder(
         column.rungs.forEach((rung) => {
           const centre = rung.pos + rung.height / 2;
           const x = shift + lean * Math.max(0, centre - column.anchorY);
-          rung.el.style.transformOrigin = '50% 50%';
+          rung.el.style.transformOrigin = "50% 50%";
           rung.el.style.transform = `translate3d(${x.toFixed(2)}px, ${(
             rung.pos - rung.rest
           ).toFixed(2)}px, 0)`;
@@ -382,7 +374,7 @@ export function useFallingLadder(
     const idle = () => {
       stop();
       sim = null;
-      mode = 'rest';
+      mode = "rest";
       reveal(false);
       const measured = measure();
       world = measured;
@@ -391,7 +383,7 @@ export function useFallingLadder(
 
     function tick(_time: number, deltaMs: number) {
       if (!sim) return;
-      const scale = mode === 'fall' ? FALL_TIME_SCALE : TIME_SCALE;
+      const scale = mode === "fall" ? FALL_TIME_SCALE : TIME_SCALE;
       let remaining = Math.min(deltaMs / 1000, MAX_FRAME) / scale;
       while (remaining > 0 && !sim.done) {
         sim.step(Math.min(remaining, SIM_STEP));
@@ -399,7 +391,7 @@ export function useFallingLadder(
       }
       draw();
       if (!sim.done) return;
-      if (mode === 'reel') idle();
+      if (mode === "reel") idle();
       else {
         stop();
         drawRest();
@@ -417,7 +409,7 @@ export function useFallingLadder(
       if (!measured) return false;
       world = measured;
       sim = createLadderSim(world);
-      mode = 'fall';
+      mode = "fall";
       reveal(true);
       if (reduced) {
         sim.finish();
@@ -436,10 +428,10 @@ export function useFallingLadder(
     /* Only a ladder that is out can be hauled back in; anything else has
        nothing to reel and simply goes dark. */
     const startReel = () => {
-      if (!world || mode === 'rest' || reduced) return false;
+      if (!world || mode === "rest" || reduced) return false;
       stop();
       sim = createReelSim(world);
-      mode = 'reel';
+      mode = "reel";
       draw();
       run();
       return true;
@@ -461,7 +453,7 @@ export function useFallingLadder(
         }
         world = measured;
         sim = createLadderSim(world);
-        mode = 'fall';
+        mode = "fall";
         reveal(true);
         sim.finish();
         drawRest();
@@ -479,7 +471,7 @@ export function useFallingLadder(
 
     /* `running` is true exactly while the ticker is stepping a simulation, so
        it is the whole of "still playing" for both directions. */
-    probe.current = () => (running && mode !== 'rest' ? mode : null);
+    probe.current = () => (running && mode !== "rest" ? mode : null);
 
     idle();
 
@@ -522,22 +514,22 @@ export function useFallingLadder(
     };
 
     const onAnswerTransition = (event: TransitionEvent) => {
-      if (event.propertyName !== 'grid-template-rows') return;
+      if (event.propertyName !== "grid-template-rows") return;
       relayout();
     };
-    const answers = Array.from(stage.querySelectorAll<HTMLElement>('.plank__answer'));
-    answers.forEach((el) => el.addEventListener('transitionend', onAnswerTransition));
+    const answers = Array.from(stage.querySelectorAll<HTMLElement>(".plank__answer"));
+    answers.forEach((el) => el.addEventListener("transitionend", onAnswerTransition));
 
     const observer = new ResizeObserver(relayoutSettled);
     boughEls.forEach((el) => observer.observe(el));
-    window.addEventListener('resize', relayoutSettled);
+    window.addEventListener("resize", relayoutSettled);
 
     return () => {
       stop();
       clearTimeout(settleTimer);
       observer.disconnect();
-      window.removeEventListener('resize', relayoutSettled);
-      answers.forEach((el) => el.removeEventListener('transitionend', onAnswerTransition));
+      window.removeEventListener("resize", relayoutSettled);
+      answers.forEach((el) => el.removeEventListener("transitionend", onAnswerTransition));
       cue.current = null;
       probe.current = null;
       clearStyles();

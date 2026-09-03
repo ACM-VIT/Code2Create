@@ -38,7 +38,11 @@ const workerResponse = z.discriminatedUnion("state", [
 
 const copilotTurnInput = z
   .object({
-    turnId: z.string().min(8).max(200).regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/u),
+    turnId: z
+      .string()
+      .min(8)
+      .max(200)
+      .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/u),
     message: z.string().trim().min(1).max(4_000),
   })
   .strict();
@@ -194,14 +198,11 @@ export const submitCopilotTurn = action({
         if (!conflict.success) {
           throw new Error("The intelligence service returned an invalid conflict. Retry safely.");
         }
-        await ctx.runMutation(
-          internal.intelligenceObservability.markCopilotTurnDeliveryUnknown,
-          {
-            turnRecordId,
-            state: "conflict",
-            failureDetail: "The Worker reported that this turn identity has different content.",
-          },
-        );
+        await ctx.runMutation(internal.intelligenceObservability.markCopilotTurnDeliveryUnknown, {
+          turnRecordId,
+          state: "conflict",
+          failureDetail: "The Worker reported that this turn identity has different content.",
+        });
         conflictRecorded = true;
         throw new ConvexError({
           code: "COPILOT_TURN_CONFLICT",
@@ -238,16 +239,13 @@ export const submitCopilotTurn = action({
         deduplicated: receipt.data.deduplicated,
       };
     } catch (caught) {
-      await ctx.runMutation(
-        internal.intelligenceObservability.markCopilotTurnDeliveryUnknown,
-        {
-          turnRecordId,
-          state: conflictRecorded ? "conflict" : "delivery_unknown",
-          failureDetail: conflictRecorded
-            ? "The Worker reported that this turn identity has different content."
-            : "Turn delivery did not finish with a verifiable receipt; an idempotent retry is safe.",
-        },
-      );
+      await ctx.runMutation(internal.intelligenceObservability.markCopilotTurnDeliveryUnknown, {
+        turnRecordId,
+        state: conflictRecorded ? "conflict" : "delivery_unknown",
+        failureDetail: conflictRecorded
+          ? "The Worker reported that this turn identity has different content."
+          : "Turn delivery did not finish with a verifiable receipt; an idempotent retry is safe.",
+      });
       throw caught;
     }
   },
@@ -307,10 +305,7 @@ export const openBriefStream = action({
     const authorization: {
       eventSlug: string;
       briefId: Id<"operationsIntelligenceBriefs">;
-    } = await ctx.runQuery(
-      internal.intelligenceObservability.authorizeBriefStream,
-      args,
-    );
+    } = await ctx.runQuery(internal.intelligenceObservability.authorizeBriefStream, args);
     const issuedAt = Date.now();
     const ticket: OperationsIntelligenceStreamTicket = {
       protocolVersion: operationsIntelligenceProtocolVersion,
@@ -378,9 +373,7 @@ export const dispatchBrief = internalAction({
     }
     await ctx.runMutation(internal.operationsIntelligence.markAccepted, {
       briefId: args.briefId,
-      ...(parsed.data.state === "accepted"
-        ? { workerSubmissionId: parsed.data.submissionId }
-        : {}),
+      ...(parsed.data.state === "accepted" ? { workerSubmissionId: parsed.data.submissionId } : {}),
       workerAcceptedAt: acceptedAt,
     });
     return null;

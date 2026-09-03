@@ -4,28 +4,28 @@
 
 Each criterion is scored from 0 to 4.
 
-| Criterion | Weight | Question |
-| --- | ---: | --- |
-| Problem & User Fit | 15 | Is the problem specific, evidenced, and relevant to a clear user? |
-| Working Solution | 20 | Does the demonstrated solution perform the important flow? |
-| Event Build Contribution | 15 | What did this team build during Code2Create from the official event baseline? |
-| Technical Execution | 15 | Are the implementation choices sound for the problem and current stage? |
-| User Readiness | 10 | Can the intended user understand and use the current experience? |
-| Trust & Responsible Use | 15 | Has the team handled privacy, security, safety, data, accessibility, and misuse risk? |
-| Communication & Evidence | 10 | Did the team explain its decisions and support claims with a demo or other evidence? |
-| **Total** | **100** | |
+| Criterion                |  Weight | Question                                                                              |
+| ------------------------ | ------: | ------------------------------------------------------------------------------------- |
+| Problem & User Fit       |      15 | Is the problem specific, evidenced, and relevant to a clear user?                     |
+| Working Solution         |      20 | Does the demonstrated solution perform the important flow?                            |
+| Event Build Contribution |      15 | What did this team build during Code2Create from the official event baseline?         |
+| Technical Execution      |      15 | Are the implementation choices sound for the problem and current stage?               |
+| User Readiness           |      10 | Can the intended user understand and use the current experience?                      |
+| Trust & Responsible Use  |      15 | Has the team handled privacy, security, safety, data, accessibility, and misuse risk? |
+| Communication & Evidence |      10 | Did the team explain its decisions and support claims with a demo or other evidence?  |
+| **Total**                | **100** |                                                                                       |
 
 Board must approve wording and round applicability before the rubric is published.
 
 ## 2. Shared score anchors
 
-| Score | Meaning |
-| ---: | --- |
-| 0 | Not shown |
-| 1 | Weak or mostly claimed |
-| 2 | Basic or partially shown |
-| 3 | Strong or clearly shown |
-| 4 | Excellent; the reviewer can confidently verify it |
+| Score | Meaning                                           |
+| ----: | ------------------------------------------------- |
+|     0 | Not shown                                         |
+|     1 | Weak or mostly claimed                            |
+|     2 | Basic or partially shown                          |
+|     3 | Strong or clearly shown                           |
+|     4 | Excellent; the reviewer can confidently verify it |
 
 Each rubric criterion also has examples for 0, 2, and 4. Reviewer training uses the same examples as the app.
 
@@ -77,15 +77,15 @@ The final minimum scorer count remains an open event decision and is stored with
 
 Before routing opens, the panel plan creates a coverage matrix:
 
-| Criterion | Reviewer A | Reviewer B | Reviewer C |
-| --- | :---: | :---: | :---: |
-| Problem & User Fit | ✓ | ✓ | |
-| Working Solution | ✓ | | ✓ |
-| Event Build Contribution | | ✓ | ✓ |
-| Technical Execution | ✓ | | ✓ |
-| User Readiness | ✓ | ✓ | |
-| Trust & Responsible Use | | ✓ | ✓ |
-| Communication & Evidence | ✓ | ✓ | |
+| Criterion                | Reviewer A | Reviewer B | Reviewer C |
+| ------------------------ | :--------: | :--------: | :--------: |
+| Problem & User Fit       |     ✓      |     ✓      |            |
+| Working Solution         |     ✓      |            |     ✓      |
+| Event Build Contribution |            |     ✓      |     ✓      |
+| Technical Execution      |     ✓      |            |     ✓      |
+| User Readiness           |     ✓      |     ✓      |            |
+| Trust & Responsible Use  |            |     ✓      |     ✓      |
+| Communication & Evidence |     ✓      |     ✓      |            |
 
 This is an example, not a fixed mapping. The planner uses reviewer expertise and ensures the configured minimum.
 

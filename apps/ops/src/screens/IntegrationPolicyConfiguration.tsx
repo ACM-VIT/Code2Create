@@ -1,87 +1,85 @@
-import { api } from '@code2create/backend/api'
-import { TZDateMini } from '@date-fns/tz'
-import type { FunctionReturnType } from 'convex/server'
-import { useMutation, useQuery } from 'convex/react'
-import { useState, type FormEvent } from 'react'
+import { api } from "@code2create/backend/api";
+import { TZDateMini } from "@date-fns/tz";
+import type { FunctionReturnType } from "convex/server";
+import { useMutation, useQuery } from "convex/react";
+import { useState, type FormEvent } from "react";
 
-import { ConfigurationTabs, type ConfigurationTabsVisibility } from '../components/ConfigurationTabs'
-import { ConfigurationEditorDisclosure } from '../components/ConfigurationEditorDisclosure'
-import { PendingOperationRecovery } from '../components/PendingOperationRecovery'
-import { LoadingLabel, SkeletonCard, SkeletonStats } from '../components/Skeleton'
-import { eventSlug } from '../lib/config'
+import {
+  ConfigurationTabs,
+  type ConfigurationTabsVisibility,
+} from "../components/ConfigurationTabs";
+import { ConfigurationEditorDisclosure } from "../components/ConfigurationEditorDisclosure";
+import { PendingOperationRecovery } from "../components/PendingOperationRecovery";
+import { LoadingLabel, SkeletonCard, SkeletonStats } from "../components/Skeleton";
+import { eventSlug } from "../lib/config";
 import {
   type ConfigurationOperationDescriptor,
   useConfigurationOperations,
-} from '../lib/configurationOperations'
-import { useVersionedState } from '@code2create/web-forms'
+} from "../lib/configurationOperations";
+import { useVersionedState } from "@code2create/web-forms";
 
-type Configuration = FunctionReturnType<typeof api.integrationPolicyConfiguration.current>
-type Policy = Configuration['publishedPolicy']['policy']
+type Configuration = FunctionReturnType<typeof api.integrationPolicyConfiguration.current>;
+type Policy = Configuration["publishedPolicy"]["policy"];
 type IntegrationPolicyOperationResult =
   | FunctionReturnType<typeof api.integrationPolicyConfiguration.createDraft>
-  | FunctionReturnType<typeof api.integrationPolicyConfiguration.publish>
+  | FunctionReturnType<typeof api.integrationPolicyConfiguration.publish>;
 
 const operationDescriptors = [
   {
-    slot: 'integration-policy-publish',
-    title: 'Finish publishing the code and design rules',
-    action: 'Confirm earlier publication',
+    slot: "integration-policy-publish",
+    title: "Finish publishing the code and design rules",
+    action: "Confirm earlier publication",
   },
   {
-    slot: 'integration-policy-draft',
-    title: 'Finish saving the draft',
-    action: 'Confirm earlier save',
+    slot: "integration-policy-draft",
+    title: "Finish saving the draft",
+    action: "Confirm earlier save",
   },
-] satisfies readonly ConfigurationOperationDescriptor[]
+] satisfies readonly ConfigurationOperationDescriptor[];
 
 type EditorPolicy = Omit<
   Policy,
-  | 'maxActiveGitHubRepositoriesPerTeam'
-  | 'maxActiveFigmaFilesPerTeam'
-  | 'githubFreezeAt'
-  | 'figmaFreezeAt'
+  | "maxActiveGitHubRepositoriesPerTeam"
+  | "maxActiveFigmaFilesPerTeam"
+  | "githubFreezeAt"
+  | "figmaFreezeAt"
 > & {
-  maxActiveGitHubRepositoriesPerTeam: string
-  maxActiveFigmaFilesPerTeam: string
-  githubFreezeAt: string
-  figmaFreezeAt: string
-}
+  maxActiveGitHubRepositoriesPerTeam: string;
+  maxActiveFigmaFilesPerTeam: string;
+  githubFreezeAt: string;
+  figmaFreezeAt: string;
+};
 
-export function IntegrationPolicyConfiguration({
-  tabs,
-}: {
-  tabs: ConfigurationTabsVisibility
-}) {
-  const configuration = useQuery(api.integrationPolicyConfiguration.current, { eventSlug })
-  const createDraft = useMutation(api.integrationPolicyConfiguration.createDraft)
-  const publish = useMutation(api.integrationPolicyConfiguration.publish)
-  const operations = useConfigurationOperations<IntegrationPolicyOperationResult>(
-    operationDescriptors,
-  )
+export function IntegrationPolicyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibility }) {
+  const configuration = useQuery(api.integrationPolicyConfiguration.current, { eventSlug });
+  const createDraft = useMutation(api.integrationPolicyConfiguration.createDraft);
+  const publish = useMutation(api.integrationPolicyConfiguration.publish);
+  const operations =
+    useConfigurationOperations<IntegrationPolicyOperationResult>(operationDescriptors);
   const validation = useQuery(
     api.integrationPolicyConfiguration.validateDraft,
     configuration?.canValidate && configuration.draftPolicy
       ? { eventSlug, draftPolicyId: configuration.draftPolicy.id }
-      : 'skip',
-  )
+      : "skip",
+  );
   const source = configuration
-    ? configuration.draftPolicy ?? configuration.publishedPolicy
-    : null
-  const sourceKey = source ? `${source.id}:${source.checksum}` : 'loading'
+    ? (configuration.draftPolicy ?? configuration.publishedPolicy)
+    : null;
+  const sourceKey = source ? `${source.id}:${source.checksum}` : "loading";
   const policyState = useVersionedState<EditorPolicy | null>(
     sourceKey,
     source && configuration ? toEditorPolicy(source.policy, configuration.timezone) : null,
-  )
-  const policy = policyState.value
-  const setPolicy = policyState.update
-  const [draftReason, setDraftReason] = useState('')
-  const [publishReason, setPublishReason] = useState('')
-  const publishState = useVersionedState(sourceKey, false)
-  const publishArmed = publishState.value
-  const setPublishArmed = publishState.replace
-  const { busy, error, operationPending, pendingOperation } = operations
-  const draftPending = operations.hasPending('integration-policy-draft')
-  const publishPending = operations.hasPending('integration-policy-publish')
+  );
+  const policy = policyState.value;
+  const setPolicy = policyState.update;
+  const [draftReason, setDraftReason] = useState("");
+  const [publishReason, setPublishReason] = useState("");
+  const publishState = useVersionedState(sourceKey, false);
+  const publishArmed = publishState.value;
+  const setPublishArmed = publishState.replace;
+  const { busy, error, operationPending, pendingOperation } = operations;
+  const draftPending = operations.hasPending("integration-policy-draft");
+  const publishPending = operations.hasPending("integration-policy-publish");
 
   if (configuration === undefined || policy === null) {
     return (
@@ -91,45 +89,54 @@ export function IntegrationPolicyConfiguration({
         <SkeletonStats columns={3} />
         <SkeletonCard lines={4} />
       </section>
-    )
+    );
   }
 
   const updatePolicy = <Key extends keyof EditorPolicy>(key: Key, value: EditorPolicy[Key]) => {
-    setPolicy((current) => current ? { ...current, [key]: value } : current)
-  }
+    setPolicy((current) => (current ? { ...current, [key]: value } : current));
+  };
 
   const saveDraft = (event: FormEvent) => {
-    event.preventDefault()
-    void operations.run('integration-policy-draft', (clientOperationId) => () => createDraft({
-      eventSlug,
-      policy: fromEditorPolicy(policy, configuration.timezone),
-      expectedEventVersion: configuration.eventVersion,
-      ...(configuration.draftPolicy
-        ? { expectedDraftPolicyId: configuration.draftPolicy.id }
-        : {}),
-      reason: draftReason,
-      clientOperationId,
-    }))
-  }
+    event.preventDefault();
+    void operations.run(
+      "integration-policy-draft",
+      (clientOperationId) => () =>
+        createDraft({
+          eventSlug,
+          policy: fromEditorPolicy(policy, configuration.timezone),
+          expectedEventVersion: configuration.eventVersion,
+          ...(configuration.draftPolicy
+            ? { expectedDraftPolicyId: configuration.draftPolicy.id }
+            : {}),
+          reason: draftReason,
+          clientOperationId,
+        }),
+    );
+  };
 
   const publishDraft = () => {
-    const draft = configuration.draftPolicy
-    if (!draft || !validation?.valid) return
-    void operations.run('integration-policy-publish', (clientOperationId) => () => publish({
-      eventSlug,
-      draftPolicyId: draft.id,
-      expectedDraftChecksum: draft.checksum,
-      expectedEventVersion: configuration.eventVersion,
-      reason: publishReason,
-      clientOperationId,
-    }), () => setPublishArmed(false))
-  }
+    const draft = configuration.draftPolicy;
+    if (!draft || !validation?.valid) return;
+    void operations.run(
+      "integration-policy-publish",
+      (clientOperationId) => () =>
+        publish({
+          eventSlug,
+          draftPolicyId: draft.id,
+          expectedDraftChecksum: draft.checksum,
+          expectedEventVersion: configuration.eventVersion,
+          reason: publishReason,
+          clientOperationId,
+        }),
+      () => setPublishArmed(false),
+    );
+  };
 
   const confirmPendingOperation = () => {
-    void operations.retryPending(() => setPublishArmed(false))
-  }
+    void operations.retryPending(() => setPublishArmed(false));
+  };
 
-  const published = configuration.publishedPolicy.policy
+  const published = configuration.publishedPolicy.policy;
   return (
     <section className="configuration-shell intake-policy-shell">
       <ConfigurationTabs visibility={tabs} />
@@ -137,18 +144,25 @@ export function IntegrationPolicyConfiguration({
         <div>
           <h1>Code and design rules</h1>
           <p className="muted">
-            The required GitHub topic, how many repositories and files each team can connect, and when changes freeze.
+            The required GitHub topic, how many repositories and files each team can connect, and
+            when changes freeze.
           </p>
         </div>
       </header>
 
       <dl className="catalog-summary">
-        <div><dt>Release</dt><dd>{published.policyVersion}</dd></div>
-        <div><dt>Required topic</dt><dd>{published.requiredGitHubTopic}</dd></div>
+        <div>
+          <dt>Release</dt>
+          <dd>{published.policyVersion}</dd>
+        </div>
+        <div>
+          <dt>Required topic</dt>
+          <dd>{published.requiredGitHubTopic}</dd>
+        </div>
         <div>
           <dt>Per team</dt>
           <dd>
-            {published.maxActiveGitHubRepositoriesPerTeam} GitHub ·{' '}
+            {published.maxActiveGitHubRepositoriesPerTeam} GitHub ·{" "}
             {published.maxActiveFigmaFilesPerTeam} Figma
           </dd>
         </div>
@@ -190,11 +204,15 @@ export function IntegrationPolicyConfiguration({
             ) : (
               <>
                 <ul className="catalog-change-list">
-                  {validation.changes.map((change) => <li key={change}>{change}</li>)}
+                  {validation.changes.map((change) => (
+                    <li key={change}>{change}</li>
+                  ))}
                 </ul>
                 {validation.issues.length > 0 ? (
                   <ul className="catalog-issue-list">
-                    {validation.issues.map((issue) => <li key={issue}>{issue}</li>)}
+                    {validation.issues.map((issue) => (
+                      <li key={issue}>{issue}</li>
+                    ))}
                   </ul>
                 ) : (
                   <p className="notice">Ready to publish with the teams currently connected.</p>
@@ -207,7 +225,11 @@ export function IntegrationPolicyConfiguration({
         </section>
       ) : null}
 
-      {!operationPending && configuration.draftPolicy && configuration.canPublish && validation?.valid && publishArmed ? (
+      {!operationPending &&
+      configuration.draftPolicy &&
+      configuration.canPublish &&
+      validation?.valid &&
+      publishArmed ? (
         <section className="publish-confirmation catalog-publish">
           <h2>Publish these code and design rules?</h2>
           <p className="muted">
@@ -231,10 +253,10 @@ export function IntegrationPolicyConfiguration({
               onClick={() => void publishDraft()}
             >
               {busy
-                ? 'Publishing…'
+                ? "Publishing…"
                 : publishPending
-                  ? 'Confirm earlier publication'
-                  : 'Publish policy'}
+                  ? "Confirm earlier publication"
+                  : "Publish policy"}
             </button>
             <button
               className="secondary"
@@ -252,127 +274,140 @@ export function IntegrationPolicyConfiguration({
         <ConfigurationEditorDisclosure
           defaultOpen={Boolean(configuration.draftPolicy)}
           description="GitHub repositories, Figma files, per-team limits, and freeze times."
-          title={configuration.draftPolicy ? 'Continue code-and-design draft' : 'Edit code and design policy'}
+          title={
+            configuration.draftPolicy
+              ? "Continue code-and-design draft"
+              : "Edit code and design policy"
+          }
         >
           <form className="configuration-editor intake-policy-editor" onSubmit={saveDraft}>
-          <fieldset disabled={draftPending} style={{ display: 'contents' }}>
-            <PolicySection
-              title="GitHub"
-              description="The topic is checked against every connected repository. Existing repositories are rechecked after a topic change."
-            >
-              <div className="intake-policy-grid">
-                <label className="field">
-                  <span>Version name</span>
-                  <input
-                    required
-                    minLength={1}
-                    maxLength={80}
-                    value={policy.policyVersion}
-                    onChange={(event) => updatePolicy('policyVersion', event.currentTarget.value)}
-                  />
-                </label>
-                <label className="field">
-                  <span>Required repository topic</span>
-                  <input
-                    required
-                    maxLength={50}
-                    pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
-                    value={policy.requiredGitHubTopic}
-                    onChange={(event) => updatePolicy('requiredGitHubTopic', event.currentTarget.value)}
-                  />
-                  <small>Lowercase letters, numbers, and single hyphens.</small>
-                </label>
-                <label className="field">
-                  <span>Active repositories per team</span>
-                  <input
-                    required
-                    type="number"
-                    min="1"
-                    max="20"
-                    step="1"
-                    value={policy.maxActiveGitHubRepositoriesPerTeam}
-                    onChange={(event) => updatePolicy(
-                      'maxActiveGitHubRepositoriesPerTeam',
-                      event.currentTarget.value,
-                    )}
-                  />
-                </label>
-                <label className="field">
-                  <span>GitHub freeze · {configuration.timezone}</span>
-                  <input
-                    type="datetime-local"
-                    value={policy.githubFreezeAt}
-                    onChange={(event) => updatePolicy('githubFreezeAt', event.currentTarget.value)}
-                  />
-                </label>
-              </div>
-            </PolicySection>
+            <fieldset disabled={draftPending} style={{ display: "contents" }}>
+              <PolicySection
+                title="GitHub"
+                description="The topic is checked against every connected repository. Existing repositories are rechecked after a topic change."
+              >
+                <div className="intake-policy-grid">
+                  <label className="field">
+                    <span>Version name</span>
+                    <input
+                      required
+                      minLength={1}
+                      maxLength={80}
+                      value={policy.policyVersion}
+                      onChange={(event) => updatePolicy("policyVersion", event.currentTarget.value)}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Required repository topic</span>
+                    <input
+                      required
+                      maxLength={50}
+                      pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
+                      value={policy.requiredGitHubTopic}
+                      onChange={(event) =>
+                        updatePolicy("requiredGitHubTopic", event.currentTarget.value)
+                      }
+                    />
+                    <small>Lowercase letters, numbers, and single hyphens.</small>
+                  </label>
+                  <label className="field">
+                    <span>Active repositories per team</span>
+                    <input
+                      required
+                      type="number"
+                      min="1"
+                      max="20"
+                      step="1"
+                      value={policy.maxActiveGitHubRepositoriesPerTeam}
+                      onChange={(event) =>
+                        updatePolicy(
+                          "maxActiveGitHubRepositoriesPerTeam",
+                          event.currentTarget.value,
+                        )
+                      }
+                    />
+                  </label>
+                  <label className="field">
+                    <span>GitHub freeze · {configuration.timezone}</span>
+                    <input
+                      type="datetime-local"
+                      value={policy.githubFreezeAt}
+                      onChange={(event) =>
+                        updatePolicy("githubFreezeAt", event.currentTarget.value)
+                      }
+                    />
+                  </label>
+                </div>
+              </PolicySection>
 
-            <PolicySection
-              title="Figma"
-              description="Leave a freeze empty to let teams keep changing things. From the chosen minute, further changes are rejected."
-            >
-              <div className="intake-policy-grid">
-                <label className="field">
-                  <span>Active files per team</span>
-                  <input
-                    required
-                    type="number"
-                    min="1"
-                    max="10"
-                    step="1"
-                    value={policy.maxActiveFigmaFilesPerTeam}
-                    onChange={(event) => updatePolicy(
-                      'maxActiveFigmaFilesPerTeam',
-                      event.currentTarget.value,
-                    )}
-                  />
-                </label>
-                <label className="field">
-                  <span>Figma freeze · {configuration.timezone}</span>
-                  <input
-                    type="datetime-local"
-                    value={policy.figmaFreezeAt}
-                    onChange={(event) => updatePolicy('figmaFreezeAt', event.currentTarget.value)}
-                  />
-                </label>
-              </div>
-            </PolicySection>
-          </fieldset>
+              <PolicySection
+                title="Figma"
+                description="Leave a freeze empty to let teams keep changing things. From the chosen minute, further changes are rejected."
+              >
+                <div className="intake-policy-grid">
+                  <label className="field">
+                    <span>Active files per team</span>
+                    <input
+                      required
+                      type="number"
+                      min="1"
+                      max="10"
+                      step="1"
+                      value={policy.maxActiveFigmaFilesPerTeam}
+                      onChange={(event) =>
+                        updatePolicy("maxActiveFigmaFilesPerTeam", event.currentTarget.value)
+                      }
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Figma freeze · {configuration.timezone}</span>
+                    <input
+                      type="datetime-local"
+                      value={policy.figmaFreezeAt}
+                      onChange={(event) => updatePolicy("figmaFreezeAt", event.currentTarget.value)}
+                    />
+                  </label>
+                </div>
+              </PolicySection>
+            </fieldset>
 
-          <section className="configuration-save">
-            <label className="field">
-              <span>Why this changed</span>
-              <textarea
-                disabled={draftPending}
-                required
-                value={draftReason}
-                onChange={(event) => setDraftReason(event.currentTarget.value)}
-              />
-            </label>
-            <button
-              className="primary"
-              disabled={busy || draftReason.trim().length < 5}
-              type="submit"
-            >
-              {busy
-                ? 'Saving…'
-                : draftPending
-                  ? 'Confirm earlier draft'
-                  : configuration.draftPolicy
-                    ? 'Replace draft'
-                    : 'Save draft'}
-            </button>
-          </section>
+            <section className="configuration-save">
+              <label className="field">
+                <span>Why this changed</span>
+                <textarea
+                  disabled={draftPending}
+                  required
+                  value={draftReason}
+                  onChange={(event) => setDraftReason(event.currentTarget.value)}
+                />
+              </label>
+              <button
+                className="primary"
+                disabled={busy || draftReason.trim().length < 5}
+                type="submit"
+              >
+                {busy
+                  ? "Saving…"
+                  : draftPending
+                    ? "Confirm earlier draft"
+                    : configuration.draftPolicy
+                      ? "Replace draft"
+                      : "Save draft"}
+              </button>
+            </section>
           </form>
         </ConfigurationEditorDisclosure>
       ) : (
         <p className="notice">You can view these rules but can’t create a draft.</p>
       )}
 
-      {error ? <p className="notice error" role="alert">{error}</p> : null}
+      {error ? (
+        <p className="notice error" role="alert">
+          {error}
+        </p>
+      ) : null}
     </section>
-  )
+  );
 }
 
 function PolicySection({
@@ -380,16 +415,19 @@ function PolicySection({
   description,
   children,
 }: {
-  title: string
-  description: string
-  children: React.ReactNode
+  title: string;
+  description: string;
+  children: React.ReactNode;
 }) {
   return (
     <section className="intake-policy-section">
-      <header><h2>{title}</h2><p className="muted">{description}</p></header>
+      <header>
+        <h2>{title}</h2>
+        <p className="muted">{description}</p>
+      </header>
       {children}
     </section>
-  )
+  );
 }
 
 function toEditorPolicy(policy: Policy, timezone: string): EditorPolicy {
@@ -398,13 +436,11 @@ function toEditorPolicy(policy: Policy, timezone: string): EditorPolicy {
     requiredGitHubTopic: policy.requiredGitHubTopic,
     maxActiveGitHubRepositoriesPerTeam: String(policy.maxActiveGitHubRepositoriesPerTeam),
     maxActiveFigmaFilesPerTeam: String(policy.maxActiveFigmaFilesPerTeam),
-    githubFreezeAt: policy.githubFreezeAt === undefined
-      ? ''
-      : timestampInput(policy.githubFreezeAt, timezone),
-    figmaFreezeAt: policy.figmaFreezeAt === undefined
-      ? ''
-      : timestampInput(policy.figmaFreezeAt, timezone),
-  }
+    githubFreezeAt:
+      policy.githubFreezeAt === undefined ? "" : timestampInput(policy.githubFreezeAt, timezone),
+    figmaFreezeAt:
+      policy.figmaFreezeAt === undefined ? "" : timestampInput(policy.figmaFreezeAt, timezone),
+  };
 }
 
 function fromEditorPolicy(policy: EditorPolicy, timezone: string): Policy {
@@ -413,46 +449,48 @@ function fromEditorPolicy(policy: EditorPolicy, timezone: string): Policy {
     requiredGitHubTopic: policy.requiredGitHubTopic,
     maxActiveGitHubRepositoriesPerTeam: wholeNumber(
       policy.maxActiveGitHubRepositoriesPerTeam,
-      'Active GitHub repositories per team',
+      "Active GitHub repositories per team",
     ),
     maxActiveFigmaFilesPerTeam: wholeNumber(
       policy.maxActiveFigmaFilesPerTeam,
-      'Active Figma files per team',
+      "Active Figma files per team",
     ),
     ...(policy.githubFreezeAt
-      ? { githubFreezeAt: zonedTimestamp(policy.githubFreezeAt, timezone, 'GitHub freeze time') }
+      ? { githubFreezeAt: zonedTimestamp(policy.githubFreezeAt, timezone, "GitHub freeze time") }
       : {}),
     ...(policy.figmaFreezeAt
-      ? { figmaFreezeAt: zonedTimestamp(policy.figmaFreezeAt, timezone, 'Figma freeze time') }
+      ? { figmaFreezeAt: zonedTimestamp(policy.figmaFreezeAt, timezone, "Figma freeze time") }
       : {}),
-  }
+  };
 }
 
 function wholeNumber(value: string, label: string) {
-  const number = Number(value)
-  if (!Number.isInteger(number)) throw new Error(`${label} must be a whole number.`)
-  return number
+  const number = Number(value);
+  if (!Number.isInteger(number)) throw new Error(`${label} must be a whole number.`);
+  return number;
 }
 
 function timestampInput(timestamp: number, timezone: string) {
-  const date = new TZDateMini(timestamp, timezone)
-  return [date.getFullYear(), pad(date.getMonth() + 1), pad(date.getDate())].join('-') +
+  const date = new TZDateMini(timestamp, timezone);
+  return (
+    [date.getFullYear(), pad(date.getMonth() + 1), pad(date.getDate())].join("-") +
     `T${pad(date.getHours())}:${pad(date.getMinutes())}`
+  );
 }
 
 function zonedTimestamp(value: string, timezone: string, label: string) {
-  const [datePart, timePart] = value.split('T')
-  const datePieces = datePart?.split('-')
-  const timePieces = timePart?.split(':')
-  const year = Number(datePieces?.[0])
-  const month = Number(datePieces?.[1])
-  const day = Number(datePieces?.[2])
-  const hour = Number(timePieces?.[0])
-  const minute = Number(timePieces?.[1])
+  const [datePart, timePart] = value.split("T");
+  const datePieces = datePart?.split("-");
+  const timePieces = timePart?.split(":");
+  const year = Number(datePieces?.[0]);
+  const month = Number(datePieces?.[1]);
+  const day = Number(datePieces?.[2]);
+  const hour = Number(timePieces?.[0]);
+  const minute = Number(timePieces?.[1]);
   if ([year, month, day, hour, minute].some((part) => !Number.isInteger(part))) {
-    throw new Error(`${label} is incomplete.`)
+    throw new Error(`${label} is incomplete.`);
   }
-  const date = new TZDateMini(year, month - 1, day, hour, minute, timezone)
+  const date = new TZDateMini(year, month - 1, day, hour, minute, timezone);
   if (
     !Number.isFinite(date.getTime()) ||
     date.getFullYear() !== year ||
@@ -461,20 +499,20 @@ function zonedTimestamp(value: string, timezone: string, label: string) {
     date.getHours() !== hour ||
     date.getMinutes() !== minute
   ) {
-    throw new Error(`${label} is not a valid local time in ${timezone}.`)
+    throw new Error(`${label} is not a valid local time in ${timezone}.`);
   }
-  return date.getTime()
+  return date.getTime();
 }
 
 function pad(value: number) {
-  return String(value).padStart(2, '0')
+  return String(value).padStart(2, "0");
 }
 
 function freezeLabel(timestamp: number | undefined, timezone: string) {
-  if (timestamp === undefined) return 'Open'
-  return `Freezes ${new Intl.DateTimeFormat('en-IN', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
+  if (timestamp === undefined) return "Open";
+  return `Freezes ${new Intl.DateTimeFormat("en-IN", {
+    dateStyle: "medium",
+    timeStyle: "short",
     timeZone: timezone,
-  }).format(timestamp)}`
+  }).format(timestamp)}`;
 }

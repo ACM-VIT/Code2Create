@@ -81,8 +81,5 @@ export function encodeOperationsIntelligenceStreamTicket(
   const bytes = new TextEncoder().encode(serializeOperationsIntelligenceStreamTicket(ticket));
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary)
-    .replaceAll("+", "-")
-    .replaceAll("/", "_")
-    .replace(/=+$/u, "");
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, "");
 }

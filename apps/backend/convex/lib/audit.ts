@@ -29,9 +29,7 @@ export async function writeAuditEvent(
     action: args.action,
     targetType: args.targetType,
     targetId: args.targetId,
-    ...(args.previousSummary !== undefined
-      ? { previousSummary: args.previousSummary }
-      : {}),
+    ...(args.previousSummary !== undefined ? { previousSummary: args.previousSummary } : {}),
     nextSummary: args.nextSummary,
     reason: args.reason,
     serverTime: Date.now(),

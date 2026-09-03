@@ -1,8 +1,5 @@
 import { operationsIntelligenceProtocolVersion } from "./intelligenceProtocol.ts";
-import type {
-  OperationsHealthSignalKey,
-  OperationsHealthSnapshot,
-} from "./operationsHealth.ts";
+import type { OperationsHealthSignalKey, OperationsHealthSnapshot } from "./operationsHealth.ts";
 
 export const operationsIntelligenceIngressSignatureContext =
   "code2create.operations-intelligence.ingress.v1";
@@ -10,8 +7,7 @@ export const operationsIntelligenceCallbackSignatureContext =
   "code2create.operations-intelligence.callback.v1";
 
 export const operationsBriefPrioritySeverities = ["critical", "attention", "watch"] as const;
-export type OperationsBriefPrioritySeverity =
-  (typeof operationsBriefPrioritySeverities)[number];
+export type OperationsBriefPrioritySeverity = (typeof operationsBriefPrioritySeverities)[number];
 
 export type OperationsBriefPriority = {
   severity: OperationsBriefPrioritySeverity;

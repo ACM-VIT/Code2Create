@@ -105,73 +105,153 @@
      and the rise every new turn arrives with. */
   --animate-orb: c2corb 1.6s ease-in-out infinite;
   --animate-caret: c2ccaret 1s steps(2) infinite;
-  --animate-turn-in: c2cturnin .4s cubic-bezier(.22, 1, .36, 1) both;
+  --animate-turn-in: c2cturnin 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
   --animate-pixel: c2cpixel 650ms ease-in-out infinite;
   --animate-shimmer-label: c2cshimmerlabel 1.4s linear infinite;
   /* The "not yet" nudge: a locked control shakes once under the pointer,
      so the block reads as a state rather than a broken button. */
-  --animate-shake: c2cshake .28s cubic-bezier(.22, 1, .36, 1);
+  --animate-shake: c2cshake 0.28s cubic-bezier(0.22, 1, 0.36, 1);
 
   @keyframes c2cfall {
-    0%   { transform: translate(0, -40px) rotate(0deg); opacity: 0; }
-    8%   { opacity: .9; }
-    55%  { transform: translate(26px, 340px) rotate(170deg); opacity: .85; }
-    100% { transform: translate(-14px, 860px) rotate(330deg); opacity: 0; }
+    0% {
+      transform: translate(0, -40px) rotate(0deg);
+      opacity: 0;
+    }
+    8% {
+      opacity: 0.9;
+    }
+    55% {
+      transform: translate(26px, 340px) rotate(170deg);
+      opacity: 0.85;
+    }
+    100% {
+      transform: translate(-14px, 860px) rotate(330deg);
+      opacity: 0;
+    }
   }
   @keyframes c2cpulse {
-    0%, 100% { opacity: 1; }
-    50%      { opacity: .35; }
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.35;
+    }
   }
   @keyframes c2ccursorfall {
-    0%   { transform: translate(-50%, -35%) rotate(var(--cursor-start)); opacity: 0; }
-    14%  { opacity: .28; }
-    72%  { opacity: .18; }
-    100% { transform: translate(calc(-50% + var(--cursor-drift)), var(--cursor-fall)) rotate(var(--cursor-end)); opacity: 0; }
+    0% {
+      transform: translate(-50%, -35%) rotate(var(--cursor-start));
+      opacity: 0;
+    }
+    14% {
+      opacity: 0.28;
+    }
+    72% {
+      opacity: 0.18;
+    }
+    100% {
+      transform: translate(calc(-50% + var(--cursor-drift)), var(--cursor-fall))
+        rotate(var(--cursor-end));
+      opacity: 0;
+    }
   }
   @keyframes c2crise {
-    0%   { transform: translate(0, 40px) rotate(-4deg); opacity: 0; }
-    12%  { opacity: .95; }
-    88%  { opacity: .9; }
-    100% { transform: translate(-46px, -780px) rotate(6deg); opacity: 0; }
+    0% {
+      transform: translate(0, 40px) rotate(-4deg);
+      opacity: 0;
+    }
+    12% {
+      opacity: 0.95;
+    }
+    88% {
+      opacity: 0.9;
+    }
+    100% {
+      transform: translate(-46px, -780px) rotate(6deg);
+      opacity: 0;
+    }
   }
   @keyframes c2csway {
-    0%, 100% { transform: rotate(-.5deg); }
-    50%      { transform: rotate(.7deg); }
+    0%,
+    100% {
+      transform: rotate(-0.5deg);
+    }
+    50% {
+      transform: rotate(0.7deg);
+    }
   }
   @keyframes c2cshake {
-    0%, 100% { transform: translateX(0); }
-    20%      { transform: translateX(-4px); }
-    45%      { transform: translateX(3px); }
-    70%      { transform: translateX(-2px); }
-    85%      { transform: translateX(1px); }
+    0%,
+    100% {
+      transform: translateX(0);
+    }
+    20% {
+      transform: translateX(-4px);
+    }
+    45% {
+      transform: translateX(3px);
+    }
+    70% {
+      transform: translateX(-2px);
+    }
+    85% {
+      transform: translateX(1px);
+    }
   }
   @keyframes c2corb {
-    0%, 100% { opacity: .2; }
-    40%      { opacity: 1; }
+    0%,
+    100% {
+      opacity: 0.2;
+    }
+    40% {
+      opacity: 1;
+    }
   }
   @keyframes c2ccaret {
-    0%, 100% { opacity: 1; }
-    50%      { opacity: 0; }
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0;
+    }
   }
   @keyframes c2cpixel {
-    0%, 100% { opacity: .15; }
-    50%      { opacity: 1; }
+    0%,
+    100% {
+      opacity: 0.15;
+    }
+    50% {
+      opacity: 1;
+    }
   }
   @keyframes c2cshimmerlabel {
-    from { background-position: 200% 0; }
-    to   { background-position: -200% 0; }
+    from {
+      background-position: 200% 0;
+    }
+    to {
+      background-position: -200% 0;
+    }
   }
   @keyframes c2cturnin {
-    from { opacity: 0; transform: translateY(6px); }
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
   }
   @keyframes c2cburst {
-    0%   { transform: translate(-50%, -50%) scale(.35) rotate(0deg); opacity: 0; }
-    10%  { opacity: 1; }
-    70%  { opacity: .9; }
+    0% {
+      transform: translate(-50%, -50%) scale(0.35) rotate(0deg);
+      opacity: 0;
+    }
+    10% {
+      opacity: 1;
+    }
+    70% {
+      opacity: 0.9;
+    }
     100% {
-      transform:
-        translate(calc(-50% + var(--burst-x)), calc(-50% + var(--burst-y)))
-        scale(1)
+      transform: translate(calc(-50% + var(--burst-x)), calc(-50% + var(--burst-y))) scale(1)
         rotate(var(--burst-r));
       opacity: 0;
     }
@@ -184,63 +264,72 @@
  * the daybreak block below repaints them all.
  * ------------------------------------------------------------------ */
 :root {
-  --scene-sky: linear-gradient(180deg, #0c0004 44%, #220913 70%, #713047 116%, #a04263 144%, #e3a9bf 176%);
-  --scene-vignette: radial-gradient(ellipse at 50% 32%, transparent 46%, rgb(6 0 2 / .48) 100%);
-  --scene-tree-filter: brightness(.72) saturate(.92);
-  --scene-tree-far-filter: brightness(.55) saturate(.8);
+  --scene-sky: linear-gradient(
+    180deg,
+    #0c0004 44%,
+    #220913 70%,
+    #713047 116%,
+    #a04263 144%,
+    #e3a9bf 176%
+  );
+  --scene-vignette: radial-gradient(ellipse at 50% 32%, transparent 46%, rgb(6 0 2 / 0.48) 100%);
+  --scene-tree-filter: brightness(0.72) saturate(0.92);
+  --scene-tree-far-filter: brightness(0.55) saturate(0.8);
   --scene-hills-filter: none;
-  --scene-hills-opacity: .4;
-  --scene-branch-filter: brightness(.85);
+  --scene-hills-opacity: 0.4;
+  --scene-branch-filter: brightness(0.85);
   /* The loading bonsai. Its illustration was painted for the dark landing,
      so night runs it untouched; daybreak lifts it like the near tree and
      trades the inky ground shadow for a morning one. */
   --scene-plant-filter: none;
-  --scene-plant-shadow: rgb(5 2 3 / .84);
+  --scene-plant-shadow: rgb(5 2 3 / 0.84);
   /* Titles float off the sky: an ink halo at night, a light haze at dawn. */
-  --scene-text-glow: rgb(0 0 0 / .55);
+  --scene-text-glow: rgb(0 0 0 / 0.55);
   /* The wordmark keeps its white lettering in both lights — only its
      shadow changes (ink at night, a rose bloom at dawn). The small partner
      marks are also white SVGs; those daybreak re-inks in plum. */
-  --wordmark-filter: drop-shadow(0 8px 50px rgb(0 0 0 / .6));
+  --wordmark-filter: drop-shadow(0 8px 50px rgb(0 0 0 / 0.6));
   --mark-filter: none;
-  --balloon-logo-filter: drop-shadow(0 1px 1px rgb(0 0 0 / .18));
+  --balloon-logo-filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.18));
 
   /* Depth shadows (1 soft, 2 strong) and the rose glows that become warm
      sunlight at daybreak. */
-  --shade-1: rgb(0 0 0 / .55);
-  --shade-2: rgb(0 0 0 / .8);
-  --glow-rose: rgb(254 180 203 / .5);
-  --glow-rose-soft: rgb(216 132 162 / .25);
+  --shade-1: rgb(0 0 0 / 0.55);
+  --shade-2: rgb(0 0 0 / 0.8);
+  --glow-rose: rgb(254 180 203 / 0.5);
+  --glow-rose-soft: rgb(216 132 162 / 0.25);
   /* The C2C logo's lantern halo. Only night needs it; on the pale daybreak
      sky the self-coloured mark sits clean, and a halo reads as a smudge. */
-  --logo-glow: rgb(216 132 162 / .5);
+  --logo-glow: rgb(216 132 162 / 0.5);
   /* Avatar blooms are tinted for dark circles; daybreak deepens them so
      they hold contrast on the light ones. The lead ring's halo follows the
      same rule — lantern-pink at night, a quiet rose at dawn. */
   --flower-filter: none;
-  --avatar-glow: rgb(254 180 203 / .5);
+  --avatar-glow: rgb(254 180 203 / 0.5);
   --card-topline: transparent;
   /* Scrollbar thumbs: rose at night, plum at daybreak, never the OS grey. */
-  --scrollbar-thumb: rgb(216 132 162 / .45);
-  --scrollbar-thumb-hover: rgb(216 132 162 / .7);
+  --scrollbar-thumb: rgb(216 132 162 / 0.45);
+  --scrollbar-thumb-hover: rgb(216 132 162 / 0.7);
 
   /* Glass surfaces: the petal card, the quiet tiles, the roster popover.
      The landing's navbar recipe — a thin ink tint over a blurred backdrop —
      so the horizon and the tree show through every card. Menus tint
      deeper: they float over other text. */
-  --petal-card-bg: linear-gradient(rgb(0 0 0 / .28), rgb(0 0 0 / .28));
-  --tile-bg: linear-gradient(rgb(0 0 0 / .25), rgb(0 0 0 / .25));
-  --tile-bg-active: linear-gradient(rgb(216 132 162 / .16), rgb(216 132 162 / .16));
+  --petal-card-bg: linear-gradient(rgb(0 0 0 / 0.28), rgb(0 0 0 / 0.28));
+  --tile-bg: linear-gradient(rgb(0 0 0 / 0.25), rgb(0 0 0 / 0.25));
+  --tile-bg-active: linear-gradient(rgb(216 132 162 / 0.16), rgb(216 132 162 / 0.16));
   /* The answered sheets fanned behind the intake card. Only a thin strip of
      each shows, so unlike the tiles they lift off the sky rather than sink
      into it — sunk, their one line of text vanishes. */
-  --sheet-bg: linear-gradient(rgb(255 255 255 / .08), rgb(255 255 255 / .08));
+  --sheet-bg: linear-gradient(rgb(255 255 255 / 0.08), rgb(255 255 255 / 0.08));
   /* The SGLang note's backdrop — the one screen off the painted scene.
      Ink with the faintest rose breath at night; morning light falling on
      warm paper at daybreak. */
-  --note-bg: radial-gradient(ellipse 90% 45% at 50% -8%, rgb(58 21 34 / .55), transparent 60%), linear-gradient(180deg, #0c0004, #130409);
-  --roster-bg: linear-gradient(rgb(0 0 0 / .55), rgb(0 0 0 / .55));
-  --confirm-bg: linear-gradient(rgb(0 0 0 / .55), rgb(0 0 0 / .55));
+  --note-bg:
+    radial-gradient(ellipse 90% 45% at 50% -8%, rgb(58 21 34 / 0.55), transparent 60%),
+    linear-gradient(180deg, #0c0004, #130409);
+  --roster-bg: linear-gradient(rgb(0 0 0 / 0.55), rgb(0 0 0 / 0.55));
+  --confirm-bg: linear-gradient(rgb(0 0 0 / 0.55), rgb(0 0 0 / 0.55));
 }
 
 /* Every navigation uses the startup handoff: the destination is already
@@ -250,7 +339,7 @@
   z-index: 1;
   animation:
     c2c-surface-fade 320ms ease-in both,
-    c2c-surface-lift 360ms cubic-bezier(.22, 1, .36, 1) both,
+    c2c-surface-lift 360ms cubic-bezier(0.22, 1, 0.36, 1) both,
     c2c-surface-blur 360ms ease-in both;
 }
 
@@ -264,22 +353,28 @@
 }
 
 @keyframes c2c-surface-fade {
-  to { opacity: 0; }
+  to {
+    opacity: 0;
+  }
 }
 
 @keyframes c2c-surface-lift {
-  to { transform: scale(1.008); }
+  to {
+    transform: scale(1.008);
+  }
 }
 
 @keyframes c2c-surface-blur {
-  to { filter: blur(12px); }
+  to {
+    filter: blur(12px);
+  }
 }
 
 /* The submit celebration's closing line glides up into the Submitted
    screen's heading — slower and softer than the route swap around it. */
 ::view-transition-group(submitted-heading) {
   animation-duration: 700ms;
-  animation-timing-function: cubic-bezier(.22, 1, .36, 1);
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 ::view-transition-old(submitted-heading),
@@ -307,12 +402,12 @@
   filter: blur(0);
   transition:
     opacity 320ms ease-in,
-    transform 360ms cubic-bezier(.22, 1, .36, 1),
+    transform 360ms cubic-bezier(0.22, 1, 0.36, 1),
     filter 360ms ease-in;
   view-transition-name: c2c-startup;
 }
 
-.startup-cover[data-phase='leaving'] {
+.startup-cover[data-phase="leaving"] {
   pointer-events: none;
   opacity: 0;
   transform: scale(1.008);
@@ -329,11 +424,14 @@
   display: grid;
   justify-items: center;
   view-transition-name: c2c-pending;
-  animation: c2c-bonsai-arrive 360ms cubic-bezier(.22, 1, .36, 1) both;
+  animation: c2c-bonsai-arrive 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 @keyframes c2c-bonsai-arrive {
-  from { opacity: 0; transform: translateY(7px) scale(.98); }
+  from {
+    opacity: 0;
+    transform: translateY(7px) scale(0.98);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -348,7 +446,7 @@
  * horizon; plum ink on morning-mist glass; every rose glow turns to
  * early sunlight.
  * ------------------------------------------------------------------ */
-:root[data-theme='daybreak'] {
+:root[data-theme="daybreak"] {
   --color-fg: #33101f;
   --color-wash: #fff8f2;
   --color-rose: #b7527b;
@@ -360,48 +458,62 @@
   --color-petal-a: #cd7395;
   --color-petal-b: #a94d72;
   --color-ring-lead: #c26787;
-  --color-petal-line: rgb(150 55 92 / .25);
+  --color-petal-line: rgb(150 55 92 / 0.25);
   /* Card edges need more presence here than at night: the half-transparent
      rose all but vanishes over the near-white card washes. */
-  --color-petal-edge: rgb(169 77 114 / .62);
-  --color-petal-edge-soft: rgb(169 77 114 / .42);
-  --color-glass-edge: rgb(169 77 114 / .6);
-  --balloon-logo-filter: invert(1) drop-shadow(0 1px 1px rgb(255 255 255 / .2));
+  --color-petal-edge: rgb(169 77 114 / 0.62);
+  --color-petal-edge-soft: rgb(169 77 114 / 0.42);
+  --color-glass-edge: rgb(169 77 114 / 0.6);
+  --balloon-logo-filter: invert(1) drop-shadow(0 1px 1px rgb(255 255 255 / 0.2));
 
-  --scene-sky: linear-gradient(180deg, #cfc5e4 0%, #e5ccdb 36%, #f4d5d0 64%, #fbdfc0 90%, #fff1d8 112%);
-  --scene-vignette: radial-gradient(ellipse at 50% 30%, transparent 50%, rgb(255 234 214 / .5) 100%);
+  --scene-sky: linear-gradient(
+    180deg,
+    #cfc5e4 0%,
+    #e5ccdb 36%,
+    #f4d5d0 64%,
+    #fbdfc0 90%,
+    #fff1d8 112%
+  );
+  --scene-vignette: radial-gradient(
+    ellipse at 50% 30%,
+    transparent 50%,
+    rgb(255 234 214 / 0.5) 100%
+  );
   --scene-tree-filter: brightness(1.04) saturate(1.04);
-  --scene-tree-far-filter: brightness(1.08) saturate(.82) opacity(.9);
-  --scene-hills-filter: sepia(.25) hue-rotate(-15deg) brightness(1.6) saturate(.7);
-  --scene-hills-opacity: .3;
+  --scene-tree-far-filter: brightness(1.08) saturate(0.82) opacity(0.9);
+  --scene-hills-filter: sepia(0.25) hue-rotate(-15deg) brightness(1.6) saturate(0.7);
+  --scene-hills-opacity: 0.3;
   --scene-branch-filter: brightness(1.03) saturate(1.02);
   --scene-plant-filter: brightness(1.05) saturate(1.03);
-  --scene-plant-shadow: rgb(146 84 96 / .3);
-  --scene-text-glow: rgb(255 243 230 / .9);
-  --wordmark-filter: drop-shadow(0 8px 40px rgb(131 48 79 / .45));
-  --mark-filter: brightness(0) saturate(100%) invert(12%) sepia(24%) saturate(1900%) hue-rotate(305deg) brightness(1.05);
+  --scene-plant-shadow: rgb(146 84 96 / 0.3);
+  --scene-text-glow: rgb(255 243 230 / 0.9);
+  --wordmark-filter: drop-shadow(0 8px 40px rgb(131 48 79 / 0.45));
+  --mark-filter: brightness(0) saturate(100%) invert(12%) sepia(24%) saturate(1900%)
+    hue-rotate(305deg) brightness(1.05);
 
-  --shade-1: rgb(146 84 96 / .22);
-  --shade-2: rgb(146 84 96 / .32);
-  --glow-rose: rgb(255 178 122 / .55);
-  --glow-rose-soft: rgb(255 199 153 / .5);
+  --shade-1: rgb(146 84 96 / 0.22);
+  --shade-2: rgb(146 84 96 / 0.32);
+  --glow-rose: rgb(255 178 122 / 0.55);
+  --glow-rose-soft: rgb(255 199 153 / 0.5);
   --logo-glow: transparent;
-  --flower-filter: saturate(1.45) brightness(.72);
-  --avatar-glow: rgb(194 103 135 / .3);
+  --flower-filter: saturate(1.45) brightness(0.72);
+  --avatar-glow: rgb(194 103 135 / 0.3);
   --card-topline: transparent;
-  --scrollbar-thumb: rgb(150 55 92 / .4);
-  --scrollbar-thumb-hover: rgb(150 55 92 / .65);
+  --scrollbar-thumb: rgb(150 55 92 / 0.4);
+  --scrollbar-thumb-hover: rgb(150 55 92 / 0.65);
 
   /* The same glass, frosted white. The blur is what keeps the sky's warm
      horizon band from reading as a stain; the old gradient fills did not
      have it. */
-  --petal-card-bg: linear-gradient(rgb(255 255 255 / .62), rgb(255 255 255 / .62));
-  --tile-bg: linear-gradient(rgb(255 255 255 / .58), rgb(255 255 255 / .58));
-  --tile-bg-active: linear-gradient(rgb(255 255 255 / .8), rgb(255 255 255 / .8));
-  --sheet-bg: linear-gradient(rgb(255 255 255 / .7), rgb(255 255 255 / .7));
-  --note-bg: radial-gradient(ellipse 90% 45% at 50% -8%, rgb(238 205 219 / .8), transparent 60%), linear-gradient(180deg, #f9ecee, #fff3e3);
-  --roster-bg: linear-gradient(rgb(255 255 255 / .9), rgb(255 255 255 / .9));
-  --confirm-bg: linear-gradient(rgb(255 255 255 / .9), rgb(255 255 255 / .9));
+  --petal-card-bg: linear-gradient(rgb(255 255 255 / 0.62), rgb(255 255 255 / 0.62));
+  --tile-bg: linear-gradient(rgb(255 255 255 / 0.58), rgb(255 255 255 / 0.58));
+  --tile-bg-active: linear-gradient(rgb(255 255 255 / 0.8), rgb(255 255 255 / 0.8));
+  --sheet-bg: linear-gradient(rgb(255 255 255 / 0.7), rgb(255 255 255 / 0.7));
+  --note-bg:
+    radial-gradient(ellipse 90% 45% at 50% -8%, rgb(238 205 219 / 0.8), transparent 60%),
+    linear-gradient(180deg, #f9ecee, #fff3e3);
+  --roster-bg: linear-gradient(rgb(255 255 255 / 0.9), rgb(255 255 255 / 0.9));
+  --confirm-bg: linear-gradient(rgb(255 255 255 / 0.9), rgb(255 255 255 / 0.9));
 }
 
 /* The theme toggle crossfades the whole page; slow the default down to a
@@ -409,7 +521,7 @@
    swaps instantly), so no override is needed here. */
 ::view-transition-old(root),
 ::view-transition-new(root) {
-  animation-duration: .55s;
+  animation-duration: 0.55s;
   animation-timing-function: ease;
 }
 
@@ -427,7 +539,7 @@
 }
 
 .cursor-petal {
-  animation: c2ccursorfall 1.8s cubic-bezier(.2, .58, .32, 1) forwards;
+  animation: c2ccursorfall 1.8s cubic-bezier(0.2, 0.58, 0.32, 1) forwards;
   box-shadow: 0 0 5px var(--glow-rose-soft);
 }
 
@@ -472,7 +584,7 @@
 }
 
 .shimmer-text-clone::after {
-  content: '';
+  content: "";
   position: absolute;
   inset: 0;
   background: linear-gradient(
@@ -487,15 +599,39 @@
 
 /* The novelty pill's phone ticker: score and band word trade places. */
 @keyframes c2cticka {
-  0%, 40% { opacity: 1; transform: translateY(0); }
-  46%, 90% { opacity: 0; transform: translateY(-9px); }
-  96%, 100% { opacity: 1; transform: translateY(0); }
+  0%,
+  40% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  46%,
+  90% {
+    opacity: 0;
+    transform: translateY(-9px);
+  }
+  96%,
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @keyframes c2ctickb {
-  0%, 40% { opacity: 0; transform: translateY(9px); }
-  46%, 90% { opacity: 1; transform: translateY(0); }
-  96%, 100% { opacity: 0; transform: translateY(9px); }
+  0%,
+  40% {
+    opacity: 0;
+    transform: translateY(9px);
+  }
+  46%,
+  90% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  96%,
+  100% {
+    opacity: 0;
+    transform: translateY(9px);
+  }
 }
 
 @keyframes c2cshimmer {
@@ -531,15 +667,24 @@
 
 /* The portal scene animates artwork continuously; honour the OS setting. */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: .001ms !important;
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: .001ms !important;
+    transition-duration: 0.001ms !important;
   }
 }
 
 :root {
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-family:
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    "Helvetica Neue",
+    Arial,
+    sans-serif;
   color: #ececee;
   background: var(--color-wash);
   font-synthesis: none;
@@ -563,7 +708,7 @@
 
 /* The panelled shell's semantic set at daybreak: warm paper instead of
    near-black, the same green accent pulled darker for contrast. */
-:root[data-theme='daybreak'] {
+:root[data-theme="daybreak"] {
   color: #2b1420;
   background: var(--color-wash);
   --background: #f6eeeb;
@@ -689,26 +834,60 @@ p {
   background: var(--accent);
 }
 
-.released-feedback-list { display: grid; border-top: 1px solid var(--border); }
-.released-feedback-list article { display: grid; gap: 15px; padding: 22px 0; border-bottom: 1px solid var(--border); }
-.feedback-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 20px; }
-.feedback-heading strong { font-size: .92rem; }
-.feedback-heading span, .released-feedback-list small { color: var(--muted); font-size: .7rem; }
-.feedback-total { margin: 0; font-size: 2rem; }
-.feedback-total span { color: var(--muted); font-size: .8rem; }
-.feedback-copy { display: grid; gap: 5px; }
-.feedback-copy span { color: var(--muted); font-size: .72rem; }
-.feedback-copy p { margin: 0; white-space: pre-wrap; }
+.released-feedback-list {
+  display: grid;
+  border-top: 1px solid var(--border);
+}
+.released-feedback-list article {
+  display: grid;
+  gap: 15px;
+  padding: 22px 0;
+  border-bottom: 1px solid var(--border);
+}
+.feedback-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 20px;
+}
+.feedback-heading strong {
+  font-size: 0.92rem;
+}
+.feedback-heading span,
+.released-feedback-list small {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+.feedback-total {
+  margin: 0;
+  font-size: 2rem;
+}
+.feedback-total span {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.feedback-copy {
+  display: grid;
+  gap: 5px;
+}
+.feedback-copy span {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+.feedback-copy p {
+  margin: 0;
+  white-space: pre-wrap;
+}
 
 /* The Guide's streaming caret rides the end of the last line of the answer
    as it arrives; it lives on a pseudo-element so the markdown stays plain. */
 .guide-streaming .guide-prose > :last-child::after {
-  content: '';
+  content: "";
   display: inline-block;
   width: 2px;
-  height: .95em;
+  height: 0.95em;
   margin-left: 3px;
-  vertical-align: -.12em;
+  vertical-align: -0.12em;
   border-radius: 1px;
   background: var(--color-rose-light);
   animation: c2ccaret 1s steps(2) infinite;
@@ -737,7 +916,13 @@ p {
 
 /* The thread's scroll region fades its edges so turns slip under the bars. */
 .guide-scroll {
-  mask-image: linear-gradient(to bottom, transparent, black 18px, black calc(100% - 18px), transparent);
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    black 18px,
+    black calc(100% - 18px),
+    transparent
+  );
 }
 
 /* The Guide's panel is the one glass surface without a ring: it is the
@@ -749,10 +934,30 @@ p {
   background-color: color-mix(in oklab, var(--color-wash) 55%, transparent);
 }
 
-.avatar-stack { --stack-size: 40px; --stack-overlap: 12px; --stack-gap: 3px; display: flex; }
-@media (min-width: 1024px) { .avatar-stack { --stack-size: 48px; --stack-overlap: 14px; } }
-.avatar-stack > * + * { margin-left: calc(-1 * var(--stack-overlap)); }
+.avatar-stack {
+  --stack-size: 40px;
+  --stack-overlap: 12px;
+  --stack-gap: 3px;
+  display: flex;
+}
+@media (min-width: 1024px) {
+  .avatar-stack {
+    --stack-size: 48px;
+    --stack-overlap: 14px;
+  }
+}
+.avatar-stack > * + * {
+  margin-left: calc(-1 * var(--stack-overlap));
+}
 .avatar-stack > *:not(:last-child) {
-  -webkit-mask-image: radial-gradient(circle at calc(100% - var(--stack-overlap) + var(--stack-size) / 2) 50%, transparent calc(var(--stack-size) / 2 + var(--stack-gap)), #000 calc(var(--stack-size) / 2 + var(--stack-gap) + .5px));
-  mask-image: radial-gradient(circle at calc(100% - var(--stack-overlap) + var(--stack-size) / 2) 50%, transparent calc(var(--stack-size) / 2 + var(--stack-gap)), #000 calc(var(--stack-size) / 2 + var(--stack-gap) + .5px));
+  -webkit-mask-image: radial-gradient(
+    circle at calc(100% - var(--stack-overlap) + var(--stack-size) / 2) 50%,
+    transparent calc(var(--stack-size) / 2 + var(--stack-gap)),
+    #000 calc(var(--stack-size) / 2 + var(--stack-gap) + 0.5px)
+  );
+  mask-image: radial-gradient(
+    circle at calc(100% - var(--stack-overlap) + var(--stack-size) / 2) 50%,
+    transparent calc(var(--stack-size) / 2 + var(--stack-gap)),
+    #000 calc(var(--stack-size) / 2 + var(--stack-gap) + 0.5px)
+  );
 }

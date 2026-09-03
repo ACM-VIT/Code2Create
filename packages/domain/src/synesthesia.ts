@@ -10,13 +10,8 @@ export type SynesthesiaQueueItem = {
 
 export function mergeSynesthesiaVoteCounts<
   Request extends Omit<SynesthesiaQueueItem, "voteCount"> & { id: string },
->(
-  requests: readonly Request[],
-  counts: readonly { requestId: string; voteCount: number }[],
-) {
-  const countByRequest = new Map(
-    counts.map((entry) => [entry.requestId, entry.voteCount]),
-  );
+>(requests: readonly Request[], counts: readonly { requestId: string; voteCount: number }[]) {
+  const countByRequest = new Map(counts.map((entry) => [entry.requestId, entry.voteCount]));
   return requests
     .map((request) => ({
       ...request,
@@ -46,12 +41,14 @@ export function compareSynesthesiaQueueItems(
     const leftPinned = left.queueMode === "pinned" ? 1 : 0;
     const rightPinned = right.queueMode === "pinned" ? 1 : 0;
     if (leftPinned !== rightPinned) return rightPinned - leftPinned;
-    const leftScheduled = left.queueMode === "deferred"
-      ? left.scheduledFor ?? Number.POSITIVE_INFINITY
-      : Number.NEGATIVE_INFINITY;
-    const rightScheduled = right.queueMode === "deferred"
-      ? right.scheduledFor ?? Number.POSITIVE_INFINITY
-      : Number.NEGATIVE_INFINITY;
+    const leftScheduled =
+      left.queueMode === "deferred"
+        ? (left.scheduledFor ?? Number.POSITIVE_INFINITY)
+        : Number.NEGATIVE_INFINITY;
+    const rightScheduled =
+      right.queueMode === "deferred"
+        ? (right.scheduledFor ?? Number.POSITIVE_INFINITY)
+        : Number.NEGATIVE_INFINITY;
     if (leftScheduled !== rightScheduled) return leftScheduled - rightScheduled;
   }
   if (left.voteCount !== right.voteCount) return right.voteCount - left.voteCount;

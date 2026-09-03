@@ -1,7 +1,4 @@
-import {
-  paginationOptsValidator,
-  paginationResultValidator,
-} from "convex/server";
+import { paginationOptsValidator, paginationResultValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 
 import { mutation, query } from "./_generated/server";
@@ -16,10 +13,7 @@ import {
   type RollCallCounts,
 } from "./lib/attendanceRollCalls";
 import { requireEventBySlug } from "./lib/events";
-import {
-  requireCurrentPerson,
-  requireEventSubject,
-} from "./lib/identity";
+import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import {
   findOperation,
   operationFingerprint,
@@ -29,10 +23,7 @@ import {
 } from "./lib/operations";
 import { requirePermission } from "./lib/permissions";
 import { normalizedText } from "./lib/strings";
-import {
-  attendanceSessionExpectation,
-  rollCallPresenceState,
-} from "./values";
+import { attendanceSessionExpectation, rollCallPresenceState } from "./values";
 
 const rollCallKind = v.union(v.literal("incident"), v.literal("drill"));
 const rollCallState = v.union(v.literal("active"), v.literal("closed"));
@@ -121,9 +112,7 @@ export const start = mutation({
     if (
       session.expectationBuildState !== "complete" ||
       session.expectationCount < 1 ||
-      (session.status !== "ready" &&
-        session.status !== "open" &&
-        session.status !== "closing")
+      (session.status !== "ready" && session.status !== "open" && session.status !== "closing")
     ) {
       throw new ConvexError({
         code: "ROLL_CALL_COHORT_NOT_READY",
@@ -145,15 +134,11 @@ export const start = mutation({
     const [participants, venueStates] = await Promise.all([
       ctx.db
         .query("attendanceSessionParticipants")
-        .withIndex("by_session_membership", (index) =>
-          index.eq("sessionId", session._id),
-        )
+        .withIndex("by_session_membership", (index) => index.eq("sessionId", session._id))
         .collect(),
       ctx.db
         .query("attendanceVenueStates")
-        .withIndex("by_event_membership", (index) =>
-          index.eq("eventId", event._id),
-        )
+        .withIndex("by_event_membership", (index) => index.eq("eventId", event._id))
         .collect(),
     ]);
     if (participants.length !== session.expectationCount) {
@@ -323,9 +308,7 @@ export const close = mutation({
     }
     const shards = await ctx.db
       .query("attendanceRollCallCounterShards")
-      .withIndex("by_roll_call_shard", (index) =>
-        index.eq("rollCallId", rollCall._id),
-      )
+      .withIndex("by_roll_call_shard", (index) => index.eq("rollCallId", rollCall._id))
       .collect();
     const finalCounts = sumRollCallShards(shards);
     assertCounts(finalCounts);
@@ -432,18 +415,14 @@ export const forSession = query({
     }
     const rollCalls = await ctx.db
       .query("attendanceRollCalls")
-      .withIndex("by_session_started", (index) =>
-        index.eq("sessionId", session._id),
-      )
+      .withIndex("by_session_started", (index) => index.eq("sessionId", session._id))
       .order("desc")
       .take(5);
     const visible = [];
     for (const rollCall of rollCalls) {
       const shards = await ctx.db
         .query("attendanceRollCallCounterShards")
-        .withIndex("by_roll_call_shard", (index) =>
-          index.eq("rollCallId", rollCall._id),
-        )
+        .withIndex("by_roll_call_shard", (index) => index.eq("rollCallId", rollCall._id))
         .collect();
       const currentCounts = sumRollCallShards(shards);
       assertCounts(currentCounts);
@@ -459,9 +438,7 @@ export const forSession = query({
         snapshotCounts: rollCall.snapshotCounts,
         currentCounts,
         ...(rollCall.closedAt !== undefined ? { closedAt: rollCall.closedAt } : {}),
-        ...(rollCall.closeReason !== undefined
-          ? { closeReason: rollCall.closeReason }
-          : {}),
+        ...(rollCall.closeReason !== undefined ? { closeReason: rollCall.closeReason } : {}),
       });
     }
     return { serverTime: Date.now(), zoneName: zone.name, rollCalls: visible };
@@ -504,9 +481,7 @@ export const roster = query({
     });
     const page = await ctx.db
       .query("attendanceSessionParticipants")
-      .withIndex("by_session_membership", (index) =>
-        index.eq("sessionId", rollCall.sessionId),
-      )
+      .withIndex("by_session_membership", (index) => index.eq("sessionId", rollCall.sessionId))
       .paginate(args.paginationOpts);
     const rows = [];
     for (const participant of page.page) {
@@ -518,16 +493,12 @@ export const roster = query({
         ctx.db
           .query("attendanceVenueStates")
           .withIndex("by_event_membership", (index) =>
-            index
-              .eq("eventId", event._id)
-              .eq("membershipId", membership._id),
+            index.eq("eventId", event._id).eq("membershipId", membership._id),
           )
           .unique(),
         ctx.db
           .query("participantProfiles")
-          .withIndex("by_membership", (index) =>
-            index.eq("membershipId", membership._id),
-          )
+          .withIndex("by_membership", (index) => index.eq("membershipId", membership._id))
           .unique(),
         ctx.db.get(membership.personId),
         ctx.db
@@ -546,8 +517,7 @@ export const roster = query({
       const team = teamMember ? await ctx.db.get(teamMember.teamId) : null;
       rows.push({
         membershipId: membership._id,
-        displayName:
-          profile?.fullName ?? participantPerson.displayName,
+        displayName: profile?.fullName ?? participantPerson.displayName,
         ...(team ? { teamName: team.name } : {}),
         expectation: participant.expectation,
         state: rollCallStateFor(venue, rollCall.zoneId),

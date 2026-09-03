@@ -14,11 +14,7 @@ import {
   unclassifiedEnergyTag,
   youtubeProvider,
 } from "./lib/synesthesia";
-import {
-  lookupYouTubeVideos,
-  searchYouTubeVideos,
-  youtubeVideoId,
-} from "./lib/youtubeCatalog";
+import { lookupYouTubeVideos, searchYouTubeVideos, youtubeVideoId } from "./lib/youtubeCatalog";
 import { createSongRequest, participantWindowForWrite } from "./synesthesiaParticipant";
 import { youtubeVideo, type YouTubeVideo } from "./values";
 
@@ -134,10 +130,10 @@ export const search = action({
   returns: v.array(youtubeVideo),
   handler: async (ctx, args): Promise<YouTubeVideo[]> => {
     const queryKey = searchQueryKey(args.query);
-    const context: SearchContext = await ctx.runQuery(
-      internal.synesthesiaYouTube.searchContext,
-      { eventSlug: args.eventSlug, queryKey },
-    );
+    const context: SearchContext = await ctx.runQuery(internal.synesthesiaYouTube.searchContext, {
+      eventSlug: args.eventSlug,
+      queryKey,
+    });
     if (!context.allowed) return [];
     let results = context.cached;
     if (results === null) {

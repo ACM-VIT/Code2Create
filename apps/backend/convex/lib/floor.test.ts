@@ -30,8 +30,5 @@ test("the description says the part of the room, then what is beside it", () => 
     floorLocationDescription("East wing", "north_east", "the windows"),
     "North-east corner of East wing, near the windows",
   );
-  assert.equal(
-    floorLocationDescription("East wing", "centre", undefined),
-    "Middle of East wing",
-  );
+  assert.equal(floorLocationDescription("East wing", "centre", undefined), "Middle of East wing");
 });

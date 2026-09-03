@@ -10,59 +10,65 @@ import { z } from "zod";
 const sha256Pattern = /^[a-f0-9]{64}$/;
 const jsonValueSchema = z.json();
 
-export const archiveEntrySchema = z.object({
-  path: z.string().min(1),
-  kind: z.enum(["jsonl", "binary"]),
-  recordCount: z.number().int().nonnegative().optional(),
-  sha256: z.string().regex(sha256Pattern),
-}).strict();
+export const archiveEntrySchema = z
+  .object({
+    path: z.string().min(1),
+    kind: z.enum(["jsonl", "binary"]),
+    recordCount: z.number().int().nonnegative().optional(),
+    sha256: z.string().regex(sha256Pattern),
+  })
+  .strict();
 
-export const archiveInventorySchema = z.object({
-  entryCount: z.number().int().positive(),
-  jsonlEntryCount: z.number().int().positive(),
-  binaryEntryCount: z.number().int().nonnegative(),
-  aggregateSha256: z.string().regex(sha256Pattern),
-  entries: z.array(archiveEntrySchema).min(1),
-}).strict();
+export const archiveInventorySchema = z
+  .object({
+    entryCount: z.number().int().positive(),
+    jsonlEntryCount: z.number().int().positive(),
+    binaryEntryCount: z.number().int().nonnegative(),
+    aggregateSha256: z.string().regex(sha256Pattern),
+    entries: z.array(archiveEntrySchema).min(1),
+  })
+  .strict();
 
-export const storedObjectSchema = z.object({
-  region: z.literal("ap-south-1"),
-  bucket: z.string().min(3),
-  key: z.string().min(1),
-  versionId: z.string().min(1),
-  byteCount: z.number().int().positive(),
-  sha256: z.string().regex(sha256Pattern),
-}).strict();
+export const storedObjectSchema = z
+  .object({
+    region: z.literal("ap-south-1"),
+    bucket: z.string().min(3),
+    key: z.string().min(1),
+    versionId: z.string().min(1),
+    byteCount: z.number().int().positive(),
+    sha256: z.string().regex(sha256Pattern),
+  })
+  .strict();
 
-export const backupManifestSchema = z.object({
-  schemaVersion: z.literal(1),
-  kind: z.literal("code2create-convex-logical-backup"),
-  eventSlug: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
-  purpose: z.enum([
-    "pre_event",
-    "pre_release",
-    "post_event",
-    "incident_safeguard",
-    "manual",
-  ]),
-  operatorId: z.string().min(2).max(120),
-  sourceDeployment: z.string().min(1).max(200),
-  sourceReleaseId: z.string().min(1).max(200),
-  convexCliVersion: z.string().min(1).max(40),
-  exportedAt: z.string().datetime({ offset: true }),
-  includesFileStorage: z.literal(true),
-  archive: storedObjectSchema,
-  inventory: archiveInventorySchema,
-}).strict().superRefine((manifest, context) => {
-  const expectedPrefix = `backups/${manifest.eventSlug}/convex/`;
-  if (!manifest.archive.key.startsWith(expectedPrefix) || !manifest.archive.key.endsWith(".zip")) {
-    context.addIssue({
-      code: "custom",
-      path: ["archive", "key"],
-      message: "Backup archive key does not match its event recovery prefix.",
-    });
-  }
-});
+export const backupManifestSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    kind: z.literal("code2create-convex-logical-backup"),
+    eventSlug: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
+    purpose: z.enum(["pre_event", "pre_release", "post_event", "incident_safeguard", "manual"]),
+    operatorId: z.string().min(2).max(120),
+    sourceDeployment: z.string().min(1).max(200),
+    sourceReleaseId: z.string().min(1).max(200),
+    convexCliVersion: z.string().min(1).max(40),
+    exportedAt: z.string().datetime({ offset: true }),
+    includesFileStorage: z.literal(true),
+    archive: storedObjectSchema,
+    inventory: archiveInventorySchema,
+  })
+  .strict()
+  .superRefine((manifest, context) => {
+    const expectedPrefix = `backups/${manifest.eventSlug}/convex/`;
+    if (
+      !manifest.archive.key.startsWith(expectedPrefix) ||
+      !manifest.archive.key.endsWith(".zip")
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["archive", "key"],
+        message: "Backup archive key does not match its event recovery prefix.",
+      });
+    }
+  });
 
 export type ArchiveEntry = z.infer<typeof archiveEntrySchema>;
 export type ArchiveInventory = z.infer<typeof archiveInventorySchema>;
@@ -80,11 +86,7 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Unknown recovery-tool failure.";
 }
 
-function waitForChild(
-  child: ReturnType<typeof spawn>,
-  commandLabel: string,
-  stderr: () => string,
-) {
+function waitForChild(child: ReturnType<typeof spawn>, commandLabel: string, stderr: () => string) {
   return new Promise<void>((resolve, reject) => {
     child.once("error", reject);
     child.once("close", (code, signal) => {

@@ -96,11 +96,7 @@ test("the public autonomy trace has one closed content-free vocabulary", () => {
     new Set(operationsAutonomyPublicLifecycleRoles).size,
     operationsAutonomyPublicLifecycleRoles.length,
   );
-  assert.deepEqual(operationsAutonomyPublicLifecycleStatuses, [
-    "started",
-    "completed",
-    "failed",
-  ]);
+  assert.deepEqual(operationsAutonomyPublicLifecycleStatuses, ["started", "completed", "failed"]);
 });
 
 test("autonomy boundaries have route-specific signature contexts", () => {

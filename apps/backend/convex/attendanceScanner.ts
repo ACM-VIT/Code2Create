@@ -1,7 +1,4 @@
-import {
-  paginationOptsValidator,
-  paginationResultValidator,
-} from "convex/server";
+import { paginationOptsValidator, paginationResultValidator } from "convex/server";
 import { v } from "convex/values";
 
 import type { Doc } from "./_generated/dataModel";
@@ -77,11 +74,7 @@ async function authoriseScannerDevice(
       index.eq("deviceInstallationId", device._id).eq("status", "active"),
     )
     .unique();
-  if (
-    !station ||
-    station.eventId !== event._id ||
-    !isConfiguredAttendanceStation(station)
-  ) {
+  if (!station || station.eventId !== event._id || !isConfiguredAttendanceStation(station)) {
     return null;
   }
   const grantIds = await matchingPermissionGrantIds(ctx, {
@@ -96,10 +89,7 @@ async function authoriseScannerDevice(
 }
 
 /** Device receipts exclude operations reconciliation events in the same table. */
-async function scannerReceipt(
-  ctx: QueryCtx,
-  presenceEvent: Doc<"attendancePresenceEvents">,
-) {
+async function scannerReceipt(ctx: QueryCtx, presenceEvent: Doc<"attendancePresenceEvents">) {
   if (
     presenceEvent.sourceKind !== "scanner" ||
     presenceEvent.deviceSequence === undefined ||
@@ -114,9 +104,7 @@ async function scannerReceipt(
   const profile = membership
     ? await ctx.db
         .query("participantProfiles")
-        .withIndex("by_membership", (index) =>
-          index.eq("membershipId", membership._id),
-        )
+        .withIndex("by_membership", (index) => index.eq("membershipId", membership._id))
         .unique()
     : null;
   const participantPerson = membership ? await ctx.db.get(membership.personId) : null;
@@ -131,8 +119,7 @@ async function scannerReceipt(
     deviceSequence: presenceEvent.deviceSequence,
     ...(participantPerson
       ? {
-          participantName:
-            profile?.fullName ?? participantPerson.displayName,
+          participantName: profile?.fullName ?? participantPerson.displayName,
         }
       : {}),
   };
@@ -226,9 +213,7 @@ export const current = query({
       station.sessionId === undefined ? null : ctx.db.get(station.sessionId),
       ctx.db
         .query("attendancePresenceEvents")
-        .withIndex("by_device_sequence", (index) =>
-          index.eq("deviceInstallationId", device._id),
-        )
+        .withIndex("by_device_sequence", (index) => index.eq("deviceInstallationId", device._id))
         .order("desc")
         .take(8),
     ]);
@@ -272,14 +257,15 @@ export const current = query({
         ...(station.sessionId !== undefined ? { sessionId: station.sessionId } : {}),
         zoneName: zone.name,
       },
-      openSession: session?.status === "open"
-        ? {
-            id: session._id,
-            name: session.name,
-            startsAt: session.startsAt,
-            endsAt: session.endsAt,
-          }
-        : null,
+      openSession:
+        session?.status === "open"
+          ? {
+              id: session._id,
+              name: session.name,
+              startsAt: session.startsAt,
+              endsAt: session.endsAt,
+            }
+          : null,
       serverNow: Date.now(),
       offlinePolicy: {
         maxScans: plan.offlineQueueMaxScans,

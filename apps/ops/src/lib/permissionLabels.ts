@@ -8,4 +8,4 @@ export {
   readPermissionArea,
   scopeName,
   type PermissionArea,
-} from '@code2create/domain'
+} from "@code2create/domain";

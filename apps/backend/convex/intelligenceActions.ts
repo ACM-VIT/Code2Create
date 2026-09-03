@@ -165,10 +165,7 @@ async function requestIdeaQuestionFromProvider(
                 additionalProperties: false,
               },
               matchedIdeaPatternKey: {
-                anyOf: [
-                  { type: "string", minLength: 1, maxLength: 60 },
-                  { type: "null" },
-                ],
+                anyOf: [{ type: "string", minLength: 1, maxLength: 60 }, { type: "null" }],
               },
               stopReason: {
                 type: "string",
@@ -284,9 +281,7 @@ export const interpretIdea = internalAction({
           inputFingerprint: context.inputFingerprint,
           state: provider.outputText ? "invalid" : "refused",
           ...emptyCompletion(),
-          ...(provider.providerRequestId
-            ? { providerRequestId: provider.providerRequestId }
-            : {}),
+          ...(provider.providerRequestId ? { providerRequestId: provider.providerRequestId } : {}),
           latencyMs: Date.now() - startedAt,
           failureCategory: provider.outputText
             ? "invalid_or_disallowed_output"
@@ -318,9 +313,7 @@ export const interpretIdea = internalAction({
         inputFingerprint: context.inputFingerprint,
         state: "succeeded",
         ...validated,
-        ...(provider.providerRequestId
-          ? { providerRequestId: provider.providerRequestId }
-          : {}),
+        ...(provider.providerRequestId ? { providerRequestId: provider.providerRequestId } : {}),
         latencyMs: Date.now() - startedAt,
       });
       await scheduleGenerationTelemetry(ctx, {

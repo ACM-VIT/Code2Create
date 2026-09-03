@@ -41,10 +41,7 @@ export function nextFigmaMetadataCheckAt(args: {
   webhookState: FigmaWebhookState;
   resourceKey: string;
 }) {
-  return (
-    args.from +
-    figmaMetadataIntervalMs(args.eventStatus, args.webhookState, args.resourceKey)
-  );
+  return args.from + figmaMetadataIntervalMs(args.eventStatus, args.webhookState, args.resourceKey);
 }
 
 export function nextFigmaMetadataFailureCheckAt(args: {

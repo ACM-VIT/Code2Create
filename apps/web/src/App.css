@@ -281,7 +281,7 @@ button:disabled {
   align-content: start;
 }
 
-input:not([type='checkbox']):not([type='radio']),
+input:not([type="checkbox"]):not([type="radio"]),
 textarea,
 select {
   width: 100%;
@@ -291,7 +291,7 @@ select {
   border-radius: 3px;
 }
 
-input:not([type='checkbox']):not([type='radio']),
+input:not([type="checkbox"]):not([type="radio"]),
 select {
   min-height: 44px;
   padding: 10px 12px;
@@ -735,7 +735,7 @@ code {
   gap: 8px 20px;
   margin-top: 8px;
   color: var(--muted);
-  font-size: .78rem;
+  font-size: 0.78rem;
 }
 
 .participant-now-meta span {
@@ -799,7 +799,7 @@ code {
 }
 
 .proposal-copy strong {
-  font-size: .82rem;
+  font-size: 0.82rem;
   font-weight: 600;
 }
 
@@ -828,7 +828,7 @@ code {
 .event-phase-status time,
 .event-phase-status > p:last-child {
   color: var(--muted);
-  font-size: .78rem;
+  font-size: 0.78rem;
 }
 
 .submitted-summary h2,
@@ -889,7 +889,7 @@ code {
 .accepted-next-steps li span,
 .accepted-next-steps li time {
   color: var(--muted);
-  font-size: .8rem;
+  font-size: 0.8rem;
   line-height: 1.5;
 }
 
@@ -911,7 +911,7 @@ code {
 
 .accepted-next-steps li a {
   width: fit-content;
-  font-size: .8rem;
+  font-size: 0.8rem;
 }
 
 .accepted-next-steps-compact {
@@ -934,14 +934,14 @@ code {
 }
 
 .accepted-next-steps-compact > summary span {
-  font-size: .9rem;
+  font-size: 0.9rem;
   font-weight: 600;
 }
 
 .accepted-next-steps-compact > summary small {
   overflow: hidden;
   color: var(--muted);
-  font-size: .75rem;
+  font-size: 0.75rem;
   text-align: right;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -966,7 +966,7 @@ code {
 .accepted-next-steps-body > p {
   margin: 0;
   color: var(--muted);
-  font-size: .8rem;
+  font-size: 0.8rem;
   line-height: 1.5;
 }
 
@@ -1411,7 +1411,7 @@ code {
   gap: 16px;
   color: var(--muted);
   cursor: pointer;
-  font-size: .76rem;
+  font-size: 0.76rem;
   list-style: none;
 }
 
@@ -1495,13 +1495,24 @@ code {
 }
 
 @keyframes minimal-step-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes minimal-breathe {
-  0%, 100% { opacity: .45; transform: scale(.9); }
-  50% { opacity: 1; transform: scale(1); }
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(0.9);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1621,7 +1632,9 @@ code {
   background: transparent;
   border: 1.5px solid var(--color-rose);
   border-radius: 12px;
-  transition: background .25s ease, color .25s ease;
+  transition:
+    background 0.25s ease,
+    color 0.25s ease;
 }
 
 [data-portal-scene] .secondary:hover:not(:disabled) {
@@ -1637,7 +1650,7 @@ code {
   color: var(--color-rose-light);
 }
 
-[data-portal-scene] input:not([type='checkbox']):not([type='radio']),
+[data-portal-scene] input:not([type="checkbox"]):not([type="radio"]),
 [data-portal-scene] textarea,
 [data-portal-scene] select {
   background: color-mix(in srgb, var(--color-wash) 45%, transparent);

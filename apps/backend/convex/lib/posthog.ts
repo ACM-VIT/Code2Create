@@ -49,9 +49,7 @@ export function scheduledAiGenerationTelemetry(args: AiGenerationTelemetry) {
     ...(args.reasoningTokens !== undefined ? { reasoningTokens: args.reasoningTokens } : {}),
     ...(args.totalTokens !== undefined ? { totalTokens: args.totalTokens } : {}),
     ...(args.finishReason !== undefined ? { finishReason: args.finishReason } : {}),
-    ...(args.providerRequestId !== undefined
-      ? { providerRequestId: args.providerRequestId }
-      : {}),
+    ...(args.providerRequestId !== undefined ? { providerRequestId: args.providerRequestId } : {}),
   };
 }
 
@@ -68,9 +66,7 @@ export function scheduledAiEmbeddingTelemetry(args: AiEmbeddingTelemetry) {
     ...(args.distinctId !== undefined ? { distinctId: args.distinctId } : {}),
     ...(args.errorCategory !== undefined ? { errorCategory: args.errorCategory } : {}),
     ...(args.inputTokens !== undefined ? { inputTokens: args.inputTokens } : {}),
-    ...(args.providerRequestId !== undefined
-      ? { providerRequestId: args.providerRequestId }
-      : {}),
+    ...(args.providerRequestId !== undefined ? { providerRequestId: args.providerRequestId } : {}),
   };
 }
 
@@ -115,10 +111,7 @@ function finiteNonNegative(value: number | undefined) {
   return value !== undefined && Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 
-function optionalProperty(
-  key: string,
-  value: string | number | undefined,
-): TelemetryProperties {
+function optionalProperty(key: string, value: string | number | undefined): TelemetryProperties {
   return value === undefined || value === "" ? {} : { [key]: value };
 }
 
@@ -136,7 +129,10 @@ export function aiGenerationProperties(args: AiGenerationTelemetry): TelemetryPr
     ...optionalProperty("$ai_input_tokens", finiteNonNegative(args.inputTokens)),
     ...optionalProperty("$ai_output_tokens", finiteNonNegative(args.outputTokens)),
     ...optionalProperty("$ai_cache_read_input_tokens", finiteNonNegative(args.cacheReadTokens)),
-    ...optionalProperty("$ai_cache_creation_input_tokens", finiteNonNegative(args.cacheWriteTokens)),
+    ...optionalProperty(
+      "$ai_cache_creation_input_tokens",
+      finiteNonNegative(args.cacheWriteTokens),
+    ),
     ...optionalProperty("$ai_reasoning_tokens", finiteNonNegative(args.reasoningTokens)),
     ...optionalProperty("$ai_total_tokens", finiteNonNegative(args.totalTokens)),
     ...optionalProperty("$ai_finish_reason", args.finishReason),

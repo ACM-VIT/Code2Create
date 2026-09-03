@@ -15,13 +15,15 @@ import {
   requireIntelligenceWorkerOrigin,
 } from "./lib/intelligenceServiceConfiguration";
 
-const receiptSchema = z.object({
-  state: z.literal("accepted"),
-  episodeId: z.string().min(1).max(200),
-  instanceId: z.string().min(1).max(200),
-  submissionId: z.string().min(1).max(200),
-  acceptedAt: z.iso.datetime(),
-}).strict();
+const receiptSchema = z
+  .object({
+    state: z.literal("accepted"),
+    episodeId: z.string().min(1).max(200),
+    instanceId: z.string().min(1).max(200),
+    submissionId: z.string().min(1).max(200),
+    acceptedAt: z.iso.datetime(),
+  })
+  .strict();
 
 export const dispatchEpisode = internalAction({
   args: { episodeId: v.id("operationsIntelligenceEpisodes") },
@@ -63,7 +65,11 @@ export const dispatchEpisode = internalAction({
       );
       if (!response.ok) throw new Error(`The episode Worker returned HTTP ${response.status}.`);
       const parsed = receiptSchema.safeParse(await readBoundedJsonResponse(response, 8 * 1_024));
-      if (!parsed.success || parsed.data.episodeId !== prepared.episodeId || parsed.data.instanceId !== prepared.episodeId) {
+      if (
+        !parsed.success ||
+        parsed.data.episodeId !== prepared.episodeId ||
+        parsed.data.instanceId !== prepared.episodeId
+      ) {
         throw new Error("The episode Worker returned an invalid receipt.");
       }
       const acceptedAt = Date.parse(parsed.data.acceptedAt);

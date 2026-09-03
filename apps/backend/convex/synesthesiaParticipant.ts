@@ -13,11 +13,7 @@ import {
   synesthesiaParticipantContext,
   trackFitsWindow,
 } from "./lib/synesthesia";
-import {
-  insertSongVote,
-  setSongVoteState,
-  songRequestVoteCounts,
-} from "./lib/synesthesiaVotes";
+import { insertSongVote, setSongVoteState, songRequestVoteCounts } from "./lib/synesthesiaVotes";
 import { songQueueMode, songRequestState, synesthesiaWindowKind } from "./values";
 import {
   appendSongRequestReadFactById,
@@ -82,10 +78,7 @@ const catalogTrack = v.object({
   energyTag: v.string(),
 });
 
-function isParticipantVisible(
-  request: Doc<"songRequests">,
-  membershipId: Id<"eventMemberships">,
-) {
+function isParticipantVisible(request: Doc<"songRequests">, membershipId: Id<"eventMemberships">) {
   if (request.state === "hidden") return false;
   if (request.state === "rejected") {
     return request.requestedByMembershipId === membershipId;
@@ -168,17 +161,13 @@ export const state = query({
       ctx.db
         .query("synesthesiaReports")
         .withIndex("by_window_reporter", (index) =>
-          index
-            .eq("windowId", window._id)
-            .eq("reporterMembershipId", context.membership._id),
+          index.eq("windowId", window._id).eq("reporterMembershipId", context.membership._id),
         )
         .take(maximumRequestsPerWindow),
       ctx.db
         .query("songRequests")
         .withIndex("by_window_requester_created", (index) =>
-          index
-            .eq("windowId", window._id)
-            .eq("requestedByMembershipId", context.membership._id),
+          index.eq("windowId", window._id).eq("requestedByMembershipId", context.membership._id),
         )
         .take(window.maxRequestsPerParticipant + 1),
     ]);
@@ -225,12 +214,8 @@ export const state = query({
           energyTag: request.energyTag,
           state: request.state,
           queueMode: request.queueMode,
-          ...(request.publicReason !== undefined
-            ? { publicReason: request.publicReason }
-            : {}),
-          ...(request.scheduledFor !== undefined
-            ? { scheduledFor: request.scheduledFor }
-            : {}),
+          ...(request.publicReason !== undefined ? { publicReason: request.publicReason } : {}),
+          ...(request.scheduledFor !== undefined ? { scheduledFor: request.scheduledFor } : {}),
           ...(request.playbackStartedAt !== undefined
             ? { playbackStartedAt: request.playbackStartedAt }
             : {}),
@@ -238,8 +223,7 @@ export const state = query({
           hasVoted: votedRequestIds.has(request._id),
           hasReported: reportedRequestIds.has(request._id),
           canVote: canChangeVotes && requestAllowsVote(request.state),
-          canReport:
-            !suspended && request.state !== "hidden" && request.state !== "rejected",
+          canReport: !suspended && request.state !== "hidden" && request.state !== "rejected",
           version: request.version,
           createdAt: request.createdAt,
         })),
@@ -351,11 +335,7 @@ export async function createSongRequest(
 ) {
   const { context, track } = args;
   const note = optionalNormalizedText(args.note, "Request note", 160);
-  const requestFingerprint = operationFingerprint([
-    args.windowId,
-    track._id,
-    note ?? null,
-  ]);
+  const requestFingerprint = operationFingerprint([args.windowId, track._id, note ?? null]);
   const prior = await findOperation(ctx, {
     eventId: context.event._id,
     actorPersonId: context.person._id,
@@ -371,11 +351,7 @@ export async function createSongRequest(
       created: storedCreationResult(prior.resultJson, "song request"),
     };
   }
-  const window = await participantWindowForWrite(
-    ctx,
-    context.event._id,
-    args.windowId,
-  );
+  const window = await participantWindowForWrite(ctx, context.event._id, args.windowId);
   if (!window.requestsOpen) {
     throw new ConvexError({
       code: "REQUESTS_CLOSED",
@@ -423,9 +399,7 @@ export async function createSongRequest(
     ctx.db
       .query("songRequests")
       .withIndex("by_window_requester_created", (index) =>
-        index
-          .eq("windowId", window._id)
-          .eq("requestedByMembershipId", context.membership._id),
+        index.eq("windowId", window._id).eq("requestedByMembershipId", context.membership._id),
       )
       .take(window.maxRequestsPerParticipant),
   ]);
@@ -517,9 +491,7 @@ async function changeVote(
 ) {
   const context = await requireSynesthesiaParticipant(ctx, args.eventSlug);
   const requestFingerprint = operationFingerprint([args.requestId, args.active]);
-  const commandName = args.active
-    ? "synesthesia.vote"
-    : "synesthesia.remove_vote";
+  const commandName = args.active ? "synesthesia.vote" : "synesthesia.remove_vote";
   const prior = await findOperation(ctx, {
     eventId: context.event._id,
     actorPersonId: context.person._id,
@@ -581,12 +553,7 @@ async function changeVote(
   const now = Date.now();
   let voteId: Id<"songVotes">;
   if (existing) {
-    await setSongVoteState(
-      ctx,
-      existing,
-      args.active ? "active" : "removed",
-      now,
-    );
+    await setSongVoteState(ctx, existing, args.active ? "active" : "removed", now);
     voteId = existing._id;
   } else {
     if (!args.active) {
@@ -699,9 +666,7 @@ export const reportRequest = mutation({
     const existing = await ctx.db
       .query("synesthesiaReports")
       .withIndex("by_request_reporter", (index) =>
-        index
-          .eq("requestId", request._id)
-          .eq("reporterMembershipId", context.membership._id),
+        index.eq("requestId", request._id).eq("reporterMembershipId", context.membership._id),
       )
       .unique();
     const now = Date.now();

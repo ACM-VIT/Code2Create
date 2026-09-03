@@ -109,7 +109,8 @@ const signalDefinitions = {
     severity: "attention",
     singular: "Stalled admission analysis",
     plural: "Stalled admission analyses",
-    detail: "An admission recommendation job has remained pending or running past its worker window.",
+    detail:
+      "An admission recommendation job has remained pending or running past its worker window.",
     owner: "Admissions lead",
     nextAction: "Keep human review moving and inspect the current recommendation job.",
   },
@@ -174,7 +175,8 @@ const signalDefinitions = {
     plural: "Emergency packs failed",
     detail: "A current restricted emergency-pack artifact could not be generated.",
     owner: "Incident readiness",
-    nextAction: "Review private storage health and prepare a new pack before relying on paper recovery.",
+    nextAction:
+      "Review private storage health and prepare a new pack before relying on paper recovery.",
   },
   emergency_pack_stalls: {
     area: "system",
@@ -235,7 +237,8 @@ const signalDefinitions = {
     severity: "watch",
     singular: "Scanner queue awaiting replay",
     plural: "Scanner queues awaiting replay",
-    detail: "An assigned phone still holds encrypted physical-credential scans without server receipts.",
+    detail:
+      "An assigned phone still holds encrypted physical-credential scans without server receipts.",
     owner: "Attendance lead",
     nextAction: "Restore connectivity and confirm the phone replays its queue before reassignment.",
   },
@@ -354,7 +357,8 @@ const signalDefinitions = {
     plural: "Stale Figma metadata checks",
     detail: "A current Figma file has not completed its lightweight provider check on time.",
     owner: "Integrations desk",
-    nextAction: "Check the authorizer, provider limit, and metadata scheduler before requesting a full checkpoint.",
+    nextAction:
+      "Check the authorizer, provider limit, and metadata scheduler before requesting a full checkpoint.",
   },
   figma_webhook_errors: {
     area: "integrations",
@@ -511,12 +515,8 @@ export function buildOperationsHealth(counts: OperationsHealthCounts): {
       severityRank[left.severity] - severityRank[right.severity] ||
       left.title.localeCompare(right.title),
   );
-  const criticalSignalCount = signals.filter(
-    (signal) => signal.severity === "critical",
-  ).length;
-  const attentionSignalCount = signals.filter(
-    (signal) => signal.severity === "attention",
-  ).length;
+  const criticalSignalCount = signals.filter((signal) => signal.severity === "critical").length;
+  const attentionSignalCount = signals.filter((signal) => signal.severity === "attention").length;
   const watchSignalCount = signals.filter((signal) => signal.severity === "watch").length;
   const status: HealthStatus =
     criticalSignalCount > 0

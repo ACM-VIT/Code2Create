@@ -7,12 +7,18 @@ import {
 
 function failureClass(state: Doc<"participantNotificationDeliveries">["state"]) {
   switch (state) {
-    case "delivery_delayed": return "delayed" as const;
-    case "bounced": return "bounced" as const;
-    case "failed": return "failed" as const;
-    case "suppressed": return "suppressed" as const;
-    case "unknown": return "unknown" as const;
-    default: return undefined;
+    case "delivery_delayed":
+      return "delayed" as const;
+    case "bounced":
+      return "bounced" as const;
+    case "failed":
+      return "failed" as const;
+    case "suppressed":
+      return "suppressed" as const;
+    case "unknown":
+      return "unknown" as const;
+    default:
+      return undefined;
   }
 }
 
@@ -24,7 +30,12 @@ export async function appendParticipantDeliveryReadFact(
   const source = "participant_deliveries" as const;
   const entityKey = `delivery:${row._id}`;
   const sequence = await nextOperationsAutonomyFactSequence(ctx, row.eventId, source, now);
-  await closeOperationsAutonomyFactVersion(ctx, { eventId: row.eventId, source, entityKey, sequence });
+  await closeOperationsAutonomyFactVersion(ctx, {
+    eventId: row.eventId,
+    source,
+    entityKey,
+    sequence,
+  });
   const classified = failureClass(row.state);
   await ctx.db.insert("operationsAutonomyReadFacts", {
     eventId: row.eventId,

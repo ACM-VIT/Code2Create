@@ -5,10 +5,10 @@
  */
 export function ShimmerText({
   children,
-  className = '',
+  className = "",
 }: {
-  children: string
-  className?: string
+  children: string;
+  className?: string;
 }) {
   return (
     <span className={`shimmer-text ${className}`}>
@@ -17,5 +17,5 @@ export function ShimmerText({
         {children}
       </span>
     </span>
-  )
+  );
 }

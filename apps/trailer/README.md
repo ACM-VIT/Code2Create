@@ -29,7 +29,7 @@ repo carries no licensed track. To add one: drop the file at
 `src/Trailer.tsx`:
 
 ```tsx
-<Audio src={staticFile('music.mp3')} volume={0.8} />
+<Audio src={staticFile("music.mp3")} volume={0.8} />
 ```
 
 A track around 120 bpm fits: at 30 fps a beat is exactly 15 frames, and the

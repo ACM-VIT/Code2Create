@@ -63,11 +63,7 @@ const sessionInput = v.object({
     v.literal("workshop"),
     v.literal("other"),
   ),
-  requirement: v.union(
-    v.literal("required"),
-    v.literal("optional"),
-    v.literal("information_only"),
-  ),
+  requirement: v.union(v.literal("required"), v.literal("optional"), v.literal("information_only")),
   expectedCohort: cohort,
   zoneKey: v.string(),
   startsAt: v.number(),
@@ -128,9 +124,7 @@ export function validateAttendanceStationBinding(args: {
   sessions: readonly { stableKey: string; zoneKey: string }[];
 }) {
   const sessionScoped =
-    args.mode === "session_confirm" ||
-    args.mode === "zone_entry" ||
-    args.mode === "zone_exit";
+    args.mode === "session_confirm" || args.mode === "zone_entry" || args.mode === "zone_exit";
   if (sessionScoped && args.sessionKey === undefined) {
     throw new ConvexError({
       code: "STATION_SESSION_REQUIRED",
@@ -216,9 +210,7 @@ export const current = query({
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const draftPlan = await ctx.db
       .query("attendancePlanVersions")
-      .withIndex("by_event_status", (index) =>
-        index.eq("eventId", event._id).eq("status", "draft"),
-      )
+      .withIndex("by_event_status", (index) => index.eq("eventId", event._id).eq("status", "draft"))
       .unique();
     const [configurationGrants, publishGrants] = await Promise.all([
       matchingPermissionGrantIds(ctx, {
@@ -316,9 +308,7 @@ export const current = query({
               .map((zone) => ({
                 stableKey: zone.stableKey,
                 name: zone.name,
-                ...(zone.safeCapacity !== undefined
-                  ? { safeCapacity: zone.safeCapacity }
-                  : {}),
+                ...(zone.safeCapacity !== undefined ? { safeCapacity: zone.safeCapacity } : {}),
               }))
               .sort((left, right) => left.stableKey.localeCompare(right.stableKey)),
             sessions: sessions
@@ -346,9 +336,10 @@ export const current = query({
               .map((station) => {
                 const zoneKey = zoneKeyById.get(station.zoneId);
                 if (!zoneKey) throw new Error("Attendance station zone no longer resolves.");
-                const sessionKey = station.sessionId === undefined
-                  ? undefined
-                  : sessionKeyById.get(station.sessionId);
+                const sessionKey =
+                  station.sessionId === undefined
+                    ? undefined
+                    : sessionKeyById.get(station.sessionId);
                 if (station.sessionId !== undefined && sessionKey === undefined) {
                   throw new Error("Attendance station session no longer resolves.");
                 }
@@ -468,9 +459,18 @@ export const createDraft = mutation({
         : {}),
       allowedCredentialKinds: station.allowedCredentialKinds,
     }));
-    requireUnique(zones.map((zone) => zone.stableKey), "Zone keys");
-    requireUnique(sessions.map((session) => session.stableKey), "Session keys");
-    requireUnique(stations.map((station) => station.stableKey), "Station keys");
+    requireUnique(
+      zones.map((zone) => zone.stableKey),
+      "Zone keys",
+    );
+    requireUnique(
+      sessions.map((session) => session.stableKey),
+      "Session keys",
+    );
+    requireUnique(
+      stations.map((station) => station.stableKey),
+      "Station keys",
+    );
     requireUnique(args.vitBarcodeSymbologies, "VIT barcode symbologies");
     const vitBarcodeNormalizationVersion = normalizedText(
       args.vitBarcodeNormalizationVersion,
@@ -517,12 +517,18 @@ export const createDraft = mutation({
         zone.safeCapacity !== undefined &&
         (!Number.isInteger(zone.safeCapacity) || zone.safeCapacity < 1)
       ) {
-        throw new ConvexError({ code: "INVALID_CAPACITY", message: "Zone capacity must be a positive integer." });
+        throw new ConvexError({
+          code: "INVALID_CAPACITY",
+          message: "Zone capacity must be a positive integer.",
+        });
       }
     }
     for (const session of sessions) {
       if (!zoneKeys.has(session.zoneKey)) {
-        throw new ConvexError({ code: "UNKNOWN_ZONE", message: "A session references an unknown zone." });
+        throw new ConvexError({
+          code: "UNKNOWN_ZONE",
+          message: "A session references an unknown zone.",
+        });
       }
       if (
         session.checkInOpensAt > session.startsAt ||
@@ -530,30 +536,45 @@ export const createDraft = mutation({
         session.checkInClosesAt < session.startsAt ||
         session.checkInClosesAt > session.endsAt
       ) {
-        throw new ConvexError({ code: "INVALID_SESSION_TIME", message: "A session has an impossible time window." });
+        throw new ConvexError({
+          code: "INVALID_SESSION_TIME",
+          message: "A session has an impossible time window.",
+        });
       }
       if (
         session.awayAlertAfterMinutes !== undefined &&
         (!Number.isInteger(session.awayAlertAfterMinutes) || session.awayAlertAfterMinutes < 1)
       ) {
-        throw new ConvexError({ code: "INVALID_AWAY_ALERT", message: "Away alert must be a positive minute count." });
+        throw new ConvexError({
+          code: "INVALID_AWAY_ALERT",
+          message: "Away alert must be a positive minute count.",
+        });
       }
       if (
         session.expectedCohort.kind === "participant_classes" &&
         session.expectedCohort.participantClasses.length === 0
       ) {
-        throw new ConvexError({ code: "EMPTY_COHORT", message: "Participant-class cohort cannot be empty." });
+        throw new ConvexError({
+          code: "EMPTY_COHORT",
+          message: "Participant-class cohort cannot be empty.",
+        });
       }
       if (
         session.expectedCohort.kind === "explicit" &&
         session.expectedCohort.membershipIds.length === 0
       ) {
-        throw new ConvexError({ code: "EMPTY_COHORT", message: "Explicit cohort cannot be empty." });
+        throw new ConvexError({
+          code: "EMPTY_COHORT",
+          message: "Explicit cohort cannot be empty.",
+        });
       }
     }
     for (const station of stations) {
       if (!zoneKeys.has(station.zoneKey)) {
-        throw new ConvexError({ code: "UNKNOWN_ZONE", message: "A station references an unknown zone." });
+        throw new ConvexError({
+          code: "UNKNOWN_ZONE",
+          message: "A station references an unknown zone.",
+        });
       }
       if (station.allowedCredentialKinds.length === 0) {
         throw new ConvexError({
@@ -578,7 +599,10 @@ export const createDraft = mutation({
         for (const membershipId of session.expectedCohort.membershipIds) {
           const membership = await ctx.db.get(membershipId);
           if (!membership || membership.eventId !== event._id) {
-            throw new ConvexError({ code: "FOREIGN_COHORT", message: "A cohort member is outside this event." });
+            throw new ConvexError({
+              code: "FOREIGN_COHORT",
+              message: "A cohort member is outside this event.",
+            });
           }
         }
       }
@@ -586,9 +610,7 @@ export const createDraft = mutation({
 
     const priorDraft = await ctx.db
       .query("attendancePlanVersions")
-      .withIndex("by_event_status", (index) =>
-        index.eq("eventId", event._id).eq("status", "draft"),
-      )
+      .withIndex("by_event_status", (index) => index.eq("eventId", event._id).eq("status", "draft"))
       .unique();
     const latestPlan = await ctx.db
       .query("attendancePlanVersions")
@@ -664,9 +686,8 @@ export const createDraft = mutation({
     for (const station of stations) {
       const zoneId = zoneIds.get(station.zoneKey);
       if (!zoneId) throw new Error("Validated station zone is missing.");
-      const sessionId = station.sessionKey === undefined
-        ? undefined
-        : sessionIds.get(station.sessionKey);
+      const sessionId =
+        station.sessionKey === undefined ? undefined : sessionIds.get(station.sessionKey);
       if (station.sessionKey !== undefined && sessionId === undefined) {
         throw new Error("Validated station session is missing.");
       }
@@ -709,7 +730,12 @@ export const createDraft = mutation({
       action: "attendance.plan_draft_created",
       targetType: "attendance_plan",
       targetId: planVersionId,
-      nextSummary: JSON.stringify({ version, zones: zones.length, sessions: sessions.length, stations: stations.length }),
+      nextSummary: JSON.stringify({
+        version,
+        zones: zones.length,
+        sessions: sessions.length,
+        stations: stations.length,
+      }),
       reason,
     });
     return { planVersionId, version, eventVersion };
@@ -761,7 +787,10 @@ export const publish = mutation({
     requireVersion(event.version, args.expectedEventVersion);
     const plan = await ctx.db.get(args.planVersionId);
     if (!plan || plan.eventId !== event._id || plan.status !== "draft") {
-      throw new ConvexError({ code: "PLAN_NOT_DRAFT", message: "Only this event's current draft can be published." });
+      throw new ConvexError({
+        code: "PLAN_NOT_DRAFT",
+        message: "Only this event's current draft can be published.",
+      });
     }
     const grantIds = await requirePermission(ctx, {
       eventId: event._id,
@@ -785,7 +814,10 @@ export const publish = mutation({
         .take(maximumAttendanceStationsPerPlan + 1),
     ]);
     if (zones.length === 0 || sessions.length === 0 || stations.length === 0) {
-      throw new ConvexError({ code: "PLAN_INCOMPLETE", message: "The attendance plan is incomplete." });
+      throw new ConvexError({
+        code: "PLAN_INCOMPLETE",
+        message: "The attendance plan is incomplete.",
+      });
     }
     requireAttendancePlanLimits({ zones, sessions, stations });
     for (const station of stations) requireConfiguredAttendanceStation(station);
@@ -859,7 +891,14 @@ export const publish = mutation({
       action: "attendance.plan_published",
       targetType: "attendance_plan",
       targetId: plan._id,
-      ...(priorPublished ? { previousSummary: JSON.stringify({ planVersionId: priorPublished._id, version: priorPublished.version }) } : {}),
+      ...(priorPublished
+        ? {
+            previousSummary: JSON.stringify({
+              planVersionId: priorPublished._id,
+              version: priorPublished.version,
+            }),
+          }
+        : {}),
       nextSummary: JSON.stringify({
         planVersionId: plan._id,
         version: plan.version,

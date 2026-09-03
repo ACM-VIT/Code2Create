@@ -3,10 +3,7 @@ import { describe, expect, test } from "vitest";
 
 import type { Id } from "./_generated/dataModel.js";
 import { requireAccessVersion } from "./lib/accessVersion.ts";
-import {
-  requireGrantAuthority,
-  requireRevokeAuthority,
-} from "./lib/permissionDelegation.ts";
+import { requireGrantAuthority, requireRevokeAuthority } from "./lib/permissionDelegation.ts";
 import { normalizeBundleEntries } from "./lib/permissionBundleEntries.ts";
 import { permissionCatalog } from "./lib/permissionCatalog.ts";
 import { insertPermissionGrant } from "./lib/permissions.ts";
@@ -341,7 +338,7 @@ async function seedAccessFixture(backend: BackendTest) {
       timezone: "Asia/Kolkata",
       status: "live",
       vitEmailDomains: ["vitstudent.ac.in"],
-        applicationsCloseAt: Date.now() + 86_400_000,
+      applicationsCloseAt: Date.now() + 86_400_000,
       startsAt: now - 60_000,
       endsAt: now + 3_600_000,
       version: 1,

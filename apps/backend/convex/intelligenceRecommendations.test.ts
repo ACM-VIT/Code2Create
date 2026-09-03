@@ -82,9 +82,7 @@ describe("intelligence recommendations", () => {
     expect(await first.json()).toEqual({ state: "accepted" });
     expect(await second.json()).toEqual({ state: "already_exists" });
 
-    const rows = await backend.run((ctx) =>
-      ctx.db.query("intelligenceRecommendations").collect(),
-    );
+    const rows = await backend.run((ctx) => ctx.db.query("intelligenceRecommendations").collect());
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
       status: "proposed",
@@ -95,10 +93,9 @@ describe("intelligence recommendations", () => {
   test("a recommendation without a citation is impossible to create", async () => {
     const backend = seededBackend();
     const fixture = await seedFloor(backend);
-    const result = await backend.mutation(
-      internal.intelligenceRecommendations.proposeFromWorker,
-      { proposal: { ...proposalBody(fixture), citations: [] } },
-    );
+    const result = await backend.mutation(internal.intelligenceRecommendations.proposeFromWorker, {
+      proposal: { ...proposalBody(fixture), citations: [] },
+    });
     expect(result).toBe("missing_citation");
     expect(
       await backend.run((ctx) => ctx.db.query("intelligenceRecommendations").collect()),
@@ -120,18 +117,13 @@ describe("intelligence recommendations", () => {
         },
       },
     );
-    const stale = await backend.mutation(
-      internal.intelligenceRecommendations.proposeFromWorker,
-      {
-        proposal: {
-          ...source,
-          proposalKey: `${source.proposalKey}:stale`,
-          citations: [
-            { ...citation, generatedAt: Date.now() - 16 * 60 * 1_000 },
-          ],
-        },
+    const stale = await backend.mutation(internal.intelligenceRecommendations.proposeFromWorker, {
+      proposal: {
+        ...source,
+        proposalKey: `${source.proposalKey}:stale`,
+        citations: [{ ...citation, generatedAt: Date.now() - 16 * 60 * 1_000 }],
       },
-    );
+    });
 
     expect(wrongTarget).toBe("invalid_citation");
     expect(stale).toBe("invalid_citation");
@@ -153,9 +145,7 @@ describe("intelligence recommendations", () => {
 
     expect(conflict.status).toBe(409);
     expect(await conflict.json()).toEqual({ error: "proposal_conflict" });
-    const rows = await backend.run((ctx) =>
-      ctx.db.query("intelligenceRecommendations").collect(),
-    );
+    const rows = await backend.run((ctx) => ctx.db.query("intelligenceRecommendations").collect());
     expect(rows).toHaveLength(1);
     expect(rows[0]?.statement).toBe(original.statement);
   });
@@ -188,7 +178,12 @@ describe("intelligence recommendations", () => {
       });
       const snapshot = {
         generatedAt: source.citations[0]?.generatedAt ?? Date.now(),
-        event: { slug: event.slug, name: event.name, timezone: event.timezone, status: "live" as const },
+        event: {
+          slug: event.slug,
+          name: event.name,
+          timezone: event.timezone,
+          status: "live" as const,
+        },
         summary: {
           status: "healthy" as const,
           signalCount: 0,
@@ -198,28 +193,29 @@ describe("intelligence recommendations", () => {
         },
         signals: [],
       };
-      const insertRun = (operationKey: string) => ctx.db.insert("operationsAutonomyRuns", {
-        eventId: event._id,
-        policyVersionId: policyId,
-        policyVersion: 1,
-        policyChecksum: "a".repeat(64),
-        trigger: { kind: "schedule" as const, scheduledFor: snapshot.generatedAt },
-        mode: "recommend" as const,
-        escalationSeverity: "critical" as const,
-        allowedReadTools: ["operations_health" as const, "review_exceptions" as const],
-        allowedRecommendationKinds: ["hold_review_team" as const],
-        sourceSnapshot: snapshot,
-        sourceFactHighWatermarks: [],
-        sourceChecksum: "b".repeat(64),
-        operationKey,
-        admission: { kind: "not_accepted" as const },
-        executor: { kind: "unknown" as const },
-        lifecycle: { kind: "pending" as const },
-        attemptCount: 0,
-        version: 1,
-        createdAt: snapshot.generatedAt,
-        updatedAt: snapshot.generatedAt,
-      });
+      const insertRun = (operationKey: string) =>
+        ctx.db.insert("operationsAutonomyRuns", {
+          eventId: event._id,
+          policyVersionId: policyId,
+          policyVersion: 1,
+          policyChecksum: "a".repeat(64),
+          trigger: { kind: "schedule" as const, scheduledFor: snapshot.generatedAt },
+          mode: "recommend" as const,
+          escalationSeverity: "critical" as const,
+          allowedReadTools: ["operations_health" as const, "review_exceptions" as const],
+          allowedRecommendationKinds: ["hold_review_team" as const],
+          sourceSnapshot: snapshot,
+          sourceFactHighWatermarks: [],
+          sourceChecksum: "b".repeat(64),
+          operationKey,
+          admission: { kind: "not_accepted" as const },
+          executor: { kind: "unknown" as const },
+          lifecycle: { kind: "pending" as const },
+          attemptCount: 0,
+          version: 1,
+          createdAt: snapshot.generatedAt,
+          updatedAt: snapshot.generatedAt,
+        });
       const [runA, runB] = await Promise.all([insertRun("run-a"), insertRun("run-b")]);
       const proposal = {
         proposalKey: source.proposalKey,
@@ -266,9 +262,8 @@ describe("intelligence recommendations", () => {
     expect(result.first.state).toBe("accepted");
     expect(result.second).toMatchObject({
       state: "already_exists",
-      recommendationId: result.first.state === "accepted"
-        ? result.first.recommendationId
-        : undefined,
+      recommendationId:
+        result.first.state === "accepted" ? result.first.recommendationId : undefined,
     });
     if (result.first.state !== "accepted") {
       throw new Error("Expected the first autonomous proposal to be accepted.");
@@ -287,11 +282,13 @@ describe("intelligence recommendations", () => {
         .collect(),
     );
     expect(observations).toHaveLength(2);
-    expect(observations.map((observation) => ({
-      runId: observation.runId,
-      evidenceSetId: observation.evidenceSetId,
-      statement: observation.statement,
-    }))).toEqual([
+    expect(
+      observations.map((observation) => ({
+        runId: observation.runId,
+        evidenceSetId: observation.evidenceSetId,
+        statement: observation.statement,
+      })),
+    ).toEqual([
       {
         runId: result.runA,
         evidenceSetId: "evidence-run-a",
@@ -312,7 +309,7 @@ describe("intelligence recommendations", () => {
     await backend.run(async (ctx) => {
       const now = Date.now();
       for (let index = 0; index < 29; index += 1) {
-        const status = index < 24 ? "proposed" as const : "rejected" as const;
+        const status = index < 24 ? ("proposed" as const) : ("rejected" as const);
         await ctx.db.insert("intelligenceRecommendations", {
           eventId: fixture.eventId,
           proposalKey: `${original.proposalKey}:page-${index}`,
@@ -413,11 +410,14 @@ describe("intelligence recommendations", () => {
     });
     expect(result.version).toBe(2);
 
-    const [state, recommendation, audits] = await backend.run(async (ctx) => [
-      await ctx.db.get(fixture.teamRoundStateId),
-      await ctx.db.get(recommendationId),
-      await ctx.db.query("auditEvents").collect(),
-    ] as const);
+    const [state, recommendation, audits] = await backend.run(
+      async (ctx) =>
+        [
+          await ctx.db.get(fixture.teamRoundStateId),
+          await ctx.db.get(recommendationId),
+          await ctx.db.query("auditEvents").collect(),
+        ] as const,
+    );
     expect(state).toMatchObject({
       state: "held",
       holdReason: "The team missed both calls while the queue waited.",
@@ -466,10 +466,10 @@ describe("intelligence recommendations", () => {
       }),
     ).rejects.toThrow();
 
-    const [state, recommendation] = await backend.run(async (ctx) => [
-      await ctx.db.get(fixture.teamRoundStateId),
-      await ctx.db.get(recommendationId),
-    ] as const);
+    const [state, recommendation] = await backend.run(
+      async (ctx) =>
+        [await ctx.db.get(fixture.teamRoundStateId), await ctx.db.get(recommendationId)] as const,
+    );
     expect(state).toMatchObject({ state: "called", version: 2 });
     expect(recommendation).toMatchObject({ status: "proposed", version: 1 });
   });
@@ -537,10 +537,7 @@ describe("intelligence recommendations", () => {
         });
       const historicalMemberId = await member(Date.now());
       await member(Date.now() + 1);
-      for (const permissionKey of [
-        "review.substitute.page",
-        "review.substitute.assign",
-      ] as const) {
+      for (const permissionKey of ["review.substitute.page", "review.substitute.assign"] as const) {
         await insertPermissionGrant(ctx, {
           eventId: fixture.eventId,
           personId: fixture.operatorPersonId,
@@ -563,31 +560,28 @@ describe("intelligence recommendations", () => {
 
     const staleProposal = proposalBody(fixture);
     expect(
-      await backend.mutation(
-        internal.intelligenceRecommendations.proposeFromWorker,
-        {
-          proposal: {
-            ...staleProposal,
-            proposalKey: `${testConversationId}:page-${historicalMemberId}`,
-            statement: "Page a reserve reviewer for the panel's old vacant seat.",
-            reasoning:
-              "The old vacancy appears related to this panel, but a newer removal now owns the open seat.",
-            citations: [
-              {
-                read: "review_exceptions",
-                generatedAt: Date.now(),
-                keys: [historicalMemberId],
-              },
-            ],
-            arguments: {
-              kind: "page_reserve_reviewer",
-              missingPanelMemberId: historicalMemberId,
-              expectedPanelVersion: 3,
-              reason: "Replace the current missing reviewer.",
+      await backend.mutation(internal.intelligenceRecommendations.proposeFromWorker, {
+        proposal: {
+          ...staleProposal,
+          proposalKey: `${testConversationId}:page-${historicalMemberId}`,
+          statement: "Page a reserve reviewer for the panel's old vacant seat.",
+          reasoning:
+            "The old vacancy appears related to this panel, but a newer removal now owns the open seat.",
+          citations: [
+            {
+              read: "review_exceptions",
+              generatedAt: Date.now(),
+              keys: [historicalMemberId],
             },
+          ],
+          arguments: {
+            kind: "page_reserve_reviewer",
+            missingPanelMemberId: historicalMemberId,
+            expectedPanelVersion: 3,
+            reason: "Replace the current missing reviewer.",
           },
         },
-      ),
+      }),
     ).toBe("invalid_target");
 
     await expect(
@@ -637,8 +631,7 @@ describe("intelligence recommendations", () => {
       expect.objectContaining({
         kind: "hold_review_team",
         status: "superseded",
-        operatorNote:
-          "Call the team once more before holding; their table is far from the stage.",
+        operatorNote: "Call the team once more before holding; their table is far from the stage.",
       }),
     ]);
 
@@ -675,10 +668,13 @@ describe("intelligence recommendations", () => {
     const response = await signedPropose(backend, JSON.stringify(source));
     expect(response.status).toBe(202);
     expect(await response.json()).toEqual({ state: "accepted" });
-    const [recommendation, policy] = await backend.run(async (ctx) => [
-      await ctx.db.query("intelligenceRecommendations").unique(),
-      await ctx.db.get(fixture.admissionPolicyId),
-    ] as const);
+    const [recommendation, policy] = await backend.run(
+      async (ctx) =>
+        [
+          await ctx.db.query("intelligenceRecommendations").unique(),
+          await ctx.db.get(fixture.admissionPolicyId),
+        ] as const,
+    );
     expect(recommendation?.arguments).toMatchObject({
       kind: "set_admission_minimum_human_reviews",
       minimumHumanReviews: 1,
@@ -700,27 +696,31 @@ describe("intelligence recommendations", () => {
     const backend = seededBackend();
     const fixture = await seedFloor(backend);
     const recommendationId = await proposeAdmission(backend, fixture);
-    await backend.run((ctx) => insertPermissionGrant(ctx, {
-      eventId: fixture.eventId,
-      personId: fixture.onlookerPersonId,
-      eventAccessSubjectId: fixture.onlookerSubjectId,
-      permissionKey: "configuration.admission.draft.create",
-      scopeType: "event",
-      sourceType: "manual",
-      sourceId: `${fixture.eventSlug}:draft-only`,
-      grantedByPersonId: fixture.operatorPersonId,
-      reason: "Prove publish authority is independently required",
-    }));
+    await backend.run((ctx) =>
+      insertPermissionGrant(ctx, {
+        eventId: fixture.eventId,
+        personId: fixture.onlookerPersonId,
+        eventAccessSubjectId: fixture.onlookerSubjectId,
+        permissionKey: "configuration.admission.draft.create",
+        scopeType: "event",
+        sourceType: "manual",
+        sourceId: `${fixture.eventSlug}:draft-only`,
+        grantedByPersonId: fixture.operatorPersonId,
+        reason: "Prove publish authority is independently required",
+      }),
+    );
     const onlooker = backend.withIdentity({
       subject: fixture.onlookerAuthUserId,
       sessionId: fixture.onlookerAuthSessionId,
     });
-    await expect(onlooker.mutation(api.intelligenceRecommendations.approve, {
-      eventSlug: fixture.eventSlug,
-      recommendationId,
-      expectedVersion: 1,
-      clientOperationId: "admission-approve-without-publish",
-    })).rejects.toThrow();
+    await expect(
+      onlooker.mutation(api.intelligenceRecommendations.approve, {
+        eventSlug: fixture.eventSlug,
+        recommendationId,
+        expectedVersion: 1,
+        clientOperationId: "admission-approve-without-publish",
+      }),
+    ).rejects.toThrow();
     const result = await backend.run(async (ctx) => ({
       recommendation: await ctx.db.get(recommendationId),
       drafts: await ctx.db
@@ -785,32 +785,40 @@ describe("intelligence recommendations", () => {
       executedTargetType: "admission_policy",
       executedTargetId: result.published?._id,
     });
-    expect(result.audits.map((audit) => audit.action)).toEqual(expect.arrayContaining([
-      "configuration.admission_drafted",
-      "configuration.admission_published",
-      "operations.intelligence_recommendation_approved",
-    ]));
-    expect(result.audits.every((audit) => audit.actorPersonId === fixture.operatorPersonId)).toBe(true);
+    expect(result.audits.map((audit) => audit.action)).toEqual(
+      expect.arrayContaining([
+        "configuration.admission_drafted",
+        "configuration.admission_published",
+        "operations.intelligence_recommendation_approved",
+      ]),
+    );
+    expect(result.audits.every((audit) => audit.actorPersonId === fixture.operatorPersonId)).toBe(
+      true,
+    );
   });
 
   test("admission approval refuses stale event state and an active submission lock atomically", async () => {
     const staleBackend = seededBackend();
     const staleFixture = await seedFloor(staleBackend);
     const staleRecommendationId = await proposeAdmission(staleBackend, staleFixture);
-    await staleBackend.run((ctx) => ctx.db.patch(staleFixture.eventId, {
-      version: 2,
-      updatedAt: Date.now(),
-    }));
+    await staleBackend.run((ctx) =>
+      ctx.db.patch(staleFixture.eventId, {
+        version: 2,
+        updatedAt: Date.now(),
+      }),
+    );
     const staleOperator = staleBackend.withIdentity({
       subject: staleFixture.operatorAuthUserId,
       sessionId: staleFixture.operatorAuthSessionId,
     });
-    await expect(staleOperator.mutation(api.intelligenceRecommendations.approve, {
-      eventSlug: staleFixture.eventSlug,
-      recommendationId: staleRecommendationId,
-      expectedVersion: 1,
-      clientOperationId: "admission-stale-event",
-    })).rejects.toThrow("Event configuration changed");
+    await expect(
+      staleOperator.mutation(api.intelligenceRecommendations.approve, {
+        eventSlug: staleFixture.eventSlug,
+        recommendationId: staleRecommendationId,
+        expectedVersion: 1,
+        clientOperationId: "admission-stale-event",
+      }),
+    ).rejects.toThrow("Event configuration changed");
     expect(await staleBackend.run((ctx) => ctx.db.get(staleRecommendationId))).toMatchObject({
       status: "proposed",
       version: 1,
@@ -824,12 +832,14 @@ describe("intelligence recommendations", () => {
       subject: lockedFixture.operatorAuthUserId,
       sessionId: lockedFixture.operatorAuthSessionId,
     });
-    await expect(lockedOperator.mutation(api.intelligenceRecommendations.approve, {
-      eventSlug: lockedFixture.eventSlug,
-      recommendationId: lockedRecommendationId,
-      expectedVersion: 1,
-      clientOperationId: "admission-submission-lock",
-    })).rejects.toThrow("closes when the first project submission begins");
+    await expect(
+      lockedOperator.mutation(api.intelligenceRecommendations.approve, {
+        eventSlug: lockedFixture.eventSlug,
+        recommendationId: lockedRecommendationId,
+        expectedVersion: 1,
+        clientOperationId: "admission-submission-lock",
+      }),
+    ).rejects.toThrow("closes when the first project submission begins");
     const lockedResult = await lockedBackend.run(async (ctx) => ({
       recommendation: await ctx.db.get(lockedRecommendationId),
       drafts: await ctx.db
@@ -895,12 +905,20 @@ describe("intelligence recommendations", () => {
       subject: fixture.onlookerAuthUserId,
       sessionId: fixture.onlookerAuthSessionId,
     });
-    expect((await operator.query(api.intelligenceRecommendations.copilotConversation, {
-      eventSlug: fixture.eventSlug,
-    })).map((entry) => entry.statement)).toEqual(["Private command 0", "Private command 2"]);
-    expect((await onlooker.query(api.intelligenceRecommendations.copilotConversation, {
-      eventSlug: fixture.eventSlug,
-    })).map((entry) => entry.statement)).toEqual(["Private command 1"]);
+    expect(
+      (
+        await operator.query(api.intelligenceRecommendations.copilotConversation, {
+          eventSlug: fixture.eventSlug,
+        })
+      ).map((entry) => entry.statement),
+    ).toEqual(["Private command 0", "Private command 2"]);
+    expect(
+      (
+        await onlooker.query(api.intelligenceRecommendations.copilotConversation, {
+          eventSlug: fixture.eventSlug,
+        })
+      ).map((entry) => entry.statement),
+    ).toEqual(["Private command 1"]);
 
     await backend.run(async (ctx) => {
       const grants = await ctx.db.query("permissionGrants").collect();
@@ -908,12 +926,15 @@ describe("intelligence recommendations", () => {
         if (
           grant.eventAccessSubjectId === fixture.onlookerSubjectId &&
           grant.permissionKey === "operations.intelligence.read"
-        ) await ctx.db.delete(grant._id);
+        )
+          await ctx.db.delete(grant._id);
       }
     });
-    await expect(onlooker.query(api.intelligenceRecommendations.copilotConversation, {
-      eventSlug: fixture.eventSlug,
-    })).rejects.toThrow();
+    await expect(
+      onlooker.query(api.intelligenceRecommendations.copilotConversation, {
+        eventSlug: fixture.eventSlug,
+      }),
+    ).rejects.toThrow();
   });
 });
 
@@ -996,24 +1017,20 @@ async function signedPropose(backend: BackendTest, body: string) {
 }
 
 async function propose(backend: BackendTest, fixture: Fixture) {
-  const result = await backend.mutation(
-    internal.intelligenceRecommendations.proposeFromWorker,
-    { proposal: proposalBody(fixture) },
-  );
+  const result = await backend.mutation(internal.intelligenceRecommendations.proposeFromWorker, {
+    proposal: proposalBody(fixture),
+  });
   expect(result).toBe("accepted");
-  const rows = await backend.run((ctx) =>
-    ctx.db.query("intelligenceRecommendations").collect(),
-  );
+  const rows = await backend.run((ctx) => ctx.db.query("intelligenceRecommendations").collect());
   const row = rows[0];
   if (!row) throw new Error("The proposal was not recorded.");
   return row._id;
 }
 
 async function proposeAdmission(backend: BackendTest, fixture: Fixture) {
-  const result = await backend.mutation(
-    internal.intelligenceRecommendations.proposeFromWorker,
-    { proposal: admissionProposalBody(fixture) },
-  );
+  const result = await backend.mutation(internal.intelligenceRecommendations.proposeFromWorker, {
+    proposal: admissionProposalBody(fixture),
+  });
   expect(result).toBe("accepted");
   const row = await backend.run((ctx) =>
     ctx.db
@@ -1096,7 +1113,7 @@ async function seedFloor(backend: BackendTest) {
       timezone: "Asia/Kolkata",
       status: "live",
       vitEmailDomains: ["vitstudent.ac.in"],
-        applicationsCloseAt: Date.now() + 86_400_000,
+      applicationsCloseAt: Date.now() + 86_400_000,
       version: 1,
       createdAt: now,
       updatedAt: now,

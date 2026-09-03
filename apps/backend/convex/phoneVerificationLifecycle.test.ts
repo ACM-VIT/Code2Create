@@ -9,10 +9,7 @@ import {
   normalizeParticipantPolicy,
   participantPolicyChecksum,
 } from "./lib/participantPolicy";
-import {
-  phoneVerificationCodeDigest,
-  phoneVerificationLifetimeMs,
-} from "./lib/phoneVerification";
+import { phoneVerificationCodeDigest, phoneVerificationLifetimeMs } from "./lib/phoneVerification";
 import { insertPermissionGrant } from "./lib/permissions";
 import schema from "./schema";
 
@@ -48,9 +45,9 @@ describe("participant phone verification lifecycle", () => {
       attemptsRemaining: 5,
       canVerify: false,
     });
-    await expect(
-      participant.mutation(api.phoneVerifications.request, request),
-    ).resolves.toEqual(queued);
+    await expect(participant.mutation(api.phoneVerifications.request, request)).resolves.toEqual(
+      queued,
+    );
     await backend.run(async (ctx) => {
       expect(await ctx.db.query("participantPhoneVerifications").collect()).toHaveLength(1);
     });
@@ -79,10 +76,7 @@ describe("participant phone verification lifecycle", () => {
       code: "000000",
       clientOperationId: "phone-verify-wrong-1",
     } as const;
-    const incorrect = await participant.mutation(
-      api.phoneVerifications.verify,
-      incorrectRequest,
-    );
+    const incorrect = await participant.mutation(api.phoneVerifications.verify, incorrectRequest);
     expect(incorrect).toMatchObject({ outcome: "incorrect", attemptsRemaining: 4 });
     await expect(
       participant.mutation(api.phoneVerifications.verify, incorrectRequest),
@@ -105,10 +99,12 @@ describe("participant phone verification lifecycle", () => {
     if (verified.outcome !== "verified") {
       throw new Error("The valid phone code was not accepted.");
     }
-    await expect(participant.query(api.phoneVerifications.status, {
-      eventSlug: fixture.eventSlug,
-      phone: "+919000000000",
-    })).resolves.toMatchObject({ state: "verified", canVerify: false });
+    await expect(
+      participant.query(api.phoneVerifications.status, {
+        eventSlug: fixture.eventSlug,
+        phone: "+919000000000",
+      }),
+    ).resolves.toMatchObject({ state: "verified", canVerify: false });
 
     const profileArgs = {
       eventSlug: fixture.eventSlug,
@@ -120,23 +116,29 @@ describe("participant phone verification lifecycle", () => {
       externalCollege: "Example College",
       expectedProfileVersion: 0,
     };
-    await expect(participant.mutation(api.participants.saveProfile, {
-      ...profileArgs,
-      phone: "+91 90000 00000",
-      clientOperationId: "profile-without-verification",
-    })).rejects.toThrow("Verify this phone number");
-    await expect(participant.mutation(api.participants.saveProfile, {
-      ...profileArgs,
-      phone: "+91 80000 00000",
-      phoneVerificationId: queued.verificationId,
-      clientOperationId: "profile-with-mismatched-verification",
-    })).rejects.toThrow("Verify this phone number");
-    await expect(participant.mutation(api.participants.saveProfile, {
-      ...profileArgs,
-      phone: "+91 90000 00000",
-      phoneVerificationId: queued.verificationId,
-      clientOperationId: "profile-with-verification",
-    })).resolves.toMatchObject({ profileVersion: 1 });
+    await expect(
+      participant.mutation(api.participants.saveProfile, {
+        ...profileArgs,
+        phone: "+91 90000 00000",
+        clientOperationId: "profile-without-verification",
+      }),
+    ).rejects.toThrow("Verify this phone number");
+    await expect(
+      participant.mutation(api.participants.saveProfile, {
+        ...profileArgs,
+        phone: "+91 80000 00000",
+        phoneVerificationId: queued.verificationId,
+        clientOperationId: "profile-with-mismatched-verification",
+      }),
+    ).rejects.toThrow("Verify this phone number");
+    await expect(
+      participant.mutation(api.participants.saveProfile, {
+        ...profileArgs,
+        phone: "+91 90000 00000",
+        phoneVerificationId: queued.verificationId,
+        clientOperationId: "profile-with-verification",
+      }),
+    ).resolves.toMatchObject({ profileVersion: 1 });
     await backend.run(async (ctx) => {
       const profile = await ctx.db
         .query("participantProfiles")
@@ -191,12 +193,14 @@ describe("participant phone verification lifecycle", () => {
         attemptCount: 5,
       });
     });
-    await expect(participant.mutation(api.phoneVerifications.verify, {
-      eventSlug: fixture.eventSlug,
-      verificationId: queued.verificationId,
-      code: "123456",
-      clientOperationId: "lockout-after-limit",
-    })).rejects.toThrow("Too many incorrect attempts");
+    await expect(
+      participant.mutation(api.phoneVerifications.verify, {
+        eventSlug: fixture.eventSlug,
+        verificationId: queued.verificationId,
+        code: "123456",
+        clientOperationId: "lockout-after-limit",
+      }),
+    ).rejects.toThrow("Too many incorrect attempts");
   });
 });
 

@@ -129,14 +129,7 @@ export const defaultDeterministicIntakePolicy: IntakePolicy = {
   maximumFollowUpCount: 4,
   deterministicFollowUpCount: 2,
   questionMaxLength: 140,
-  allowedPurposeKeys: [
-    "user",
-    "problem",
-    "experience",
-    "event_goal",
-    "tradeoff",
-    "risk",
-  ],
+  allowedPurposeKeys: ["user", "problem", "experience", "event_goal", "tradeoff", "risk"],
   fallbackQuestions: ideaIntakeFallbackQuestions.map((question) => ({ ...question })),
   blockedTerms: [...requiredBlockedTerms],
   commonIdeaPatterns: [],
@@ -157,7 +150,9 @@ function wholeNumber(value: number, field: string, minimum: number, maximum: num
 function normalizeStableKey(value: string, field: string) {
   const key = value.trim().toLowerCase();
   if (!/^[a-z][a-z0-9_]{0,59}$/u.test(key)) {
-    invalidPolicy(`${field} must start with a letter and use lowercase letters, numbers, or underscores.`);
+    invalidPolicy(
+      `${field} must start with a letter and use lowercase letters, numbers, or underscores.`,
+    );
   }
   return key;
 }
@@ -169,7 +164,10 @@ function normalizeQuestion(
   blockedTerms: readonly string[],
 ) {
   const question = normalizedText(value, field, 8, maximum);
-  if (!question.endsWith("?") || [...question].filter((character) => character === "?").length !== 1) {
+  if (
+    !question.endsWith("?") ||
+    [...question].filter((character) => character === "?").length !== 1
+  ) {
     invalidPolicy(`${field} must be one question ending in a question mark.`);
   }
   const lower = question.toLocaleLowerCase("en");
@@ -258,7 +256,10 @@ export function normalizeIntakePolicy(input: IntakePolicy): IntakePolicy {
     140,
   );
   const allowedPurposeKeys = [...input.allowedPurposeKeys];
-  if (allowedPurposeKeys.length === 0 || new Set(allowedPurposeKeys).size !== allowedPurposeKeys.length) {
+  if (
+    allowedPurposeKeys.length === 0 ||
+    new Set(allowedPurposeKeys).size !== allowedPurposeKeys.length
+  ) {
     invalidPolicy("Allowed question purposes must be a non-empty unique set.");
   }
   if (input.blockedTerms.length > 40) {
@@ -296,9 +297,8 @@ export function normalizeIntakePolicy(input: IntakePolicy): IntakePolicy {
       answerLength: fallback.answerLength,
     }))
     .toSorted((left, right) => left.ordinal - right.ordinal);
-  const variantsByOrdinal = Array.from(
-    { length: input.maximumFollowUpCount },
-    (_, index) => fallbackQuestions.filter((fallback) => fallback.ordinal === index + 1),
+  const variantsByOrdinal = Array.from({ length: input.maximumFollowUpCount }, (_, index) =>
+    fallbackQuestions.filter((fallback) => fallback.ordinal === index + 1),
   );
   const hasCurrentQuestionVariants =
     input.maximumFollowUpCount === 4 &&
@@ -313,7 +313,9 @@ export function normalizeIntakePolicy(input: IntakePolicy): IntakePolicy {
       "The policy needs one fixed question for ordinals one and two and at least two variants for ordinals three and four.",
     );
   }
-  if (new Set(fallbackQuestions.map((fallback) => fallback.text)).size !== fallbackQuestions.length) {
+  if (
+    new Set(fallbackQuestions.map((fallback) => fallback.text)).size !== fallbackQuestions.length
+  ) {
     invalidPolicy("Question variants must use unique wording.");
   }
   if (fallbackQuestions.some((fallback) => !allowedPurposeKeys.includes(fallback.purposeKey))) {
@@ -329,8 +331,12 @@ export function normalizeIntakePolicy(input: IntakePolicy): IntakePolicy {
       300,
     ),
   }));
-  if (commonIdeaPatterns.length > 20) invalidPolicy("An intake policy may contain at most twenty idea patterns.");
-  if (new Set(commonIdeaPatterns.map((pattern) => pattern.stableKey)).size !== commonIdeaPatterns.length) {
+  if (commonIdeaPatterns.length > 20)
+    invalidPolicy("An intake policy may contain at most twenty idea patterns.");
+  if (
+    new Set(commonIdeaPatterns.map((pattern) => pattern.stableKey)).size !==
+    commonIdeaPatterns.length
+  ) {
     invalidPolicy("Idea-pattern keys must be unique.");
   }
   return {
@@ -378,10 +384,7 @@ export function intakePolicyFromDocument(policy: Doc<"intakePolicyVersions">): I
   };
 }
 
-export async function requirePinnedIntakePolicy(
-  ctx: ReadCtx,
-  draft: Doc<"projectDrafts">,
-) {
+export async function requirePinnedIntakePolicy(ctx: ReadCtx, draft: Doc<"projectDrafts">) {
   const policy = await ctx.db.get(draft.intakePolicyVersionId);
   if (
     !policy ||
@@ -397,10 +400,7 @@ export async function requirePinnedIntakePolicy(
   return { policy, normalized };
 }
 
-export async function requirePublishedIntakePolicy(
-  ctx: ReadCtx,
-  event: Doc<"events">,
-) {
+export async function requirePublishedIntakePolicy(ctx: ReadCtx, event: Doc<"events">) {
   const policyId = event.publishedIntakePolicyId;
   const policy = policyId ? await ctx.db.get(policyId) : null;
   if (!policy || policy.eventId !== event._id || policy.status !== "published") {
@@ -506,11 +506,7 @@ export async function publishIntakePolicy(
   }
   const publishedId = args.event.publishedIntakePolicyId;
   const published = publishedId ? await ctx.db.get(publishedId) : null;
-  if (
-    !published ||
-    published.eventId !== args.event._id ||
-    published.status !== "published"
-  ) {
+  if (!published || published.eventId !== args.event._id || published.status !== "published") {
     throw new Error("The event's published intake policy is invalid.");
   }
   await ctx.db.patch(published._id, { status: "superseded" });
@@ -528,20 +524,18 @@ export function fixedQuestionForOrdinal(
   ordinal: number,
   selectionKey?: string,
 ) {
-  const policyVariants = policy.fallbackQuestions.filter(
-    (entry) => entry.ordinal === ordinal,
-  );
-  const variants = policyVariants.length > 0
-    ? policyVariants
-    : defaultDeterministicIntakePolicy.fallbackQuestions.filter(
-        (entry) => entry.ordinal === ordinal,
-      );
-  const variantIndex = selectionKey === undefined
-    ? 0
-    : Number.parseInt(
-        fingerprintText(`${selectionKey}:question-${ordinal}`).slice(0, 8),
-        16,
-      ) % variants.length;
+  const policyVariants = policy.fallbackQuestions.filter((entry) => entry.ordinal === ordinal);
+  const variants =
+    policyVariants.length > 0
+      ? policyVariants
+      : defaultDeterministicIntakePolicy.fallbackQuestions.filter(
+          (entry) => entry.ordinal === ordinal,
+        );
+  const variantIndex =
+    selectionKey === undefined
+      ? 0
+      : Number.parseInt(fingerprintText(`${selectionKey}:question-${ordinal}`).slice(0, 8), 16) %
+        variants.length;
   const fallback = variants[variantIndex];
   if (!fallback) {
     throw new Error(`The intake policy has no question fallback for ordinal ${ordinal}.`);

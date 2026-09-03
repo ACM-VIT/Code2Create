@@ -1,20 +1,20 @@
-import { Tile, TileEyebrow } from './Tile'
+import { Tile, TileEyebrow } from "./Tile";
 
-export type IntegrationTarget = 'github' | 'figma'
+export type IntegrationTarget = "github" | "figma";
 
 export type IntegrationsTileModel = {
-  available: boolean
-  github: { connected: boolean; detail: string }
-  figma: { connected: boolean; detail: string }
-  open: (target: IntegrationTarget) => void
-}
+  available: boolean;
+  github: { connected: boolean; detail: string };
+  figma: { connected: boolean; detail: string };
+  open: (target: IntegrationTarget) => void;
+};
 
 function GitHubMark({ className }: { className: string }) {
   return (
     <svg className={className} aria-hidden>
       <use href="/icons.svg#github-icon" />
     </svg>
-  )
+  );
 }
 
 function FigmaMark({ className }: { className: string }) {
@@ -26,7 +26,7 @@ function FigmaMark({ className }: { className: string }) {
       <circle cx="15.5" cy="12" r="3.25" />
       <path d="M8.5 15.5H12v3.25A3.25 3.25 0 1 1 8.5 15.5Z" />
     </svg>
-  )
+  );
 }
 
 function IntegrationButton({
@@ -36,13 +36,13 @@ function IntegrationButton({
   detail,
   onOpen,
 }: {
-  target: IntegrationTarget
-  label: string
-  connected: boolean
-  detail: string
-  onOpen: () => void
+  target: IntegrationTarget;
+  label: string;
+  connected: boolean;
+  detail: string;
+  onOpen: () => void;
 }) {
-  const Mark = target === 'github' ? GitHubMark : FigmaMark
+  const Mark = target === "github" ? GitHubMark : FigmaMark;
   return (
     <button
       type="button"
@@ -52,20 +52,22 @@ function IntegrationButton({
       <span
         className={`flex size-11 flex-none items-center justify-center rounded-full border transition-colors ${
           connected
-            ? 'border-ring-lead bg-avatar-lead text-rose-light shadow-[0_0_18px_var(--avatar-glow)]'
-            : 'border-rose/60 bg-avatar text-fg/80 group-hover:text-fg'
+            ? "border-ring-lead bg-avatar-lead text-rose-light shadow-[0_0_18px_var(--avatar-glow)]"
+            : "border-rose/60 bg-avatar text-fg/80 group-hover:text-fg"
         }`}
       >
         <Mark className="size-5" />
       </span>
       <span className="min-w-0">
         <span className="block text-[14px] text-fg">{label}</span>
-        <span className={`block truncate text-[11.5px] ${connected ? 'text-rose-light' : 'text-fg/55'}`}>
+        <span
+          className={`block truncate text-[11.5px] ${connected ? "text-rose-light" : "text-fg/55"}`}
+        >
           {detail}
         </span>
       </span>
     </button>
-  )
+  );
 }
 
 export function IntegrationsTile({
@@ -74,16 +76,16 @@ export function IntegrationsTile({
   onFocus,
   onRelease,
 }: {
-  model: IntegrationsTileModel
-  focused: boolean
-  onFocus: () => void
-  onRelease: () => void
+  model: IntegrationsTileModel;
+  focused: boolean;
+  onFocus: () => void;
+  onRelease: () => void;
 }) {
   const summary = !model.available
-    ? 'Opens once your team is confirmed.'
-    : `GitHub ${model.github.connected ? 'connected' : 'not linked'} · Figma ${
-        model.figma.connected ? 'connected' : 'not linked'
-      }`
+    ? "Opens once your team is confirmed."
+    : `GitHub ${model.github.connected ? "connected" : "not linked"} · Figma ${
+        model.figma.connected ? "connected" : "not linked"
+      }`;
 
   return (
     <Tile area="integrations" focused={focused} onFocus={onFocus} onRelease={onRelease}>
@@ -92,9 +94,11 @@ export function IntegrationsTile({
           <TileEyebrow>integrations</TileEyebrow>
           {!focused ? <span className="text-[11px] text-fg/50">tap to open</span> : null}
         </div>
-        <p className={`m-0 text-[13px] leading-snug text-fg/70 ${focused ? 'max-w-[42ch]' : 'line-clamp-2'}`}>
+        <p
+          className={`m-0 text-[13px] leading-snug text-fg/70 ${focused ? "max-w-[42ch]" : "line-clamp-2"}`}
+        >
           {focused && model.available
-            ? 'Connect where the team builds, so checkpoints and reviews can see the work as it happens.'
+            ? "Connect where the team builds, so checkpoints and reviews can see the work as it happens."
             : summary}
         </p>
         {focused ? (
@@ -104,20 +108,20 @@ export function IntegrationsTile({
                 target="github"
                 label="GitHub"
                 connected={model.github.connected}
-                detail={model.available ? model.github.detail : 'Not yet'}
-                onOpen={() => model.open('github')}
+                detail={model.available ? model.github.detail : "Not yet"}
+                onOpen={() => model.open("github")}
               />
               <IntegrationButton
                 target="figma"
                 label="Figma"
                 connected={model.figma.connected}
-                detail={model.available ? model.figma.detail : 'Not yet'}
-                onOpen={() => model.open('figma')}
+                detail={model.available ? model.figma.detail : "Not yet"}
+                onOpen={() => model.open("figma")}
               />
             </div>
           </div>
         ) : null}
       </div>
     </Tile>
-  )
+  );
 }

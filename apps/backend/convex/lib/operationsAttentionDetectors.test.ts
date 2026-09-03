@@ -56,7 +56,11 @@ function panel(overrides: Partial<PanelProjection> = {}): PanelProjection {
     statusSince: now - 30 * minute,
     hasActivePageChain: false,
     hasRunningReview: false,
-    members: [member(), member({ panelMemberId: "m2", personId: "person2", displayName: "Ben" }), member({ panelMemberId: "m3", personId: "person3", displayName: "Cal" })],
+    members: [
+      member(),
+      member({ panelMemberId: "m2", personId: "person2", displayName: "Ben" }),
+      member({ panelMemberId: "m3", personId: "person3", displayName: "Cal" }),
+    ],
     queuedTeams: [],
     completedDurationsSeconds: [],
     ...overrides,
@@ -83,7 +87,6 @@ function team(overrides: Partial<TeamProjection> = {}): TeamProjection {
 function only(items: ReturnType<typeof reviewFloorItems>, key: string) {
   return items.filter((item) => item.detectorKey === key);
 }
-
 
 function commandField(command: AttentionCommand | undefined, field: string) {
   if (command === undefined) return undefined;
@@ -190,7 +193,6 @@ test("no page is proposed while a page chain is already running", () => {
   assert.equal(only(items, "panel_seat_empty")[0]?.actionLabel, "Open the panel");
 });
 
-
 test("a stale heartbeat is reported as a signal, never as proof", () => {
   const items = reviewFloorItems(
     floor({
@@ -234,7 +236,11 @@ test("a heartbeat inside the window is not a risk", () => {
     floor({
       panels: [
         panel({
-          members: [member({ lastHeartbeatAt: now - 3 * minute }), member({ panelMemberId: "m2", personId: "p2" }), member({ panelMemberId: "m3", personId: "p3" })],
+          members: [
+            member({ lastHeartbeatAt: now - 3 * minute }),
+            member({ panelMemberId: "m2", personId: "p2" }),
+            member({ panelMemberId: "m3", personId: "p3" }),
+          ],
         }),
       ],
       teams: [team()],
@@ -359,9 +365,18 @@ test("an unreachable sole device is a risk; a spare device is not", () => {
       floor({
         panels: [
           panel({
-            members: [first, member({ panelMemberId: "m2", personId: "p2" }), member({ panelMemberId: "m3", personId: "p3" })],
+            members: [
+              first,
+              member({ panelMemberId: "m2", personId: "p2" }),
+              member({ panelMemberId: "m3", personId: "p3" }),
+            ],
             queuedTeams: [
-              { teamRoundStateId: "s1", version: 2, teamName: "Nightshift", queuedAt: now - minute },
+              {
+                teamRoundStateId: "s1",
+                version: 2,
+                teamName: "Nightshift",
+                queuedAt: now - minute,
+              },
             ],
           }),
         ],
@@ -396,7 +411,6 @@ test("no no-show is proposed while a review timer is running on that panel", () 
   );
   assert.equal(only(items, "seat_at_risk")[0]?.proposal, undefined);
 });
-
 
 test("an overdue review says how far past it is and offers the extension", () => {
   const items = reviewFloorItems(
@@ -534,7 +548,7 @@ test("a hold shows its reason once it has lasted, and offers the resume", () => 
         teams: [
           team({
             state: "held",
-                  heldAt,
+            heldAt,
             holdReason: "Two members are at the clinic.",
           }),
         ],
@@ -554,7 +568,7 @@ test("a call past its grace period offers the missed mark", () => {
       teams: [
         team({
           state: "called",
-              calledAt: now - 8 * minute,
+          calledAt: now - 8 * minute,
           missedEligibleAt: now - 4 * minute,
         }),
       ],
@@ -584,14 +598,13 @@ test("a paused round stops the clock-driven rows but keeps the structural ones",
         teamRoundStateId: "s2",
         teamId: "t2",
         state: "called",
-          missedEligibleAt: now - 5 * minute,
+        missedEligibleAt: now - 5 * minute,
       }),
     ],
   });
   const keys = reviewFloorItems(paused).map((item) => item.detectorKey);
   assert.deepEqual(keys, ["panel_seat_empty"]);
 });
-
 
 function pacedPanel(
   panelId: string,
@@ -717,7 +730,6 @@ test("a paused round is not forecast at all", () => {
   );
 });
 
-
 test("an outstanding scorecard names the reviewers and only what their app reported", () => {
   const items = scorecardChaseItems({
     now,
@@ -804,10 +816,10 @@ test("a session where everyone submitted produces nothing", () => {
   );
 });
 
-
 test("dedupe keys are identity, so a changing reading keeps the same key", () => {
   const at = (queuedAt: number) =>
-    reviewFloorItems(floor({ panels: [panel()], teams: [team({ queuedAt })] }))
-      .map((item) => item.dedupeKey);
+    reviewFloorItems(floor({ panels: [panel()], teams: [team({ queuedAt })] })).map(
+      (item) => item.dedupeKey,
+    );
   assert.deepEqual(at(now - 21 * minute), at(now - 45 * minute));
 });

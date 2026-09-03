@@ -38,9 +38,17 @@ export async function appendRoundExportJobReadFact(
     .first();
   if (current?.source === source && sameOperationsAutonomyFactValue(current.value, value)) return;
   const sequence = await nextOperationsAutonomyFactSequence(ctx, row.eventId, source, now);
-  await closeOperationsAutonomyFactVersion(ctx, { eventId: row.eventId, source, entityKey, sequence });
+  await closeOperationsAutonomyFactVersion(ctx, {
+    eventId: row.eventId,
+    source,
+    entityKey,
+    sequence,
+  });
   await ctx.db.insert("operationsAutonomyReadFacts", {
-    eventId: row.eventId, source, entityKey, sequence,
+    eventId: row.eventId,
+    source,
+    entityKey,
+    sequence,
     value,
     createdAt: now,
   });

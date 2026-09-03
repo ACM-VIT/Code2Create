@@ -42,7 +42,12 @@ export const uploadSource = action({
       });
     }
     const bytes = new Uint8Array(args.bytes);
-    if (bytes[0] !== 0xff || bytes[1] !== 0xd8 || bytes[bytes.length - 2] !== 0xff || bytes[bytes.length - 1] !== 0xd9) {
+    if (
+      bytes[0] !== 0xff ||
+      bytes[1] !== 0xd8 ||
+      bytes[bytes.length - 2] !== 0xff ||
+      bytes[bytes.length - 1] !== 0xd9
+    ) {
       throw new ConvexError({
         code: "SOURCE_TYPE_INVALID",
         message: "The paper source must be a valid JPEG image.",
@@ -61,9 +66,7 @@ export const uploadSource = action({
     if (context.kind === "complete") {
       return { sheetId: args.sheetId, version: context.version };
     }
-    const storageId = await ctx.storage.store(
-      new Blob([args.bytes], { type: sourceContentType }),
-    );
+    const storageId = await ctx.storage.store(new Blob([args.bytes], { type: sourceContentType }));
     try {
       const attached = await ctx.runMutation(internal.attendanceManualSheets.attachSource, {
         eventSlug: args.eventSlug,

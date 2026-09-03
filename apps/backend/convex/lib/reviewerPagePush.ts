@@ -12,9 +12,10 @@ export function reviewerPagePushData(args: {
   tableLabel?: string;
   expiresAt: number;
 }): ReviewerPagePushData {
-  const body = args.tableLabel === undefined
-    ? `${args.roundName}. Open Code2Create Ops now.`
-    : `${args.roundName} at ${args.tableLabel}. Open Code2Create Ops now.`;
+  const body =
+    args.tableLabel === undefined
+      ? `${args.roundName}. Open Code2Create Ops now.`
+      : `${args.roundName} at ${args.tableLabel}. Open Code2Create Ops now.`;
   return {
     kind: "reviewer_substitute_page",
     pageId: args.pageId,

@@ -292,18 +292,18 @@ The panel coordinator may confirm completion. The coordinator cannot edit anothe
 
 ## 13. Failure handling
 
-| Failure | Response |
-| --- | --- |
-| Reviewer does not arrive | Page substitutes; keep panel visibly blocked until accepted |
-| Reviewer phone dies | Move the reviewer to a spare registered device or replace the reviewer |
-| Push is late | In-app assignment and dashboard stay current; call or runner is the fallback |
-| The team is not where the map says | Hold, correct the team's hall location, then resume |
-| QR expired | Refresh the participant QR; do not reuse an old token |
-| Duplicate review start | Return the existing active session |
-| Two operators move the same team | Accept one current-version command; reject the stale command with the new state |
-| Review runs over | Mark overdue and require an explicit extension or close decision |
-| Required scorecard missing | Keep the review and round incomplete; page the reviewer or start the approved missing-reviewer process |
-| Review incident pauses the round | Keep queue positions and active scorecards; reject new calls, starts, and round close until authorized resume |
+| Failure                            | Response                                                                                                      |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Reviewer does not arrive           | Page substitutes; keep panel visibly blocked until accepted                                                   |
+| Reviewer phone dies                | Move the reviewer to a spare registered device or replace the reviewer                                        |
+| Push is late                       | In-app assignment and dashboard stay current; call or runner is the fallback                                  |
+| The team is not where the map says | Hold, correct the team's hall location, then resume                                                           |
+| QR expired                         | Refresh the participant QR; do not reuse an old token                                                         |
+| Duplicate review start             | Return the existing active session                                                                            |
+| Two operators move the same team   | Accept one current-version command; reject the stale command with the new state                               |
+| Review runs over                   | Mark overdue and require an explicit extension or close decision                                              |
+| Required scorecard missing         | Keep the review and round incomplete; page the reviewer or start the approved missing-reviewer process        |
+| Review incident pauses the round   | Keep queue positions and active scorecards; reject new calls, starts, and round close until authorized resume |
 
 ## 14. Acceptance checks
 

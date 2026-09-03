@@ -84,10 +84,7 @@ test("every lifecycle blocker knows which product screen resolves it", () => {
 });
 
 test("active work blockers open their live control rooms", () => {
-  assert.deepEqual(activeWorkBlockerKeys, [
-    "active_attendance_session",
-    "active_review_round",
-  ]);
+  assert.deepEqual(activeWorkBlockerKeys, ["active_attendance_session", "active_review_round"]);
   assert.equal(eventBlockerPaths.active_attendance_session, "/attendance");
   assert.equal(eventBlockerPaths.active_review_round, "/reviews");
 });

@@ -8,10 +8,7 @@ import { z } from "zod";
 
 import { internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
-import {
-  HttpBodyTooLargeError,
-  readBoundedRequestText,
-} from "./lib/boundedHttpBody";
+import { HttpBodyTooLargeError, readBoundedRequestText } from "./lib/boundedHttpBody";
 
 const maximumBodyBytes = 16 * 1_024;
 const maximumSignatureAgeMs = 5 * 60 * 1_000;
@@ -74,20 +71,17 @@ export const participantEmailEvent = httpAction(async (ctx, request) => {
   }
   const parsed = emailEventSchema.safeParse(decoded);
   if (!parsed.success) return new Response("Invalid participant email event.", { status: 422 });
-  const result = await ctx.runMutation(
-    internal.participantNotificationState.recordProviderEvent,
-    {
-      eventId: parsed.data.eventId,
-      providerMessageId: parsed.data.messageId,
-      recipientEmailNormalized: parsed.data.recipient.toLocaleLowerCase("en"),
-      eventType: parsed.data.eventType,
-      providerAt: parsed.data.providerAt,
-      disableDestination: parsed.data.disableDestination,
-      ...(parsed.data.providerErrorCode !== undefined
-        ? { providerErrorCode: parsed.data.providerErrorCode }
-        : {}),
-      payloadHash: await payloadHash(body),
-    },
-  );
+  const result = await ctx.runMutation(internal.participantNotificationState.recordProviderEvent, {
+    eventId: parsed.data.eventId,
+    providerMessageId: parsed.data.messageId,
+    recipientEmailNormalized: parsed.data.recipient.toLocaleLowerCase("en"),
+    eventType: parsed.data.eventType,
+    providerAt: parsed.data.providerAt,
+    disableDestination: parsed.data.disableDestination,
+    ...(parsed.data.providerErrorCode !== undefined
+      ? { providerErrorCode: parsed.data.providerErrorCode }
+      : {}),
+    payloadHash: await payloadHash(body),
+  });
   return Response.json({ accepted: true, ...result });
 });

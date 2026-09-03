@@ -22,10 +22,12 @@ export function vitIdentityReferenceYear(event: {
   applicationsCloseAt: number;
 }) {
   const referenceAt = event.startsAt ?? event.applicationsCloseAt;
-  return Number(new Intl.DateTimeFormat("en", {
-    timeZone: event.timezone,
-    year: "numeric",
-  }).format(new Date(referenceAt)));
+  return Number(
+    new Intl.DateTimeFormat("en", {
+      timeZone: event.timezone,
+      year: "numeric",
+    }).format(new Date(referenceAt)),
+  );
 }
 
 function studyYearForRegistrationPrefix(prefix: string, eventYear: number) {
@@ -94,12 +96,10 @@ export function isApprovedVitStudentIdentity(args: {
   );
 }
 
-export function isVitStudentEmailAddress(
-  verifiedEmail: string,
-  allowedDomains: readonly string[],
-) {
+export function isVitStudentEmailAddress(verifiedEmail: string, allowedDomains: readonly string[]) {
   const email = verifiedEmail.trim().toLowerCase();
-  return email.endsWith(`@${vitStudentEmailDomain}`) && allowedDomains.some(
-    (domain) => domain.trim().toLowerCase() === vitStudentEmailDomain,
+  return (
+    email.endsWith(`@${vitStudentEmailDomain}`) &&
+    allowedDomains.some((domain) => domain.trim().toLowerCase() === vitStudentEmailDomain)
   );
 }

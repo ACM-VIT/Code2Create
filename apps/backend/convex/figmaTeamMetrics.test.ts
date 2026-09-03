@@ -67,7 +67,8 @@ describe("Figma team metrics", () => {
       const binding = await ctx.db.get(fixture.prototypeBindingId);
       const metric = await ctx.db.get(fixture.prototypeMetricId);
       const preview = await ctx.db.get(fixture.prototypePreviewId);
-      if (!binding || !metric || !preview) throw new Error("Figma team metric fixture is incomplete.");
+      if (!binding || !metric || !preview)
+        throw new Error("Figma team metric fixture is incomplete.");
       await ctx.db.patch(binding._id, {
         contentDirty: true,
         syncState: "error",
@@ -117,7 +118,7 @@ async function seedFixture(backend: BackendTest) {
       timezone: "Asia/Kolkata",
       status: "live",
       vitEmailDomains: ["vitstudent.ac.in"],
-        applicationsCloseAt: Date.now() + 86_400_000,
+      applicationsCloseAt: Date.now() + 86_400_000,
       startsAt: now,
       version: 1,
       createdAt: now,

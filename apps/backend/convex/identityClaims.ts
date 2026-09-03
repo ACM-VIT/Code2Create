@@ -45,9 +45,7 @@ export const recordVerifiedGoogleIdentity = internalMutation({
     const hostedDomain = normalizeHostedDomain(args.hostedDomain);
     const bySubject = await ctx.db
       .query("googleIdentityClaims")
-      .withIndex("by_google_subject", (index) =>
-        index.eq("googleSubject", args.googleSubject),
-      )
+      .withIndex("by_google_subject", (index) => index.eq("googleSubject", args.googleSubject))
       .unique();
     if (bySubject && bySubject.authUserId !== args.authUserId) {
       throw new ConvexError({
@@ -96,9 +94,7 @@ export const recordVerifiedGoogleIdentity = internalMutation({
       if (!person.googleSubject) {
         const subjectOwner = await ctx.db
           .query("people")
-          .withIndex("by_google_subject", (index) =>
-            index.eq("googleSubject", args.googleSubject),
-          )
+          .withIndex("by_google_subject", (index) => index.eq("googleSubject", args.googleSubject))
           .unique();
         if (subjectOwner && subjectOwner._id !== person._id) {
           throw new ConvexError({

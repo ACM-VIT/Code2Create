@@ -44,14 +44,14 @@ user and session IDs. For Google accounts it additionally reads:
 
 The server applies these rules:
 
-| Selected path | Verified result | Outcome |
-| --- | --- | --- |
-| VIT Student | `hd` matches an approved VIT student domain | Create or resume a `vit_student` event membership |
-| VIT Student | `hd` missing or not approved | Stop provisioning; explain that the VIT account is required and offer a restart as External |
-| External | `hd` matches an approved VIT student domain | Classify as `vit_student`; the selector cannot bypass VIT classification |
-| External | verified Google account with no approved VIT `hd` | Create or resume an `external` event membership |
-| External | verified email OTP with no Google `hd` | Create or resume an `external` event membership |
-| External | VIT-domain email OTP without a Google `hd` | Stop provisioning and require Google Workspace sign-in |
+| Selected path | Verified result                                   | Outcome                                                                                     |
+| ------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| VIT Student   | `hd` matches an approved VIT student domain       | Create or resume a `vit_student` event membership                                           |
+| VIT Student   | `hd` missing or not approved                      | Stop provisioning; explain that the VIT account is required and offer a restart as External |
+| External      | `hd` matches an approved VIT student domain       | Classify as `vit_student`; the selector cannot bypass VIT classification                    |
+| External      | verified Google account with no approved VIT `hd` | Create or resume an `external` event membership                                             |
+| External      | verified email OTP with no Google `hd`            | Create or resume an `external` event membership                                             |
+| External      | VIT-domain email OTP without a Google `hd`        | Stop provisioning and require Google Workspace sign-in                                      |
 
 Successful provisioning also creates or resumes the person’s event access subject. This is the common security boundary used by participants, rostered users, and explicitly invited accounts.
 
@@ -103,23 +103,23 @@ The deployed account-lifecycle commands require independent `access.subjects.sus
 
 ## 4. Account records
 
-| Record | Owner | Purpose |
-| --- | --- | --- |
-| Better Auth user/account/session | Better Auth component | Google identity link and session lifecycle |
-| Person | Application | Display name, verified contact, status, and auth-user reference |
-| Event access subject | Application | Active/suspended event security boundary and monotonic access version for any event-linked person |
-| Event access invitation | Application | Expiring exact-email authorization to create or reuse one role-less event access subject on Google claim |
-| Event membership | Application | Participant class and event participation state |
-| Event role | Application | Organizational Supreme, Board, SC, JC, or External Judge label; never an authorization decision by itself |
-| Permission grant | Application | One atomic permission for one person, one event/resource scope, and one validity window |
-| Permission bundle | Application | Versioned convenience template expanded into atomic grants |
-| Permission grant batch | Application | One audited manual, roster, membership, assignment, or bundle operation that created/revoked grants |
-| Roster entry | Application | Approved reviewer/staff invitation and first-sign-in claim |
-| Device | Application | Reviewer/scanner installation, app version, hardware capabilities, station assignment, notification token, and revocation state |
-| Attendance credential | Application | Event-scoped VIT ID barcode fingerprint binding, external badge QR, and short-lived portal QR state; raw barcode values/bearers are not stored |
-| Support case | Reporter plus separately scoped event operations | Diagnostic context and append-only actions; ownership or a linked resource grants no authority |
-| Provider authorization | Application security boundary | One encrypted Figma App/user grant or GitHub App installation reference used only by server jobs |
-| Team integration | Team | Selected provider resources, repository classifications, checkpoint sets, statistics, and review visibility |
+| Record                           | Owner                                            | Purpose                                                                                                                                        |
+| -------------------------------- | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Better Auth user/account/session | Better Auth component                            | Google identity link and session lifecycle                                                                                                     |
+| Person                           | Application                                      | Display name, verified contact, status, and auth-user reference                                                                                |
+| Event access subject             | Application                                      | Active/suspended event security boundary and monotonic access version for any event-linked person                                              |
+| Event access invitation          | Application                                      | Expiring exact-email authorization to create or reuse one role-less event access subject on Google claim                                       |
+| Event membership                 | Application                                      | Participant class and event participation state                                                                                                |
+| Event role                       | Application                                      | Organizational Supreme, Board, SC, JC, or External Judge label; never an authorization decision by itself                                      |
+| Permission grant                 | Application                                      | One atomic permission for one person, one event/resource scope, and one validity window                                                        |
+| Permission bundle                | Application                                      | Versioned convenience template expanded into atomic grants                                                                                     |
+| Permission grant batch           | Application                                      | One audited manual, roster, membership, assignment, or bundle operation that created/revoked grants                                            |
+| Roster entry                     | Application                                      | Approved reviewer/staff invitation and first-sign-in claim                                                                                     |
+| Device                           | Application                                      | Reviewer/scanner installation, app version, hardware capabilities, station assignment, notification token, and revocation state                |
+| Attendance credential            | Application                                      | Event-scoped VIT ID barcode fingerprint binding, external badge QR, and short-lived portal QR state; raw barcode values/bearers are not stored |
+| Support case                     | Reporter plus separately scoped event operations | Diagnostic context and append-only actions; ownership or a linked resource grants no authority                                                 |
+| Provider authorization           | Application security boundary                    | One encrypted Figma App/user grant or GitHub App installation reference used only by server jobs                                               |
+| Team integration                 | Team                                             | Selected provider resources, repository classifications, checkpoint sets, statistics, and review visibility                                    |
 
 The application does not copy session secrets or raw Google access tokens into its domain tables. Provider authorizations grant API access, but they do not own the connected repository set, Figma file, or captured evidence.
 
@@ -127,13 +127,13 @@ The application does not copy session secrets or raw Google access tokens into i
 
 The event keeps five organizational labels:
 
-| Role | Suggested default permission template |
-| --- | --- |
-| Supreme | Permission administration and broad event-governance defaults |
-| Board | Policy, admissions, rubric, results, correction, export, and override defaults |
-| SC | Workflow-management defaults for selected operational scopes |
-| JC | Frontline execution defaults for selected station, floor-zone, queue, support, verification, or playback scopes |
-| External Judge | Assigned-panel context, presence, and own-scorecard defaults |
+| Role           | Suggested default permission template                                                                           |
+| -------------- | --------------------------------------------------------------------------------------------------------------- |
+| Supreme        | Permission administration and broad event-governance defaults                                                   |
+| Board          | Policy, admissions, rubric, results, correction, export, and override defaults                                  |
+| SC             | Workflow-management defaults for selected operational scopes                                                    |
+| JC             | Frontline execution defaults for selected station, floor-zone, queue, support, verification, or playback scopes |
+| External Judge | Assigned-panel context, presence, and own-scorecard defaults                                                    |
 
 Roles exist for roster grouping, display, sensible starting bundles, and training. A protected Convex function never authorizes from the role string. A role assignment may atomically materialize a code-owned template as ordinary source-attributed grants; the deployed Supreme template contains every event-wide catalog permission plus its own self-scoped permissions. There is no ceiling on permissions a target may hold based on their role.
 

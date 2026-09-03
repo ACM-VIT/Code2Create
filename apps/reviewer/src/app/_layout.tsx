@@ -1,17 +1,17 @@
-import { Stack } from 'expo-router'
-import { StatusBar } from 'expo-status-bar'
-import { StrictMode } from 'react'
-import { StyleSheet, Text } from 'react-native'
-import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context'
+import { Stack } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import { StrictMode } from "react";
+import { StyleSheet, Text } from "react-native";
+import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 
-import { ReviewerAuthProvider } from '@/components/ReviewerAuthProvider'
-import { ReviewerSessionProvider } from '@/components/ReviewerSession'
-import { ReviewerObservabilityProvider } from '@/lib/observability'
-import { reviewerRuntime } from '@/lib/runtime'
-import { palette } from '@/theme'
+import { ReviewerAuthProvider } from "@/components/ReviewerAuthProvider";
+import { ReviewerSessionProvider } from "@/components/ReviewerSession";
+import { ReviewerObservabilityProvider } from "@/lib/observability";
+import { reviewerRuntime } from "@/lib/runtime";
+import { palette } from "@/theme";
 
 function RootLayout() {
-  if (!reviewerRuntime) return <ConfigurationNeeded />
+  if (!reviewerRuntime) return <ConfigurationNeeded />;
 
   return (
     <ReviewerObservabilityProvider runtime={reviewerRuntime}>
@@ -27,12 +27,12 @@ function RootLayout() {
                 }}
               >
                 {/* Pushed routes use this title for back-button accessibility and history. */}
-                <Stack.Screen name="(tabs)" options={{ title: 'Duties' }} />
+                <Stack.Screen name="(tabs)" options={{ title: "Duties" }} />
                 <Stack.Screen name="duty/[surface]" />
                 <Stack.Screen
                   name="duty/door-tools"
                   options={{
-                    presentation: 'formSheet',
+                    presentation: "formSheet",
                     headerShown: false,
                     sheetGrabberVisible: true,
                     sheetAllowedDetents: [0.5, 0.92],
@@ -42,7 +42,7 @@ function RootLayout() {
                 <Stack.Screen
                   name="duty/reviewer-phone"
                   options={{
-                    presentation: 'formSheet',
+                    presentation: "formSheet",
                     headerShown: false,
                     sheetGrabberVisible: true,
                     sheetAllowedDetents: [0.5],
@@ -55,7 +55,7 @@ function RootLayout() {
         </SafeAreaProvider>
       </StrictMode>
     </ReviewerObservabilityProvider>
-  )
+  );
 }
 
 function ConfigurationNeeded() {
@@ -64,16 +64,18 @@ function ConfigurationNeeded() {
       <StatusBar style="light" />
       <SafeAreaView style={styles.configuration}>
         <Text style={styles.configurationTitle}>Reviewer app unavailable</Text>
-        <Text style={styles.configurationMessage}>Ask an organizer to check the event app setup.</Text>
+        <Text style={styles.configurationMessage}>
+          Ask an organizer to check the event app setup.
+        </Text>
       </SafeAreaView>
     </SafeAreaProvider>
-  )
+  );
 }
 
 const styles = StyleSheet.create({
   configuration: {
     flex: 1,
-    justifyContent: 'center',
+    justifyContent: "center",
     padding: 24,
     backgroundColor: palette.background,
     gap: 8,
@@ -81,13 +83,13 @@ const styles = StyleSheet.create({
   configurationTitle: {
     color: palette.text,
     fontSize: 24,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   configurationMessage: {
     color: palette.muted,
     fontSize: 16,
     lineHeight: 22,
   },
-})
+});
 
-export default RootLayout
+export default RootLayout;

@@ -39,7 +39,12 @@ type CursorState = FrozenCursor | FactCursor;
 
 function cursorState(value: string): CursorState {
   const parsed: unknown = JSON.parse(value);
-  if (typeof parsed !== "object" || parsed === null || !("kind" in parsed) || !("snapshot" in parsed)) {
+  if (
+    typeof parsed !== "object" ||
+    parsed === null ||
+    !("kind" in parsed) ||
+    !("snapshot" in parsed)
+  ) {
     throw new Error("The autonomy read cursor state is invalid.");
   }
   if (typeof parsed.snapshot !== "string" || parsed.snapshot.length === 0) {
@@ -51,14 +56,16 @@ function cursorState(value: string): CursorState {
     typeof parsed.offset === "number" &&
     Number.isSafeInteger(parsed.offset) &&
     parsed.offset >= 0
-  ) return { kind: "frozen", snapshot: parsed.snapshot, offset: parsed.offset };
+  )
+    return { kind: "frozen", snapshot: parsed.snapshot, offset: parsed.offset };
   if (
     parsed.kind === "facts" &&
     "afterSequence" in parsed &&
     typeof parsed.afterSequence === "number" &&
     Number.isSafeInteger(parsed.afterSequence) &&
     parsed.afterSequence >= 0
-  ) return { kind: "facts", snapshot: parsed.snapshot, afterSequence: parsed.afterSequence };
+  )
+    return { kind: "facts", snapshot: parsed.snapshot, afterSequence: parsed.afterSequence };
   throw new Error("The autonomy read cursor state is invalid.");
 }
 
@@ -125,16 +132,25 @@ function frozenPage(args: {
   return { dataJson, nextOffset, isDone: nextOffset >= args.rows.length };
 }
 
-function activeAttention(value: Extract<Doc<"operationsAutonomyReadFacts">, { source: "operations_attention" }> ["value"]) {
+function activeAttention(
+  value: Extract<Doc<"operationsAutonomyReadFacts">, { source: "operations_attention" }>["value"],
+) {
   return value.state === "open" || value.state === "acknowledged";
 }
 
-function activeReview(value: Extract<Doc<"operationsAutonomyReadFacts">, { source: "review_exceptions" }> ["value"]) {
-  return value.kind === "vacancy" ||
-    (value.kind === "team" && ["queued", "called", "at_table", "held", "missed"].includes(value.state));
+function activeReview(
+  value: Extract<Doc<"operationsAutonomyReadFacts">, { source: "review_exceptions" }>["value"],
+) {
+  return (
+    value.kind === "vacancy" ||
+    (value.kind === "team" &&
+      ["queued", "called", "at_table", "held", "missed"].includes(value.state))
+  );
 }
 
-function activeSupport(value: Extract<Doc<"operationsAutonomyReadFacts">, { source: "support_load" }> ["value"]) {
+function activeSupport(
+  value: Extract<Doc<"operationsAutonomyReadFacts">, { source: "support_load" }>["value"],
+) {
   return value.state === "open" || value.state === "investigating" || value.state === "waiting";
 }
 
@@ -221,10 +237,11 @@ export const executePage = internalQuery({
       .order("asc")
       .take(operationsAutonomyReadPageMaximumRows + 1);
     const pageFacts = facts.slice(0, operationsAutonomyReadPageMaximumRows);
-    const effectiveFacts = pageFacts.filter((fact) =>
+    const effectiveFacts = pageFacts.filter(
+      (fact) =>
         fact.effectiveThroughSequence === undefined ||
         fact.effectiveThroughSequence >= traversal.highWatermark,
-      );
+    );
     const isDone = facts.length <= operationsAutonomyReadPageMaximumRows;
     const afterSequence = pageFacts.at(-1)?.sequence ?? cursor.afterSequence;
     const summary = record(JSON.parse(traversal.summaryJson));
@@ -238,9 +255,10 @@ export const executePage = internalQuery({
         generatedAt: traversal.generatedAt,
         items: active.map((value) => ({
           ...value,
-          statement: "detectorKey" in value
-            ? operationsAttentionIntelligenceStatement(value.detectorKey)
-            : "",
+          statement:
+            "detectorKey" in value
+              ? operationsAttentionIntelligenceStatement(value.detectorKey)
+              : "",
         })),
         atLeast: !isDone,
       };
@@ -251,9 +269,11 @@ export const executePage = internalQuery({
         .filter(activeReview);
       data = {
         generatedAt: traversal.generatedAt,
-        vacancies: active.filter((value) => "kind" in value && value.kind === "vacancy")
+        vacancies: active
+          .filter((value) => "kind" in value && value.kind === "vacancy")
           .map(({ kind: _kind, ...value }) => value),
-        teams: active.filter((value) => "kind" in value && value.kind === "team")
+        teams: active
+          .filter((value) => "kind" in value && value.kind === "team")
           .map(({ kind: _kind, ...value }) => value),
         atLeast: !isDone,
       };
@@ -272,17 +292,19 @@ export const executePage = internalQuery({
       const deepValues = effectiveFacts
         .filter((fact) => fact.source === traversal.read)
         .map((fact) => fact.value);
-      const key = traversal.read === "participant_deliveries"
-        ? "deliveries"
-        : traversal.read === "integration_jobs"
-          ? "bindings"
-          : traversal.read === "round_export_jobs"
-            ? "exports"
-            : traversal.read === "incident_readiness"
-              ? "items"
-              : traversal.read === "synesthesia_operations" || traversal.read === "attendance_operations"
-                ? "operations"
-                : "jobs";
+      const key =
+        traversal.read === "participant_deliveries"
+          ? "deliveries"
+          : traversal.read === "integration_jobs"
+            ? "bindings"
+            : traversal.read === "round_export_jobs"
+              ? "exports"
+              : traversal.read === "incident_readiness"
+                ? "items"
+                : traversal.read === "synesthesia_operations" ||
+                    traversal.read === "attendance_operations"
+                  ? "operations"
+                  : "jobs";
       data = { generatedAt: traversal.generatedAt, [key]: deepValues };
     }
     return {

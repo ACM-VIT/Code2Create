@@ -1,7 +1,7 @@
 {
   "name": "@code2create/web",
-  "private": true,
   "version": "0.0.0",
+  "private": true,
   "type": "module",
   "scripts": {
     "badges:generate": "node --experimental-strip-types scripts/generateAttendanceBadges.ts",

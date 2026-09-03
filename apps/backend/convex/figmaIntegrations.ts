@@ -114,10 +114,7 @@ async function currentTeamContext(ctx: ReadCtx, eventSlug: string) {
   const member = await ctx.db
     .query("teamMembers")
     .withIndex("by_event_membership_status", (index) =>
-      index
-        .eq("eventId", event._id)
-        .eq("membershipId", membership._id)
-        .eq("status", "active"),
+      index.eq("eventId", event._id).eq("membershipId", membership._id).eq("status", "active"),
     )
     .unique();
   if (!member) {
@@ -177,16 +174,16 @@ function figmaFileAddOperationFingerprint(args: {
 function figmaEnvironmentConfigured() {
   return Boolean(
     process.env.FIGMA_CLIENT_ID?.trim() &&
-      process.env.FIGMA_CLIENT_SECRET?.trim() &&
-      process.env.PROVIDER_TOKEN_ENCRYPTION_KEY_VERSION?.trim() &&
-      process.env.PROVIDER_TOKEN_ENCRYPTION_KEY?.trim() &&
-      process.env.PARTICIPANT_SITE_URL?.trim() &&
-      process.env.CONVEX_SITE_URL?.trim() &&
-      process.env.ARTIFACT_S3_REGION?.trim() === "ap-south-1" &&
-      process.env.ARTIFACT_S3_BUCKET?.trim() &&
-      process.env.ARTIFACT_S3_ACCESS_KEY_ID?.trim() &&
-      process.env.ARTIFACT_S3_SECRET_ACCESS_KEY?.trim() &&
-      process.env.ARTIFACT_S3_KMS_KEY_ID?.trim(),
+    process.env.FIGMA_CLIENT_SECRET?.trim() &&
+    process.env.PROVIDER_TOKEN_ENCRYPTION_KEY_VERSION?.trim() &&
+    process.env.PROVIDER_TOKEN_ENCRYPTION_KEY?.trim() &&
+    process.env.PARTICIPANT_SITE_URL?.trim() &&
+    process.env.CONVEX_SITE_URL?.trim() &&
+    process.env.ARTIFACT_S3_REGION?.trim() === "ap-south-1" &&
+    process.env.ARTIFACT_S3_BUCKET?.trim() &&
+    process.env.ARTIFACT_S3_ACCESS_KEY_ID?.trim() &&
+    process.env.ARTIFACT_S3_SECRET_ACCESS_KEY?.trim() &&
+    process.env.ARTIFACT_S3_KMS_KEY_ID?.trim(),
   );
 }
 
@@ -320,10 +317,7 @@ export const current = query({
     const member = await ctx.db
       .query("teamMembers")
       .withIndex("by_event_membership_status", (index) =>
-        index
-          .eq("eventId", event._id)
-          .eq("membershipId", membership._id)
-          .eq("status", "active"),
+        index.eq("eventId", event._id).eq("membershipId", membership._id).eq("status", "active"),
       )
       .unique();
     if (!member) return null;
@@ -379,9 +373,7 @@ export const current = query({
         visibleBindings.map((binding) =>
           ctx.db
             .query("figmaFileSnapshots")
-            .withIndex("by_binding_time", (index) =>
-              index.eq("figmaFileBindingId", binding._id),
-            )
+            .withIndex("by_binding_time", (index) => index.eq("figmaFileBindingId", binding._id))
             .order("desc")
             .first(),
         ),
@@ -398,7 +390,10 @@ export const current = query({
     if ((connections.length > 0 || visibleBindings.length > 0) && !teamMetric) {
       throw new Error("A connected Figma team has no metrics summary.");
     }
-    if (metrics.some((metric) => metric === null) || snapshots.some((snapshot) => snapshot === null)) {
+    if (
+      metrics.some((metric) => metric === null) ||
+      snapshots.some((snapshot) => snapshot === null)
+    ) {
       throw new Error("A Figma file has no complete evidence projection.");
     }
     const resolvedMetrics = metrics.filter((metric) => metric !== null);
@@ -415,7 +410,9 @@ export const current = query({
               id: policy._id,
               policyVersion: policy.policyVersion,
               maxActiveFiles: policy.maxActiveFigmaFilesPerTeam,
-              ...(policy.figmaFreezeAt !== undefined ? { figmaFreezeAt: policy.figmaFreezeAt } : {}),
+              ...(policy.figmaFreezeAt !== undefined
+                ? { figmaFreezeAt: policy.figmaFreezeAt }
+                : {}),
             }
           : null,
       connections: connections.map((connection, index) => {
@@ -519,17 +516,11 @@ export const current = query({
           ...(binding.rateLimitPlanTier !== undefined
             ? { rateLimitPlanTier: binding.rateLimitPlanTier }
             : {}),
-          ...(binding.rateLimitType !== undefined
-            ? { rateLimitType: binding.rateLimitType }
-            : {}),
+          ...(binding.rateLimitType !== undefined ? { rateLimitType: binding.rateLimitType } : {}),
           syncState: binding.syncState,
-          ...(binding.syncErrorCode !== undefined
-            ? { syncErrorCode: binding.syncErrorCode }
-            : {}),
+          ...(binding.syncErrorCode !== undefined ? { syncErrorCode: binding.syncErrorCode } : {}),
           hasFullArtifact: snapshot?.artifactId !== undefined,
-          ...(snapshot.artifactId !== undefined
-            ? { artifactCapturedAt: snapshot.capturedAt }
-            : {}),
+          ...(snapshot.artifactId !== undefined ? { artifactCapturedAt: snapshot.capturedAt } : {}),
           version: binding.version,
           metrics: {
             pageCount: metric.pageCount,
@@ -621,8 +612,16 @@ export const claimSetupIntent = internalMutation({
       .query("figmaSetupIntents")
       .withIndex("by_state_digest", (index) => index.eq("stateDigest", args.stateDigest))
       .unique();
-    if (!intent || intent.eventId !== event._id || intent.teamId !== team._id || intent.personId !== person._id) {
-      throw new ConvexError({ code: "SETUP_INVALID", message: "This Figma setup link is invalid." });
+    if (
+      !intent ||
+      intent.eventId !== event._id ||
+      intent.teamId !== team._id ||
+      intent.personId !== person._id
+    ) {
+      throw new ConvexError({
+        code: "SETUP_INVALID",
+        message: "This Figma setup link is invalid.",
+      });
     }
     if (intent.status === "completed" && intent.credentialConnectionId) {
       return { kind: "completed", credentialConnectionId: intent.credentialConnectionId };
@@ -630,7 +629,10 @@ export const claimSetupIntent = internalMutation({
     const now = Date.now();
     if (intent.expiresAt <= now) {
       if (intent.status !== "expired") await ctx.db.patch(intent._id, { status: "expired" });
-      throw new ConvexError({ code: "SETUP_EXPIRED", message: "Start the Figma connection again." });
+      throw new ConvexError({
+        code: "SETUP_EXPIRED",
+        message: "Start the Figma connection again.",
+      });
     }
     if (intent.status === "verifying" && (intent.claimExpiresAt ?? 0) > now) {
       throw new ConvexError({
@@ -773,7 +775,9 @@ export const finishSetupIntent = internalMutation({
       grantIds,
       scopeType: "team",
       scopeId: team._id,
-      action: existingConnection ? "figma.authorization_reconnected" : "figma.authorization_connected",
+      action: existingConnection
+        ? "figma.authorization_reconnected"
+        : "figma.authorization_connected",
       targetType: "figma_credential_connection",
       targetId: credentialConnectionId,
       nextSummary: JSON.stringify({ credentialState: "active", scopes: args.scopes }),
@@ -807,10 +811,7 @@ export const fileAddReceipt = internalQuery({
     fileKey: v.string(),
     clientOperationId: v.string(),
   },
-  returns: v.union(
-    v.null(),
-    v.object({ bindingId: v.id("figmaFileBindings") }),
-  ),
+  returns: v.union(v.null(), v.object({ bindingId: v.id("figmaFileBindings") })),
   handler: async (ctx, args) => {
     const { event, person, subject, team } = await currentTeamContext(ctx, args.eventSlug);
     await requirePermission(ctx, {
@@ -1151,8 +1152,7 @@ function validatePreviewPlan(plan: PreviewPlanInput) {
       candidate.descendantCount < 0 ||
       !/^[a-f0-9]{64}$/.test(candidate.semanticHash) ||
       nodeIds.has(candidate.nodeId) ||
-      (candidate.sourceWidth === undefined) !==
-        (candidate.sourceHeight === undefined) ||
+      (candidate.sourceWidth === undefined) !== (candidate.sourceHeight === undefined) ||
       (candidate.sourceWidth !== undefined &&
         (!Number.isFinite(candidate.sourceWidth) || candidate.sourceWidth <= 0)) ||
       (candidate.sourceHeight !== undefined &&
@@ -1164,10 +1164,7 @@ function validatePreviewPlan(plan: PreviewPlanInput) {
   }
 }
 
-function validateSnapshotActivity(
-  activity: SnapshotActivityInput,
-  metrics: FileMetricsInput,
-) {
+function validateSnapshotActivity(activity: SnapshotActivityInput, metrics: FileMetricsInput) {
   if (
     !Number.isSafeInteger(activity.versionCount) ||
     activity.versionCount < activity.versions.length ||
@@ -1256,9 +1253,7 @@ async function createFigmaSnapshot(
   validateSnapshotActivity(args.activity, args.metrics);
   const previousSnapshot = await ctx.db
     .query("figmaFileSnapshots")
-    .withIndex("by_binding_time", (index) =>
-      index.eq("figmaFileBindingId", args.bindingId),
-    )
+    .withIndex("by_binding_time", (index) => index.eq("figmaFileBindingId", args.bindingId))
     .order("desc")
     .first();
   const artifactId = await recordFigmaArtifact(ctx, {
@@ -1350,9 +1345,7 @@ async function createFigmaSnapshot(
           .unique(),
       ])
     : [[], null];
-  const previousHashes = new Map(
-    previousFacts.map((fact) => [fact.nodeId, fact.semanticHash]),
-  );
+  const previousHashes = new Map(previousFacts.map((fact) => [fact.nodeId, fact.semanticHash]));
   for (const candidate of args.previewPlan.candidates) {
     const previousHash = previousHashes.get(candidate.nodeId);
     const changeState = !previousSnapshot
@@ -1576,11 +1569,7 @@ export const commitFile = internalMutation({
       }),
       reason: "Added a team Figma file at its event baseline",
     });
-    const webhookSetupLeaseId = operationFingerprint([
-      bindingId,
-      now,
-      "figma_webhook_setup",
-    ]);
+    const webhookSetupLeaseId = operationFingerprint([bindingId, now, "figma_webhook_setup"]);
     const webhookSetupLeaseExpiresAt = now + figmaWebhookSetupLeaseDurationMs;
     await ctx.db.patch(bindingId, {
       webhookSetupLeaseId,
@@ -1715,9 +1704,7 @@ async function requireArtifactAccess(
   });
   const snapshot = await ctx.db
     .query("figmaFileSnapshots")
-    .withIndex("by_binding_time", (index) =>
-      index.eq("figmaFileBindingId", binding._id),
-    )
+    .withIndex("by_binding_time", (index) => index.eq("figmaFileBindingId", binding._id))
     .order("desc")
     .first();
   if (
@@ -1788,8 +1775,10 @@ export const recordArtifactAccess = internalMutation({
   },
   returns: v.object({ serverNow: v.number() }),
   handler: async (ctx, args) => {
-    const { event, person, binding, snapshot, artifact, grantIds } =
-      await requireArtifactAccess(ctx, args);
+    const { event, person, binding, snapshot, artifact, grantIds } = await requireArtifactAccess(
+      ctx,
+      args,
+    );
     if (
       snapshot._id !== args.snapshotId ||
       artifact._id !== args.artifactId ||
@@ -1842,11 +1831,7 @@ export const finishWebhookCleanup = internalMutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     const binding = await ctx.db.get(args.bindingId);
-    if (
-      binding &&
-      binding.state === "archived" &&
-      binding.webhookId === args.webhookId
-    ) {
+    if (binding && binding.state === "archived" && binding.webhookId === args.webhookId) {
       const now = Date.now();
       await ctx.db.patch(binding._id, {
         webhookId: undefined,
@@ -1923,8 +1908,7 @@ export const failWebhookSetup = internalMutation({
       return null;
     }
     const now = Date.now();
-    const retryAt =
-      args.state === "error" ? binding.webhookSetupLeaseExpiresAt : undefined;
+    const retryAt = args.state === "error" ? binding.webhookSetupLeaseExpiresAt : undefined;
     if (args.state === "error" && retryAt === undefined) {
       throw new Error("An active Figma webhook setup lease has no expiry.");
     }
@@ -1964,17 +1948,8 @@ export const refreshFile = mutation({
   handler: async (ctx, args) => {
     const { event, person, subject, team } = await currentTeamContext(ctx, args.eventSlug);
     const reason = normalizedText(args.reason, "Refresh reason", 3, 180);
-    const clientOperationId = normalizedText(
-      args.clientOperationId,
-      "Client operation ID",
-      8,
-      120,
-    );
-    const requestFingerprint = operationFingerprint([
-      args.bindingId,
-      args.expectedVersion,
-      reason,
-    ]);
+    const clientOperationId = normalizedText(args.clientOperationId, "Client operation ID", 8, 120);
+    const requestFingerprint = operationFingerprint([args.bindingId, args.expectedVersion, reason]);
     const priorOperation = await findOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -1999,7 +1974,10 @@ export const refreshFile = mutation({
     });
     const binding = await ctx.db.get(args.bindingId);
     if (!binding || binding.teamId !== team._id || binding.state !== "active") {
-      throw new ConvexError({ code: "FIGMA_FILE_UNAVAILABLE", message: "This Figma file is unavailable." });
+      throw new ConvexError({
+        code: "FIGMA_FILE_UNAVAILABLE",
+        message: "This Figma file is unavailable.",
+      });
     }
     if (binding.version !== args.expectedVersion) {
       throw new ConvexError({
@@ -2052,7 +2030,10 @@ export const refreshFile = mutation({
       action: "figma.file_refresh_requested",
       targetType: "figma_file_binding",
       targetId: binding._id,
-      previousSummary: JSON.stringify({ syncRevision: binding.syncRevision, syncState: binding.syncState }),
+      previousSummary: JSON.stringify({
+        syncRevision: binding.syncRevision,
+        syncState: binding.syncState,
+      }),
       nextSummary: JSON.stringify({ syncRevision, syncState: "pending" }),
       reason,
     });
@@ -2095,7 +2076,10 @@ export const archiveFile = mutation({
     });
     const binding = await ctx.db.get(args.bindingId);
     if (!binding || binding.teamId !== team._id || binding.state === "archived") {
-      throw new ConvexError({ code: "FIGMA_FILE_UNAVAILABLE", message: "This Figma file is unavailable." });
+      throw new ConvexError({
+        code: "FIGMA_FILE_UNAVAILABLE",
+        message: "This Figma file is unavailable.",
+      });
     }
     if (binding.version !== args.expectedVersion) {
       throw new ConvexError({
@@ -2166,26 +2150,17 @@ export const dispatchWebhookSetups = internalMutation({
       ctx.db
         .query("figmaFileBindings")
         .withIndex("by_state_webhook_retry", (index) =>
-          index
-            .eq("state", "active")
-            .eq("webhookState", "pending")
-            .lte("webhookSetupRetryAt", now),
+          index.eq("state", "active").eq("webhookState", "pending").lte("webhookSetupRetryAt", now),
         )
         .take(figmaWebhookSetupDispatchBatchSize),
       ctx.db
         .query("figmaFileBindings")
         .withIndex("by_state_webhook_retry", (index) =>
-          index
-            .eq("state", "active")
-            .eq("webhookState", "error")
-            .lte("webhookSetupRetryAt", now),
+          index.eq("state", "active").eq("webhookState", "error").lte("webhookSetupRetryAt", now),
         )
         .take(figmaWebhookSetupDispatchBatchSize),
     ]);
-    const candidates = [...pending, ...failed].slice(
-      0,
-      figmaWebhookSetupDispatchBatchSize,
-    );
+    const candidates = [...pending, ...failed].slice(0, figmaWebhookSetupDispatchBatchSize);
     for (const binding of candidates) {
       if (binding.webhookSetupRetryAt === undefined) {
         throw new Error("A due Figma webhook setup has no retry time.");
@@ -2352,11 +2327,7 @@ export const finishMetadataCheck = internalMutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     const binding = await ctx.db.get(args.bindingId);
-    if (
-      !binding ||
-      binding.state !== "active" ||
-      binding.metadataLeaseId !== args.leaseId
-    ) {
+    if (!binding || binding.state !== "active" || binding.metadataLeaseId !== args.leaseId) {
       return null;
     }
     const event = await ctx.db.get(binding.eventId);
@@ -2382,20 +2353,12 @@ export const finishMetadataCheck = internalMutation({
         args.lastTouchedAt !== binding.lastTouchedAt ||
         observedVersion !== previousObservedVersion);
     const operationalErrorCleared =
-      binding.metadataErrorCode !== undefined ||
-      binding.metadataRateLimitRetryAt !== undefined;
-    const observedRateLimitType =
-      binding.metadataRateLimitType ?? binding.rateLimitType;
+      binding.metadataErrorCode !== undefined || binding.metadataRateLimitRetryAt !== undefined;
+    const observedRateLimitType = binding.metadataRateLimitType ?? binding.rateLimitType;
     const autoReconcile = versionChanged && observedRateLimitType === "high";
-    const nextSyncRevision = versionChanged
-      ? binding.syncRevision + 1
-      : binding.syncRevision;
+    const nextSyncRevision = versionChanged ? binding.syncRevision + 1 : binding.syncRevision;
     const nextSyncState =
-      binding.syncState === "running"
-        ? "running"
-        : autoReconcile
-          ? "pending"
-          : binding.syncState;
+      binding.syncState === "running" ? "running" : autoReconcile ? "pending" : binding.syncState;
     await ctx.db.patch(binding._id, {
       ...(acceptObservation
         ? {
@@ -2466,10 +2429,9 @@ export const failMetadataCheck = internalMutation({
       throw new Error("A rate-limited Figma metadata check must include Retry-After.");
     }
     const inaccessible = args.errorCode === "figma_file_not_found";
-    const requiresReauthorization = [
-      "figma_authentication_failed",
-      "figma_access_denied",
-    ].includes(args.errorCode);
+    const requiresReauthorization = ["figma_authentication_failed", "figma_access_denied"].includes(
+      args.errorCode,
+    );
     const nextMetadataCheckAt =
       args.retryAt ??
       (requiresReauthorization
@@ -2491,15 +2453,9 @@ export const failMetadataCheck = internalMutation({
       metadataLeaseExpiresAt: undefined,
       metadataErrorCode: args.errorCode,
       nextMetadataCheckAt,
-      ...(args.retryAt !== undefined
-        ? { metadataRateLimitRetryAt: args.retryAt }
-        : {}),
-      ...(args.planTier !== undefined
-        ? { metadataRateLimitPlanTier: args.planTier }
-        : {}),
-      ...(args.rateLimitType !== undefined
-        ? { metadataRateLimitType: args.rateLimitType }
-        : {}),
+      ...(args.retryAt !== undefined ? { metadataRateLimitRetryAt: args.retryAt } : {}),
+      ...(args.planTier !== undefined ? { metadataRateLimitPlanTier: args.planTier } : {}),
+      ...(args.rateLimitType !== undefined ? { metadataRateLimitType: args.rateLimitType } : {}),
       version: binding.version + 1,
       updatedAt: now,
     });
@@ -2634,11 +2590,9 @@ export const finishFileSync = internalMutation({
     const observedVersionId = acceptObservation
       ? args.versionId
       : (binding.observedVersionId ?? binding.versionId);
-    const dirty =
-      binding.syncRevision > syncedRevision || observedVersionId !== args.versionId;
+    const dirty = binding.syncRevision > syncedRevision || observedVersionId !== args.versionId;
     const metadataLeaseActive =
-      binding.metadataLeaseId !== undefined &&
-      (binding.metadataLeaseExpiresAt ?? 0) > now;
+      binding.metadataLeaseId !== undefined && (binding.metadataLeaseExpiresAt ?? 0) > now;
     await ctx.db.patch(binding._id, {
       ...(acceptObservation
         ? {
@@ -2648,9 +2602,7 @@ export const finishFileSync = internalMutation({
             editorType: args.editorType,
             lastTouchedAt: args.lastTouchedAt,
             lastProviderObservedAt: args.providerObservedAt,
-            ...(args.thumbnailUrl !== undefined
-              ? { thumbnailUrl: args.thumbnailUrl }
-              : {}),
+            ...(args.thumbnailUrl !== undefined ? { thumbnailUrl: args.thumbnailUrl } : {}),
           }
         : {}),
       versionId: args.versionId,
@@ -2763,9 +2715,7 @@ export const claimPreviewRender = internalMutation({
       credentialId: v.id("figmaOAuthCredentials"),
       fileKey: v.string(),
       providerVersionId: v.string(),
-      nodes: v.array(
-        v.object({ factId: v.id("figmaNodeFacts"), nodeId: v.string() }),
-      ),
+      nodes: v.array(v.object({ factId: v.id("figmaNodeFacts"), nodeId: v.string() })),
     }),
   ),
   handler: async (ctx, args) => {
@@ -2779,8 +2729,7 @@ export const claimPreviewRender = internalMutation({
     }
     const now = Date.now();
     if (
-      (previewSet.state === "running" &&
-        (previewSet.renderLeaseExpiresAt ?? 0) > now) ||
+      (previewSet.state === "running" && (previewSet.renderLeaseExpiresAt ?? 0) > now) ||
       (previewSet.state === "rate_limited" && (previewSet.retryAt ?? 0) > now)
     ) {
       return null;
@@ -2790,9 +2739,7 @@ export const claimPreviewRender = internalMutation({
       ctx.db.get(previewSet.figmaFileBindingId),
       ctx.db
         .query("figmaNodeFacts")
-        .withIndex("by_preview_page_order", (index) =>
-          index.eq("previewSetId", previewSet._id),
-        )
+        .withIndex("by_preview_page_order", (index) => index.eq("previewSetId", previewSet._id))
         .collect(),
     ]);
     if (
@@ -2911,9 +2858,7 @@ export const finishPreviewRender = internalMutation({
     }
     const facts = await ctx.db
       .query("figmaNodeFacts")
-      .withIndex("by_preview_page_order", (index) =>
-        index.eq("previewSetId", previewSet._id),
-      )
+      .withIndex("by_preview_page_order", (index) => index.eq("previewSetId", previewSet._id))
       .collect();
     const resultByFact = new Map<string, PreviewRenderResultInput>();
     for (const result of args.results) {
@@ -2926,10 +2871,7 @@ export const finishPreviewRender = internalMutation({
     if (
       facts.length !== previewSet.selectedNodeCount ||
       resultByFact.size !== facts.length ||
-      facts.some(
-        (fact) =>
-          fact.render.state !== "pending" || !resultByFact.has(fact._id),
-      )
+      facts.some((fact) => fact.render.state !== "pending" || !resultByFact.has(fact._id))
     ) {
       throw new Error("The Figma preview result set is incomplete.");
     }
@@ -2954,11 +2896,7 @@ export const finishPreviewRender = internalMutation({
     const failedCount = facts.length - availableCount;
     await ctx.db.patch(previewSet._id, {
       state:
-        availableCount === facts.length
-          ? "ready"
-          : availableCount === 0
-            ? "failed"
-            : "partial",
+        availableCount === facts.length ? "ready" : availableCount === 0 ? "failed" : "partial",
       availableCount,
       failedCount,
       renderLeaseId: undefined,
@@ -3007,9 +2945,7 @@ export const failPreviewRender = internalMutation({
     if (args.state === "error") {
       const facts = await ctx.db
         .query("figmaNodeFacts")
-        .withIndex("by_preview_page_order", (index) =>
-          index.eq("previewSetId", previewSet._id),
-        )
+        .withIndex("by_preview_page_order", (index) => index.eq("previewSetId", previewSet._id))
         .collect();
       if (
         facts.length !== previewSet.selectedNodeCount ||
@@ -3027,8 +2963,7 @@ export const failPreviewRender = internalMutation({
     await ctx.db.patch(previewSet._id, {
       state: args.state === "rate_limited" ? "rate_limited" : "failed",
       failureCode: args.errorCode,
-      failedCount:
-        args.state === "error" ? previewSet.selectedNodeCount : previewSet.failedCount,
+      failedCount: args.state === "error" ? previewSet.selectedNodeCount : previewSet.failedCount,
       ...(retryAt !== undefined ? { retryAt } : { retryAt: undefined }),
       renderLeaseId: undefined,
       renderLeaseExpiresAt: undefined,
@@ -3059,10 +2994,8 @@ export const recoverPreviewRender = internalMutation({
     if (!previewSet) return null;
     const now = Date.now();
     const leaseExpired =
-      previewSet.state === "running" &&
-      (previewSet.renderLeaseExpiresAt ?? 0) <= now;
-    const retryDue =
-      previewSet.state === "rate_limited" && (previewSet.retryAt ?? 0) <= now;
+      previewSet.state === "running" && (previewSet.renderLeaseExpiresAt ?? 0) <= now;
+    const retryDue = previewSet.state === "rate_limited" && (previewSet.retryAt ?? 0) <= now;
     if (!leaseExpired && !retryDue) return null;
     await integrationWorkpool.enqueueAction(
       ctx,

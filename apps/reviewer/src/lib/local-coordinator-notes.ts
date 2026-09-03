@@ -1,7 +1,7 @@
-import type { SQLiteDatabase } from 'expo-sqlite'
-import { z } from 'zod'
+import type { SQLiteDatabase } from "expo-sqlite";
+import { z } from "zod";
 
-import { withEncryptedLocalDatabase } from './encrypted-local-database'
+import { withEncryptedLocalDatabase } from "./encrypted-local-database";
 
 const storedCoordinatorNotesSchema = z
   .object({
@@ -13,31 +13,31 @@ const storedCoordinatorNotesSchema = z
     commitments: z.string(),
     savedAt: z.number().int().positive(),
   })
-  .strict()
+  .strict();
 
-export type StoredCoordinatorNotes = z.infer<typeof storedCoordinatorNotesSchema>
-type SaveCoordinatorNotesInput = Omit<StoredCoordinatorNotes, 'version' | 'savedAt'>
+export type StoredCoordinatorNotes = z.infer<typeof storedCoordinatorNotesSchema>;
+type SaveCoordinatorNotesInput = Omit<StoredCoordinatorNotes, "version" | "savedAt">;
 
 export function loadLocalCoordinatorNotes(eventSlug: string, reviewSessionId: string) {
   return withCoordinatorNotesDatabase(eventSlug, async (database) => {
     const row: unknown = await database.getFirstAsync<unknown>(
-      'SELECT payload FROM coordinator_note_drafts WHERE event_slug = ? AND review_session_id = ?',
+      "SELECT payload FROM coordinator_note_drafts WHERE event_slug = ? AND review_session_id = ?",
       eventSlug,
       reviewSessionId,
-    )
-    const decodedRow = z.object({ payload: z.string() }).safeParse(row)
-    if (!decodedRow.success) return null
-    const decoded: unknown = JSON.parse(decodedRow.data.payload)
-    const parsed = storedCoordinatorNotesSchema.safeParse(decoded)
+    );
+    const decodedRow = z.object({ payload: z.string() }).safeParse(row);
+    if (!decodedRow.success) return null;
+    const decoded: unknown = JSON.parse(decodedRow.data.payload);
+    const parsed = storedCoordinatorNotesSchema.safeParse(decoded);
     if (
-      !parsed.success
-      || parsed.data.eventSlug !== eventSlug
-      || parsed.data.reviewSessionId !== reviewSessionId
+      !parsed.success ||
+      parsed.data.eventSlug !== eventSlug ||
+      parsed.data.reviewSessionId !== reviewSessionId
     ) {
-      throw new Error('The encrypted local panel notes are invalid.')
+      throw new Error("The encrypted local panel notes are invalid.");
     }
-    return parsed.data
-  })
+    return parsed.data;
+  });
 }
 
 export function saveLocalCoordinatorNotes(input: SaveCoordinatorNotesInput) {
@@ -45,7 +45,7 @@ export function saveLocalCoordinatorNotes(input: SaveCoordinatorNotesInput) {
     version: 1,
     ...input,
     savedAt: Date.now(),
-  }
+  };
   return withCoordinatorNotesDatabase(input.eventSlug, async (database) => {
     await database.runAsync(
       `INSERT INTO coordinator_note_drafts (event_slug, review_session_id, payload, updated_at)
@@ -56,18 +56,18 @@ export function saveLocalCoordinatorNotes(input: SaveCoordinatorNotesInput) {
       input.reviewSessionId,
       JSON.stringify(draft),
       draft.savedAt,
-    )
-  })
+    );
+  });
 }
 
 export function clearLocalCoordinatorNotes(eventSlug: string, reviewSessionId: string) {
   return withCoordinatorNotesDatabase(eventSlug, async (database) => {
     await database.runAsync(
-      'DELETE FROM coordinator_note_drafts WHERE event_slug = ? AND review_session_id = ?',
+      "DELETE FROM coordinator_note_drafts WHERE event_slug = ? AND review_session_id = ?",
       eventSlug,
       reviewSessionId,
-    )
-  })
+    );
+  });
 }
 
 function withCoordinatorNotesDatabase<T>(
@@ -83,7 +83,7 @@ function withCoordinatorNotesDatabase<T>(
         updated_at INTEGER NOT NULL,
         PRIMARY KEY (event_slug, review_session_id)
       );
-    `)
-    return work(database)
-  })
+    `);
+    return work(database);
+  });
 }

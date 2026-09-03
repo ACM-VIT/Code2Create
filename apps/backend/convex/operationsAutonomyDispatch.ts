@@ -64,7 +64,8 @@ export const prepareDispatch = internalMutation({
     if (
       supervision.outboundAttempt.kind === "in_flight" &&
       supervision.outboundAttempt.expiresAt > args.now
-    ) return null;
+    )
+      return null;
     const authority = await requireCurrentAutonomyAuthority(ctx, run, args.now);
     if (authority.state !== "active") {
       await cancelAutonomyRun(ctx, { runId: run._id, reason: authority.reason, now: args.now });
@@ -119,14 +120,10 @@ async function settleOutboundAttempt(
     supervision.outboundAttempt.kind === "in_flight" &&
     supervision.outboundAttempt.attemptId === args.attemptId;
   if (!matches) return false;
-  const abort = supervision.lifecycle.kind === "abort_pending"
-    ? supervision.lifecycle
-    : null;
+  const abort = supervision.lifecycle.kind === "abort_pending" ? supervision.lifecycle : null;
   await ctx.db.patch(supervision._id, {
     outboundAttempt: { kind: "idle" },
-    ...(abort
-      ? { lifecycle: { ...abort, nextActionAt: args.now } }
-      : {}),
+    ...(abort ? { lifecycle: { ...abort, nextActionAt: args.now } } : {}),
     updatedAt: args.now,
   });
   if (abort) {
@@ -152,9 +149,11 @@ async function retainAmbiguousOutboundAttempt(
     .withIndex("by_run", (index) => index.eq("runId", args.runId))
     .unique();
   if (
-    !supervision || supervision.outboundAttempt.kind !== "in_flight" ||
+    !supervision ||
+    supervision.outboundAttempt.kind !== "in_flight" ||
     supervision.outboundAttempt.attemptId !== args.attemptId
-  ) return null;
+  )
+    return null;
   const expiresAt = supervision.outboundAttempt.expiresAt;
   await ctx.db.patch(supervision._id, {
     lifecycle:
@@ -207,7 +206,8 @@ export const recordDispatchReceipt = internalMutation({
       if (
         run.admission.submissionId !== args.submissionId ||
         run.admission.acceptedAt !== args.acceptedAt
-      ) throw new Error("The autonomy admission receipt conflicts with the stored receipt.");
+      )
+        throw new Error("The autonomy admission receipt conflicts with the stored receipt.");
       return true;
     }
     if (!settled || run.lifecycle.kind !== "active") return false;
@@ -272,7 +272,8 @@ export const prepareContinuation = internalMutation({
       !continuation ||
       continuation.lifecycle.kind !== "pending" ||
       continuation.priorSubmissionId === undefined
-    ) return null;
+    )
+      return null;
     const run = await ctx.db.get(continuation.runId);
     if (!run || run.lifecycle.kind !== "active") {
       await ctx.db.patch(continuation._id, {
@@ -289,7 +290,8 @@ export const prepareContinuation = internalMutation({
     if (
       supervision.outboundAttempt.kind === "in_flight" &&
       supervision.outboundAttempt.expiresAt > args.now
-    ) return null;
+    )
+      return null;
     const authority = await requireCurrentAutonomyAuthority(ctx, run, args.now);
     if (authority.state !== "active") {
       await cancelAutonomyRun(ctx, { runId: run._id, reason: authority.reason, now: args.now });
@@ -334,7 +336,8 @@ export const recordContinuationReceipt = internalMutation({
       if (
         continuation.lifecycle.submissionId !== args.submissionId ||
         continuation.lifecycle.acceptedAt !== args.acceptedAt
-      ) throw new Error("The autonomy continuation receipt conflicts with the stored receipt.");
+      )
+        throw new Error("The autonomy continuation receipt conflicts with the stored receipt.");
       return true;
     }
     if (continuation.lifecycle.kind !== "pending" || continuation.priorSubmissionId === undefined) {
@@ -349,7 +352,9 @@ export const recordContinuationReceipt = internalMutation({
     const priorSubmissionId = continuation.priorSubmissionId;
     const run = await ctx.db.get(continuation.runId);
     if (
-      !run || run.lifecycle.kind !== "active" || run.admission.kind !== "accepted" ||
+      !run ||
+      run.lifecycle.kind !== "active" ||
+      run.admission.kind !== "accepted" ||
       run.admission.currentSubmissionId !== priorSubmissionId
     ) {
       await ctx.db.patch(continuation._id, {
@@ -377,7 +382,11 @@ export const recordContinuationReceipt = internalMutation({
 });
 
 export const recordContinuationFailure = internalMutation({
-  args: { continuationId: v.id("operationsAutonomyContinuations"), attemptId: v.string(), now: v.number() },
+  args: {
+    continuationId: v.id("operationsAutonomyContinuations"),
+    attemptId: v.string(),
+    now: v.number(),
+  },
   returns: v.null(),
   handler: async (ctx, args) => {
     const continuation = await ctx.db.get(args.continuationId);
@@ -435,7 +444,8 @@ export const recoverRun = internalMutation({
     if (
       run.admission.kind !== "accepted" ||
       run.admission.currentSubmissionId !== args.priorSubmissionId
-    ) return null;
+    )
+      return null;
     const now = Date.now();
     return ensureOperationsAutonomyContinuation(ctx, {
       eventId: run.eventId,
@@ -464,7 +474,8 @@ export const acknowledgeAbort = internalMutation({
     if (
       supervision.lifecycle.kind !== "abort_pending" ||
       supervision.lifecycle.operationId !== args.operationId
-    ) return false;
+    )
+      return false;
     if (supervision.outboundAttempt.kind !== "idle") return false;
     await ctx.db.patch(supervision._id, { lifecycle: { kind: "terminal" }, updatedAt: args.now });
     return true;
@@ -486,7 +497,8 @@ export const recordAbortFailure = internalMutation({
     if (
       supervision?.lifecycle.kind !== "abort_pending" ||
       supervision.lifecycle.operationId !== args.operationId
-    ) return null;
+    )
+      return null;
     await ctx.db.patch(supervision._id, {
       lifecycle: {
         ...supervision.lifecycle,

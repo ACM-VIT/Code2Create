@@ -10,55 +10,80 @@ import { z } from "zod";
 
 import { internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
-import {
-  HttpBodyTooLargeError,
-  readBoundedRequestText,
-} from "./lib/boundedHttpBody";
+import { HttpBodyTooLargeError, readBoundedRequestText } from "./lib/boundedHttpBody";
 import { requireIntelligenceHmacSecret } from "./lib/intelligenceServiceConfiguration";
 
 const maximumSignatureAgeMs = 5 * 60 * 1_000;
 
-const readRequestSchema = z.object({
-  protocolVersion: z.literal(operationsIntelligenceProtocolVersion),
-  episodeId: z.string().min(1).max(200),
-  operationId: z.string().min(8).max(240),
-}).strict();
+const readRequestSchema = z
+  .object({
+    protocolVersion: z.literal(operationsIntelligenceProtocolVersion),
+    episodeId: z.string().min(1).max(200),
+    operationId: z.string().min(8).max(240),
+  })
+  .strict();
 
 const evidenceKeys = z.array(z.string().min(1).max(240)).min(1).max(8);
-const callbackSchema = z.object({
-  protocolVersion: z.literal(operationsIntelligenceProtocolVersion),
-  episodeId: z.string().min(1).max(200),
-  revision: z.number().int().positive(),
-  operationId: z.string().min(8).max(240),
-  summary: z.string().min(12).max(600),
-  confidence: z.number().min(0).max(1),
-  suggestedAction: z.string().min(8).max(300),
-  hypotheses: z.array(z.object({
-    stance: z.enum(["leading", "alternative", "rejected"]),
-    statement: z.string().min(8).max(400),
+const callbackSchema = z
+  .object({
+    protocolVersion: z.literal(operationsIntelligenceProtocolVersion),
+    episodeId: z.string().min(1).max(200),
+    revision: z.number().int().positive(),
+    operationId: z.string().min(8).max(240),
+    summary: z.string().min(12).max(600),
     confidence: z.number().min(0).max(1),
-    evidenceFactKeys: evidenceKeys,
-  }).strict()).min(1).max(3),
-  predictions: z.array(z.object({
-    statement: z.string().min(8).max(400),
-    expectedState: z.enum(operationsEpisodeExpectedStates),
-    probability: z.number().min(0).max(1),
-    horizonAt: z.number().int().positive(),
-    evidenceFactKeys: evidenceKeys,
-  }).strict()).max(3),
-  counterfactuals: z.array(z.object({
-    intervention: z.string().min(8).max(300),
-    expectedState: z.enum(operationsEpisodeExpectedStates),
-    probability: z.number().min(0).max(1),
-    rationale: z.string().min(8).max(400),
-    evidenceFactKeys: evidenceKeys,
-  }).strict()).max(3),
-  agentVersion: z.string().min(3).max(120),
-  model: z.string().min(3).max(120),
-  completedAt: z.number().int().positive(),
-}).strict();
+    suggestedAction: z.string().min(8).max(300),
+    hypotheses: z
+      .array(
+        z
+          .object({
+            stance: z.enum(["leading", "alternative", "rejected"]),
+            statement: z.string().min(8).max(400),
+            confidence: z.number().min(0).max(1),
+            evidenceFactKeys: evidenceKeys,
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(3),
+    predictions: z
+      .array(
+        z
+          .object({
+            statement: z.string().min(8).max(400),
+            expectedState: z.enum(operationsEpisodeExpectedStates),
+            probability: z.number().min(0).max(1),
+            horizonAt: z.number().int().positive(),
+            evidenceFactKeys: evidenceKeys,
+          })
+          .strict(),
+      )
+      .max(3),
+    counterfactuals: z
+      .array(
+        z
+          .object({
+            intervention: z.string().min(8).max(300),
+            expectedState: z.enum(operationsEpisodeExpectedStates),
+            probability: z.number().min(0).max(1),
+            rationale: z.string().min(8).max(400),
+            evidenceFactKeys: evidenceKeys,
+          })
+          .strict(),
+      )
+      .max(3),
+    agentVersion: z.string().min(3).max(120),
+    model: z.string().min(3).max(120),
+    completedAt: z.number().int().positive(),
+  })
+  .strict();
 
-async function verifiedBody(request: Request, context: string, secretName: string, maximumBytes: number) {
+async function verifiedBody(
+  request: Request,
+  context: string,
+  secretName: string,
+  maximumBytes: number,
+) {
   if (request.headers.get("content-type")?.split(";", 1)[0]?.trim() !== "application/json") {
     return { response: Response.json({ error: "unsupported_media_type" }, { status: 415 }) };
   }

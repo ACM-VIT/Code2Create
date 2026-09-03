@@ -54,12 +54,7 @@ const inhibitedBy: Record<AttentionDetectorKey, readonly AttentionDetectorKey[]>
   team_below_minimum: [],
   team_held: [],
   team_call_overdue: [],
-  team_waiting_long: [
-    "panel_seat_empty",
-    "panel_bottleneck",
-    "team_below_minimum",
-    "team_held",
-  ],
+  team_waiting_long: ["panel_seat_empty", "panel_bottleneck", "team_below_minimum", "team_held"],
   round_finish_forecast: [],
   panel_bottleneck: ["panel_seat_empty"],
   scorecard_outstanding: [],

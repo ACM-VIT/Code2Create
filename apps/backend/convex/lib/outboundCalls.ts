@@ -76,9 +76,8 @@ export async function enqueueOutboundCall(
     attemptCount: 0,
     ...(destinationPhoneE164 === null
       ? {
-          providerErrorCode: args.destinationPhone === undefined
-            ? "call_consent_not_granted"
-            : "phone_not_e164",
+          providerErrorCode:
+            args.destinationPhone === undefined ? "call_consent_not_granted" : "phone_not_e164",
           completedAt: args.now,
         }
       : {}),

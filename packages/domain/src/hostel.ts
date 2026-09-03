@@ -44,9 +44,7 @@ export function findVitHostelResidenceCatalogEntry(
   return catalog.find((entry) => entry.stableKey === value) ?? null;
 }
 
-export function vitHostelResidenceCatalogLabel(
-  entry: VitHostelResidenceCatalogEntry,
-) {
+export function vitHostelResidenceCatalogLabel(entry: VitHostelResidenceCatalogEntry) {
   if (entry.kind === "mens") return `Men's hostel · ${entry.label}`;
   if (entry.kind === "ladies") return `Ladies' hostel · ${entry.label}`;
   return entry.label;

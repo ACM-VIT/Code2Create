@@ -1,4 +1,4 @@
-export const ideaSubmissionUrl = 'https://c2c.sh';
+export const ideaSubmissionUrl = "https://c2c.sh";
 
 export const clientConfiguration = {
   posthogProjectToken: import.meta.env.VITE_POSTHOG_PROJECT_TOKEN,

@@ -72,9 +72,9 @@ describe("attendance session lifecycle", () => {
     expect(
       attendanceSessionWindowRejection({ session, transition: "zone_entry", now: 800 }),
     ).toBeNull();
-    expect(
-      attendanceSessionWindowRejection({ session, transition: "zone_exit", now: 1_001 }),
-    ).toBe("outside_session_window");
+    expect(attendanceSessionWindowRejection({ session, transition: "zone_exit", now: 1_001 })).toBe(
+      "outside_session_window",
+    );
   });
 
   test("cancellation closes projections at one cutoff without editing scan history", async () => {
@@ -94,25 +94,26 @@ describe("attendance session lifecycle", () => {
     });
 
     const state = await backend.run(async (ctx) => {
-      const [session, participant, interval, job, counter, presenceEvent, projection] = await Promise.all([
-        ctx.db.get(fixture.sessionId),
-        ctx.db.get(fixture.participantId),
-        ctx.db.get(fixture.intervalId),
-        ctx.db.get(fixture.jobId),
-        ctx.db
-          .query("attendanceSessionCounterShards")
-          .withIndex("by_session_shard", (index) =>
-            index.eq("sessionId", fixture.sessionId).eq("shard", fixture.shard),
-          )
-          .unique(),
-        ctx.db.get(fixture.presenceEventId),
-        ctx.db
-          .query("attendanceParticipantCurrentSessions")
-          .withIndex("by_session_membership", (index) =>
-            index.eq("sessionId", fixture.sessionId).eq("membershipId", fixture.membershipId),
-          )
-          .unique(),
-      ]);
+      const [session, participant, interval, job, counter, presenceEvent, projection] =
+        await Promise.all([
+          ctx.db.get(fixture.sessionId),
+          ctx.db.get(fixture.participantId),
+          ctx.db.get(fixture.intervalId),
+          ctx.db.get(fixture.jobId),
+          ctx.db
+            .query("attendanceSessionCounterShards")
+            .withIndex("by_session_shard", (index) =>
+              index.eq("sessionId", fixture.sessionId).eq("shard", fixture.shard),
+            )
+            .unique(),
+          ctx.db.get(fixture.presenceEventId),
+          ctx.db
+            .query("attendanceParticipantCurrentSessions")
+            .withIndex("by_session_membership", (index) =>
+              index.eq("sessionId", fixture.sessionId).eq("membershipId", fixture.membershipId),
+            )
+            .unique(),
+        ]);
       return { session, participant, interval, job, counter, presenceEvent, projection };
     });
 
@@ -173,13 +174,9 @@ describe("attendance session lifecycle", () => {
   });
 
   test("participant result history rejects unbounded pages", () => {
-    expect(() => requireParticipantAttendanceHistoryPageSize(0)).toThrow(
-      "between 1 and 10",
-    );
+    expect(() => requireParticipantAttendanceHistoryPageSize(0)).toThrow("between 1 and 10");
     expect(() => requireParticipantAttendanceHistoryPageSize(10)).not.toThrow();
-    expect(() => requireParticipantAttendanceHistoryPageSize(11)).toThrow(
-      "between 1 and 10",
-    );
+    expect(() => requireParticipantAttendanceHistoryPageSize(11)).toThrow("between 1 and 10");
   });
 
   test("a participant cannot create an unbounded session interval history", async () => {
@@ -214,10 +211,12 @@ describe("attendance session lifecycle", () => {
       }
       const participant = await ctx.db.get(fixture.participantId);
       if (!participant) throw new Error("Expected attendance participant fixture.");
-      return (await prepareSessionTransition(ctx, {
-        participant,
-        transition: "zone_entry",
-      })).decision;
+      return (
+        await prepareSessionTransition(ctx, {
+          participant,
+          transition: "zone_entry",
+        })
+      ).decision;
     });
 
     expect(decision).toMatchObject({
@@ -239,7 +238,7 @@ async function seedCancellationFixture(
       timezone: "Asia/Kolkata",
       status: "live",
       vitEmailDomains: ["vitstudent.ac.in"],
-        applicationsCloseAt: Date.now() + 86_400_000,
+      applicationsCloseAt: Date.now() + 86_400_000,
       startsAt: timing.openedAt - 30 * 60_000,
       endsAt: timing.now + 60 * 60_000,
       version: 1,

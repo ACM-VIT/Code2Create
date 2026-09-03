@@ -3,10 +3,7 @@
     "name": "Code2Create Ops",
     "slug": "code2create-ops",
     "version": "1.0.0",
-    "platforms": [
-      "ios",
-      "android"
-    ],
+    "platforms": ["ios", "android"],
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "code2create-ops",
@@ -18,9 +15,7 @@
         "com.apple.developer.usernotifications.time-sensitive": true
       },
       "infoPlist": {
-        "UIBackgroundModes": [
-          "remote-notification"
-        ]
+        "UIBackgroundModes": ["remote-notification"]
       }
     },
     "android": {

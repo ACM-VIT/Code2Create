@@ -2,10 +2,6 @@
   "name": "code2create",
   "version": "0.1.0",
   "private": true,
-  "packageManager": "pnpm@11.18.0",
-  "engines": {
-    "node": ">=22.22.0"
-  },
   "type": "module",
   "scripts": {
     "dev": "node scripts/dev.mjs",
@@ -43,5 +39,9 @@
   },
   "devDependencies": {
     "@posthog/cli": "^0.16.0"
-  }
+  },
+  "engines": {
+    "node": ">=22.22.0"
+  },
+  "packageManager": "pnpm@11.18.0"
 }

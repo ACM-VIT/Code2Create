@@ -1,7 +1,4 @@
-import {
-  paginationOptsValidator,
-  paginationResultValidator,
-} from "convex/server";
+import { paginationOptsValidator, paginationResultValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import { z } from "zod";
 
@@ -10,10 +7,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
-import {
-  requireCurrentPerson,
-  requireEventSubject,
-} from "./lib/identity";
+import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import {
   bundleBindingRequirements,
   bundleContentChecksum,
@@ -226,7 +220,7 @@ function grantIdentity(grant: {
   return [
     grant.permissionKey,
     grant.scopeType,
-    grant.scopeType === "event" ? "" : grant.scopeId ?? "",
+    grant.scopeType === "event" ? "" : (grant.scopeId ?? ""),
   ].join("|");
 }
 
@@ -276,8 +270,7 @@ function coversScope(
 ) {
   return grants.some(
     (grant) =>
-      grant.scopeType === "event" ||
-      (grant.scopeType === scopeType && grant.scopeId === scopeId),
+      grant.scopeType === "event" || (grant.scopeType === scopeType && grant.scopeId === scopeId),
   );
 }
 
@@ -288,8 +281,7 @@ function requireCoveredScope(
 ) {
   const matching = grants.filter(
     (grant) =>
-      grant.scopeType === "event" ||
-      (grant.scopeType === scopeType && grant.scopeId === scopeId),
+      grant.scopeType === "event" || (grant.scopeType === scopeType && grant.scopeId === scopeId),
   );
   if (matching.length === 0) {
     throw new ConvexError({
@@ -322,11 +314,7 @@ async function requireBundleMigrationAccess(
       "access.permission_bundles.migrate",
     ),
   ]);
-  const readGrantIds = requireCoveredScope(
-    readGrants,
-    "permission_bundle",
-    args.bundleId,
-  );
+  const readGrantIds = requireCoveredScope(readGrants, "permission_bundle", args.bundleId);
   const migrationGrantIds = requireCoveredScope(
     migrationGrants,
     "permission_bundle",
@@ -344,12 +332,7 @@ async function requireTargetMigrationAccess(
   },
 ) {
   const [readGrants, migrationGrants] = await Promise.all([
-    activePermissionGrants(
-      ctx,
-      args.eventId,
-      args.actorSubjectId,
-      "access.permissions.read",
-    ),
+    activePermissionGrants(ctx, args.eventId, args.actorSubjectId, "access.permissions.read"),
     activePermissionGrants(
       ctx,
       args.eventId,
@@ -357,16 +340,8 @@ async function requireTargetMigrationAccess(
       "access.permission_bundles.migrate",
     ),
   ]);
-  const readGrantIds = requireCoveredScope(
-    readGrants,
-    "person",
-    args.targetPersonId,
-  );
-  const migrationGrantIds = requireCoveredScope(
-    migrationGrants,
-    "person",
-    args.targetPersonId,
-  );
+  const readGrantIds = requireCoveredScope(readGrants, "person", args.targetPersonId);
+  const migrationGrantIds = requireCoveredScope(migrationGrants, "person", args.targetPersonId);
   return [...new Set([...readGrantIds, ...migrationGrantIds])];
 }
 
@@ -389,10 +364,7 @@ async function versionContext(
   eventId: Id<"events">,
   sourceBundleVersionId: Id<"permissionBundleVersions">,
 ): Promise<VersionContext> {
-  const sourceVersion = await ctx.db.get(
-    "permissionBundleVersions",
-    sourceBundleVersionId,
-  );
+  const sourceVersion = await ctx.db.get("permissionBundleVersions", sourceBundleVersionId);
   const bundle = sourceVersion
     ? await ctx.db.get("permissionBundles", sourceVersion.bundleId)
     : null;
@@ -416,7 +388,8 @@ async function versionContext(
   ) {
     throw new ConvexError({
       code: "BUNDLE_MIGRATION_UNAVAILABLE",
-      message: "Choose an older retired version of an active bundle with a newer published version.",
+      message:
+        "Choose an older retired version of an active bundle with a newer published version.",
     });
   }
   return {
@@ -428,14 +401,8 @@ async function versionContext(
   };
 }
 
-async function grantDocuments(
-  ctx: ReadCtx,
-  grantIds: readonly Id<"permissionGrants">[],
-) {
-  if (
-    grantIds.length > maximumBundleEntries ||
-    new Set(grantIds).size !== grantIds.length
-  ) {
+async function grantDocuments(ctx: ReadCtx, grantIds: readonly Id<"permissionGrants">[]) {
+  if (grantIds.length > maximumBundleEntries || new Set(grantIds).size !== grantIds.length) {
     throw new Error("Permission grant batch contains an invalid grant set.");
   }
   const grants = await Promise.all(
@@ -484,10 +451,7 @@ function inferredBindings(
       collected.push({ key: entry.bindingKey, scopeId: grant.scopeId });
     }
   }
-  return normalizeBundleBindings(
-    bundleBindingRequirements(sourceEntries),
-    collected,
-  );
+  return normalizeBundleBindings(bundleBindingRequirements(sourceEntries), collected);
 }
 
 function validateGrantOwner(
@@ -523,8 +487,7 @@ async function sourceApplicationState(
     args.sourceBatch.bundleId !== args.sourceVersion.bundleId ||
     args.sourceBatch.bundleVersionId !== args.sourceVersion._id ||
     args.sourceBatch.status !== "complete" ||
-    (args.sourceBatch.action !== "apply_bundle" &&
-      args.sourceBatch.action !== "migrate_bundle") ||
+    (args.sourceBatch.action !== "apply_bundle" && args.sourceBatch.action !== "migrate_bundle") ||
     args.sourceBatch.targetPersonId !== args.targetSubject.personId
   ) {
     throw new ConvexError({
@@ -613,19 +576,14 @@ function destinationValidity(
   return validUntil;
 }
 
-function candidateBindings(
-  context: VersionContext,
-  sourceBindings: readonly BundleBinding[],
-) {
+function candidateBindings(context: VersionContext, sourceBindings: readonly BundleBinding[]) {
   const sourceRequirements = new Map(
     bundleBindingRequirements(context.sourceEntries).map((requirement) => [
       requirement.key,
       requirement,
     ]),
   );
-  const sourceValues = new Map(
-    sourceBindings.map((binding) => [binding.key, binding.scopeId]),
-  );
+  const sourceValues = new Map(sourceBindings.map((binding) => [binding.key, binding.scopeId]));
   return bundleBindingRequirements(context.destinationEntries).map((requirement) => {
     const sourceRequirement = sourceRequirements.get(requirement.key);
     const suggestedScopeId =
@@ -652,10 +610,7 @@ async function prepareTarget(
     now: number;
   },
 ): Promise<PreparedTarget> {
-  const sourceBatch = await ctx.db.get(
-    "permissionGrantBatches",
-    args.selection.sourceGrantBatchId,
-  );
+  const sourceBatch = await ctx.db.get("permissionGrantBatches", args.selection.sourceGrantBatchId);
   if (!sourceBatch) {
     throw new ConvexError({
       code: "BUNDLE_MIGRATION_SOURCE_CHANGED",
@@ -700,11 +655,7 @@ async function prepareTarget(
     entries: args.context.destinationEntries,
     bindings,
   });
-  const validUntil = destinationValidity(
-    args.event,
-    sourceBatch.validUntil,
-    args.now,
-  );
+  const validUntil = destinationValidity(args.event, sourceBatch.validUntil, args.now);
   const destinationSourceId = resolvedBundleSourceId({
     bundleVersionId: args.context.destinationVersion._id,
     targetPersonId: sourceBatch.targetPersonId,
@@ -767,9 +718,7 @@ async function prepareTarget(
     const existing = existingByIdentity.get(identity) ?? null;
     const exception = existing
       ? null
-      : destinationExceptionByIdentity.get(identity) ??
-        exceptionByIdentity.get(identity) ??
-        null;
+      : (destinationExceptionByIdentity.get(identity) ?? exceptionByIdentity.get(identity) ?? null);
     if (exception) {
       preservedGrants.push(exception);
       changes.push({
@@ -801,9 +750,7 @@ async function prepareTarget(
     changes.push({
       permissionKey: sourceGrant.permissionKey,
       scopeType: sourceGrant.scopeType,
-      ...(sourceGrant.scopeType === "event"
-        ? {}
-        : { scopeId: sourceGrant.scopeId }),
+      ...(sourceGrant.scopeType === "event" ? {} : { scopeId: sourceGrant.scopeId }),
       action: "remove",
       destinationAlreadyExists: false,
     });
@@ -874,10 +821,7 @@ async function prepareMigration(
     selections: readonly MigrationSelection[];
   },
 ) {
-  if (
-    args.selections.length < 1 ||
-    args.selections.length > maximumMigrationTargets
-  ) {
+  if (args.selections.length < 1 || args.selections.length > maximumMigrationTargets) {
     throw new ConvexError({
       code: "INVALID_BUNDLE_MIGRATION_SIZE",
       message: `Migrate between 1 and ${maximumMigrationTargets} bundle applications at a time.`,
@@ -887,19 +831,15 @@ async function prepareMigration(
     left.sourceGrantBatchId.localeCompare(right.sourceGrantBatchId),
   );
   if (
-    new Set(sortedSelections.map((selection) => selection.sourceGrantBatchId))
-      .size !== sortedSelections.length
+    new Set(sortedSelections.map((selection) => selection.sourceGrantBatchId)).size !==
+    sortedSelections.length
   ) {
     throw new ConvexError({
       code: "DUPLICATE_BUNDLE_MIGRATION_TARGET",
       message: "Choose each source bundle application once.",
     });
   }
-  const context = await versionContext(
-    ctx,
-    args.event._id,
-    args.sourceBundleVersionId,
-  );
+  const context = await versionContext(ctx, args.event._id, args.sourceBundleVersionId);
   const bundleGrantIds = await requireBundleMigrationAccess(ctx, {
     eventId: args.event._id,
     actorSubjectId: args.actorSubjectId,
@@ -922,7 +862,8 @@ async function prepareMigration(
   if (new Set(destinationSourceIds).size !== destinationSourceIds.length) {
     throw new ConvexError({
       code: "DUPLICATE_BUNDLE_MIGRATION_DESTINATION",
-      message: "Two selected applications resolve to the same destination. Migrate them separately.",
+      message:
+        "Two selected applications resolve to the same destination. Migrate them separately.",
     });
   }
   const sourceGrantIds = targets.flatMap((target) =>
@@ -934,10 +875,7 @@ async function prepareMigration(
       message: "Two selected applications share a source grant. Migrate them separately.",
     });
   }
-  const changeCount = targets.reduce(
-    (total, target) => total + target.changes.length,
-    0,
-  );
+  const changeCount = targets.reduce((total, target) => total + target.changes.length, 0);
   if (changeCount > maximumMigrationChanges) {
     throw new ConvexError({
       code: "BUNDLE_MIGRATION_TOO_LARGE",
@@ -960,8 +898,7 @@ function publicPreview(prepared: Awaited<ReturnType<typeof prepareMigration>>) {
     (current, target) => ({
       createdCount: current.createdCount + target.createdCount,
       reusedCount: current.reusedCount + target.reusedCount,
-      supersededCount:
-        current.supersededCount + target.supersededGrants.length,
+      supersededCount: current.supersededCount + target.supersededGrants.length,
       preservedCount: current.preservedCount + target.preservedGrants.length,
     }),
     {
@@ -987,9 +924,7 @@ function publicPreview(prepared: Awaited<ReturnType<typeof prepareMigration>>) {
       displayName: target.targetPerson.displayName,
       email: target.targetPerson.verifiedEmail,
       expectedAccessVersion: target.targetSubject.accessVersion,
-      ...(target.validUntil !== undefined
-        ? { validUntil: target.validUntil }
-        : {}),
+      ...(target.validUntil !== undefined ? { validUntil: target.validUntil } : {}),
       createdCount: target.createdCount,
       reusedCount: target.reusedCount,
       supersededCount: target.supersededGrants.length,
@@ -1048,12 +983,8 @@ export const sources = query({
           version: version.version,
           entryCount: version.entries.length,
           checksum: version.checksum,
-          ...(version.publishedAt !== undefined
-            ? { publishedAt: version.publishedAt }
-            : {}),
-          ...(version.retiredAt !== undefined
-            ? { retiredAt: version.retiredAt }
-            : {}),
+          ...(version.publishedAt !== undefined ? { publishedAt: version.publishedAt } : {}),
+          ...(version.retiredAt !== undefined ? { retiredAt: version.retiredAt } : {}),
         };
       }),
     };
@@ -1072,29 +1003,15 @@ export const candidates = query({
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const actorSubject = await requireEventSubject(ctx, event._id, person._id);
-    const context = await versionContext(
-      ctx,
-      event._id,
-      args.sourceBundleVersionId,
-    );
+    const context = await versionContext(ctx, event._id, args.sourceBundleVersionId);
     await requireBundleMigrationAccess(ctx, {
       eventId: event._id,
       actorSubjectId: actorSubject._id,
       bundleId: context.bundle._id,
     });
     const [readGrants, migrationGrants, page] = await Promise.all([
-      activePermissionGrants(
-        ctx,
-        event._id,
-        actorSubject._id,
-        "access.permissions.read",
-      ),
-      activePermissionGrants(
-        ctx,
-        event._id,
-        actorSubject._id,
-        "access.permission_bundles.migrate",
-      ),
+      activePermissionGrants(ctx, event._id, actorSubject._id, "access.permissions.read"),
+      activePermissionGrants(ctx, event._id, actorSubject._id, "access.permission_bundles.migrate"),
       ctx.db
         .query("permissionGrantBatches")
         .withIndex("by_event_bundle_version_status_created", (index) =>
@@ -1209,12 +1126,7 @@ export const confirm = mutation({
     const { person } = await requireCurrentPerson(ctx);
     const actorSubject = await requireEventSubject(ctx, event._id, person._id);
     const reason = normalizedText(args.reason, "Reason", 5, 300);
-    const operationId = normalizedText(
-      args.clientOperationId,
-      "Client operation ID",
-      10,
-      100,
-    );
+    const operationId = normalizedText(args.clientOperationId, "Client operation ID", 10, 100);
     const normalizedSelections = [...args.selections].sort((left, right) =>
       left.sourceGrantBatchId.localeCompare(right.sourceGrantBatchId),
     );
@@ -1295,8 +1207,7 @@ export const confirm = mutation({
       prepared.previewChecksum !== args.previewChecksum ||
       prepared.targets.some(
         (target) =>
-          expectedVersions.get(target.sourceBatch._id) !==
-          target.targetSubject.accessVersion,
+          expectedVersions.get(target.sourceBatch._id) !== target.targetSubject.accessVersion,
       )
     ) {
       throw new ConvexError({
@@ -1314,10 +1225,7 @@ export const confirm = mutation({
     for (const target of prepared.targets) {
       const batchId = await ctx.db.insert("permissionGrantBatches", {
         eventId: event._id,
-        clientOperationId: operationFingerprint([
-          operationId,
-          target.sourceBatch._id,
-        ]),
+        clientOperationId: operationFingerprint([operationId, target.sourceBatch._id]),
         requestFingerprint: target.checksum,
         action: "migrate_bundle",
         actorPersonId: person._id,
@@ -1331,9 +1239,7 @@ export const confirm = mutation({
         authorizingGrantIds: target.authorizingGrantIds,
         expectedAccessVersion: target.targetSubject.accessVersion,
         previewChecksum: target.checksum,
-        ...(target.validUntil !== undefined
-          ? { validUntil: target.validUntil }
-          : {}),
+        ...(target.validUntil !== undefined ? { validUntil: target.validUntil } : {}),
         status: "applying",
         resultGrantIds: [],
         supersededGrantIds: target.supersededGrants.map((grant) => grant._id),
@@ -1370,9 +1276,7 @@ export const confirm = mutation({
           grantedByPersonId: person._id,
           reason,
           validFrom,
-          ...(target.validUntil !== undefined
-            ? { validUntil: target.validUntil }
-            : {}),
+          ...(target.validUntil !== undefined ? { validUntil: target.validUntil } : {}),
         });
         resultGrantIds.push(result.grantId);
         if (result.created) createdCount += 1;
@@ -1422,14 +1326,8 @@ export const confirm = mutation({
       destinationBundleVersionId: prepared.context.destinationVersion._id,
       batchIds: pendingBatches.map((batch) => batch.id),
       targetCount: prepared.targets.length,
-      createdCount: pendingBatches.reduce(
-        (total, batch) => total + batch.createdCount,
-        0,
-      ),
-      reusedCount: prepared.targets.reduce(
-        (total, target) => total + target.reusedCount,
-        0,
-      ),
+      createdCount: pendingBatches.reduce((total, batch) => total + batch.createdCount, 0),
+      reusedCount: prepared.targets.reduce((total, target) => total + target.reusedCount, 0),
       supersededCount: prepared.targets.reduce(
         (total, target) => total + target.supersededGrants.length,
         0,
@@ -1440,9 +1338,7 @@ export const confirm = mutation({
       ),
     };
     const authorizingGrantIds = [
-      ...new Set(
-        prepared.targets.flatMap((target) => target.authorizingGrantIds),
-      ),
+      ...new Set(prepared.targets.flatMap((target) => target.authorizingGrantIds)),
     ];
     await writeAuditEvent(ctx, {
       eventId: event._id,

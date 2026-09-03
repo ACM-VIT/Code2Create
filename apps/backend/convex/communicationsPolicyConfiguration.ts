@@ -18,10 +18,7 @@ import {
 } from "./lib/configurationOperationResult";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
-import {
-  requireCurrentPerson,
-  requireEventSubject,
-} from "./lib/identity";
+import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
 import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
 import { normalizedText } from "./lib/strings";
@@ -81,9 +78,7 @@ export const current = query({
     }
     const draft = await ctx.db
       .query("communicationsPolicyVersions")
-      .withIndex("by_event_status", (index) =>
-        index.eq("eventId", event._id).eq("status", "draft"),
-      )
+      .withIndex("by_event_status", (index) => index.eq("eventId", event._id).eq("status", "draft"))
       .unique();
     const [draftGrants, validateGrants, publishGrants] = await Promise.all([
       matchingPermissionGrantIds(ctx, {
@@ -160,10 +155,7 @@ export const validateDraft = query({
     return {
       valid: issues.length === 0,
       issues,
-      changes: describeChanges(
-        communicationsPolicyFromDocument(published),
-        normalized,
-      ),
+      changes: describeChanges(communicationsPolicyFromDocument(published), normalized),
     };
   },
 });
@@ -185,10 +177,7 @@ function describeChanges(
   if (JSON.stringify(published.nextSteps) !== JSON.stringify(draft.nextSteps)) {
     changes.push("Update the ordered accepted-team next steps.");
   }
-  if (
-    published.discordUrl !== draft.discordUrl ||
-    published.discordLabel !== draft.discordLabel
-  ) {
+  if (published.discordUrl !== draft.discordUrl || published.discordLabel !== draft.discordLabel) {
     changes.push("Update the accepted-team Discord destination.");
   }
   if (JSON.stringify(published.emailTemplates) !== JSON.stringify(draft.emailTemplates)) {
@@ -332,7 +321,8 @@ export const publish = mutation({
     });
     if (prior) {
       const policyVersionId = ctx.db.normalizeId("communicationsPolicyVersions", prior.targetId);
-      if (!policyVersionId) throw new Error("The prior communications-policy publication is invalid.");
+      if (!policyVersionId)
+        throw new Error("The prior communications-policy publication is invalid.");
       const stored = storedConfigurationPublicationResult(
         prior.resultJson,
         "communications-policy publication",

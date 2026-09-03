@@ -70,11 +70,13 @@ function sameSeal(
   left: OperationsAutonomyRecommendationRequest["evidenceSet"],
   right: OperationsAutonomyRecommendationRequest["evidenceSet"],
 ) {
-  return left.evidenceSetId === right.evidenceSetId &&
+  return (
+    left.evidenceSetId === right.evidenceSetId &&
     left.rootHash === right.rootHash &&
     left.leafCount === right.leafCount &&
     left.chunkCount === right.chunkCount &&
-    left.sealedSequence === right.sealedSequence;
+    left.sealedSequence === right.sealedSequence
+  );
 }
 
 export const proposeRecommendation = internalMutation({
@@ -120,10 +122,11 @@ export const proposeRecommendation = internalMutation({
       if (
         boundary.run.executor.agentVersion !== request.agentVersion ||
         boundary.run.executor.model !== request.model
-      ) throw new ConvexError({
-        code: "OPERATIONS_AUTONOMY_EXECUTOR_CONFLICT",
-        message: "The autonomy executor identity changed during the run.",
-      });
+      )
+        throw new ConvexError({
+          code: "OPERATIONS_AUTONOMY_EXECUTOR_CONFLICT",
+          message: "The autonomy executor identity changed during the run.",
+        });
     } else {
       await ctx.db.patch(boundary.run._id, {
         executor: { kind: "known", agentVersion: request.agentVersion, model: request.model },
@@ -134,17 +137,13 @@ export const proposeRecommendation = internalMutation({
     const evidenceSet = await ctx.db
       .query("operationsAutonomyRecommendationEvidenceSets")
       .withIndex("by_run_set", (index) =>
-        index
-          .eq("runId", boundary.run._id)
-          .eq("evidenceSetId", request.evidenceSet.evidenceSetId),
+        index.eq("runId", boundary.run._id).eq("evidenceSetId", request.evidenceSet.evidenceSetId),
       )
       .unique();
     const terminalReceipt = await ctx.db
       .query("operationsAutonomyOperationReceipts")
       .withIndex("by_run_sequence", (index) =>
-        index
-          .eq("runId", boundary.run._id)
-          .eq("sequence", request.evidenceSet.sealedSequence),
+        index.eq("runId", boundary.run._id).eq("sequence", request.evidenceSet.sealedSequence),
       )
       .unique();
     const terminalChunk = await ctx.db

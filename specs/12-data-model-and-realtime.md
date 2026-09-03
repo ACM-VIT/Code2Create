@@ -2059,326 +2059,326 @@ The rehearsal result stores its source manifest/archive, exact staging target, o
 
 ## 13. Required indexes
 
-| Index | Purpose |
-| --- | --- |
-| `people.by_auth_user` | Resolve the current person |
-| `eventAccessSubjects.by_event_person_status` | Resolve the event security subject and access version |
-| `eventAccessSubjects.by_event_email_status` | Resolve an exact event-linked account without a cross-table scan |
-| `eventAccessSubjects.search_event_display_name` | Permission-gated event person search |
-| `eventAccessInvitations.by_event_email_status` | Resolve the one pending invitation shown to an exact verified Google identity |
-| `eventAccessInvitations.by_event_status_created` | Page open invitations for authorized event operators |
-| `eventMemberships.by_event_person` | Resolve participant access |
-| `eventMemberships.by_event_onboarding_status` | Read only the accepted venue cohort for a bounded emergency snapshot |
-| `participantEligibilityImports.by_event_batch` | Resume one checksum-pinned participant registration import |
-| `participantEligibilityImports.by_event_status` | Resolve active or preparing participant registration imports |
-| `participantEligibilityEntries.by_import_identity` | Authorize one exact participant identity in the active import |
-| `participantEligibilityEntries.by_import_class` | Verify exact VIT and external import counts before activation |
-| `participantEligibilityEntries.by_event_import` | Audit the bounded entries for one event import |
-| `teamRosterImports.by_event_operation` | Return one idempotent confirmed participant-team import |
-| `teamRosterImports.by_event_created` | Page immutable participant-team import history |
-| `teamRosterEntries.by_event_email_status` | Resolve an external participant's current team offer |
-| `teamRosterEntries.by_event_vit_registration_status` | Resolve a VIT participant's current team offer |
-| `teamRosterEntries.by_event_team_status` | Resolve accepted members when the listed lead forms the team |
-| `teamRosterEntries.by_event_status` | Count participant-team assignment states |
-| `teamRosterEntries.by_import_row` | Audit one participant-team import by source row |
-| `teamRosterEntries.by_event_created` | Page participant-team assignment history |
-| `rosterImports.by_event_operation` | Return one idempotent confirmed CSV import |
-| `rosterImports.by_event_created` | Page immutable import history |
-| `rosterEntries.by_event_email_status` | First staff/reviewer claim |
-| `rosterEntries.by_event_created` | Page event-wide roster history |
-| `rosterEntries.by_event_status_created` | Bound status-specific operations and expiry inspection |
-| `rosterEntries.by_import_row` | Expire or audit one bounded import without an event scan |
-| `rosterEntries.by_claimed_person` | Resolve claimed roster provenance for one event-linked person |
-| `eventRoles.by_event_person_status` | Resolve the organizational label; never authorize |
-| `permissionBundles.by_event_key` | Enforce one stable bundle key inside an event |
-| `permissionBundles.by_event_status_label` | List bounded active bundles visible to an operator |
-| `permissionBundleVersions.by_bundle_status` | Resolve the editable/current version state for one bundle |
-| `permissionBundleVersions.by_bundle_version` | Resolve immutable bundle history by semantic version |
-| `permissionBundleVersions.by_event_status_label` | List published or draft versions by event when required |
-| `permissionGrantBatches.by_event_operation` | Resolve the audited batch created by one bundle application |
-| `permissionGrantBatches.by_event_target_created` | Inspect one person’s bundle-application history |
-| `permissionGrantBatches.by_event_bundle_version_status_created` | Page completed source applications for one retired bundle version without scanning event history |
-| `operationResults.by_actor_operation` | Make a client operation ID idempotent for the authenticated actor |
-| `operationsHealthSnapshots.by_event` | Read and upsert the event's one current aggregate-health materialization |
-| `operationsAutonomyPolicyVersions.by_event_status` | Resolve the event's one draft or published autonomy policy without scanning history |
-| `operationsAutonomyPolicyVersions.by_event_version` | Allocate and inspect immutable event policy versions |
-| `operationsAutonomyStates.by_lifecycle_next_evaluation` | Read only active scheduler states that are due |
-| `operationsAutonomyStates.by_event` | Resolve the event's current scheduler state |
-| `operationsAutonomyStates.by_policy` | Return the runtime state for one published policy |
-| `operationsAutonomyInbox.by_event_operation_key` | Deduplicate one exact manual, schedule-slot, or signal-episode work item |
-| `operationsAutonomyInbox.by_lifecycle_next_attempt_at` | Fairly claim due semantic work without busy events hiding other events |
-| `operationsAutonomyRuns.by_event_policy_lifecycle` | Enforce one executable run for an event policy and supervise its lifecycle |
-| `operationsAutonomyRuns.by_event_created_at` | Cursor-page complete run history newest first |
-| `operationsAutonomyOperationReceipts.by_run_operation` | Replay one exact lost response without repeating its effect |
-| `operationsAutonomyOperationReceipts.by_run_sequence` | Preserve the run's authoritative operation order |
-| `operationsAutonomyRecommendationEvidenceSets.by_run_set` | Resolve and seal one run-owned recommendation support chain |
-| `operationsAutonomyRecommendationEvidenceSets.by_run_proposal` | Prevent one proposal key from silently switching evidence-set identity |
-| `operationsAutonomyRecommendationEvidenceChunks.by_run_set_page` | Enforce one exact ordered page at each support-chain index |
-| `operationsAutonomyRecommendationEvidenceLeaves.by_run_set_ordinal` | Cursor-page every canonical leaf in one sealed evidence set |
-| `operationsAutonomyRecommendationEvidenceLeaves.by_run_set_identity` | Ground a target against one exact leaf in its sealed set |
-| `operationsAutonomyContinuations.by_lifecycle_next_attempt` | Retry one durable next-submission outbox item after its prior submission settles |
-| `operationsIntelligenceBriefs.by_event_requested` | Return the latest event brief and preserve request history without scanning other events |
-| `operationsIntelligenceBriefs.by_event_state_updated` | Bound diagnostics and recovery to one event and current brief state |
-| `intelligenceRecommendations.by_event_proposal` | Make at-least-once proposal delivery idempotent and conflicting reuse definitive |
-| `intelligenceRecommendations.by_event_status_proposed` | Cursor-page every pending human decision oldest first and conversation feedback by status/time |
-| `intelligenceRecommendations.by_event_decided_at` | Cursor-page settled recommendation history newest first |
-| `intelligenceRecommendations.by_event_copilot_conversation_proposed` | Return only one subject-private copilot conversation's feedback history |
-| `intelligenceRecommendations.by_event_autonomy_run_proposed` | Audit proposals from one exact autonomous run |
-| `intelligenceRecommendationAutonomyObservations.by_recommendation_observed_at` | Cursor-page every run observation attached to one deduplicated human action |
-| `intelligenceRecommendationAutonomyObservations.by_recommendation_run_set` | Idempotently attach one exact run and sealed evidence set to that action |
-| `supportCases.by_event_code` | Resolve one public support code inside one event and serialize code allocation collisions |
-| `supportCases.by_event_updated` | Return a bounded event-wide support list newest update first |
-| `supportCases.by_event_state_updated` | Return bounded active, resolved, or closed support queues without a table scan |
-| `supportCases.by_event_state_created` | Resolve the exact oldest open support case without sampling by last update time |
-| `supportCases.by_event_reporter_updated` | Return only the current reporter's newest cases |
-| `supportCases.by_event_owner_state_updated` | Inspect one owner's routed work by state when an owner view is needed |
-| `supportCaseActions.by_case_time` | Return one case's ordered append-only timeline |
-| `supportCaseActions.by_event_time` | Retain and audit support actions inside the event boundary |
-| `supportCaseStatShards.by_event_shard` | Return exact help-desk totals from a fixed write-sharded event projection |
-| `permissionGrants.by_event_permission_status` | Resolve a bounded support-owner picker from the exact active manager grant instead of scanning event accounts |
-| `rehearsalRuns.by_event_created` | List recent event rehearsal runs without scanning history |
-| `rehearsalRuns.by_event_state_created` | Enforce one active event run and list state-specific history |
-| `rehearsalWorkstreamOwners.by_run_workstream` | Resolve the one owner for each required workstream |
-| `rehearsalWorkstreamOwners.by_person_run` | Route a person's assigned rehearsal responsibility without granting access |
-| `rehearsalScenarios.by_run_sequence` | Return all 62 copied scenarios in stable order and read them for sign-off |
-| `rehearsalScenarios.by_run_key` | Resolve one stable template scenario inside a run |
-| `rehearsalScenarios.by_run_state_sequence` | Filter a run by outcome without scanning other runs |
-| `rehearsalScenarios.by_event_workstream_state` | Inspect bounded event/workstream readiness across runs |
-| `rehearsalScenarioActions.by_scenario_time` | Return one scenario's append-only action history |
-| `rehearsalScenarioActions.by_run_time` | Audit accepted actions across one run in time order |
-| `permissionGrants.by_subject_permission_status` | Resolve candidate grants for a protected function inside one event access subject |
-| `permissionGrants.by_subject_permission_status_scope` | Resolve one exact scope, or a bounded ordered set of one resource scope type, without reading unrelated grants |
-| `permissionGrants.by_subject_permission_status_valid_until` | Resolve one current capability bit without loading every scoped grant for that permission |
-| `permissionGrants.by_subject_permission_status_scope_type_valid_until` | Resolve a capability restricted to explicit scope kinds without loading scope IDs |
-| `permissionGrants.by_person_status` | Paginate current or historical grants for one event person |
-| `permissionGrants.by_source` | Resolve only grants created by one membership, assignment, or resolved bundle source |
-| `permissionGrants.by_status_valid_from` | Activate a bounded due set of scheduled grants without scanning unrelated history |
-| `permissionGrants.by_status_valid_until` | Expire a bounded due set of active grants without scanning indefinite grants |
-| `permissionGrants.by_grant_batch` | Inspect grant provenance from one application or migration batch |
-| `communicationsPolicyVersions.by_event_status` | Resolve the one current communications draft or publication |
-| `communicationsPolicyVersions.by_event_version` | Allocate and inspect immutable communications history |
-| `intakePolicyVersions.by_event_status` | Resolve the one published or draft introduction policy |
-| `intakePolicyVersions.by_event_version` | Allocate and inspect immutable policy history |
-| `noveltyCorpusVersions.by_event_status` | Resolve the event's one draft or published novelty corpus |
-| `noveltyCorpusVersions.by_event_version` | Allocate and inspect immutable corpus history |
-| `noveltyCorpusEntries.by_corpus_source` | Enforce one curated source key inside a corpus and replace its bounded set |
-| `noveltyCorpusEntries.by_corpus_embedding` | Search native 1,536-value vectors inside one pinned corpus |
-| `noveltyTeamIdeas.by_team` | Replace or invalidate one team's bounded current novelty rows without scanning the event |
-| `noveltyTeamIdeas.by_event_embedding` | Search current complete-idea vectors inside one event without exposing another team's text |
-| `noveltyPreviewRequests.by_team_requested` | Inspect one team's recent preview work; rate enforcement lives in the transactional rate-limiter component |
-| `noveltyPreviewRequests.by_team_state_requested` | Invalidate one team's running previews in the same transaction as an accepted idea edit |
-| `noveltyPreviewRequests.by_team_fingerprint_requested` | Reuse one recent successful comparison for unchanged team text |
-| `noveltyPreviewRequests.by_team_client_request` | Resolve one idempotent participant preview request |
-| `noveltyPreviewRequests.by_event_state_requested` | Read bounded aggregate provider health without project text |
-| `admissionModelConfigVersions.by_event_status_version` | Resolve the published admission-analysis contract |
-| `teamMembers.by_event_membership_status` | Prevent two active teams |
-| `teamMembers.by_team_status_role` | Return the live roster and enforce one active lead |
-| `teamLeadershipTransfers.by_team_state` | Resolve one pending accepted/stale leadership handoff |
-| `projectDrafts.by_event_intake_policy` | Count active participant drafts pinned to one intake policy |
-| `intakeWorkingFields.by_team` | Load the bounded collaborative working fields for one team |
-| `intakeWorkingFields.by_team_kind_question` | Enforce one autosaved value and revision for one exact idea or follow-up field |
-| `intakeAnswerVersions.by_draft_prompt_status` | Resolve one current answer for a draft prompt |
-| `intakeAnswerVersions.by_generated_question_status` | Couple a current answer to its exact immutable question |
-| `intakeGeneratedQuestions.by_draft_ordinal` | Enforce and resume one current follow-up per ordinal |
-| `intakeInterpretations.by_draft_input` | Deduplicate and reject stale model work |
-| `intakeInterpretations.by_event_state_created` | Bound recent fallback and stalled-running checks for aggregate event health |
-| `projectVersions.by_team_version` | Load exact reviewer context |
-| `applications.by_event_state` | Admission queues and capacity |
-| `applications.by_event_submitted` | Page the complete admissions cohort in immutable submission order without state-transition cursor gaps |
-| `admissionReviewAssignments.by_application_reviewer_state` | Enforce one active routing row per application/reviewer |
-| `admissionReviewAssignments.by_event_reviewer_state_assigned` | Page one person's active/completed review work |
-| `admissionReviewAssignments.by_application_state_assigned` | Read assignment coverage and bounded history for one application |
-| `admissionHumanReviews.by_application_reviewer_status` | Resolve and replace one reviewer's current recommendation |
-| `admissionHumanReviews.by_application_status` | Count current recommendations and publish a human decision |
-| `admissionInformationRequests.by_application_created` | Return immutable information-request history in order |
-| `admissionInformationRequests.by_application_state` | Resolve the one current open request for an application |
-| `admissionInformationRequests.by_team_state` | Resolve the participant team's current open request without scanning applications |
-| `admissionAIRecommendations.by_application_input_checksum` | Deduplicate analysis and reject stale application/model work |
-| `admissionAIRecommendations.by_event_state_created` | Bound recent unavailable/stalled analysis checks without reading application content |
-| `admissionOffers.by_event_state_expiry` | Find open offers due for version-checked expiry |
-| `admissionOffers.by_application_sent` | Resolve immutable offer history and the current application pointer |
-| `admissionCapacityReservations.by_application_state` | Enforce one active exact-roster reservation per application |
-| `admissionCapacityReservations.by_offer` | Prove one offer owns the reservation it confirms or releases |
-| `venueCheckIns.by_event_membership_status` | One staffed arrival record |
-| `venueCheckIns.by_membership_time` | Return current and historical arrival decisions for one participant |
-| `venueCheckIns.by_event_status_time` | Bound authorized event arrival inspection |
-| `venueCheckInCounterShards.by_event_shard` | Realtime checked-in aggregate without one write hotspot |
-| `staffedParticipantResolutions.by_portal_token` | Enforce one staffed resolution per consumed portal QR |
-| `staffedParticipantResolutions.by_event_membership_time` | Resolve bounded recent desk context for one participant |
-| `floorPlanVersions.by_event_status` | Resolve one draft or published hall plan without scanning history |
-| `floorPlanVersions.by_event_number` | Allocate and inspect monotonic plan revisions |
-| `floorZones.by_plan_order` | Render zones from one exact plan |
-| `floorLandmarks.by_plan_order` | Draw one exact plan's fixed points without per-landmark reads |
-| `floorLandmarks.by_zone_order` | Name the landmark nearest one recorded position |
-| `teamFloorLocations.by_team_state` | Enforce and read one active location for a team |
-| `teamFloorLocations.by_plan_state` | Render every recorded position at once and freeze the plan projection |
-| `teamFloorLocations.by_zone_state` | Draw and count one zone's teams for the crowding view |
-| `floorTeamQrTokens.by_digest` | Consume one opaque dashboard QR without exposing its bearer |
-| `floorTeamQrTokens.by_manual_digest` | Resolve the camera-failure code through the same claim command |
-| `floorMappingClaims.by_team_state` | Diagnose bounded in-flight mapper claims for one team |
-| `attendancePlanVersions.by_event_status_version` | Resolve the published attendance policy |
-| `attendanceSessions.by_event_status_start` | Active/upcoming session board |
-| `attendanceExpectations.by_session_membership` | Resolve one participant’s session requirement |
-| `attendanceExpectations.by_session_expectation` | Expected/optional/excused lists |
-| `attendanceSessionParticipants.by_membership_completed` | Paginate one participant's finalized attendance results newest first without mounting current state |
-| `attendanceParticipantCurrentSessions.by_membership_plan_start` | Subscribe one participant to current-plan session state in schedule order |
-| `attendanceParticipantCurrentSessions.by_session_membership` | Enforce one exact current projection for each prepared session participant |
-| `attendanceSessionJobs.by_session_kind` | Resolve expectation and close/cancellation history for one session |
-| `attendanceSessionJobs.by_status_updated` | Operate stalled internal work |
-| `attendanceSessionJobs.by_event_status_updated` | Diagnose bounded event job state without scanning another event or historical parent |
-| `attendanceBarcodeKeySets.by_event_status_version` | Resolve the one active server-only VIT barcode lookup key set |
-| `attendanceCredentials.by_event_lookup` | Resolve an active VIT barcode or external badge without storing the raw value |
-| `attendanceCredentials.by_membership_state` | Enforce one current physical method and inspect pending/replaced history for one participant |
-| `attendanceCredentials.by_event_badge_reference` | Find a support-safe printed badge reference without exposing its bearer or hash |
-| `attendanceQrTokens.by_nonce_hash_status` | Consume a short-lived portal QR |
-| `attendanceStations.by_plan_key` | List the immutable station topology for one attendance-plan version |
-| `attendanceStations.by_device_status` | Resolve the one active station attached to a registered scanner phone |
-| `attendanceDeviceInstallations.by_event_status` | Resolve only active event scanner installations for liveness checks |
-| `presenceEvents.by_operator_operation` | Resolve an ambiguous operator retry across scan/reconciliation commands |
-| `presenceEvents.by_device_sequence` | Reject scanner sequence reuse and order offline replay |
-| `presenceEvents.by_session_membership_time` | Load one participant's exact session ledger for correction preview |
-| `presenceIntervals.by_session_membership` | Load the participant/session interval projection and enforce one open interval transactionally |
-| `participantPresence.by_event_membership` | Current participant projection |
-| `participantPresence.by_event_session_state_zone` | Indexed live attendance lists |
-| `attendanceTeamAvailability.by_event_team` | Resolve one current locked-team inside count for the review board and review commands |
-| `sessionAttendance.by_session_membership` | One derived participant result |
-| `sessionAttendance.by_session_result` | Session exception/completeness board |
-| `attendanceResultRemedyCases.by_session_membership_state` | Enforce and load the one open finalized-result review |
-| `attendanceResultRemedyCases.by_session_membership_created` | Load one participant/session review history newest first |
-| `attendanceResultRemedyCases.by_session_state_created` | Operate the exact-session open-review queue |
-| `attendanceResultRemedyCases.by_membership_created` | Return only the caller's own review history |
-| `presenceCounterShards.by_session_scope_state_shard` | Low-contention live counts |
-| `attendanceRollCalls.by_event_state_started` | Load active roll calls affected by a venue transition |
-| `attendanceRollCalls.by_zone_state_started` | Enforce one active roll call per zone |
-| `attendanceRollCalls.by_session_started` | Load exact-session roll-call history |
-| `attendanceRollCallCounterShards.by_roll_call_shard` | Subscribe to bounded live/final roll-call counts |
-| `attendanceExports.by_session_requester_created` | Return only the caller's recent exports for one exact session |
-| `attendanceExports.by_event_status_created` | Operate pending/failed export work without exposing files through a broad query |
-| `emergencyPacks.by_event_created` | Return the newest bounded event pack manifests without reading their contents |
-| `emergencyPacks.by_event_serial_prefix` | Reject a second pack with the same printed-form namespace in that event |
-| `emergencyPacks.by_event_status_created` | Detect only current failed or stalled generation work through the bounded health projection |
-| `attendanceManualSheets.by_event_serial_revision` | Enforce one active/completed revision of a printed serial |
-| `attendanceManualSheets.by_session_status_created` | Block close and operate outstanding sheets for one exact session |
-| `attendanceManualSheets.by_incident_status_created` | Block incident resolution while paper work is unfinished |
-| `attendanceManualSheets.by_source_storage` | Prevent one immutable source image from backing two sheets |
-| `manualReviewRecords.by_event_serial_revision` | Enforce one active/imported revision of a printed review serial |
-| `manualReviewRecords.by_review_status_created` | Freeze ordinary score writes and operate one pending record for an exact review |
-| `manualReviewRecords.by_round_status_created` | Block round close while paper review work is unfinished |
-| `manualReviewRecords.by_incident_status_created` | Block review-incident resolution while paper work is unfinished |
-| `manualReviewRecords.by_source_storage` | Prevent one immutable source image from backing two review records |
-| `reviewRoundPauses.by_round_state` | Resolve and enforce the one active incident pause for an exact round |
-| `reviewRoundPauses.by_incident_state` | Block incident resolution while any linked round remains paused |
-| `reviewRoundPauses.by_event_state_paused` | Return bounded active/history rows for event operations and monitoring |
-| `reviewerConflicts.by_event_reviewer_team_status` | Remove ineligible assignments |
-| `reviewerClockIns.by_round_status` | Panel readiness and substitutes |
-| `reviewerClockIns.by_event_status_heartbeat` | Find stale present reviewers by server heartbeat without reading unrelated rounds |
-| `panelMembers.by_round_reviewer_status` | Prevent overlapping panel seats |
-| `reviewPanels.by_event_status_updated` | Surface bounded panels currently missing a reviewer |
-| `teamRoundStates.by_round_team` | One team state per round |
-| `teamRoundStates.by_round_state_priority_queued` | Unassigned/held/completed operations lists and queue-time ordering |
-| `teamRoundStates.by_panel_state_priority_queued` | Ordered panel queue |
-| `pages.by_reviewer_state_deadline` | Reviewer Now and expiry |
-| `reviewerPages.by_event_state_expiry` | Surface sent/opened substitute pages that passed their response deadline |
-| `reviewSessions.by_round_team_status` | Prevent duplicate active review |
-| `reviewSessions.by_panel_status` | One active team per panel |
-| `reviewSessions.by_event_status_updated` | Bound overdue-review health checks by event and current state |
-| `reviewPresence.by_session_reviewer` | One scan per assigned reviewer |
-| `reviewParticipantAvailabilityWaivers.by_review` | Resolve at most one immutable participant-availability exception for a review |
-| `scorecards.by_session_reviewer` | One working scorecard per reviewer |
-| `scorecards.by_round_session` | Freeze and count selected-round scorecards without scanning another round |
-| `scorecardVersions.by_scorecard_version` | Immutable submission history |
-| `scorecardVersions.by_round_session` | Export all immutable versions for a selected review |
-| `reviewAssignments.by_round_session` | Revalidate selected-review assignments at export time |
-| `reviewEvaluations.by_round_state` | Resolve complete or void evaluations during round close |
-| `roundExports.by_event_state_updated` | Diagnose bounded export state while parent rounds select the one current revision |
-| `teamIntegrations.by_event_team_provider` | One shared provider binding per team |
-| `teamIntegrations.by_event_provider_state` | Operations health board |
-| `githubInstallations.by_event_installation` | Resolve an App webhook installation |
-| `githubStarSetupIntents.by_state_digest` | Claim one participant OAuth callback without storing raw state |
-| `githubStarAuthorizations.by_event_membership` | Load the one temporary GitHub authorization for a participant |
-| `githubStarAuthorizations.by_event_github_user` | Prevent one GitHub user from authorizing two participants in an event |
-| `githubStarCompletions.by_event_membership` | Enforce the mandatory onboarding boundary for one participant |
-| `githubStarCompletions.by_event_github_user` | Prevent one GitHub user from completing the boundary twice in an event |
-| `githubRepositoryBindings.by_event_repository_state` | Route a repository event and prevent duplicate use |
-| `githubRepositoryBindings.by_integration_state_order` | Ordered active repository set for one team |
-| `githubRepositoryBindings.by_event_state_sync_updated` | Count only current setup/active bindings in an exact sync state and age window |
-| `githubRepositoryBindings.by_event_state_sync_lease` | Find current running syncs whose lease expired |
-| `githubRepositoryBindings.by_event_state_topic_updated` | Find missing/unknown required topics without including archived bindings |
-| `githubTeamMetrics.by_team` | Load the one current participant/team integration summary |
-| `githubTeamMetrics.by_event_updated` | Page event operations summaries without loading every repository binding |
-| `figmaOAuthCredentials.by_figma_user` | One refreshable Figma grant per App/provider user |
-| `figmaCredentialConnections.by_team_credential` | Reuse one credential without transferring team ownership |
-| `figmaFileBindings.by_event_file` | Route a webhook and prevent duplicate event use |
-| `figmaFileBindings.by_team_state` | Load every active file for one team |
-| `figmaFileBindings.by_event_state_sync_updated` | Count only active bindings in an exact sync state and age window |
-| `figmaFileBindings.by_event_state_sync_lease` | Find active running syncs whose lease expired |
-| `figmaFileBindings.by_event_state_webhook_updated` | Bound active webhook error/pending/unavailable checks |
-| `figmaFileBindings.by_state_metadata_due` | Dispatch a bounded global page of due or not-yet-scheduled metadata checks |
-| `figmaFileBindings.by_event_state_metadata_check` | Detect stale provider observation for one event without scanning every file |
-| `figmaFileBindings.by_event_state_rate_limit` | Find active file requests still inside Figma's exact `Retry-After` window |
-| `figmaFileBindings.by_event_state_metadata_rate_limit` | Find active Tier 3 metadata checks still inside Figma's exact `Retry-After` window |
-| `figmaTeamMetrics.by_team` | Load the one current participant/team design summary |
-| `figmaTeamMetrics.by_event_updated` | Page event operations summaries without loading every Figma file or snapshot |
-| `integrationArtifacts.by_object_key` | Resolve one immutable private-object manifest |
-| `providerEvents.by_provider_dedupe` | Ignore retries/replays |
-| `githubCommitFacts.by_binding_sha` | Idempotent per-repository commit enrichment |
-| `integrationMetricBuckets.by_integration_scope_binding_bucket` | Per-resource and team-rollup charts without scans |
-| `integrationSnapshots.by_binding_time` | Compare one resource across checkpoints |
-| `reviewEvidenceCheckpointSets.by_round_team_time` | Resolve immutable evidence for one team and round |
-| `reviewEvidenceCheckpointSets.by_team_round_sequence_created` | Link a new review to the latest lower-sequence judging checkpoint |
-| `figmaSnapshotActivity.by_snapshot` | Resolve the one immutable activity manifest for a snapshot |
-| `figmaVersionFacts.by_snapshot_order` | Return bounded named versions in captured order |
-| `figmaCommentFacts.by_snapshot_order` | Return bounded comments in captured order |
-| `figmaPreviewSets.by_snapshot` | Resolve the one render set for an immutable Figma snapshot |
-| `figmaPreviewSets.by_binding_time` | Show current render health for one connected file |
-| `figmaPreviewSets.by_event_state_updated` | Bound event render-state diagnostics |
-| `figmaPreviewSets.by_event_state_lease` | Find running render sets whose lease expired |
-| `figmaNodeFacts.by_preview_page_order` | Return the bounded page/frame browser without loading raw JSON |
-| `figmaNodeFacts.by_preview_node` | Prove one requested frame belongs to the selected render set |
-| `figmaNodeFacts.by_snapshot_page_order` | Load the exact frame facts on either side of a pinned checkpoint comparison |
-| `externalJobs.by_state_next_attempt` | Workpool/provider retry diagnostics |
-| `reviewerPushDeliveries.by_page` | Resolve push transport independently of page acknowledgment |
-| `outboundCallConsents.by_event_person_purpose` | Resolve current consent before a call claim |
-| `outboundCallDeliveries.by_source` | Resolve the one call delivery for an exact source and purpose |
-| `outboundCallDeliveries.by_target_state` | Show one person's current call-delivery state |
-| `outboundCallDeliveries.by_event_state_updated` | Operate and diagnose current event call deliveries without a scan |
-| `outboundCallProviderEvents.by_provider_event` | Deduplicate at-least-once call-provider callbacks |
-| `participantNotificationDestinations.by_event_person_channel` | Resolve one current verified-email destination per event person |
-| `participantNotificationDeliveries.by_root_retry` | Prove a manual retry source is still the latest append-only attempt |
-| `participantNotificationDeliveries.by_application_membership_created` | Show each deadline-frozen roster member's current decision-delivery state |
-| `participantNotificationDeliveries.by_destination_state` | Suppress queued work for one disabled address without scanning deliveries |
-| `participantNotificationDeliveries.by_event_state_updated` | Bound current terminal/pending delivery checks by event |
-| `participantNotificationDeliveries.by_event_state_claim` | Find sending attempts whose processing claim expired |
-| `participantNotificationDeliveries.by_event_state_next_attempt` | Find retry-wait attempts whose scheduled retry is overdue |
-| `participantNotificationProviderEvents.by_provider_event` | Deduplicate signed at-least-once Cloudflare Email lifecycle events |
-| `synesthesiaCatalogTracks.by_event_provider_track` | Enforce one provider track per event |
-| `synesthesiaCatalogTracks.by_event_status_title` | Return a bounded active/disabled catalog without scanning requests |
-| `synesthesiaCatalogTracks.search_event_catalog` | Search active title/artist/album text inside one event |
-| `synesthesiaWindows.by_event_status_start` | Resolve the active published window and reject overlap |
-| `synesthesiaWindows.by_event_start` | Return the event's bounded window history |
-| `songRequests.by_window_track` | Resolve concurrent duplicate track requests |
-| `songRequests.by_window_created` | Return the bounded participant/operations window queue |
-| `songRequests.by_window_state_created` | Enforce one playing request and load state-specific work |
-| `songRequests.by_window_requester_created` | Enforce and display one participant's request limit |
-| `songRequests.by_event_created` | Bound event-level support/history reads |
-| `songVotes.by_request_member` | Enforce one vote row per participant/request |
-| `songVotes.by_window_member_state` | Enforce and display one participant's active vote limit |
-| `synesthesiaReports.by_request_reporter` | Enforce one report per participant/request |
-| `synesthesiaReports.by_request_state_created` | Page one request's report history/state |
-| `synesthesiaReports.by_window_state_created` | Return bounded open report work for a window |
-| `synesthesiaReports.by_window_reporter` | Return one participant's report state in the current queue |
-| `synesthesiaPlaybackEvents.by_request_time` | Audit one request's playback acknowledgements |
-| `synesthesiaPlaybackEvents.by_window_time` | Audit a window's operator playback sequence |
-| `synesthesiaAccessStates.by_membership` | Resolve the participant's current music-access state |
-| `synesthesiaAccessStates.by_event_state_changed` | Operate an event's active/suspended music access |
-| `operationResults.by_actor_operation` | Resolve ambiguous writes |
-| `roundCloseSnapshots.by_round_revision` | Immutable close revision history |
-| `roundCloseEntries.by_snapshot_team` | Page one frozen disposition per team in deterministic order |
-| `roundExports.by_round_revision` | Allocate and inspect immutable export revisions |
-| `roundExports.by_event_state_updated` | Operate failed or in-progress export work without a broad scan |
-| `scoreReleaseVersions.by_round` | Enforce one immutable participant-feedback release per round |
-| `auditEvents.by_event_time` | Event audit |
-| `auditEvents.by_target_time` | Object history |
+| Index                                                                          | Purpose                                                                                                        |
+| ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| `people.by_auth_user`                                                          | Resolve the current person                                                                                     |
+| `eventAccessSubjects.by_event_person_status`                                   | Resolve the event security subject and access version                                                          |
+| `eventAccessSubjects.by_event_email_status`                                    | Resolve an exact event-linked account without a cross-table scan                                               |
+| `eventAccessSubjects.search_event_display_name`                                | Permission-gated event person search                                                                           |
+| `eventAccessInvitations.by_event_email_status`                                 | Resolve the one pending invitation shown to an exact verified Google identity                                  |
+| `eventAccessInvitations.by_event_status_created`                               | Page open invitations for authorized event operators                                                           |
+| `eventMemberships.by_event_person`                                             | Resolve participant access                                                                                     |
+| `eventMemberships.by_event_onboarding_status`                                  | Read only the accepted venue cohort for a bounded emergency snapshot                                           |
+| `participantEligibilityImports.by_event_batch`                                 | Resume one checksum-pinned participant registration import                                                     |
+| `participantEligibilityImports.by_event_status`                                | Resolve active or preparing participant registration imports                                                   |
+| `participantEligibilityEntries.by_import_identity`                             | Authorize one exact participant identity in the active import                                                  |
+| `participantEligibilityEntries.by_import_class`                                | Verify exact VIT and external import counts before activation                                                  |
+| `participantEligibilityEntries.by_event_import`                                | Audit the bounded entries for one event import                                                                 |
+| `teamRosterImports.by_event_operation`                                         | Return one idempotent confirmed participant-team import                                                        |
+| `teamRosterImports.by_event_created`                                           | Page immutable participant-team import history                                                                 |
+| `teamRosterEntries.by_event_email_status`                                      | Resolve an external participant's current team offer                                                           |
+| `teamRosterEntries.by_event_vit_registration_status`                           | Resolve a VIT participant's current team offer                                                                 |
+| `teamRosterEntries.by_event_team_status`                                       | Resolve accepted members when the listed lead forms the team                                                   |
+| `teamRosterEntries.by_event_status`                                            | Count participant-team assignment states                                                                       |
+| `teamRosterEntries.by_import_row`                                              | Audit one participant-team import by source row                                                                |
+| `teamRosterEntries.by_event_created`                                           | Page participant-team assignment history                                                                       |
+| `rosterImports.by_event_operation`                                             | Return one idempotent confirmed CSV import                                                                     |
+| `rosterImports.by_event_created`                                               | Page immutable import history                                                                                  |
+| `rosterEntries.by_event_email_status`                                          | First staff/reviewer claim                                                                                     |
+| `rosterEntries.by_event_created`                                               | Page event-wide roster history                                                                                 |
+| `rosterEntries.by_event_status_created`                                        | Bound status-specific operations and expiry inspection                                                         |
+| `rosterEntries.by_import_row`                                                  | Expire or audit one bounded import without an event scan                                                       |
+| `rosterEntries.by_claimed_person`                                              | Resolve claimed roster provenance for one event-linked person                                                  |
+| `eventRoles.by_event_person_status`                                            | Resolve the organizational label; never authorize                                                              |
+| `permissionBundles.by_event_key`                                               | Enforce one stable bundle key inside an event                                                                  |
+| `permissionBundles.by_event_status_label`                                      | List bounded active bundles visible to an operator                                                             |
+| `permissionBundleVersions.by_bundle_status`                                    | Resolve the editable/current version state for one bundle                                                      |
+| `permissionBundleVersions.by_bundle_version`                                   | Resolve immutable bundle history by semantic version                                                           |
+| `permissionBundleVersions.by_event_status_label`                               | List published or draft versions by event when required                                                        |
+| `permissionGrantBatches.by_event_operation`                                    | Resolve the audited batch created by one bundle application                                                    |
+| `permissionGrantBatches.by_event_target_created`                               | Inspect one person’s bundle-application history                                                                |
+| `permissionGrantBatches.by_event_bundle_version_status_created`                | Page completed source applications for one retired bundle version without scanning event history               |
+| `operationResults.by_actor_operation`                                          | Make a client operation ID idempotent for the authenticated actor                                              |
+| `operationsHealthSnapshots.by_event`                                           | Read and upsert the event's one current aggregate-health materialization                                       |
+| `operationsAutonomyPolicyVersions.by_event_status`                             | Resolve the event's one draft or published autonomy policy without scanning history                            |
+| `operationsAutonomyPolicyVersions.by_event_version`                            | Allocate and inspect immutable event policy versions                                                           |
+| `operationsAutonomyStates.by_lifecycle_next_evaluation`                        | Read only active scheduler states that are due                                                                 |
+| `operationsAutonomyStates.by_event`                                            | Resolve the event's current scheduler state                                                                    |
+| `operationsAutonomyStates.by_policy`                                           | Return the runtime state for one published policy                                                              |
+| `operationsAutonomyInbox.by_event_operation_key`                               | Deduplicate one exact manual, schedule-slot, or signal-episode work item                                       |
+| `operationsAutonomyInbox.by_lifecycle_next_attempt_at`                         | Fairly claim due semantic work without busy events hiding other events                                         |
+| `operationsAutonomyRuns.by_event_policy_lifecycle`                             | Enforce one executable run for an event policy and supervise its lifecycle                                     |
+| `operationsAutonomyRuns.by_event_created_at`                                   | Cursor-page complete run history newest first                                                                  |
+| `operationsAutonomyOperationReceipts.by_run_operation`                         | Replay one exact lost response without repeating its effect                                                    |
+| `operationsAutonomyOperationReceipts.by_run_sequence`                          | Preserve the run's authoritative operation order                                                               |
+| `operationsAutonomyRecommendationEvidenceSets.by_run_set`                      | Resolve and seal one run-owned recommendation support chain                                                    |
+| `operationsAutonomyRecommendationEvidenceSets.by_run_proposal`                 | Prevent one proposal key from silently switching evidence-set identity                                         |
+| `operationsAutonomyRecommendationEvidenceChunks.by_run_set_page`               | Enforce one exact ordered page at each support-chain index                                                     |
+| `operationsAutonomyRecommendationEvidenceLeaves.by_run_set_ordinal`            | Cursor-page every canonical leaf in one sealed evidence set                                                    |
+| `operationsAutonomyRecommendationEvidenceLeaves.by_run_set_identity`           | Ground a target against one exact leaf in its sealed set                                                       |
+| `operationsAutonomyContinuations.by_lifecycle_next_attempt`                    | Retry one durable next-submission outbox item after its prior submission settles                               |
+| `operationsIntelligenceBriefs.by_event_requested`                              | Return the latest event brief and preserve request history without scanning other events                       |
+| `operationsIntelligenceBriefs.by_event_state_updated`                          | Bound diagnostics and recovery to one event and current brief state                                            |
+| `intelligenceRecommendations.by_event_proposal`                                | Make at-least-once proposal delivery idempotent and conflicting reuse definitive                               |
+| `intelligenceRecommendations.by_event_status_proposed`                         | Cursor-page every pending human decision oldest first and conversation feedback by status/time                 |
+| `intelligenceRecommendations.by_event_decided_at`                              | Cursor-page settled recommendation history newest first                                                        |
+| `intelligenceRecommendations.by_event_copilot_conversation_proposed`           | Return only one subject-private copilot conversation's feedback history                                        |
+| `intelligenceRecommendations.by_event_autonomy_run_proposed`                   | Audit proposals from one exact autonomous run                                                                  |
+| `intelligenceRecommendationAutonomyObservations.by_recommendation_observed_at` | Cursor-page every run observation attached to one deduplicated human action                                    |
+| `intelligenceRecommendationAutonomyObservations.by_recommendation_run_set`     | Idempotently attach one exact run and sealed evidence set to that action                                       |
+| `supportCases.by_event_code`                                                   | Resolve one public support code inside one event and serialize code allocation collisions                      |
+| `supportCases.by_event_updated`                                                | Return a bounded event-wide support list newest update first                                                   |
+| `supportCases.by_event_state_updated`                                          | Return bounded active, resolved, or closed support queues without a table scan                                 |
+| `supportCases.by_event_state_created`                                          | Resolve the exact oldest open support case without sampling by last update time                                |
+| `supportCases.by_event_reporter_updated`                                       | Return only the current reporter's newest cases                                                                |
+| `supportCases.by_event_owner_state_updated`                                    | Inspect one owner's routed work by state when an owner view is needed                                          |
+| `supportCaseActions.by_case_time`                                              | Return one case's ordered append-only timeline                                                                 |
+| `supportCaseActions.by_event_time`                                             | Retain and audit support actions inside the event boundary                                                     |
+| `supportCaseStatShards.by_event_shard`                                         | Return exact help-desk totals from a fixed write-sharded event projection                                      |
+| `permissionGrants.by_event_permission_status`                                  | Resolve a bounded support-owner picker from the exact active manager grant instead of scanning event accounts  |
+| `rehearsalRuns.by_event_created`                                               | List recent event rehearsal runs without scanning history                                                      |
+| `rehearsalRuns.by_event_state_created`                                         | Enforce one active event run and list state-specific history                                                   |
+| `rehearsalWorkstreamOwners.by_run_workstream`                                  | Resolve the one owner for each required workstream                                                             |
+| `rehearsalWorkstreamOwners.by_person_run`                                      | Route a person's assigned rehearsal responsibility without granting access                                     |
+| `rehearsalScenarios.by_run_sequence`                                           | Return all 62 copied scenarios in stable order and read them for sign-off                                      |
+| `rehearsalScenarios.by_run_key`                                                | Resolve one stable template scenario inside a run                                                              |
+| `rehearsalScenarios.by_run_state_sequence`                                     | Filter a run by outcome without scanning other runs                                                            |
+| `rehearsalScenarios.by_event_workstream_state`                                 | Inspect bounded event/workstream readiness across runs                                                         |
+| `rehearsalScenarioActions.by_scenario_time`                                    | Return one scenario's append-only action history                                                               |
+| `rehearsalScenarioActions.by_run_time`                                         | Audit accepted actions across one run in time order                                                            |
+| `permissionGrants.by_subject_permission_status`                                | Resolve candidate grants for a protected function inside one event access subject                              |
+| `permissionGrants.by_subject_permission_status_scope`                          | Resolve one exact scope, or a bounded ordered set of one resource scope type, without reading unrelated grants |
+| `permissionGrants.by_subject_permission_status_valid_until`                    | Resolve one current capability bit without loading every scoped grant for that permission                      |
+| `permissionGrants.by_subject_permission_status_scope_type_valid_until`         | Resolve a capability restricted to explicit scope kinds without loading scope IDs                              |
+| `permissionGrants.by_person_status`                                            | Paginate current or historical grants for one event person                                                     |
+| `permissionGrants.by_source`                                                   | Resolve only grants created by one membership, assignment, or resolved bundle source                           |
+| `permissionGrants.by_status_valid_from`                                        | Activate a bounded due set of scheduled grants without scanning unrelated history                              |
+| `permissionGrants.by_status_valid_until`                                       | Expire a bounded due set of active grants without scanning indefinite grants                                   |
+| `permissionGrants.by_grant_batch`                                              | Inspect grant provenance from one application or migration batch                                               |
+| `communicationsPolicyVersions.by_event_status`                                 | Resolve the one current communications draft or publication                                                    |
+| `communicationsPolicyVersions.by_event_version`                                | Allocate and inspect immutable communications history                                                          |
+| `intakePolicyVersions.by_event_status`                                         | Resolve the one published or draft introduction policy                                                         |
+| `intakePolicyVersions.by_event_version`                                        | Allocate and inspect immutable policy history                                                                  |
+| `noveltyCorpusVersions.by_event_status`                                        | Resolve the event's one draft or published novelty corpus                                                      |
+| `noveltyCorpusVersions.by_event_version`                                       | Allocate and inspect immutable corpus history                                                                  |
+| `noveltyCorpusEntries.by_corpus_source`                                        | Enforce one curated source key inside a corpus and replace its bounded set                                     |
+| `noveltyCorpusEntries.by_corpus_embedding`                                     | Search native 1,536-value vectors inside one pinned corpus                                                     |
+| `noveltyTeamIdeas.by_team`                                                     | Replace or invalidate one team's bounded current novelty rows without scanning the event                       |
+| `noveltyTeamIdeas.by_event_embedding`                                          | Search current complete-idea vectors inside one event without exposing another team's text                     |
+| `noveltyPreviewRequests.by_team_requested`                                     | Inspect one team's recent preview work; rate enforcement lives in the transactional rate-limiter component     |
+| `noveltyPreviewRequests.by_team_state_requested`                               | Invalidate one team's running previews in the same transaction as an accepted idea edit                        |
+| `noveltyPreviewRequests.by_team_fingerprint_requested`                         | Reuse one recent successful comparison for unchanged team text                                                 |
+| `noveltyPreviewRequests.by_team_client_request`                                | Resolve one idempotent participant preview request                                                             |
+| `noveltyPreviewRequests.by_event_state_requested`                              | Read bounded aggregate provider health without project text                                                    |
+| `admissionModelConfigVersions.by_event_status_version`                         | Resolve the published admission-analysis contract                                                              |
+| `teamMembers.by_event_membership_status`                                       | Prevent two active teams                                                                                       |
+| `teamMembers.by_team_status_role`                                              | Return the live roster and enforce one active lead                                                             |
+| `teamLeadershipTransfers.by_team_state`                                        | Resolve one pending accepted/stale leadership handoff                                                          |
+| `projectDrafts.by_event_intake_policy`                                         | Count active participant drafts pinned to one intake policy                                                    |
+| `intakeWorkingFields.by_team`                                                  | Load the bounded collaborative working fields for one team                                                     |
+| `intakeWorkingFields.by_team_kind_question`                                    | Enforce one autosaved value and revision for one exact idea or follow-up field                                 |
+| `intakeAnswerVersions.by_draft_prompt_status`                                  | Resolve one current answer for a draft prompt                                                                  |
+| `intakeAnswerVersions.by_generated_question_status`                            | Couple a current answer to its exact immutable question                                                        |
+| `intakeGeneratedQuestions.by_draft_ordinal`                                    | Enforce and resume one current follow-up per ordinal                                                           |
+| `intakeInterpretations.by_draft_input`                                         | Deduplicate and reject stale model work                                                                        |
+| `intakeInterpretations.by_event_state_created`                                 | Bound recent fallback and stalled-running checks for aggregate event health                                    |
+| `projectVersions.by_team_version`                                              | Load exact reviewer context                                                                                    |
+| `applications.by_event_state`                                                  | Admission queues and capacity                                                                                  |
+| `applications.by_event_submitted`                                              | Page the complete admissions cohort in immutable submission order without state-transition cursor gaps         |
+| `admissionReviewAssignments.by_application_reviewer_state`                     | Enforce one active routing row per application/reviewer                                                        |
+| `admissionReviewAssignments.by_event_reviewer_state_assigned`                  | Page one person's active/completed review work                                                                 |
+| `admissionReviewAssignments.by_application_state_assigned`                     | Read assignment coverage and bounded history for one application                                               |
+| `admissionHumanReviews.by_application_reviewer_status`                         | Resolve and replace one reviewer's current recommendation                                                      |
+| `admissionHumanReviews.by_application_status`                                  | Count current recommendations and publish a human decision                                                     |
+| `admissionInformationRequests.by_application_created`                          | Return immutable information-request history in order                                                          |
+| `admissionInformationRequests.by_application_state`                            | Resolve the one current open request for an application                                                        |
+| `admissionInformationRequests.by_team_state`                                   | Resolve the participant team's current open request without scanning applications                              |
+| `admissionAIRecommendations.by_application_input_checksum`                     | Deduplicate analysis and reject stale application/model work                                                   |
+| `admissionAIRecommendations.by_event_state_created`                            | Bound recent unavailable/stalled analysis checks without reading application content                           |
+| `admissionOffers.by_event_state_expiry`                                        | Find open offers due for version-checked expiry                                                                |
+| `admissionOffers.by_application_sent`                                          | Resolve immutable offer history and the current application pointer                                            |
+| `admissionCapacityReservations.by_application_state`                           | Enforce one active exact-roster reservation per application                                                    |
+| `admissionCapacityReservations.by_offer`                                       | Prove one offer owns the reservation it confirms or releases                                                   |
+| `venueCheckIns.by_event_membership_status`                                     | One staffed arrival record                                                                                     |
+| `venueCheckIns.by_membership_time`                                             | Return current and historical arrival decisions for one participant                                            |
+| `venueCheckIns.by_event_status_time`                                           | Bound authorized event arrival inspection                                                                      |
+| `venueCheckInCounterShards.by_event_shard`                                     | Realtime checked-in aggregate without one write hotspot                                                        |
+| `staffedParticipantResolutions.by_portal_token`                                | Enforce one staffed resolution per consumed portal QR                                                          |
+| `staffedParticipantResolutions.by_event_membership_time`                       | Resolve bounded recent desk context for one participant                                                        |
+| `floorPlanVersions.by_event_status`                                            | Resolve one draft or published hall plan without scanning history                                              |
+| `floorPlanVersions.by_event_number`                                            | Allocate and inspect monotonic plan revisions                                                                  |
+| `floorZones.by_plan_order`                                                     | Render zones from one exact plan                                                                               |
+| `floorLandmarks.by_plan_order`                                                 | Draw one exact plan's fixed points without per-landmark reads                                                  |
+| `floorLandmarks.by_zone_order`                                                 | Name the landmark nearest one recorded position                                                                |
+| `teamFloorLocations.by_team_state`                                             | Enforce and read one active location for a team                                                                |
+| `teamFloorLocations.by_plan_state`                                             | Render every recorded position at once and freeze the plan projection                                          |
+| `teamFloorLocations.by_zone_state`                                             | Draw and count one zone's teams for the crowding view                                                          |
+| `floorTeamQrTokens.by_digest`                                                  | Consume one opaque dashboard QR without exposing its bearer                                                    |
+| `floorTeamQrTokens.by_manual_digest`                                           | Resolve the camera-failure code through the same claim command                                                 |
+| `floorMappingClaims.by_team_state`                                             | Diagnose bounded in-flight mapper claims for one team                                                          |
+| `attendancePlanVersions.by_event_status_version`                               | Resolve the published attendance policy                                                                        |
+| `attendanceSessions.by_event_status_start`                                     | Active/upcoming session board                                                                                  |
+| `attendanceExpectations.by_session_membership`                                 | Resolve one participant’s session requirement                                                                  |
+| `attendanceExpectations.by_session_expectation`                                | Expected/optional/excused lists                                                                                |
+| `attendanceSessionParticipants.by_membership_completed`                        | Paginate one participant's finalized attendance results newest first without mounting current state            |
+| `attendanceParticipantCurrentSessions.by_membership_plan_start`                | Subscribe one participant to current-plan session state in schedule order                                      |
+| `attendanceParticipantCurrentSessions.by_session_membership`                   | Enforce one exact current projection for each prepared session participant                                     |
+| `attendanceSessionJobs.by_session_kind`                                        | Resolve expectation and close/cancellation history for one session                                             |
+| `attendanceSessionJobs.by_status_updated`                                      | Operate stalled internal work                                                                                  |
+| `attendanceSessionJobs.by_event_status_updated`                                | Diagnose bounded event job state without scanning another event or historical parent                           |
+| `attendanceBarcodeKeySets.by_event_status_version`                             | Resolve the one active server-only VIT barcode lookup key set                                                  |
+| `attendanceCredentials.by_event_lookup`                                        | Resolve an active VIT barcode or external badge without storing the raw value                                  |
+| `attendanceCredentials.by_membership_state`                                    | Enforce one current physical method and inspect pending/replaced history for one participant                   |
+| `attendanceCredentials.by_event_badge_reference`                               | Find a support-safe printed badge reference without exposing its bearer or hash                                |
+| `attendanceQrTokens.by_nonce_hash_status`                                      | Consume a short-lived portal QR                                                                                |
+| `attendanceStations.by_plan_key`                                               | List the immutable station topology for one attendance-plan version                                            |
+| `attendanceStations.by_device_status`                                          | Resolve the one active station attached to a registered scanner phone                                          |
+| `attendanceDeviceInstallations.by_event_status`                                | Resolve only active event scanner installations for liveness checks                                            |
+| `presenceEvents.by_operator_operation`                                         | Resolve an ambiguous operator retry across scan/reconciliation commands                                        |
+| `presenceEvents.by_device_sequence`                                            | Reject scanner sequence reuse and order offline replay                                                         |
+| `presenceEvents.by_session_membership_time`                                    | Load one participant's exact session ledger for correction preview                                             |
+| `presenceIntervals.by_session_membership`                                      | Load the participant/session interval projection and enforce one open interval transactionally                 |
+| `participantPresence.by_event_membership`                                      | Current participant projection                                                                                 |
+| `participantPresence.by_event_session_state_zone`                              | Indexed live attendance lists                                                                                  |
+| `attendanceTeamAvailability.by_event_team`                                     | Resolve one current locked-team inside count for the review board and review commands                          |
+| `sessionAttendance.by_session_membership`                                      | One derived participant result                                                                                 |
+| `sessionAttendance.by_session_result`                                          | Session exception/completeness board                                                                           |
+| `attendanceResultRemedyCases.by_session_membership_state`                      | Enforce and load the one open finalized-result review                                                          |
+| `attendanceResultRemedyCases.by_session_membership_created`                    | Load one participant/session review history newest first                                                       |
+| `attendanceResultRemedyCases.by_session_state_created`                         | Operate the exact-session open-review queue                                                                    |
+| `attendanceResultRemedyCases.by_membership_created`                            | Return only the caller's own review history                                                                    |
+| `presenceCounterShards.by_session_scope_state_shard`                           | Low-contention live counts                                                                                     |
+| `attendanceRollCalls.by_event_state_started`                                   | Load active roll calls affected by a venue transition                                                          |
+| `attendanceRollCalls.by_zone_state_started`                                    | Enforce one active roll call per zone                                                                          |
+| `attendanceRollCalls.by_session_started`                                       | Load exact-session roll-call history                                                                           |
+| `attendanceRollCallCounterShards.by_roll_call_shard`                           | Subscribe to bounded live/final roll-call counts                                                               |
+| `attendanceExports.by_session_requester_created`                               | Return only the caller's recent exports for one exact session                                                  |
+| `attendanceExports.by_event_status_created`                                    | Operate pending/failed export work without exposing files through a broad query                                |
+| `emergencyPacks.by_event_created`                                              | Return the newest bounded event pack manifests without reading their contents                                  |
+| `emergencyPacks.by_event_serial_prefix`                                        | Reject a second pack with the same printed-form namespace in that event                                        |
+| `emergencyPacks.by_event_status_created`                                       | Detect only current failed or stalled generation work through the bounded health projection                    |
+| `attendanceManualSheets.by_event_serial_revision`                              | Enforce one active/completed revision of a printed serial                                                      |
+| `attendanceManualSheets.by_session_status_created`                             | Block close and operate outstanding sheets for one exact session                                               |
+| `attendanceManualSheets.by_incident_status_created`                            | Block incident resolution while paper work is unfinished                                                       |
+| `attendanceManualSheets.by_source_storage`                                     | Prevent one immutable source image from backing two sheets                                                     |
+| `manualReviewRecords.by_event_serial_revision`                                 | Enforce one active/imported revision of a printed review serial                                                |
+| `manualReviewRecords.by_review_status_created`                                 | Freeze ordinary score writes and operate one pending record for an exact review                                |
+| `manualReviewRecords.by_round_status_created`                                  | Block round close while paper review work is unfinished                                                        |
+| `manualReviewRecords.by_incident_status_created`                               | Block review-incident resolution while paper work is unfinished                                                |
+| `manualReviewRecords.by_source_storage`                                        | Prevent one immutable source image from backing two review records                                             |
+| `reviewRoundPauses.by_round_state`                                             | Resolve and enforce the one active incident pause for an exact round                                           |
+| `reviewRoundPauses.by_incident_state`                                          | Block incident resolution while any linked round remains paused                                                |
+| `reviewRoundPauses.by_event_state_paused`                                      | Return bounded active/history rows for event operations and monitoring                                         |
+| `reviewerConflicts.by_event_reviewer_team_status`                              | Remove ineligible assignments                                                                                  |
+| `reviewerClockIns.by_round_status`                                             | Panel readiness and substitutes                                                                                |
+| `reviewerClockIns.by_event_status_heartbeat`                                   | Find stale present reviewers by server heartbeat without reading unrelated rounds                              |
+| `panelMembers.by_round_reviewer_status`                                        | Prevent overlapping panel seats                                                                                |
+| `reviewPanels.by_event_status_updated`                                         | Surface bounded panels currently missing a reviewer                                                            |
+| `teamRoundStates.by_round_team`                                                | One team state per round                                                                                       |
+| `teamRoundStates.by_round_state_priority_queued`                               | Unassigned/held/completed operations lists and queue-time ordering                                             |
+| `teamRoundStates.by_panel_state_priority_queued`                               | Ordered panel queue                                                                                            |
+| `pages.by_reviewer_state_deadline`                                             | Reviewer Now and expiry                                                                                        |
+| `reviewerPages.by_event_state_expiry`                                          | Surface sent/opened substitute pages that passed their response deadline                                       |
+| `reviewSessions.by_round_team_status`                                          | Prevent duplicate active review                                                                                |
+| `reviewSessions.by_panel_status`                                               | One active team per panel                                                                                      |
+| `reviewSessions.by_event_status_updated`                                       | Bound overdue-review health checks by event and current state                                                  |
+| `reviewPresence.by_session_reviewer`                                           | One scan per assigned reviewer                                                                                 |
+| `reviewParticipantAvailabilityWaivers.by_review`                               | Resolve at most one immutable participant-availability exception for a review                                  |
+| `scorecards.by_session_reviewer`                                               | One working scorecard per reviewer                                                                             |
+| `scorecards.by_round_session`                                                  | Freeze and count selected-round scorecards without scanning another round                                      |
+| `scorecardVersions.by_scorecard_version`                                       | Immutable submission history                                                                                   |
+| `scorecardVersions.by_round_session`                                           | Export all immutable versions for a selected review                                                            |
+| `reviewAssignments.by_round_session`                                           | Revalidate selected-review assignments at export time                                                          |
+| `reviewEvaluations.by_round_state`                                             | Resolve complete or void evaluations during round close                                                        |
+| `roundExports.by_event_state_updated`                                          | Diagnose bounded export state while parent rounds select the one current revision                              |
+| `teamIntegrations.by_event_team_provider`                                      | One shared provider binding per team                                                                           |
+| `teamIntegrations.by_event_provider_state`                                     | Operations health board                                                                                        |
+| `githubInstallations.by_event_installation`                                    | Resolve an App webhook installation                                                                            |
+| `githubStarSetupIntents.by_state_digest`                                       | Claim one participant OAuth callback without storing raw state                                                 |
+| `githubStarAuthorizations.by_event_membership`                                 | Load the one temporary GitHub authorization for a participant                                                  |
+| `githubStarAuthorizations.by_event_github_user`                                | Prevent one GitHub user from authorizing two participants in an event                                          |
+| `githubStarCompletions.by_event_membership`                                    | Enforce the mandatory onboarding boundary for one participant                                                  |
+| `githubStarCompletions.by_event_github_user`                                   | Prevent one GitHub user from completing the boundary twice in an event                                         |
+| `githubRepositoryBindings.by_event_repository_state`                           | Route a repository event and prevent duplicate use                                                             |
+| `githubRepositoryBindings.by_integration_state_order`                          | Ordered active repository set for one team                                                                     |
+| `githubRepositoryBindings.by_event_state_sync_updated`                         | Count only current setup/active bindings in an exact sync state and age window                                 |
+| `githubRepositoryBindings.by_event_state_sync_lease`                           | Find current running syncs whose lease expired                                                                 |
+| `githubRepositoryBindings.by_event_state_topic_updated`                        | Find missing/unknown required topics without including archived bindings                                       |
+| `githubTeamMetrics.by_team`                                                    | Load the one current participant/team integration summary                                                      |
+| `githubTeamMetrics.by_event_updated`                                           | Page event operations summaries without loading every repository binding                                       |
+| `figmaOAuthCredentials.by_figma_user`                                          | One refreshable Figma grant per App/provider user                                                              |
+| `figmaCredentialConnections.by_team_credential`                                | Reuse one credential without transferring team ownership                                                       |
+| `figmaFileBindings.by_event_file`                                              | Route a webhook and prevent duplicate event use                                                                |
+| `figmaFileBindings.by_team_state`                                              | Load every active file for one team                                                                            |
+| `figmaFileBindings.by_event_state_sync_updated`                                | Count only active bindings in an exact sync state and age window                                               |
+| `figmaFileBindings.by_event_state_sync_lease`                                  | Find active running syncs whose lease expired                                                                  |
+| `figmaFileBindings.by_event_state_webhook_updated`                             | Bound active webhook error/pending/unavailable checks                                                          |
+| `figmaFileBindings.by_state_metadata_due`                                      | Dispatch a bounded global page of due or not-yet-scheduled metadata checks                                     |
+| `figmaFileBindings.by_event_state_metadata_check`                              | Detect stale provider observation for one event without scanning every file                                    |
+| `figmaFileBindings.by_event_state_rate_limit`                                  | Find active file requests still inside Figma's exact `Retry-After` window                                      |
+| `figmaFileBindings.by_event_state_metadata_rate_limit`                         | Find active Tier 3 metadata checks still inside Figma's exact `Retry-After` window                             |
+| `figmaTeamMetrics.by_team`                                                     | Load the one current participant/team design summary                                                           |
+| `figmaTeamMetrics.by_event_updated`                                            | Page event operations summaries without loading every Figma file or snapshot                                   |
+| `integrationArtifacts.by_object_key`                                           | Resolve one immutable private-object manifest                                                                  |
+| `providerEvents.by_provider_dedupe`                                            | Ignore retries/replays                                                                                         |
+| `githubCommitFacts.by_binding_sha`                                             | Idempotent per-repository commit enrichment                                                                    |
+| `integrationMetricBuckets.by_integration_scope_binding_bucket`                 | Per-resource and team-rollup charts without scans                                                              |
+| `integrationSnapshots.by_binding_time`                                         | Compare one resource across checkpoints                                                                        |
+| `reviewEvidenceCheckpointSets.by_round_team_time`                              | Resolve immutable evidence for one team and round                                                              |
+| `reviewEvidenceCheckpointSets.by_team_round_sequence_created`                  | Link a new review to the latest lower-sequence judging checkpoint                                              |
+| `figmaSnapshotActivity.by_snapshot`                                            | Resolve the one immutable activity manifest for a snapshot                                                     |
+| `figmaVersionFacts.by_snapshot_order`                                          | Return bounded named versions in captured order                                                                |
+| `figmaCommentFacts.by_snapshot_order`                                          | Return bounded comments in captured order                                                                      |
+| `figmaPreviewSets.by_snapshot`                                                 | Resolve the one render set for an immutable Figma snapshot                                                     |
+| `figmaPreviewSets.by_binding_time`                                             | Show current render health for one connected file                                                              |
+| `figmaPreviewSets.by_event_state_updated`                                      | Bound event render-state diagnostics                                                                           |
+| `figmaPreviewSets.by_event_state_lease`                                        | Find running render sets whose lease expired                                                                   |
+| `figmaNodeFacts.by_preview_page_order`                                         | Return the bounded page/frame browser without loading raw JSON                                                 |
+| `figmaNodeFacts.by_preview_node`                                               | Prove one requested frame belongs to the selected render set                                                   |
+| `figmaNodeFacts.by_snapshot_page_order`                                        | Load the exact frame facts on either side of a pinned checkpoint comparison                                    |
+| `externalJobs.by_state_next_attempt`                                           | Workpool/provider retry diagnostics                                                                            |
+| `reviewerPushDeliveries.by_page`                                               | Resolve push transport independently of page acknowledgment                                                    |
+| `outboundCallConsents.by_event_person_purpose`                                 | Resolve current consent before a call claim                                                                    |
+| `outboundCallDeliveries.by_source`                                             | Resolve the one call delivery for an exact source and purpose                                                  |
+| `outboundCallDeliveries.by_target_state`                                       | Show one person's current call-delivery state                                                                  |
+| `outboundCallDeliveries.by_event_state_updated`                                | Operate and diagnose current event call deliveries without a scan                                              |
+| `outboundCallProviderEvents.by_provider_event`                                 | Deduplicate at-least-once call-provider callbacks                                                              |
+| `participantNotificationDestinations.by_event_person_channel`                  | Resolve one current verified-email destination per event person                                                |
+| `participantNotificationDeliveries.by_root_retry`                              | Prove a manual retry source is still the latest append-only attempt                                            |
+| `participantNotificationDeliveries.by_application_membership_created`          | Show each deadline-frozen roster member's current decision-delivery state                                      |
+| `participantNotificationDeliveries.by_destination_state`                       | Suppress queued work for one disabled address without scanning deliveries                                      |
+| `participantNotificationDeliveries.by_event_state_updated`                     | Bound current terminal/pending delivery checks by event                                                        |
+| `participantNotificationDeliveries.by_event_state_claim`                       | Find sending attempts whose processing claim expired                                                           |
+| `participantNotificationDeliveries.by_event_state_next_attempt`                | Find retry-wait attempts whose scheduled retry is overdue                                                      |
+| `participantNotificationProviderEvents.by_provider_event`                      | Deduplicate signed at-least-once Cloudflare Email lifecycle events                                             |
+| `synesthesiaCatalogTracks.by_event_provider_track`                             | Enforce one provider track per event                                                                           |
+| `synesthesiaCatalogTracks.by_event_status_title`                               | Return a bounded active/disabled catalog without scanning requests                                             |
+| `synesthesiaCatalogTracks.search_event_catalog`                                | Search active title/artist/album text inside one event                                                         |
+| `synesthesiaWindows.by_event_status_start`                                     | Resolve the active published window and reject overlap                                                         |
+| `synesthesiaWindows.by_event_start`                                            | Return the event's bounded window history                                                                      |
+| `songRequests.by_window_track`                                                 | Resolve concurrent duplicate track requests                                                                    |
+| `songRequests.by_window_created`                                               | Return the bounded participant/operations window queue                                                         |
+| `songRequests.by_window_state_created`                                         | Enforce one playing request and load state-specific work                                                       |
+| `songRequests.by_window_requester_created`                                     | Enforce and display one participant's request limit                                                            |
+| `songRequests.by_event_created`                                                | Bound event-level support/history reads                                                                        |
+| `songVotes.by_request_member`                                                  | Enforce one vote row per participant/request                                                                   |
+| `songVotes.by_window_member_state`                                             | Enforce and display one participant's active vote limit                                                        |
+| `synesthesiaReports.by_request_reporter`                                       | Enforce one report per participant/request                                                                     |
+| `synesthesiaReports.by_request_state_created`                                  | Page one request's report history/state                                                                        |
+| `synesthesiaReports.by_window_state_created`                                   | Return bounded open report work for a window                                                                   |
+| `synesthesiaReports.by_window_reporter`                                        | Return one participant's report state in the current queue                                                     |
+| `synesthesiaPlaybackEvents.by_request_time`                                    | Audit one request's playback acknowledgements                                                                  |
+| `synesthesiaPlaybackEvents.by_window_time`                                     | Audit a window's operator playback sequence                                                                    |
+| `synesthesiaAccessStates.by_membership`                                        | Resolve the participant's current music-access state                                                           |
+| `synesthesiaAccessStates.by_event_state_changed`                               | Operate an event's active/suspended music access                                                               |
+| `operationResults.by_actor_operation`                                          | Resolve ambiguous writes                                                                                       |
+| `roundCloseSnapshots.by_round_revision`                                        | Immutable close revision history                                                                               |
+| `roundCloseEntries.by_snapshot_team`                                           | Page one frozen disposition per team in deterministic order                                                    |
+| `roundExports.by_round_revision`                                               | Allocate and inspect immutable export revisions                                                                |
+| `roundExports.by_event_state_updated`                                          | Operate failed or in-progress export work without a broad scan                                                 |
+| `scoreReleaseVersions.by_round`                                                | Enforce one immutable participant-feedback release per round                                                   |
+| `auditEvents.by_event_time`                                                    | Event audit                                                                                                    |
+| `auditEvents.by_target_time`                                                   | Object history                                                                                                 |
 
 “Unique” behavior is enforced by querying the index and writing inside one Convex transaction. Concurrent mutations that read the same index range are retried by Convex.
 
@@ -2611,23 +2611,23 @@ Subscriptions update only when records read by the query change. Screens use sta
 
 ## 15. Command surface
 
-| Area | Main commands |
-| --- | --- |
-| Identity/access | provision participant, preview/confirm/list/revoke roster and claim own exact-email row, claim/revoke access invitation, suspend/reactivate event subject, assign/replace role label, preview/apply/migrate permission bundle, grant/revoke one permission, batch grant/revoke, register/revoke device |
-| Team/proposal | create/join/leave team, request/accept/decline/cancel lead transfer, start/resume intake, save answer, request a debounced novelty preview, accept fresh-project attestation, preview final submission, submit the current application snapshot, revise the submitted team or proposal before the applicable deadline, start/confirm team integration, add/classify/reorder/archive/replace repository |
-| Configuration | draft/validate/publish participant, admission, intake, phase, checkpoint, accepted-team communications, and operations-autonomy policy versions; create novelty draft, replace its complete curated entry set, and publish its exact ready revision under four independent novelty grants |
-| Admissions | assign application, retry the current failed/stale structured AI recommendation, submit own human recommendation, request information, prepare/use/clear/override/publish human decision, correct the deadline-frozen snapshot under exception, send/respond/expire offer |
-| Communications | read/draft/validate/publish next-steps/Discord/notification policy under four independent event grants, enqueue a policy-pinned participant status notice, record provider result, retry/disable an exact destination, grant/revoke call consent, send push first, claim/cancel a consented call escalation, and record call-provider events |
-| Venue | resolve one fresh participant QR; record/read staffed venue check-in, approved identity exception, or reversal under independent person scopes; assign/freeze table; report mismatch |
-| Attendance | draft/validate/publish plan, schedule/open/extend/close/cancel session, enrol/suspend/rebind VIT ID barcode, issue/revoke external badge, mint own portal QR, assign/disable/make available station, record scan, reconcile live transition, request/open/approve/decline finalized-result review, excuse expectation, open/close roll call, purpose-limited export, enter/upload/read/verify numbered paper sheet |
-| Round/panel | publish plan, clock in, mark unavailable, page substitute, accept/decline page |
-| Queue/review | staff route directly into a panel queue, call, hold, resume, move, read current participant availability, record one scoped availability exception, scan reviewer presence, start, extend, complete |
-| Score | save own draft, submit own scorecard, enter/upload/read/verify or reject one signed paper review, request/approve correction, resubmit, void |
-| Support | create/read/reply to own case; event staff log a walk-up case; exact-case or event-wide readers inspect; exact-case or event-wide managers assign/clear owner, add public/internal note, and change state |
-| Rehearsal | create one run from the 62-scenario template; assign workstream owners; start/cancel the run; record scenario start/pass/fail/block/rerun; sign off only after every scenario passes |
-| Operations | read or request a source-bounded manual intelligence brief; use the private copilot; publish/stop an effect-bounded autonomy policy; enqueue a manual autonomous run; supervise durable schedule/signal work; inspect paginated sanitized traces; review exact cited typed proposals; prepare/read/open an expiring emergency pack through three independent event grants; read/create/approve/resolve incident; pause/resume new calls and review starts for one exact open round linked to a readable active review incident; import/verify paper record; start close/export, retry export, issue protected export download, independently verify/close, reopen/supersede |
-| Integration | verify/deduplicate provider event, refresh metadata/content, reconcile, render, retry/pause/disable binding |
-| Synesthesia | search/request catalog track, add/remove vote, report request, add/update catalog track, create/update/publish/close window, pause/resume playback, read queue, approve/reject/hide request, queue/pin/defer request, acknowledge start/played/skip, resolve/dismiss report, suspend/restore requester music access |
+| Area            | Main commands                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity/access | provision participant, preview/confirm/list/revoke roster and claim own exact-email row, claim/revoke access invitation, suspend/reactivate event subject, assign/replace role label, preview/apply/migrate permission bundle, grant/revoke one permission, batch grant/revoke, register/revoke device                                                                                                                                                                                                                                                                                                                                                                      |
+| Team/proposal   | create/join/leave team, request/accept/decline/cancel lead transfer, start/resume intake, save answer, request a debounced novelty preview, accept fresh-project attestation, preview final submission, submit the current application snapshot, revise the submitted team or proposal before the applicable deadline, start/confirm team integration, add/classify/reorder/archive/replace repository                                                                                                                                                                                                                                                                      |
+| Configuration   | draft/validate/publish participant, admission, intake, phase, checkpoint, accepted-team communications, and operations-autonomy policy versions; create novelty draft, replace its complete curated entry set, and publish its exact ready revision under four independent novelty grants                                                                                                                                                                                                                                                                                                                                                                                   |
+| Admissions      | assign application, retry the current failed/stale structured AI recommendation, submit own human recommendation, request information, prepare/use/clear/override/publish human decision, correct the deadline-frozen snapshot under exception, send/respond/expire offer                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Communications  | read/draft/validate/publish next-steps/Discord/notification policy under four independent event grants, enqueue a policy-pinned participant status notice, record provider result, retry/disable an exact destination, grant/revoke call consent, send push first, claim/cancel a consented call escalation, and record call-provider events                                                                                                                                                                                                                                                                                                                                |
+| Venue           | resolve one fresh participant QR; record/read staffed venue check-in, approved identity exception, or reversal under independent person scopes; assign/freeze table; report mismatch                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Attendance      | draft/validate/publish plan, schedule/open/extend/close/cancel session, enrol/suspend/rebind VIT ID barcode, issue/revoke external badge, mint own portal QR, assign/disable/make available station, record scan, reconcile live transition, request/open/approve/decline finalized-result review, excuse expectation, open/close roll call, purpose-limited export, enter/upload/read/verify numbered paper sheet                                                                                                                                                                                                                                                          |
+| Round/panel     | publish plan, clock in, mark unavailable, page substitute, accept/decline page                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Queue/review    | staff route directly into a panel queue, call, hold, resume, move, read current participant availability, record one scoped availability exception, scan reviewer presence, start, extend, complete                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Score           | save own draft, submit own scorecard, enter/upload/read/verify or reject one signed paper review, request/approve correction, resubmit, void                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Support         | create/read/reply to own case; event staff log a walk-up case; exact-case or event-wide readers inspect; exact-case or event-wide managers assign/clear owner, add public/internal note, and change state                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Rehearsal       | create one run from the 62-scenario template; assign workstream owners; start/cancel the run; record scenario start/pass/fail/block/rerun; sign off only after every scenario passes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Operations      | read or request a source-bounded manual intelligence brief; use the private copilot; publish/stop an effect-bounded autonomy policy; enqueue a manual autonomous run; supervise durable schedule/signal work; inspect paginated sanitized traces; review exact cited typed proposals; prepare/read/open an expiring emergency pack through three independent event grants; read/create/approve/resolve incident; pause/resume new calls and review starts for one exact open round linked to a readable active review incident; import/verify paper record; start close/export, retry export, issue protected export download, independently verify/close, reopen/supersede |
+| Integration     | verify/deduplicate provider event, refresh metadata/content, reconcile, render, retry/pause/disable binding                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Synesthesia     | search/request catalog track, add/remove vote, report request, add/update catalog track, create/update/publish/close window, pause/resume playback, read queue, approve/reject/hide request, queue/pin/defer request, acknowledge start/played/skip, resolve/dismiss report, suspend/restore requester music access                                                                                                                                                                                                                                                                                                                                                         |
 
 Each command has one server implementation used by web and mobile. A mobile-specific API does not apply different judging rules.
 

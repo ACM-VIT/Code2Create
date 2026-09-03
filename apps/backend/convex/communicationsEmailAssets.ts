@@ -4,11 +4,7 @@ import { internalMutation, internalQuery } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
-import {
-  findOperation,
-  operationFingerprint,
-  recordOperation,
-} from "./lib/operations";
+import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
 import { requirePermission } from "./lib/permissions";
 import { normalizedText } from "./lib/strings";
 import { participantEmailTemplateKey } from "./values";
@@ -108,10 +104,7 @@ export const recordBundle = internalMutation({
       requestFingerprint,
     });
     if (prior) {
-      const priorBundleId = ctx.db.normalizeId(
-        "communicationsEmailAssetBundles",
-        prior.targetId,
-      );
+      const priorBundleId = ctx.db.normalizeId("communicationsEmailAssetBundles", prior.targetId);
       if (!priorBundleId) throw new Error("The prior email bundle upload result is invalid.");
       return { bundleId: priorBundleId, attached: false };
     }

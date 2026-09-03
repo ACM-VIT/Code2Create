@@ -55,9 +55,7 @@ async function loadRosterMembers(
     participantPolicy: Doc<"participantPolicyVersions">;
   },
 ) {
-  const policy = normalizeParticipantPolicy(
-    participantPolicyFromDocument(args.participantPolicy),
-  );
+  const policy = normalizeParticipantPolicy(participantPolicyFromDocument(args.participantPolicy));
   if (participantPolicyChecksum(policy) !== args.participantPolicy.checksum) {
     throw new Error("The submitted team's participant policy checksum is invalid.");
   }
@@ -80,39 +78,42 @@ async function loadRosterMembers(
     });
   }
 
-  const members = await Promise.all(teamMembers.map(async (teamMember): Promise<RosterMember> => {
-    const membership = await ctx.db.get(teamMember.membershipId);
-    if (
-      !membership ||
-      membership.eventId !== args.event._id ||
-      membership.eligibilityStatus !== "eligible" ||
-      !membership.acceptedParticipantPolicyVersionIds.includes(args.participantPolicy._id)
-    ) {
-      throw new ConvexError({
-        code: "MEMBER_NOT_READY",
-        message: "Every member of a submitted team must remain eligible and accept the current policy.",
-      });
-    }
-    const [person, profile] = await Promise.all([
-      ctx.db.get(membership.personId),
-      ctx.db
-        .query("participantProfiles")
-        .withIndex("by_membership", (index) => index.eq("membershipId", membership._id))
-        .unique(),
-    ]);
-    if (
-      !person ||
-      person.status !== "active" ||
-      !profile ||
-      !isProfileCompleteForPolicy(profile, membership, args.participantPolicy)
-    ) {
-      throw new ConvexError({
-        code: "MEMBER_PROFILE_INCOMPLETE",
-        message: "Every member must finish their profile before joining a submitted team.",
-      });
-    }
-    return { teamMember, membership, person, profile };
-  }));
+  const members = await Promise.all(
+    teamMembers.map(async (teamMember): Promise<RosterMember> => {
+      const membership = await ctx.db.get(teamMember.membershipId);
+      if (
+        !membership ||
+        membership.eventId !== args.event._id ||
+        membership.eligibilityStatus !== "eligible" ||
+        !membership.acceptedParticipantPolicyVersionIds.includes(args.participantPolicy._id)
+      ) {
+        throw new ConvexError({
+          code: "MEMBER_NOT_READY",
+          message:
+            "Every member of a submitted team must remain eligible and accept the current policy.",
+        });
+      }
+      const [person, profile] = await Promise.all([
+        ctx.db.get(membership.personId),
+        ctx.db
+          .query("participantProfiles")
+          .withIndex("by_membership", (index) => index.eq("membershipId", membership._id))
+          .unique(),
+      ]);
+      if (
+        !person ||
+        person.status !== "active" ||
+        !profile ||
+        !isProfileCompleteForPolicy(profile, membership, args.participantPolicy)
+      ) {
+        throw new ConvexError({
+          code: "MEMBER_PROFILE_INCOMPLETE",
+          message: "Every member must finish their profile before joining a submitted team.",
+        });
+      }
+      return { teamMember, membership, person, profile };
+    }),
+  );
   const lead = members.find(({ teamMember }) => teamMember.role === "lead");
   if (!lead || lead.membership._id !== args.team.leadMembershipId) {
     throw new Error("The submitted team's active lead projection is invalid.");
@@ -174,10 +175,7 @@ export async function refreshSubmittedApplicationRoster(
     loadPublishedAdmissionConfiguration(ctx, args.event),
   ]);
   const participantPolicy = participantPolicyConfiguration.policy;
-  if (
-    !draft ||
-    admissionConfiguration.policy._id !== application.admissionPolicyVersionId
-  ) {
+  if (!draft || admissionConfiguration.policy._id !== application.admissionPolicyVersionId) {
     throw new Error("The submitted team policy context is invalid.");
   }
   const { members } = await loadRosterMembers(ctx, {
@@ -212,12 +210,8 @@ export async function refreshSubmittedApplicationRoster(
     hasLaterYear: members.some(({ profile }) =>
       ["third", "fourth", "fifth_or_later"].includes(profile.yearOfStudy),
     ),
-    hasPostgraduateYear: members.some(
-      ({ profile }) => profile.yearOfStudy === "postgraduate",
-    ),
-    hasNotApplicableYear: members.some(
-      ({ profile }) => profile.yearOfStudy === "not_applicable",
-    ),
+    hasPostgraduateYear: members.some(({ profile }) => profile.yearOfStudy === "postgraduate"),
+    hasNotApplicableYear: members.some(({ profile }) => profile.yearOfStudy === "not_applicable"),
     createdAt: args.now,
     updatedAt: args.now,
     completedAt: args.now,
@@ -233,8 +227,7 @@ export async function refreshSubmittedApplicationRoster(
       personId: member.person._id,
       role: member.teamMember.role,
       participantClass: member.membership.participantClass,
-      displayName:
-        member.profile.fullName ?? member.person.displayName,
+      displayName: member.profile.fullName ?? member.person.displayName,
       institution: member.profile.institution,
       yearOfStudy: member.profile.yearOfStudy,
       profileVersion: member.profile.profileVersion,

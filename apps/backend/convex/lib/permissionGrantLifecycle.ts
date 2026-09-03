@@ -6,20 +6,11 @@ export const permissionGrantLifecycleBatchSize = 128;
 
 type LifecycleResult = "activated" | "expired" | "unchanged";
 
-function nextLifecycleState(
-  grant: Doc<"permissionGrants">,
-  now: number,
-): LifecycleResult {
+function nextLifecycleState(grant: Doc<"permissionGrants">, now: number): LifecycleResult {
   if (grant.status === "scheduled" && grant.validFrom <= now) {
-    return grant.validUntil !== undefined && grant.validUntil <= now
-      ? "expired"
-      : "activated";
+    return grant.validUntil !== undefined && grant.validUntil <= now ? "expired" : "activated";
   }
-  if (
-    grant.status === "active" &&
-    grant.validUntil !== undefined &&
-    grant.validUntil <= now
-  ) {
+  if (grant.status === "active" && grant.validUntil !== undefined && grant.validUntil <= now) {
     return "expired";
   }
   return "unchanged";
@@ -78,17 +69,11 @@ export async function sweepPermissionGrantLifecycle(
     ctx.db
       .query("permissionGrants")
       .withIndex("by_status_valid_until", (query) =>
-        query
-          .eq("status", "active")
-          .gt("validUntil", 0)
-          .lte("validUntil", args.now),
+        query.eq("status", "active").gt("validUntil", 0).lte("validUntil", args.now),
       )
       .take(args.limit + 1),
   ]);
-  const grants = [
-    ...scheduledRows.slice(0, args.limit),
-    ...activeRows.slice(0, args.limit),
-  ];
+  const grants = [...scheduledRows.slice(0, args.limit), ...activeRows.slice(0, args.limit)];
   const subjectIds = new Set<Id<"eventAccessSubjects">>();
   let activated = 0;
   let expired = 0;
@@ -109,7 +94,6 @@ export async function sweepPermissionGrantLifecycle(
     activated,
     expired,
     affectedSubjects: subjectIds.size,
-    hasMore:
-      scheduledRows.length > args.limit || activeRows.length > args.limit,
+    hasMore: scheduledRows.length > args.limit || activeRows.length > args.limit,
   };
 }

@@ -127,13 +127,15 @@ export const intelligenceAgentDefinitions: readonly IntelligenceAgentDefinition[
     id: "idea-submission",
     name: "Idea submission",
     version: "idea-submission-v1",
-    description: "Continuously picks up each submitted or materially changed idea and publishes a policy-bound advisory assessment.",
+    description:
+      "Continuously picks up each submitted or materially changed idea and publishes a policy-bound advisory assessment.",
     operation: "continuous",
     model: "Frozen by the published admissions model release",
     thinking: "low shell; high structured analysis",
     compaction: "Persistent conversation with 24k reserve / 10k recent context",
     durability: "Four attempts per accepted delivery; backend recovery reissues stranded work",
-    identity: "One stable durable agent per application; each recommendation is a version-fenced delivery",
+    identity:
+      "One stable durable agent per application; each recommendation is a version-fenced delivery",
     trigger: "Initial submission, material resubmission, or authorized recommendation rerun",
     memory: [
       "Last completed application-content version",
@@ -147,10 +149,24 @@ export const intelligenceAgentDefinitions: readonly IntelligenceAgentDefinition[
       "Publish one advisory recommendation to Convex",
       "Cannot decide admission, score or rank people, contact participants, or mutate an application",
     ],
-    tools: ["analyze_submitted_idea", "idea-submission-evidence skill", "idea-state and idea-analysis data writers"],
+    tools: [
+      "analyze_submitted_idea",
+      "idea-submission-evidence skill",
+      "idea-state and idea-analysis data writers",
+    ],
     prompts: [
-      prompt("System prompt", "Controls the durable delivery shell.", ideaSubmissionSystemPromptSections, "[Runtime appends the frozen application, event, recommendation, and continuity identities.]"),
-      prompt("Structured analysis prompt", "Controls the high-reasoning evidence assessment inside the trusted tool.", ideaSubmissionAnalysisPromptSections, "[Runtime appends exact release versions and the frozen signed projection JSON.]"),
+      prompt(
+        "System prompt",
+        "Controls the durable delivery shell.",
+        ideaSubmissionSystemPromptSections,
+        "[Runtime appends the frozen application, event, recommendation, and continuity identities.]",
+      ),
+      prompt(
+        "Structured analysis prompt",
+        "Controls the high-reasoning evidence assessment inside the trusted tool.",
+        ideaSubmissionAnalysisPromptSections,
+        "[Runtime appends exact release versions and the frozen signed projection JSON.]",
+      ),
     ],
     management: {
       href: "/configuration/admissions",
@@ -162,13 +178,15 @@ export const intelligenceAgentDefinitions: readonly IntelligenceAgentDefinition[
     id: "operations-episode",
     name: "Situation analyst",
     version: "operations-episode-v1",
-    description: "Continuously re-analyzes a durable operational situation as its authorized facts change.",
+    description:
+      "Continuously re-analyzes a durable operational situation as its authorized facts change.",
     operation: "continuous",
     model: "openai/gpt-5.6-terra",
     thinking: "minimal shell; high structured analysis",
     compaction: "Persistent conversation with 24k reserve / 12k recent context",
     durability: "Four attempts per revision; accepted deliveries are lease-recovered",
-    identity: "One durable agent per episode; every changed revision is delivered to the same agent",
+    identity:
+      "One durable agent per episode; every changed revision is delivered to the same agent",
     trigger: "A correlated operations episode forms or receives a new authoritative revision",
     memory: [
       "Last analyzed episode revision",
@@ -181,10 +199,25 @@ export const intelligenceAgentDefinitions: readonly IntelligenceAgentDefinition[
       "Publish evidence-cited hypotheses, forecasts, and counterfactual advice",
       "Cannot execute an intervention or make participant, admissions, or judging decisions",
     ],
-    tools: ["analyze_current_episode", "episode-causal-analysis skill", "episode-forecasting skill", "state/hypothesis/prediction/counterfactual data writers"],
+    tools: [
+      "analyze_current_episode",
+      "episode-causal-analysis skill",
+      "episode-forecasting skill",
+      "state/hypothesis/prediction/counterfactual data writers",
+    ],
     prompts: [
-      prompt("System prompt", "Controls each durable revision delivery.", operationsEpisodeSystemPromptSections, "[Runtime appends the episode identity, requested revision, and continuity counters.]"),
-      prompt("Structured analysis prompt", "Controls causal analysis and forecasting inside the trusted tool.", operationsEpisodeAnalysisPromptSections, "[Runtime appends authoritative time, authorized fact keys, and the frozen projection JSON.]"),
+      prompt(
+        "System prompt",
+        "Controls each durable revision delivery.",
+        operationsEpisodeSystemPromptSections,
+        "[Runtime appends the episode identity, requested revision, and continuity counters.]",
+      ),
+      prompt(
+        "Structured analysis prompt",
+        "Controls causal analysis and forecasting inside the trusted tool.",
+        operationsEpisodeAnalysisPromptSections,
+        "[Runtime appends authoritative time, authorized fact keys, and the frozen projection JSON.]",
+      ),
     ],
     management: {
       href: "/configuration/intelligence",
@@ -196,7 +229,8 @@ export const intelligenceAgentDefinitions: readonly IntelligenceAgentDefinition[
     id: "operations-brief",
     name: "Brief generator",
     version: "operations-brief-v1",
-    description: "Builds a bounded operator brief from one frozen operations-health snapshot on request.",
+    description:
+      "Builds a bounded operator brief from one frozen operations-health snapshot on request.",
     operation: "on-demand",
     model: "openai/gpt-5.6-terra",
     thinking: "low",
@@ -211,7 +245,14 @@ export const intelligenceAgentDefinitions: readonly IntelligenceAgentDefinition[
       "Cannot invent signals, identify people, or execute an action",
     ],
     tools: ["publish_operations_brief"],
-    prompts: [prompt("System prompt", "Controls signal selection for a frozen brief.", operationsBriefSystemPromptSections, "[Runtime appends brief identity, source checksum, protocol version, and frozen snapshot JSON.]" )],
+    prompts: [
+      prompt(
+        "System prompt",
+        "Controls signal selection for a frozen brief.",
+        operationsBriefSystemPromptSections,
+        "[Runtime appends brief identity, source checksum, protocol version, and frozen snapshot JSON.]",
+      ),
+    ],
     management: {
       href: "/intelligence",
       label: "Request or inspect briefs",
@@ -222,7 +263,8 @@ export const intelligenceAgentDefinitions: readonly IntelligenceAgentDefinition[
     id: "operations-copilot",
     name: "Operations copilot",
     version: "operations-copilot-v1",
-    description: "Answers an operator using live, event-bound reads and can submit typed recommendations for human review.",
+    description:
+      "Answers an operator using live, event-bound reads and can submit typed recommendations for human review.",
     operation: "interactive",
     model: "openai/gpt-5.6-terra",
     thinking: "low; optional low read-only investigator",
@@ -241,8 +283,23 @@ export const intelligenceAgentDefinitions: readonly IntelligenceAgentDefinition[
       "Inspect a scoped command schema and submit a typed command for human approval",
       "Cannot approve or execute its recommendation",
     ],
-    tools: ["Nine event-bound read tools", "search_submissions", "read_admission_cohort", "scoped event-command catalog", "propose_event_command", "procedural skills", "read-only investigator subagent"],
-    prompts: [prompt("System prompt", "Controls each conversational answer and recommendation.", operationsCopilotSystemPromptSections, "[Runtime appends the event slug and private conversation identity.]" )],
+    tools: [
+      "Nine event-bound read tools",
+      "search_submissions",
+      "read_admission_cohort",
+      "scoped event-command catalog",
+      "propose_event_command",
+      "procedural skills",
+      "read-only investigator subagent",
+    ],
+    prompts: [
+      prompt(
+        "System prompt",
+        "Controls each conversational answer and recommendation.",
+        operationsCopilotSystemPromptSections,
+        "[Runtime appends the event slug and private conversation identity.]",
+      ),
+    ],
     management: {
       href: "/intelligence",
       label: "Open copilot",
@@ -253,13 +310,17 @@ export const intelligenceAgentDefinitions: readonly IntelligenceAgentDefinition[
     id: "operations-autopilot",
     name: "Autonomous operations",
     version: "operations-autopilot-v1",
-    description: "Continuously evaluates scheduled and signal-triggered work under a published, kill-switchable policy.",
+    description:
+      "Continuously evaluates scheduled and signal-triggered work under a published, kill-switchable policy.",
     operation: "event-driven",
     model: "openai/gpt-5.6-terra",
     thinking: "minimal shell; staged planner, investigator, critic, synthesis, and adjudication",
-    compaction: "Disabled in the shell; durable artifacts and continuations carry bounded work state",
-    durability: "Two infrastructure attempts per work item; backend supervision issues durable continuations",
-    identity: "One durable agent per autonomous run; one or more exactly identified work-item deliveries",
+    compaction:
+      "Disabled in the shell; durable artifacts and continuations carry bounded work state",
+    durability:
+      "Two infrastructure attempts per work item; backend supervision issues durable continuations",
+    identity:
+      "One durable agent per autonomous run; one or more exactly identified work-item deliveries",
     trigger: "Published schedule, qualifying operations signal, or authorized manual review",
     memory: [
       "Durable run state, checkpoints, continuations, evidence pages, and operation receipts",
@@ -272,8 +333,21 @@ export const intelligenceAgentDefinitions: readonly IntelligenceAgentDefinition[
       "Cannot run consequential event commands; a human must approve every proposal",
       "Kill switch, event lifecycle, owner grant, and policy supersession revoke access",
     ],
-    tools: ["run_autonomy_work_item", "policy-filtered reads", "read-only investigators", "evidence seal and recommendation tools", "continuation and terminal callbacks"],
-    prompts: [prompt("System prompt", "Controls the durable work-item shell.", operationsAutopilotSystemPromptSections, "[Runtime appends the frozen run, work-item, event, policy, source, and protocol identities.]" )],
+    tools: [
+      "run_autonomy_work_item",
+      "policy-filtered reads",
+      "read-only investigators",
+      "evidence seal and recommendation tools",
+      "continuation and terminal callbacks",
+    ],
+    prompts: [
+      prompt(
+        "System prompt",
+        "Controls the durable work-item shell.",
+        operationsAutopilotSystemPromptSections,
+        "[Runtime appends the frozen run, work-item, event, policy, source, and protocol identities.]",
+      ),
+    ],
     management: {
       href: "/configuration/intelligence",
       label: "Manage autonomy policy",

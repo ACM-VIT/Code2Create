@@ -3,10 +3,10 @@ packages:
   - "apps/*"
   - "packages/*"
 allowBuilds:
-  '@firebase/util': false
-  '@google/genai': false
-  '@posthog/cli': true
-  '@vgpu/adapter-node': false
+  "@firebase/util": false
+  "@google/genai": false
+  "@posthog/cli": true
+  "@vgpu/adapter-node": false
   core-js: false
   core-js-pure: false
   esbuild: true
@@ -16,8 +16,8 @@ allowBuilds:
   webgpu: false
   workerd: true
 overrides:
-  '@babel/core': 7.29.7
-  '@react-native/metro-config': 0.86.3
+  "@babel/core": 7.29.7
+  "@react-native/metro-config": 0.86.3
   decode-uri-component: 0.5.0
   esbuild: 0.28.1
   nanoid: 3.3.18
@@ -29,8 +29,8 @@ overrides:
   undici: 7.29.0
   uuid: 11.1.1
 minimumReleaseAgeExclude:
-  - '@expo/cli@57.0.13 || 57.0.20'
-  - '@expo/config-plugins@57.0.7'
+  - "@expo/cli@57.0.13 || 57.0.20"
+  - "@expo/config-plugins@57.0.7"
   - babel-preset-expo@57.0.6
   - expo-asset@57.0.9
   - expo-file-system@57.0.2 || 57.0.6
@@ -39,56 +39,56 @@ minimumReleaseAgeExclude:
   - expo-notifications@57.0.9
   - expo-router@57.0.11
   - expo-symbols@57.0.2
-  - '@cloudflare/vite-plugin@1.51.1'
+  - "@cloudflare/vite-plugin@1.51.1"
   - miniflare@5.20260801.1-alpha || 5.20260828.0-alpha
   - wrangler@4.127.1
-  - '@remotion/bundler@4.0.508'
-  - '@remotion/captions@4.0.508'
-  - '@remotion/cli@4.0.508'
-  - '@remotion/compositor-darwin-arm64@4.0.508'
-  - '@remotion/compositor-darwin-x64@4.0.508'
-  - '@remotion/compositor-linux-arm64-gnu@4.0.508'
-  - '@remotion/compositor-linux-arm64-musl@4.0.508'
-  - '@remotion/compositor-linux-x64-gnu@4.0.508'
-  - '@remotion/compositor-linux-x64-musl@4.0.508'
-  - '@remotion/compositor-win32-x64-msvc@4.0.508'
-  - '@remotion/google-fonts@4.0.508'
-  - '@remotion/licensing@4.0.508'
-  - '@remotion/media-parser@4.0.508'
-  - '@remotion/media-utils@4.0.508'
-  - '@remotion/media@4.0.508'
-  - '@remotion/motion-blur@4.0.508'
-  - '@remotion/noise@4.0.508'
-  - '@remotion/player@4.0.508'
-  - '@remotion/renderer@4.0.508'
-  - '@remotion/streaming@4.0.508'
-  - '@remotion/studio-codemods@4.0.508'
-  - '@remotion/studio-protocol@4.0.508'
-  - '@remotion/studio-server@4.0.508'
-  - '@remotion/studio-shared@4.0.508'
-  - '@remotion/studio@4.0.508'
-  - '@remotion/timeline-utils@4.0.508'
-  - '@remotion/web-renderer@4.0.508'
-  - '@remotion/zod-types@4.0.508'
+  - "@remotion/bundler@4.0.508"
+  - "@remotion/captions@4.0.508"
+  - "@remotion/cli@4.0.508"
+  - "@remotion/compositor-darwin-arm64@4.0.508"
+  - "@remotion/compositor-darwin-x64@4.0.508"
+  - "@remotion/compositor-linux-arm64-gnu@4.0.508"
+  - "@remotion/compositor-linux-arm64-musl@4.0.508"
+  - "@remotion/compositor-linux-x64-gnu@4.0.508"
+  - "@remotion/compositor-linux-x64-musl@4.0.508"
+  - "@remotion/compositor-win32-x64-msvc@4.0.508"
+  - "@remotion/google-fonts@4.0.508"
+  - "@remotion/licensing@4.0.508"
+  - "@remotion/media-parser@4.0.508"
+  - "@remotion/media-utils@4.0.508"
+  - "@remotion/media@4.0.508"
+  - "@remotion/motion-blur@4.0.508"
+  - "@remotion/noise@4.0.508"
+  - "@remotion/player@4.0.508"
+  - "@remotion/renderer@4.0.508"
+  - "@remotion/streaming@4.0.508"
+  - "@remotion/studio-codemods@4.0.508"
+  - "@remotion/studio-protocol@4.0.508"
+  - "@remotion/studio-server@4.0.508"
+  - "@remotion/studio-shared@4.0.508"
+  - "@remotion/studio@4.0.508"
+  - "@remotion/timeline-utils@4.0.508"
+  - "@remotion/web-renderer@4.0.508"
+  - "@remotion/zod-types@4.0.508"
   - remotion@4.0.508
-  - '@cloudflare/workerd-darwin-64@1.20260828.1'
-  - '@cloudflare/workerd-darwin-arm64@1.20260828.1'
-  - '@cloudflare/workerd-linux-64@1.20260828.1'
-  - '@cloudflare/workerd-linux-arm64@1.20260828.1'
-  - '@cloudflare/workerd-windows-64@1.20260828.1'
+  - "@cloudflare/workerd-darwin-64@1.20260828.1"
+  - "@cloudflare/workerd-darwin-arm64@1.20260828.1"
+  - "@cloudflare/workerd-linux-64@1.20260828.1"
+  - "@cloudflare/workerd-linux-arm64@1.20260828.1"
+  - "@cloudflare/workerd-windows-64@1.20260828.1"
   - workerd@1.20260828.1
-  - '@expo/env@2.4.3'
-  - '@expo/fingerprint@0.20.11'
-  - '@expo/metro-config@57.0.12'
+  - "@expo/env@2.4.3"
+  - "@expo/fingerprint@0.20.11"
+  - "@expo/metro-config@57.0.12"
   - expo-constants@57.0.16
   - expo-font@57.0.2
   - expo-updates@57.0.19
-  - '@cloudflare/workers-types@5.20260828.1'
-  - '@ai-sdk/gateway@4.0.71'
-  - '@ai-sdk/openai@4.0.55'
-  - '@ai-sdk/provider-utils@5.0.35'
-  - '@ai-sdk/provider@4.0.10'
+  - "@cloudflare/workers-types@5.20260828.1"
+  - "@ai-sdk/gateway@4.0.71"
+  - "@ai-sdk/openai@4.0.55"
+  - "@ai-sdk/provider-utils@5.0.35"
+  - "@ai-sdk/provider@4.0.10"
   - ai@7.0.89
 patchedDependencies:
-  '@flue/runtime@2.0.3': patches/@flue__runtime@2.0.3.patch
+  "@flue/runtime@2.0.3": patches/@flue__runtime@2.0.3.patch
   balloons-js@0.0.3: patches/balloons-js@0.0.3.patch

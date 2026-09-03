@@ -148,8 +148,9 @@ describe("operations attention ledger", () => {
         .withIndex("by_event_time", (index) => index.eq("eventId", fixture.eventId))
         .collect(),
     );
-    expect(audit.filter((entry) => entry.action === "operations.attention_item_acknowledged"))
-      .toHaveLength(1);
+    expect(
+      audit.filter((entry) => entry.action === "operations.attention_item_acknowledged"),
+    ).toHaveLength(1);
   });
 
   test("a stale acknowledgement is refused after the detector output changes", async () => {
@@ -208,9 +209,7 @@ describe("operations attention ledger", () => {
       .filter(
         (item) =>
           item.roundId === target.roundId &&
-          (item.state === "open" ||
-            item.state === "acknowledged" ||
-            item.state === "dismissed"),
+          (item.state === "open" || item.state === "acknowledged" || item.state === "dismissed"),
       )
       .map((item) => ({
         detectorKey: item.detectorKey,
@@ -419,10 +418,9 @@ describe("operations attention ledger", () => {
     await openTheVacancy(backend, fixture);
     await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
 
-    const withCommand = await asOperator(backend, fixture).query(
-      api.operationsAttention.overview,
-      { eventSlug: fixture.eventSlug },
-    );
+    const withCommand = await asOperator(backend, fixture).query(api.operationsAttention.overview, {
+      eventSlug: fixture.eventSlug,
+    });
     const row = withCommand.rows.find((entry) => entry.detectorKey === "panel_seat_empty");
     expect(row?.canAct).toBe(true);
     expect(row?.proposal?.command).toMatchObject({
@@ -432,10 +430,9 @@ describe("operations attention ledger", () => {
     });
 
     await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
-    const unchanged = await asOperator(backend, fixture).query(
-      api.operationsAttention.overview,
-      { eventSlug: fixture.eventSlug },
-    );
+    const unchanged = await asOperator(backend, fixture).query(api.operationsAttention.overview, {
+      eventSlug: fixture.eventSlug,
+    });
     expect(unchanged.rows[0]).toMatchObject({
       id: row?.id,
       version: row?.version,
@@ -669,7 +666,7 @@ async function seedFloor(backend: BackendTest) {
       timezone: "Asia/Kolkata",
       status: "live",
       vitEmailDomains: ["vitstudent.ac.in"],
-        applicationsCloseAt: Date.now() + 86_400_000,
+      applicationsCloseAt: Date.now() + 86_400_000,
       startsAt: now - 60_000,
       endsAt: now + 3_600_000,
       version: 1,
@@ -838,7 +835,10 @@ async function seedFloor(backend: BackendTest) {
     });
 
     for (const account of [operator, reader]) {
-      for (const permissionKey of ["operations.health.read", "operations.attention.manage"] as const) {
+      for (const permissionKey of [
+        "operations.health.read",
+        "operations.attention.manage",
+      ] as const) {
         await insertPermissionGrant(ctx, {
           eventId,
           personId: account.personId,

@@ -1,9 +1,9 @@
-import type { ReactNode } from 'react'
-import { Link } from 'react-router-dom'
-import { LoadingLine } from './GuideLoader'
-import { GuideMarkdown, type OfficialLink } from './GuideMarkdown'
+import type { ReactNode } from "react";
+import { Link } from "react-router-dom";
+import { LoadingLine } from "./GuideLoader";
+import { GuideMarkdown, type OfficialLink } from "./GuideMarkdown";
 
-const turnIn = 'motion-safe:animate-turn-in'
+const turnIn = "motion-safe:animate-turn-in";
 
 /** What the participant asked: a filled note on the right. */
 export function UserTurn({ text }: { text: string }) {
@@ -13,7 +13,7 @@ export function UserTurn({ text }: { text: string }) {
         {text}
       </p>
     </div>
-  )
+  );
 }
 
 export function GuideTurn({
@@ -23,21 +23,21 @@ export function GuideTurn({
   thinking,
   actions,
 }: {
-  text: string
-  streaming: boolean
-  officialLinks: readonly OfficialLink[]
-  thinking?: ReactNode
-  actions?: ReactNode
+  text: string;
+  streaming: boolean;
+  officialLinks: readonly OfficialLink[];
+  thinking?: ReactNode;
+  actions?: ReactNode;
 }) {
   return (
     <article className={`min-w-0 ${turnIn}`}>
       {thinking}
-      <div className={streaming ? 'guide-streaming' : undefined}>
+      <div className={streaming ? "guide-streaming" : undefined}>
         <GuideMarkdown text={text} officialLinks={officialLinks} />
       </div>
       {actions ? <div className="mt-3 flex flex-wrap items-center gap-2">{actions}</div> : null}
     </article>
-  )
+  );
 }
 
 /** A reply from a person on the event team: a rose note on the left. */
@@ -48,7 +48,7 @@ export function TeamTurn({ body }: { body: string }) {
         {body}
       </p>
     </div>
-  )
+  );
 }
 
 /** A moment in the thread that is not a message: someone joined, a state changed. */
@@ -59,22 +59,22 @@ export function SystemLine({ children }: { children: ReactNode }) {
       <span className="flex-none">{children}</span>
       <span aria-hidden className="h-px flex-1 bg-petal-line/70" />
     </div>
-  )
+  );
 }
 
 /** The Guide at work before anything has arrived. */
 export function ThinkingTurn({
-  label = 'Looking through your event details',
+  label = "Looking through your event details",
   startedAt,
 }: {
-  label?: string
-  startedAt?: number | undefined
+  label?: string;
+  startedAt?: number | undefined;
 }) {
   return (
     <div className={`flex min-h-9 items-center ${turnIn}`}>
       <LoadingLine label={label} startedAt={startedAt} />
     </div>
-  )
+  );
 }
 
 /** Something went wrong with an answer: the message, and what can be done next. */
@@ -84,11 +84,11 @@ export function GuideNotice({ message, children }: { message: string; children?:
       <p className="m-0 text-[13px] leading-relaxed text-fg/80">{message}</p>
       {children ? <div className="mt-2.5 flex flex-wrap gap-2">{children}</div> : null}
     </div>
-  )
+  );
 }
 
 const chip =
-  'rounded-full px-3.5 py-1.5 text-left text-[12px] leading-snug transition-colors disabled:cursor-not-allowed disabled:opacity-45'
+  "rounded-full px-3.5 py-1.5 text-left text-[12px] leading-snug transition-colors disabled:cursor-not-allowed disabled:opacity-45";
 
 /** A follow-up or action in chip form: a quiet fill by default, rose when it matters. */
 export function GuideChip({
@@ -97,10 +97,10 @@ export function GuideChip({
   disabled = false,
   accent = false,
 }: {
-  children: ReactNode
-  onClick?: () => void
-  disabled?: boolean
-  accent?: boolean
+  children: ReactNode;
+  onClick?: () => void;
+  disabled?: boolean;
+  accent?: boolean;
 }) {
   return (
     <button
@@ -109,13 +109,13 @@ export function GuideChip({
       onClick={onClick}
       className={`${chip} ${
         accent
-          ? 'bg-rose/15 text-rose-light hover:bg-rose/25'
-          : 'bg-fg/[0.06] text-fg/75 hover:bg-fg/10 hover:text-fg'
+          ? "bg-rose/15 text-rose-light hover:bg-rose/25"
+          : "bg-fg/[0.06] text-fg/75 hover:bg-fg/10 hover:text-fg"
       }`}
     >
       {children}
     </button>
-  )
+  );
 }
 
 /** A link the event published, offered under an answer the way sources ride under streamed text. */
@@ -132,7 +132,7 @@ export function LinkChip({ href, children }: { href: string; children: ReactNode
         <path strokeLinecap="round" strokeLinejoin="round" d="M7 17 17 7m0 0H9m8 0v8" />
       </svg>
     </a>
-  )
+  );
 }
 
 /** The empty thread: the Guide introduces itself and offers three ways in. */
@@ -142,10 +142,10 @@ export function GuideHero({
   onPick,
   disabled = false,
 }: {
-  description: string
-  suggestions: readonly string[]
-  onPick: (suggestion: string) => void
-  disabled?: boolean
+  description: string;
+  suggestions: readonly string[];
+  onPick: (suggestion: string) => void;
+  disabled?: boolean;
 }) {
   return (
     <div className="flex w-full flex-col items-center text-center">
@@ -169,7 +169,7 @@ export function GuideHero({
         ))}
       </div>
     </div>
-  )
+  );
 }
 
 /**
@@ -182,9 +182,9 @@ export function GuideHeader({
   deadline,
   team,
 }: {
-  phaseLabel: string
-  deadline?: string | undefined
-  team?: string | undefined
+  phaseLabel: string;
+  deadline?: string | undefined;
+  team?: string | undefined;
 }) {
   return (
     <div className="flex min-w-0 items-center gap-2">
@@ -200,13 +200,15 @@ export function GuideHeader({
         </svg>
       </Link>
       <div className="min-w-0">
-        <p className="m-0 font-display font-light tracking-[-.01em] text-[20px] leading-none text-fg">Guide</p>
+        <p className="m-0 font-display font-light tracking-[-.01em] text-[20px] leading-none text-fg">
+          Guide
+        </p>
         <p className="m-0 mt-1 truncate text-[11.5px] text-fg/50">
           {phaseLabel.toLowerCase()}
-          {deadline ? ` · ${deadline}` : ''}
+          {deadline ? ` · ${deadline}` : ""}
           {team ? <span className="text-rose-light"> · {team}</span> : null}
         </p>
       </div>
     </div>
-  )
+  );
 }

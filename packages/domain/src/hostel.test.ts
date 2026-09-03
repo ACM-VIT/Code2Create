@@ -14,10 +14,7 @@ test("the VIT hostel catalog is unique and fully labeled", () => {
   assert.equal(new Set(stableKeys).size, stableKeys.length);
   for (const entry of defaultVitHostelResidenceCatalog) {
     assert.ok(entry.label.length > 0, entry.stableKey);
-    assert.ok(
-      !entry.label.includes("_"),
-      `${entry.stableKey} still reads as a stored key`,
-    );
+    assert.ok(!entry.label.includes("_"), `${entry.stableKey} still reads as a stored key`);
   }
 });
 
@@ -66,19 +63,13 @@ test("the men's hostel catalog matches the current blocks", () => {
 });
 
 test("S block is a ladies' hostel residence", () => {
-  const residence = findVitHostelResidenceCatalogEntry(
-    defaultVitHostelResidenceCatalog,
-    "lh_s",
-  );
+  const residence = findVitHostelResidenceCatalogEntry(defaultVitHostelResidenceCatalog, "lh_s");
   assert.deepEqual(residence, {
     stableKey: "lh_s",
     label: "S block",
     kind: "ladies",
   });
-  assert.equal(
-    findVitHostelResidenceCatalogEntry(defaultVitHostelResidenceCatalog, "mh_s"),
-    null,
-  );
+  assert.equal(findVitHostelResidenceCatalogEntry(defaultVitHostelResidenceCatalog, "mh_s"), null);
 });
 
 test("the ladies' hostel catalog matches the current blocks", () => {
@@ -86,18 +77,7 @@ test("the ladies' hostel catalog matches the current blocks", () => {
     defaultVitHostelResidenceCatalog
       .filter((entry) => entry.kind === "ladies")
       .map((entry) => entry.stableKey),
-    [
-      "lh_a",
-      "lh_b",
-      "lh_c",
-      "lh_d",
-      "lh_e",
-      "lh_f",
-      "lh_g",
-      "lh_h",
-      "lh_j",
-      "lh_s",
-    ],
+    ["lh_a", "lh_b", "lh_c", "lh_d", "lh_e", "lh_f", "lh_g", "lh_h", "lh_j", "lh_s"],
   );
 });
 

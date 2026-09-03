@@ -16,7 +16,7 @@ import {
   useRole,
   useTransitionStyles,
   useTypeahead,
-} from '@floating-ui/react'
+} from "@floating-ui/react";
 import {
   Children,
   createContext,
@@ -28,53 +28,56 @@ import {
   useRef,
   useState,
   type ReactNode,
-} from 'react'
+} from "react";
 
 type DropdownContextValue = {
-  activeIndex: number | null
-  selectedIndex: number | null
-  getItemProps: (props?: Record<string, unknown>) => Record<string, unknown>
-  onSelect: (index: number) => void
-}
+  activeIndex: number | null;
+  selectedIndex: number | null;
+  getItemProps: (props?: Record<string, unknown>) => Record<string, unknown>;
+  onSelect: (index: number) => void;
+};
 
-const DropdownContext = createContext<DropdownContextValue | null>(null)
+const DropdownContext = createContext<DropdownContextValue | null>(null);
 
 function useDropdownContext() {
-  const context = useContext(DropdownContext)
-  if (!context) throw new Error('Dropdown items must render inside <PortalSelect>.')
-  return context
+  const context = useContext(DropdownContext);
+  if (!context) throw new Error("Dropdown items must render inside <PortalSelect>.");
+  return context;
 }
 
 export type DropdownOption = {
-  value: string
-  label: string
-  disabled?: boolean
-}
+  value: string;
+  label: string;
+  disabled?: boolean;
+};
 
 function readOptions(children: ReactNode): {
-  options: DropdownOption[]
-  placeholder: string | null
+  options: DropdownOption[];
+  placeholder: string | null;
 } {
-  const options: DropdownOption[] = []
-  let placeholder: string | null = null
+  const options: DropdownOption[] = [];
+  let placeholder: string | null = null;
   for (const child of Children.toArray(children)) {
-    if (!isValidElement(child) || child.type !== 'option') continue
+    if (!isValidElement(child) || child.type !== "option") continue;
     const props = child.props as {
-      value?: string | number
-      disabled?: boolean
-      children?: ReactNode
+      value?: string | number;
+      disabled?: boolean;
+      children?: ReactNode;
+    };
+    const value = String(props.value ?? "");
+    const label =
+      typeof props.children === "string"
+        ? props.children
+        : Children.toArray(props.children)
+            .filter((part) => typeof part === "string")
+            .join("");
+    if (value === "") {
+      placeholder = label;
+      continue;
     }
-    const value = String(props.value ?? '')
-    const label = typeof props.children === 'string'
-      ? props.children
-      : Children.toArray(props.children).filter((part) => typeof part === 'string').join('')
-    if (value === '') {
-      placeholder = label
-      continue
-    }
-    options.push({ value, label, ...(props.disabled ? { disabled: true } : {}) })
+    options.push({ value, label, ...(props.disabled ? { disabled: true } : {}) });
   }
-  return { options, placeholder }
+  return { options, placeholder };
 }
 
 function DropdownIndicator({ open }: { open: boolean }) {
@@ -88,12 +91,12 @@ function DropdownIndicator({ open }: { open: boolean }) {
       strokeLinecap="round"
       strokeLinejoin="round"
       className={`size-4 shrink-0 text-fg/45 transition-transform duration-200 ease-[cubic-bezier(.16,1,.3,1)] motion-reduce:transition-none ${
-        open ? 'rotate-180' : ''
+        open ? "rotate-180" : ""
       }`}
     >
       <path d="m6 9 6 6 6-6" />
     </svg>
-  )
+  );
 }
 
 function DropdownItem({
@@ -101,13 +104,13 @@ function DropdownItem({
   index,
   selected,
 }: {
-  option: DropdownOption
-  index: number
-  selected: boolean
+  option: DropdownOption;
+  index: number;
+  selected: boolean;
 }) {
-  const { activeIndex, getItemProps, onSelect } = useDropdownContext()
-  const { ref } = useListItem({ label: option.label })
-  const active = activeIndex === index
+  const { activeIndex, getItemProps, onSelect } = useDropdownContext();
+  const { ref } = useListItem({ label: option.label });
+  const active = activeIndex === index;
 
   return (
     <li
@@ -117,12 +120,12 @@ function DropdownItem({
       aria-disabled={option.disabled ?? false}
       tabIndex={active ? 0 : -1}
       className={`relative flex cursor-pointer items-center justify-between gap-3 rounded-btn-sm px-3 py-2 text-[13.5px] outline-none select-none ${
-        option.disabled ? 'cursor-not-allowed opacity-45 motion-safe:hover:animate-shake' : ''
-      } ${selected ? 'text-rose-light' : 'text-fg/85'}`}
+        option.disabled ? "cursor-not-allowed opacity-45 motion-safe:hover:animate-shake" : ""
+      } ${selected ? "text-rose-light" : "text-fg/85"}`}
       {...getItemProps({
         onClick: () => {
-          if (option.disabled) return
-          onSelect(index)
+          if (option.disabled) return;
+          onSelect(index);
         },
       })}
     >
@@ -142,7 +145,7 @@ function DropdownItem({
         </svg>
       ) : null}
     </li>
-  )
+  );
 }
 
 export function PortalSelect({
@@ -153,40 +156,40 @@ export function PortalSelect({
   options: optionsProp,
   placeholder: placeholderProp,
   disabled = false,
-  className = '',
-  'aria-label': ariaLabel,
-  'aria-invalid': ariaInvalid,
+  className = "",
+  "aria-label": ariaLabel,
+  "aria-invalid": ariaInvalid,
 }: {
-  id?: string
-  value: string
-  onValueChange: (value: string) => void
-  children?: ReactNode
-  options?: readonly DropdownOption[]
-  placeholder?: string
-  disabled?: boolean
-  className?: string
-  'aria-label'?: string
-  'aria-invalid'?: boolean
+  id?: string;
+  value: string;
+  onValueChange: (value: string) => void;
+  children?: ReactNode;
+  options?: readonly DropdownOption[];
+  placeholder?: string;
+  disabled?: boolean;
+  className?: string;
+  "aria-label"?: string;
+  "aria-invalid"?: boolean;
 }) {
   const { options: childOptions, placeholder: childPlaceholder } = useMemo(
     () => readOptions(children),
     [children],
-  )
+  );
   const options = useMemo(
-    () => optionsProp ? [...optionsProp] : childOptions,
+    () => (optionsProp ? [...optionsProp] : childOptions),
     [childOptions, optionsProp],
-  )
-  const placeholder = placeholderProp ?? childPlaceholder ?? 'Select'
+  );
+  const placeholder = placeholderProp ?? childPlaceholder ?? "Select";
 
-  const [open, setOpen] = useState(false)
-  const [activeIndex, setActiveIndex] = useState<number | null>(null)
-  const elementsRef = useRef<Array<HTMLElement | null>>([])
-  const labelsRef = useRef<Array<string | null>>([])
-  const listRef = useRef<HTMLUListElement>(null)
-  const [highlight, setHighlight] = useState<{ top: number; height: number } | null>(null)
+  const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const elementsRef = useRef<Array<HTMLElement | null>>([]);
+  const labelsRef = useRef<Array<string | null>>([]);
+  const listRef = useRef<HTMLUListElement>(null);
+  const [highlight, setHighlight] = useState<{ top: number; height: number } | null>(null);
 
-  const selectedIndex = options.findIndex((option) => option.value === value)
-  const selectedOption = selectedIndex >= 0 ? options[selectedIndex] : undefined
+  const selectedIndex = options.findIndex((option) => option.value === value);
+  const selectedOption = selectedIndex >= 0 ? options[selectedIndex] : undefined;
 
   const {
     refs: { setReference, setFloating },
@@ -196,7 +199,7 @@ export function PortalSelect({
     open,
     onOpenChange: setOpen,
     whileElementsMounted: autoUpdate,
-    placement: 'bottom-start',
+    placement: "bottom-start",
     middleware: [
       offset(6),
       flip({ padding: 12 }),
@@ -204,76 +207,76 @@ export function PortalSelect({
       size({
         padding: 12,
         apply({ rects, availableHeight, elements }) {
-          elements.floating.style.setProperty('--dropdown-width', `${rects.reference.width}px`)
+          elements.floating.style.setProperty("--dropdown-width", `${rects.reference.width}px`);
           elements.floating.style.setProperty(
-            '--dropdown-max-height',
+            "--dropdown-max-height",
             `${Math.max(160, Math.min(availableHeight - 8, 288))}px`,
-          )
+          );
         },
       }),
     ],
-  })
+  });
 
   const { isMounted, styles: transitionStyles } = useTransitionStyles(context, {
     duration: { open: 180, close: 130 },
     initial: ({ side }) => ({
       opacity: 0,
-      transform: 'scale(.96)',
-      transformOrigin: side === 'top' ? 'bottom center' : 'top center',
+      transform: "scale(.96)",
+      transformOrigin: side === "top" ? "bottom center" : "top center",
     }),
-    open: { opacity: 1, transform: 'scale(1)' },
-  })
+    open: { opacity: 1, transform: "scale(1)" },
+  });
 
-  const click = useClick(context, { enabled: !disabled })
-  const dismiss = useDismiss(context)
-  const role = useRole(context, { role: 'listbox' })
+  const click = useClick(context, { enabled: !disabled });
+  const dismiss = useDismiss(context);
+  const role = useRole(context, { role: "listbox" });
   const listNavigation = useListNavigation(context, {
     listRef: elementsRef,
     activeIndex,
     selectedIndex: selectedIndex >= 0 ? selectedIndex : null,
-    disabledIndices: options.flatMap((option, index) => option.disabled ? [index] : []),
+    disabledIndices: options.flatMap((option, index) => (option.disabled ? [index] : [])),
     onNavigate: setActiveIndex,
     loop: true,
-  })
+  });
   const typeahead = useTypeahead(context, {
     listRef: labelsRef,
     activeIndex,
     selectedIndex: selectedIndex >= 0 ? selectedIndex : null,
     onMatch: open ? setActiveIndex : undefined,
-  })
+  });
   const { getReferenceProps, getFloatingProps, getItemProps } = useInteractions([
     click,
     dismiss,
     role,
     listNavigation,
     typeahead,
-  ])
+  ]);
 
   const onSelect = useCallback(
     (index: number) => {
-      const option = options[index]
-      if (!option) return
-      onValueChange(option.value)
-      setOpen(false)
+      const option = options[index];
+      if (!option) return;
+      onValueChange(option.value);
+      setOpen(false);
     },
     [onValueChange, options],
-  )
+  );
 
   useLayoutEffect(() => {
-    if (!isMounted) return
-    const node = activeIndex === null ? null : elementsRef.current[activeIndex]
-    const list = listRef.current
+    if (!isMounted) return;
+    const node = activeIndex === null ? null : elementsRef.current[activeIndex];
+    const list = listRef.current;
     if (!node || !list) {
-      setHighlight(null)
-      return
+      setHighlight(null);
+      return;
     }
-    setHighlight({ top: node.offsetTop, height: node.offsetHeight })
-  }, [activeIndex, isMounted])
+    setHighlight({ top: node.offsetTop, height: node.offsetHeight });
+  }, [activeIndex, isMounted]);
 
   const context_ = useMemo<DropdownContextValue>(
     () => ({ activeIndex, selectedIndex, getItemProps, onSelect }),
     [activeIndex, selectedIndex, getItemProps, onSelect],
-  )
+  );
 
   return (
     <>
@@ -285,8 +288,8 @@ export function PortalSelect({
         aria-label={ariaLabel}
         aria-invalid={ariaInvalid}
         className={`flex w-full items-center justify-between gap-2 rounded-petal-xs border border-petal-edge-soft bg-wash/45 px-3.5 py-2.5 text-left text-[13.5px] transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
-          open ? 'border-rose-light' : ''
-        } ${selectedOption ? 'text-fg' : 'text-fg/45'} ${className}`}
+          open ? "border-rose-light" : ""
+        } ${selectedOption ? "text-fg" : "text-fg/45"} ${className}`}
         {...getReferenceProps()}
       >
         <span className="min-w-0 flex-1 truncate">{selectedOption?.label ?? placeholder}</span>
@@ -309,36 +312,36 @@ export function PortalSelect({
                 style={transitionStyles}
                 className="max-h-[var(--dropdown-max-height)] overflow-y-auto rounded-petal-xs glass-menu p-1 font-ui text-fg"
               >
-              <FloatingList elementsRef={elementsRef} labelsRef={labelsRef}>
-                <ul ref={listRef} className="relative m-0 list-none p-0">
-                  {highlight ? (
-                    <li
-                      aria-hidden
-                      role="presentation"
-                      className="pointer-events-none absolute inset-x-0 z-0 rounded-btn-sm bg-rose/18 transition-[transform,height] duration-200 ease-[cubic-bezier(.16,1,.3,1)] motion-reduce:transition-none"
-                      style={{
-                        transform: `translateY(${highlight.top}px)`,
-                        height: `${highlight.height}px`,
-                      }}
-                    />
-                  ) : null}
-                  <DropdownContext.Provider value={context_}>
-                    {options.map((option, index) => (
-                      <DropdownItem
-                        key={option.value}
-                        option={option}
-                        index={index}
-                        selected={option.value === value}
+                <FloatingList elementsRef={elementsRef} labelsRef={labelsRef}>
+                  <ul ref={listRef} className="relative m-0 list-none p-0">
+                    {highlight ? (
+                      <li
+                        aria-hidden
+                        role="presentation"
+                        className="pointer-events-none absolute inset-x-0 z-0 rounded-btn-sm bg-rose/18 transition-[transform,height] duration-200 ease-[cubic-bezier(.16,1,.3,1)] motion-reduce:transition-none"
+                        style={{
+                          transform: `translateY(${highlight.top}px)`,
+                          height: `${highlight.height}px`,
+                        }}
                       />
-                    ))}
-                  </DropdownContext.Provider>
-                </ul>
-              </FloatingList>
+                    ) : null}
+                    <DropdownContext.Provider value={context_}>
+                      {options.map((option, index) => (
+                        <DropdownItem
+                          key={option.value}
+                          option={option}
+                          index={index}
+                          selected={option.value === value}
+                        />
+                      ))}
+                    </DropdownContext.Provider>
+                  </ul>
+                </FloatingList>
               </div>
             </div>
           </FloatingFocusManager>
         </FloatingPortal>
       ) : null}
     </>
-  )
+  );
 }

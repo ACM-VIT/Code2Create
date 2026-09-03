@@ -1,51 +1,61 @@
-import { type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
+import { type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 
-import { tileAreaClass, type TileKey } from './dashboardLayout'
+import { tileAreaClass, type TileKey } from "./dashboardLayout";
 
+/**
+ * One glass tile on the bento. Tapping the card (anywhere that is not a
+ * control) toggles it; most tiles answer in place, and `expanded` is the one
+ * case where the card has taken the big slot and a corner control releases it.
+ */
 export function Tile({
   area,
-  focused,
-  onFocus,
+  open = false,
+  expanded = false,
+  onToggle,
   onRelease,
   backdrop,
-  className = '',
+  className = "",
   children,
 }: {
-  area: TileKey
-  focused: boolean
-  onFocus: () => void
-  onRelease: () => void
-  backdrop?: ReactNode
-  className?: string
-  children: ReactNode
+  area: TileKey;
+  open?: boolean;
+  expanded?: boolean;
+  onToggle: () => void;
+  onRelease?: () => void;
+  backdrop?: ReactNode;
+  className?: string;
+  children: ReactNode;
 }) {
-  const interactive = !focused
+  const tappable = !expanded;
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (!interactive || event.target !== event.currentTarget) return
-    if (event.key !== 'Enter' && event.key !== ' ') return
-    event.preventDefault()
-    onFocus()
-  }
+    if (!tappable || event.target !== event.currentTarget) return;
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    onToggle();
+  };
   const onClick = (event: MouseEvent<HTMLDivElement>) => {
-    if (!interactive) return
-    if ((event.target as HTMLElement).closest('button, a, input, textarea, select')) return
-    onFocus()
-  }
+    if (!tappable) return;
+    if ((event.target as HTMLElement).closest("button, a, input, textarea, select, label")) return;
+    onToggle();
+  };
+  const lit = open || expanded;
   return (
     <div
-      className={`relative z-10 flex min-h-0 min-w-0 flex-col overflow-hidden rounded-[18px] border border-petal-edge/70 bg-fg/5 shadow-[0_20px_44px_-30px_var(--shade-2),inset_0_1px_0_color-mix(in_srgb,var(--color-fg)_14%,transparent)] backdrop-blur-[22px] backdrop-saturate-[1.35] transition-[border-color,background-color] duration-300 ${
-        interactive
-          ? 'cursor-pointer hover:border-rose-light/70 hover:bg-fg/8 focus-visible:border-rose-light focus-visible:outline-none'
-          : 'border-rose-light/60 bg-fg/7'
+      className={`relative z-10 flex min-h-0 min-w-0 flex-col overflow-hidden rounded-[18px] border bg-fg/5 shadow-[0_20px_44px_-30px_var(--shade-2),inset_0_1px_0_color-mix(in_srgb,var(--color-fg)_14%,transparent)] backdrop-blur-[22px] backdrop-saturate-[1.35] transition-[border-color,background-color,transform] duration-300 ${
+        lit ? "border-rose-light/60 bg-fg/7" : "border-petal-edge/70"
+      } ${
+        tappable
+          ? "cursor-pointer hover:border-rose-light/70 hover:bg-fg/8 focus-visible:border-rose-light focus-visible:outline-none active:scale-[.995]"
+          : ""
       } ${tileAreaClass[area]} ${className}`}
       style={{ viewTransitionName: `dash-${area}` } as CSSProperties}
-      {...(interactive
-        ? { role: 'button', tabIndex: 0, onClick, onKeyDown, 'aria-expanded': false }
-        : { 'aria-expanded': true })}
+      {...(tappable
+        ? { role: "button", tabIndex: 0, onClick, onKeyDown, "aria-expanded": lit }
+        : { "aria-expanded": true })}
     >
       {backdrop}
       <div className="relative flex min-h-0 flex-1 flex-col">{children}</div>
-      {focused ? (
+      {expanded && onRelease ? (
         <button
           type="button"
           onClick={onRelease}
@@ -53,14 +63,48 @@ export function Tile({
           className="absolute top-3 right-3 z-20 flex size-8 items-center justify-center rounded-full border border-rose/50 bg-wash/60 text-fg/80 backdrop-blur-md transition-colors hover:border-rose-light hover:text-fg"
         >
           <svg viewBox="0 0 16 16" className="size-3.5" aria-hidden>
-            <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+            <path
+              d="M3 3l10 10M13 3L3 13"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+            />
           </svg>
         </button>
       ) : null}
     </div>
-  )
+  );
 }
 
+/** The small caps label every tile opens with. */
 export function TileEyebrow({ children }: { children: ReactNode }) {
-  return <p className="m-0 font-ui text-[15px] text-rose-light">{children}</p>
+  return <p className="m-0 font-ui text-[15px] text-rose-light">{children}</p>;
+}
+
+/** Content that arrives in place: a short rise and fade, honoured by reduced motion. */
+export function Reveal({ children, className = "" }: { children: ReactNode; className?: string }) {
+  return (
+    <div
+      className={`translate-y-0 opacity-100 motion-safe:transition-[transform,opacity] motion-safe:duration-[420ms] motion-safe:ease-[cubic-bezier(.22,1,.36,1)] starting:translate-y-2 starting:opacity-0 ${className}`}
+    >
+      {children}
+    </div>
+  );
+}
+
+export function timeLabel(timestamp: number, timezone?: string) {
+  return new Intl.DateTimeFormat(undefined, {
+    ...(timezone ? { timeZone: timezone } : {}),
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(timestamp);
+}
+
+export function dayTimeLabel(timestamp: number, timezone?: string) {
+  return new Intl.DateTimeFormat(undefined, {
+    ...(timezone ? { timeZone: timezone } : {}),
+    weekday: "short",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(timestamp);
 }

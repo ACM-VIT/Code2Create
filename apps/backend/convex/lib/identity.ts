@@ -23,19 +23,13 @@ export async function stagingParticipantAccessAllowed(
     ctx.db
       .query("rosterEntries")
       .withIndex("by_event_email_status", (query) =>
-        query
-          .eq("eventId", eventId)
-          .eq("emailNormalized", emailNormalized)
-          .eq("status", "pending"),
+        query.eq("eventId", eventId).eq("emailNormalized", emailNormalized).eq("status", "pending"),
       )
       .first(),
     ctx.db
       .query("rosterEntries")
       .withIndex("by_event_email_status", (query) =>
-        query
-          .eq("eventId", eventId)
-          .eq("emailNormalized", emailNormalized)
-          .eq("status", "claimed"),
+        query.eq("eventId", eventId).eq("emailNormalized", emailNormalized).eq("status", "claimed"),
       )
       .first(),
   ]);
@@ -241,9 +235,7 @@ export async function refreshExistingPersonIdentity(
   if (emailChanged) {
     const emailOwner = await ctx.db
       .query("people")
-      .withIndex("by_verified_email", (query) =>
-        query.eq("verifiedEmail", args.verifiedEmail),
-      )
+      .withIndex("by_verified_email", (query) => query.eq("verifiedEmail", args.verifiedEmail))
       .unique();
     if (emailOwner && emailOwner._id !== args.person._id) {
       throw new ConvexError({
@@ -293,9 +285,7 @@ export async function refreshExistingPersonIdentity(
   };
 }
 
-export async function ensurePerson(
-  ctx: MutationCtx,
-): Promise<{
+export async function ensurePerson(ctx: MutationCtx): Promise<{
   user: Awaited<ReturnType<typeof requireAuthUser>>;
   person: Doc<"people">;
   identity: Awaited<ReturnType<typeof requireVerifiedIdentity>>["identity"];
@@ -337,9 +327,7 @@ export async function ensurePerson(
   if (identity.googleSubject) {
     const subjectOwner = await ctx.db
       .query("people")
-      .withIndex("by_google_subject", (query) =>
-        query.eq("googleSubject", identity.googleSubject),
-      )
+      .withIndex("by_google_subject", (query) => query.eq("googleSubject", identity.googleSubject))
       .unique();
     if (subjectOwner) {
       throw new ConvexError({
@@ -399,9 +387,7 @@ export async function requireEventSubject(
 ) {
   const subject = await ctx.db
     .query("eventAccessSubjects")
-    .withIndex("by_event_person", (query) =>
-      query.eq("eventId", eventId).eq("personId", personId),
-    )
+    .withIndex("by_event_person", (query) => query.eq("eventId", eventId).eq("personId", personId))
     .unique();
   if (!subject || subject.status !== "active") {
     throw new ConvexError({
@@ -419,9 +405,7 @@ export async function requireMembership(
 ) {
   const membership = await ctx.db
     .query("eventMemberships")
-    .withIndex("by_event_person", (query) =>
-      query.eq("eventId", eventId).eq("personId", personId),
-    )
+    .withIndex("by_event_person", (query) => query.eq("eventId", eventId).eq("personId", personId))
     .unique();
   if (!membership || membership.eligibilityStatus === "suspended") {
     throw new ConvexError({
@@ -429,10 +413,7 @@ export async function requireMembership(
       message: "An active participant membership is required.",
     });
   }
-  const [person, event] = await Promise.all([
-    ctx.db.get(personId),
-    ctx.db.get(eventId),
-  ]);
+  const [person, event] = await Promise.all([ctx.db.get(personId), ctx.db.get(eventId)]);
   if (!person || !event) {
     throw new Error("The participant membership references missing event data.");
   }

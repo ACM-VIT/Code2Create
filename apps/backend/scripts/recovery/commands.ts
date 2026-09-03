@@ -81,28 +81,14 @@ async function runConvex(args: string[], deployKeyName: string) {
 
 export async function exportProductionSnapshot(deployment: string, destinationPath: string) {
   await runConvex(
-    [
-      "export",
-      "--deployment",
-      deployment,
-      "--include-file-storage",
-      "--path",
-      destinationPath,
-    ],
+    ["export", "--deployment", deployment, "--include-file-storage", "--path", destinationPath],
     "C2C_PRODUCTION_CONVEX_DEPLOY_KEY",
   );
 }
 
 export async function exportStagingSnapshot(deployment: string, destinationPath: string) {
   await runConvex(
-    [
-      "export",
-      "--deployment",
-      deployment,
-      "--include-file-storage",
-      "--path",
-      destinationPath,
-    ],
+    ["export", "--deployment", deployment, "--include-file-storage", "--path", destinationPath],
     "C2C_STAGING_CONVEX_DEPLOY_KEY",
   );
 }

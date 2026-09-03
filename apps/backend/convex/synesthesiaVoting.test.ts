@@ -48,9 +48,11 @@ describe("Synesthesia vote ownership", () => {
       clientOperationId: firstOperationId,
     });
 
-    expect(await first.query(api.synesthesiaParticipant.voteCounts, {
-      eventSlug: fixture.eventSlug,
-    })).toEqual({
+    expect(
+      await first.query(api.synesthesiaParticipant.voteCounts, {
+        eventSlug: fixture.eventSlug,
+      }),
+    ).toEqual({
       windowId: fixture.windowId,
       counts: [{ requestId: fixture.requestId, voteCount: 2 }],
     });
@@ -85,9 +87,11 @@ describe("Synesthesia vote ownership", () => {
       requestId: fixture.requestId,
       clientOperationId: crypto.randomUUID(),
     });
-    expect(await first.query(api.synesthesiaParticipant.voteCounts, {
-      eventSlug: fixture.eventSlug,
-    })).toEqual({
+    expect(
+      await first.query(api.synesthesiaParticipant.voteCounts, {
+        eventSlug: fixture.eventSlug,
+      }),
+    ).toEqual({
       windowId: fixture.windowId,
       counts: [{ requestId: fixture.requestId, voteCount: 1 }],
     });
@@ -155,14 +159,13 @@ describe("Synesthesia vote ownership", () => {
     expect(secondPage.page.map((report) => report.reason)).toEqual(["Second report"]);
     expect(secondPage.isDone).toBe(true);
 
-    await expect(asAccount(backend, fixture.second).query(
-      api.synesthesiaOperations.reports,
-      {
+    await expect(
+      asAccount(backend, fixture.second).query(api.synesthesiaOperations.reports, {
         eventSlug: fixture.eventSlug,
         requestId: fixture.requestId,
         paginationOpts: { cursor: null, numItems: 1 },
-      },
-    )).rejects.toThrow();
+      }),
+    ).rejects.toThrow();
   });
 
   test("returns a compact count payload for a full configured window", async () => {
@@ -229,7 +232,7 @@ async function seedVotingFixture(backend: BackendTest) {
       timezone: "Asia/Kolkata",
       status: "live",
       vitEmailDomains: ["vitstudent.ac.in"],
-        applicationsCloseAt: Date.now() + 86_400_000,
+      applicationsCloseAt: Date.now() + 86_400_000,
       startsAt: now - 60_000,
       endsAt: now + 3_600_000,
       version: 1,
@@ -314,11 +317,7 @@ async function seedVotingFixture(backend: BackendTest) {
   });
 }
 
-async function insertParticipantAccount(
-  backend: BackendTest,
-  key: string,
-  now: number,
-) {
+async function insertParticipantAccount(backend: BackendTest, key: string, now: number) {
   const email = `${key}-${crypto.randomUUID()}@example.test`;
   const user: unknown = await backend.mutation(components.betterAuth.adapter.create, {
     input: {

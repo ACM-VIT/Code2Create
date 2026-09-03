@@ -1,7 +1,4 @@
-import {
-  paginationOptsValidator,
-  paginationResultValidator,
-} from "convex/server";
+import { paginationOptsValidator, paginationResultValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import { z } from "zod";
 
@@ -16,11 +13,7 @@ import { advanceAccessVersion } from "./lib/accessVersion";
 import { writeAuditEvent } from "./lib/audit";
 import { initializeAttendanceTeamAvailability } from "./lib/attendanceTeamAvailability";
 import { requireEventBySlug } from "./lib/events";
-import {
-  requireCurrentPerson,
-  requireEventSubject,
-  requireMembership,
-} from "./lib/identity";
+import { requireCurrentPerson, requireEventSubject, requireMembership } from "./lib/identity";
 import {
   findOperation,
   operationFingerprint,
@@ -61,9 +54,7 @@ import {
 } from "./values";
 
 /** Year and class of each locked roster member. Only readers with profile context get it. */
-const rosterCohortView = v.array(
-  v.object({ participantClass, yearOfStudy: studyYear }),
-);
+const rosterCohortView = v.array(v.object({ participantClass, yearOfStudy: studyYear }));
 
 const listItem = v.object({
   id: v.id("applications"),
@@ -112,12 +103,13 @@ export const stageCounts = query({
       permissionKey: "application.read",
       scopeType: "event",
     });
-    const applications = eventGrantIds.length > 0
-      ? await ctx.db
-          .query("applications")
-          .withIndex("by_event_state_submitted", (index) => index.eq("eventId", event._id))
-          .collect()
-      : await scopedApplicationsForStageCounts(ctx, event._id, subject._id);
+    const applications =
+      eventGrantIds.length > 0
+        ? await ctx.db
+            .query("applications")
+            .withIndex("by_event_state_submitted", (index) => index.eq("eventId", event._id))
+            .collect()
+        : await scopedApplicationsForStageCounts(ctx, event._id, subject._id);
     const counts = new Map<Doc<"applications">["state"], number>();
     for (const application of applications) {
       counts.set(application.state, (counts.get(application.state) ?? 0) + 1);
@@ -143,8 +135,7 @@ async function activeSupremeRole(
       index.eq("eventId", eventId).eq("personId", personId).eq("status", "active"),
     )
     .unique();
-  return role?.role === "supreme" &&
-    (role.validUntil === undefined || role.validUntil > Date.now())
+  return role?.role === "supreme" && (role.validUntil === undefined || role.validUntil > Date.now())
     ? role
     : null;
 }
@@ -165,16 +156,18 @@ export const admissionResultsReleaseStatus = query({
     accepted: v.number(),
     waitlisted: v.number(),
     declined: v.number(),
-    decisions: v.array(v.object({
-      applicationId: v.id("applications"),
-      teamName: v.string(),
-      decision: terminalAdmissionDecision,
-      reasonCode: v.string(),
-      reasonLabel: v.string(),
-      decidedByName: v.string(),
-      decidedAt: v.number(),
-      stage: admissionDecisionStage,
-    })),
+    decisions: v.array(
+      v.object({
+        applicationId: v.id("applications"),
+        teamName: v.string(),
+        decision: terminalAdmissionDecision,
+        reasonCode: v.string(),
+        reasonLabel: v.string(),
+        decidedByName: v.string(),
+        decidedAt: v.number(),
+        stage: admissionDecisionStage,
+      }),
+    ),
   }),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
@@ -205,7 +198,8 @@ export const admissionResultsReleaseStatus = query({
       .withIndex("by_event_submitted", (index) => index.eq("eventId", event._id))
       .collect();
     const active = applications.filter(
-      (application) => application.state !== "withdrawn" || application.decisionStage === "released",
+      (application) =>
+        application.state !== "withdrawn" || application.decisionStage === "released",
     );
     const decisions = [];
     let accepted = 0;
@@ -272,10 +266,12 @@ export const admissionResultsReleaseStatus = query({
   },
 });
 
-const admissionResultsReleaseOperationResult = z.object({
-  releasedAt: z.number().int().positive(),
-  applicationCount: z.number().int().positive(),
-}).strict();
+const admissionResultsReleaseOperationResult = z
+  .object({
+    releasedAt: z.number().int().positive(),
+    applicationCount: z.number().int().positive(),
+  })
+  .strict();
 
 export const releaseAdmissionResults = mutation({
   args: {
@@ -289,10 +285,7 @@ export const releaseAdmissionResults = mutation({
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
-    const requestFingerprint = operationFingerprint([
-      args.expectedEventVersion,
-      args.reason,
-    ]);
+    const requestFingerprint = operationFingerprint([args.expectedEventVersion, args.reason]);
     const prior = await findOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -348,9 +341,10 @@ export const releaseAdmissionResults = mutation({
     if (incomplete || active.length === 0) {
       throw new ConvexError({
         code: "ADMISSION_DECISIONS_INCOMPLETE",
-        message: active.length === 0
-          ? "There are no applications to release."
-          : "Every active application needs a recorded final decision before release.",
+        message:
+          active.length === 0
+            ? "There are no applications to release."
+            : "Every active application needs a recorded final decision before release.",
       });
     }
     for (const application of active) {
@@ -500,9 +494,7 @@ export const list = query({
         ...(application.humanDecision !== undefined
           ? { humanDecision: application.humanDecision }
           : {}),
-        ...(profileGrantIds.length > 0
-          ? { cohort: await rosterCohort(ctx, project) }
-          : {}),
+        ...(profileGrantIds.length > 0 ? { cohort: await rosterCohort(ctx, project) } : {}),
         memberCount: project.lockedMemberCount,
         minimumHumanReviews: policy.minimumHumanReviews,
         submittedAt: application.submittedAt,
@@ -545,10 +537,7 @@ export const myReviewAssignments = query({
     const page = await ctx.db
       .query("admissionReviewAssignments")
       .withIndex("by_event_reviewer_state_assigned", (index) =>
-        index
-          .eq("eventId", event._id)
-          .eq("reviewerPersonId", person._id)
-          .eq("state", args.state),
+        index.eq("eventId", event._id).eq("reviewerPersonId", person._id).eq("state", args.state),
       )
       .order("desc")
       .paginate(args.paginationOpts);
@@ -605,9 +594,7 @@ export const myReviewAssignments = query({
         applicationState: application.state,
         applicationVersion: application.version,
         teamName: team.name,
-        ...(profileGrantIds.length > 0
-          ? { cohort: await rosterCohort(ctx, project) }
-          : {}),
+        ...(profileGrantIds.length > 0 ? { cohort: await rosterCohort(ctx, project) } : {}),
         memberCount: project.lockedMemberCount,
         ...(recommendation ? { aiState: recommendation.state } : {}),
         ...(ownReview?.applicationContentVersion === application.contentVersion
@@ -631,10 +618,7 @@ export const myReviewAssignmentCounts = query({
       const rows = await ctx.db
         .query("admissionReviewAssignments")
         .withIndex("by_event_reviewer_state_assigned", (index) =>
-          index
-            .eq("eventId", event._id)
-            .eq("reviewerPersonId", person._id)
-            .eq("state", state),
+          index.eq("eventId", event._id).eq("reviewerPersonId", person._id).eq("state", state),
         )
         .take(maximumCountedReviewAssignments);
       return rows.length;
@@ -672,9 +656,7 @@ export const reviewerWorkload = query({
     }
     const rows = await ctx.db
       .query("admissionReviewAssignments")
-      .withIndex("by_event_reviewer_state_assigned", (index) =>
-        index.eq("eventId", event._id),
-      )
+      .withIndex("by_event_reviewer_state_assigned", (index) => index.eq("eventId", event._id))
       .take(maximumWorkloadAssignments);
     const totals = new Map<Id<"people">, { active: number; completed: number }>();
     for (const row of rows) {
@@ -756,22 +738,21 @@ export const members = query({
       scopeType: "application" as const,
       scopeId: application._id,
     };
-    const [fullReadGrantIds, reviewReadGrantIds, profileGrantIds, project] =
-      await Promise.all([
-        matchingPermissionGrantIds(ctx, {
-          ...permissionRequest,
-          permissionKey: "application.read",
-        }),
-        matchingPermissionGrantIds(ctx, {
-          ...permissionRequest,
-          permissionKey: "application.review.read",
-        }),
-        matchingPermissionGrantIds(ctx, {
-          ...permissionRequest,
-          permissionKey: "application.profile_context.read",
-        }),
-        ctx.db.get(application.submittedProjectVersionId),
-      ]);
+    const [fullReadGrantIds, reviewReadGrantIds, profileGrantIds, project] = await Promise.all([
+      matchingPermissionGrantIds(ctx, {
+        ...permissionRequest,
+        permissionKey: "application.read",
+      }),
+      matchingPermissionGrantIds(ctx, {
+        ...permissionRequest,
+        permissionKey: "application.review.read",
+      }),
+      matchingPermissionGrantIds(ctx, {
+        ...permissionRequest,
+        permissionKey: "application.profile_context.read",
+      }),
+      ctx.db.get(application.submittedProjectVersionId),
+    ]);
     if (fullReadGrantIds.length === 0 && reviewReadGrantIds.length === 0) {
       throw new ConvexError({
         code: "ACCESS_DENIED",
@@ -798,10 +779,7 @@ export const members = query({
     return {
       ...page,
       page: page.page.map((snapshotMember) => {
-        if (
-          snapshotMember.eventId !== event._id ||
-          snapshotMember.teamId !== application.teamId
-        ) {
+        if (snapshotMember.eventId !== event._id || snapshotMember.teamId !== application.teamId) {
           throw new Error("The immutable submitted roster belongs to another team.");
         }
         return {
@@ -931,12 +909,8 @@ export const detail = query({
         v.object({
           id: v.id("admissionInformationRequests"),
           state: admissionInformationRequestState,
-          questions: v.array(
-            v.object({ questionKey: v.string(), question: v.string() }),
-          ),
-          answers: v.optional(
-            v.array(v.object({ questionKey: v.string(), answer: v.string() })),
-          ),
+          questions: v.array(v.object({ questionKey: v.string(), question: v.string() })),
+          answers: v.optional(v.array(v.object({ questionKey: v.string(), answer: v.string() }))),
           requestedAt: v.number(),
           respondedAt: v.optional(v.number()),
           version: v.number(),
@@ -954,10 +928,7 @@ export const detail = query({
           version: v.number(),
         }),
       ),
-      capacity: v.union(
-        v.null(),
-        v.object({ capacity: v.number(), reserved: v.number() }),
-      ),
+      capacity: v.union(v.null(), v.object({ capacity: v.number(), reserved: v.number() })),
       permissions: v.object({
         review: v.boolean(),
         assign: v.boolean(),
@@ -1058,45 +1029,38 @@ export const detail = query({
         .collect(),
     ]);
     if (!team || !project || !policy || policy.eventId !== event._id) return null;
-    const [
-      recommendation,
-      currentInformationRequest,
-      capacity,
-      currentOffer,
-      assignmentRows,
-    ] = await Promise.all([
-      (canReadAiRecommendation || canRunAiRecommendation) && application.aiRecommendationId
-        ? ctx.db.get(application.aiRecommendationId)
-        : Promise.resolve(null),
-      application.currentInformationRequestId
-        ? ctx.db.get(application.currentInformationRequestId)
-        : Promise.resolve(null),
-      canReadApplication
-        ? ctx.db
-        .query("admissionCapacityBuckets")
-        .withIndex("by_policy", (index) =>
-          index.eq("admissionPolicyVersionId", application.admissionPolicyVersionId),
-        )
-            .unique()
-        : Promise.resolve(null),
-      canReadApplication && application.currentOfferId
-        ? ctx.db.get(application.currentOfferId)
-        : Promise.resolve(null),
-      canManageAssignments
-        ? ctx.db
-            .query("admissionReviewAssignments")
-            .withIndex("by_application_state_assigned", (index) =>
-              index.eq("applicationId", application._id),
-            )
-            .collect()
-        : Promise.resolve(null),
-    ]);
+    const [recommendation, currentInformationRequest, capacity, currentOffer, assignmentRows] =
+      await Promise.all([
+        (canReadAiRecommendation || canRunAiRecommendation) && application.aiRecommendationId
+          ? ctx.db.get(application.aiRecommendationId)
+          : Promise.resolve(null),
+        application.currentInformationRequestId
+          ? ctx.db.get(application.currentInformationRequestId)
+          : Promise.resolve(null),
+        canReadApplication
+          ? ctx.db
+              .query("admissionCapacityBuckets")
+              .withIndex("by_policy", (index) =>
+                index.eq("admissionPolicyVersionId", application.admissionPolicyVersionId),
+              )
+              .unique()
+          : Promise.resolve(null),
+        canReadApplication && application.currentOfferId
+          ? ctx.db.get(application.currentOfferId)
+          : Promise.resolve(null),
+        canManageAssignments
+          ? ctx.db
+              .query("admissionReviewAssignments")
+              .withIndex("by_application_state_assigned", (index) =>
+                index.eq("applicationId", application._id),
+              )
+              .collect()
+          : Promise.resolve(null),
+      ]);
     const currentReviews = reviews.filter(
       (review) => review.applicationContentVersion === application.contentVersion,
     );
-    const ownReview = currentReviews.find(
-      (review) => review.reviewerPersonId === person._id,
-    );
+    const ownReview = currentReviews.find((review) => review.reviewerPersonId === person._id);
     const visibleReviews =
       canReadApplication || ownReview
         ? currentReviews
@@ -1122,9 +1086,7 @@ export const detail = query({
         ctx.db
           .query("eventAccessSubjects")
           .withIndex("by_event_person", (index) =>
-            index
-              .eq("eventId", event._id)
-              .eq("personId", assignment.reviewerPersonId),
+            index.eq("eventId", event._id).eq("personId", assignment.reviewerPersonId),
           )
           .unique(),
       ]);
@@ -1138,12 +1100,8 @@ export const detail = query({
         state: assignment.state,
         version: assignment.version,
         assignedAt: assignment.assignedAt,
-        ...(assignment.completedAt !== undefined
-          ? { completedAt: assignment.completedAt }
-          : {}),
-        ...(assignment.cancelledAt !== undefined
-          ? { cancelledAt: assignment.cancelledAt }
-          : {}),
+        ...(assignment.completedAt !== undefined ? { completedAt: assignment.completedAt } : {}),
+        ...(assignment.cancelledAt !== undefined ? { cancelledAt: assignment.cancelledAt } : {}),
         ...(assignment.cancellationReason !== undefined
           ? { cancellationReason: assignment.cancellationReason }
           : {}),
@@ -1157,9 +1115,7 @@ export const detail = query({
         id: application._id,
         state: application.state,
         decisionStage: application.decisionStage,
-        ...(canReadProfileContext
-          ? { cohort: await rosterCohort(ctx, project) }
-          : {}),
+        ...(canReadProfileContext ? { cohort: await rosterCohort(ctx, project) } : {}),
         assignedReviewCount: application.assignedReviewCount,
         completedReviewCount: application.completedReviewCount,
         contentVersion: application.contentVersion,
@@ -1187,13 +1143,11 @@ export const detail = query({
           question: response.question,
           answer: response.answer,
         })),
-        informationResponses: (project.admissionInformationResponses ?? []).map(
-          (response) => ({
-            requestId: response.requestId,
-            answers: response.answers,
-            respondedAt: response.respondedAt,
-          }),
-        ),
+        informationResponses: (project.admissionInformationResponses ?? []).map((response) => ({
+          requestId: response.requestId,
+          answers: response.answers,
+          respondedAt: response.respondedAt,
+        })),
       },
       policy: {
         id: policy._id,
@@ -1213,31 +1167,33 @@ export const detail = query({
         })),
         decisionReasonCodes: policy.decisionReasonCodes,
       },
-      aiRecommendation: canReadAiRecommendation && recommendation
-        && recommendation.eventId === event._id
-        && recommendation.applicationId === application._id
-        ? {
-            id: recommendation._id,
-            state: recommendation.state,
-            ...(recommendation.recommendation !== undefined
-              ? { recommendation: recommendation.recommendation }
-              : {}),
-            criterionAssessments: recommendation.criterionAssessments,
-            strengths: recommendation.strengths,
-            concerns: recommendation.concerns,
-            proposedQuestions: recommendation.proposedQuestions,
-            ...(recommendation.confidence !== undefined
-              ? { confidence: recommendation.confidence }
-              : {}),
-            limitations: recommendation.limitations,
-            ...(recommendation.agentVersion !== undefined
-              ? { agentVersion: recommendation.agentVersion }
-              : {}),
-            ...(recommendation.agentModel !== undefined
-              ? { agentModel: recommendation.agentModel }
-              : {}),
-          }
-        : null,
+      aiRecommendation:
+        canReadAiRecommendation &&
+        recommendation &&
+        recommendation.eventId === event._id &&
+        recommendation.applicationId === application._id
+          ? {
+              id: recommendation._id,
+              state: recommendation.state,
+              ...(recommendation.recommendation !== undefined
+                ? { recommendation: recommendation.recommendation }
+                : {}),
+              criterionAssessments: recommendation.criterionAssessments,
+              strengths: recommendation.strengths,
+              concerns: recommendation.concerns,
+              proposedQuestions: recommendation.proposedQuestions,
+              ...(recommendation.confidence !== undefined
+                ? { confidence: recommendation.confidence }
+                : {}),
+              limitations: recommendation.limitations,
+              ...(recommendation.agentVersion !== undefined
+                ? { agentVersion: recommendation.agentVersion }
+                : {}),
+              ...(recommendation.agentModel !== undefined
+                ? { agentModel: recommendation.agentModel }
+                : {}),
+            }
+          : null,
       aiRecommendationVisible: canReadAiRecommendation,
       aiRecommendationRerun:
         canRunAiRecommendation &&
@@ -1282,9 +1238,7 @@ export const detail = query({
               version: currentOffer.version,
             }
           : null,
-      capacity: capacity
-        ? { capacity: capacity.capacity, reserved: capacity.reserved }
-        : null,
+      capacity: capacity ? { capacity: capacity.capacity, reserved: capacity.reserved } : null,
       permissions: {
         review: reviewGrantIds.length > 0,
         assign: assignmentGrantIds.length > 0,
@@ -1330,17 +1284,16 @@ async function requirePolicyReason(
   return normalized;
 }
 
-function decisionState(decision: Doc<"applications">["humanDecision"]): Doc<"applications">["state"] {
+function decisionState(
+  decision: Doc<"applications">["humanDecision"],
+): Doc<"applications">["state"] {
   if (decision === "accept") return "accepted";
   if (decision === "waitlist") return "waitlisted";
   if (decision === "decline") return "declined";
   return "needs_information";
 }
 
-async function publishedCommunicationsPolicyId(
-  ctx: QueryCtx | MutationCtx,
-  eventId: Id<"events">,
-) {
+async function publishedCommunicationsPolicyId(ctx: QueryCtx | MutationCtx, eventId: Id<"events">) {
   const event = await ctx.db.get(eventId);
   const policyId = event?.publishedCommunicationsPolicyId;
   const policy = policyId ? await ctx.db.get(policyId) : null;
@@ -1398,10 +1351,7 @@ export async function replaceAdmissionInformationRequest(
     now: number;
   },
 ) {
-  const questions = normalizeInformationQuestions(
-    args.decision,
-    args.informationQuestions,
-  );
+  const questions = normalizeInformationQuestions(args.decision, args.informationQuestions);
   const currentInformationRequest = args.application.currentInformationRequestId
     ? await ctx.db.get(args.application.currentInformationRequestId)
     : null;
@@ -1454,10 +1404,8 @@ async function applicationContext(
 }
 
 const assignmentEmail = z.email().max(254);
-const activeReviewAssignmentState: Doc<"admissionReviewAssignments">["state"] =
-  "active";
-const cancelledReviewAssignmentState: Doc<"admissionReviewAssignments">["state"] =
-  "cancelled";
+const activeReviewAssignmentState: Doc<"admissionReviewAssignments">["state"] = "active";
+const cancelledReviewAssignmentState: Doc<"admissionReviewAssignments">["state"] = "cancelled";
 
 function exactAssignmentEmail(value: string) {
   const email = normalizeEmail(value);
@@ -1552,10 +1500,7 @@ export async function createAdmissionReviewAssignment(
     assignedAt: args.now,
   });
   const sourceId = assignmentSourceId(assignmentId);
-  for (const permissionKey of [
-    "application.review.read",
-    "application.review",
-  ] as const) {
+  for (const permissionKey of ["application.review.read", "application.review"] as const) {
     await insertPermissionGrant(ctx, {
       eventId: args.application.eventId,
       personId: args.reviewerSubject.personId,
@@ -1701,10 +1646,7 @@ export const assignReview = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const assignmentId = ctx.db.normalizeId(
-        "admissionReviewAssignments",
-        prior.targetId,
-      );
+      const assignmentId = ctx.db.normalizeId("admissionReviewAssignments", prior.targetId);
       if (!assignmentId) throw new Error("Prior review assignment result is invalid.");
       const [assignment, currentApplication] = await Promise.all([
         ctx.db.get(assignmentId),
@@ -1817,10 +1759,7 @@ export const cancelReviewAssignment = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const assignmentId = ctx.db.normalizeId(
-        "admissionReviewAssignments",
-        prior.targetId,
-      );
+      const assignmentId = ctx.db.normalizeId("admissionReviewAssignments", prior.targetId);
       if (!assignmentId) throw new Error("Prior assignment cancellation is invalid.");
       const [assignment, currentApplication] = await Promise.all([
         ctx.db.get(assignmentId),
@@ -1980,8 +1919,7 @@ export async function saveAdmissionHumanReview(
   const applicationVersion = args.application.version + 1;
   await ctx.db.patch(args.application._id, {
     ...(args.application.state === "submitted" ? { state: "under_review" } : {}),
-    completedReviewCount:
-      args.application.completedReviewCount + (replacesCurrentReview ? 0 : 1),
+    completedReviewCount: args.application.completedReviewCount + (replacesCurrentReview ? 0 : 1),
     version: applicationVersion,
   });
   return {
@@ -2027,10 +1965,7 @@ export const saveReview = mutation({
       if (!reviewId) throw new Error("Prior admission review result is invalid.");
       return {
         reviewId,
-        applicationVersion: storedOperationVersion(
-          prior.resultJson,
-          "admission-review",
-        ),
+        applicationVersion: storedOperationVersion(prior.resultJson, "admission-review"),
       };
     }
     const grantIds = await requirePermission(ctx, {
@@ -2086,17 +2021,9 @@ export const saveReview = mutation({
   },
 });
 
-const rerunnableAdmissionRecommendationStates = new Set<
-  Doc<"admissionAIRecommendations">["state"]
->([
-  "refused",
-  "invalid",
-  "timed_out",
-  "rate_limited",
-  "failed",
-  "stale",
-  "disabled",
-]);
+const rerunnableAdmissionRecommendationStates = new Set<Doc<"admissionAIRecommendations">["state"]>(
+  ["refused", "invalid", "timed_out", "rate_limited", "failed", "stale", "disabled"],
+);
 
 export function admissionRecommendationCanRerun(
   application: Doc<"applications">,
@@ -2138,7 +2065,8 @@ export async function createAdmissionRecommendationRerun(
   ) {
     throw new ConvexError({
       code: "ADMISSION_ANALYSIS_NOT_RETRYABLE",
-      message: "This analysis is current, still running, or no longer part of active admission review.",
+      message:
+        "This analysis is current, still running, or no longer part of active admission review.",
     });
   }
   const admissionConfiguration = await loadPublishedAdmissionConfiguration(ctx, args.event);
@@ -2202,17 +2130,11 @@ export const rerunAiRecommendation = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const recommendationId = ctx.db.normalizeId(
-        "admissionAIRecommendations",
-        prior.targetId,
-      );
+      const recommendationId = ctx.db.normalizeId("admissionAIRecommendations", prior.targetId);
       if (!recommendationId) throw new Error("Prior admission-analysis retry is invalid.");
       return {
         recommendationId,
-        applicationVersion: storedOperationVersion(
-          prior.resultJson,
-          "admission-analysis retry",
-        ),
+        applicationVersion: storedOperationVersion(prior.resultJson, "admission-analysis retry"),
       };
     }
     const grantIds = await requirePermission(ctx, {
@@ -2309,9 +2231,7 @@ async function reserveAdmissionCapacity(
   const participantCount = args.project.lockedMemberCount;
   const overall = await ctx.db
     .query("admissionCapacityBuckets")
-    .withIndex("by_policy", (index) =>
-      index.eq("admissionPolicyVersionId", args.policy._id),
-    )
+    .withIndex("by_policy", (index) => index.eq("admissionPolicyVersionId", args.policy._id))
     .unique();
   if (!overall || overall.eventId !== args.eventId) {
     throw new Error("Published admission capacity is missing.");
@@ -2338,9 +2258,7 @@ async function reserveAdmissionCapacity(
   });
 }
 
-type CapacityReleaseReason = NonNullable<
-  Doc<"admissionCapacityReservations">["releasedReason"]
->;
+type CapacityReleaseReason = NonNullable<Doc<"admissionCapacityReservations">["releasedReason"]>;
 
 async function releaseAdmissionCapacity(
   ctx: MutationCtx,
@@ -2389,13 +2307,7 @@ async function releaseAdmissionCapacity(
 
 const admissionDecisionOperationResult = z
   .object({
-    state: z.enum([
-      "under_review",
-      "needs_information",
-      "accepted",
-      "waitlisted",
-      "declined",
-    ]),
+    state: z.enum(["under_review", "needs_information", "accepted", "waitlisted", "declined"]),
     applicationVersion: z.number().int().positive(),
     informationRequestId: z.string().nullable(),
   })
@@ -2444,10 +2356,7 @@ export const decide = mutation({
         admissionDecisionOperationResult,
       );
       const informationRequestId = stored.informationRequestId
-        ? ctx.db.normalizeId(
-            "admissionInformationRequests",
-            stored.informationRequestId,
-          )
+        ? ctx.db.normalizeId("admissionInformationRequests", stored.informationRequestId)
         : null;
       if (stored.informationRequestId && !informationRequestId) {
         throw new Error("Prior admission decision is invalid.");
@@ -2528,11 +2437,11 @@ export const decide = mutation({
     }
     const currentRecommendation = Boolean(
       recommendation &&
-        recommendation.state === "succeeded" &&
-        recommendation.applicationContentVersion === application.contentVersion &&
-        recommendation.projectVersionId === project._id &&
-        recommendation.admissionPolicyVersionId === policy._id &&
-        recommendation.recommendation,
+      recommendation.state === "succeeded" &&
+      recommendation.applicationContentVersion === application.contentVersion &&
+      recommendation.projectVersionId === project._id &&
+      recommendation.admissionPolicyVersionId === policy._id &&
+      recommendation.recommendation,
     );
     if (currentRecommendation && recommendation?.recommendation) {
       if (args.aiDisposition === "stale" || args.aiDisposition === "unavailable") {
@@ -2556,9 +2465,7 @@ export const decide = mutation({
       }
     } else if (
       args.aiDisposition !==
-      (canReadAiRecommendation && recommendation?.state === "stale"
-        ? "stale"
-        : "unavailable")
+      (canReadAiRecommendation && recommendation?.state === "stale" ? "stale" : "unavailable")
     ) {
       throw new ConvexError({
         code: "AI_DISPOSITION_INVALID",
@@ -2600,10 +2507,7 @@ export const decide = mutation({
     });
     let notificationDeliveryIds = 0;
     if (args.decision === "needs_information") {
-      const communicationsPolicyVersionId = await publishedCommunicationsPolicyId(
-        ctx,
-        event._id,
-      );
+      const communicationsPolicyVersionId = await publishedCommunicationsPolicyId(ctx, event._id);
       notificationDeliveryIds = await enqueueAdmissionDecisionNotifications(ctx, {
         eventId: event._id,
         applicationId: application._id,
@@ -2634,9 +2538,10 @@ export const decide = mutation({
       grantIds,
       scopeType: "application",
       scopeId: application._id,
-      action: args.decision === "needs_information"
-        ? "admission.information_requested"
-        : "admission.human_decision_recorded",
+      action:
+        args.decision === "needs_information"
+          ? "admission.information_requested"
+          : "admission.human_decision_recorded",
       targetType: "application",
       targetId: application._id,
       previousSummary: JSON.stringify({ state: application.state, version: application.version }),
@@ -2651,9 +2556,10 @@ export const decide = mutation({
         notificationDeliveryCount: notificationDeliveryIds,
         version: applicationVersion,
       }),
-      reason: args.decision === "needs_information"
-        ? "Requested more information before a final decision"
-        : "Recorded the human admission decision for Supreme release",
+      reason:
+        args.decision === "needs_information"
+          ? "Requested more information before a final decision"
+          : "Recorded the human admission decision for Supreme release",
     });
     return {
       applicationId: application._id,
@@ -2664,9 +2570,7 @@ export const decide = mutation({
   },
 });
 
-type InformationAnswer = NonNullable<
-  Doc<"admissionInformationRequests">["answers"]
->[number];
+type InformationAnswer = NonNullable<Doc<"admissionInformationRequests">["answers"]>[number];
 
 export function normalizeInformationAnswers(
   request: Doc<"admissionInformationRequests">,
@@ -3023,29 +2927,14 @@ const offerMutationResult = v.object({
 
 const offerOperationResult = z
   .object({
-    offerState: z.enum([
-      "offered",
-      "confirmed",
-      "declined",
-      "expired",
-      "revoked",
-    ]),
+    offerState: z.enum(["offered", "confirmed", "declined", "expired", "revoked"]),
     offerVersion: z.number().int().positive(),
-    applicationState: z.enum([
-      "accepted",
-      "offer_sent",
-      "confirmed",
-      "offer_expired",
-      "withdrawn",
-    ]),
+    applicationState: z.enum(["accepted", "offer_sent", "confirmed", "offer_expired", "withdrawn"]),
     applicationVersion: z.number().int().positive(),
   })
   .strict();
 
-function offerResult(
-  offer: Doc<"admissionOffers">,
-  application: Doc<"applications">,
-) {
+function offerResult(offer: Doc<"admissionOffers">, application: Doc<"applications">) {
   return {
     offerId: offer._id,
     offerState: offer.state,
@@ -3077,20 +2966,12 @@ function storedOfferOperationResult(
   };
 }
 
-function requireOfferExpiry(
-  event: Doc<"events">,
-  expiresAt: number,
-  now: number,
-) {
+function requireOfferExpiry(event: Doc<"events">, expiresAt: number, now: number) {
   const latestAllowedExpiry = Math.min(
     event.startsAt ?? now + 30 * 24 * 60 * 60 * 1_000,
     now + 30 * 24 * 60 * 60 * 1_000,
   );
-  if (
-    !Number.isSafeInteger(expiresAt) ||
-    expiresAt <= now ||
-    expiresAt > latestAllowedExpiry
-  ) {
+  if (!Number.isSafeInteger(expiresAt) || expiresAt <= now || expiresAt > latestAllowedExpiry) {
     throw new ConvexError({
       code: "INVALID_OFFER_EXPIRY",
       message: "Choose a future offer deadline no later than the event start or 30 days from now.",
@@ -3098,10 +2979,7 @@ function requireOfferExpiry(
   }
 }
 
-async function requireActiveOfferReservation(
-  ctx: MutationCtx,
-  offer: Doc<"admissionOffers">,
-) {
+async function requireActiveOfferReservation(ctx: MutationCtx, offer: Doc<"admissionOffers">) {
   const reservation = await ctx.db
     .query("admissionCapacityReservations")
     .withIndex("by_application_state", (index) =>
@@ -3159,9 +3037,7 @@ export async function transitionOffer(
     await releaseAdmissionCapacity(ctx, {
       offer: args.offer,
       reason: releaseReason,
-      ...(args.actorPersonId !== undefined
-        ? { releasedByPersonId: args.actorPersonId }
-        : {}),
+      ...(args.actorPersonId !== undefined ? { releasedByPersonId: args.actorPersonId } : {}),
       now: args.now,
     });
   }
@@ -3185,9 +3061,7 @@ export async function transitionOffer(
 
   await ctx.db.patch(args.offer._id, {
     state: args.transition,
-    ...(args.actorPersonId !== undefined
-      ? { decidedByPersonId: args.actorPersonId }
-      : {}),
+    ...(args.actorPersonId !== undefined ? { decidedByPersonId: args.actorPersonId } : {}),
     decidedAt: args.now,
     decisionReason: args.reason,
     version: offerVersion,
@@ -3321,10 +3195,7 @@ export async function createAdmissionOffer(
     onboardingStatus: "offer_pending",
     cursor: null,
   });
-  const communicationsPolicyVersionId = await publishedCommunicationsPolicyId(
-    ctx,
-    args.event._id,
-  );
+  const communicationsPolicyVersionId = await publishedCommunicationsPolicyId(ctx, args.event._id);
   await enqueueApplicationNotifications(ctx, {
     eventId: args.event._id,
     applicationId: args.application._id,
@@ -3640,10 +3511,7 @@ export const respondToOffer = mutation({
     const member = await ctx.db
       .query("teamMembers")
       .withIndex("by_event_membership_status", (index) =>
-        index
-          .eq("eventId", event._id)
-          .eq("membershipId", membership._id)
-          .eq("status", "active"),
+        index.eq("eventId", event._id).eq("membershipId", membership._id).eq("status", "active"),
       )
       .unique();
     if (!member || member.teamId !== application.teamId || member.role !== "lead") {
@@ -3662,9 +3530,7 @@ export const respondToOffer = mutation({
     const [project, team, offer] = await Promise.all([
       ctx.db.get(application.submittedProjectVersionId),
       ctx.db.get(application.teamId),
-      application.currentOfferId
-        ? ctx.db.get(application.currentOfferId)
-        : Promise.resolve(null),
+      application.currentOfferId ? ctx.db.get(application.currentOfferId) : Promise.resolve(null),
     ]);
     if (
       !project ||
@@ -3711,11 +3577,7 @@ export const respondToOffer = mutation({
     }
     const now = Date.now();
     const transition: OfferTransition =
-      offer.expiresAt <= now
-        ? "expired"
-        : args.response === "confirm"
-          ? "confirmed"
-          : "declined";
+      offer.expiresAt <= now ? "expired" : args.response === "confirm" ? "confirmed" : "declined";
     if (
       transition !== "expired" &&
       (application.version !== args.expectedApplicationVersion ||
@@ -3819,9 +3681,7 @@ export const revokeOffer = mutation({
       scopeId: application._id,
     });
     const [offer, project, team] = await Promise.all([
-      application.currentOfferId
-        ? ctx.db.get(application.currentOfferId)
-        : Promise.resolve(null),
+      application.currentOfferId ? ctx.db.get(application.currentOfferId) : Promise.resolve(null),
       ctx.db.get(application.submittedProjectVersionId),
       ctx.db.get(application.teamId),
     ]);
@@ -3904,11 +3764,7 @@ export const expireOffer = internalMutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     const offer = await ctx.db.get(args.offerId);
-    if (
-      !offer ||
-      offer.state !== "offered" ||
-      offer.version !== args.expectedOfferVersion
-    ) {
+    if (!offer || offer.state !== "offered" || offer.version !== args.expectedOfferVersion) {
       return null;
     }
     const now = Date.now();

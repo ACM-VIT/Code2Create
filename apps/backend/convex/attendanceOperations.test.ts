@@ -172,12 +172,7 @@ async function createAuthUser(backend: BackendTest, now: number, index: number) 
   return documentId(result, "Better Auth user");
 }
 
-async function createAuthSession(
-  backend: BackendTest,
-  userId: string,
-  now: number,
-  index: number,
-) {
+async function createAuthSession(backend: BackendTest, userId: string, now: number, index: number) {
   const result: unknown = await backend.mutation(components.betterAuth.adapter.create, {
     input: {
       model: "session",

@@ -18,15 +18,15 @@ The product must prevent these failures:
 
 ## 2. Actors
 
-| Actor | Main work |
-| --- | --- |
-| Participant | Maintain a profile, join a team, submit a proposal, attend sessions, follow review state, and receive feedback |
-| Team lead | Manage membership, transfer leadership, revise the proposal, answer admission questions, and connect team tools |
-| Supreme | Hold suggested event-governance grants |
-| Board | Hold suggested policy, admission, rubric, result, correction, export, and override grants |
-| SC | Hold suggested workflow-management grants for assigned scopes |
-| JC | Hold suggested station, table, queue, support, verification, runner, or playback grants |
-| External Judge | Hold assigned-panel, presence, and own-scorecard grants |
+| Actor          | Main work                                                                                                       |
+| -------------- | --------------------------------------------------------------------------------------------------------------- |
+| Participant    | Maintain a profile, join a team, submit a proposal, attend sessions, follow review state, and receive feedback  |
+| Team lead      | Manage membership, transfer leadership, revise the proposal, answer admission questions, and connect team tools |
+| Supreme        | Hold suggested event-governance grants                                                                          |
+| Board          | Hold suggested policy, admission, rubric, result, correction, export, and override grants                       |
+| SC             | Hold suggested workflow-management grants for assigned scopes                                                   |
+| JC             | Hold suggested station, table, queue, support, verification, runner, or playback grants                         |
+| External Judge | Hold assigned-panel, presence, and own-scorecard grants                                                         |
 
 The only role labels are `Supreme`, `Board`, `SC`, `JC`, and `External Judge`. Protected functions never authorize from the label itself; each action requires an atomic permission grant for one person, one scope, and one validity window. Assigning Supreme atomically materializes its code-owned role template only when the assigner can grant every permission in that template. A person can still receive a grant without a role label.
 

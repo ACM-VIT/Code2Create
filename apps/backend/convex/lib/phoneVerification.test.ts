@@ -24,24 +24,30 @@ describe("phone verification codes", () => {
     });
     expect(digest).toHaveLength(64);
     expect(constantTimeDigestEqual(digest, digest)).toBe(true);
-    expect(constantTimeDigestEqual(
-      digest,
-      phoneVerificationCodeDigest({
-        secret,
-        verificationId: "verification-2",
-        phone: "+919000000000",
-        code: "123456",
-      }),
-    )).toBe(false);
+    expect(
+      constantTimeDigestEqual(
+        digest,
+        phoneVerificationCodeDigest({
+          secret,
+          verificationId: "verification-2",
+          phone: "+919000000000",
+          code: "123456",
+        }),
+      ),
+    ).toBe(false);
     expect(constantTimeDigestEqual(digest, `${digest}0`)).toBe(false);
   });
 
   test("requires a full 32-byte base64url HMAC secret", () => {
-    expect(requirePhoneVerificationSecret({
-      PHONE_VERIFICATION_HMAC_SECRET: secret,
-    })).toBe(secret);
-    expect(() => requirePhoneVerificationSecret({
-      PHONE_VERIFICATION_HMAC_SECRET: "too-short",
-    })).toThrow("base64url-encoded 32-byte secret");
+    expect(
+      requirePhoneVerificationSecret({
+        PHONE_VERIFICATION_HMAC_SECRET: secret,
+      }),
+    ).toBe(secret);
+    expect(() =>
+      requirePhoneVerificationSecret({
+        PHONE_VERIFICATION_HMAC_SECRET: "too-short",
+      }),
+    ).toThrow("base64url-encoded 32-byte secret");
   });
 });

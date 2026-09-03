@@ -4,22 +4,13 @@ import { defaultParticipantEmailTemplates } from "@code2create/domain";
 
 import type { Id } from "./_generated/dataModel.js";
 import type { MutationCtx } from "./_generated/server.js";
-import {
-  inspectReleaseFixture,
-  requireStagingReleaseDeployment,
-} from "./releaseVerification.ts";
+import { inspectReleaseFixture, requireStagingReleaseDeployment } from "./releaseVerification.ts";
 import {
   communicationsPolicyChecksum,
   normalizeCommunicationsPolicy,
 } from "./lib/communicationsPolicy.ts";
-import {
-  defaultDeterministicIntakePolicy,
-  intakePolicyChecksum,
-} from "./lib/intakePolicy.ts";
-import {
-  defaultParticipantPolicy,
-  participantPolicyChecksum,
-} from "./lib/participantPolicy.ts";
+import { defaultDeterministicIntakePolicy, intakePolicyChecksum } from "./lib/intakePolicy.ts";
+import { defaultParticipantPolicy, participantPolicyChecksum } from "./lib/participantPolicy.ts";
 import { insertPermissionGrant } from "./lib/permissions.ts";
 import {
   createTestSubmissionSnapshot,
@@ -209,7 +200,7 @@ async function seedReleaseFixture(
       timezone: "Asia/Kolkata",
       status: "registration_open",
       vitEmailDomains: ["vitstudent.ac.in"],
-        applicationsCloseAt: Date.now() + 86_400_000,
+      applicationsCloseAt: Date.now() + 86_400_000,
       startsAt,
       endsAt,
       version: 1,
@@ -245,12 +236,7 @@ async function seedReleaseFixture(
       participantEmail,
       now,
     );
-    const operationsPersonId = await insertPerson(
-      ctx,
-      "operations-release",
-      operationsEmail,
-      now,
-    );
+    const operationsPersonId = await insertPerson(ctx, "operations-release", operationsEmail, now);
     const participantPolicyId = await ctx.db.insert("participantPolicyVersions", {
       eventId,
       version: 1,
@@ -544,12 +530,7 @@ async function seedReleaseFixture(
   });
 }
 
-async function insertPerson(
-  ctx: MutationCtx,
-  key: string,
-  email: string,
-  now: number,
-) {
+async function insertPerson(ctx: MutationCtx, key: string, email: string, now: number) {
   return ctx.db.insert("people", {
     authUserId: `${key}-auth`,
     googleSubject: `${key}-google`,

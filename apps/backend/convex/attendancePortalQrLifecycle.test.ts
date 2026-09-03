@@ -20,9 +20,7 @@ describe("attendance portal QR lifecycle", () => {
     const revokedIds = await backend.run((ctx) =>
       revokeActivePortalQrTokens(ctx, fixture.membershipId),
     );
-    expect(new Set(revokedIds)).toEqual(
-      new Set([fixture.firstTokenId, fixture.secondTokenId]),
-    );
+    expect(new Set(revokedIds)).toEqual(new Set([fixture.firstTokenId, fixture.secondTokenId]));
 
     const replacementTokenId = await insertToken(backend, fixture, "replacement", now + 1);
     const siblingTokenId = await insertToken(backend, fixture, "sibling", now + 2);
@@ -58,7 +56,7 @@ async function seedPortalQrFixture(backend: BackendTest, now: number) {
       timezone: "Asia/Kolkata",
       status: "live",
       vitEmailDomains: ["vitstudent.ac.in"],
-        applicationsCloseAt: Date.now() + 86_400_000,
+      applicationsCloseAt: Date.now() + 86_400_000,
       startsAt: now - 60_000,
       endsAt: now + 60_000,
       version: 1,

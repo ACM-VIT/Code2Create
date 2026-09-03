@@ -10,11 +10,7 @@
     "exactOptionalPropertyTypes": true,
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true,
-    "types": [
-      "node"
-    ]
+    "types": ["node"]
   },
-  "include": [
-    "src/**/*.ts"
-  ]
+  "include": ["src/**/*.ts"]
 }

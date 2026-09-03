@@ -57,9 +57,9 @@ export function requireAttendancePlanLimits(args: {
     }
   }
 
-  const boundaries = [...new Set(
-    args.sessions.flatMap((session) => [session.startsAt, session.endsAt]),
-  )].sort((left, right) => left - right);
+  const boundaries = [
+    ...new Set(args.sessions.flatMap((session) => [session.startsAt, session.endsAt])),
+  ].sort((left, right) => left - right);
   for (const boundary of boundaries) {
     const active = args.sessions.filter(
       (session) => session.startsAt <= boundary && boundary < session.endsAt,
@@ -83,12 +83,7 @@ export function requireAttendancePlanLimits(args: {
   }
 }
 
-function requireCollectionLimit(
-  actual: number,
-  maximum: number,
-  code: string,
-  label: string,
-) {
+function requireCollectionLimit(actual: number, maximum: number, code: string, label: string) {
   if (actual > maximum) {
     throw new ConvexError({
       code,
@@ -97,9 +92,7 @@ function requireCollectionLimit(
   }
 }
 
-function maximumPossibleApplicableSessionCount(
-  sessions: readonly AttendanceSessionLimitInput[],
-) {
+function maximumPossibleApplicableSessionCount(sessions: readonly AttendanceSessionLimitInput[]) {
   let universalCount = 0;
   const classCounts = new Map<ParticipantClass, number>();
   const membershipCounts = new Map<string, number>();
@@ -115,9 +108,7 @@ function maximumPossibleApplicableSessionCount(
     }
   }
 
-  return universalCount +
-    maximumCount(classCounts) +
-    maximumCount(membershipCounts);
+  return universalCount + maximumCount(classCounts) + maximumCount(membershipCounts);
 }
 
 function incrementEach<Key>(counts: Map<Key, number>, values: readonly Key[]) {

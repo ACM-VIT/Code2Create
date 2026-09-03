@@ -52,7 +52,9 @@ export const current = query({
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const membership = await ctx.db
       .query("eventMemberships")
-      .withIndex("by_event_person", (index) => index.eq("eventId", event._id).eq("personId", person._id))
+      .withIndex("by_event_person", (index) =>
+        index.eq("eventId", event._id).eq("personId", person._id),
+      )
       .unique();
     if (!membership) return null;
     const teamContext = await currentTeamForMembership(ctx, event._id, membership._id);
@@ -131,11 +133,7 @@ export const teamQrState = query({
       scopeId: teamContext.team._id,
     });
     const token = await ctx.db.get(args.tokenId);
-    if (
-      !token ||
-      token.eventId !== event._id ||
-      token.teamId !== teamContext.team._id
-    ) {
+    if (!token || token.eventId !== event._id || token.teamId !== teamContext.team._id) {
       return null;
     }
     return { state: token.state, expiresAt: token.expiresAt };
@@ -159,7 +157,12 @@ export const mintTeamQr = mutation({
     const membership = await requireMembership(ctx, event._id, person._id);
     const teamContext = await currentTeamForMembership(ctx, event._id, membership._id);
     const plan = await publishedFloorPlan(ctx, event);
-    if (!teamContext || !teamCanBeMapped(teamContext.team.status) || !plan || plan.mappingState === "setup") {
+    if (
+      !teamContext ||
+      !teamCanBeMapped(teamContext.team.status) ||
+      !plan ||
+      plan.mappingState === "setup"
+    ) {
       throw new ConvexError({
         code: "FLOOR_QR_UNAVAILABLE",
         message: "A hall-location code is available only to a confirmed team during floor mapping.",

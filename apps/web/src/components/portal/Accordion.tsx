@@ -6,51 +6,51 @@ import {
   useRef,
   useState,
   type ReactNode,
-} from 'react'
+} from "react";
 
-export type AccordionVariant = 'default' | 'outlined' | 'splitted'
+export type AccordionVariant = "default" | "outlined" | "splitted";
 
 const wrapperVariants: Record<AccordionVariant, string> = {
-  default: '',
-  outlined: 'overflow-clip rounded-petal-sm',
-  splitted: 'gap-y-2',
-}
+  default: "",
+  outlined: "overflow-clip rounded-petal-sm",
+  splitted: "gap-y-2",
+};
 
 const itemVariants: Record<AccordionVariant, string> = {
-  default: 'border-b border-petal-line last:border-b-0',
-  outlined: 'border-x border-t border-petal-edge-soft last:border-b',
-  splitted: 'rounded-petal-sm border border-petal-edge-soft',
-}
+  default: "border-b border-petal-line last:border-b-0",
+  outlined: "border-x border-t border-petal-edge-soft last:border-b",
+  splitted: "rounded-petal-sm border border-petal-edge-soft",
+};
 
 type AccordionContextValue = {
-  variant: AccordionVariant
-  openValues: readonly string[]
-  toggle: (value: string) => void
-  disabled: boolean
-}
+  variant: AccordionVariant;
+  openValues: readonly string[];
+  toggle: (value: string) => void;
+  disabled: boolean;
+};
 
-const AccordionContext = createContext<AccordionContextValue | null>(null)
+const AccordionContext = createContext<AccordionContextValue | null>(null);
 
 function useAccordionContext(component: string) {
-  const context = useContext(AccordionContext)
-  if (!context) throw new Error(`${component} must be used within AccordionRoot`)
-  return context
+  const context = useContext(AccordionContext);
+  if (!context) throw new Error(`${component} must be used within AccordionRoot`);
+  return context;
 }
 
 type AccordionItemContextValue = {
-  open: boolean
-  disabled: boolean
-  panelId: string
-  triggerId: string
-  toggle: () => void
-}
+  open: boolean;
+  disabled: boolean;
+  panelId: string;
+  triggerId: string;
+  toggle: () => void;
+};
 
-const AccordionItemContext = createContext<AccordionItemContextValue | null>(null)
+const AccordionItemContext = createContext<AccordionItemContextValue | null>(null);
 
 function useAccordionItemContext(component: string) {
-  const context = useContext(AccordionItemContext)
-  if (!context) throw new Error(`${component} must be used within AccordionItem`)
-  return context
+  const context = useContext(AccordionItemContext);
+  if (!context) throw new Error(`${component} must be used within AccordionItem`);
+  return context;
 }
 
 export function AccordionRoot({
@@ -60,65 +60,67 @@ export function AccordionRoot({
   defaultValue,
   onValueChange,
   disabled = false,
-  variant = 'default',
-  className = '',
+  variant = "default",
+  className = "",
 }: {
-  children: ReactNode
+  children: ReactNode;
   /** Allows several panels to stay open at once. @default false */
-  allowMultiple?: boolean
+  allowMultiple?: boolean;
   /** Controlled values of the currently open items. */
-  value?: readonly string[]
+  value?: readonly string[];
   /** Values of the initially open items for uncontrolled usage. */
-  defaultValue?: readonly string[]
+  defaultValue?: readonly string[];
   /** Called with the next set of open values. */
-  onValueChange?: (value: readonly string[]) => void
+  onValueChange?: (value: readonly string[]) => void;
   /** Whether the whole accordion ignores interaction. @default false */
-  disabled?: boolean
+  disabled?: boolean;
   /** Visual style of the accordion. @default "default" */
-  variant?: AccordionVariant
-  className?: string
+  variant?: AccordionVariant;
+  className?: string;
 }) {
-  const [uncontrolled, setUncontrolled] = useState<readonly string[]>(defaultValue ?? [])
-  const openValues = value ?? uncontrolled
+  const [uncontrolled, setUncontrolled] = useState<readonly string[]>(defaultValue ?? []);
+  const openValues = value ?? uncontrolled;
 
   const toggle = (itemValue: string) => {
     const next = openValues.includes(itemValue)
       ? openValues.filter((open) => open !== itemValue)
       : allowMultiple
         ? [...openValues, itemValue]
-        : [itemValue]
-    if (value === undefined) setUncontrolled(next)
-    onValueChange?.(next)
-  }
+        : [itemValue];
+    if (value === undefined) setUncontrolled(next);
+    onValueChange?.(next);
+  };
 
   return (
     <AccordionContext.Provider value={{ variant, openValues, toggle, disabled }}>
-      <div className={`flex w-full flex-col items-stretch ${wrapperVariants[variant]} ${className}`}>
+      <div
+        className={`flex w-full flex-col items-stretch ${wrapperVariants[variant]} ${className}`}
+      >
         {children}
       </div>
     </AccordionContext.Provider>
-  )
+  );
 }
 
 export function AccordionItem({
   children,
   value,
   disabled = false,
-  className = '',
+  className = "",
 }: {
-  children: ReactNode
+  children: ReactNode;
   /** Stable value identifying the item; generated when omitted. */
-  value?: string
-  disabled?: boolean
-  className?: string
+  value?: string;
+  disabled?: boolean;
+  className?: string;
 }) {
-  const generatedValue = useId()
-  const itemValue = value ?? generatedValue
-  const accordion = useAccordionContext('AccordionItem')
-  const panelId = useId()
-  const triggerId = useId()
-  const open = accordion.openValues.includes(itemValue)
-  const itemDisabled = disabled || accordion.disabled
+  const generatedValue = useId();
+  const itemValue = value ?? generatedValue;
+  const accordion = useAccordionContext("AccordionItem");
+  const panelId = useId();
+  const triggerId = useId();
+  const open = accordion.openValues.includes(itemValue);
+  const itemDisabled = disabled || accordion.disabled;
 
   return (
     <AccordionItemContext.Provider
@@ -131,26 +133,25 @@ export function AccordionItem({
       }}
     >
       <div
-        data-open={open ? '' : undefined}
+        data-open={open ? "" : undefined}
         className={`relative w-full min-w-0 ${itemVariants[accordion.variant]} ${className}`}
       >
         {children}
       </div>
     </AccordionItemContext.Provider>
-  )
+  );
 }
 
 /** The clickable row. Wrap an AccordionItemHeader to get the open-state mark. */
 export function AccordionItemTrigger({
   children,
-  className = '',
+  className = "",
 }: {
-  children: ReactNode
-  className?: string
+  children: ReactNode;
+  className?: string;
 }) {
-  const { open, disabled, panelId, triggerId, toggle } = useAccordionItemContext(
-    'AccordionItemTrigger',
-  )
+  const { open, disabled, panelId, triggerId, toggle } =
+    useAccordionItemContext("AccordionItemTrigger");
   return (
     <h3 className="m-0 w-full">
       <button
@@ -160,34 +161,34 @@ export function AccordionItemTrigger({
         aria-controls={panelId}
         disabled={disabled}
         onClick={toggle}
-        data-panel-open={open ? '' : undefined}
+        data-panel-open={open ? "" : undefined}
         className={`group block w-full min-w-0 cursor-pointer rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-light/60 disabled:cursor-not-allowed motion-safe:disabled:hover:animate-shake disabled:opacity-50 ${className}`}
       >
         {children}
       </button>
     </h3>
-  )
+  );
 }
 
 export function AccordionItemHeader({
   children,
-  className = '',
+  className = "",
 }: {
-  children: ReactNode
-  className?: string
+  children: ReactNode;
+  className?: string;
 }) {
-  useAccordionItemContext('AccordionItemHeader')
+  useAccordionItemContext("AccordionItemHeader");
   return (
     <div className={`flex w-full min-w-0 items-center justify-between gap-4 py-4 ${className}`}>
       <div className="min-w-0 flex-1">{children}</div>
       <AnimatedPlusMinusMark />
     </div>
-  )
+  );
 }
 
 /** A plus that becomes a minus: the bar fades, the stem turns. */
 export function AnimatedPlusMinusMark({ size = 18 }: { size?: number }) {
-  const { open } = useAccordionItemContext('AnimatedPlusMinusMark')
+  const { open } = useAccordionItemContext("AnimatedPlusMinusMark");
   return (
     <span aria-hidden className="flex flex-none items-center justify-center text-rose-light">
       <svg width={size} height={size} viewBox="0 0 24 24">
@@ -200,7 +201,7 @@ export function AnimatedPlusMinusMark({ size = 18 }: { size?: number }) {
           strokeWidth="1.6"
           strokeLinecap="round"
           className={`origin-center transition-opacity duration-200 motion-reduce:transition-none ${
-            open ? 'opacity-0' : 'opacity-100'
+            open ? "opacity-0" : "opacity-100"
           }`}
         />
         <line
@@ -212,12 +213,12 @@ export function AnimatedPlusMinusMark({ size = 18 }: { size?: number }) {
           strokeWidth="1.6"
           strokeLinecap="round"
           className={`origin-center transition-transform duration-200 motion-reduce:transition-none ${
-            open ? 'rotate-90' : 'rotate-0'
+            open ? "rotate-90" : "rotate-0"
           }`}
         />
       </svg>
     </span>
-  )
+  );
 }
 
 /**
@@ -226,44 +227,44 @@ export function AnimatedPlusMinusMark({ size = 18 }: { size?: number }) {
  */
 export function AccordionItemContent({
   children,
-  className = '',
+  className = "",
 }: {
-  children: ReactNode
-  className?: string
+  children: ReactNode;
+  className?: string;
 }) {
-  const { open, panelId, triggerId } = useAccordionItemContext('AccordionItemContent')
-  const inner = useRef<HTMLDivElement>(null)
-  const [height, setHeight] = useState(0)
+  const { open, panelId, triggerId } = useAccordionItemContext("AccordionItemContent");
+  const inner = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState(0);
   // The first paint lands in its resting state; only later changes animate.
-  const [settled, setSettled] = useState(false)
+  const [settled, setSettled] = useState(false);
 
   useEffect(() => {
-    const element = inner.current
-    if (!element) return
-    const measure = () => setHeight(element.getBoundingClientRect().height)
-    measure()
-    setSettled(true)
-    const observer = new ResizeObserver(measure)
-    observer.observe(element)
-    return () => observer.disconnect()
-  }, [])
+    const element = inner.current;
+    if (!element) return;
+    const measure = () => setHeight(element.getBoundingClientRect().height);
+    measure();
+    setSettled(true);
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
 
   return (
     <div
       id={panelId}
       role="region"
       aria-labelledby={triggerId}
-      data-open={open ? '' : undefined}
+      data-open={open ? "" : undefined}
       style={{ height: open ? height : 0 }}
       className={`w-full min-w-0 overflow-hidden ${
         settled
-          ? 'transition-[height,opacity] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none'
-          : ''
-      } ${open ? 'opacity-100' : 'opacity-0'}`}
+          ? "transition-[height,opacity] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none"
+          : ""
+      } ${open ? "opacity-100" : "opacity-0"}`}
     >
       <div ref={inner} inert={!open} className={`w-full min-w-0 pb-4 ${className}`}>
         {children}
       </div>
     </div>
-  )
+  );
 }

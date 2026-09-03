@@ -38,14 +38,16 @@ export const prepareDispatch = internalMutation({
       recommendation.state !== "pending" ||
       recommendation.agentDispatchAttemptId ||
       recommendation.agentSubmissionId
-    ) return null;
+    )
+      return null;
     const application = await ctx.db.get(recommendation.applicationId);
     if (
       !application ||
       application.eventId !== recommendation.eventId ||
       application.aiRecommendationId !== recommendation._id ||
       application.contentVersion !== recommendation.applicationContentVersion
-    ) return null;
+    )
+      return null;
     const modelConfig = recommendation.modelConfigVersionId
       ? await ctx.db.get(recommendation.modelConfigVersionId)
       : null;
@@ -80,7 +82,8 @@ export const recordDispatchReceipt = internalMutation({
       !recommendation ||
       recommendation.state !== "pending" ||
       recommendation.agentDispatchAttemptId !== args.attemptId
-    ) return false;
+    )
+      return false;
     await ctx.db.patch(recommendation._id, {
       agentDispatchAttemptId: undefined,
       agentSubmissionId: args.submissionId,
@@ -110,7 +113,8 @@ export const recordDispatchFailure = internalMutation({
       !recommendation ||
       recommendation.state !== "pending" ||
       recommendation.agentDispatchAttemptId !== args.attemptId
-    ) return false;
+    )
+      return false;
     await ctx.db.patch(recommendation._id, { agentDispatchAttemptId: undefined });
     return true;
   },
@@ -133,19 +137,23 @@ export const currentRecommendation = internalQuery({
       recommendation.applicationId !== application._id ||
       recommendation.applicationContentVersion !== application.contentVersion ||
       (recommendation.state !== "pending" && recommendation.state !== "running")
-    ) return null;
+    )
+      return null;
     return recommendation._id;
   },
 });
 
 export const prepareProjectionIdentity = internalQuery({
   args: { recommendationId: v.string() },
-  returns: v.union(v.null(), v.object({
-    recommendationId: v.id("admissionAIRecommendations"),
-    applicationId: v.id("applications"),
-    eventId: v.id("events"),
-    contentVersion: v.number(),
-  })),
+  returns: v.union(
+    v.null(),
+    v.object({
+      recommendationId: v.id("admissionAIRecommendations"),
+      applicationId: v.id("applications"),
+      eventId: v.id("events"),
+      contentVersion: v.number(),
+    }),
+  ),
   handler: async (ctx, args) => {
     const recommendationId = ctx.db.normalizeId(
       "admissionAIRecommendations",
@@ -163,13 +171,15 @@ export const prepareProjectionIdentity = internalQuery({
   },
 });
 
-const receiptSchema = z.object({
-  state: z.literal("accepted"),
-  applicationId: z.string().min(1).max(200),
-  instanceId: z.string().min(1).max(200),
-  submissionId: z.string().min(1).max(200),
-  acceptedAt: z.iso.datetime(),
-}).strict();
+const receiptSchema = z
+  .object({
+    state: z.literal("accepted"),
+    applicationId: z.string().min(1).max(200),
+    instanceId: z.string().min(1).max(200),
+    submissionId: z.string().min(1).max(200),
+    acceptedAt: z.iso.datetime(),
+  })
+  .strict();
 
 export const dispatchRecommendation = internalAction({
   args: { recommendationId: v.id("admissionAIRecommendations") },
@@ -228,13 +238,10 @@ export const dispatchRecommendation = internalAction({
         acceptedAt: Date.parse(receipt.data.acceptedAt),
       });
     } catch (error) {
-      const recorded = await ctx.runMutation(
-        internal.admissionAgentActions.recordDispatchFailure,
-        {
-          recommendationId: prepared.recommendationId,
-          attemptId: prepared.attemptId,
-        },
-      );
+      const recorded = await ctx.runMutation(internal.admissionAgentActions.recordDispatchFailure, {
+        recommendationId: prepared.recommendationId,
+        attemptId: prepared.attemptId,
+      });
       if (recorded) throw error;
     }
     return null;

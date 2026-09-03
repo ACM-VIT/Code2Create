@@ -16,9 +16,6 @@ const lifetimeMilliseconds: Record<AttendanceExportLifetime, number> = {
   seven_days: 7 * 24 * 60 * 60 * 1_000,
 };
 
-export function attendanceExportExpiresAt(
-  lifetime: AttendanceExportLifetime,
-  requestedAt: number,
-) {
+export function attendanceExportExpiresAt(lifetime: AttendanceExportLifetime, requestedAt: number) {
   return requestedAt + lifetimeMilliseconds[lifetime];
 }

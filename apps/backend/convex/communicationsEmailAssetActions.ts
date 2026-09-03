@@ -74,9 +74,10 @@ function rootPrefix(paths: string[]) {
   return indexPath.slice(0, -"index.html".length);
 }
 
-function bundleContent(
-  files: Record<string, Uint8Array>,
-): { html: string; assets: Array<Omit<ImportedAsset, "bytes"> & { bytes: Uint8Array }> } {
+function bundleContent(files: Record<string, Uint8Array>): {
+  html: string;
+  assets: Array<Omit<ImportedAsset, "bytes"> & { bytes: Uint8Array }>;
+} {
   const paths = Object.keys(files)
     .filter((path) => !path.endsWith("/") && !path.startsWith("__MACOSX/"))
     .map(normalizedEntryPath);
@@ -110,7 +111,9 @@ function bundleContent(
         fileName: relativePath,
         contentType,
         contentId: `${digest.slice(0, 24)}@code2create`,
-        disposition: contentType.startsWith("image/") ? "inline" as const : "attachment" as const,
+        disposition: contentType.startsWith("image/")
+          ? ("inline" as const)
+          : ("attachment" as const),
         bytes,
       };
     });
@@ -167,13 +170,15 @@ export const uploadBundle = action({
     bundleId: v.id("communicationsEmailAssetBundles"),
     html: v.string(),
     sourceFileName: v.string(),
-    assets: v.array(v.object({
-      fileName: v.string(),
-      contentType: v.string(),
-      contentId: v.string(),
-      disposition: v.union(v.literal("inline"), v.literal("attachment")),
-      bytes: v.bytes(),
-    })),
+    assets: v.array(
+      v.object({
+        fileName: v.string(),
+        contentType: v.string(),
+        contentId: v.string(),
+        disposition: v.union(v.literal("inline"), v.literal("attachment")),
+        bytes: v.bytes(),
+      }),
+    ),
   }),
   handler: async (ctx, args): Promise<BundleResult> => {
     if (args.bytes.byteLength < 22 || args.bytes.byteLength > maximumZipBytes) {
@@ -204,9 +209,7 @@ export const uploadBundle = action({
       const storedAssets = [];
       for (const asset of content.assets) {
         const bytes = Uint8Array.from(asset.bytes);
-        const storageId = await ctx.storage.store(
-          new Blob([bytes], { type: asset.contentType }),
-        );
+        const storageId = await ctx.storage.store(new Blob([bytes], { type: asset.contentType }));
         storedIds.push(storageId);
         storedAssets.push({
           storageId,
@@ -230,12 +233,7 @@ export const uploadBundle = action({
       if (!recorded.attached) {
         for (const storageId of storedIds) await ctx.storage.delete(storageId);
         storedIds.length = 0;
-        return await readStoredBundle(
-          ctx,
-          args.eventSlug,
-          recorded.bundleId,
-          content.html,
-        );
+        return await readStoredBundle(ctx, args.eventSlug, recorded.bundleId, content.html);
       }
       return {
         bundleId: recorded.bundleId,
@@ -263,13 +261,15 @@ export const readBundle = action({
   },
   returns: v.object({
     sourceFileName: v.string(),
-    assets: v.array(v.object({
-      fileName: v.string(),
-      contentType: v.string(),
-      contentId: v.string(),
-      disposition: v.union(v.literal("inline"), v.literal("attachment")),
-      bytes: v.bytes(),
-    })),
+    assets: v.array(
+      v.object({
+        fileName: v.string(),
+        contentType: v.string(),
+        contentId: v.string(),
+        disposition: v.union(v.literal("inline"), v.literal("attachment")),
+        bytes: v.bytes(),
+      }),
+    ),
   }),
   handler: async (ctx, args) => {
     const result = await readStoredBundle(ctx, args.eventSlug, args.bundleId, "");

@@ -75,9 +75,7 @@ export const mine = query({
       ...(consent?.destinationPhoneE164 !== undefined
         ? { destinationPhoneE164: consent.destinationPhoneE164 }
         : {}),
-      ...(profile?.contactPhone !== undefined
-        ? { suggestedPhoneE164: profile.contactPhone }
-        : {}),
+      ...(profile?.contactPhone !== undefined ? { suggestedPhoneE164: profile.contactPhone } : {}),
       consentPolicyVersion: reviewerCallConsentPolicyVersion,
       scriptPolicyVersion: reviewerCallScriptPolicyVersion,
       version: consent?.version ?? 0,
@@ -239,18 +237,20 @@ export const saveReviewerConsent = mutation({
       grantIds,
       scopeType: "self",
       scopeId: subject._id,
-      action: args.state === "granted"
-        ? "communications.call_consent_granted"
-        : "communications.call_consent_revoked",
+      action:
+        args.state === "granted"
+          ? "communications.call_consent_granted"
+          : "communications.call_consent_revoked",
       targetType: "outbound_call_consent",
       targetId: consentId,
       ...(current
         ? { previousSummary: JSON.stringify({ state: current.state, version: current.version }) }
         : {}),
       nextSummary: JSON.stringify({ state: args.state, version }),
-      reason: args.state === "granted"
-        ? "Reviewer enabled phone fallback"
-        : "Reviewer disabled phone fallback",
+      reason:
+        args.state === "granted"
+          ? "Reviewer enabled phone fallback"
+          : "Reviewer disabled phone fallback",
     });
     return { consentId, state: args.state, version };
   },

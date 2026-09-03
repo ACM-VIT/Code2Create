@@ -75,9 +75,9 @@ export function youtubeVideoId(value: string) {
     host === "youtu.be"
       ? url.pathname.slice(1)
       : host === "youtube.com" || host === "music.youtube.com"
-        ? url.searchParams.get("v") ??
+        ? (url.searchParams.get("v") ??
           url.pathname.match(/^\/(?:shorts|embed|live)\/([^/]+)/)?.[1] ??
-          ""
+          "")
         : "";
   return videoIdPattern.test(candidate) ? candidate : null;
 }
@@ -156,7 +156,8 @@ export async function lookupYouTubeVideos(videoIds: readonly string[]): Promise<
     if (!item) continue;
     const durationSeconds = youtubeDurationSeconds(item.contentDetails.duration);
     if (durationSeconds === null) continue;
-    const thumbnailUrl = item.snippet.thumbnails?.medium?.url ?? item.snippet.thumbnails?.default?.url;
+    const thumbnailUrl =
+      item.snippet.thumbnails?.medium?.url ?? item.snippet.thumbnails?.default?.url;
     videos.push({
       videoId,
       title: clip(item.snippet.title, 120),
@@ -188,5 +189,7 @@ export async function searchYouTubeVideos(query: string): Promise<YouTubeVideo[]
       message: "YouTube returned an unexpected search listing.",
     });
   }
-  return lookupYouTubeVideos(parsed.data.items.flatMap((item) => (item.id.videoId ? [item.id.videoId] : [])));
+  return lookupYouTubeVideos(
+    parsed.data.items.flatMap((item) => (item.id.videoId ? [item.id.videoId] : [])),
+  );
 }

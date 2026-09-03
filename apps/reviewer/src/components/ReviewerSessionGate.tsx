@@ -1,9 +1,9 @@
-import type { ReactNode } from 'react'
-import { Pressable, StyleSheet, Text, View } from 'react-native'
-import { SafeAreaView } from 'react-native-safe-area-context'
+import type { ReactNode } from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
-import { AcmMark, BrandBackdrop, BrandMark, BrandWordmark } from '@/components/Brand'
-import { palette, radius } from '@/theme'
+import { AcmMark, BrandBackdrop, BrandMark, BrandWordmark } from "@/components/Brand";
+import { palette, radius } from "@/theme";
 
 export function ReviewerBooting() {
   return (
@@ -20,7 +20,7 @@ export function ReviewerBooting() {
         </View>
       </View>
     </BrandBackdrop>
-  )
+  );
 }
 
 export function ReviewerGate({
@@ -29,14 +29,14 @@ export function ReviewerGate({
   title,
   who,
 }: {
-  children: ReactNode
-  error: string | null
-  title: string
-  who?: string
+  children: ReactNode;
+  error: string | null;
+  title: string;
+  who?: string;
 }) {
   return (
     <BrandBackdrop>
-      <SafeAreaView edges={['top', 'bottom']} style={styles.gate}>
+      <SafeAreaView edges={["top", "bottom"]} style={styles.gate}>
         <View style={styles.gateBody}>
           <BrandMark size={104} />
           <View style={styles.gateWordmark}>
@@ -49,7 +49,7 @@ export function ReviewerGate({
         <View style={styles.actions}>{children}</View>
       </SafeAreaView>
     </BrandBackdrop>
-  )
+  );
 }
 
 export function PrimaryAction({
@@ -58,10 +58,10 @@ export function PrimaryAction({
   onPress,
   secondary = false,
 }: {
-  disabled?: boolean
-  label: string
-  onPress: () => void | Promise<void>
-  secondary?: boolean
+  disabled?: boolean;
+  label: string;
+  onPress: () => void | Promise<void>;
+  secondary?: boolean;
 }) {
   return (
     <Pressable
@@ -79,21 +79,21 @@ export function PrimaryAction({
         {label}
       </Text>
     </Pressable>
-  )
+  );
 }
 
 const styles = StyleSheet.create({
   gate: { flex: 1, paddingHorizontal: 24 },
-  centred: { alignItems: 'center', justifyContent: 'center' },
-  gateBody: { flex: 1, justifyContent: 'flex-end', paddingBottom: 40 },
+  centred: { alignItems: "center", justifyContent: "center" },
+  gateBody: { flex: 1, justifyContent: "flex-end", paddingBottom: 40 },
   bootWordmark: { marginTop: 26 },
-  bootFoot: { position: 'absolute', bottom: 34, alignSelf: 'center' },
+  bootFoot: { position: "absolute", bottom: 34, alignSelf: "center" },
   gateWordmark: { marginTop: 22 },
   title: {
     marginTop: 20,
     color: palette.text,
     fontSize: 26,
-    fontWeight: '600',
+    fontWeight: "600",
     letterSpacing: -0.5,
   },
   who: { marginTop: 8, color: palette.muted, fontSize: 16 },
@@ -102,13 +102,13 @@ const styles = StyleSheet.create({
   action: {
     height: 56,
     borderRadius: radius.control,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     backgroundColor: palette.text,
   },
   actionSecondary: { backgroundColor: palette.tile },
   actionPressed: { opacity: 0.8 },
   actionDisabled: { opacity: 0.4 },
-  actionText: { color: palette.background, fontSize: 17, fontWeight: '600' },
+  actionText: { color: palette.background, fontSize: 17, fontWeight: "600" },
   actionTextSecondary: { color: palette.text },
-})
+});

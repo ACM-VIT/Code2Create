@@ -69,19 +69,19 @@ test("discovers email-targeted access before a complete Google profile claim exi
     sessionId,
   });
 
-  await expect(authenticated.query(api.accessInvitations.mine, {
-    eventSlug,
-  })).resolves.toMatchObject({ email });
-  await expect(authenticated.query(api.rosters.mine, {
-    eventSlug,
-  })).resolves.toBeNull();
+  await expect(
+    authenticated.query(api.accessInvitations.mine, {
+      eventSlug,
+    }),
+  ).resolves.toMatchObject({ email });
+  await expect(
+    authenticated.query(api.rosters.mine, {
+      eventSlug,
+    }),
+  ).resolves.toBeNull();
 });
 
-async function createAuthUser(
-  backend: BackendTest,
-  now: number,
-  email: string,
-) {
+async function createAuthUser(backend: BackendTest, now: number, email: string) {
   const result: unknown = await backend.mutation(components.betterAuth.adapter.create, {
     input: {
       model: "user",
@@ -97,11 +97,7 @@ async function createAuthUser(
   return documentId(result, "Better Auth user");
 }
 
-async function createAuthSession(
-  backend: BackendTest,
-  userId: string,
-  now: number,
-) {
+async function createAuthSession(backend: BackendTest, userId: string, now: number) {
   const result: unknown = await backend.mutation(components.betterAuth.adapter.create, {
     input: {
       model: "session",

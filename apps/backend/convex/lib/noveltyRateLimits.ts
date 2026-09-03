@@ -5,9 +5,7 @@ import { components } from "../_generated/api";
 export const noveltyRateLimiter = new RateLimiter(components.noveltyRateLimiter);
 
 export function globalNoveltyRateLimit(configured?: string) {
-  const rate = configured === undefined || configured.trim() === ""
-    ? 1_800
-    : Number(configured);
+  const rate = configured === undefined || configured.trim() === "" ? 1_800 : Number(configured);
   if (!Number.isSafeInteger(rate) || rate < 60 || rate > 12_000) {
     throw new Error(
       "NOVELTY_GLOBAL_REQUESTS_PER_MINUTE must be a whole number from 60 through 12000.",
@@ -31,9 +29,7 @@ export function teamNoveltyRateLimit(maximumRequestsPerMinute: number) {
 }
 
 export function backgroundNoveltyIndexRateLimit(configured?: string) {
-  const rate = configured === undefined || configured.trim() === ""
-    ? 300
-    : Number(configured);
+  const rate = configured === undefined || configured.trim() === "" ? 300 : Number(configured);
   if (!Number.isSafeInteger(rate) || rate < 60 || rate > 3_000) {
     throw new Error(
       "NOVELTY_INDEX_REQUESTS_PER_MINUTE must be a whole number from 60 through 3000.",

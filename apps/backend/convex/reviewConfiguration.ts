@@ -70,13 +70,7 @@ const reviewerAvailabilityWindowInput = v.object({
   endsAt: v.number(),
 });
 
-const reviewerCandidateRoles = [
-  "supreme",
-  "board",
-  "sc",
-  "jc",
-  "external_judge",
-] as const;
+const reviewerCandidateRoles = ["supreme", "board", "sc", "jc", "external_judge"] as const;
 
 function stableKey(value: string, label: string) {
   const key = value.trim().toLowerCase();
@@ -116,7 +110,10 @@ function normalizedList(values: readonly string[], label: string, maximumItems: 
     });
   }
   const normalized = values.map((value) => normalizedText(value, label, 1, 80));
-  unique(normalized.map((value) => value.toLocaleLowerCase()), label);
+  unique(
+    normalized.map((value) => value.toLocaleLowerCase()),
+    label,
+  );
   return normalized;
 }
 
@@ -134,11 +131,7 @@ export const profile = query({
       languages: v.array(v.string()),
       criterionKeys: v.array(v.string()),
       availabilityWindows: v.array(reviewerAvailabilityWindowInput),
-      trainingStatus: v.union(
-        v.literal("pending"),
-        v.literal("complete"),
-        v.literal("blocked"),
-      ),
+      trainingStatus: v.union(v.literal("pending"), v.literal("complete"), v.literal("blocked")),
       status: v.union(v.literal("active"), v.literal("inactive")),
       version: v.number(),
     }),
@@ -201,11 +194,7 @@ export const saveProfile = mutation({
     languages: v.array(v.string()),
     criterionKeys: v.array(v.string()),
     availabilityWindows: v.array(reviewerAvailabilityWindowInput),
-    trainingStatus: v.union(
-      v.literal("pending"),
-      v.literal("complete"),
-      v.literal("blocked"),
-    ),
+    trainingStatus: v.union(v.literal("pending"), v.literal("complete"), v.literal("blocked")),
     status: v.union(v.literal("active"), v.literal("inactive")),
     expectedVersion: v.number(),
     reason: v.string(),
@@ -216,9 +205,7 @@ export const saveProfile = mutation({
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person: actor } = await requireCurrentPerson(ctx);
     const actorSubject = await requireEventSubject(ctx, event._id, actor._id);
-    const availabilityWindows = normalizedReviewerAvailabilityWindows(
-      args.availabilityWindows,
-    );
+    const availabilityWindows = normalizedReviewerAvailabilityWindows(args.availabilityWindows);
     if (
       args.status === "active" &&
       args.trainingStatus === "complete" &&
@@ -279,7 +266,12 @@ export const saveProfile = mutation({
         )
         .unique(),
     ]);
-    if (!target || target.status !== "active" || !targetSubject || targetSubject.status !== "active") {
+    if (
+      !target ||
+      target.status !== "active" ||
+      !targetSubject ||
+      targetSubject.status !== "active"
+    ) {
       throw new ConvexError({
         code: "REVIEWER_NOT_AVAILABLE",
         message: "The reviewer must have active event access.",
@@ -408,33 +400,29 @@ export const candidates = query({
       ctx.db
         .query("eventAccessSubjects")
         .withIndex("by_event_link_status_email", (index) =>
-          index
-            .eq("eventId", event._id)
-            .eq("linkedBy", "roster_claim")
-            .eq("status", "active"),
+          index.eq("eventId", event._id).eq("linkedBy", "roster_claim").eq("status", "active"),
         )
         .collect(),
       ctx.db
         .query("eventAccessSubjects")
         .withIndex("by_event_link_status_email", (index) =>
-          index
-            .eq("eventId", event._id)
-            .eq("linkedBy", "access_invitation")
-            .eq("status", "active"),
+          index.eq("eventId", event._id).eq("linkedBy", "access_invitation").eq("status", "active"),
         )
         .collect(),
       ctx.db
         .query("reviewerProfiles")
         .withIndex("by_event_person", (index) => index.eq("eventId", event._id))
         .collect(),
-      Promise.all(reviewerCandidateRoles.map((role) =>
-        ctx.db
-          .query("eventRoles")
-          .withIndex("by_event_role_status", (index) =>
-            index.eq("eventId", event._id).eq("role", role).eq("status", "active"),
-          )
-          .collect()
-      )),
+      Promise.all(
+        reviewerCandidateRoles.map((role) =>
+          ctx.db
+            .query("eventRoles")
+            .withIndex("by_event_role_status", (index) =>
+              index.eq("eventId", event._id).eq("role", role).eq("status", "active"),
+            )
+            .collect(),
+        ),
+      ),
     ]);
     const roleSubjects = await Promise.all(
       rolesByType.flat().map((role) => ctx.db.get(role.eventAccessSubjectId)),
@@ -446,7 +434,7 @@ export const candidates = query({
           .withIndex("by_event_person", (index) =>
             index.eq("eventId", event._id).eq("personId", profile.personId),
           )
-          .unique()
+          .unique(),
       ),
     );
     const subjectsByPersonId = new Map<Id<"people">, Doc<"eventAccessSubjects">>();
@@ -469,15 +457,16 @@ export const candidates = query({
       permissionKey: "reviewer.profile.manage",
       scopeType: "event",
     });
-    const manageablePersonIds = eventManageGrantIds.length > 0
-      ? null
-      : await boundedActivePermissionScopeIds(ctx, {
-          eventId: event._id,
-          eventAccessSubjectId: actorSubject._id,
-          permissionKey: "reviewer.profile.manage",
-          scopeType: "person",
-          maximumScopeCount: maximumReviewerAssignmentsPerEvent,
-        });
+    const manageablePersonIds =
+      eventManageGrantIds.length > 0
+        ? null
+        : await boundedActivePermissionScopeIds(ctx, {
+            eventId: event._id,
+            eventAccessSubjectId: actorSubject._id,
+            permissionKey: "reviewer.profile.manage",
+            scopeType: "person",
+            maximumScopeCount: maximumReviewerAssignmentsPerEvent,
+          });
     const rows = [...subjectsByPersonId.values()].map((subject) => {
       const profile = profilesByPersonId.get(subject.personId);
       return {
@@ -485,13 +474,10 @@ export const candidates = query({
         displayName: subject.displayName,
         email: subject.emailNormalized,
         canManage:
-          eventManageGrantIds.length > 0 ||
-          manageablePersonIds?.has(subject.personId) === true,
+          eventManageGrantIds.length > 0 || manageablePersonIds?.has(subject.personId) === true,
         profile: profile
           ? {
-              ...(profile.contactPhone !== undefined
-                ? { contactPhone: profile.contactPhone }
-                : {}),
+              ...(profile.contactPhone !== undefined ? { contactPhone: profile.contactPhone } : {}),
               technicalDomains: profile.technicalDomains,
               productDomains: profile.productDomains,
               languages: profile.languages,
@@ -644,7 +630,10 @@ export const publishRound = mutation({
     reason: v.string(),
     clientOperationId: v.string(),
   },
-  returns: v.object({ roundId: v.id("reviewRounds"), rubricVersionId: v.id("reviewRubricVersions") }),
+  returns: v.object({
+    roundId: v.id("reviewRounds"),
+    rubricVersionId: v.id("reviewRubricVersions"),
+  }),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person: actor } = await requireCurrentPerson(ctx);
@@ -678,7 +667,10 @@ export const publishRound = mutation({
       scopeType: "event",
     });
     if (event.status === "complete") {
-      throw new ConvexError({ code: "EVENT_COMPLETE", message: "A completed event cannot publish a round." });
+      throw new ConvexError({
+        code: "EVENT_COMPLETE",
+        message: "A completed event cannot publish a round.",
+      });
     }
     const participantPolicy = await loadPublishedParticipantPolicy(ctx, event);
     validateReviewerRoundStaffingPolicy(args.round);
@@ -691,7 +683,10 @@ export const publishRound = mutation({
       )
       .unique();
     if (existingRound) {
-      throw new ConvexError({ code: "ROUND_EXISTS", message: "That round key is already published." });
+      throw new ConvexError({
+        code: "ROUND_EXISTS",
+        message: "That round key is already published.",
+      });
     }
     const roundCapacityProbe = await ctx.db
       .query("reviewRounds")
@@ -766,8 +761,14 @@ export const publishRound = mutation({
       },
     }));
     const spreadThreshold = validateScoreSpreadThreshold(args.rubric.spreadThreshold);
-    unique(criteria.map((criterion) => criterion.stableKey), "Criterion keys");
-    unique(criteria.map((criterion) => String(criterion.displayOrder)), "Criterion display positions");
+    unique(
+      criteria.map((criterion) => criterion.stableKey),
+      "Criterion keys",
+    );
+    unique(
+      criteria.map((criterion) => String(criterion.displayOrder)),
+      "Criterion display positions",
+    );
     if (
       criteria.some(
         (criterion) =>
@@ -779,19 +780,33 @@ export const publishRound = mutation({
       ) ||
       criteria.reduce((total, criterion) => total + criterion.weight, 0) !== 100
     ) {
-      throw new ConvexError({ code: "INVALID_RUBRIC", message: "Criterion weights must be positive integers totalling 100." });
+      throw new ConvexError({
+        code: "INVALID_RUBRIC",
+        message: "Criterion weights must be positive integers totalling 100.",
+      });
     }
     if (args.panels.length < 1 || args.panels.length > 100) {
-      throw new ConvexError({ code: "INVALID_PANELS", message: "Publish at least one and at most 100 panels." });
+      throw new ConvexError({
+        code: "INVALID_PANELS",
+        message: "Publish at least one and at most 100 panels.",
+      });
     }
     const panels = args.panels.map((panel) => ({
       stableKey: stableKey(panel.stableKey, "Panel key"),
       name: normalizedText(panel.name, "Panel name", 2, 80),
       members: panel.members,
     }));
-    unique(panels.map((panel) => panel.stableKey), "Panel keys");
-    unique(panels.map((panel) => panel.name.toLocaleLowerCase()), "Panel names");
-    const allReviewerIds = panels.flatMap((panel) => panel.members.map((member) => member.personId));
+    unique(
+      panels.map((panel) => panel.stableKey),
+      "Panel keys",
+    );
+    unique(
+      panels.map((panel) => panel.name.toLocaleLowerCase()),
+      "Panel names",
+    );
+    const allReviewerIds = panels.flatMap((panel) =>
+      panel.members.map((member) => member.personId),
+    );
     unique(allReviewerIds, "Reviewer assignments across panels");
     unique(args.reservePersonIds, "Reserve reviewers");
     const panelReviewerIds = new Set(allReviewerIds);
@@ -873,10 +888,16 @@ export const publishRound = mutation({
     }
     for (const panel of panels) {
       if (panel.members.length !== args.round.requiredPanelSize) {
-        throw new ConvexError({ code: "PANEL_SIZE_MISMATCH", message: "Every panel must have the published reviewer count." });
+        throw new ConvexError({
+          code: "PANEL_SIZE_MISMATCH",
+          message: "Every panel must have the published reviewer count.",
+        });
       }
       if (panel.members.filter((member) => member.isCoordinator).length !== 1) {
-        throw new ConvexError({ code: "PANEL_COORDINATOR_REQUIRED", message: "Every panel needs exactly one coordinator." });
+        throw new ConvexError({
+          code: "PANEL_COORDINATOR_REQUIRED",
+          message: "Every panel needs exactly one coordinator.",
+        });
       }
       for (const member of panel.members) {
         unique(member.criterionKeys, "One reviewer's criterion assignments");

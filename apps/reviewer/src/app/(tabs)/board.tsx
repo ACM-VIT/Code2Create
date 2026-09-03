@@ -1,5 +1,5 @@
-import { DutyBoard } from '@/components/DutyBoard'
+import { DutyBoard } from "@/components/DutyBoard";
 
 export default function BoardScreen() {
-  return <DutyBoard group="board" />
+  return <DutyBoard group="board" />;
 }

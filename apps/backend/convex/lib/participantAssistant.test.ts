@@ -15,32 +15,22 @@ describe("participant assistant phases", () => {
   it.each(["draft", "registration_open", "registration_closed"] as const)(
     "keeps %s inside idea submission help",
     (status) => {
-      expect(participantAssistantPhaseForEvent({ status })).toBe(
-        "idea_submission",
-      );
+      expect(participantAssistantPhaseForEvent({ status })).toBe("idea_submission");
     },
   );
 
-  it.each(["live", "complete"] as const)(
-    "uses in-event help for %s events",
-    (status) => {
-      expect(participantAssistantPhaseForEvent({ status })).toBe("in_event");
-    },
-  );
+  it.each(["live", "complete"] as const)("uses in-event help for %s events", (status) => {
+    expect(participantAssistantPhaseForEvent({ status })).toBe("in_event");
+  });
 
   it("keeps event-day topics out of idea-submission suggestions", () => {
     const suggestions = participantAssistantSuggestions("idea_submission");
-    expect(suggestions.join(" ").toLowerCase()).not.toMatch(
-      /attendance|checkpoint|schedule|venue/,
-    );
+    expect(suggestions.join(" ").toLowerCase()).not.toMatch(/attendance|checkpoint|schedule|venue/);
   });
 
   it("tells the model to describe phase limits in participant language", () => {
-    const instructions = participantAssistantInstructions(
-      "idea_submission",
-      "{}",
-    );
-    expect(instructions).toContain("backend language such as \"knowledge gate");
+    const instructions = participantAssistantInstructions("idea_submission", "{}");
+    expect(instructions).toContain('backend language such as "knowledge gate');
     expect(instructions).toContain("it becomes available when the event starts");
   });
 
@@ -81,12 +71,8 @@ describe("participant assistant phases", () => {
     expect(instructions).toContain(
       "Decide what matters from the raw participant, team, proposal, application, schedule",
     );
-    expect(instructions).toContain(
-      "There is no server-written recommendation to repeat",
-    );
-    expect(instructions).toContain(
-      "Compare it with the published schedule",
-    );
+    expect(instructions).toContain("There is no server-written recommendation to repeat");
+    expect(instructions).toContain("Compare it with the published schedule");
     expect(instructions).not.toContain("participant.progress");
     expect(instructions).not.toContain("schedulePosition");
   });
@@ -96,7 +82,9 @@ describe("participant assistant phases", () => {
     expect(instructions).toContain("Use the handoff tool according to its description");
     expect(instructions).toContain("should never have to repeat the story");
     expect(instructions).toContain("can see the context, and will reply here");
-    expect(instructions).toContain("share an official contact link only if EVENT_CONTEXT supplies one");
+    expect(instructions).toContain(
+      "share an official contact link only if EVENT_CONTEXT supplies one",
+    );
     expect(instructions).toContain("Do not call it a ticket or give a code");
   });
 });
