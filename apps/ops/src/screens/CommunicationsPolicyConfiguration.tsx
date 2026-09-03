@@ -3,8 +3,11 @@ import {
   participantEmailTemplateKeys,
   participantEmailTemplateLabels,
   participantEmailTemplateZipMaximumBytes,
+  rewriteParticipantEmailTemplateAssetReferences,
   type ParticipantEmailTemplateKey,
 } from "@code2create/domain";
+import type { Code2CreateAuthClient } from "@code2create/web-auth";
+import { useVersionedState } from "@code2create/web-forms";
 import { TZDateMini } from "@date-fns/tz";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import { useAction, useMutation, useQuery } from "convex/react";
@@ -17,14 +20,13 @@ import {
 import { ConfigurationEditorDisclosure } from "../components/ConfigurationEditorDisclosure";
 import { PendingOperationRecovery } from "../components/PendingOperationRecovery";
 import { LoadingLabel, SkeletonCard, SkeletonStats } from "../components/Skeleton";
-import { eventSlug } from "../lib/config";
+import { clientConfiguration, eventSlug } from "../lib/config";
 import { formatZonedDateTimeWindow as formatWindow } from "../lib/dateTime";
 import { readableError } from "../lib/errors";
 import {
   type ConfigurationOperationDescriptor,
   useConfigurationOperations,
 } from "../lib/configurationOperations";
-import { useVersionedState } from "@code2create/web-forms";
 
 type Configuration = FunctionReturnType<typeof api.communicationsPolicyConfiguration.current>;
 type Policy = Configuration["publishedPolicy"]["policy"];
@@ -35,23 +37,66 @@ type EmailTemplate = Policy["emailTemplates"][number];
 type CommunicationsPolicyOperationResult =
   | FunctionReturnType<typeof api.communicationsPolicyConfiguration.createDraft>
   | FunctionReturnType<typeof api.communicationsPolicyConfiguration.publish>;
-type EmailBundleStorageId = FunctionArgs<
-  typeof api.communicationsEmailAssetActions.importBundle
->["sourceStorageId"];
+type EmailAssetBundleId = FunctionArgs<
+  typeof api.communicationsEmailAssetActions.readBundle
+>["bundleId"];
+type EmailBundleImportResponse = {
+  bundleId: EmailAssetBundleId;
+  html: string;
+  sourceFileName: string;
+  assetCount: number;
+};
 
-function isStorageUploadResponse(value: unknown): value is { storageId: EmailBundleStorageId } {
+function isEmailBundleImportResponse(value: unknown): value is EmailBundleImportResponse {
   return (
     typeof value === "object" &&
     value !== null &&
-    "storageId" in value &&
-    typeof value.storageId === "string"
+    "bundleId" in value &&
+    typeof value.bundleId === "string" &&
+    "html" in value &&
+    typeof value.html === "string" &&
+    "sourceFileName" in value &&
+    typeof value.sourceFileName === "string" &&
+    "assetCount" in value &&
+    typeof value.assetCount === "number" &&
+    Number.isSafeInteger(value.assetCount) &&
+    value.assetCount >= 0
   );
 }
 
-async function uploadTemplateZip(uploadUrl: string, file: File) {
-  const response = await fetch(uploadUrl, {
+function emailBundleImportError(value: unknown) {
+  return typeof value === "object" &&
+    value !== null &&
+    "error" in value &&
+    typeof value.error === "string"
+    ? value.error
+    : null;
+}
+
+async function uploadTemplateZip({
+  siteUrl,
+  accessToken,
+  templateKey,
+  file,
+  clientOperationId,
+}: {
+  siteUrl: string;
+  accessToken: string;
+  templateKey: ParticipantEmailTemplateKey;
+  file: File;
+  clientOperationId: string;
+}) {
+  const endpoint = new URL("/configuration/communications/email-template", siteUrl);
+  endpoint.searchParams.set("eventSlug", eventSlug);
+  endpoint.searchParams.set("templateKey", templateKey);
+  endpoint.searchParams.set("fileName", file.name);
+  endpoint.searchParams.set("clientOperationId", clientOperationId);
+  const response = await fetch(endpoint, {
     method: "POST",
-    headers: { "Content-Type": file.type || "application/zip" },
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": file.type || "application/zip",
+    },
     body: file,
   });
   let payload: unknown;
@@ -60,10 +105,13 @@ async function uploadTemplateZip(uploadUrl: string, file: File) {
   } catch {
     throw new Error("The template ZIP upload returned an unreadable response.");
   }
-  if (!response.ok || !isStorageUploadResponse(payload)) {
-    throw new Error("The template ZIP could not be uploaded. Try again.");
+  if (!response.ok) {
+    throw new Error(emailBundleImportError(payload) ?? "The template ZIP could not be imported.");
   }
-  return payload.storageId;
+  if (!isEmailBundleImportResponse(payload)) {
+    throw new Error("The template ZIP import returned an invalid response.");
+  }
+  return payload;
 }
 
 const operationDescriptors = [
@@ -79,14 +127,16 @@ const operationDescriptors = [
   },
 ] satisfies readonly ConfigurationOperationDescriptor[];
 
-export function CommunicationsPolicyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibility }) {
+export function CommunicationsPolicyConfiguration({
+  tabs,
+  authClient,
+}: {
+  tabs: ConfigurationTabsVisibility;
+  authClient: Code2CreateAuthClient;
+}) {
   const configuration = useQuery(api.communicationsPolicyConfiguration.current, { eventSlug });
   const createDraft = useMutation(api.communicationsPolicyConfiguration.createDraft);
   const publish = useMutation(api.communicationsPolicyConfiguration.publish);
-  const generateEmailBundleUploadUrl = useMutation(
-    api.communicationsEmailAssets.generateBundleUploadUrl,
-  );
-  const importEmailBundle = useAction(api.communicationsEmailAssetActions.importBundle);
   const operations =
     useConfigurationOperations<CommunicationsPolicyOperationResult>(operationDescriptors);
   const validation = useQuery(
@@ -240,13 +290,16 @@ export function CommunicationsPolicyConfiguration({ tabs }: { tabs: Configuratio
     }
     setUploadingEmailBundle(templateKey);
     try {
-      const uploadUrl = await generateEmailBundleUploadUrl({ eventSlug });
-      const sourceStorageId = await uploadTemplateZip(uploadUrl, file);
-      const imported = await importEmailBundle({
-        eventSlug,
+      const siteUrl = clientConfiguration.convexSiteUrl;
+      if (!siteUrl) throw new Error("The email template upload endpoint is unavailable.");
+      const tokenResult = await authClient.convex.token({ fetchOptions: { throw: false } });
+      const accessToken = tokenResult.data?.token;
+      if (!accessToken) throw new Error("Your session could not authorize this upload. Try again.");
+      const imported = await uploadTemplateZip({
+        siteUrl,
+        accessToken,
         templateKey,
-        fileName: file.name,
-        sourceStorageId,
+        file,
         clientOperationId: crypto.randomUUID(),
       });
       updateEmailTemplateFor(templateKey, {
@@ -842,23 +895,10 @@ function EmailTemplatePreview({ template }: { template: EmailTemplate }) {
     previewError && previewError.bundleId === template.assetBundleId ? previewError : null;
   const assetUrls = currentAssetPreview?.urls ?? [];
   const error = currentPreviewError?.message ?? null;
-  let preview = renderEmailPreview(template.html);
-  for (const asset of assetUrls) {
-    const references = [
-      asset.fileName,
-      `./${asset.fileName}`,
-      `cid:${asset.fileName}`,
-      `cid:./${asset.fileName}`,
-    ];
-    for (const reference of references) {
-      preview = preview
-        .replaceAll(`src="${reference}"`, `src="${asset.url}"`)
-        .replaceAll(`src='${reference}'`, `src='${asset.url}'`)
-        .replaceAll(`url("${reference}")`, `url("${asset.url}")`)
-        .replaceAll(`url('${reference}')`, `url('${asset.url}')`)
-        .replaceAll(`url(${reference})`, `url(${asset.url})`);
-    }
-  }
+  const preview = rewriteParticipantEmailTemplateAssetReferences(
+    renderEmailPreview(template.html),
+    assetUrls.map((asset) => ({ fileName: asset.fileName, replacement: asset.url })),
+  );
 
   return (
     <aside className="email-template-preview">

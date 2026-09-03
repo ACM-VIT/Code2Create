@@ -6,6 +6,10 @@ import {
   ideaIntelligenceReadEndpoint,
 } from "./admissionAgentHttp";
 import { authComponent, createAuth } from "./auth";
+import {
+  importBundleEndpoint,
+  importBundleOptions,
+} from "./communicationsEmailAssetActions";
 import { figmaWebhook } from "./figmaWebhook";
 import { githubWebhook } from "./githubWebhook";
 import { intelligenceReadEndpoint } from "./intelligenceReads";
@@ -28,6 +32,16 @@ import { participantEmailEvent } from "./participantEmailEvent";
 const http = httpRouter();
 
 authComponent.registerRoutes(http, createAuth, { cors: true });
+http.route({
+  path: "/configuration/communications/email-template",
+  method: "POST",
+  handler: importBundleEndpoint,
+});
+http.route({
+  path: "/configuration/communications/email-template",
+  method: "OPTIONS",
+  handler: importBundleOptions,
+});
 http.route({
   path: "/integrations/github/webhook",
   method: "POST",

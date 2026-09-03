@@ -1,6 +1,9 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
-import { participantEmailTemplateZipMaximumBytes } from "@code2create/domain";
+import {
+  normalizeParticipantEmailTemplateAssetReference,
+  participantEmailTemplateZipMaximumBytes,
+} from "@code2create/domain";
 import { Unzip, UnzipInflate, UnzipPassThrough } from "fflate";
 
 const maximumEmailTemplateHtmlBytes = 250_000;
@@ -272,11 +275,8 @@ function validateImageReferences(html: string, assets: ImportedEmailTemplateAsse
     if (sources.length !== 1) {
       invalidBundle("Every template image must have exactly one quoted src value.");
     }
-    const rawSource = sources[0]?.[2]?.trim() ?? "";
-    const source = (rawSource.startsWith("cid:") ? rawSource.slice(4) : rawSource).replace(
-      /^\.\//u,
-      "",
-    );
+    const rawSource = sources[0]?.[2] ?? "";
+    const source = normalizeParticipantEmailTemplateAssetReference(rawSource);
     if (!source || !inlineAssets.has(source)) {
       invalidBundle(`Template image ${rawSource || "(empty)"} is not included in the ZIP.`);
     }

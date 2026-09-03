@@ -5,6 +5,7 @@ import { Buffer } from "node:buffer";
 
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
+import { rewriteParticipantEmailTemplateAssetReferences } from "@code2create/domain";
 import { v } from "convex/values";
 
 import { internal } from "./_generated/api";
@@ -41,26 +42,12 @@ function rewriteInlineAssetReferences(
   html: string,
   assets: Array<{ fileName: string; contentId: string; disposition: "inline" | "attachment" }>,
 ) {
-  let rewritten = html;
-  for (const asset of assets) {
-    if (asset.disposition !== "inline") continue;
-    const cid = `cid:${asset.contentId}`;
-    const references = [
-      asset.fileName,
-      `./${asset.fileName}`,
-      `cid:${asset.fileName}`,
-      `cid:./${asset.fileName}`,
-    ];
-    for (const reference of references) {
-      rewritten = rewritten
-        .replaceAll(`src="${reference}"`, `src="${cid}"`)
-        .replaceAll(`src='${reference}'`, `src='${cid}'`)
-        .replaceAll(`url("${reference}")`, `url("${cid}")`)
-        .replaceAll(`url('${reference}')`, `url('${cid}')`)
-        .replaceAll(`url(${reference})`, `url(${cid})`);
-    }
-  }
-  return rewritten;
+  return rewriteParticipantEmailTemplateAssetReferences(
+    html,
+    assets
+      .filter((asset) => asset.disposition === "inline")
+      .map((asset) => ({ fileName: asset.fileName, replacement: `cid:${asset.contentId}` })),
+  );
 }
 
 function configuredPortalUrl(path: string) {
