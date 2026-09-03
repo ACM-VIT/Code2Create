@@ -84,6 +84,7 @@ If the participant already has another team, the screen shows both teams and ask
 
 ### Membership changes
 
+- The current lead can rename the team before the applicable idea-submission deadline with exact-team `team.members.manage` authority. At or after that deadline the name is locked. The server validates the name, current team version, and deadline, records the change, and refreshes a submitted application version so prior review output cannot remain current under the old team identity.
 - The lead can remove a non-lead member before the applicable deadline.
 - A member can leave before the applicable deadline.
 - A lead with other members must transfer leadership before leaving.
