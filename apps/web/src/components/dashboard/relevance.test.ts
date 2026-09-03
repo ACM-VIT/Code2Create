@@ -10,14 +10,20 @@ const quiet: DashboardModels = {
   music: { eligible: true, suspended: false, window: null, nowPlaying: null, queue: [], search: async () => [], request: async () => ({ created: true }), toggleVote: async () => {} },
   integrations: { available: true, github: { connected: false, detail: "" }, figma: { connected: false, detail: "" }, open: () => {} },
   updates: { available: true, checkpoints: [], timezone: "UTC", write: () => {} },
-  review: { available: true, queue: null, showCode: null },
+  review: {
+    available: true,
+    queue: null,
+    showCode: null,
+    services: [{ kind: "outing_permission", joined: false, position: null, waitingCount: 0 }],
+    setServiceQueue: async () => {},
+  },
   help: { discordUrl: null, support: null },
   benefits: { available: true, benefits: [] },
 };
 
-test("a quiet dashboard drops the review tile and keeps the schedule on top", () => {
+test("a quiet dashboard keeps the outing queue and the schedule on top", () => {
   const seating = composeDashboard(tileRelevance(quiet));
-  assert.equal(seating.review, undefined);
+  assert.notEqual(seating.review, undefined);
   assert.equal(seating.event, "hero");
   assert.equal(Object.keys(seating).length, 7);
 });
@@ -25,7 +31,11 @@ test("a quiet dashboard drops the review tile and keeps the schedule on top", ()
 test("an open review round outranks everything and an empty perk list makes way", () => {
   const live: DashboardModels = {
     ...quiet,
-    review: { available: true, queue: { round: "R1", state: "In queue", detail: null, wait: null, reviewers: null }, showCode: { sessionId: "review-session", mint: async () => ({ payload: "", manualCode: "", expiresAt: 0, serverNow: 0 }) } },
+    review: {
+      ...quiet.review,
+      queue: { round: "R1", state: "In queue", rank: 3 },
+      showCode: { sessionId: "review-session", mint: async () => ({ payload: "", manualCode: "", expiresAt: 0, serverNow: 0 }) },
+    },
     music: { ...quiet.music, window: { name: "w", endsAt: now + 1, requestsOpen: true, votingOpen: true, playbackPaused: false, requestsUsed: 0, requestsAllowed: 5, votesUsed: 0, votesAllowed: 10 } },
   };
   const seating = composeDashboard(tileRelevance(live));

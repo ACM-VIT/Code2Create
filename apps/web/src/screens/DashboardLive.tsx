@@ -10,10 +10,10 @@ import type { HelpTileModel } from '../components/dashboard/HelpTile'
 import type { IntegrationsTileModel } from '../components/dashboard/IntegrationsTile'
 import type { MusicRequestView, MusicTileModel } from '../components/dashboard/MusicTile'
 import type { ReviewTileModel } from '../components/dashboard/ReviewTile'
+import type { ServiceQueueKind } from '../components/dashboard/ReviewTile'
 import type { CheckpointState, UpdatesTileModel } from '../components/dashboard/UpdatesTile'
 import type { ClusterMember, ClusterTeam } from '../components/portal/TeamCluster'
 import { eventSlug } from '../lib/config';
-import { queueWaitName } from '../lib/time';
 import { useOperationRunner } from '../lib/operations'
 import type { PublicState } from '../types'
 import { DashboardScreen } from './DashboardScreen'
@@ -34,12 +34,6 @@ function checkpointState(availability: CheckpointAvailability): CheckpointState 
     default:
       return 'submitted'
   }
-}
-
-function teamsAheadLine(teamsAhead: number | undefined) {
-  if (teamsAhead === undefined) return undefined
-  if (teamsAhead === 0) return 'You are next. Keep the team nearby.'
-  return teamsAhead === 1 ? 'One team ahead of you.' : `${teamsAhead} teams ahead of you.`
 }
 
 /** The dashboard wired to the live event. */
@@ -79,6 +73,9 @@ export function DashboardLive({
   const queueAllowed = capabilities?.reviewQueue ?? false
   const queue = useQuery(api.participantReview.current, queueAllowed ? { eventSlug } : 'skip')
   const mintReviewCode = useMutation(api.participantReview.mintTeamQr);
+  const serviceQueues = useQuery(api.serviceQueues.current, { eventSlug })
+  const joinServiceQueue = useMutation(api.serviceQueues.join)
+  const leaveServiceQueue = useMutation(api.serviceQueues.leave)
   const supportAllowed = capabilities?.supportRead ?? false
   const support = useQuery(api.support.mineSummary, supportAllowed ? { eventSlug } : 'skip')
   const benefits = useQuery(api.benefits.mine, { eventSlug });
@@ -178,23 +175,12 @@ export function DashboardLive({
 
   const reviewSession = queue?.review ?? null;
   const reviewModel: ReviewTileModel = {
-    available: queueAllowed,
+    available: queueAllowed || serviceQueues !== undefined,
     queue: queue
       ? {
           round: queue.round.name,
           state: teamRoundStateParticipantLabels[queue.state],
-          detail:
-            [
-              queue.panel?.name,
-              teamsAheadLine(queue.teamsAhead),
-              queue.round.isPaused ? "Paused by staff; stay nearby." : undefined,
-            ]
-              .filter((part): part is string => part !== undefined)
-              .join(" · ") || null,
-          wait: queue.estimate ? `About ${queueWaitName(queue.estimate, phaseTime)}` : null,
-          reviewers: reviewSession
-            ? { present: reviewSession.reviewerPresenceCount, total: reviewSession.reviewerCount }
-            : null,
+          rank: queue.teamsAhead === undefined ? null : queue.teamsAhead + 1,
         }
       : null,
     showCode:
@@ -212,6 +198,16 @@ export function DashboardLive({
             },
           }
         : null,
+    services: (serviceQueues ?? []).map((service) => ({
+      kind: service.kind,
+      joined: service.joined,
+      position: service.position,
+      waitingCount: service.waitingCount,
+    })),
+    setServiceQueue: async (kind: ServiceQueueKind, joined: boolean) => {
+      if (joined) await joinServiceQueue({ eventSlug, kind })
+      else await leaveServiceQueue({ eventSlug, kind })
+    },
   };
 
   const benefitsModel: BenefitsTileModel = {
