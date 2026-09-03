@@ -28,17 +28,17 @@ type AutonomyPolicyOperationResult =
 const operationDescriptors = [
   {
     slot: 'autonomy-disable',
-    title: 'Finish stopping autonomy',
+    title: 'Finish stopping the agent',
     action: 'Confirm earlier stop',
   },
   {
     slot: 'autonomy-policy-publish',
-    title: 'Finish publishing the policy',
+    title: 'Finish publishing the settings',
     action: 'Confirm earlier publication',
   },
   {
     slot: 'autonomy-policy-draft',
-    title: 'Finish saving the policy draft',
+    title: 'Finish saving the draft',
     action: 'Confirm earlier save',
   },
 ] satisfies readonly ConfigurationOperationDescriptor[]
@@ -107,7 +107,7 @@ export function IntelligencePolicyConfiguration({
     return (
       <section className="intake-policy-shell">
         <ConfigurationTabs visibility={tabs} />
-        <LoadingLabel>Loading autonomous operations settings</LoadingLabel>
+        <LoadingLabel>Loading agent settings</LoadingLabel>
         <SkeletonStats columns={3} />
         <SkeletonCard lines={5} />
       </section>
@@ -202,8 +202,7 @@ export function IntelligencePolicyConfiguration({
         <div>
           <h1>Operations agent</h1>
           <p className="muted">
-            Monitors the live event and prepares typed recommendations. It cannot run consequential
-            event commands.
+            Watches the live event and prepares recommendations. It can’t take actions that change the event.
           </p>
         </div>
       </header>
@@ -234,23 +233,22 @@ export function IntelligencePolicyConfiguration({
         <section className="catalog-review">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">Kill switch</p>
-              <h2>Stop unattended monitoring</h2>
+              <p className="eyebrow">Emergency stop</p>
+              <h2>Stop the agent’s monitoring</h2>
             </div>
             {!disableArmed ? (
               <button className="secondary" type="button" onClick={() => setDisableArmed(true)}>
-                Stop autonomy
+                Stop the agent
               </button>
             ) : null}
           </div>
           <p className="muted">
-            Stopping cancels the current run and prevents new runs. Re-enabling requires publishing
-            a new policy.
+            Stopping cancels the current run and blocks new ones. To turn it back on, publish new settings.
           </p>
           {disableArmed ? (
             <div className="publish-confirmation catalog-publish">
               <label className="field">
-                <span>Why autonomy is being stopped</span>
+                <span>Why the agent is being stopped</span>
                 <textarea
                   disabled={disablePending}
                   required
@@ -265,7 +263,7 @@ export function IntelligencePolicyConfiguration({
                   type="button"
                   onClick={() => void disableAutonomy()}
                 >
-                  {busy ? 'Stopping…' : disablePending ? 'Confirm earlier stop' : 'Stop autonomy'}
+                  {busy ? 'Stopping…' : disablePending ? 'Confirm earlier stop' : 'Stop the agent'}
                 </button>
                 <button
                   className="secondary"
@@ -290,13 +288,13 @@ export function IntelligencePolicyConfiguration({
             </div>
             {configuration.canPublish && validation?.valid && !publishArmed ? (
               <button className="secondary" type="button" onClick={() => setPublishArmed(true)}>
-                Review publication
+                Review before publishing
               </button>
             ) : null}
           </div>
           {configuration.canValidate ? (
             validation === undefined ? (
-              <p className="muted">Validating draft…</p>
+              <p className="muted">Checking the draft…</p>
             ) : validation.issues.length > 0 ? (
               <ul className="catalog-issue-list">
                 {validation.issues.map((issue) => <li key={issue}>{issue}</li>)}
@@ -312,10 +310,9 @@ export function IntelligencePolicyConfiguration({
 
       {!operationPending && configuration.draftPolicy && configuration.canPublish && validation?.valid && publishArmed ? (
         <section className="publish-confirmation catalog-publish">
-          <h2>Publish this autonomy policy?</h2>
+          <h2>Publish these agent settings?</h2>
           <p className="muted">
-            The current scheduler is superseded immediately. Any current run is canceled before the
-            new policy begins.
+            These settings take over immediately. Any run in progress is cancelled first.
           </p>
           <label className="field">
             <span>Why this changed</span>
@@ -350,7 +347,7 @@ export function IntelligencePolicyConfiguration({
       {!operationPending && configuration.canDraft ? (
         <ConfigurationEditorDisclosure
           defaultOpen={Boolean(configuration.draftPolicy)}
-          description="Autonomy mode, action boundaries, approvals, escalation, and the accountable owner."
+          description="What the agent may do on its own, what needs approval, who gets escalations, and who is responsible."
           title={configuration.draftPolicy ? 'Continue operations-agent draft' : 'Edit operations agent'}
         >
           <form className="configuration-editor intake-policy-editor" onSubmit={saveDraft}>

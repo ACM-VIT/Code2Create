@@ -275,13 +275,13 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
           </fieldset>
 
           <fieldset>
-            <legend>Code and design evidence</legend>
+            <legend>Code and design</legend>
             <p className="muted">
               These values are published with the event and can be changed later through Event setup.
             </p>
             <div className="form-grid four-columns">
               <label className="field span-two">
-                <span>Policy release</span>
+                <span>Version name</span>
                 <input required minLength={1} maxLength={80} value={integrationPolicyVersion} onChange={(event) => setIntegrationPolicyVersion(event.currentTarget.value)} />
               </label>
               <label className="field span-two">

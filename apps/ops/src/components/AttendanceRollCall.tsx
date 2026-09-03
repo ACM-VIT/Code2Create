@@ -115,7 +115,7 @@ export function AttendanceRollCall({ session }: { session: AttendanceSession }) 
     <section className="roll-call-section">
       <div className="roll-call-heading">
         <div>
-          <p className="eyebrow">Emergency accounting</p>
+          <p className="eyebrow">Emergency headcount</p>
           <h2>Roll call</h2>
           <p className="muted">Freezes this session’s expected cohort and tracks venue scans for {rollCallData?.zoneName ?? session.zoneName}.</p>
         </div>
@@ -150,7 +150,7 @@ export function AttendanceRollCall({ session }: { session: AttendanceSession }) 
               <textarea disabled={busy || operationPending} required minLength={5} maxLength={300} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Why is a roll call being started?" />
             </label>
           </div>
-          <p className="muted">Starts from the frozen cohort and current server-accepted venue state. Requires a Google sign-in from the last 15 minutes.</p>
+          <p className="muted">Starts from the list of expected people and who is currently in the venue. Requires a Google sign-in from the last 15 minutes.</p>
           <div className="button-row">
             <button
               className="primary"

@@ -456,7 +456,7 @@ function ReviewerProfileRow({ candidate, canManage }: { candidate: Candidate; ca
             }} />
           </label>
           <fieldset className="reviewer-qualification-field">
-            <legend>Can assess</legend>
+            <legend>Can judge</legend>
             <div className="criterion-assignment-list">
               {initialCriteria.map((criterion) => (
                 <label className="check-filter" key={criterion.stableKey}>
@@ -472,7 +472,7 @@ function ReviewerProfileRow({ candidate, canManage }: { candidate: Candidate; ca
             <details className="configuration-advanced">
               <summary>Other rubric criteria</summary>
               <label className="field">
-                <span>All criterion identifiers <small>Comma separated</small></span>
+                <span>All criteria <small>Comma separated</small></span>
                 <input value={criterionKeys} onChange={(event) => {
                   setCriterionKeys(event.target.value)
                   changed()
@@ -482,7 +482,7 @@ function ReviewerProfileRow({ candidate, canManage }: { candidate: Candidate; ca
           </fieldset>
           <fieldset className="reviewer-qualification-field">
             <legend>Available for judging</legend>
-            <p className="muted">Each published reviewer or reserve must cover the complete staffing window.</p>
+            <p className="muted">Every reviewer and reserve must be available for the whole staffing window.</p>
             <div className="criterion-editors">
               {availabilityWindows.map((window, index) => (
                 <div className="form-grid" key={window.id}>
@@ -519,7 +519,7 @@ function ReviewerProfileRow({ candidate, canManage }: { candidate: Candidate; ca
             </select>
           </label>
           <label className="field">
-            <span>Profile state</span>
+            <span>Status</span>
             <select value={status} onChange={(event) => {
               setStatus(event.target.value === 'inactive' ? 'inactive' : 'active')
               changed()
@@ -768,7 +768,7 @@ function RoundPublisher({
           round: {
             stableKey: round.stableKey,
             name: round.name,
-            sequence: positiveInteger(round.sequence, 'Round sequence'),
+            sequence: positiveInteger(round.sequence, 'Round order'),
             clockInOpensAt: timestamp(round.clockInOpensAt, 'Clock-in opening'),
             reviewerReportAt: timestamp(round.reviewerReportAt, 'Reviewer report time'),
             startsAt: timestamp(round.startsAt, 'Round start'),
@@ -896,14 +896,14 @@ function RoundPublisher({
           <summary>Advanced round rules</summary>
           <div className="form-grid">
             <label className="field">
-              <span>Round sequence</span>
+              <span>Round order</span>
               <input inputMode="numeric" value={round.sequence} onChange={(event) => {
                 setRound((current) => ({ ...current, sequence: event.target.value }))
                 changed()
               }} />
             </label>
             <label className="field">
-              <span>Reviewer app minimum build</span>
+              <span>Oldest reviewer app allowed</span>
               <input inputMode="numeric" value={round.minimumReviewerBuild} onChange={(event) => {
                 setRound((current) => ({ ...current, minimumReviewerBuild: event.target.value }))
                 changed()
@@ -955,22 +955,22 @@ function RoundPublisher({
                 }))
                 changed()
               }}>
-                <option value="preserve_queue_time">Preserve original queue time</option>
-                <option value="queue_end">Return at queue end</option>
-                <option value="manual">Require manual panel placement</option>
+                <option value="preserve_queue_time">Keep their original place in the queue</option>
+                <option value="queue_end">Move to the back of the queue</option>
+                <option value="manual">Place panels by hand</option>
               </select>
             </label>
           </div>
           <div className="review-policy-checks">
-            <PolicyCheck label="Require panel findings and next-step commitments" checked={round.requiresSharedCommitments} onChange={(checked) => {
+            <PolicyCheck label="Panels must record findings and next steps" checked={round.requiresSharedCommitments} onChange={(checked) => {
               setRound((current) => ({ ...current, requiresSharedCommitments: checked }))
               changed()
             }} />
-            <PolicyCheck label="Require camera readiness" checked={round.requiresCamera} onChange={(checked) => {
+            <PolicyCheck label="Reviewers must have a working camera" checked={round.requiresCamera} onChange={(checked) => {
               setRound((current) => ({ ...current, requiresCamera: checked }))
               changed()
             }} />
-            <PolicyCheck label="Require notification permission" checked={round.requiresNotifications} onChange={(checked) => {
+            <PolicyCheck label="Reviewers must allow notifications" checked={round.requiresNotifications} onChange={(checked) => {
               setRound((current) => ({ ...current, requiresNotifications: checked }))
               changed()
             }} />
@@ -981,7 +981,7 @@ function RoundPublisher({
           <div className="section-heading">
             <div>
               <h2><span className="step-number">2</span>Rubric</h2>
-              <p className="muted">Integer weights must total 100. Every score uses its published 0–4 anchor.</p>
+              <p className="muted">Weights are whole numbers that add up to 100. Every score is 0–4, with the wording below.</p>
             </div>
             <button className="secondary" type="button" onClick={addCriterion}>Add criterion</button>
           </div>
@@ -1030,7 +1030,7 @@ function RoundPublisher({
             <button className="secondary" type="button" onClick={addPanel}>Add panel</button>
           </div>
           {readyCandidates.length === 0 ? (
-            <p className="notice">No active, training-complete reviewer is available.</p>
+            <p className="notice">No trained, active reviewer is available.</p>
           ) : null}
           <div className="panel-editors">
             {panels.map((panel) => (
@@ -1062,7 +1062,7 @@ function RoundPublisher({
           <div className="section-heading">
             <div>
               <h2><span className="step-number">4</span>Reserves</h2>
-              <p className="muted">Trained reviewers outside the panels can be paged into an empty seat.</p>
+              <p className="muted">Trained reviewers not on a panel can be called in to fill an empty seat.</p>
             </div>
           </div>
           <div className="criterion-assignment-list">
@@ -1090,7 +1090,7 @@ function RoundPublisher({
                 </label>
               )
             })}
-            {readyCandidates.length === 0 ? <p className="notice">Configure at least one trained reviewer and choose what they can assess.</p> : null}
+            {readyCandidates.length === 0 ? <p className="notice">Set up at least one trained reviewer and choose what they can judge.</p> : null}
           </div>
         </section>
 
@@ -1099,7 +1099,7 @@ function RoundPublisher({
           <h2><span className="step-number">5</span>Publish</h2>
           <p className="muted">Publishing locks this round.</p>
           <label className="field">
-            <span>Publication reason</span>
+            <span>Why this is being published</span>
             <textarea disabled={publishPending} required value={reason} onChange={(event) => {
               setReason(event.target.value)
               changed()
@@ -1145,8 +1145,8 @@ function CriterionEditor({
           <label className="field full-field"><span>Guidance</span><textarea value={criterion.guidance} onChange={(event) => onUpdate((current) => ({ ...current, guidance: event.target.value }))} /></label>
         </div>
         <details className="configuration-advanced">
-          <summary>Criterion identifier</summary>
-          <label className="field"><span>Identifier</span><input value={criterion.stableKey} onChange={(event) => onUpdate((current) => ({ ...current, stableKey: event.target.value }))} /></label>
+          <summary>Internal name</summary>
+          <label className="field"><span>Internal name</span><input value={criterion.stableKey} onChange={(event) => onUpdate((current) => ({ ...current, stableKey: event.target.value }))} /></label>
         </details>
         <div className="anchor-grid">
           <AnchorField label="0" value={criterion.anchors.zero} onChange={(value) => updateAnchor('zero', value)} />

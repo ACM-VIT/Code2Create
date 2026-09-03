@@ -90,6 +90,7 @@ import type * as lib_attendanceSessionTransition from "../lib/attendanceSessionT
 import type * as lib_attendanceStations from "../lib/attendanceStations.js";
 import type * as lib_attendanceTeamAvailability from "../lib/attendanceTeamAvailability.js";
 import type * as lib_audit from "../lib/audit.js";
+import type * as lib_authenticationEmail from "../lib/authenticationEmail.js";
 import type * as lib_awsSms from "../lib/awsSms.js";
 import type * as lib_boundedHttpBody from "../lib/boundedHttpBody.js";
 import type * as lib_cloudflareEmailSending from "../lib/cloudflareEmailSending.js";
@@ -123,6 +124,7 @@ import type * as lib_novelty from "../lib/novelty.js";
 import type * as lib_noveltyIndex from "../lib/noveltyIndex.js";
 import type * as lib_noveltyRateLimits from "../lib/noveltyRateLimits.js";
 import type * as lib_openAiEmbeddings from "../lib/openAiEmbeddings.js";
+import type * as lib_openAiNoveltyJudge from "../lib/openAiNoveltyJudge.js";
 import type * as lib_operations from "../lib/operations.js";
 import type * as lib_operationsAttention from "../lib/operationsAttention.js";
 import type * as lib_operationsAttentionDetectors from "../lib/operationsAttentionDetectors.js";
@@ -363,6 +365,7 @@ declare const fullApi: ApiFromModules<{
   "lib/attendanceStations": typeof lib_attendanceStations;
   "lib/attendanceTeamAvailability": typeof lib_attendanceTeamAvailability;
   "lib/audit": typeof lib_audit;
+  "lib/authenticationEmail": typeof lib_authenticationEmail;
   "lib/awsSms": typeof lib_awsSms;
   "lib/boundedHttpBody": typeof lib_boundedHttpBody;
   "lib/cloudflareEmailSending": typeof lib_cloudflareEmailSending;
@@ -396,6 +399,7 @@ declare const fullApi: ApiFromModules<{
   "lib/noveltyIndex": typeof lib_noveltyIndex;
   "lib/noveltyRateLimits": typeof lib_noveltyRateLimits;
   "lib/openAiEmbeddings": typeof lib_openAiEmbeddings;
+  "lib/openAiNoveltyJudge": typeof lib_openAiNoveltyJudge;
   "lib/operations": typeof lib_operations;
   "lib/operationsAttention": typeof lib_operationsAttention;
   "lib/operationsAttentionDetectors": typeof lib_operationsAttentionDetectors;

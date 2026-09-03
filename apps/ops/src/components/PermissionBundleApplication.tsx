@@ -56,7 +56,7 @@ export function PermissionBundleApplication({
       : 'skip',
   )
 
-  if (applicable === undefined) return <p className="muted">Checking applicable bundles…</p>
+  if (applicable === undefined) return <p className="muted">Checking which access sets apply…</p>
   if (applicable.length === 0 && !applyPending) return null
 
   const chooseBundle = (value: string) => {
@@ -129,7 +129,7 @@ export function PermissionBundleApplication({
 
   return (
     <AccessManagementDisclosure
-      description="Apply a published access set after reviewing its exact permissions."
+      description="Give someone a published access set after checking what it includes."
       title="Add reusable access"
     >
       <div className="bundle-application">
@@ -159,7 +159,7 @@ export function PermissionBundleApplication({
           />
         ))}
         <label className="field">
-          <span>Expires <small>Optional · defaults to event end when configured</small></span>
+          <span>Expires <small>Optional · ends with the event unless set</small></span>
           <input
             type="datetime-local"
             value={validUntil}

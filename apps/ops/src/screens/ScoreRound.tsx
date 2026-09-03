@@ -143,7 +143,7 @@ export function ScoreRound() {
       {showValues ? (
         valueCriteria === undefined || values.status === 'LoadingFirstPage' ? (
           <>
-            <LoadingLabel>Opening the numeric values</LoadingLabel>
+            <LoadingLabel>Opening the scores</LoadingLabel>
             <SkeletonList rows={4} />
           </>
         ) : (
@@ -479,7 +479,7 @@ function VoidScorecard({ scorecard }: { scorecard: Scorecard }) {
   }
   return (
     <div className="score-command destructive-command">
-      <p>Voiding invalidates this review result.</p>
+      <p>Voiding throws out this review’s result.</p>
       <div className="form-grid">
         <label className="field">
           <span>Category</span>
@@ -503,7 +503,7 @@ function VoidScorecard({ scorecard }: { scorecard: Scorecard }) {
             <option value="wrong_team">Wrong team</option>
             <option value="duplicate_review">Duplicate review</option>
             <option value="confirmed_conflict">Confirmed conflict</option>
-            <option value="judge_ineligible">Reviewer ineligible</option>
+            <option value="judge_ineligible">Reviewer not allowed</option>
             <option value="other">Other</option>
           </select>
         </label>
@@ -523,7 +523,7 @@ function VoidScorecard({ scorecard }: { scorecard: Scorecard }) {
         </label>
       </div>
       <label className="field">
-        <span>Evidence reference</span>
+        <span>Where the evidence is</span>
         <input disabled={busy || operationPending} value={evidenceReference} onChange={(event) => { setEvidenceReference(event.target.value); changed() }} />
       </label>
       <label className="field">
@@ -610,22 +610,22 @@ function ReleaseRound({ completeness }: { completeness: Completeness }) {
       <h2>Release participant feedback</h2>
       <p>The release cannot be undone.</p>
       <label className="field">
-        <span>Feedback policy name</span>
+        <span>Feedback rules name</span>
         <input disabled={busy || operationPending} value={policyVersion} onChange={(event) => { setPolicyVersion(event.target.value); changed() }} />
       </label>
       <div className="release-fields">
         <Check label="Criterion scores" checked={criterionScores} disabled={busy || operationPending} onChange={(value) => { setCriterionScores(value); changed() }} />
         <Check label="Total score" checked={totalScore} disabled={busy || operationPending} onChange={(value) => { setTotalScore(value); changed() }} />
         <Check label="Shared findings" checked={sharedFindings} disabled={busy || operationPending} onChange={(value) => { setSharedFindings(value); changed() }} />
-        <Check label="Next-checkpoint commitments" checked={sharedCommitments} disabled={busy || operationPending} onChange={(value) => { setSharedCommitments(value); changed() }} />
+        <Check label="What the team committed to next" checked={sharedCommitments} disabled={busy || operationPending} onChange={(value) => { setSharedCommitments(value); changed() }} />
       </div>
       <label className="field">
-        <span>Release reason</span>
+        <span>Why it’s being released</span>
         <textarea disabled={busy || operationPending} value={reason} onChange={(event) => { setReason(event.target.value); changed() }} />
       </label>
       <label className="check-filter">
         <input checked={confirmed} disabled={busy || operationPending} type="checkbox" onChange={(event) => { setConfirmed(event.target.checked); changed() }} />
-        I confirm these are the fields approved by the published participant-feedback policy.
+        I confirm these are the fields the published feedback rules allow.
       </label>
       <button
         className="primary"
@@ -652,7 +652,7 @@ function NumericValues({
     <section className="numeric-values">
       <div className="section-heading">
         <div>
-          <h2>Numeric values</h2>
+          <h2>Scores</h2>
           <p className="muted">Alphabetical by team.</p>
         </div>
       </div>
@@ -702,7 +702,7 @@ function NumericValues({
           </div>
         </details>
       ))}
-      {reviews.length === 0 ? <p className="empty">No completed review has numeric values yet.</p> : null}
+      {reviews.length === 0 ? <p className="empty">No completed review has scores yet.</p> : null}
     </section>
   )
 }

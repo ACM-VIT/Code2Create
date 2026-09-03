@@ -136,7 +136,7 @@ export function EmergencyPack({
       >
         <h2>Prepared backups</h2>
         <p className="section-note">
-          A printable snapshot of the roster, stations, panels and blank sheets. It expires four hours later.
+          A printable copy of the roster, stations, panels and blank sheets. It expires after four hours.
         </p>
         {!canRead ? (
           <p className="muted">Prepared backups are not available to this account.</p>
@@ -232,7 +232,7 @@ export function EmergencyPack({
           }}
         >
           <h2>Prepare a backup</h2>
-          <p>Preparing takes a fresh snapshot and builds a new printable backup.</p>
+          <p>Preparing takes a fresh copy of everything and builds a new printable backup.</p>
           <label className="field">
             <span>What this backup is for</span>
             <textarea

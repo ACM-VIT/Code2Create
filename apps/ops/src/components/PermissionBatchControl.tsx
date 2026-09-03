@@ -71,7 +71,7 @@ export function PermissionBatchControl({ detail }: { detail: AccessDetail }) {
 
   return (
     <AccessManagementDisclosure
-      description="Add or remove several exact permissions in one audited change."
+      description="Add or remove several permissions in one recorded change."
       title="Change several permissions"
     >
       <section className="permission-batch-control">
@@ -235,7 +235,7 @@ function BatchGrantForm({
         </label>
       </fieldset>
       {repeatsScope ? (
-        <p className="notice error" role="alert">One exact permission appears more than once.</p>
+        <p className="notice error" role="alert">The same permission is listed more than once.</p>
       ) : null}
       {error ? <p className="notice error" role="alert">{error}</p> : null}
       <div className="button-row">

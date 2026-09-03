@@ -4,6 +4,7 @@ import type { FunctionReturnType } from 'convex/server'
 import { useCallback, useEffect, useState } from 'react'
 
 import { eventSlug } from '../lib/config'
+import { copilotSuggestedPrompts } from '../lib/copilotPrompts'
 import {
   intelligenceConnectionState,
   intelligenceTerminalState,
@@ -27,9 +28,11 @@ type PendingTurn = {
 export function OperationsCopilotConsole({
   canGenerate,
   canRead,
+  initialPrompt,
 }: {
   canGenerate: boolean
   canRead: boolean
+  initialPrompt?: string
 }) {
   const openStream = useAction(api.operationsIntelligenceActions.openCopilotStream)
   const submitTurn = useAction(api.operationsIntelligenceActions.submitCopilotTurn)
@@ -98,15 +101,16 @@ export function OperationsCopilotConsole({
 
   return (
     <LiveAgentConsole
+      {...initialPrompt === undefined ? {} : { autoSubmitPrompt: initialPrompt }}
       composerDisabled={!canGenerate}
       composerPendingConfirmation={hasPendingTurn}
       composerRequiresConnection={false}
       composerResetKey={observedPendingSubmissionId === undefined ? 0 : 1}
       connectionState={connectionState}
       emptyDescription={canRead
-        ? 'Ask about review flow, attendance, floor mapping, support load, or admissions.'
+        ? 'Answers come from live, cited event reads: review flow, check-in, the hall, the help desk, and admissions. When a change is needed, the copilot drafts a command for you to approve.'
         : 'You can send a question, but intelligence read access is required to view its response.'}
-      emptyTitle={canRead ? 'Start with the live event.' : 'Ask an event question.'}
+      emptyTitle={canRead ? 'Ask about the live event.' : 'Ask an event question.'}
       historyCanLoadMore={canRead && stream.historyCanLoadMore}
       {...canRead && stream.historyLoadError !== undefined
         ? { historyLoadError: stream.historyLoadError }
@@ -117,6 +121,7 @@ export function OperationsCopilotConsole({
       {...canRead ? { onLoadOlder: stream.loadOlder } : {}}
       onReconnect={stream.reconnect}
       {...canGenerate ? { onSubmitPrompt: submitPrompt } : {}}
+      suggestions={copilotSuggestedPrompts}
       terminalState={canRead ? terminalState : 'none'}
       {...canRead ? { timelineFooter: <CopilotCommandTray /> } : {}}
     />

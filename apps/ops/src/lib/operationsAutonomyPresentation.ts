@@ -66,3 +66,50 @@ export function autonomyCancellationLabel(reason: AutonomyRun['cancellationReaso
   }
   return 'The review was canceled by an event state change.'
 }
+
+export type AutonomyStatus = FunctionReturnType<typeof api.operationsAutonomy.status>
+
+export type AutonomyStatusSummary = {
+  tone: 'live' | 'ready' | 'stopped'
+  label: string
+  detail: string
+}
+
+/** One line an operator can read at a glance: is the autonomous agent working, waiting, or off. */
+export function autonomyStatusSummary(
+  status: Pick<AutonomyStatus, 'activeRun' | 'available' | 'policy' | 'scheduler'>,
+  formatNextCheck: (at: number) => string,
+): AutonomyStatusSummary {
+  if (status.activeRun !== null) {
+    return {
+      tone: 'live',
+      label: 'Working',
+      detail: autonomyRunPhaseLabel(status.activeRun.phase),
+    }
+  }
+  if (!status.policy.enabled || status.scheduler.lifecycle === 'disabled') {
+    return {
+      tone: 'stopped',
+      label: 'Stopped',
+      detail: 'Switched off in the autonomy policy',
+    }
+  }
+  if (!status.available) {
+    return {
+      tone: 'stopped',
+      label: 'Paused',
+      detail: 'Runs while applications are open or the event is live',
+    }
+  }
+  return {
+    tone: 'ready',
+    label: 'Standing by',
+    detail: `Next check ${formatNextCheck(status.scheduler.nextEvaluationAt)}`,
+  }
+}
+
+export function autonomyTriggerLabel(trigger: AutonomyRun['trigger']) {
+  if (trigger.kind === 'manual') return 'Manual review'
+  if (trigger.kind === 'schedule') return 'Scheduled review'
+  return 'Signal review'
+}

@@ -165,7 +165,7 @@ export function IntakePolicyConfiguration({
 
       <dl className="catalog-summary">
         <div><dt>Status</dt><dd>Ready</dd></div>
-        <div><dt>Question source</dt><dd>AI with safe fallback</dd></div>
+        <div><dt>Where questions come from</dt><dd>AI, with a backup question</dd></div>
         <div><dt>Teams writing</dt><dd>{configuration.publishedPolicy.activeDraftCount}</dd></div>
       </dl>
 
@@ -187,14 +187,14 @@ export function IntakePolicyConfiguration({
             </div>
             {configuration.canPublish && validation?.valid && !publishArmed ? (
               <button className="secondary" type="button" onClick={() => setPublishArmed(true)}>
-                Review publication
+                Review before publishing
               </button>
             ) : null}
           </div>
 
           {configuration.canValidate ? (
             validation === undefined ? (
-              <p className="muted">Validating draft…</p>
+              <p className="muted">Checking the draft…</p>
             ) : (
               <>
                 <ul className="catalog-change-list">
@@ -237,7 +237,7 @@ export function IntakePolicyConfiguration({
       {!operationPending && configuration.canDraft ? (
         <ConfigurationEditorDisclosure
           defaultOpen={Boolean(configuration.draftPolicy)}
-          description="Participant copy, answer limits, question goals, and safe fallbacks."
+          description="What participants read, answer limits, question goals, and backup questions."
           title={configuration.draftPolicy ? 'Continue idea-question draft' : 'Edit idea questions'}
         >
         <form className="configuration-editor intake-policy-editor" onSubmit={saveDraft}>
@@ -245,7 +245,7 @@ export function IntakePolicyConfiguration({
           <div className="configuration-editor-heading">
             <div>
               <p className="eyebrow">{configuration.draftPolicy ? 'Replace current draft' : 'Create a draft'}</p>
-              <h2>Participant copy</h2>
+              <h2>What participants read</h2>
               <p className="muted">The greeting and first question cannot be changed here.</p>
             </div>
           </div>
@@ -267,14 +267,14 @@ export function IntakePolicyConfiguration({
               <NumberField label="Answer maximum · characters" min={200} max={2000} value={policy.followUpAnswerMaxLength} onChange={(value) => updatePolicy('followUpAnswerMaxLength', value)} />
               <NumberField label="Question maximum · characters" min={40} max={140} value={policy.questionMaxLength} onChange={(value) => updatePolicy('questionMaxLength', value)} />
               <label className="field">
-                <span>Fixed-question count</span>
+                <span>Fixed questions</span>
                 <input disabled value="Two" />
               </label>
             </div>
-            <p className="muted intake-policy-note">Every introduction has four questions: two fixed questions, then two project-specific questions. A published fallback fills either generated slot if the model does not answer within 20 seconds.</p>
+            <p className="muted intake-policy-note">Every introduction has four questions: two fixed, then two about the project. If the AI doesn’t answer within 20 seconds, a backup question is used instead.</p>
           </PolicySection>
 
-          <PolicySection title="Generated question goals" description="Any additional question uses one of these reviewed goals.">
+          <PolicySection title="Goals for the AI questions" description="Every extra question is built around one of these goals.">
             <div className="intake-purpose-list">
               {purposeOptions.map((purpose) => (
                 <label key={purpose}>
@@ -294,7 +294,7 @@ export function IntakePolicyConfiguration({
             </div>
           </PolicySection>
 
-          <PolicySection title="Question wording" description="Questions 1 and 2 are fixed. Each team receives one stable fallback variant for questions 3 and 4 when generation misses its deadline or fails validation.">
+          <PolicySection title="Question wording" description="Questions 1 and 2 are fixed. If the AI misses its deadline or gives an unusable question, the team gets one of these backup questions for 3 and 4 instead.">
             <div className="phase-card-list">
               {policy.fallbackQuestions.map((question, questionIndex) => {
                 const variantNumber = policy.fallbackQuestions
@@ -325,14 +325,14 @@ export function IntakePolicyConfiguration({
             </div>
           </PolicySection>
 
-          <PolicySection title="Supportive wording" description="One phrase per line. Required safety language cannot be removed.">
+          <PolicySection title="Tone" description="One phrase per line. The required safety wording can’t be removed.">
             <label className="field">
-              <span>Blocked wording</span>
+              <span>Words to avoid</span>
               <textarea className="intake-policy-lines" required value={policy.blockedTerms.join('\n')} onChange={(event) => updatePolicy('blockedTerms', event.target.value.split('\n'))} />
             </label>
           </PolicySection>
 
-          <PolicySection title="Common project patterns" description="Optional guidance for ideas that come up every year.">
+          <PolicySection title="Ideas that come up every year" description="Optional guidance for ideas that come up every year.">
             <div className="phase-card-list">
               {policy.commonIdeaPatterns.map((pattern, index) => (
                 <article className="phase-card" key={index}>
@@ -341,7 +341,7 @@ export function IntakePolicyConfiguration({
                     <button className="text-button" type="button" onClick={() => updatePolicy('commonIdeaPatterns', policy.commonIdeaPatterns.filter((_, patternIndex) => patternIndex !== index))}>Remove</button>
                   </header>
                   <label className="field"><span>Description</span><textarea required value={pattern.description} onChange={(event) => updatePattern(index, { description: event.target.value })} /></label>
-                  <label className="field"><span>Supportive question guidance</span><textarea required value={pattern.supportiveQuestionGuidance} onChange={(event) => updatePattern(index, { supportiveQuestionGuidance: event.target.value })} /></label>
+                  <label className="field"><span>How the questions should sound</span><textarea required value={pattern.supportiveQuestionGuidance} onChange={(event) => updatePattern(index, { supportiveQuestionGuidance: event.target.value })} /></label>
                 </article>
               ))}
             </div>

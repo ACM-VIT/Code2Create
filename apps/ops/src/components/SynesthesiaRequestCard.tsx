@@ -309,7 +309,7 @@ export function SynesthesiaRequestCard({
             </label>
           ) : null}
           <label className="field">
-            <span>Audit reason</span>
+            <span>Reason (kept on record)</span>
             <textarea disabled={operationPending || busy} value={reason} minLength={5} maxLength={200} required onChange={(event) => setReason(event.target.value)} />
           </label>
           <div className="synesthesia-command-actions">
@@ -362,15 +362,15 @@ export function SynesthesiaRequestCard({
         >
           <strong>{reportAction.disposition === 'resolved' ? 'Resolve report' : 'Dismiss report'}</strong>
           <label className="field">
-            <span>Participant-facing resolution</span>
+            <span>What the participant is told</span>
             <input disabled={operationPending || busy} value={publicText} minLength={3} maxLength={160} required onChange={(event) => setPublicText(event.target.value)} />
           </label>
           <label className="field">
-            <span>Internal resolution, if useful</span>
+            <span>Internal note on the outcome, if useful</span>
             <input disabled={operationPending || busy} value={internalText} maxLength={300} onChange={(event) => setInternalText(event.target.value)} />
           </label>
           <label className="field">
-            <span>Audit reason</span>
+            <span>Reason (kept on record)</span>
             <textarea disabled={operationPending || busy} value={reason} minLength={5} maxLength={200} required onChange={(event) => setReason(event.target.value)} />
           </label>
           <div className="synesthesia-command-actions">

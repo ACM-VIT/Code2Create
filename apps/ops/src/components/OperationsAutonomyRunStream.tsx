@@ -60,7 +60,7 @@ export function OperationsAutonomyRunStream({
       terminalCopy={terminalCopy(run)}
       workingCopy={{
         title: autonomyRunPhaseLabel(run.phase),
-        detail: 'Current access is checked again while the agent reads and reasons.',
+        detail: 'The agent’s access is re-checked while it works.',
       }}
     />
   )
@@ -70,8 +70,8 @@ function terminalCopy(run: AutonomyRun) {
   if (run.state === 'no_op') {
     return {
       completed: {
-        title: 'No intervention proposed',
-        detail: 'The review completed without finding a supported next action.',
+        title: 'No action suggested',
+        detail: 'The check finished without finding anything to suggest.',
       },
     }
   }
@@ -79,14 +79,14 @@ function terminalCopy(run: AutonomyRun) {
     return {
       completed: {
         title: 'Review escalated',
-        detail: 'This review was flagged for an organizer.',
+        detail: 'This check was flagged for an organiser.',
       },
     }
   }
   if (run.state === 'failed') {
     return {
       failed: {
-        title: 'Autonomous review failed',
+        title: 'Check failed',
         detail: autonomyFailureLabel(run.failureCode),
       },
     }
@@ -103,22 +103,22 @@ function terminalCopy(run: AutonomyRun) {
     if (run.shutdownState === 'not_required') {
       return {
         aborted: {
-          title: 'Autonomous review canceled',
+          title: 'Check cancelled',
           detail: `${autonomyCancellationLabel(run.cancellationReason)} The agent never started, so no stop request was needed.`,
         },
       }
     }
     return {
       aborted: {
-        title: 'Autonomous review stopped',
+        title: 'Check stopped',
         detail: `${autonomyCancellationLabel(run.cancellationReason)} The stop request was recorded, and this run no longer has event access.`,
       },
     }
   }
   return {
     completed: {
-      title: 'Autonomous review complete',
-      detail: 'This run is complete. Any proposed action still needs human review.',
+      title: 'Check complete',
+      detail: 'This run is complete. Anything it suggests still needs a person to approve it.',
     },
   }
 }

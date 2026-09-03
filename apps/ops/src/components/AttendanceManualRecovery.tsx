@@ -63,7 +63,7 @@ export default function AttendanceManualRecovery({
         <div>
           <h2>Paper recovery</h2>
           <p className="muted">
-            For an approved backend incident only. One person enters the numbered sheet and another verifies the photographed source.
+            Only for an approved incident. One person types in the numbered sheet and another checks it against the photo.
           </p>
         </div>
       </div>
@@ -134,7 +134,7 @@ function IncidentArea({ data }: { data: IncidentData }) {
       <div className="manual-subheading">
         <div>
           <strong>Attendance incidents</strong>
-          <span>Manual mode becomes usable only after two distinct approvals.</span>
+          <span>Paper mode needs two different people to approve it.</span>
         </div>
         {data.canCreate && !open ? (
           <button className="secondary" type="button" onClick={() => setOpen(true)}>Open incident</button>
@@ -149,7 +149,7 @@ function IncidentArea({ data }: { data: IncidentData }) {
               value={title}
               disabled={createPending}
               onChange={(event) => setTitle(event.target.value)}
-              placeholder="Attendance backend unavailable"
+              placeholder="Check-in system unavailable"
             />
           </label>
           <label className="field">
@@ -498,7 +498,7 @@ function DraftSheetForm({
           Cancel
         </button>
       </div>
-      <p className="muted">A single sheet has one station and direction. Rows resolve against this session before the draft is accepted.</p>
+      <p className="muted">A single sheet has one station and direction. Each row is matched to this session before the draft is accepted.</p>
       {error ? <p className="notice error" role="alert">{error}</p> : null}
     </form>
   )
@@ -593,7 +593,7 @@ function SourceUpload({ sheet }: { sheet: ManualSheet }) {
       <button className="primary" type="submit" disabled={busy || !file}>
         {busy ? 'Compressing and submitting…' : uploadPending ? 'Confirm earlier upload' : 'Submit for verification'}
       </button>
-      <p className="muted">The browser makes one legible JPEG under 900 KB. The original paper remains the audit record.</p>
+      <p className="muted">The browser makes one readable JPEG under 900 KB. The paper sheet stays the official record.</p>
       {error ? <p className="notice error" role="alert">{error}</p> : null}
     </form>
   )
@@ -705,13 +705,13 @@ function SheetVerification({ session, sheet }: { session: AttendanceSession; she
             disabled={verifyPending}
             onChange={(event) => { setError(null); setOriginalFiled(event.target.checked) }}
           />
-          <span>The numbered original is in the event audit packet.</span>
+          <span>The numbered original is in the event’s records.</span>
         </label>
       ) : null}
       <button className={kind === 'reject' ? 'secondary' : 'primary'} type="submit" disabled={busy || (kind === 'import' && !originalFiled)}>
         {busy ? 'Applying…' : verifyPending ? 'Confirm earlier decision' : kind === 'reject' ? 'Reject sheet' : 'Import paper rows'}
       </button>
-      <p className="muted">Rows older than newer online evidence are linked for review and do not overwrite current state.</p>
+      <p className="muted">Rows older than a newer online scan are kept for review and don’t overwrite it.</p>
       {error ? <p className="notice error" role="alert">{error}</p> : null}
     </form>
   )

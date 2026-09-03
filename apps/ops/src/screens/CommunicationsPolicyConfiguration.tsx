@@ -245,13 +245,13 @@ export function CommunicationsPolicyConfiguration({
             </div>
             {configuration.canPublish && validation?.valid && !publishArmed ? (
               <button className="secondary" type="button" onClick={() => setPublishArmed(true)}>
-                Review publication
+                Review before publishing
               </button>
             ) : null}
           </div>
           {configuration.canValidate ? (
             validation === undefined ? (
-              <p className="muted">Validating draft…</p>
+              <p className="muted">Checking the draft…</p>
             ) : (
               <>
                 <ul className="catalog-change-list">
@@ -275,7 +275,7 @@ export function CommunicationsPolicyConfiguration({
       {!operationPending && configuration.draftPolicy && configuration.canPublish && validation?.valid && publishArmed ? (
         <section className="publish-confirmation catalog-publish">
           <h2>Publish these participant communications?</h2>
-          <p className="muted">Portal details change immediately. New email deliveries use the published templates.</p>
+          <p className="muted">Portal details change straight away. New emails use the published wording.</p>
           <label className="field">
             <span>Why this changed</span>
             <textarea disabled={publishPending} required value={publishReason} onChange={(event) => setPublishReason(event.currentTarget.value)} />
@@ -363,9 +363,9 @@ export function CommunicationsPolicyConfiguration({
             </div>
           </PolicySection>
 
-          <PolicySection title="Participant emails" description="Edit and preview every email sent by the admission workflow. Published templates are frozen into each queued delivery.">
+          <PolicySection title="Participant emails" description="Edit and preview every email sent during admissions. Once published, queued emails keep the wording they were queued with.">
             <div className="email-template-workspace">
-              <nav className="email-template-rail" aria-label="Participant email type">
+              <nav className="email-template-rail" aria-label="Email">
                 {participantEmailTemplateKeys.map((templateKey) => (
                   <button
                     className={templateKey === selectedEmail ? 'active' : ''}
@@ -410,7 +410,7 @@ export function CommunicationsPolicyConfiguration({
                     {uploadingEmailBundle ? 'Checking ZIP…' : 'Import HTML ZIP'}
                   </label>
                   {selectedEmailTemplate.assetBundleId ? (
-                    <button className="text-button" type="button" onClick={removeEmailAssetBundle}>Remove attached assets</button>
+                    <button className="text-button" type="button" onClick={removeEmailAssetBundle}>Remove attached files</button>
                   ) : null}
                 </div>
                 <p className="muted">A ZIP must contain index.html and up to 24 PNG, JPEG, GIF, WebP, or PDF assets. Imported HTML remains editable.</p>

@@ -170,7 +170,7 @@ function ReviewIncidentArea({ data }: { data: IncidentData }) {
       ) : null}
 
       {data.incidents.map((incident) => <ReviewIncident key={incident.id} incident={incident} />)}
-      {data.incidents.length === 0 ? <p className="empty">No visible review-backend incident.</p> : null}
+      {data.incidents.length === 0 ? <p className="empty">No review-system incident to show.</p> : null}
     </div>
   )
 }
@@ -497,7 +497,7 @@ function DraftReviewForm({
                         </select>
                       </label>
                       <label className="field">
-                        <span>Evidence note</span>
+                        <span>Note</span>
                         <input
                           value={rating.evidenceNote}
                           onChange={(event) => updateEntry(entry.scorecardId, (current) => ({
@@ -526,7 +526,7 @@ function DraftReviewForm({
         <textarea disabled={createPending} required={review?.requiresSharedCommitments} value={sharedFindings} onChange={(event) => { invalidate(); setSharedFindings(event.target.value) }} />
       </label>
       <label className="field">
-        <span>Next-checkpoint commitments</span>
+        <span>What the team committed to next</span>
         <textarea disabled={createPending} required={review?.requiresSharedCommitments} value={sharedCommitments} onChange={(event) => { invalidate(); setSharedCommitments(event.target.value) }} />
       </label>
       <div className="button-row">
@@ -725,10 +725,10 @@ function ReviewVerification({ record, review }: { record: ManualRecord; review: 
       {kind === 'import' ? (
         <label className="manual-check">
           <input checked={originalFiled} disabled={verifyPending} type="checkbox" onChange={(event) => { setError(null); setOriginalFiled(event.target.checked) }} />
-          The numbered original is in the event audit packet.
+          The numbered original is in the event’s records.
         </label>
       ) : null}
-      <p className="muted">Import restores the named reviewers' signed scorecards and completes the existing review together.</p>
+      <p className="muted">Importing restores the named reviewers’ signed scorecards and completes the review.</p>
       {error ? <p className="notice error" role="alert">{error}</p> : null}
     </form>
   )

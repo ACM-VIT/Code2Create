@@ -62,14 +62,6 @@ export function useNoveltyPreview({
   config: NoveltyConfig | null
   saved: { idea: string | undefined; score: number | null; band: NoveltyBand | null }
 }): NoveltyState {
-  const previewNovelty = useAction(api.novelty.preview)
-  const [state, setState] = useState<NoveltyState>({ status: 'idle' })
-  const [pending, setPending] = useState<PendingPreview | null>(null)
-  const [recovery, setRecovery] = useState<Recovery | null>(null)
-  const [trackedRequest, setTrackedRequest] = useState<TrackedRequest | null>(null)
-  const sequence = useRef(0)
-  const lastSignal = useRef<NoveltySignal | null>(null)
-  const requestIdentity = useRef<{ key: string; id: string } | null>(null)
   const corpusVersionId = config?.corpusVersionId ?? null
   const minimumIdeaLength = config?.minimumIdeaLength ?? null
   const debounceMs = config?.debounceMs ?? null
@@ -77,6 +69,23 @@ export function useNoveltyPreview({
   const savedScore = saved.score
   const savedBand = saved.band
   const normalizedIdea = normalizeIdea(idea)
+  const previewNovelty = useAction(api.novelty.preview)
+  const [state, setState] = useState<NoveltyState>(() => {
+    const savedIdeaMatches =
+      savedIdea !== undefined &&
+      normalizeIdea(savedIdea) === normalizedIdea
+    return corpusVersionId !== null && savedScore !== null && savedIdeaMatches
+      ? { status: 'ready', signal: { score: savedScore, band: savedBand } }
+      : { status: 'idle' }
+  })
+  const [pending, setPending] = useState<PendingPreview | null>(null)
+  const [recovery, setRecovery] = useState<Recovery | null>(null)
+  const [trackedRequest, setTrackedRequest] = useState<TrackedRequest | null>(null)
+  const sequence = useRef(0)
+  const lastSignal = useRef<NoveltySignal | null>(
+    state.status === 'ready' ? state.signal : null,
+  )
+  const requestIdentity = useRef<{ key: string; id: string } | null>(null)
   const requestKey = corpusVersionId === null ? '' : `${corpusVersionId}:${normalizedIdea}`
   const matchingRecovery = recovery?.key === requestKey ? recovery : null
   const recoveryAttempt = matchingRecovery?.attempt ?? 0

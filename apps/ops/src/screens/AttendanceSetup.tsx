@@ -395,7 +395,7 @@ export function AttendanceSetup({ tabs }: { tabs: ConfigurationTabsVisibility })
 
       {stationConfigurationRequired ? (
         <p className="notice error" role="alert">
-          This plan predates explicit scanner actions. Choose an action and credential methods for every station, save a replacement draft, and publish it before assigning phones.
+          This plan is from before scanner actions existed. Choose an action and credential methods for every station, save a replacement draft, and publish it before assigning phones.
         </p>
       ) : null}
 
@@ -418,7 +418,7 @@ export function AttendanceSetup({ tabs }: { tabs: ConfigurationTabsVisibility })
             </p>
           </div>
           {configuration.canPublish && !publishArmed ? (
-            <button className="secondary" type="button" onClick={() => setPublishArmed(true)}>Review publication</button>
+            <button className="secondary" type="button" onClick={() => setPublishArmed(true)}>Review before publishing</button>
           ) : null}
         </section>
       ) : null}
@@ -427,7 +427,7 @@ export function AttendanceSetup({ tabs }: { tabs: ConfigurationTabsVisibility })
         <section className="publish-confirmation">
           <h2>Publish this plan?</h2>
           <p className="muted">
-            Publishing makes these sessions and phone stations authoritative. If a plan is already live, its phone assignments are disabled and must be provisioned again. A preparing or open session must finish first.
+            Publishing makes these sessions and scanner stations the live plan. If a plan is already live, its phones are unassigned and must be set up again. A preparing or open session must finish first.
           </p>
           <label className="field">
             <span>Why this changed</span>
@@ -445,7 +445,7 @@ export function AttendanceSetup({ tabs }: { tabs: ConfigurationTabsVisibility })
       {!operationPending && configuration.canConfigure ? (
         <ConfigurationEditorDisclosure
           defaultOpen={Boolean(configuration.draftPlan)}
-          description="Hacking sessions, phone scanner stations, barcode credentials, and offline replay limits."
+          description="Hacking sessions, scanner phones, accepted IDs, and what happens offline."
           title={configuration.draftPlan ? 'Continue check-in-plan draft' : 'Edit check-in plan'}
         >
           <form className="setup-form" onSubmit={saveDraft}>
@@ -456,19 +456,19 @@ export function AttendanceSetup({ tabs }: { tabs: ConfigurationTabsVisibility })
               <Field label="Plan name">
                 <input required value={planName} onChange={(event) => setPlanName(event.target.value)} />
               </Field>
-              <Field label="Tested VIT ID barcode format">
+              <Field label="VIT ID barcode format">
                 <select
                   required
                   value={barcodeSymbology}
                   onChange={(event) => setBarcodeSymbology(findBarcodeSymbology(event.target.value) ?? '')}
                 >
-                  <option value="">Choose after card rehearsal</option>
+                  <option value="">Choose after testing a card</option>
                   {barcodeSymbologies.map((symbology) => (
                     <option key={symbology} value={symbology}>{barcodeName(symbology)}</option>
                   ))}
                 </select>
               </Field>
-              <Field label="Offline queue · scans" hint="1–25 per phone">
+              <Field label="Scans kept while offline" hint="1–25 per phone">
                 <input
                   required
                   inputMode="numeric"
@@ -476,7 +476,7 @@ export function AttendanceSetup({ tabs }: { tabs: ConfigurationTabsVisibility })
                   onChange={(event) => setOfflineQueueMaxScans(event.target.value)}
                 />
               </Field>
-              <Field label="Offline queue · seconds" hint="30–600">
+              <Field label="Seconds kept while offline" hint="30–600">
                 <input
                   required
                   inputMode="numeric"
@@ -485,7 +485,7 @@ export function AttendanceSetup({ tabs }: { tabs: ConfigurationTabsVisibility })
                 />
               </Field>
             </div>
-            <p className="muted">During a short outage, each assigned phone keeps only this small encrypted queue. VIT IDs and event badges can replay; short-lived participant portal codes still need an online connection.</p>
+            <p className="muted">If the network drops, each phone holds this many scans for this long. VIT IDs and event badges still work offline; participant portal codes need a connection.</p>
           </section>
 
           <section className="setup-section">
@@ -573,7 +573,7 @@ export function AttendanceSetup({ tabs }: { tabs: ConfigurationTabsVisibility })
                         </select>
                       </Field>
                       {offersSession ? (
-                        <Field label="Session" {...(needsSession ? {} : { hint: 'Optional for session or area transitions' })}>
+                        <Field label="Session" {...(needsSession ? {} : { hint: 'Optional when moving between sessions or areas' })}>
                           <select required={needsSession} value={station.sessionKey} onChange={(event) => updateStation(station.stableKey, { sessionKey: event.target.value }, setStations)}>
                             <option value="">Choose session</option>
                             {matchingSessions.map((session) => <option key={session.stableKey} value={session.stableKey}>{session.name || 'Unnamed session'}</option>)}
@@ -582,7 +582,7 @@ export function AttendanceSetup({ tabs }: { tabs: ConfigurationTabsVisibility })
                       ) : null}
                     </div>
                     <fieldset className="choice-set">
-                      <legend>Accepted credentials</legend>
+                      <legend>Accepted IDs</legend>
                       <div className="choice-list">
                         {credentialKinds.map((credential) => (
                           <label key={credential.value}>

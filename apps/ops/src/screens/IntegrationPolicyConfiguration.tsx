@@ -24,12 +24,12 @@ type IntegrationPolicyOperationResult =
 const operationDescriptors = [
   {
     slot: 'integration-policy-publish',
-    title: 'Finish publishing the code and design policy',
+    title: 'Finish publishing the code and design rules',
     action: 'Confirm earlier publication',
   },
   {
     slot: 'integration-policy-draft',
-    title: 'Finish saving the code and design policy draft',
+    title: 'Finish saving the draft',
     action: 'Confirm earlier save',
   },
 ] satisfies readonly ConfigurationOperationDescriptor[]
@@ -87,7 +87,7 @@ export function IntegrationPolicyConfiguration({
     return (
       <section className="intake-policy-shell">
         <ConfigurationTabs visibility={tabs} />
-        <LoadingLabel>Loading code and design policy</LoadingLabel>
+        <LoadingLabel>Loading code and design rules</LoadingLabel>
         <SkeletonStats columns={3} />
         <SkeletonCard lines={4} />
       </section>
@@ -135,9 +135,9 @@ export function IntegrationPolicyConfiguration({
       <ConfigurationTabs visibility={tabs} />
       <header className="page-heading configuration-heading">
         <div>
-          <h1>Code and design policy</h1>
+          <h1>Code and design rules</h1>
           <p className="muted">
-            Controls the required GitHub topic, per-team connection limits, and exact change freezes.
+            The required GitHub topic, how many repositories and files each team can connect, and when changes freeze.
           </p>
         </div>
       </header>
@@ -180,13 +180,13 @@ export function IntegrationPolicyConfiguration({
             </div>
             {configuration.canPublish && validation?.valid && !publishArmed ? (
               <button className="secondary" type="button" onClick={() => setPublishArmed(true)}>
-                Review publication
+                Review before publishing
               </button>
             ) : null}
           </div>
           {configuration.canValidate ? (
             validation === undefined ? (
-              <p className="muted">Checking connected teams and policy integrity…</p>
+              <p className="muted">Checking connected teams…</p>
             ) : (
               <>
                 <ul className="catalog-change-list">
@@ -197,7 +197,7 @@ export function IntegrationPolicyConfiguration({
                     {validation.issues.map((issue) => <li key={issue}>{issue}</li>)}
                   </ul>
                 ) : (
-                  <p className="notice">Ready to publish against the current connected-team counts.</p>
+                  <p className="notice">Ready to publish with the teams currently connected.</p>
                 )}
               </>
             )
@@ -209,7 +209,7 @@ export function IntegrationPolicyConfiguration({
 
       {!operationPending && configuration.draftPolicy && configuration.canPublish && validation?.valid && publishArmed ? (
         <section className="publish-confirmation catalog-publish">
-          <h2>Publish this code and design policy?</h2>
+          <h2>Publish these code and design rules?</h2>
           <p className="muted">
             Limits and freezes take effect as soon as this is published. Changing the required
             GitHub topic rechecks every active repository in the background.
@@ -251,18 +251,18 @@ export function IntegrationPolicyConfiguration({
       {!operationPending && configuration.canDraft ? (
         <ConfigurationEditorDisclosure
           defaultOpen={Boolean(configuration.draftPolicy)}
-          description="Repository evidence, Figma files, per-team limits, and change-freeze times."
+          description="GitHub repositories, Figma files, per-team limits, and freeze times."
           title={configuration.draftPolicy ? 'Continue code-and-design draft' : 'Edit code and design policy'}
         >
           <form className="configuration-editor intake-policy-editor" onSubmit={saveDraft}>
           <fieldset disabled={draftPending} style={{ display: 'contents' }}>
             <PolicySection
-              title="GitHub evidence"
+              title="GitHub"
               description="The topic is checked against every connected repository. Existing repositories are rechecked after a topic change."
             >
               <div className="intake-policy-grid">
                 <label className="field">
-                  <span>Policy release</span>
+                  <span>Version name</span>
                   <input
                     required
                     minLength={1}
@@ -309,8 +309,8 @@ export function IntegrationPolicyConfiguration({
             </PolicySection>
 
             <PolicySection
-              title="Figma evidence"
-              description="Leave a freeze empty to keep team changes open. At the selected minute, server commands reject further changes."
+              title="Figma"
+              description="Leave a freeze empty to let teams keep changing things. From the chosen minute, further changes are rejected."
             >
               <div className="intake-policy-grid">
                 <label className="field">
@@ -367,7 +367,7 @@ export function IntegrationPolicyConfiguration({
           </form>
         </ConfigurationEditorDisclosure>
       ) : (
-        <p className="notice">You can view this policy but cannot create a draft.</p>
+        <p className="notice">You can view these rules but can’t create a draft.</p>
       )}
 
       {error ? <p className="notice error" role="alert">{error}</p> : null}

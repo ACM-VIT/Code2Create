@@ -9,6 +9,7 @@ export const GALLERY_SCREENS = [
   { id: 'fsc', label: 'SGLang / starred · branded balloons' },
   { id: 'f0c', label: 'Team start' },
   { id: 'f0e', label: 'Imported team choice' },
+  { id: 'dashboard', label: 'Dashboard' },
   { id: 'f1', label: 'Home · in progress' },
   { id: 'f1b', label: 'Home · new team' },
   { id: 'f2', label: 'Idea' },

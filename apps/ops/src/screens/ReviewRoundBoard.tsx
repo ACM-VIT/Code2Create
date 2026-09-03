@@ -179,7 +179,7 @@ export function ReviewRoundBoard() {
         <div className="section-heading review-team-workspace-heading">
           <div>
             <h2>Teams</h2>
-            <p className="muted">Open the queue state that needs work now.</p>
+            <p className="muted">Open whichever queue needs attention.</p>
           </div>
           <div className="configuration-tabs review-team-tabs" role="group" aria-label="Team queue view">
             <button
@@ -361,9 +361,9 @@ function PanelRow({
           </div>
 
           <div className="panel-detail-block">
-            <p className="board-section-label">Teams routed to this panel</p>
+            <p className="board-section-label">Teams sent to this panel</p>
             {panelTeams.length === 0 ? (
-              <p className="muted">Nothing routed here yet.</p>
+              <p className="muted">No team has been sent here yet.</p>
             ) : (
               <ul className="panel-team-list">
                 {[...live, ...waiting, ...done].map((team) => (
@@ -584,7 +584,7 @@ function RoundPauseControl({ round, incidents }: { round: Board['round']; incide
             </select>
           </label>
           <label className="field">
-            <span>Operational reason</span>
+            <span>Reason</span>
             <textarea disabled={pausePending} required minLength={5} value={reason} onChange={(event) => { setError(null); setReason(event.target.value) }} />
           </label>
           <div className="button-row">
@@ -645,7 +645,7 @@ function ReviewerNoShow({ member, clockInVersion, panelVersion }: { member: Subs
   return (
     <div className="inline-command">
       <label className="field">
-        <span>Operational reason</span>
+        <span>Reason</span>
         <input disabled={operationPending} value={reason} onChange={(event) => { setReason(event.target.value); setConfirmed(false); setError(null) }} />
       </label>
       <label className="check-filter">
@@ -727,16 +727,16 @@ function SubstitutionControl({ panel, serverNow }: { panel: SubstitutionPanel; s
       ) : null}
       {panel.canStartPage && panel.vacancy && !open ? (
         <button className="secondary compact-link" type="button" onClick={() => setOpen(true)}>
-          Page next compatible reserve
+          Call the next suitable reserve
         </button>
       ) : null}
       {open && panel.vacancy ? (
         <div className="exception-form">
           <label className="field">
-            <span>Substitution reason</span>
+            <span>Why the swap</span>
             <textarea disabled={operationPending} value={reason} onChange={(event) => { setReason(event.target.value); setError(null) }} />
           </label>
-          <p className="muted">The server notifies one present, qualified reserve at a time. An unanswered push escalates to their verified phone number.</p>
+          <p className="muted">One present, qualified reserve is notified at a time. If they don’t respond, they get a call on their verified phone number.</p>
           <div className="button-row">
             <button className="primary" disabled={busy || reason.trim().length < 5} type="button" onClick={() => void submit()}>
               {busy ? 'Paging…' : operationPending ? 'Confirm earlier page chain' : 'Start page chain'}
@@ -839,7 +839,7 @@ function PanelMembership({ panel, reserves }: { panel: SubstitutionPanel; reserv
         <p className="muted">Whoever takes this seat runs the panel.</p>
       ) : null}
       <label className="field">
-        <span>Operational reason</span>
+        <span>Reason</span>
         <input disabled={operationPending} value={reason} onChange={(event) => { setReason(event.target.value); changed() }} />
       </label>
       <label className="check-filter">
@@ -1345,7 +1345,7 @@ function TeamExceptions({ board, team }: { board: Board; team: Team }) {
   return (
     <details className="team-exceptions" open={command !== null}>
       <summary>Something went wrong</summary>
-      <div className="exception-choice-row">
+      <div className="exception-choice-row items-center">
         {canHold ? <button className="secondary compact-link" disabled={operationPending} type="button" onClick={() => choose('hold')}>Hold</button> : null}
         {canResume ? <button className="secondary compact-link" disabled={operationPending} type="button" onClick={() => choose('resume')}>Return to queue</button> : null}
         {canMove ? <button className="secondary compact-link" disabled={operationPending} type="button" onClick={() => choose('move')}>Move panel</button> : null}
@@ -1376,7 +1376,7 @@ function TeamExceptions({ board, team }: { board: Board; team: Team }) {
           {command === 'miss' ? (
             <label className="check-filter">
               <input checked={confirmed} disabled={operationPending} type="checkbox" onChange={(event) => setConfirmed(event.target.checked)} />
-              I confirm the published call count and grace period elapsed.
+              I confirm the team was called the published number of times and the grace period has passed.
             </label>
           ) : null}
           <div className="button-row">

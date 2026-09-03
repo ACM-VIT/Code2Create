@@ -434,8 +434,7 @@ export function Synesthesia() {
         <section className="synesthesia-section">
           <h2>Available tracks</h2>
           <p className="muted">
-            Participants can only request songs from this list. Reading it needs the event-wide catalog permission,
-            which this account does not have.
+            Participants can only request songs from this list. Reading it needs the event-wide track list permission, which this account doesn’t have.
           </p>
         </section>
       )}
@@ -702,7 +701,7 @@ function WindowSection({
             </label>
             {editor.values.kind === 'custom' ? (
               <label className="field">
-                <span>Custom kind</span>
+                <span>Other</span>
                 <input value={editor.values.customKindLabel} maxLength={60} required onChange={(event) => updateEditorValues({ ...editor.values, customKindLabel: event.target.value })} />
               </label>
             ) : null}
@@ -715,11 +714,11 @@ function WindowSection({
               <input type="datetime-local" value={editor.values.endsAt} required onChange={(event) => updateEditorValues({ ...editor.values, endsAt: event.target.value })} />
             </label>
             <label className="field">
-              <span>Licensed catalog source</span>
+              <span>Music service</span>
               <input value={editor.values.catalogSourceLabel} minLength={2} maxLength={100} required placeholder="Event Spotify account" onChange={(event) => updateEditorValues({ ...editor.values, catalogSourceLabel: event.target.value })} />
             </label>
             <label className="field">
-              <span>Allowed energy tags</span>
+              <span>Allowed moods</span>
               <input value={editor.values.allowedEnergyTags} required placeholder="calm, focused, upbeat" onChange={(event) => updateEditorValues({ ...editor.values, allowedEnergyTags: event.target.value })} />
             </label>
             <label className="field">
@@ -742,11 +741,11 @@ function WindowSection({
           <div className="synesthesia-checks">
             <label><input type="checkbox" checked={editor.values.requestsOpen} onChange={(event) => updateEditorValues({ ...editor.values, requestsOpen: event.target.checked })} /> Requests open</label>
             <label><input type="checkbox" checked={editor.values.votingOpen} onChange={(event) => updateEditorValues({ ...editor.values, votingOpen: event.target.checked })} /> Voting open</label>
-            <label><input type="checkbox" checked={editor.values.autoApproveRequests} onChange={(event) => updateEditorValues({ ...editor.values, autoApproveRequests: event.target.checked })} /> Approve allowed catalog requests automatically</label>
+            <label><input type="checkbox" checked={editor.values.autoApproveRequests} onChange={(event) => updateEditorValues({ ...editor.values, autoApproveRequests: event.target.checked })} /> Approve requests for listed tracks automatically</label>
             <label><input type="checkbox" checked={editor.values.allowExplicit} onChange={(event) => updateEditorValues({ ...editor.values, allowExplicit: event.target.checked })} /> Allow explicit tracks</label>
           </div>
           <label className="field">
-            <span>Audit reason</span>
+            <span>Reason (kept on record)</span>
             <textarea value={editor.values.reason} minLength={5} maxLength={200} required onChange={(event) => updateEditorValues({ ...editor.values, reason: event.target.value })} />
           </label>
           </fieldset>
@@ -768,7 +767,7 @@ function WindowSection({
         >
           <strong>{action.kind === 'publish' ? 'Publish this window' : action.kind === 'close' ? 'Close this window' : action.kind === 'pause' ? 'Pause playback' : 'Resume playback'}</strong>
           <label className="field">
-            <span>Audit reason</span>
+            <span>Reason (kept on record)</span>
             <textarea disabled={operationPending || busy} value={actionReason} minLength={5} maxLength={200} required onChange={(event) => setActionReason(event.target.value)} />
           </label>
           <div className="synesthesia-command-actions">
@@ -935,7 +934,7 @@ function CatalogSection({
           ) : null}
           {catalog.truncated ? (
             <p className="notice">
-              This list holds the 500 tracks a release may carry. Withdraw a track before adding another.
+              This list can hold 500 tracks. Remove one before adding another.
             </p>
           ) : null}
         </div>
@@ -962,7 +961,7 @@ function CatalogSection({
                   <input value={editor.values.provider} maxLength={40} required placeholder="spotify" onChange={(event) => updateValues({ ...editor.values, provider: event.target.value })} />
                 </label>
                 <label className="field">
-                  <span>Provider track ID</span>
+                  <span>Track ID in the music service</span>
                   <input value={editor.values.providerTrackId} maxLength={180} required onChange={(event) => updateValues({ ...editor.values, providerTrackId: event.target.value })} />
                 </label>
               </>
@@ -986,7 +985,7 @@ function CatalogSection({
               <input type="number" min="30" max="1800" value={editor.values.durationSeconds} required onChange={(event) => updateValues({ ...editor.values, durationSeconds: event.target.value })} />
             </label>
             <label className="field">
-              <span>Energy tag</span>
+              <span>Mood</span>
               <input value={editor.values.energyTag} maxLength={32} required placeholder="focused" onChange={(event) => updateValues({ ...editor.values, energyTag: event.target.value })} />
             </label>
             {editor.mode === 'edit' ? (
@@ -1001,7 +1000,7 @@ function CatalogSection({
           </div>
           <label className="synesthesia-check"><input type="checkbox" checked={editor.values.isExplicit} onChange={(event) => updateValues({ ...editor.values, isExplicit: event.target.checked })} /> Explicit track</label>
           <label className="field">
-            <span>Audit reason</span>
+            <span>Reason (kept on record)</span>
             <textarea value={editor.values.reason} minLength={5} maxLength={200} required onChange={(event) => updateValues({ ...editor.values, reason: event.target.value })} />
           </label>
           </fieldset>

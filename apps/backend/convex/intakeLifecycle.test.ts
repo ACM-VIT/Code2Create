@@ -18,6 +18,12 @@ import {
   normalizeIntakePolicy,
 } from "./lib/intakePolicy";
 import {
+  noveltyEmbeddingDimensions,
+  noveltyEmbeddingModel,
+  noveltyInputFingerprint,
+  noveltyScoringVersion,
+} from "./lib/novelty";
+import {
   defaultParticipantPolicy,
   normalizeParticipantPolicy,
   participantPolicyChecksum,
@@ -1015,6 +1021,54 @@ describe("participant intake lifecycle", () => {
     expect(replay.applicationId).toBeDefined();
     expect(replay.projectVersionId).toBeDefined();
 
+    const savedNoveltyScore = 76;
+    await backend.run(async (ctx) => {
+      const event = await ctx.db
+        .query("events")
+        .withIndex("by_slug", (index) => index.eq("slug", fixture.eventSlug))
+        .unique();
+      const draft = await ctx.db
+        .query("projectDrafts")
+        .withIndex("by_team", (index) => index.eq("teamId", team.teamId))
+        .unique();
+      if (!event || !draft || !event.createdByPersonId) {
+        throw new Error("The submitted novelty fixture is incomplete.");
+      }
+      const corpusVersionId = await ctx.db.insert("noveltyCorpusVersions", {
+        eventId: event._id,
+        version: 1,
+        revision: 1,
+        status: "published",
+        importState: "ready",
+        label: "Past and current projects",
+        minimumIdeaLength: 20,
+        debounceMs: 250,
+        maximumRequestsPerMinute: 30,
+        distinctSimilarityBoundary: 0.6,
+        commonSimilarityBoundary: 0.9,
+        embeddingModel: noveltyEmbeddingModel,
+        embeddingDimensions: noveltyEmbeddingDimensions,
+        entryCount: 200,
+        checksum: "submitted-novelty-corpus",
+        createdByPersonId: event.createdByPersonId,
+        lastEditedByPersonId: event.createdByPersonId,
+        createdAt: event.createdAt,
+        updatedAt: event.createdAt,
+        publishedAt: event.createdAt,
+      });
+      await ctx.db.patch(event._id, { publishedNoveltyCorpusVersionId: corpusVersionId });
+      await ctx.db.patch(draft._id, {
+        noveltyCorpusVersionId: corpusVersionId,
+        noveltyEvaluatedInputFingerprint: noveltyInputFingerprint(ideaAfterFixedAnswers),
+        noveltyScore: savedNoveltyScore,
+        noveltyBand: "distinct",
+        noveltyNearestThemeLabel: "Campus accessibility routing",
+        noveltyReflectionPrompt: "How is urgent help prioritized?",
+        noveltyScoringVersion,
+        noveltyEvaluatedAt: event.createdAt,
+      });
+    });
+
     const submitted = await participant.query(api.intake.submitted, {
       eventSlug: fixture.eventSlug,
     });
@@ -1026,6 +1080,10 @@ describe("participant intake lifecycle", () => {
       },
       application: { state: "submitted", contentVersion: 1 },
       canEdit: true,
+      noveltySignal: {
+        score: savedNoveltyScore,
+        band: "distinct",
+      },
     });
     if (!submitted) throw new Error("The submitted application did not persist.");
     await expect(participant.mutation(api.intakePresence.heartbeat, {
@@ -1108,6 +1166,7 @@ describe("participant intake lifecycle", () => {
         version: 2,
       },
       application: { contentVersion: 2 },
+      noveltySignal: null,
     });
 
     const stored = await backend.run(async (ctx) => {

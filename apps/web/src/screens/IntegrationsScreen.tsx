@@ -354,7 +354,7 @@ export function IntegrationsScreen({
 
       {!teamAccepted ? <p className="notice">GitHub opens after your team is accepted.</p> : null}
       {!integration.policy ? (
-        <p className="notice">The event integration policy has not been published.</p>
+        <p className="notice">Code and design connections aren’t open yet.</p>
       ) : null}
       {!integration.githubConfigured ? (
         <p className="notice">GitHub connections are unavailable right now.</p>

@@ -239,7 +239,7 @@ export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibili
       {!operationPending && configuration.canDraft ? (
         <ConfigurationEditorDisclosure
           defaultOpen={Boolean(draft)}
-          description="Participant label and feedback timing. Scores include the historical reference set and other current-event ideas."
+          description="What participants see, and when feedback appears. Ideas are compared with past projects and with other teams’ ideas this year."
           title={draft ? 'Continue idea-originality draft' : 'Edit idea originality'}
         >
         <form className="configuration-editor intake-policy-editor" onSubmit={saveDraft}>
@@ -379,7 +379,7 @@ export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibili
       {!operationPending && draft && draftReady && configuration.canPublish ? (
         publishArmed ? (
           <section className="publish-confirmation catalog-publish">
-            <h2>Publish this past-project comparison set?</h2>
+            <h2>Publish this list of past projects?</h2>
             <p className="muted">Teams already writing keep their current comparison set.</p>
             <label className="field">
               <span>Why this changed</span>
@@ -396,10 +396,10 @@ export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibili
           <section className="catalog-review">
             <div className="section-heading">
               <div>
-                <p className="eyebrow">Publication check</p>
+                <p className="eyebrow">Check before publishing</p>
                 <h2>{draft.entryCount} past projects are ready</h2>
               </div>
-              <button className="secondary" type="button" onClick={() => setPublishArmed(true)}>Review publication</button>
+              <button className="secondary" type="button" onClick={() => setPublishArmed(true)}>Review before publishing</button>
             </div>
           </section>
         )

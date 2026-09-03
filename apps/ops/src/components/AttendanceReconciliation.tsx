@@ -181,7 +181,7 @@ export function AttendanceReconciliation({
         </label>
       </div>
       <p className="muted">
-        This adds a linked correction; the original scanner event stays in history. Requires a Google sign-in from the last 15 minutes.
+        This adds a correction; the original scan stays in the history. Requires a Google sign-in from the last 15 minutes.
       </p>
       {preview === undefined ? <p className="muted">Loading current history…</p> : (
         <div className="attendance-correction-preview">
@@ -262,7 +262,7 @@ function actionOptions(participant: AttendanceParticipant) {
     options.push({ kind: 'mark_needs_review', label: 'Mark for review' })
   }
   if (participant.canVoidLastTransition && participant.lastEventId) {
-    options.push({ kind: 'void_last_transition', label: 'Void latest scanner event' })
+    options.push({ kind: 'void_last_transition', label: 'Cancel the latest scan' })
   }
   return options
 }

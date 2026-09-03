@@ -232,11 +232,11 @@ export function ParticipantPolicyConfiguration({
           <div className="section-heading">
             <div><p className="muted">Draft changes</p><h2>Before publishing</h2></div>
             {configuration.canPublish && validation?.valid && !publishArmed ? (
-              <button className="secondary" type="button" onClick={() => setPublishArmed(true)}>Review publication</button>
+              <button className="secondary" type="button" onClick={() => setPublishArmed(true)}>Review before publishing</button>
             ) : null}
           </div>
           {configuration.canValidate ? (
-            validation === undefined ? <p className="muted">Validating draft…</p> : (
+            validation === undefined ? <p className="muted">Checking the draft…</p> : (
               <>
                 <ul className="catalog-change-list">
                   {validation.changes.map((change) => <li key={change}>{change}</li>)}
@@ -294,17 +294,15 @@ export function ParticipantPolicyConfiguration({
             </div>
           </PolicySection>
 
-          <PolicySection title="Required profile fields" description="These fields are fixed so participant records stay complete and operationally useful.">
+          <PolicySection title="Required profile fields" description="These fields are fixed so every participant record is complete.">
             <p className="notice">
-              Everyone provides phone, Male or Female gender, and year of study. VIT identity is
-              derived from Google and VIT students choose day scholar or hosteller. External
-              participants provide university and college.
+              Everyone gives a phone number, gender (Male or Female), and year of study. VIT students are recognised from their Google account and choose day scholar or hosteller. External participants give their university and college.
             </p>
           </PolicySection>
 
           <PolicySection
-            title="VIT hostel block catalogue"
-            description="Published blocks appear for hostellers after they select Male or Female. Stable keys are stored on profiles; labels and grouping are participant-facing."
+            title="VIT hostel blocks"
+            description="Hostellers pick a block after choosing Male or Female. The internal key is what gets stored on profiles; the label and group are what participants see."
           >
             <div className="phase-card-list">
               {policy.vitHostelResidenceCatalog.map((residence, index) => (
@@ -322,7 +320,7 @@ export function ParticipantPolicyConfiguration({
                   </header>
                   <div className="intake-policy-grid">
                     <label className="field">
-                      <span>Stable key</span>
+                      <span>Internal key</span>
                       <input
                         required
                         minLength={2}
@@ -369,7 +367,7 @@ export function ParticipantPolicyConfiguration({
             <p className="notice">Keep at least one Men's and one Ladies' hostel block.</p>
           </PolicySection>
 
-          <PolicySection title="Participant notice" description="The project-question AI never receives profile fields.">
+          <PolicySection title="Participant notice" description="The AI that writes project questions never sees profile fields.">
             <div className="intake-policy-grid">
               <label className="field">
                 <span>Notice name</span>
@@ -393,7 +391,7 @@ export function ParticipantPolicyConfiguration({
           <PolicySection title="Submission" description="The fresh-build promise cannot be edited.">
             <div className="intake-policy-grid">
               <label className="field field-wide">
-                <span>Fresh-project acknowledgement</span>
+                <span>Fresh-project promise</span>
                 <textarea disabled value={policy.freshProjectAttestation} />
               </label>
               <label className="field field-wide">
@@ -442,7 +440,7 @@ function nextHostelResidenceKey(catalog: Policy['vitHostelResidenceCatalog']) {
     const candidate = `hostel_${suffix}`
     if (!stableKeys.has(candidate)) return candidate
   }
-  throw new Error('The VIT hostel block catalogue is full.')
+  throw new Error('The VIT hostel blocks is full.')
 }
 
 function PolicySection({

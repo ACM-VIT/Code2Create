@@ -11,6 +11,9 @@ import { briefStreamObserverKey } from '../lib/operationsBrief'
 import { Icon, type IconName } from './Icon'
 import { OperationsBriefStream } from './OperationsBriefStream'
 
+type Severity = 'watch' | 'attention' | 'critical'
+
+/** The latest operator brief: current issues, owners, and next actions from a frozen snapshot. */
 export function OperationsBrief({
   canGenerate,
   canRead,
@@ -33,6 +36,7 @@ export function OperationsBrief({
     briefId: string | undefined
     open: boolean
   }>({ briefId: undefined, open: false })
+
   const generate = async () => {
     setRequesting(true)
     setError(null)
@@ -42,11 +46,9 @@ export function OperationsBrief({
         'request',
         (clientOperationId) => () => requestBrief({ eventSlug, clientOperationId }),
       )
-      setMessage(
-        canRead
-          ? 'The brief was requested.'
-          : 'The brief was requested. Someone with read access can review it.',
-      )
+      setMessage(canRead
+        ? 'Requested. The brief appears here when the agent finishes.'
+        : 'Requested. Someone with read access can review it.')
     } catch (caught) {
       setError(readableError(caught))
     } finally {
@@ -63,100 +65,121 @@ export function OperationsBrief({
   const traceOpen = tracePreference.briefId === currentBriefId
     ? tracePreference.open
     : currentBriefId !== undefined && inProgress
+  const requestButton = canGenerate ? (
+    <button
+      className="secondary"
+      disabled={requesting || (inProgress && !requestPending)}
+      onClick={() => void generate()}
+      type="button"
+    >
+      {requesting
+        ? 'Requesting…'
+        : requestPending
+          ? 'Confirm earlier request'
+          : inProgress
+            ? 'Preparing…'
+            : brief
+              ? 'Prepare a new brief'
+              : 'Prepare a brief'}
+    </button>
+  ) : null
 
   return (
-    <section className="card-surface intelligence-brief" aria-labelledby="intelligence-brief-heading">
-      <div className="section-heading intelligence-brief-heading">
-        <div>
-          <h2 id="intelligence-brief-heading">Operations brief</h2>
-          <p className="muted">Current issues, owners, and next actions.</p>
-        </div>
-        {canGenerate ? (
-          <button
-            type="button"
-            className="secondary"
-            disabled={requesting || (inProgress && !requestPending)}
-            onClick={() => void generate()}
-          >
-            {requesting
-              ? 'Confirming…'
-              : requestPending
-                ? 'Confirm earlier request'
-                : inProgress
-                  ? 'Preparing…'
-                  : brief
-                    ? 'Refresh'
-                    : 'Prepare brief'}
-          </button>
+    <section aria-labelledby="latest-brief-heading" className="attention-section" id="latest-brief">
+      <div className="section-heading">
+        <h2 id="latest-brief-heading">Latest brief</h2>
+        {canRead && brief?.state === 'succeeded' ? (
+          <span>
+            {brief.completedAt
+              ? `Published ${formatCompactDateTime(brief.completedAt)}`
+              : `Requested ${formatCompactDateTime(brief.requestedAt)}`}
+          </span>
         ) : null}
       </div>
       {error ? <p className="notice error" role="alert">{error}</p> : null}
       {message ? <p className="notice" role="status">{message}</p> : null}
-      {canRead && brief ? (
-        <button
-          className="text-button intelligence-brief-trace-toggle"
-          onClick={() => setTracePreference({ briefId: currentBriefId, open: !traceOpen })}
-          type="button"
-        >
-          {traceOpen ? 'Hide agent trace' : inProgress ? 'Show live agent trace' : 'View agent trace'}
-        </button>
-      ) : null}
-      {canRead && brief && traceOpen ? (
-        <OperationsBriefStream
-          briefId={brief.id}
-          isActive={inProgress}
-          key={briefStreamObserverKey(brief.id, brief.workerAcceptedAt)}
-        />
-      ) : null}
-      {canRead ? (
-        brief === undefined ? (
-          <p className="muted">Loading the latest brief…</p>
-        ) : brief === null ? (
-          <p className="muted">No brief has been prepared yet.</p>
-        ) : brief.state === 'succeeded' ? (
-          <div className="intelligence-brief-result">
-            <p className="eyebrow">
-              Requested by an operator · Source checked{' '}
-              {brief.sourceGeneratedAt ? formatCompactDateTime(brief.sourceGeneratedAt) : 'recently'}
-            </p>
-            <h3>{brief.headline}</h3>
-            <p>{brief.summary}</p>
-            {brief.priorities.length > 0 ? (
-              <ol className="health-list intelligence-priorities">
-                {brief.priorities.map((priority) => (
-                  <li className="list-row" key={priority.signalKeys.join(':')}>
-                    <span className={`row-glyph ${priority.severity}`}>
-                      <Icon name={severityIcon(priority.severity)} />
-                    </span>
-                    <div className="row-text">
-                      <strong>{priority.title}</strong>
-                      <small>{priority.why}</small>
-                      <small>Owner: {priority.owner} · Next: {priority.nextAction}</small>
-                    </div>
-                    <span className="state-label">{severityLabel(priority.severity)}</span>
-                  </li>
-                ))}
-              </ol>
-            ) : null}
+
+      {!canRead ? (
+        <div className="grid gap-3">
+          <p className="m-0 text-[13px] text-ink-3">
+            You can request a brief; reading it needs the intelligence read permission.
+          </p>
+          {requestButton}
+        </div>
+      ) : brief === undefined ? (
+        <p className="m-0 text-[13px] text-ink-3" role="status">Loading the latest brief…</p>
+      ) : brief === null ? (
+        <div className="grid gap-3">
+          <div className="health-empty">
+            <strong>No brief yet.</strong>
+            <span>A brief is a short, ranked read on what needs attention and who should act.</span>
           </div>
-        ) : brief.state === 'failed' ? (
-          <p className="muted">The brief could not be prepared.</p>
-        ) : (
-          <p className="muted">Preparing from a frozen copy of the current health signals…</p>
-        )
+          {requestButton}
+        </div>
       ) : (
-        <p className="muted">You can request a brief but not read the result.</p>
+        <div className="grid gap-3">
+          {brief.state === 'succeeded' ? (
+            <>
+              <div className="grid gap-1 px-0.5">
+                <strong className="text-[13px] font-medium text-ink">{brief.headline}</strong>
+                <p className="m-0 text-[13px] leading-6 text-ink-2">{brief.summary}</p>
+              </div>
+              {brief.priorities.length > 0 ? (
+                <ol className="health-list m-0 list-none p-0">
+                  {brief.priorities.map((priority) => (
+                    <li className={`list-row ${priority.severity}`} key={priority.signalKeys.join(':')}>
+                      <span className={`row-glyph ${priority.severity}`}>
+                        <Icon name={severityIcon(priority.severity)} />
+                      </span>
+                      <div className="row-text">
+                        <strong>{priority.title}</strong>
+                        <small>{priority.why}</small>
+                        <small>{priority.owner} · {priority.nextAction}</small>
+                      </div>
+                      <span className="state-label">{severityLabel(priority.severity)}</span>
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <p className="m-0 text-[13px] text-ink-3">Nothing needed a priority in that snapshot.</p>
+              )}
+            </>
+          ) : brief.state === 'failed' ? (
+            <p className="notice error">The brief could not be prepared.</p>
+          ) : (
+            <p className="m-0 text-[13px] text-ink-3" role="status">
+              Preparing from a frozen copy of the current health signals…
+            </p>
+          )}
+          <div className="flex flex-wrap items-center gap-3">
+            {requestButton}
+            <button
+              className="text-button text-[12px]"
+              onClick={() => setTracePreference({ briefId: currentBriefId, open: !traceOpen })}
+              type="button"
+            >
+              {traceOpen ? 'Hide agent trace' : inProgress ? 'Show live agent trace' : 'View agent trace'}
+            </button>
+          </div>
+          {traceOpen ? (
+            <OperationsBriefStream
+              briefId={brief.id}
+              isActive={inProgress}
+              key={briefStreamObserverKey(brief.id, brief.workerAcceptedAt)}
+            />
+          ) : null}
+        </div>
       )}
     </section>
   )
 }
 
-function severityLabel(value: 'watch' | 'attention' | 'critical') {
+function severityLabel(value: Severity) {
   if (value === 'attention') return 'Needs attention'
   if (value === 'critical') return 'Critical'
   return 'Watch'
 }
 
-function severityIcon(value: 'watch' | 'attention' | 'critical'): IconName {
+function severityIcon(value: Severity): IconName {
   return value === 'watch' ? 'pulse' : 'alert'
 }

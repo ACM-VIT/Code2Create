@@ -59,7 +59,7 @@ export function AutonomyPolicyFields({
             type="checkbox"
             onChange={(event) => onChange('enabled', event.currentTarget.checked)}
           />
-          <span>Run autonomous monitoring</span>
+          <span>Let the agent monitor on its own</span>
         </label>
         <div className="intake-purpose-list">
           {(['observe', 'recommend'] as const).map((mode) => (
