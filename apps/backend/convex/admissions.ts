@@ -34,6 +34,7 @@ import {
   enqueueApplicationNotifications,
 } from "./lib/participantNotificationDelivery";
 import { maximumApplicantTeamsPerEvent } from "./lib/reviewLimits";
+import { teamMatchesOrigin, type ExclusiveTeamOrigin } from "./lib/teamRoster";
 import {
   normalizeEmail,
   normalizedLongText,
@@ -76,6 +77,17 @@ const maximumScopedApplicationsForStageCounts = 2_000;
 const maximumCountedReviewAssignments = 500;
 const maximumWorkloadAssignments = 4_000;
 const maximumApplicationSearchResults = 100;
+const admissionTeamOrigin = v.union(v.literal("internal"), v.literal("external"));
+
+async function applicationMatchesOrigin(
+  ctx: QueryCtx,
+  application: Doc<"applications">,
+  origin: ExclusiveTeamOrigin | undefined,
+) {
+  if (origin === undefined) return true;
+  const team = await ctx.db.get(application.teamId);
+  return team !== null && teamMatchesOrigin(team, origin);
+}
 
 async function rosterCohort(ctx: QueryCtx, project: Doc<"projectVersions">) {
   const members = await ctx.db
@@ -92,7 +104,7 @@ async function rosterCohort(ctx: QueryCtx, project: Doc<"projectVersions">) {
 
 /** Returns stage counts only for applications covered by the caller's grants. */
 export const stageCounts = query({
-  args: { eventSlug: v.string() },
+  args: { eventSlug: v.string(), origin: v.optional(admissionTeamOrigin) },
   returns: v.array(v.object({ state: applicationState, count: v.number() })),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
@@ -113,6 +125,7 @@ export const stageCounts = query({
         : await scopedApplicationsForStageCounts(ctx, event._id, subject._id);
     const counts = new Map<Doc<"applications">["state"], number>();
     for (const application of applications) {
+      if (!(await applicationMatchesOrigin(ctx, application, args.origin))) continue;
       counts.set(application.state, (counts.get(application.state) ?? 0) + 1);
     }
     return [...counts.entries()].map(([state, count]) => ({ state, count }));
@@ -503,6 +516,7 @@ export const list = query({
   args: {
     eventSlug: v.string(),
     state: v.optional(applicationState),
+    origin: v.optional(admissionTeamOrigin),
     paginationOpts: paginationOptsValidator,
   },
   returns: paginationResultValidator(listItem),
@@ -520,6 +534,7 @@ export const list = query({
       .paginate(args.paginationOpts);
     const visible = [];
     for (const application of page.page) {
+      if (!(await applicationMatchesOrigin(ctx, application, args.origin))) continue;
       const item = await visibleApplicationListProjection(
         ctx,
         event._id,
@@ -537,6 +552,7 @@ export const searchApplications = query({
     eventSlug: v.string(),
     state: applicationState,
     search: v.string(),
+    origin: v.optional(admissionTeamOrigin),
   },
   returns: v.object({
     applications: v.array(listItem),
@@ -589,7 +605,11 @@ export const searchApplications = query({
     );
     const matches = candidates
       .flatMap(({ application, team }) => {
-        if (!team || !searchTerms.every((term) => team.name.toLowerCase().includes(term))) {
+        if (
+          !team ||
+          !searchTerms.every((term) => team.name.toLowerCase().includes(term)) ||
+          (args.origin !== undefined && !teamMatchesOrigin(team, args.origin))
+        ) {
           return [];
         }
         return [{ application, teamName: team.name }];
@@ -630,6 +650,7 @@ export const myReviewAssignments = query({
   args: {
     eventSlug: v.string(),
     state: admissionReviewAssignmentState,
+    origin: v.optional(admissionTeamOrigin),
     paginationOpts: paginationOptsValidator,
   },
   returns: paginationResultValidator(assignedReviewItem),
@@ -684,6 +705,7 @@ export const myReviewAssignments = query({
           .unique(),
       ]);
       if (!team || !project) continue;
+      if (args.origin !== undefined && !teamMatchesOrigin(team, args.origin)) continue;
       const recommendation =
         aiGrantIds.length > 0 && application.aiRecommendationId
           ? await ctx.db.get(application.aiRecommendationId)
@@ -711,7 +733,7 @@ export const myReviewAssignments = query({
 
 /** How much review work the caller has, so the queue can say it before the page loads. */
 export const myReviewAssignmentCounts = query({
-  args: { eventSlug: v.string() },
+  args: { eventSlug: v.string(), origin: v.optional(admissionTeamOrigin) },
   returns: v.object({ active: v.number(), completed: v.number() }),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
@@ -724,7 +746,15 @@ export const myReviewAssignmentCounts = query({
           index.eq("eventId", event._id).eq("reviewerPersonId", person._id).eq("state", state),
         )
         .take(maximumCountedReviewAssignments);
-      return rows.length;
+      if (args.origin === undefined) return rows.length;
+      let matching = 0;
+      for (const row of rows) {
+        const application = await ctx.db.get(row.applicationId);
+        if (application && (await applicationMatchesOrigin(ctx, application, args.origin))) {
+          matching += 1;
+        }
+      }
+      return matching;
     };
     return { active: await count("active"), completed: await count("completed") };
   },
