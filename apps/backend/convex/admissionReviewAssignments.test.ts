@@ -211,6 +211,40 @@ describe("admission review assignments", () => {
     expect(assignmentCounts).toEqual({ active: 1, completed: 1 });
   });
 
+  test("origin-filtered workload counts hide assignments without review access", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const { authUserId, authSessionId } = await createReviewerAuth(backend);
+    const fixture = await seedAssignmentFixture(backend, { reviewerAuthUserId: authUserId });
+    await backend.run((ctx) =>
+      ctx.db.insert("admissionReviewAssignments", {
+        eventId: fixture.eventId,
+        applicationId: fixture.applicationId,
+        applicationContentVersion: 1,
+        reviewerPersonId: fixture.reviewerPersonId,
+        assignedByPersonId: fixture.managerPersonId,
+        state: "active",
+        version: 1,
+        assignedAt: fixture.now,
+      }),
+    );
+
+    const reviewer = backend.withIdentity({ subject: authUserId, sessionId: authSessionId });
+    const assignments = await reviewer.query(api.admissions.myReviewAssignments, {
+      eventSlug: fixture.eventSlug,
+      state: "active",
+      origin: "external",
+      paginationOpts: { cursor: null, numItems: 100 },
+    });
+    const assignmentCounts = await reviewAssignmentCounts(reviewer, {
+      eventSlug: fixture.eventSlug,
+      origin: "external",
+    });
+
+    expect(assignments.page).toEqual([]);
+    expect(assignmentCounts).toEqual({ active: 0, completed: 0 });
+  });
+
   test("origin counts include matching assignments beyond 4,000 rows", async () => {
     const backend = convexTest(schema, modules);
     backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
@@ -245,6 +279,18 @@ describe("admission review assignments", () => {
         ...applicationFields,
         teamId: internalTeamId,
         submittedAt: fixture.now + 4_002,
+      });
+      await insertPermissionGrant(ctx, {
+        eventId: fixture.eventId,
+        personId: fixture.reviewerPersonId,
+        eventAccessSubjectId: fixture.reviewerSubjectId,
+        permissionKey: "application.review.read",
+        scopeType: "application",
+        scopeId: internalApplicationId,
+        sourceType: "manual",
+        sourceId: "fixture-internal-count-review",
+        grantedByPersonId: fixture.managerPersonId,
+        reason: "Read internal count assignment fixture",
       });
       for (let index = 0; index < 4_001; index += 1) {
         await ctx.db.insert("admissionReviewAssignments", {

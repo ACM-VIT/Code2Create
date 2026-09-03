@@ -713,11 +713,10 @@ const reviewAssignmentCountRow = v.object({
   state: v.union(v.literal("active"), v.literal("completed")),
 });
 
-async function visibleReviewAssignmentProjection(
+async function visibleReviewAssignmentApplication(
   ctx: QueryCtx,
   eventId: Id<"events">,
   eventAccessSubjectId: Id<"eventAccessSubjects">,
-  reviewerPersonId: Id<"people">,
   assignment: Doc<"admissionReviewAssignments">,
   origin: ExclusiveTeamOrigin | undefined,
 ) {
@@ -731,7 +730,25 @@ async function visibleReviewAssignmentProjection(
     scopeType: "application",
     scopeId: application._id,
   });
-  if (reviewReadGrantIds.length === 0) return null;
+  return reviewReadGrantIds.length > 0 ? application : null;
+}
+
+async function visibleReviewAssignmentProjection(
+  ctx: QueryCtx,
+  eventId: Id<"events">,
+  eventAccessSubjectId: Id<"eventAccessSubjects">,
+  reviewerPersonId: Id<"people">,
+  assignment: Doc<"admissionReviewAssignments">,
+  origin: ExclusiveTeamOrigin | undefined,
+) {
+  const application = await visibleReviewAssignmentApplication(
+    ctx,
+    eventId,
+    eventAccessSubjectId,
+    assignment,
+    origin,
+  );
+  if (!application) return null;
   const [team, project, profileGrantIds, aiGrantIds, ownReview] = await Promise.all([
     ctx.db.get(application.teamId),
     ctx.db.get(application.submittedProjectVersionId),
@@ -859,7 +876,7 @@ export const myReviewAssignmentCountRows = query({
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
-    await requireEventSubject(ctx, event._id, person._id);
+    const subject = await requireEventSubject(ctx, event._id, person._id);
     requireAdmissionPageSize(args.paginationOpts.numItems);
     const page = await ctx.db
       .query("admissionReviewAssignments")
@@ -870,10 +887,14 @@ export const myReviewAssignmentCountRows = query({
     const visible = [];
     for (const assignment of page.page) {
       if (assignment.state === "cancelled") continue;
-      const application = await ctx.db.get(assignment.applicationId);
-      if (!application || !(await applicationMatchesOrigin(ctx, application, args.origin))) {
-        continue;
-      }
+      const application = await visibleReviewAssignmentApplication(
+        ctx,
+        event._id,
+        subject._id,
+        assignment,
+        args.origin,
+      );
+      if (!application) continue;
       visible.push({ state: assignment.state });
     }
     return { ...page, page: visible };
