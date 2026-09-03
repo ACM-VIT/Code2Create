@@ -12,10 +12,7 @@ import {
   type SessionTransitionDecision,
 } from "./lib/attendanceSessionTransition";
 import { requireEventBySlug } from "./lib/events";
-import {
-  requireCurrentPerson,
-  requireEventSubject,
-} from "./lib/identity";
+import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import {
   findOperation,
   operationFingerprint,
@@ -224,7 +221,10 @@ async function resolveReference(
   const candidate = distinct[0];
   if (distinct.length !== 1 || !candidate) {
     throw new ConvexError({
-      code: distinct.length === 0 ? "PARTICIPANT_REFERENCE_NOT_FOUND" : "PARTICIPANT_REFERENCE_AMBIGUOUS",
+      code:
+        distinct.length === 0
+          ? "PARTICIPANT_REFERENCE_NOT_FOUND"
+          : "PARTICIPANT_REFERENCE_AMBIGUOUS",
       message:
         distinct.length === 0
           ? "No accepted participant matches that exact event, VIT registration, or badge reference."
@@ -290,7 +290,10 @@ export const forSession = query({
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const session = await ctx.db.get(args.sessionId);
     if (!session || session.eventId !== event._id) {
-      throw new ConvexError({ code: "SESSION_NOT_FOUND", message: "Attendance session not found." });
+      throw new ConvexError({
+        code: "SESSION_NOT_FOUND",
+        message: "Attendance session not found.",
+      });
     }
     await requirePermission(ctx, {
       eventId: event._id,
@@ -337,9 +340,7 @@ export const forSession = query({
         ctx.db.get(sheet.incidentId),
         ctx.db.get(sheet.stationId),
         ctx.db.get(sheet.enteredByPersonId),
-        sheet.verifiedByPersonId
-          ? ctx.db.get(sheet.verifiedByPersonId)
-          : Promise.resolve(null),
+        sheet.verifiedByPersonId ? ctx.db.get(sheet.verifiedByPersonId) : Promise.resolve(null),
       ]);
       if (!incident || !station || !enteredBy) continue;
       sheetViews.push({
@@ -476,7 +477,10 @@ export const createDraft = mutation({
       });
     }
     if (!session || session.eventId !== event._id) {
-      throw new ConvexError({ code: "SESSION_NOT_FOUND", message: "Attendance session not found." });
+      throw new ConvexError({
+        code: "SESSION_NOT_FOUND",
+        message: "Attendance session not found.",
+      });
     }
     if (
       session.version !== args.expectedSessionVersion ||
@@ -485,14 +489,11 @@ export const createDraft = mutation({
     ) {
       throw new ConvexError({
         code: "SESSION_NOT_OPEN",
-        message: "Paper attendance must be entered and verified before this open session begins closing.",
+        message:
+          "Paper attendance must be entered and verified before this open session begins closing.",
       });
     }
-    if (
-      !station ||
-      station.eventId !== event._id ||
-      station.zoneId !== session.zoneId
-    ) {
+    if (!station || station.eventId !== event._id || station.zoneId !== session.zoneId) {
       throw new ConvexError({
         code: "STATION_NOT_IN_SESSION",
         message: "Choose a station in the same area as this session.",
@@ -530,7 +531,8 @@ export const createDraft = mutation({
       ) {
         throw new ConvexError({
           code: "SHEET_TIME_INVALID",
-          message: "Each paper time must fall inside the open session and approved incident window.",
+          message:
+            "Each paper time must fall inside the open session and approved incident window.",
         });
       }
       lineNumbers.add(entry.lineNumber);
@@ -720,10 +722,16 @@ export const sourceUploadContext = internalQuery({
       });
     }
     if (sheet.version !== args.expectedSheetVersion) {
-      throw new ConvexError({ code: "SHEET_CHANGED", message: "The paper sheet changed. Refresh and try again." });
+      throw new ConvexError({
+        code: "SHEET_CHANGED",
+        message: "The paper sheet changed. Refresh and try again.",
+      });
     }
     if (sheet.status !== "draft") {
-      throw new ConvexError({ code: "SHEET_NOT_DRAFT", message: "This paper sheet no longer accepts a source image." });
+      throw new ConvexError({
+        code: "SHEET_NOT_DRAFT",
+        message: "This paper sheet no longer accepts a source image.",
+      });
     }
     const [incident, session] = await Promise.all([
       ctx.db.get(sheet.incidentId),
@@ -735,7 +743,10 @@ export const sourceUploadContext = internalQuery({
       incident.state === "resolved" ||
       incident.manualModeState !== "approved"
     ) {
-      throw new ConvexError({ code: "MANUAL_MODE_CLOSED", message: "Manual mode is no longer open for this sheet." });
+      throw new ConvexError({
+        code: "MANUAL_MODE_CLOSED",
+        message: "Manual mode is no longer open for this sheet.",
+      });
     }
     if (!session || session.eventId !== event._id || session.status !== "open") {
       throw new ConvexError({
@@ -821,10 +832,16 @@ export const attachSource = internalMutation({
       throw new ConvexError({ code: "SHEET_NOT_FOUND", message: "Paper sheet not found." });
     }
     if (sheet.enteredByPersonId !== person._id) {
-      throw new ConvexError({ code: "SHEET_OWNER_REQUIRED", message: "Only the draft owner may submit this sheet." });
+      throw new ConvexError({
+        code: "SHEET_OWNER_REQUIRED",
+        message: "Only the draft owner may submit this sheet.",
+      });
     }
     if (sheet.version !== args.expectedSheetVersion || sheet.status !== "draft") {
-      throw new ConvexError({ code: "SHEET_CHANGED", message: "The paper sheet changed. Refresh and try again." });
+      throw new ConvexError({
+        code: "SHEET_CHANGED",
+        message: "The paper sheet changed. Refresh and try again.",
+      });
     }
     const grantIds = await requirePermission(ctx, {
       eventId: event._id,
@@ -842,7 +859,10 @@ export const attachSource = internalMutation({
         .unique(),
     ]);
     if (reusedSource) {
-      throw new ConvexError({ code: "SOURCE_ALREADY_USED", message: "That source image is already bound to a paper sheet." });
+      throw new ConvexError({
+        code: "SOURCE_ALREADY_USED",
+        message: "That source image is already bound to a paper sheet.",
+      });
     }
     if (
       !incident ||
@@ -850,7 +870,10 @@ export const attachSource = internalMutation({
       incident.state === "resolved" ||
       incident.manualModeState !== "approved"
     ) {
-      throw new ConvexError({ code: "MANUAL_MODE_CLOSED", message: "Manual mode is no longer open for this sheet." });
+      throw new ConvexError({
+        code: "MANUAL_MODE_CLOSED",
+        message: "Manual mode is no longer open for this sheet.",
+      });
     }
     if (!session || session.eventId !== event._id || session.status !== "open") {
       throw new ConvexError({
@@ -1097,9 +1120,7 @@ async function insertManualPresenceEvent(
         }
       : {}),
     operatorReason: args.entry.correctionReason ?? args.verificationReason,
-    ...(args.participant
-      ? { linkedParticipantVersion: args.participant.version }
-      : {}),
+    ...(args.participant ? { linkedParticipantVersion: args.participant.version } : {}),
     ...(args.linkedEventId !== undefined ? { linkedEventId: args.linkedEventId } : {}),
     manualSheetId: args.sheet._id,
     manualSheetLineNumber: args.entry.lineNumber,
@@ -1122,11 +1143,7 @@ export const verify = mutation({
   returns: v.object({
     id: v.id("attendanceManualSheets"),
     version: v.number(),
-    status: v.union(
-      v.literal("imported"),
-      v.literal("needs_review"),
-      v.literal("rejected"),
-    ),
+    status: v.union(v.literal("imported"), v.literal("needs_review"), v.literal("rejected")),
     importSummary: v.optional(importSummary),
   }),
   handler: async (ctx, args) => {
@@ -1172,7 +1189,10 @@ export const verify = mutation({
       });
     }
     if (sheet.version !== args.expectedSheetVersion || sheet.status !== "submitted") {
-      throw new ConvexError({ code: "SHEET_CHANGED", message: "The paper sheet changed. Refresh and try again." });
+      throw new ConvexError({
+        code: "SHEET_CHANGED",
+        message: "The paper sheet changed. Refresh and try again.",
+      });
     }
     const [grantIds, sourceGrantIds] = await Promise.all([
       requirePermission(ctx, {
@@ -1212,11 +1232,21 @@ export const verify = mutation({
         message: "The protected paper source no longer matches its submitted manifest.",
       });
     }
-    if (!session || session.eventId !== event._id || session.version !== args.expectedSessionVersion) {
-      throw new ConvexError({ code: "SESSION_CHANGED", message: "The attendance session changed. Refresh and try again." });
+    if (
+      !session ||
+      session.eventId !== event._id ||
+      session.version !== args.expectedSessionVersion
+    ) {
+      throw new ConvexError({
+        code: "SESSION_CHANGED",
+        message: "The attendance session changed. Refresh and try again.",
+      });
     }
     if (!incident || incident.eventId !== event._id) {
-      throw new ConvexError({ code: "INCIDENT_NOT_FOUND", message: "The linked incident no longer exists." });
+      throw new ConvexError({
+        code: "INCIDENT_NOT_FOUND",
+        message: "The linked incident no longer exists.",
+      });
     }
     const now = Date.now();
     const version = sheet.version + 1;
@@ -1269,7 +1299,10 @@ export const verify = mutation({
       incident.manualModeState !== "approved" ||
       incident.manualModeApprovalCount !== 2
     ) {
-      throw new ConvexError({ code: "MANUAL_MODE_CLOSED", message: "Manual mode is no longer approved for this incident." });
+      throw new ConvexError({
+        code: "MANUAL_MODE_CLOSED",
+        message: "Manual mode is no longer approved for this incident.",
+      });
     }
     if (session.status !== "open" || session.openedAt === undefined) {
       throw new ConvexError({
@@ -1295,7 +1328,9 @@ export const verify = mutation({
         )
         .unique();
       if (existingEvent) {
-        throw new Error("A submitted paper line was already imported outside its sheet transaction.");
+        throw new Error(
+          "A submitted paper line was already imported outside its sheet transaction.",
+        );
       }
       const [membership, participant] = await Promise.all([
         ctx.db.get(entry.membershipId),
@@ -1328,11 +1363,8 @@ export const verify = mutation({
         addOutcome(summary, "rejected");
         continue;
       }
-      const lastEvent = participant.lastEventId
-        ? await ctx.db.get(participant.lastEventId)
-        : null;
-      const precedesNewerEvidence =
-        lastEvent !== null && lastEvent.capturedAt >= entry.capturedAt;
+      const lastEvent = participant.lastEventId ? await ctx.db.get(participant.lastEventId) : null;
+      const precedesNewerEvidence = lastEvent !== null && lastEvent.capturedAt >= entry.capturedAt;
       if (precedesNewerEvidence) {
         const decision: SessionTransitionDecision = {
           outcome: "needs_review",
@@ -1394,9 +1426,7 @@ export const verify = mutation({
       addOutcome(summary, prepared.decision.outcome);
     }
     const status: "imported" | "needs_review" =
-      summary.rejected > 0 || summary.needsReview > 0
-        ? "needs_review"
-        : "imported";
+      summary.rejected > 0 || summary.needsReview > 0 ? "needs_review" : "imported";
     await ctx.db.patch(sheet._id, {
       status,
       verifiedByPersonId: person._id,

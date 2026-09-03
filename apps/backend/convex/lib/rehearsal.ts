@@ -1,7 +1,4 @@
-import type {
-  RehearsalScenarioState,
-  RehearsalWorkstream,
-} from "../values";
+import type { RehearsalScenarioState, RehearsalWorkstream } from "../values";
 
 export const releaseRehearsalTemplateVersion = "code2create-7.0-release-v1";
 
@@ -482,12 +479,9 @@ export function canTransitionRehearsalScenario(
   return next === "running";
 }
 
-export function canCompleteRehearsal(
-  states: readonly RehearsalScenarioState[],
-) {
+export function canCompleteRehearsal(states: readonly RehearsalScenarioState[]) {
   return (
-    states.length === releaseRehearsalTemplate.length &&
-    states.every((state) => state === "passed")
+    states.length === releaseRehearsalTemplate.length && states.every((state) => state === "passed")
   );
 }
 

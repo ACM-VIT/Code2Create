@@ -160,10 +160,7 @@ async function currentTeamContext(ctx: ReadCtx, eventSlug: string) {
   const member = await ctx.db
     .query("teamMembers")
     .withIndex("by_event_membership_status", (index) =>
-      index
-        .eq("eventId", event._id)
-        .eq("membershipId", membership._id)
-        .eq("status", "active"),
+      index.eq("eventId", event._id).eq("membershipId", membership._id).eq("status", "active"),
     )
     .unique();
   if (!member) {
@@ -251,7 +248,10 @@ function repositoryAddOperationFingerprint(args: {
   ]);
 }
 
-function normalizedKindLabel(kind: Doc<"githubRepositoryBindings">["kind"], value: string | undefined) {
+function normalizedKindLabel(
+  kind: Doc<"githubRepositoryBindings">["kind"],
+  value: string | undefined,
+) {
   if (kind === "other") {
     return normalizedText(value ?? "", "Custom repository kind", 2, 50);
   }
@@ -290,10 +290,10 @@ function normalizedObservedCommitShas(args: {
 function githubEnvironmentConfigured() {
   return Boolean(
     process.env.GITHUB_APP_ID?.trim() &&
-      process.env.GITHUB_APP_PRIVATE_KEY?.trim() &&
-      process.env.GITHUB_APP_CLIENT_ID?.trim() &&
-      process.env.GITHUB_APP_CLIENT_SECRET?.trim() &&
-      process.env.GITHUB_WEBHOOK_SECRET?.trim(),
+    process.env.GITHUB_APP_PRIVATE_KEY?.trim() &&
+    process.env.GITHUB_APP_CLIENT_ID?.trim() &&
+    process.env.GITHUB_APP_CLIENT_SECRET?.trim() &&
+    process.env.GITHUB_WEBHOOK_SECRET?.trim(),
   );
 }
 
@@ -314,10 +314,7 @@ export const current = query({
     const member = await ctx.db
       .query("teamMembers")
       .withIndex("by_event_membership_status", (index) =>
-        index
-          .eq("eventId", event._id)
-          .eq("membershipId", membership._id)
-          .eq("status", "active"),
+        index.eq("eventId", event._id).eq("membershipId", membership._id).eq("status", "active"),
       )
       .unique();
     if (!member) return null;
@@ -388,9 +385,11 @@ export const current = query({
       policy && policy.eventId === event._id && policy.status === "published"
         ? policy.requiredGitHubTopic
         : null;
-    const topicVerificationPending = currentRequiredTopic !== null && visibleBindings.some(
-      (binding) => !githubTopicVerificationIsCurrent(binding, currentRequiredTopic),
-    );
+    const topicVerificationPending =
+      currentRequiredTopic !== null &&
+      visibleBindings.some(
+        (binding) => !githubTopicVerificationIsCurrent(binding, currentRequiredTopic),
+      );
     return {
       eventStatus: event.status,
       teamId: team._id,
@@ -442,7 +441,7 @@ export const current = query({
           requiredTopic,
           topicState: githubTopicVerificationIsCurrent(binding, requiredTopic)
             ? binding.topicState
-            : "unknown" as const,
+            : ("unknown" as const),
           state: binding.state,
           ...(binding.baselineSha !== undefined ? { baselineSha: binding.baselineSha } : {}),
           ...(binding.currentHeadSha !== undefined
@@ -451,16 +450,12 @@ export const current = query({
           ...(binding.pendingHeadSha !== undefined
             ? { pendingHeadSha: binding.pendingHeadSha }
             : {}),
-          ...(binding.lastWebhookAt !== undefined
-            ? { lastWebhookAt: binding.lastWebhookAt }
-            : {}),
+          ...(binding.lastWebhookAt !== undefined ? { lastWebhookAt: binding.lastWebhookAt } : {}),
           ...(binding.lastReconciledAt !== undefined
             ? { lastReconciledAt: binding.lastReconciledAt }
             : {}),
           syncState: binding.syncState,
-          ...(binding.syncErrorCode !== undefined
-            ? { syncErrorCode: binding.syncErrorCode }
-            : {}),
+          ...(binding.syncErrorCode !== undefined ? { syncErrorCode: binding.syncErrorCode } : {}),
           version: binding.version,
           metrics: {
             pushCount: metric.pushCount,
@@ -481,7 +476,7 @@ export const current = query({
       }),
       summary: teamMetric
         ? {
-            health: topicVerificationPending ? "needs_attention" as const : teamMetric.health,
+            health: topicVerificationPending ? ("needs_attention" as const) : teamMetric.health,
             installationCount: teamMetric.installationCount,
             repositoryCount: teamMetric.repositoryCount,
             completeRepositoryCount: topicVerificationPending
@@ -501,9 +496,7 @@ export const current = query({
             deletions: teamMetric.deletions,
             changedFiles: teamMetric.changedFiles,
             languageBytes: teamMetric.languageBytes,
-            completeness: topicVerificationPending
-              ? "partial" as const
-              : teamMetric.completeness,
+            completeness: topicVerificationPending ? ("partial" as const) : teamMetric.completeness,
             incompleteRepositoryCount: topicVerificationPending
               ? teamMetric.repositoryCount
               : teamMetric.incompleteRepositoryCount,
@@ -587,8 +580,16 @@ export const claimSetupIntent = internalMutation({
       .query("githubSetupIntents")
       .withIndex("by_state_digest", (index) => index.eq("stateDigest", args.stateDigest))
       .unique();
-    if (!intent || intent.eventId !== event._id || intent.teamId !== team._id || intent.personId !== person._id) {
-      throw new ConvexError({ code: "SETUP_INVALID", message: "This GitHub setup link is invalid." });
+    if (
+      !intent ||
+      intent.eventId !== event._id ||
+      intent.teamId !== team._id ||
+      intent.personId !== person._id
+    ) {
+      throw new ConvexError({
+        code: "SETUP_INVALID",
+        message: "This GitHub setup link is invalid.",
+      });
     }
     if (intent.status === "completed" && intent.installationConnectionId) {
       return { kind: "completed", connectionId: intent.installationConnectionId };
@@ -596,7 +597,10 @@ export const claimSetupIntent = internalMutation({
     const now = Date.now();
     if (intent.expiresAt <= now) {
       if (intent.status !== "expired") await ctx.db.patch(intent._id, { status: "expired" });
-      throw new ConvexError({ code: "SETUP_EXPIRED", message: "Start the GitHub connection again." });
+      throw new ConvexError({
+        code: "SETUP_EXPIRED",
+        message: "Start the GitHub connection again.",
+      });
     }
     if (intent.status === "verifying" && (intent.claimExpiresAt ?? 0) > now) {
       throw new ConvexError({
@@ -605,7 +609,10 @@ export const claimSetupIntent = internalMutation({
       });
     }
     if (intent.status === "failed") {
-      throw new ConvexError({ code: "SETUP_FAILED", message: "Start the GitHub connection again." });
+      throw new ConvexError({
+        code: "SETUP_FAILED",
+        message: "Start the GitHub connection again.",
+      });
     }
     await ctx.db.patch(intent._id, {
       status: "verifying",
@@ -754,10 +761,7 @@ export const repositoryAddReceipt = internalQuery({
     rootPath: v.optional(v.string()),
     clientOperationId: v.string(),
   },
-  returns: v.union(
-    v.null(),
-    v.object({ bindingId: v.id("githubRepositoryBindings") }),
-  ),
+  returns: v.union(v.null(), v.object({ bindingId: v.id("githubRepositoryBindings") })),
   handler: async (ctx, args) => {
     const { event, person, subject, team } = await currentTeamContext(ctx, args.eventSlug);
     await requirePermission(ctx, {
@@ -775,10 +779,7 @@ export const repositoryAddReceipt = internalQuery({
       requestFingerprint: repositoryAddOperationFingerprint(args),
     });
     if (!priorOperation) return null;
-    const bindingId = ctx.db.normalizeId(
-      "githubRepositoryBindings",
-      priorOperation.targetId,
-    );
+    const bindingId = ctx.db.normalizeId("githubRepositoryBindings", priorOperation.targetId);
     if (!bindingId) throw new Error("The prior GitHub repository result is invalid.");
     const binding = await ctx.db.get(bindingId);
     if (!binding || binding.teamId !== team._id) {
@@ -1061,17 +1062,8 @@ export const refreshRepository = mutation({
   handler: async (ctx, args) => {
     const { event, person, subject, team } = await currentTeamContext(ctx, args.eventSlug);
     const reason = normalizedText(args.reason, "Refresh reason", 3, 180);
-    const clientOperationId = normalizedText(
-      args.clientOperationId,
-      "Client operation ID",
-      8,
-      120,
-    );
-    const requestFingerprint = operationFingerprint([
-      args.bindingId,
-      args.expectedVersion,
-      reason,
-    ]);
+    const clientOperationId = normalizedText(args.clientOperationId, "Client operation ID", 8, 120);
+    const requestFingerprint = operationFingerprint([args.bindingId, args.expectedVersion, reason]);
     const priorOperation = await findOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -1080,17 +1072,11 @@ export const refreshRepository = mutation({
       requestFingerprint,
     });
     if (priorOperation) {
-      const bindingId = ctx.db.normalizeId(
-        "githubRepositoryBindings",
-        priorOperation.targetId,
-      );
+      const bindingId = ctx.db.normalizeId("githubRepositoryBindings", priorOperation.targetId);
       if (!bindingId) throw new Error("The stored repository refresh is invalid.");
       return {
         bindingId,
-        syncRevision: storedOperationVersion(
-          priorOperation.resultJson,
-          "repository refresh",
-        ),
+        syncRevision: storedOperationVersion(priorOperation.resultJson, "repository refresh"),
       };
     }
     const grantIds = await requirePermission(ctx, {
@@ -1102,7 +1088,10 @@ export const refreshRepository = mutation({
     });
     const binding = await ctx.db.get(args.bindingId);
     if (!binding || binding.teamId !== team._id || binding.state !== "active") {
-      throw new ConvexError({ code: "REPOSITORY_UNAVAILABLE", message: "This repository is unavailable." });
+      throw new ConvexError({
+        code: "REPOSITORY_UNAVAILABLE",
+        message: "This repository is unavailable.",
+      });
     }
     if (binding.version !== args.expectedVersion) {
       throw new ConvexError({
@@ -1361,7 +1350,10 @@ export const archiveRepository = mutation({
     });
     const binding = await ctx.db.get(args.bindingId);
     if (!binding || binding.teamId !== team._id || binding.state === "archived") {
-      throw new ConvexError({ code: "REPOSITORY_UNAVAILABLE", message: "This repository is unavailable." });
+      throw new ConvexError({
+        code: "REPOSITORY_UNAVAILABLE",
+        message: "This repository is unavailable.",
+      });
     }
     if (binding.version !== args.expectedVersion) {
       throw new ConvexError({
@@ -1432,10 +1424,7 @@ export const revalidateRequiredTopic = internalMutation({
     const now = Date.now();
     const affectedTeamIds = new Set<Id<"teams">>();
     for (const binding of page.page) {
-      if (
-        binding.state === "archived" ||
-        binding.requiredTopic === policy.requiredGitHubTopic
-      ) {
+      if (binding.state === "archived" || binding.requiredTopic === policy.requiredGitHubTopic) {
         continue;
       }
       const canSync = binding.state === "active" && binding.baselineSha !== undefined;
@@ -1455,9 +1444,10 @@ export const revalidateRequiredTopic = internalMutation({
       await appendGithubIntegrationReadFactById(ctx, binding._id, now);
       affectedTeamIds.add(binding.teamId);
       if (canSync) {
-        const runAfter = binding.syncState === "running"
-          ? Math.max(0, (binding.syncLeaseExpiresAt ?? now) - now) + 1_000
-          : 0;
+        const runAfter =
+          binding.syncState === "running"
+            ? Math.max(0, (binding.syncLeaseExpiresAt ?? now) - now) + 1_000
+            : 0;
         await integrationWorkpool.enqueueAction(
           ctx,
           internal.githubActions.reconcileRepository,
@@ -1670,9 +1660,7 @@ export const finishRepositorySync = internalMutation({
     });
     const previousSnapshot = await ctx.db
       .query("githubRepositorySnapshots")
-      .withIndex("by_binding_time", (index) =>
-        index.eq("repositoryBindingId", binding._id),
-      )
+      .withIndex("by_binding_time", (index) => index.eq("repositoryBindingId", binding._id))
       .order("desc")
       .first();
     await ctx.db.insert("githubRepositorySnapshots", {
@@ -1861,9 +1849,7 @@ export const acceptWebhook = internalMutation({
           const bindings = await ctx.db
             .query("githubRepositoryBindings")
             .withIndex("by_connection_state", (index) =>
-              index
-                .eq("installationConnectionId", connection._id)
-                .eq("state", "inaccessible"),
+              index.eq("installationConnectionId", connection._id).eq("state", "inaccessible"),
             )
             .collect();
           for (const binding of bindings) {
@@ -1957,16 +1943,12 @@ export const acceptWebhook = internalMutation({
             deleted: args.event.deleted,
             forced: args.event.forced,
             pushedCommitCount: args.event.pushedCommitCount,
-            ...(args.event.providerAt !== undefined
-              ? { providerAt: args.event.providerAt }
-              : {}),
+            ...(args.event.providerAt !== undefined ? { providerAt: args.event.providerAt } : {}),
             receivedAt: now,
           });
           const metric = await ctx.db
             .query("githubRepositoryMetrics")
-            .withIndex("by_binding", (index) =>
-              index.eq("repositoryBindingId", binding._id),
-            )
+            .withIndex("by_binding", (index) => index.eq("repositoryBindingId", binding._id))
             .unique();
           if (!metric) throw new Error("GitHub repository metrics are missing.");
           const syncRevision = binding.syncRevision + 1;

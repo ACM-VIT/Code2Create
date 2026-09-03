@@ -1,9 +1,6 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-import {
-  createOpenAiEmbeddings,
-  OpenAiEmbeddingError,
-} from "./openAiEmbeddings";
+import { createOpenAiEmbeddings, OpenAiEmbeddingError } from "./openAiEmbeddings";
 
 const request = {
   apiKey: "test-key",
@@ -13,17 +10,20 @@ const request = {
 };
 
 function embeddingResponse(requestId = "embedding-request") {
-  return new Response(JSON.stringify({
-    data: [{ embedding: [0.1, 0.2], index: 0 }],
-  }), {
-    status: 200,
-    headers: {
-      "content-type": "application/json",
-      "x-request-id": requestId,
-      "x-ratelimit-remaining-requests": "742",
-      "x-ratelimit-reset-requests": "1.2s",
+  return new Response(
+    JSON.stringify({
+      data: [{ embedding: [0.1, 0.2], index: 0 }],
+    }),
+    {
+      status: 200,
+      headers: {
+        "content-type": "application/json",
+        "x-request-id": requestId,
+        "x-ratelimit-remaining-requests": "742",
+        "x-ratelimit-reset-requests": "1.2s",
+      },
     },
-  });
+  );
 }
 
 afterEach(() => {
@@ -32,7 +32,8 @@ afterEach(() => {
 
 describe("createOpenAiEmbeddings", () => {
   test("retries one transient transport failure", async () => {
-    const fetch = vi.fn()
+    const fetch = vi
+      .fn()
       .mockRejectedValueOnce(new TypeError("network unavailable"))
       .mockResolvedValueOnce(embeddingResponse());
     vi.stubGlobal("fetch", fetch);
@@ -50,15 +51,19 @@ describe("createOpenAiEmbeddings", () => {
   });
 
   test("does not retry a non-transient provider response", async () => {
-    const fetch = vi.fn().mockResolvedValue(new Response("invalid request", {
-      status: 400,
-    }));
+    const fetch = vi.fn().mockResolvedValue(
+      new Response("invalid request", {
+        status: 400,
+      }),
+    );
     vi.stubGlobal("fetch", fetch);
 
-    await expect(createOpenAiEmbeddings({
-      ...request,
-      maximumAttempts: 2,
-    })).rejects.toMatchObject({
+    await expect(
+      createOpenAiEmbeddings({
+        ...request,
+        maximumAttempts: 2,
+      }),
+    ).rejects.toMatchObject({
       status: 400,
       timedOut: false,
     });
@@ -76,22 +81,26 @@ describe("createOpenAiEmbeddings", () => {
   });
 
   test("classifies a transport error after its timeout signal aborts", async () => {
-    const fetch = vi.fn((_input: string | URL | Request, init?: RequestInit) =>
-      new Promise<Response>((_resolve, reject) => {
-        const signal = init?.signal;
-        if (!signal) throw new Error("The embedding request has no timeout signal.");
-        signal.addEventListener(
-          "abort",
-          () => reject(new TypeError("self-hosted fetch stopped")),
-          { once: true },
-        );
-      }));
+    const fetch = vi.fn(
+      (_input: string | URL | Request, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal;
+          if (!signal) throw new Error("The embedding request has no timeout signal.");
+          signal.addEventListener(
+            "abort",
+            () => reject(new TypeError("self-hosted fetch stopped")),
+            { once: true },
+          );
+        }),
+    );
     vi.stubGlobal("fetch", fetch);
 
-    await expect(createOpenAiEmbeddings({
-      ...request,
-      timeoutMs: 5,
-    })).rejects.toMatchObject({ timedOut: true });
+    await expect(
+      createOpenAiEmbeddings({
+        ...request,
+        timeoutMs: 5,
+      }),
+    ).rejects.toMatchObject({ timedOut: true });
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 });

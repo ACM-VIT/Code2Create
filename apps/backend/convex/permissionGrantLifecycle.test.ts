@@ -47,43 +47,31 @@ describe("permission grant lifecycle", () => {
     const scheduled = await backend.run((ctx) => ctx.db.get(grantId));
     expect(scheduled?.status).toBe("scheduled");
     expect(scheduled?.activatedAt).toBeUndefined();
-    expect(
-      await matchingIds(backend, fixture, "operations.health.read"),
-    ).toEqual([]);
+    expect(await matchingIds(backend, fixture, "operations.health.read")).toEqual([]);
 
     vi.setSystemTime(validFrom);
     expect(
-      await backend.run((ctx) =>
-        transitionPermissionGrant(ctx, { grantId, now: validFrom }),
-      ),
+      await backend.run((ctx) => transitionPermissionGrant(ctx, { grantId, now: validFrom })),
     ).toBe("activated");
     const active = await backend.run((ctx) => ctx.db.get(grantId));
     expect(active?.status).toBe("active");
     expect(active?.activatedAt).toBe(validFrom);
-    expect(
-      await matchingIds(backend, fixture, "operations.health.read"),
-    ).toEqual([grantId]);
+    expect(await matchingIds(backend, fixture, "operations.health.read")).toEqual([grantId]);
     expect(await accessVersion(backend, fixture.subjectId)).toBe(2);
 
     expect(
-      await backend.run((ctx) =>
-        transitionPermissionGrant(ctx, { grantId, now: validFrom }),
-      ),
+      await backend.run((ctx) => transitionPermissionGrant(ctx, { grantId, now: validFrom })),
     ).toBe("unchanged");
     expect(await accessVersion(backend, fixture.subjectId)).toBe(2);
 
     vi.setSystemTime(validUntil);
     expect(
-      await backend.run((ctx) =>
-        transitionPermissionGrant(ctx, { grantId, now: validUntil }),
-      ),
+      await backend.run((ctx) => transitionPermissionGrant(ctx, { grantId, now: validUntil })),
     ).toBe("expired");
     const expired = await backend.run((ctx) => ctx.db.get(grantId));
     expect(expired?.status).toBe("expired");
     expect(expired?.expiredAt).toBe(validUntil);
-    expect(
-      await matchingIds(backend, fixture, "operations.health.read"),
-    ).toEqual([]);
+    expect(await matchingIds(backend, fixture, "operations.health.read")).toEqual([]);
     expect(await accessVersion(backend, fixture.subjectId)).toBe(3);
   });
 
@@ -110,9 +98,7 @@ describe("permission grant lifecycle", () => {
 
     vi.setSystemTime(validFrom);
     await Promise.all([
-      backend.run((ctx) =>
-        transitionPermissionGrant(ctx, { grantId, now: validFrom }),
-      ),
+      backend.run((ctx) => transitionPermissionGrant(ctx, { grantId, now: validFrom })),
       backend.run((ctx) =>
         revokeSourceGrants(ctx, {
           eventId: fixture.eventId,
@@ -125,9 +111,7 @@ describe("permission grant lifecycle", () => {
 
     const grant = await backend.run((ctx) => ctx.db.get(grantId));
     expect(grant?.status).toBe("revoked");
-    expect(
-      await matchingIds(backend, fixture, "operations.health.read"),
-    ).toEqual([]);
+    expect(await matchingIds(backend, fixture, "operations.health.read")).toEqual([]);
     expect(await accessVersion(backend, fixture.subjectId)).toBeGreaterThan(1);
   });
 
@@ -176,9 +160,7 @@ describe("permission grant lifecycle", () => {
     expect(await accessVersion(backend, fixture.subjectId)).toBe(2);
     expect(
       await Promise.all(
-        [firstGrantId, secondGrantId].map((grantId) =>
-          backend.run((ctx) => ctx.db.get(grantId)),
-        ),
+        [firstGrantId, secondGrantId].map((grantId) => backend.run((ctx) => ctx.db.get(grantId))),
       ),
     ).toEqual([
       expect.objectContaining({ status: "revoked" }),
@@ -326,10 +308,7 @@ async function scheduledGrant(
   return result.grantId;
 }
 
-async function accessVersion(
-  backend: BackendTest,
-  subjectId: Id<"eventAccessSubjects">,
-) {
+async function accessVersion(backend: BackendTest, subjectId: Id<"eventAccessSubjects">) {
   const subject = await backend.run((ctx) => ctx.db.get(subjectId));
   if (!subject) throw new Error("Fixture event access subject is missing.");
   return subject.accessVersion;
@@ -345,7 +324,7 @@ async function seedFixture(backend: BackendTest, now: number) {
       timezone: "Asia/Kolkata",
       status: "live",
       vitEmailDomains: ["vitstudent.ac.in"],
-        applicationsCloseAt: Date.now() + 86_400_000,
+      applicationsCloseAt: Date.now() + 86_400_000,
       startsAt: now - 60_000,
       endsAt: now + 3_600_000,
       version: 1,

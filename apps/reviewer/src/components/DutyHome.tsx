@@ -1,57 +1,56 @@
-import { useState } from 'react'
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
+import { useState } from "react";
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { duty, palette, radius, space, tileAspectRatio, type, type DutyKey } from '@/theme'
+import { duty, palette, radius, space, tileAspectRatio, type, type DutyKey } from "@/theme";
 
 // Android overlays the tab bar, so content needs an explicit bottom inset.
-const androidTabBarHeight = 80
+const androidTabBarHeight = 80;
 
 export type DutyTile = {
-  key: DutyKey
-  label: string
-  status: string
-  active?: boolean
-  resting?: boolean
-  icon: React.ReactNode
-  onPress: () => void
-}
+  key: DutyKey;
+  label: string;
+  status: string;
+  active?: boolean;
+  resting?: boolean;
+  icon: React.ReactNode;
+  onPress: () => void;
+};
 
 export type DutyHeadline = {
-  primary: string
-  secondary?: string
-  context: string
-  summary?: string
-}
+  primary: string;
+  secondary?: string;
+  context: string;
+  summary?: string;
+};
 
 export function DutyHome({
   headline,
   notice,
   tiles,
 }: {
-  headline: DutyHeadline
-  notice?: string
-  tiles: DutyTile[]
+  headline: DutyHeadline;
+  notice?: string;
+  tiles: DutyTile[];
 }) {
-  const insets = useSafeAreaInsets()
+  const insets = useSafeAreaInsets();
   // Enable scrolling only when content extends behind the Android tab bar.
-  const [viewportHeight, setViewportHeight] = useState(0)
-  const [contentHeight, setContentHeight] = useState(0)
-  const barHeight = Platform.OS === 'android' ? androidTabBarHeight + insets.bottom : 0
-  const overflows =
-    viewportHeight > 0 && contentHeight + barHeight > viewportHeight + 1
-  const rows: DutyTile[][] = []
+  const [viewportHeight, setViewportHeight] = useState(0);
+  const [contentHeight, setContentHeight] = useState(0);
+  const barHeight = Platform.OS === "android" ? androidTabBarHeight + insets.bottom : 0;
+  const overflows = viewportHeight > 0 && contentHeight + barHeight > viewportHeight + 1;
+  const rows: DutyTile[][] = [];
   for (let index = 0; index < tiles.length; index += 2) {
-    rows.push(tiles.slice(index, index + 2))
+    rows.push(tiles.slice(index, index + 2));
   }
 
   return (
     <View style={styles.root}>
-      <SafeAreaView edges={['top']} style={styles.body}>
+      <SafeAreaView edges={["top"]} style={styles.body}>
         <ScrollView
           contentContainerStyle={[
             styles.scroll,
-            Platform.OS === 'android' && overflows
+            Platform.OS === "android" && overflows
               ? { paddingBottom: 18 + androidTabBarHeight + insets.bottom }
               : null,
           ]}
@@ -71,10 +70,7 @@ export function DutyHome({
               </Text>
             ) : null}
 
-
-            <View
-              style={styles.identity}
-            >
+            <View style={styles.identity}>
               <Text numberOfLines={1} style={styles.context}>
                 {headline.context}
               </Text>
@@ -105,13 +101,13 @@ export function DutyHome({
         </ScrollView>
       </SafeAreaView>
     </View>
-  )
+  );
 }
 
 function Tile({ tile }: { tile: DutyTile }) {
-  const { accent, ink } = duty[tile.key]
-  const filled = tile.active === true
-  const statusColour = filled ? ink : tile.resting === true ? palette.muted : accent
+  const { accent, ink } = duty[tile.key];
+  const filled = tile.active === true;
+  const statusColour = filled ? ink : tile.resting === true ? palette.muted : accent;
   return (
     <Pressable
       accessibilityLabel={`${tile.label}. ${tile.status}`}
@@ -133,7 +129,7 @@ function Tile({ tile }: { tile: DutyTile }) {
         {tile.icon}
       </View>
     </Pressable>
-  )
+  );
 }
 
 const styles = StyleSheet.create({
@@ -147,7 +143,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.text,
   },
   value: { color: palette.text, ...type.value },
-
 
   identity: { marginTop: 42 },
   context: { color: palette.muted, ...type.context },
@@ -163,7 +158,7 @@ const styles = StyleSheet.create({
   noticeText: { color: palette.urgent, fontSize: 15, lineHeight: 21 },
 
   grid: { paddingHorizontal: space.grid, gap: space.tileGapY },
-  gridRow: { flexDirection: 'row', gap: space.tileGapX },
+  gridRow: { flexDirection: "row", gap: space.tileGapX },
   tile: {
     flex: 1,
     aspectRatio: tileAspectRatio,
@@ -177,5 +172,5 @@ const styles = StyleSheet.create({
   tileLabel: { color: palette.text, ...type.tileLabel },
   tileStatus: { marginTop: 2, ...type.tileStatus },
   dim: { opacity: 0.5 },
-  tileIcon: { marginTop: 'auto' },
-})
+  tileIcon: { marginTop: "auto" },
+});

@@ -94,16 +94,14 @@ type StaffedParticipantResult = {
         canReplace: boolean;
         canRevoke: boolean;
       };
-  venueCheckIn:
-    | null
-    | {
-        id: Id<"venueCheckIns">;
-        status: "checked_in" | "reversed";
-        version: number;
-        checkedInAt: number;
-        stationName: string;
-        reversedAt?: number;
-      };
+  venueCheckIn: null | {
+    id: Id<"venueCheckIns">;
+    status: "checked_in" | "reversed";
+    version: number;
+    checkedInAt: number;
+    stationName: string;
+    reversedAt?: number;
+  };
   canRecordVenueCheckIn: boolean;
   canOverrideVenueIdentity: boolean;
   canReverseVenueCheckIn: boolean;
@@ -123,12 +121,7 @@ type VenueCheckInReversalResult = {
   version: number;
   teamStatusChanged: boolean;
 };
-type ScanTransition =
-  | "venue_entry"
-  | "venue_exit"
-  | "session_confirm"
-  | "zone_entry"
-  | "zone_exit";
+type ScanTransition = "venue_entry" | "venue_exit" | "session_confirm" | "zone_entry" | "zone_exit";
 type ScanReceipt = {
   presenceEventId: Id<"attendancePresenceEvents">;
   outcome: "accepted" | "duplicate" | "rejected" | "needs_review";
@@ -183,7 +176,9 @@ function ownedBytes(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
 }
 
 async function sha256(value: string) {
-  return bytesToHex(new Uint8Array(await crypto.subtle.digest("SHA-256", textEncoder.encode(value))));
+  return bytesToHex(
+    new Uint8Array(await crypto.subtle.digest("SHA-256", textEncoder.encode(value))),
+  );
 }
 
 async function deviceSecretHash(secret: string) {
@@ -199,7 +194,8 @@ async function deviceSecretHash(secret: string) {
 function attendanceKeyConfigurationError(): never {
   throw new ConvexError({
     code: "ATTENDANCE_KEYS_INVALID",
-    message: "The attendance key configuration is invalid. Tell the platform team before scanning continues.",
+    message:
+      "The attendance key configuration is invalid. Tell the platform team before scanning continues.",
   });
 }
 
@@ -207,7 +203,12 @@ function configuredAttendanceKey(
   version: string | undefined,
   encoded: string | undefined,
 ): AttendanceWrappingKey {
-  if (!version || !keyVersionPattern.test(version) || !encoded || !encodedKeyPattern.test(encoded)) {
+  if (
+    !version ||
+    !keyVersionPattern.test(version) ||
+    !encoded ||
+    !encodedKeyPattern.test(encoded)
+  ) {
     return attendanceKeyConfigurationError();
   }
   let key: Uint8Array;
@@ -243,10 +244,7 @@ function attendanceKeyConfiguration() {
   const previousEncoded = process.env.ATTENDANCE_PREVIOUS_WRAPPING_KEY?.trim();
   if (!previousVersion && !previousEncoded) return { current, previous: null };
   const previous = configuredAttendanceKey(previousVersion, previousEncoded);
-  if (
-    previous.version === current.version ||
-    equalKeyMaterial(previous.key, current.key)
-  ) {
+  if (previous.version === current.version || equalKeyMaterial(previous.key, current.key)) {
     return attendanceKeyConfigurationError();
   }
   return { current, previous };
@@ -338,7 +336,11 @@ export async function decryptEventKey(args: {
     ),
   );
   if (key.length !== 32) {
-    throw new ConvexError({ code: "ATTENDANCE_KEYS_INVALID", message: "The event's attendance key cannot be read. Tell the platform team before scanning continues." });
+    throw new ConvexError({
+      code: "ATTENDANCE_KEYS_INVALID",
+      message:
+        "The event's attendance key cannot be read. Tell the platform team before scanning continues.",
+    });
   }
   return key;
 }
@@ -409,7 +411,10 @@ export const rewrapEventKey = internalAction({
     toVersion: v.string(),
     rewrapped: v.boolean(),
   }),
-  handler: async (ctx, args): Promise<{
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
     eventSlug: string;
     fromVersion: string;
     toVersion: string;
@@ -462,11 +467,18 @@ async function barcodeLookupHash(args: {
     });
   }
   if (args.normalizationVersion !== "trim-v1") {
-    throw new ConvexError({ code: "SCANNER_UPDATE_REQUIRED", message: "This scanner build is older than the attendance plan. Update the app on this phone." });
+    throw new ConvexError({
+      code: "SCANNER_UPDATE_REQUIRED",
+      message:
+        "This scanner build is older than the attendance plan. Update the app on this phone.",
+    });
   }
   const normalized = args.rawValue.trim();
   if (normalized.length === 0 || normalized.length > 512) {
-    throw new ConvexError({ code: "BARCODE_INVALID", message: "The VIT ID barcode could not be read." });
+    throw new ConvexError({
+      code: "BARCODE_INVALID",
+      message: "The VIT ID barcode could not be read.",
+    });
   }
   const key = await crypto.subtle.importKey(
     "raw",
@@ -506,10 +518,7 @@ export async function bearerLookupHash(args: {
   return bytesToHex(new Uint8Array(signature));
 }
 
-async function externalBadgeIdentity(
-  eventKey: Uint8Array,
-  bearer: string,
-) {
+async function externalBadgeIdentity(eventKey: Uint8Array, bearer: string) {
   let badgeReference: string;
   try {
     badgeReference = attendanceBadgeReference(bearer);
@@ -678,10 +687,7 @@ export const resolveStaffedParticipant = action({
   returns: v.object({
     resolutionId: v.id("staffedParticipantResolutions"),
     membershipId: v.id("eventMemberships"),
-    participantClass: v.union(
-      v.literal("vit_student"),
-      v.literal("external_participant"),
-    ),
+    participantClass: v.union(v.literal("vit_student"), v.literal("external_participant")),
     displayName: v.string(),
     institution: v.string(),
     teamName: v.string(),
@@ -764,10 +770,7 @@ export const recordVenueCheckIn = action({
     deviceInstallationId: v.id("attendanceDeviceInstallations"),
     deviceSecret: v.string(),
     resolutionId: v.id("staffedParticipantResolutions"),
-    identityCheckKind: v.union(
-      v.literal("class_id"),
-      v.literal("approved_exception"),
-    ),
+    identityCheckKind: v.union(v.literal("class_id"), v.literal("approved_exception")),
     visibleIdentityConfirmed: v.boolean(),
     reason: v.optional(v.string()),
     clientOperationId: v.string(),
@@ -1341,9 +1344,7 @@ export const recordScan = action({
       deviceSecretHash: secretHash,
       credentialKind: args.credential.kind,
       lookupHash,
-      ...(args.rovingTransition !== undefined
-        ? { rovingTransition: args.rovingTransition }
-        : {}),
+      ...(args.rovingTransition !== undefined ? { rovingTransition: args.rovingTransition } : {}),
       clientOperationId: args.clientOperationId,
       deviceSequence: args.deviceSequence,
       capturedAt: args.capturedAt,

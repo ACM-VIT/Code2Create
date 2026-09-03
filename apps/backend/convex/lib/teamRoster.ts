@@ -23,10 +23,7 @@ export function teamRosterCounts(team: Doc<"teams">): TeamRosterCounts {
       "external-member count",
     ),
   };
-  if (
-    counts.activeMemberCount !==
-    counts.activeVitMemberCount + counts.activeExternalMemberCount
-  ) {
+  if (counts.activeMemberCount !== counts.activeVitMemberCount + counts.activeExternalMemberCount) {
     throw new Error("The team's active roster projection is inconsistent.");
   }
   return counts;
@@ -43,8 +40,7 @@ function adjustedTeamRosterCounts(
     activeVitMemberCount:
       current.activeVitMemberCount + (participantClass === "vit_student" ? delta : 0),
     activeExternalMemberCount:
-      current.activeExternalMemberCount +
-      (participantClass === "external_participant" ? delta : 0),
+      current.activeExternalMemberCount + (participantClass === "external_participant" ? delta : 0),
   };
   requireCount(next.activeMemberCount, "next active-member count");
   requireCount(next.activeVitMemberCount, "next VIT-member count");
@@ -68,11 +64,7 @@ export async function insertActiveTeamMember(
   ) {
     throw new Error("An active team member must be an eligible member of the same event.");
   }
-  const counts = adjustedTeamRosterCounts(
-    args.team,
-    args.membership.participantClass,
-    1,
-  );
+  const counts = adjustedTeamRosterCounts(args.team, args.membership.participantClass, 1);
   const teamMemberId = await ctx.db.insert("teamMembers", {
     eventId: args.team.eventId,
     teamId: args.team._id,
@@ -105,11 +97,7 @@ export async function endActiveTeamMember(
   ) {
     throw new Error("The active team-member transition does not match its roster root.");
   }
-  const counts = adjustedTeamRosterCounts(
-    args.team,
-    args.membership.participantClass,
-    -1,
-  );
+  const counts = adjustedTeamRosterCounts(args.team, args.membership.participantClass, -1);
   await ctx.db.patch(args.teamMember._id, {
     status: args.status,
     leftAt: args.leftAt,

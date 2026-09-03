@@ -159,12 +159,10 @@ export const appendRecommendationEvidence = internalMutation({
         index.eq("runId", boundary.run._id).eq("evidenceSetId", evidenceSetId),
       )
       .unique();
-    const expectedPageIndex = existingSet?.lifecycle.kind === "open"
-      ? existingSet.lifecycle.nextPageIndex
-      : 0;
-    const expectedPreviousPageHash = existingSet?.lifecycle.kind === "open"
-      ? existingSet.lifecycle.lastPageHash
-      : undefined;
+    const expectedPageIndex =
+      existingSet?.lifecycle.kind === "open" ? existingSet.lifecycle.nextPageIndex : 0;
+    const expectedPreviousPageHash =
+      existingSet?.lifecycle.kind === "open" ? existingSet.lifecycle.lastPageHash : undefined;
     if (
       (existingSet !== null && existingSet.proposalKey !== proposalKey) ||
       existingSet?.lifecycle.kind === "sealed" ||
@@ -176,9 +174,8 @@ export const appendRecommendationEvidence = internalMutation({
         "The recommendation evidence chunk does not extend the exact current chain.",
       );
     }
-    const priorLastLeaf = existingSet?.lifecycle.kind === "open"
-      ? existingSet.lifecycle.lastLeafIdentity
-      : undefined;
+    const priorLastLeaf =
+      existingSet?.lifecycle.kind === "open" ? existingSet.lifecycle.lastLeafIdentity : undefined;
     const firstIdentity = identities[0];
     const lastIdentity = identities[identities.length - 1];
     if (
@@ -224,12 +221,10 @@ export const appendRecommendationEvidence = internalMutation({
       );
     }
 
-    const priorLeafCount = existingSet?.lifecycle.kind === "open"
-      ? existingSet.lifecycle.leafCount
-      : 0;
-    const priorChunkCount = existingSet?.lifecycle.kind === "open"
-      ? existingSet.lifecycle.chunkCount
-      : 0;
+    const priorLeafCount =
+      existingSet?.lifecycle.kind === "open" ? existingSet.lifecycle.leafCount : 0;
+    const priorChunkCount =
+      existingSet?.lifecycle.kind === "open" ? existingSet.lifecycle.chunkCount : 0;
     const pageHash = operationFingerprint([
       "operations-autonomy-recommendation-evidence-page-v1",
       evidenceSetId,
@@ -268,31 +263,33 @@ export const appendRecommendationEvidence = internalMutation({
         runId: boundary.run._id,
         proposalKey,
         evidenceSetId,
-        lifecycle: seal === undefined
-          ? {
-              kind: "open",
-              nextPageIndex: 1,
-              lastPageHash: pageHash,
-              lastLeafIdentity: lastIdentity,
-              leafCount,
-              chunkCount,
-            }
-          : { kind: "sealed", seal },
+        lifecycle:
+          seal === undefined
+            ? {
+                kind: "open",
+                nextPageIndex: 1,
+                lastPageHash: pageHash,
+                lastLeafIdentity: lastIdentity,
+                leafCount,
+                chunkCount,
+              }
+            : { kind: "sealed", seal },
         createdAt: args.now,
         updatedAt: args.now,
       });
     } else {
       await ctx.db.patch(existingSet._id, {
-        lifecycle: seal === undefined
-          ? {
-              kind: "open",
-              nextPageIndex: request.pageIndex + 1,
-              lastPageHash: pageHash,
-              lastLeafIdentity: lastIdentity,
-              leafCount,
-              chunkCount,
-            }
-          : { kind: "sealed", seal },
+        lifecycle:
+          seal === undefined
+            ? {
+                kind: "open",
+                nextPageIndex: request.pageIndex + 1,
+                lastPageHash: pageHash,
+                lastLeafIdentity: lastIdentity,
+                leafCount,
+                chunkCount,
+              }
+            : { kind: "sealed", seal },
         updatedAt: args.now,
       });
     }
@@ -356,7 +353,10 @@ export const observations = query({
   },
   returns: paginationResultValidator(recommendationEvidenceObservationView),
   handler: async (ctx, args) => {
-    if (args.paginationOpts.numItems < 1 || args.paginationOpts.numItems > maximumEvidencePageSize) {
+    if (
+      args.paginationOpts.numItems < 1 ||
+      args.paginationOpts.numItems > maximumEvidencePageSize
+    ) {
       throw new ConvexError({
         code: "INVALID_PAGE_SIZE",
         message: `Recommendation observation pages must contain between 1 and ${maximumEvidencePageSize} rows.`,
@@ -410,7 +410,10 @@ export const page = query({
   },
   returns: paginationResultValidator(recommendationEvidenceLeafView),
   handler: async (ctx, args) => {
-    if (args.paginationOpts.numItems < 1 || args.paginationOpts.numItems > maximumEvidencePageSize) {
+    if (
+      args.paginationOpts.numItems < 1 ||
+      args.paginationOpts.numItems > maximumEvidencePageSize
+    ) {
       throw new ConvexError({
         code: "INVALID_PAGE_SIZE",
         message: `Recommendation evidence pages must contain between 1 and ${maximumEvidencePageSize} leaves.`,
@@ -445,9 +448,7 @@ export const page = query({
     const result = await ctx.db
       .query("operationsAutonomyRecommendationEvidenceLeaves")
       .withIndex("by_run_set_ordinal", (index) =>
-        index
-          .eq("runId", observation.runId)
-          .eq("evidenceSetId", seal.evidenceSetId),
+        index.eq("runId", observation.runId).eq("evidenceSetId", seal.evidenceSetId),
       )
       .order("asc")
       .paginate(args.paginationOpts);

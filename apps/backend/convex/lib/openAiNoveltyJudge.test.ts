@@ -27,23 +27,30 @@ const request = {
 };
 
 function providerResponse(output: unknown) {
-  return new Response(JSON.stringify({
-    id: "resp_novelty_test",
-    status: "completed",
-    output: [{
-      type: "message",
-      content: [{
-        type: "output_text",
-        text: typeof output === "string" ? output : JSON.stringify(output),
-      }],
-    }],
-  }), {
-    status: 200,
-    headers: {
-      "content-type": "application/json",
-      "x-request-id": "request-novelty-test",
+  return new Response(
+    JSON.stringify({
+      id: "resp_novelty_test",
+      status: "completed",
+      output: [
+        {
+          type: "message",
+          content: [
+            {
+              type: "output_text",
+              text: typeof output === "string" ? output : JSON.stringify(output),
+            },
+          ],
+        },
+      ],
+    }),
+    {
+      status: 200,
+      headers: {
+        "content-type": "application/json",
+        "x-request-id": "request-novelty-test",
+      },
     },
-  });
+  );
 }
 
 afterEach(() => {
@@ -52,22 +59,24 @@ afterEach(() => {
 
 describe("requestOpenAiNoveltyJudgments", () => {
   test("sends the bounded Luna contract and returns validated judgments", async () => {
-    const fetch = vi.fn().mockResolvedValue(providerResponse({
-      comparisons: [
-        {
-          candidateKey: "corpus:campus-garden",
-          relationship: "different",
-          confidence: "high",
-          sharedDimensions: [],
-        },
-        {
-          candidateKey: "corpus:farmer-assistant",
-          relationship: "same_core_idea",
-          confidence: "high",
-          sharedDimensions: ["audience", "problem", "mechanism", "outcome"],
-        },
-      ],
-    }));
+    const fetch = vi.fn().mockResolvedValue(
+      providerResponse({
+        comparisons: [
+          {
+            candidateKey: "corpus:campus-garden",
+            relationship: "different",
+            confidence: "high",
+            sharedDimensions: [],
+          },
+          {
+            candidateKey: "corpus:farmer-assistant",
+            relationship: "same_core_idea",
+            confidence: "high",
+            sharedDimensions: ["audience", "problem", "mechanism", "outcome"],
+          },
+        ],
+      }),
+    );
     vi.stubGlobal("fetch", fetch);
 
     const result = await requestOpenAiNoveltyJudgments(request);
@@ -142,12 +151,14 @@ describe("requestOpenAiNoveltyJudgments", () => {
     [
       "a missing candidate",
       {
-        comparisons: [{
-          candidateKey: "corpus:farmer-assistant",
-          relationship: "same_core_idea",
-          confidence: "high",
-          sharedDimensions: ["audience", "problem"],
-        }],
+        comparisons: [
+          {
+            candidateKey: "corpus:farmer-assistant",
+            relationship: "same_core_idea",
+            confidence: "high",
+            sharedDimensions: ["audience", "problem"],
+          },
+        ],
       },
     ],
     [
@@ -239,30 +250,40 @@ describe("requestOpenAiNoveltyJudgments", () => {
   });
 
   test("classifies timeout aborts without retrying", async () => {
-    const fetch = vi.fn((_input: string | URL | Request, init?: RequestInit) =>
-      new Promise<Response>((_resolve, reject) => {
-        const signal = init?.signal;
-        if (!signal) throw new Error("The novelty request has no timeout signal.");
-        signal.addEventListener("abort", () => {
-          const timeout = new Error("request expired");
-          timeout.name = "TimeoutError";
-          reject(timeout);
-        }, { once: true });
-      }));
+    const fetch = vi.fn(
+      (_input: string | URL | Request, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal;
+          if (!signal) throw new Error("The novelty request has no timeout signal.");
+          signal.addEventListener(
+            "abort",
+            () => {
+              const timeout = new Error("request expired");
+              timeout.name = "TimeoutError";
+              reject(timeout);
+            },
+            { once: true },
+          );
+        }),
+    );
     vi.stubGlobal("fetch", fetch);
 
-    await expect(requestOpenAiNoveltyJudgments({
-      ...request,
-      timeoutMs: 5,
-    })).rejects.toMatchObject({
+    await expect(
+      requestOpenAiNoveltyJudgments({
+        ...request,
+        timeoutMs: 5,
+      }),
+    ).rejects.toMatchObject({
       status: undefined,
       timedOut: true,
       failureCategory: "provider_request_timed_out",
     });
-    await expect(requestOpenAiNoveltyJudgmentsWithFallback({
-      ...request,
-      timeoutMs: 5,
-    })).resolves.toEqual({
+    await expect(
+      requestOpenAiNoveltyJudgmentsWithFallback({
+        ...request,
+        timeoutMs: 5,
+      }),
+    ).resolves.toEqual({
       kind: "embedding_fallback",
       failureCategory: "judge_provider_timed_out",
     });
@@ -288,10 +309,12 @@ describe("requestOpenAiNoveltyJudgments", () => {
   });
 
   test("does not hide an invalid internal request", async () => {
-    await expect(requestOpenAiNoveltyJudgmentsWithFallback({
-      ...request,
-      candidates: [],
-    })).rejects.toMatchObject({
+    await expect(
+      requestOpenAiNoveltyJudgmentsWithFallback({
+        ...request,
+        candidates: [],
+      }),
+    ).rejects.toMatchObject({
       failureCategory: "invalid_input",
     });
   });

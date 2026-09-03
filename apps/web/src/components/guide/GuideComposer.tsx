@@ -1,16 +1,16 @@
-import type { KeyboardEvent, ReactNode, RefObject } from 'react'
-import { PortalButton, PortalTextButton } from '../portal/PortalButton'
+import type { KeyboardEvent, ReactNode, RefObject } from "react";
+import { PortalButton, PortalTextButton } from "../portal/PortalButton";
 
-export const messageMaximum = 1_600
-const composerMaximumHeight = 176
+export const messageMaximum = 1_600;
+const composerMaximumHeight = 176;
 
 export type ComposerConfirm = {
-  question: string
-  confirmLabel: string
-  busy: boolean
-  onConfirm: () => void
-  onCancel: () => void
-}
+  question: string;
+  confirmLabel: string;
+  busy: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+};
 
 export function GuideComposer({
   value,
@@ -23,17 +23,17 @@ export function GuideComposer({
   confirm,
   textareaRef,
 }: {
-  value: string
-  onChange: (value: string) => void
-  onSend: () => void
-  disabled: boolean
-  confirming?: boolean
-  answering: boolean
-  leading?: ReactNode
-  confirm?: ComposerConfirm
-  textareaRef: RefObject<HTMLTextAreaElement | null>
+  value: string;
+  onChange: (value: string) => void;
+  onSend: () => void;
+  disabled: boolean;
+  confirming?: boolean;
+  answering: boolean;
+  leading?: ReactNode;
+  confirm?: ComposerConfirm;
+  textareaRef: RefObject<HTMLTextAreaElement | null>;
 }) {
-  const ready = (confirming || value.trim().length >= 2) && !disabled
+  const ready = (confirming || value.trim().length >= 2) && !disabled;
 
   if (confirm) {
     return (
@@ -49,31 +49,37 @@ export function GuideComposer({
           <PortalTextButton type="button" disabled={confirm.busy} onClick={confirm.onCancel}>
             not now
           </PortalTextButton>
-          <PortalButton type="button" size="xs" variant="solid" disabled={confirm.busy} onClick={confirm.onConfirm}>
-            {confirm.busy ? 'Asking…' : confirm.confirmLabel}
+          <PortalButton
+            type="button"
+            size="xs"
+            variant="solid"
+            disabled={confirm.busy}
+            onClick={confirm.onConfirm}
+          >
+            {confirm.busy ? "Asking…" : confirm.confirmLabel}
           </PortalButton>
         </div>
       </div>
-    )
+    );
   }
 
   const fit = (element: HTMLTextAreaElement) => {
-    element.style.height = 'auto'
-    element.style.height = `${Math.min(element.scrollHeight, composerMaximumHeight)}px`
-  }
+    element.style.height = "auto";
+    element.style.height = `${Math.min(element.scrollHeight, composerMaximumHeight)}px`;
+  };
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
-    event.preventDefault()
-    if (ready) onSend()
-  }
+    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
+    event.preventDefault();
+    if (ready) onSend();
+  };
 
   return (
     <div className="w-full">
       <form
         onSubmit={(event) => {
-          event.preventDefault()
-          if (ready) onSend()
+          event.preventDefault();
+          if (ready) onSend();
         }}
         className="flex items-end gap-1"
       >
@@ -85,21 +91,25 @@ export function GuideComposer({
           maxLength={messageMaximum}
           disabled={disabled || confirming}
           value={value}
-          placeholder={answering ? 'The Guide is answering…' : 'What do you need help with?'}
+          placeholder={answering ? "The Guide is answering…" : "What do you need help with?"}
           className="guide-input max-h-[176px] min-h-[36px] flex-1 resize-none text-[14.5px] text-fg placeholder:text-fg/40 disabled:cursor-not-allowed disabled:opacity-50"
           onChange={(event) => {
-            fit(event.currentTarget)
-            onChange(event.currentTarget.value)
+            fit(event.currentTarget);
+            onChange(event.currentTarget.value);
           }}
           onKeyDown={onKeyDown}
         />
         <button
           type="submit"
-          aria-label={confirming ? 'Confirm question' : 'Send'}
+          aria-label={confirming ? "Confirm question" : "Send"}
           disabled={!ready}
           className="inline-grid size-9 flex-none place-items-center rounded-full bg-rose text-wash shadow-[0_10px_24px_-12px_var(--glow-rose)] transition-[filter,opacity,transform] duration-250 hover:brightness-105 active:scale-95 disabled:cursor-not-allowed disabled:opacity-35"
         >
-          <svg viewBox="0 0 24 24" className="size-4 fill-none stroke-current stroke-[2.2]" aria-hidden>
+          <svg
+            viewBox="0 0 24 24"
+            className="size-4 fill-none stroke-current stroke-[2.2]"
+            aria-hidden
+          >
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 19V5m0 0-6 6m6-6 6 6" />
           </svg>
         </button>
@@ -110,7 +120,7 @@ export function GuideComposer({
         </p>
       ) : null}
     </div>
-  )
+  );
 }
 
 /** The composer's leading control: opens the escalation card. Icon only; the name is in the tooltip. */
@@ -124,11 +134,18 @@ export function BringTeamTool({ onClick, disabled }: { onClick: () => void; disa
       title="Bring in the event team"
       className="inline-grid size-9 flex-none place-items-center rounded-full text-fg/50 transition-colors hover:bg-fg/5 hover:text-rose-light disabled:cursor-not-allowed disabled:opacity-40"
     >
-      <svg viewBox="0 0 24 24" className="size-[18px] fill-none stroke-current stroke-[1.8]" aria-hidden>
+      <svg
+        viewBox="0 0 24 24"
+        className="size-[18px] fill-none stroke-current stroke-[1.8]"
+        aria-hidden
+      >
         <circle cx="9" cy="8" r="3.2" />
         <circle cx="16.5" cy="9.5" r="2.4" />
-        <path strokeLinecap="round" d="M3.5 18.5c.6-3 3-4.5 5.5-4.5s4.9 1.5 5.5 4.5M15 15c2.3 0 4.3 1.2 5 3.5" />
+        <path
+          strokeLinecap="round"
+          d="M3.5 18.5c.6-3 3-4.5 5.5-4.5s4.9 1.5 5.5 4.5M15 15c2.3 0 4.3 1.2 5 3.5"
+        />
       </svg>
     </button>
-  )
+  );
 }

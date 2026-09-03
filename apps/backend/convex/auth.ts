@@ -22,7 +22,9 @@ function requiredWebOrigin(name: string) {
   const value = requiredEnvironmentValue(name);
   const url = new URL(value);
   if (url.origin !== value || (url.protocol !== "https:" && url.hostname !== "localhost")) {
-    throw new Error(`${name} must be an HTTPS origin, or an HTTP localhost origin for development.`);
+    throw new Error(
+      `${name} must be an HTTPS origin, or an HTTP localhost origin for development.`,
+    );
   }
   return url.origin;
 }
@@ -91,11 +93,7 @@ export function createAuth(ctx: GenericCtx<DataModel>) {
   return betterAuth({
     appName: "Code2Create",
     baseURL: requiredWebOrigin("AUTH_SITE_URL"),
-    trustedOrigins: [
-      participantSiteUrl,
-      operationsSiteUrl,
-      "code2create-ops://",
-    ],
+    trustedOrigins: [participantSiteUrl, operationsSiteUrl, "code2create-ops://"],
     database: authComponent.adapter(ctx),
     socialProviders: googleProvider,
     databaseHooks: {

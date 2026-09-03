@@ -45,10 +45,7 @@ describe("participant assistant lifecycle", () => {
       message: "What do I need to finish before submitting?",
       clientRequestId: "participant-question-0001",
     };
-    const accepted = await participant.mutation(
-      api.participantAssistant.sendMessage,
-      requestArgs,
-    );
+    const accepted = await participant.mutation(api.participantAssistant.sendMessage, requestArgs);
     expect(accepted).toMatchObject({ accepted: true, state: "scheduled" });
     await expect(
       participant.mutation(api.participantAssistant.sendMessage, requestArgs),
@@ -115,10 +112,9 @@ describe("participant assistant lifecycle", () => {
       subject: visitor.authUserId,
       sessionId: visitor.authSessionId,
     });
-    const conversation = await ownerClient.mutation(
-      api.participantAssistant.openConversation,
-      { eventSlug: owner.eventSlug },
-    );
+    const conversation = await ownerClient.mutation(api.participantAssistant.openConversation, {
+      eventSlug: owner.eventSlug,
+    });
 
     await expect(
       visitorClient.query(api.participantAssistant.conversationState, {
@@ -143,10 +139,9 @@ describe("participant assistant lifecycle", () => {
       subject: fixture.authUserId,
       sessionId: fixture.authSessionId,
     });
-    const conversation = await participant.mutation(
-      api.participantAssistant.openConversation,
-      { eventSlug: fixture.eventSlug },
-    );
+    const conversation = await participant.mutation(api.participantAssistant.openConversation, {
+      eventSlug: fixture.eventSlug,
+    });
     await participant.mutation(api.participantAssistant.sendMessage, {
       eventSlug: fixture.eventSlug,
       threadId: conversation.threadId,
@@ -157,10 +152,9 @@ describe("participant assistant lifecycle", () => {
     const previousEnvironment = process.env.C2C_DEPLOYMENT_ENVIRONMENT;
     process.env.C2C_DEPLOYMENT_ENVIRONMENT = "staging";
     try {
-      await backend.mutation(
-        internal.stagingSetup.resetParticipantTestingData,
-        { eventSlug: fixture.eventSlug },
-      );
+      await backend.mutation(internal.stagingSetup.resetParticipantTestingData, {
+        eventSlug: fixture.eventSlug,
+      });
     } finally {
       if (previousEnvironment === undefined) {
         delete process.env.C2C_DEPLOYMENT_ENVIRONMENT;
@@ -193,12 +187,7 @@ async function seedParticipant(backend: BackendTest, displayName: string) {
   const now = Date.now();
   const eventSlug = `participant-assistant-${crypto.randomUUID()}`;
   const creatorEmail = `creator-${crypto.randomUUID()}@example.test`;
-  const creatorAuthUserId = await createAuthUser(
-    backend,
-    now,
-    creatorEmail,
-    "Event Creator",
-  );
+  const creatorAuthUserId = await createAuthUser(backend, now, creatorEmail, "Event Creator");
   const eventId = await backend.run(async (ctx) => {
     const creatorPersonId = await ctx.db.insert("people", {
       authUserId: creatorAuthUserId,
@@ -240,12 +229,7 @@ async function addParticipant(
 ) {
   const now = Date.now();
   const email = `participant-${crypto.randomUUID()}@example.test`;
-  const authUserId = await createAuthUser(
-    backend,
-    now,
-    email,
-    args.displayName,
-  );
+  const authUserId = await createAuthUser(backend, now, email, args.displayName);
   const authSessionId = await createAuthSession(backend, authUserId, now);
   const identity = await backend.run(async (ctx) => {
     const personId = await ctx.db.insert("people", {
@@ -291,44 +275,34 @@ async function createAuthUser(
   email: string,
   displayName: string,
 ) {
-  const result: unknown = await backend.mutation(
-    components.betterAuth.adapter.create,
-    {
-      input: {
-        model: "user",
-        data: {
-          name: displayName,
-          email,
-          emailVerified: true,
-          createdAt: now,
-          updatedAt: now,
-        },
+  const result: unknown = await backend.mutation(components.betterAuth.adapter.create, {
+    input: {
+      model: "user",
+      data: {
+        name: displayName,
+        email,
+        emailVerified: true,
+        createdAt: now,
+        updatedAt: now,
       },
     },
-  );
+  });
   return documentId(result, "Better Auth user");
 }
 
-async function createAuthSession(
-  backend: BackendTest,
-  userId: string,
-  now: number,
-) {
-  const result: unknown = await backend.mutation(
-    components.betterAuth.adapter.create,
-    {
-      input: {
-        model: "session",
-        data: {
-          expiresAt: now + 60 * 60_000,
-          token: crypto.randomUUID(),
-          createdAt: now,
-          updatedAt: now,
-          userId,
-        },
+async function createAuthSession(backend: BackendTest, userId: string, now: number) {
+  const result: unknown = await backend.mutation(components.betterAuth.adapter.create, {
+    input: {
+      model: "session",
+      data: {
+        expiresAt: now + 60 * 60_000,
+        token: crypto.randomUUID(),
+        createdAt: now,
+        updatedAt: now,
+        userId,
       },
     },
-  );
+  });
   return documentId(result, "Better Auth session");
 }
 

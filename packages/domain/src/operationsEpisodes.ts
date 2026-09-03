@@ -5,10 +5,8 @@ import type {
 } from "./operationsHealth.ts";
 import { operationsIntelligenceProtocolVersion } from "./intelligenceProtocol.ts";
 
-export const operationsEpisodeIngressSignatureContext =
-  "code2create.operations-episode.ingress.v1";
-export const operationsEpisodeReadSignatureContext =
-  "code2create.operations-episode.read.v1";
+export const operationsEpisodeIngressSignatureContext = "code2create.operations-episode.ingress.v1";
+export const operationsEpisodeReadSignatureContext = "code2create.operations-episode.read.v1";
 export const operationsEpisodeCallbackSignatureContext =
   "code2create.operations-episode.callback.v1";
 
@@ -27,8 +25,7 @@ export const operationsEpisodeExpectedStates = [
   "recovering",
   "resolved",
 ] as const;
-export type OperationsEpisodeExpectedState =
-  (typeof operationsEpisodeExpectedStates)[number];
+export type OperationsEpisodeExpectedState = (typeof operationsEpisodeExpectedStates)[number];
 
 export type OperationsEpisodeDispatchRequest = {
   protocolVersion: typeof operationsIntelligenceProtocolVersion;

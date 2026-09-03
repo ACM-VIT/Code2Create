@@ -48,9 +48,7 @@ export function highestEpisodeSeverity(signals: readonly OperationsHealthSignal[
   if (!first) throw new Error("An intelligence episode requires at least one signal.");
   return signals.reduce(
     (highest, signal) =>
-      severityRank(signal.severity) > severityRank(highest)
-        ? signal.severity
-        : highest,
+      severityRank(signal.severity) > severityRank(highest) ? signal.severity : highest,
     first.severity,
   );
 }
@@ -61,7 +59,10 @@ export function episodeRelevance(args: {
   atLeastCount: number;
 }) {
   const severityBase = args.severity === "critical" ? 75 : args.severity === "attention" ? 50 : 30;
-  return Math.min(100, severityBase + Math.min(15, args.signalCount * 5) + Math.min(10, args.atLeastCount * 2));
+  return Math.min(
+    100,
+    severityBase + Math.min(15, args.signalCount * 5) + Math.min(10, args.atLeastCount * 2),
+  );
 }
 
 export function episodeConfidence(args: {
@@ -69,8 +70,15 @@ export function episodeConfidence(args: {
   signalCount: number;
   atLeastCount: number;
 }) {
-  const severityLift = args.severity === "critical" ? 0.12 : args.severity === "attention" ? 0.08 : 0.04;
-  return Math.min(0.96, 0.52 + severityLift + Math.min(0.24, args.signalCount * 0.06) - Math.min(0.12, args.atLeastCount * 0.03));
+  const severityLift =
+    args.severity === "critical" ? 0.12 : args.severity === "attention" ? 0.08 : 0.04;
+  return Math.min(
+    0.96,
+    0.52 +
+      severityLift +
+      Math.min(0.24, args.signalCount * 0.06) -
+      Math.min(0.12, args.atLeastCount * 0.03),
+  );
 }
 
 function episodeState(severity: OperationsHealthSeverity) {
@@ -104,11 +112,7 @@ function observationChecksum(signals: readonly OperationsHealthSignal[]) {
   );
 }
 
-async function activeEpisode(
-  ctx: MutationCtx,
-  eventId: Id<"events">,
-  correlationKey: string,
-) {
+async function activeEpisode(ctx: MutationCtx, eventId: Id<"events">, correlationKey: string) {
   return ctx.db
     .query("operationsIntelligenceEpisodes")
     .withIndex("by_event_correlation_lifecycle", (index) =>
@@ -236,7 +240,7 @@ export async function resolveDueEpisodePredictions(ctx: MutationCtx, now: number
     const confirmed = prediction.expectedState === actualState;
     const actual = confirmed ? 1 : 0;
     const brierScore = (prediction.probability - actual) ** 2;
-    const kind = confirmed ? "confirmed" as const : "disconfirmed" as const;
+    const kind = confirmed ? ("confirmed" as const) : ("disconfirmed" as const);
     await ctx.db.patch(prediction._id, {
       outcome: { kind, actualState, resolvedAt: now, brierScore },
     });
@@ -263,10 +267,16 @@ export async function reconcileOperationsEpisodes(
     const severity = highestEpisodeSeverity(signals);
     const state = episodeState(severity);
     const atLeastCount = signals.filter((signal) => signal.atLeast).length;
-    const relevanceScore = episodeRelevance({ severity, signalCount: signals.length, atLeastCount });
+    const relevanceScore = episodeRelevance({
+      severity,
+      signalCount: signals.length,
+      atLeastCount,
+    });
     const confidence = episodeConfidence({ severity, signalCount: signals.length, atLeastCount });
     const checksum = observationChecksum(signals);
-    const ordered = [...signals].sort((left, right) => severityRank(right.severity) - severityRank(left.severity));
+    const ordered = [...signals].sort(
+      (left, right) => severityRank(right.severity) - severityRank(left.severity),
+    );
     const lead = ordered[0];
     if (!lead) continue;
     const facts = await insertFacts(ctx, { eventId, correlationKey, snapshot, signals });

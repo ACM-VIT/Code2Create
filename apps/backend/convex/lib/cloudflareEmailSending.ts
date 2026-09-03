@@ -60,9 +60,7 @@ function initialOutcome(
   destinationEmail: string,
 ): InitialProviderOutcome | null {
   const delivered = result.delivered.map((email) => email.toLocaleLowerCase("en"));
-  const permanentBounces = result.permanent_bounces.map((email) =>
-    email.toLocaleLowerCase("en"),
-  );
+  const permanentBounces = result.permanent_bounces.map((email) => email.toLocaleLowerCase("en"));
   const queued = result.queued.map((email) => email.toLocaleLowerCase("en"));
   const outcomes = [...delivered, ...permanentBounces, ...queued];
   if (outcomes.length !== 1 || outcomes[0] !== destinationEmail) return null;

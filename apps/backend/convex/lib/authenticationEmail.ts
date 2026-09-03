@@ -159,10 +159,7 @@ export async function sendAuthenticationOtp(input: {
     body: decoded,
     destinationEmail: input.email,
   });
-  if (
-    interpretation.kind === "accepted" &&
-    interpretation.initialOutcome !== "permanent_bounce"
-  ) {
+  if (interpretation.kind === "accepted" && interpretation.initialOutcome !== "permanent_bounce") {
     return;
   }
   if (interpretation.kind === "ambiguous") return;

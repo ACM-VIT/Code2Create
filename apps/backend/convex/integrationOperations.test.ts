@@ -21,9 +21,7 @@ describe("integration operations totals", () => {
       ["team-c", { health: "needs_attention" as const }],
       ["unreadable-team", { health: "needs_attention" as const }],
     ]);
-    const figma = new Map([
-      ["team-d", { health: "ready" as const }],
-    ]);
+    const figma = new Map([["team-d", { health: "ready" as const }]]);
 
     expect(integrationSummaryCounts(readableTeams, github, figma)).toEqual({
       totalTeamCount: 4,
@@ -84,20 +82,22 @@ describe("integration operations totals", () => {
       });
       const teamIds = [];
       for (let index = 0; index < 5; index += 1) {
-        teamIds.push(await ctx.db.insert("teams", {
-          eventId,
-          name: `Team ${index + 1}`,
-          publicCode: `IPAGE${index}`,
-          leadMembershipId: membershipId,
-          status: "confirmed",
-      activeMemberCount: 0,
-      activeVitMemberCount: 0,
-      activeExternalMemberCount: 0,
-          membershipLocked: true,
-          version: 1,
-          createdAt: now + index,
-          updatedAt: now + index,
-        }));
+        teamIds.push(
+          await ctx.db.insert("teams", {
+            eventId,
+            name: `Team ${index + 1}`,
+            publicCode: `IPAGE${index}`,
+            leadMembershipId: membershipId,
+            status: "confirmed",
+            activeMemberCount: 0,
+            activeVitMemberCount: 0,
+            activeExternalMemberCount: 0,
+            membershipLocked: true,
+            version: 1,
+            createdAt: now + index,
+            updatedAt: now + index,
+          }),
+        );
       }
       const firstReadable = teamIds[1];
       const secondReadable = teamIds[4];
@@ -134,9 +134,11 @@ describe("integration operations totals", () => {
     expect(new Set([...first.page, ...second.page].map((team) => team.teamName))).toEqual(
       new Set(["Team 2", "Team 5"]),
     );
-    expect(await operator.query(api.integrationOperations.summary, {
-      eventSlug: fixture.eventSlug,
-    })).toEqual({ totalTeamCount: 2, disconnectedCount: 2, attentionCount: 0 });
+    expect(
+      await operator.query(api.integrationOperations.summary, {
+        eventSlug: fixture.eventSlug,
+      }),
+    ).toEqual({ totalTeamCount: 2, disconnectedCount: 2, attentionCount: 0 });
   });
 });
 

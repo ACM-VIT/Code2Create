@@ -6,9 +6,7 @@ import { internalQuery, mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
-import {
-  enqueueOperationsAutonomyManual,
-} from "./lib/operationsAutonomyInbox";
+import { enqueueOperationsAutonomyManual } from "./lib/operationsAutonomyInbox";
 import { operationsAutonomyAvailable } from "./lib/operationsAutonomyAvailability";
 import {
   activateOperationsAutonomyRun,
@@ -94,7 +92,7 @@ const runView = v.object({
 function publicRunState(run: Doc<"operationsAutonomyRuns">) {
   if (run.lifecycle.kind !== "active") return run.lifecycle.kind;
   if (run.admission.kind !== "accepted") return "leased" as const;
-  return run.executor.kind === "known" ? "running" as const : "accepted" as const;
+  return run.executor.kind === "known" ? ("running" as const) : ("accepted" as const);
 }
 
 function runProjection(
@@ -137,16 +135,14 @@ function runProjection(
     ...(run.executor.kind === "known"
       ? { agentVersion: run.executor.agentVersion, model: run.executor.model }
       : {}),
-    ...(run.lifecycle.kind === "canceled"
-      ? { cancellationReason: run.lifecycle.reason }
-      : {}),
+    ...(run.lifecycle.kind === "canceled" ? { cancellationReason: run.lifecycle.reason } : {}),
     ...(run.lifecycle.kind === "failed" ? { failureCode: run.lifecycle.failureCode } : {}),
     shutdownState:
       supervision?.lifecycle.kind === "abort_pending"
-        ? "pending" as const
+        ? ("pending" as const)
         : supervision !== null && run.lifecycle.kind === "canceled"
-          ? "abort_recorded" as const
-          : "not_required" as const,
+          ? ("abort_recorded" as const)
+          : ("not_required" as const),
     hasStream: run.admission.kind === "accepted",
   };
 }
@@ -189,8 +185,10 @@ function parsedStartResult(
     throw new Error("The prior manual autonomy result is invalid.");
   }
   if (
-    !("workItemId" in value) || typeof value.workItemId !== "string" ||
-    !("createdAt" in value) || typeof value.createdAt !== "number" ||
+    !("workItemId" in value) ||
+    typeof value.workItemId !== "string" ||
+    !("createdAt" in value) ||
+    typeof value.createdAt !== "number" ||
     !Number.isFinite(value.createdAt)
   ) {
     throw new Error("The prior manual autonomy result is invalid.");
@@ -201,8 +199,11 @@ function parsedStartResult(
     return { state: "queued" as const, workItemId, createdAt: value.createdAt };
   }
   if (
-    value.state !== "started" || !("runId" in value) || typeof value.runId !== "string" ||
-    !("instanceId" in value) || typeof value.instanceId !== "string"
+    value.state !== "started" ||
+    !("runId" in value) ||
+    typeof value.runId !== "string" ||
+    !("instanceId" in value) ||
+    typeof value.instanceId !== "string"
   ) {
     throw new Error("The prior manual autonomy result is invalid.");
   }
@@ -248,7 +249,8 @@ export const startManual = mutation({
     if (!operationsAutonomyAvailable(event, now)) {
       throw new ConvexError({
         code: "OPERATIONS_AUTONOMY_EVENT_NOT_LIVE",
-        message: "Autonomous operations can run while applications are open or the event is running.",
+        message:
+          "Autonomous operations can run while applications are open or the event is running.",
       });
     }
     const [policy, source] = await Promise.all([
@@ -313,15 +315,16 @@ export const startManual = mutation({
       ? null
       : await materializeOperationsAutonomyInboxRun(ctx, inbox, now);
     const started = run ? await activateOperationsAutonomyRun(ctx, run, now) : false;
-    const result = started && run
-      ? {
-          state: "started" as const,
-          workItemId: inbox._id,
-          runId: run._id,
-          instanceId: run._id,
-          createdAt: run.createdAt,
-        }
-      : { state: "queued" as const, workItemId: inbox._id, createdAt: inbox.createdAt };
+    const result =
+      started && run
+        ? {
+            state: "started" as const,
+            workItemId: inbox._id,
+            runId: run._id,
+            instanceId: run._id,
+            createdAt: run.createdAt,
+          }
+        : { state: "queued" as const, workItemId: inbox._id, createdAt: inbox.createdAt };
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -416,8 +419,7 @@ export const status = query({
     return {
       eventStatus: event.status,
       available,
-      canStart:
-        available && policy.enabled && state.lifecycle.kind === "active",
+      canStart: available && policy.enabled && state.lifecycle.kind === "active",
       policy: {
         policyVersionId: policy._id,
         policyVersion: policy.version,
@@ -431,9 +433,8 @@ export const status = query({
         nextEvaluationAt: state.nextEvaluationAt,
         queuedWorkCount: state.pendingWorkCount,
       },
-      activeRun: active && checkpoint && supervision
-        ? runProjection(active, checkpoint, supervision)
-        : null,
+      activeRun:
+        active && checkpoint && supervision ? runProjection(active, checkpoint, supervision) : null,
     };
   },
 });
@@ -454,20 +455,22 @@ export const history = query({
       .withIndex("by_event_created_at", (index) => index.eq("eventId", event._id))
       .order("desc")
       .paginate(args.paginationOpts);
-    const projected = await Promise.all(page.page.map(async (run) => {
-      const [checkpoint, supervision] = await Promise.all([
-        ctx.db
-          .query("operationsAutonomyRunCheckpoints")
-          .withIndex("by_run", (index) => index.eq("runId", run._id))
-          .unique(),
-        ctx.db
-          .query("operationsAutonomyRunSupervision")
-          .withIndex("by_run", (index) => index.eq("runId", run._id))
-          .unique(),
-      ]);
-      if (!checkpoint) throw new Error("An autonomy run checkpoint is missing.");
-      return runProjection(run, checkpoint, supervision);
-    }));
+    const projected = await Promise.all(
+      page.page.map(async (run) => {
+        const [checkpoint, supervision] = await Promise.all([
+          ctx.db
+            .query("operationsAutonomyRunCheckpoints")
+            .withIndex("by_run", (index) => index.eq("runId", run._id))
+            .unique(),
+          ctx.db
+            .query("operationsAutonomyRunSupervision")
+            .withIndex("by_run", (index) => index.eq("runId", run._id))
+            .unique(),
+        ]);
+        if (!checkpoint) throw new Error("An autonomy run checkpoint is missing.");
+        return runProjection(run, checkpoint, supervision);
+      }),
+    );
     return { ...page, page: projected };
   },
 });

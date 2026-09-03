@@ -37,9 +37,7 @@ export async function consumePortalQrToken(
   await ctx.db.patch(args.tokenId, {
     state: "used",
     usedAt: args.usedAt,
-    ...(args.purpose === "attendance_scan"
-      ? { usedByEventId: args.presenceEventId }
-      : {}),
+    ...(args.purpose === "attendance_scan" ? { usedByEventId: args.presenceEventId } : {}),
   });
   const revokedSiblingTokenIds = await revokeActivePortalQrTokens(ctx, args.membershipId);
   return { revokedSiblingTokenIds };

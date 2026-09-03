@@ -2,10 +2,7 @@ import { z } from "zod";
 
 import { internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
-import {
-  HttpBodyTooLargeError,
-  readBoundedRequestBytes,
-} from "./lib/boundedHttpBody";
+import { HttpBodyTooLargeError, readBoundedRequestBytes } from "./lib/boundedHttpBody";
 
 const installation = z.object({ id: z.number().int().positive() });
 const repository = z.object({ id: z.number().int().positive() });
@@ -67,16 +64,12 @@ async function verifySignature(secret: string, body: Uint8Array, header: string)
     false,
     ["sign"],
   );
-  const expected = new Uint8Array(
-    await crypto.subtle.sign("HMAC", key, Uint8Array.from(body)),
-  );
+  const expected = new Uint8Array(await crypto.subtle.sign("HMAC", key, Uint8Array.from(body)));
   return equalBytes(received, expected);
 }
 
 async function payloadHash(body: Uint8Array) {
-  const digest = new Uint8Array(
-    await crypto.subtle.digest("SHA-256", Uint8Array.from(body)),
-  );
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", Uint8Array.from(body)));
   return Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
@@ -174,7 +167,8 @@ export const githubWebhook = httpAction(async (ctx, request) => {
       return new Response(null, { status: 204 });
     }
   } catch (error) {
-    if (error instanceof z.ZodError) return new Response("Invalid webhook payload.", { status: 400 });
+    if (error instanceof z.ZodError)
+      return new Response("Invalid webhook payload.", { status: 400 });
     throw error;
   }
   return Response.json({ accepted: true }, { status: 202 });

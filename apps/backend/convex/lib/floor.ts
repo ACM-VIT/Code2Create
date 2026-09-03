@@ -56,7 +56,6 @@ export function floorCoordinate(value: number, label: string) {
   return Math.round(value * 100) / 100;
 }
 
-
 /** Adds a nearby published landmark when the zone area alone is too coarse. */
 export function floorLocationDescription(
   zoneName: string,
@@ -126,9 +125,7 @@ export function floorAreaLoad(placed: readonly PlacedTeam[]) {
 }
 
 export function teamCanBeMapped(status: Doc<"teams">["status"]) {
-  return status === "confirmed" ||
-    status === "checked_in" ||
-    status === "active";
+  return status === "confirmed" || status === "checked_in" || status === "active";
 }
 
 export async function currentTeamForMembership(
@@ -162,20 +159,14 @@ export async function zoneLandmarks(ctx: ReadCtx, zoneId: Id<"floorZones">) {
     .collect();
 }
 
-export async function activeTeamFloorLocation(
-  ctx: ReadCtx,
-  teamId: Id<"teams">,
-) {
+export async function activeTeamFloorLocation(ctx: ReadCtx, teamId: Id<"teams">) {
   return ctx.db
     .query("teamFloorLocations")
     .withIndex("by_team_state", (index) => index.eq("teamId", teamId).eq("state", "active"))
     .unique();
 }
 
-export async function describeTeamFloorLocation(
-  ctx: ReadCtx,
-  location: Doc<"teamFloorLocations">,
-) {
+export async function describeTeamFloorLocation(ctx: ReadCtx, location: Doc<"teamFloorLocations">) {
   const zone = await ctx.db.get(location.zoneId);
   if (!zone) throw new Error("The recorded team location has no zone.");
   const landmarks = await zoneLandmarks(ctx, zone._id);

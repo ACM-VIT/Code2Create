@@ -12,14 +12,8 @@ import {
   defaultAdmissionReasonCodes,
   normalizeAdmissionConfiguration,
 } from "./lib/admissionPolicy";
-import {
-  defaultDeterministicIntakePolicy,
-  intakePolicyChecksum,
-} from "./lib/intakePolicy";
-import {
-  defaultParticipantPolicy,
-  participantPolicyChecksum,
-} from "./lib/participantPolicy";
+import { defaultDeterministicIntakePolicy, intakePolicyChecksum } from "./lib/intakePolicy";
+import { defaultParticipantPolicy, participantPolicyChecksum } from "./lib/participantPolicy";
 import { insertPermissionGrant } from "./lib/permissions";
 import { createTestSubmissionSnapshot } from "./lib/testSubmissionSnapshot";
 import schema from "./schema";
@@ -64,14 +58,16 @@ describe("manual admission analysis retry", () => {
     });
     expect(readerView?.aiRecommendationRerun).toBeNull();
 
-    await expect(reader.mutation(api.admissions.rerunAiRecommendation, {
-      eventSlug: fixture.eventSlug,
-      applicationId: fixture.applicationId,
-      expectedApplicationVersion: 1,
-      expectedRecommendationId: fixture.failedRecommendationId,
-      reason: "Retry after the provider failure",
-      clientOperationId: "reader-cannot-rerun",
-    })).rejects.toThrow("permission");
+    await expect(
+      reader.mutation(api.admissions.rerunAiRecommendation, {
+        eventSlug: fixture.eventSlug,
+        applicationId: fixture.applicationId,
+        expectedApplicationVersion: 1,
+        expectedRecommendationId: fixture.failedRecommendationId,
+        reason: "Retry after the provider failure",
+        clientOperationId: "reader-cannot-rerun",
+      }),
+    ).rejects.toThrow("permission");
   });
 
   test("creates one immutable replacement and replays the exact operation", async () => {
@@ -108,11 +104,12 @@ describe("manual admission analysis retry", () => {
             .eq("clientOperationId", request.clientOperationId),
         )
         .collect(),
-      audits: (await ctx.db
-        .query("auditEvents")
-        .withIndex("by_event_time", (index) => index.eq("eventId", fixture.eventId))
-        .collect())
-        .filter((entry) => entry.action === "admission.ai_recommendation_rerun"),
+      audits: (
+        await ctx.db
+          .query("auditEvents")
+          .withIndex("by_event_time", (index) => index.eq("eventId", fixture.eventId))
+          .collect()
+      ).filter((entry) => entry.action === "admission.ai_recommendation_rerun"),
     }));
     expect(state.application).toMatchObject({
       aiRecommendationId: first.recommendationId,
@@ -130,23 +127,29 @@ describe("manual admission analysis retry", () => {
     expect(state.operations).toHaveLength(1);
     expect(state.audits).toHaveLength(1);
 
-    await expect(runner.mutation(api.admissions.rerunAiRecommendation, {
-      ...request,
-      clientOperationId: "retry-stale-page",
-    })).rejects.toThrow("changed");
+    await expect(
+      runner.mutation(api.admissions.rerunAiRecommendation, {
+        ...request,
+        clientOperationId: "retry-stale-page",
+      }),
+    ).rejects.toThrow("changed");
 
-    await backend.run((ctx) => ctx.db.patch(first.recommendationId, {
-      state: "succeeded",
-      recommendation: "accept",
-      confidence: "medium",
-      completedAt: Date.now(),
-    }));
-    await expect(runner.mutation(api.admissions.rerunAiRecommendation, {
-      ...request,
-      expectedApplicationVersion: 2,
-      expectedRecommendationId: first.recommendationId,
-      clientOperationId: "retry-successful-analysis",
-    })).rejects.toThrow("current, still running, or no longer");
+    await backend.run((ctx) =>
+      ctx.db.patch(first.recommendationId, {
+        state: "succeeded",
+        recommendation: "accept",
+        confidence: "medium",
+        completedAt: Date.now(),
+      }),
+    );
+    await expect(
+      runner.mutation(api.admissions.rerunAiRecommendation, {
+        ...request,
+        expectedApplicationVersion: 2,
+        expectedRecommendationId: first.recommendationId,
+        clientOperationId: "retry-successful-analysis",
+      }),
+    ).rejects.toThrow("current, still running, or no longer");
   });
 
   test("keeps one authorized durable-agent run idempotent across reads and callback retries", async () => {
@@ -177,31 +180,38 @@ describe("manual admission analysis retry", () => {
       contentVersion: 1,
     });
     if (!prepared) throw new Error("The durable dispatch was not prepared.");
-    expect(await backend.mutation(internal.admissionAgentActions.prepareDispatch, {
-      recommendationId: rerun.recommendationId,
-    })).toBeNull();
-    expect(await backend.mutation(internal.admissionAgentActions.recordDispatchReceipt, {
-      recommendationId: rerun.recommendationId,
-      attemptId: prepared.attemptId,
-      submissionId: "idea-submission-1",
-      acceptedAt: 1_000,
-    })).toBe(true);
-    expect(await backend.mutation(internal.admissionIntelligence.recoverAgentRecommendation, {
-      recommendationId: rerun.recommendationId,
-      submissionId: "another-submission",
-    })).toBe(false);
+    expect(
+      await backend.mutation(internal.admissionAgentActions.prepareDispatch, {
+        recommendationId: rerun.recommendationId,
+      }),
+    ).toBeNull();
+    expect(
+      await backend.mutation(internal.admissionAgentActions.recordDispatchReceipt, {
+        recommendationId: rerun.recommendationId,
+        attemptId: prepared.attemptId,
+        submissionId: "idea-submission-1",
+        acceptedAt: 1_000,
+      }),
+    ).toBe(true);
+    expect(
+      await backend.mutation(internal.admissionIntelligence.recoverAgentRecommendation, {
+        recommendationId: rerun.recommendationId,
+        submissionId: "another-submission",
+      }),
+    ).toBe(false);
 
     const firstRead = await backend.mutation(internal.admissionIntelligence.beginRecommendation, {
       recommendationId: rerun.recommendationId,
     });
-    const repeatedRead = await backend.mutation(internal.admissionIntelligence.beginRecommendation, {
-      recommendationId: rerun.recommendationId,
-    });
+    const repeatedRead = await backend.mutation(
+      internal.admissionIntelligence.beginRecommendation,
+      {
+        recommendationId: rerun.recommendationId,
+      },
+    );
     expect(repeatedRead).toEqual(firstRead);
     if (!firstRead) throw new Error("The idea-agent fixture did not produce a projection.");
-    expect(firstRead.additionalInformation).toBe(
-      "Demo notes: https://example.com/retry-petals",
-    );
+    expect(firstRead.additionalInformation).toBe("Demo notes: https://example.com/retry-petals");
     expect(firstRead.intakeResponses.map((response) => response.sourceRef)).toEqual([
       "follow_up_1",
       "follow_up_2",
@@ -228,14 +238,12 @@ describe("manual admission analysis retry", () => {
       agentVersion: "idea-submission-v1",
       agentModel: "openai/gpt-4.1-mini",
     };
-    expect(await backend.mutation(
-      internal.admissionIntelligence.finishRecommendation,
-      completion,
-    )).toBe("accepted");
-    expect(await backend.mutation(
-      internal.admissionIntelligence.finishRecommendation,
-      completion,
-    )).toBe("already_exists");
+    expect(
+      await backend.mutation(internal.admissionIntelligence.finishRecommendation, completion),
+    ).toBe("accepted");
+    expect(
+      await backend.mutation(internal.admissionIntelligence.finishRecommendation, completion),
+    ).toBe("already_exists");
     const stored = await backend.run((ctx) => ctx.db.get(rerun.recommendationId));
     expect(stored).toMatchObject({
       state: "succeeded",
@@ -282,20 +290,26 @@ describe("manual admission analysis retry", () => {
       recommendationId: rerun.recommendationId,
     });
     if (!first) throw new Error("The first durable dispatch was not prepared.");
-    expect(await backend.mutation(internal.admissionAgentActions.recordDispatchReceipt, {
-      recommendationId: rerun.recommendationId,
-      attemptId: first.attemptId,
-      submissionId: "accepted-submission-1",
-      acceptedAt: 1_000,
-    })).toBe(true);
-    expect(await backend.mutation(internal.admissionIntelligence.beginRecommendation, {
-      recommendationId: rerun.recommendationId,
-    })).not.toBeNull();
+    expect(
+      await backend.mutation(internal.admissionAgentActions.recordDispatchReceipt, {
+        recommendationId: rerun.recommendationId,
+        attemptId: first.attemptId,
+        submissionId: "accepted-submission-1",
+        acceptedAt: 1_000,
+      }),
+    ).toBe(true);
+    expect(
+      await backend.mutation(internal.admissionIntelligence.beginRecommendation, {
+        recommendationId: rerun.recommendationId,
+      }),
+    ).not.toBeNull();
 
-    expect(await backend.mutation(internal.admissionIntelligence.recoverAgentRecommendation, {
-      recommendationId: rerun.recommendationId,
-      submissionId: "accepted-submission-1",
-    })).toBe(true);
+    expect(
+      await backend.mutation(internal.admissionIntelligence.recoverAgentRecommendation, {
+        recommendationId: rerun.recommendationId,
+        submissionId: "accepted-submission-1",
+      }),
+    ).toBe(true);
     const recovered = await backend.run((ctx) => ctx.db.get(rerun.recommendationId));
     expect(recovered).toMatchObject({
       state: "pending",
@@ -307,9 +321,11 @@ describe("manual admission analysis retry", () => {
       recommendationId: rerun.recommendationId,
     });
     expect(second?.attemptId).not.toBe(first.attemptId);
-    expect(await backend.mutation(internal.admissionAgentActions.prepareDispatch, {
-      recommendationId: rerun.recommendationId,
-    })).toBeNull();
+    expect(
+      await backend.mutation(internal.admissionAgentActions.prepareDispatch, {
+        recommendationId: rerun.recommendationId,
+      }),
+    ).toBeNull();
   });
 
   test("rejects prohibited scoring language at the authoritative callback seam", async () => {
@@ -327,30 +343,31 @@ describe("manual admission analysis retry", () => {
       reason: "Verify authoritative callback policy",
       clientOperationId: "reject-prohibited-agent-output",
     });
-    const projection = await backend.mutation(
-      internal.admissionIntelligence.beginRecommendation,
-      { recommendationId: rerun.recommendationId },
-    );
-    if (!projection) throw new Error("The callback-policy fixture has no projection.");
-    expect(await backend.mutation(internal.admissionIntelligence.finishRecommendation, {
+    const projection = await backend.mutation(internal.admissionIntelligence.beginRecommendation, {
       recommendationId: rerun.recommendationId,
-      sourceInputFingerprint: projection.sourceInputFingerprint,
-      state: "succeeded",
-      recommendation: "accept",
-      criterionAssessments: projection.criteria.map((criterion) => ({
-        criterionKey: criterion.criterionKey,
-        assessment: "meets" as const,
-        sourceRefs: ["initial_idea"],
-      })),
-      strengths: ["This idea deserves the highest score."],
-      concerns: [],
-      proposedQuestions: [],
-      confidence: "high",
-      limitations: ["Only submitted evidence was considered."],
-      operationId: "idea-analysis:prohibited-language",
-      agentVersion: "idea-submission-v1",
-      agentModel: "openai/gpt-4.1-mini",
-    })).toBe("accepted");
+    });
+    if (!projection) throw new Error("The callback-policy fixture has no projection.");
+    expect(
+      await backend.mutation(internal.admissionIntelligence.finishRecommendation, {
+        recommendationId: rerun.recommendationId,
+        sourceInputFingerprint: projection.sourceInputFingerprint,
+        state: "succeeded",
+        recommendation: "accept",
+        criterionAssessments: projection.criteria.map((criterion) => ({
+          criterionKey: criterion.criterionKey,
+          assessment: "meets" as const,
+          sourceRefs: ["initial_idea"],
+        })),
+        strengths: ["This idea deserves the highest score."],
+        concerns: [],
+        proposedQuestions: [],
+        confidence: "high",
+        limitations: ["Only submitted evidence was considered."],
+        operationId: "idea-analysis:prohibited-language",
+        agentVersion: "idea-submission-v1",
+        agentModel: "openai/gpt-4.1-mini",
+      }),
+    ).toBe("accepted");
     const stored = await backend.run((ctx) => ctx.db.get(rerun.recommendationId));
     expect(stored).toMatchObject({
       state: "invalid",
@@ -372,18 +389,8 @@ async function seedFixture(backend: BackendTest) {
   const eventSlug = `admission-rerun-${crypto.randomUUID()}`;
   const runnerAuthUserId = await createAuthUser(backend, now, "runner");
   const readerAuthUserId = await createAuthUser(backend, now, "reader");
-  const runnerAuthSessionId = await createAuthSession(
-    backend,
-    runnerAuthUserId,
-    now,
-    "runner",
-  );
-  const readerAuthSessionId = await createAuthSession(
-    backend,
-    readerAuthUserId,
-    now,
-    "reader",
-  );
+  const runnerAuthSessionId = await createAuthSession(backend, runnerAuthUserId, now, "runner");
+  const readerAuthSessionId = await createAuthSession(backend, readerAuthUserId, now, "reader");
   return backend.run(async (ctx) => {
     const runnerPersonId = await ctx.db.insert("people", {
       authUserId: runnerAuthUserId,
@@ -409,7 +416,7 @@ async function seedFixture(backend: BackendTest) {
       timezone: "Asia/Kolkata",
       status: "registration_open",
       vitEmailDomains: ["vitstudent.ac.in"],
-        applicationsCloseAt: Date.now() + 86_400_000,
+      applicationsCloseAt: Date.now() + 86_400_000,
       createdByPersonId: runnerPersonId,
       version: 1,
       createdAt: now,
@@ -597,7 +604,7 @@ async function seedFixture(backend: BackendTest) {
         question: response.question,
         purposeKey: response.purposeKey,
         answerLength: "short" as const,
-        source: ordinal <= 2 ? "fixed" as const : "fallback" as const,
+        source: ordinal <= 2 ? ("fixed" as const) : ("fallback" as const),
         answer: response.answer,
       });
     }
@@ -733,11 +740,7 @@ async function seedFixture(backend: BackendTest) {
   });
 }
 
-async function createAuthUser(
-  backend: BackendTest,
-  now: number,
-  key: "runner" | "reader",
-) {
+async function createAuthUser(backend: BackendTest, now: number, key: "runner" | "reader") {
   const result: unknown = await backend.mutation(components.betterAuth.adapter.create, {
     input: {
       model: "user",

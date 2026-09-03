@@ -1,25 +1,25 @@
-import { useLocalSearchParams } from 'expo-router'
-import { StyleSheet, Text, View } from 'react-native'
+import { useLocalSearchParams } from "expo-router";
+import { StyleSheet, Text, View } from "react-native";
 
-import { KeyValue } from '@/components/ui'
-import { palette, radius } from '@/theme'
+import { KeyValue } from "@/components/ui";
+import { palette, radius } from "@/theme";
 
 export default function ReviewerPhoneSheet() {
   const params = useLocalSearchParams<{
-    build?: string
-    camera?: string
-    drafts?: string
-    notifications?: string
-    panel?: string
-  }>()
+    build?: string;
+    camera?: string;
+    drafts?: string;
+    notifications?: string;
+    panel?: string;
+  }>();
 
   const rows: readonly (readonly [string, string])[] = [
-    ...(params.panel ? ([['Panel', params.panel]] as const) : []),
-    ['App build', params.build ?? '—'],
-    ['Camera', params.camera ?? '—'],
-    ['Notifications', params.notifications ?? '—'],
-    ['Encrypted drafts', params.drafts ?? '—'],
-  ]
+    ...(params.panel ? ([["Panel", params.panel]] as const) : []),
+    ["App build", params.build ?? "—"],
+    ["Camera", params.camera ?? "—"],
+    ["Notifications", params.notifications ?? "—"],
+    ["Encrypted drafts", params.drafts ?? "—"],
+  ];
 
   return (
     <View style={styles.sheet}>
@@ -32,12 +32,12 @@ export default function ReviewerPhoneSheet() {
         ))}
       </View>
     </View>
-  )
+  );
 }
 
 const styles = StyleSheet.create({
   sheet: { flex: 1, backgroundColor: palette.background, padding: 20, gap: 16 },
-  title: { color: palette.text, fontSize: 28, fontWeight: '600', letterSpacing: -0.6 },
+  title: { color: palette.text, fontSize: 28, fontWeight: "600", letterSpacing: -0.6 },
   // ScrollView has no measurable height inside this form sheet.
   body: { gap: 10 },
   row: {
@@ -46,4 +46,4 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 14,
   },
-})
+});

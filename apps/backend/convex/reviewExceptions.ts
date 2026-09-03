@@ -7,10 +7,7 @@ import { mutation } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
 import { teamTableLabel } from "./lib/floor";
-import {
-  requireCurrentPerson,
-  requireEventSubject,
-} from "./lib/identity";
+import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import {
   findOperation,
   operationFingerprint,
@@ -59,12 +56,12 @@ async function requireTeamRoundState(
 ) {
   const state = await ctx.db.get(teamRoundStateId);
   if (!state || state.eventId !== eventId) {
-    throw new ConvexError({ code: "QUEUE_STATE_NOT_FOUND", message: "That team queue state is unavailable." });
+    throw new ConvexError({
+      code: "QUEUE_STATE_NOT_FOUND",
+      message: "That team queue state is unavailable.",
+    });
   }
-  const [round, team] = await Promise.all([
-    ctx.db.get(state.roundId),
-    ctx.db.get(state.teamId),
-  ]);
+  const [round, team] = await Promise.all([ctx.db.get(state.roundId), ctx.db.get(state.teamId)]);
   if (!round || !team || round.eventId !== eventId || team.eventId !== eventId) {
     throw new Error("A team queue state has an invalid event context.");
   }
@@ -183,7 +180,8 @@ async function cancelPendingReview(
   if (sessions.some((session) => session.status === "active" || session.status === "overdue")) {
     throw new ConvexError({
       code: "REVIEW_ALREADY_STARTED",
-      message: "A started review must be completed or handled through the active-review exception path.",
+      message:
+        "A started review must be completed or handled through the active-review exception path.",
     });
   }
   const session = pending[0];
@@ -191,21 +189,15 @@ async function cancelPendingReview(
   const [assignments, scorecards, tokens] = await Promise.all([
     ctx.db
       .query("reviewAssignments")
-      .withIndex("by_session_person", (index) =>
-        index.eq("reviewSessionId", session._id),
-      )
+      .withIndex("by_session_person", (index) => index.eq("reviewSessionId", session._id))
       .collect(),
     ctx.db
       .query("scorecards")
-      .withIndex("by_session_status", (index) =>
-        index.eq("reviewSessionId", session._id),
-      )
+      .withIndex("by_session_status", (index) => index.eq("reviewSessionId", session._id))
       .collect(),
     ctx.db
       .query("reviewTeamQrTokens")
-      .withIndex("by_session_state", (index) =>
-        index.eq("reviewSessionId", session._id),
-      )
+      .withIndex("by_session_state", (index) => index.eq("reviewSessionId", session._id))
       .collect(),
   ]);
   for (const assignment of assignments.filter((row) => row.status === "assigned")) {
@@ -385,18 +377,10 @@ export const resumeTeam = mutation({
       if (!stateId) throw new Error("Prior queue-resume result is invalid.");
       return {
         teamRoundStateId: stateId,
-        ...storedOperationResult(
-          prior.resultJson,
-          "queue resume",
-          queueResumeOperationResult,
-        ),
+        ...storedOperationResult(prior.resultJson, "queue resume", queueResumeOperationResult),
       };
     }
-    const { state, round } = await requireTeamRoundState(
-      ctx,
-      event._id,
-      args.teamRoundStateId,
-    );
+    const { state, round } = await requireTeamRoundState(ctx, event._id, args.teamRoundStateId);
     if (
       round.status !== "open" ||
       state.version !== args.expectedVersion ||
@@ -429,7 +413,9 @@ export const resumeTeam = mutation({
     }
     await patchTeamRoundState(ctx, state, {
       state: nextState,
-      ...(nextState === "queued" && state.panelId ? { panelId: state.panelId } : { panelId: undefined }),
+      ...(nextState === "queued" && state.panelId
+        ? { panelId: state.panelId }
+        : { panelId: undefined }),
       ...(nextState === "queued" ? { tableLabel: resumedTableLabel } : { tableLabel: undefined }),
       ...(nextState === "unassigned"
         ? { queuedAt: undefined }
@@ -488,7 +474,11 @@ export const recordCallAttempt = mutation({
     reason: v.string(),
     clientOperationId: v.string(),
   },
-  returns: v.object({ callAttemptCount: v.number(), missedEligibleAt: v.number(), version: v.number() }),
+  returns: v.object({
+    callAttemptCount: v.number(),
+    missedEligibleAt: v.number(),
+    version: v.number(),
+  }),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
@@ -521,7 +511,10 @@ export const recordCallAttempt = mutation({
       state.version !== args.expectedVersion ||
       !["called", "at_table"].includes(state.state)
     ) {
-      throw new ConvexError({ code: "QUEUE_STATE_CHANGED", message: "This team is no longer waiting on a call." });
+      throw new ConvexError({
+        code: "QUEUE_STATE_CHANGED",
+        message: "This team is no longer waiting on a call.",
+      });
     }
     const permission = await requireQueueExceptionPermission(ctx, {
       eventId: event._id,
@@ -615,7 +608,11 @@ export const markMissed = mutation({
         version: storedOperationVersion(prior.resultJson, "missed team"),
       };
     }
-    const { state, round, team } = await requireTeamRoundState(ctx, event._id, args.teamRoundStateId);
+    const { state, round, team } = await requireTeamRoundState(
+      ctx,
+      event._id,
+      args.teamRoundStateId,
+    );
     const lastCallAttemptAt = state.lastCallAttemptAt ?? state.calledAt;
     const now = Date.now();
     if (
@@ -924,7 +921,10 @@ export const waivePresence = mutation({
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const reason = normalizedText(args.reason, "Presence-waiver reason", 5, 500);
     const uniqueReviewerIds = [...new Set(args.reviewerPersonIds)];
-    if (uniqueReviewerIds.length === 0 || uniqueReviewerIds.length !== args.reviewerPersonIds.length) {
+    if (
+      uniqueReviewerIds.length === 0 ||
+      uniqueReviewerIds.length !== args.reviewerPersonIds.length
+    ) {
       throw new ConvexError({
         code: "INVALID_PRESENCE_WAIVER",
         message: "Choose one or more distinct assigned reviewers.",
@@ -972,12 +972,11 @@ export const waivePresence = mutation({
     });
     const assignments = await ctx.db
       .query("reviewAssignments")
-      .withIndex("by_session_person", (index) =>
-        index.eq("reviewSessionId", session._id),
-      )
+      .withIndex("by_session_person", (index) => index.eq("reviewSessionId", session._id))
       .collect();
     const assignedReviewerIds = new Set(
-      assignments.filter((assignment) => assignment.status === "assigned")
+      assignments
+        .filter((assignment) => assignment.status === "assigned")
         .map((assignment) => assignment.reviewerPersonId),
     );
     const now = Date.now();
@@ -991,9 +990,7 @@ export const waivePresence = mutation({
       const existing = await ctx.db
         .query("reviewPresence")
         .withIndex("by_session_reviewer", (index) =>
-          index
-            .eq("reviewSessionId", session._id)
-            .eq("reviewerPersonId", reviewerPersonId),
+          index.eq("reviewSessionId", session._id).eq("reviewerPersonId", reviewerPersonId),
         )
         .unique();
       if (existing) {
@@ -1065,12 +1062,7 @@ export const waiveParticipantAvailability = mutation({
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
-    const reason = normalizedText(
-      args.reason,
-      "Participant-availability exception reason",
-      5,
-      500,
-    );
+    const reason = normalizedText(args.reason, "Participant-availability exception reason", 5, 500);
     const requestFingerprint = operationFingerprint([
       args.reviewSessionId,
       args.expectedVersion,
@@ -1084,19 +1076,13 @@ export const waiveParticipantAvailability = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const waiverId = ctx.db.normalizeId(
-        "reviewParticipantAvailabilityWaivers",
-        prior.targetId,
-      );
+      const waiverId = ctx.db.normalizeId("reviewParticipantAvailabilityWaivers", prior.targetId);
       if (!waiverId) {
         throw new Error("Prior participant-availability waiver result is invalid.");
       }
       return {
         waiverId,
-        version: storedOperationVersion(
-          prior.resultJson,
-          "participant-availability waiver",
-        ),
+        version: storedOperationVersion(prior.resultJson, "participant-availability waiver"),
       };
     }
     const session = await ctx.db.get(args.reviewSessionId);

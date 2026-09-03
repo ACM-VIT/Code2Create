@@ -11,7 +11,10 @@ import {
   cancelPendingOperationsAutonomyRun,
   materializeOperationsAutonomyInboxRun,
 } from "./lib/operationsAutonomyRunCreation";
-import { autonomyRunIsTerminal, requireCurrentAutonomyAuthority } from "./lib/operationsAutonomyRuntime";
+import {
+  autonomyRunIsTerminal,
+  requireCurrentAutonomyAuthority,
+} from "./lib/operationsAutonomyRuntime";
 import { cancelPendingAutonomyInboxPage } from "./lib/operationsAutonomyRevocation";
 
 const maximumStatesPerTick = 8;
@@ -49,8 +52,11 @@ export const enqueueDueSchedules = internalMutation({
         .unique(),
     ]);
     if (
-      !event || !operationsAutonomyAvailable(event, args.now) ||
-      !policy || !policy.enabled || !source
+      !event ||
+      !operationsAutonomyAvailable(event, args.now) ||
+      !policy ||
+      !policy.enabled ||
+      !source
     ) {
       await ctx.db.patch(state._id, {
         lastEvaluatedAt: args.now,
@@ -63,18 +69,15 @@ export const enqueueDueSchedules = internalMutation({
     }
     const intervalMs = policy.scheduleIntervalMinutes * 60_000;
     const currentSlot = Math.floor(args.now / intervalMs) * intervalMs;
-    let slot = state.lastScheduleSlot === undefined
-      ? currentSlot
-      : state.lastScheduleSlot + intervalMs;
+    let slot =
+      state.lastScheduleSlot === undefined ? currentSlot : state.lastScheduleSlot + intervalMs;
     let enqueued = 0;
     let lastSlot = state.lastScheduleSlot;
     while (slot <= currentSlot && enqueued < maximumScheduleSlotsPerStatePass) {
       const prior = await ctx.db
         .query("operationsAutonomyInbox")
         .withIndex("by_event_operation_key", (index) =>
-          index
-            .eq("eventId", event._id)
-            .eq("operationKey", `schedule:${policy._id}:${slot}`),
+          index.eq("eventId", event._id).eq("operationKey", `schedule:${policy._id}:${slot}`),
         )
         .unique();
       await enqueueOperationsAutonomySchedule(ctx, {
@@ -198,7 +201,8 @@ export const materializeInbox = internalMutation({
       if (!currentEvent || !operationsAutonomyAvailable(currentEvent, args.now)) {
         const currentState = await ctx.db.get(state._id);
         const currentInbox = await ctx.db.get(inbox._id);
-        if (!currentState || !currentInbox) throw new Error("The autonomy queue owner disappeared.");
+        if (!currentState || !currentInbox)
+          throw new Error("The autonomy queue owner disappeared.");
         await cancelPendingOperationsAutonomyRun(ctx, {
           run,
           inbox: currentInbox,
@@ -253,8 +257,14 @@ export const supervisionCandidates = internalQuery({
     ]);
     return [...aborting, ...active]
       .toSorted((left, right) => {
-        const leftAt = left.lifecycle.kind === "terminal" ? Number.MAX_SAFE_INTEGER : left.lifecycle.nextActionAt;
-        const rightAt = right.lifecycle.kind === "terminal" ? Number.MAX_SAFE_INTEGER : right.lifecycle.nextActionAt;
+        const leftAt =
+          left.lifecycle.kind === "terminal"
+            ? Number.MAX_SAFE_INTEGER
+            : left.lifecycle.nextActionAt;
+        const rightAt =
+          right.lifecycle.kind === "terminal"
+            ? Number.MAX_SAFE_INTEGER
+            : right.lifecycle.nextActionAt;
         return leftAt - rightAt;
       })
       .slice(0, maximumSupervisionRowsPerTick)
@@ -264,7 +274,12 @@ export const supervisionCandidates = internalQuery({
 
 export const reconcileSupervision = internalMutation({
   args: { supervisionId: v.id("operationsAutonomyRunSupervision"), now: v.number() },
-  returns: v.union(v.literal("unchanged"), v.literal("abort"), v.literal("dispatch"), v.literal("continue")),
+  returns: v.union(
+    v.literal("unchanged"),
+    v.literal("abort"),
+    v.literal("dispatch"),
+    v.literal("continue"),
+  ),
   handler: async (ctx, args) => {
     const supervision = await ctx.db.get(args.supervisionId);
     if (!supervision || supervision.lifecycle.kind === "terminal") return "unchanged";

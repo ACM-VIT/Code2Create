@@ -5,11 +5,7 @@ import type { MutationCtx } from "../_generated/server";
 import { moveSessionCounter } from "./attendanceCounters";
 
 export type SessionTransition = "session_confirm" | "zone_entry" | "zone_exit";
-export type AttendanceTransitionOutcome =
-  | "accepted"
-  | "duplicate"
-  | "rejected"
-  | "needs_review";
+export type AttendanceTransitionOutcome = "accepted" | "duplicate" | "rejected" | "needs_review";
 type SessionState = Doc<"attendanceSessionParticipants">["state"];
 
 export type SessionTransitionDecision = {

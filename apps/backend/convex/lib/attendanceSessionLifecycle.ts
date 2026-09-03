@@ -60,7 +60,8 @@ export function extendedAttendanceSessionTiming(args: {
   if (args.now > args.session.endsAt) {
     throw new ConvexError({
       code: "SESSION_EXTENSION_TOO_LATE",
-      message: "This session has already reached its accepted end time and cannot be extended retroactively.",
+      message:
+        "This session has already reached its accepted end time and cannot be extended retroactively.",
     });
   }
   const durationMs = args.extensionMinutes * minuteMs;
@@ -95,8 +96,6 @@ export function attendanceSessionWindowRejection(args: {
   return args.now > args.session.endsAt ? "outside_session_window" : null;
 }
 
-export function attendanceSessionJobIsTerminal(
-  status: Doc<"attendanceSessionJobs">["status"],
-) {
+export function attendanceSessionJobIsTerminal(status: Doc<"attendanceSessionJobs">["status"]) {
   return status === "complete" || status === "failed" || status === "cancelled";
 }

@@ -48,11 +48,7 @@ export function rollCallStateFor(
   return venue.state;
 }
 
-export function moveRollCallCount(
-  counts: RollCallCounts,
-  state: RollCallState,
-  amount: -1 | 1,
-) {
+export function moveRollCallCount(counts: RollCallCounts, state: RollCallState, amount: -1 | 1) {
   if (state === "not_arrived") counts.notArrived += amount;
   if (state === "inside") counts.inside += amount;
   if (state === "temporarily_out") counts.temporarilyOut += amount;
@@ -109,9 +105,7 @@ export async function updateActiveRollCallsForVenueChange(
     const participant = await ctx.db
       .query("attendanceSessionParticipants")
       .withIndex("by_session_membership", (index) =>
-        index
-          .eq("sessionId", rollCall.sessionId)
-          .eq("membershipId", args.membershipId),
+        index.eq("sessionId", rollCall.sessionId).eq("membershipId", args.membershipId),
       )
       .unique();
     if (!participant || participant.eventId !== args.eventId) continue;

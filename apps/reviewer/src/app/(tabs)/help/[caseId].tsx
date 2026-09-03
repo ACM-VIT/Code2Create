@@ -1,33 +1,29 @@
-import { api } from '@code2create/backend/api'
-import { useQuery } from 'convex/react'
-import { useLocalSearchParams } from 'expo-router'
+import { api } from "@code2create/backend/api";
+import { useQuery } from "convex/react";
+import { useLocalSearchParams } from "expo-router";
 
-import { DutyScreen } from '@/components/DutyScreen'
-import { useReviewerSession } from '@/components/ReviewerSession'
-import { SupportCaseDetail } from '@/components/SupportPanel'
-import { Meta } from '@/components/ui'
+import { DutyScreen } from "@/components/DutyScreen";
+import { useReviewerSession } from "@/components/ReviewerSession";
+import { SupportCaseDetail } from "@/components/SupportPanel";
+import { Meta } from "@/components/ui";
 
 function normalizedSupportCode(value: string | undefined) {
-  return value && value.length > 0 ? value : null
+  return value && value.length > 0 ? value : null;
 }
 
 export default function SupportCaseRoute() {
-  const { caseId } = useLocalSearchParams<{ caseId: string }>()
-  const { eventSlug } = useReviewerSession()
-  const supportCode = normalizedSupportCode(caseId)
+  const { caseId } = useLocalSearchParams<{ caseId: string }>();
+  const { eventSlug } = useReviewerSession();
+  const supportCode = normalizedSupportCode(caseId);
   const detail = useQuery(
     api.support.detailByPublicCode,
-    supportCode
-      ? { eventSlug, publicCode: supportCode }
-      : 'skip',
-  )
+    supportCode ? { eventSlug, publicCode: supportCode } : "skip",
+  );
 
   return (
-    <DutyScreen title={detail?.supportCase.publicCode ?? 'Case'}>
+    <DutyScreen title={detail?.supportCase.publicCode ?? "Case"}>
       {supportCode && detail === undefined ? <Meta>Opening the case…</Meta> : null}
-      {!supportCode ? (
-        <Meta>That case link is invalid.</Meta>
-      ) : null}
+      {!supportCode ? <Meta>That case link is invalid.</Meta> : null}
       {supportCode && detail === null ? <Meta>This case is no longer available.</Meta> : null}
       {detail ? (
         <SupportCaseDetail
@@ -37,5 +33,5 @@ export default function SupportCaseRoute() {
         />
       ) : null}
     </DutyScreen>
-  )
+  );
 }

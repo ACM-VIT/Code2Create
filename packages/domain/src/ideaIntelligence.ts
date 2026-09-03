@@ -1,12 +1,9 @@
 import type { AdmissionExperienceBand, CriterionAssessment } from "./labels.ts";
 import { operationsIntelligenceProtocolVersion } from "./intelligenceProtocol.ts";
 
-export const ideaIntelligenceIngressSignatureContext =
-  "code2create.idea-intelligence.ingress.v1";
-export const ideaIntelligenceReadSignatureContext =
-  "code2create.idea-intelligence.read.v1";
-export const ideaIntelligenceCallbackSignatureContext =
-  "code2create.idea-intelligence.callback.v1";
+export const ideaIntelligenceIngressSignatureContext = "code2create.idea-intelligence.ingress.v1";
+export const ideaIntelligenceReadSignatureContext = "code2create.idea-intelligence.read.v1";
+export const ideaIntelligenceCallbackSignatureContext = "code2create.idea-intelligence.callback.v1";
 export const ideaIntelligenceRecoveryLeaseMs = 70 * 60 * 1_000;
 
 export type IdeaIntelligenceDispatchRequest = {
@@ -87,10 +84,12 @@ export function ideaIntelligenceAnalysisPolicyViolation(args: {
     maximumItems: number,
     minimumLength: number,
     maximumLength: number,
-  ) => values.length <= maximumItems && values.every((value) => {
-    const normalized = value.trim();
-    return normalized.length >= minimumLength && normalized.length <= maximumLength;
-  });
+  ) =>
+    values.length <= maximumItems &&
+    values.every((value) => {
+      const normalized = value.trim();
+      return normalized.length >= minimumLength && normalized.length <= maximumLength;
+    });
   if (
     args.analysis.criterionAssessments.length < 1 ||
     args.analysis.criterionAssessments.length > 12 ||
@@ -98,7 +97,8 @@ export function ideaIntelligenceAnalysisPolicyViolation(args: {
     !boundedList(args.analysis.concerns, 3, 3, 180) ||
     !boundedList(args.analysis.proposedQuestions, 2, 8, 180) ||
     !boundedList(args.analysis.limitations, 3, 3, 180)
-  ) return "shape_mismatch";
+  )
+    return "shape_mismatch";
 
   const expectedCriteria = new Set(args.criterionKeys);
   const actualCriteria = new Set(
@@ -108,17 +108,20 @@ export function ideaIntelligenceAnalysisPolicyViolation(args: {
     actualCriteria.size !== args.analysis.criterionAssessments.length ||
     actualCriteria.size !== expectedCriteria.size ||
     [...expectedCriteria].some((key) => !actualCriteria.has(key))
-  ) return "criterion_mismatch";
+  )
+    return "criterion_mismatch";
 
   const availableSources = new Set(args.sourceRefs);
   if (
-    args.analysis.criterionAssessments.some((assessment) =>
-      assessment.sourceRefs.length < 1 ||
-      assessment.sourceRefs.length > 2 ||
-      new Set(assessment.sourceRefs).size !== assessment.sourceRefs.length ||
-      assessment.sourceRefs.some((sourceRef) => !availableSources.has(sourceRef)),
+    args.analysis.criterionAssessments.some(
+      (assessment) =>
+        assessment.sourceRefs.length < 1 ||
+        assessment.sourceRefs.length > 2 ||
+        new Set(assessment.sourceRefs).size !== assessment.sourceRefs.length ||
+        assessment.sourceRefs.some((sourceRef) => !availableSources.has(sourceRef)),
     )
-  ) return "evidence_mismatch";
+  )
+    return "evidence_mismatch";
 
   const prohibitedLanguage =
     /\b(score|scored|points?|ranking|winner|judging|judge score|prestige)\b/iu;
@@ -129,7 +132,8 @@ export function ideaIntelligenceAnalysisPolicyViolation(args: {
       ...args.analysis.proposedQuestions,
       ...args.analysis.limitations,
     ].some((text) => prohibitedLanguage.test(text))
-  ) return "prohibited_language";
+  )
+    return "prohibited_language";
   return null;
 }
 

@@ -1,20 +1,20 @@
-import { api } from '@code2create/backend/api'
-import { eventRoleLabels } from '@code2create/domain'
-import type { FunctionReturnType } from 'convex/server'
-import { usePaginatedQuery, useQuery } from 'convex/react'
-import { useState, type FormEvent } from 'react'
-import { Link } from 'react-router-dom'
+import { api } from "@code2create/backend/api";
+import { eventRoleLabels } from "@code2create/domain";
+import type { FunctionReturnType } from "convex/server";
+import { usePaginatedQuery, useQuery } from "convex/react";
+import { useState, type FormEvent } from "react";
+import { Link } from "react-router-dom";
 
-import { AccessInvitations } from '../components/AccessInvitations'
-import { eventSlug } from '../lib/config'
+import { AccessInvitations } from "../components/AccessInvitations";
+import { eventSlug } from "../lib/config";
 
-type DirectoryPerson = FunctionReturnType<typeof api.access.directory>['page'][number]
+type DirectoryPerson = FunctionReturnType<typeof api.access.directory>["page"][number];
 
-const accessSubjectStatusLabels: Record<DirectoryPerson['status'], string> = {
-  active: 'Active',
-  suspended: 'Suspended',
-  closed: 'Closed',
-}
+const accessSubjectStatusLabels: Record<DirectoryPerson["status"], string> = {
+  active: "Active",
+  suspended: "Suspended",
+  closed: "Closed",
+};
 
 export function AccessDirectory({
   canBrowsePeople,
@@ -25,32 +25,32 @@ export function AccessDirectory({
   canReadTeamRoster,
   serverNow,
 }: {
-  canBrowsePeople: boolean
-  canReadPeople: boolean
-  canInvite: boolean
-  canReadBundles: boolean
-  canReadRoster: boolean
-  canReadTeamRoster: boolean
-  serverNow: number
+  canBrowsePeople: boolean;
+  canReadPeople: boolean;
+  canInvite: boolean;
+  canReadBundles: boolean;
+  canReadRoster: boolean;
+  canReadTeamRoster: boolean;
+  serverNow: number;
 }) {
   const directory = usePaginatedQuery(
     api.access.directory,
-    canBrowsePeople ? { eventSlug } : 'skip',
+    canBrowsePeople ? { eventSlug } : "skip",
     { initialNumItems: 40 },
-  )
-  const [email, setEmail] = useState('')
-  const [searchedEmail, setSearchedEmail] = useState<string | null>(null)
-  const [showInvitations, setShowInvitations] = useState(false)
+  );
+  const [email, setEmail] = useState("");
+  const [searchedEmail, setSearchedEmail] = useState<string | null>(null);
+  const [showInvitations, setShowInvitations] = useState(false);
   const match = useQuery(
     api.access.findByEmail,
-    canReadPeople && searchedEmail ? { eventSlug, email: searchedEmail } : 'skip',
-  )
+    canReadPeople && searchedEmail ? { eventSlug, email: searchedEmail } : "skip",
+  );
 
   const search = (event: FormEvent) => {
-    event.preventDefault()
-    const normalized = email.trim().toLowerCase()
-    setSearchedEmail(normalized || null)
-  }
+    event.preventDefault();
+    const normalized = email.trim().toLowerCase();
+    setSearchedEmail(normalized || null);
+  };
 
   return (
     <section className="access-shell">
@@ -58,27 +58,35 @@ export function AccessDirectory({
         <div>
           <p className="eyebrow">Access</p>
           <h1>People and permissions</h1>
-          <p className="muted">Invite staff, find participants, and control exactly what each person can do.</p>
+          <p className="muted">
+            Invite staff, find participants, and control exactly what each person can do.
+          </p>
         </div>
         <div className="button-row">
           {canInvite ? (
             <button
               aria-expanded={showInvitations}
-              className={showInvitations ? 'secondary active' : 'secondary'}
+              className={showInvitations ? "secondary active" : "secondary"}
               type="button"
               onClick={() => setShowInvitations((current) => !current)}
             >
-              {showInvitations ? 'Close invitations' : 'Invite someone'}
+              {showInvitations ? "Close invitations" : "Invite someone"}
             </button>
           ) : null}
           {canReadRoster ? (
-            <Link className="secondary compact-link" to="/access/roster">Event team</Link>
+            <Link className="secondary compact-link" to="/access/roster">
+              Event team
+            </Link>
           ) : null}
           {canReadTeamRoster ? (
-            <Link className="secondary compact-link" to="/access/team-roster">Participant teams</Link>
+            <Link className="secondary compact-link" to="/access/team-roster">
+              Participant teams
+            </Link>
           ) : null}
           {canReadBundles ? (
-            <Link className="secondary compact-link" to="/access/bundles">Reusable access</Link>
+            <Link className="secondary compact-link" to="/access/bundles">
+              Reusable access
+            </Link>
           ) : null}
         </div>
       </header>
@@ -89,7 +97,9 @@ export function AccessDirectory({
         <>
           <form className="email-search" onSubmit={search}>
             <label className="field">
-              <span>{canBrowsePeople ? 'Find any event account' : 'Find an account you can inspect'}</span>
+              <span>
+                {canBrowsePeople ? "Find any event account" : "Find an account you can inspect"}
+              </span>
               <input
                 autoComplete="off"
                 inputMode="email"
@@ -99,7 +109,9 @@ export function AccessDirectory({
                 onChange={(event) => setEmail(event.target.value)}
               />
             </label>
-            <button className="secondary" type="submit" disabled={!email.trim()}>Find</button>
+            <button className="secondary" type="submit" disabled={!email.trim()}>
+              Find
+            </button>
           </form>
 
           {searchedEmail ? (
@@ -117,11 +129,17 @@ export function AccessDirectory({
           {canBrowsePeople ? (
             <>
               <div className="access-list">
-                {directory.results.map((person) => <PersonRow key={person.personId} person={person} />)}
-                {directory.status === 'LoadingFirstPage' ? <p className="muted">Loading people…</p> : null}
+                {directory.results.map((person) => (
+                  <PersonRow key={person.personId} person={person} />
+                ))}
+                {directory.status === "LoadingFirstPage" ? (
+                  <p className="muted">Loading people…</p>
+                ) : null}
               </div>
-              {directory.status === 'CanLoadMore' ? (
-                <button className="secondary" type="button" onClick={() => directory.loadMore(40)}>Load more</button>
+              {directory.status === "CanLoadMore" ? (
+                <button className="secondary" type="button" onClick={() => directory.loadMore(40)}>
+                  Load more
+                </button>
               ) : null}
             </>
           ) : (
@@ -132,14 +150,10 @@ export function AccessDirectory({
         <p className="notice">You can invite someone but not view the event team.</p>
       ) : null}
     </section>
-  )
+  );
 }
 
-function PersonRow({
-  person,
-}: {
-  person: DirectoryPerson
-}) {
+function PersonRow({ person }: { person: DirectoryPerson }) {
   return (
     <Link className="access-row" to={`/access/${person.personId}`}>
       <div>
@@ -153,5 +167,5 @@ function PersonRow({
         {!person.role && !person.isParticipant ? <span>No role assigned</span> : null}
       </div>
     </Link>
-  )
+  );
 }

@@ -45,16 +45,11 @@ function configuredKey(versionName: string, keyName: string): ProviderEncryption
 }
 
 function currentEncryptionKey() {
-  return configuredKey(
-    "PROVIDER_TOKEN_ENCRYPTION_KEY_VERSION",
-    "PROVIDER_TOKEN_ENCRYPTION_KEY",
-  );
+  return configuredKey("PROVIDER_TOKEN_ENCRYPTION_KEY_VERSION", "PROVIDER_TOKEN_ENCRYPTION_KEY");
 }
 
 function previousEncryptionKey(): ProviderEncryptionKey | null {
-  const hasVersion = Boolean(
-    process.env.PROVIDER_TOKEN_PREVIOUS_ENCRYPTION_KEY_VERSION?.trim(),
-  );
+  const hasVersion = Boolean(process.env.PROVIDER_TOKEN_PREVIOUS_ENCRYPTION_KEY_VERSION?.trim());
   const hasKey = Boolean(process.env.PROVIDER_TOKEN_PREVIOUS_ENCRYPTION_KEY?.trim());
   if (!hasVersion && !hasKey) return null;
   if (!hasVersion || !hasKey) return configurationError();
@@ -153,10 +148,7 @@ export function decryptProviderSecret(ciphertext: string) {
       parsed.iv,
     );
     decipher.setAuthTag(parsed.authenticationTag);
-    return Buffer.concat([
-      decipher.update(parsed.encrypted),
-      decipher.final(),
-    ]).toString("utf8");
+    return Buffer.concat([decipher.update(parsed.encrypted), decipher.final()]).toString("utf8");
   } catch (error) {
     if (error instanceof ConvexError) throw error;
     throw new ConvexError({

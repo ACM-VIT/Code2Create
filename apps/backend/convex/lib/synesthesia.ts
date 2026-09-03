@@ -3,16 +3,9 @@ import { ConvexError } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { requireEventBySlug } from "./events";
-import {
-  requireCurrentPerson,
-  requireEventSubject,
-  requireMembership,
-} from "./identity";
+import { requireCurrentPerson, requireEventSubject, requireMembership } from "./identity";
 import { permissionCatalog, type PermissionKey } from "./permissionCatalog";
-import {
-  boundedActivePermissionScopeIds,
-  matchingPermissionGrantIds,
-} from "./permissions";
+import { boundedActivePermissionScopeIds, matchingPermissionGrantIds } from "./permissions";
 import { normalizedText, optionalNormalizedText } from "./strings";
 
 type ReadCtx = QueryCtx | MutationCtx;
@@ -20,6 +13,10 @@ type ReadCtx = QueryCtx | MutationCtx;
 export const maximumSynesthesiaWindows = 64;
 export const maximumRequestsPerWindow = 200;
 export const maximumCatalogSearchResults = 20;
+
+/** Tracks participants pull straight from YouTube; staff never classified them. */
+export const youtubeProvider = "youtube";
+export const unclassifiedEnergyTag = "unclassified";
 
 const participatingTeamStatuses = new Set<Doc<"teams">["status"]>([
   "admitted",
@@ -29,31 +26,16 @@ const participatingTeamStatuses = new Set<Doc<"teams">["status"]>([
   "completed",
 ]);
 
-export async function synesthesiaParticipantContext(
-  ctx: ReadCtx,
-  eventSlug: string,
-) {
+export async function synesthesiaParticipantContext(ctx: ReadCtx, eventSlug: string) {
   const event = await requireEventBySlug(ctx, eventSlug);
   const { person } = await requireCurrentPerson(ctx);
   const subject = await requireEventSubject(ctx, event._id, person._id);
   const membership = await requireMembership(ctx, event._id, person._id);
-  const [teamMembership, eventRole, accessState] = await Promise.all([
+  const [teamMembership, accessState] = await Promise.all([
     ctx.db
       .query("teamMembers")
       .withIndex("by_event_membership_status", (index) =>
-        index
-          .eq("eventId", event._id)
-          .eq("membershipId", membership._id)
-          .eq("status", "active"),
-      )
-      .unique(),
-    ctx.db
-      .query("eventRoles")
-      .withIndex("by_event_person_status", (index) =>
-        index
-          .eq("eventId", event._id)
-          .eq("personId", person._id)
-          .eq("status", "active"),
+        index.eq("eventId", event._id).eq("membershipId", membership._id).eq("status", "active"),
       )
       .unique(),
     ctx.db
@@ -61,12 +43,11 @@ export async function synesthesiaParticipantContext(
       .withIndex("by_membership", (index) => index.eq("membershipId", membership._id))
       .unique(),
   ]);
-  const team = teamMembership
-    ? await ctx.db.get("teams", teamMembership.teamId)
-    : null;
+  const team = teamMembership ? await ctx.db.get("teams", teamMembership.teamId) : null;
+  // Being on a participating team is what makes someone a participant here;
+  // a staff role on the same account does not take music away.
   const eligible =
     membership.eligibilityStatus === "eligible" &&
-    eventRole === null &&
     team !== null &&
     team.eventId === event._id &&
     participatingTeamStatuses.has(team.status);
@@ -81,10 +62,7 @@ export async function synesthesiaParticipantContext(
   };
 }
 
-export async function requireSynesthesiaParticipant(
-  ctx: ReadCtx,
-  eventSlug: string,
-) {
+export async function requireSynesthesiaParticipant(ctx: ReadCtx, eventSlug: string) {
   const context = await synesthesiaParticipantContext(ctx, eventSlug);
   if (!context.eligible) {
     throw new ConvexError({
@@ -101,18 +79,11 @@ export async function requireSynesthesiaParticipant(
   return context;
 }
 
-export async function activeSynesthesiaWindow(
-  ctx: ReadCtx,
-  eventId: Id<"events">,
-  now: number,
-) {
+export async function activeSynesthesiaWindow(ctx: ReadCtx, eventId: Id<"events">, now: number) {
   const candidates = await ctx.db
     .query("synesthesiaWindows")
     .withIndex("by_event_status_start", (index) =>
-      index
-        .eq("eventId", eventId)
-        .eq("status", "published")
-        .lte("startsAt", now),
+      index.eq("eventId", eventId).eq("status", "published").lte("startsAt", now),
     )
     .order("desc")
     .take(2);
@@ -123,11 +94,13 @@ export function trackFitsWindow(
   track: Doc<"synesthesiaCatalogTracks">,
   window: Doc<"synesthesiaWindows">,
 ) {
+  // YouTube-sourced tracks arrive unclassified, so only the window's duration
+  // and explicit-content rules apply to them.
   return (
     track.status === "active" &&
     track.durationSeconds <= window.maxTrackDurationSeconds &&
     (!track.isExplicit || window.allowExplicit) &&
-    window.allowedEnergyTags.includes(track.energyTag)
+    (track.provider === youtubeProvider || window.allowedEnergyTags.includes(track.energyTag))
   );
 }
 
@@ -256,11 +229,7 @@ export function synesthesiaWindowFields(args: {
   allowedEnergyTags: string[];
 }) {
   const name = normalizedText(args.name, "Window name", 2, 80);
-  const customKindLabel = optionalNormalizedText(
-    args.customKindLabel,
-    "Custom window kind",
-    60,
-  );
+  const customKindLabel = optionalNormalizedText(args.customKindLabel, "Custom window kind", 60);
   if (args.kind === "custom" && customKindLabel === undefined) {
     throw new ConvexError({
       code: "CUSTOM_KIND_REQUIRED",
@@ -312,19 +281,12 @@ export function synesthesiaWindowFields(args: {
   return {
     name,
     kind: args.kind,
-    ...(args.kind === "custom" && customKindLabel !== undefined
-      ? { customKindLabel }
-      : {}),
+    ...(args.kind === "custom" && customKindLabel !== undefined ? { customKindLabel } : {}),
     startsAt: args.startsAt,
     endsAt: args.endsAt,
     requestsOpen: args.requestsOpen,
     votingOpen: args.votingOpen,
-    catalogSourceLabel: normalizedText(
-      args.catalogSourceLabel,
-      "Catalog source",
-      2,
-      100,
-    ),
+    catalogSourceLabel: normalizedText(args.catalogSourceLabel, "Catalog source", 2, 100),
     autoApproveRequests: args.autoApproveRequests,
     maxRequestsPerParticipant: args.maxRequestsPerParticipant,
     maxVotesPerParticipant: args.maxVotesPerParticipant,

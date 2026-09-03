@@ -6,38 +6,38 @@
   "workers_dev": true,
   "preview_urls": false,
   "observability": {
-    "enabled": true
+    "enabled": true,
   },
   "env": {
     "staging": {
       "name": "code2create-updates-staging",
       "vars": {
-        "UPDATE_CHANNEL": "staging"
+        "UPDATE_CHANNEL": "staging",
       },
       "r2_buckets": [
         {
           "binding": "UPDATES",
-          "bucket_name": "code2create-updates-staging"
-        }
-      ]
+          "bucket_name": "code2create-updates-staging",
+        },
+      ],
     },
     "production": {
       "name": "code2create-updates",
       "routes": [
         {
           "pattern": "updates.c2c.sh",
-          "custom_domain": true
-        }
+          "custom_domain": true,
+        },
       ],
       "vars": {
-        "UPDATE_CHANNEL": "production"
+        "UPDATE_CHANNEL": "production",
       },
       "r2_buckets": [
         {
           "binding": "UPDATES",
-          "bucket_name": "code2create-updates"
-        }
-      ]
-    }
-  }
+          "bucket_name": "code2create-updates",
+        },
+      ],
+    },
+  },
 }

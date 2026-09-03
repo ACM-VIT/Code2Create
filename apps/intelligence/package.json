@@ -1,43 +1,43 @@
 {
-	"name": "@code2create/intelligence",
-	"version": "0.1.0",
-	"private": true,
-	"type": "module",
-	"scripts": {
-		"dev": "vite dev --port 8791 --strictPort",
-		"build": "vite build",
-		"cloudflare:build:staging": "CLOUDFLARE_ENV=staging VITE_RELEASE_ID=$WORKERS_CI_COMMIT_SHA pnpm build",
-		"cloudflare:deploy:staging": "CLOUDFLARE_ENV=staging VITE_RELEASE_ID=$WORKERS_CI_COMMIT_SHA pnpm deploy:built",
-		"cloudflare:build:production": "CLOUDFLARE_ENV=production VITE_RELEASE_ID=$WORKERS_CI_COMMIT_SHA pnpm build",
-		"cloudflare:deploy:production": "CLOUDFLARE_ENV=production VITE_RELEASE_ID=$WORKERS_CI_COMMIT_SHA pnpm deploy:built",
-		"deploy": "pnpm build && pnpm deploy:built",
-		"deploy:built": "node ../backend/scripts/release/deployCloudflareViteWorker.ts code2create-intelligence dist/code2create_intelligence/wrangler.json",
-		"deploy:check": "wrangler deploy --name code2create-intelligence-staging --strict --dry-run",
-		"eval": "vitest run --config vitest.eval.config.ts",
-		"lint": "oxlint src",
-		"test": "vitest run --config vitest.config.ts && node --test tests/local-development.test.mjs",
-		"typecheck": "tsc --noEmit"
-	},
-	"dependencies": {
-		"@code2create/domain": "workspace:*",
-		"@flue/runtime": "2.0.3",
-		"hono": "^4.7.0",
-		"posthog-node": "^5.51.6",
-		"valibot": "^1.1.0"
-	},
-	"devDependencies": {
-		"@cloudflare/vite-plugin": "^1.51.1",
-		"@cloudflare/workers-types": "^5.20260804.1",
-		"@earendil-works/pi-ai": "0.83.0",
-		"@flue/cli": "2.0.3",
-		"@flue/sdk": "2.0.3",
-		"@flue/vite": "2.0.3",
-		"@types/node": "^24.13.3",
-		"miniflare": "4.20260730.0",
-		"oxlint": "^1.75.0",
-		"typescript": "~6.0.3",
-		"vite": "^8.2.0",
-		"vitest": "4.1.10",
-		"wrangler": "^4.120.0"
-	}
+  "name": "@code2create/intelligence",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev --port 8791 --strictPort",
+    "build": "vite build",
+    "cloudflare:build:staging": "CLOUDFLARE_ENV=staging VITE_RELEASE_ID=$WORKERS_CI_COMMIT_SHA pnpm build",
+    "cloudflare:deploy:staging": "CLOUDFLARE_ENV=staging VITE_RELEASE_ID=$WORKERS_CI_COMMIT_SHA pnpm deploy:built",
+    "cloudflare:build:production": "CLOUDFLARE_ENV=production VITE_RELEASE_ID=$WORKERS_CI_COMMIT_SHA pnpm build",
+    "cloudflare:deploy:production": "CLOUDFLARE_ENV=production VITE_RELEASE_ID=$WORKERS_CI_COMMIT_SHA pnpm deploy:built",
+    "deploy": "pnpm build && pnpm deploy:built",
+    "deploy:built": "node ../backend/scripts/release/deployCloudflareViteWorker.ts code2create-intelligence dist/code2create_intelligence/wrangler.json",
+    "deploy:check": "wrangler deploy --name code2create-intelligence-staging --strict --dry-run",
+    "eval": "vitest run --config vitest.eval.config.ts",
+    "lint": "oxlint src",
+    "test": "vitest run --config vitest.config.ts && node --test tests/local-development.test.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@code2create/domain": "workspace:*",
+    "@flue/runtime": "2.0.3",
+    "hono": "^4.7.0",
+    "posthog-node": "^5.51.6",
+    "valibot": "^1.1.0"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.51.1",
+    "@cloudflare/workers-types": "^5.20260804.1",
+    "@earendil-works/pi-ai": "0.83.0",
+    "@flue/cli": "2.0.3",
+    "@flue/sdk": "2.0.3",
+    "@flue/vite": "2.0.3",
+    "@types/node": "^24.13.3",
+    "miniflare": "4.20260730.0",
+    "oxlint": "^1.75.0",
+    "typescript": "~6.0.3",
+    "vite": "^8.2.0",
+    "vitest": "4.1.10",
+    "wrangler": "^4.120.0"
+  }
 }

@@ -7,7 +7,7 @@ import { internal } from "./_generated/api";
 import { internalAction, type ActionCtx } from "./_generated/server";
 import type { IntakeContext } from "./intelligence";
 import { ideaQuestionProviderTimeoutMs } from "./lib/ideaSubmissionAi";
-import { parseAndValidateIntakeQuestionModelOutput } from "./lib/intakeQuestionModel";
+import { validateIntakeQuestionModelOutput } from "./lib/intakeQuestionModel";
 import {
   captureAiEmbedding,
   captureAiGeneration,
@@ -148,27 +148,12 @@ async function requestIdeaQuestionFromProvider(
                     minItems: 1,
                     maxItems: 3,
                   },
-                  groundingTerms: {
-                    type: "array",
-                    items: { type: "string", minLength: 2, maxLength: 40 },
-                    minItems: 1,
-                    maxItems: 3,
-                  },
                 },
-                required: [
-                  "text",
-                  "purposeKey",
-                  "answerLength",
-                  "sourceAnswerVersionIds",
-                  "groundingTerms",
-                ],
+                required: ["text", "purposeKey", "answerLength", "sourceAnswerVersionIds"],
                 additionalProperties: false,
               },
               matchedIdeaPatternKey: {
-                anyOf: [
-                  { type: "string", minLength: 1, maxLength: 60 },
-                  { type: "null" },
-                ],
+                anyOf: [{ type: "string", minLength: 1, maxLength: 60 }, { type: "null" }],
               },
               stopReason: {
                 type: "string",
@@ -275,26 +260,16 @@ export const interpretIdea = internalAction({
         });
         return null;
       }
-      const validated = provider.outputText
-        ? parseAndValidateIntakeQuestionModelOutput(provider.outputText, context)
-        : null;
-      if (!validated) {
+      if (!provider.outputText) {
         await ctx.runMutation(internal.intelligence.finishIntakeInterpretation, {
           interpretationId: context.interpretationId,
           inputFingerprint: context.inputFingerprint,
-          state: provider.outputText ? "invalid" : "refused",
+          state: "refused",
           ...emptyCompletion(),
-          ...(provider.providerRequestId
-            ? { providerRequestId: provider.providerRequestId }
-            : {}),
+          ...(provider.providerRequestId ? { providerRequestId: provider.providerRequestId } : {}),
           latencyMs: Date.now() - startedAt,
-          failureCategory: provider.outputText
-            ? "invalid_or_disallowed_output"
-            : "empty_or_refused_output",
+          failureCategory: "empty_or_refused_output",
         });
-        const failureCategory = provider.outputText
-          ? "invalid_or_disallowed_output"
-          : "empty_or_refused_output";
         await scheduleGenerationTelemetry(ctx, {
           traceId: context.interpretationId,
           sessionId: context.draftId,
@@ -303,7 +278,36 @@ export const interpretIdea = internalAction({
           operation: "intake.interpret_idea",
           durationMs: Date.now() - startedAt,
           isError: true,
-          errorCategory: failureCategory,
+          errorCategory: "empty_or_refused_output",
+          inputTokens: provider.inputTokens,
+          outputTokens: provider.outputTokens,
+          cacheReadTokens: provider.cachedInputTokens,
+          reasoningTokens: provider.reasoningTokens,
+          totalTokens: provider.totalTokens,
+          providerRequestId: provider.providerRequestId,
+        });
+        return null;
+      }
+      const validation = validateIntakeQuestionModelOutput(provider.outputText, context);
+      if (validation.kind === "invalid") {
+        await ctx.runMutation(internal.intelligence.finishIntakeInterpretation, {
+          interpretationId: context.interpretationId,
+          inputFingerprint: context.inputFingerprint,
+          state: "invalid",
+          ...emptyCompletion(),
+          ...(provider.providerRequestId ? { providerRequestId: provider.providerRequestId } : {}),
+          latencyMs: Date.now() - startedAt,
+          failureCategory: validation.failureCategory,
+        });
+        await scheduleGenerationTelemetry(ctx, {
+          traceId: context.interpretationId,
+          sessionId: context.draftId,
+          model: context.modelId,
+          provider: "openai",
+          operation: "intake.interpret_idea",
+          durationMs: Date.now() - startedAt,
+          isError: true,
+          errorCategory: validation.failureCategory,
           inputTokens: provider.inputTokens,
           outputTokens: provider.outputTokens,
           cacheReadTokens: provider.cachedInputTokens,
@@ -317,10 +321,8 @@ export const interpretIdea = internalAction({
         interpretationId: context.interpretationId,
         inputFingerprint: context.inputFingerprint,
         state: "succeeded",
-        ...validated,
-        ...(provider.providerRequestId
-          ? { providerRequestId: provider.providerRequestId }
-          : {}),
+        ...validation.completion,
+        ...(provider.providerRequestId ? { providerRequestId: provider.providerRequestId } : {}),
         latencyMs: Date.now() - startedAt,
       });
       await scheduleGenerationTelemetry(ctx, {

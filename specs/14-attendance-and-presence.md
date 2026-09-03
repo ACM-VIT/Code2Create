@@ -17,16 +17,16 @@ Reviewer presence and team hall mapping are separate workflows. A reviewer scans
 
 ## 2. Operating concepts
 
-| Concept | Meaning |
-| --- | --- |
-| Venue check-in | The first staffed identity and eligibility check on arrival |
-| Attendance session | A configured time block such as hacking, briefing, review preparation, or overnight access |
-| Tracked zone | A physical boundary where entry and exit scans have operational meaning |
-| Session confirmation | A participant-specific scan proving presence for one attendance session |
-| Presence event | An immutable accepted, duplicate, rejected, or reconciled scan attempt |
-| Presence interval | Time between an accepted entry/confirmation and the corresponding exit or session close |
-| Attendance result | A policy interpretation derived from events and intervals, never the source record |
-| Result-review case | An append-only request to review one exact finalized participant/session result |
+| Concept              | Meaning                                                                                    |
+| -------------------- | ------------------------------------------------------------------------------------------ |
+| Venue check-in       | The first staffed identity and eligibility check on arrival                                |
+| Attendance session   | A configured time block such as hacking, briefing, review preparation, or overnight access |
+| Tracked zone         | A physical boundary where entry and exit scans have operational meaning                    |
+| Session confirmation | A participant-specific scan proving presence for one attendance session                    |
+| Presence event       | An immutable accepted, duplicate, rejected, or reconciled scan attempt                     |
+| Presence interval    | Time between an accepted entry/confirmation and the corresponding exit or session close    |
+| Attendance result    | A policy interpretation derived from events and intervals, never the source record         |
+| Result-review case   | An append-only request to review one exact finalized participant/session result            |
 
 Staffed arrival, venue presence, and session attendance do not replace one another. A participant can complete the arrival desk before entering the venue. A participant who is already inside must still confirm each new hacking session.
 

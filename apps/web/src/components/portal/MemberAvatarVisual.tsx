@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Flower } from './FlowerAvatar'
+import { useState } from "react";
+import { Flower } from "./FlowerAvatar";
 
 export function MemberAvatarVisual({
   displayName,
@@ -10,17 +10,17 @@ export function MemberAvatarVisual({
   flowerSize,
   flowerClassName,
 }: {
-  displayName: string
-  githubAvatarUrl?: string | undefined
-  seed: string
-  lead: boolean
-  variant?: number
-  flowerSize?: number
-  flowerClassName?: string
+  displayName: string;
+  githubAvatarUrl?: string | undefined;
+  seed: string;
+  lead: boolean;
+  variant?: number;
+  flowerSize?: number;
+  flowerClassName?: string;
 }) {
-  const [failedAvatarUrl, setFailedAvatarUrl] = useState<string | null>(null)
+  const [failedAvatarUrl, setFailedAvatarUrl] = useState<string | null>(null);
   const visibleAvatarUrl =
-    githubAvatarUrl && githubAvatarUrl !== failedAvatarUrl ? githubAvatarUrl : null
+    githubAvatarUrl && githubAvatarUrl !== failedAvatarUrl ? githubAvatarUrl : null;
 
   return (
     <>
@@ -41,5 +41,5 @@ export function MemberAvatarVisual({
         />
       ) : null}
     </>
-  )
+  );
 }

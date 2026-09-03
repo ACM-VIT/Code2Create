@@ -2,10 +2,7 @@ import { z } from "zod";
 
 import { internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
-import {
-  HttpBodyTooLargeError,
-  readBoundedRequestBytes,
-} from "./lib/boundedHttpBody";
+import { HttpBodyTooLargeError, readBoundedRequestBytes } from "./lib/boundedHttpBody";
 
 const providerId = z
   .union([z.string().min(1).max(128), z.number().int().positive()])
@@ -70,9 +67,7 @@ export const figmaWebhook = httpAction(async (ctx, request) => {
       webhookId: parsed.data.webhook_id,
       passcodeDigest: await digest(parsed.data.passcode),
       eventType: parsed.data.event_type,
-      ...(parsed.data.event_type === "FILE_UPDATE"
-        ? { fileKey: parsed.data.file_key }
-        : {}),
+      ...(parsed.data.event_type === "FILE_UPDATE" ? { fileKey: parsed.data.file_key } : {}),
       providerAt,
     },
   );

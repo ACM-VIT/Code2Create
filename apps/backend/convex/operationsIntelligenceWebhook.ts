@@ -10,10 +10,7 @@ import { z } from "zod";
 
 import { internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
-import {
-  HttpBodyTooLargeError,
-  readBoundedRequestText,
-} from "./lib/boundedHttpBody";
+import { HttpBodyTooLargeError, readBoundedRequestText } from "./lib/boundedHttpBody";
 import { requireIntelligenceHmacSecret } from "./lib/intelligenceServiceConfiguration";
 
 const maximumBodyBytes = 24 * 1_024;

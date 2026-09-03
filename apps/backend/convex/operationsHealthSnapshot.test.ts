@@ -38,9 +38,9 @@ describe("operations-health materialization", () => {
       eventId: firstEventId,
     });
     await backend.run((ctx) => insertEvent(ctx, "second-event", 1));
-    await expect(
-      backend.query(internal.operationsHealth.refreshTarget, {}),
-    ).rejects.toThrow("exactly one event");
+    await expect(backend.query(internal.operationsHealth.refreshTarget, {})).rejects.toThrow(
+      "exactly one event",
+    );
   });
 
   test("upserts one row and makes exact or stale retries no-ops", async () => {
@@ -48,32 +48,42 @@ describe("operations-health materialization", () => {
     const eventId = await backend.run((ctx) => insertEvent(ctx, "health-upsert", 3));
     const first = healthySnapshot("health-upsert", 1_000);
 
-    expect(await backend.mutation(internal.operationsHealth.upsertSnapshot, {
-      eventId,
-      eventVersion: 3,
-      snapshot: first,
-    })).toBe("created");
-    expect(await backend.mutation(internal.operationsHealth.upsertSnapshot, {
-      eventId,
-      eventVersion: 3,
-      snapshot: first,
-    })).toBe("unchanged");
-    expect(await backend.mutation(internal.operationsHealth.upsertSnapshot, {
-      eventId,
-      eventVersion: 2,
-      snapshot: healthySnapshot("health-upsert", 1_002),
-    })).toBe("stale");
+    expect(
+      await backend.mutation(internal.operationsHealth.upsertSnapshot, {
+        eventId,
+        eventVersion: 3,
+        snapshot: first,
+      }),
+    ).toBe("created");
+    expect(
+      await backend.mutation(internal.operationsHealth.upsertSnapshot, {
+        eventId,
+        eventVersion: 3,
+        snapshot: first,
+      }),
+    ).toBe("unchanged");
+    expect(
+      await backend.mutation(internal.operationsHealth.upsertSnapshot, {
+        eventId,
+        eventVersion: 2,
+        snapshot: healthySnapshot("health-upsert", 1_002),
+      }),
+    ).toBe("stale");
     await backend.run((ctx) => ctx.db.patch(eventId, { version: 4 }));
-    expect(await backend.mutation(internal.operationsHealth.upsertSnapshot, {
-      eventId,
-      eventVersion: 4,
-      snapshot: healthySnapshot("health-upsert", 1_001),
-    })).toBe("updated");
+    expect(
+      await backend.mutation(internal.operationsHealth.upsertSnapshot, {
+        eventId,
+        eventVersion: 4,
+        snapshot: healthySnapshot("health-upsert", 1_001),
+      }),
+    ).toBe("updated");
 
-    const rows = await backend.run((ctx) => ctx.db
-      .query("operationsHealthSnapshots")
-      .withIndex("by_event", (index) => index.eq("eventId", eventId))
-      .collect());
+    const rows = await backend.run((ctx) =>
+      ctx.db
+        .query("operationsHealthSnapshots")
+        .withIndex("by_event", (index) => index.eq("eventId", eventId))
+        .collect(),
+    );
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
       eventVersion: 4,
@@ -97,18 +107,24 @@ describe("operations-health materialization", () => {
       snapshot: healthySnapshot("health-expiry", 2_000),
     });
 
-    expect(await backend.mutation(internal.operationsHealth.markSnapshotStale, {
-      eventId,
-      expectedGeneratedAt: 1_000,
-    })).toBe(false);
-    expect(await backend.mutation(internal.operationsHealth.markSnapshotStale, {
-      eventId,
-      expectedGeneratedAt: 2_000,
-    })).toBe(true);
-    expect(await backend.query(internal.operationsHealth.materializedForEvent, {
-      eventId,
-      now: 2_001,
-    })).toEqual({ state: "stale", lastGeneratedAt: 2_000 });
+    expect(
+      await backend.mutation(internal.operationsHealth.markSnapshotStale, {
+        eventId,
+        expectedGeneratedAt: 1_000,
+      }),
+    ).toBe(false);
+    expect(
+      await backend.mutation(internal.operationsHealth.markSnapshotStale, {
+        eventId,
+        expectedGeneratedAt: 2_000,
+      }),
+    ).toBe(true);
+    expect(
+      await backend.query(internal.operationsHealth.materializedForEvent, {
+        eventId,
+        now: 2_001,
+      }),
+    ).toEqual({ state: "stale", lastGeneratedAt: 2_000 });
   });
 
   test("the scheduled action computes once and retains one snapshot row", async () => {
@@ -118,10 +134,12 @@ describe("operations-health materialization", () => {
     expect(await backend.action(internal.operationsHealth.refresh, {})).toBe("created");
     const second = await backend.action(internal.operationsHealth.refresh, {});
     expect(["unchanged", "updated"]).toContain(second);
-    const rows = await backend.run((ctx) => ctx.db
-      .query("operationsHealthSnapshots")
-      .withIndex("by_event", (index) => index.eq("eventId", eventId))
-      .collect());
+    const rows = await backend.run((ctx) =>
+      ctx.db
+        .query("operationsHealthSnapshots")
+        .withIndex("by_event", (index) => index.eq("eventId", eventId))
+        .collect(),
+    );
     expect(rows).toHaveLength(1);
   });
 
@@ -225,10 +243,12 @@ describe("operations-health materialization", () => {
     const { snapshot } = await backend.query(internal.operationsHealth.computeSnapshot, {
       eventId,
     });
-    expect(snapshot.signals).toEqual(expect.arrayContaining([
-      expect.objectContaining({ key: "novelty_preview_stalls", count: 1 }),
-      expect.objectContaining({ key: "recent_novelty_unavailable", count: 1 }),
-    ]));
+    expect(snapshot.signals).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: "novelty_preview_stalls", count: 1 }),
+        expect.objectContaining({ key: "recent_novelty_unavailable", count: 1 }),
+      ]),
+    );
   });
 
   test("the public read exposes missing and stale states and rejects the removed refresh bucket", async () => {
@@ -240,13 +260,17 @@ describe("operations-health materialization", () => {
       sessionId: fixture.authSessionId,
     });
 
-    expect(await reader.query(api.operationsHealth.overview, {
-      eventSlug: fixture.eventSlug,
-    })).toEqual({ state: "missing" });
-    await expect(reader.mutation(api.operationsIntelligence.request, {
-      eventSlug: fixture.eventSlug,
-      clientOperationId: "missing-health-request",
-    })).rejects.toThrow("first operations-health check");
+    expect(
+      await reader.query(api.operationsHealth.overview, {
+        eventSlug: fixture.eventSlug,
+      }),
+    ).toEqual({ state: "missing" });
+    await expect(
+      reader.mutation(api.operationsIntelligence.request, {
+        eventSlug: fixture.eventSlug,
+        clientOperationId: "missing-health-request",
+      }),
+    ).rejects.toThrow("first operations-health check");
 
     const staleGeneratedAt = Date.now() - 91_000;
     await backend.mutation(internal.operationsHealth.upsertSnapshot, {
@@ -254,18 +278,20 @@ describe("operations-health materialization", () => {
       eventVersion: 1,
       snapshot: healthySnapshot(fixture.eventSlug, staleGeneratedAt),
     });
-    expect(await reader.query(api.operationsHealth.overview, {
-      eventSlug: fixture.eventSlug,
-    })).toEqual({ state: "stale", lastGeneratedAt: staleGeneratedAt });
-    await expect(reader.mutation(api.operationsIntelligence.request, {
-      eventSlug: fixture.eventSlug,
-      clientOperationId: "stale-health-request",
-    })).rejects.toThrow("checks are delayed");
+    expect(
+      await reader.query(api.operationsHealth.overview, {
+        eventSlug: fixture.eventSlug,
+      }),
+    ).toEqual({ state: "stale", lastGeneratedAt: staleGeneratedAt });
+    await expect(
+      reader.mutation(api.operationsIntelligence.request, {
+        eventSlug: fixture.eventSlug,
+        clientOperationId: "stale-health-request",
+      }),
+    ).rejects.toThrow("checks are delayed");
 
     const obsoleteArgs = { eventSlug: fixture.eventSlug, refreshBucket: 1 };
-    await expect(
-      reader.query(api.operationsHealth.overview, obsoleteArgs),
-    ).rejects.toThrow();
+    await expect(reader.query(api.operationsHealth.overview, obsoleteArgs)).rejects.toThrow();
   });
 });
 
@@ -301,7 +327,7 @@ function insertEvent(
     timezone: "Asia/Kolkata",
     status: "live",
     vitEmailDomains: ["vitstudent.ac.in"],
-        applicationsCloseAt: Date.now() + 86_400_000,
+    applicationsCloseAt: Date.now() + 86_400_000,
     version,
     createdAt: now,
     updatedAt: now,

@@ -34,7 +34,6 @@ const modelOutputSchema = z
         purposeKey: z.enum(["user", "problem", "experience", "event_goal", "tradeoff", "risk"]),
         answerLength: z.enum(["short", "medium"]),
         sourceAnswerVersionIds: z.array(modelSourceRef).min(1).max(3),
-        groundingTerms: z.array(z.string().min(2).max(40)).min(1).max(3),
       })
       .strict(),
     matchedIdeaPatternKey: z.string().min(1).max(60).nullable(),
@@ -44,12 +43,36 @@ const modelOutputSchema = z
 
 type ModelOutput = z.infer<typeof modelOutputSchema>;
 
-function parseModelOutput(value: string) {
+type InvalidModelOutput = {
+  kind: "invalid";
+  failureCategory:
+    | "model_output_invalid_json"
+    | "model_output_invalid_schema"
+    | "model_output_invalid_coverage"
+    | "model_output_invalid_pattern"
+    | "model_output_invalid_source"
+    | "model_output_invalid_purpose"
+    | "model_question_too_long"
+    | "model_question_not_broad"
+    | "model_question_invalid_punctuation"
+    | "model_question_blocked_wording"
+    | "model_question_repeated";
+};
+
+function invalid(failureCategory: InvalidModelOutput["failureCategory"]): InvalidModelOutput {
+  return { kind: "invalid", failureCategory };
+}
+
+function parseModelOutput(
+  value: string,
+): { kind: "parsed"; output: ModelOutput } | InvalidModelOutput {
   try {
     const result = modelOutputSchema.safeParse(JSON.parse(value));
-    return result.success ? result.data : null;
+    return result.success
+      ? { kind: "parsed", output: result.data }
+      : invalid("model_output_invalid_schema");
   } catch {
-    return null;
+    return invalid("model_output_invalid_json");
   }
 }
 
@@ -74,65 +97,60 @@ function validateModelOutput(output: ModelOutput, context: IntakeQuestionModelCo
   const patternKeys = new Set(context.commonIdeaPatterns.map((pattern) => pattern.stableKey));
   if (
     new Set(output.coveragePurposeKeys).size !== output.coveragePurposeKeys.length ||
-    output.coveragePurposeKeys.some((purpose) => !purposeKeys.has(purpose)) ||
-    (output.matchedIdeaPatternKey !== null && !patternKeys.has(output.matchedIdeaPatternKey))
+    output.coveragePurposeKeys.some((purpose) => !purposeKeys.has(purpose))
   ) {
-    return null;
+    return invalid("model_output_invalid_coverage");
+  }
+  if (output.matchedIdeaPatternKey !== null && !patternKeys.has(output.matchedIdeaPatternKey)) {
+    return invalid("model_output_invalid_pattern");
   }
   const questionSources = resolveSourceIds(
     output.nextQuestion.sourceAnswerVersionIds,
     context.answers,
   );
-  if (
-    questionSources === null ||
-    !purposeKeys.has(output.nextQuestion.purposeKey)
-  ) {
-    return null;
-  }
+  if (questionSources === null) return invalid("model_output_invalid_source");
+  if (!purposeKeys.has(output.nextQuestion.purposeKey))
+    return invalid("model_output_invalid_purpose");
   const normalized = output.nextQuestion.text.trim().replace(/\s+/gu, " ");
   const lower = normalized.toLocaleLowerCase("en");
-  const sourceAnswers = new Map(
-    context.answers.map((answer) => [answer.id, answer.value] as const),
-  );
-  const groundingTerms = output.nextQuestion.groundingTerms.map((term) =>
-    term.trim().replace(/\s+/gu, " ").toLocaleLowerCase("en"),
-  );
-  const groundedText = questionSources
-    .map((id) => sourceAnswers.get(id) ?? "")
-    .join(" ")
-    .toLocaleLowerCase("en");
+  if (normalized.length > context.questionMaxLength) return invalid("model_question_too_long");
+  if (!isBroadIdeaQuestion(normalized)) return invalid("model_question_not_broad");
   if (
-    normalized.length > context.questionMaxLength ||
-    !isBroadIdeaQuestion(normalized) ||
     !normalized.endsWith("?") ||
-    [...normalized].filter((character) => character === "?").length !== 1 ||
-    context.blockedTerms.some((term) => lower.includes(term)) ||
+    [...normalized].filter((character) => character === "?").length !== 1
+  ) {
+    return invalid("model_question_invalid_punctuation");
+  }
+  if (context.blockedTerms.some((term) => lower.includes(term))) {
+    return invalid("model_question_blocked_wording");
+  }
+  if (
     context.previousQuestions.some(
       (question) => question.trim().replace(/\s+/gu, " ").toLocaleLowerCase("en") === lower,
-    ) ||
-    new Set(groundingTerms).size !== groundingTerms.length ||
-    groundingTerms.some((term) => !groundedText.includes(term)) ||
-    !groundingTerms.some((term) => lower.includes(term))
+    )
   ) {
-    return null;
+    return invalid("model_question_repeated");
   }
   return {
-    coveragePurposeKeys: output.coveragePurposeKeys,
-    nextQuestionText: output.nextQuestion.text,
-    nextQuestionPurposeKey: output.nextQuestion.purposeKey,
-    nextQuestionAnswerLength: output.nextQuestion.answerLength,
-    nextQuestionSourceAnswerVersionIds: questionSources,
-    ...(output.matchedIdeaPatternKey !== null
-      ? { matchedIdeaPatternKey: output.matchedIdeaPatternKey }
-      : {}),
-    stopReason: output.stopReason,
+    kind: "valid" as const,
+    completion: {
+      coveragePurposeKeys: output.coveragePurposeKeys,
+      nextQuestionText: normalized,
+      nextQuestionPurposeKey: output.nextQuestion.purposeKey,
+      nextQuestionAnswerLength: output.nextQuestion.answerLength,
+      nextQuestionSourceAnswerVersionIds: questionSources,
+      ...(output.matchedIdeaPatternKey !== null
+        ? { matchedIdeaPatternKey: output.matchedIdeaPatternKey }
+        : {}),
+      stopReason: output.stopReason,
+    },
   };
 }
 
-export function parseAndValidateIntakeQuestionModelOutput(
+export function validateIntakeQuestionModelOutput(
   value: string,
   context: IntakeQuestionModelContext,
 ) {
   const parsed = parseModelOutput(value);
-  return parsed ? validateModelOutput(parsed, context) : null;
+  return parsed.kind === "invalid" ? parsed : validateModelOutput(parsed.output, context);
 }

@@ -35,14 +35,11 @@ describe("event bootstrap", () => {
       .filter(isPermissionKey)
       .filter((permissionKey) => {
         const definition = permissionCatalog[permissionKey];
-        return !definition.eventWide &&
-          definition.scopes.some((scope) => scope === "self");
+        return !definition.eventWide && definition.scopes.some((scope) => scope === "self");
       });
 
     expect(supremeSelfPermissionKeys).toEqual(catalogSelfPermissions);
-    expect(supremeSelfPermissionKeys).toContain(
-      "communications.call_consent.manage",
-    );
+    expect(supremeSelfPermissionKeys).toContain("communications.call_consent.manage");
   });
 
   test("advertises external email sign-in only with complete delivery configuration", async () => {
@@ -52,16 +49,20 @@ describe("event bootstrap", () => {
     const backend = convexTest(schema, modules);
     backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
 
-    await expect(backend.query(api.system.getPublicShellState, {
-      eventSlug: "code2create-7",
-    })).resolves.toMatchObject({
+    await expect(
+      backend.query(api.system.getPublicShellState, {
+        eventSlug: "code2create-7",
+      }),
+    ).resolves.toMatchObject({
       auth: { emailOtpConfigured: false },
     });
 
     vi.stubEnv("CLOUDFLARE_EMAIL_FROM", "Code2Create <updates@example.test>");
-    await expect(backend.query(api.system.getPublicShellState, {
-      eventSlug: "code2create-7",
-    })).resolves.toMatchObject({
+    await expect(
+      backend.query(api.system.getPublicShellState, {
+        eventSlug: "code2create-7",
+      }),
+    ).resolves.toMatchObject({
       auth: { emailOtpConfigured: true },
     });
   });
@@ -80,9 +81,11 @@ describe("event bootstrap", () => {
       sessionId: identity.authSessionId,
     });
 
-    expect(await owner.query(api.system.bootstrapEligibility, {
-      eventSlug: "code2create-7",
-    })).toEqual({
+    expect(
+      await owner.query(api.system.bootstrapEligibility, {
+        eventSlug: "code2create-7",
+      }),
+    ).toEqual({
       allowed: true,
       email: "owner@example.test",
       eventExists: false,
@@ -107,12 +110,14 @@ describe("event bootstrap", () => {
         venueAddress: "Vandalur–Kelambakkam Road, Chennai",
         startsAt,
         endsAt,
-        nextSteps: [{
-          stableKey: "join_discord",
-          title: "Join Discord",
-          detail: "Use the event server for announcements and participant support.",
-          actionUrl: "https://discord.gg/code2create",
-        }],
+        nextSteps: [
+          {
+            stableKey: "join_discord",
+            title: "Join Discord",
+            detail: "Use the event server for announcements and participant support.",
+            actionUrl: "https://discord.gg/code2create",
+          },
+        ],
         discordUrl: "https://discord.gg/code2create",
         discordLabel: "Open event Discord",
         notificationProvider: "cloudflare_email",
@@ -162,14 +167,13 @@ describe("event bootstrap", () => {
     });
     if (!accessDetail) throw new Error("The Supreme access detail is missing.");
     expect(accessDetail.effectivePermissionKeys).toEqual(
-      expect.arrayContaining([
-        ...eventOwnerPermissionKeys,
-        ...supremeSelfPermissionKeys,
-      ]),
+      expect.arrayContaining([...eventOwnerPermissionKeys, ...supremeSelfPermissionKeys]),
     );
-    await expect(owner.query(api.outboundCallConsents.mine, {
-      eventSlug: "code2create-7",
-    })).resolves.toMatchObject({ state: "not_configured", version: 0 });
+    await expect(
+      owner.query(api.outboundCallConsents.mine, {
+        eventSlug: "code2create-7",
+      }),
+    ).resolves.toMatchObject({ state: "not_configured", version: 0 });
     await backend.run(async (ctx) => {
       const subject = await ctx.db
         .query("eventAccessSubjects")
@@ -191,9 +195,11 @@ describe("event bootstrap", () => {
         for (const grant of grants) await ctx.db.delete(grant._id);
       }
     });
-    await expect(owner.query(api.outboundCallConsents.mine, {
-      eventSlug: "code2create-7",
-    })).rejects.toThrow("does not have permission");
+    await expect(
+      owner.query(api.outboundCallConsents.mine, {
+        eventSlug: "code2create-7",
+      }),
+    ).rejects.toThrow("does not have permission");
     const synchronized = await owner.mutation(api.accessRoles.set, {
       eventSlug: "code2create-7",
       targetPersonId: ownerPersonId,
@@ -203,9 +209,11 @@ describe("event bootstrap", () => {
       clientOperationId: "bootstrap-supreme-permission-sync",
     });
     expect(synchronized.accessVersion).toBe(accessDetail.accessVersion + 1);
-    await expect(owner.query(api.outboundCallConsents.mine, {
-      eventSlug: "code2create-7",
-    })).resolves.toMatchObject({ state: "not_configured", version: 0 });
+    await expect(
+      owner.query(api.outboundCallConsents.mine, {
+        eventSlug: "code2create-7",
+      }),
+    ).resolves.toMatchObject({ state: "not_configured", version: 0 });
     expect(accessDetail).not.toHaveProperty("grants");
     const grantPage = await owner.query(api.access.grantLedger, {
       eventSlug: "code2create-7",
@@ -253,9 +261,7 @@ describe("event bootstrap", () => {
       const autonomyState = autonomyPolicy
         ? await ctx.db
             .query("operationsAutonomyStates")
-            .withIndex("by_policy", (index) =>
-              index.eq("policyVersionId", autonomyPolicy._id),
-            )
+            .withIndex("by_policy", (index) => index.eq("policyVersionId", autonomyPolicy._id))
             .unique()
         : null;
       expect(autonomyState?.lifecycle.kind).toBe("disabled");
@@ -293,43 +299,49 @@ describe("event bootstrap", () => {
       expect(lifecycleGrants).toHaveLength(1);
     });
 
-    expect(await owner.query(api.system.bootstrapEligibility, {
-      eventSlug: "code2create-7",
-    })).toMatchObject({ allowed: false, eventExists: true });
-    await expect(owner.mutation(api.system.bootstrapEvent, {
-      eventSlug: "code2create-7",
-      eventName: "Code2Create 7.0",
-      timezone: "Asia/Kolkata",
-      externalApplicationsCloseAt: startsAt - 24 * 60 * 60 * 1_000,
-      applicationsCloseAt: startsAt - 24 * 60 * 60 * 1_000,
-      vitEmailDomains: ["vitstudent.ac.in"],
-      participantPolicy: defaultParticipantPolicy,
-      admissionPolicyVersion: "admission-v1",
-      admissionParticipantCapacity: 1_000,
-      admissionMinimumHumanReviews: 2,
-      intakePolicy: defaultDeterministicIntakePolicy,
-      communicationsPolicy: {
-        venueName: "VIT Chennai",
-        startsAt,
-        endsAt,
-        nextSteps: [{
-          stableKey: "join_discord",
-          title: "Join Discord",
-          detail: "Use the event server for announcements and participant support.",
-          actionUrl: "https://discord.gg/code2create",
-        }],
-        discordUrl: "https://discord.gg/code2create",
-        discordLabel: "Open event Discord",
-        notificationProvider: "cloudflare_email",
-        emailTemplates: defaultParticipantEmailTemplates(),
-      },
-      integrationPolicy: {
-        version: "integrations-v1",
-        requiredGitHubTopic: "code2create-7",
-        maxActiveGitHubRepositoriesPerTeam: 10,
-        maxActiveFigmaFilesPerTeam: 10,
-      },
-    })).rejects.toThrow("already has an event");
+    expect(
+      await owner.query(api.system.bootstrapEligibility, {
+        eventSlug: "code2create-7",
+      }),
+    ).toMatchObject({ allowed: false, eventExists: true });
+    await expect(
+      owner.mutation(api.system.bootstrapEvent, {
+        eventSlug: "code2create-7",
+        eventName: "Code2Create 7.0",
+        timezone: "Asia/Kolkata",
+        externalApplicationsCloseAt: startsAt - 24 * 60 * 60 * 1_000,
+        applicationsCloseAt: startsAt - 24 * 60 * 60 * 1_000,
+        vitEmailDomains: ["vitstudent.ac.in"],
+        participantPolicy: defaultParticipantPolicy,
+        admissionPolicyVersion: "admission-v1",
+        admissionParticipantCapacity: 1_000,
+        admissionMinimumHumanReviews: 2,
+        intakePolicy: defaultDeterministicIntakePolicy,
+        communicationsPolicy: {
+          venueName: "VIT Chennai",
+          startsAt,
+          endsAt,
+          nextSteps: [
+            {
+              stableKey: "join_discord",
+              title: "Join Discord",
+              detail: "Use the event server for announcements and participant support.",
+              actionUrl: "https://discord.gg/code2create",
+            },
+          ],
+          discordUrl: "https://discord.gg/code2create",
+          discordLabel: "Open event Discord",
+          notificationProvider: "cloudflare_email",
+          emailTemplates: defaultParticipantEmailTemplates(),
+        },
+        integrationPolicy: {
+          version: "integrations-v1",
+          requiredGitHubTopic: "code2create-7",
+          maxActiveGitHubRepositoriesPerTeam: 10,
+          maxActiveFigmaFilesPerTeam: 10,
+        },
+      }),
+    ).rejects.toThrow("already has an event");
   });
 
   test("synchronizes missing Supreme catalog keys without re-assigning the role", async () => {
@@ -382,14 +394,12 @@ describe("event bootstrap", () => {
       const audits = await ctx.db
         .query("auditEvents")
         .withIndex("by_target_time", (index) =>
-          index
-            .eq("targetType", "event_access_subject")
-            .eq("targetId", seeded.subjectId),
+          index.eq("targetType", "event_access_subject").eq("targetId", seeded.subjectId),
         )
         .take(8);
-      expect(audits.some((event) => event.action === "access.supreme_permissions_synchronized")).toBe(
-        true,
-      );
+      expect(
+        audits.some((event) => event.action === "access.supreme_permissions_synchronized"),
+      ).toBe(true);
     });
   });
 
@@ -443,63 +453,75 @@ describe("event bootstrap", () => {
       return { personId, subjectId };
     });
 
-    await expect(organizer.mutation(api.accessRoles.set, {
-      eventSlug: seeded.eventSlug,
-      targetPersonId: target.personId,
-      role: "supreme",
-      expectedAccessVersion: 1,
-      reason: "Assign event ownership",
-      clientOperationId: "role-ceiling-denied",
-    })).rejects.toThrow("Scoped grant authority cannot create permission-administration authority");
+    await expect(
+      organizer.mutation(api.accessRoles.set, {
+        eventSlug: seeded.eventSlug,
+        targetPersonId: target.personId,
+        role: "supreme",
+        expectedAccessVersion: 1,
+        reason: "Assign event ownership",
+        clientOperationId: "role-ceiling-denied",
+      }),
+    ).rejects.toThrow("Scoped grant authority cannot create permission-administration authority");
 
-    await backend.run((ctx) => insertPermissionGrant(ctx, {
-      eventId: seeded.eventId,
-      personId: seeded.personId,
-      eventAccessSubjectId: seeded.subjectId,
-      permissionKey: "access.permissions.grant_any",
-      scopeType: "event",
-      sourceType: "manual",
-      sourceId: "role-assignment-grant-ceiling",
-      grantedByPersonId: seeded.personId,
-      reason: "Role assignment ceiling fixture",
-    }));
-    await expect(organizer.mutation(api.accessRoles.set, {
-      eventSlug: seeded.eventSlug,
-      targetPersonId: target.personId,
-      role: "supreme",
-      expectedAccessVersion: 1,
-      reason: "Assign event ownership",
-      clientOperationId: "role-ceiling-allowed",
-    })).resolves.toMatchObject({ accessVersion: 2 });
+    await backend.run((ctx) =>
+      insertPermissionGrant(ctx, {
+        eventId: seeded.eventId,
+        personId: seeded.personId,
+        eventAccessSubjectId: seeded.subjectId,
+        permissionKey: "access.permissions.grant_any",
+        scopeType: "event",
+        sourceType: "manual",
+        sourceId: "role-assignment-grant-ceiling",
+        grantedByPersonId: seeded.personId,
+        reason: "Role assignment ceiling fixture",
+      }),
+    );
+    await expect(
+      organizer.mutation(api.accessRoles.set, {
+        eventSlug: seeded.eventSlug,
+        targetPersonId: target.personId,
+        role: "supreme",
+        expectedAccessVersion: 1,
+        reason: "Assign event ownership",
+        clientOperationId: "role-ceiling-allowed",
+      }),
+    ).resolves.toMatchObject({ accessVersion: 2 });
 
-    await expect(organizer.mutation(api.accessRoles.set, {
-      eventSlug: seeded.eventSlug,
-      targetPersonId: target.personId,
-      role: "board",
-      expectedAccessVersion: 2,
-      reason: "Replace event ownership",
-      clientOperationId: "role-revoke-ceiling-denied",
-    })).rejects.toThrow("Scoped revoke authority cannot revoke permission-administration authority");
+    await expect(
+      organizer.mutation(api.accessRoles.set, {
+        eventSlug: seeded.eventSlug,
+        targetPersonId: target.personId,
+        role: "board",
+        expectedAccessVersion: 2,
+        reason: "Replace event ownership",
+        clientOperationId: "role-revoke-ceiling-denied",
+      }),
+    ).rejects.toThrow("Scoped revoke authority cannot revoke permission-administration authority");
 
-    await backend.run((ctx) => insertPermissionGrant(ctx, {
-      eventId: seeded.eventId,
-      personId: seeded.personId,
-      eventAccessSubjectId: seeded.subjectId,
-      permissionKey: "access.permissions.revoke_any",
-      scopeType: "event",
-      sourceType: "manual",
-      sourceId: "role-assignment-revoke-ceiling",
-      grantedByPersonId: seeded.personId,
-      reason: "Role removal ceiling fixture",
-    }));
-    await expect(organizer.mutation(api.accessRoles.set, {
-      eventSlug: seeded.eventSlug,
-      targetPersonId: target.personId,
-      role: "board",
-      expectedAccessVersion: 2,
-      reason: "Replace event ownership",
-      clientOperationId: "role-revoke-ceiling-allowed",
-    })).resolves.toMatchObject({ accessVersion: 3 });
+    await backend.run((ctx) =>
+      insertPermissionGrant(ctx, {
+        eventId: seeded.eventId,
+        personId: seeded.personId,
+        eventAccessSubjectId: seeded.subjectId,
+        permissionKey: "access.permissions.revoke_any",
+        scopeType: "event",
+        sourceType: "manual",
+        sourceId: "role-assignment-revoke-ceiling",
+        grantedByPersonId: seeded.personId,
+        reason: "Role removal ceiling fixture",
+      }),
+    );
+    await expect(
+      organizer.mutation(api.accessRoles.set, {
+        eventSlug: seeded.eventSlug,
+        targetPersonId: target.personId,
+        role: "board",
+        expectedAccessVersion: 2,
+        reason: "Replace event ownership",
+        clientOperationId: "role-revoke-ceiling-allowed",
+      }),
+    ).resolves.toMatchObject({ accessVersion: 3 });
 
     await backend.run(async (ctx) => {
       const role = await ctx.db
@@ -570,9 +592,11 @@ describe("event bootstrap", () => {
       sessionId: identity.authSessionId,
     });
 
-    expect(await visitor.query(api.system.bootstrapEligibility, {
-      eventSlug: "code2create-7",
-    })).toEqual({
+    expect(
+      await visitor.query(api.system.bootstrapEligibility, {
+        eventSlug: "code2create-7",
+      }),
+    ).toEqual({
       allowed: false,
       email: "someone-else@example.test",
       eventExists: false,
@@ -655,12 +679,14 @@ describe("event bootstrap", () => {
         venueName: "VIT Chennai",
         startsAt,
         endsAt: startsAt + 2 * day,
-        nextSteps: [{
-          stableKey: "join_discord",
-          title: "Join Discord",
-          detail: "Use the event server for announcements and participant support.",
-          actionUrl: "https://discord.gg/code2create",
-        }],
+        nextSteps: [
+          {
+            stableKey: "join_discord",
+            title: "Join Discord",
+            detail: "Use the event server for announcements and participant support.",
+            actionUrl: "https://discord.gg/code2create",
+          },
+        ],
         discordUrl: "https://discord.gg/code2create",
         discordLabel: "Open event Discord",
         notificationProvider: "cloudflare_email" as const,
@@ -676,37 +702,53 @@ describe("event bootstrap", () => {
     const rejection = "external must close no later than VIT";
 
     await expect(
-      owner.mutation(api.system.bootstrapEvent, bootstrapInput({
-        externalApplicationsCloseAt: startsAt - day,
-        applicationsCloseAt: startsAt - 2 * day,
-      })),
+      owner.mutation(
+        api.system.bootstrapEvent,
+        bootstrapInput({
+          externalApplicationsCloseAt: startsAt - day,
+          applicationsCloseAt: startsAt - 2 * day,
+        }),
+      ),
       "external deadline after the VIT deadline",
     ).rejects.toThrow(rejection);
     await expect(
-      owner.mutation(api.system.bootstrapEvent, bootstrapInput({
-        externalApplicationsCloseAt: startsAt - day,
-        applicationsCloseAt: startsAt + day,
-      })),
+      owner.mutation(
+        api.system.bootstrapEvent,
+        bootstrapInput({
+          externalApplicationsCloseAt: startsAt - day,
+          applicationsCloseAt: startsAt + day,
+        }),
+      ),
       "VIT deadline after the event start",
     ).rejects.toThrow(rejection);
     await expect(
-      owner.mutation(api.system.bootstrapEvent, bootstrapInput({
-        externalApplicationsCloseAt: Date.now() - day,
-        applicationsCloseAt: startsAt - day,
-      })),
+      owner.mutation(
+        api.system.bootstrapEvent,
+        bootstrapInput({
+          externalApplicationsCloseAt: Date.now() - day,
+          applicationsCloseAt: startsAt - day,
+        }),
+      ),
       "external deadline in the past",
     ).rejects.toThrow(rejection);
-    expect(await owner.query(api.system.bootstrapEligibility, {
-      eventSlug: "code2create-7",
-    })).toMatchObject({ allowed: true, eventExists: false });
+    expect(
+      await owner.query(api.system.bootstrapEligibility, {
+        eventSlug: "code2create-7",
+      }),
+    ).toMatchObject({ allowed: true, eventExists: false });
 
-    await owner.mutation(api.system.bootstrapEvent, bootstrapInput({
-      externalApplicationsCloseAt: startsAt - 2 * day,
-      applicationsCloseAt: startsAt - day,
-    }));
-    expect(await owner.query(api.system.bootstrapEligibility, {
-      eventSlug: "code2create-7",
-    })).toMatchObject({ eventExists: true });
+    await owner.mutation(
+      api.system.bootstrapEvent,
+      bootstrapInput({
+        externalApplicationsCloseAt: startsAt - 2 * day,
+        applicationsCloseAt: startsAt - day,
+      }),
+    );
+    expect(
+      await owner.query(api.system.bootstrapEligibility, {
+        eventSlug: "code2create-7",
+      }),
+    ).toMatchObject({ eventExists: true });
   });
 });
 

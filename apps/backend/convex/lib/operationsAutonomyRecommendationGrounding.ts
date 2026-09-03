@@ -81,9 +81,7 @@ export async function requireGroundedAutonomyCitation(
   return receipt;
 }
 
-export function requiredRecommendationTarget(
-  recommendation: IntelligenceRecommendationArguments,
-) {
+export function requiredRecommendationTarget(recommendation: IntelligenceRecommendationArguments) {
   switch (recommendation.kind) {
     case "hold_review_team":
       return {
@@ -104,10 +102,7 @@ export function requiredRecommendationTarget(
     case "dismiss_attention_item":
       return {
         read: "operations_attention" as const,
-        keys: [
-          recommendation.itemId,
-          String(recommendation.expectedItemVersion),
-        ].sort(),
+        keys: [recommendation.itemId, String(recommendation.expectedItemVersion)].sort(),
       };
     case "open_support_case": {
       const keys = [recommendation.roundId, recommendation.teamId]

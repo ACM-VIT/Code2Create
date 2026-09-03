@@ -6,21 +6,21 @@
   "workers_dev": true,
   "preview_urls": false,
   "observability": {
-    "enabled": true
+    "enabled": true,
   },
   "durable_objects": {
     "bindings": [
       {
         "name": "OUTBOUND_CALLS",
-        "class_name": "OutboundCallSession"
-      }
-    ]
+        "class_name": "OutboundCallSession",
+      },
+    ],
   },
   "exports": {
     "OutboundCallSession": {
       "type": "durable-object",
-      "storage": "sqlite"
-    }
+      "storage": "sqlite",
+    },
   },
   "env": {
     "staging": {
@@ -29,33 +29,33 @@
         "bindings": [
           {
             "name": "OUTBOUND_CALLS",
-            "class_name": "OutboundCallSession"
-          }
-        ]
+            "class_name": "OutboundCallSession",
+          },
+        ],
       },
       "vars": {
-        "PUBLIC_BASE_URL": "https://code2create-voice-staging.acmvit.workers.dev"
-      }
+        "PUBLIC_BASE_URL": "https://code2create-voice-staging.acmvit.workers.dev",
+      },
     },
     "production": {
       "name": "code2create-voice",
       "routes": [
         {
           "pattern": "voice.c2c.sh",
-          "custom_domain": true
-        }
+          "custom_domain": true,
+        },
       ],
       "durable_objects": {
         "bindings": [
           {
             "name": "OUTBOUND_CALLS",
-            "class_name": "OutboundCallSession"
-          }
-        ]
+            "class_name": "OutboundCallSession",
+          },
+        ],
       },
       "vars": {
-        "PUBLIC_BASE_URL": "https://voice.c2c.sh"
-      }
-    }
-  }
+        "PUBLIC_BASE_URL": "https://voice.c2c.sh",
+      },
+    },
+  },
 }

@@ -13,34 +13,40 @@ afterEach(() => {
 
 describe("Cloudflare Email Sending response contract", () => {
   test("accepts each documented single-recipient success outcome", () => {
-    expect(interpretCloudflareEmailSendResponse({
-      status: 200,
-      ok: true,
-      body: successResponse({ delivered: ["Participant@example.test"] }),
-      destinationEmail,
-    })).toEqual({
+    expect(
+      interpretCloudflareEmailSendResponse({
+        status: 200,
+        ok: true,
+        body: successResponse({ delivered: ["Participant@example.test"] }),
+        destinationEmail,
+      }),
+    ).toEqual({
       kind: "accepted",
       providerMessageId: "provider-message-1",
       initialOutcome: "delivered",
     });
 
-    expect(interpretCloudflareEmailSendResponse({
-      status: 200,
-      ok: true,
-      body: successResponse({ queued: [destinationEmail] }),
-      destinationEmail,
-    })).toEqual({
+    expect(
+      interpretCloudflareEmailSendResponse({
+        status: 200,
+        ok: true,
+        body: successResponse({ queued: [destinationEmail] }),
+        destinationEmail,
+      }),
+    ).toEqual({
       kind: "accepted",
       providerMessageId: "provider-message-1",
       initialOutcome: "queued",
     });
 
-    expect(interpretCloudflareEmailSendResponse({
-      status: 200,
-      ok: true,
-      body: successResponse({ permanentBounces: [destinationEmail] }),
-      destinationEmail,
-    })).toEqual({
+    expect(
+      interpretCloudflareEmailSendResponse({
+        status: 200,
+        ok: true,
+        body: successResponse({ permanentBounces: [destinationEmail] }),
+        destinationEmail,
+      }),
+    ).toEqual({
       kind: "accepted",
       providerMessageId: "provider-message-1",
       initialOutcome: "permanent_bounce",
@@ -48,23 +54,27 @@ describe("Cloudflare Email Sending response contract", () => {
   });
 
   test("retries only a structured provider rejection that proves non-acceptance", () => {
-    expect(interpretCloudflareEmailSendResponse({
-      status: 429,
-      ok: false,
-      body: failureResponse(10_004, "email.sending.error.throttled"),
-      destinationEmail,
-    })).toEqual({
+    expect(
+      interpretCloudflareEmailSendResponse({
+        status: 429,
+        ok: false,
+        body: failureResponse(10_004, "email.sending.error.throttled"),
+        destinationEmail,
+      }),
+    ).toEqual({
       kind: "rejected",
       errorCode: "cloudflare_email_10004",
       retryable: true,
     });
 
-    expect(interpretCloudflareEmailSendResponse({
-      status: 400,
-      ok: false,
-      body: failureResponse(10_001, "email.sending.error.invalid_request_schema"),
-      destinationEmail,
-    })).toEqual({
+    expect(
+      interpretCloudflareEmailSendResponse({
+        status: 400,
+        ok: false,
+        body: failureResponse(10_001, "email.sending.error.invalid_request_schema"),
+        destinationEmail,
+      }),
+    ).toEqual({
       kind: "rejected",
       errorCode: "cloudflare_email_10001",
       retryable: false,
@@ -72,47 +82,55 @@ describe("Cloudflare Email Sending response contract", () => {
   });
 
   test("treats malformed or contradictory responses as ambiguous", () => {
-    expect(interpretCloudflareEmailSendResponse({
-      status: 200,
-      ok: true,
-      body: { success: true, result: { delivered: [destinationEmail] } },
-      destinationEmail,
-    })).toEqual({
+    expect(
+      interpretCloudflareEmailSendResponse({
+        status: 200,
+        ok: true,
+        body: { success: true, result: { delivered: [destinationEmail] } },
+        destinationEmail,
+      }),
+    ).toEqual({
       kind: "ambiguous",
       errorCode: "cloudflare_email_response_ambiguous",
     });
 
-    expect(interpretCloudflareEmailSendResponse({
-      status: 500,
-      ok: false,
-      body: successResponse({ queued: [destinationEmail] }),
-      destinationEmail,
-    })).toEqual({
+    expect(
+      interpretCloudflareEmailSendResponse({
+        status: 500,
+        ok: false,
+        body: successResponse({ queued: [destinationEmail] }),
+        destinationEmail,
+      }),
+    ).toEqual({
       kind: "ambiguous",
       errorCode: "cloudflare_email_response_ambiguous",
     });
   });
 
   test("rejects a success body that does not describe exactly the intended recipient", () => {
-    expect(interpretCloudflareEmailSendResponse({
-      status: 200,
-      ok: true,
-      body: successResponse({ queued: ["other@example.test"] }),
-      destinationEmail,
-    })).toEqual({
+    expect(
+      interpretCloudflareEmailSendResponse({
+        status: 200,
+        ok: true,
+        body: successResponse({ queued: ["other@example.test"] }),
+        destinationEmail,
+      }),
+    ).toEqual({
       kind: "ambiguous",
       errorCode: "cloudflare_email_recipient_outcome_invalid",
     });
 
-    expect(interpretCloudflareEmailSendResponse({
-      status: 200,
-      ok: true,
-      body: successResponse({
-        delivered: [destinationEmail],
-        queued: [destinationEmail],
+    expect(
+      interpretCloudflareEmailSendResponse({
+        status: 200,
+        ok: true,
+        body: successResponse({
+          delivered: [destinationEmail],
+          queued: [destinationEmail],
+        }),
+        destinationEmail,
       }),
-      destinationEmail,
-    })).toEqual({
+    ).toEqual({
       kind: "ambiguous",
       errorCode: "cloudflare_email_recipient_outcome_invalid",
     });
@@ -174,12 +192,12 @@ describe("authentication OTP email", () => {
     vi.stubEnv("CLOUDFLARE_EMAIL_ACCOUNT_ID", "test-account");
     vi.stubEnv("CLOUDFLARE_EMAIL_API_TOKEN", "test-token");
     vi.stubEnv("CLOUDFLARE_EMAIL_FROM", "Code2Create <updates@example.test>");
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(
-      successResponse({ queued: [destinationEmail] }),
-    ), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    }));
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(successResponse({ queued: [destinationEmail] })), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     await sendAuthenticationOtp({
@@ -209,11 +227,13 @@ describe("authentication OTP email", () => {
     const dnsFailure = new TypeError("getaddrinfo ENOTFOUND api.cloudflare.com");
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(dnsFailure));
 
-    await expect(sendAuthenticationOtp({
-      email: destinationEmail,
-      otp: "123456",
-      type: "sign-in",
-    })).rejects.toThrow("Authentication email could not be sent.");
+    await expect(
+      sendAuthenticationOtp({
+        email: destinationEmail,
+        otp: "123456",
+        type: "sign-in",
+      }),
+    ).rejects.toThrow("Authentication email could not be sent.");
   });
 
   test("preserves the issued code when its own deadline leaves delivery ambiguous", async () => {
@@ -224,22 +244,26 @@ describe("authentication OTP email", () => {
     vi.spyOn(AbortSignal, "timeout").mockReturnValue(timedOut);
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("fetch stopped")));
 
-    await expect(sendAuthenticationOtp({
-      email: destinationEmail,
-      otp: "123456",
-      type: "sign-in",
-    })).resolves.toBeUndefined();
+    await expect(
+      sendAuthenticationOtp({
+        email: destinationEmail,
+        otp: "123456",
+        type: "sign-in",
+      }),
+    ).resolves.toBeUndefined();
   });
 
   test("does not send email sign-in codes to the VIT Workspace domain", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(sendAuthenticationOtp({
-      email: "student@vitstudent.ac.in",
-      otp: "123456",
-      type: "sign-in",
-    })).rejects.toThrow("continue with Google Workspace");
+    await expect(
+      sendAuthenticationOtp({
+        email: "student@vitstudent.ac.in",
+        otp: "123456",
+        type: "sign-in",
+      }),
+    ).rejects.toThrow("continue with Google Workspace");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

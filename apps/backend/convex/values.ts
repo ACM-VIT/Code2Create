@@ -6,16 +6,10 @@ export const participantClass = v.union(
 );
 export type ParticipantClass = Infer<typeof participantClass>;
 
-export const participantGender = v.union(
-  v.literal("male"),
-  v.literal("female"),
-);
+export const participantGender = v.union(v.literal("male"), v.literal("female"));
 export type ParticipantGender = Infer<typeof participantGender>;
 
-export const vitResidenceType = v.union(
-  v.literal("day_scholar"),
-  v.literal("hosteller"),
-);
+export const vitResidenceType = v.union(v.literal("day_scholar"), v.literal("hosteller"));
 export type VitResidenceType = Infer<typeof vitResidenceType>;
 
 export const participantEligibilityStatus = v.union(
@@ -47,9 +41,7 @@ export const participantPhoneVerificationStatus = v.union(
   v.literal("locked"),
   v.literal("superseded"),
 );
-export type ParticipantPhoneVerificationStatus = Infer<
-  typeof participantPhoneVerificationStatus
->;
+export type ParticipantPhoneVerificationStatus = Infer<typeof participantPhoneVerificationStatus>;
 
 export const studyYear = v.union(
   v.literal("first"),
@@ -95,9 +87,7 @@ export const participantAssistantRequestState = v.union(
   v.literal("failed"),
 );
 
-export type ParticipantAssistantRequestState = Infer<
-  typeof participantAssistantRequestState
->;
+export type ParticipantAssistantRequestState = Infer<typeof participantAssistantRequestState>;
 
 export const projectCheckpointKey = v.union(
   v.literal("ideation"),
@@ -118,10 +108,7 @@ export const intakeQuestionPurpose = v.union(
 
 export type IntakeQuestionPurpose = Infer<typeof intakeQuestionPurpose>;
 
-export const intakeAnswerLength = v.union(
-  v.literal("short"),
-  v.literal("medium"),
-);
+export const intakeAnswerLength = v.union(v.literal("short"), v.literal("medium"));
 
 export type IntakeAnswerLength = Infer<typeof intakeAnswerLength>;
 
@@ -640,10 +627,7 @@ export const attendanceScannerCredentialKind = v.union(
 
 export type AttendanceScannerCredentialKind = Infer<typeof attendanceScannerCredentialKind>;
 
-export const venueCheckInStatus = v.union(
-  v.literal("checked_in"),
-  v.literal("reversed"),
-);
+export const venueCheckInStatus = v.union(v.literal("checked_in"), v.literal("reversed"));
 
 export const venueIdentityCheckMethod = v.union(
   v.literal("vit_id"),
@@ -903,10 +887,7 @@ export const figmaCredentialState = v.union(
   v.literal("error"),
 );
 
-export const figmaCredentialConnectionState = v.union(
-  v.literal("active"),
-  v.literal("revoked"),
-);
+export const figmaCredentialConnectionState = v.union(v.literal("active"), v.literal("revoked"));
 
 export const figmaFileBindingState = v.union(
   v.literal("active"),
@@ -964,10 +945,7 @@ export const floorMappingClaimState = v.union(
 
 export const floorLocationState = v.union(v.literal("active"), v.literal("superseded"));
 
-export const floorLocationMethod = v.union(
-  v.literal("team_qr_scan"),
-  v.literal("override"),
-);
+export const floorLocationMethod = v.union(v.literal("team_qr_scan"), v.literal("override"));
 
 /** Nine named areas derived from a team's normalized position in a zone. */
 export const floorArea = v.union(
@@ -1106,3 +1084,14 @@ export type AttentionDetectorKey = Infer<typeof attentionDetectorKey>;
 export type AttentionSubjectType = Infer<typeof attentionSubjectType>;
 export type AttentionItemState = Infer<typeof attentionItemState>;
 export type AttentionScopeType = Infer<typeof attentionScopeType>;
+
+export const youtubeVideo = v.object({
+  videoId: v.string(),
+  title: v.string(),
+  channelTitle: v.string(),
+  durationSeconds: v.number(),
+  thumbnailUrl: v.optional(v.string()),
+  ageRestricted: v.boolean(),
+  embeddable: v.boolean(),
+});
+export type YouTubeVideo = Infer<typeof youtubeVideo>;

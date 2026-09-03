@@ -434,7 +434,7 @@ async function seedFixture(backend: BackendTest, now: number) {
       timezone: "Asia/Kolkata",
       status: "live",
       vitEmailDomains: ["vitstudent.ac.in"],
-        applicationsCloseAt: Date.now() + 86_400_000,
+      applicationsCloseAt: Date.now() + 86_400_000,
       startsAt: now - 60 * 60_000,
       endsAt: now + 60 * 60_000,
       version: 1,
@@ -489,13 +489,7 @@ async function seedFixture(backend: BackendTest, now: number) {
       updatedAt: now - 7_000,
     });
     const lead = await insertMembership(ctx, eventId, now, "lead", "vit_student");
-    const member = await insertMembership(
-      ctx,
-      eventId,
-      now,
-      "member",
-      "external_participant",
-    );
+    const member = await insertMembership(ctx, eventId, now, "member", "external_participant");
     const teamId = await ctx.db.insert("teams", {
       eventId,
       name: "Arrival team",

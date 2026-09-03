@@ -51,12 +51,17 @@ describe("live novelty", () => {
     expect(noveltySimilarityWeight(0.6, defaultNoveltyPolicy)).toBe(0);
     expect(noveltySimilarityWeight(0.75, defaultNoveltyPolicy)).toBeCloseTo(0.5);
     expect(noveltySimilarityWeight(0.9, defaultNoveltyPolicy)).toBe(1);
-    expect(effectiveSimilarTeams([
-      { similarity: 0.9, lifecycle: "editing" },
-      { similarity: 0.9, lifecycle: "saved" },
-      { similarity: 0.9, lifecycle: "submitted" },
-      { similarity: 0.59, lifecycle: "submitted" },
-    ], defaultNoveltyPolicy)).toBeCloseTo(2.3);
+    expect(
+      effectiveSimilarTeams(
+        [
+          { similarity: 0.9, lifecycle: "editing" },
+          { similarity: 0.9, lifecycle: "saved" },
+          { similarity: 0.9, lifecycle: "submitted" },
+          { similarity: 0.59, lifecycle: "submitted" },
+        ],
+        defaultNoveltyPolicy,
+      ),
+    ).toBeCloseTo(2.3);
     expect(noveltyScoreForDensity(0)).toBe(100);
     expect(noveltyScoreForDensity(1)).toBe(77);
     expect(noveltyScoreForDensity(2)).toBe(64);
@@ -94,18 +99,12 @@ describe("live novelty", () => {
     ).toThrow("contains contact details");
     expect(() =>
       normalizeNoveltyCorpusEntries(
-        [
-          ...entries.slice(0, 4),
-          { ...fifth, reflectionPrompt: "Would judges reject this idea?" },
-        ],
+        [...entries.slice(0, 4), { ...fifth, reflectionPrompt: "Would judges reject this idea?" }],
         2026,
       ),
     ).toThrow("discouraging or decision-related wording");
     expect(() =>
-      normalizeNoveltyCorpusEntries(
-        [...entries.slice(0, 4), { ...fifth, sourceYear: 2027 }],
-        2026,
-      ),
+      normalizeNoveltyCorpusEntries([...entries.slice(0, 4), { ...fifth, sourceYear: 2027 }], 2026),
     ).toThrow("Corpus entry 5 year must be a whole number from 2000 through 2026");
   });
 
@@ -115,18 +114,20 @@ describe("live novelty", () => {
     const legacyRequest = previewArgs(fixture, "novelty-request-legacy", fixture.idea);
     const legacyBegun = await backend.mutation(internal.novelty.beginPreview, legacyRequest);
     if (legacyBegun.kind !== "run") throw new Error("The legacy request did not start.");
-    await backend.run((ctx) => ctx.db.patch(legacyBegun.requestId, {
-      state: "succeeded",
-      score: 77,
-      band: "distinct",
-      effectiveSimilarTeams: 1,
-      comparedTeamCount: 1,
-      nearestSimilarity: 0.9,
-      nearestThemeLabel: "Campus service routing",
-      reflectionPrompt: "What happens after a volunteer accepts a request?",
-      latencyMs: 90,
-      completedAt: fixture.now,
-    }));
+    await backend.run((ctx) =>
+      ctx.db.patch(legacyBegun.requestId, {
+        state: "succeeded",
+        score: 77,
+        band: "distinct",
+        effectiveSimilarTeams: 1,
+        comparedTeamCount: 1,
+        nearestSimilarity: 0.9,
+        nearestThemeLabel: "Campus service routing",
+        reflectionPrompt: "What happens after a volunteer accepts a request?",
+        latencyMs: 90,
+        completedAt: fixture.now,
+      }),
+    );
     await expect(
       backend.mutation(internal.novelty.beginPreview, legacyRequest),
     ).resolves.toMatchObject({
@@ -138,9 +139,7 @@ describe("live novelty", () => {
     const begun = await backend.mutation(internal.novelty.beginPreview, request);
     if (begun.kind !== "run") throw new Error("The novelty request did not start.");
 
-    await expect(
-      backend.mutation(internal.novelty.beginPreview, request),
-    ).resolves.toMatchObject({
+    await expect(backend.mutation(internal.novelty.beginPreview, request)).resolves.toMatchObject({
       kind: "complete",
       result: { state: "pending", requestId: begun.requestId },
     });
@@ -239,24 +238,28 @@ describe("live novelty", () => {
       return applicationId;
     });
 
-    await expect(backend.mutation(
-      internal.novelty.beginPreview,
-      previewArgs(
-        fixture,
-        "novelty-submitted-revision",
-        `${fixture.idea} The lead is clarifying the workflow before the deadline.`,
+    await expect(
+      backend.mutation(
+        internal.novelty.beginPreview,
+        previewArgs(
+          fixture,
+          "novelty-submitted-revision",
+          `${fixture.idea} The lead is clarifying the workflow before the deadline.`,
+        ),
       ),
-    )).resolves.toMatchObject({ kind: "run" });
+    ).resolves.toMatchObject({ kind: "run" });
 
     await backend.run((ctx) => ctx.db.patch(applicationId, { state: "accepted" }));
-    await expect(backend.mutation(
-      internal.novelty.beginPreview,
-      previewArgs(
-        fixture,
-        "novelty-decided-revision",
-        `${fixture.idea} This revision is no longer eligible.`,
+    await expect(
+      backend.mutation(
+        internal.novelty.beginPreview,
+        previewArgs(
+          fixture,
+          "novelty-decided-revision",
+          `${fixture.idea} This revision is no longer eligible.`,
+        ),
       ),
-    )).rejects.toThrow("can no longer be edited");
+    ).rejects.toThrow("can no longer be edited");
   });
 
   test("coalesces concurrent teammates by fingerprint and accepts the complete idea", async () => {
@@ -271,23 +274,24 @@ describe("live novelty", () => {
       ),
     ]);
     expect(attempts.filter((attempt) => attempt.status === "fulfilled")).toHaveLength(2);
-    expect(attempts).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        status: "fulfilled",
-        value: expect.objectContaining({ kind: "run" }),
-      }),
-      expect.objectContaining({
-        status: "fulfilled",
-        value: expect.objectContaining({
-          kind: "complete",
-          result: expect.objectContaining({ state: "pending" }),
+    expect(attempts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: "fulfilled",
+          value: expect.objectContaining({ kind: "run" }),
         }),
-      }),
-    ]));
-    const requests = await backend.run((ctx) => ctx.db
-      .query("noveltyPreviewRequests")
-      .withIndex("by_team_requested")
-      .collect());
+        expect.objectContaining({
+          status: "fulfilled",
+          value: expect.objectContaining({
+            kind: "complete",
+            result: expect.objectContaining({ state: "pending" }),
+          }),
+        }),
+      ]),
+    );
+    const requests = await backend.run((ctx) =>
+      ctx.db.query("noveltyPreviewRequests").withIndex("by_team_requested").collect(),
+    );
     expect(requests).toHaveLength(1);
     const pendingAttempt = attempts.find(
       (attempt) => attempt.status === "fulfilled" && attempt.value.kind === "complete",
@@ -309,10 +313,9 @@ describe("live novelty", () => {
       ),
     );
     expect(ideaWithContactDetails).toMatchObject({ kind: "run" });
-    const afterCompleteIdeaCheck = await backend.run((ctx) => ctx.db
-      .query("noveltyPreviewRequests")
-      .withIndex("by_team_requested")
-      .collect());
+    const afterCompleteIdeaCheck = await backend.run((ctx) =>
+      ctx.db.query("noveltyPreviewRequests").withIndex("by_team_requested").collect(),
+    );
     expect(afterCompleteIdeaCheck).toHaveLength(2);
   });
 
@@ -357,9 +360,9 @@ describe("live novelty", () => {
   test("keeps durable and active editing vectors separate for one team", async () => {
     const backend = noveltyBackend();
     const fixture = await seedFixture(backend);
-    const embedding = Array.from({ length: noveltyEmbeddingDimensions }, (_, index) => (
-      index === 0 ? 1 : 0
-    ));
+    const embedding = Array.from({ length: noveltyEmbeddingDimensions }, (_, index) =>
+      index === 0 ? 1 : 0,
+    );
     const savedRequest = await backend.mutation(
       internal.novelty.beginPreview,
       previewArgs(fixture, "novelty-density-saved", fixture.idea),
@@ -370,10 +373,9 @@ describe("live novelty", () => {
       inputFingerprint: savedRequest.inputFingerprint,
       embedding,
     });
-    const saved = await backend.run((ctx) => ctx.db
-      .query("noveltyTeamIdeas")
-      .withIndex("by_team")
-      .unique());
+    const saved = await backend.run((ctx) =>
+      ctx.db.query("noveltyTeamIdeas").withIndex("by_team").unique(),
+    );
     expect(saved).toMatchObject({ lifecycle: "saved" });
 
     const editingIdea = `${fixture.idea} The team is now exploring a different live workflow.`;
@@ -387,21 +389,22 @@ describe("live novelty", () => {
       inputFingerprint: editingRequest.inputFingerprint,
       embedding,
     });
-    const indexed = await backend.run((ctx) => ctx.db
-      .query("noveltyTeamIdeas")
-      .withIndex("by_team")
-      .collect());
+    const indexed = await backend.run((ctx) =>
+      ctx.db.query("noveltyTeamIdeas").withIndex("by_team").collect(),
+    );
     expect(indexed).toHaveLength(2);
-    expect(indexed).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        inputFingerprint: noveltyInputFingerprint(fixture.idea),
-        lifecycle: "saved",
-      }),
-      expect.objectContaining({
-        inputFingerprint: noveltyInputFingerprint(editingIdea),
-        lifecycle: "editing",
-      }),
-    ]));
+    expect(indexed).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          inputFingerprint: noveltyInputFingerprint(fixture.idea),
+          lifecycle: "saved",
+        }),
+        expect.objectContaining({
+          inputFingerprint: noveltyInputFingerprint(editingIdea),
+          lifecycle: "editing",
+        }),
+      ]),
+    );
   });
 
   test("invalidates old vectors and in-flight previews before an idea changes", async () => {
@@ -412,9 +415,9 @@ describe("live novelty", () => {
       previewArgs(fixture, "novelty-before-idea-change", fixture.idea),
     );
     if (request.kind !== "run") throw new Error("The novelty request did not start.");
-    const embedding = Array.from({ length: noveltyEmbeddingDimensions }, (_, index) => (
-      index === 0 ? 1 : 0
-    ));
+    const embedding = Array.from({ length: noveltyEmbeddingDimensions }, (_, index) =>
+      index === 0 ? 1 : 0,
+    );
 
     await backend.run(async (ctx) => {
       await ctx.db.insert("noveltyTeamIdeas", {
@@ -444,39 +447,41 @@ describe("live novelty", () => {
       state: "stale",
       failureCategory: "idea_changed",
     });
-    await expect(backend.mutation(internal.novelty.upsertPreviewTeamIdea, {
-      requestId: request.requestId,
-      inputFingerprint: request.inputFingerprint,
-      embedding,
-    })).rejects.toThrow("no longer indexable");
+    await expect(
+      backend.mutation(internal.novelty.upsertPreviewTeamIdea, {
+        requestId: request.requestId,
+        inputFingerprint: request.inputFingerprint,
+        embedding,
+      }),
+    ).rejects.toThrow("no longer indexable");
   });
 
   test("does not let a newer editing preview suppress durable draft indexing", async () => {
     const backend = noveltyBackend();
     const fixture = await seedFixture(backend);
-    const savedEmbedding = Array.from(
-      { length: noveltyEmbeddingDimensions },
-      (_, index) => (index === 0 ? 1 : 0),
+    const savedEmbedding = Array.from({ length: noveltyEmbeddingDimensions }, (_, index) =>
+      index === 0 ? 1 : 0,
     );
-    const editingEmbedding = Array.from(
-      { length: noveltyEmbeddingDimensions },
-      (_, index) => (index === 1 ? 1 : 0),
+    const editingEmbedding = Array.from({ length: noveltyEmbeddingDimensions }, (_, index) =>
+      index === 1 ? 1 : 0,
     );
     const editingIdea = `${fixture.idea} The editor contains a temporary alternate workflow.`;
     const editingFingerprint = noveltyInputFingerprint(editingIdea);
     const savedAt = fixture.now + 1;
     const previewedAt = fixture.now + 2;
-    const requestId = await backend.run((ctx) => ctx.db.insert("noveltyPreviewRequests", {
-      eventId: fixture.eventId,
-      teamId: fixture.teamId,
-      personId: fixture.personId,
-      corpusVersionId: fixture.publishedCorpusId,
-      clientRequestId: "novelty-preview-after-save-started",
-      inputFingerprint: editingFingerprint,
-      inputCharacterCount: editingIdea.length,
-      state: "running",
-      requestedAt: previewedAt,
-    }));
+    const requestId = await backend.run((ctx) =>
+      ctx.db.insert("noveltyPreviewRequests", {
+        eventId: fixture.eventId,
+        teamId: fixture.teamId,
+        personId: fixture.personId,
+        corpusVersionId: fixture.publishedCorpusId,
+        clientRequestId: "novelty-preview-after-save-started",
+        inputFingerprint: editingFingerprint,
+        inputCharacterCount: editingIdea.length,
+        state: "running",
+        requestedAt: previewedAt,
+      }),
+    );
 
     await backend.mutation(internal.novelty.upsertPreviewTeamIdea, {
       requestId,
@@ -490,32 +495,38 @@ describe("live novelty", () => {
       embedding: savedEmbedding,
     });
 
-    const indexed = await backend.run((ctx) => ctx.db
-      .query("noveltyTeamIdeas")
-      .withIndex("by_team", (index) => index.eq("teamId", fixture.teamId))
-      .collect());
-    expect(indexed).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        inputFingerprint: noveltyInputFingerprint(fixture.idea),
-        lifecycle: "saved",
-        sourceUpdatedAt: savedAt,
-      }),
-      expect.objectContaining({
-        inputFingerprint: editingFingerprint,
-        lifecycle: "editing",
-        sourceUpdatedAt: previewedAt,
-      }),
-    ]));
+    const indexed = await backend.run((ctx) =>
+      ctx.db
+        .query("noveltyTeamIdeas")
+        .withIndex("by_team", (index) => index.eq("teamId", fixture.teamId))
+        .collect(),
+    );
+    expect(indexed).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          inputFingerprint: noveltyInputFingerprint(fixture.idea),
+          lifecycle: "saved",
+          sourceUpdatedAt: savedAt,
+        }),
+        expect.objectContaining({
+          inputFingerprint: editingFingerprint,
+          lifecycle: "editing",
+          sourceUpdatedAt: previewedAt,
+        }),
+      ]),
+    );
 
     await backend.mutation(internal.novelty.expireEditingTeamIdea, {
       teamId: fixture.teamId,
       inputFingerprint: editingFingerprint,
       sourceUpdatedAt: previewedAt,
     });
-    const durable = await backend.run((ctx) => ctx.db
-      .query("noveltyTeamIdeas")
-      .withIndex("by_team", (index) => index.eq("teamId", fixture.teamId))
-      .collect());
+    const durable = await backend.run((ctx) =>
+      ctx.db
+        .query("noveltyTeamIdeas")
+        .withIndex("by_team", (index) => index.eq("teamId", fixture.teamId))
+        .collect(),
+    );
     expect(durable).toHaveLength(1);
     expect(durable[0]).toMatchObject({
       inputFingerprint: noveltyInputFingerprint(fixture.idea),
@@ -543,9 +554,8 @@ describe("live novelty", () => {
     const backend = noveltyBackend();
     const fixture = await seedFixture(backend);
     const inputFingerprint = noveltyInputFingerprint(fixture.idea);
-    const embedding = Array.from(
-      { length: noveltyEmbeddingDimensions },
-      (_, index) => (index === 0 ? 1 : 0),
+    const embedding = Array.from({ length: noveltyEmbeddingDimensions }, (_, index) =>
+      index === 0 ? 1 : 0,
     );
 
     await backend.mutation(internal.novelty.finishDraftIndex, {
@@ -623,26 +633,32 @@ describe("live novelty", () => {
   test("evaluates editing-vector expiry from the action-provided clock", async () => {
     const backend = noveltyBackend();
     const fixture = await seedFixture(backend);
-    const ideaId = await backend.run((ctx) => ctx.db.insert("noveltyTeamIdeas", {
-      eventId: fixture.eventId,
-      teamId: fixture.teamId,
-      inputFingerprint: noveltyInputFingerprint(fixture.idea),
-      lifecycle: "editing",
-      embedding: [1],
-      sourceUpdatedAt: fixture.now,
-      updatedAt: fixture.now,
-    }));
+    const ideaId = await backend.run((ctx) =>
+      ctx.db.insert("noveltyTeamIdeas", {
+        eventId: fixture.eventId,
+        teamId: fixture.teamId,
+        inputFingerprint: noveltyInputFingerprint(fixture.idea),
+        lifecycle: "editing",
+        embedding: [1],
+        sourceUpdatedAt: fixture.now,
+        updatedAt: fixture.now,
+      }),
+    );
 
-    await expect(backend.query(internal.novelty.readTeamIdeaMetadata, {
-      eventId: fixture.eventId,
-      ideaIds: [ideaId],
-      now: fixture.now + 44_999,
-    })).resolves.toEqual([expect.objectContaining({ id: ideaId, active: true })]);
-    await expect(backend.query(internal.novelty.readTeamIdeaMetadata, {
-      eventId: fixture.eventId,
-      ideaIds: [ideaId],
-      now: fixture.now + 45_000,
-    })).resolves.toEqual([expect.objectContaining({ id: ideaId, active: false })]);
+    await expect(
+      backend.query(internal.novelty.readTeamIdeaMetadata, {
+        eventId: fixture.eventId,
+        ideaIds: [ideaId],
+        now: fixture.now + 44_999,
+      }),
+    ).resolves.toEqual([expect.objectContaining({ id: ideaId, active: true })]);
+    await expect(
+      backend.query(internal.novelty.readTeamIdeaMetadata, {
+        eventId: fixture.eventId,
+        ideaIds: [ideaId],
+        now: fixture.now + 45_000,
+      }),
+    ).resolves.toEqual([expect.objectContaining({ id: ideaId, active: false })]);
   });
 
   test("enforces the exact team scope and the published request budget", async () => {
@@ -668,20 +684,24 @@ describe("live novelty", () => {
       );
       expect(result.kind).toBe("run");
     }
-    await expect(backend.mutation(
-      internal.novelty.beginPreview,
-      previewArgs(
-        fixture,
-        "novelty-rate-overflow",
-        `${fixture.idea} This additional variation exceeds the request window.`,
+    await expect(
+      backend.mutation(
+        internal.novelty.beginPreview,
+        previewArgs(
+          fixture,
+          "novelty-rate-overflow",
+          `${fixture.idea} This additional variation exceeds the request window.`,
+        ),
       ),
-    )).resolves.toEqual({ kind: "complete", result: { state: "unavailable" } });
-    const overflow = await backend.run((ctx) => ctx.db
-      .query("noveltyPreviewRequests")
-      .withIndex("by_team_client_request", (index) =>
-        index.eq("teamId", fixture.teamId).eq("clientRequestId", "novelty-rate-overflow"),
-      )
-      .unique());
+    ).resolves.toEqual({ kind: "complete", result: { state: "unavailable" } });
+    const overflow = await backend.run((ctx) =>
+      ctx.db
+        .query("noveltyPreviewRequests")
+        .withIndex("by_team_client_request", (index) =>
+          index.eq("teamId", fixture.teamId).eq("clientRequestId", "novelty-rate-overflow"),
+        )
+        .unique(),
+    );
     expect(overflow).toMatchObject({
       state: "unavailable",
       failureCategory: "team_rate_limited",
@@ -703,46 +723,38 @@ describe("live novelty", () => {
     };
     const begun = await backend.mutation(internal.noveltyConfiguration.beginEntryImport, args);
     if (begun.kind !== "run") throw new Error("The novelty corpus import did not start.");
-    const vector = Array.from({ length: noveltyEmbeddingDimensions }, (_, index) => (
-      index === 0 ? 1 : 0
-    ));
-    const completed = await backend.mutation(
-      internal.noveltyConfiguration.finishEntryImport,
-      {
-        actorPersonId: begun.actorPersonId,
-        corpusVersionId: begun.corpusVersionId,
-        runningRevision: begun.runningRevision,
-        requestFingerprint: begun.requestFingerprint,
-        reason: begun.reason,
-        clientOperationId: args.clientOperationId,
-        latencyMs: 140,
-        entries: begun.entries.map((entry) => ({ ...entry, embedding: vector })),
-      },
+    const vector = Array.from({ length: noveltyEmbeddingDimensions }, (_, index) =>
+      index === 0 ? 1 : 0,
     );
+    const completed = await backend.mutation(internal.noveltyConfiguration.finishEntryImport, {
+      actorPersonId: begun.actorPersonId,
+      corpusVersionId: begun.corpusVersionId,
+      runningRevision: begun.runningRevision,
+      requestFingerprint: begun.requestFingerprint,
+      reason: begun.reason,
+      clientOperationId: args.clientOperationId,
+      latencyMs: 140,
+      entries: begun.entries.map((entry) => ({ ...entry, embedding: vector })),
+    });
     expect(completed).toMatchObject({ revision: 3, entryCount: 5 });
     expect(completed.checksum).toHaveLength(64);
 
-    const replay = await backend.mutation(
-      internal.noveltyConfiguration.beginEntryImport,
-      args,
-    );
+    const replay = await backend.mutation(internal.noveltyConfiguration.beginEntryImport, args);
     expect(replay).toEqual({ kind: "complete", ...completed });
-    const stored = await backend.run((ctx) => ctx.db
-      .query("noveltyCorpusEntries")
-      .withIndex("by_corpus_source", (index) =>
-        index.eq("corpusVersionId", fixture.draftCorpusId),
-      )
-      .collect());
+    const stored = await backend.run((ctx) =>
+      ctx.db
+        .query("noveltyCorpusEntries")
+        .withIndex("by_corpus_source", (index) =>
+          index.eq("corpusVersionId", fixture.draftCorpusId),
+        )
+        .collect(),
+    );
     expect(stored).toHaveLength(5);
     expect(stored.every((entry) => entry.embedding.length === 1_536)).toBe(true);
   });
 });
 
-function previewArgs(
-  fixture: Fixture,
-  clientRequestId: string,
-  idea: string,
-) {
+function previewArgs(fixture: Fixture, clientRequestId: string, idea: string) {
   return {
     authUserId: fixture.authUserId,
     eventSlug: fixture.eventSlug,

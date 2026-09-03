@@ -1,7 +1,4 @@
-import {
-  paginationOptsValidator,
-  paginationResultValidator,
-} from "convex/server";
+import { paginationOptsValidator, paginationResultValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
@@ -220,8 +217,7 @@ function canVoidLastTransition(
     return false;
   }
   const reversesEntry =
-    (presenceEvent.transition === "session_confirm" ||
-      presenceEvent.transition === "zone_entry") &&
+    (presenceEvent.transition === "session_confirm" || presenceEvent.transition === "zone_entry") &&
     presenceEvent.nextState === "present" &&
     (presenceEvent.previousState === "confirmation_due" ||
       presenceEvent.previousState === "temporarily_out") &&
@@ -285,27 +281,24 @@ export const overview = query({
         scope: { type: "event" },
       }),
     ]);
-    const venueCounterShards = venueCheckInReadGrants.length > 0
-      ? await ctx.db
-          .query("venueCheckInCounterShards")
-          .withIndex("by_event_shard", (index) => index.eq("eventId", event._id))
-          .collect()
-      : [];
-    const venueCheckIns = venueCheckInReadGrants.length > 0
-      ? {
-          checkedIn: venueCounterShards.reduce(
-            (total, shard) => total + shard.checkedIn,
-            0,
-          ),
-          ...(venueCounterShards.length > 0
-            ? {
-                updatedAt: Math.max(
-                  ...venueCounterShards.map((shard) => shard.updatedAt),
-                ),
-              }
-            : {}),
-        }
-      : null;
+    const venueCounterShards =
+      venueCheckInReadGrants.length > 0
+        ? await ctx.db
+            .query("venueCheckInCounterShards")
+            .withIndex("by_event_shard", (index) => index.eq("eventId", event._id))
+            .collect()
+        : [];
+    const venueCheckIns =
+      venueCheckInReadGrants.length > 0
+        ? {
+            checkedIn: venueCounterShards.reduce((total, shard) => total + shard.checkedIn, 0),
+            ...(venueCounterShards.length > 0
+              ? {
+                  updatedAt: Math.max(...venueCounterShards.map((shard) => shard.updatedAt)),
+                }
+              : {}),
+          }
+        : null;
     const planId = event.publishedAttendancePlanVersionId;
     const plan = planId ? await ctx.db.get(planId) : null;
     if (!plan || plan.eventId !== event._id || plan.status !== "published") {
@@ -504,19 +497,16 @@ export const overview = query({
         manualSheetEnterGrants.length === 0 &&
         manualSheetVerifyGrants.length === 0 &&
         manualSourceReadGrants.length === 0
-      ) continue;
+      )
+        continue;
       const [zone, counterShards, expectationJob, finalizationJob] = await Promise.all([
         ctx.db.get(session.zoneId),
         ctx.db
           .query("attendanceSessionCounterShards")
           .withIndex("by_session_shard", (index) => index.eq("sessionId", session._id))
           .collect(),
-        session.expectationJobId
-          ? ctx.db.get(session.expectationJobId)
-          : Promise.resolve(null),
-        session.finalizationJobId
-          ? ctx.db.get(session.finalizationJobId)
-          : Promise.resolve(null),
+        session.expectationJobId ? ctx.db.get(session.expectationJobId) : Promise.resolve(null),
+        session.finalizationJobId ? ctx.db.get(session.finalizationJobId) : Promise.resolve(null),
       ]);
       if (!zone || zone.eventId !== event._id) continue;
       const job = finalizationJob ?? expectationJob;
@@ -630,7 +620,10 @@ export const sessionRoster = query({
     const sessionId = ctx.db.normalizeId("attendanceSessions", args.sessionId);
     const session = sessionId ? await ctx.db.get(sessionId) : null;
     if (!session || session.eventId !== event._id) {
-      throw new ConvexError({ code: "SESSION_NOT_FOUND", message: "Attendance session not found." });
+      throw new ConvexError({
+        code: "SESSION_NOT_FOUND",
+        message: "Attendance session not found.",
+      });
     }
     const [readGrants, manageGrants, reconciliationGrants, remedyReadGrants] = await Promise.all([
       permissionIds(ctx, {
@@ -685,9 +678,7 @@ export const sessionRoster = query({
       const [profile, participantPerson, teamMember, lastEvent] = await Promise.all([
         ctx.db
           .query("participantProfiles")
-          .withIndex("by_membership", (index) =>
-            index.eq("membershipId", membership._id),
-          )
+          .withIndex("by_membership", (index) => index.eq("membershipId", membership._id))
           .unique(),
         ctx.db.get(membership.personId),
         ctx.db
@@ -699,31 +690,24 @@ export const sessionRoster = query({
               .eq("status", "active"),
           )
           .unique(),
-        participant.lastEventId
-          ? ctx.db.get(participant.lastEventId)
-          : Promise.resolve(null),
+        participant.lastEventId ? ctx.db.get(participant.lastEventId) : Promise.resolve(null),
       ]);
       if (!participantPerson) continue;
       const team = teamMember ? await ctx.db.get(teamMember.teamId) : null;
       visible.push({
         membershipId: membership._id,
-        displayName:
-          profile?.fullName ?? participantPerson.displayName,
+        displayName: profile?.fullName ?? participantPerson.displayName,
         ...(team ? { teamName: team.name } : {}),
         expectation: participant.expectation,
         state: participant.state,
         ...(participant.result !== undefined ? { result: participant.result } : {}),
         late: participant.late,
-        ...(participant.confirmedAt !== undefined
-          ? { confirmedAt: participant.confirmedAt }
-          : {}),
+        ...(participant.confirmedAt !== undefined ? { confirmedAt: participant.confirmedAt } : {}),
         ...(participant.presentDurationMs !== undefined
           ? { presentDurationMs: participant.presentDurationMs }
           : {}),
         version: participant.version,
-        ...(participant.lastEventId !== undefined
-          ? { lastEventId: participant.lastEventId }
-          : {}),
+        ...(participant.lastEventId !== undefined ? { lastEventId: participant.lastEventId } : {}),
         canVoidLastTransition: canVoidLastTransition(participant, lastEvent),
         updatedAt: participant.updatedAt,
       });
@@ -804,9 +788,7 @@ export const reconciliationPreview = query({
       ctx.db
         .query("attendancePresenceEvents")
         .withIndex("by_session_membership_time", (index) =>
-          index
-            .eq("sessionId", session._id)
-            .eq("membershipId", membership._id),
+          index.eq("sessionId", session._id).eq("membershipId", membership._id),
         )
         .order("desc")
         .take(6),
@@ -826,9 +808,7 @@ export const reconciliationPreview = query({
     return {
       participantVersion: participant.version,
       state: participant.state,
-      currentInterval: currentInterval
-        ? { openedAt: currentInterval.openedAt }
-        : null,
+      currentInterval: currentInterval ? { openedAt: currentInterval.openedAt } : null,
       recentEvents: recentEvents.map((presenceEvent) => ({
         id: presenceEvent._id,
         sourceKind: presenceEvent.sourceKind,

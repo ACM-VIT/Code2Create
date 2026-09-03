@@ -131,10 +131,7 @@ function seededBackend() {
   return backend;
 }
 
-function asParticipant(
-  backend: BackendTest,
-  fixture: Awaited<ReturnType<typeof seedParticipant>>,
-) {
+function asParticipant(backend: BackendTest, fixture: Awaited<ReturnType<typeof seedParticipant>>) {
   return backend.withIdentity({
     subject: fixture.authUserId,
     sessionId: fixture.authSessionId,
@@ -178,7 +175,7 @@ async function seedParticipant(
       timezone: "Asia/Kolkata",
       status: "live",
       vitEmailDomains: ["vitstudent.ac.in"],
-        applicationsCloseAt: Date.now() + 86_400_000,
+      applicationsCloseAt: Date.now() + 86_400_000,
       startsAt: now - 60_000,
       endsAt: now + 3_600_000,
       createdByPersonId: personId,
@@ -256,17 +253,18 @@ async function seedParticipant(
       sourceId: `${teamId}:${membershipId}:floor-read`,
       reason: "Participant floor read test",
     });
-    if (grantMint) await insertPermissionGrant(ctx, {
-      eventId,
-      personId,
-      eventAccessSubjectId: subjectId,
-      permissionKey: "floor.team_qr.mint",
-      scopeType: "team",
-      scopeId: teamId,
-      sourceType: "team_membership",
-      sourceId: `${teamId}:${membershipId}:floor-qr`,
-      reason: "Participant floor QR test",
-    });
+    if (grantMint)
+      await insertPermissionGrant(ctx, {
+        eventId,
+        personId,
+        eventAccessSubjectId: subjectId,
+        permissionKey: "floor.team_qr.mint",
+        scopeType: "team",
+        scopeId: teamId,
+        sourceType: "team_membership",
+        sourceId: `${teamId}:${membershipId}:floor-qr`,
+        reason: "Participant floor QR test",
+      });
     return { eventId, membershipId, teamId, planVersionId };
   });
   return { ...identity, now, eventSlug, authUserId, authSessionId };

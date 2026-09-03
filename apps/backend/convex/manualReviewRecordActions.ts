@@ -66,9 +66,7 @@ export const uploadSource = action({
     if (context.kind === "complete") {
       return { recordId: args.recordId, version: context.version };
     }
-    const storageId = await ctx.storage.store(
-      new Blob([args.bytes], { type: sourceContentType }),
-    );
+    const storageId = await ctx.storage.store(new Blob([args.bytes], { type: sourceContentType }));
     try {
       const attached = await ctx.runMutation(internal.manualReviewRecords.attachSource, {
         eventSlug: args.eventSlug,

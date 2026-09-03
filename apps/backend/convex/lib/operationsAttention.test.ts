@@ -60,7 +60,10 @@ test("a reviewer at risk on an already short panel is not stated twice", () => {
     item("panel_seat_empty", ["panel:p1"], { severity: "critical" }),
     item("seat_at_risk", ["panel:p1", "person:x"]),
   ]);
-  assert.deepEqual(kept.map((row) => row.detectorKey), ["panel_seat_empty"]);
+  assert.deepEqual(
+    kept.map((row) => row.detectorKey),
+    ["panel_seat_empty"],
+  );
 });
 
 test("a team below the round minimum explains its own long wait", () => {
@@ -68,7 +71,10 @@ test("a team below the round minimum explains its own long wait", () => {
     item("team_below_minimum", ["team:t1", "panel:p1"]),
     item("team_waiting_long", ["team:t1", "panel:p1"], { severity: "watch" }),
   ]);
-  assert.deepEqual(kept.map((row) => row.detectorKey), ["team_below_minimum"]);
+  assert.deepEqual(
+    kept.map((row) => row.detectorKey),
+    ["team_below_minimum"],
+  );
 });
 
 test("inhibition never removes the item that causes it", () => {
@@ -76,7 +82,10 @@ test("inhibition never removes the item that causes it", () => {
     item("panel_bottleneck", ["panel:p1", "round:r1"]),
     item("panel_seat_empty", ["panel:p1"], { severity: "critical" }),
   ]);
-  assert.deepEqual(kept.map((row) => row.detectorKey), ["panel_seat_empty"]);
+  assert.deepEqual(
+    kept.map((row) => row.detectorKey),
+    ["panel_seat_empty"],
+  );
 });
 
 test("an uninhibited board keeps every row", () => {
@@ -94,7 +103,10 @@ test("rows sort worst first, then the oldest", () => {
     { severity: "critical" as AttentionSeverity, firstObservedAt: now, subjectId: "a" },
     { severity: "critical" as AttentionSeverity, firstObservedAt: now - minute, subjectId: "b" },
   ]);
-  assert.deepEqual(sorted.map((row) => row.subjectId), ["b", "a", "c"]);
+  assert.deepEqual(
+    sorted.map((row) => row.subjectId),
+    ["b", "a", "c"],
+  );
 });
 
 test("durations read the way an operator says them", () => {

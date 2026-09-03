@@ -1,7 +1,4 @@
-import {
-  paginationOptsValidator,
-  paginationResultValidator,
-} from "convex/server";
+import { paginationOptsValidator, paginationResultValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
@@ -9,10 +6,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
-import {
-  requireCurrentPerson,
-  requireEventSubject,
-} from "./lib/identity";
+import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import {
   canCompleteRehearsal,
   canTransitionRehearsalScenario,
@@ -20,15 +14,8 @@ import {
   releaseRehearsalTemplate,
   releaseRehearsalTemplateVersion,
 } from "./lib/rehearsal";
-import {
-  findOperation,
-  operationFingerprint,
-  recordOperation,
-} from "./lib/operations";
-import {
-  boundedActivePermissionGrants,
-  requirePermission,
-} from "./lib/permissions";
+import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
+import { boundedActivePermissionGrants, requirePermission } from "./lib/permissions";
 import { normalizedLongText, normalizedText } from "./lib/strings";
 import {
   rehearsalRunState,
@@ -126,12 +113,7 @@ function runCommandResult(
 }
 
 function isRehearsalRunState(value: unknown): value is RehearsalRunState {
-  return (
-    value === "draft" ||
-    value === "active" ||
-    value === "completed" ||
-    value === "cancelled"
-  );
+  return value === "draft" || value === "active" || value === "completed" || value === "cancelled";
 }
 
 function isRehearsalScenarioState(value: unknown): value is RehearsalScenarioState {
@@ -197,17 +179,13 @@ async function activePermissionGrants(
 }
 
 function hasEventGrant(grants: readonly Doc<"permissionGrants">[]) {
-  return grants.some(
-    (grant) => grant.scopeType === "event" && grant.scopeId === undefined,
-  );
+  return grants.some((grant) => grant.scopeType === "event" && grant.scopeId === undefined);
 }
 
 function exactRunIds(grants: readonly Doc<"permissionGrants">[]) {
   return new Set(
     grants.flatMap((grant) =>
-      grant.scopeType === "rehearsal_run" && grant.scopeId !== undefined
-        ? [grant.scopeId]
-        : [],
+      grant.scopeType === "rehearsal_run" && grant.scopeId !== undefined ? [grant.scopeId] : [],
     ),
   );
 }
@@ -259,15 +237,11 @@ async function toRunView(
   const [scenarios, owners] = await Promise.all([
     ctx.db
       .query("rehearsalScenarios")
-      .withIndex("by_run_sequence", (index) =>
-        index.eq("rehearsalRunId", rehearsalRun._id),
-      )
+      .withIndex("by_run_sequence", (index) => index.eq("rehearsalRunId", rehearsalRun._id))
       .collect(),
     ctx.db
       .query("rehearsalWorkstreamOwners")
-      .withIndex("by_run_workstream", (index) =>
-        index.eq("rehearsalRunId", rehearsalRun._id),
-      )
+      .withIndex("by_run_workstream", (index) => index.eq("rehearsalRunId", rehearsalRun._id))
       .collect(),
   ]);
   const requiredWorkstreams = new Set(scenarios.map((scenario) => scenario.workstream));
@@ -282,19 +256,11 @@ async function toRunView(
     templateVersion: rehearsalRun.templateVersion,
     state: rehearsalRun.state,
     version: rehearsalRun.version,
-    ...(rehearsalRun.scheduledFor !== undefined
-      ? { scheduledFor: rehearsalRun.scheduledFor }
-      : {}),
+    ...(rehearsalRun.scheduledFor !== undefined ? { scheduledFor: rehearsalRun.scheduledFor } : {}),
     createdAt: rehearsalRun.createdAt,
-    ...(rehearsalRun.startedAt !== undefined
-      ? { startedAt: rehearsalRun.startedAt }
-      : {}),
-    ...(rehearsalRun.completedAt !== undefined
-      ? { completedAt: rehearsalRun.completedAt }
-      : {}),
-    ...(rehearsalRun.cancelledAt !== undefined
-      ? { cancelledAt: rehearsalRun.cancelledAt }
-      : {}),
+    ...(rehearsalRun.startedAt !== undefined ? { startedAt: rehearsalRun.startedAt } : {}),
+    ...(rehearsalRun.completedAt !== undefined ? { completedAt: rehearsalRun.completedAt } : {}),
+    ...(rehearsalRun.cancelledAt !== undefined ? { cancelledAt: rehearsalRun.cancelledAt } : {}),
     lastActivityAt: lastScenarioActivity,
     ...(rehearsalRun.completionSummary !== undefined
       ? { completionSummary: rehearsalRun.completionSummary }
@@ -325,20 +291,17 @@ export const list = query({
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
-    const [readGrants, manageGrants, executeGrants, completeGrants] =
-      await Promise.all([
-        activePermissionGrants(ctx, event._id, subject._id, "rehearsal.read"),
-        activePermissionGrants(ctx, event._id, subject._id, "rehearsal.manage"),
-        activePermissionGrants(ctx, event._id, subject._id, "rehearsal.execute"),
-        activePermissionGrants(ctx, event._id, subject._id, "rehearsal.complete"),
-      ]);
+    const [readGrants, manageGrants, executeGrants, completeGrants] = await Promise.all([
+      activePermissionGrants(ctx, event._id, subject._id, "rehearsal.read"),
+      activePermissionGrants(ctx, event._id, subject._id, "rehearsal.manage"),
+      activePermissionGrants(ctx, event._id, subject._id, "rehearsal.execute"),
+      activePermissionGrants(ctx, event._id, subject._id, "rehearsal.complete"),
+    ]);
     let runs: Doc<"rehearsalRuns">[] = [];
     if (hasEventGrant(readGrants)) {
       runs = await ctx.db
         .query("rehearsalRuns")
-        .withIndex("by_event_created", (index) =>
-          index.eq("eventId", event._id),
-        )
+        .withIndex("by_event_created", (index) => index.eq("eventId", event._id))
         .order("desc")
         .take(20);
     } else {
@@ -353,9 +316,7 @@ export const list = query({
       );
       runs = exactRuns
         .flatMap((rehearsalRun) =>
-          rehearsalRun && rehearsalRun.eventId === event._id
-            ? [rehearsalRun]
-            : [],
+          rehearsalRun && rehearsalRun.eventId === event._id ? [rehearsalRun] : [],
         )
         .sort((left, right) => right.createdAt - left.createdAt)
         .slice(0, 20);
@@ -399,24 +360,19 @@ export const detail = query({
       scopeType: "rehearsal_run",
       scopeId: rehearsalRun._id,
     });
-    const [manageGrants, executeGrants, completeGrants, scenarios, owners] =
-      await Promise.all([
-        activePermissionGrants(ctx, event._id, subject._id, "rehearsal.manage"),
-        activePermissionGrants(ctx, event._id, subject._id, "rehearsal.execute"),
-        activePermissionGrants(ctx, event._id, subject._id, "rehearsal.complete"),
-        ctx.db
-          .query("rehearsalScenarios")
-          .withIndex("by_run_sequence", (index) =>
-            index.eq("rehearsalRunId", rehearsalRun._id),
-          )
-          .collect(),
-        ctx.db
-          .query("rehearsalWorkstreamOwners")
-          .withIndex("by_run_workstream", (index) =>
-            index.eq("rehearsalRunId", rehearsalRun._id),
-          )
-          .collect(),
-      ]);
+    const [manageGrants, executeGrants, completeGrants, scenarios, owners] = await Promise.all([
+      activePermissionGrants(ctx, event._id, subject._id, "rehearsal.manage"),
+      activePermissionGrants(ctx, event._id, subject._id, "rehearsal.execute"),
+      activePermissionGrants(ctx, event._id, subject._id, "rehearsal.complete"),
+      ctx.db
+        .query("rehearsalScenarios")
+        .withIndex("by_run_sequence", (index) => index.eq("rehearsalRunId", rehearsalRun._id))
+        .collect(),
+      ctx.db
+        .query("rehearsalWorkstreamOwners")
+        .withIndex("by_run_workstream", (index) => index.eq("rehearsalRunId", rehearsalRun._id))
+        .collect(),
+    ]);
     const personIds = new Set<Id<"people">>();
     for (const owner of owners) personIds.add(owner.personId);
     for (const scenario of scenarios) {
@@ -428,9 +384,7 @@ export const detail = query({
       [...personIds].map((personId) => ctx.db.get("people", personId)),
     );
     const peopleById = new Map(
-      people.flatMap((candidate) =>
-        candidate ? [[candidate._id, candidate] as const] : [],
-      ),
+      people.flatMap((candidate) => (candidate ? [[candidate._id, candidate] as const] : [])),
     );
     const ownerSubjects = await Promise.all(
       owners.map((owner) =>
@@ -443,10 +397,7 @@ export const detail = query({
       ),
     );
     const accessActiveByPersonId = new Map(
-      owners.map((owner, index) => [
-        owner.personId,
-        ownerSubjects[index]?.status === "active",
-      ]),
+      owners.map((owner, index) => [owner.personId, ownerSubjects[index]?.status === "active"]),
     );
     return {
       run: await toRunView(ctx, rehearsalRun, {
@@ -476,24 +427,17 @@ export const detail = query({
         expectedState: scenario.expectedState,
         recoveryAction: scenario.recoveryAction,
         state: scenario.state,
-        ...(scenario.resultSummary !== undefined
-          ? { resultSummary: scenario.resultSummary }
-          : {}),
+        ...(scenario.resultSummary !== undefined ? { resultSummary: scenario.resultSummary } : {}),
         ...(scenario.lastUpdatedByPersonId !== undefined
           ? {
               lastUpdatedByName:
-                peopleById.get(scenario.lastUpdatedByPersonId)?.displayName ??
-                "Event operator",
+                peopleById.get(scenario.lastUpdatedByPersonId)?.displayName ?? "Event operator",
             }
           : {}),
         version: scenario.version,
         updatedAt: scenario.updatedAt,
-        ...(scenario.startedAt !== undefined
-          ? { startedAt: scenario.startedAt }
-          : {}),
-        ...(scenario.completedAt !== undefined
-          ? { completedAt: scenario.completedAt }
-          : {}),
+        ...(scenario.startedAt !== undefined ? { startedAt: scenario.startedAt } : {}),
+        ...(scenario.completedAt !== undefined ? { completedAt: scenario.completedAt } : {}),
       })),
     };
   },
@@ -528,10 +472,7 @@ export const scenarioHistory = query({
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const rehearsalRun = await requireRun(ctx, event._id, args.rehearsalRunId);
-    const scenario = await ctx.db.get(
-      "rehearsalScenarios",
-      args.rehearsalScenarioId,
-    );
+    const scenario = await ctx.db.get("rehearsalScenarios", args.rehearsalScenarioId);
     if (!scenario || scenario.rehearsalRunId !== rehearsalRun._id) {
       throw new ConvexError({
         code: "REHEARSAL_SCENARIO_NOT_FOUND",
@@ -547,16 +488,12 @@ export const scenarioHistory = query({
     });
     const actions = await ctx.db
       .query("rehearsalScenarioActions")
-      .withIndex("by_scenario_time", (index) =>
-        index.eq("rehearsalScenarioId", scenario._id),
-      )
+      .withIndex("by_scenario_time", (index) => index.eq("rehearsalScenarioId", scenario._id))
       .order("desc")
       .take(100);
     const actorIds = new Set(actions.map((action) => action.actorPersonId));
     const actors = await Promise.all(
-      [...actorIds].map((actorPersonId) =>
-        ctx.db.get("people", actorPersonId),
-      ),
+      [...actorIds].map((actorPersonId) => ctx.db.get("people", actorPersonId)),
     );
     const actorsById = new Map(
       actors.flatMap((actor) => (actor ? [[actor._id, actor] as const] : [])),
@@ -567,8 +504,7 @@ export const scenarioHistory = query({
       previousState: action.previousState,
       nextState: action.nextState,
       ...(action.note !== undefined ? { note: action.note } : {}),
-      actorName:
-        actorsById.get(action.actorPersonId)?.displayName ?? "Event operator",
+      actorName: actorsById.get(action.actorPersonId)?.displayName ?? "Event operator",
       scenarioVersion: action.scenarioVersion,
       createdAt: action.createdAt,
     }));
@@ -643,12 +579,7 @@ export const create = mutation({
     });
     const name = normalizedText(args.name, "Rehearsal name", 3, 100);
     const reason = normalizedText(args.reason, "Audit reason", 5, 300);
-    const operationId = normalizedText(
-      args.clientOperationId,
-      "Operation ID",
-      8,
-      100,
-    );
+    const operationId = normalizedText(args.clientOperationId, "Operation ID", 8, 100);
     const now = Date.now();
     const requestFingerprint = operationFingerprint([
       name,
@@ -664,10 +595,7 @@ export const create = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const rehearsalRunId = ctx.db.normalizeId(
-        "rehearsalRuns",
-        prior.targetId,
-      );
+      const rehearsalRunId = ctx.db.normalizeId("rehearsalRuns", prior.targetId);
       if (!rehearsalRunId) throw new Error("The stored rehearsal result is invalid.");
       return {
         ...storedRunCommandResult(rehearsalRunId, prior.resultJson),
@@ -687,9 +615,7 @@ export const create = mutation({
       eventId: event._id,
       name,
       templateVersion: releaseRehearsalTemplateVersion,
-      ...(args.scheduledFor !== undefined
-        ? { scheduledFor: args.scheduledFor }
-        : {}),
+      ...(args.scheduledFor !== undefined ? { scheduledFor: args.scheduledFor } : {}),
       state: "draft",
       version: 1,
       createdByPersonId: person._id,
@@ -774,12 +700,7 @@ export const assignWorkstreamOwner = mutation({
       scopeId: rehearsalRun._id,
     });
     const reason = normalizedText(args.reason, "Audit reason", 5, 300);
-    const operationId = normalizedText(
-      args.clientOperationId,
-      "Operation ID",
-      8,
-      100,
-    );
+    const operationId = normalizedText(args.clientOperationId, "Operation ID", 8, 100);
     const requestFingerprint = operationFingerprint([
       rehearsalRun._id,
       args.workstream,
@@ -821,9 +742,7 @@ export const assignWorkstreamOwner = mutation({
     const ownerSubject = await ctx.db
       .query("eventAccessSubjects")
       .withIndex("by_event_person", (index) =>
-        index
-          .eq("eventId", event._id)
-          .eq("personId", args.ownerPersonId),
+        index.eq("eventId", event._id).eq("personId", args.ownerPersonId),
       )
       .unique();
     if (!ownerSubject || ownerSubject.status !== "active") {
@@ -835,9 +754,7 @@ export const assignWorkstreamOwner = mutation({
     const existing = await ctx.db
       .query("rehearsalWorkstreamOwners")
       .withIndex("by_run_workstream", (index) =>
-        index
-          .eq("rehearsalRunId", rehearsalRun._id)
-          .eq("workstream", args.workstream),
+        index.eq("rehearsalRunId", rehearsalRun._id).eq("workstream", args.workstream),
       )
       .unique();
     const now = Date.now();
@@ -863,11 +780,7 @@ export const assignWorkstreamOwner = mutation({
       version: rehearsalRun.version + 1,
       updatedAt: now,
     });
-    const result = runCommandResult(
-      rehearsalRun._id,
-      rehearsalRun.state,
-      rehearsalRun.version + 1,
-    );
+    const result = runCommandResult(rehearsalRun._id, rehearsalRun.state, rehearsalRun.version + 1);
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -933,12 +846,7 @@ export const start = mutation({
       scopeId: rehearsalRun._id,
     });
     const reason = normalizedText(args.reason, "Audit reason", 5, 300);
-    const operationId = normalizedText(
-      args.clientOperationId,
-      "Operation ID",
-      8,
-      100,
-    );
+    const operationId = normalizedText(args.clientOperationId, "Operation ID", 8, 100);
     const requestFingerprint = operationFingerprint([
       rehearsalRun._id,
       args.expectedVersion,
@@ -975,15 +883,11 @@ export const start = mutation({
     const [scenarios, owners] = await Promise.all([
       ctx.db
         .query("rehearsalScenarios")
-        .withIndex("by_run_sequence", (index) =>
-          index.eq("rehearsalRunId", rehearsalRun._id),
-        )
+        .withIndex("by_run_sequence", (index) => index.eq("rehearsalRunId", rehearsalRun._id))
         .collect(),
       ctx.db
         .query("rehearsalWorkstreamOwners")
-        .withIndex("by_run_workstream", (index) =>
-          index.eq("rehearsalRunId", rehearsalRun._id),
-        )
+        .withIndex("by_run_workstream", (index) => index.eq("rehearsalRunId", rehearsalRun._id))
         .collect(),
     ]);
     if (scenarios.length !== releaseRehearsalTemplate.length) {
@@ -992,12 +896,8 @@ export const start = mutation({
         message: "This rehearsal does not contain the complete release scenario set.",
       });
     }
-    const requiredWorkstreams = new Set(
-      scenarios.map((scenario) => scenario.workstream),
-    );
-    const ownersByWorkstream = new Map(
-      owners.map((owner) => [owner.workstream, owner]),
-    );
+    const requiredWorkstreams = new Set(scenarios.map((scenario) => scenario.workstream));
+    const ownersByWorkstream = new Map(owners.map((owner) => [owner.workstream, owner]));
     const missingWorkstreams = [...requiredWorkstreams].filter(
       (workstream) => !ownersByWorkstream.has(workstream),
     );
@@ -1031,11 +931,7 @@ export const start = mutation({
       startedAt: now,
       updatedAt: now,
     });
-    const result = runCommandResult(
-      rehearsalRun._id,
-      "active",
-      rehearsalRun.version + 1,
-    );
+    const result = runCommandResult(rehearsalRun._id, "active", rehearsalRun.version + 1);
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -1073,10 +969,7 @@ export const start = mutation({
   },
 });
 
-function actionKind(
-  previous: RehearsalScenarioState,
-  next: RehearsalScenarioState,
-) {
+function actionKind(previous: RehearsalScenarioState, next: RehearsalScenarioState) {
   if (next === "passed") return "passed" as const;
   if (next === "failed") return "failed" as const;
   if (next === "blocked") return "blocked" as const;
@@ -1128,10 +1021,7 @@ export const updateScenario = mutation({
       scopeType: "rehearsal_run",
       scopeId: rehearsalRun._id,
     });
-    const scenario = await ctx.db.get(
-      "rehearsalScenarios",
-      args.rehearsalScenarioId,
-    );
+    const scenario = await ctx.db.get("rehearsalScenarios", args.rehearsalScenarioId);
     if (!scenario || scenario.rehearsalRunId !== rehearsalRun._id) {
       throw new ConvexError({
         code: "REHEARSAL_SCENARIO_NOT_FOUND",
@@ -1139,12 +1029,7 @@ export const updateScenario = mutation({
       });
     }
     const note = scenarioNote(scenario.state, args.nextState, args.note);
-    const operationId = normalizedText(
-      args.clientOperationId,
-      "Operation ID",
-      8,
-      100,
-    );
+    const operationId = normalizedText(args.clientOperationId, "Operation ID", 8, 100);
     const requestFingerprint = operationFingerprint([
       rehearsalRun._id,
       scenario._id,
@@ -1190,9 +1075,7 @@ export const updateScenario = mutation({
     }
     const now = Date.now();
     const terminal =
-      args.nextState === "passed" ||
-      args.nextState === "failed" ||
-      args.nextState === "blocked";
+      args.nextState === "passed" || args.nextState === "failed" || args.nextState === "blocked";
     await ctx.db.patch("rehearsalScenarios", scenario._id, {
       state: args.nextState,
       ...(terminal ? { resultSummary: note } : { resultSummary: undefined }),
@@ -1279,18 +1162,8 @@ export const complete = mutation({
       scopeType: "rehearsal_run",
       scopeId: rehearsalRun._id,
     });
-    const summary = normalizedLongText(
-      args.summary,
-      "Completion summary",
-      10,
-      1_000,
-    );
-    const operationId = normalizedText(
-      args.clientOperationId,
-      "Operation ID",
-      8,
-      100,
-    );
+    const summary = normalizedLongText(args.summary, "Completion summary", 10, 1_000);
+    const operationId = normalizedText(args.clientOperationId, "Operation ID", 8, 100);
     const requestFingerprint = operationFingerprint([
       rehearsalRun._id,
       args.expectedVersion,
@@ -1314,9 +1187,7 @@ export const complete = mutation({
     }
     const scenarios = await ctx.db
       .query("rehearsalScenarios")
-      .withIndex("by_run_sequence", (index) =>
-        index.eq("rehearsalRunId", rehearsalRun._id),
-      )
+      .withIndex("by_run_sequence", (index) => index.eq("rehearsalRunId", rehearsalRun._id))
       .collect();
     if (!canCompleteRehearsal(scenarios.map((scenario) => scenario.state))) {
       throw new ConvexError({
@@ -1333,11 +1204,7 @@ export const complete = mutation({
       completedAt: now,
       updatedAt: now,
     });
-    const result = runCommandResult(
-      rehearsalRun._id,
-      "completed",
-      rehearsalRun.version + 1,
-    );
+    const result = runCommandResult(rehearsalRun._id, "completed", rehearsalRun.version + 1);
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -1396,12 +1263,7 @@ export const cancel = mutation({
       scopeId: rehearsalRun._id,
     });
     const reason = normalizedLongText(args.reason, "Cancellation reason", 5, 500);
-    const operationId = normalizedText(
-      args.clientOperationId,
-      "Operation ID",
-      8,
-      100,
-    );
+    const operationId = normalizedText(args.clientOperationId, "Operation ID", 8, 100);
     const requestFingerprint = operationFingerprint([
       rehearsalRun._id,
       args.expectedVersion,
@@ -1435,11 +1297,7 @@ export const cancel = mutation({
       cancelledAt: now,
       updatedAt: now,
     });
-    const result = runCommandResult(
-      rehearsalRun._id,
-      "cancelled",
-      rehearsalRun.version + 1,
-    );
+    const result = runCommandResult(rehearsalRun._id, "cancelled", rehearsalRun.version + 1);
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,

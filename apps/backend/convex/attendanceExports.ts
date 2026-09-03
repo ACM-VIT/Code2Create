@@ -7,10 +7,7 @@ import { internalMutation, internalQuery, mutation, query } from "./_generated/s
 import { writeAuditEvent } from "./lib/audit";
 import { attendanceExportExpiresAt } from "./lib/attendanceExportLifetime";
 import { requireEventBySlug } from "./lib/events";
-import {
-  requireCurrentPerson,
-  requireEventSubject,
-} from "./lib/identity";
+import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import {
   findOperation,
   operationFingerprint,
@@ -234,7 +231,10 @@ export const list = query({
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const session = await ctx.db.get(args.sessionId);
     if (!session || session.eventId !== event._id) {
-      throw new ConvexError({ code: "SESSION_NOT_FOUND", message: "Attendance session not found." });
+      throw new ConvexError({
+        code: "SESSION_NOT_FOUND",
+        message: "Attendance session not found.",
+      });
     }
     await requirePermission(ctx, {
       eventId: event._id,
@@ -246,9 +246,7 @@ export const list = query({
     const records = await ctx.db
       .query("attendanceExports")
       .withIndex("by_session_requester_created", (index) =>
-        index
-          .eq("sessionId", session._id)
-          .eq("requestedByPersonId", person._id),
+        index.eq("sessionId", session._id).eq("requestedByPersonId", person._id),
       )
       .order("desc")
       .take(10);
@@ -393,9 +391,7 @@ export const generationContext = internalQuery({
               ? { presentDurationMs: participant.presentDurationMs }
               : {}),
             ...(exportRecord.fields.includes("late") ? { late: participant.late } : {}),
-            ...(exportRecord.fields.includes("session_name")
-              ? { sessionName: session.name }
-              : {}),
+            ...(exportRecord.fields.includes("session_name") ? { sessionName: session.name } : {}),
             ...(exportRecord.fields.includes("session_starts_at")
               ? { sessionStartsAt: session.startsAt }
               : {}),
@@ -552,11 +548,11 @@ export const recordDownload = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const { event, person, exportRecord, grantIds, manifest } = await requireDownloadAccess(ctx, args);
-    if (
-      exportRecord.version !== args.expectedVersion ||
-      manifest.sha256 !== args.expectedSha256
-    ) {
+    const { event, person, exportRecord, grantIds, manifest } = await requireDownloadAccess(
+      ctx,
+      args,
+    );
+    if (exportRecord.version !== args.expectedVersion || manifest.sha256 !== args.expectedSha256) {
       throw new ConvexError({
         code: "EXPORT_CHANGED",
         message: "This attendance export changed. Prepare the download again.",

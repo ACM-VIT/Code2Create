@@ -1,68 +1,88 @@
-import {
-  TeamCluster,
-  type ClusterMember,
-  type ClusterTeam,
-} from '../components/portal/TeamCluster'
-import { PortalScene } from '../components/portal/PortalScene'
+import { useEffect, useState, type CSSProperties } from "react";
+import { flushSync } from "react-dom";
 
-const tileAreas = {
-  hero: '[grid-area:hero]',
-  blossom: '[grid-area:blossom]',
-  rose: '[grid-area:rose]',
-  center: '[grid-area:center]',
-  garden: '[grid-area:garden]',
-  feature: '[grid-area:feature]',
-  small: '[grid-area:small]',
-} as const
-
-type TileArea = keyof typeof tileAreas
-
-function Tile({ area }: { area: TileArea }) {
-  return (
-    <div
-      className={`relative z-10 min-h-0 min-w-0 rounded-[18px] border border-petal-edge/70 bg-fg/5 shadow-[0_20px_44px_-30px_var(--shade-2),inset_0_1px_0_color-mix(in_srgb,var(--color-fg)_14%,transparent)] backdrop-blur-[22px] backdrop-saturate-[1.35] ${tileAreas[area]}`}
-    />
-  )
-}
+import { BenefitsTile } from "../components/dashboard/BenefitsTile";
+import { EventTile } from "../components/dashboard/EventTile";
+import { HelpTile } from "../components/dashboard/HelpTile";
+import { IntegrationsTile } from "../components/dashboard/IntegrationsTile";
+import { MusicTile } from "../components/dashboard/MusicTile";
+import { ReviewTile } from "../components/dashboard/ReviewTile";
+import { SquadTile } from "../components/dashboard/SquadTile";
+import { UpdatesTile } from "../components/dashboard/UpdatesTile";
+import { areasValue, composeDashboard, gridTemplates } from "../components/dashboard/dashboardLayout";
+import { tileRelevance, type DashboardModels } from "../components/dashboard/relevance";
+import { useReducedMotion } from "../components/dashboard/useReducedMotion";
+import { PortalScene } from "../components/portal/PortalScene";
+import { TeamCluster, type ClusterMember, type ClusterTeam } from "../components/portal/TeamCluster";
 
 /**
- * The dashboard bento: seven glass tiles on one named-area grid. Every
- * breakpoint re-maps the areas instead of nesting grids, so the tiles reflow
- * with no wrapper elements. Phones stack two across; tablets stagger two
- * columns with the tall tiles offset; from `lg` up it is the mockup's
- * three-column composition. The grid takes the height the scene leaves it
- * (`flex-1`), so it fills the viewport without restating the scene's
- * padding, and only scrolls once the tiles would drop under their minimum.
+ * The dashboard bento: the mockup's seven slots, filled by whichever tiles
+ * matter most right now. Every tile answers a tap in place; only music takes
+ * the big slot, and the grid remaps around it. Tiles take plain data and
+ * callbacks, so the live app and the gallery render the same screen.
  */
 export function DashboardScreen({
   team,
   members,
   teamEditable,
   onSignOut,
+  ...models
 }: {
-  team: ClusterTeam
-  members: readonly ClusterMember[]
-  teamEditable: boolean
-  onSignOut: () => void
-}) {
+  team: ClusterTeam;
+  members: readonly ClusterMember[];
+  teamEditable: boolean;
+  onSignOut: () => void;
+} & DashboardModels) {
+  const [musicOpen, setMusicOpen] = useState(false);
+  const reducedMotion = useReducedMotion();
+  const seating = composeDashboard(tileRelevance(models));
+  const musicSlot = seating.music ?? null;
+  const focus = musicOpen && musicSlot ? musicSlot : null;
+
+  const setMusic = (next: boolean) => {
+    if (next === musicOpen) return;
+    const update = () => flushSync(() => setMusicOpen(next));
+    if (!reducedMotion && document.startViewTransition) {
+      document.startViewTransition(update);
+    } else {
+      update();
+    }
+  };
+
+  useEffect(() => {
+    if (!musicOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMusic(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
+  const templates = gridTemplates(focus);
+  const gridStyle = {
+    "--dash-cols": templates.base.columns,
+    "--dash-rows": templates.base.rows,
+    "--dash-areas": areasValue(templates.base),
+    "--dash-cols-md": templates.md.columns,
+    "--dash-rows-md": templates.md.rows,
+    "--dash-areas-md": areasValue(templates.md),
+    "--dash-cols-lg": templates.lg.columns,
+    "--dash-rows-lg": templates.lg.rows,
+    "--dash-areas-lg": areasValue(templates.lg),
+  } as CSSProperties;
+
   return (
     <PortalScene
       tree="both"
       branch
       onSignOut={onSignOut}
-      header={
-        <TeamCluster
-          team={team}
-          members={members}
-          editable={teamEditable}
-        />
-      }
+      header={<TeamCluster team={team} members={members} editable={teamEditable} />}
     >
       <div className="flex w-full max-w-[1200px] flex-1 flex-col justify-center lg:pt-8 lg:pb-6">
         <h1 className="sr-only">Dashboard</h1>
         <div
-          aria-hidden="true"
-          className="relative grid min-h-[720px] flex-1 grid-cols-2 grid-rows-[repeat(5,minmax(118px,1fr))] gap-4 [grid-template-areas:'hero_hero'_'blossom_rose'_'center_center'_'feature_feature'_'small_garden'] md:min-h-[640px] md:grid-rows-[1.35fr_1fr_1fr_1fr_1fr] md:[grid-template-areas:'hero_hero'_'blossom_rose'_'center_feature'_'garden_feature'_'garden_small'] lg:max-h-[880px] lg:min-h-[460px] lg:grid-cols-[322fr_365fr_395fr] lg:grid-rows-[293fr_234fr_70fr_177fr] lg:gap-[18px] lg:[grid-template-areas:'hero_hero_blossom'_'rose_center_feature'_'rose_garden_feature'_'small_garden_feature']"
+          style={gridStyle}
+          className="relative grid h-[max(720px,calc(100dvh-176px))] grid-cols-[var(--dash-cols)] grid-rows-[var(--dash-rows)] gap-4 [grid-template-areas:var(--dash-areas)] md:h-[max(640px,calc(100dvh-176px))] md:grid-cols-[var(--dash-cols-md)] md:grid-rows-[var(--dash-rows-md)] md:[grid-template-areas:var(--dash-areas-md)] lg:h-[max(460px,min(880px,calc(100dvh-232px)))] lg:grid-cols-[var(--dash-cols-lg)] lg:grid-rows-[var(--dash-rows-lg)] lg:gap-[18px] lg:[grid-template-areas:var(--dash-areas-lg)]"
         >
           <img
             src="/assets/branch-plate.png"
@@ -70,15 +90,24 @@ export function DashboardScreen({
             aria-hidden
             className="pointer-events-none absolute -top-13 -left-16 z-0 w-[min(680px,70%)] max-w-none opacity-90 [filter:var(--scene-branch-filter)]"
           />
-          <Tile area="hero" />
-          <Tile area="blossom" />
-          <Tile area="rose" />
-          <Tile area="center" />
-          <Tile area="garden" />
-          <Tile area="feature" />
-          <Tile area="small" />
+          {seating.event ? <EventTile slot={seating.event} model={models.event} /> : null}
+          {seating.squad ? <SquadTile slot={seating.squad} team={team} members={members} /> : null}
+          {musicSlot ? (
+            <MusicTile
+              slot={musicSlot}
+              model={models.music}
+              focused={musicOpen}
+              onFocus={() => setMusic(true)}
+              onRelease={() => setMusic(false)}
+            />
+          ) : null}
+          {seating.integrations ? <IntegrationsTile slot={seating.integrations} model={models.integrations} /> : null}
+          {seating.updates ? <UpdatesTile slot={seating.updates} model={models.updates} /> : null}
+          {seating.review ? <ReviewTile slot={seating.review} model={models.review} /> : null}
+          {seating.help ? <HelpTile slot={seating.help} model={models.help} /> : null}
+          {seating.benefits ? <BenefitsTile slot={seating.benefits} model={models.benefits} /> : null}
         </div>
       </div>
     </PortalScene>
-  )
+  );
 }

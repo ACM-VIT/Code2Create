@@ -1,7 +1,4 @@
-import {
-  participantEmailEventSignatureContext,
-  signServiceBody,
-} from "@code2create/domain";
+import { participantEmailEventSignatureContext, signServiceBody } from "@code2create/domain";
 import { z } from "zod";
 
 import { normalizeCloudflareEmailEvent } from "./contracts.js";
@@ -29,10 +26,7 @@ type EmailEventQueueMessage = {
   retry(): void;
 };
 
-type EmailEventRelay = (
-  input: unknown,
-  environment: EmailBridgeEnvironment,
-) => Promise<void>;
+type EmailEventRelay = (input: unknown, environment: EmailBridgeEnvironment) => Promise<void>;
 
 const callbackUrlSchema = z.url().refine((value) => value.startsWith("https://"), {
   message: "Expected an HTTPS callback URL.",

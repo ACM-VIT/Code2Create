@@ -41,7 +41,9 @@ export function isBroadIdeaQuestion(value: string) {
     normalized.length <= 120 &&
     wordCount <= 20 &&
     !/[():;/]/u.test(normalized) &&
-    !/\b(?:and|also)\s+(?:what|who|how|where|when|why|which|does|do|is|are|would|will|can)\b/iu.test(normalized) &&
+    !/\b(?:and|also)\s+(?:what|who|how|where|when|why|which|does|do|is|are|would|will|can)\b/iu.test(
+      normalized,
+    ) &&
     !overlySpecificQuestionTerms.some((term) => lower.includes(term))
   );
 }

@@ -72,11 +72,13 @@ function randomToken() {
 }
 
 function sameRequest(left: OutboundCallRequest, right: OutboundCallRequest) {
-  return left.protocolVersion === right.protocolVersion &&
+  return (
+    left.protocolVersion === right.protocolVersion &&
     left.deliveryId === right.deliveryId &&
     left.destinationPhoneE164 === right.destinationPhoneE164 &&
     left.script === right.script &&
-    left.callbackUrl === right.callbackUrl;
+    left.callbackUrl === right.callbackUrl
+  );
 }
 
 function eventFor(
@@ -90,9 +92,7 @@ function eventFor(
     deliveryId: session.request.deliveryId,
     eventType,
     providerAt: Date.now(),
-    ...(options.providerCallId !== undefined
-      ? { providerCallId: options.providerCallId }
-      : {}),
+    ...(options.providerCallId !== undefined ? { providerCallId: options.providerCallId } : {}),
     ...(options.providerErrorCode !== undefined
       ? { providerErrorCode: options.providerErrorCode }
       : {}),
@@ -130,11 +130,13 @@ async function relayEvent(
 }
 
 function terminalEvent(eventType: OutboundCallEventType) {
-  return eventType === "call.completed" ||
+  return (
+    eventType === "call.completed" ||
     eventType === "call.busy" ||
     eventType === "call.no_answer" ||
     eventType === "call.cancelled" ||
-    eventType === "call.failed";
+    eventType === "call.failed"
+  );
 }
 
 export class OutboundCallSession {
@@ -209,9 +211,7 @@ export class OutboundCallSession {
     await this.state.storage.put(sessionStorageKey, session);
     await this.state.storage.setAlarm(dispatchDeadlineAt);
 
-    let dispatchResult:
-      | { ok: true; queued: QueuedCall }
-      | { ok: false; error: unknown };
+    let dispatchResult: { ok: true; queued: QueuedCall } | { ok: false; error: unknown };
     try {
       dispatchResult = {
         ok: true,
@@ -255,10 +255,7 @@ export class OutboundCallSession {
     const queued = dispatchResult.queued;
     const latest = await this.state.storage.get<CallSession>(sessionStorageKey);
     if (!latest) return;
-    if (
-      latest.providerCallId !== undefined &&
-      latest.providerCallId !== queued.providerCallId
-    ) {
+    if (latest.providerCallId !== undefined && latest.providerCallId !== queued.providerCallId) {
       throw new Error("The telephony provider returned conflicting call IDs.");
     }
     const queuedReported = latest.reportedEventTypes.includes("call.queued");
@@ -344,13 +341,10 @@ export class OutboundCallSession {
   private async voice(request: Request, forceFallback: boolean) {
     const session = await this.authorizedSession(request);
     if (!session) return new Response("Not found.", { status: 404 });
-    const twiml = !forceFallback && session.speech === "synthesized"
-      ? synthesizedVoiceTwiml(
-          this.environment,
-          session.request.deliveryId,
-          session.token,
-        )
-      : fallbackVoiceTwiml(session.request.script);
+    const twiml =
+      !forceFallback && session.speech === "synthesized"
+        ? synthesizedVoiceTwiml(this.environment, session.request.deliveryId, session.token)
+        : fallbackVoiceTwiml(session.request.script);
     return new Response(twiml, {
       headers: {
         "content-type": "text/xml; charset=utf-8",
@@ -405,16 +399,10 @@ export class OutboundCallSession {
     }
     const current = await this.authorizedSession(request);
     if (!current) return new Response("Not found.", { status: 404 });
-    if (
-      current.reportedEventTypes.includes(eventType) ||
-      current.phase === "terminal"
-    ) {
+    if (current.reportedEventTypes.includes(eventType) || current.phase === "terminal") {
       return new Response(null, { status: 204 });
     }
-    if (
-      current.providerCallId !== undefined &&
-      current.providerCallId !== providerCallId
-    ) {
+    if (current.providerCallId !== undefined && current.providerCallId !== providerCallId) {
       return new Response("Invalid status.", { status: 422 });
     }
     const updated: CallSession = {
@@ -422,10 +410,7 @@ export class OutboundCallSession {
       phase: terminalEvent(eventType) ? "terminal" : "queued",
       providerCallId,
       dispatchDeadlineAt: undefined,
-      pendingEvents: [
-        ...current.pendingEvents,
-        eventFor(current, eventType, { providerCallId }),
-      ],
+      pendingEvents: [...current.pendingEvents, eventFor(current, eventType, { providerCallId })],
       reportedEventTypes: [...current.reportedEventTypes, eventType],
       updatedAt: Date.now(),
     };
@@ -436,9 +421,7 @@ export class OutboundCallSession {
 
   private async authorizedSession(request: Request) {
     const session = await this.state.storage.get<CallSession>(sessionStorageKey);
-    return session && request.headers.get("x-c2c-call-token") === session.token
-      ? session
-      : null;
+    return session && request.headers.get("x-c2c-call-token") === session.token ? session : null;
   }
 }
 
@@ -529,18 +512,15 @@ export default {
     const deliveryId = decodedPathPart(parts[2]);
     const rawToken = route === "audio" ? parts[3]?.replace(/\.mp3$/u, "") : parts[3];
     const token = decodedPathPart(rawToken);
-    if (
-      !deliveryId ||
-      !token ||
-      !["voice", "fallback", "audio", "status"].includes(route ?? "")
-    ) {
+    if (!deliveryId || !token || !["voice", "fallback", "audio", "status"].includes(route ?? "")) {
       return new Response("Not found.", { status: 404 });
     }
     const body = request.method === "POST" ? await boundedBody(request) : undefined;
     if (body === null) return new Response("Request too large.", { status: 413 });
-    const internalRoute = route === "voice" || route === "fallback" || route === "audio" || route === "status"
-      ? route
-      : null;
+    const internalRoute =
+      route === "voice" || route === "fallback" || route === "audio" || route === "status"
+        ? route
+        : null;
     if (!internalRoute) return new Response("Not found.", { status: 404 });
     return callStub(environment, {
       deliveryId,

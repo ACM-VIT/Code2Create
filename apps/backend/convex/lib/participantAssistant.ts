@@ -7,26 +7,20 @@ export const participantAssistantName = "Code2Create Guide";
 export function participantAssistantPhaseForEvent(
   event: Pick<Doc<"events">, "status">,
 ): ParticipantAssistantPhase {
-  return event.status === "live" || event.status === "complete"
-    ? "in_event"
-    : "idea_submission";
+  return event.status === "live" || event.status === "complete" ? "in_event" : "idea_submission";
 }
 
 export function participantAssistantPhaseLabel(phase: ParticipantAssistantPhase) {
   return phase === "in_event" ? "During the event" : "Idea submission";
 }
 
-export function participantAssistantPhaseDescription(
-  phase: ParticipantAssistantPhase,
-) {
+export function participantAssistantPhaseDescription(phase: ParticipantAssistantPhase) {
   return phase === "in_event"
     ? "Ask what is happening now, what your team should do next, or where you need to be."
     : "I can check your team and submission status, help sharpen the idea, and tell you what to do next.";
 }
 
-export function participantAssistantSuggestions(
-  phase: ParticipantAssistantPhase,
-) {
+export function participantAssistantSuggestions(phase: ParticipantAssistantPhase) {
   return phase === "in_event"
     ? [
         "What’s happening right now?",
@@ -44,9 +38,10 @@ export function participantAssistantInstructions(
   phase: ParticipantAssistantPhase,
   eventContextJson: string,
 ) {
-  const scopeRule = phase === "in_event"
-    ? "The event is live or complete. You may use every field supplied in EVENT_CONTEXT."
-    : "The event is still in idea submission. Discuss only registration, participant profile, team formation, proposal drafting, application submission, application status, and human support. Do not reveal, infer, name, summarize, or hint at event-day schedules, checkpoints, integrations, attendance, floor locations, judging operations, or any other later-stage detail.";
+  const scopeRule =
+    phase === "in_event"
+      ? "The event is live or complete. You may use every field supplied in EVENT_CONTEXT."
+      : "The event is still in idea submission. Discuss only registration, participant profile, team formation, proposal drafting, application submission, application status, and human support. Do not reveal, infer, name, summarize, or hint at event-day schedules, checkpoints, integrations, attendance, floor locations, judging operations, or any other later-stage detail.";
 
   return `ROLE
 You are ${participantAssistantName}, the participant-facing guide for Code2Create. Work like a sharp, kind event volunteer sitting beside the participant. Resolve what they came to do using their live event record and the published event information below.

@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ReactNode } from 'react'
+import type { ButtonHTMLAttributes, ReactNode } from "react";
 
 // The updated mockup's two button shapes: an outline that fills rose with ink
 // text on hover (the workhorse), and a solid rose slab for the biggest CTAs.
@@ -6,29 +6,29 @@ import type { ButtonHTMLAttributes, ReactNode } from 'react'
 // mockup's own filled hover state uses ink, so solid labels follow that.
 const variants = {
   outline:
-    'border-[1.5px] border-rose bg-transparent text-rose-light hover:bg-rose hover:text-wash disabled:border-2 disabled:border-rose/35 disabled:bg-transparent disabled:text-rose/50',
+    "border-[1.5px] border-rose bg-transparent text-rose-light hover:bg-rose hover:text-wash disabled:border-2 disabled:border-rose/35 disabled:bg-transparent disabled:text-rose/50",
   solid:
-    'border-0 bg-rose text-wash shadow-[0_10px_24px_-12px_var(--glow-rose)] hover:brightness-105 disabled:opacity-50',
-} as const
+    "border-0 bg-rose text-wash shadow-[0_10px_24px_-12px_var(--glow-rose)] hover:brightness-105 disabled:opacity-50",
+} as const;
 
 const sizes = {
-  md: 'rounded-btn px-9 py-3.5 text-[15px] tracking-[.02em]',
-  sm: 'rounded-btn px-8 py-[11px] text-sm tracking-[.03em]',
-  xs: 'rounded-btn-sm px-[18px] py-2 text-[11.5px] tracking-[.01em]',
+  md: "rounded-btn px-9 py-3.5 text-[15px] tracking-[.02em]",
+  sm: "rounded-btn px-8 py-[11px] text-sm tracking-[.03em]",
+  xs: "rounded-btn-sm px-[18px] py-2 text-[11.5px] tracking-[.01em]",
   /* A square the height of a portal input, for a lone glyph. */
-  icon: 'size-[45px] rounded-btn-sm p-0',
-} as const
+  icon: "size-[45px] rounded-btn-sm p-0",
+} as const;
 
 export function PortalButton({
   children,
-  size = 'md',
-  variant = 'outline',
-  className = '',
+  size = "md",
+  variant = "outline",
+  className = "",
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & {
-  children: ReactNode
-  size?: keyof typeof sizes
-  variant?: keyof typeof variants
+  children: ReactNode;
+  size?: keyof typeof sizes;
+  variant?: keyof typeof variants;
 }) {
   return (
     <button
@@ -37,7 +37,7 @@ export function PortalButton({
     >
       {children}
     </button>
-  )
+  );
 }
 
 /**
@@ -47,9 +47,9 @@ export function PortalButton({
  */
 export function PortalTickButton({
   label,
-  className = '',
+  className = "",
   ...props
-}: Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children'> & { label: string }) {
+}: Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children"> & { label: string }) {
   return (
     <PortalButton
       {...props}
@@ -73,13 +73,13 @@ export function PortalTickButton({
         <path d="m5 12.5 4.5 4.5L19 7" />
       </svg>
     </PortalButton>
-  )
+  );
 }
 
 /** The quiet companion to PortalButton: back, skip, and other exits. */
 export function PortalTextButton({
   children,
-  className = '',
+  className = "",
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & { children: ReactNode }) {
   return (
@@ -89,5 +89,5 @@ export function PortalTextButton({
     >
       {children}
     </button>
-  )
+  );
 }

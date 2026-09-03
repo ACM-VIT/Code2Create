@@ -278,7 +278,12 @@
   width: 77%;
   aspect-ratio: 1;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(255, 227, 230, calc(0.15 + var(--bloom) * 0.1)) 0%, rgba(212, 112, 146, 0.08) 33%, transparent 70%);
+  background: radial-gradient(
+    circle,
+    rgba(255, 227, 230, calc(0.15 + var(--bloom) * 0.1)) 0%,
+    rgba(212, 112, 146, 0.08) 33%,
+    transparent 70%
+  );
   filter: blur(14px);
   transform: translateX(-50%) scale(calc(0.84 + var(--bloom) * 0.18));
 }
@@ -295,4 +300,3 @@
   filter: blur(10px);
   transform: scaleX(0.94);
 }
-

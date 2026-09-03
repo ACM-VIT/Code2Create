@@ -86,10 +86,7 @@ const catalogTrackView = v.object({
   version: v.number(),
 });
 
-async function staffContext(
-  ctx: ReadCtx,
-  eventSlug: string,
-) {
+async function staffContext(ctx: ReadCtx, eventSlug: string) {
   const event = await requireEventBySlug(ctx, eventSlug);
   const { person } = await requireCurrentPerson(ctx);
   const subject = await requireEventSubject(ctx, event._id, person._id);
@@ -174,9 +171,7 @@ export const overview = query({
       canCreateWindow: windowManage.eventWide,
       windows: windows
         .filter(
-          (window) =>
-            scopeAllows(windowRead, window._id) ||
-            scopeAllows(queueRead, window._id),
+          (window) => scopeAllows(windowRead, window._id) || scopeAllows(queueRead, window._id),
         )
         .map((window) => ({
           id: window._id,
@@ -280,12 +275,7 @@ export const addCatalogTrack = mutation({
   handler: async (ctx, args) => {
     const { event, person, subject } = await staffContext(ctx, args.eventSlug);
     const provider = normalizedProvider(args.provider);
-    const providerTrackId = normalizedText(
-      args.providerTrackId,
-      "Provider track ID",
-      1,
-      180,
-    );
+    const providerTrackId = normalizedText(args.providerTrackId, "Provider track ID", 1, 180);
     const fields = catalogTrackFields(args);
     const reason = normalizedText(args.reason, "Reason", 5, 200);
     const requestFingerprint = operationFingerprint([
@@ -688,11 +678,7 @@ export const publishWindow = mutation({
   handler: async (ctx, args) => {
     const { event, person, subject } = await staffContext(ctx, args.eventSlug);
     const reason = normalizedText(args.reason, "Publication reason", 5, 200);
-    const requestFingerprint = operationFingerprint([
-      args.windowId,
-      args.expectedVersion,
-      reason,
-    ]);
+    const requestFingerprint = operationFingerprint([args.windowId, args.expectedVersion, reason]);
     const prior = await findOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -741,16 +727,12 @@ export const publishWindow = mutation({
     const overlappingCandidates = await ctx.db
       .query("synesthesiaWindows")
       .withIndex("by_event_status_start", (index) =>
-        index
-          .eq("eventId", event._id)
-          .eq("status", "published")
-          .lt("startsAt", window.endsAt),
+        index.eq("eventId", event._id).eq("status", "published").lt("startsAt", window.endsAt),
       )
       .take(maximumSynesthesiaWindows);
     if (
       overlappingCandidates.some(
-        (candidate) =>
-          candidate._id !== window._id && candidate.endsAt > window.startsAt,
+        (candidate) => candidate._id !== window._id && candidate.endsAt > window.startsAt,
       )
     ) {
       throw new ConvexError({
@@ -810,11 +792,7 @@ export const closeWindow = mutation({
   handler: async (ctx, args) => {
     const { event, person, subject } = await staffContext(ctx, args.eventSlug);
     const reason = normalizedText(args.reason, "Close reason", 5, 200);
-    const requestFingerprint = operationFingerprint([
-      args.windowId,
-      args.expectedVersion,
-      reason,
-    ]);
+    const requestFingerprint = operationFingerprint([args.windowId, args.expectedVersion, reason]);
     const prior = await findOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -999,9 +977,7 @@ export const setPlaybackPause = mutation({
       grantIds,
       scopeType: "synesthesia_window",
       scopeId: window._id,
-      action: args.paused
-        ? "synesthesia.playback_paused"
-        : "synesthesia.playback_resumed",
+      action: args.paused ? "synesthesia.playback_paused" : "synesthesia.playback_resumed",
       targetType: "synesthesia_window",
       targetId: window._id,
       previousSummary: JSON.stringify({

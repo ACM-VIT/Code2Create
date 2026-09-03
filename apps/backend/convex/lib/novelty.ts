@@ -18,11 +18,7 @@ export const noveltyDensitySimilarityPolicy = {
 } as const;
 
 export type NoveltyIdeaLifecycle = "editing" | "saved" | "submitted";
-export type NoveltyRelationship =
-  | "same_core_idea"
-  | "strong_overlap"
-  | "adjacent"
-  | "different";
+export type NoveltyRelationship = "same_core_idea" | "strong_overlap" | "adjacent" | "different";
 export type NoveltyJudgeConfidence = "high" | "medium" | "low";
 
 export type NoveltyScoringVersion =
@@ -122,12 +118,10 @@ export function normalizeNoveltyPolicy(input: NoveltyPolicy): NoveltyPolicy {
     "Common-similarity boundary",
   );
   if (
-    distinctSimilarityBoundary !== noveltyDensitySimilarityPolicy.distinctSimilarityBoundary
-    || commonSimilarityBoundary !== noveltyDensitySimilarityPolicy.commonSimilarityBoundary
+    distinctSimilarityBoundary !== noveltyDensitySimilarityPolicy.distinctSimilarityBoundary ||
+    commonSimilarityBoundary !== noveltyDensitySimilarityPolicy.commonSimilarityBoundary
   ) {
-    invalidNoveltyPolicy(
-      "Similarity density must start at 0.60 and reach full weight at 0.90.",
-    );
+    invalidNoveltyPolicy("Similarity density must start at 0.60 and reach full weight at 0.90.");
   }
   return {
     label: normalizedText(input.label, "Novelty corpus label", 3, 80),
@@ -150,12 +144,7 @@ export function normalizeNoveltyCorpusEntries(
   entries: readonly NoveltyCorpusEntryInput[],
   maximumSourceYear: number,
 ): NoveltyCorpusEntryInput[] {
-  const latestSourceYear = wholeNumber(
-    maximumSourceYear,
-    "Latest corpus source year",
-    2000,
-    2100,
-  );
+  const latestSourceYear = wholeNumber(maximumSourceYear, "Latest corpus source year", 2000, 2100);
   if (
     entries.length < minimumNoveltyCorpusEntries ||
     entries.length > maximumNoveltyCorpusEntries
@@ -177,18 +166,8 @@ export function normalizeNoveltyCorpusEntries(
       2000,
       latestSourceYear,
     );
-    const themeLabel = normalizedText(
-      entry.themeLabel,
-      `Corpus entry ${index + 1} theme`,
-      3,
-      80,
-    );
-    const summary = normalizedLongText(
-      entry.summary,
-      `Corpus entry ${index + 1} summary`,
-      20,
-      800,
-    );
+    const themeLabel = normalizedText(entry.themeLabel, `Corpus entry ${index + 1} theme`, 3, 80);
+    const summary = normalizedLongText(entry.summary, `Corpus entry ${index + 1} summary`, 20, 800);
     const reflectionPrompt = normalizedText(
       entry.reflectionPrompt,
       `Corpus entry ${index + 1} reflection prompt`,
@@ -292,18 +271,18 @@ export function hybridNoveltyWeight(
   }
   const boundedEmbeddingWeight = Math.max(0, Math.min(1, embeddingWeight));
   const boundedRawSimilarity = Math.max(-1, Math.min(1, rawSimilarity));
-  const calibratedRelationship = boundedRawSimilarity < 0.4
-    ? "different"
-    : boundedRawSimilarity < 0.54
-      && (relationship === "same_core_idea" || relationship === "strong_overlap")
-      ? "adjacent"
-      : boundedRawSimilarity < 0.6 && relationship === "same_core_idea"
-        ? "strong_overlap"
-        : relationship;
+  const calibratedRelationship =
+    boundedRawSimilarity < 0.4
+      ? "different"
+      : boundedRawSimilarity < 0.54 &&
+          (relationship === "same_core_idea" || relationship === "strong_overlap")
+        ? "adjacent"
+        : boundedRawSimilarity < 0.6 && relationship === "same_core_idea"
+          ? "strong_overlap"
+          : relationship;
   const judgeWeight = noveltyRelationshipWeight(calibratedRelationship);
   const judgeInfluence = confidence === "high" ? 0.65 : confidence === "medium" ? 0.4 : 0.2;
-  const blended = boundedEmbeddingWeight
-    + judgeInfluence * (judgeWeight - boundedEmbeddingWeight);
+  const blended = boundedEmbeddingWeight + judgeInfluence * (judgeWeight - boundedEmbeddingWeight);
   if (confidence === "high" && calibratedRelationship === "same_core_idea") {
     return Math.max(0.95, blended);
   }
@@ -390,17 +369,14 @@ export function effectiveSimilarTeams(
   policy: Pick<NoveltyPolicy, "distinctSimilarityBoundary" | "commonSimilarityBoundary">,
 ) {
   return matches.reduce(
-    (total, match) => total
-      + noveltySimilarityWeight(match.similarity, policy)
-        * noveltyLifecycleWeight(match.lifecycle),
+    (total, match) =>
+      total +
+      noveltySimilarityWeight(match.similarity, policy) * noveltyLifecycleWeight(match.lifecycle),
     0,
   );
 }
 
-export function strongestNoveltyMatchPerTeam<
-  TeamId,
-  Match extends TeamNoveltyDensityMatch<TeamId>,
->(
+export function strongestNoveltyMatchPerTeam<TeamId, Match extends TeamNoveltyDensityMatch<TeamId>>(
   matches: readonly Match[],
   excludedTeamId?: TeamId,
 ) {
@@ -409,12 +385,10 @@ export function strongestNoveltyMatchPerTeam<
     if (match.teamId === excludedTeamId) continue;
     const current = strongest.get(match.teamId);
     if (
-      !current
-      || noveltyLifecycleWeight(match.lifecycle) > noveltyLifecycleWeight(current.lifecycle)
-      || (
-        noveltyLifecycleWeight(match.lifecycle) === noveltyLifecycleWeight(current.lifecycle)
-        && match.similarity > current.similarity
-      )
+      !current ||
+      noveltyLifecycleWeight(match.lifecycle) > noveltyLifecycleWeight(current.lifecycle) ||
+      (noveltyLifecycleWeight(match.lifecycle) === noveltyLifecycleWeight(current.lifecycle) &&
+        match.similarity > current.similarity)
     ) {
       strongest.set(match.teamId, match);
     }
@@ -430,10 +404,7 @@ export function noveltyScoreForDensity(similarTeams: number) {
   return Math.round(Math.max(0, Math.min(100, score)));
 }
 
-export function noveltyScoreForEvidence(
-  similarTeams: number,
-  strongestOverlap: number,
-) {
+export function noveltyScoreForEvidence(similarTeams: number, strongestOverlap: number) {
   if (!Number.isFinite(strongestOverlap) || strongestOverlap < 0) {
     throw new Error("Strongest novelty overlap must be a non-negative finite number.");
   }

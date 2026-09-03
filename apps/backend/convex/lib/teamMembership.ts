@@ -58,7 +58,8 @@ export async function addTeamMemberGrants(
   },
 ) {
   const subject = await ctx.db.get(args.membership.eventAccessSubjectId);
-  if (!subject || subject.status !== "active") throw new Error("Team member subject is not active.");
+  if (!subject || subject.status !== "active")
+    throw new Error("Team member subject is not active.");
   let createdCount = 0;
   for (const permissionKey of teamMemberPermissionKeys) {
     const result = await insertPermissionGrant(ctx, {

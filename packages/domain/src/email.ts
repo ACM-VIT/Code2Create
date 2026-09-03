@@ -1,7 +1,6 @@
 export const participantEmailProtocolVersion = "participant-email-v1" as const;
 
-export const participantEmailEventSignatureContext =
-  "code2create.participant-email.event.v1";
+export const participantEmailEventSignatureContext = "code2create.participant-email.event.v1";
 
 export const participantEmailEventTypes = [
   "email.delivered",

@@ -16,20 +16,20 @@ export async function invalidateTeamNoveltyIndex(
     ctx.db
       .query("noveltyPreviewRequests")
       .withIndex("by_team_state_requested", (index) =>
-        index.eq("teamId", args.teamId).eq("state", "running")
+        index.eq("teamId", args.teamId).eq("state", "running"),
       )
       .collect(),
   ]);
-  await Promise.all(
-    [
-      ...ideas
-        .filter((idea) => idea.sourceUpdatedAt <= args.sourceUpdatedAt)
-        .map((idea) => ctx.db.delete(idea._id)),
-      ...runningRequests.map((request) => ctx.db.patch(request._id, {
+  await Promise.all([
+    ...ideas
+      .filter((idea) => idea.sourceUpdatedAt <= args.sourceUpdatedAt)
+      .map((idea) => ctx.db.delete(idea._id)),
+    ...runningRequests.map((request) =>
+      ctx.db.patch(request._id, {
         state: "stale" as const,
         completedAt: args.sourceUpdatedAt,
         failureCategory: "idea_changed",
-      })),
-    ],
-  );
+      }),
+    ),
+  ]);
 }

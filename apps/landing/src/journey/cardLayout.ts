@@ -14,8 +14,8 @@ type Point = readonly [number, number];
 type Triangle = readonly [Point, Point, Point];
 
 interface Wedge {
-  fill: string
-  points: Triangle
+  fill: string;
+  points: Triangle;
 }
 
 const pct = ([x, y]: Point) => {
@@ -25,11 +25,46 @@ const pct = ([x, y]: Point) => {
 };
 
 export const WEDGES: readonly Wedge[] = [
-  { fill: '#F1CEDF', points: [[121.682, 55.793], [75.076, 81.919], [75.076, 29.721]] },
-  { fill: '#D884A2', points: [[75.076, 29.748], [28.568, 55.807], [75.076, 81.892]] },
-  { fill: '#B44F76', points: [[75.076, 81.892], [28.568, 56.036], [28.568, 107.937]] },
-  { fill: '#E3A9BF', points: [[28.568, 107.937], [75.076, 134.036], [75.076, 81.892]] },
-  { fill: '#D884A2', points: [[75.076, 81.892], [75.118, 134.05], [121.654, 107.964]] },
+  {
+    fill: "#F1CEDF",
+    points: [
+      [121.682, 55.793],
+      [75.076, 81.919],
+      [75.076, 29.721],
+    ],
+  },
+  {
+    fill: "#D884A2",
+    points: [
+      [75.076, 29.748],
+      [28.568, 55.807],
+      [75.076, 81.892],
+    ],
+  },
+  {
+    fill: "#B44F76",
+    points: [
+      [75.076, 81.892],
+      [28.568, 56.036],
+      [28.568, 107.937],
+    ],
+  },
+  {
+    fill: "#E3A9BF",
+    points: [
+      [28.568, 107.937],
+      [75.076, 134.036],
+      [75.076, 81.892],
+    ],
+  },
+  {
+    fill: "#D884A2",
+    points: [
+      [75.076, 81.892],
+      [75.118, 134.05],
+      [121.654, 107.964],
+    ],
+  },
 ];
 
 export const WEDGE_FILLS = WEDGES.map((wedge) => wedge.fill);
@@ -105,10 +140,10 @@ function toQuad(triangle: Triangle) {
 }
 
 export function wedgeClip(index: number) {
-  return `polygon(${toQuad(WEDGES[index].points).map(pct).join(', ')})`;
+  return `polygon(${toQuad(WEDGES[index].points).map(pct).join(", ")})`;
 }
 
-export const CARD_CLIP = 'polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%)';
+export const CARD_CLIP = "polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%)";
 
 export const FAN = [
   { left: 24.0, top: 63.0, rotate: -16 },

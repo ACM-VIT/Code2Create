@@ -10,11 +10,7 @@ import {
 
 export const transitionGrant = internalMutation({
   args: { grantId: v.id("permissionGrants") },
-  returns: v.union(
-    v.literal("activated"),
-    v.literal("expired"),
-    v.literal("unchanged"),
-  ),
+  returns: v.union(v.literal("activated"), v.literal("expired"), v.literal("unchanged")),
   handler: (ctx, args) =>
     transitionPermissionGrant(ctx, { grantId: args.grantId, now: Date.now() }),
 });
@@ -33,11 +29,7 @@ export const sweep = internalMutation({
       limit: permissionGrantLifecycleBatchSize,
     });
     if (result.hasMore) {
-      await ctx.scheduler.runAfter(
-        0,
-        internal.permissionGrantLifecycle.sweep,
-        {},
-      );
+      await ctx.scheduler.runAfter(0, internal.permissionGrantLifecycle.sweep, {});
     }
     return result;
   },

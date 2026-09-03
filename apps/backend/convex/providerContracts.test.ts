@@ -13,14 +13,8 @@ import {
   communicationsPolicyChecksum,
   normalizeCommunicationsPolicy,
 } from "./lib/communicationsPolicy";
-import {
-  defaultDeterministicIntakePolicy,
-  intakePolicyChecksum,
-} from "./lib/intakePolicy";
-import {
-  defaultParticipantPolicy,
-  participantPolicyChecksum,
-} from "./lib/participantPolicy";
+import { defaultDeterministicIntakePolicy, intakePolicyChecksum } from "./lib/intakePolicy";
+import { defaultParticipantPolicy, participantPolicyChecksum } from "./lib/participantPolicy";
 import { createTestSubmissionSnapshot } from "./lib/testSubmissionSnapshot";
 import schema from "./schema";
 
@@ -553,7 +547,7 @@ async function seedIntegrationTeam(backend: BackendTest) {
       timezone: "Asia/Kolkata",
       status: "live",
       vitEmailDomains: ["vitstudent.ac.in"],
-        applicationsCloseAt: Date.now() + 86_400_000,
+      applicationsCloseAt: Date.now() + 86_400_000,
       startsAt,
       endsAt,
       version: 1,
@@ -606,19 +600,16 @@ async function seedIntegrationTeam(backend: BackendTest) {
       notificationProvider: "cloudflare_email",
       emailTemplates: defaultParticipantEmailTemplates(),
     });
-    const communicationsPolicyVersionId = await ctx.db.insert(
-      "communicationsPolicyVersions",
-      {
-        eventId,
-        version: 1,
-        status: "published",
-        ...communicationsPolicy,
-        checksum: communicationsPolicyChecksum(communicationsPolicy),
-        createdByPersonId: personId,
-        createdAt: now,
-        publishedAt: now,
-      },
-    );
+    const communicationsPolicyVersionId = await ctx.db.insert("communicationsPolicyVersions", {
+      eventId,
+      version: 1,
+      status: "published",
+      ...communicationsPolicy,
+      checksum: communicationsPolicyChecksum(communicationsPolicy),
+      createdByPersonId: personId,
+      createdAt: now,
+      publishedAt: now,
+    });
     await ctx.db.patch(eventId, {
       publishedParticipantPolicyId: participantPolicyVersionId,
       publishedCommunicationsPolicyId: communicationsPolicyVersionId,
@@ -886,9 +877,7 @@ async function sendCloudflareEmailEvent(
     eventType: args.type,
     providerAt: args.providerAt,
     disableDestination: args.disableDestination,
-    ...(args.providerErrorCode !== undefined
-      ? { providerErrorCode: args.providerErrorCode }
-      : {}),
+    ...(args.providerErrorCode !== undefined ? { providerErrorCode: args.providerErrorCode } : {}),
   });
   const timestamp = String(Date.now());
   const signature = await signServiceBody({

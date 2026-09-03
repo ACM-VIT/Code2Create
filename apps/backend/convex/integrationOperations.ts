@@ -1,7 +1,4 @@
-import {
-  paginationOptsValidator,
-  paginationResultValidator,
-} from "convex/server";
+import { paginationOptsValidator, paginationResultValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 
 import { query } from "./_generated/server";
@@ -111,7 +108,7 @@ function integrationTeamView(
     teamName: team.name,
     teamStatus: team.status,
     github: {
-      health: githubMetric?.health ?? "not_connected" as const,
+      health: githubMetric?.health ?? ("not_connected" as const),
       repositoryCount: githubMetric?.repositoryCount ?? 0,
       installationCount: githubMetric?.installationCount ?? 0,
       topicMissingCount: githubMetric?.topicMissingCount ?? 0,
@@ -121,7 +118,7 @@ function integrationTeamView(
         : {}),
     },
     figma: {
-      health: figmaMetric?.health ?? "not_connected" as const,
+      health: figmaMetric?.health ?? ("not_connected" as const),
       fileCount: figmaMetric?.fileCount ?? 0,
       authorizationCount: figmaMetric?.authorizationCount ?? 0,
       completeCount: figmaMetric?.completeFileCount ?? 0,
@@ -216,15 +213,9 @@ export const teams = query({
     const readableTeams = scope.eventWide
       ? eventTeams
       : scope.teamIds.length === 0
-        ? eventTeams.filter((filter) =>
-            filter.neq(filter.field("eventId"), event._id),
-          )
+        ? eventTeams.filter((filter) => filter.neq(filter.field("eventId"), event._id))
         : eventTeams.filter((filter) =>
-            filter.or(
-              ...scope.teamIds.map((teamId) =>
-                filter.eq(filter.field("_id"), teamId),
-              ),
-            ),
+            filter.or(...scope.teamIds.map((teamId) => filter.eq(filter.field("_id"), teamId))),
           );
     const page = await readableTeams.paginate(args.paginationOpts);
     const visible = [];
@@ -245,10 +236,7 @@ export const teams = query({
       ) {
         throw new Error("GitHub team metrics do not match the operations row.");
       }
-      if (
-        figmaMetric &&
-        (figmaMetric.eventId !== event._id || figmaMetric.teamId !== team._id)
-      ) {
+      if (figmaMetric && (figmaMetric.eventId !== event._id || figmaMetric.teamId !== team._id)) {
         throw new Error("Figma team metrics do not match the operations row.");
       }
       visible.push(integrationTeamView(team, githubMetric, figmaMetric));
@@ -360,19 +348,15 @@ export const details = query({
             integrationPolicy.normalized.requiredGitHubTopic,
           )
             ? binding.topicState
-            : "unknown" as const,
+            : ("unknown" as const),
           state: binding.state,
           syncState: binding.syncState,
-          ...(binding.syncErrorCode !== undefined
-            ? { syncErrorCode: binding.syncErrorCode }
-            : {}),
+          ...(binding.syncErrorCode !== undefined ? { syncErrorCode: binding.syncErrorCode } : {}),
           ...(binding.baselineSha !== undefined ? { baselineSha: binding.baselineSha } : {}),
           ...(binding.currentHeadSha !== undefined
             ? { currentHeadSha: binding.currentHeadSha }
             : {}),
-          ...(binding.lastWebhookAt !== undefined
-            ? { lastWebhookAt: binding.lastWebhookAt }
-            : {}),
+          ...(binding.lastWebhookAt !== undefined ? { lastWebhookAt: binding.lastWebhookAt } : {}),
           ...(binding.lastReconciledAt !== undefined
             ? { lastReconciledAt: binding.lastReconciledAt }
             : {}),
@@ -394,9 +378,7 @@ export const details = query({
         }
         const snapshot = await ctx.db
           .query("figmaFileSnapshots")
-          .withIndex("by_binding_time", (index) =>
-            index.eq("figmaFileBindingId", binding._id),
-          )
+          .withIndex("by_binding_time", (index) => index.eq("figmaFileBindingId", binding._id))
           .order("desc")
           .first();
         if (
@@ -444,9 +426,7 @@ export const details = query({
             ? { metadataErrorCode: binding.metadataErrorCode }
             : {}),
           hasFullArtifact: snapshot.artifactId !== undefined,
-          ...(snapshot.artifactId !== undefined
-            ? { artifactCapturedAt: snapshot.capturedAt }
-            : {}),
+          ...(snapshot.artifactId !== undefined ? { artifactCapturedAt: snapshot.capturedAt } : {}),
           preview: {
             state: preview.state,
             selectedNodeCount: preview.selectedNodeCount,

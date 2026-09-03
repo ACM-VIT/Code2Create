@@ -14,9 +14,7 @@ import {
   operationsEpisodeExpectedState,
   operationsEpisodeHypothesisStance,
 } from "./lib/operationsEpisodeValidators";
-import {
-  operationsHealthSeverity,
-} from "./lib/operationsIntelligenceValidators";
+import { operationsHealthSeverity } from "./lib/operationsIntelligenceValidators";
 import { requirePermission } from "./lib/permissions";
 import { enqueueEpisodeAnalysis } from "./lib/operationsEpisodes";
 import { intelligenceWorkpool } from "./workpools";
@@ -64,7 +62,8 @@ export const episodeDispatchFinished = intelligenceWorkpool.defineOnComplete<
       episode.lifecycle !== "active" ||
       episode.revision !== context.revision ||
       episode.analysisState.kind !== "failed"
-    ) return;
+    )
+      return;
     await ctx.scheduler.runAfter(
       episodeDispatchRetryDelayMs,
       internal.operationsEpisodes.retryFailedDispatch,
@@ -83,7 +82,8 @@ export const retryFailedDispatch = internalMutation({
       episode.lifecycle !== "active" ||
       episode.revision !== args.revision ||
       episode.analysisState.kind !== "failed"
-    ) return false;
+    )
+      return false;
     await enqueueEpisodeAnalysis(ctx, episode._id, episode.revision);
     return true;
   },
@@ -104,7 +104,8 @@ export const recoverAcceptedDispatch = internalMutation({
       episode.revision !== args.revision ||
       episode.analysisState.kind !== "accepted" ||
       episode.analysisState.submissionId !== args.submissionId
-    ) return false;
+    )
+      return false;
     await ctx.db.patch(episode._id, {
       analysisState: { kind: "failed", revision: episode.revision },
       updatedAt: Date.now(),
@@ -161,24 +162,30 @@ const episodeListItem = v.object({
   analysisStatus: v.string(),
   analysisSummary: v.optional(v.string()),
   suggestedAction: v.optional(v.string()),
-  hypotheses: v.array(v.object({
-    stance: operationsEpisodeHypothesisStance,
-    statement: v.string(),
-    confidence: v.number(),
-  })),
-  predictions: v.array(v.object({
-    statement: v.string(),
-    expectedState: operationsEpisodeExpectedState,
-    probability: v.number(),
-    horizonAt: v.number(),
-    outcome: v.string(),
-  })),
-  counterfactuals: v.array(v.object({
-    intervention: v.string(),
-    expectedState: operationsEpisodeExpectedState,
-    probability: v.number(),
-    rationale: v.string(),
-  })),
+  hypotheses: v.array(
+    v.object({
+      stance: operationsEpisodeHypothesisStance,
+      statement: v.string(),
+      confidence: v.number(),
+    }),
+  ),
+  predictions: v.array(
+    v.object({
+      statement: v.string(),
+      expectedState: operationsEpisodeExpectedState,
+      probability: v.number(),
+      horizonAt: v.number(),
+      outcome: v.string(),
+    }),
+  ),
+  counterfactuals: v.array(
+    v.object({
+      intervention: v.string(),
+      expectedState: operationsEpisodeExpectedState,
+      probability: v.number(),
+      rationale: v.string(),
+    }),
+  ),
 });
 
 const calibrationResult = v.object({
@@ -230,66 +237,68 @@ export const relevant = query({
       )
       .order("desc")
       .take(limit);
-    return Promise.all(episodes.map(async (episode) => {
-      const [hypotheses, predictions, counterfactuals] = await Promise.all([
-        ctx.db
-          .query("operationsIntelligenceHypotheses")
-          .withIndex("by_episode_revision_ordinal", (index) =>
-            index.eq("episodeId", episode._id).eq("analysisRevision", episode.revision),
-          )
-          .take(3),
-        ctx.db
-          .query("operationsIntelligencePredictions")
-          .withIndex("by_episode_revision_ordinal", (index) =>
-            index.eq("episodeId", episode._id).eq("analysisRevision", episode.revision),
-          )
-          .take(3),
-        ctx.db
-          .query("operationsIntelligenceCounterfactuals")
-          .withIndex("by_episode_revision_ordinal", (index) =>
-            index.eq("episodeId", episode._id).eq("analysisRevision", episode.revision),
-          )
-          .take(3),
-      ]);
-      return {
-        episodeId: episode._id,
-        correlationKey: episode.correlationKey,
-        state: episode.state as "forming" | "active" | "escalating" | "recovering",
-        severity: episode.severity,
-        title: episode.title,
-        summary: episode.summary,
-        owner: episode.owner,
-        nextAction: episode.nextAction,
-        firstObservedAt: episode.firstObservedAt,
-        lastObservedAt: episode.lastObservedAt,
-        signalCount: episode.signalCount,
-        factCount: episode.factCount,
-        relevanceScore: episode.relevanceScore,
-        confidence: episode.confidence,
-        revision: episode.revision,
-        analysisStatus: episode.analysisState.kind,
-        ...(episode.analysisSummary ? { analysisSummary: episode.analysisSummary } : {}),
-        ...(episode.suggestedAction ? { suggestedAction: episode.suggestedAction } : {}),
-        hypotheses: hypotheses.map((hypothesis) => ({
-          stance: hypothesis.stance,
-          statement: hypothesis.statement,
-          confidence: hypothesis.confidence,
-        })),
-        predictions: predictions.map((prediction) => ({
-          statement: prediction.statement,
-          expectedState: prediction.expectedState,
-          probability: prediction.probability,
-          horizonAt: prediction.horizonAt,
-          outcome: prediction.outcome.kind,
-        })),
-        counterfactuals: counterfactuals.map((counterfactual) => ({
-          intervention: counterfactual.intervention,
-          expectedState: counterfactual.expectedState,
-          probability: counterfactual.probability,
-          rationale: counterfactual.rationale,
-        })),
-      };
-    }));
+    return Promise.all(
+      episodes.map(async (episode) => {
+        const [hypotheses, predictions, counterfactuals] = await Promise.all([
+          ctx.db
+            .query("operationsIntelligenceHypotheses")
+            .withIndex("by_episode_revision_ordinal", (index) =>
+              index.eq("episodeId", episode._id).eq("analysisRevision", episode.revision),
+            )
+            .take(3),
+          ctx.db
+            .query("operationsIntelligencePredictions")
+            .withIndex("by_episode_revision_ordinal", (index) =>
+              index.eq("episodeId", episode._id).eq("analysisRevision", episode.revision),
+            )
+            .take(3),
+          ctx.db
+            .query("operationsIntelligenceCounterfactuals")
+            .withIndex("by_episode_revision_ordinal", (index) =>
+              index.eq("episodeId", episode._id).eq("analysisRevision", episode.revision),
+            )
+            .take(3),
+        ]);
+        return {
+          episodeId: episode._id,
+          correlationKey: episode.correlationKey,
+          state: episode.state as "forming" | "active" | "escalating" | "recovering",
+          severity: episode.severity,
+          title: episode.title,
+          summary: episode.summary,
+          owner: episode.owner,
+          nextAction: episode.nextAction,
+          firstObservedAt: episode.firstObservedAt,
+          lastObservedAt: episode.lastObservedAt,
+          signalCount: episode.signalCount,
+          factCount: episode.factCount,
+          relevanceScore: episode.relevanceScore,
+          confidence: episode.confidence,
+          revision: episode.revision,
+          analysisStatus: episode.analysisState.kind,
+          ...(episode.analysisSummary ? { analysisSummary: episode.analysisSummary } : {}),
+          ...(episode.suggestedAction ? { suggestedAction: episode.suggestedAction } : {}),
+          hypotheses: hypotheses.map((hypothesis) => ({
+            stance: hypothesis.stance,
+            statement: hypothesis.statement,
+            confidence: hypothesis.confidence,
+          })),
+          predictions: predictions.map((prediction) => ({
+            statement: prediction.statement,
+            expectedState: prediction.expectedState,
+            probability: prediction.probability,
+            horizonAt: prediction.horizonAt,
+            outcome: prediction.outcome.kind,
+          })),
+          counterfactuals: counterfactuals.map((counterfactual) => ({
+            intervention: counterfactual.intervention,
+            expectedState: counterfactual.expectedState,
+            probability: counterfactual.probability,
+            rationale: counterfactual.rationale,
+          })),
+        };
+      }),
+    );
   },
 });
 
@@ -331,9 +340,10 @@ export const calibration = query({
     return {
       resolvedCount: resolved.length,
       confirmedCount: confirmed.length,
-      meanBrierScore: brierScores.length === 0
-        ? null
-        : brierScores.reduce((sum, score) => sum + score, 0) / brierScores.length,
+      meanBrierScore:
+        brierScores.length === 0
+          ? null
+          : brierScores.reduce((sum, score) => sum + score, 0) / brierScores.length,
     };
   },
 });
@@ -384,12 +394,15 @@ export const serviceProjection = internalQuery({
 
 export const prepareDispatch = internalMutation({
   args: { episodeId: v.id("operationsIntelligenceEpisodes"), now: v.number() },
-  returns: v.union(v.null(), v.object({
-    episodeId: v.id("operationsIntelligenceEpisodes"),
-    eventId: v.id("events"),
-    revision: v.number(),
-    attemptId: v.string(),
-  })),
+  returns: v.union(
+    v.null(),
+    v.object({
+      episodeId: v.id("operationsIntelligenceEpisodes"),
+      eventId: v.id("events"),
+      revision: v.number(),
+      attemptId: v.string(),
+    }),
+  ),
   handler: async (ctx, args) => {
     const episode = await ctx.db.get(args.episodeId);
     if (!episode || episode.lifecycle !== "active") return null;
@@ -431,7 +444,8 @@ export const recordDispatchReceipt = internalMutation({
       episode.revision !== args.revision ||
       episode.analysisState.kind !== "dispatching" ||
       episode.analysisState.attemptId !== args.attemptId
-    ) return false;
+    )
+      return false;
     await ctx.db.patch(episode._id, {
       analysisState: {
         kind: "accepted",
@@ -469,7 +483,8 @@ export const recordDispatchFailure = internalMutation({
       episode.revision !== args.revision ||
       episode.analysisState.kind !== "dispatching" ||
       episode.analysisState.attemptId !== args.attemptId
-    ) return false;
+    )
+      return false;
     await ctx.db.patch(episode._id, {
       analysisState: { kind: "failed", revision: args.revision },
       updatedAt: args.now,
@@ -522,7 +537,10 @@ export const recordAnalysis = internalMutation({
       return "already_exists";
     }
     if (args.operationId.length < 8 || args.operationId.length > 240) {
-      throw new ConvexError({ code: "EPISODE_ANALYSIS_INVALID", message: "The operation ID is invalid." });
+      throw new ConvexError({
+        code: "EPISODE_ANALYSIS_INVALID",
+        message: "The operation ID is invalid.",
+      });
     }
     if (
       args.hypotheses.length < 1 ||
@@ -540,7 +558,11 @@ export const recordAnalysis = internalMutation({
     const allowedFacts = await authorizedEpisodeFacts(ctx, episode._id);
     const allowedFactKeys = new Set(allowedFacts.map((fact) => fact.factKey));
     const validateEvidence = (factKeys: string[]) => {
-      if (factKeys.length < 1 || factKeys.length > 8 || factKeys.some((key) => !allowedFactKeys.has(key))) {
+      if (
+        factKeys.length < 1 ||
+        factKeys.length > 8 ||
+        factKeys.some((key) => !allowedFactKeys.has(key))
+      ) {
         throw new ConvexError({
           code: "EPISODE_ANALYSIS_INVALID",
           message: "Analysis evidence must cite one to eight facts from this episode.",
@@ -551,16 +573,18 @@ export const recordAnalysis = internalMutation({
     const summary = boundedModelText(args.summary, "Analysis summary", 12, 600);
     const suggestedAction = boundedModelText(args.suggestedAction, "Suggested action", 8, 300);
     const prohibitedLanguage = /\b(score|scored|points?|ranking|winner|judging|prestige)\b/iu;
-    if ([
-      summary,
-      suggestedAction,
-      ...args.hypotheses.map((hypothesis) => hypothesis.statement),
-      ...args.predictions.map((prediction) => prediction.statement),
-      ...args.counterfactuals.flatMap((counterfactual) => [
-        counterfactual.intervention,
-        counterfactual.rationale,
-      ]),
-    ].some((text) => prohibitedLanguage.test(text))) {
+    if (
+      [
+        summary,
+        suggestedAction,
+        ...args.hypotheses.map((hypothesis) => hypothesis.statement),
+        ...args.predictions.map((prediction) => prediction.statement),
+        ...args.counterfactuals.flatMap((counterfactual) => [
+          counterfactual.intervention,
+          counterfactual.rationale,
+        ]),
+      ].some((text) => prohibitedLanguage.test(text))
+    ) {
       throw new ConvexError({
         code: "EPISODE_ANALYSIS_INVALID",
         message: "Episode analysis cannot contain scoring, ranking, judging, or prestige claims.",
@@ -617,7 +641,12 @@ export const recordAnalysis = internalMutation({
         episodeId: episode._id,
         analysisRevision: episode.revision,
         ordinal,
-        intervention: boundedModelText(counterfactual.intervention, "Counterfactual intervention", 8, 300),
+        intervention: boundedModelText(
+          counterfactual.intervention,
+          "Counterfactual intervention",
+          8,
+          300,
+        ),
         expectedState: counterfactual.expectedState,
         probability: boundedProbability(counterfactual.probability, "Counterfactual probability"),
         rationale: boundedModelText(counterfactual.rationale, "Counterfactual rationale", 8, 400),

@@ -15,10 +15,7 @@ type PermissionRequest = {
   eventId: Id<"events">;
   eventAccessSubjectId: Id<"eventAccessSubjects">;
   permissionKey: PermissionKey;
-} & (
-  | { scopeType: "event"; scopeId?: never }
-  | { scopeType: ResourceScopeType; scopeId: string }
-);
+} & ({ scopeType: "event"; scopeId?: never } | { scopeType: ResourceScopeType; scopeId: string });
 
 type GrantScope =
   | { scopeType: "event"; scopeId?: never }
@@ -43,8 +40,7 @@ type PermissionGrantGroupArgs = {
   grants: readonly PermissionGrantPlan[];
 };
 
-type PermissionGrantInsertArgs = Omit<PermissionGrantGroupArgs, "grants"> &
-  PermissionGrantPlan;
+type PermissionGrantInsertArgs = Omit<PermissionGrantGroupArgs, "grants"> & PermissionGrantPlan;
 
 type PermissionGrantInsertResult = {
   grantId: Id<"permissionGrants">;
@@ -62,8 +58,7 @@ function samePermissionDelegation(
     left.scopeId === right.scopeId &&
     left.target.kind === right.target.kind &&
     (left.target.kind === "any_event_person" ||
-      (right.target.kind === "exact_person" &&
-        left.target.personId === right.target.personId))
+      (right.target.kind === "exact_person" && left.target.personId === right.target.personId))
   );
 }
 
@@ -128,10 +123,7 @@ export async function currentSourceGrants(
   return grants;
 }
 
-async function activeExactPermissionGrants(
-  ctx: ReadCtx,
-  args: PermissionRequest,
-) {
+async function activeExactPermissionGrants(ctx: ReadCtx, args: PermissionRequest) {
   const grants = await ctx.db
     .query("permissionGrants")
     .withIndex("by_subject_permission_status_scope", (query) =>
@@ -149,10 +141,7 @@ async function activeExactPermissionGrants(
   return grants;
 }
 
-async function currentExactPermissionGrants(
-  ctx: ReadCtx,
-  args: PermissionRequest,
-) {
+async function currentExactPermissionGrants(ctx: ReadCtx, args: PermissionRequest) {
   const [active, scheduled] = await Promise.all([
     activeExactPermissionGrants(ctx, args),
     ctx.db
@@ -199,8 +188,7 @@ export async function boundedActivePermissionScopeIds(
   if (!definition.scopes.some((scope) => scope === args.scopeType)) {
     throw new Error(`Permission ${args.permissionKey} cannot resolve ${args.scopeType}.`);
   }
-  const maximumGrantCount =
-    args.maximumScopeCount * maximumCurrentGrantsPerPermissionScope;
+  const maximumGrantCount = args.maximumScopeCount * maximumCurrentGrantsPerPermissionScope;
   const grants = await ctx.db
     .query("permissionGrants")
     .withIndex("by_subject_permission_status_scope", (query) =>
@@ -265,16 +253,10 @@ export async function boundedActivePermissionGrants(
     throw new Error("The active permission ledger exceeds its domain limit.");
   }
   const now = Date.now();
-  return grants.filter((grant) =>
-    activeGrantIsCurrent(grant, args.eventId, now),
-  );
+  return grants.filter((grant) => activeGrantIsCurrent(grant, args.eventId, now));
 }
 
-function activeGrantIsCurrent(
-  grant: Doc<"permissionGrants">,
-  eventId: Id<"events">,
-  now: number,
-) {
+function activeGrantIsCurrent(grant: Doc<"permissionGrants">, eventId: Id<"events">, now: number) {
   if (grant.eventId !== eventId) {
     throw new Error("A permission grant belongs to the wrong event account.");
   }
@@ -322,28 +304,24 @@ async function activeGrantByValidity(
       : await Promise.all([
           ctx.db
             .query("permissionGrants")
-            .withIndex(
-              "by_subject_permission_status_scope_type_valid_until",
-              (query) =>
-                query
-                  .eq("eventAccessSubjectId", args.eventAccessSubjectId)
-                  .eq("permissionKey", args.permissionKey)
-                  .eq("status", "active")
-                  .eq("scopeType", scopeTypeValue)
-                  .eq("validUntil", undefined),
+            .withIndex("by_subject_permission_status_scope_type_valid_until", (query) =>
+              query
+                .eq("eventAccessSubjectId", args.eventAccessSubjectId)
+                .eq("permissionKey", args.permissionKey)
+                .eq("status", "active")
+                .eq("scopeType", scopeTypeValue)
+                .eq("validUntil", undefined),
             )
             .first(),
           ctx.db
             .query("permissionGrants")
-            .withIndex(
-              "by_subject_permission_status_scope_type_valid_until",
-              (query) =>
-                query
-                  .eq("eventAccessSubjectId", args.eventAccessSubjectId)
-                  .eq("permissionKey", args.permissionKey)
-                  .eq("status", "active")
-                  .eq("scopeType", scopeTypeValue)
-                  .gt("validUntil", now),
+            .withIndex("by_subject_permission_status_scope_type_valid_until", (query) =>
+              query
+                .eq("eventAccessSubjectId", args.eventAccessSubjectId)
+                .eq("permissionKey", args.permissionKey)
+                .eq("status", "active")
+                .eq("scopeType", scopeTypeValue)
+                .gt("validUntil", now),
             )
             .first(),
         ]);
@@ -405,9 +383,7 @@ export async function hasActivePermissionGrantAtScopeTypes(
       (requestedScopeType !== "event" &&
         !definition.scopes.some((scope) => scope === requestedScopeType))
     ) {
-      throw new Error(
-        `Permission ${args.permissionKey} cannot resolve ${requestedScopeType}.`,
-      );
+      throw new Error(`Permission ${args.permissionKey} cannot resolve ${requestedScopeType}.`);
     }
   }
   const matches = await Promise.all(
@@ -418,10 +394,7 @@ export async function hasActivePermissionGrantAtScopeTypes(
   return matches.some(Boolean);
 }
 
-export async function matchingPermissionGrantIds(
-  ctx: ReadCtx,
-  args: PermissionRequest,
-) {
+export async function matchingPermissionGrantIds(ctx: ReadCtx, args: PermissionRequest) {
   const subject = await ctx.db.get(args.eventAccessSubjectId);
   if (!subject || subject.eventId !== args.eventId || subject.status !== "active") {
     throw new ConvexError({ code: "ACCESS_DENIED", message: "Event access is not active." });
@@ -431,10 +404,7 @@ export async function matchingPermissionGrantIds(
   if (args.scopeType === "event" && !definition.eventWide) {
     throw new Error(`Permission ${args.permissionKey} cannot resolve event scope.`);
   }
-  if (
-    args.scopeType !== "event" &&
-    !definition.scopes.some((scope) => scope === args.scopeType)
-  ) {
+  if (args.scopeType !== "event" && !definition.scopes.some((scope) => scope === args.scopeType)) {
     throw new Error(`Permission ${args.permissionKey} cannot resolve ${args.scopeType}.`);
   }
 
@@ -458,10 +428,7 @@ export async function matchingPermissionGrantIds(
   return matching.map((grant) => grant._id);
 }
 
-export async function requirePermission(
-  ctx: ReadCtx,
-  args: PermissionRequest,
-) {
+export async function requirePermission(ctx: ReadCtx, args: PermissionRequest) {
   const matchingGrantIds = await matchingPermissionGrantIds(ctx, args);
 
   if (matchingGrantIds.length === 0) {
@@ -530,14 +497,10 @@ export async function insertPermissionGrantGroup(
     const definition = permissionCatalog[planned.permissionKey];
     if (planned.scopeType === "event") {
       if (!definition.eventWide || planned.scopeId !== undefined) {
-        throw new Error(
-          `Permission ${planned.permissionKey} cannot be granted event-wide.`,
-        );
+        throw new Error(`Permission ${planned.permissionKey} cannot be granted event-wide.`);
       }
     } else if (!definition.scopes.some((scope) => scope === planned.scopeType)) {
-      throw new Error(
-        `Invalid ${planned.scopeType} scope for ${planned.permissionKey}.`,
-      );
+      throw new Error(`Invalid ${planned.scopeType} scope for ${planned.permissionKey}.`);
     }
 
     const isScopedAuthority =
@@ -565,21 +528,14 @@ export async function insertPermissionGrantGroup(
       }
       const delegatedDefinition = permissionCatalog[planned.delegation.permissionKey];
       if (planned.delegation.scopeType === "event") {
-        if (
-          !delegatedDefinition.eventWide ||
-          planned.delegation.scopeId !== undefined
-        ) {
+        if (!delegatedDefinition.eventWide || planned.delegation.scopeId !== undefined) {
           throw new Error("The delegated permission cannot use that event scope.");
         }
       } else if (
-        !delegatedDefinition.scopes.some(
-          (scope) => scope === planned.delegation?.scopeType,
-        ) ||
+        !delegatedDefinition.scopes.some((scope) => scope === planned.delegation?.scopeType) ||
         planned.delegation.scopeId === undefined
       ) {
-        throw new Error(
-          "The delegated permission needs one legal exact resource scope.",
-        );
+        throw new Error("The delegated permission needs one legal exact resource scope.");
       }
       if (
         planned.delegation.target.kind === "any_event_person" &&
@@ -595,15 +551,11 @@ export async function insertPermissionGrantGroup(
         const delegatedTarget = await ctx.db
           .query("eventAccessSubjects")
           .withIndex("by_event_person", (query) =>
-            query
-              .eq("eventId", args.eventId)
-              .eq("personId", delegatedTargetPersonId),
+            query.eq("eventId", args.eventId).eq("personId", delegatedTargetPersonId),
           )
           .unique();
         if (!delegatedTarget || delegatedTarget.status !== "active") {
-          throw new Error(
-            "The delegation target must be an active account in this event.",
-          );
+          throw new Error("The delegation target must be an active account in this event.");
         }
       }
     }
@@ -639,18 +591,12 @@ export async function insertPermissionGrantGroup(
             scopeType: planned.scopeType,
             scopeId: planned.scopeId,
           };
-    const currentScopeGrants = await currentExactPermissionGrants(
-      ctx,
-      permissionRequest,
-    );
+    const currentScopeGrants = await currentExactPermissionGrants(ctx, permissionRequest);
     const existing = currentScopeGrants.filter(
-      (grant) =>
-        grant.sourceType === args.sourceType && grant.sourceId === args.sourceId,
+      (grant) => grant.sourceType === args.sourceType && grant.sourceId === args.sourceId,
     );
     if (existing.length > 1) {
-      throw new Error(
-        "A permission source owns duplicate grants for one exact scope.",
-      );
+      throw new Error("A permission source owns duplicate grants for one exact scope.");
     }
     const duplicate = existing[0];
     if (duplicate) {
@@ -689,17 +635,13 @@ export async function insertPermissionGrantGroup(
       permissionKey: planned.permissionKey,
       scopeType: planned.scopeType,
       ...(planned.scopeType === "event" ? {} : { scopeId: planned.scopeId }),
-      ...(planned.delegation !== undefined
-        ? { delegation: planned.delegation }
-        : {}),
+      ...(planned.delegation !== undefined ? { delegation: planned.delegation } : {}),
       validFrom,
       ...(args.validUntil !== undefined ? { validUntil: args.validUntil } : {}),
       status,
       sourceType: args.sourceType,
       sourceId: args.sourceId,
-      ...(args.grantBatchId !== undefined
-        ? { grantBatchId: args.grantBatchId }
-        : {}),
+      ...(args.grantBatchId !== undefined ? { grantBatchId: args.grantBatchId } : {}),
       ...(args.grantedByPersonId !== undefined
         ? { grantedByPersonId: args.grantedByPersonId }
         : {}),
@@ -708,11 +650,9 @@ export async function insertPermissionGrantGroup(
       ...(status === "active" ? { activatedAt: now } : {}),
     });
     if (status === "scheduled") {
-      await ctx.scheduler.runAt(
-        validFrom,
-        internal.permissionGrantLifecycle.transitionGrant,
-        { grantId },
-      );
+      await ctx.scheduler.runAt(validFrom, internal.permissionGrantLifecycle.transitionGrant, {
+        grantId,
+      });
     }
     if (args.validUntil !== undefined) {
       await ctx.scheduler.runAt(
@@ -740,17 +680,13 @@ export async function insertPermissionGrant(
       ? {
           permissionKey: args.permissionKey,
           scopeType: "event",
-          ...(args.delegation !== undefined
-            ? { delegation: args.delegation }
-            : {}),
+          ...(args.delegation !== undefined ? { delegation: args.delegation } : {}),
         }
       : {
           permissionKey: args.permissionKey,
           scopeType: args.scopeType,
           scopeId: args.scopeId,
-          ...(args.delegation !== undefined
-            ? { delegation: args.delegation }
-            : {}),
+          ...(args.delegation !== undefined ? { delegation: args.delegation } : {}),
         };
   const group = await insertPermissionGrantGroup(ctx, {
     eventId: args.eventId,
@@ -758,12 +694,8 @@ export async function insertPermissionGrant(
     eventAccessSubjectId: args.eventAccessSubjectId,
     sourceType: args.sourceType,
     sourceId: args.sourceId,
-    ...(args.grantBatchId !== undefined
-      ? { grantBatchId: args.grantBatchId }
-      : {}),
-    ...(args.grantedByPersonId !== undefined
-      ? { grantedByPersonId: args.grantedByPersonId }
-      : {}),
+    ...(args.grantBatchId !== undefined ? { grantBatchId: args.grantBatchId } : {}),
+    ...(args.grantedByPersonId !== undefined ? { grantedByPersonId: args.grantedByPersonId } : {}),
     reason: args.reason,
     ...(args.validFrom !== undefined ? { validFrom: args.validFrom } : {}),
     ...(args.validUntil !== undefined ? { validUntil: args.validUntil } : {}),
@@ -836,9 +768,7 @@ export async function revokeSourceGrants(
   await revokeSourceGrantGroups(ctx, {
     eventId: args.eventId,
     sources: [{ sourceType: args.sourceType, sourceId: args.sourceId }],
-    ...(args.revokedByPersonId !== undefined
-      ? { revokedByPersonId: args.revokedByPersonId }
-      : {}),
+    ...(args.revokedByPersonId !== undefined ? { revokedByPersonId: args.revokedByPersonId } : {}),
     reason: args.reason,
   });
 }

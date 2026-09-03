@@ -1,16 +1,16 @@
-import { useState } from 'react'
-import { Drawer } from 'vaul'
-import { ideaPromptSections } from '../../lib/ideaPrompts'
-import { useDesktop } from '../../lib/useDesktop'
+import { useState } from "react";
+import { Drawer } from "vaul";
+import { ideaPromptSections } from "../../lib/ideaPrompts";
+import { useDesktop } from "../../lib/useDesktop";
 
 /**
  * The quiet line under the idea box for teams who arrive empty-handed. It
  * opens the organisers' list of directions (a side sheet on wide screens,
  * a bottom sheet on phones), grouped as they wrote them.
  */
-export function IdeaPromptsLink({ className = '' }: { className?: string }) {
-  const [open, setOpen] = useState(false)
-  const desktop = useDesktop()
+export function IdeaPromptsLink({ className = "" }: { className?: string }) {
+  const [open, setOpen] = useState(false);
+  const desktop = useDesktop();
 
   return (
     <>
@@ -22,18 +22,21 @@ export function IdeaPromptsLink({ className = '' }: { className?: string }) {
         Can’t come up with an idea?
       </button>
 
-      <Drawer.Root open={open} onOpenChange={setOpen} direction={desktop ? 'right' : 'bottom'}>
+      <Drawer.Root open={open} onOpenChange={setOpen} direction={desktop ? "right" : "bottom"}>
         <Drawer.Portal>
           <Drawer.Overlay className="fixed inset-0 z-40 bg-[rgb(6_0_2/.5)]" />
           <Drawer.Content
             className={
               desktop
-                ? 'fixed inset-y-0 right-0 z-50 flex w-[460px] max-w-[92vw] flex-col border-l border-petal-edge bg-wash font-ui text-fg outline-none'
-                : 'fixed inset-x-0 bottom-0 z-50 flex max-h-[88dvh] flex-col rounded-tl-box border-t border-petal-edge bg-wash font-ui text-fg outline-none'
+                ? "fixed inset-y-0 right-0 z-50 flex w-[460px] max-w-[92vw] flex-col border-l border-petal-edge bg-wash font-ui text-fg outline-none"
+                : "fixed inset-x-0 bottom-0 z-50 flex max-h-[88dvh] flex-col rounded-tl-box border-t border-petal-edge bg-wash font-ui text-fg outline-none"
             }
           >
             {desktop ? null : (
-              <div aria-hidden className="mx-auto mt-3 h-1 w-10 flex-none rounded-full bg-rose/40" />
+              <div
+                aria-hidden
+                className="mx-auto mt-3 h-1 w-10 flex-none rounded-full bg-rose/40"
+              />
             )}
 
             <div className="flex flex-none items-start justify-between gap-4 px-7 pt-6 pb-3">
@@ -46,7 +49,15 @@ export function IdeaPromptsLink({ className = '' }: { className?: string }) {
                 aria-label="Close"
                 className="flex size-9 flex-none cursor-pointer appearance-none items-center justify-center rounded-full border border-rose/50 bg-transparent p-0 text-fg/60 transition-colors hover:border-rose-light hover:text-rose-light"
               >
-                <svg width="13" height="13" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+                <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  aria-hidden
+                >
                   <path d="M6 6l12 12M18 6L6 18" />
                 </svg>
               </Drawer.Close>
@@ -77,5 +88,5 @@ export function IdeaPromptsLink({ className = '' }: { className?: string }) {
         </Drawer.Portal>
       </Drawer.Root>
     </>
-  )
+  );
 }

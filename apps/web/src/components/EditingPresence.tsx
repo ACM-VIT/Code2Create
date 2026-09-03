@@ -1,28 +1,34 @@
-import type { EditingSurface } from '../hooks/useEditingPresence'
-import type { CurrentTeamMember } from '../types'
+import type { EditingSurface } from "../hooks/useEditingPresence";
+import type { CurrentTeamMember } from "../types";
 
 type Editor = {
-  membershipId: CurrentTeamMember['membershipId']
-  surface: EditingSurface
-  label: string
-}
+  membershipId: CurrentTeamMember["membershipId"];
+  surface: EditingSurface;
+  label: string;
+};
 
 export function EditingPresence({
   editors,
   members,
 }: {
-  editors: readonly Editor[]
-  members: readonly CurrentTeamMember[]
+  editors: readonly Editor[];
+  members: readonly CurrentTeamMember[];
 }) {
-  if (editors.length === 0) return null
+  if (editors.length === 0) return null;
 
-  const activeEditors = [...new Map(editors.map((editor) => {
-    const name = members.find(
-      (member) => member.membershipId === editor.membershipId,
-    )?.displayName
-    const label = name ? `${name} is editing ${editor.label}` : `Someone is editing ${editor.label}`
-    return [`${editor.membershipId}:${editor.surface}:${editor.label}`, label] as const
-  })).values()]
+  const activeEditors = [
+    ...new Map(
+      editors.map((editor) => {
+        const name = members.find(
+          (member) => member.membershipId === editor.membershipId,
+        )?.displayName;
+        const label = name
+          ? `${name} is editing ${editor.label}`
+          : `Someone is editing ${editor.label}`;
+        return [`${editor.membershipId}:${editor.surface}:${editor.label}`, label] as const;
+      }),
+    ).values(),
+  ];
 
   return (
     <p
@@ -43,5 +49,5 @@ export function EditingPresence({
         </span>
       ))}
     </p>
-  )
+  );
 }

@@ -1,35 +1,35 @@
-import type { ReactNode } from 'react'
+import type { ReactNode } from "react";
 
-import { canLeaveByTeamRule, canLeaveCurrentTeam } from '../../lib/teamLeave'
-import { Flower } from './FlowerAvatar'
-import { PortalButton } from './PortalButton'
-import { PortalError } from './PortalField'
-import { PortalScene } from './PortalScene'
+import { canLeaveByTeamRule, canLeaveCurrentTeam } from "../../lib/teamLeave";
+import { Flower } from "./FlowerAvatar";
+import { PortalButton } from "./PortalButton";
+import { PortalError } from "./PortalField";
+import { PortalScene } from "./PortalScene";
 
 export type ChoiceCurrentTeam = {
-  id: string
-  name: string
-  version: number
-  activeMemberCount: number
-  currentMembershipId: string
-  currentRole: 'lead' | 'member'
-  canLeave: boolean
-}
+  id: string;
+  name: string;
+  version: number;
+  activeMemberCount: number;
+  currentMembershipId: string;
+  currentRole: "lead" | "member";
+  canLeave: boolean;
+};
 
 export type ImportedTeamChoice = {
-  id: string
-  version: number
-  teamName: string
-  role: 'lead' | 'member'
-  status: 'pending' | 'waiting_for_lead' | 'choice_required'
+  id: string;
+  version: number;
+  teamName: string;
+  role: "lead" | "member";
+  status: "pending" | "waiting_for_lead" | "choice_required";
   assignees: readonly {
-    displayName: string
-    role: 'lead' | 'member'
-    signedIn: boolean
-    accepted: boolean
-    isYou: boolean
-  }[]
-}
+    displayName: string;
+    role: "lead" | "member";
+    signedIn: boolean;
+    accepted: boolean;
+    isYou: boolean;
+  }[];
+};
 
 /**
  * The organisers' roster already lists this person on a team. Usually that
@@ -47,30 +47,30 @@ export function ImportedTeamChoiceView({
   onJoin,
   onKeep,
 }: {
-  header: ReactNode
+  header: ReactNode;
   /** The team they made themselves — absent in the usual, pre-team case. */
-  currentTeam?: ChoiceCurrentTeam
-  importedTeam: ImportedTeamChoice
-  joining: boolean
-  keeping: boolean
-  error: string | null
+  currentTeam?: ChoiceCurrentTeam;
+  importedTeam: ImportedTeamChoice;
+  joining: boolean;
+  keeping: boolean;
+  error: string | null;
   /** Accept the imported team, optionally leaving the current one. */
-  onJoin: () => void
+  onJoin: () => void;
   /** Decline the imported team: keep the current one, or go make your own. */
-  onKeep: () => void
+  onKeep: () => void;
 }) {
-  const busy = joining || keeping
-  const importedLead = importedTeam.assignees.find((assignee) => assignee.role === 'lead')
-  const leadName = importedLead?.displayName.split(/\s+/)[0] ?? 'your lead'
-  const listedAs = importedTeam.role === 'lead' ? 'the lead' : 'a member'
+  const busy = joining || keeping;
+  const importedLead = importedTeam.assignees.find((assignee) => assignee.role === "lead");
+  const leadName = importedLead?.displayName.split(/\s+/)[0] ?? "your lead";
+  const listedAs = importedTeam.role === "lead" ? "the lead" : "a member";
 
   if (!currentTeam) {
-    const waitingForLead = importedTeam.status === 'waiting_for_lead'
+    const waitingForLead = importedTeam.status === "waiting_for_lead";
     return (
       <PortalScene tree="both" header={header}>
         <div className="flex w-full max-w-[640px] flex-col items-center text-center">
           <h1 className="mb-3 font-display font-light tracking-[-.01em] text-balance text-3xl text-shadow-[0_4px_30px_var(--scene-text-glow)] lg:text-[42px]">
-            {waitingForLead ? `Waiting for ${leadName}.` : 'Is this your team?'}
+            {waitingForLead ? `Waiting for ${leadName}.` : "Is this your team?"}
           </h1>
           <p className="mb-7 max-w-[480px] text-[13px] leading-relaxed text-fg/60">
             {waitingForLead ? (
@@ -80,8 +80,8 @@ export function ImportedTeamChoiceView({
               </>
             ) : (
               <>
-                You registered for{' '}
-                <span className="text-fg/90">{importedTeam.teamName}</span> as {listedAs}.
+                You registered for <span className="text-fg/90">{importedTeam.teamName}</span> as{" "}
+                {listedAs}.
               </>
             )}
           </p>
@@ -91,7 +91,7 @@ export function ImportedTeamChoiceView({
             name={importedTeam.teamName}
             meta={`you’re listed as ${listedAs}`}
             seed={`${importedTeam.id}:imported`}
-            lead={importedTeam.role === 'lead'}
+            lead={importedTeam.role === "lead"}
             assignees={importedTeam.assignees}
             action={
               <div className="flex flex-col gap-2">
@@ -104,7 +104,7 @@ export function ImportedTeamChoiceView({
                     disabled={busy}
                     onClick={onJoin}
                   >
-                    {joining ? 'Joining…' : `Join ${importedTeam.teamName}`}
+                    {joining ? "Joining…" : `Join ${importedTeam.teamName}`}
                   </PortalButton>
                 ) : null}
                 <PortalButton
@@ -114,7 +114,7 @@ export function ImportedTeamChoiceView({
                   disabled={busy}
                   onClick={onKeep}
                 >
-                  {keeping ? 'Leaving…' : waitingForLead ? 'Leave this team' : 'Not my team'}
+                  {keeping ? "Leaving…" : waitingForLead ? "Leave this team" : "Not my team"}
                 </PortalButton>
               </div>
             }
@@ -123,17 +123,17 @@ export function ImportedTeamChoiceView({
           <PortalError message={error} />
         </div>
       </PortalScene>
-    )
+    );
   }
 
-  const canLeave = canLeaveCurrentTeam(currentTeam)
-  const mustTransferLeadership = currentTeam.canLeave && !canLeaveByTeamRule(currentTeam)
+  const canLeave = canLeaveCurrentTeam(currentTeam);
+  const mustTransferLeadership = currentTeam.canLeave && !canLeaveByTeamRule(currentTeam);
   const joinBlocked = mustTransferLeadership
     ? `You lead ${currentTeam.name} and others are still on it — hand the lead to someone first.`
     : !currentTeam.canLeave
       ? `You can’t leave ${currentTeam.name} right now. Keep it, or ask the event team.`
-      : null
-  const people = currentTeam.activeMemberCount
+      : null;
+  const people = currentTeam.activeMemberCount;
 
   return (
     <PortalScene tree="both" header={header}>
@@ -149,12 +149,18 @@ export function ImportedTeamChoiceView({
         <div className="grid w-full grid-cols-1 gap-3.5 sm:grid-cols-2 sm:gap-4">
           <TeamChoiceCard
             name={currentTeam.name}
-            meta={`${people} ${people === 1 ? 'person' : 'people'} · you’re ${currentTeam.currentRole === 'lead' ? 'the lead' : 'a member'}`}
+            meta={`${people} ${people === 1 ? "person" : "people"} · you’re ${currentTeam.currentRole === "lead" ? "the lead" : "a member"}`}
             seed={currentTeam.currentMembershipId}
-            lead={currentTeam.currentRole === 'lead'}
+            lead={currentTeam.currentRole === "lead"}
             action={
-              <PortalButton type="button" size="sm" className="w-full" disabled={busy} onClick={onKeep}>
-                {keeping ? 'Keeping…' : `Keep ${currentTeam.name}`}
+              <PortalButton
+                type="button"
+                size="sm"
+                className="w-full"
+                disabled={busy}
+                onClick={onKeep}
+              >
+                {keeping ? "Keeping…" : `Keep ${currentTeam.name}`}
               </PortalButton>
             }
           />
@@ -162,7 +168,7 @@ export function ImportedTeamChoiceView({
             name={importedTeam.teamName}
             meta={`you’re listed as ${listedAs}`}
             seed={`${importedTeam.id}:imported`}
-            lead={importedTeam.role === 'lead'}
+            lead={importedTeam.role === "lead"}
             assignees={importedTeam.assignees}
             note={joinBlocked}
             noteTone="rose"
@@ -175,7 +181,7 @@ export function ImportedTeamChoiceView({
                 disabled={busy || !canLeave}
                 onClick={onJoin}
               >
-                {joining ? 'Joining…' : `Join ${importedTeam.teamName}`}
+                {joining ? "Joining…" : `Join ${importedTeam.teamName}`}
               </PortalButton>
             }
           />
@@ -184,7 +190,7 @@ export function ImportedTeamChoiceView({
         <PortalError message={error} />
       </div>
     </PortalScene>
-  )
+  );
 }
 
 function TeamChoiceCard({
@@ -194,28 +200,30 @@ function TeamChoiceCard({
   lead,
   assignees = [],
   note = null,
-  noteTone = 'muted',
+  noteTone = "muted",
   action,
-  className = '',
+  className = "",
 }: {
-  name: string
-  meta: string
-  seed: string
-  lead: boolean
-  assignees?: ImportedTeamChoice['assignees']
-  note?: string | null
-  noteTone?: 'muted' | 'rose'
-  action: ReactNode
-  className?: string
+  name: string;
+  meta: string;
+  seed: string;
+  lead: boolean;
+  assignees?: ImportedTeamChoice["assignees"];
+  note?: string | null;
+  noteTone?: "muted" | "rose";
+  action: ReactNode;
+  className?: string;
 }) {
   return (
-    <section className={`flex w-full flex-col rounded-petal-sm glass-tile px-5 py-5 text-left lg:px-7 lg:py-6 ${className}`}>
+    <section
+      className={`flex w-full flex-col rounded-petal-sm glass-tile px-5 py-5 text-left lg:px-7 lg:py-6 ${className}`}
+    >
       <div className="flex items-center gap-3.5">
         <span
           className={`flex size-11 flex-none items-center justify-center rounded-full ${
             lead
-              ? 'border-2 border-ring-lead bg-avatar-lead shadow-[0_0_16px_var(--avatar-glow)]'
-              : 'border-2 border-rose/70 bg-avatar'
+              ? "border-2 border-ring-lead bg-avatar-lead shadow-[0_0_16px_var(--avatar-glow)]"
+              : "border-2 border-rose/70 bg-avatar"
           }`}
         >
           <Flower seed={seed} lead={lead} className="size-[62%]" />
@@ -235,22 +243,24 @@ function TeamChoiceCard({
               key={`${assignee.role}:${assignee.displayName}:${index}`}
               className="flex items-center justify-between gap-3 py-1.5"
             >
-              <span className={`min-w-0 truncate text-[12.5px] ${assignee.isYou ? 'text-rose-light' : 'text-fg/80'}`}>
+              <span
+                className={`min-w-0 truncate text-[12.5px] ${assignee.isYou ? "text-rose-light" : "text-fg/80"}`}
+              >
                 {assignee.displayName}
               </span>
               <span className="flex-none text-[10.5px] text-fg/45">
                 {[
-                  assignee.role === 'lead' ? 'lead' : null,
+                  assignee.role === "lead" ? "lead" : null,
                   assignee.isYou
-                    ? 'you'
+                    ? "you"
                     : assignee.accepted
-                      ? 'accepted'
+                      ? "accepted"
                       : assignee.signedIn
-                        ? 'not accepted yet'
-                        : 'not signed in yet',
+                        ? "not accepted yet"
+                        : "not signed in yet",
                 ]
                   .filter(Boolean)
-                  .join(' · ')}
+                  .join(" · ")}
               </span>
             </li>
           ))}
@@ -262,7 +272,7 @@ function TeamChoiceCard({
         {note ? (
           <p
             className={`m-0 mt-2.5 text-[11.5px] leading-relaxed ${
-              noteTone === 'rose' ? 'text-rose-light' : 'text-fg/50'
+              noteTone === "rose" ? "text-rose-light" : "text-fg/50"
             }`}
           >
             {note}
@@ -270,5 +280,5 @@ function TeamChoiceCard({
         ) : null}
       </div>
     </section>
-  )
+  );
 }

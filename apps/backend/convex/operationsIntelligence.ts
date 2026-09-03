@@ -4,11 +4,7 @@ import type { OperationsBriefPriority, OperationsHealthSnapshot } from "@code2cr
 
 import { internal } from "./_generated/api";
 import type { DataModel, Doc } from "./_generated/dataModel";
-import {
-  internalMutation,
-  mutation,
-  query,
-} from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
@@ -122,16 +118,9 @@ function validatePriorities(
       });
     }
     const owner = normalizedModelText(priority.owner, "Priority owner", 2, 80);
-    const nextAction = normalizedModelText(
-      priority.nextAction,
-      "Priority next action",
-      4,
-      240,
-    );
+    const nextAction = normalizedModelText(priority.nextAction, "Priority next action", 4, 240);
     if (
-      !citedSignals.some(
-        (signal) => signal.owner === owner && signal.nextAction === nextAction,
-      )
+      !citedSignals.some((signal) => signal.owner === owner && signal.nextAction === nextAction)
     ) {
       throw new ConvexError({
         code: "INTELLIGENCE_CALLBACK_INVALID",
@@ -215,12 +204,7 @@ export const request = mutation({
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
-    const clientOperationId = normalizedText(
-      args.clientOperationId,
-      "Client operation ID",
-      8,
-      120,
-    );
+    const clientOperationId = normalizedText(args.clientOperationId, "Client operation ID", 8, 120);
     const requestFingerprint = operationFingerprint([event._id]);
     const grantIds = await requirePermission(ctx, {
       eventId: event._id,
@@ -288,11 +272,9 @@ export const request = mutation({
       },
     );
     await ctx.db.patch(briefId, { workId });
-    await ctx.scheduler.runAfter(
-      agentCompletionWindowMs,
-      internal.operationsIntelligence.expire,
-      { briefId },
-    );
+    await ctx.scheduler.runAfter(agentCompletionWindowMs, internal.operationsIntelligence.expire, {
+      briefId,
+    });
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -359,9 +341,7 @@ export const markAccepted = internalMutation({
     if (!brief || brief.state !== "dispatching") return null;
     await ctx.db.patch(brief._id, {
       state: "accepted",
-      ...(args.workerSubmissionId
-        ? { workerSubmissionId: args.workerSubmissionId }
-        : {}),
+      ...(args.workerSubmissionId ? { workerSubmissionId: args.workerSubmissionId } : {}),
       workerAcceptedAt: args.workerAcceptedAt,
       updatedAt: Date.now(),
       version: brief.version + 1,
@@ -390,12 +370,7 @@ export const completeFromWorker = internalMutation({
     }
     if (brief.state === "pending") return "stale";
     const now = Date.now();
-    const agentVersion = normalizedModelText(
-      args.callback.agentVersion,
-      "Agent version",
-      1,
-      80,
-    );
+    const agentVersion = normalizedModelText(args.callback.agentVersion, "Agent version", 1, 80);
     const model = normalizedModelText(args.callback.model, "Model", 3, 160);
     if (args.callback.status === "failed") {
       await ctx.db.patch(brief._id, {

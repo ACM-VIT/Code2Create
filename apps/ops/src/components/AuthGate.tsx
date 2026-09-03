@@ -1,6 +1,6 @@
-import type { ReactNode } from 'react'
+import type { ReactNode } from "react";
 
-import { AcmMark, BrandBackdrop, BrandMark, BrandWordmark } from './Brand'
+import { AcmMark, BrandBackdrop, BrandMark, BrandWordmark } from "./Brand";
 
 export function Gate({
   children,
@@ -9,11 +9,11 @@ export function Gate({
   title,
   who,
 }: {
-  children: ReactNode
-  error?: string | null
-  subtitle?: string
-  title: string
-  who?: string
+  children: ReactNode;
+  error?: string | null;
+  subtitle?: string;
+  title: string;
+  who?: string;
 }) {
   return (
     <BrandBackdrop>
@@ -38,7 +38,7 @@ export function Gate({
         <AcmMark size={40} />
       </div>
     </BrandBackdrop>
-  )
+  );
 }
 
 export function GateAction({
@@ -47,21 +47,21 @@ export function GateAction({
   onClick,
   secondary = false,
 }: {
-  disabled?: boolean
-  label: string
-  onClick?: () => void
-  secondary?: boolean
+  disabled?: boolean;
+  label: string;
+  onClick?: () => void;
+  secondary?: boolean;
 }) {
   return (
     <button
-      className={secondary ? 'gate-action gate-action-secondary' : 'gate-action'}
+      className={secondary ? "gate-action gate-action-secondary" : "gate-action"}
       disabled={disabled}
       onClick={onClick}
       type="button"
     >
       {label}
     </button>
-  )
+  );
 }
 
 export function GateBoot({ status }: { status: string }) {
@@ -82,5 +82,5 @@ export function GateBoot({ status }: { status: string }) {
         <AcmMark size={40} />
       </div>
     </BrandBackdrop>
-  )
+  );
 }

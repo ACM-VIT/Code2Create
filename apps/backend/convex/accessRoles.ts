@@ -4,14 +4,8 @@ import type { Id } from "./_generated/dataModel";
 import { mutation } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
-import {
-  requireCurrentPerson,
-  requireEventSubject,
-} from "./lib/identity";
-import {
-  requireGrantAuthorities,
-  requireRevokeAuthorities,
-} from "./lib/permissionDelegation";
+import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
+import { requireGrantAuthorities, requireRevokeAuthorities } from "./lib/permissionDelegation";
 import {
   findOperation,
   operationFingerprint,
@@ -19,10 +13,7 @@ import {
   storedOperationVersion,
 } from "./lib/operations";
 import { requirePermission, revokeSourceGrants } from "./lib/permissions";
-import {
-  grantSupremeRolePermissions,
-  supremeRolePermissionPlans,
-} from "./lib/rolePermissions";
+import { grantSupremeRolePermissions, supremeRolePermissionPlans } from "./lib/rolePermissions";
 import { normalizedText } from "./lib/strings";
 import { eventRole } from "./values";
 
@@ -41,12 +32,7 @@ export const set = mutation({
     const { person } = await requireCurrentPerson(ctx);
     const actorSubject = await requireEventSubject(ctx, event._id, person._id);
     const reason = normalizedText(args.reason, "Reason", 5, 300);
-    const operationId = normalizedText(
-      args.clientOperationId,
-      "Client operation ID",
-      10,
-      100,
-    );
+    const operationId = normalizedText(args.clientOperationId, "Client operation ID", 10, 100);
     const requestFingerprint = operationFingerprint([
       args.targetPersonId,
       args.role,
@@ -61,10 +47,7 @@ export const set = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const targetSubjectId = ctx.db.normalizeId(
-        "eventAccessSubjects",
-        prior.targetId,
-      );
+      const targetSubjectId = ctx.db.normalizeId("eventAccessSubjects", prior.targetId);
       if (!targetSubjectId) throw new Error("Prior role-label result is invalid.");
       return {
         accessVersion: storedOperationVersion(prior.resultJson, "role-label"),
@@ -78,11 +61,7 @@ export const set = mutation({
       scopeType: "person",
       scopeId: args.targetPersonId,
     });
-    const targetSubject = await requireEventSubject(
-      ctx,
-      event._id,
-      args.targetPersonId,
-    );
+    const targetSubject = await requireEventSubject(ctx, event._id, args.targetPersonId);
     if (targetSubject.accessVersion !== args.expectedAccessVersion) {
       throw new ConvexError({
         code: "ACCESS_CHANGED",
@@ -92,10 +71,7 @@ export const set = mutation({
     const currentRole = await ctx.db
       .query("eventRoles")
       .withIndex("by_event_person_status", (index) =>
-        index
-          .eq("eventId", event._id)
-          .eq("personId", args.targetPersonId)
-          .eq("status", "active"),
+        index.eq("eventId", event._id).eq("personId", args.targetPersonId).eq("status", "active"),
       )
       .unique();
     const rolePermissionPlans = supremeRolePermissionPlans(targetSubject._id);
@@ -127,10 +103,7 @@ export const set = mutation({
       });
       roleAuthorityGrantIds.push(...authority.grantIds);
     }
-    const auditGrantIds = [...new Set([
-      ...authorizingGrantIds,
-      ...roleAuthorityGrantIds,
-    ])];
+    const auditGrantIds = [...new Set([...authorizingGrantIds, ...roleAuthorityGrantIds])];
     if ((currentRole?.role ?? null) === args.role) {
       let accessVersion = targetSubject.accessVersion;
       if (args.role === "supreme" && currentRole) {

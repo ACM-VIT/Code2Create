@@ -9,8 +9,7 @@ export const participantEmailTemplateKeys = [
   "offer_expired",
 ] as const;
 
-export type ParticipantEmailTemplateKey =
-  (typeof participantEmailTemplateKeys)[number];
+export type ParticipantEmailTemplateKey = (typeof participantEmailTemplateKeys)[number];
 
 export type ParticipantEmailTemplate = {
   templateKey: ParticipantEmailTemplateKey;
@@ -19,10 +18,7 @@ export type ParticipantEmailTemplate = {
   html: string;
 };
 
-export const participantEmailTemplateLabels: Record<
-  ParticipantEmailTemplateKey,
-  string
-> = {
+export const participantEmailTemplateLabels: Record<ParticipantEmailTemplateKey, string> = {
   accept: "Selected",
   waitlist: "Waitlisted",
   decline: "Not selected",

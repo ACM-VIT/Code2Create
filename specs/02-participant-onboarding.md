@@ -305,16 +305,16 @@ The participant portal has no command to enter a team into a panel queue or chan
 
 The participant sees one accepted state:
 
-| State | Meaning |
-| --- | --- |
-| Waiting for review desk | Staff have not placed the team |
-| Queued | The team has a panel and queue position |
-| Called | The team must go to the shown table |
-| At table | The team waits for reviewer presence |
-| In review | The server has started the review |
-| Held | Staff paused the team and supplied a reason |
-| Missed | The approved missed-call policy applies |
-| Complete | The review is recorded |
+| State                   | Meaning                                     |
+| ----------------------- | ------------------------------------------- |
+| Waiting for review desk | Staff have not placed the team              |
+| Queued                  | The team has a panel and queue position     |
+| Called                  | The team must go to the shown table         |
+| At table                | The team waits for reviewer presence        |
+| In review               | The server has started the review           |
+| Held                    | Staff paused the team and supplied a reason |
+| Missed                  | The approved missed-call policy applies     |
+| Complete                | The review is recorded                      |
 
 The queue shows a five-minute-bucketed range. It uses server time, configured review duration, current review remainder, recent bounded median duration, teams ahead, and handover allowance. A paused round hides the estimate. An expired estimate shows **Taking longer than estimated**.
 

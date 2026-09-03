@@ -43,10 +43,12 @@ describe("integration policy configuration", () => {
     expect(integrationProviderFrozenAt(normalized, "github", freezeAt)).toBe(true);
     expect(integrationProviderFrozenAt(normalized, "github", freezeAt + 1)).toBe(true);
     expect(integrationProviderFrozenAt(normalized, "figma", freezeAt + 1)).toBe(false);
-    expect(() => normalizeIntegrationPolicy({
-      ...policy("integrations-v2"),
-      requiredGitHubTopic: "code2create--7",
-    })).toThrow("single hyphens");
+    expect(() =>
+      normalizeIntegrationPolicy({
+        ...policy("integrations-v2"),
+        requiredGitHubTopic: "code2create--7",
+      }),
+    ).toThrow("single hyphens");
   });
 
   test("does not treat a previous-policy or unverified topic as current", () => {
@@ -55,41 +57,48 @@ describe("integration policy configuration", () => {
       topicState: "present" as const,
     };
     expect(githubTopicVerificationIsCurrent(verified, "code2create-7-0")).toBe(true);
-    expect(githubTopicVerificationIsCurrent(
-      { ...verified, requiredTopic: "code2create-7" },
-      "code2create-7-0",
-    )).toBe(false);
-    expect(githubTopicVerificationIsCurrent(
-      { ...verified, topicState: "unknown" },
-      "code2create-7-0",
-    )).toBe(false);
+    expect(
+      githubTopicVerificationIsCurrent(
+        { ...verified, requiredTopic: "code2create-7" },
+        "code2create-7-0",
+      ),
+    ).toBe(false);
+    expect(
+      githubTopicVerificationIsCurrent({ ...verified, topicState: "unknown" }, "code2create-7-0"),
+    ).toBe(false);
   });
 
   test("allows only one competing draft from the same observed state", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedFixture(backend, "draft-race");
     const attempts = await Promise.allSettled([
-      backend.run((ctx) => saveIntegrationPolicyDraft(ctx, {
-        event: fixture.event,
-        actorPersonId: fixture.personId,
-        policy: policy("integrations-alpha"),
-        now: fixture.now + 1,
-      })),
-      backend.run((ctx) => saveIntegrationPolicyDraft(ctx, {
-        event: fixture.event,
-        actorPersonId: fixture.personId,
-        policy: policy("integrations-beta"),
-        now: fixture.now + 1,
-      })),
+      backend.run((ctx) =>
+        saveIntegrationPolicyDraft(ctx, {
+          event: fixture.event,
+          actorPersonId: fixture.personId,
+          policy: policy("integrations-alpha"),
+          now: fixture.now + 1,
+        }),
+      ),
+      backend.run((ctx) =>
+        saveIntegrationPolicyDraft(ctx, {
+          event: fixture.event,
+          actorPersonId: fixture.personId,
+          policy: policy("integrations-beta"),
+          now: fixture.now + 1,
+        }),
+      ),
     ]);
     expect(attempts.filter((attempt) => attempt.status === "fulfilled")).toHaveLength(1);
     expect(attempts.filter((attempt) => attempt.status === "rejected")).toHaveLength(1);
-    const drafts = await backend.run((ctx) => ctx.db
-      .query("integrationPolicyVersions")
-      .withIndex("by_event_status", (index) =>
-        index.eq("eventId", fixture.event._id).eq("status", "draft"),
-      )
-      .collect());
+    const drafts = await backend.run((ctx) =>
+      ctx.db
+        .query("integrationPolicyVersions")
+        .withIndex("by_event_status", (index) =>
+          index.eq("eventId", fixture.event._id).eq("status", "draft"),
+        )
+        .collect(),
+    );
     expect(drafts).toHaveLength(1);
   });
 
@@ -100,22 +109,28 @@ describe("integration policy configuration", () => {
       await ctx.db.insert("githubTeamMetrics", githubMetric(fixture, 4));
       await ctx.db.insert("figmaTeamMetrics", figmaMetric(fixture, 3));
     });
-    const draft = await backend.run((ctx) => saveIntegrationPolicyDraft(ctx, {
-      event: fixture.event,
-      actorPersonId: fixture.personId,
-      policy: {
-        ...policy("integrations-v2"),
-        maxActiveGitHubRepositoriesPerTeam: 3,
-        maxActiveFigmaFilesPerTeam: 2,
-      },
-      now: fixture.now + 1,
-    }));
-    await expect(backend.run((ctx) => publishIntegrationPolicy(ctx, {
-      event: fixture.event,
-      draftPolicyId: draft.policyVersionId,
-      expectedDraftChecksum: draft.checksum,
-      now: fixture.now + 2,
-    }))).rejects.toThrow("already has 4 active GitHub repositories");
+    const draft = await backend.run((ctx) =>
+      saveIntegrationPolicyDraft(ctx, {
+        event: fixture.event,
+        actorPersonId: fixture.personId,
+        policy: {
+          ...policy("integrations-v2"),
+          maxActiveGitHubRepositoriesPerTeam: 3,
+          maxActiveFigmaFilesPerTeam: 2,
+        },
+        now: fixture.now + 1,
+      }),
+    );
+    await expect(
+      backend.run((ctx) =>
+        publishIntegrationPolicy(ctx, {
+          event: fixture.event,
+          draftPolicyId: draft.policyVersionId,
+          expectedDraftChecksum: draft.checksum,
+          now: fixture.now + 2,
+        }),
+      ),
+    ).rejects.toThrow("already has 4 active GitHub repositories");
     const event = await backend.run((ctx) => ctx.db.get(fixture.event._id));
     expect(event?.publishedIntegrationPolicyId).toBe(fixture.policyId);
   });
@@ -194,33 +209,40 @@ describe("integration policy configuration", () => {
       await ctx.db.insert("githubTeamMetrics", githubMetric(fixture, 1));
       return bindingId;
     });
-    const firstDraft = await backend.run((ctx) => saveIntegrationPolicyDraft(ctx, {
-      event: fixture.event,
-      actorPersonId: fixture.personId,
-      policy: policy("integrations-v2"),
-      now: fixture.now + 1,
-    }));
-    await backend.run((ctx) => publishIntegrationPolicy(ctx, {
-      event: fixture.event,
-      draftPolicyId: firstDraft.policyVersionId,
-      expectedDraftChecksum: firstDraft.checksum,
-      now: fixture.now + 2,
-    }));
-    const eventAfterFirstPublication = await backend.run((ctx) =>
-      ctx.db.get(fixture.event._id));
+    const firstDraft = await backend.run((ctx) =>
+      saveIntegrationPolicyDraft(ctx, {
+        event: fixture.event,
+        actorPersonId: fixture.personId,
+        policy: policy("integrations-v2"),
+        now: fixture.now + 1,
+      }),
+    );
+    await backend.run((ctx) =>
+      publishIntegrationPolicy(ctx, {
+        event: fixture.event,
+        draftPolicyId: firstDraft.policyVersionId,
+        expectedDraftChecksum: firstDraft.checksum,
+        now: fixture.now + 2,
+      }),
+    );
+    const eventAfterFirstPublication = await backend.run((ctx) => ctx.db.get(fixture.event._id));
     if (!eventAfterFirstPublication) throw new Error("The published event is missing.");
-    const latestDraft = await backend.run((ctx) => saveIntegrationPolicyDraft(ctx, {
-      event: eventAfterFirstPublication,
-      actorPersonId: fixture.personId,
-      policy: policy("integrations-v3"),
-      now: fixture.now + 3,
-    }));
-    await backend.run((ctx) => publishIntegrationPolicy(ctx, {
-      event: eventAfterFirstPublication,
-      draftPolicyId: latestDraft.policyVersionId,
-      expectedDraftChecksum: latestDraft.checksum,
-      now: fixture.now + 4,
-    }));
+    const latestDraft = await backend.run((ctx) =>
+      saveIntegrationPolicyDraft(ctx, {
+        event: eventAfterFirstPublication,
+        actorPersonId: fixture.personId,
+        policy: policy("integrations-v3"),
+        now: fixture.now + 3,
+      }),
+    );
+    await backend.run((ctx) =>
+      publishIntegrationPolicy(ctx, {
+        event: eventAfterFirstPublication,
+        draftPolicyId: latestDraft.policyVersionId,
+        expectedDraftChecksum: latestDraft.checksum,
+        now: fixture.now + 4,
+      }),
+    );
     await backend.mutation(internal.githubIntegrations.revalidateRequiredTopic, {
       eventId: fixture.event._id,
       cursor: null,
@@ -305,7 +327,7 @@ async function seedFixture(backend: BackendTest, slug: string) {
       timezone: "Asia/Kolkata",
       status: "registration_open",
       vitEmailDomains: ["vitstudent.ac.in"],
-        applicationsCloseAt: Date.now() + 86_400_000,
+      applicationsCloseAt: Date.now() + 86_400_000,
       createdByPersonId: personId,
       version: 1,
       createdAt: now,
@@ -382,9 +404,7 @@ function githubMetric(
     topicPresentCount: repositoryCount,
     topicMissingCount: 0,
     topicUnknownCount: 0,
-    kindCounts: repositoryCount === 0
-      ? []
-      : [{ kind: "full_product", count: repositoryCount }],
+    kindCounts: repositoryCount === 0 ? [] : [{ kind: "full_product", count: repositoryCount }],
     pushCount: 0,
     uniqueObservedCommitCount: 0,
     commitOverlapCount: 0,

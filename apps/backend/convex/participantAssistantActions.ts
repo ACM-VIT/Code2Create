@@ -1,23 +1,14 @@
 "use node";
 
 import { Agent, createTool, stepCountIs } from "@convex-dev/agent";
-import {
-  openai,
-  type OpenAIResponsesProviderOptions,
-} from "@ai-sdk/openai";
+import { openai, type OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 import { v } from "convex/values";
 import { z } from "zod";
 
 import { components, internal } from "./_generated/api";
 import { internalAction } from "./_generated/server";
-import {
-  participantAssistantModelId,
-  participantAssistantName,
-} from "./lib/participantAssistant";
-import {
-  scheduledAiGenerationTelemetry,
-  type AiGenerationTelemetry,
-} from "./lib/posthog";
+import { participantAssistantModelId, participantAssistantName } from "./lib/participantAssistant";
+import { scheduledAiGenerationTelemetry, type AiGenerationTelemetry } from "./lib/posthog";
 
 const bringInEventTeam = createTool({
   description:
@@ -47,10 +38,9 @@ const bringInEventTeam = createTool({
     if (ctx.threadId === undefined) {
       throw new Error("The Guide conversation is unavailable for handoff.");
     }
-    const transcript = await ctx.runQuery(
-      internal.participantAssistant.escalationTranscript,
-      { threadId: ctx.threadId },
-    );
+    const transcript = await ctx.runQuery(internal.participantAssistant.escalationTranscript, {
+      threadId: ctx.threadId,
+    });
     return ctx.runMutation(internal.participantAssistant.escalateToHuman, {
       threadId: ctx.threadId,
       category: input.category,
@@ -74,10 +64,7 @@ export const generateReply = internalAction({
   args: { requestId: v.id("participantAssistantRequests") },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const request = await ctx.runMutation(
-      internal.participantAssistant.beginGeneration,
-      args,
-    );
+    const request = await ctx.runMutation(internal.participantAssistant.beginGeneration, args);
     if (request === null) return null;
     const scheduleGenerationTelemetry = async (telemetry: AiGenerationTelemetry) => {
       await ctx.scheduler.runAfter(
@@ -89,13 +76,10 @@ export const generateReply = internalAction({
     let generationStartedAt: number | null = null;
 
     try {
-      const grounding = await ctx.runQuery(
-        internal.participantAssistant.generationInstructions,
-        {
-          requestId: request.requestId,
-          generatedAt: Date.now(),
-        },
-      );
+      const grounding = await ctx.runQuery(internal.participantAssistant.generationInstructions, {
+        requestId: request.requestId,
+        generatedAt: Date.now(),
+      });
       if (grounding === null) {
         throw new Error("The participant assistant context is unavailable.");
       }
@@ -138,14 +122,11 @@ export const generateReply = internalAction({
         result.finishReason,
       ]);
       if (answer.trim().length >= 2) {
-        await ctx.runMutation(
-          internal.participantAssistant.recordGuideReplyForHuman,
-          {
-            requestId: request.requestId,
-            message: answer,
-            createdAt: Date.now(),
-          },
-        );
+        await ctx.runMutation(internal.participantAssistant.recordGuideReplyForHuman, {
+          requestId: request.requestId,
+          message: answer,
+          createdAt: Date.now(),
+        });
       }
 
       await ctx.runMutation(internal.participantAssistant.finishGeneration, {

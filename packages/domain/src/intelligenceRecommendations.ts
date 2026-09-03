@@ -12,8 +12,7 @@ export const intelligenceRecommendationKinds = [
   "open_support_case",
   "dismiss_attention_item",
 ] as const;
-export type IntelligenceRecommendationKind =
-  (typeof intelligenceRecommendationKinds)[number];
+export type IntelligenceRecommendationKind = (typeof intelligenceRecommendationKinds)[number];
 
 /** Exact command shapes; there is no generic autonomous action payload. */
 export type IntelligenceRecommendationArguments =
@@ -49,8 +48,7 @@ export const intelligenceRecommendationStatuses = [
   "rejected",
   "superseded",
 ] as const;
-export type IntelligenceRecommendationStatus =
-  (typeof intelligenceRecommendationStatuses)[number];
+export type IntelligenceRecommendationStatus = (typeof intelligenceRecommendationStatuses)[number];
 
 /** Evidence required for every recommendation. */
 export type IntelligenceRecommendationCitation = {
@@ -60,9 +58,11 @@ export type IntelligenceRecommendationCitation = {
 };
 
 /** Autonomous evidence is bound to one exact stored read-page receipt. */
-export type OperationsAutonomyRecommendationCitation =
-  Omit<IntelligenceRecommendationCitation, "read"> & {
-    read: OperationsAutonomyReadTool;
-    operationId: string;
-    snapshot: string;
-  };
+export type OperationsAutonomyRecommendationCitation = Omit<
+  IntelligenceRecommendationCitation,
+  "read"
+> & {
+  read: OperationsAutonomyReadTool;
+  operationId: string;
+  snapshot: string;
+};

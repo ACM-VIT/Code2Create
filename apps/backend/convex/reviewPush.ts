@@ -44,9 +44,10 @@ export const deliverPage = internalAction({
     });
     if (!claim) return null;
 
-    const outcome = claim.provider === "fcm"
-      ? await sendFcmNotification(claim)
-      : await sendApnsNotification(claim);
+    const outcome =
+      claim.provider === "fcm"
+        ? await sendFcmNotification(claim)
+        : await sendApnsNotification(claim);
     if (outcome.ok) {
       await ctx.runMutation(internal.reviewPushState.recordProviderAcceptance, {
         deliveryId: args.deliveryId,
@@ -155,9 +156,10 @@ async function sendApnsNotification(claim: PushClaim): Promise<PushOutcome> {
       .setIssuedAt()
       .sign(signingKey);
     const requestId = randomUUID();
-    const origin = claim.environment === "development"
-      ? "https://api.sandbox.push.apple.com"
-      : "https://api.push.apple.com";
+    const origin =
+      claim.environment === "development"
+        ? "https://api.sandbox.push.apple.com"
+        : "https://api.push.apple.com";
     const response = await apnsRequest({
       origin,
       path: `/3/device/${claim.token}`,

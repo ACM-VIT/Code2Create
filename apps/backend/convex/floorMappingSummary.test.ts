@@ -80,9 +80,9 @@ describe("floor mapping summary", () => {
       await ctx.db.patch(fixture.visibleTeamId, { name: "Team renamed before placement" });
       await ctx.db.patch(fixture.visibleZoneId, { name: "Zone renamed before placement" });
     });
-    await expect(
-      mapper.mutation(api.floorMapping.claimTeamQr, claimArgs),
-    ).resolves.toEqual(firstClaim);
+    await expect(mapper.mutation(api.floorMapping.claimTeamQr, claimArgs)).resolves.toEqual(
+      firstClaim,
+    );
 
     const assignmentArgs = {
       eventSlug: fixture.eventSlug,
@@ -92,17 +92,14 @@ describe("floor mapping summary", () => {
       expectedClaimVersion: firstClaim.version,
       clientOperationId: crypto.randomUUID(),
     };
-    const firstAssignment = await mapper.mutation(
-      api.floorMapping.assignClaim,
-      assignmentArgs,
-    );
+    const firstAssignment = await mapper.mutation(api.floorMapping.assignClaim, assignmentArgs);
     await backend.run(async (ctx) => {
       await ctx.db.patch(fixture.visibleTeamId, { name: "Team renamed after placement" });
       await ctx.db.patch(fixture.visibleZoneId, { name: "Zone renamed after placement" });
     });
-    await expect(
-      mapper.mutation(api.floorMapping.assignClaim, assignmentArgs),
-    ).resolves.toEqual(firstAssignment);
+    await expect(mapper.mutation(api.floorMapping.assignClaim, assignmentArgs)).resolves.toEqual(
+      firstAssignment,
+    );
 
     const rows = await backend.run(async (ctx) => ({
       claims: await ctx.db.query("floorMappingClaims").collect(),
@@ -148,7 +145,7 @@ async function seedMapper(backend: BackendTest, hiddenTeamCount = 1) {
       timezone: "Asia/Kolkata",
       status: "live",
       vitEmailDomains: ["vitstudent.ac.in"],
-        applicationsCloseAt: Date.now() + 86_400_000,
+      applicationsCloseAt: Date.now() + 86_400_000,
       startsAt: now - 60_000,
       endsAt: now + 3_600_000,
       createdByPersonId: personId,
@@ -234,10 +231,7 @@ async function seedMapper(backend: BackendTest, hiddenTeamCount = 1) {
       displayOrder: 0,
       createdAt: now,
     });
-    const zoneIds = [
-      visibleZoneId,
-      ...Array.from({ length: hiddenTeamCount }, () => hiddenZoneId),
-    ];
+    const zoneIds = [visibleZoneId, ...Array.from({ length: hiddenTeamCount }, () => hiddenZoneId)];
     const teamIds: Id<"teams">[] = [];
     for (const [index, zoneId] of zoneIds.entries()) {
       const teamId = await ctx.db.insert("teams", {

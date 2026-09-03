@@ -120,10 +120,7 @@ describe("attendance station lifecycle", () => {
         deviceInstallationId: secondDeviceInstallationId,
         operatorPersonId: fixture.operatorPersonId,
       });
-      for (const permissionKey of [
-        "attendance.scan.execute",
-        "attendance.station.read",
-      ] as const) {
+      for (const permissionKey of ["attendance.scan.execute", "attendance.station.read"] as const) {
         await insertPermissionGrant(ctx, {
           eventId: fixture.eventId,
           personId: fixture.operatorPersonId,
@@ -238,7 +235,7 @@ async function seedStationFixture(backend: BackendTest, now: number) {
       timezone: "Asia/Kolkata",
       status: "live",
       vitEmailDomains: ["vitstudent.ac.in"],
-        applicationsCloseAt: Date.now() + 86_400_000,
+      applicationsCloseAt: Date.now() + 86_400_000,
       startsAt: now - 60_000,
       endsAt: now + 3_600_000,
       version: 1,
@@ -300,10 +297,7 @@ async function seedStationFixture(backend: BackendTest, now: number) {
       deviceInstallationId,
       operatorPersonId: operator.personId,
     });
-    for (const permissionKey of [
-      "attendance.scan.execute",
-      "attendance.station.read",
-    ] as const) {
+    for (const permissionKey of ["attendance.scan.execute", "attendance.station.read"] as const) {
       await insertPermissionGrant(ctx, {
         eventId,
         personId: operator.personId,

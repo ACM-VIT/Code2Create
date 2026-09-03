@@ -15,8 +15,7 @@ export const operationsIntelligenceReadNames = [
   "support_load",
   "recommendation_history",
 ] as const;
-export type OperationsIntelligenceReadName =
-  (typeof operationsIntelligenceReadNames)[number];
+export type OperationsIntelligenceReadName = (typeof operationsIntelligenceReadNames)[number];
 
 export type OperationsIntelligenceReadRequest =
   | {
@@ -36,8 +35,7 @@ export const admissionIntelligenceReadNames = [
   "admission_cohort",
   "admission_submission_search",
 ] as const;
-export type AdmissionIntelligenceReadName =
-  (typeof admissionIntelligenceReadNames)[number];
+export type AdmissionIntelligenceReadName = (typeof admissionIntelligenceReadNames)[number];
 
 export const admissionIntelligenceReadSignatureContext =
   "code2create.admission-intelligence.read.v1";

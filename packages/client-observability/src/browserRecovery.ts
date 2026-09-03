@@ -1,10 +1,10 @@
-const automaticReloadGuardKey = 'code2create:chunk-reload'
-const automaticReloadGuardWindowMs = 30_000
+const automaticReloadGuardKey = "code2create:chunk-reload";
+const automaticReloadGuardWindowMs = 30_000;
 
 type AutomaticReloadAttempt = {
-  href: string
-  attemptedAt: number
-}
+  href: string;
+  attemptedAt: number;
+};
 
 const chunkLoadFailurePatterns = [
   /chunkloaderror/i,
@@ -13,11 +13,11 @@ const chunkLoadFailurePatterns = [
   /error loading dynamically imported module/i,
   /importing a module script failed/i,
   /unable to preload css/i,
-]
+];
 
 export function isChunkLoadFailure(error: unknown): boolean {
-  const message = errorMessage(error)
-  return chunkLoadFailurePatterns.some((pattern) => pattern.test(message))
+  const message = errorMessage(error);
+  return chunkLoadFailurePatterns.some((pattern) => pattern.test(message));
 }
 
 export function automaticChunkReloadIsAvailable(
@@ -25,8 +25,12 @@ export function automaticChunkReloadIsAvailable(
   href: string,
   now: number,
 ): boolean {
-  const attempt = parseAutomaticReloadAttempt(storedAttempt)
-  return attempt === null || attempt.href !== href || now - attempt.attemptedAt >= automaticReloadGuardWindowMs
+  const attempt = parseAutomaticReloadAttempt(storedAttempt);
+  return (
+    attempt === null ||
+    attempt.href !== href ||
+    now - attempt.attemptedAt >= automaticReloadGuardWindowMs
+  );
 }
 
 /**
@@ -36,82 +40,86 @@ export function automaticChunkReloadIsAvailable(
  * waiting for connectivity when the device is offline.
  */
 export function installBrowserChunkRecovery(): void {
-  if (typeof window === 'undefined') return
+  if (typeof window === "undefined") return;
 
-  let waitingForConnectivity = false
+  let waitingForConnectivity = false;
 
-  window.addEventListener('vite:preloadError', (event) => {
-    const now = Date.now()
-    const href = window.location.href
-    if (!automaticReloadAvailableInSession(href, now)) return
+  window.addEventListener("vite:preloadError", (event) => {
+    const now = Date.now();
+    const href = window.location.href;
+    if (!automaticReloadAvailableInSession(href, now)) return;
 
     if (window.navigator.onLine) {
-      if (!claimAutomaticReload(href, now)) return
-      event.preventDefault()
-      window.location.reload()
-      return
+      if (!claimAutomaticReload(href, now)) return;
+      event.preventDefault();
+      window.location.reload();
+      return;
     }
 
-    event.preventDefault()
-    if (waitingForConnectivity) return
-    waitingForConnectivity = true
+    event.preventDefault();
+    if (waitingForConnectivity) return;
+    waitingForConnectivity = true;
     window.addEventListener(
-      'online',
+      "online",
       () => {
-        waitingForConnectivity = false
-        const connectedAt = Date.now()
-        const connectedHref = window.location.href
-        if (claimAutomaticReload(connectedHref, connectedAt)) window.location.reload()
+        waitingForConnectivity = false;
+        const connectedAt = Date.now();
+        const connectedHref = window.location.href;
+        if (claimAutomaticReload(connectedHref, connectedAt)) window.location.reload();
       },
       { once: true },
-    )
-  })
+    );
+  });
 }
 
 function automaticReloadAvailableInSession(href: string, now: number): boolean {
   try {
-    return automaticChunkReloadIsAvailable(window.sessionStorage.getItem(automaticReloadGuardKey), href, now)
+    return automaticChunkReloadIsAvailable(
+      window.sessionStorage.getItem(automaticReloadGuardKey),
+      href,
+      now,
+    );
   } catch {
-    return false
+    return false;
   }
 }
 
 function claimAutomaticReload(href: string, attemptedAt: number): boolean {
   try {
-    const storedAttempt = window.sessionStorage.getItem(automaticReloadGuardKey)
-    if (!automaticChunkReloadIsAvailable(storedAttempt, href, attemptedAt)) return false
+    const storedAttempt = window.sessionStorage.getItem(automaticReloadGuardKey);
+    if (!automaticChunkReloadIsAvailable(storedAttempt, href, attemptedAt)) return false;
     window.sessionStorage.setItem(
       automaticReloadGuardKey,
       JSON.stringify({ href, attemptedAt } satisfies AutomaticReloadAttempt),
-    )
-    return true
+    );
+    return true;
   } catch {
-    return false
+    return false;
   }
 }
 
 function errorMessage(error: unknown): string {
-  if (error instanceof Error) return `${error.name}: ${error.message}`
-  return typeof error === 'string' ? error : ''
+  if (error instanceof Error) return `${error.name}: ${error.message}`;
+  return typeof error === "string" ? error : "";
 }
 
 function parseAutomaticReloadAttempt(value: string | null): AutomaticReloadAttempt | null {
-  if (value === null) return null
+  if (value === null) return null;
   try {
-    const parsed: unknown = JSON.parse(value)
+    const parsed: unknown = JSON.parse(value);
     if (
-      typeof parsed === 'object' &&
+      typeof parsed === "object" &&
       parsed !== null &&
-      'href' in parsed &&
-      typeof parsed.href === 'string' &&
-      'attemptedAt' in parsed &&
-      typeof parsed.attemptedAt === 'number' &&
+      "href" in parsed &&
+      typeof parsed.href === "string" &&
+      "attemptedAt" in parsed &&
+      typeof parsed.attemptedAt === "number" &&
       Number.isFinite(parsed.attemptedAt)
     ) {
-      return { href: parsed.href, attemptedAt: parsed.attemptedAt }
+      return { href: parsed.href, attemptedAt: parsed.attemptedAt };
     }
-    return null
+    return null;
   } catch {
-    return null
+    return null;
   }
 }

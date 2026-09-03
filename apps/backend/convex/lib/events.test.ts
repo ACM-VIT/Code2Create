@@ -1,9 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import {
-  applicationsCloseAtFor,
-  requireRegistrationOpen,
-} from "./events";
+import { applicationsCloseAtFor, requireRegistrationOpen } from "./events";
 
 describe("participant-class application deadlines", () => {
   const event = {
@@ -18,9 +15,9 @@ describe("participant-class application deadlines", () => {
   });
 
   test("closes external applications without closing VIT applications", () => {
-    expect(() =>
-      requireRegistrationOpen(event, "external_participant", 2_500),
-    ).toThrow("Applications are closed");
+    expect(() => requireRegistrationOpen(event, "external_participant", 2_500)).toThrow(
+      "Applications are closed",
+    );
     expect(() => requireRegistrationOpen(event, "vit_student", 2_500)).not.toThrow();
   });
 });

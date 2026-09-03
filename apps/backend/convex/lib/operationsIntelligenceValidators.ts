@@ -51,10 +51,7 @@ export const operationsHealthSeverity = v.union(
   v.literal("watch"),
 );
 
-export const operationsHealthStatus = v.union(
-  operationsHealthSeverity,
-  v.literal("healthy"),
-);
+export const operationsHealthStatus = v.union(operationsHealthSeverity, v.literal("healthy"));
 
 export const operationsHealthArea = v.union(
   v.literal("system"),
@@ -140,9 +137,6 @@ export const operationsIntelligenceCallback = v.union(
   v.object({
     ...operationsIntelligenceCallbackBase,
     status: v.literal("failed"),
-    failureCode: v.union(
-      v.literal("model_did_not_publish"),
-      v.literal("callback_rejected"),
-    ),
+    failureCode: v.union(v.literal("model_did_not_publish"), v.literal("callback_rejected")),
   }),
 );

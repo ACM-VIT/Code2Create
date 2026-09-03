@@ -1,29 +1,29 @@
-import { api } from '@code2create/backend/api'
-import { usePaginatedQuery } from 'convex/react'
-import type { FunctionReturnType } from 'convex/server'
+import { api } from "@code2create/backend/api";
+import { usePaginatedQuery } from "convex/react";
+import type { FunctionReturnType } from "convex/server";
 
 import {
   RecommendationCard,
   recommendationPageSize,
   usePendingRecommendations,
-} from '../components/intelligence'
-import { LoadingLabel, SkeletonCard } from '../components/Skeleton'
-import { eventSlug } from '../lib/config'
-import { useOperationRunner } from '../lib/operations'
+} from "../components/intelligence";
+import { LoadingLabel, SkeletonCard } from "../components/Skeleton";
+import { eventSlug } from "../lib/config";
+import { useOperationRunner } from "../lib/operations";
 
 type RecommendationDecisionResult = FunctionReturnType<
   typeof api.intelligenceRecommendations.approve
->
+>;
 
 /** Every consequential command the agents want to run waits here for a person. */
 export function IntelligenceDecisions() {
-  const operations = useOperationRunner<RecommendationDecisionResult>()
-  const pending = usePendingRecommendations(true)
+  const operations = useOperationRunner<RecommendationDecisionResult>();
+  const pending = usePendingRecommendations(true);
   const settled = usePaginatedQuery(
     api.intelligenceRecommendations.settled,
     { eventSlug },
     { initialNumItems: recommendationPageSize },
-  )
+  );
 
   return (
     <div className="grid content-start gap-7">
@@ -35,9 +35,12 @@ export function IntelligenceDecisions() {
       <section aria-labelledby="pending-decisions-heading" className="attention-section">
         <div className="section-heading">
           <h2 id="pending-decisions-heading">Waiting for a decision</h2>
-          {pending.loading || pending.count === 0
-            ? null
-            : <span>{pending.count}{pending.atLeast ? '+' : ''} waiting · oldest first</span>}
+          {pending.loading || pending.count === 0 ? null : (
+            <span>
+              {pending.count}
+              {pending.atLeast ? "+" : ""} waiting · oldest first
+            </span>
+          )}
         </div>
         {pending.loading ? (
           <>
@@ -60,7 +63,7 @@ export function IntelligenceDecisions() {
             ))}
           </div>
         )}
-        {pending.status === 'CanLoadMore' ? (
+        {pending.status === "CanLoadMore" ? (
           <button
             className="secondary mt-3"
             onClick={() => pending.loadMore(recommendationPageSize)}
@@ -69,17 +72,19 @@ export function IntelligenceDecisions() {
             Load more pending recommendations
           </button>
         ) : null}
-        {pending.status === 'LoadingMore' ? <LoadingLabel>Loading more proposals</LoadingLabel> : null}
+        {pending.status === "LoadingMore" ? (
+          <LoadingLabel>Loading more proposals</LoadingLabel>
+        ) : null}
       </section>
 
       <section aria-labelledby="settled-decisions-heading" className="attention-section">
         <div className="section-heading">
           <h2 id="settled-decisions-heading">Decided</h2>
-          {settled.status === 'LoadingFirstPage' || settled.results.length === 0
-            ? null
-            : <span>{settled.results.length} loaded · newest first</span>}
+          {settled.status === "LoadingFirstPage" || settled.results.length === 0 ? null : (
+            <span>{settled.results.length} loaded · newest first</span>
+          )}
         </div>
-        {settled.status === 'LoadingFirstPage' ? (
+        {settled.status === "LoadingFirstPage" ? (
           <>
             <LoadingLabel>Loading decided recommendations</LoadingLabel>
             <SkeletonCard lines={2} />
@@ -100,7 +105,7 @@ export function IntelligenceDecisions() {
             ))}
           </div>
         )}
-        {settled.status === 'CanLoadMore' ? (
+        {settled.status === "CanLoadMore" ? (
           <button
             className="secondary mt-3"
             onClick={() => settled.loadMore(recommendationPageSize)}
@@ -109,8 +114,10 @@ export function IntelligenceDecisions() {
             Load older decisions
           </button>
         ) : null}
-        {settled.status === 'LoadingMore' ? <LoadingLabel>Loading older decisions</LoadingLabel> : null}
+        {settled.status === "LoadingMore" ? (
+          <LoadingLabel>Loading older decisions</LoadingLabel>
+        ) : null}
       </section>
     </div>
-  )
+  );
 }

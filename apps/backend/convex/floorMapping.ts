@@ -143,17 +143,13 @@ export const summary = query({
         }),
       ),
     );
-    const visibleZones = zones.filter(
-      (_, index) => (grantsByZone[index]?.length ?? 0) > 0,
-    );
+    const visibleZones = zones.filter((_, index) => (grantsByZone[index]?.length ?? 0) > 0);
     if (visibleZones.length === 0) return null;
     let placedTeamCount = 0;
     for (const zone of visibleZones) {
       const locations = await ctx.db
         .query("teamFloorLocations")
-        .withIndex("by_zone_state", (index) =>
-          index.eq("zoneId", zone._id).eq("state", "active"),
-        )
+        .withIndex("by_zone_state", (index) => index.eq("zoneId", zone._id).eq("state", "active"))
         .take(maximumReviewTeamsPerEvent - placedTeamCount + 1);
       placedTeamCount += locations.length;
       if (placedTeamCount > maximumReviewTeamsPerEvent) {
@@ -234,15 +230,10 @@ export const available = query({
           .take(maximumFloorLandmarksPerZone + 1),
         ctx.db
           .query("teamFloorLocations")
-          .withIndex("by_zone_state", (index) =>
-            index.eq("zoneId", zone._id).eq("state", "active"),
-          )
+          .withIndex("by_zone_state", (index) => index.eq("zoneId", zone._id).eq("state", "active"))
           .take(maximumReviewTeamsPerEvent - placedTeamCount + 1),
       ]);
-      if (
-        landmarks.length < 1 ||
-        landmarks.length > maximumFloorLandmarksPerZone
-      ) {
+      if (landmarks.length < 1 || landmarks.length > maximumFloorLandmarksPerZone) {
         throw new Error("A visible floor zone does not match its landmark limits.");
       }
       placedTeamCount += locations.length;
@@ -251,9 +242,7 @@ export const available = query({
           `A floor plan cannot contain more than ${maximumReviewTeamsPerEvent} active team locations.`,
         );
       }
-      const teams = await Promise.all(
-        locations.map((location) => ctx.db.get(location.teamId)),
-      );
+      const teams = await Promise.all(locations.map((location) => ctx.db.get(location.teamId)));
       const teamById = new Map<Id<"teams">, Doc<"teams">>();
       for (const [index, location] of locations.entries()) {
         const team = teams[index];
@@ -286,7 +275,12 @@ export const available = query({
     }
     return {
       serverNow: Date.now(),
-      plan: { id: plan._id, name: plan.name, version: plan.version, mappingState: plan.mappingState },
+      plan: {
+        id: plan._id,
+        name: plan.name,
+        version: plan.version,
+        mappingState: plan.mappingState,
+      },
       mode,
       zones: zoneViews,
     };
@@ -316,11 +310,7 @@ export const claimTeamQr = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const result = storedOperationResult(
-        prior.resultJson,
-        "mapping claim",
-        claimOperationResult,
-      );
+      const result = storedOperationResult(prior.resultJson, "mapping claim", claimOperationResult);
       const claimId = ctx.db.normalizeId("floorMappingClaims", result.id);
       const teamId = ctx.db.normalizeId("teams", result.team.id);
       const currentLocation = result.currentLocation;
@@ -357,7 +347,10 @@ export const claimTeamQr = mutation({
       zone.eventId !== event._id ||
       zone.planVersionId !== plan._id
     ) {
-      throw new ConvexError({ code: "FLOOR_ZONE_UNAVAILABLE", message: "Choose a zone in the current floor plan." });
+      throw new ConvexError({
+        code: "FLOOR_ZONE_UNAVAILABLE",
+        message: "Choose a zone in the current floor plan.",
+      });
     }
     const mode: "map" | "override" = plan.mappingState === "open" ? "map" : "override";
     const permissionKey = mode === "map" ? "floor.location.map" : "floor.location.override";
@@ -383,7 +376,9 @@ export const claimTeamQr = mutation({
       : manualCode.length === 10
         ? await ctx.db
             .query("floorTeamQrTokens")
-            .withIndex("by_manual_digest", (index) => index.eq("manualCodeDigest", floorDigest(manualCode)))
+            .withIndex("by_manual_digest", (index) =>
+              index.eq("manualCodeDigest", floorDigest(manualCode)),
+            )
             .unique()
         : null;
     const now = Date.now();
@@ -396,7 +391,10 @@ export const claimTeamQr = mutation({
       throw invalidTeamCode();
     }
     if (token.expiresAt <= now) {
-      throw new ConvexError({ code: "FLOOR_QR_EXPIRED", message: "That team code expired. Ask the team to refresh it." });
+      throw new ConvexError({
+        code: "FLOOR_QR_EXPIRED",
+        message: "That team code expired. Ask the team to refresh it.",
+      });
     }
     const team = await ctx.db.get(token.teamId);
     if (!team || team.eventId !== event._id || !teamCanBeMapped(team.status)) {
@@ -423,7 +421,10 @@ export const claimTeamQr = mutation({
       operatorPersonId: person._id,
       mode,
       ...(currentLocation
-        ? { expectedLocationId: currentLocation._id, expectedLocationVersion: currentLocation.version }
+        ? {
+            expectedLocationId: currentLocation._id,
+            expectedLocationVersion: currentLocation.version,
+          }
         : {}),
       state: "active",
       version: 1,
@@ -455,7 +456,12 @@ export const claimTeamQr = mutation({
       action: "floor.team_qr_claimed",
       targetType: "floor_mapping_claim",
       targetId: claimId,
-      nextSummary: JSON.stringify({ teamId: team._id, destinationZoneId: zone._id, mode, expiresAt: now + 3 * 60_000 }),
+      nextSummary: JSON.stringify({
+        teamId: team._id,
+        destinationZoneId: zone._id,
+        mode,
+        expiresAt: now + 3 * 60_000,
+      }),
       reason: "Floor mapper scanned the team's current dashboard code",
     });
     return result;
@@ -528,14 +534,23 @@ export const assignClaim = mutation({
       claim.operatorPersonId !== person._id ||
       claim.state !== "active"
     ) {
-      throw new ConvexError({ code: "FLOOR_CLAIM_UNAVAILABLE", message: "Scan the team's current code again." });
+      throw new ConvexError({
+        code: "FLOOR_CLAIM_UNAVAILABLE",
+        message: "Scan the team's current code again.",
+      });
     }
     if (claim.version !== args.expectedClaimVersion) {
-      throw new ConvexError({ code: "FLOOR_CLAIM_CHANGED", message: "This mapping step changed. Scan the team code again." });
+      throw new ConvexError({
+        code: "FLOOR_CLAIM_CHANGED",
+        message: "This mapping step changed. Scan the team code again.",
+      });
     }
     const now = Date.now();
     if (claim.expiresAt <= now) {
-      throw new ConvexError({ code: "FLOOR_CLAIM_EXPIRED", message: "This mapping step expired. Scan the team code again." });
+      throw new ConvexError({
+        code: "FLOOR_CLAIM_EXPIRED",
+        message: "This mapping step expired. Scan the team code again.",
+      });
     }
     const [plan, zone, team] = await Promise.all([
       ctx.db.get(claim.planVersionId),
@@ -549,7 +564,10 @@ export const assignClaim = mutation({
       plan.status !== "published" ||
       (claim.mode === "map" ? plan.mappingState !== "open" : plan.mappingState !== "frozen")
     ) {
-      throw new ConvexError({ code: "FLOOR_PLAN_CHANGED", message: "The floor plan changed. Scan the team code again." });
+      throw new ConvexError({
+        code: "FLOOR_PLAN_CHANGED",
+        message: "The floor plan changed. Scan the team code again.",
+      });
     }
     if (
       !zone ||
@@ -559,7 +577,10 @@ export const assignClaim = mutation({
       team.eventId !== event._id ||
       !teamCanBeMapped(team.status)
     ) {
-      throw new ConvexError({ code: "FLOOR_ZONE_UNAVAILABLE", message: "Choose a zone in the current floor plan." });
+      throw new ConvexError({
+        code: "FLOOR_ZONE_UNAVAILABLE",
+        message: "Choose a zone in the current floor plan.",
+      });
     }
     const permissionKey = claim.mode === "map" ? "floor.location.map" : "floor.location.override";
     const subject = await requireEventSubject(ctx, event._id, person._id);
@@ -578,7 +599,10 @@ export const assignClaim = mutation({
           currentLocation._id !== claim.expectedLocationId ||
           currentLocation.version !== claim.expectedLocationVersion))
     ) {
-      throw new ConvexError({ code: "TEAM_LOCATION_CHANGED", message: "This team's location changed. Scan its code again." });
+      throw new ConvexError({
+        code: "TEAM_LOCATION_CHANGED",
+        message: "This team's location changed. Scan its code again.",
+      });
     }
     let grantIds = destinationGrantIds;
     if (currentLocation && currentLocation.zoneId !== zone._id) {
@@ -652,7 +676,11 @@ export const assignClaim = mutation({
       grantIds,
       scopeType: "floor_zone",
       scopeId: zone._id,
-      action: unchanged ? "floor.location_confirmed" : currentLocation ? "floor.location_moved" : "floor.location_mapped",
+      action: unchanged
+        ? "floor.location_confirmed"
+        : currentLocation
+          ? "floor.location_moved"
+          : "floor.location_mapped",
       targetType: "team_floor_location",
       targetId: locationId,
       ...(currentLocation
@@ -666,7 +694,15 @@ export const assignClaim = mutation({
             }),
           }
         : {}),
-      nextSummary: JSON.stringify({ locationId, teamId: team._id, zoneId: zone._id, area, x, y, unchanged }),
+      nextSummary: JSON.stringify({
+        locationId,
+        teamId: team._id,
+        zoneId: zone._id,
+        area,
+        x,
+        y,
+        unchanged,
+      }),
       reason: reason ?? "Floor mapper confirmed where the team is sitting from the team's QR",
     });
     return result;
@@ -711,7 +747,9 @@ async function assignmentResult(
   const [zone, landmarks, superseded] = await Promise.all([
     ctx.db.get(location.zoneId),
     zoneLandmarks(ctx, location.zoneId),
-    location.supersedesLocationId ? ctx.db.get(location.supersedesLocationId) : Promise.resolve(null),
+    location.supersedesLocationId
+      ? ctx.db.get(location.supersedesLocationId)
+      : Promise.resolve(null),
   ]);
   if (!zone) throw new Error("The recorded team location has no zone.");
   return {
@@ -734,5 +772,8 @@ async function assignmentResult(
 }
 
 function invalidTeamCode() {
-  return new ConvexError({ code: "FLOOR_QR_INVALID", message: "That is not a current team location code." });
+  return new ConvexError({
+    code: "FLOOR_QR_INVALID",
+    message: "That is not a current team location code.",
+  });
 }

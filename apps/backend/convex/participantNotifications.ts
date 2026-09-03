@@ -7,11 +7,7 @@ import { paginationOptsValidator, paginationResultValidator } from "convex/serve
 import { internalMutation, mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
-import {
-  requireCurrentPerson,
-  requireEventSubject,
-  requireMembership,
-} from "./lib/identity";
+import { requireCurrentPerson, requireEventSubject, requireMembership } from "./lib/identity";
 import {
   findOperation,
   operationFingerprint,
@@ -131,8 +127,7 @@ export const enqueueRosterBatch = internalMutation({
       snapshot.processedMemberCount !== args.lockedMemberCount ||
       !communicationsPolicy ||
       communicationsPolicy.eventId !== args.eventId ||
-      (communicationsPolicy.status !== "published" &&
-        communicationsPolicy.status !== "superseded")
+      (communicationsPolicy.status !== "published" && communicationsPolicy.status !== "superseded")
     ) {
       throw new Error("The participant notification batch context is invalid.");
     }
@@ -190,9 +185,7 @@ export const mine = query({
     if (readGrantIds.length === 0) return null;
     const delivery = await ctx.db
       .query("participantNotificationDeliveries")
-      .withIndex("by_membership_created", (index) =>
-        index.eq("membershipId", membership._id),
-      )
+      .withIndex("by_membership_created", (index) => index.eq("membershipId", membership._id))
       .order("desc")
       .first();
     if (!delivery || delivery.eventId !== event._id) return null;
@@ -237,10 +230,7 @@ export const forApplication = query({
       .paginate(args.paginationOpts);
     const recipients = [];
     for (const snapshotMember of page.page) {
-      if (
-        snapshotMember.eventId !== event._id ||
-        snapshotMember.teamId !== application.teamId
-      ) {
+      if (snapshotMember.eventId !== event._id || snapshotMember.teamId !== application.teamId) {
         throw new Error("The locked team snapshot is invalid.");
       }
       const membership = await ctx.db.get(snapshotMember.membershipId);
@@ -269,9 +259,7 @@ export const forApplication = query({
         ctx.db
           .query("participantNotificationDeliveries")
           .withIndex("by_application_membership_created", (index) =>
-            index
-              .eq("applicationId", application._id)
-              .eq("membershipId", membership._id),
+            index.eq("applicationId", application._id).eq("membershipId", membership._id),
           )
           .order("desc")
           .first(),
@@ -354,10 +342,7 @@ export const retry = mutation({
         "notification retry",
         retryOperationResult,
       );
-      const deliveryId = ctx.db.normalizeId(
-        "participantNotificationDeliveries",
-        result.deliveryId,
-      );
+      const deliveryId = ctx.db.normalizeId("participantNotificationDeliveries", result.deliveryId);
       if (!deliveryId || deliveryId !== prior.targetId) {
         throw new Error("The stored notification retry target is invalid.");
       }

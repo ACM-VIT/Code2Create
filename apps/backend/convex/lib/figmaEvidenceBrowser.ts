@@ -102,16 +102,9 @@ export type FigmaEvidenceBrowserPage = {
 };
 
 export class FigmaEvidenceBrowseError extends Error {
-  readonly code:
-    | "artifact_invalid"
-    | "node_id_invalid"
-    | "node_not_found"
-    | "offset_invalid";
+  readonly code: "artifact_invalid" | "node_id_invalid" | "node_not_found" | "offset_invalid";
 
-  constructor(
-    code: FigmaEvidenceBrowseError["code"],
-    message: string,
-  ) {
+  constructor(code: FigmaEvidenceBrowseError["code"], message: string) {
     super(message);
     this.name = "FigmaEvidenceBrowseError";
     this.code = code;
@@ -255,19 +248,13 @@ function componentReference(
     (type === "COMPONENT" || type === "COMPONENT_SET" ? nodeId(node) : undefined);
   if (!referencedId) return undefined;
   const collection =
-    type === "COMPONENT_SET"
-      ? recordField(file, "componentSets")
-      : recordField(file, "components");
+    type === "COMPONENT_SET" ? recordField(file, "componentSets") : recordField(file, "components");
   const metadata = collection ? recordField(collection, referencedId) : undefined;
-  const name = metadata
-    ? boundedString(metadata.name, maximumNodeNameLength)
-    : undefined;
+  const name = metadata ? boundedString(metadata.name, maximumNodeNameLength) : undefined;
   const description = metadata
     ? boundedString(metadata.description, maximumDescriptionLength)
     : undefined;
-  const key = metadata
-    ? boundedString(metadata.key, maximumProviderValueLength)
-    : undefined;
+  const key = metadata ? boundedString(metadata.key, maximumProviderValueLength) : undefined;
   const componentSetId = metadata
     ? boundedString(metadata.componentSetId, maximumNodeIdLength)
     : undefined;
@@ -317,14 +304,8 @@ function nodeDetails(file: ProviderRecord, node: ProviderRecord): FigmaNodeDetai
   const verticalConstraint = constraints
     ? boundedString(constraints.vertical, maximumProviderValueLength)
     : undefined;
-  const horizontalSizing = boundedString(
-    node.layoutSizingHorizontal,
-    maximumProviderValueLength,
-  );
-  const verticalSizing = boundedString(
-    node.layoutSizingVertical,
-    maximumProviderValueLength,
-  );
+  const horizontalSizing = boundedString(node.layoutSizingHorizontal, maximumProviderValueLength);
+  const verticalSizing = boundedString(node.layoutSizingVertical, maximumProviderValueLength);
   const primaryAxisAlignment = boundedString(
     node.primaryAxisAlignItems,
     maximumProviderValueLength,
@@ -401,22 +382,15 @@ function interactionSummaries(node: ProviderRecord) {
     if (!isRecord(interaction)) continue;
     const triggerRecord = recordField(interaction, "trigger");
     const trigger =
-      (triggerRecord
-        ? boundedString(triggerRecord.type, maximumProviderValueLength)
-        : undefined) ?? "unknown";
+      (triggerRecord ? boundedString(triggerRecord.type, maximumProviderValueLength) : undefined) ??
+      "unknown";
     for (const actionValue of arrayField(interaction, "actions")) {
       if (!isRecord(actionValue)) continue;
       discovered += 1;
       if (summaries.length >= maximumInteractions) continue;
       const action = boundedString(actionValue.type, maximumProviderValueLength) ?? "unknown";
-      const navigation = boundedString(
-        actionValue.navigation,
-        maximumProviderValueLength,
-      );
-      const destinationNodeId = boundedString(
-        actionValue.destinationId,
-        maximumNodeIdLength,
-      );
+      const navigation = boundedString(actionValue.navigation, maximumProviderValueLength);
+      const destinationNodeId = boundedString(actionValue.destinationId, maximumNodeIdLength);
       summaries.push({
         trigger,
         action,
@@ -468,10 +442,7 @@ export function browseFigmaEvidence(
   childOffset: number,
 ): FigmaEvidenceBrowserPage {
   if (!Number.isSafeInteger(childOffset) || childOffset < 0) {
-    throw new FigmaEvidenceBrowseError(
-      "offset_invalid",
-      "The Figma layer page is invalid.",
-    );
+    throw new FigmaEvidenceBrowseError("offset_invalid", "The Figma layer page is invalid.");
   }
   const normalizedNodeId = requestedNodeId?.trim();
   if (
@@ -498,10 +469,7 @@ export function browseFigmaEvidence(
       "The fixed Figma checkpoint has an invalid root.",
     );
   }
-  if (
-    boundedString(parsed.version, maximumProviderValueLength) !==
-    expectedProviderVersionId
-  ) {
+  if (boundedString(parsed.version, maximumProviderValueLength) !== expectedProviderVersionId) {
     throw new FigmaEvidenceBrowseError(
       "artifact_invalid",
       "The fixed Figma checkpoint does not match its recorded provider version.",
@@ -523,10 +491,7 @@ export function browseFigmaEvidence(
       "The Figma layer page is no longer available.",
     );
   }
-  const visibleChildren = allChildren.slice(
-    childOffset,
-    childOffset + maximumChildrenPerPage,
-  );
+  const visibleChildren = allChildren.slice(childOffset, childOffset + maximumChildrenPerPage);
   const nextOffset = childOffset + visibleChildren.length;
   const interactionResult = interactionSummaries(current);
   const flowResult = flowStartingPoints(current);

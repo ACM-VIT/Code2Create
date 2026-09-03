@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react'
-import { usePortalTheme } from '../../lib/portalTheme'
+import { useEffect, useRef } from "react";
+import { usePortalTheme } from "../../lib/portalTheme";
 
 // The f1 sky shader from the mockup: drifting fbm cloud colour, a slow
 // aurora band, and twinkling stars. `day` blends the night palette into
@@ -51,91 +51,96 @@ fn fbm(p: vec2f) -> f32 {
   col += vec3f(1., .95, .97) * star * smoothstep(.75, .15, uv.y) * smoothstep(.5, .05, d);
   col += vec3f(1., .8, .87) * star * smoothstep(.16, .0, d) * .9;
   return vec4f(col, 1.);
-}`
+}`;
 
 async function startSky(
   canvas: HTMLCanvasElement,
   stopped: { current: boolean },
   dayTarget: { readonly current: number },
 ) {
-  const gpu = navigator.gpu
-  if (!gpu) return
-  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+  const gpu = navigator.gpu;
+  if (!gpu) return;
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
   try {
-    const adapter = await gpu.requestAdapter()
-    if (!adapter || stopped.current) return
-    const device = await adapter.requestDevice()
+    const adapter = await gpu.requestAdapter();
+    if (!adapter || stopped.current) return;
+    const device = await adapter.requestDevice();
     if (stopped.current) {
-      device.destroy()
-      return
+      device.destroy();
+      return;
     }
-    const context = canvas.getContext('webgpu')
+    const context = canvas.getContext("webgpu");
     if (!context) {
-      device.destroy()
-      return
+      device.destroy();
+      return;
     }
-    const format = gpu.getPreferredCanvasFormat()
-    context.configure({ device, format, alphaMode: 'opaque' })
-    const module = device.createShaderModule({ code: SKY_SHADER })
+    const format = gpu.getPreferredCanvasFormat();
+    context.configure({ device, format, alphaMode: "opaque" });
+    const module = device.createShaderModule({ code: SKY_SHADER });
     const pipeline = device.createRenderPipeline({
-      layout: 'auto',
-      vertex: { module, entryPoint: 'vs' },
-      fragment: { module, entryPoint: 'fs', targets: [{ format }] },
-      primitive: { topology: 'triangle-list' },
-    })
+      layout: "auto",
+      vertex: { module, entryPoint: "vs" },
+      fragment: { module, entryPoint: "fs", targets: [{ format }] },
+      primitive: { topology: "triangle-list" },
+    });
     const uniforms = device.createBuffer({
       size: 16,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    })
+    });
     const bindGroup = device.createBindGroup({
       layout: pipeline.getBindGroupLayout(0),
       entries: [{ binding: 0, resource: { buffer: uniforms } }],
-    })
-    const startedAt = performance.now()
+    });
+    const startedAt = performance.now();
     // Mounting lands directly in the current light; only a live toggle
     // eases `day` toward its target, playing the sunrise (or nightfall).
     // Eased against wall-clock time so the dawn takes ~1.5s at any frame rate.
-    let day = dayTarget.current
-    let lastFrameAt = startedAt
+    let day = dayTarget.current;
+    let lastFrameAt = startedAt;
     const tick = () => {
       if (stopped.current || !canvas.isConnected) {
-        device.destroy()
-        return
+        device.destroy();
+        return;
       }
-      const width = canvas.clientWidth || canvas.width
-      const height = canvas.clientHeight || canvas.height
+      const width = canvas.clientWidth || canvas.width;
+      const height = canvas.clientHeight || canvas.height;
       if (canvas.width !== width || canvas.height !== height) {
-        canvas.width = width
-        canvas.height = height
+        canvas.width = width;
+        canvas.height = height;
       }
-      const frameAt = performance.now()
-      const dt = Math.min((frameAt - lastFrameAt) / 1000, 0.1)
-      lastFrameAt = frameAt
-      day += (dayTarget.current - day) * Math.min(1, dt * 3.2)
+      const frameAt = performance.now();
+      const dt = Math.min((frameAt - lastFrameAt) / 1000, 0.1);
+      lastFrameAt = frameAt;
+      day += (dayTarget.current - day) * Math.min(1, dt * 3.2);
       device.queue.writeBuffer(
         uniforms,
         0,
-        new Float32Array([(performance.now() - startedAt) / 1000, canvas.width, canvas.height, day]),
-      )
-      const encoder = device.createCommandEncoder()
+        new Float32Array([
+          (performance.now() - startedAt) / 1000,
+          canvas.width,
+          canvas.height,
+          day,
+        ]),
+      );
+      const encoder = device.createCommandEncoder();
       const pass = encoder.beginRenderPass({
         colorAttachments: [
           {
             view: context.getCurrentTexture().createView(),
-            loadOp: 'clear',
-            storeOp: 'store',
+            loadOp: "clear",
+            storeOp: "store",
             clearValue: { r: 0, g: 0, b: 0, a: 1 },
           },
         ],
-      })
-      pass.setPipeline(pipeline)
-      pass.setBindGroup(0, bindGroup)
-      pass.draw(3)
-      pass.end()
-      device.queue.submit([encoder.finish()])
-      requestAnimationFrame(tick)
-    }
-    requestAnimationFrame(tick)
+      });
+      pass.setPipeline(pipeline);
+      pass.setBindGroup(0, bindGroup);
+      pass.draw(3);
+      pass.end();
+      device.queue.submit([encoder.finish()]);
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
   } catch {
     // The scene's CSS gradient stays underneath; nothing to do.
   }
@@ -147,23 +152,23 @@ async function startSky(
  * is the fallback.
  */
 export function GpuSky() {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-  const theme = usePortalTheme()
-  const dayTarget = useRef(theme === 'daybreak' ? 1 : 0)
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const theme = usePortalTheme();
+  const dayTarget = useRef(theme === "daybreak" ? 1 : 0);
 
   useEffect(() => {
-    dayTarget.current = theme === 'daybreak' ? 1 : 0
-  }, [theme])
+    dayTarget.current = theme === "daybreak" ? 1 : 0;
+  }, [theme]);
 
   useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-    const stopped = { current: false }
-    void startSky(canvas, stopped, dayTarget)
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const stopped = { current: false };
+    void startSky(canvas, stopped, dayTarget);
     return () => {
-      stopped.current = true
-    }
-  }, [])
+      stopped.current = true;
+    };
+  }, []);
 
   return (
     <canvas
@@ -171,5 +176,5 @@ export function GpuSky() {
       aria-hidden
       className="pointer-events-none absolute inset-0 z-0 h-full w-full"
     />
-  )
+  );
 }

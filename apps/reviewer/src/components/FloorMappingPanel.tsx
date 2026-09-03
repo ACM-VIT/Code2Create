@@ -1,17 +1,17 @@
-import { api } from '@code2create/backend/api'
+import { api } from "@code2create/backend/api";
 import {
   floorAreaAt,
   floorAreaLabels,
   floorMappingStateLabels,
   type FloorArea,
-} from '@code2create/domain'
-import type { FunctionReturnType } from 'convex/server'
-import { useMutation, useQuery } from 'convex/react'
-import { ConvexError } from 'convex/values'
-import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'expo-camera'
-import { useRef, useState } from 'react'
-import { Stack } from 'expo-router'
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
+} from "@code2create/domain";
+import type { FunctionReturnType } from "convex/server";
+import { useMutation, useQuery } from "convex/react";
+import { ConvexError } from "convex/values";
+import { CameraView, useCameraPermissions, type BarcodeScanningResult } from "expo-camera";
+import { useRef, useState } from "react";
+import { Stack } from "expo-router";
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 
 import {
   Action,
@@ -27,102 +27,103 @@ import {
   Row,
   Sheet,
   Viewfinder,
-} from '@/components/ui'
-import { describeError } from '@/lib/errors'
+} from "@/components/ui";
+import { describeError } from "@/lib/errors";
 import {
   runPersistentClientOperation,
   usePersistentClientOperations,
-} from '@/lib/client-operation-intents'
-import type { ReviewerRuntime } from '@/lib/runtime'
-import { useEstimatedServerNow } from '@/lib/use-estimated-server-now'
-import { palette, radius } from '@/theme'
-import { HallSkeleton } from '@/components/skeletons'
+} from "@/lib/client-operation-intents";
+import type { ReviewerRuntime } from "@/lib/runtime";
+import { useEstimatedServerNow } from "@/lib/use-estimated-server-now";
+import { palette, radius } from "@/theme";
+import { HallSkeleton } from "@/components/skeletons";
 
-type FloorClaim = FunctionReturnType<typeof api.floorMapping.claimTeamQr>
-type FloorReceipt = FunctionReturnType<typeof api.floorMapping.assignClaim>
-const floorOperationSlots = ['floor.claim', 'floor.assign'] as const
+type FloorClaim = FunctionReturnType<typeof api.floorMapping.claimTeamQr>;
+type FloorReceipt = FunctionReturnType<typeof api.floorMapping.assignClaim>;
+const floorOperationSlots = ["floor.claim", "floor.assign"] as const;
 
 export function FloorMappingPanel({ runtime }: { runtime: ReviewerRuntime }) {
-  const eventSlug = runtime.configuration.eventSlug
-  const floor = useQuery(api.floorMapping.available, { eventSlug })
-  const estimatedServerNow = useEstimatedServerNow(floor?.serverNow, 60_000)
-  const claimTeamQr = useMutation(api.floorMapping.claimTeamQr)
-  const assignClaim = useMutation(api.floorMapping.assignClaim)
-  const [permission, requestPermission] = useCameraPermissions()
-  const busyRef = useRef(false)
-  const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null)
-  const [manualCode, setManualCode] = useState('')
-  const [picked, setPicked] = useState<{ x: number; y: number } | null>(null)
-  const [showScanner, setShowScanner] = useState(false)
-  const [showTools, setShowTools] = useState(false)
-  const [findText, setFindText] = useState('')
-  const [claim, setClaim] = useState<FloorClaim | null>(null)
-  const [receipt, setReceipt] = useState<FloorReceipt | null>(null)
-  const [overrideReason, setOverrideReason] = useState('Corrected after confirming the team’s physical location')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [claimUncertain, setClaimUncertain] = useState(false)
-  const [assignmentUncertain, setAssignmentUncertain] = useState(false)
-  const persistentOperations = usePersistentClientOperations(eventSlug, floorOperationSlots)
-  const claimRecovery = persistentOperations.records.get('floor.claim')
-  const assignmentRecovery = persistentOperations.records.get('floor.assign')?.recovery
-  const recoveredAssignment = assignmentRecovery?.kind === 'floor_assignment_v1'
-    ? assignmentRecovery
-    : null
-  const recoveryLocked = persistentOperations.loading ||
+  const eventSlug = runtime.configuration.eventSlug;
+  const floor = useQuery(api.floorMapping.available, { eventSlug });
+  const estimatedServerNow = useEstimatedServerNow(floor?.serverNow, 60_000);
+  const claimTeamQr = useMutation(api.floorMapping.claimTeamQr);
+  const assignClaim = useMutation(api.floorMapping.assignClaim);
+  const [permission, requestPermission] = useCameraPermissions();
+  const busyRef = useRef(false);
+  const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
+  const [manualCode, setManualCode] = useState("");
+  const [picked, setPicked] = useState<{ x: number; y: number } | null>(null);
+  const [showScanner, setShowScanner] = useState(false);
+  const [showTools, setShowTools] = useState(false);
+  const [findText, setFindText] = useState("");
+  const [claim, setClaim] = useState<FloorClaim | null>(null);
+  const [receipt, setReceipt] = useState<FloorReceipt | null>(null);
+  const [overrideReason, setOverrideReason] = useState(
+    "Corrected after confirming the team’s physical location",
+  );
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [claimUncertain, setClaimUncertain] = useState(false);
+  const [assignmentUncertain, setAssignmentUncertain] = useState(false);
+  const persistentOperations = usePersistentClientOperations(eventSlug, floorOperationSlots);
+  const claimRecovery = persistentOperations.records.get("floor.claim");
+  const assignmentRecovery = persistentOperations.records.get("floor.assign")?.recovery;
+  const recoveredAssignment =
+    assignmentRecovery?.kind === "floor_assignment_v1" ? assignmentRecovery : null;
+  const recoveryLocked =
+    persistentOperations.loading ||
     persistentOperations.error !== null ||
-    persistentOperations.records.size > 0
+    persistentOperations.records.size > 0;
 
-  if (floor === undefined) return <HallSkeleton />
-  if (!floor) return <Body>There is no hall plan yet, so there is nothing to map.</Body>
+  if (floor === undefined) return <HallSkeleton />;
+  if (!floor) return <Body>There is no hall plan yet, so there is nothing to map.</Body>;
 
-  const selectedZone = floor.zones.find((zone) => zone.id === selectedZoneId) ?? floor.zones[0]
-  if (!selectedZone) return <Body>No zone of the hall has been assigned to you.</Body>
-
+  const selectedZone = floor.zones.find((zone) => zone.id === selectedZoneId) ?? floor.zones[0];
+  if (!selectedZone) return <Body>No zone of the hall has been assigned to you.</Body>;
 
   const claimCredential = async (credential: string) => {
-    if (busyRef.current || claim || receipt) return
-    busyRef.current = true
-    setBusy(true)
-    setError(null)
+    if (busyRef.current || claim || receipt) return;
+    busyRef.current = true;
+    setBusy(true);
+    setError(null);
     try {
       const request = {
         eventSlug,
         destinationZoneId: selectedZone.id,
         credential,
-      }
+      };
       const result = await runPersistentClientOperation({
         eventSlug,
-        slot: 'floor.claim',
+        slot: "floor.claim",
         fingerprint: JSON.stringify(request),
         execute: (clientOperationId) => claimTeamQr({ ...request, clientOperationId }),
-      })
-      setClaimUncertain(false)
-      setClaim(result)
-      setManualCode('')
-      setShowScanner(false)
+      });
+      setClaimUncertain(false);
+      setClaim(result);
+      setManualCode("");
+      setShowScanner(false);
     } catch (caught) {
-      setClaimUncertain(!(caught instanceof ConvexError))
-      setError(errorMessage(caught, 'That team code could not be opened.'))
+      setClaimUncertain(!(caught instanceof ConvexError));
+      setError(errorMessage(caught, "That team code could not be opened."));
     } finally {
-      busyRef.current = false
-      setBusy(false)
+      busyRef.current = false;
+      setBusy(false);
     }
-  }
+  };
 
   const handleBarcode = async (scan: BarcodeScanningResult) => {
-    if (!scan.data.startsWith('c2c-floor-v1.')) {
-      setError('Scan the hall-location QR shown in the team’s portal.')
-      return
+    if (!scan.data.startsWith("c2c-floor-v1.")) {
+      setError("Scan the hall-location QR shown in the team’s portal.");
+      return;
     }
-    await claimCredential(scan.data)
-  }
+    await claimCredential(scan.data);
+  };
 
   const assignAt = async (point: { x: number; y: number }) => {
-    if (!claim || busyRef.current) return
-    busyRef.current = true
-    setBusy(true)
-    setError(null)
+    if (!claim || busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    setError(null);
     try {
       const request = {
         eventSlug,
@@ -130,69 +131,69 @@ export function FloorMappingPanel({ runtime }: { runtime: ReviewerRuntime }) {
         x: point.x,
         y: point.y,
         expectedClaimVersion: claim.version,
-        ...(claim.mode === 'override' ? { reason: overrideReason } : {}),
-      }
+        ...(claim.mode === "override" ? { reason: overrideReason } : {}),
+      };
       const result = await runPersistentClientOperation({
         eventSlug,
-        slot: 'floor.assign',
+        slot: "floor.assign",
         fingerprint: JSON.stringify(request),
         recovery: {
-          kind: 'floor_assignment_v1',
+          kind: "floor_assignment_v1",
           claimId: claim.id,
           x: point.x,
           y: point.y,
           expectedClaimVersion: claim.version,
-          requiresReason: claim.mode === 'override',
+          requiresReason: claim.mode === "override",
         },
         execute: (clientOperationId) => assignClaim({ ...request, clientOperationId }),
-      })
-      setAssignmentUncertain(false)
-      setReceipt(result)
-      setClaim(null)
+      });
+      setAssignmentUncertain(false);
+      setReceipt(result);
+      setClaim(null);
     } catch (caught) {
-      setAssignmentUncertain(!(caught instanceof ConvexError))
-      setError(errorMessage(caught, 'That location could not be saved.'))
+      setAssignmentUncertain(!(caught instanceof ConvexError));
+      setError(errorMessage(caught, "That location could not be saved."));
     } finally {
-      busyRef.current = false
-      setBusy(false)
+      busyRef.current = false;
+      setBusy(false);
     }
-  }
+  };
 
   const reset = () => {
-    if (claimUncertain || assignmentUncertain || recoveryLocked) return
-    setClaim(null)
-    setReceipt(null)
-    setError(null)
-    setManualCode('')
-    setPicked(null)
-  }
+    if (claimUncertain || assignmentUncertain || recoveryLocked) return;
+    setClaim(null);
+    setReceipt(null);
+    setError(null);
+    setManualCode("");
+    setPicked(null);
+  };
 
-  const placing = claim
-  const areaName = picked ? floorAreaLabels[floorAreaAt(picked.x, picked.y)] : null
+  const placing = claim;
+  const areaName = picked ? floorAreaLabels[floorAreaAt(picked.x, picked.y)] : null;
 
   const recorded =
     placing?.currentLocation && placing.currentLocation.zoneId === selectedZone.id
       ? { x: placing.currentLocation.x, y: placing.currentLocation.y }
-      : null
+      : null;
 
-  const query = findText.trim().toLowerCase()
+  const query = findText.trim().toLowerCase();
   const placements = floor.zones
     .flatMap((zone) => zone.teams.map((team) => ({ ...team, zoneName: zone.name })))
     .filter((placement) => !query || placement.teamName.toLowerCase().includes(query))
     .sort((a, b) => b.mappedAt - a.mappedAt)
-    .slice(0, 5)
+    .slice(0, 5);
 
   const placeHere = async () => {
-    if (!picked) return
-    await assignAt(picked)
-    setPicked(null)
-  }
+    if (!picked) return;
+    await assignAt(picked);
+    setPicked(null);
+  };
 
   const retryRecoveredAssignment = async () => {
-    if (!recoveredAssignment || busyRef.current) return
-    busyRef.current = true
-    setBusy(true)
-    setError(null)
+    if (!recoveredAssignment || busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    setError(null);
     try {
       const request = {
         eventSlug,
@@ -201,44 +202,42 @@ export function FloorMappingPanel({ runtime }: { runtime: ReviewerRuntime }) {
         y: recoveredAssignment.y,
         expectedClaimVersion: recoveredAssignment.expectedClaimVersion,
         ...(recoveredAssignment.requiresReason ? { reason: overrideReason } : {}),
-      }
+      };
       const result = await runPersistentClientOperation({
         eventSlug,
-        slot: 'floor.assign',
+        slot: "floor.assign",
         fingerprint: JSON.stringify(request),
         recovery: recoveredAssignment,
         execute: (clientOperationId) => assignClaim({ ...request, clientOperationId }),
-      })
-      setAssignmentUncertain(false)
-      setReceipt(result)
+      });
+      setAssignmentUncertain(false);
+      setReceipt(result);
     } catch (caught) {
-      setAssignmentUncertain(!(caught instanceof ConvexError))
-      setError(errorMessage(caught, 'That earlier location could not be confirmed.'))
+      setAssignmentUncertain(!(caught instanceof ConvexError));
+      setError(errorMessage(caught, "That earlier location could not be confirmed."));
     } finally {
-      busyRef.current = false
-      setBusy(false)
+      busyRef.current = false;
+      setBusy(false);
     }
-  }
+  };
 
   return (
     <View style={styles.frame}>
       <Stack.Screen
         options={{
-          headerRight: () => (
-            <HeaderButton label="Hall tools" onPress={() => setShowTools(true)} />
-          ),
+          headerRight: () => <HeaderButton label="Hall tools" onPress={() => setShowTools(true)} />,
         }}
       />
 
       <View style={styles.headline}>
         <Lead
           accent={palette.hall}
-          {...(floor.plan.mappingState === 'frozen'
+          {...(floor.plan.mappingState === "frozen"
             ? { detail: floorMappingStateLabels.frozen }
             : floor.zones.length > 1
               ? { detail: `${floor.zones.length} assigned zones` }
               : {})}
-          unit={selectedZone.teams.length === 1 ? 'team placed' : 'teams placed'}
+          unit={selectedZone.teams.length === 1 ? "team placed" : "teams placed"}
           value={String(selectedZone.teams.length)}
         />
       </View>
@@ -248,9 +247,9 @@ export function FloorMappingPanel({ runtime }: { runtime: ReviewerRuntime }) {
           areas={selectedZone.areas}
           landmarks={selectedZone.landmarks}
           onPick={(point) => {
-            if (assignmentUncertain) return
-            setError(null)
-            setPicked(point)
+            if (assignmentUncertain) return;
+            setError(null);
+            setPicked(point);
           }}
           picked={picked}
           placing={placing !== null}
@@ -264,22 +263,28 @@ export function FloorMappingPanel({ runtime }: { runtime: ReviewerRuntime }) {
           <ChipRow
             accent={palette.hall}
             onSelect={(zoneId) => {
-              if (claimUncertain || assignmentUncertain || recoveryLocked) return
-              setSelectedZoneId(zoneId)
-              setPicked(null)
+              if (claimUncertain || assignmentUncertain || recoveryLocked) return;
+              setSelectedZoneId(zoneId);
+              setPicked(null);
             }}
             options={floor.zones.map((zone) => [zone.id, zone.name] as const)}
             selected={selectedZone.id}
           />
         ) : null}
 
-        {areaName ? <Meta>{areaName} of {selectedZone.name}</Meta> : null}
+        {areaName ? (
+          <Meta>
+            {areaName} of {selectedZone.name}
+          </Meta>
+        ) : null}
         {persistentOperations.error ? <Problem>{persistentOperations.error}</Problem> : null}
         {error ? <Problem>{error}</Problem> : null}
 
         {recoveredAssignment ? (
           <>
-            <Meta>An earlier location is waiting for confirmation after this phone lost the response.</Meta>
+            <Meta>
+              An earlier location is waiting for confirmation after this phone lost the response.
+            </Meta>
             {recoveredAssignment.requiresReason ? (
               <Field
                 label="Enter the exact earlier override reason"
@@ -291,7 +296,9 @@ export function FloorMappingPanel({ runtime }: { runtime: ReviewerRuntime }) {
             ) : null}
             <Action
               accent={palette.hall}
-              disabled={busy || (recoveredAssignment.requiresReason && overrideReason.trim().length < 5)}
+              disabled={
+                busy || (recoveredAssignment.requiresReason && overrideReason.trim().length < 5)
+              }
               label="Confirm earlier location"
               onPress={retryRecoveredAssignment}
             />
@@ -301,7 +308,7 @@ export function FloorMappingPanel({ runtime }: { runtime: ReviewerRuntime }) {
             {placing.currentLocation ? (
               <Meta>Currently in the {placing.currentLocation.description}.</Meta>
             ) : null}
-            {placing.mode === 'override' ? (
+            {placing.mode === "override" ? (
               <Field
                 label="Why is this frozen location changing?"
                 multiline
@@ -314,16 +321,14 @@ export function FloorMappingPanel({ runtime }: { runtime: ReviewerRuntime }) {
             <Action
               accent={palette.hall}
               disabled={
-                busy ||
-                !picked ||
-                (placing.mode === 'override' && overrideReason.trim().length < 5)
+                busy || !picked || (placing.mode === "override" && overrideReason.trim().length < 5)
               }
               label={
                 assignmentUncertain
-                  ? 'Confirm this location'
+                  ? "Confirm this location"
                   : picked
-                  ? `Put ${placing.team.name} here`
-                  : `Touch the room for ${placing.team.name}`
+                    ? `Put ${placing.team.name} here`
+                    : `Touch the room for ${placing.team.name}`
               }
               onPress={placeHere}
             />
@@ -332,28 +337,35 @@ export function FloorMappingPanel({ runtime }: { runtime: ReviewerRuntime }) {
               label="Scan a different team"
               onPress={reset}
             />
-            {assignmentUncertain ? <Meta>Confirm the earlier location before choosing another.</Meta> : null}
+            {assignmentUncertain ? (
+              <Meta>Confirm the earlier location before choosing another.</Meta>
+            ) : null}
           </>
         ) : receipt ? (
           <>
             <Meta>
-              {receipt.teamName} is {receipt.unchanged ? 'still ' : ''}in the {receipt.description}.
+              {receipt.teamName} is {receipt.unchanged ? "still " : ""}in the {receipt.description}.
             </Meta>
-            <Action accent={palette.hall} disabled={recoveryLocked} label="Place the next team" onPress={reset} />
+            <Action
+              accent={palette.hall}
+              disabled={recoveryLocked}
+              label="Place the next team"
+              onPress={reset}
+            />
           </>
         ) : (
           <Action
             accent={palette.hall}
-            label={claimRecovery ? 'Confirm earlier team scan' : 'Scan a team to place'}
+            label={claimRecovery ? "Confirm earlier team scan" : "Scan a team to place"}
             onPress={() => setShowScanner(true)}
           />
         )}
       </View>
 
       <Sheet
-        detents={['auto']}
+        detents={["auto"]}
         onClose={() => {
-          if (!claimUncertain && !claimRecovery) setShowScanner(false)
+          if (!claimUncertain && !claimRecovery) setShowScanner(false);
         }}
         title="Scan a team"
         visible={showScanner}
@@ -364,14 +376,14 @@ export function FloorMappingPanel({ runtime }: { runtime: ReviewerRuntime }) {
             accent={palette.hall}
             label="Allow the camera"
             onPress={async () => {
-              await requestPermission()
+              await requestPermission();
             }}
           />
         ) : null}
         {permission?.granted ? (
           <Viewfinder>
             <CameraView
-              barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
+              barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
               facing="back"
               onBarcodeScanned={busy ? undefined : handleBarcode}
               style={StyleSheet.absoluteFill}
@@ -404,17 +416,19 @@ export function FloorMappingPanel({ runtime }: { runtime: ReviewerRuntime }) {
                 busy || manualCode.trim().length < 10 ? styles.disabledText : null,
               ]}
             >
-              {busy ? '…' : claimUncertain ? 'Retry' : 'Open'}
+              {busy ? "…" : claimUncertain ? "Retry" : "Open"}
             </Text>
           </Pressable>
         </View>
-        {claimUncertain || claimRecovery ? <Meta>Rescan or re-enter the exact same team code to confirm the earlier attempt.</Meta> : null}
+        {claimUncertain || claimRecovery ? (
+          <Meta>Rescan or re-enter the exact same team code to confirm the earlier attempt.</Meta>
+        ) : null}
       </Sheet>
 
       <Sheet
         onClose={() => {
-          setShowTools(false)
-          setFindText('')
+          setShowTools(false);
+          setFindText("");
         }}
         title="This hall"
         visible={showTools}
@@ -443,7 +457,7 @@ export function FloorMappingPanel({ runtime }: { runtime: ReviewerRuntime }) {
         {placements.map((placement) => (
           <Row
             detail={`${floorAreaLabels[placement.area]}${
-              floor.zones.length > 1 ? ` of ${placement.zoneName}` : ''
+              floor.zones.length > 1 ? ` of ${placement.zoneName}` : ""
             } · ${placedAgo(placement.mappedAt, estimatedServerNow)}`}
             key={placement.teamId}
             label={placement.teamName}
@@ -451,12 +465,12 @@ export function FloorMappingPanel({ runtime }: { runtime: ReviewerRuntime }) {
         ))}
         {placements.length === 0 ? (
           <Nothing>
-            {query ? 'Nobody has recorded that team yet.' : 'Nobody has been placed yet.'}
+            {query ? "Nobody has recorded that team yet." : "Nobody has been placed yet."}
           </Nothing>
         ) : null}
       </Sheet>
     </View>
-  )
+  );
 }
 
 function HallCanvas({
@@ -468,30 +482,30 @@ function HallCanvas({
   recorded,
   teams,
 }: {
-  areas: readonly { area: FloorArea; teamCount: number }[]
-  landmarks: readonly { id: string; name: string; x: number; y: number }[]
-  onPick: (point: { x: number; y: number }) => void
-  picked: { x: number; y: number } | null
-  placing: boolean
-  recorded: { x: number; y: number } | null
-  teams: readonly { teamId: string; teamName: string; x: number; y: number }[]
+  areas: readonly { area: FloorArea; teamCount: number }[];
+  landmarks: readonly { id: string; name: string; x: number; y: number }[];
+  onPick: (point: { x: number; y: number }) => void;
+  picked: { x: number; y: number } | null;
+  placing: boolean;
+  recorded: { x: number; y: number } | null;
+  teams: readonly { teamId: string; teamName: string; x: number; y: number }[];
 }) {
-  const [size, setSize] = useState<{ width: number; height: number } | null>(null)
-  const [frame, setFrame] = useState<{ width: number; height: number } | null>(null)
-  const [zoomedIn, setZoomedIn] = useState(false)
+  const [size, setSize] = useState<{ width: number; height: number } | null>(null);
+  const [frame, setFrame] = useState<{ width: number; height: number } | null>(null);
+  const [zoomedIn, setZoomedIn] = useState(false);
 
-  const areaLoad = new Map(areas.map((entry) => [entry.area, entry.teamCount]))
+  const areaLoad = new Map(areas.map((entry) => [entry.area, entry.teamCount]));
 
-  const stage = landmarks.find((landmark) => landmark.name === 'the stage') ?? null
-  const stageDepth = stage ? Math.max(6, stage.y * 2) : 0
+  const stage = landmarks.find((landmark) => landmark.name === "the stage") ?? null;
+  const stageDepth = stage ? Math.max(6, stage.y * 2) : 0;
 
   const pointFrom = (locationX: number, locationY: number) => {
-    if (!size || size.width === 0 || size.height === 0) return null
+    if (!size || size.width === 0 || size.height === 0) return null;
     return {
       x: clampPercent((locationX / size.width) * 100),
       y: clampPercent((locationY / size.height) * 100),
-    }
-  }
+    };
+  };
 
   return (
     <ScrollView
@@ -500,8 +514,8 @@ function HallCanvas({
       maximumZoomScale={5}
       minimumZoomScale={1}
       onLayout={(event) => {
-        const { width, height } = event.nativeEvent.layout
-        setFrame({ width, height })
+        const { width, height } = event.nativeEvent.layout;
+        setFrame({ width, height });
       }}
       onScroll={(event) => setZoomedIn(event.nativeEvent.zoomScale >= teamNameZoom)}
       scrollEnabled={!placing}
@@ -521,12 +535,12 @@ function HallCanvas({
           ]}
           onMoveShouldSetResponder={() => placing}
           onResponderGrant={(event) => {
-            const point = pointFrom(event.nativeEvent.locationX, event.nativeEvent.locationY)
-            if (point) onPick(point)
+            const point = pointFrom(event.nativeEvent.locationX, event.nativeEvent.locationY);
+            if (point) onPick(point);
           }}
           onResponderMove={(event) => {
-            const point = pointFrom(event.nativeEvent.locationX, event.nativeEvent.locationY)
-            if (point) onPick(point)
+            const point = pointFrom(event.nativeEvent.locationX, event.nativeEvent.locationY);
+            if (point) onPick(point);
           }}
           onStartShouldSetResponder={() => placing}
         >
@@ -540,22 +554,20 @@ function HallCanvas({
             {floorAreaRows.map((row, rowIndex) => (
               <View key={rowIndex} style={styles.gridRow}>
                 {row.map((area) => {
-                  const lit = picked !== null && floorAreaAt(picked.x, picked.y) === area
-                  const count = areaLoad.get(area) ?? 0
+                  const lit = picked !== null && floorAreaAt(picked.x, picked.y) === area;
+                  const count = areaLoad.get(area) ?? 0;
                   return (
                     <View key={area} style={[styles.gridCell, lit ? styles.gridCellLit : null]}>
                       <Text style={[styles.gridCellText, lit ? styles.gridCellTextLit : null]}>
                         {floorAreaCellLabels[area]}
                       </Text>
                       {count > 0 ? (
-                        <Text
-                          style={[styles.gridCellCount, lit ? styles.gridCellTextLit : null]}
-                        >
+                        <Text style={[styles.gridCellCount, lit ? styles.gridCellTextLit : null]}>
                           {count}
                         </Text>
                       ) : null}
                     </View>
-                  )
+                  );
                 })}
               </View>
             ))}
@@ -597,54 +609,54 @@ function HallCanvas({
         </View>
       ) : null}
     </ScrollView>
-  )
+  );
 }
 
 function clampPercent(value: number) {
-  return Math.max(0, Math.min(100, Math.round(value * 10) / 10))
+  return Math.max(0, Math.min(100, Math.round(value * 10) / 10));
 }
 
 function errorMessage(caught: unknown, fallback: string) {
-  return describeError(caught, fallback)
+  return describeError(caught, fallback);
 }
 
 function placedAgo(timestamp: number, now: number) {
-  const minutes = Math.floor(Math.max(0, now - timestamp) / 60_000)
-  if (minutes < 1) return 'just now'
-  if (minutes < 60) return `${minutes}m ago`
-  return `${Math.floor(minutes / 60)}h ago`
+  const minutes = Math.floor(Math.max(0, now - timestamp) / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  return `${Math.floor(minutes / 60)}h ago`;
 }
 
-const canvasInset = 12
+const canvasInset = 12;
 
-const teamNameZoom = 1.5
+const teamNameZoom = 1.5;
 
 const floorAreaRows = [
-  ['north_west', 'north', 'north_east'],
-  ['west', 'centre', 'east'],
-  ['south_west', 'south', 'south_east'],
-] as const satisfies readonly (readonly FloorArea[])[]
+  ["north_west", "north", "north_east"],
+  ["west", "centre", "east"],
+  ["south_west", "south", "south_east"],
+] as const satisfies readonly (readonly FloorArea[])[];
 
 const floorAreaCellLabels: Record<FloorArea, string> = {
-  north_west: 'North\nwest',
-  north: 'North',
-  north_east: 'North\neast',
-  west: 'West',
-  centre: 'Middle',
-  east: 'East',
-  south_west: 'South\nwest',
-  south: 'South',
-  south_east: 'South\neast',
-}
+  north_west: "North\nwest",
+  north: "North",
+  north_east: "North\neast",
+  west: "West",
+  centre: "Middle",
+  east: "East",
+  south_west: "South\nwest",
+  south: "South",
+  south_east: "South\neast",
+};
 
 const styles = StyleSheet.create({
   frame: { flex: 1, backgroundColor: palette.background },
   canvasFrame: { flex: 1 },
-  canvasContent: { flexGrow: 1, justifyContent: 'center', padding: canvasInset },
+  canvasContent: { flexGrow: 1, justifyContent: "center", padding: canvasInset },
   headline: { paddingHorizontal: 20, paddingTop: 4 },
   dock: { paddingHorizontal: 20, paddingTop: 6, paddingBottom: 34, gap: 12 },
 
-  manualRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  manualRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   input: {
     flex: 1,
     height: 50,
@@ -665,68 +677,71 @@ const styles = StyleSheet.create({
   openButton: {
     height: 50,
     paddingHorizontal: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     backgroundColor: palette.hall,
     borderRadius: radius.control,
   },
-  openButtonText: { color: palette.onHall, fontSize: 16, fontWeight: '600' },
+  openButtonText: { color: palette.onHall, fontSize: 16, fontWeight: "600" },
   disabled: { backgroundColor: palette.tile },
   disabledText: { color: palette.faint },
 
-  room: { backgroundColor: palette.tile, borderRadius: radius.tile, overflow: 'hidden' },
+  room: { backgroundColor: palette.tile, borderRadius: radius.tile, overflow: "hidden" },
   stage: {
-    position: 'absolute',
+    position: "absolute",
     top: 0,
     right: 0,
     left: 0,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     backgroundColor: palette.strong,
   },
-  stageText: { color: palette.text, fontSize: 12, fontWeight: '600' },
-  grid: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, flexDirection: 'column' },
-  gridRow: { flex: 1, flexDirection: 'row' },
+  stageText: { color: palette.text, fontSize: 12, fontWeight: "600" },
+  grid: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, flexDirection: "column" },
+  gridRow: { flex: 1, flexDirection: "row" },
   gridCell: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     gap: 2,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: palette.background,
   },
-  gridCellLit: { backgroundColor: 'rgba(194,154,120,0.14)', borderColor: palette.hall },
+  gridCellLit: { backgroundColor: "rgba(194,154,120,0.14)", borderColor: palette.hall },
   gridCellText: {
     color: palette.muted,
     fontSize: 13,
-    fontWeight: '600',
+    fontWeight: "600",
     lineHeight: 16,
-    textAlign: 'center',
+    textAlign: "center",
   },
-  gridCellCount: { color: palette.text, fontSize: 16, fontWeight: '700' },
+  gridCellCount: { color: palette.text, fontSize: 16, fontWeight: "700" },
   gridCellTextLit: { color: palette.hall },
 
   landmarkMid: { marginTop: -12 },
   landmarkHigh: { marginTop: -27 },
 
-  team: { position: 'absolute', alignItems: 'center', gap: 4 },
-  teamFromLeft: { flexDirection: 'row', transform: [{ translateX: -5 }, { translateY: -6 }] },
-  teamFromRight: { flexDirection: 'row-reverse', transform: [{ translateX: 5 }, { translateY: -6 }] },
+  team: { position: "absolute", alignItems: "center", gap: 4 },
+  teamFromLeft: { flexDirection: "row", transform: [{ translateX: -5 }, { translateY: -6 }] },
+  teamFromRight: {
+    flexDirection: "row-reverse",
+    transform: [{ translateX: 5 }, { translateY: -6 }],
+  },
   teamDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: palette.faint },
-  teamName: { maxWidth: 90, color: palette.text, fontSize: 8, fontWeight: '600' },
+  teamName: { maxWidth: 90, color: palette.text, fontSize: 8, fontWeight: "600" },
 
   recorded: {
-    position: 'absolute',
+    position: "absolute",
     width: 20,
     height: 20,
     borderRadius: 10,
     borderWidth: 2,
-    borderStyle: 'dashed',
+    borderStyle: "dashed",
     borderColor: palette.hall,
     transform: [{ translateX: -10 }, { translateY: -10 }],
   },
   pin: {
-    position: 'absolute',
+    position: "absolute",
     width: 22,
     height: 22,
     borderRadius: 11,
@@ -735,4 +750,4 @@ const styles = StyleSheet.create({
     backgroundColor: palette.background,
     transform: [{ translateX: -11 }, { translateY: -11 }],
   },
-})
+});

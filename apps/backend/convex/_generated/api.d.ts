@@ -37,6 +37,7 @@ import type * as attendanceSecurity from "../attendanceSecurity.js";
 import type * as attendanceSessions from "../attendanceSessions.js";
 import type * as attendanceVenueCheckIns from "../attendanceVenueCheckIns.js";
 import type * as auth from "../auth.js";
+import type * as benefits from "../benefits.js";
 import type * as checkpointConfiguration from "../checkpointConfiguration.js";
 import type * as communicationsEmailAssetActions from "../communicationsEmailAssetActions.js";
 import type * as communicationsEmailAssets from "../communicationsEmailAssets.js";
@@ -200,6 +201,7 @@ import type * as lib_testSubmissionSnapshot from "../lib/testSubmissionSnapshot.
 import type * as lib_venueCheckInLifecycle from "../lib/venueCheckInLifecycle.js";
 import type * as lib_vitHostel from "../lib/vitHostel.js";
 import type * as lib_vitStudentIdentity from "../lib/vitStudentIdentity.js";
+import type * as lib_youtubeCatalog from "../lib/youtubeCatalog.js";
 import type * as manualReviewRecordActions from "../manualReviewRecordActions.js";
 import type * as manualReviewRecords from "../manualReviewRecords.js";
 import type * as novelty from "../novelty.js";
@@ -270,6 +272,7 @@ import type * as support from "../support.js";
 import type * as synesthesiaConfiguration from "../synesthesiaConfiguration.js";
 import type * as synesthesiaOperations from "../synesthesiaOperations.js";
 import type * as synesthesiaParticipant from "../synesthesiaParticipant.js";
+import type * as synesthesiaYouTube from "../synesthesiaYouTube.js";
 import type * as system from "../system.js";
 import type * as teamRosters from "../teamRosters.js";
 import type * as teams from "../teams.js";
@@ -312,6 +315,7 @@ declare const fullApi: ApiFromModules<{
   attendanceSessions: typeof attendanceSessions;
   attendanceVenueCheckIns: typeof attendanceVenueCheckIns;
   auth: typeof auth;
+  benefits: typeof benefits;
   checkpointConfiguration: typeof checkpointConfiguration;
   communicationsEmailAssetActions: typeof communicationsEmailAssetActions;
   communicationsEmailAssets: typeof communicationsEmailAssets;
@@ -475,6 +479,7 @@ declare const fullApi: ApiFromModules<{
   "lib/venueCheckInLifecycle": typeof lib_venueCheckInLifecycle;
   "lib/vitHostel": typeof lib_vitHostel;
   "lib/vitStudentIdentity": typeof lib_vitStudentIdentity;
+  "lib/youtubeCatalog": typeof lib_youtubeCatalog;
   manualReviewRecordActions: typeof manualReviewRecordActions;
   manualReviewRecords: typeof manualReviewRecords;
   novelty: typeof novelty;
@@ -545,6 +550,7 @@ declare const fullApi: ApiFromModules<{
   synesthesiaConfiguration: typeof synesthesiaConfiguration;
   synesthesiaOperations: typeof synesthesiaOperations;
   synesthesiaParticipant: typeof synesthesiaParticipant;
+  synesthesiaYouTube: typeof synesthesiaYouTube;
   system: typeof system;
   teamRosters: typeof teamRosters;
   teams: typeof teams;

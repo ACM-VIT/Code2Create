@@ -1,25 +1,31 @@
-import type { ReactNode } from 'react'
-import { hashSeed, VARIANT_COUNT } from './flowerVariants'
+import type { ReactNode } from "react";
+import { hashSeed, VARIANT_COUNT } from "./flowerVariants";
 
 const TINTS = [
-  { petal: '#feb4cb', heart: '#a04263' },
-  { petal: '#e3a9bf', heart: '#a04263' },
-  { petal: '#d884a2', heart: '#fdd9e4' },
-  { petal: '#f4c2d3', heart: '#c26787' },
-] as const
-
+  { petal: "#feb4cb", heart: "#a04263" },
+  { petal: "#e3a9bf", heart: "#a04263" },
+  { petal: "#d884a2", heart: "#fdd9e4" },
+  { petal: "#f4c2d3", heart: "#c26787" },
+] as const;
 
 function ring(count: number, offset: number, shape: (key: string, angle: number) => ReactNode) {
   return Array.from({ length: count }, (_, index) =>
     shape(`p${index}`, (index * 360) / count + offset),
-  )
+  );
 }
 
 const BLOOMS: readonly ((petal: string) => ReactNode)[] = [
   // ume · five round petals
   (petal) =>
     ring(5, 0, (key, angle) => (
-      <circle key={key} cx="12" cy="6.6" r="4.1" fill={petal} transform={`rotate(${angle} 12 12)`} />
+      <circle
+        key={key}
+        cx="12"
+        cy="6.6"
+        r="4.1"
+        fill={petal}
+        transform={`rotate(${angle} 12 12)`}
+      />
     )),
   // kikyo · five soft points
   (petal) =>
@@ -44,24 +50,47 @@ const BLOOMS: readonly ((petal: string) => ReactNode)[] = [
   // kiku · twelve thin rays
   (petal) =>
     ring(12, 0, (key, angle) => (
-      <ellipse key={key} cx="12" cy="6.4" rx="1.5" ry="4.6" fill={petal} transform={`rotate(${angle} 12 12)`} />
+      <ellipse
+        key={key}
+        cx="12"
+        cy="6.4"
+        rx="1.5"
+        ry="4.6"
+        fill={petal}
+        transform={`rotate(${angle} 12 12)`}
+      />
     )),
   // tsubaki · five petals with a paler inner layer
   (petal) => (
     <>
       {ring(5, 0, (key, angle) => (
-        <circle key={key} cx="12" cy="6.9" r="3.9" fill={petal} transform={`rotate(${angle} 12 12)`} />
+        <circle
+          key={key}
+          cx="12"
+          cy="6.9"
+          r="3.9"
+          fill={petal}
+          transform={`rotate(${angle} 12 12)`}
+        />
       ))}
       {ring(5, 36, (key, angle) => (
-        <circle key={`i${key}`} cx="12" cy="8.6" r="2.6" fill="#fff" opacity=".22" transform={`rotate(${angle} 12 12)`} />
+        <circle
+          key={`i${key}`}
+          cx="12"
+          cy="8.6"
+          r="2.6"
+          fill="#fff"
+          opacity=".22"
+          transform={`rotate(${angle} 12 12)`}
+        />
       ))}
     </>
   ),
-]
+];
 
 // The lead's sakura: five notched petals over quiet stamens.
 const SAKURA_PETAL =
-  'M12 3.2c1.4 1.5 2.9 2.9 2.9 4.9a2.9 2.9 0 0 1-2 2.8l-.9-1-.9 1a2.9 2.9 0 0 1-2-2.8c0-2 1.5-3.4 2.9-4.9z'
+  "M12 3.2c1.4 1.5 2.9 2.9 2.9 4.9a2.9 2.9 0 0 1-2 2.8l-.9-1-.9 1a2.9 2.9 0 0 1-2-2.8c0-2 1.5-3.4 2.9-4.9z";
 
 function Sakura() {
   return (
@@ -76,10 +105,8 @@ function Sakura() {
         </g>
       ))}
     </>
-  )
+  );
 }
-
-
 
 /**
  * One member's bloom. `variant` (from assignFlowerVariants) picks the flower
@@ -92,17 +119,17 @@ export function Flower({
   lead = false,
   variant,
   size,
-  className = '',
+  className = "",
 }: {
-  seed: string
-  lead?: boolean
-  variant?: number
-  size?: number
-  className?: string
+  seed: string;
+  lead?: boolean;
+  variant?: number;
+  size?: number;
+  className?: string;
 }) {
-  const resolved = variant ?? hashSeed(seed) % VARIANT_COUNT
-  const bloom = BLOOMS[resolved % BLOOMS.length]
-  const tint = TINTS[Math.floor(resolved / BLOOMS.length) % TINTS.length]
+  const resolved = variant ?? hashSeed(seed) % VARIANT_COUNT;
+  const bloom = BLOOMS[resolved % BLOOMS.length];
+  const tint = TINTS[Math.floor(resolved / BLOOMS.length) % TINTS.length];
   return (
     <svg
       {...(size === undefined ? {} : { width: size, height: size })}
@@ -119,5 +146,5 @@ export function Flower({
         </>
       )}
     </svg>
-  )
+  );
 }

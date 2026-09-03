@@ -1,27 +1,27 @@
-import { useEffect, useRef, useState } from 'react'
-import { flushSync } from 'react-dom'
-import { PETAL_RADIUS } from './Petals'
+import { useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
+import { PETAL_RADIUS } from "./Petals";
 
-const BLOOM_MS = 4200
-const BURST_AT_MS = 2300
-const HOLD_MS = 4700
-const FADE_MS = 700
+const BLOOM_MS = 4200;
+const BURST_AT_MS = 2300;
+const HOLD_MS = 4700;
+const FADE_MS = 700;
 
 type Burst = {
-  id: number
-  size: number
-  x: string
-  y: string
-  r: string
-  delay: number
-  duration: number
-  color: string
-}
+  id: number;
+  size: number;
+  x: string;
+  y: string;
+  r: string;
+  delay: number;
+  duration: number;
+  color: string;
+};
 
 function makeBurst(): Burst[] {
   return Array.from({ length: 26 }, (_, id) => {
-    const angle = (id / 26) * Math.PI * 2 + Math.random() * 0.5
-    const distance = 16 + Math.random() * 30
+    const angle = (id / 26) * Math.PI * 2 + Math.random() * 0.5;
+    const distance = 16 + Math.random() * 30;
     return {
       id,
       size: 7 + Math.round(Math.random() * 7),
@@ -31,9 +31,9 @@ function makeBurst(): Burst[] {
       r: `${180 + Math.round(Math.random() * 420)}deg`,
       delay: Math.random() * 260,
       duration: 1500 + Math.random() * 900,
-      color: id % 2 ? 'var(--color-petal-a)' : 'var(--color-petal-b)',
-    }
-  })
+      color: id % 2 ? "var(--color-petal-a)" : "var(--color-petal-b)",
+    };
+  });
 }
 
 /**
@@ -44,77 +44,77 @@ function makeBurst(): Burst[] {
  * through; three.js loads only for this moment.
  */
 export function SubmitCelebration({ onDone }: { onDone: () => void }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-  const [fading, setFading] = useState(false)
-  const [burst, setBurst] = useState(false)
-  const [petals] = useState(makeBurst)
-  const onDoneRef = useRef(onDone)
-  const finishRef = useRef<() => void>(() => {})
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [fading, setFading] = useState(false);
+  const [burst, setBurst] = useState(false);
+  const [petals] = useState(makeBurst);
+  const onDoneRef = useRef(onDone);
+  const finishRef = useRef<() => void>(() => {});
 
   useEffect(() => {
-    onDoneRef.current = onDone
-  }, [onDone])
+    onDoneRef.current = onDone;
+  }, [onDone]);
 
   useEffect(() => {
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      onDoneRef.current()
-      return
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      onDoneRef.current();
+      return;
     }
-    let cancelled = false
-    let finished = false
-    let scene: { play(ms?: number): void; dispose(): void } | null = null
-    const timers = new Set<number>()
+    let cancelled = false;
+    let finished = false;
+    let scene: { play(ms?: number): void; dispose(): void } | null = null;
+    const timers = new Set<number>();
     const later = (fn: () => void, ms: number) => {
-      const timer = window.setTimeout(fn, ms)
-      timers.add(timer)
-    }
+      const timer = window.setTimeout(fn, ms);
+      timers.add(timer);
+    };
 
     const finish = () => {
-      if (finished) return
-      finished = true
+      if (finished) return;
+      finished = true;
       // Hand off through a view transition where available: the overlay
       // crossfades away while the closing "submitted." morphs up into the
       // Submitted screen's heading. Elsewhere, a plain fade.
       const transition = (
         document as Document & { startViewTransition?: (update: () => void) => unknown }
-      ).startViewTransition
+      ).startViewTransition;
       if (transition) {
-        transition.call(document, () => flushSync(() => onDoneRef.current()))
+        transition.call(document, () => flushSync(() => onDoneRef.current()));
       } else {
-        setFading(true)
-        later(() => onDoneRef.current(), FADE_MS)
+        setFading(true);
+        later(() => onDoneRef.current(), FADE_MS);
       }
-    }
-    finishRef.current = finish
+    };
+    finishRef.current = finish;
 
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') finish()
-    }
-    window.addEventListener('keydown', onKey)
+      if (event.key === "Escape") finish();
+    };
+    window.addEventListener("keydown", onKey);
 
-    void import('./flowerScene')
+    void import("./flowerScene")
       .then(({ createFlowerScene }) => {
-        if (cancelled) return
-        const canvas = canvasRef.current
-        if (!canvas) return finish()
+        if (cancelled) return;
+        const canvas = canvasRef.current;
+        if (!canvas) return finish();
         try {
-          scene = createFlowerScene(canvas)
-          scene.play(BLOOM_MS)
+          scene = createFlowerScene(canvas);
+          scene.play(BLOOM_MS);
         } catch {
-          return finish()
+          return finish();
         }
-        later(() => setBurst(true), BURST_AT_MS)
-        later(finish, HOLD_MS)
+        later(() => setBurst(true), BURST_AT_MS);
+        later(finish, HOLD_MS);
       })
-      .catch(finish)
+      .catch(finish);
 
     return () => {
-      cancelled = true
-      window.removeEventListener('keydown', onKey)
-      for (const timer of timers) window.clearTimeout(timer)
-      scene?.dispose()
-    }
-  }, [])
+      cancelled = true;
+      window.removeEventListener("keydown", onKey);
+      for (const timer of timers) window.clearTimeout(timer);
+      scene?.dispose();
+    };
+  }, []);
 
   return (
     <div
@@ -122,7 +122,7 @@ export function SubmitCelebration({ onDone }: { onDone: () => void }) {
       aria-label="Proposal submitted"
       onClick={() => finishRef.current()}
       className={`fixed inset-0 z-[9] bg-ink transition-opacity ease-out ${
-        fading ? 'opacity-0' : 'opacity-100'
+        fading ? "opacity-0" : "opacity-100"
       }`}
       style={{ transitionDuration: `${FADE_MS}ms` }}
     >
@@ -146,9 +146,9 @@ export function SubmitCelebration({ onDone }: { onDone: () => void }) {
                 background: petal.color,
                 borderRadius: PETAL_RADIUS,
                 animation: `c2cburst ${petal.duration}ms cubic-bezier(.16,.65,.35,1) ${petal.delay}ms both`,
-                ['--burst-x' as string]: petal.x,
-                ['--burst-y' as string]: petal.y,
-                ['--burst-r' as string]: petal.r,
+                ["--burst-x" as string]: petal.x,
+                ["--burst-y" as string]: petal.y,
+                ["--burst-r" as string]: petal.r,
               }}
             />
           ))}
@@ -157,7 +157,7 @@ export function SubmitCelebration({ onDone }: { onDone: () => void }) {
 
       <p
         className={`pointer-events-none absolute inset-x-0 bottom-[14%] text-center font-display font-light tracking-[-.01em] text-4xl text-paper transition-opacity duration-1000 [view-transition-name:submitted-heading] lg:text-5xl ${
-          burst ? 'opacity-100' : 'opacity-0'
+          burst ? "opacity-100" : "opacity-0"
         }`}
       >
         submitted.
@@ -171,5 +171,5 @@ export function SubmitCelebration({ onDone }: { onDone: () => void }) {
         skip
       </button>
     </div>
-  )
+  );
 }

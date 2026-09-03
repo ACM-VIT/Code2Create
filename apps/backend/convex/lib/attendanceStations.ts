@@ -31,11 +31,7 @@ async function disableAssignedAttendanceStationRows(
     });
   }
   const device = await ctx.db.get(args.station.deviceInstallationId);
-  if (
-    !device ||
-    device.eventId !== args.eventId ||
-    device.status !== "active"
-  ) {
+  if (!device || device.eventId !== args.eventId || device.status !== "active") {
     throw new Error("An active scanner station must own one active registered device.");
   }
   const configurationVersion = args.station.configurationVersion + 1;
@@ -125,7 +121,8 @@ export function requireReplaceableAttendancePlan(
   ) {
     throw new ConvexError({
       code: "PLAN_REPLACEMENT_BLOCKED",
-      message: "Cancel or finish every prepared or live attendance session before replacing its plan.",
+      message:
+        "Cancel or finish every prepared or live attendance session before replacing its plan.",
     });
   }
 }

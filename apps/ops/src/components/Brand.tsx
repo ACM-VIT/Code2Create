@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import type { ReactNode } from "react";
 
 import {
   ACM_MARK_D,
@@ -11,10 +11,10 @@ import {
   RIM,
   WORDMARK_GLYPHS,
   WORDMARK_VIEWBOX,
-} from './brand-paths'
+} from "./brand-paths";
 
 export function BrandMark({ size = 96 }: { size?: number }) {
-  const height = size * (114.677 / 104.99)
+  const height = size * (114.677 / 104.99);
   return (
     <svg aria-hidden fill="none" height={height} viewBox={LOGO_VIEWBOX} width={size}>
       <defs>
@@ -31,7 +31,7 @@ export function BrandMark({ size = 96 }: { size?: number }) {
         <path d={facet.d} fill={`url(#c2cf${index})`} key={index} />
       ))}
     </svg>
-  )
+  );
 }
 
 export function BrandWordmark({ width = 260 }: { width?: number }) {
@@ -49,7 +49,7 @@ export function BrandWordmark({ width = 260 }: { width?: number }) {
         )),
       )}
     </svg>
-  )
+  );
 }
 
 export function AcmMark({ size = 44 }: { size?: number }) {
@@ -57,9 +57,9 @@ export function AcmMark({ size = 44 }: { size?: number }) {
     <svg aria-hidden fill="none" height={size} viewBox={ACM_MARK_VIEWBOX} width={size}>
       <path d={ACM_MARK_D} fill={ACM_MARK_FILL} />
     </svg>
-  )
+  );
 }
 
 export function BrandBackdrop({ children }: { children: ReactNode }) {
-  return <div className="brand-backdrop">{children}</div>
+  return <div className="brand-backdrop">{children}</div>;
 }

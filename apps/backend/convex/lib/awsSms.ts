@@ -52,14 +52,10 @@ export function readAwsSmsConfiguration(
   }
   const originationIdentity = optional(environment, "SMS_AWS_ORIGINATION_IDENTITY");
   if (entityId && !originationIdentity) {
-    throw new Error(
-      "SMS_AWS_ORIGINATION_IDENTITY is required for a registered India SMS route.",
-    );
+    throw new Error("SMS_AWS_ORIGINATION_IDENTITY is required for a registered India SMS route.");
   }
   if (entityId && !registeredIndiaRegions.has(region)) {
-    throw new Error(
-      "Registered India SMS routes must use ap-south-1 or ap-south-2.",
-    );
+    throw new Error("Registered India SMS routes must use ap-south-1 or ap-south-2.");
   }
   // The code may appear more than once: origin-bound autofill (WebOTP on
   // Android, domain-bound codes on iOS) needs a final line of the form

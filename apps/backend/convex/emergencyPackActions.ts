@@ -8,14 +8,8 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import type { ActionCtx } from "./_generated/server";
 import { action, internalAction } from "./_generated/server";
-import {
-  signEmergencyPackDownload,
-  storeEmergencyPack,
-} from "./lib/artifactStorage";
-import {
-  buildEmergencyPackHtml,
-  type EmergencyPackSnapshot,
-} from "./lib/emergencyPack";
+import { signEmergencyPackDownload, storeEmergencyPack } from "./lib/artifactStorage";
+import { buildEmergencyPackHtml, type EmergencyPackSnapshot } from "./lib/emergencyPack";
 
 function digest(value: string) {
   return createHash("sha256").update(value).digest("hex");
@@ -60,9 +54,7 @@ export const generate = internalAction({
       html: built.html,
     });
     const teamCodes = new Set(
-      context.snapshot.roster.flatMap((row) =>
-        row.teamCode === undefined ? [] : [row.teamCode],
-      ),
+      context.snapshot.roster.flatMap((row) => (row.teamCode === undefined ? [] : [row.teamCode])),
     );
     const panelCount = context.snapshot.rounds.reduce(
       (count, round) => count + round.panels.length,

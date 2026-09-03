@@ -60,8 +60,9 @@ describe("direct permission batches", () => {
 
     const afterGrant = await backend.run(async (ctx) => ({
       target: await ctx.db.get(fixture.targetSubjectId),
-      grants: (await Promise.all(granted.grantIds.map((id) => ctx.db.get(id))))
-        .filter((row) => row !== null),
+      grants: (await Promise.all(granted.grantIds.map((id) => ctx.db.get(id)))).filter(
+        (row) => row !== null,
+      ),
       operations: await ctx.db
         .query("operationResults")
         .withIndex("by_actor_operation", (index) =>
@@ -70,20 +71,23 @@ describe("direct permission batches", () => {
             .eq("clientOperationId", grantRequest.clientOperationId),
         )
         .collect(),
-      audits: (await ctx.db
-        .query("auditEvents")
-        .withIndex("by_event_time", (index) => index.eq("eventId", fixture.eventId))
-        .collect())
-        .filter((entry) => entry.action === "access.permission_grant_batch"),
+      audits: (
+        await ctx.db
+          .query("auditEvents")
+          .withIndex("by_event_time", (index) => index.eq("eventId", fixture.eventId))
+          .collect()
+      ).filter((entry) => entry.action === "access.permission_grant_batch"),
     }));
     expect(afterGrant.target?.accessVersion).toBe(2);
     expect(afterGrant.grants.map((grant) => grant.permissionKey).sort()).toEqual([
       "event.lifecycle.read",
       "operations.health.read",
     ]);
-    expect(afterGrant.grants.every(
-      (grant) => grant.sourceId === `access.grant_batch:${grantRequest.clientOperationId}`,
-    )).toBe(true);
+    expect(
+      afterGrant.grants.every(
+        (grant) => grant.sourceId === `access.grant_batch:${grantRequest.clientOperationId}`,
+      ),
+    ).toBe(true);
     expect(afterGrant.operations).toHaveLength(1);
     expect(afterGrant.audits).toHaveLength(1);
 
@@ -102,13 +106,15 @@ describe("direct permission batches", () => {
 
     const afterRevoke = await backend.run(async (ctx) => ({
       target: await ctx.db.get(fixture.targetSubjectId),
-      grants: (await Promise.all(revoked.grantIds.map((id) => ctx.db.get(id))))
-        .filter((row) => row !== null),
-      audits: (await ctx.db
-        .query("auditEvents")
-        .withIndex("by_event_time", (index) => index.eq("eventId", fixture.eventId))
-        .collect())
-        .filter((entry) => entry.action === "access.permission_revoke_batch"),
+      grants: (await Promise.all(revoked.grantIds.map((id) => ctx.db.get(id)))).filter(
+        (row) => row !== null,
+      ),
+      audits: (
+        await ctx.db
+          .query("auditEvents")
+          .withIndex("by_event_time", (index) => index.eq("eventId", fixture.eventId))
+          .collect()
+      ).filter((entry) => entry.action === "access.permission_revoke_batch"),
     }));
     expect(afterRevoke.target?.accessVersion).toBe(3);
     expect(afterRevoke.grants.every((grant) => grant.status === "revoked")).toBe(true);
@@ -162,14 +168,16 @@ describe("direct permission batches", () => {
         reason: "Different account fixture",
       }),
     );
-    await expect(actor.mutation(api.access.revokeBatch, {
-      eventSlug: fixture.eventSlug,
-      targetPersonId: fixture.targetPersonId,
-      grantIds: [winningGrantId, otherGrantId.grantId],
-      expectedAccessVersion: 2,
-      reason: "Invalid mixed-account removal",
-      clientOperationId: "mixed-account-revoke",
-    })).rejects.toThrow("Every selected grant");
+    await expect(
+      actor.mutation(api.access.revokeBatch, {
+        eventSlug: fixture.eventSlug,
+        targetPersonId: fixture.targetPersonId,
+        grantIds: [winningGrantId, otherGrantId.grantId],
+        expectedAccessVersion: 2,
+        reason: "Invalid mixed-account removal",
+        clientOperationId: "mixed-account-revoke",
+      }),
+    ).rejects.toThrow("Every selected grant");
     const winningGrant = await backend.run((ctx) => ctx.db.get(winningGrantId));
     expect(winningGrant?.status).toBe("active");
   });
@@ -187,10 +195,7 @@ describe("direct permission batches", () => {
         "access.permissions.grant_scoped",
         "access.permissions.revoke_scoped",
       ] as const) {
-        for (const permissionKey of [
-          "operations.health.read",
-          "event.lifecycle.read",
-        ] as const) {
+        for (const permissionKey of ["operations.health.read", "event.lifecycle.read"] as const) {
           await insertPermissionGrant(ctx, {
             eventId: fixture.eventId,
             personId: fixture.actorPersonId,
@@ -216,15 +221,17 @@ describe("direct permission batches", () => {
       { permissionKey: "operations.health.read", scopeType: "event" },
       { permissionKey: "event.lifecycle.read", scopeType: "event" },
     ] as const;
-    await expect(actor.mutation(api.access.grantBatch, {
-      eventSlug: fixture.eventSlug,
-      targetPersonId: fixture.targetPersonId,
-      grants: [...grants],
-      validUntil: ceiling + 1,
-      expectedAccessVersion: 1,
-      reason: "Outside the delegated expiry",
-      clientOperationId: "scoped-batch-too-long",
-    })).rejects.toThrow("cannot grant that permission");
+    await expect(
+      actor.mutation(api.access.grantBatch, {
+        eventSlug: fixture.eventSlug,
+        targetPersonId: fixture.targetPersonId,
+        grants: [...grants],
+        validUntil: ceiling + 1,
+        expectedAccessVersion: 1,
+        reason: "Outside the delegated expiry",
+        clientOperationId: "scoped-batch-too-long",
+      }),
+    ).rejects.toThrow("cannot grant that permission");
 
     const granted = await actor.mutation(api.access.grantBatch, {
       eventSlug: fixture.eventSlug,
@@ -235,12 +242,12 @@ describe("direct permission batches", () => {
       reason: "Temporary scoped event coverage",
       clientOperationId: "scoped-batch-valid",
     });
-    const rows = await backend.run((ctx) => Promise.all(
-      granted.grantIds.map((grantId) => ctx.db.get(grantId)),
-    ));
-    expect(rows.every((grant) => (
-      grant?.sourceType === "delegated" && grant.validUntil === ceiling - 1
-    ))).toBe(true);
+    const rows = await backend.run((ctx) =>
+      Promise.all(granted.grantIds.map((grantId) => ctx.db.get(grantId))),
+    );
+    expect(
+      rows.every((grant) => grant?.sourceType === "delegated" && grant.validUntil === ceiling - 1),
+    ).toBe(true);
 
     const revoked = await actor.mutation(api.access.revokeBatch, {
       eventSlug: fixture.eventSlug,
@@ -281,7 +288,7 @@ async function seedFixture(backend: BackendTest, unrestrictedAuthority = true) {
       timezone: "Asia/Kolkata",
       status: "live",
       vitEmailDomains: ["vitstudent.ac.in"],
-        applicationsCloseAt: Date.now() + 86_400_000,
+      applicationsCloseAt: Date.now() + 86_400_000,
       startsAt: now - 60_000,
       endsAt: now + 60 * 60 * 1_000,
       version: 1,

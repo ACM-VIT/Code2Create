@@ -34,79 +34,79 @@
 const DEG = Math.PI / 180;
 
 export interface LadderBough {
-  el: HTMLElement
-  dir: number
-  left: number
-  top: number
-  width: number
-  height: number
-  pivotX: number
-  pivotY: number
-  delay: number
-  angle: number
-  angularV: number
-  angularA: number
-  entry: number
-  load: number
-  tx: number
-  ty: number
-  tvx: number
-  tvy: number
-  tax: number
-  exitFrom: number
-  exitTo: number
+  el: HTMLElement;
+  dir: number;
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  pivotX: number;
+  pivotY: number;
+  delay: number;
+  angle: number;
+  angularV: number;
+  angularA: number;
+  entry: number;
+  load: number;
+  tx: number;
+  ty: number;
+  tvx: number;
+  tvy: number;
+  tax: number;
+  exitFrom: number;
+  exitTo: number;
 }
 
 export interface LadderAnchor {
-  el: HTMLElement
-  bough: LadderBough
-  halfWidth: number
-  restX: number
-  ax: number
-  ay: number
-  x: number
-  y: number
-  vy: number
-  accX: number
-  rx: number
+  el: HTMLElement;
+  bough: LadderBough;
+  halfWidth: number;
+  restX: number;
+  ax: number;
+  ay: number;
+  x: number;
+  y: number;
+  vy: number;
+  accX: number;
+  rx: number;
 }
 
 export interface LadderRung {
-  el: HTMLElement
-  rest: number
-  height: number
-  span: number
-  damping: number
-  pos: number
-  v: number
-  taut: boolean
+  el: HTMLElement;
+  rest: number;
+  height: number;
+  span: number;
+  damping: number;
+  pos: number;
+  v: number;
+  taut: boolean;
 }
 
 export interface LadderColumn {
-  el: HTMLElement
-  left: number
-  top: number
-  rungs: LadderRung[]
-  anchors: LadderAnchor[]
-  anchorRest: { x: number; y: number }
-  length: number
-  sway: number
-  swayV: number
-  anchorX: number
-  anchorY: number
+  el: HTMLElement;
+  left: number;
+  top: number;
+  rungs: LadderRung[];
+  anchors: LadderAnchor[];
+  anchorRest: { x: number; y: number };
+  length: number;
+  sway: number;
+  swayV: number;
+  anchorX: number;
+  anchorY: number;
 }
 
 export interface LadderWorld {
-  boughs: LadderBough[]
-  columns: LadderColumn[]
-  stageWidth: number
-  towUp: boolean
+  boughs: LadderBough[];
+  columns: LadderColumn[];
+  stageWidth: number;
+  towUp: boolean;
 }
 
 export interface LadderSimulation {
-  readonly done: boolean
-  finish(): void
-  step(dt: number): void
+  readonly done: boolean;
+  finish(): void;
+  step(dt: number): void;
 }
 
 /** Real seconds per simulation second — the reel's tape speed. */
@@ -340,8 +340,7 @@ export function createLadderSim(world: LadderWorld): LadderSimulation {
         if (index === 0) {
           const surplus = clamp(tension - total * GRAVITY, -LOAD_CAP, LOAD_CAP);
           anchors.forEach((anchor) => {
-            anchor.bough.load +=
-              (anchor.bough.dir * anchor.rx * surplus * LOAD_GAIN) / count;
+            anchor.bough.load += (anchor.bough.dir * anchor.rx * surplus * LOAD_GAIN) / count;
           });
         } else {
           rungs[index - 1].v += tension * dt;
@@ -354,8 +353,7 @@ export function createLadderSim(world: LadderWorld): LadderSimulation {
     }
 
     /* Sideways: a pendulum whose pivot is being shaken by the bough. */
-    const swayA =
-      -SWAY_W2 * column.sway - SWAY_C * column.swayV - midAx / column.length;
+    const swayA = -SWAY_W2 * column.sway - SWAY_C * column.swayV - midAx / column.length;
     column.swayV += swayA * dt;
     let sway = column.sway + column.swayV * dt;
     if (sway > MAX_SWAY) {
@@ -472,10 +470,8 @@ export function createReelSim(world: LadderWorld): LadderSimulation {
   /* Upward: high enough that the deepest-hanging ladder foot clears the top
      of the frame, elastic lag included. */
   const climb = towUp
-    ? columns.reduce(
-        (deep, column) => Math.max(deep, column.anchorRest.y + column.length),
-        0,
-      ) + EXIT_CLEARANCE
+    ? columns.reduce((deep, column) => Math.max(deep, column.anchorRest.y + column.length), 0) +
+      EXIT_CLEARANCE
     : 0;
 
   boughs.forEach((bough) => {

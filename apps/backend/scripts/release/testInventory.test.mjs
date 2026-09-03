@@ -4,16 +4,15 @@ import test from "node:test";
 import { join, relative, resolve } from "node:path";
 
 const backendRoot = resolve(import.meta.dirname, "../..");
-const packageManifest = JSON.parse(
-  readFileSync(join(backendRoot, "package.json"), "utf8"),
-);
+const packageManifest = JSON.parse(readFileSync(join(backendRoot, "package.json"), "utf8"));
 const testCommands = Object.entries(packageManifest.scripts)
   .filter(([name]) => name === "test" || name.startsWith("test:"))
   .map(([, command]) => command)
   .join("\n");
 const referencedTests = new Set(
-  [...testCommands.matchAll(/(?:convex|scripts)\/[A-Za-z0-9_./-]+\.test\.(?:mjs|ts)/gu)]
-    .map(([file]) => file),
+  [...testCommands.matchAll(/(?:convex|scripts)\/[A-Za-z0-9_./-]+\.test\.(?:mjs|ts)/gu)].map(
+    ([file]) => file,
+  ),
 );
 const testFiles = ["convex", "scripts"]
   .flatMap((directory) => testFilesBelow(join(backendRoot, directory)))

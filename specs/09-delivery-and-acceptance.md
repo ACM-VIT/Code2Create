@@ -201,11 +201,11 @@ Exit when the Worker can create a cited operations brief or recommendation but c
 
 ## 12. Environments
 
-| Environment | Purpose |
-| --- | --- |
-| Local | Fast development with local services and safe fixtures |
-| Staging | Production-shaped provider, device, load, and recovery checks |
-| Production | The live event |
+| Environment | Purpose                                                       |
+| ----------- | ------------------------------------------------------------- |
+| Local       | Fast development with local services and safe fixtures        |
+| Staging     | Production-shaped provider, device, load, and recovery checks |
+| Production  | The live event                                                |
 
 Do not share secrets, provider applications, callback URLs, buckets, domains, or databases across environments.
 

@@ -17,9 +17,7 @@ export function requirePhoneVerificationSecret(
 ) {
   const secret = environment.PHONE_VERIFICATION_HMAC_SECRET?.trim();
   if (!secret || !base64UrlSecret.test(secret)) {
-    throw new Error(
-      "PHONE_VERIFICATION_HMAC_SECRET must be one base64url-encoded 32-byte secret.",
-    );
+    throw new Error("PHONE_VERIFICATION_HMAC_SECRET must be one base64url-encoded 32-byte secret.");
   }
   return secret;
 }
@@ -41,8 +39,12 @@ export function phoneVerificationCodeDigest(args: {
   if (!isPhoneVerificationCode(args.code)) {
     throw new Error("The phone verification code must contain exactly six digits.");
   }
-  const payload = ["code2create-phone-verification-v1", args.verificationId, args.phone, args.code]
-    .join("\n");
+  const payload = [
+    "code2create-phone-verification-v1",
+    args.verificationId,
+    args.phone,
+    args.code,
+  ].join("\n");
   return bytesToHex(hmac(sha256, utf8ToBytes(args.secret), utf8ToBytes(payload)));
 }
 

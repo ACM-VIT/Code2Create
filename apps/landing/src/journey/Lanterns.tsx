@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type CSSProperties, type RefObject } from 'react';
-import { LANTERNS, lanternAt } from './lanternLayout.js';
+import { useEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
+import { LANTERNS, lanternAt } from "./lanternLayout.js";
 
 /*
  * The four stat lanterns.
@@ -15,36 +15,36 @@ const PULL = 22; // px the lantern leans toward the pointer at closest range
 const REACH = 240; // px radius the pointer starts to attract from
 
 interface LanternsProps {
-  stageRef: RefObject<HTMLElement | null>
+  stageRef: RefObject<HTMLElement | null>;
 }
 
 interface LanternStyle extends CSSProperties {
-  '--flicker': string
-  '--flicker-delay': string
-  '--bob': string
+  "--flicker": string;
+  "--flicker-delay": string;
+  "--bob": string;
 }
 
 export default function Lanterns({ stageRef }: LanternsProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const [narrow, setNarrow] = useState(
-    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 760px)').matches,
+    () => typeof window !== "undefined" && window.matchMedia("(max-width: 760px)").matches,
   );
 
   useEffect(() => {
-    const query = window.matchMedia('(max-width: 760px)');
+    const query = window.matchMedia("(max-width: 760px)");
     const sync = () => setNarrow(query.matches);
     sync();
-    query.addEventListener('change', sync);
-    return () => query.removeEventListener('change', sync);
+    query.addEventListener("change", sync);
+    return () => query.removeEventListener("change", sync);
   }, []);
 
   useEffect(() => {
     const stage = stageRef.current;
     const root = rootRef.current;
     if (!stage || !root) return undefined;
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return undefined;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return undefined;
 
-    const nodes = Array.from(root.querySelectorAll<HTMLElement>('.lantern__follow'));
+    const nodes = Array.from(root.querySelectorAll<HTMLElement>(".lantern__follow"));
     const state = nodes.map(() => ({ x: 0, y: 0, tx: 0, ty: 0 }));
     const pointer = { x: -9999, y: -9999, inside: false };
 
@@ -57,8 +57,8 @@ export default function Lanterns({ stageRef }: LanternsProps) {
       pointer.inside = false;
     };
 
-    stage.addEventListener('pointermove', onMove);
-    stage.addEventListener('pointerleave', onLeave);
+    stage.addEventListener("pointermove", onMove);
+    stage.addEventListener("pointerleave", onLeave);
 
     let raf = 0;
     const frame = () => {
@@ -96,7 +96,7 @@ export default function Lanterns({ stageRef }: LanternsProps) {
         if (Math.abs(s.x) > 0.02 || Math.abs(s.y) > 0.02) {
           node.style.transform = `translate3d(${s.x.toFixed(2)}px, ${s.y.toFixed(2)}px, 0)`;
         } else {
-          node.style.transform = '';
+          node.style.transform = "";
         }
       });
     };
@@ -104,8 +104,8 @@ export default function Lanterns({ stageRef }: LanternsProps) {
 
     return () => {
       cancelAnimationFrame(raf);
-      stage.removeEventListener('pointermove', onMove);
-      stage.removeEventListener('pointerleave', onLeave);
+      stage.removeEventListener("pointermove", onMove);
+      stage.removeEventListener("pointerleave", onLeave);
     };
   }, [stageRef]);
 
@@ -117,30 +117,30 @@ export default function Lanterns({ stageRef }: LanternsProps) {
           left: `${lantern.x}%`,
           top: `${lantern.y}%`,
           width: `${lantern.size}%`,
-          '--flicker': `${(3.1 + index * 0.83).toFixed(2)}s`,
-          '--flicker-delay': `${(index * -1.37).toFixed(2)}s`,
-          '--bob': `${(7.5 + index * 1.6).toFixed(2)}s`,
+          "--flicker": `${(3.1 + index * 0.83).toFixed(2)}s`,
+          "--flicker-delay": `${(index * -1.37).toFixed(2)}s`,
+          "--bob": `${(7.5 + index * 1.6).toFixed(2)}s`,
         };
         return (
-        <div
-          className="lantern"
-          key={base.label}
-          data-from={lantern.from}
-          data-drop={lantern.drop}
-          style={style}
-        >
-          <div className="lantern__bob">
-            <div className="lantern__follow">
-              <span className="lantern__glow" aria-hidden="true" />
-              <img className="lantern__body" src={lantern.art} alt="" />
-              <span className="lantern__beam" aria-hidden="true" />
-              <p className="lantern__label">
-                <span className="lantern__value">{lantern.value}</span>
-                <span>{lantern.label}</span>
-              </p>
+          <div
+            className="lantern"
+            key={base.label}
+            data-from={lantern.from}
+            data-drop={lantern.drop}
+            style={style}
+          >
+            <div className="lantern__bob">
+              <div className="lantern__follow">
+                <span className="lantern__glow" aria-hidden="true" />
+                <img className="lantern__body" src={lantern.art} alt="" />
+                <span className="lantern__beam" aria-hidden="true" />
+                <p className="lantern__label">
+                  <span className="lantern__value">{lantern.value}</span>
+                  <span>{lantern.label}</span>
+                </p>
+              </div>
             </div>
           </div>
-        </div>
         );
       })}
     </div>

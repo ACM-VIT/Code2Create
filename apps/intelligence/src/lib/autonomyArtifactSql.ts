@@ -40,11 +40,11 @@ ORDER BY effect.record_id
 LIMIT ?`;
 
 export function digestHypothesisPageSql(rootCount: number) {
-	if (!Number.isSafeInteger(rootCount) || rootCount < 1 || rootCount > 3) {
-		throw new Error('The autonomy hypothesis root count is invalid.');
-	}
-	const placeholders = Array.from({ length: rootCount }, () => '?').join(', ');
-	return `SELECT hypothesis.record_id, record.value
+  if (!Number.isSafeInteger(rootCount) || rootCount < 1 || rootCount > 3) {
+    throw new Error("The autonomy hypothesis root count is invalid.");
+  }
+  const placeholders = Array.from({ length: rootCount }, () => "?").join(", ");
+  return `SELECT hypothesis.record_id, record.value
 FROM c2c_autonomy_digest_hypothesis_records hypothesis
 JOIN c2c_autonomy_evidence_records record ON record.record_id = hypothesis.record_id
 WHERE hypothesis.digest_id IN (${placeholders}) AND hypothesis.record_id > ?

@@ -11,10 +11,7 @@ import {
   storedConfigurationPublicationResult,
 } from "./lib/configurationOperationResult";
 import { requireEventBySlug } from "./lib/events";
-import {
-  requireCurrentPerson,
-  requireEventSubject,
-} from "./lib/identity";
+import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
 import {
   describePhaseScheduleChanges,
@@ -51,10 +48,7 @@ const scheduleView = v.object({
   phases: v.array(phaseView),
 });
 
-async function readSchedule(
-  ctx: QueryCtx,
-  schedule: Doc<"eventPhaseScheduleVersions">,
-) {
+async function readSchedule(ctx: QueryCtx, schedule: Doc<"eventPhaseScheduleVersions">) {
   if (schedule.status !== "draft" && schedule.status !== "published") {
     throw new Error("The current event-phase schedule has an invalid status.");
   }
@@ -94,34 +88,33 @@ export const current = query({
       permissionKey: "configuration.phase.read",
       scopeType: "event",
     });
-    const [published, draft, draftGrantIds, validateGrantIds, publishGrantIds] =
-      await Promise.all([
-        loadPublishedPhaseSchedule(ctx, event),
-        ctx.db
-          .query("eventPhaseScheduleVersions")
-          .withIndex("by_event_status", (index) =>
-            index.eq("eventId", event._id).eq("status", "draft"),
-          )
-          .unique(),
-        matchingPermissionGrantIds(ctx, {
-          eventId: event._id,
-          eventAccessSubjectId: subject._id,
-          permissionKey: "configuration.phase.draft.create",
-          scopeType: "event",
-        }),
-        matchingPermissionGrantIds(ctx, {
-          eventId: event._id,
-          eventAccessSubjectId: subject._id,
-          permissionKey: "configuration.phase.validate",
-          scopeType: "event",
-        }),
-        matchingPermissionGrantIds(ctx, {
-          eventId: event._id,
-          eventAccessSubjectId: subject._id,
-          permissionKey: "configuration.phase.publish",
-          scopeType: "event",
-        }),
-      ]);
+    const [published, draft, draftGrantIds, validateGrantIds, publishGrantIds] = await Promise.all([
+      loadPublishedPhaseSchedule(ctx, event),
+      ctx.db
+        .query("eventPhaseScheduleVersions")
+        .withIndex("by_event_status", (index) =>
+          index.eq("eventId", event._id).eq("status", "draft"),
+        )
+        .unique(),
+      matchingPermissionGrantIds(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: subject._id,
+        permissionKey: "configuration.phase.draft.create",
+        scopeType: "event",
+      }),
+      matchingPermissionGrantIds(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: subject._id,
+        permissionKey: "configuration.phase.validate",
+        scopeType: "event",
+      }),
+      matchingPermissionGrantIds(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: subject._id,
+        permissionKey: "configuration.phase.publish",
+        scopeType: "event",
+      }),
+    ]);
     return {
       eventVersion: event.version,
       timezone: event.timezone,
@@ -169,13 +162,9 @@ export const validateDraft = query({
       issues.push("The draft checksum does not match its phase rows.");
     }
     const published = await loadPublishedPhaseSchedule(ctx, event);
-    const publishedPhases = published
-      ? published.windows.map(phaseWindowInput)
-      : [];
+    const publishedPhases = published ? published.windows.map(phaseWindowInput) : [];
     const evaluatedAt = Date.now();
-    issues.push(
-      ...phaseSchedulePublicationIssues(publishedPhases, draftPhases, evaluatedAt),
-    );
+    issues.push(...phaseSchedulePublicationIssues(publishedPhases, draftPhases, evaluatedAt));
     return {
       valid: issues.length === 0,
       issues: [...new Set(issues)],
@@ -217,10 +206,7 @@ export const createDraft = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const scheduleVersionId = ctx.db.normalizeId(
-        "eventPhaseScheduleVersions",
-        prior.targetId,
-      );
+      const scheduleVersionId = ctx.db.normalizeId("eventPhaseScheduleVersions", prior.targetId);
       if (!scheduleVersionId) throw new Error("The prior phase-draft result is invalid.");
       const stored = storedConfigurationDraftResult(prior.resultJson, "phase-draft");
       return {
@@ -320,15 +306,9 @@ export const publish = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const scheduleVersionId = ctx.db.normalizeId(
-        "eventPhaseScheduleVersions",
-        prior.targetId,
-      );
+      const scheduleVersionId = ctx.db.normalizeId("eventPhaseScheduleVersions", prior.targetId);
       if (!scheduleVersionId) throw new Error("The prior phase-publication result is invalid.");
-      const stored = storedConfigurationPublicationResult(
-        prior.resultJson,
-        "phase-publication",
-      );
+      const stored = storedConfigurationPublicationResult(prior.resultJson, "phase-publication");
       return {
         scheduleVersionId,
         scheduleVersion: stored.version,

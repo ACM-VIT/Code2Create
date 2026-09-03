@@ -1,7 +1,4 @@
-import {
-  paginationOptsValidator,
-  paginationResultValidator,
-} from "convex/server";
+import { paginationOptsValidator, paginationResultValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import { z } from "zod";
 
@@ -12,10 +9,7 @@ import { internalMutation, mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
 import { teamTableLabel } from "./lib/floor";
-import {
-  requireCurrentPerson,
-  requireEventSubject,
-} from "./lib/identity";
+import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import {
   githubTopicVerificationIsCurrent,
   loadPublishedIntegrationPolicy,
@@ -29,10 +23,7 @@ import {
 } from "./lib/operations";
 import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
 import { grantReviewAssignmentAccess } from "./lib/reviewAccess";
-import {
-  insertTeamRoundState,
-  patchTeamRoundState,
-} from "./lib/reviewQueueProjection";
+import { insertTeamRoundState, patchTeamRoundState } from "./lib/reviewQueueProjection";
 import {
   maximumActiveReviewGrantsPerPermission,
   maximumReviewPanelsPerRound,
@@ -237,12 +228,14 @@ async function activeReviewOperationGrants(
     throw new Error("An operator exceeds the active review-grant limit for one permission.");
   }
   const now = Date.now();
-  return rows.flat().filter(
-    (grant) =>
-      grant.eventId === eventId &&
-      grant.validFrom <= now &&
-      (grant.validUntil === undefined || grant.validUntil > now),
-  );
+  return rows
+    .flat()
+    .filter(
+      (grant) =>
+        grant.eventId === eventId &&
+        grant.validFrom <= now &&
+        (grant.validUntil === undefined || grant.validUntil > now),
+    );
 }
 
 function isReviewableTeam(team: Doc<"teams">) {
@@ -253,14 +246,13 @@ function isReviewableTeam(team: Doc<"teams">) {
   );
 }
 
-async function requireRound(
-  ctx: MutationCtx,
-  eventId: Id<"events">,
-  roundId: Id<"reviewRounds">,
-) {
+async function requireRound(ctx: MutationCtx, eventId: Id<"events">, roundId: Id<"reviewRounds">) {
   const round = await ctx.db.get(roundId);
   if (!round || round.eventId !== eventId) {
-    throw new ConvexError({ code: "ROUND_NOT_FOUND", message: "That review round is unavailable." });
+    throw new ConvexError({
+      code: "ROUND_NOT_FOUND",
+      message: "That review round is unavailable.",
+    });
   }
   return round;
 }
@@ -273,22 +265,17 @@ async function requirePanel(
 ) {
   const panel = await ctx.db.get(panelId);
   if (!panel || panel.eventId !== eventId || panel.roundId !== roundId) {
-    throw new ConvexError({ code: "PANEL_NOT_FOUND", message: "That review panel is unavailable." });
+    throw new ConvexError({
+      code: "PANEL_NOT_FOUND",
+      message: "That review panel is unavailable.",
+    });
   }
   return panel;
 }
 
-async function requireReviewTeam(
-  ctx: MutationCtx,
-  eventId: Id<"events">,
-  teamId: Id<"teams">,
-) {
+async function requireReviewTeam(ctx: MutationCtx, eventId: Id<"events">, teamId: Id<"teams">) {
   const team = await ctx.db.get(teamId);
-  if (
-    !team ||
-    team.eventId !== eventId ||
-    !isReviewableTeam(team)
-  ) {
+  if (!team || team.eventId !== eventId || !isReviewableTeam(team)) {
     throw new ConvexError({
       code: "TEAM_NOT_REVIEWABLE",
       message: "The team must be confirmed with a locked project before review.",
@@ -304,25 +291,26 @@ async function ensurePanelReady(
   teamId: Id<"teams">,
 ) {
   if (panel.status !== "ready") {
-    throw new ConvexError({ code: "PANEL_NOT_READY", message: "This panel is not ready to receive a team." });
+    throw new ConvexError({
+      code: "PANEL_NOT_READY",
+      message: "This panel is not ready to receive a team.",
+    });
   }
   const members = await ctx.db
     .query("reviewPanelMembers")
-    .withIndex("by_panel_status", (index) =>
-      index.eq("panelId", panel._id).eq("status", "active"),
-    )
+    .withIndex("by_panel_status", (index) => index.eq("panelId", panel._id).eq("status", "active"))
     .collect();
   if (members.length !== round.requiredPanelSize) {
-    throw new ConvexError({ code: "PANEL_INCOMPLETE", message: "This panel does not have its published reviewer count." });
+    throw new ConvexError({
+      code: "PANEL_INCOMPLETE",
+      message: "This panel does not have its published reviewer count.",
+    });
   }
   for (const member of members) {
     const conflict = await ctx.db
       .query("reviewerConflicts")
       .withIndex("by_reviewer_team_status", (index) =>
-        index
-          .eq("reviewerPersonId", member.personId)
-          .eq("teamId", teamId)
-          .eq("status", "active"),
+        index.eq("reviewerPersonId", member.personId).eq("teamId", teamId).eq("status", "active"),
       )
       .first();
     if (conflict) {
@@ -335,10 +323,7 @@ async function ensurePanelReady(
   return members;
 }
 
-async function latestGithubSnapshot(
-  ctx: MutationCtx,
-  bindingId: Id<"githubRepositoryBindings">,
-) {
+async function latestGithubSnapshot(ctx: MutationCtx, bindingId: Id<"githubRepositoryBindings">) {
   return ctx.db
     .query("githubRepositorySnapshots")
     .withIndex("by_binding_time", (index) => index.eq("repositoryBindingId", bindingId))
@@ -346,10 +331,7 @@ async function latestGithubSnapshot(
     .first();
 }
 
-async function latestFigmaSnapshot(
-  ctx: MutationCtx,
-  bindingId: Id<"figmaFileBindings">,
-) {
+async function latestFigmaSnapshot(ctx: MutationCtx, bindingId: Id<"figmaFileBindings">) {
   return ctx.db
     .query("figmaFileSnapshots")
     .withIndex("by_binding_time", (index) => index.eq("figmaFileBindingId", bindingId))
@@ -372,30 +354,31 @@ export async function createEvidenceCheckpoint(
   const event = await ctx.db.get(args.eventId);
   if (!event) throw new Error("The review event no longer resolves.");
   const { normalized: integrationPolicy } = await loadPublishedIntegrationPolicy(ctx, event);
-  const [githubBindings, figmaBindings, previousCheckpoint, teamCheckpointSubmission] = await Promise.all([
-    ctx.db
-      .query("githubRepositoryBindings")
-      .withIndex("by_team_state", (index) => index.eq("teamId", args.team._id))
-      .collect(),
-    ctx.db
-      .query("figmaFileBindings")
-      .withIndex("by_team_state", (index) => index.eq("teamId", args.team._id))
-      .collect(),
-    ctx.db
-      .query("reviewEvidenceCheckpointSets")
-      .withIndex("by_team_round_sequence_created", (index) =>
-        index.eq("teamId", args.team._id).lt("roundSequence", args.round.sequence),
-      )
-      .order("desc")
-      .first(),
-    ctx.db
-      .query("teamCheckpointSubmissions")
-      .withIndex("by_team_submitted", (index) =>
-        index.eq("teamId", args.team._id).lte("submittedAt", args.createdAt),
-      )
-      .order("desc")
-      .first(),
-  ]);
+  const [githubBindings, figmaBindings, previousCheckpoint, teamCheckpointSubmission] =
+    await Promise.all([
+      ctx.db
+        .query("githubRepositoryBindings")
+        .withIndex("by_team_state", (index) => index.eq("teamId", args.team._id))
+        .collect(),
+      ctx.db
+        .query("figmaFileBindings")
+        .withIndex("by_team_state", (index) => index.eq("teamId", args.team._id))
+        .collect(),
+      ctx.db
+        .query("reviewEvidenceCheckpointSets")
+        .withIndex("by_team_round_sequence_created", (index) =>
+          index.eq("teamId", args.team._id).lt("roundSequence", args.round.sequence),
+        )
+        .order("desc")
+        .first(),
+      ctx.db
+        .query("teamCheckpointSubmissions")
+        .withIndex("by_team_submitted", (index) =>
+          index.eq("teamId", args.team._id).lte("submittedAt", args.createdAt),
+        )
+        .order("desc")
+        .first(),
+    ]);
   if (previousCheckpoint && previousCheckpoint.eventId !== args.eventId) {
     throw new Error("A previous evidence checkpoint belongs to another event.");
   }
@@ -411,9 +394,7 @@ export async function createEvidenceCheckpoint(
         binding,
         integrationPolicy.requiredGitHubTopic,
       );
-      const snapshot = requiredTopicIsCurrent
-        ? await latestGithubSnapshot(ctx, binding._id)
-        : null;
+      const snapshot = requiredTopicIsCurrent ? await latestGithubSnapshot(ctx, binding._id) : null;
       return {
         bindingId: binding._id,
         ...(snapshot ? { snapshotId: snapshot._id } : {}),
@@ -566,42 +547,43 @@ export async function buildReviewOverview(
       scopeId: round._id,
     });
     if (grants.length === 0) continue;
-    const [manageGrants, panels, states, awaitingSessions, activeSessions, overdueSessions, pause] = await Promise.all([
-      matchingPermissionGrantIds(ctx, {
-        eventId: event._id,
-        eventAccessSubjectId: subject._id,
-        permissionKey: "round.manage",
-        scopeType: "round",
-        scopeId: round._id,
-      }),
-      ctx.db
-        .query("reviewPanels")
-        .withIndex("by_round_status", (index) => index.eq("roundId", round._id))
-        .take(maximumReviewPanelsPerRound + 1),
-      ctx.db
-        .query("teamRoundStates")
-        .withIndex("by_round_state_priority_queued", (index) => index.eq("roundId", round._id))
-        .take(maximumReviewTeamsPerEvent + 1),
-      ctx.db
-        .query("reviewSessions")
-        .withIndex("by_round_status_updated", (index) =>
-          index.eq("roundId", round._id).eq("status", "awaiting_presence"),
-        )
-        .take(maximumReviewPanelsPerRound + 1),
-      ctx.db
-        .query("reviewSessions")
-        .withIndex("by_round_status_updated", (index) =>
-          index.eq("roundId", round._id).eq("status", "active"),
-        )
-        .take(maximumReviewPanelsPerRound + 1),
-      ctx.db
-        .query("reviewSessions")
-        .withIndex("by_round_status_updated", (index) =>
-          index.eq("roundId", round._id).eq("status", "overdue"),
-        )
-        .take(maximumReviewPanelsPerRound + 1),
-      findActiveRoundPause(ctx, round._id),
-    ]);
+    const [manageGrants, panels, states, awaitingSessions, activeSessions, overdueSessions, pause] =
+      await Promise.all([
+        matchingPermissionGrantIds(ctx, {
+          eventId: event._id,
+          eventAccessSubjectId: subject._id,
+          permissionKey: "round.manage",
+          scopeType: "round",
+          scopeId: round._id,
+        }),
+        ctx.db
+          .query("reviewPanels")
+          .withIndex("by_round_status", (index) => index.eq("roundId", round._id))
+          .take(maximumReviewPanelsPerRound + 1),
+        ctx.db
+          .query("teamRoundStates")
+          .withIndex("by_round_state_priority_queued", (index) => index.eq("roundId", round._id))
+          .take(maximumReviewTeamsPerEvent + 1),
+        ctx.db
+          .query("reviewSessions")
+          .withIndex("by_round_status_updated", (index) =>
+            index.eq("roundId", round._id).eq("status", "awaiting_presence"),
+          )
+          .take(maximumReviewPanelsPerRound + 1),
+        ctx.db
+          .query("reviewSessions")
+          .withIndex("by_round_status_updated", (index) =>
+            index.eq("roundId", round._id).eq("status", "active"),
+          )
+          .take(maximumReviewPanelsPerRound + 1),
+        ctx.db
+          .query("reviewSessions")
+          .withIndex("by_round_status_updated", (index) =>
+            index.eq("roundId", round._id).eq("status", "overdue"),
+          )
+          .take(maximumReviewPanelsPerRound + 1),
+        findActiveRoundPause(ctx, round._id),
+      ]);
     if (panels.length > maximumReviewPanelsPerRound) {
       throw new Error("A review round exceeds the published panel limit.");
     }
@@ -616,9 +598,8 @@ export async function buildReviewOverview(
       id: panel._id,
       name: panel.name,
       status: panel.status,
-      queuedCount: states.filter(
-        (state) => state.panelId === panel._id && state.state === "queued",
-      ).length,
+      queuedCount: states.filter((state) => state.panelId === panel._id && state.state === "queued")
+        .length,
       activeReviewCount: liveSessions.filter((session) => session.panelId === panel._id).length,
     }));
     const stateTeamIds = new Set(states.map((state) => state.teamId));
@@ -637,7 +618,8 @@ export async function buildReviewOverview(
           states.filter((state) => state.state === "unassigned").length +
           reviewableTeams.filter((team) => !stateTeamIds.has(team._id)).length,
         queued: states.filter((state) => state.state === "queued").length,
-        called: states.filter((state) => state.state === "called" || state.state === "at_table").length,
+        called: states.filter((state) => state.state === "called" || state.state === "at_table")
+          .length,
         inReview: states.filter((state) => state.state === "in_review").length,
         completed: states.filter((state) => state.state === "completed").length,
         held: states.filter((state) => state.state === "held").length,
@@ -646,7 +628,6 @@ export async function buildReviewOverview(
   }
   return { rounds: visible.sort((left, right) => left.startsAt - right.startsAt) };
 }
-
 
 export const roundBoard = query({
   args: { eventSlug: v.string(), roundId: v.id("reviewRounds") },
@@ -701,7 +682,10 @@ export async function buildRoundBoard(
   const subject = await requireEventSubject(ctx, event._id, person._id);
   const round = await ctx.db.get(roundId);
   if (!round || round.eventId !== event._id) {
-    throw new ConvexError({ code: "ROUND_NOT_FOUND", message: "That review round is unavailable." });
+    throw new ConvexError({
+      code: "ROUND_NOT_FOUND",
+      message: "That review round is unavailable.",
+    });
   }
   await requirePermission(ctx, {
     eventId: event._id,
@@ -729,9 +713,7 @@ export async function buildRoundBoard(
       (grant) =>
         grant.permissionKey === permissionKey &&
         (grant.scopeType === "event" ||
-          scopes.some(
-            (scope) => grant.scopeType === scope.type && grant.scopeId === scope.id,
-          )),
+          scopes.some((scope) => grant.scopeType === scope.type && grant.scopeId === scope.id)),
     );
   let pauseView: {
     id: Id<"reviewRoundPauses">;
@@ -771,8 +753,7 @@ export async function buildRoundBoard(
         version: panel.version,
         canManageQueue: allows("queue.manage", [{ type: "panel", id: panel._id }]),
         canPrepareReview:
-          allows("review.prepare", [{ type: "panel", id: panel._id }]) &&
-          activePause === null,
+          allows("review.prepare", [{ type: "panel", id: panel._id }]) && activePause === null,
         canPause: allows("review.panel.pause", [{ type: "panel", id: panel._id }]),
       };
     }),
@@ -838,7 +819,10 @@ export const roundStaffing = query({
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const round = await ctx.db.get(args.roundId);
     if (!round || round.eventId !== event._id) {
-      throw new ConvexError({ code: "ROUND_NOT_FOUND", message: "That review round is unavailable." });
+      throw new ConvexError({
+        code: "ROUND_NOT_FOUND",
+        message: "That review round is unavailable.",
+      });
     }
     await requirePermission(ctx, {
       eventId: event._id,
@@ -896,9 +880,7 @@ export const roundStaffing = query({
               ctx.db
                 .query("reviewerClockIns")
                 .withIndex("by_round_person", (index) =>
-                  index
-                    .eq("roundId", round._id)
-                    .eq("reviewerPersonId", member.personId),
+                  index.eq("roundId", round._id).eq("reviewerPersonId", member.personId),
                 )
                 .unique(),
               ctx.db
@@ -973,7 +955,10 @@ export const roundTeams = query({
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const round = await ctx.db.get(args.roundId);
     if (!round || round.eventId !== event._id) {
-      throw new ConvexError({ code: "ROUND_NOT_FOUND", message: "That review round is unavailable." });
+      throw new ConvexError({
+        code: "ROUND_NOT_FOUND",
+        message: "That review round is unavailable.",
+      });
     }
     await requirePermission(ctx, {
       eventId: event._id,
@@ -1000,43 +985,40 @@ export const roundTeams = query({
       permissionKey: string,
       scopes: ReadonlyArray<{ type: Doc<"permissionGrants">["scopeType"]; id: string }>,
     ) =>
-        actorGrants.some(
+      actorGrants.some(
         (grant) =>
           grant.permissionKey === permissionKey &&
           (grant.scopeType === "event" ||
-            scopes.some(
-              (scope) => grant.scopeType === scope.type && grant.scopeId === scope.id,
-            )),
+            scopes.some((scope) => grant.scopeType === scope.type && grant.scopeId === scope.id)),
       );
     const rows = await Promise.all(
       page.page.map(async (team) => {
         if (!team.lockedProjectVersionId) {
           throw new Error("A review queue row references an invalid team.");
         }
-        const [state, project, sessions, participantAvailability, application] =
-          await Promise.all([
-            ctx.db
-              .query("teamRoundStates")
-              .withIndex("by_round_team", (index) =>
-                index.eq("roundId", round._id).eq("teamId", team._id),
-              )
-              .unique(),
-            ctx.db.get(team.lockedProjectVersionId),
-            ctx.db
-              .query("reviewSessions")
-              .withIndex("by_round_team_status", (index) =>
-                index.eq("roundId", round._id).eq("teamId", team._id),
-              )
-              .take(maximumReviewSessionsPerTeamRound + 1),
-            readReviewParticipantAvailability(ctx, {
-              eventId: event._id,
-              teamId: team._id,
-            }),
-            ctx.db
-              .query("applications")
-              .withIndex("by_team", (index) => index.eq("teamId", team._id))
-              .first(),
-          ]);
+        const [state, project, sessions, participantAvailability, application] = await Promise.all([
+          ctx.db
+            .query("teamRoundStates")
+            .withIndex("by_round_team", (index) =>
+              index.eq("roundId", round._id).eq("teamId", team._id),
+            )
+            .unique(),
+          ctx.db.get(team.lockedProjectVersionId),
+          ctx.db
+            .query("reviewSessions")
+            .withIndex("by_round_team_status", (index) =>
+              index.eq("roundId", round._id).eq("teamId", team._id),
+            )
+            .take(maximumReviewSessionsPerTeamRound + 1),
+          readReviewParticipantAvailability(ctx, {
+            eventId: event._id,
+            teamId: team._id,
+          }),
+          ctx.db
+            .query("applications")
+            .withIndex("by_team", (index) => index.eq("teamId", team._id))
+            .first(),
+        ]);
         if (!project || project.eventId !== event._id || project.teamId !== team._id) {
           throw new Error("A review queue team has no locked project.");
         }
@@ -1060,25 +1042,19 @@ export const roundTeams = query({
         let reviewView: RoundBoardReviewView | null = null;
         if (review) {
           const [assignments, presences, scorecards] = await Promise.all([
-              ctx.db
-                .query("reviewAssignments")
-                .withIndex("by_session_person", (index) =>
-                  index.eq("reviewSessionId", review._id),
-                )
-                .take(maximumReviewersPerPanel + 1),
-              ctx.db
-                .query("reviewPresence")
-                .withIndex("by_session_reviewer", (index) =>
-                  index.eq("reviewSessionId", review._id),
-                )
-                .take(maximumReviewersPerPanel + 1),
-              ctx.db
-                .query("scorecards")
-                .withIndex("by_session_status", (index) =>
-                  index.eq("reviewSessionId", review._id),
-                )
-                .take(maximumReviewersPerPanel + 1),
-            ]);
+            ctx.db
+              .query("reviewAssignments")
+              .withIndex("by_session_person", (index) => index.eq("reviewSessionId", review._id))
+              .take(maximumReviewersPerPanel + 1),
+            ctx.db
+              .query("reviewPresence")
+              .withIndex("by_session_reviewer", (index) => index.eq("reviewSessionId", review._id))
+              .take(maximumReviewersPerPanel + 1),
+            ctx.db
+              .query("scorecards")
+              .withIndex("by_session_status", (index) => index.eq("reviewSessionId", review._id))
+              .take(maximumReviewersPerPanel + 1),
+          ]);
           if (
             assignments.length > maximumReviewersPerPanel ||
             presences.length > maximumReviewersPerPanel ||
@@ -1108,9 +1084,7 @@ export const roundTeams = query({
             status: review.status,
             version: review.version,
             ...(review.startedAt !== undefined ? { startedAt: review.startedAt } : {}),
-            ...(review.plannedEndAt !== undefined
-              ? { plannedEndAt: review.plannedEndAt }
-              : {}),
+            ...(review.plannedEndAt !== undefined ? { plannedEndAt: review.plannedEndAt } : {}),
             reviewerPresenceCount: assigned.filter((assignment) =>
               presences.some(
                 (presence) => presence.reviewerPersonId === assignment.reviewerPersonId,
@@ -1125,12 +1099,9 @@ export const roundTeams = query({
               !round.requiresSharedCommitments ||
               Boolean(review.sharedFindings?.trim() && review.sharedCommitments?.trim()),
             canStart:
-              allows("review.start", [{ type: "review", id: review._id }]) &&
-              activePause === null,
+              allows("review.start", [{ type: "review", id: review._id }]) && activePause === null,
             canComplete: allows("review.complete", [{ type: "review", id: review._id }]),
-            canWaivePresence: allows("review.presence.waive", [
-              { type: "review", id: review._id },
-            ]),
+            canWaivePresence: allows("review.presence.waive", [{ type: "review", id: review._id }]),
             reviewers: reviewerRows,
           };
         }
@@ -1138,17 +1109,13 @@ export const roundTeams = query({
           ? [
               { type: "team" as const, id: state.teamId },
               { type: "round" as const, id: state.roundId },
-              ...(state.panelId
-                ? [{ type: "panel" as const, id: state.panelId }]
-                : []),
+              ...(state.panelId ? [{ type: "panel" as const, id: state.panelId }] : []),
             ]
           : [];
         const canReadApplication =
           application !== null &&
           (allows("application.read", [{ type: "application", id: application._id }]) ||
-            allows("application.review.read", [
-              { type: "application", id: application._id },
-            ]));
+            allows("application.review.read", [{ type: "application", id: application._id }]));
         const lastCallAt = state?.lastCallAttemptAt ?? state?.calledAt;
         return {
           ...(state ? { stateId: state._id } : {}),
@@ -1190,7 +1157,6 @@ export const roundTeams = query({
   },
 });
 
-
 export const openRound = mutation({
   args: {
     eventSlug: v.string(),
@@ -1199,7 +1165,11 @@ export const openRound = mutation({
     reason: v.string(),
     clientOperationId: v.string(),
   },
-  returns: v.object({ roundId: v.id("reviewRounds"), status: v.literal("open"), version: v.number() }),
+  returns: v.object({
+    roundId: v.id("reviewRounds"),
+    status: v.literal("open"),
+    version: v.number(),
+  }),
   handler: async (
     ctx,
     args,
@@ -1236,7 +1206,11 @@ export const openRound = mutation({
       scopeType: "round",
       scopeId: round._id,
     });
-    if (event.status !== "live" || round.status !== "published" || round.version !== args.expectedVersion) {
+    if (
+      event.status !== "live" ||
+      round.status !== "published" ||
+      round.version !== args.expectedVersion
+    ) {
       throw new ConvexError({
         code: "ROUND_NOT_OPENABLE",
         message: "The live event, published round, or expected version changed.",
@@ -1329,9 +1303,7 @@ export const queueTeam = mutation({
     await ensurePanelReady(ctx, round, panel, team._id);
     const state = await ctx.db
       .query("teamRoundStates")
-      .withIndex("by_round_team", (index) =>
-        index.eq("roundId", round._id).eq("teamId", team._id),
-      )
+      .withIndex("by_round_team", (index) => index.eq("roundId", round._id).eq("teamId", team._id))
       .unique();
     if (
       (state?.version ?? 0) !== args.expectedTeamRoundVersion ||
@@ -1465,11 +1437,7 @@ export const callTeam = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const result = storedOperationResult(
-        prior.resultJson,
-        "team call",
-        callTeamOperationResult,
-      );
+      const result = storedOperationResult(prior.resultJson, "team call", callTeamOperationResult);
       const reviewSessionId = ctx.db.normalizeId("reviewSessions", result.reviewSessionId);
       if (!reviewSessionId || reviewSessionId !== prior.targetId) {
         throw new Error("The stored team-call result is invalid.");
@@ -1500,9 +1468,7 @@ export const callTeam = mutation({
     const members = await ensurePanelReady(ctx, round, panel, team._id);
     const state = await ctx.db
       .query("teamRoundStates")
-      .withIndex("by_round_team", (index) =>
-        index.eq("roundId", round._id).eq("teamId", team._id),
-      )
+      .withIndex("by_round_team", (index) => index.eq("roundId", round._id).eq("teamId", team._id))
       .unique();
     if (
       !state ||
@@ -1529,32 +1495,33 @@ export const callTeam = mutation({
         });
       }
     }
-    const [awaitingPanelSessions, activePanelSessions, overduePanelSessions, teamSessions] = await Promise.all([
-      ctx.db
-        .query("reviewSessions")
-        .withIndex("by_panel_status", (index) =>
-          index.eq("panelId", panel._id).eq("status", "awaiting_presence"),
-        )
-        .take(2),
-      ctx.db
-        .query("reviewSessions")
-        .withIndex("by_panel_status", (index) =>
-          index.eq("panelId", panel._id).eq("status", "active"),
-        )
-        .take(2),
-      ctx.db
-        .query("reviewSessions")
-        .withIndex("by_panel_status", (index) =>
-          index.eq("panelId", panel._id).eq("status", "overdue"),
-        )
-        .take(2),
-      ctx.db
-        .query("reviewSessions")
-        .withIndex("by_round_team_status", (index) =>
-          index.eq("roundId", round._id).eq("teamId", team._id),
-        )
-        .take(maximumReviewSessionsPerTeamRound + 1),
-    ]);
+    const [awaitingPanelSessions, activePanelSessions, overduePanelSessions, teamSessions] =
+      await Promise.all([
+        ctx.db
+          .query("reviewSessions")
+          .withIndex("by_panel_status", (index) =>
+            index.eq("panelId", panel._id).eq("status", "awaiting_presence"),
+          )
+          .take(2),
+        ctx.db
+          .query("reviewSessions")
+          .withIndex("by_panel_status", (index) =>
+            index.eq("panelId", panel._id).eq("status", "active"),
+          )
+          .take(2),
+        ctx.db
+          .query("reviewSessions")
+          .withIndex("by_panel_status", (index) =>
+            index.eq("panelId", panel._id).eq("status", "overdue"),
+          )
+          .take(2),
+        ctx.db
+          .query("reviewSessions")
+          .withIndex("by_round_team_status", (index) =>
+            index.eq("roundId", round._id).eq("teamId", team._id),
+          )
+          .take(maximumReviewSessionsPerTeamRound + 1),
+      ]);
     const panelSessions = [
       ...awaitingPanelSessions,
       ...activePanelSessions,
@@ -1864,7 +1831,10 @@ export const startReview = mutation({
       .collect();
     const assigned = assignments.filter((assignment) => assignment.status === "assigned");
     if (assigned.length !== round.requiredPanelSize) {
-      throw new ConvexError({ code: "REVIEW_ASSIGNMENT_INCOMPLETE", message: "The fixed reviewer assignment is incomplete." });
+      throw new ConvexError({
+        code: "REVIEW_ASSIGNMENT_INCOMPLETE",
+        message: "The fixed reviewer assignment is incomplete.",
+      });
     }
     for (const assignment of assigned) {
       const [presence, conflict] = await Promise.all([
@@ -1889,7 +1859,8 @@ export const startReview = mutation({
       if (conflict) {
         throw new ConvexError({
           code: "REVIEWER_CONFLICT_ACTIVE",
-          message: "A fixed reviewer has an active conflict with this team. Replace that reviewer before starting.",
+          message:
+            "A fixed reviewer has an active conflict with this team. Replace that reviewer before starting.",
         });
       }
       if (!presence) {
@@ -1927,8 +1898,15 @@ export const startReview = mutation({
         index.eq("roundId", round._id).eq("teamId", session.teamId),
       )
       .unique();
-    if (!state || !["called", "at_table"].includes(state.state) || state.panelId !== session.panelId) {
-      throw new ConvexError({ code: "QUEUE_STATE_CHANGED", message: "The team is no longer called to this panel." });
+    if (
+      !state ||
+      !["called", "at_table"].includes(state.state) ||
+      state.panelId !== session.panelId
+    ) {
+      throw new ConvexError({
+        code: "QUEUE_STATE_CHANGED",
+        message: "The team is no longer called to this panel.",
+      });
     }
     const plannedEndAt = now + round.reviewDurationSeconds * 1_000;
     await ctx.db.patch(session._id, {
@@ -2068,7 +2046,10 @@ export const extendReview = mutation({
       round.ordinaryExtensionSeconds < 1 ||
       session.extensionCount >= round.maximumOrdinaryExtensions
     ) {
-      throw new ConvexError({ code: "EXTENSION_NOT_AVAILABLE", message: "The ordinary extension is not available." });
+      throw new ConvexError({
+        code: "EXTENSION_NOT_AVAILABLE",
+        message: "The ordinary extension is not available.",
+      });
     }
     const now = Date.now();
     const plannedEndAt = session.plannedEndAt + round.ordinaryExtensionSeconds * 1_000;

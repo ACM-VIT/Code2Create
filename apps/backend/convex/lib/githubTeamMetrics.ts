@@ -73,9 +73,7 @@ export async function refreshGithubTeamMetrics(
       metric.commitIdentityComplete
     );
   }).length;
-  const commitIdentityComplete = resolvedMetrics.every(
-    (metric) => metric.commitIdentityComplete,
-  );
+  const commitIdentityComplete = resolvedMetrics.every((metric) => metric.commitIdentityComplete);
   const needsAttention = bindings.some((binding, index) => {
     const metric = resolvedMetrics[index];
     if (!metric) throw new Error("A validated GitHub repository metric is missing.");
@@ -138,7 +136,9 @@ export async function refreshGithubTeamMetrics(
     changedFiles: resolvedMetrics.reduce((total, metric) => total + metric.changedFiles, 0),
     languageBytes: [...languageTotals.entries()]
       .map(([language, bytes]) => ({ language, bytes }))
-      .toSorted((left, right) => right.bytes - left.bytes || left.language.localeCompare(right.language)),
+      .toSorted(
+        (left, right) => right.bytes - left.bytes || left.language.localeCompare(right.language),
+      ),
     completeness,
     incompleteRepositoryCount: bindings.length - completeRepositoryCount,
     ...(lastActivityAt !== undefined ? { lastActivityAt } : {}),

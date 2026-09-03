@@ -49,9 +49,7 @@ export async function findOperation(
   const operation = await ctx.db
     .query("operationResults")
     .withIndex("by_actor_operation", (index) =>
-      index
-        .eq("actorPersonId", args.actorPersonId)
-        .eq("clientOperationId", args.clientOperationId),
+      index.eq("actorPersonId", args.actorPersonId).eq("clientOperationId", args.clientOperationId),
     )
     .unique();
   if (!operation) return null;

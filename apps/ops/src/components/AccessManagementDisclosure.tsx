@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import type { ReactNode } from "react";
 
 export function AccessManagementDisclosure({
   children,
@@ -6,14 +6,14 @@ export function AccessManagementDisclosure({
   onToggle,
   open,
   title,
-  tone = 'default',
+  tone = "default",
 }: {
-  children: ReactNode
-  description: string
-  onToggle?: (open: boolean) => void
-  open?: boolean
-  title: string
-  tone?: 'default' | 'danger'
+  children: ReactNode;
+  description: string;
+  onToggle?: (open: boolean) => void;
+  open?: boolean;
+  title: string;
+  tone?: "default" | "danger";
 }) {
   return (
     <details
@@ -26,9 +26,11 @@ export function AccessManagementDisclosure({
           <strong>{title}</strong>
           <small>{description}</small>
         </span>
-        <span className="access-management-chevron" aria-hidden="true">⌄</span>
+        <span className="access-management-chevron" aria-hidden="true">
+          ⌄
+        </span>
       </summary>
       <div className="access-management-content">{children}</div>
     </details>
-  )
+  );
 }

@@ -58,7 +58,7 @@
   bottom: 0;
   width: 120%;
   z-index: 1;
-  background-image: url('/assets/img/hills-band.webp');
+  background-image: url("/assets/img/hills-band.webp");
   background-repeat: repeat-x;
   background-position: 0 bottom;
   background-size: auto 100%;
@@ -86,7 +86,7 @@
 }
 
 .ridge--near::after {
-  content: '';
+  content: "";
   position: absolute;
   inset: auto 0 -2px;
   height: 22%;
@@ -227,7 +227,9 @@
   font-weight: 500;
   font-size: clamp(13px, 1.25vw, 16px);
   color: var(--paper-warm);
-  transition: transform 0.3s ease, filter 0.3s ease;
+  transition:
+    transform 0.3s ease,
+    filter 0.3s ease;
 }
 
 .hero-cta img {
@@ -422,7 +424,6 @@
   animation-delay: var(--flicker-delay, 0s);
 }
 
-
 /* The shaft of light spilling out of the base. */
 /*
  * Light spilling from the lantern's mouth. A flat gradient inside a hard
@@ -448,7 +449,7 @@
 
 .lantern__beam::before,
 .lantern__beam::after {
-  content: '';
+  content: "";
   position: absolute;
   inset: 0;
 }
@@ -475,7 +476,6 @@
   );
   filter: blur(3px);
 }
-
 
 .lantern__label {
   position: absolute;
@@ -908,23 +908,16 @@
   width: 5px;
   /* Twisted fibre: the diagonal banding is the lay of the rope, the inset
      shadows round it off. */
-  background: repeating-linear-gradient(
-    -66deg,
-    #5c2f21 0,
-    #8a4c35 2px,
-    #6d3a28 4px,
-    #4a2519 6px
-  );
+  background: repeating-linear-gradient(-66deg, #5c2f21 0, #8a4c35 2px, #6d3a28 4px, #4a2519 6px);
   box-shadow:
     inset -1.5px 0 0 rgba(0, 0, 0, 0.45),
     inset 1px 0 0 rgba(255, 196, 152, 0.16);
   border-radius: 3px;
 }
 
-
 /* The knot: a wrap of cord where the rope meets the wood. */
 .rope::before {
-  content: '';
+  content: "";
   position: absolute;
   left: 50%;
   top: -3px;
@@ -937,7 +930,7 @@
 }
 
 .rope::after {
-  content: '';
+  content: "";
   position: absolute;
   left: 50%;
   top: 4px;
@@ -978,11 +971,13 @@
   width: 100%;
   min-height: clamp(42px, 7.6vh, 70px);
   padding: 10px clamp(20px, 3.2vw, 40px);
-  background-image: url('/assets/img/wood.png');
+  background-image: url("/assets/img/wood.png");
   background-size: cover;
   background-position: center;
   border-radius: 10px;
-  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  box-shadow:
+    0 8px 18px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28);
   font-size: clamp(12px, 1.52vw, 19px);
   line-height: 1.25;
   text-align: left;
@@ -1005,11 +1000,11 @@
   transition: transform 0.3s ease;
 }
 
-.plank__face[aria-expanded='true'] .plank__chevron {
+.plank__face[aria-expanded="true"] .plank__chevron {
   transform: rotate(180deg);
 }
 
-.plank__face[aria-expanded='true'] {
+.plank__face[aria-expanded="true"] {
   border-radius: 10px 10px 0 0;
   /* The closed-state drop shadow would sit on the answer as a black seam. */
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
@@ -1018,8 +1013,8 @@
 .plank__answer {
   display: grid;
   grid-template-rows: 0fr;
-  background-image: linear-gradient(rgba(80, 34, 56, 0.08), rgba(80, 34, 56, 0.08)),
-    url('/assets/img/wood.png');
+  background-image:
+    linear-gradient(rgba(80, 34, 56, 0.08), rgba(80, 34, 56, 0.08)), url("/assets/img/wood.png");
   background-size: cover;
   background-position: center;
   border-radius: 0 0 10px 10px;
@@ -1027,11 +1022,11 @@
   transition: grid-template-rows 0.3s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.plank__answer[data-open='false'] {
+.plank__answer[data-open="false"] {
   box-shadow: none;
 }
 
-.plank__answer[data-open='true'] {
+.plank__answer[data-open="true"] {
   grid-template-rows: 1fr;
 }
 

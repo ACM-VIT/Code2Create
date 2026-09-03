@@ -7,12 +7,18 @@ import {
 
 function failureClass(state: Doc<"admissionAIRecommendations">["state"]) {
   switch (state) {
-    case "refused": return "refused" as const;
-    case "invalid": return "invalid" as const;
-    case "timed_out": return "timeout" as const;
-    case "rate_limited": return "rate_limited" as const;
-    case "failed": return "failed" as const;
-    default: return undefined;
+    case "refused":
+      return "refused" as const;
+    case "invalid":
+      return "invalid" as const;
+    case "timed_out":
+      return "timeout" as const;
+    case "rate_limited":
+      return "rate_limited" as const;
+    case "failed":
+      return "failed" as const;
+    default:
+      return undefined;
   }
 }
 
@@ -24,7 +30,12 @@ export async function appendAdmissionJobReadFact(
   const source = "admission_jobs" as const;
   const entityKey = `admission:${row._id}`;
   const sequence = await nextOperationsAutonomyFactSequence(ctx, row.eventId, source, now);
-  await closeOperationsAutonomyFactVersion(ctx, { eventId: row.eventId, source, entityKey, sequence });
+  await closeOperationsAutonomyFactVersion(ctx, {
+    eventId: row.eventId,
+    source,
+    entityKey,
+    sequence,
+  });
   const classified = failureClass(row.state);
   await ctx.db.insert("operationsAutonomyReadFacts", {
     eventId: row.eventId,
@@ -35,7 +46,9 @@ export async function appendAdmissionJobReadFact(
       jobId: row._id,
       state: row.state,
       policyVersionId: row.admissionPolicyVersionId,
-      ...(row.modelConfigVersionId === undefined ? {} : { modelConfigVersionId: row.modelConfigVersionId }),
+      ...(row.modelConfigVersionId === undefined
+        ? {}
+        : { modelConfigVersionId: row.modelConfigVersionId }),
       applicationContentVersion: row.applicationContentVersion,
       createdAt: row.createdAt,
       ...(row.completedAt === undefined ? {} : { completedAt: row.completedAt }),

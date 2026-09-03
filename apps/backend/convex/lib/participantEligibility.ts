@@ -26,9 +26,7 @@ export function participantEligibilityLookupFromVerifiedIdentity(
 ): ParticipantEligibilityLookup | null {
   const isVitStudent = isApprovedVitStudentIdentity({
     verifiedEmail: identity.verifiedEmail,
-    ...(identity.hostedDomain !== undefined
-      ? { hostedDomain: identity.hostedDomain }
-      : {}),
+    ...(identity.hostedDomain !== undefined ? { hostedDomain: identity.hostedDomain } : {}),
     allowedDomains: event.vitEmailDomains,
   });
   if (!isVitStudent) {
@@ -71,9 +69,7 @@ export async function productionParticipantEligibilityAllowed(
   lookup: ParticipantEligibilityLookup | null,
 ) {
   if (!lookup || !event.publishedParticipantEligibilityImportId) return false;
-  const eligibilityImport = await ctx.db.get(
-    event.publishedParticipantEligibilityImportId,
-  );
+  const eligibilityImport = await ctx.db.get(event.publishedParticipantEligibilityImportId);
   if (
     !eligibilityImport ||
     eligibilityImport.eventId !== event._id ||
@@ -105,10 +101,7 @@ export function normalizeEligibilityIdentity(
     }
     return email;
   }
-  const parsed = parseVitRegistrationNumber(
-    identity,
-    vitIdentityReferenceYear(event),
-  );
+  const parsed = parseVitRegistrationNumber(identity, vitIdentityReferenceYear(event));
   if (!parsed) {
     throw new Error("VIT eligibility identities must be valid registration numbers.");
   }

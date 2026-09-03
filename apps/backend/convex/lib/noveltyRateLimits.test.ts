@@ -21,12 +21,8 @@ describe("globalNoveltyRateLimit", () => {
   });
 
   test("rejects an invalid provider budget", () => {
-    expect(() => globalNoveltyRateLimit("0")).toThrow(
-      "NOVELTY_GLOBAL_REQUESTS_PER_MINUTE",
-    );
-    expect(() => globalNoveltyRateLimit("100.5")).toThrow(
-      "NOVELTY_GLOBAL_REQUESTS_PER_MINUTE",
-    );
+    expect(() => globalNoveltyRateLimit("0")).toThrow("NOVELTY_GLOBAL_REQUESTS_PER_MINUTE");
+    expect(() => globalNoveltyRateLimit("100.5")).toThrow("NOVELTY_GLOBAL_REQUESTS_PER_MINUTE");
   });
 
   test("reserves a separately bounded background-index budget", () => {

@@ -106,8 +106,7 @@ export async function completeVitBarcodeReplacement(
   const conflictingCredential = matchingCredentials.find(
     (credential) =>
       credential._id !== replacement._id &&
-      (credential.state === "active" ||
-        isCurrentPendingAttendanceCredential(credential, args.now)),
+      (credential.state === "active" || isCurrentPendingAttendanceCredential(credential, args.now)),
   );
   if (conflictingCredential) {
     throw new ConvexError({
@@ -170,8 +169,7 @@ export async function suspendActiveVitBarcode(
     .collect();
   const pendingReplacements = pendingCredentials.filter(
     (candidate) =>
-      candidate.kind === "vit_id_barcode" &&
-      candidate.supersedesCredentialId === credential._id,
+      candidate.kind === "vit_id_barcode" && candidate.supersedesCredentialId === credential._id,
   );
   await ctx.db.patch(credential._id, {
     state: "suspended",

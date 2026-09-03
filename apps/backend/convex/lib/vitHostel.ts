@@ -30,10 +30,7 @@ export function parsedHostelDetails(
     });
   }
   if (residenceType === "day_scholar") {
-    if (
-      residenceValue?.trim()
-      || normalizeVitHostelRoomNumberInput(roomValue ?? "")
-    ) {
+    if (residenceValue?.trim() || normalizeVitHostelRoomNumberInput(roomValue ?? "")) {
       throw new ConvexError({
         code: "DAY_SCHOLAR_HAS_NO_HOSTEL_DETAILS",
         message: "Day scholars do not have a hostel block or room number.",

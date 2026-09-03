@@ -66,13 +66,13 @@ The single primary action fills the screen. It is a large target with an icon an
 
 Colour identifies the kind of action rather than decorating it, and each action keeps its colour everywhere it appears, so the mapping can be learned once:
 
-| Action | Reads as |
-| --- | --- |
-| Respond to page | Urgent. The panel is waiting for this person |
-| Go to team, Scan team | Move or scan. This is a physical step |
-| Continue review, Submit scorecard | The work itself |
-| Complete device check, Clock in | Setup, before judging can begin |
-| No current assignment | Resting. No action is required |
+| Action                            | Reads as                                     |
+| --------------------------------- | -------------------------------------------- |
+| Respond to page                   | Urgent. The panel is waiting for this person |
+| Go to team, Scan team             | Move or scan. This is a physical step        |
+| Continue review, Submit scorecard | The work itself                              |
+| Complete device check, Clock in   | Setup, before judging can begin              |
+| No current assignment             | Resting. No action is required               |
 
 Small text under the action shows the team name, hall location, and round. History or Profile contains other detail.
 

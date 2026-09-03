@@ -1,31 +1,31 @@
-import type { ChangeEvent, ReactNode } from 'react'
+import type { ChangeEvent, ReactNode } from "react";
 import {
   operationsAutonomyReadTools,
   operationsHealthAreas,
   operationsHealthSeverities,
-} from '@code2create/domain'
+} from "@code2create/domain";
 
 import {
   allAutonomyRecommendationKinds as recommendationOptions,
   type AutonomyPolicy,
-} from '../../lib/autonomyPolicy'
+} from "../../lib/autonomyPolicy";
 
 type OwnerOption = {
-  eventAccessSubjectId: AutonomyPolicy['accountableOwnerEventAccessSubjectId']
-  displayName: string
-  email: string
-  canRead: boolean
-  canGenerate: boolean
-}
+  eventAccessSubjectId: AutonomyPolicy["accountableOwnerEventAccessSubjectId"];
+  displayName: string;
+  email: string;
+  canRead: boolean;
+  canGenerate: boolean;
+};
 
 type PolicyChange = <Key extends keyof AutonomyPolicy>(
   key: Key,
   value: AutonomyPolicy[Key],
-) => void
+) => void;
 
-const severityOptions = operationsHealthSeverities
-const areaOptions = operationsHealthAreas
-const readToolOptions = operationsAutonomyReadTools
+const severityOptions = operationsHealthSeverities;
+const areaOptions = operationsHealthAreas;
+const readToolOptions = operationsAutonomyReadTools;
 export function AutonomyPolicyFields({
   policy,
   ownerCanLoadMore,
@@ -37,32 +37,32 @@ export function AutonomyPolicyFields({
   onModeChange,
   onOwnerSearchChange,
 }: {
-  policy: AutonomyPolicy
-  ownerCanLoadMore: boolean
-  ownerLoading: boolean
-  ownerOptions: readonly OwnerOption[]
-  ownerSearch: string
-  onChange: PolicyChange
-  onLoadMoreOwners: () => void
-  onModeChange: (mode: AutonomyPolicy['mode']) => void
-  onOwnerSearchChange: (value: string) => void
+  policy: AutonomyPolicy;
+  ownerCanLoadMore: boolean;
+  ownerLoading: boolean;
+  ownerOptions: readonly OwnerOption[];
+  ownerSearch: string;
+  onChange: PolicyChange;
+  onLoadMoreOwners: () => void;
+  onModeChange: (mode: AutonomyPolicy["mode"]) => void;
+  onOwnerSearchChange: (value: string) => void;
 }) {
   return (
     <>
       <PolicySection
         title="Operating mode"
-        description="Observe records what the agent finds. Recommend also lets it prepare actions for an operator to approve or reject."
+        description="Recommend lets it draft actions for an operator to approve."
       >
         <label className="intelligence-enable">
           <input
             checked={policy.enabled}
             type="checkbox"
-            onChange={(event) => onChange('enabled', event.currentTarget.checked)}
+            onChange={(event) => onChange("enabled", event.currentTarget.checked)}
           />
           <span>Let the agent monitor on its own</span>
         </label>
         <div className="intake-purpose-list">
-          {(['observe', 'recommend'] as const).map((mode) => (
+          {(["observe", "recommend"] as const).map((mode) => (
             <label key={mode}>
               <input
                 checked={policy.mode === mode}
@@ -78,19 +78,19 @@ export function AutonomyPolicyFields({
 
       <PolicySection
         title="Signals and cadence"
-        description="Changed qualifying signals may run immediately; the schedule also checks the event continuously at the selected cadence."
+        description="A qualifying signal starts a check right away; the schedule runs on its own cadence."
       >
         <ChoiceSet
           label="Signal level"
           options={severityOptions}
           values={policy.triggerSeverities}
-          onChange={(values) => onChange('triggerSeverities', values)}
+          onChange={(values) => onChange("triggerSeverities", values)}
         />
         <ChoiceSet
           label="Event areas"
           options={areaOptions}
           values={policy.triggerAreas}
-          onChange={(values) => onChange('triggerAreas', values)}
+          onChange={(values) => onChange("triggerAreas", values)}
         />
         <div className="intake-policy-number-grid">
           <NumberField
@@ -98,7 +98,7 @@ export function AutonomyPolicyFields({
             min={1}
             max={60}
             value={policy.scheduleIntervalMinutes}
-            onChange={(value) => onChange('scheduleIntervalMinutes', value)}
+            onChange={(value) => onChange("scheduleIntervalMinutes", value)}
           />
         </div>
         <label className="field">
@@ -106,10 +106,10 @@ export function AutonomyPolicyFields({
           <select
             value={policy.escalationSeverity}
             onChange={(event) => {
-              const severity = (['critical', 'attention'] as const).find(
+              const severity = (["critical", "attention"] as const).find(
                 (candidate) => candidate === event.currentTarget.value,
-              )
-              if (severity !== undefined) onChange('escalationSeverity', severity)
+              );
+              if (severity !== undefined) onChange("escalationSeverity", severity);
             }}
           >
             <option value="critical">Urgent</option>
@@ -120,49 +120,43 @@ export function AutonomyPolicyFields({
 
       <PolicySection
         title="Evidence tools"
-        description="Choose exactly which event information the agent may read. Anything not selected stays unavailable."
+        description="Anything unticked stays unavailable to the agent."
       >
         <ChoiceSet
           label="Event information the agent may read"
           options={readToolOptions}
-          requiredValues={['operations_health']}
+          requiredValues={["operations_health"]}
           values={policy.allowedReadTools}
-          onChange={(values) => onChange('allowedReadTools', values)}
+          onChange={(values) => onChange("allowedReadTools", values)}
         />
-        <p className="muted">
-          Operations health is always included so every run refreshes current event state before
-          following the rest of its authorized evidence.
-        </p>
+        <p className="muted">Operations health is always included.</p>
       </PolicySection>
 
-      {policy.mode === 'recommend' ? (
+      {policy.mode === "recommend" ? (
         <PolicySection
           title="Recommendation scope"
-          description="Choose the kinds of action the agent may prepare for human review. The agent cannot execute them."
+          description="Actions the agent may draft for approval. The agent cannot execute them."
         >
           <ChoiceSet
             label="Allowed proposal kinds"
             options={recommendationOptions}
             values={policy.allowedRecommendationKinds}
-            onChange={(values) => onChange('allowedRecommendationKinds', values)}
+            onChange={(values) => onChange("allowedRecommendationKinds", values)}
           />
         </PolicySection>
       ) : null}
 
-      <PolicySection
-        title="Authority boundary"
-        description="The agent may investigate as deeply as needed within the event information selected above. It cannot take consequential action."
-      >
+      <PolicySection title="Authority boundary">
         <p className="notice">
-          The agent can observe and propose. It cannot change access, identity, participant state,
-          judging, scores, notifications, money, releases, or another materially consequential
-          state. A person must confirm those actions.
+          The agent may investigate as deeply as needed within the information above. It cannot
+          change access, identity, participant state, judging, scores, notifications, money, or
+          releases; a person confirms every such action.
         </p>
       </PolicySection>
 
       <PolicySection
         title="Accountable owner"
-        description="This person is responsible for the agent. Their required event access is checked again for every run."
+        description="Responsible for the agent; their access is checked again on every run."
       >
         <label className="field">
           <span>Find an event account</span>
@@ -182,20 +176,20 @@ export function AutonomyPolicyFields({
             onChange={(event) => {
               const owner = ownerOptions.find(
                 (candidate) => candidate.eventAccessSubjectId === event.currentTarget.value,
-              )
+              );
               if (owner !== undefined) {
-                onChange('accountableOwnerEventAccessSubjectId', owner.eventAccessSubjectId)
+                onChange("accountableOwnerEventAccessSubjectId", owner.eventAccessSubjectId);
               }
             }}
           >
             {ownerOptions.map((owner) => (
               <option
-                disabled={!owner.canRead || (policy.mode === 'recommend' && !owner.canGenerate)}
+                disabled={!owner.canRead || (policy.mode === "recommend" && !owner.canGenerate)}
                 key={owner.eventAccessSubjectId}
                 value={owner.eventAccessSubjectId}
               >
                 {owner.displayName} · {owner.email}
-                {!owner.canRead ? ' · access missing' : owner.canGenerate ? '' : ' · observe only'}
+                {!owner.canRead ? " · access missing" : owner.canGenerate ? "" : " · observe only"}
               </option>
             ))}
           </select>
@@ -207,16 +201,14 @@ export function AutonomyPolicyFields({
             type="button"
             onClick={onLoadMoreOwners}
           >
-            {ownerLoading ? 'Loading accounts…' : 'Load more accounts'}
+            {ownerLoading ? "Loading accounts…" : "Load more accounts"}
           </button>
-        ) : ownerLoading ? <p className="muted">Loading accounts…</p> : null}
-        <label className="field">
-          <span>Audience</span>
-          <input disabled value="Operations dashboard" />
-        </label>
+        ) : ownerLoading ? (
+          <p className="muted">Loading accounts…</p>
+        ) : null}
       </PolicySection>
     </>
-  )
+  );
 }
 
 function PolicySection({
@@ -224,16 +216,19 @@ function PolicySection({
   description,
   children,
 }: {
-  title: string
-  description: string
-  children: ReactNode
+  title: string;
+  description?: string;
+  children: ReactNode;
 }) {
   return (
     <section className="intake-policy-section">
-      <header><h2>{title}</h2><p className="muted">{description}</p></header>
+      <header>
+        <h2>{title}</h2>
+        {description === undefined ? null : <p className="muted">{description}</p>}
+      </header>
       {children}
     </section>
-  )
+  );
 }
 
 function ChoiceSet<Value extends string>({
@@ -243,11 +238,11 @@ function ChoiceSet<Value extends string>({
   values,
   onChange,
 }: {
-  label: string
-  options: readonly Value[]
-  requiredValues?: readonly Value[]
-  values: Value[]
-  onChange: (values: Value[]) => void
+  label: string;
+  options: readonly Value[];
+  requiredValues?: readonly Value[];
+  values: Value[];
+  onChange: (values: Value[]) => void;
 }) {
   return (
     <fieldset className="intelligence-choice-set">
@@ -257,16 +252,21 @@ function ChoiceSet<Value extends string>({
           <label key={option}>
             <input
               checked={values.includes(option)}
-              disabled={(requiredValues.includes(option) && values.includes(option)) || (values.length === 1 && values.includes(option))}
+              disabled={
+                (requiredValues.includes(option) && values.includes(option)) ||
+                (values.length === 1 && values.includes(option))
+              }
               type="checkbox"
-              onChange={(event) => onChange(toggleValue(values, option, event.currentTarget.checked))}
+              onChange={(event) =>
+                onChange(toggleValue(values, option, event.currentTarget.checked))
+              }
             />
             <span>{humanize(option)}</span>
           </label>
         ))}
       </div>
     </fieldset>
-  )
+  );
 }
 
 function NumberField({
@@ -276,65 +276,65 @@ function NumberField({
   value,
   onChange,
 }: {
-  label: string
-  min: number
-  max: number
-  value: number
-  onChange: (value: number) => void
+  label: string;
+  min: number;
+  max: number;
+  value: number;
+  onChange: (value: number) => void;
 }) {
   const update = (event: ChangeEvent<HTMLInputElement>) => {
-    const next = event.currentTarget.valueAsNumber
-    if (Number.isSafeInteger(next)) onChange(next)
-  }
+    const next = event.currentTarget.valueAsNumber;
+    if (Number.isSafeInteger(next)) onChange(next);
+  };
   return (
     <label className="field">
       <span>{label}</span>
       <input max={max} min={min} required type="number" value={value} onChange={update} />
     </label>
-  )
+  );
 }
 
 function toggleValue<Value>(values: Value[], value: Value, selected: boolean) {
-  if (selected) return values.includes(value) ? values : [...values, value]
-  return values.filter((candidate) => candidate !== value)
+  if (selected) return values.includes(value) ? values : [...values, value];
+  return values.filter((candidate) => candidate !== value);
 }
 
 function humanize(value: string) {
   const labels: Readonly<Record<string, string>> = {
-    admissions: 'Applications',
-    admission_jobs: 'Admission jobs',
-    attention: 'Needs attention',
-    attendance: 'Check-in and presence',
-    attendance_counts: 'Attendance counts',
-    attendance_operations: 'Attendance operations',
-    communications: 'Participant messages',
-    critical: 'Urgent',
-    dismiss_attention_item: 'Dismiss an attention item',
-    floor_mapping_progress: 'Floor mapping progress',
-    hold_review_team: 'Hold a team in the review queue',
-    intake: 'Project intake',
-    intake_jobs: 'Intake jobs',
-    incident_readiness: 'Incident readiness',
-    integration_jobs: 'Integration jobs',
-    integrations: 'Code and design',
-    observe: 'Observe only',
-    open_support_case: 'Open a support case',
-    operations_attention: 'Operations attention queue',
-    operations_health: 'Operations health',
-    participant_deliveries: 'Participant deliveries',
-    page_reserve_reviewer: 'Page a reserve reviewer',
-    recommend: 'Observe and recommend',
-    review_exceptions: 'Reviewer exceptions',
-    review_rounds: 'Review rounds',
-    reviews: 'Judging',
-    round_export_jobs: 'Round export jobs',
-    scores: 'Results',
-    support_load: 'Support load',
-    synesthesia: 'Music desk',
-    synesthesia_operations: 'Synesthesia operations',
-    system: 'Platform',
-    watch: 'Watch',
-  }
-  const label = labels[value] ?? value.replaceAll('_', ' ')
-  return label.charAt(0).toUpperCase() + label.slice(1)
+    admissions: "Applications",
+    admission_jobs: "Admission jobs",
+    attention: "Needs attention",
+    attendance: "Check-in and presence",
+    attendance_counts: "Attendance counts",
+    attendance_operations: "Attendance operations",
+    communications: "Participant messages",
+    critical: "Urgent",
+    dismiss_attention_item: "Dismiss an attention item",
+    floor_mapping_progress: "Floor mapping progress",
+    hold_review_team: "Hold a team in the review queue",
+    intake: "Project intake",
+    intake_jobs: "Intake jobs",
+    incident_readiness: "Incident readiness",
+    integration_jobs: "Integration jobs",
+    integrations: "Code and design",
+    observe: "Observe only",
+    open_support_case: "Open a support case",
+    operations_attention: "Operations attention queue",
+    operations_health: "Operations health",
+    participant_deliveries: "Participant deliveries",
+    page_reserve_reviewer: "Page a reserve reviewer",
+    recommend: "Observe and recommend",
+    review_exceptions: "Reviewer exceptions",
+    review_rounds: "Review rounds",
+    reviews: "Judging",
+    round_export_jobs: "Round export jobs",
+    scores: "Results",
+    support_load: "Support load",
+    synesthesia: "Music desk",
+    synesthesia_operations: "Synesthesia operations",
+    system: "Platform",
+    watch: "Watch",
+  };
+  const label = labels[value] ?? value.replaceAll("_", " ");
+  return label.charAt(0).toUpperCase() + label.slice(1);
 }

@@ -66,9 +66,7 @@ export async function timedGitHubFetch(
   const timeoutSignal = AbortSignal.timeout(timeoutMs);
   return fetch(input, {
     ...init,
-    signal: callerSignal
-      ? AbortSignal.any([callerSignal, timeoutSignal])
-      : timeoutSignal,
+    signal: callerSignal ? AbortSignal.any([callerSignal, timeoutSignal]) : timeoutSignal,
   });
 }
 

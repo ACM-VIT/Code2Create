@@ -1,12 +1,12 @@
-import { cloudflare } from '@cloudflare/vite-plugin'
-import react from '@vitejs/plugin-react'
-import { defineConfig } from 'vite'
+import { cloudflare } from "@cloudflare/vite-plugin";
+import react from "@vitejs/plugin-react";
+import { defineConfig } from "vite";
 
-const lightningTarget = (major: number, minor = 0) => (major << 16) | (minor << 8)
+const lightningTarget = (major: number, minor = 0) => (major << 16) | (minor << 8);
 
 export default defineConfig(({ command }) => ({
   build: {
-    cssMinify: 'lightningcss',
+    cssMinify: "lightningcss",
     sourcemap: true,
   },
   css: {
@@ -20,9 +20,6 @@ export default defineConfig(({ command }) => ({
       },
     },
   },
-  plugins: [
-    react(),
-    ...(command === 'build' ? [cloudflare({ inspectorPort: 9230 })] : []),
-  ],
+  plugins: [react(), ...(command === "build" ? [cloudflare({ inspectorPort: 9230 })] : [])],
   server: { port: 5182, strictPort: true },
-}))
+}));

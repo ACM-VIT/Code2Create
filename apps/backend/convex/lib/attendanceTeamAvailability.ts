@@ -84,12 +84,8 @@ export async function moveAttendanceTeamAvailability(
     eventId: args.eventId,
     teamId: teamMember.teamId,
   });
-  const insideMemberCount =
-    availability.insideMemberCount + (isInside ? 1 : -1);
-  if (
-    insideMemberCount < 0 ||
-    insideMemberCount > availability.activeMemberCount
-  ) {
+  const insideMemberCount = availability.insideMemberCount + (isInside ? 1 : -1);
+  if (insideMemberCount < 0 || insideMemberCount > availability.activeMemberCount) {
     throw new Error("The team attendance-availability projection is inconsistent.");
   }
   await ctx.db.patch(availability._id, {

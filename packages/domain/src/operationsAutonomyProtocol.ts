@@ -1,8 +1,6 @@
 import { operationsIntelligenceProtocolVersion } from "./intelligenceProtocol.ts";
 import type { OperationsHealthArea, OperationsHealthSnapshot } from "./operationsHealth.ts";
-import type {
-  IntelligenceRecommendationArguments,
-} from "./intelligenceRecommendations.ts";
+import type { IntelligenceRecommendationArguments } from "./intelligenceRecommendations.ts";
 import type {
   OperationsAutonomyFrozenPolicy,
   OperationsAutonomyReadTool,
@@ -15,10 +13,8 @@ import type {
 
 export const operationsAutonomyIngressSignatureContext =
   "code2create.operations-autonomy.ingress.v1";
-export const operationsAutonomyReadSignatureContext =
-  "code2create.operations-autonomy.read.v1";
-export const operationsAutonomyWorkSignatureContext =
-  "code2create.operations-autonomy.work.v1";
+export const operationsAutonomyReadSignatureContext = "code2create.operations-autonomy.read.v1";
+export const operationsAutonomyWorkSignatureContext = "code2create.operations-autonomy.work.v1";
 export const operationsAutonomyRecommendationSignatureContext =
   "code2create.operations-autonomy.recommendation.v1";
 export const operationsAutonomyStreamTicketSignatureContext =
@@ -70,9 +66,7 @@ export type OperationsAutonomyWorkRequest = {
   policyChecksum: string;
   sourceChecksum: string;
   operationId: string;
-  operation:
-    | { kind: "model" }
-    | { kind: "delegation"; area: OperationsHealthArea };
+  operation: { kind: "model" } | { kind: "delegation"; area: OperationsHealthArea };
 };
 
 export type OperationsAutonomyWorkReceipt = {
@@ -113,8 +107,7 @@ export type OperationsAutonomyRecommendationRequest = OperationsAutonomyRunIdent
   model: string;
   statement: string;
   reasoning: string;
-  evidenceSet: import("./operationsAutonomyRecommendationEvidence.ts")
-    .OperationsAutonomyRecommendationEvidenceSeal;
+  evidenceSet: import("./operationsAutonomyRecommendationEvidence.ts").OperationsAutonomyRecommendationEvidenceSeal;
   /** Required when the proposed effect names a concrete row/version target. */
   targetCitationIdentity?: string;
   arguments: IntelligenceRecommendationArguments;

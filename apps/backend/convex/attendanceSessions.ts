@@ -49,15 +49,19 @@ async function participantProjectionCompleteness(
     participants.map((participant) => [participant.membershipId, participant]),
   );
   const projectedMemberships = new Set<Id<"eventMemberships">>();
-  const complete = projections.length === participants.length && projections.every((projection) => {
-    const participant = participantByMembership.get(projection.membershipId);
-    if (!participant || projectedMemberships.has(projection.membershipId)) return false;
-    projectedMemberships.add(projection.membershipId);
-    return projection.eventId === session.eventId &&
-      projection.planVersionId === session.planVersionId &&
-      projection.sessionParticipantId === participant._id &&
-      projection.sessionStartsAt === session.startsAt;
-  });
+  const complete =
+    projections.length === participants.length &&
+    projections.every((projection) => {
+      const participant = participantByMembership.get(projection.membershipId);
+      if (!participant || projectedMemberships.has(projection.membershipId)) return false;
+      projectedMemberships.add(projection.membershipId);
+      return (
+        projection.eventId === session.eventId &&
+        projection.planVersionId === session.planVersionId &&
+        projection.sessionParticipantId === participant._id &&
+        projection.sessionStartsAt === session.startsAt
+      );
+    });
   return { complete, participantCount: participants.length };
 }
 
@@ -74,7 +78,8 @@ async function requireParticipantProjectionCompleteness(
   ) {
     throw new ConvexError({
       code: "ATTENDANCE_PARTICIPANT_PROJECTION_INCOMPLETE",
-      message: "The participant attendance view is incomplete. Rebuild this session before continuing.",
+      message:
+        "The participant attendance view is incomplete. Rebuild this session before continuing.",
     });
   }
   return projection;
@@ -90,11 +95,7 @@ async function requireCompletedParticipantProjection(
       message: "The prepared participant count is missing. Rebuild this session before continuing.",
     });
   }
-  return await requireParticipantProjectionCompleteness(
-    ctx,
-    session,
-    session.expectationCount,
-  );
+  return await requireParticipantProjectionCompleteness(ctx, session, session.expectationCount);
 }
 
 async function projectionsForParticipantPage(
@@ -107,9 +108,7 @@ async function projectionsForParticipantPage(
       const matches = await ctx.db
         .query("attendanceParticipantCurrentSessions")
         .withIndex("by_session_membership", (index) =>
-          index
-            .eq("sessionId", session._id)
-            .eq("membershipId", participant.membershipId),
+          index.eq("sessionId", session._id).eq("membershipId", participant.membershipId),
         )
         .take(2);
       if (matches.length !== 1) return null;
@@ -140,18 +139,17 @@ async function intervalsForParticipantPage(
       const intervals = await ctx.db
         .query("attendancePresenceIntervals")
         .withIndex("by_session_membership", (index) =>
-          index
-            .eq("sessionId", session._id)
-            .eq("membershipId", participant.membershipId),
+          index.eq("sessionId", session._id).eq("membershipId", participant.membershipId),
         )
         .take(maximumAttendanceIntervalsPerParticipantSession + 1);
       if (
         intervals.length > maximumAttendanceIntervalsPerParticipantSession ||
-        intervals.some((interval) =>
-          interval.eventId !== session.eventId ||
-          interval.sessionId !== session._id ||
-          interval.membershipId !== participant.membershipId ||
-          interval.kind !== "session"
+        intervals.some(
+          (interval) =>
+            interval.eventId !== session.eventId ||
+            interval.sessionId !== session._id ||
+            interval.membershipId !== participant.membershipId ||
+            interval.kind !== "session",
         )
       ) {
         return null;
@@ -197,10 +195,7 @@ async function failExpectationBuild(
   });
 }
 
-async function requireNoPendingManualSheets(
-  ctx: MutationCtx,
-  sessionId: Id<"attendanceSessions">,
-) {
+async function requireNoPendingManualSheets(ctx: MutationCtx, sessionId: Id<"attendanceSessions">) {
   const [draftManualSheet, submittedManualSheet] = await Promise.all([
     ctx.db
       .query("attendanceManualSheets")
@@ -218,7 +213,8 @@ async function requireNoPendingManualSheets(
   if (draftManualSheet || submittedManualSheet) {
     throw new ConvexError({
       code: "MANUAL_SHEETS_PENDING",
-      message: "Cancel, reject, or import every pending paper sheet before closing or cancelling this session.",
+      message:
+        "Cancel, reject, or import every pending paper sheet before closing or cancelling this session.",
     });
   }
 }
@@ -252,10 +248,7 @@ export const prepare = mutation({
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
-    const requestFingerprint = operationFingerprint([
-      args.sessionId,
-      args.expectedSessionVersion,
-    ]);
+    const requestFingerprint = operationFingerprint([args.sessionId, args.expectedSessionVersion]);
     const prior = await findOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -271,13 +264,22 @@ export const prepare = mutation({
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const session = await ctx.db.get(args.sessionId);
     if (!session || session.eventId !== event._id) {
-      throw new ConvexError({ code: "SESSION_NOT_FOUND", message: "Attendance session not found." });
+      throw new ConvexError({
+        code: "SESSION_NOT_FOUND",
+        message: "Attendance session not found.",
+      });
     }
     if (session.version !== args.expectedSessionVersion) {
-      throw new ConvexError({ code: "SESSION_CHANGED", message: "The session changed. Refresh and try again." });
+      throw new ConvexError({
+        code: "SESSION_CHANGED",
+        message: "The session changed. Refresh and try again.",
+      });
     }
     if (session.status !== "scheduled" || session.expectationBuildState !== "not_started") {
-      throw new ConvexError({ code: "SESSION_NOT_SCHEDULED", message: "This session cannot be prepared now." });
+      throw new ConvexError({
+        code: "SESSION_NOT_SCHEDULED",
+        message: "This session cannot be prepared now.",
+      });
     }
     const grantIds = await requirePermission(ctx, {
       eventId: event._id,
@@ -288,7 +290,10 @@ export const prepare = mutation({
     });
     const plan = await ctx.db.get(session.planVersionId);
     if (!plan || plan.status !== "published" || plan.eventId !== event._id) {
-      throw new ConvexError({ code: "PLAN_NOT_ACTIVE", message: "The session plan is not published." });
+      throw new ConvexError({
+        code: "PLAN_NOT_ACTIVE",
+        message: "The session plan is not published.",
+      });
     }
     const now = Date.now();
     const jobId = await ctx.db.insert("attendanceSessionJobs", {
@@ -396,25 +401,13 @@ export const buildExpectationBatch = internalMutation({
           existingProjection.planVersionId !== session.planVersionId ||
           existingProjection.sessionStartsAt !== session.startsAt
         ) {
-          await failExpectationBuild(
-            ctx,
-            job,
-            session,
-            "participant_projection_incomplete",
-            now,
-          );
+          await failExpectationBuild(ctx, job, session, "participant_projection_incomplete", now);
           return null;
         }
         continue;
       }
       if (affectedCount >= maximumAttendanceParticipantsPerSession) {
-        await failExpectationBuild(
-          ctx,
-          job,
-          session,
-          "participant_limit_reached",
-          now,
-        );
+        await failExpectationBuild(ctx, job, session, "participant_limit_reached", now);
         return null;
       }
       const expectation = session.requirement === "required" ? "required" : "optional";
@@ -454,13 +447,7 @@ export const buildExpectationBatch = internalMutation({
     if (page.isDone) {
       const projection = await participantProjectionCompleteness(ctx, session);
       if (!projection.complete) {
-        await failExpectationBuild(
-          ctx,
-          job,
-          session,
-          "participant_projection_incomplete",
-          now,
-        );
+        await failExpectationBuild(ctx, job, session, "participant_projection_incomplete", now);
         return null;
       }
       await ctx.db.patch(job._id, {
@@ -506,10 +493,7 @@ export const open = mutation({
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
-    const requestFingerprint = operationFingerprint([
-      args.sessionId,
-      args.expectedSessionVersion,
-    ]);
+    const requestFingerprint = operationFingerprint([args.sessionId, args.expectedSessionVersion]);
     const prior = await findOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -521,10 +505,16 @@ export const open = mutation({
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const session = await ctx.db.get(args.sessionId);
     if (!session || session.eventId !== event._id) {
-      throw new ConvexError({ code: "SESSION_NOT_FOUND", message: "Attendance session not found." });
+      throw new ConvexError({
+        code: "SESSION_NOT_FOUND",
+        message: "Attendance session not found.",
+      });
     }
     if (session.version !== args.expectedSessionVersion) {
-      throw new ConvexError({ code: "SESSION_CHANGED", message: "The session changed. Refresh and try again." });
+      throw new ConvexError({
+        code: "SESSION_CHANGED",
+        message: "The session changed. Refresh and try again.",
+      });
     }
     if (session.status !== "ready" || session.expectationBuildState !== "complete") {
       throw new ConvexError({
@@ -663,9 +653,7 @@ export const extend = mutation({
     requireAttendancePlanLimits({
       zones: [],
       sessions: planSessions.map((candidate) =>
-        candidate._id === session._id
-          ? { ...candidate, endsAt: timing.endsAt }
-          : candidate,
+        candidate._id === session._id ? { ...candidate, endsAt: timing.endsAt } : candidate,
       ),
       stations: [],
     });
@@ -748,7 +736,10 @@ export const close = mutation({
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const session = await ctx.db.get(args.sessionId);
     if (!session || session.eventId !== event._id) {
-      throw new ConvexError({ code: "SESSION_NOT_FOUND", message: "Attendance session not found." });
+      throw new ConvexError({
+        code: "SESSION_NOT_FOUND",
+        message: "Attendance session not found.",
+      });
     }
     if (session.version !== args.expectedSessionVersion) {
       throw new ConvexError({
@@ -1057,14 +1048,12 @@ export const finalizeResultBatch = internalMutation({
       const openIntervals = intervals.filter((interval) => interval.status === "open");
       const expectsOpenInterval = participant.state === "present";
       let intervalsValid = expectsOpenInterval
-        ? openIntervals.length === 1 &&
-          participant.currentIntervalId === openIntervals[0]?._id
+        ? openIntervals.length === 1 && participant.currentIntervalId === openIntervals[0]?._id
         : openIntervals.length === 0 && participant.currentIntervalId === undefined;
       let presentDurationMs = 0;
       for (const interval of intervals) {
         if (interval.status === "voided") continue;
-        const closedAt =
-          interval.status === "open" ? session.closingCutoffAt : interval.closedAt;
+        const closedAt = interval.status === "open" ? session.closingCutoffAt : interval.closedAt;
         if (closedAt === undefined || closedAt < interval.openedAt) {
           intervalsValid = false;
           continue;
@@ -1190,8 +1179,7 @@ export const cancelResultBatch = internalMutation({
       let presentDurationMs = 0;
       for (const interval of intervals) {
         if (interval.status === "voided") continue;
-        const closedAt =
-          interval.status === "open" ? session.closingCutoffAt : interval.closedAt;
+        const closedAt = interval.status === "open" ? session.closingCutoffAt : interval.closedAt;
         if (closedAt === undefined || closedAt < interval.openedAt) {
           throw new Error("A session presence interval has invalid accepted bounds.");
         }

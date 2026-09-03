@@ -8,7 +8,12 @@ import { mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
 import { teamRoundTableLabel } from "./lib/floor";
-import { findCurrentPerson, requireCurrentPerson, requireEventSubject, requireMembership } from "./lib/identity";
+import {
+  findCurrentPerson,
+  requireCurrentPerson,
+  requireEventSubject,
+  requireMembership,
+} from "./lib/identity";
 import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
 import { estimateQueueWindow } from "./lib/queueEstimate";
 import { participantQueuePosition } from "./lib/reviewQueueProjection";
@@ -36,10 +41,7 @@ async function currentTeam(
   const teamMember = await ctx.db
     .query("teamMembers")
     .withIndex("by_event_membership_status", (index) =>
-      index
-        .eq("eventId", eventId)
-        .eq("membershipId", membershipId)
-        .eq("status", "active"),
+      index.eq("eventId", eventId).eq("membershipId", membershipId).eq("status", "active"),
     )
     .unique();
   if (!teamMember) return null;
@@ -84,10 +86,7 @@ export const current = query({
         isPaused: v.boolean(),
       }),
       state: teamRoundState,
-      panel: v.union(
-        v.null(),
-        v.object({ id: v.id("reviewPanels"), name: v.string() }),
-      ),
+      panel: v.union(v.null(), v.object({ id: v.id("reviewPanels"), name: v.string() })),
       // The team's own table for this round, which is where the panel comes.
       tableLabel: v.optional(v.string()),
       teamsAhead: v.optional(v.number()),
@@ -143,8 +142,7 @@ export const current = query({
     if (rounds.length > maximumReviewRoundsPerEvent) {
       throw new Error("An event exceeds the published review-round limit.");
     }
-    const openRounds = rounds
-      .sort((left, right) => left.sequence - right.sequence);
+    const openRounds = rounds.sort((left, right) => left.sequence - right.sequence);
     let selectedRound: Doc<"reviewRounds"> | null = null;
     let selectedState: Doc<"teamRoundStates"> | null = null;
     for (const round of openRounds) {
@@ -180,15 +178,11 @@ export const current = query({
       const [loadedAssignments, loadedPresences, teamQrGrantIds] = await Promise.all([
         ctx.db
           .query("reviewAssignments")
-          .withIndex("by_session_person", (index) =>
-            index.eq("reviewSessionId", session._id),
-          )
+          .withIndex("by_session_person", (index) => index.eq("reviewSessionId", session._id))
           .take(maximumReviewersPerPanel + 1),
         ctx.db
           .query("reviewPresence")
-          .withIndex("by_session_reviewer", (index) =>
-            index.eq("reviewSessionId", session._id),
-          )
+          .withIndex("by_session_reviewer", (index) => index.eq("reviewSessionId", session._id))
           .take(maximumReviewersPerPanel + 1),
         matchingPermissionGrantIds(ctx, {
           eventId: event._id,
@@ -216,34 +210,33 @@ export const current = query({
         throw new Error("A queued team must have a panel and queue time.");
       }
       teamsAhead = await participantQueuePosition(ctx, selectedState);
-      const [awaitingPresence, activeReview, overdueReview, completedReviews] =
-        await Promise.all([
-          ctx.db
-            .query("reviewSessions")
-            .withIndex("by_panel_status", (index) =>
-              index.eq("panelId", panelId).eq("status", "awaiting_presence"),
-            )
-            .first(),
-          ctx.db
-            .query("reviewSessions")
-            .withIndex("by_panel_status", (index) =>
-              index.eq("panelId", panelId).eq("status", "active"),
-            )
-            .first(),
-          ctx.db
-            .query("reviewSessions")
-            .withIndex("by_panel_status", (index) =>
-              index.eq("panelId", panelId).eq("status", "overdue"),
-            )
-            .first(),
-          ctx.db
-            .query("reviewSessions")
-            .withIndex("by_panel_status", (index) =>
-              index.eq("panelId", panelId).eq("status", "completed"),
-            )
-            .order("desc")
-            .take(9),
-        ]);
+      const [awaitingPresence, activeReview, overdueReview, completedReviews] = await Promise.all([
+        ctx.db
+          .query("reviewSessions")
+          .withIndex("by_panel_status", (index) =>
+            index.eq("panelId", panelId).eq("status", "awaiting_presence"),
+          )
+          .first(),
+        ctx.db
+          .query("reviewSessions")
+          .withIndex("by_panel_status", (index) =>
+            index.eq("panelId", panelId).eq("status", "active"),
+          )
+          .first(),
+        ctx.db
+          .query("reviewSessions")
+          .withIndex("by_panel_status", (index) =>
+            index.eq("panelId", panelId).eq("status", "overdue"),
+          )
+          .first(),
+        ctx.db
+          .query("reviewSessions")
+          .withIndex("by_panel_status", (index) =>
+            index.eq("panelId", panelId).eq("status", "completed"),
+          )
+          .order("desc")
+          .take(9),
+      ]);
       const livePanelReview = activeReview ?? overdueReview ?? awaitingPresence;
       const estimatedWindow = roundPause
         ? null
@@ -286,13 +279,8 @@ export const current = query({
         isPaused: roundPause !== null,
       },
       state: selectedState?.state ?? "unassigned",
-      panel:
-        panel && panel.eventId === event._id
-          ? { id: panel._id, name: panel.name }
-          : null,
-      ...(selectedState?.tableLabel !== undefined
-        ? { tableLabel: selectedState.tableLabel }
-        : {}),
+      panel: panel && panel.eventId === event._id ? { id: panel._id, name: panel.name } : null,
+      ...(selectedState?.tableLabel !== undefined ? { tableLabel: selectedState.tableLabel } : {}),
       ...(teamsAhead !== undefined ? { teamsAhead } : {}),
       estimate,
       review: session
@@ -300,9 +288,9 @@ export const current = query({
             id: session._id,
             status: session.status,
             reviewerPresenceCount: presences.length,
-            reviewerCount: assignments.filter((assignment) => assignment.status === "assigned").length,
-            canShowTeamQr:
-              session.status === "awaiting_presence" && canMintTeamQr,
+            reviewerCount: assignments.filter((assignment) => assignment.status === "assigned")
+              .length,
+            canShowTeamQr: session.status === "awaiting_presence" && canMintTeamQr,
           }
         : null,
     };
@@ -317,11 +305,7 @@ export const teamQrState = query({
   returns: v.union(
     v.null(),
     v.object({
-      state: v.union(
-        v.literal("active"),
-        v.literal("superseded"),
-        v.literal("expired"),
-      ),
+      state: v.union(v.literal("active"), v.literal("superseded"), v.literal("expired")),
       expiresAt: v.number(),
     }),
   ),
@@ -340,11 +324,7 @@ export const teamQrState = query({
       scopeId: teamContext.team._id,
     });
     const token = await ctx.db.get(args.tokenId);
-    if (
-      !token ||
-      token.eventId !== event._id ||
-      token.teamId !== teamContext.team._id
-    ) {
+    if (!token || token.eventId !== event._id || token.teamId !== teamContext.team._id) {
       return null;
     }
     return { state: token.state, expiresAt: token.expiresAt };
@@ -400,9 +380,7 @@ export const mintTeamQr = mutation({
         .unique(),
       ctx.db
         .query("reviewTeamQrTokens")
-        .withIndex("by_session_version", (index) =>
-          index.eq("reviewSessionId", session._id),
-        )
+        .withIndex("by_session_version", (index) => index.eq("reviewSessionId", session._id))
         .order("desc")
         .first(),
     ]);

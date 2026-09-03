@@ -228,9 +228,7 @@ export const recordSendFailure = internalMutation({
     }
 
     const pageStillActive =
-      page !== null &&
-      (page.state === "sent" || page.state === "opened") &&
-      page.expiresAt > now;
+      page !== null && (page.state === "sent" || page.state === "opened") && page.expiresAt > now;
     const retry = args.retryable && delivery.attemptCount < maxSendAttempts && pageStillActive;
     if (retry) {
       const delayMs = delivery.attemptCount === 1 ? 2_000 : 5_000;

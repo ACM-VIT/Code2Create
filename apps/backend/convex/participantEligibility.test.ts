@@ -79,9 +79,9 @@ describe("production participant eligibility", () => {
         verifiedEmail: "external.student@example.com",
         displayName: "External Student",
       });
-      await expect(
-        productionParticipantEligibilityAllowed(ctx, event, lookup),
-      ).resolves.toBe(false);
+      await expect(productionParticipantEligibilityAllowed(ctx, event, lookup)).resolves.toBe(
+        false,
+      );
     });
 
     await expect(
@@ -121,9 +121,9 @@ describe("production participant eligibility", () => {
       await expect(
         productionParticipantEligibilityAllowed(ctx, event, unknownExternal),
       ).resolves.toBe(false);
-      await expect(
-        productionParticipantEligibilityAllowed(ctx, event, allowedVit),
-      ).resolves.toBe(true);
+      await expect(productionParticipantEligibilityAllowed(ctx, event, allowedVit)).resolves.toBe(
+        true,
+      );
       await expect(
         productionParticipantEligibilityAllowed(ctx, event, invalidVitProfile),
       ).resolves.toBe(false);

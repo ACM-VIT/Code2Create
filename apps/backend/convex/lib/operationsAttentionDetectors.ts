@@ -6,10 +6,7 @@ import {
   joinNames,
   type DetectedAttentionItem,
 } from "./operationsAttention.ts";
-import {
-  proposeCommand,
-  type AttentionProposal,
-} from "./operationsAttentionProposals.ts";
+import { proposeCommand, type AttentionProposal } from "./operationsAttentionProposals.ts";
 import { observedPace } from "./queueEstimate.ts";
 import type { AttentionSeverity } from "../values.ts";
 
@@ -175,9 +172,7 @@ export function reviewPanelItems(input: PanelDetectorProjection): DetectedAttent
   for (const panel of input.panels) {
     if (panel.status === "draft" || panel.status === "closed") continue;
     const queuedCount = panel.queuedTeams.length;
-    const seated = panel.members.filter(
-      (member) => member.clockInStatus === "present",
-    ).length;
+    const seated = panel.members.filter((member) => member.clockInStatus === "present").length;
     const missing = input.requiredPanelSize - seated;
 
     if (
@@ -303,17 +298,14 @@ export function reviewTeamItems(input: TeamDetectorProjection): DetectedAttentio
   const items: DetectedAttentionItem[] = [];
 
   for (const team of input.teams) {
-    const at = team.tableLabel
-      ? `${input.roundName} · ${team.tableLabel}`
-      : input.roundName;
+    const at = team.tableLabel ? `${input.roundName} · ${team.tableLabel}` : input.roundName;
     const teamScopes = team.panelId
       ? [`team:${team.teamId}`, `panel:${team.panelId}`]
       : [`team:${team.teamId}`];
 
     if (!input.isPaused && team.review?.status === "overdue") {
       const review = team.review;
-      const overdueBy =
-        review.plannedEndAt === undefined ? 0 : input.now - review.plannedEndAt;
+      const overdueBy = review.plannedEndAt === undefined ? 0 : input.now - review.plannedEndAt;
       const proposal: AttentionProposal | undefined = review.canExtend
         ? proposeCommand(
             {
@@ -338,9 +330,7 @@ export function reviewTeamItems(input: TeamDetectorProjection): DetectedAttentio
         visibility,
         evidenceJson: JSON.stringify({
           teamId: team.teamId,
-          ...(review.plannedEndAt === undefined
-            ? {}
-            : { plannedEndAt: review.plannedEndAt }),
+          ...(review.plannedEndAt === undefined ? {} : { plannedEndAt: review.plannedEndAt }),
           canExtend: review.canExtend,
         }),
         scopes: teamScopes,
@@ -509,8 +499,7 @@ function seatRisk(
   reviewerNoShowGraceSeconds: number,
 ): SeatRisk | null {
   const clockedIn =
-    member.clockInStatus === "present" ||
-    member.clockInStatus === "temporarily_unavailable";
+    member.clockInStatus === "present" || member.clockInStatus === "temporarily_unavailable";
   if (!clockedIn) return null;
 
   if (
@@ -526,10 +515,7 @@ function seatRisk(
     };
   }
 
-  if (
-    member.lastHeartbeatAt !== undefined &&
-    now - member.lastHeartbeatAt >= staleHeartbeatMs
-  ) {
+  if (member.lastHeartbeatAt !== undefined && now - member.lastHeartbeatAt >= staleHeartbeatMs) {
     const silent = durationPhrase(now - member.lastHeartbeatAt);
     return {
       statement: `${member.displayName}'s reviewer app has not checked in for ${silent}, which is a signal and not proof they left the table.`,
@@ -577,8 +563,7 @@ export function roundForecastItems(input: ReviewFloorProjection): DetectedAttent
     return {
       panel,
       pace,
-      finishAt:
-        input.now + activeRemainingMs + panel.queuedTeams.length * pace.paceSeconds * 1_000,
+      finishAt: input.now + activeRemainingMs + panel.queuedTeams.length * pace.paceSeconds * 1_000,
     };
   });
   const totalSamples = forecasts.reduce(
@@ -693,9 +678,7 @@ function overrunSeverity(overrunMs: number): AttentionSeverity {
  * Reviewer attendance is unknown, so scorecard alerts report only elapsed time
  * and the last app status.
  */
-export function scorecardChaseItems(
-  input: ScorecardChaseProjection,
-): DetectedAttentionItem[] {
+export function scorecardChaseItems(input: ScorecardChaseProjection): DetectedAttentionItem[] {
   const route = `/reviews/${input.roundId}`;
   const visibility = {
     permissionKey: "round.read",

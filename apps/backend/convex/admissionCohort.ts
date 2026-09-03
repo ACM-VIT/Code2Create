@@ -10,10 +10,7 @@ import {
   admissionIntelligenceReadSignatureContext,
   verifyServiceBody,
 } from "@code2create/domain";
-import {
-  paginationOptsValidator,
-  paginationResultValidator,
-} from "convex/server";
+import { paginationOptsValidator, paginationResultValidator } from "convex/server";
 import { ConvexError, v, type Infer } from "convex/values";
 import { z } from "zod";
 
@@ -30,16 +27,10 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import { requireEventBySlug } from "./lib/events";
-import {
-  HttpBodyTooLargeError,
-  readBoundedRequestText,
-} from "./lib/boundedHttpBody";
+import { HttpBodyTooLargeError, readBoundedRequestText } from "./lib/boundedHttpBody";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import { findOperation, operationFingerprint } from "./lib/operations";
-import {
-  boundedActivePermissionGrants,
-  requirePermission,
-} from "./lib/permissions";
+import { boundedActivePermissionGrants, requirePermission } from "./lib/permissions";
 import { noveltyInputFingerprint } from "./lib/novelty";
 import { redactProjectText } from "./lib/projectText";
 import {
@@ -192,7 +183,8 @@ function noveltySignal(draft: Doc<"projectDrafts"> | null, submittedIdea: string
     !Number.isSafeInteger(draft.noveltyScore) ||
     draft.noveltyScore < 0 ||
     draft.noveltyScore > 100
-  ) return null;
+  )
+    return null;
   return {
     score: draft.noveltyScore,
     band: draft.noveltyBand,
@@ -261,7 +253,10 @@ function rosterEntry(row: CohortRow) {
   };
 }
 
-function candidateView(row: CohortRow, selection: ReturnType<typeof selectAdmissionCohort>[number]) {
+function candidateView(
+  row: CohortRow,
+  selection: ReturnType<typeof selectAdmissionCohort>[number],
+) {
   const decidable = row.completedCurrentReviews >= row.minimumHumanReviews;
   return {
     applicationId: row.applicationId,
@@ -533,11 +528,11 @@ export const cohortRowPage = internalQuery({
       }
       const aiCurrent = Boolean(
         recommendation &&
-          recommendation.state === "succeeded" &&
-          recommendation.applicationContentVersion === application.contentVersion &&
-          recommendation.projectVersionId === project._id &&
-          recommendation.admissionPolicyVersionId === application.admissionPolicyVersionId &&
-          recommendation.recommendation,
+        recommendation.state === "succeeded" &&
+        recommendation.applicationContentVersion === application.contentVersion &&
+        recommendation.projectVersionId === project._id &&
+        recommendation.admissionPolicyVersionId === application.admissionPolicyVersionId &&
+        recommendation.recommendation,
       );
       const ai = recommendation
         ? {
@@ -661,25 +656,24 @@ export const operatorCohortAccess = internalQuery({
       permissionKey: "application.read",
       scopeType: "event",
     });
-    const [applicationRead, profileContextRead, aiRecommendationRead, policy] =
-      await Promise.all([
-        applicationGrantAccess(ctx, {
-          eventId: event._id,
-          eventAccessSubjectId: subject._id,
-          permissionKey: "application.read",
-        }),
-        applicationGrantAccess(ctx, {
-          eventId: event._id,
-          eventAccessSubjectId: subject._id,
-          permissionKey: "application.profile_context.read",
-        }),
-        applicationGrantAccess(ctx, {
-          eventId: event._id,
-          eventAccessSubjectId: subject._id,
-          permissionKey: "application.ai_recommendation.read",
-        }),
-        publishedCohortPolicy(ctx, event),
-      ]);
+    const [applicationRead, profileContextRead, aiRecommendationRead, policy] = await Promise.all([
+      applicationGrantAccess(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: subject._id,
+        permissionKey: "application.read",
+      }),
+      applicationGrantAccess(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: subject._id,
+        permissionKey: "application.profile_context.read",
+      }),
+      applicationGrantAccess(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: subject._id,
+        permissionKey: "application.ai_recommendation.read",
+      }),
+      publishedCohortPolicy(ctx, event),
+    ]);
     return {
       eventId: event._id,
       policy,
@@ -999,12 +993,7 @@ export const submissionSearchRead = internalAction({
     }
     const rows = await loadAdmissionCohortRows(ctx, context.eventId);
     const matched = rows.filter((row) => {
-      const haystack = [
-        row.teamName,
-        row.initialIdea,
-      ]
-        .join("\n")
-        .toLocaleLowerCase("en");
+      const haystack = [row.teamName, row.initialIdea].join("\n").toLocaleLowerCase("en");
       return tokens.every((token) => haystack.includes(token));
     });
     matched.sort((left, right) => left.submittedAt - right.submittedAt);

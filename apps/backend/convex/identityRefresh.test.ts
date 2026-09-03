@@ -34,7 +34,7 @@ describe("existing person identity refresh", () => {
           timezone: "Asia/Kolkata",
           status: "draft",
           vitEmailDomains: ["vitstudent.ac.in"],
-        applicationsCloseAt: Date.now() + 86_400_000,
+          applicationsCloseAt: Date.now() + 86_400_000,
           startsAt: now,
           endsAt: now + 1_000,
           version: 1,
@@ -187,11 +187,7 @@ describe("existing person identity refresh", () => {
   });
 });
 
-async function insertPerson(
-  ctx: MutationCtx,
-  verifiedEmail: string,
-  now: number,
-) {
+async function insertPerson(ctx: MutationCtx, verifiedEmail: string, now: number) {
   return ctx.db.insert("people", {
     authUserId: crypto.randomUUID(),
     googleSubject: crypto.randomUUID(),

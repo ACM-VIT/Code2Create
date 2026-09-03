@@ -1,11 +1,7 @@
-import {
-  participantEmailProtocolVersion,
-  type ParticipantEmailEvent,
-} from "@code2create/domain";
+import { participantEmailProtocolVersion, type ParticipantEmailEvent } from "@code2create/domain";
 import { z } from "zod";
 
-const boundedText = (minimum: number, maximum: number) =>
-  z.string().min(minimum).max(maximum);
+const boundedText = (minimum: number, maximum: number) => z.string().min(minimum).max(maximum);
 
 const sourceSchema = z.object({
   type: z.literal("email.sending"),
@@ -120,9 +116,7 @@ export function normalizeCloudflareEmailEvent(
         ...common,
         eventType: suppressed ? "email.suppressed" : "email.failed",
         disableDestination: suppressed,
-        providerErrorCode: suppressed
-          ? "cloudflare_email_suppressed"
-          : "cloudflare_email_rejected",
+        providerErrorCode: suppressed ? "cloudflare_email_suppressed" : "cloudflare_email_rejected",
       };
     }
     case "cf.email.sending.message.complained":

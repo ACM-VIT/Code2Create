@@ -7,12 +7,18 @@ import {
 
 function failureClass(state: Doc<"intakeInterpretations">["state"]) {
   switch (state) {
-    case "refused": return "refused" as const;
-    case "invalid": return "invalid" as const;
-    case "timed_out": return "timeout" as const;
-    case "rate_limited": return "rate_limited" as const;
-    case "failed": return "failed" as const;
-    default: return undefined;
+    case "refused":
+      return "refused" as const;
+    case "invalid":
+      return "invalid" as const;
+    case "timed_out":
+      return "timeout" as const;
+    case "rate_limited":
+      return "rate_limited" as const;
+    case "failed":
+      return "failed" as const;
+    default:
+      return undefined;
   }
 }
 
@@ -24,7 +30,12 @@ export async function appendIntakeJobReadFact(
   const source = "intake_jobs" as const;
   const entityKey = `intake:${row._id}`;
   const sequence = await nextOperationsAutonomyFactSequence(ctx, row.eventId, source, now);
-  await closeOperationsAutonomyFactVersion(ctx, { eventId: row.eventId, source, entityKey, sequence });
+  await closeOperationsAutonomyFactVersion(ctx, {
+    eventId: row.eventId,
+    source,
+    entityKey,
+    sequence,
+  });
   const classified = failureClass(row.state);
   await ctx.db.insert("operationsAutonomyReadFacts", {
     eventId: row.eventId,

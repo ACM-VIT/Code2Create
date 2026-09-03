@@ -1,13 +1,18 @@
-import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react'
+import type {
+  InputHTMLAttributes,
+  ReactNode,
+  SelectHTMLAttributes,
+  TextareaHTMLAttributes,
+} from "react";
 
 export function Field({
   label,
   hint,
   children,
 }: {
-  label: string
-  hint?: string
-  children: ReactNode
+  label: string;
+  hint?: string;
+  children: ReactNode;
 }) {
   return (
     <label className="field">
@@ -15,19 +20,19 @@ export function Field({
       {children}
       {hint ? <span className="field-hint">{hint}</span> : null}
     </label>
-  )
+  );
 }
 
 export function TextInput(props: InputHTMLAttributes<HTMLInputElement>) {
-  return <input {...props} />
+  return <input {...props} />;
 }
 
 export function TextArea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return <textarea {...props} />
+  return <textarea {...props} />;
 }
 
 export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
-  return <select {...props} />
+  return <select {...props} />;
 }
 
 export function ErrorNotice({ message }: { message: string | null }) {
@@ -35,7 +40,7 @@ export function ErrorNotice({ message }: { message: string | null }) {
     <p className="notice notice-error" role="alert">
       {message}
     </p>
-  ) : null
+  ) : null;
 }
 
 export function InlineStatus({ children }: { children: ReactNode }) {
@@ -43,5 +48,5 @@ export function InlineStatus({ children }: { children: ReactNode }) {
     <p className="inline-status" role="status">
       {children}
     </p>
-  )
+  );
 }

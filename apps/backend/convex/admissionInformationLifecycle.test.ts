@@ -16,14 +16,8 @@ import {
   defaultAdmissionReasonCodes,
   normalizeAdmissionConfiguration,
 } from "./lib/admissionPolicy.ts";
-import {
-  defaultDeterministicIntakePolicy,
-  intakePolicyChecksum,
-} from "./lib/intakePolicy.ts";
-import {
-  defaultParticipantPolicy,
-  participantPolicyChecksum,
-} from "./lib/participantPolicy.ts";
+import { defaultDeterministicIntakePolicy, intakePolicyChecksum } from "./lib/intakePolicy.ts";
+import { defaultParticipantPolicy, participantPolicyChecksum } from "./lib/participantPolicy.ts";
 import { permissionCatalog } from "./lib/permissionCatalog.ts";
 import { createTestSubmissionSnapshot } from "./lib/testSubmissionSnapshot.ts";
 import schema from "./schema.ts";
@@ -76,10 +70,12 @@ describe("admission information request lifecycle", () => {
     expect(state.newRequest).toMatchObject({
       state: "open",
       applicationContentVersion: 1,
-      questions: [{
-        questionKey: "question_1",
-        question: "What happens immediately after a report is submitted?",
-      }],
+      questions: [
+        {
+          questionKey: "question_1",
+          question: "What happens immediately after a report is submitted?",
+        },
+      ],
       version: 1,
     });
   });
@@ -96,8 +92,14 @@ describe("admission information request lifecycle", () => {
         expectedRequestVersion: 1,
         membership: fixture.membership,
         answers: [
-          { questionKey: "question_1", answer: "The report is routed to the nearest hall coordinator." },
-          { questionKey: "question_2", answer: "We will build reporting, triage, and status updates." },
+          {
+            questionKey: "question_1",
+            answer: "The report is routed to the nearest hall coordinator.",
+          },
+          {
+            questionKey: "question_2",
+            answer: "We will build reporting, triage, and status updates.",
+          },
         ],
         now: fixture.now + 2,
       }),
@@ -132,22 +134,24 @@ describe("admission information request lifecycle", () => {
       responseProjectVersionId: result.responseProjectVersionId,
       version: 2,
     });
-    expect(state.responseProject?.admissionInformationResponses).toMatchObject([{
-      requestId: fixture.request._id,
-      sourceProjectVersionId: fixture.project._id,
-      answers: [
-        {
-          questionKey: "question_1",
-          question: "What happens after a report?",
-          answer: "The report is routed to the nearest hall coordinator.",
-        },
-        {
-          questionKey: "question_2",
-          question: "What will you finish during the event?",
-          answer: "We will build reporting, triage, and status updates.",
-        },
-      ],
-    }]);
+    expect(state.responseProject?.admissionInformationResponses).toMatchObject([
+      {
+        requestId: fixture.request._id,
+        sourceProjectVersionId: fixture.project._id,
+        answers: [
+          {
+            questionKey: "question_1",
+            question: "What happens after a report?",
+            answer: "The report is routed to the nearest hall coordinator.",
+          },
+          {
+            questionKey: "question_2",
+            question: "What will you finish during the event?",
+            answer: "We will build reporting, triage, and status updates.",
+          },
+        ],
+      },
+    ]);
     expect(
       admissionInformationSources(state.responseProject?.admissionInformationResponses),
     ).toEqual([
@@ -198,52 +202,62 @@ describe("admission information request lifecycle", () => {
   test("requires the complete ordered answer set and the locked lead", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedFixture(backend, "validation");
-    expect(() => normalizeInformationAnswers(fixture.request, [
-      { questionKey: "question_2", answer: "This answer is out of order." },
-      { questionKey: "question_1", answer: "This answer is also out of order." },
-    ])).toThrow("questions changed");
+    expect(() =>
+      normalizeInformationAnswers(fixture.request, [
+        { questionKey: "question_2", answer: "This answer is out of order." },
+        { questionKey: "question_1", answer: "This answer is also out of order." },
+      ]),
+    ).toThrow("questions changed");
     const ordinaryMember = { ...fixture.membership };
-    await backend.run((ctx) => ctx.db.patch(fixture.team._id, {
-      leadMembershipId: fixture.otherMembership._id,
-    }));
-    await expect(backend.run((ctx) =>
-      respondToAdmissionInformationRequest(ctx, {
-        event: fixture.event,
-        application: fixture.application,
-        expectedApplicationVersion: 2,
-        request: fixture.request,
-        expectedRequestVersion: 1,
-        membership: ordinaryMember,
-        answers: validAnswers(),
-        now: fixture.now + 2,
+    await backend.run((ctx) =>
+      ctx.db.patch(fixture.team._id, {
+        leadMembershipId: fixture.otherMembership._id,
       }),
-    )).rejects.toThrow("locked team lead");
+    );
+    await expect(
+      backend.run((ctx) =>
+        respondToAdmissionInformationRequest(ctx, {
+          event: fixture.event,
+          application: fixture.application,
+          expectedApplicationVersion: 2,
+          request: fixture.request,
+          expectedRequestVersion: 1,
+          membership: ordinaryMember,
+          answers: validAnswers(),
+          now: fixture.now + 2,
+        }),
+      ),
+    ).rejects.toThrow("locked team lead");
   });
 
   test("accepts one of two simultaneous responses", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedFixture(backend, "race");
     const attempts = await Promise.allSettled([
-      backend.run((ctx) => respondToAdmissionInformationRequest(ctx, {
-        event: fixture.event,
-        application: fixture.application,
-        expectedApplicationVersion: 2,
-        request: fixture.request,
-        expectedRequestVersion: 1,
-        membership: fixture.membership,
-        answers: validAnswers(),
-        now: fixture.now + 2,
-      })),
-      backend.run((ctx) => respondToAdmissionInformationRequest(ctx, {
-        event: fixture.event,
-        application: fixture.application,
-        expectedApplicationVersion: 2,
-        request: fixture.request,
-        expectedRequestVersion: 1,
-        membership: fixture.membership,
-        answers: validAnswers(),
-        now: fixture.now + 3,
-      })),
+      backend.run((ctx) =>
+        respondToAdmissionInformationRequest(ctx, {
+          event: fixture.event,
+          application: fixture.application,
+          expectedApplicationVersion: 2,
+          request: fixture.request,
+          expectedRequestVersion: 1,
+          membership: fixture.membership,
+          answers: validAnswers(),
+          now: fixture.now + 2,
+        }),
+      ),
+      backend.run((ctx) =>
+        respondToAdmissionInformationRequest(ctx, {
+          event: fixture.event,
+          application: fixture.application,
+          expectedApplicationVersion: 2,
+          request: fixture.request,
+          expectedRequestVersion: 1,
+          membership: fixture.membership,
+          answers: validAnswers(),
+          now: fixture.now + 3,
+        }),
+      ),
     ]);
     expect(attempts.filter(({ status }) => status === "fulfilled")).toHaveLength(1);
     expect(attempts.filter(({ status }) => status === "rejected")).toHaveLength(1);
@@ -286,7 +300,7 @@ async function seedFixture(backend: BackendTest, slug: string) {
       timezone: "Asia/Kolkata",
       status: "registration_open",
       vitEmailDomains: ["vitstudent.ac.in"],
-        applicationsCloseAt: Date.now() + 86_400_000,
+      applicationsCloseAt: Date.now() + 86_400_000,
       createdByPersonId: personId,
       version: 1,
       createdAt: now,
@@ -461,15 +475,17 @@ async function seedFixture(backend: BackendTest, slug: string) {
       version: 1,
       initialIdea: "A hall issue reporting and response loop.",
       intakePolicyVersionId: intakePolicyId,
-      intakeResponses: [{
-        questionId,
-        ordinal: 1,
-        question: "Who uses it first?",
-        purposeKey: "user",
-        answerLength: "short",
-        source: "fallback",
-        answer: "People attending the event.",
-      }],
+      intakeResponses: [
+        {
+          questionId,
+          ordinal: 1,
+          question: "Who uses it first?",
+          purposeKey: "user",
+          answerLength: "short",
+          source: "fallback",
+          answer: "People attending the event.",
+        },
+      ],
       lockedRosterSnapshotId,
       lockedMemberCount: 1,
       lockedLeadMembershipId: membershipId,
@@ -572,7 +588,19 @@ async function seedFixture(backend: BackendTest, slug: string) {
       publishedParticipantPolicyId: participantPolicyId,
       publishedAdmissionPolicyId: admissionPolicyId,
     });
-    const [event, person, membership, otherMembership, team, project, application, request, priorRecommendation, review, assignment] = await Promise.all([
+    const [
+      event,
+      person,
+      membership,
+      otherMembership,
+      team,
+      project,
+      application,
+      request,
+      priorRecommendation,
+      review,
+      assignment,
+    ] = await Promise.all([
       ctx.db.get(eventId),
       ctx.db.get(personId),
       ctx.db.get(membershipId),
@@ -585,9 +613,34 @@ async function seedFixture(backend: BackendTest, slug: string) {
       ctx.db.get(reviewId),
       ctx.db.get(assignmentId),
     ]);
-    if (!event || !person || !membership || !otherMembership || !team || !project || !application || !request || !priorRecommendation || !review || !assignment) {
+    if (
+      !event ||
+      !person ||
+      !membership ||
+      !otherMembership ||
+      !team ||
+      !project ||
+      !application ||
+      !request ||
+      !priorRecommendation ||
+      !review ||
+      !assignment
+    ) {
       throw new Error("The admission information fixture is incomplete.");
     }
-    return { now, event, person, membership, otherMembership, team, project, application, request, priorRecommendation, review, assignment };
+    return {
+      now,
+      event,
+      person,
+      membership,
+      otherMembership,
+      team,
+      project,
+      application,
+      request,
+      priorRecommendation,
+      review,
+      assignment,
+    };
   });
 }

@@ -1,9 +1,6 @@
 import type { OutboundCallEventType } from "@code2create/domain";
 
-import {
-  twilioCreateResponseSchema,
-  twilioErrorResponseSchema,
-} from "./contracts.js";
+import { twilioCreateResponseSchema, twilioErrorResponseSchema } from "./contracts.js";
 
 export type TelephonyEnvironment = {
   TWILIO_ACCOUNT_SID: string;
@@ -147,9 +144,8 @@ export async function queueTwilioCall(
   }
   if (!response.ok) {
     const error = twilioErrorResponseSchema.safeParse(decoded);
-    const detail = error.success && error.data.message
-      ? error.data.message
-      : `HTTP ${response.status}`;
+    const detail =
+      error.success && error.data.message ? error.data.message : `HTTP ${response.status}`;
     throw new Error(`Twilio rejected the call: ${detail}`);
   }
   const accepted = twilioCreateResponseSchema.safeParse(decoded);

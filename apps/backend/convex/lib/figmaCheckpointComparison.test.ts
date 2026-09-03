@@ -8,11 +8,7 @@ import {
 
 type FactId = `fact-${string}`;
 
-function fact(
-  factId: FactId,
-  nodeId: string,
-  semanticHash: string,
-): FigmaComparableFact<FactId> {
+function fact(factId: FactId, nodeId: string, semanticHash: string): FigmaComparableFact<FactId> {
   return {
     factId,
     nodeId,
@@ -40,12 +36,15 @@ test("compares matching, added, and removed preview facts", () => {
     previousTruncated: false,
   });
 
-  assert.deepEqual(comparison.rows.map((row) => [row.nodeId, row.state]), [
-    ["b", "changed"],
-    ["c", "added"],
-    ["d", "removed"],
-    ["a", "unchanged"],
-  ]);
+  assert.deepEqual(
+    comparison.rows.map((row) => [row.nodeId, row.state]),
+    [
+      ["b", "changed"],
+      ["c", "added"],
+      ["d", "removed"],
+      ["a", "unchanged"],
+    ],
+  );
   assert.deepEqual(comparison.counts, {
     added: 1,
     removed: 1,
@@ -63,7 +62,10 @@ test("does not claim additions or removals outside a truncated preview set", () 
     previousTruncated: true,
   });
 
-  assert.deepEqual(comparison.rows.map((row) => row.state), ["uncertain", "uncertain"]);
+  assert.deepEqual(
+    comparison.rows.map((row) => row.state),
+    ["uncertain", "uncertain"],
+  );
   assert.equal(comparison.counts.uncertain, 2);
 });
 
@@ -71,10 +73,7 @@ test("rejects duplicate node facts instead of producing an ambiguous comparison"
   assert.throws(
     () =>
       compareFigmaCheckpointFacts({
-        current: [
-          fact("fact-one", "same", "first"),
-          fact("fact-two", "same", "second"),
-        ],
+        current: [fact("fact-one", "same", "first"), fact("fact-two", "same", "second")],
         previous: [],
         currentTruncated: false,
         previousTruncated: false,

@@ -57,7 +57,8 @@ function normalizedSet<Value extends string>(
   allowEmpty = false,
 ) {
   if (!allowEmpty && values.length === 0) invalidPolicy(`${field} must not be empty.`);
-  if (new Set(values).size !== values.length) invalidPolicy(`${field} must not contain duplicates.`);
+  if (new Set(values).size !== values.length)
+    invalidPolicy(`${field} must not contain duplicates.`);
   if (values.some((value) => !allowed.includes(value))) {
     invalidPolicy(`${field} contains an unsupported value.`);
   }
@@ -67,11 +68,7 @@ function normalizedSet<Value extends string>(
 export function normalizeOperationsAutonomyPolicy(
   input: OperationsAutonomyPolicy,
 ): OperationsAutonomyPolicy {
-  const [mode] = normalizedSet(
-    [input.mode],
-    operationsAutonomyModes,
-    "Autonomy mode",
-  );
+  const [mode] = normalizedSet([input.mode], operationsAutonomyModes, "Autonomy mode");
   if (!mode) invalidPolicy("Autonomy mode is required.");
   const allowedRecommendationKinds = normalizedSet<IntelligenceRecommendationKind>(
     input.allowedRecommendationKinds,
@@ -211,7 +208,12 @@ export async function saveOperationsAutonomyPolicyDraft(
     });
   }
   if (currentDraft && currentDraft.checksum === checksum) {
-    return { policyVersionId: currentDraft._id, policyVersion: currentDraft.version, checksum, changed: false };
+    return {
+      policyVersionId: currentDraft._id,
+      policyVersion: currentDraft.version,
+      checksum,
+      changed: false,
+    };
   }
   if (currentDraft) await ctx.db.patch(currentDraft._id, { status: "retired" });
   const latest = await ctx.db

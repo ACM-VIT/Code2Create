@@ -1,9 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import {
-  downloadFigmaPreview,
-  validFigmaPreviewUrl,
-} from "./figmaPreviewDownload";
+import { downloadFigmaPreview, validFigmaPreviewUrl } from "./figmaPreviewDownload";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -11,14 +8,13 @@ afterEach(() => {
 
 describe("Figma preview downloads", () => {
   it("accepts only the exact Figma render host", () => {
-    expect(validFigmaPreviewUrl("https://s3-alpha-sig.figma.com/img/example?sig=value"))
-      .not.toBeNull();
+    expect(
+      validFigmaPreviewUrl("https://s3-alpha-sig.figma.com/img/example?sig=value"),
+    ).not.toBeNull();
     expect(validFigmaPreviewUrl("https://api.figma.com/v1/images/example")).toBeNull();
-    expect(validFigmaPreviewUrl("https://s3-alpha-sig.figma.com.evil.test/img/example"))
-      .toBeNull();
+    expect(validFigmaPreviewUrl("https://s3-alpha-sig.figma.com.evil.test/img/example")).toBeNull();
     expect(validFigmaPreviewUrl("https://127.0.0.1/img/example")).toBeNull();
-    expect(validFigmaPreviewUrl("https://s3-alpha-sig.figma.com:8443/img/example"))
-      .toBeNull();
+    expect(validFigmaPreviewUrl("https://s3-alpha-sig.figma.com:8443/img/example")).toBeNull();
   });
 
   it("disables redirects and applies a request deadline", async () => {

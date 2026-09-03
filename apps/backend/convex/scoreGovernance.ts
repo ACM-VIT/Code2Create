@@ -1,7 +1,4 @@
-import {
-  paginationOptsValidator,
-  paginationResultValidator,
-} from "convex/server";
+import { paginationOptsValidator, paginationResultValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import { z } from "zod";
 
@@ -10,11 +7,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
-import {
-  findCurrentPerson,
-  requireCurrentPerson,
-  requireEventSubject,
-} from "./lib/identity";
+import { findCurrentPerson, requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import {
   findOperation,
   operationFingerprint,
@@ -49,9 +42,7 @@ import {
 } from "./values";
 
 type ReadCtx = QueryCtx | MutationCtx;
-type ScorecardAdministrationPermission =
-  | "scorecard.correction.open"
-  | "scorecard.void";
+type ScorecardAdministrationPermission = "scorecard.correction.open" | "scorecard.void";
 
 const maximumScoreGovernancePageSize = 30;
 const maximumCorrectionCasesPerScorecard = 20;
@@ -105,14 +96,13 @@ function unresolvedCorrection(state: Doc<"scorecardCorrectionCases">["state"]) {
   return state === "requested" || state === "open";
 }
 
-async function requireRound(
-  ctx: ReadCtx,
-  eventId: Id<"events">,
-  roundId: Id<"reviewRounds">,
-) {
+async function requireRound(ctx: ReadCtx, eventId: Id<"events">, roundId: Id<"reviewRounds">) {
   const round = await ctx.db.get(roundId);
   if (!round || round.eventId !== eventId) {
-    throw new ConvexError({ code: "ROUND_NOT_FOUND", message: "That review round is unavailable." });
+    throw new ConvexError({
+      code: "ROUND_NOT_FOUND",
+      message: "That review round is unavailable.",
+    });
   }
   return round;
 }
@@ -188,25 +178,16 @@ function grantAllowsScorecard(
   );
 }
 
-async function currentTeam(
-  ctx: ReadCtx,
-  eventId: Id<"events">,
-  personId: Id<"people">,
-) {
+async function currentTeam(ctx: ReadCtx, eventId: Id<"events">, personId: Id<"people">) {
   const membership = await ctx.db
     .query("eventMemberships")
-    .withIndex("by_event_person", (index) =>
-      index.eq("eventId", eventId).eq("personId", personId),
-    )
+    .withIndex("by_event_person", (index) => index.eq("eventId", eventId).eq("personId", personId))
     .unique();
   if (!membership) return null;
   const teamMember = await ctx.db
     .query("teamMembers")
     .withIndex("by_event_membership_status", (index) =>
-      index
-        .eq("eventId", eventId)
-        .eq("membershipId", membership._id)
-        .eq("status", "active"),
+      index.eq("eventId", eventId).eq("membershipId", membership._id).eq("status", "active"),
     )
     .unique();
   if (!teamMember) return null;
@@ -250,37 +231,34 @@ export const rounds = query({
         scopeId: round._id,
       });
       if (readGrantIds.length === 0) continue;
-      const [exportRecord, release, valueGrants, closeGrants, releaseGrants] =
-        await Promise.all([
-          round.activeRoundExportId
-            ? ctx.db.get(round.activeRoundExportId)
-            : Promise.resolve(null),
-          ctx.db
-            .query("scoreReleaseVersions")
-            .withIndex("by_round", (index) => index.eq("roundId", round._id))
-            .unique(),
-          matchingPermissionGrantIds(ctx, {
-            eventId: event._id,
-            eventAccessSubjectId: subject._id,
-            permissionKey: "score.values.read",
-            scopeType: "round",
-            scopeId: round._id,
-          }),
-          matchingPermissionGrantIds(ctx, {
-            eventId: event._id,
-            eventAccessSubjectId: subject._id,
-            permissionKey: "round.close",
-            scopeType: "round",
-            scopeId: round._id,
-          }),
-          matchingPermissionGrantIds(ctx, {
-            eventId: event._id,
-            eventAccessSubjectId: subject._id,
-            permissionKey: "score.release",
-            scopeType: "round",
-            scopeId: round._id,
-          }),
-        ]);
+      const [exportRecord, release, valueGrants, closeGrants, releaseGrants] = await Promise.all([
+        round.activeRoundExportId ? ctx.db.get(round.activeRoundExportId) : Promise.resolve(null),
+        ctx.db
+          .query("scoreReleaseVersions")
+          .withIndex("by_round", (index) => index.eq("roundId", round._id))
+          .unique(),
+        matchingPermissionGrantIds(ctx, {
+          eventId: event._id,
+          eventAccessSubjectId: subject._id,
+          permissionKey: "score.values.read",
+          scopeType: "round",
+          scopeId: round._id,
+        }),
+        matchingPermissionGrantIds(ctx, {
+          eventId: event._id,
+          eventAccessSubjectId: subject._id,
+          permissionKey: "round.close",
+          scopeType: "round",
+          scopeId: round._id,
+        }),
+        matchingPermissionGrantIds(ctx, {
+          eventId: event._id,
+          eventAccessSubjectId: subject._id,
+          permissionKey: "score.release",
+          scopeType: "round",
+          scopeId: round._id,
+        }),
+      ]);
       rows.push({
         id: round._id,
         name: round.name,
@@ -402,9 +380,7 @@ async function completenessReviewView(
     ctx.db.get(session.panelId),
     ctx.db
       .query("scorecards")
-      .withIndex("by_session_status", (index) =>
-        index.eq("reviewSessionId", session._id),
-      )
+      .withIndex("by_session_status", (index) => index.eq("reviewSessionId", session._id))
       .take(maximumReviewersPerPanel + 1),
     ctx.db
       .query("reviewEvaluations")
@@ -412,9 +388,7 @@ async function completenessReviewView(
       .unique(),
     ctx.db
       .query("scorecardCorrectionCases")
-      .withIndex("by_session_kind", (index) =>
-        index.eq("reviewSessionId", session._id),
-      )
+      .withIndex("by_session_kind", (index) => index.eq("reviewSessionId", session._id))
       .take(maximumCorrectionCasesPerReview + 1),
   ]);
   if (!team || !panel) throw new Error("A review references a missing team or panel.");
@@ -441,11 +415,7 @@ async function completenessReviewView(
           correctionCase.scorecardId === scorecard._id &&
           unresolvedCorrection(correctionCase.state),
       );
-      const canDecideCorrection = grantAllowsScorecard(
-        openGrants,
-        scorecard._id,
-        session._id,
-      );
+      const canDecideCorrection = grantAllowsScorecard(openGrants, scorecard._id, session._id);
       return {
         id: scorecard._id,
         reviewerName: reviewer.displayName,
@@ -464,16 +434,18 @@ async function completenessReviewView(
       ? [scorecard.submittedVersionId]
       : [],
   );
-  const submittedVersions = (await Promise.all(
-    submittedVersionIds.map((versionId) => ctx.db.get(versionId)),
-  )).filter((version): version is Doc<"scorecardVersions"> => version !== null);
+  const submittedVersions = (
+    await Promise.all(submittedVersionIds.map((versionId) => ctx.db.get(versionId)))
+  ).filter((version): version is Doc<"scorecardVersions"> => version !== null);
   return {
     id: session._id,
     teamId: team._id,
     teamName: team.name,
     panelName: panel.name,
     status: session.status,
-    ...(evaluation ? { evaluationState: evaluation.state, evaluationVersion: evaluation.version } : {}),
+    ...(evaluation
+      ? { evaluationState: evaluation.state, evaluationVersion: evaluation.version }
+      : {}),
     ...(session.completedByManualReviewRecordId !== undefined
       ? { manualReviewRecordId: session.completedByManualReviewRecordId }
       : {}),
@@ -541,71 +513,64 @@ export const completeness = query({
       releaseGrants,
       exportRecord,
       release,
-    ] =
-      await Promise.all([
-        ctx.db
-          .query("reviewRubricCriteria")
-          .withIndex("by_rubric_order", (index) =>
-            index.eq("rubricVersionId", round.rubricVersionId),
-          )
-          .collect(),
-        ctx.db
-          .query("teamRoundStates")
-          .withIndex("by_round_state_priority_queued", (index) => index.eq("roundId", round._id))
-          .collect(),
-        ctx.db
-          .query("manualReviewRecords")
-          .withIndex("by_round_status_created", (index) =>
-            index.eq("roundId", round._id).eq("status", "draft"),
-          )
-          .collect(),
-        ctx.db
-          .query("manualReviewRecords")
-          .withIndex("by_round_status_created", (index) =>
-            index.eq("roundId", round._id).eq("status", "submitted"),
-          )
-          .collect(),
-        ctx.db
-          .query("scorecardCorrectionCases")
-          .withIndex("by_round_state", (index) =>
-            index.eq("roundId", round._id).eq("state", "requested"),
-          )
-          .collect(),
-        ctx.db
-          .query("scorecardCorrectionCases")
-          .withIndex("by_round_state", (index) =>
-            index.eq("roundId", round._id).eq("state", "open"),
-          )
-          .collect(),
-        matchingPermissionGrantIds(ctx, {
-          eventId: event._id,
-          eventAccessSubjectId: subject._id,
-          permissionKey: "score.values.read",
-          scopeType: "round",
-          scopeId: round._id,
-        }),
-        matchingPermissionGrantIds(ctx, {
-          eventId: event._id,
-          eventAccessSubjectId: subject._id,
-          permissionKey: "round.close",
-          scopeType: "round",
-          scopeId: round._id,
-        }),
-        matchingPermissionGrantIds(ctx, {
-          eventId: event._id,
-          eventAccessSubjectId: subject._id,
-          permissionKey: "score.release",
-          scopeType: "round",
-          scopeId: round._id,
-        }),
-        round.activeRoundExportId
-          ? ctx.db.get(round.activeRoundExportId)
-          : Promise.resolve(null),
-        ctx.db
-          .query("scoreReleaseVersions")
-          .withIndex("by_round", (index) => index.eq("roundId", round._id))
-          .unique(),
-      ]);
+    ] = await Promise.all([
+      ctx.db
+        .query("reviewRubricCriteria")
+        .withIndex("by_rubric_order", (index) => index.eq("rubricVersionId", round.rubricVersionId))
+        .collect(),
+      ctx.db
+        .query("teamRoundStates")
+        .withIndex("by_round_state_priority_queued", (index) => index.eq("roundId", round._id))
+        .collect(),
+      ctx.db
+        .query("manualReviewRecords")
+        .withIndex("by_round_status_created", (index) =>
+          index.eq("roundId", round._id).eq("status", "draft"),
+        )
+        .collect(),
+      ctx.db
+        .query("manualReviewRecords")
+        .withIndex("by_round_status_created", (index) =>
+          index.eq("roundId", round._id).eq("status", "submitted"),
+        )
+        .collect(),
+      ctx.db
+        .query("scorecardCorrectionCases")
+        .withIndex("by_round_state", (index) =>
+          index.eq("roundId", round._id).eq("state", "requested"),
+        )
+        .collect(),
+      ctx.db
+        .query("scorecardCorrectionCases")
+        .withIndex("by_round_state", (index) => index.eq("roundId", round._id).eq("state", "open"))
+        .collect(),
+      matchingPermissionGrantIds(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: subject._id,
+        permissionKey: "score.values.read",
+        scopeType: "round",
+        scopeId: round._id,
+      }),
+      matchingPermissionGrantIds(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: subject._id,
+        permissionKey: "round.close",
+        scopeType: "round",
+        scopeId: round._id,
+      }),
+      matchingPermissionGrantIds(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: subject._id,
+        permissionKey: "score.release",
+        scopeType: "round",
+        scopeId: round._id,
+      }),
+      round.activeRoundExportId ? ctx.db.get(round.activeRoundExportId) : Promise.resolve(null),
+      ctx.db
+        .query("scoreReleaseVersions")
+        .withIndex("by_round", (index) => index.eq("roundId", round._id))
+        .unique(),
+    ]);
     return {
       round: {
         id: round._id,
@@ -660,9 +625,7 @@ export const completenessReviews = query({
     const [criteria, sessions, openGrants, voidGrants] = await Promise.all([
       ctx.db
         .query("reviewRubricCriteria")
-        .withIndex("by_rubric_order", (index) =>
-          index.eq("rubricVersionId", round.rubricVersionId),
-        )
+        .withIndex("by_rubric_order", (index) => index.eq("rubricVersionId", round.rubricVersionId))
         .collect(),
       ctx.db
         .query("reviewSessions")
@@ -743,9 +706,7 @@ async function roundValueReviewView(ctx: QueryCtx, session: Doc<"reviewSessions"
       .unique(),
     ctx.db
       .query("scorecards")
-      .withIndex("by_session_status", (index) =>
-        index.eq("reviewSessionId", session._id),
-      )
+      .withIndex("by_session_status", (index) => index.eq("reviewSessionId", session._id))
       .collect(),
   ]);
   if (!team) throw new Error("A completed review references a missing team.");
@@ -813,9 +774,7 @@ export const roundValueCriteria = query({
     });
     const criteria = await ctx.db
       .query("reviewRubricCriteria")
-      .withIndex("by_rubric_order", (index) =>
-        index.eq("rubricVersionId", round.rubricVersionId),
-      )
+      .withIndex("by_rubric_order", (index) => index.eq("rubricVersionId", round.rubricVersionId))
       .collect();
     return criteria.map((criterion) => ({
       id: criterion._id,
@@ -888,10 +847,7 @@ export const myCorrectionOptions = query({
     const scorecards = await ctx.db
       .query("scorecards")
       .withIndex("by_event_reviewer_status", (index) =>
-        index
-          .eq("eventId", event._id)
-          .eq("reviewerPersonId", person._id)
-          .eq("status", "submitted"),
+        index.eq("eventId", event._id).eq("reviewerPersonId", person._id).eq("status", "submitted"),
       )
       .take(maximumReviewerAssignmentsPerEvent + 1);
     if (scorecards.length > maximumReviewerAssignmentsPerEvent) {
@@ -903,36 +859,37 @@ export const myCorrectionOptions = query({
       if (scorecard.submittedAt === undefined) {
         throw new Error("A submitted scorecard is missing its submission time.");
       }
-      const [round, session, latestCorrection, requestedCase, openCase, grantIds] = await Promise.all([
-        ctx.db.get(scorecard.roundId),
-        ctx.db.get(scorecard.reviewSessionId),
-        ctx.db
-          .query("scorecardCorrectionCases")
-          .withIndex("by_scorecard_kind_requested", (index) =>
-            index.eq("scorecardId", scorecard._id).eq("kind", "correction"),
-          )
-          .order("desc")
-          .first(),
-        ctx.db
-          .query("scorecardCorrectionCases")
-          .withIndex("by_scorecard_state", (index) =>
-            index.eq("scorecardId", scorecard._id).eq("state", "requested"),
-          )
-          .first(),
-        ctx.db
-          .query("scorecardCorrectionCases")
-          .withIndex("by_scorecard_state", (index) =>
-            index.eq("scorecardId", scorecard._id).eq("state", "open"),
-          )
-          .first(),
-        matchingPermissionGrantIds(ctx, {
-          eventId: event._id,
-          eventAccessSubjectId: subject._id,
-          permissionKey: "scorecard.correction.request",
-          scopeType: "scorecard",
-          scopeId: scorecard._id,
-        }),
-      ]);
+      const [round, session, latestCorrection, requestedCase, openCase, grantIds] =
+        await Promise.all([
+          ctx.db.get(scorecard.roundId),
+          ctx.db.get(scorecard.reviewSessionId),
+          ctx.db
+            .query("scorecardCorrectionCases")
+            .withIndex("by_scorecard_kind_requested", (index) =>
+              index.eq("scorecardId", scorecard._id).eq("kind", "correction"),
+            )
+            .order("desc")
+            .first(),
+          ctx.db
+            .query("scorecardCorrectionCases")
+            .withIndex("by_scorecard_state", (index) =>
+              index.eq("scorecardId", scorecard._id).eq("state", "requested"),
+            )
+            .first(),
+          ctx.db
+            .query("scorecardCorrectionCases")
+            .withIndex("by_scorecard_state", (index) =>
+              index.eq("scorecardId", scorecard._id).eq("state", "open"),
+            )
+            .first(),
+          matchingPermissionGrantIds(ctx, {
+            eventId: event._id,
+            eventAccessSubjectId: subject._id,
+            permissionKey: "scorecard.correction.request",
+            scopeType: "scorecard",
+            scopeId: scorecard._id,
+          }),
+        ]);
       if (!round || !session || round.status !== "open") continue;
       const team = await ctx.db.get(session.teamId);
       if (!team) throw new Error("A submitted scorecard references a missing team.");
@@ -1150,7 +1107,10 @@ export const decideCorrection = mutation({
       correctionCase.eventId !== event._id ||
       correctionCase.kind !== "correction"
     ) {
-      throw new ConvexError({ code: "CORRECTION_NOT_FOUND", message: "That correction request is unavailable." });
+      throw new ConvexError({
+        code: "CORRECTION_NOT_FOUND",
+        message: "That correction request is unavailable.",
+      });
     }
     const scorecard = await ctx.db.get(correctionCase.scorecardId);
     if (
@@ -1224,12 +1184,13 @@ export const decideCorrection = mutation({
       scopeType: permission.scopeType,
       scopeId: permission.scopeId,
       action:
-        args.decision === "open"
-          ? "scorecard.correction_opened"
-          : "scorecard.correction_rejected",
+        args.decision === "open" ? "scorecard.correction_opened" : "scorecard.correction_rejected",
       targetType: "scorecard_correction_case",
       targetId: correctionCase._id,
-      previousSummary: JSON.stringify({ state: correctionCase.state, version: correctionCase.version }),
+      previousSummary: JSON.stringify({
+        state: correctionCase.state,
+        version: correctionCase.version,
+      }),
       nextSummary: JSON.stringify({ state, version: correctionCase.version + 1 }),
       reason,
     });
@@ -1257,12 +1218,7 @@ export const voidScorecard = mutation({
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const reason = normalizedText(args.reason, "Void reason", 5, 500);
-    const evidenceReference = normalizedText(
-      args.evidenceReference,
-      "Evidence reference",
-      3,
-      500,
-    );
+    const evidenceReference = normalizedText(args.evidenceReference, "Evidence reference", 3, 500);
     const requestFingerprint = operationFingerprint([
       args.scorecardId,
       args.expectedScorecardVersion,
@@ -1314,13 +1270,16 @@ export const voidScorecard = mutation({
       ctx.db.get(scorecard.reviewSessionId),
       ctx.db
         .query("reviewEvaluations")
-        .withIndex("by_session", (index) =>
-          index.eq("reviewSessionId", scorecard.reviewSessionId),
-        )
+        .withIndex("by_session", (index) => index.eq("reviewSessionId", scorecard.reviewSessionId))
         .unique(),
       scorecardCorrectionCasesBeforeInsert(ctx, scorecard._id),
     ]);
-    if (!session || session.status !== "completed" || !evaluation || evaluation.state !== "complete") {
+    if (
+      !session ||
+      session.status !== "completed" ||
+      !evaluation ||
+      evaluation.state !== "complete"
+    ) {
       throw new ConvexError({
         code: "COMPLETED_REVIEW_REQUIRED",
         message: "Void remedies apply only to a completed review with a computed result.",
@@ -1503,12 +1462,8 @@ export const publishRelease = mutation({
       });
     }
     const [closeSnapshot, roundExport, existing] = await Promise.all([
-      round.activeCloseSnapshotId
-        ? ctx.db.get(round.activeCloseSnapshotId)
-        : Promise.resolve(null),
-      round.activeRoundExportId
-        ? ctx.db.get(round.activeRoundExportId)
-        : Promise.resolve(null),
+      round.activeCloseSnapshotId ? ctx.db.get(round.activeCloseSnapshotId) : Promise.resolve(null),
+      round.activeRoundExportId ? ctx.db.get(round.activeRoundExportId) : Promise.resolve(null),
       ctx.db
         .query("scoreReleaseVersions")
         .withIndex("by_round", (index) => index.eq("roundId", round._id))
@@ -1555,13 +1510,9 @@ export const publishRelease = mutation({
     });
     const closeEntries = await ctx.db
       .query("roundCloseEntries")
-      .withIndex("by_snapshot_team", (index) =>
-        index.eq("closeSnapshotId", closeSnapshot._id),
-      )
+      .withIndex("by_snapshot_team", (index) => index.eq("closeSnapshotId", closeSnapshot._id))
       .collect();
-    const resultEntries = closeEntries.filter(
-      (entry) => entry.payload.kind === "result",
-    );
+    const resultEntries = closeEntries.filter((entry) => entry.payload.kind === "result");
     for (const entry of resultEntries) {
       if (entry.payload.kind !== "result") continue;
       const session = await ctx.db.get(entry.payload.reviewSessionId);
@@ -1580,9 +1531,7 @@ export const publishRelease = mutation({
           weightedPoints: result.weightedPoints,
         })),
         totalPoints: entry.payload.totalPoints,
-        ...(session.sharedFindings !== undefined
-          ? { sharedFindings: session.sharedFindings }
-          : {}),
+        ...(session.sharedFindings !== undefined ? { sharedFindings: session.sharedFindings } : {}),
         ...(session.sharedCommitments !== undefined
           ? { sharedCommitments: session.sharedCommitments }
           : {}),
@@ -1681,12 +1630,7 @@ export const participantFeedback = query({
         ctx.db.get(entry.releaseId),
         ctx.db.get(entry.roundId),
       ]);
-      if (
-        !release ||
-        !round ||
-        release.eventId !== event._id ||
-        round.eventId !== event._id
-      ) {
+      if (!release || !round || release.eventId !== event._id || round.eventId !== event._id) {
         throw new Error("A released score entry has an invalid event context.");
       }
       const criteria = [];

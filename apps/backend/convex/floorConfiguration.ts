@@ -164,7 +164,10 @@ export const current = query({
       publishGrantIds.length === 0 &&
       freezeGrantIds.length === 0
     ) {
-      throw new ConvexError({ code: "ACCESS_DENIED", message: "This account cannot access floor configuration." });
+      throw new ConvexError({
+        code: "ACCESS_DENIED",
+        message: "This account cannot access floor configuration.",
+      });
     }
     const freezeReadiness =
       publishedPlan &&
@@ -227,10 +230,7 @@ export const createDraft = mutation({
     if (prior) {
       const planVersionId = ctx.db.normalizeId("floorPlanVersions", prior.targetId);
       if (!planVersionId) throw new Error("The stored floor-plan creation is invalid.");
-      const stored = storedConfigurationPublicationResult(
-        prior.resultJson,
-        "floor-plan creation",
-      );
+      const stored = storedConfigurationPublicationResult(prior.resultJson, "floor-plan creation");
       return {
         planVersionId,
         planNumber: stored.version,
@@ -246,7 +246,10 @@ export const createDraft = mutation({
       scopeType: "event",
     });
     if (args.zones.length < 1 || args.zones.length > maximumFloorZones) {
-      throw new ConvexError({ code: "INVALID_FLOOR_PLAN", message: `Use between one and ${maximumFloorZones} hall zones.` });
+      throw new ConvexError({
+        code: "INVALID_FLOOR_PLAN",
+        message: `Use between one and ${maximumFloorZones} hall zones.`,
+      });
     }
     const zones = args.zones.map((zone) => ({
       stableKey: floorStableKey(zone.stableKey, "Zone key"),
@@ -258,8 +261,14 @@ export const createDraft = mutation({
       // a zone without a landmark is a zone nobody can map into.
       landmarks: requireLandmarks(zone.landmarks, zone.name),
     }));
-    requireUnique(zones.map((zone) => zone.stableKey), "Zone keys");
-    requireUnique(zones.map((zone) => zone.displayOrder), "Zone orders");
+    requireUnique(
+      zones.map((zone) => zone.stableKey),
+      "Zone keys",
+    );
+    requireUnique(
+      zones.map((zone) => zone.displayOrder),
+      "Zone orders",
+    );
     requireUnique(
       zones.flatMap((zone) => zone.landmarks.map((landmark) => landmark.stableKey)),
       "Landmark keys",
@@ -357,7 +366,11 @@ export const publish = mutation({
     reason: v.string(),
     clientOperationId: v.string(),
   },
-  returns: v.object({ planVersionId: v.id("floorPlanVersions"), planVersion: v.number(), eventVersion: v.number() }),
+  returns: v.object({
+    planVersionId: v.id("floorPlanVersions"),
+    planVersion: v.number(),
+    eventVersion: v.number(),
+  }),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
@@ -389,8 +402,16 @@ export const publish = mutation({
     }
     if (event.version !== args.expectedEventVersion) throw configurationChanged();
     const plan = await ctx.db.get(args.planVersionId);
-    if (!plan || plan.eventId !== event._id || plan.status !== "draft" || plan.mappingState !== "setup") {
-      throw new ConvexError({ code: "FLOOR_PLAN_NOT_DRAFT", message: "Choose this event's current floor-plan draft." });
+    if (
+      !plan ||
+      plan.eventId !== event._id ||
+      plan.status !== "draft" ||
+      plan.mappingState !== "setup"
+    ) {
+      throw new ConvexError({
+        code: "FLOOR_PLAN_NOT_DRAFT",
+        message: "Choose this event's current floor-plan draft.",
+      });
     }
     if (plan.version !== args.expectedPlanVersion) throw configurationChanged();
     const subject = await requireEventSubject(ctx, event._id, person._id);
@@ -406,7 +427,10 @@ export const publish = mutation({
       .withIndex("by_plan_order", (index) => index.eq("planVersionId", plan._id))
       .collect();
     if (zones.length === 0) {
-      throw new ConvexError({ code: "FLOOR_PLAN_INCOMPLETE", message: "The floor plan needs at least one zone." });
+      throw new ConvexError({
+        code: "FLOOR_PLAN_INCOMPLETE",
+        message: "The floor plan needs at least one zone.",
+      });
     }
     const previousPublished = event.publishedFloorPlanVersionId
       ? await ctx.db.get(event.publishedFloorPlanVersionId)
@@ -414,7 +438,9 @@ export const publish = mutation({
     if (previousPublished) {
       const activeLocations = await ctx.db
         .query("teamFloorLocations")
-        .withIndex("by_plan_state", (index) => index.eq("planVersionId", previousPublished._id).eq("state", "active"))
+        .withIndex("by_plan_state", (index) =>
+          index.eq("planVersionId", previousPublished._id).eq("state", "active"),
+        )
         .first();
       if (activeLocations) {
         throw new ConvexError({
@@ -425,7 +451,10 @@ export const publish = mutation({
     }
     const now = Date.now();
     if (previousPublished) {
-      await ctx.db.patch(previousPublished._id, { status: "superseded", version: previousPublished.version + 1 });
+      await ctx.db.patch(previousPublished._id, {
+        status: "superseded",
+        version: previousPublished.version + 1,
+      });
     }
     const planVersion = plan.version + 1;
     await ctx.db.patch(plan._id, {
@@ -466,7 +495,11 @@ export const publish = mutation({
       targetType: "floor_plan",
       targetId: plan._id,
       previousSummary: JSON.stringify({ status: "draft", version: plan.version }),
-      nextSummary: JSON.stringify({ status: "published", mappingState: "open", version: planVersion }),
+      nextSummary: JSON.stringify({
+        status: "published",
+        mappingState: "open",
+        version: planVersion,
+      }),
       reason: normalizedText(args.reason, "Reason", 5, 300),
     });
     return { planVersionId: plan._id, planVersion, eventVersion };
@@ -513,7 +546,10 @@ export const freeze = mutation({
       plan.status !== "published" ||
       plan.mappingState !== "open"
     ) {
-      throw new ConvexError({ code: "FLOOR_PLAN_NOT_OPEN", message: "Only the current open floor plan can be frozen." });
+      throw new ConvexError({
+        code: "FLOOR_PLAN_NOT_OPEN",
+        message: "Only the current open floor plan can be frozen.",
+      });
     }
     if (plan.version !== args.expectedPlanVersion) throw configurationChanged();
     const subject = await requireEventSubject(ctx, event._id, person._id);
@@ -610,10 +646,7 @@ async function readFloorFreezeReadiness(
   };
 }
 
-async function summarizePlan(
-  ctx: QueryCtx,
-  plan: Doc<"floorPlanVersions">,
-) {
+async function summarizePlan(ctx: QueryCtx, plan: Doc<"floorPlanVersions">) {
   const [zones, landmarks] = await Promise.all([
     ctx.db
       .query("floorZones")
@@ -656,7 +689,10 @@ async function summarizePlan(
 
 function requiredOrder(value: number, label: string) {
   if (!Number.isInteger(value) || value < 0 || value > 1_000) {
-    throw new ConvexError({ code: "INVALID_ORDER", message: `${label} must be an integer from 0 through 1,000.` });
+    throw new ConvexError({
+      code: "INVALID_ORDER",
+      message: `${label} must be an integer from 0 through 1,000.`,
+    });
   }
   return value;
 }
@@ -673,7 +709,13 @@ function zoneSide(value: number, label: string) {
 }
 
 function requireLandmarks(
-  landmarks: readonly { stableKey: string; name: string; x: number; y: number; displayOrder: number }[],
+  landmarks: readonly {
+    stableKey: string;
+    name: string;
+    x: number;
+    y: number;
+    displayOrder: number;
+  }[],
   zoneName: string,
 ) {
   if (landmarks.length < 1 || landmarks.length > maximumFloorLandmarksPerZone) {
@@ -689,8 +731,14 @@ function requireLandmarks(
     y: floorCoordinate(landmark.y, "Landmark y coordinate"),
     displayOrder: requiredOrder(landmark.displayOrder, "Landmark order"),
   }));
-  requireUnique(checked.map((landmark) => landmark.name.toLocaleLowerCase("en-IN")), "Landmark names");
-  requireUnique(checked.map((landmark) => landmark.displayOrder), "Landmark orders");
+  requireUnique(
+    checked.map((landmark) => landmark.name.toLocaleLowerCase("en-IN")),
+    "Landmark names",
+  );
+  requireUnique(
+    checked.map((landmark) => landmark.displayOrder),
+    "Landmark orders",
+  );
   return checked;
 }
 
@@ -701,5 +749,8 @@ function requireUnique(values: readonly (string | number)[], label: string) {
 }
 
 function configurationChanged() {
-  return new ConvexError({ code: "FLOOR_CONFIGURATION_CHANGED", message: "Floor configuration changed. Refresh and try again." });
+  return new ConvexError({
+    code: "FLOOR_CONFIGURATION_CHANGED",
+    message: "Floor configuration changed. Refresh and try again.",
+  });
 }

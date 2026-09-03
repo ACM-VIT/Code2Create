@@ -31,9 +31,7 @@ export async function createStaffedParticipantResolution(
 ) {
   const existing = await ctx.db
     .query("staffedParticipantResolutions")
-    .withIndex("by_portal_token", (index) =>
-      index.eq("portalQrTokenId", args.portalQrTokenId),
-    )
+    .withIndex("by_portal_token", (index) => index.eq("portalQrTokenId", args.portalQrTokenId))
     .unique();
   if (existing) {
     throw new ConvexError({
@@ -135,10 +133,7 @@ export async function claimStaffedCredentialResolution(
   });
 }
 
-async function requireStaffedResolutionContext(
-  ctx: MutationCtx,
-  args: StaffedResolutionContext,
-) {
+async function requireStaffedResolutionContext(ctx: MutationCtx, args: StaffedResolutionContext) {
   const resolution = await ctx.db.get(args.resolutionId);
   if (
     !resolution ||

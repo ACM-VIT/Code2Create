@@ -60,24 +60,20 @@ export const beginImport = internalMutation({
     }
     const batchKey = normalizedText(args.batchKey, "Eligibility batch key", 3, 80);
     if (!/^[a-z0-9][a-z0-9._-]*$/.test(batchKey)) {
-      throw new Error("Eligibility batch keys use lowercase letters, numbers, dots, dashes, and underscores.");
+      throw new Error(
+        "Eligibility batch keys use lowercase letters, numbers, dots, dashes, and underscores.",
+      );
     }
     const expectedExternalCount = requiredCount(
       args.expectedExternalCount,
       "Expected external participant count",
     );
-    const expectedVitCount = requiredCount(
-      args.expectedVitCount,
-      "Expected VIT participant count",
-    );
+    const expectedVitCount = requiredCount(args.expectedVitCount, "Expected VIT participant count");
     const externalSourceChecksum = sourceChecksum(
       args.externalSourceChecksum,
       "External source checksum",
     );
-    const vitSourceChecksum = sourceChecksum(
-      args.vitSourceChecksum,
-      "VIT source checksum",
-    );
+    const vitSourceChecksum = sourceChecksum(args.vitSourceChecksum, "VIT source checksum");
     const existing = await ctx.db
       .query("participantEligibilityImports")
       .withIndex("by_event_batch", (index) =>
@@ -171,8 +167,7 @@ export const appendEntries = internalMutation({
         eventId: event._id,
         participantEligibilityImportId: eligibilityImport._id,
         participantClass: row.participantClass,
-        identityKind:
-          row.participantClass === "vit_student" ? "vit_registration" : "email",
+        identityKind: row.participantClass === "vit_student" ? "vit_registration" : "email",
         identityNormalized,
         sourceRowNumber: row.sourceRowNumber,
         createdAt: Date.now(),

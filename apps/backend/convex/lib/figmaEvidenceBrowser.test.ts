@@ -1,10 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import {
-  browseFigmaEvidence,
-  FigmaEvidenceBrowseError,
-} from "./figmaEvidenceBrowser.ts";
+import { browseFigmaEvidence, FigmaEvidenceBrowseError } from "./figmaEvidenceBrowser.ts";
 
 function fixture(extraChildren = 0) {
   const generatedChildren = Array.from({ length: extraChildren }, (_, index) => ({
@@ -94,9 +91,7 @@ test("opens the immutable document at its root", () => {
   assert.equal(result.current.id, "0:0");
   assert.equal(result.current.type, "DOCUMENT");
   assert.equal(result.totalChildren, 1);
-  assert.deepEqual(result.breadcrumbs, [
-    { id: "0:0", name: "Document", type: "DOCUMENT" },
-  ]);
+  assert.deepEqual(result.breadcrumbs, [{ id: "0:0", name: "Document", type: "DOCUMENT" }]);
 });
 
 test("returns layer properties, prototype links, text, and component context", () => {
@@ -146,15 +141,13 @@ test("paginates large direct-child lists without changing the selected node", ()
 test("rejects a layer that is not part of the checkpoint", () => {
   assert.throws(
     () => browseFigmaEvidence(fixture(), "version-1", "missing", 0),
-    (error) =>
-      error instanceof FigmaEvidenceBrowseError && error.code === "node_not_found",
+    (error) => error instanceof FigmaEvidenceBrowseError && error.code === "node_not_found",
   );
 });
 
 test("rejects an artifact from a different provider version", () => {
   assert.throws(
     () => browseFigmaEvidence(fixture(), "version-2", undefined, 0),
-    (error) =>
-      error instanceof FigmaEvidenceBrowseError && error.code === "artifact_invalid",
+    (error) => error instanceof FigmaEvidenceBrowseError && error.code === "artifact_invalid",
   );
 });
