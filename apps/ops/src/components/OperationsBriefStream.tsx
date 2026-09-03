@@ -38,8 +38,8 @@ export function OperationsBriefStream({
         agentLabel="Brief agent"
         connectionState={connectionState}
         embedded
-        emptyDescription="The trace appears when the brief agent begins reading the frozen health snapshot."
-        emptyTitle="Waiting for agent activity."
+        emptyDescription="Steps appear here once the agent starts reading the event snapshot."
+        emptyTitle="Waiting for the agent to start."
         historyCanLoadMore={stream.historyCanLoadMore}
         {...(stream.historyLoadError === undefined
           ? {}
@@ -57,12 +57,12 @@ export function OperationsBriefStream({
             detail: "The brief above is the final result.",
           },
           failed: {
-            title: "Brief run did not finish",
+            title: "The brief did not finish",
             detail: "The failure is recorded above. You can request another brief.",
           },
           aborted: {
-            title: "Brief run stopped",
-            detail: "No further work is running for this brief.",
+            title: "The brief was stopped",
+            detail: "Nothing more is running for it.",
           },
         }}
         workingCopy={{

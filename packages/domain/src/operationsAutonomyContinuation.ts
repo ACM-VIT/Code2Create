@@ -1,4 +1,4 @@
-import { operationsIntelligenceProtocolVersion } from "./intelligenceProtocol.ts";
+import type { operationsIntelligenceProtocolVersion } from "./intelligenceProtocol.ts";
 import type { OperationsAutonomyTurnReceipt } from "./operationsAutonomyProtocol.ts";
 
 /** A new durable Worker submission resumes one run after an infrastructure slice settles. */

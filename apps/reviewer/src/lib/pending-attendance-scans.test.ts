@@ -12,7 +12,7 @@ const secureStore = vi.hoisted(() => {
 });
 
 const sqlite = vi.hoisted(() => {
-  let payloads: string[] = [];
+  const payloads: string[] = [];
   let transactionOpen = false;
   let concurrentTransactions = 0;
   let maximumConcurrentTransactions = 0;

@@ -1,4 +1,4 @@
-import { isAbsolute, resolve } from "node:path";
+import path from "node:path";
 
 export type ReleaseEnvironment = {
   environment: "staging";
@@ -14,7 +14,9 @@ export type ReleaseEnvironment = {
 
 function requiredValue(environment: NodeJS.ProcessEnv, name: string) {
   const value = environment[name]?.trim();
-  if (!value) throw new Error(`${name} is required for release browser checks.`);
+  if (value === undefined || value.length === 0) {
+    throw new Error(`${name} is required for release browser checks.`);
+  }
   return value;
 }
 
@@ -36,7 +38,7 @@ function httpsOrigin(environment: NodeJS.ProcessEnv, name: string) {
 
 function email(environment: NodeJS.ProcessEnv, name: string) {
   const value = requiredValue(environment, name).toLowerCase();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) || value.length > 320) {
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(value) || value.length > 320) {
     throw new Error(`${name} must be one valid email address.`);
   }
   return value;
@@ -44,13 +46,15 @@ function email(environment: NodeJS.ProcessEnv, name: string) {
 
 function storageStatePath(environment: NodeJS.ProcessEnv, name: string) {
   const value = requiredValue(environment, name);
-  if (!isAbsolute(value)) throw new Error(`${name} must be an absolute path.`);
-  return resolve(value);
+  if (!path.isAbsolute(value)) {
+    throw new Error(`${name} must be an absolute path.`);
+  }
+  return path.resolve(value);
 }
 
 function stableIdentifier(environment: NodeJS.ProcessEnv, name: string, maximumLength: number) {
   const value = requiredValue(environment, name);
-  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(value) || value.length > maximumLength) {
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/u.test(value) || value.length > maximumLength) {
     throw new Error(`${name} contains unsupported characters.`);
   }
   return value;

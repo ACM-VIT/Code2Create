@@ -88,13 +88,13 @@ test("projects only visible assistant text and safe lifecycle information", () =
     { kind: "thinking", state: "done", text: visibleReasoning },
     {
       kind: "tool",
-      label: "Read operations health",
+      label: "Checked how the event is running",
       state: "complete",
       durationMs: 1_240,
     },
     {
       kind: "tool",
-      label: "Read support load",
+      label: "Read the help desk load",
       state: "failed",
       durationMs: 800,
     },
@@ -166,12 +166,12 @@ test("projects the real sanitized autonomy lifecycle data parts", () => {
     ]),
   ];
   assert.deepEqual(timelineContent(projectVisibleAgentTimeline(messages)), [
-    { kind: "tool", label: "Plan operations review", state: "running" },
-    { kind: "tool", label: "Plan operations review", state: "complete", durationMs: 820 },
-    { kind: "tool", label: "Read approved event data", state: "complete" },
-    { kind: "tool", label: "Investigate event area", state: "failed" },
-    { kind: "tool", label: "Check evidence and conclusions", state: "complete" },
-    { kind: "tool", label: "Record recommendation proposal", state: "complete" },
+    { kind: "tool", label: "Planned what to check", state: "running" },
+    { kind: "tool", label: "Planned what to check", state: "complete", durationMs: 820 },
+    { kind: "tool", label: "Read event data", state: "complete" },
+    { kind: "tool", label: "Looked into one part of the event", state: "failed" },
+    { kind: "tool", label: "Double-checked its own conclusions", state: "complete" },
+    { kind: "tool", label: "Drafted a suggestion", state: "complete" },
   ]);
 });
 
@@ -200,7 +200,7 @@ test("consolidates reasoning into one visible trace and sanitizes duration value
     },
     {
       kind: "tool",
-      label: "Investigator agent",
+      label: "Sent a helper to dig deeper",
       state: "complete",
     },
   ]);

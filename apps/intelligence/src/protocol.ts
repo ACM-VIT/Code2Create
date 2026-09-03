@@ -385,7 +385,6 @@ const admissionCohortCandidate = v.strictObject({
   state: v.picklist([
     "submitted",
     "under_review",
-    "needs_information",
     "accepted",
     "waitlisted",
     "declined",
@@ -408,7 +407,6 @@ const admissionCohortCandidate = v.strictObject({
     accept: nonNegativeInteger,
     waitlist: nonNegativeInteger,
     decline: nonNegativeInteger,
-    needsInformation: nonNegativeInteger,
   }),
   aiRecommendation: v.optional(
     v.strictObject({
@@ -425,9 +423,7 @@ const admissionCohortCandidate = v.strictObject({
         "disabled",
       ]),
       current: v.boolean(),
-      recommendation: v.optional(
-        v.picklist(["accept", "waitlist", "decline", "needs_information"]),
-      ),
+      recommendation: v.optional(v.picklist(["accept", "waitlist", "decline"])),
       confidence: v.optional(v.picklist(["low", "medium", "high"])),
       criterionAssessments: v.pipe(
         v.array(
@@ -519,7 +515,6 @@ export const admissionReadSchemas = {
           state: v.picklist([
             "submitted",
             "under_review",
-            "needs_information",
             "accepted",
             "waitlisted",
             "declined",

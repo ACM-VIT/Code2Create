@@ -1,4 +1,4 @@
-import { type OperationsAutonomyReadTool, type OperationsHealthArea } from "@code2create/domain";
+import type { OperationsAutonomyReadTool, OperationsHealthArea } from "@code2create/domain";
 import * as v from "valibot";
 
 export const autonomyPlaybookNames = [

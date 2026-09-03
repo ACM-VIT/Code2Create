@@ -119,7 +119,7 @@ export function OperationsBrief({
         <div className="grid gap-3">
           <div className="health-empty">
             <strong>No brief yet.</strong>
-            <span>A brief is a short, ranked read on what needs attention and who should act.</span>
+            <span>A brief is a short summary of what needs attention and who should act.</span>
           </div>
           {requestButton}
         </div>
@@ -173,10 +173,10 @@ export function OperationsBrief({
               type="button"
             >
               {traceOpen
-                ? "Hide agent trace"
+                ? "Hide the agent's steps"
                 : inProgress
-                  ? "Show live agent trace"
-                  : "View agent trace"}
+                  ? "Watch the agent work"
+                  : "See the agent's steps"}
             </button>
           </div>
           {traceOpen ? (

@@ -33,8 +33,6 @@ const betterAuthModules = import.meta.glob(
   "../node_modules/@convex-dev/better-auth/src/component/**/*.ts",
 );
 type BackendTest = TestConvex<typeof schema>;
-type Fixture = Awaited<ReturnType<typeof seedCohortFixture>>;
-
 const readSecret = "read-secret-".padEnd(48, "r");
 const savedEnvironment = {
   INTELLIGENCE_READ_SECRET: process.env.INTELLIGENCE_READ_SECRET,
@@ -128,6 +126,26 @@ describe("admission cohort arithmetic", () => {
 });
 
 describe("admission cohort query and decisions", () => {
+  test("searches every application in a stage by team name", async () => {
+    const backend = seededBackend();
+    const fixture = await seedCohortFixture(backend, { extraTeams: 31 });
+    const operator = backend.withIdentity({
+      subject: fixture.operatorAuthUserId,
+      sessionId: fixture.operatorAuthSessionId,
+    });
+
+    const result = await operator.query(api.admissions.searchApplications, {
+      eventSlug: fixture.eventSlug,
+      state: "under_review",
+      search: "  TEAM   31 ",
+    });
+
+    expect(result).toEqual({
+      applications: [expect.objectContaining({ teamName: "Additional Team 31" })],
+      truncated: false,
+    });
+  });
+
   test("ranks candidates, spends capacity in people, and marks review shortfalls", async () => {
     const backend = seededBackend();
     const fixture = await seedCohortFixture(backend);
@@ -270,7 +288,6 @@ describe("admission cohort query and decisions", () => {
       expectedApplicationVersion: 1,
       decision: "accept",
       reasonCode: "strong_fit",
-      informationQuestions: [],
       aiDisposition: "unavailable",
       clientOperationId: "cohort-apply-short-1",
     });
@@ -291,7 +308,6 @@ describe("admission cohort query and decisions", () => {
       expectedApplicationVersion: 1,
       decision: "accept",
       reasonCode: "strong_fit",
-      informationQuestions: [],
       aiDisposition: "unavailable",
       clientOperationId: "cohort-apply-1",
     });
@@ -321,7 +337,6 @@ describe("admission cohort query and decisions", () => {
       expectedApplicationVersion: 1,
       decision: "accept",
       reasonCode: "strong_fit",
-      informationQuestions: [],
       aiDisposition: "unavailable",
       clientOperationId: "cohort-apply-1",
     });
@@ -338,7 +353,6 @@ describe("admission cohort query and decisions", () => {
         expectedApplicationVersion: 1,
         decision: "accept",
         reasonCode: "strong_fit",
-        informationQuestions: [],
         aiDisposition: "unavailable",
         clientOperationId: "cohort-apply-denied-1",
       }),
@@ -452,7 +466,6 @@ describe("admission cohort query and decisions", () => {
         expectedApplicationVersion: 1,
         decision: "accept",
         reasonCode: "strong_fit",
-        informationQuestions: [],
         aiDisposition: "unavailable",
         clientOperationId: "cohort-decision-before-deadline",
       }),
@@ -653,7 +666,7 @@ async function insertPolicyChain(
       {
         key: "needs_detail",
         label: "Needs detail",
-        allowedDecisions: ["needs_information", "waitlist"],
+        allowedDecisions: ["waitlist"],
       },
     ],
     checksum: "cohort-policy",

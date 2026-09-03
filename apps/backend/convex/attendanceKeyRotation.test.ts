@@ -76,7 +76,7 @@ describe("attendance event-key rotation", () => {
       "rotation-event",
       Uint8Array.from({ length: 32 }, () => 7),
     );
-    const corruptedAuthTag = `${encrypted.authTag[0] === "A" ? "B" : "A"}${encrypted.authTag.slice(1)}`;
+    const corruptedAuthTag = `${encrypted.authTag.startsWith("A") ? "B" : "A"}${encrypted.authTag.slice(1)}`;
     await expect(
       decryptEventKey({
         eventSlug: "rotation-event",

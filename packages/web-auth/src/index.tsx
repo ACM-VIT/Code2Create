@@ -31,6 +31,7 @@ export function createCode2CreateAuthClient(baseURL: string) {
 export type Code2CreateAuthClient = ReturnType<typeof createCode2CreateAuthClient>;
 
 const oneTimeTokenVerifications = new Map<string, Promise<string>>();
+const sessionTransferStorageKey = "code2create.auth.session-transfer-token";
 
 type TransferState = "idle" | "working" | "failed";
 
@@ -112,13 +113,15 @@ export function Code2CreateAuthProvider({
               isActive: () => !controller.signal.aborted,
             });
             void request.then((token) => {
-              tokenExpiresAt.current = token ? accessTokenExpiresAt(token) : null;
+              tokenExpiresAt.current =
+                token !== null && token.length > 0 ? accessTokenExpiresAt(token) : null;
             });
             pendingToken.current = request;
-            void request.finally(() => {
+            const clearPendingRequest = () => {
               tokenRequestControllers.current.delete(controller);
               if (pendingToken.current === request) pendingToken.current = null;
-            });
+            };
+            void request.then(clearPendingRequest, clearPendingRequest);
             return request;
           },
           [authClient, resumeRefresh, sessionId],
@@ -166,7 +169,7 @@ function useOneTimeToken(authClient: Code2CreateAuthClient) {
   const [state, setState] = useState<TransferState>(credential.current ? "working" : "idle");
 
   const complete = useCallback(async () => {
-    if (!credential.current || inFlight.current) return;
+    if (credential.current === null || inFlight.current) return;
     inFlight.current = true;
     setState("working");
     try {
@@ -183,13 +186,15 @@ function useOneTimeToken(authClient: Code2CreateAuthClient) {
           if (result.error || !result.data?.session) {
             throw new Error("The browser session was not established.");
           }
-          authClient.updateSession();
+          await authClient.updateSession();
         },
         clearSessionToken: clearSessionTransferToken,
         removeOneTimeToken: removeOneTimeTokenFromUrl,
       });
       credential.current = null;
-      if (popupNonce.current) signalAuthPopupCompletion(popupNonce.current);
+      if (popupNonce.current !== null && popupNonce.current.length > 0) {
+        signalAuthPopupCompletion(popupNonce.current);
+      }
       setState("idle");
     } catch {
       setState("failed");
@@ -199,7 +204,7 @@ function useOneTimeToken(authClient: Code2CreateAuthClient) {
   }, [authClient]);
 
   useEffect(() => {
-    if (!credential.current) return;
+    if (credential.current === null) return;
     void complete();
   }, [complete]);
 
@@ -218,11 +223,13 @@ function useOneTimeToken(authClient: Code2CreateAuthClient) {
 
 function verifyOneTimeTokenOnce(authClient: Code2CreateAuthClient, token: string) {
   const existing = oneTimeTokenVerifications.get(token);
-  if (existing) return existing;
+  if (existing !== undefined) return existing;
 
   const request = authClient.crossDomain.oneTimeToken.verify({ token }).then((result) => {
     const sessionToken = result.data?.session?.token;
-    if (result.error || !sessionToken) throw new Error("The one-time sign-in token was rejected.");
+    if (result.error || sessionToken === undefined || sessionToken.length === 0) {
+      throw new Error("The one-time sign-in token was rejected.");
+    }
     return sessionToken;
   });
   oneTimeTokenVerifications.set(token, request);
@@ -236,7 +243,7 @@ function verifyOneTimeTokenOnce(authClient: Code2CreateAuthClient, token: string
 function readTransferCredential(): TransferCredential | null {
   const sessionToken = window.sessionStorage.getItem(sessionTransferStorageKey);
   const token = new URL(window.location.href).searchParams.get("ott");
-  if (token) clearSessionTransferToken();
+  if (token !== null && token.length > 0) clearSessionTransferToken();
   return selectTransferCredential(sessionToken, token);
 }
 
@@ -247,8 +254,6 @@ function removeOneTimeTokenFromUrl() {
   url.searchParams.delete("authPopup");
   window.history.replaceState({}, "", url);
 }
-
-const sessionTransferStorageKey = "code2create.auth.session-transfer-token";
 
 function writeSessionTransferToken(token: string) {
   window.sessionStorage.setItem(sessionTransferStorageKey, token);

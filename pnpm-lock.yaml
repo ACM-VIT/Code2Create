@@ -32,6 +32,9 @@ importers:
       '@posthog/cli':
         specifier: ^0.16.0
         version: 0.16.0
+      '@types/node':
+        specifier: ^26.4.0
+        version: 26.4.0
       oxlint:
         specifier: ^1.81.0
         version: 1.81.0(oxlint-tsgolint@7.0.2001)

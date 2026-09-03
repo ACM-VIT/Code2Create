@@ -23,7 +23,6 @@ export const communicationsEmailTemplateInput = v.object({
     v.literal("accept"),
     v.literal("waitlist"),
     v.literal("decline"),
-    v.literal("needs_information"),
     v.literal("offer"),
     v.literal("offer_confirmed"),
     v.literal("offer_declined"),
@@ -139,7 +138,9 @@ function validatePlaceholders(value: string, label: string) {
 function normalizedEmailHtml(value: string, label: string) {
   const normalized = normalizedLongText(value, label, 20, 250_000);
   if (
-    /<(?:script|iframe|object|embed|form|base|meta)\b/iu.test(normalized) ||
+    /<(?:script|iframe|object|embed|form|input|svg|picture|source|video|audio|base)\b/iu.test(
+      normalized,
+    ) ||
     /\son[a-z]+\s*=/iu.test(normalized) ||
     /(?:href|src)\s*=\s*["']?\s*(?:javascript|data\s*:\s*text\/html)/iu.test(normalized)
   ) {

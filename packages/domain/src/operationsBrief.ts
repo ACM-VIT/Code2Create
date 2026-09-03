@@ -1,4 +1,4 @@
-import { operationsIntelligenceProtocolVersion } from "./intelligenceProtocol.ts";
+import type { operationsIntelligenceProtocolVersion } from "./intelligenceProtocol.ts";
 import type { OperationsHealthSignalKey, OperationsHealthSnapshot } from "./operationsHealth.ts";
 
 export const operationsIntelligenceIngressSignatureContext =

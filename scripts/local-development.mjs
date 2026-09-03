@@ -11,7 +11,7 @@ if (existsSync(rootEnvironmentPath)) loadEnvFile(rootEnvironmentPath);
 // without maintaining a second copy of the token.
 const participantEnvironmentPath = new URL("../apps/web/.env.local", import.meta.url);
 const participantEnvironment = existsSync(participantEnvironmentPath)
-  ? parseEnv(readFileSync(participantEnvironmentPath, "utf8"))
+  ? parseEnv(readFileSync(participantEnvironmentPath, "utf-8"))
   : {};
 const localPostHogProjectToken =
   process.env.POSTHOG_PROJECT_TOKEN?.trim() ||

@@ -174,7 +174,7 @@ export function ParticipantApp({
   const joinCode = joinCodeParam?.trim().toUpperCase() ?? "";
   const finishTeamSwitch = () => {
     setPendingTeamSwitchCode(null);
-    navigate("/", { replace: true, viewTransition: true });
+    void navigate("/", { replace: true, viewTransition: true });
   };
   const requestedTeamSwitchCode = pendingTeamSwitchCode ?? joinCode;
   const teamSwitch =
@@ -365,7 +365,7 @@ export function ParticipantApp({
   // outside the panelled shell the post-decision screens still use.
   const queued =
     intakeStatus.applicationState !== null &&
-    ["submitted", "under_review", "needs_information"].includes(intakeStatus.applicationState);
+    ["submitted", "under_review"].includes(intakeStatus.applicationState);
   if (queued && location.pathname === "/") {
     return (
       <Suspense fallback={<PortalLoading />}>

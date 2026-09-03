@@ -614,7 +614,7 @@ export class SignedAutonomyEvaluationBackend {
       status: 202,
       loseResponse,
       value: (sequence) => {
-        const pageHash = `${sequence.toString(16).padStart(64, "0")}`;
+        const pageHash = sequence.toString(16).padStart(64, "0");
         const leafIdentities = [...(existing?.leafIdentities ?? []), ...identities];
         this.evidenceSets.set(parsed.output.evidenceSetId, {
           proposalKey: parsed.output.proposalKey,

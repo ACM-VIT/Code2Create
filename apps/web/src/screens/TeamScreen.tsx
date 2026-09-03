@@ -1,7 +1,7 @@
 import { api } from "@code2create/backend/api";
 import { useProductAnalytics } from "@code2create/client-observability";
 import { useMutation } from "convex/react";
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useState, type SubmitEvent, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { PortalScene } from "../components/portal/PortalScene";
 import { PortalButton, PortalTickButton } from "../components/portal/PortalButton";
@@ -47,7 +47,7 @@ export function TeamScreen({ header }: { header?: ReactNode }) {
   const joinPending = operations.hasPending("team-join");
   const operationPending = createPending || joinPending;
 
-  const create = async (event: FormEvent) => {
+  const create = async (event: SubmitEvent) => {
     event.preventDefault();
     setBusy(true);
     setError(null);
@@ -57,7 +57,7 @@ export function TeamScreen({ header }: { header?: ReactNode }) {
         (clientOperationId) => () => createTeam({ eventSlug, name, clientOperationId }),
       );
       capture("c2c_team_created", { c2c_membership_role: "lead" });
-      navigate("/", { replace: true, viewTransition: true });
+      void navigate("/", { replace: true, viewTransition: true });
     } catch (caught) {
       setError(readableError(caught));
     } finally {
@@ -65,7 +65,7 @@ export function TeamScreen({ header }: { header?: ReactNode }) {
     }
   };
 
-  const join = async (event: FormEvent) => {
+  const join = async (event: SubmitEvent) => {
     event.preventDefault();
     setBusy(true);
     setError(null);
@@ -75,7 +75,7 @@ export function TeamScreen({ header }: { header?: ReactNode }) {
         (clientOperationId) => () => joinTeam({ eventSlug, code, clientOperationId }),
       );
       capture("c2c_team_joined", { c2c_membership_role: "member" });
-      navigate("/", { replace: true, viewTransition: true });
+      void navigate("/", { replace: true, viewTransition: true });
     } catch (caught) {
       setError(readableError(caught));
     } finally {

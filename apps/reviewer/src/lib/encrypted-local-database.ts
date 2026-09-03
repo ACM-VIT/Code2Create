@@ -3,7 +3,7 @@ import * as SecureStore from "expo-secure-store";
 import * as SQLite from "expo-sqlite";
 import { z } from "zod";
 
-const cipherVersionSchema = z.object({ cipher_version: z.string().min(1) }).passthrough();
+const cipherVersionSchema = z.object({ cipher_version: z.string().min(1) }).loose();
 const databasePromises = new Map<string, Promise<SQLite.SQLiteDatabase>>();
 const databaseOperationTails = new Map<string, Promise<void>>();
 const resetPromises = new Map<string, Promise<void>>();
@@ -69,8 +69,7 @@ export function resetEncryptedLocalDatabase(eventSlug: string) {
   validateEventSlug(eventSlug);
   const current = resetPromises.get(eventSlug);
   if (current) return current;
-  let resetting: Promise<void>;
-  resetting = enqueueDatabaseOperation(eventSlug, () => performDatabaseReset(eventSlug)).finally(
+  const resetting = enqueueDatabaseOperation(eventSlug, () => performDatabaseReset(eventSlug)).finally(
     () => {
       if (resetPromises.get(eventSlug) === resetting) resetPromises.delete(eventSlug);
     },
@@ -108,7 +107,7 @@ function enqueueDatabaseOperation<T>(eventSlug: string, operation: () => Promise
 /** Detects wrong-key and corrupt-file errors through wrapped native causes. */
 export function unreadableStore(caught: unknown) {
   for (let error: unknown = caught, depth = 0; error && depth < 5; depth += 1) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = error instanceof Error ? error.message : "Unknown local database error";
     if (
       message.includes("file is not a database") ||
       message.includes("SQLITE_NOTADB") ||

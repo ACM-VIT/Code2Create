@@ -152,7 +152,11 @@ describe("GitHub request boundary", () => {
           new Promise<Response>((_resolve, reject) => {
             const signal = init?.signal;
             if (!signal) throw new Error("The GitHub request has no deadline.");
-            signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+            signal.addEventListener(
+              "abort",
+              () => reject(new Error("The provider request was aborted.", { cause: signal.reason })),
+              { once: true },
+            );
           }),
       ),
     );

@@ -62,6 +62,22 @@ describe("communications policy lifecycle", () => {
     ).toThrow("unsafe HTML");
   });
 
+  test("allows standard email document metadata", () => {
+    const startsAt = Date.UTC(2027, 7, 8, 3, 30);
+    const endsAt = startsAt + 48 * 60 * 60 * 1_000;
+    const input = policy(startsAt, endsAt, "metadata");
+    input.emailTemplates = input.emailTemplates.map((template) =>
+      template.templateKey === "accept"
+        ? {
+            ...template,
+            html: '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head><body>Welcome {{participant_name}}</body></html>',
+          }
+        : template,
+    );
+
+    expect(() => normalizeCommunicationsPolicy(input)).not.toThrow();
+  });
+
   test("allows one competing draft from the same observed state", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedFixture(backend, "draft-race");

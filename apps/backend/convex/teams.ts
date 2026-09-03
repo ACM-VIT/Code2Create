@@ -81,7 +81,6 @@ const teamView = v.object({
   canRespondToLeadershipTransfer: v.boolean(),
   canWriteProject: v.boolean(),
   canSubmitApplication: v.boolean(),
-  canRespondToInformationRequest: v.boolean(),
   canRespondToOffer: v.boolean(),
   pendingLeadershipTransfer: v.union(
     v.null(),
@@ -137,7 +136,6 @@ export const current = query({
       acceptLeadershipGrantIds,
       projectWriteGrantIds,
       applicationSubmitGrantIds,
-      informationResponseGrantIds,
       offerResponseGrantIds,
     ] = await Promise.all([
       loadPublishedParticipantPolicy(ctx, event),
@@ -190,13 +188,6 @@ export const current = query({
       matchingPermissionGrantIds(ctx, {
         eventId: event._id,
         eventAccessSubjectId: subject._id,
-        permissionKey: "application.information.respond",
-        scopeType: "team",
-        scopeId: team._id,
-      }),
-      matchingPermissionGrantIds(ctx, {
-        eventId: event._id,
-        eventAccessSubjectId: subject._id,
         permissionKey: "application.offer.respond",
         scopeType: "team",
         scopeId: team._id,
@@ -236,7 +227,6 @@ export const current = query({
       canRespondToLeadershipTransfer: acceptLeadershipGrantIds.length > 0,
       canWriteProject: projectWriteGrantIds.length > 0,
       canSubmitApplication: currentMember.role === "lead" && applicationSubmitGrantIds.length > 0,
-      canRespondToInformationRequest: informationResponseGrantIds.length > 0,
       canRespondToOffer: offerResponseGrantIds.length > 0,
       pendingLeadershipTransfer: pendingLeadershipTransfer
         ? {

@@ -50,8 +50,8 @@ export function AutonomyPolicyFields({
   return (
     <>
       <PolicySection
-        title="Operating mode"
-        description="Recommend lets it draft actions for an operator to approve."
+        title="What the agent is allowed to do"
+        description="Observe only means it watches and reports. Recommend also lets it draft actions for an organiser to approve."
       >
         <label className="intelligence-enable">
           <input
@@ -77,24 +77,24 @@ export function AutonomyPolicyFields({
       </PolicySection>
 
       <PolicySection
-        title="Signals and cadence"
-        description="A qualifying signal starts a check right away; the schedule runs on its own cadence."
+        title="When it checks"
+        description="A warning at one of these levels starts a check straight away. Otherwise it checks on the timer below."
       >
         <ChoiceSet
-          label="Signal level"
+          label="Warning levels that start a check"
           options={severityOptions}
           values={policy.triggerSeverities}
           onChange={(values) => onChange("triggerSeverities", values)}
         />
         <ChoiceSet
-          label="Event areas"
+          label="Parts of the event it watches"
           options={areaOptions}
           values={policy.triggerAreas}
           onChange={(values) => onChange("triggerAreas", values)}
         />
         <div className="intake-policy-number-grid">
           <NumberField
-            label="Scheduled check · minutes"
+            label="Check every · minutes"
             min={1}
             max={60}
             value={policy.scheduleIntervalMinutes}
@@ -102,7 +102,7 @@ export function AutonomyPolicyFields({
           />
         </div>
         <label className="field">
-          <span>Escalate at</span>
+          <span>Tell an organiser when a warning reaches</span>
           <select
             value={policy.escalationSeverity}
             onChange={(event) => {
@@ -119,8 +119,8 @@ export function AutonomyPolicyFields({
       </PolicySection>
 
       <PolicySection
-        title="Evidence tools"
-        description="Anything unticked stays unavailable to the agent."
+        title="What it can look at"
+        description="Anything left unticked stays out of reach."
       >
         <ChoiceSet
           label="Event information the agent may read"
@@ -134,11 +134,11 @@ export function AutonomyPolicyFields({
 
       {policy.mode === "recommend" ? (
         <PolicySection
-          title="Recommendation scope"
-          description="Actions the agent may draft for approval. The agent cannot execute them."
+          title="What it can suggest"
+          description="It can only draft these for approval. It never carries them out itself."
         >
           <ChoiceSet
-            label="Allowed proposal kinds"
+            label="Actions it may suggest"
             options={recommendationOptions}
             values={policy.allowedRecommendationKinds}
             onChange={(values) => onChange("allowedRecommendationKinds", values)}
@@ -146,17 +146,17 @@ export function AutonomyPolicyFields({
         </PolicySection>
       ) : null}
 
-      <PolicySection title="Authority boundary">
+      <PolicySection title="What it can never do">
         <p className="notice">
-          The agent may investigate as deeply as needed within the information above. It cannot
-          change access, identity, participant state, judging, scores, notifications, money, or
-          releases; a person confirms every such action.
+          The agent may dig as deep as it needs to in the information above, but it
+          cannot change access, identity, participant state, judging, scores, notifications,
+          money, or releases. A person confirms every one of those.
         </p>
       </PolicySection>
 
       <PolicySection
-        title="Accountable owner"
-        description="Responsible for the agent; their access is checked again on every run."
+        title="Who answers for the agent"
+        description="This person is responsible for it, and their own access is rechecked on every run."
       >
         <label className="field">
           <span>Find an event account</span>

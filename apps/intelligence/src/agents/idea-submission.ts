@@ -32,6 +32,7 @@ import {
   type IdeaIntelligenceProjection,
 } from "../lib/ideaProtocol.ts";
 import { deliverIdeaAnalysis, readIdeaProjection } from "../lib/ideaTransport.ts";
+
 export const ideaSubmissionAgentVersion = intelligenceAgentDefinition("idea-submission").version;
 
 const completedOutputSchema = v.strictObject({

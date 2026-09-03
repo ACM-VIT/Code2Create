@@ -66,6 +66,8 @@ interface BlossomProps {
   part?: "head" | "stem";
 }
 
+// The type parameter carries the known SVG subtype through class-selector queries.
+// oxlint-disable-next-line typescript/no-unnecessary-type-parameters
 function requiredElement<T extends Element>(root: ParentNode, selector: string): T {
   const element = root.querySelector<T>(selector);
   if (!element) throw new Error(`The botanical illustration is missing ${selector}.`);
@@ -74,7 +76,9 @@ function requiredElement<T extends Element>(root: ParentNode, selector: string):
 
 function requiredData(element: HTMLElement | SVGElement, key: string): string {
   const value = element.dataset[key];
-  if (!value) throw new Error(`The botanical illustration is missing data-${key}.`);
+  if (value === undefined || value.length === 0) {
+    throw new Error(`The botanical illustration is missing data-${key}.`);
+  }
   return value;
 }
 
@@ -105,7 +109,7 @@ const openPetals = [
   "M 0 0 C -4.5 -3.8 -9.9 -8.5 -10.4 -14.7 C -10.9 -20.5 -7.2 -24.3 -3.4 -24 C -1.1 -23.8 -0.2 -20.3 0.3 -15.6 C 1.6 -20.3 3.4 -23.8 5.7 -23.5 C 10.7 -22.9 13.7 -18.1 12.1 -12.8 C 10.4 -7 5.1 -1.9 0 0 Z",
 ];
 
-const bloomProfiles: Record<BloomView, BloomProfile> = {
+const bloomProfiles = {
   front: {
     pitch: 9,
     yaw: -5,
@@ -191,7 +195,7 @@ const bloomProfiles: Record<BloomView, BloomProfile> = {
     ],
     tones: ["front", "front", "mid", "back", "back"],
   },
-};
+} satisfies Record<BloomView, BloomProfile>;
 
 const blossoms: BlossomDefinition[] = [
   {

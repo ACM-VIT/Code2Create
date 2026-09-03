@@ -34,7 +34,6 @@ export const permissionCatalog = {
   },
   "application.decide": { scopes: ["application"], eventWide: true },
   "application.submit": { scopes: ["team"], eventWide: false },
-  "application.information.respond": { scopes: ["team"], eventWide: false },
   "application.offer.manage": { scopes: ["application"], eventWide: true },
   "application.offer.respond": { scopes: ["team"], eventWide: false },
   "communications.delivery.self.read": { scopes: ["self"], eventWide: false },

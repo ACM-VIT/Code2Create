@@ -1,7 +1,7 @@
 import { api } from "@code2create/backend/api";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import { useAction, useMutation, useQuery } from "convex/react";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState, type SubmitEvent } from "react";
 
 import { eventSlug } from "../lib/config";
 import { readableError } from "../lib/errors";
@@ -103,7 +103,7 @@ function IncidentArea({ data }: { data: IncidentData }) {
   const createAttempt = useMutationAttempt<FunctionReturnType<typeof api.incidents.create>>();
   const createPending = createAttempt.hasPending("attendance-incident-create");
 
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: SubmitEvent) => {
     event.preventDefault();
     setBusy(true);
     setError(null);
@@ -223,7 +223,7 @@ function IncidentRow({ incident }: { incident: Incident }) {
   const resolutionPending = resolveAttempt.hasPending("resolve-incident");
   const operationPending = approvalPending || resolutionPending;
 
-  const submitApproval = async (event: FormEvent) => {
+  const submitApproval = async (event: SubmitEvent) => {
     event.preventDefault();
     setBusy("approve");
     setError(null);
@@ -246,7 +246,7 @@ function IncidentRow({ incident }: { incident: Incident }) {
     }
   };
 
-  const submitResolution = async (event: FormEvent) => {
+  const submitResolution = async (event: SubmitEvent) => {
     event.preventDefault();
     setBusy("resolve");
     setError(null);
@@ -375,7 +375,7 @@ function DraftSheetForm({
     setStationId(value);
   };
 
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: SubmitEvent) => {
     event.preventDefault();
     const incident = approvedIncidents.find((candidate) => candidate.id === incidentId);
     const station = stations.find((candidate) => candidate.id === stationId);
@@ -684,7 +684,7 @@ function SourceUpload({ sheet }: { sheet: ManualSheet }) {
     useMutationAttempt<FunctionReturnType<typeof api.attendanceManualSheetActions.uploadSource>>();
   const uploadPending = uploadAttempt.hasPending("manual-sheet-source-upload");
 
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: SubmitEvent) => {
     event.preventDefault();
     if (!file) return;
     setBusy(true);
@@ -812,7 +812,7 @@ function SheetVerification({ session, sheet }: { session: AttendanceSession; she
     useMutationAttempt<FunctionReturnType<typeof api.attendanceManualSheets.verify>>();
   const verifyPending = verifyAttempt.hasPending("manual-sheet-verify");
 
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: SubmitEvent) => {
     event.preventDefault();
     setBusy(true);
     setError(null);
@@ -927,7 +927,7 @@ function DraftCancellation({ sheet }: { sheet: ManualSheet }) {
     useMutationAttempt<FunctionReturnType<typeof api.attendanceManualSheets.cancelDraft>>();
   const cancelPending = cancelAttempt.hasPending("manual-sheet-cancel");
 
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: SubmitEvent) => {
     event.preventDefault();
     setBusy(true);
     setError(null);

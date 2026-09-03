@@ -54,12 +54,12 @@ export default function Branches() {
     <div className="branches" aria-hidden="true">
       {boughs.map((bough) => (
         <div
-          className={`bough bough--${bough.side}${bough.ghost ? " bough--ghost" : ""}`}
+          className={`bough bough--${bough.side}${bough.ghost === true ? " bough--ghost" : ""}`}
           key={bough.side}
           data-bough-side={bough.side}
           style={{ left: `${bough.left}%`, top: `${bough.top}%`, width: `${bough.width}%` }}
         >
-          {!bough.ghost && <img src="/assets/img/branch-plate.png" alt="" />}
+          {bough.ghost !== true && <img src="/assets/img/branch-plate.png" alt="" />}
         </div>
       ))}
     </div>

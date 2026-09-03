@@ -1,7 +1,7 @@
 import { api } from "@code2create/backend/api";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import { useAction, useMutation, useQuery } from "convex/react";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState, type SubmitEvent } from "react";
 
 import { eventSlug } from "../lib/config";
 import { readableError } from "../lib/errors";
@@ -97,7 +97,7 @@ export default function AttendanceExport({ session }: { session: AttendanceSessi
     );
   };
 
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: SubmitEvent) => {
     event.preventDefault();
     setBusy(true);
     setError(null);

@@ -590,7 +590,7 @@
 }
 
 /* ------------------------------------------------------------------ *
- * Sponsors — two scroll-scrubbed firecracker rockets rise from behind the
+ * Sponsors — seven scroll-scrubbed firecracker rockets rise from behind the
  * hills. Their own burst stars form the names while the logos settle above.
  * ------------------------------------------------------------------ */
 
@@ -634,11 +634,20 @@
    finishes pulling the burst stars into their lettering. */
 .sponsor {
   position: absolute;
-  transform: translate(-50%, -50%);
+  display: block;
+  translate: -50% -50%;
   text-align: center;
+  text-decoration: none;
   opacity: 0;
   visibility: hidden;
+  pointer-events: auto;
   will-change: transform, opacity;
+}
+
+.sponsor:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.95);
+  outline-offset: 8px;
+  border-radius: 4px;
 }
 
 .sponsor__logo {
@@ -646,14 +655,39 @@
   display: block;
   height: auto;
   object-fit: contain;
+  transition: opacity 180ms ease;
+}
+
+.sponsor:hover .sponsor__logo {
+  opacity: 0.78;
 }
 
 .sponsor__logo--elevenlabs {
-  width: clamp(220px, 23vw, 340px);
+  width: clamp(210px, 21vw, 310px);
 }
 
 .sponsor__logo--sglang {
-  width: clamp(112px, 10.5vw, 148px);
+  width: clamp(126px, 12vw, 172px);
+}
+
+.sponsor__logo--tin {
+  width: clamp(72px, 7vw, 100px);
+}
+
+.sponsor__logo--protoflow {
+  width: clamp(54px, 5vw, 72px);
+}
+
+.sponsor__logo--codecrafters {
+  width: clamp(58px, 5.2vw, 76px);
+}
+
+.sponsor__logo--n8n {
+  width: clamp(96px, 9vw, 132px);
+}
+
+.sponsor__logo--devswarm {
+  width: clamp(112px, 11vw, 158px);
 }
 
 /* ------------------------------------------------------------------ *
@@ -1158,16 +1192,36 @@
   /* The bursts cascade down the middle of a phone frame, so the heading
      drops beneath the lowest of them. */
   .sponsors__title {
-    top: 76%;
+    top: 80%;
     font-size: clamp(18px, 5.4vw, 26px);
   }
 
   .sponsor__logo--elevenlabs {
-    width: clamp(190px, 70vw, 275px);
+    width: clamp(176px, 58vw, 225px);
   }
 
   .sponsor__logo--sglang {
-    width: clamp(106px, 32vw, 136px);
+    width: clamp(102px, 29vw, 122px);
+  }
+
+  .sponsor__logo--tin {
+    width: clamp(58px, 18vw, 76px);
+  }
+
+  .sponsor__logo--protoflow {
+    width: clamp(46px, 14vw, 60px);
+  }
+
+  .sponsor__logo--codecrafters {
+    width: clamp(48px, 15vw, 64px);
+  }
+
+  .sponsor__logo--n8n {
+    width: clamp(86px, 27vw, 112px);
+  }
+
+  .sponsor__logo--devswarm {
+    width: clamp(98px, 30vw, 124px);
   }
 
   /* The design floats the big lamps and their captions over the hills. */

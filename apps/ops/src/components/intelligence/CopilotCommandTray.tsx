@@ -79,7 +79,7 @@ function CopilotCommandCard({
   const rejectCommand = async () => {
     const note = reason.trim();
     if (note.length < 5) {
-      setError("Add at least five characters so the rejection is useful to the agent.");
+      setError("Write at least a few words so the agent knows why.");
       return;
     }
     setBusy(true);

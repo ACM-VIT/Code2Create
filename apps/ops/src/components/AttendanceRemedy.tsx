@@ -2,7 +2,7 @@ import { api } from "@code2create/backend/api";
 import { attendanceHistoryEventLabel, attendanceSessionResultLabels } from "@code2create/domain";
 import type { FunctionReturnType } from "convex/server";
 import { useMutation, useQuery } from "convex/react";
-import { useState, type FormEvent } from "react";
+import { useState, type SubmitEvent } from "react";
 
 import { eventSlug } from "../lib/config";
 import { readableError } from "../lib/errors";
@@ -135,7 +135,7 @@ function RemedyReviewBody({
     setDecisionOpen(true);
   };
 
-  const submitOpen = async (event: FormEvent) => {
+  const submitOpen = async (event: SubmitEvent) => {
     event.preventDefault();
     setBusy(true);
     setError(null);
@@ -160,7 +160,7 @@ function RemedyReviewBody({
     }
   };
 
-  const submitDecision = async (event: FormEvent) => {
+  const submitDecision = async (event: SubmitEvent) => {
     event.preventDefault();
     if (!decisionPending && !openCase) return;
     setBusy(true);

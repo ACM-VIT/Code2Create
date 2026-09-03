@@ -1543,7 +1543,7 @@ export const preview = action({
     try {
       const apiKey = process.env.OPENAI_API_KEY?.trim();
       if (!apiKey) {
-        return ctx.runMutation(internal.novelty.finishPreview, {
+        return await ctx.runMutation(internal.novelty.finishPreview, {
           requestId: begun.requestId,
           inputFingerprint: begun.inputFingerprint,
           state: "unavailable",
@@ -1595,7 +1595,7 @@ export const preview = action({
         mode: "embedding",
       });
       if (!evaluation) {
-        return ctx.runMutation(internal.novelty.finishPreview, {
+        return await ctx.runMutation(internal.novelty.finishPreview, {
           requestId: begun.requestId,
           inputFingerprint: begun.inputFingerprint,
           state: "unavailable",
@@ -1606,7 +1606,7 @@ export const preview = action({
           failureCategory: "corpus_index_empty",
         });
       }
-      return ctx.runMutation(internal.novelty.finishPreview, {
+      return await ctx.runMutation(internal.novelty.finishPreview, {
         requestId: begun.requestId,
         inputFingerprint: begun.inputFingerprint,
         state: "succeeded",

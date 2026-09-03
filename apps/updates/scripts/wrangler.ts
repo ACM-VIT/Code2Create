@@ -12,19 +12,21 @@ if (args.length === 0) throw new Error("Pass a Wrangler command.");
 const token = await cloudflareToken();
 await run("pnpm", ["exec", "wrangler", ...args], {
   ...process.env,
-  ...(token ? { CLOUDFLARE_API_TOKEN: token } : {}),
+  ...(token !== undefined && token.length > 0 ? { CLOUDFLARE_API_TOKEN: token } : {}),
 });
 
 async function cloudflareToken() {
   const explicit = process.env.CLOUDFLARE_API_TOKEN?.trim();
-  if (explicit) return explicit;
+  if (explicit !== undefined && explicit.length > 0) return explicit;
 
   const configurationPath = join(homedir(), ".cf/config.toml");
   if (!existsSync(configurationPath)) return undefined;
   await run("cf", ["auth", "whoami"], process.env, true);
   const configuration = await readFile(configurationPath, "utf8");
-  const value = configuration.match(/^access_token\s*=\s*(.+)$/mu)?.[1];
-  if (!value) throw new Error("The authenticated cf CLI has no access token.");
+  const value = /^access_token\s*=\s*(.+)$/mu.exec(configuration)?.[1];
+  if (value === undefined || value.length === 0) {
+    throw new Error("The authenticated cf CLI has no access token.");
+  }
   return z.string().min(32).parse(JSON.parse(value));
 }
 

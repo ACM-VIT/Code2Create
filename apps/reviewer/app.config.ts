@@ -44,7 +44,7 @@ if (process.env.C2C_NATIVE_BUILD === "true") {
   }
 }
 
-export default ({ config }: ConfigContext): ExpoConfig => ({
+const reviewerAppConfig = ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: config.name ?? "Code2Create Ops",
   slug: config.slug ?? "code2create-ops",
@@ -87,6 +87,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       }
     : {}),
 });
+
+export default reviewerAppConfig;
 
 function readUpdatesUrl(environment: "development" | "staging" | "production" | null) {
   const value = readEnvironmentValue("C2C_UPDATES_URL");

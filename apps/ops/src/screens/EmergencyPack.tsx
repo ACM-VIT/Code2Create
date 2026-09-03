@@ -11,8 +11,8 @@ import { readableError } from "../lib/errors";
 import { useMutationAttempt } from "../lib/operations";
 import { useEstimatedServerNow } from "../lib/useEstimatedServerNow";
 
-type EmergencyPack = FunctionReturnType<typeof api.emergencyPacks.list>["packs"][number];
-type EmergencyPackId = EmergencyPack["id"];
+type EmergencyPackRecord = FunctionReturnType<typeof api.emergencyPacks.list>["packs"][number];
+type EmergencyPackId = EmergencyPackRecord["id"];
 
 const packOrder: Record<EmergencyPackStatus, number> = {
   ready: 0,
@@ -341,7 +341,7 @@ function PackLead({
   beingPrepared: number;
   canPrepare: boolean;
   canRead: boolean;
-  usable: EmergencyPack[];
+  usable: EmergencyPackRecord[];
 }) {
   const first = usable[0];
   if (!canRead) {
@@ -399,7 +399,7 @@ function validCount(value: number) {
   return Number.isSafeInteger(value) && value >= 0 && value <= 20;
 }
 
-function currentStatus(pack: EmergencyPack, now: number): EmergencyPackStatus {
+function currentStatus(pack: EmergencyPackRecord, now: number): EmergencyPackStatus {
   return pack.expiresAt <= now ? "expired" : pack.status;
 }
 

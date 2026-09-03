@@ -2,7 +2,6 @@ import { api } from "@code2create/backend/api";
 import { useProductAnalytics } from "@code2create/client-observability";
 import {
   admissionAiDispositionLabels,
-  admissionInformationRequestStateLabels,
   admissionOfferStateLabels,
   admissionRecommendationStateLabels,
   admissionReviewAssignmentStateLabels,
@@ -17,7 +16,7 @@ import {
 import { TZDateMini } from "@date-fns/tz";
 import type { FunctionReturnType } from "convex/server";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useState, type SubmitEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import {
@@ -181,14 +180,6 @@ export function AdmissionDetail() {
                 <p>{detail.project.additionalInformation}</p>
               </div>
             ) : null}
-            {detail.project.informationResponses.flatMap((response) =>
-              response.answers.map((answer) => (
-                <div className="answer" key={`${response.requestId}:${answer.questionKey}`}>
-                  <span>{answer.question}</span>
-                  <p>{answer.answer}</p>
-                </div>
-              )),
-            )}
           </section>
 
           {reviewOpen ? (
@@ -229,9 +220,6 @@ export function AdmissionDetail() {
               <AdmissionAnalysisRetry detail={detail} rerun={detail.aiRecommendationRerun} />
             </section>
           ) : null}
-          {detail.currentInformationRequest?.state === "open" ? (
-            <InformationRequest detail={detail} />
-          ) : null}
           <HumanReviews detail={detail} reviewOpen={reviewOpen} />
         </div>
         {hasActionPanel ? (
@@ -262,7 +250,7 @@ function OfferControl({ detail }: { detail: AdmissionDetailData }) {
   const [busy, setBusy] = useState<"send" | "revoke" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const submitOffer = async (event: FormEvent) => {
+  const submitOffer = async (event: SubmitEvent) => {
     event.preventDefault();
     setBusy("send");
     setError(null);
@@ -286,7 +274,7 @@ function OfferControl({ detail }: { detail: AdmissionDetailData }) {
     }
   };
 
-  const revoke = async (event: FormEvent) => {
+  const revoke = async (event: SubmitEvent) => {
     event.preventDefault();
     const offer = detail.currentOffer;
     if (!operations.hasPending("revoke") && (!offer || !reason.trim())) return;
@@ -445,9 +433,6 @@ function AiRecommendation({
       {recommendation.concerns.length ? (
         <TextList label="Concerns" values={recommendation.concerns} />
       ) : null}
-      {recommendation.proposedQuestions.length ? (
-        <TextList label="Questions for humans" values={recommendation.proposedQuestions} />
-      ) : null}
       {recommendation.limitations.length ? (
         <TextList label="Limitations" values={recommendation.limitations} />
       ) : null}
@@ -477,7 +462,7 @@ function AdmissionAnalysisRetry({
   const [error, setError] = useState<string | null>(null);
   const rerunPending = operations.hasPending("rerun-analysis");
 
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: SubmitEvent) => {
     event.preventDefault();
     if (!rerunPending && reason.trim().length < 8) return;
     setBusy(true);
@@ -576,32 +561,6 @@ function HumanReviews({
   );
 }
 
-function InformationRequest({ detail }: { detail: AdmissionDetailData }) {
-  const request = detail.currentInformationRequest;
-  if (!request) return null;
-  return (
-    <section className="detail-section">
-      <div className="section-heading">
-        <h2>Requested information</h2>
-        <span className="state-label">{admissionInformationRequestStateLabels[request.state]}</span>
-      </div>
-      <dl className="criteria-list">
-        {request.questions.map((question) => {
-          const answer = request.answers?.find(
-            (candidate) => candidate.questionKey === question.questionKey,
-          );
-          return (
-            <div key={question.questionKey}>
-              <dt>{question.question}</dt>
-              <dd>{answer?.answer ?? "Waiting for the locked team lead."}</dd>
-            </div>
-          );
-        })}
-      </dl>
-    </section>
-  );
-}
-
 function ReviewAssignmentControl({ detail }: { detail: AdmissionDetailData }) {
   const assignReview = useMutation(api.admissions.assignReview);
   const cancelAssignment = useMutation(api.admissions.cancelReviewAssignment);
@@ -614,7 +573,7 @@ function ReviewAssignmentControl({ detail }: { detail: AdmissionDetailData }) {
   const assignments = detail.reviewAssignments ?? [];
   const cancelTarget = assignments.find((assignment) => assignment.id === cancelTargetId);
 
-  const assign = async (event: FormEvent) => {
+  const assign = async (event: SubmitEvent) => {
     event.preventDefault();
     const normalizedEmail = reviewerEmail.trim().toLowerCase();
     if (!operations.hasPending("assign") && !normalizedEmail) return;
@@ -639,7 +598,7 @@ function ReviewAssignmentControl({ detail }: { detail: AdmissionDetailData }) {
     }
   };
 
-  const cancel = async (event: FormEvent) => {
+  const cancel = async (event: SubmitEvent) => {
     event.preventDefault();
     if (!operations.hasPending("cancel") && (!cancelTarget || !cancelReason.trim())) return;
     setBusy("cancel");
@@ -853,7 +812,7 @@ function ReviewForm({ detail }: { detail: AdmissionDetailData }) {
     );
   };
 
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: SubmitEvent) => {
     event.preventDefault();
     setBusy(true);
     setError(null);
@@ -1046,7 +1005,6 @@ function DecisionForm({ detail }: { detail: AdmissionDetailData }) {
       ? (detail.application.aiDisposition ?? null)
       : null,
   );
-  const [informationQuestions, setInformationQuestions] = useState([""]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1062,7 +1020,7 @@ function DecisionForm({ detail }: { detail: AdmissionDetailData }) {
         : (availableAiDispositions[0] ?? null);
   const recordPending = operations.hasPending("record");
 
-  const record = async (event: FormEvent) => {
+  const record = async (event: SubmitEvent) => {
     event.preventDefault();
     setBusy(true);
     setError(null);
@@ -1078,7 +1036,6 @@ function DecisionForm({ detail }: { detail: AdmissionDetailData }) {
             expectedApplicationVersion: detail.application.version,
             decision,
             reasonCode: selectedReason,
-            informationQuestions: decision === "needs_information" ? [...informationQuestions] : [],
             aiDisposition: selectedAiDisposition,
             clientOperationId,
           };
@@ -1105,7 +1062,7 @@ function DecisionForm({ detail }: { detail: AdmissionDetailData }) {
       </h2>
       <p className="muted">
         Accept, waitlist, and decline stay internal until a Supreme reviews and releases all results
-        together. A request for more information is sent to the team immediately.
+        together.
       </p>
       <form className="command-form" onSubmit={record}>
         <fieldset disabled={recordPending || busy} style={{ display: "contents" }}>
@@ -1143,51 +1100,6 @@ function DecisionForm({ detail }: { detail: AdmissionDetailData }) {
               ))}
             </select>
           </Field>
-          {decision === "needs_information" ? (
-            <div className="field">
-              <span>Questions for the team</span>
-              <small>
-                This action is immediate. The team lead will see these questions and receive the
-                configured email.
-              </small>
-              {informationQuestions.map((question, index) => (
-                <textarea
-                  key={`question_${index + 1}`}
-                  required
-                  minLength={8}
-                  maxLength={240}
-                  value={question}
-                  aria-label={`Question ${index + 1}`}
-                  onChange={(event) =>
-                    setInformationQuestions((current) =>
-                      current.map((value, currentIndex) =>
-                        currentIndex === index ? event.currentTarget.value : value,
-                      ),
-                    )
-                  }
-                />
-              ))}
-              <div className="button-row">
-                {informationQuestions.length === 1 ? (
-                  <button
-                    className="text-button"
-                    type="button"
-                    onClick={() => setInformationQuestions((current) => [...current, ""])}
-                  >
-                    Add second question
-                  </button>
-                ) : (
-                  <button
-                    className="text-button"
-                    type="button"
-                    onClick={() => setInformationQuestions((current) => current.slice(0, 1))}
-                  >
-                    Remove second question
-                  </button>
-                )}
-              </div>
-            </div>
-          ) : null}
           {selectedAiDisposition ? (
             <Field label="How you used the AI recommendation" hint="Kept on record.">
               <select
@@ -1221,9 +1133,7 @@ function DecisionForm({ detail }: { detail: AdmissionDetailData }) {
             (!recordPending &&
               (decision === null ||
                 !selectedReason ||
-                selectedAiDisposition === null ||
-                (decision === "needs_information" &&
-                  informationQuestions.some((question) => question.trim().length < 8))))
+                selectedAiDisposition === null))
           }
         >
           {busy
@@ -1232,9 +1142,7 @@ function DecisionForm({ detail }: { detail: AdmissionDetailData }) {
               ? "Confirm earlier decision"
               : decision === null
                 ? "Choose a decision"
-                : decision === "needs_information"
-                  ? "Send questions now"
-                  : `Record ${applicationDecisionLabels[decision].toLowerCase()}`}
+                : `Record ${applicationDecisionLabels[decision].toLowerCase()}`}
         </button>
       </form>
     </section>
@@ -1273,7 +1181,7 @@ function TextList({ label, values }: { label: string; values: string[] }) {
 }
 
 function canAcceptAdmissionReview(state: string) {
-  return state === "submitted" || state === "under_review" || state === "needs_information";
+  return state === "submitted" || state === "under_review";
 }
 
 function nextStep(
@@ -1307,13 +1215,6 @@ function nextStep(
       title: "Ready for a decision",
       detail: `All ${minimumHumanReviews} required reviews are in.`,
       ...(permissions.canDecide ? {} : { blocker: "You do not have access to record a decision." }),
-    };
-  }
-  if (state === "needs_information") {
-    const asked = detail.currentInformationRequest?.questions.length ?? 0;
-    return {
-      title: "Waiting for the team",
-      detail: `The team was asked ${asked === 1 ? "a question" : `${asked} questions`}. Review continues once it answers.`,
     };
   }
   if (state === "accepted") {
@@ -1414,7 +1315,6 @@ function offerStatusLine(
 
 function sourceName(value: string) {
   if (value === "initial_idea") return "initial idea";
-  if (value.startsWith("requested_information_")) return "requested information";
   return "follow-up answer";
 }
 

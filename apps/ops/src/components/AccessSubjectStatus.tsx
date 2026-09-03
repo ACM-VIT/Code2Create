@@ -1,7 +1,7 @@
 import { api } from "@code2create/backend/api";
 import type { FunctionReturnType } from "convex/server";
 import { useMutation } from "convex/react";
-import { useState, type FormEvent } from "react";
+import { useState, type SubmitEvent } from "react";
 
 import { AccessManagementDisclosure } from "./AccessManagementDisclosure";
 import { eventSlug } from "../lib/config";
@@ -35,7 +35,7 @@ export function AccessSubjectStatus({
   const actionLabel = isSuspending ? "Suspend account" : "Reactivate account";
   const busyLabel = isSuspending ? "Suspending…" : "Reactivating…";
 
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: SubmitEvent) => {
     event.preventDefault();
     setBusy(true);
     setError(null);

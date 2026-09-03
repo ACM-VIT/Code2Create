@@ -15,6 +15,8 @@ import { useReducedMotion } from "../components/dashboard/useReducedMotion";
 import { PortalScene } from "../components/portal/PortalScene";
 import { TeamCluster, type ClusterMember, type ClusterTeam } from "../components/portal/TeamCluster";
 
+type DashboardGridStyle = CSSProperties & Record<`--dash-${string}`, string>;
+
 /**
  * The dashboard bento: the mockup's seven slots, filled by whichever tiles
  * matter most right now. Every tile answers a tap in place; only music takes
@@ -59,7 +61,7 @@ export function DashboardScreen({
   });
 
   const templates = gridTemplates(focus);
-  const gridStyle = {
+  const gridStyle: DashboardGridStyle = {
     "--dash-cols": templates.base.columns,
     "--dash-rows": templates.base.rows,
     "--dash-areas": areasValue(templates.base),
@@ -69,7 +71,7 @@ export function DashboardScreen({
     "--dash-cols-lg": templates.lg.columns,
     "--dash-rows-lg": templates.lg.rows,
     "--dash-areas-lg": areasValue(templates.lg),
-  } as CSSProperties;
+  };
 
   return (
     <PortalScene

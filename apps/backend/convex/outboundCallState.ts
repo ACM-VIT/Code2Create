@@ -1,4 +1,4 @@
-import { type OutboundCallEventType } from "@code2create/domain";
+import type { OutboundCallEventType } from "@code2create/domain";
 import { v } from "convex/values";
 
 import type { Doc } from "./_generated/dataModel";

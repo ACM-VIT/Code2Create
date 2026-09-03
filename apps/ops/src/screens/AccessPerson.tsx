@@ -2,7 +2,7 @@ import { api } from "@code2create/backend/api";
 import { eventRoleLabels } from "@code2create/domain";
 import type { FunctionReturnType } from "convex/server";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useState, type SubmitEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { AccessRoleLabel } from "../components/AccessRoleLabel";
@@ -548,7 +548,7 @@ function GrantPanel({
     (!needsResource || options.results.some((option) => option.id === scopeId)) &&
     (ceiling === undefined || validUntil.length > 0);
 
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: SubmitEvent) => {
     event.preventDefault();
     if (!grantPending && !ready) return;
     setBusy(true);
@@ -724,7 +724,7 @@ function RemovePanel({
   const target = removable.find((grant) => grant.id === targetId);
   const revokePending = operations.hasPending("permission-revoke");
 
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: SubmitEvent) => {
     event.preventDefault();
     if (!revokePending && (!target || reason.trim().length < 5)) return;
     setBusy(true);
@@ -853,7 +853,7 @@ function ScopedAuthorityControl({ detail }: { detail: AccessDetail }) {
     (scopeType === "event" || options.results.some((option) => option.id === scopeId)) &&
     (targetKind === "any_event_person" || targetEmail.trim().length > 0);
 
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: SubmitEvent) => {
     event.preventDefault();
     if (!delegationPending && !ready) return;
     setBusy(true);

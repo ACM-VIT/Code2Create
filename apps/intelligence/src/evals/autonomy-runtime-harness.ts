@@ -520,7 +520,7 @@ export class AutonomyProductionRuntimeEvaluation {
 
   private restoreBindings() {
     for (const [name, value] of this.previousBindings) {
-      if (value === undefined) delete process.env[name];
+    if (value === undefined) Reflect.deleteProperty(process.env, name);
       else process.env[name] = value;
     }
     this.previousBindings.clear();

@@ -1,7 +1,7 @@
 import { api } from "@code2create/backend/api";
 import type { FunctionReturnType } from "convex/server";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
-import { type FormEvent, useDeferredValue, useMemo, useState } from "react";
+import { type SubmitEvent, useDeferredValue, useMemo, useState } from "react";
 
 import {
   ConfigurationTabs,
@@ -146,7 +146,7 @@ export function IntelligencePolicyConfiguration({ tabs }: { tabs: ConfigurationT
     });
   };
 
-  const saveDraft = (event: FormEvent) => {
+  const saveDraft = (event: SubmitEvent) => {
     event.preventDefault();
     void operations.run(
       "autonomy-policy-draft",
@@ -241,7 +241,7 @@ export function IntelligencePolicyConfiguration({ tabs }: { tabs: ConfigurationT
         <PendingOperationRecovery
           action={pendingOperation.action}
           busy={busy}
-          onConfirm={() => void confirmPendingOperation()}
+          onConfirm={() => confirmPendingOperation()}
           title={pendingOperation.title}
         />
       ) : null}
@@ -279,7 +279,7 @@ export function IntelligencePolicyConfiguration({ tabs }: { tabs: ConfigurationT
                   className="primary"
                   disabled={busy || disableReason.trim().length < 5}
                   type="button"
-                  onClick={() => void disableAutonomy()}
+                  onClick={() => disableAutonomy()}
                 >
                   {busy ? "Stopping…" : disablePending ? "Confirm earlier stop" : "Stop the agent"}
                 </button>
@@ -352,7 +352,7 @@ export function IntelligencePolicyConfiguration({ tabs }: { tabs: ConfigurationT
               className="primary"
               disabled={busy || publishReason.trim().length < 5}
               type="button"
-              onClick={() => void publishDraft()}
+              onClick={() => publishDraft()}
             >
               {busy
                 ? "Publishing…"

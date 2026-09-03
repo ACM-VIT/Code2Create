@@ -899,6 +899,36 @@ html:has(.intelligence-workspace) {
   line-height: 1.55;
   tab-size: 2;
 }
+.email-template-package {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-card);
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+}
+.email-template-package:has(input:focus-visible) {
+  border-color: var(--accent);
+  outline: 2px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  outline-offset: 2px;
+}
+.email-template-package-copy {
+  display: grid;
+  gap: 5px;
+}
+.email-template-package-copy :is(span, strong, p),
+.email-template-package-rules {
+  margin: 0;
+}
+.email-template-package-copy strong {
+  font-size: 0.9rem;
+}
+.email-template-package-copy p,
+.email-template-package-rules {
+  max-width: 620px;
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
 .email-bundle-controls {
   display: flex;
   flex-wrap: wrap;
@@ -9092,6 +9122,16 @@ textarea:focus {
 }
 .admissions-toolbar-actions .secondary {
   min-height: 28px;
+}
+.admissions-search {
+  flex: 1 1 220px;
+}
+.admissions-search input {
+  width: 100%;
+}
+.admissions-search-limit {
+  margin: 8px 0 0;
+  font-size: 0.75rem;
 }
 .admissions-stages {
   margin: 0;

@@ -13,12 +13,13 @@ import { normalizedText } from "./strings";
 
 export const operationsAutonomyLeaseDurationMs = 90_000;
 const operationIdPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,199}$/u;
+type AutonomyOperationFingerprintSource = object;
 
 export function autonomyBoundaryError(code: string, message: string): never {
   throw new ConvexError({ code, message });
 }
 
-export function autonomyOperationFingerprint(value: object) {
+export function autonomyOperationFingerprint(value: AutonomyOperationFingerprintSource) {
   return operationFingerprint([JSON.stringify(value)]);
 }
 

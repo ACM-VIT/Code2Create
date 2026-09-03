@@ -1,7 +1,7 @@
 import { api } from "@code2create/backend/api";
 import type { FunctionReturnType } from "convex/server";
 import { useAction, useMutation, useQuery } from "convex/react";
-import { useState, type ChangeEvent, type FormEvent } from "react";
+import { useState, type ChangeEvent, type SubmitEvent } from "react";
 
 import {
   ConfigurationTabs,
@@ -105,7 +105,7 @@ export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibili
     setPolicy((current) => (current ? { ...current, [key]: value } : current));
   };
 
-  const saveDraft = (event: FormEvent) => {
+  const saveDraft = (event: SubmitEvent) => {
     event.preventDefault();
     void operations.run(
       "novelty-corpus-draft",
@@ -172,7 +172,7 @@ export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibili
     void file
       .text()
       .then((contents) => setEntriesText(contents))
-      .catch((caught) => setError(readableError(caught)));
+      .catch((caught: unknown) => setError(readableError(caught)));
   };
 
   const replacePreviewEntries = (entries: CorpusEntry[]) => {
@@ -246,7 +246,7 @@ export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibili
         <PendingOperationRecovery
           action={pendingOperation.action}
           busy={busy}
-          onConfirm={() => void confirmPendingOperation()}
+          onConfirm={() => confirmPendingOperation()}
           title={pendingOperation.title}
         />
       ) : null}
@@ -597,7 +597,7 @@ function NumberField({
 
 function parseCorpusEntries(value: string): CorpusEntry[] {
   const parsed: unknown = JSON.parse(value);
-  if (!Array.isArray(parsed)) throw new Error("The corpus file must contain one JSON array.");
+  if (!Array.isArray(parsed)) throw new Error("The past-projects file must be a single JSON array.");
   return parsed.map((entry, index) => {
     if (!isRecord(entry)) throw new Error(`Project ${index + 1} must be one JSON object.`);
     return {

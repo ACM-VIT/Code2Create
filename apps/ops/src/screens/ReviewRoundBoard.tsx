@@ -12,7 +12,7 @@ import {
 } from "@code2create/domain";
 import type { FunctionReturnType } from "convex/server";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
-import { useState, type FormEvent } from "react";
+import { useState, type SubmitEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { Icon } from "../components/Icon";
@@ -499,7 +499,7 @@ function RoundPauseControl({
     }
   };
 
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: SubmitEvent) => {
     event.preventDefault();
     if (busy || reason.trim().length < 5) return;
     setBusy(true);

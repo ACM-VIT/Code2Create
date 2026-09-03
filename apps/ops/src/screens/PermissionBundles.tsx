@@ -2,7 +2,7 @@ import { api } from "@code2create/backend/api";
 import { eventRoleLabels } from "@code2create/domain";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import { useMutation, useQuery } from "convex/react";
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useState, type SubmitEvent } from "react";
 import { Link } from "react-router-dom";
 
 import { PermissionBundleMigration } from "../components/PermissionBundleMigration";
@@ -222,7 +222,7 @@ function BundleEditor({
     [detail?.published?.entries, entries],
   );
 
-  const submitDraft = async (event: FormEvent) => {
+  const submitDraft = async (event: SubmitEvent) => {
     event.preventDefault();
     if (!canEdit) return;
     setMessage(null);
@@ -427,7 +427,7 @@ function BundleEditor({
               className="primary"
               type="button"
               disabled={publishing}
-              onClick={() => void publishDraft()}
+              onClick={() => publishDraft()}
             >
               {publishing ? "Publishing…" : "Confirm publish"}
             </button>

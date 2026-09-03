@@ -2,7 +2,7 @@ import { api } from "@code2create/backend/api";
 import { rollCallPresenceStateLabels } from "@code2create/domain";
 import type { FunctionReturnType } from "convex/server";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
-import { useState, type FormEvent } from "react";
+import { useState, type SubmitEvent } from "react";
 
 import { eventSlug } from "../lib/config";
 import { readableError } from "../lib/errors";
@@ -57,7 +57,7 @@ export function AttendanceRollCall({ session }: { session: AttendanceSession }) 
     setError(null);
   };
 
-  const submitStart = async (event: FormEvent) => {
+  const submitStart = async (event: SubmitEvent) => {
     event.preventDefault();
     setBusy(true);
     setError(null);
@@ -82,7 +82,7 @@ export function AttendanceRollCall({ session }: { session: AttendanceSession }) 
     }
   };
 
-  const submitClose = async (event: FormEvent) => {
+  const submitClose = async (event: SubmitEvent) => {
     event.preventDefault();
     if (!closePending && !active) return;
     setBusy(true);

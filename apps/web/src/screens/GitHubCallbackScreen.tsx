@@ -42,9 +42,9 @@ export function GitHubCallbackScreen() {
     let active = true;
     void completion
       .then(() => {
-        if (active) navigate("/integrations", { replace: true, viewTransition: true });
+        if (active) void navigate("/integrations", { replace: true, viewTransition: true });
       })
-      .catch((caught) => {
+      .catch((caught: unknown) => {
         if (active) {
           setCompletionFailure({ key: completionKey, message: readableError(caught) });
         }

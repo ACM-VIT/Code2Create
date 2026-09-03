@@ -2,7 +2,7 @@ import { api } from "@code2create/backend/api";
 import { attendanceHistoryEventLabel, sessionPresenceStateLabels } from "@code2create/domain";
 import type { FunctionReturnType } from "convex/server";
 import { useMutation, useQuery } from "convex/react";
-import { useState, type FormEvent } from "react";
+import { useState, type SubmitEvent } from "react";
 
 import { eventSlug } from "../lib/config";
 import { readableError } from "../lib/errors";
@@ -60,7 +60,7 @@ export function AttendanceReconciliation({
     setError(null);
   };
 
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: SubmitEvent) => {
     event.preventDefault();
     setBusy(true);
     setError(null);

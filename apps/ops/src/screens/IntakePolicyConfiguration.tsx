@@ -1,7 +1,7 @@
 import { api } from "@code2create/backend/api";
 import type { FunctionReturnType } from "convex/server";
 import { useMutation, useQuery } from "convex/react";
-import { useState, type ChangeEvent, type FormEvent } from "react";
+import { useState, type ChangeEvent, type SubmitEvent } from "react";
 
 import {
   ConfigurationTabs,
@@ -123,7 +123,7 @@ export function IntakePolicyConfiguration({ tabs }: { tabs: ConfigurationTabsVis
     );
   };
 
-  const saveDraft = (event: FormEvent) => {
+  const saveDraft = (event: SubmitEvent) => {
     event.preventDefault();
     void operations.run(
       "intake-policy-draft",
@@ -196,7 +196,7 @@ export function IntakePolicyConfiguration({ tabs }: { tabs: ConfigurationTabsVis
         <PendingOperationRecovery
           action={pendingOperation.action}
           busy={busy}
-          onConfirm={() => void confirmPendingOperation()}
+          onConfirm={() => confirmPendingOperation()}
           title={pendingOperation.title}
         />
       ) : null}
@@ -268,7 +268,7 @@ export function IntakePolicyConfiguration({ tabs }: { tabs: ConfigurationTabsVis
               className="primary"
               disabled={busy || publishReason.trim().length < 5}
               type="button"
-              onClick={() => void publishDraft()}
+              onClick={() => publishDraft()}
             >
               {busy
                 ? "Publishing…"

@@ -16,7 +16,7 @@ const environmentInput = `${Object.entries(localConvexEnvironment)
   .join("\n")}\n`;
 const result = spawnSync("pnpm", [...backend, "env", "set", "--force"], {
   input: environmentInput,
-  encoding: "utf8",
+  encoding: "utf-8",
 });
 process.stdout.write(result.stdout);
 if (result.status !== 0) {

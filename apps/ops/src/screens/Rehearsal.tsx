@@ -9,7 +9,7 @@ import {
 } from "@code2create/domain";
 import type { FunctionReturnType } from "convex/server";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
-import { useRef, useState, type FormEvent } from "react";
+import { useRef, useState, type SubmitEvent } from "react";
 
 import { LoadingLabel, SkeletonCard, SkeletonList } from "../components/Skeleton";
 import { eventSlug } from "../lib/config";
@@ -26,10 +26,7 @@ type RehearsalScenario = RehearsalDetail["scenarios"][number];
 type RehearsalScenarioId = RehearsalScenario["id"];
 type AssignResult = FunctionReturnType<typeof api.rehearsals.assignWorkstreamOwner>;
 type CreateResult = FunctionReturnType<typeof api.rehearsals.create>;
-type RunControlResult =
-  | FunctionReturnType<typeof api.rehearsals.start>
-  | FunctionReturnType<typeof api.rehearsals.complete>
-  | FunctionReturnType<typeof api.rehearsals.cancel>;
+type RunControlResult = FunctionReturnType<typeof api.rehearsals.start>;
 
 const scenarioStateOrder: RehearsalScenarioState[] = [
   "failed",
@@ -204,7 +201,7 @@ function CreateRun({
   const createAttempt = useMutationAttempt<CreateResult>();
   const createPending = createAttempt.hasPending("create-rehearsal");
 
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: SubmitEvent) => {
     event.preventDefault();
     if (busyRef.current || name.trim().length < 3 || reason.trim().length < 5) return;
     const schedule = scheduledFor ? new Date(scheduledFor).getTime() : undefined;
@@ -544,7 +541,7 @@ function OwnerAssignment({
   const assignmentAttempt = useMutationAttempt<AssignResult>();
   const assignmentPending = assignmentAttempt.hasPending("assign-workstream-owner");
 
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: SubmitEvent) => {
     event.preventDefault();
     const owner = options.results.find((candidate) => candidate.id === ownerPersonId);
     if (busyRef.current || !owner || reason.trim().length < 5) return;

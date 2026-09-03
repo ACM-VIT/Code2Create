@@ -88,19 +88,18 @@ describe("operations autonomy production-runtime evaluation", () => {
       await evaluation.dispatchContinuation();
     }
 
+    const boundaryCounts: Record<string, number> = {};
+    for (const entry of evaluation.backend.trace) {
+      const key = `${entry.boundary}:${entry.replayed}`;
+      boundaryCounts[key] = (boundaryCounts[key] ?? 0) + 1;
+    }
+
     expect(
       evaluation.backend.terminalStates(),
       JSON.stringify({
         observation: evaluation.observation(),
         recommendations: evaluation.backend.recommendations().length,
-        boundaries: evaluation.backend.trace.reduce<Record<string, number>>(
-          (counts, entry) => ({
-            ...counts,
-            [`${entry.boundary}:${entry.replayed}`]:
-              (counts[`${entry.boundary}:${entry.replayed}`] ?? 0) + 1,
-          }),
-          {},
-        ),
+        boundaries: boundaryCounts,
       }),
     ).toEqual(["succeeded"]);
     expect(evaluation.terminalEffects()).toEqual([

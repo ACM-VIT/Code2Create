@@ -2,7 +2,6 @@ export const participantEmailTemplateKeys = [
   "accept",
   "waitlist",
   "decline",
-  "needs_information",
   "offer",
   "offer_confirmed",
   "offer_declined",
@@ -10,6 +9,8 @@ export const participantEmailTemplateKeys = [
 ] as const;
 
 export type ParticipantEmailTemplateKey = (typeof participantEmailTemplateKeys)[number];
+
+export const participantEmailTemplateZipMaximumBytes = 3_500_000;
 
 export type ParticipantEmailTemplate = {
   templateKey: ParticipantEmailTemplateKey;
@@ -22,7 +23,6 @@ export const participantEmailTemplateLabels: Record<ParticipantEmailTemplateKey,
   accept: "Selected",
   waitlist: "Waitlisted",
   decline: "Not selected",
-  needs_information: "More information needed",
   offer: "Offer sent",
   offer_confirmed: "Offer confirmed",
   offer_declined: "Offer declined",
@@ -74,15 +74,6 @@ export function defaultParticipantEmailTemplates(): ParticipantEmailTemplate[] {
       html: emailHtml(
         "An update on your application.",
         "{{team_name}} was not selected for {{event_name}}. Thank you for taking the time to share your idea with us.",
-      ),
-    },
-    {
-      templateKey: "needs_information",
-      subject: "{{team_name}} needs to answer a Code2Create follow-up",
-      text: "Hi {{participant_name}},\n\nWe need more information from {{team_name}} before review can continue. The team lead can answer in the participant portal: {{portal_url}}",
-      html: emailHtml(
-        "We need a little more information.",
-        "The team lead for {{team_name}} can answer the review questions in the participant portal.",
       ),
     },
     {

@@ -1,6 +1,6 @@
 import type { FlueConversationMessage } from "@flue/react";
 import {
-  type FormEvent,
+  type SubmitEvent,
   type KeyboardEvent,
   type ReactNode,
   useEffect,
@@ -148,7 +148,7 @@ export function LiveAgentConsole({
     }
   };
 
-  const sendPrompt = (event: FormEvent<HTMLFormElement>) => {
+  const sendPrompt = (event: SubmitEvent<HTMLFormElement>) => {
     event.preventDefault();
     void submitPrompt(prompt.trim());
   };
@@ -265,7 +265,7 @@ export function LiveAgentConsole({
       {onSubmitPrompt === undefined ? null : (
         <form
           className={embedded ? "shrink-0 p-1.5 pb-3" : "shrink-0 px-4 pt-2 pb-8"}
-          onSubmit={(event) => void sendPrompt(event)}
+          onSubmit={(event) => sendPrompt(event)}
         >
           <div className="mx-auto w-full max-w-3xl">
             <div className="flex cursor-text flex-col gap-2 rounded-[14px] border border-line bg-field p-2.5 transition-[border-color] duration-150 focus-within:border-line-strong">
@@ -458,7 +458,7 @@ function ThinkingTrace({
           <div className="relative mt-1 ml-[5px] pl-4">
             <span aria-hidden className="absolute top-0 left-[3px] h-full w-px bg-line" />
             <p className="m-0 py-1 text-[12.5px] leading-[1.6] whitespace-pre-wrap text-ink-2 [overflow-wrap:anywhere]">
-              {text.length > 0 ? text : "No reasoning text was recorded for this step."}
+              {text.length > 0 ? text : "The agent did not record its thinking for this step."}
             </p>
           </div>
         </div>
@@ -581,10 +581,10 @@ function terminalCopy(state: Exclude<LiveAgentTerminalState, "none">) {
     return { title: "Response complete", detail: "The copilot is ready for the next question." };
   }
   if (state === "aborted") {
-    return { title: "Turn stopped", detail: "No further work is running for this turn." };
+    return { title: "Answer stopped", detail: "Nothing more is running for this question." };
   }
   return {
-    title: "Turn did not finish",
+    title: "The answer did not finish",
     detail: "Try the prompt again when the copilot is ready.",
   };
 }

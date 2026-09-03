@@ -108,7 +108,7 @@ export function AutonomyRunInspection({ run }: { run: AutonomyRun }) {
         <dl className="m-0 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <RunMetric label="Checks and proposals" value={run.telemetry.toolCalls} />
           <RunMetric label="Focused investigations" value={run.telemetry.delegations} />
-          <RunMetric label="Evidence read" value={formatBytes(run.telemetry.readBytes)} />
+          <RunMetric label="Information read" value={formatBytes(run.telemetry.readBytes)} />
           <RunMetric label="Actions proposed" value={run.telemetry.recommendations} />
         </dl>
         {run.failureCode === undefined ? null : (
@@ -119,7 +119,7 @@ export function AutonomyRunInspection({ run }: { run: AutonomyRun }) {
         )}
         {run.shutdownState === "pending" ? (
           <p className="notice">
-            This run can no longer affect operations. Its stop confirmation is still pending.
+            This run can no longer change anything. It is still finishing shutting down.
           </p>
         ) : null}
         <details className="group rounded-lg border border-line">
@@ -138,7 +138,7 @@ export function AutonomyRunInspection({ run }: { run: AutonomyRun }) {
               value={run.mode === "recommend" ? "Observe and propose" : "Observe only"}
             />
             <RunDatum
-              label="Event state from"
+              label="Event state as of"
               value={formatCompactDateTime(run.sourceGeneratedAt)}
             />
             <RunDatum
@@ -150,7 +150,7 @@ export function AutonomyRunInspection({ run }: { run: AutonomyRun }) {
               }
             />
             <RunDatum
-              label="Executor"
+              label="Ran as"
               value={
                 run.agentVersion === undefined
                   ? "Not reported"
@@ -158,7 +158,7 @@ export function AutonomyRunInspection({ run }: { run: AutonomyRun }) {
               }
             />
             <RunDatum
-              label="Policy"
+              label="Settings used"
               value={`Version ${run.policyVersion} · ${run.policyChecksum}`}
               mono
             />
@@ -170,7 +170,7 @@ export function AutonomyRunInspection({ run }: { run: AutonomyRun }) {
         <OperationsAutonomyRunStream key={run.runId} run={run} />
       ) : (
         <div className="health-empty">
-          <strong>No live trace for this run.</strong>
+          <strong>Nothing to watch for this run.</strong>
           <span>
             {autonomyRunIsActive(run.state)
               ? "Activity appears here once the agent starts this review."

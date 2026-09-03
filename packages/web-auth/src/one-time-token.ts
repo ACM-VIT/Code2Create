@@ -6,8 +6,12 @@ export function selectTransferCredential(
   storedSessionToken: string | null,
   oneTimeToken: string | null,
 ): TransferCredential | null {
-  if (oneTimeToken) return { kind: "one-time-token", value: oneTimeToken };
-  if (storedSessionToken) return { kind: "session-token", value: storedSessionToken };
+  if (oneTimeToken !== null && oneTimeToken.length > 0) {
+    return { kind: "one-time-token", value: oneTimeToken };
+  }
+  if (storedSessionToken !== null && storedSessionToken.length > 0) {
+    return { kind: "session-token", value: storedSessionToken };
+  }
   return null;
 }
 

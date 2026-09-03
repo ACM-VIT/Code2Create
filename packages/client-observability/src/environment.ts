@@ -1,13 +1,15 @@
 export type DeploymentEnvironment = "development" | "staging" | "production";
 
 export function parseDeploymentEnvironment(value: string | undefined): DeploymentEnvironment {
-  if (value === "development" || value === "staging" || value === "production") return value;
+  if (value === "development" || value === "staging" || value === "production") {
+    return value;
+  }
   throw new Error("Set the deployment environment to development, staging, or production.");
 }
 
 export function requiredTelemetryRelease(value: string | undefined, variableName: string) {
   const release = value?.trim();
-  if (!release || release.length > 120) {
+  if (release === undefined || release.length === 0 || release.length > 120) {
     throw new Error(
       `Set a non-empty ${variableName} no longer than 120 characters when PostHog is enabled.`,
     );

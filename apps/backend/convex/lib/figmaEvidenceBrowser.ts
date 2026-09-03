@@ -115,6 +115,10 @@ function isRecord(value: unknown): value is ProviderRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function unknownArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value.map((entry: unknown) => entry) : [];
+}
+
 function boundedString(value: unknown, maximumLength: number) {
   if (typeof value !== "string") return undefined;
   const normalized = value.trim();
@@ -132,8 +136,7 @@ function recordField(record: ProviderRecord, key: string) {
 }
 
 function arrayField(record: ProviderRecord, key: string) {
-  const value = record[key];
-  return Array.isArray(value) ? value : [];
+  return unknownArray(record[key]);
 }
 
 function requiredNode(value: unknown): ProviderRecord {

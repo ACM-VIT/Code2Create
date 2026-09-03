@@ -21,13 +21,14 @@ export type StudyYear = (typeof studyYears)[number];
 export const memberRoles = ["lead", "member"] as const;
 export type MemberRole = (typeof memberRoles)[number];
 
-export const applicationDecisions = ["accept", "waitlist", "decline", "needs_information"] as const;
+export const applicationDecisions = ["accept", "waitlist", "decline"] as const;
 export type ApplicationDecision = (typeof applicationDecisions)[number];
 
 export {
   defaultParticipantEmailTemplates,
   participantEmailTemplateKeys,
   participantEmailTemplateLabels,
+  participantEmailTemplateZipMaximumBytes,
   type ParticipantEmailTemplate,
   type ParticipantEmailTemplateKey,
 } from "./participantEmailTemplates.ts";

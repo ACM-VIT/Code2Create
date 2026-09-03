@@ -2,7 +2,7 @@ import { api } from "@code2create/backend/api";
 import { eventRoleLabels } from "@code2create/domain";
 import type { FunctionReturnType } from "convex/server";
 import { usePaginatedQuery, useQuery } from "convex/react";
-import { useState, type FormEvent } from "react";
+import { useState, type SubmitEvent } from "react";
 import { Link } from "react-router-dom";
 
 import { AccessInvitations } from "../components/AccessInvitations";
@@ -46,7 +46,7 @@ export function AccessDirectory({
     canReadPeople && searchedEmail ? { eventSlug, email: searchedEmail } : "skip",
   );
 
-  const search = (event: FormEvent) => {
+  const search = (event: SubmitEvent) => {
     event.preventDefault();
     const normalized = email.trim().toLowerCase();
     setSearchedEmail(normalized || null);

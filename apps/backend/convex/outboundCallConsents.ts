@@ -200,24 +200,22 @@ export const saveReviewerConsent = mutation({
           revokedAt: now,
         });
       }
-    } else {
-      if (args.state === "granted") {
-        if (destinationPhoneE164 === null) {
-          throw new Error("A validated call destination is missing.");
-        }
-        consentId = await ctx.db.insert("outboundCallConsents", {
-          ...fields,
-          destinationPhoneE164,
-          grantedAt: now,
-          createdAt: now,
-        });
-      } else {
-        consentId = await ctx.db.insert("outboundCallConsents", {
-          ...fields,
-          revokedAt: now,
-          createdAt: now,
-        });
+    } else if (args.state === "granted") {
+      if (destinationPhoneE164 === null) {
+        throw new Error("A validated call destination is missing.");
       }
+      consentId = await ctx.db.insert("outboundCallConsents", {
+        ...fields,
+        destinationPhoneE164,
+        grantedAt: now,
+        createdAt: now,
+      });
+    } else {
+      consentId = await ctx.db.insert("outboundCallConsents", {
+        ...fields,
+        revokedAt: now,
+        createdAt: now,
+      });
     }
     await recordOperation(ctx, {
       eventId: event._id,

@@ -11,22 +11,21 @@ import {
 } from "remotion";
 import { CameraMotionBlur } from "@remotion/motion-blur";
 import { noise3D } from "@remotion/noise";
-import { PetalField, type PetalLayer } from "../components/PetalField.tsx";
+import { PetalField } from "../components/PetalField.tsx";
+import type { PetalLayer } from "../components/PetalField.tsx";
 import { COLORS, T, CLAMP } from "../theme.ts";
 import { sans, serif } from "../fonts.ts";
 
-const NightSky: React.FC<{ glow?: number }> = ({ glow = 0.5 }) => {
-  return (
-    <AbsoluteFill style={{ backgroundColor: COLORS.night }}>
-      <AbsoluteFill
-        style={{
-          opacity: glow,
-          background: `radial-gradient(140% 90% at 50% 112%, rgba(109, 43, 66, 0.7) 0%, rgba(109, 43, 66, 0.22) 48%, transparent 74%)`,
-        }}
-      />
-    </AbsoluteFill>
-  );
-};
+const NightSky: React.FC<{ glow?: number }> = ({ glow = 0.5 }) => (
+  <AbsoluteFill style={{ backgroundColor: COLORS.night }}>
+    <AbsoluteFill
+      style={{
+        opacity: glow,
+        background: `radial-gradient(140% 90% at 50% 112%, rgba(109, 43, 66, 0.7) 0%, rgba(109, 43, 66, 0.22) 48%, transparent 74%)`,
+      }}
+    />
+  </AbsoluteFill>
+);
 
 const ShotCanopy: React.FC = () => {
   const frame = useCurrentFrame();
@@ -418,7 +417,7 @@ const DiveBurst: React.FC = () => {
         if (p <= 0 || p >= 1) {
           return null;
         }
-        const grow = Math.pow(p, 1.6);
+        const grow = p ** 1.6;
         const angle = random(`da${i}`) * Math.PI * 2;
         const dist = interpolate(
           grow,
@@ -484,17 +483,15 @@ const LensPetals: React.FC = () => {
   );
 };
 
-export const ActOne: React.FC = () => {
-  return (
-    <AbsoluteFill style={{ backgroundColor: COLORS.night }}>
-      <ShotCanopy />
-      <ShotLanterns />
-      <ShotWater />
-      <Kicker />
-      <Line text="“what if?”" from={T.lineAIn} to={T.lineAOut} offsetX={-150} />
-      <Line text="“it works.”" from={T.lineBIn} to={T.lineBOut} y="38%" />
-      <DiveBurst />
-      <LensPetals />
-    </AbsoluteFill>
-  );
-};
+export const ActOne: React.FC = () => (
+  <AbsoluteFill style={{ backgroundColor: COLORS.night }}>
+    <ShotCanopy />
+    <ShotLanterns />
+    <ShotWater />
+    <Kicker />
+    <Line text="“what if?”" from={T.lineAIn} to={T.lineAOut} offsetX={-150} />
+    <Line text="“it works.”" from={T.lineBIn} to={T.lineBOut} y="38%" />
+    <DiveBurst />
+    <LensPetals />
+  </AbsoluteFill>
+);

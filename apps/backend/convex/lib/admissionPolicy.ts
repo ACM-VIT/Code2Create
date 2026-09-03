@@ -14,7 +14,6 @@ const allAdmissionDecisions: AdmissionDecision[] = [
   "accept",
   "waitlist",
   "decline",
-  "needs_information",
 ];
 
 export const admissionGuidanceInput = v.object({
@@ -168,19 +167,14 @@ export const defaultAdmissionReasonCodes: AdmissionReasonCode[] = [
     allowedDecisions: ["waitlist"],
   },
   {
-    key: "clarification_needed",
-    label: "A short clarification is needed",
-    allowedDecisions: ["needs_information"],
-  },
-  {
     key: "scope_not_yet_workable",
     label: "The proposed event scope is not yet workable",
-    allowedDecisions: ["waitlist", "decline", "needs_information"],
+    allowedDecisions: ["waitlist", "decline"],
   },
   {
     key: "application_not_yet_clear",
     label: "The application is not yet clear enough for this experience band",
-    allowedDecisions: ["waitlist", "decline", "needs_information"],
+    allowedDecisions: ["waitlist", "decline"],
   },
 ];
 

@@ -59,16 +59,14 @@ export const PetalField: React.FC<{
   seed: string;
   layers: PetalLayer[];
   speedMul?: number;
-}> = ({ seed, layers, speedMul = 1 }) => {
-  return (
-    <>
-      {layers.map((layer, li) => (
-        <AbsoluteFill key={li} style={layer.blur > 0 ? { filter: `blur(${layer.blur}px)` } : {}}>
-          {Array.from({ length: layer.count }, (_, i) => (
-            <Petal key={i} id={`${seed}${li}-${i}`} layer={layer} speedMul={speedMul} />
-          ))}
-        </AbsoluteFill>
-      ))}
-    </>
-  );
-};
+}> = ({ seed, layers, speedMul = 1 }) => (
+  <>
+    {layers.map((layer, li) => (
+      <AbsoluteFill key={li} style={layer.blur > 0 ? { filter: `blur(${layer.blur}px)` } : {}}>
+        {Array.from({ length: layer.count }, (_, i) => (
+          <Petal key={i} id={`${seed}${li}-${i}`} layer={layer} speedMul={speedMul} />
+        ))}
+      </AbsoluteFill>
+    ))}
+  </>
+);

@@ -524,7 +524,10 @@ function EntryFixture() {
 // ---- dashboard · the live-event bento ----------------------------------------
 // Night one of the build: a track playing, a short queue, tools half linked.
 
-const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+const wait = (ms: number) =>
+  new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
 
 const dashboardMusic: MusicTileModel = {
   eligible: true,
@@ -1025,10 +1028,16 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries([
           >
             <PortalTextarea
               rows={7}
+              maxLength={300}
               defaultValue="A campus lost-and-found where finders post a photo and owners describe what they lost. On-device image matching pairs the two; pickup at verified hostel desks."
               className="bare-field min-h-[180px] border-0 bg-transparent px-0 py-0 text-[17px] leading-[1.7]"
             />
-            <IdeaPromptsLink className="mt-1" />
+            <div className="mt-1 flex items-center justify-between gap-4">
+              <IdeaPromptsLink />
+              <span className="font-mono text-[11px] tracking-[.04em] text-fg/45">
+                159 / 300
+              </span>
+            </div>
           </IdeaCard>
         </div>
       </PortalScene>

@@ -31,7 +31,7 @@
     "recovery:rehearse": "pnpm --filter @code2create/backend recovery:rehearse",
     "test": "pnpm --filter './apps/**' --filter './packages/**' --if-present test",
     "test:recovery": "pnpm --filter @code2create/backend test:recovery",
-    "lint": "pnpm --filter './apps/**' --filter './packages/**' --if-present lint",
+    "lint": "oxlint .",
     "typecheck": "pnpm --filter './apps/**' --filter './packages/**' --if-present typecheck",
     "audit:dependencies": "node scripts/audit-production-dependencies.mjs",
     "check:product": "pnpm lint && pnpm typecheck",
@@ -39,6 +39,7 @@
   },
   "devDependencies": {
     "@posthog/cli": "^0.16.0",
+    "@types/node": "^26.4.0",
     "oxlint": "^1.81.0",
     "oxlint-tsgolint": "^7.0.2001",
     "ultracite": "^7.10.7"

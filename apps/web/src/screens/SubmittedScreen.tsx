@@ -1,16 +1,17 @@
 import { api } from "@code2create/backend/api";
 import type { FunctionReturnType } from "convex/server";
 import { useMutation, useQuery } from "convex/react";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type SubmitEvent } from "react";
 import { Link } from "react-router-dom";
 
 import type { CurrentTeam, CurrentTeamMember, PublicState, SubmittedIntake } from "../types";
+import { DelayedBonsai } from "../components/portal/DelayedBonsai";
 import { EditingPresence } from "../components/EditingPresence";
 import { useEditingPresence } from "../hooks/useEditingPresence";
 import { eventSlug } from "../lib/config";
 import { readableError } from "../lib/errors";
+import { initialIdeaMaximumLength } from "../lib/ideaSubmission";
 import { useMutationAttempt } from "../lib/operations";
-import { useVersionedState } from "@code2create/web-forms";
 import { PortalScene } from "../components/portal/PortalScene";
 import { PetalCard } from "../components/portal/PetalCard";
 import { TeamCluster } from "../components/portal/TeamCluster";
@@ -41,7 +42,6 @@ type ParticipantDeliveryState = NonNullable<ParticipantDelivery>["state"];
 type ParticipantCapabilities = FunctionReturnType<typeof api.access.participantCapabilities>;
 type CurrentApplication = SubmittedIntake["application"];
 type ApplicationState = CurrentApplication["state"];
-type InformationRequest = NonNullable<CurrentApplication["informationRequest"]>;
 
 const additionalInformationLabel = "Additional information or links (optional, please no PPTs)";
 
@@ -77,11 +77,6 @@ const applicationCopy: Record<
     status: "Under review",
     heading: "Your idea is submitted.",
     message: "Review is underway. Changes before the deadline create a new review version.",
-  },
-  needs_information: {
-    status: "Your response is needed",
-    heading: "A quick follow-up.",
-    message: "Answer the questions below so the review can continue.",
   },
   accepted: {
     status: "Selected",
@@ -124,7 +119,6 @@ const applicationCopy: Record<
 const QUEUED_STATES: readonly ApplicationState[] = [
   "submitted",
   "under_review",
-  "needs_information",
 ];
 
 export function SubmittedScreen({
@@ -141,7 +135,13 @@ export function SubmittedScreen({
   onSignOut: () => void;
 }) {
   const intake = useQuery(api.intake.submitted, { eventSlug });
-  if (intake === undefined) return <p className="muted">Loading your application…</p>;
+  if (intake === undefined) {
+    return (
+      <PortalScene tree="left">
+        <DelayedBonsai />
+      </PortalScene>
+    );
+  }
   if (intake === null) {
     return (
       <p className="notice notice-error" role="alert">
@@ -378,9 +378,7 @@ function SubmittedWorkspace({
             {copy.heading}
           </h1>
           <p className="mb-8 font-ui font-normal text-base text-rose-light lg:text-[19px]">
-            {application.state === "needs_information"
-              ? copy.message
-              : `${team.name} is in the review queue`}
+            {team.name} is in the review queue
           </p>
           {proposalButton}
 
@@ -414,19 +412,6 @@ function SubmittedWorkspace({
             ) : null}
           </div>
 
-          {application.state === "needs_information" &&
-          application.informationRequest?.state === "open" ? (
-            <div className="mt-9 w-full text-left">
-              <PetalCard className="px-7 py-6">
-                <InformationResponsePanel
-                  application={application}
-                  canRespond={intake.currentRole === "lead" && team.canRespondToInformationRequest}
-                  currentRole={intake.currentRole}
-                  request={application.informationRequest}
-                />
-              </PetalCard>
-            </div>
-          ) : null}
 
           {delivery && deliveryNeedsAttention(delivery.state) ? (
             <p role="status" className="mt-6 text-[12.5px] text-rose-light">
@@ -720,7 +705,9 @@ function ProposalSummary({
     active: canEdit && editing,
     config: intake.novelty,
     saved: {
-      idea: intake.noveltySignal ? intake.project.initialIdea : undefined,
+      // The saved idea remains the restoration target even when an older
+      // submission has no durable novelty signal yet.
+      idea: intake.project.initialIdea,
       score: intake.noveltySignal?.score ?? null,
       band: intake.noveltySignal?.band ?? null,
     },
@@ -741,7 +728,7 @@ function ProposalSummary({
     setDraft(proposalDraft(intake));
   }, [application, editing, hasRecoveredDraft, intake]);
 
-  const save = async (event: FormEvent) => {
+  const save = async (event: SubmitEvent) => {
     event.preventDefault();
     setBusy(true);
     setError(null);
@@ -776,6 +763,7 @@ function ProposalSummary({
   };
 
   const ideaLength = draft.initialIdea.trim().length;
+  const ideaMaximumLength = initialIdeaMaximumLength(intake.editRules.initialIdeaMaxLength);
   const invalidResponse = draft.responses.some(
     (response) =>
       response.answer.trim().length < intake.editRules.followUpAnswerMinLength ||
@@ -783,7 +771,7 @@ function ProposalSummary({
   );
   const invalidIdea =
     ideaLength < intake.editRules.initialIdeaMinLength ||
-    ideaLength > intake.editRules.initialIdeaMaxLength;
+    draft.initialIdea.length > ideaMaximumLength;
   const invalidAdditionalInformation =
     draft.additionalInformation.trim().length > intake.editRules.additionalInformationMaxLength;
   const hasLocalChanges =
@@ -905,7 +893,7 @@ function ProposalSummary({
                     required
                     rows={5}
                     minLength={intake.editRules.initialIdeaMinLength}
-                    maxLength={intake.editRules.initialIdeaMaxLength}
+                    maxLength={ideaMaximumLength}
                     value={draft.initialIdea}
                     disabled={locked}
                     onChange={(event) => {
@@ -915,6 +903,14 @@ function ProposalSummary({
                       markEditing("proposal_revision");
                     }}
                   />
+                  <p className="mt-1 text-right font-mono text-[11px] tracking-[.04em] text-fg/45">
+                    {draft.initialIdea.length} / {ideaMaximumLength}
+                  </p>
+                  {draft.initialIdea.length > ideaMaximumLength ? (
+                    <PortalError
+                      message={`Keep the idea within ${ideaMaximumLength} characters.`}
+                    />
+                  ) : null}
                 </>
               ) : (
                 <>
@@ -1072,108 +1068,6 @@ function recoverProposalDraft(intake: SubmittedIntake, stored: string): Proposal
       answer: values.get(`answer:${response.questionId}`) ?? response.answer,
     })),
   };
-}
-
-function InformationResponsePanel({
-  application,
-  canRespond,
-  currentRole,
-  request,
-}: {
-  application: CurrentApplication;
-  canRespond: boolean;
-  currentRole: SubmittedIntake["currentRole"];
-  request: InformationRequest;
-}) {
-  const respondToInformationRequest = useMutation(api.admissions.respondToInformationRequest);
-  const responseAttempt =
-    useMutationAttempt<FunctionReturnType<typeof api.admissions.respondToInformationRequest>>();
-  const responsePending = responseAttempt.hasPending(`information-response:${request.id}`);
-  const draftState = useVersionedState(request.id, {
-    requestId: request.id,
-    answers: request.questions.map((question) => ({
-      questionKey: question.questionKey,
-      answer: "",
-    })),
-  });
-  const draft = draftState.value;
-  const setDraft = draftState.update;
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
-    setBusy(true);
-    setError(null);
-    try {
-      await responseAttempt.run(`information-response:${request.id}`, () => {
-        const args = {
-          eventSlug,
-          applicationId: application.id,
-          expectedApplicationVersion: application.version,
-          requestId: request.id,
-          expectedRequestVersion: request.version,
-          answers: draft.answers.map((answer) => ({ ...answer })),
-          clientOperationId: crypto.randomUUID(),
-        };
-        return () => respondToInformationRequest(args);
-      });
-    } catch (caught) {
-      setError(readableError(caught));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <section className="information-response">
-      <h2>A quick follow-up</h2>
-      <p>Answer only these questions. Only the current team lead can send the response.</p>
-      {canRespond ? (
-        <form onSubmit={submit}>
-          {request.questions.map((question, index) => (
-            <label className="field" key={question.questionKey}>
-              <span>{question.question}</span>
-              <textarea
-                required
-                minLength={2}
-                maxLength={1200}
-                disabled={responsePending}
-                value={draft.answers[index]?.answer ?? ""}
-                onChange={(event) => {
-                  const value = event.currentTarget.value;
-                  setDraft((current) => ({
-                    ...current,
-                    answers: current.answers.map((answer, answerIndex) =>
-                      answerIndex === index ? { ...answer, answer: value } : answer,
-                    ),
-                  }));
-                }}
-              />
-            </label>
-          ))}
-          {error ? (
-            <p className="notice error" role="alert">
-              {error}
-            </p>
-          ) : null}
-          <button
-            className="primary"
-            type="submit"
-            disabled={busy || draft.answers.some((answer) => answer.answer.trim().length < 2)}
-          >
-            {busy ? "Submitting…" : responsePending ? "Confirm earlier answers" : "Submit answers"}
-          </button>
-        </form>
-      ) : currentRole !== "lead" ? (
-        <p className="fine-print">The current team lead submits these answers for the team.</p>
-      ) : (
-        <p className="fine-print">
-          Response access is unavailable. Ask an organizer if this looks wrong.
-        </p>
-      )}
-    </section>
-  );
 }
 
 function formatEventTime(timestamp: number, timezone: string) {

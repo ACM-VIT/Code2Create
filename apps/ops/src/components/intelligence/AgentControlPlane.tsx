@@ -67,12 +67,12 @@ export function AgentControlPlane() {
   return (
     <section aria-labelledby="deployed-agents-heading" className="attention-section">
       <div className="section-heading">
-        <h2 id="deployed-agents-heading">Deployed agents</h2>
+        <h2 id="deployed-agents-heading">Agents in use</h2>
         <FleetSummary fleet={fleet} />
       </div>
       <div className="grid gap-3">
         <nav
-          aria-label="Intelligence agent fleet"
+          aria-label="Agents in use"
           className="overflow-hidden rounded-xl bg-surface"
         >
           {intelligenceAgentDefinitions.map((agent) => (
@@ -250,9 +250,9 @@ function AgentAbout({ agent }: { agent: IntelligenceAgentDefinition }) {
           <RuntimeRow label="Model" value={agent.model} />
           <RuntimeRow label="Reasoning" value={agent.thinking} />
           <RuntimeRow label="Runs when" value={agent.trigger} />
-          <RuntimeRow label="Retries" value={agent.durability} />
-          <RuntimeRow label="Identity" value={agent.identity} />
-          <RuntimeRow label="Context" value={agent.compaction} />
+          <RuntimeRow label="If it fails" value={agent.durability} />
+          <RuntimeRow label="Runs as" value={agent.identity} />
+          <RuntimeRow label="Long conversations" value={agent.compaction} />
         </dl>
         <div>
           <p className="m-0 mb-2 text-[12px] font-medium text-ink">Tools</p>
@@ -424,13 +424,13 @@ function AgentRunRow({ run }: { run: AgentRun }) {
           <RunDatum label="Run" value={run.id} />
           <RunDatum label="Created" value={formatCompactDateTime(run.createdAt)} />
           {run.instanceId === undefined ? null : (
-            <RunDatum label="Durable instance" value={run.instanceId} />
+            <RunDatum label="Background job" value={run.instanceId} />
           )}
           {run.operationId === undefined ? null : (
             <RunDatum label="Operation" value={run.operationId} />
           )}
           {run.agentVersion === undefined ? null : (
-            <RunDatum label="Agent release" value={run.agentVersion} />
+            <RunDatum label="Agent version" value={run.agentVersion} />
           )}
           {run.model === undefined ? null : <RunDatum label="Model" value={run.model} />}
           {run.startedAt === undefined ? null : (

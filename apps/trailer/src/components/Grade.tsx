@@ -22,16 +22,14 @@ export const Grain: React.FC = () => {
   );
 };
 
-export const Vignette: React.FC<{ strength?: number }> = ({ strength = 0.42 }) => {
-  return (
-    <AbsoluteFill
-      style={{
-        pointerEvents: "none",
-        background: `radial-gradient(125% 95% at 50% 45%, transparent 56%, rgba(26, 8, 18, ${strength}) 100%)`,
-      }}
-    />
-  );
-};
+export const Vignette: React.FC<{ strength?: number }> = ({ strength = 0.42 }) => (
+  <AbsoluteFill
+    style={{
+      pointerEvents: "none",
+      background: `radial-gradient(125% 95% at 50% 45%, transparent 56%, rgba(26, 8, 18, ${strength}) 100%)`,
+    }}
+  />
+);
 
 export const Wash: React.FC = () => {
   const frame = useCurrentFrame();

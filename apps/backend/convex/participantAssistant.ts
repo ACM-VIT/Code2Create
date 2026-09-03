@@ -5,6 +5,7 @@ import {
   vStreamArgs,
   createThread,
 } from "@convex-dev/agent";
+import { participantProfileCodeConfiguration } from "@code2create/domain";
 import { MINUTE, RateLimiter } from "@convex-dev/rate-limiter";
 import { paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
@@ -23,11 +24,21 @@ import {
   participantAssistantPhaseLabel,
   participantAssistantSuggestions,
 } from "./lib/participantAssistant";
-import { loadPublishedParticipantPolicy } from "./lib/participantPolicy";
+import {
+  isProfileCompleteForPolicy,
+  loadPublishedParticipantPolicy,
+  participantPolicyAccepted,
+} from "./lib/participantPolicy";
 import { loadPublishedPhaseSchedule } from "./lib/phaseSchedule";
 import { loadPublishedProjectCheckpointPlan } from "./lib/projectCheckpointPlan";
 import { acceptedTeamCommunicationsForTeam } from "./participantCommunications";
+import { noveltyInputFingerprint } from "./lib/novelty";
 import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
+import {
+  completedNoveltyPreviewSignal,
+  participantNoveltyConfig,
+  savedNoveltySignal,
+} from "./lib/participantNovelty";
 import { normalizedLongText, normalizedText } from "./lib/strings";
 import {
   participantAssistantPhase,
@@ -716,7 +727,14 @@ async function hasTeamPermission(
   eventId: Id<"events">,
   subjectId: Id<"eventAccessSubjects">,
   teamId: Id<"teams">,
-  permissionKey: "team.read" | "project.checkpoint.read" | "integration.read",
+  permissionKey:
+    | "team.read"
+    | "team.leave"
+    | "team.members.manage"
+    | "team.project.write"
+    | "application.submit"
+    | "project.checkpoint.read"
+    | "integration.read",
 ) {
   const grantIds = await matchingPermissionGrantIds(ctx, {
     eventId,
@@ -748,18 +766,47 @@ async function buildEventContext(
     requirePublishedIntakePolicy(ctx, event),
   ]);
 
-  const activeMember =
+  const [activeMember, profileReadGrantIds, currentPolicyAccepted, githubStarCompletion, githubAuthorization] =
     membership === null
-      ? null
-      : await ctx.db
-          .query("teamMembers")
-          .withIndex("by_event_membership_status", (index) =>
-            index
-              .eq("eventId", event._id)
-              .eq("membershipId", membership._id)
-              .eq("status", "active"),
-          )
-          .unique();
+      ? [null, [], false, null, null]
+      : await Promise.all([
+          ctx.db
+            .query("teamMembers")
+            .withIndex("by_event_membership_status", (index) =>
+              index
+                .eq("eventId", event._id)
+                .eq("membershipId", membership._id)
+                .eq("status", "active"),
+            )
+            .unique(),
+          matchingPermissionGrantIds(ctx, {
+            eventId: event._id,
+            eventAccessSubjectId: subject._id,
+            permissionKey: "participant.profile.read",
+            scopeType: "self",
+            scopeId: membership._id,
+          }),
+          participantPolicyAccepted(ctx, membership, participantPolicy.policy),
+          ctx.db
+            .query("githubStarCompletions")
+            .withIndex("by_event_membership", (index) =>
+              index.eq("eventId", event._id).eq("membershipId", membership._id),
+            )
+            .unique(),
+          ctx.db
+            .query("githubStarAuthorizations")
+            .withIndex("by_event_membership", (index) =>
+              index.eq("eventId", event._id).eq("membershipId", membership._id),
+            )
+            .unique(),
+        ]);
+  const profile =
+    membership !== null && profileReadGrantIds.length > 0
+      ? await ctx.db
+          .query("participantProfiles")
+          .withIndex("by_membership", (index) => index.eq("membershipId", membership._id))
+          .unique()
+      : null;
   const rawTeam = activeMember === null ? null : await ctx.db.get(activeMember.teamId);
   const team = rawTeam !== null && rawTeam.eventId === event._id ? rawTeam : null;
   const canReadTeam =
@@ -783,6 +830,16 @@ async function buildEventContext(
           .query("applications")
           .withIndex("by_team", (index) => index.eq("teamId", visibleTeam._id))
           .unique();
+  const submittedProject =
+    application === null ? null : await ctx.db.get(application.submittedProjectVersionId);
+  if (
+    application !== null &&
+    (submittedProject === null ||
+      submittedProject.eventId !== event._id ||
+      submittedProject.teamId !== visibleTeam?._id)
+  ) {
+    throw new Error("A visible application has an invalid submitted project.");
+  }
   const questions =
     draft === null
       ? []
@@ -805,6 +862,108 @@ async function buildEventContext(
       };
     }),
   );
+  const proposal =
+    submittedProject === null
+      ? draft === null
+        ? null
+        : {
+            stage: draft.stage,
+            idea: draft.initialIdea ?? null,
+            additionalInformation: draft.additionalInformation ?? null,
+            freshnessConfirmed: draft.freshnessAttestedAt !== undefined,
+            followUps,
+          }
+      : {
+          stage: "submitted" as const,
+          idea: submittedProject.initialIdea,
+          additionalInformation: submittedProject.additionalInformation ?? null,
+          freshnessConfirmed: true,
+          followUps: submittedProject.intakeResponses.map((response) => ({
+            question: response.question,
+            status: "answered" as const,
+            answer: response.answer,
+          })),
+        };
+  const applicationsCloseAt =
+    membership === null
+      ? event.applicationsCloseAt
+      : applicationsCloseAtFor(event, membership.participantClass);
+  const [canWriteDraft, hasApplicationSubmitPermission, canLeaveTeam, canManageMembers] =
+    visibleTeam === null
+      ? [false, false, false, false]
+      : await Promise.all([
+          hasTeamPermission(ctx, event._id, subject._id, visibleTeam._id, "team.project.write"),
+          hasTeamPermission(ctx, event._id, subject._id, visibleTeam._id, "application.submit"),
+          hasTeamPermission(ctx, event._id, subject._id, visibleTeam._id, "team.leave"),
+          hasTeamPermission(ctx, event._id, subject._id, visibleTeam._id, "team.members.manage"),
+        ]);
+  const beforeApplicationDeadline = generatedAt < applicationsCloseAt;
+  const draftingIsOpen = event.status === "registration_open" && beforeApplicationDeadline;
+  const submittedRosterCanChange =
+    application === null || application.state === "submitted" || application.state === "under_review";
+  const departureKeepsMinimumSize =
+    application === null ||
+    visibleTeam === null ||
+    visibleTeam.activeMemberCount - 1 >= participantPolicy.normalized.teamMinimumSize;
+  const leadMustTransferBeforeLeaving =
+    activeMember?.role === "lead" && (visibleTeam?.activeMemberCount ?? 0) > 1;
+  const hasRemovableMember = teamRoster.some((member) => member.role === "member");
+  const leaveTeamBlocker = !draftingIsOpen
+    ? ("applications_closed" as const)
+    : !canLeaveTeam
+      ? ("not_available" as const)
+      : !submittedRosterCanChange
+        ? ("application_finalized" as const)
+        : !departureKeepsMinimumSize
+          ? ("submitted_team_minimum_size" as const)
+          : leadMustTransferBeforeLeaving
+            ? ("transfer_leadership_first" as const)
+            : null;
+  const removeMemberBlocker = !draftingIsOpen
+    ? ("applications_closed" as const)
+    : !canManageMembers
+      ? ("not_available" as const)
+      : !hasRemovableMember
+        ? ("no_removable_member" as const)
+      : !submittedRosterCanChange
+          ? ("application_finalized" as const)
+          : !departureKeepsMinimumSize
+            ? ("submitted_team_minimum_size" as const)
+            : null;
+  const canEditProposal =
+    application === null
+      ? draftingIsOpen && visibleTeam !== null && !visibleTeam.membershipLocked && canWriteDraft
+      : beforeApplicationDeadline &&
+        activeMember?.role === "lead" &&
+        hasApplicationSubmitPermission &&
+        (application.state === "submitted" || application.state === "under_review");
+  const novelty = await participantNoveltyConfig(
+    ctx,
+    event,
+    application === null ? (draft ?? undefined) : undefined,
+  );
+  const latestNoveltyPreview =
+    novelty === null || visibleTeam === null || !proposal?.idea
+      ? null
+      : await ctx.db
+          .query("noveltyPreviewRequests")
+          .withIndex("by_team_fingerprint_requested", (index) =>
+            index
+              .eq("teamId", visibleTeam._id)
+              .eq("inputFingerprint", noveltyInputFingerprint(proposal.idea ?? "")),
+          )
+          .order("desc")
+          .first();
+  const noveltySignal =
+    novelty !== null && proposal?.idea
+      ? (draft === null ? null : savedNoveltySignal(draft, proposal.idea, novelty.corpusVersionId)) ??
+        completedNoveltyPreviewSignal(latestNoveltyPreview, novelty.corpusVersionId)
+      : null;
+  const terminalDecisionReleased =
+    event.admissionResultsReleasedAt !== undefined &&
+    application !== null &&
+    (application.decisionStage === "recorded" || application.decisionStage === "released") &&
+    application.humanDecision !== undefined;
   const linkedSupportCase = supportCaseId === undefined ? null : await ctx.db.get(supportCaseId);
   if (supportCaseId !== undefined && linkedSupportCase === null) {
     throw new Error("The Guide conversation has a missing human support link.");
@@ -841,17 +1000,21 @@ async function buildEventContext(
   const commonContext = {
     createdAt: formatEventTime(generatedAt, event.timezone),
     currentHelpScope: participantAssistantPhaseLabel(phase),
+    organizer: {
+      name: "ACM-VIT",
+      relationship: "Organizing team for Code2Create",
+      email: "acm@vit.ac.in",
+      links: {
+        instagram: "https://www.instagram.com/acmvit",
+        website: "https://acmvit.in",
+        github: "https://github.com/ACM-VIT",
+      },
+    },
     event: {
       name: event.name,
       status: event.status,
       timezone: event.timezone,
-      ideaSubmissionDeadline:
-        membership === null
-          ? formatEventTime(event.applicationsCloseAt, event.timezone)
-          : formatEventTime(
-              applicationsCloseAtFor(event, membership.participantClass),
-              event.timezone,
-            ),
+      ideaSubmissionDeadline: formatEventTime(applicationsCloseAt, event.timezone),
       teamSize: {
         minimum: participantPolicy.normalized.teamMinimumSize,
         maximum: participantPolicy.normalized.teamMaximumSize,
@@ -867,6 +1030,57 @@ async function buildEventContext(
               eligibilityStatus: membership.eligibilityStatus,
               onboardingStatus: membership.onboardingStatus,
             },
+      onboarding:
+        membership === null
+          ? null
+          : {
+              policy: {
+                accepted: currentPolicyAccepted,
+                label: participantPolicy.normalized.label,
+                profileNotice: participantPolicy.normalized.profileNotice,
+                proposalAiNotice: participantPolicy.normalized.projectTextNotice,
+                privacyNoticeUrl: participantPolicy.normalized.privacyNoticeUrl,
+                finalSubmissionWarning: participantPolicy.normalized.finalSubmissionWarning,
+              },
+              profile:
+                profileReadGrantIds.length === 0
+                  ? { visible: false }
+                  : {
+                      visible: true,
+                      exists: profile !== null,
+                      detailsComplete:
+                        profile !== null &&
+                        isProfileCompleteForPolicy(
+                          profile,
+                          membership,
+                          participantPolicy.policy,
+                        ),
+                      phoneVerificationRequired:
+                        participantProfileCodeConfiguration.phoneVerificationEnabled,
+                      phoneVerified:
+                        profile !== null &&
+                        (!participantProfileCodeConfiguration.phoneVerificationEnabled ||
+                          (profile.phoneVerifiedAt !== undefined && profile.phoneVerifiedAt > 0)),
+                    },
+              github:
+                githubStarCompletion !== null
+                  ? {
+                      state: "complete" as const,
+                      login: githubStarCompletion.githubLogin,
+                      completedAt: formatEventTime(
+                        githubStarCompletion.completedAt,
+                        event.timezone,
+                      ),
+                    }
+                  : githubAuthorization !== null &&
+                      (githubAuthorization.status === "active" ||
+                        githubAuthorization.status === "starring")
+                    ? {
+                        state: "connected" as const,
+                        login: githubAuthorization.githubLogin,
+                      }
+                    : { state: "not_connected" as const },
+            },
     },
     ideaSubmission: {
       welcome: intakePolicy.normalized.openingText,
@@ -880,6 +1094,31 @@ async function buildEventContext(
         minimum: intakePolicy.normalized.followUpAnswerMinLength,
         maximum: intakePolicy.normalized.followUpAnswerMaxLength,
       },
+      novelty:
+        novelty === null
+          ? { available: false }
+          : {
+              available: true,
+              minimumIdeaLength: novelty.minimumIdeaLength,
+              updatesAfterTypingStopsMs: novelty.debounceMs,
+              comparedProjectCount: novelty.comparedProjectCount,
+              currentCheckState:
+                noveltySignal !== null
+                  ? "succeeded"
+                  : latestNoveltyPreview?.state === "succeeded"
+                    ? "stale"
+                    : (latestNoveltyPreview?.state ?? "not_requested"),
+              currentResult:
+                noveltySignal === null
+                  ? null
+                  : {
+                      score: noveltySignal.score,
+                      band: noveltySignal.band,
+                      nearestThemeLabel: noveltySignal.nearestThemeLabel,
+                      reflectionPrompt: noveltySignal.reflectionPrompt,
+                      evaluatedAt: formatEventTime(noveltySignal.evaluatedAt, event.timezone),
+                    },
+            },
       team:
         visibleTeam === null
           ? null
@@ -891,22 +1130,29 @@ async function buildEventContext(
               membershipLocked: visibleTeam.membershipLocked,
               yourRole: activeMember?.role ?? null,
               members: teamRoster,
-              proposal:
-                draft === null
-                  ? null
-                  : {
-                      stage: draft.stage,
-                      idea: draft.initialIdea ?? null,
-                      additionalInformation: draft.additionalInformation ?? null,
-                      freshnessConfirmed: draft.freshnessAttestedAt !== undefined,
-                      followUps,
-                    },
+              actions: {
+                canEditProposal,
+                editResponsibility:
+                  application === null ? ("team_members" as const) : ("team_lead_only" as const),
+                canSubmitApplication:
+                  application === null &&
+                  draftingIsOpen &&
+                  activeMember?.role === "lead" &&
+                  hasApplicationSubmitPermission,
+                canLeaveTeam: leaveTeamBlocker === null,
+                leaveTeamBlocker,
+                canRemoveMember: removeMemberBlocker === null,
+                removeMemberBlocker,
+              },
+              proposal,
               application:
                 application === null
                   ? null
                   : {
                       state: application.state,
                       submittedAt: formatEventTime(application.submittedAt, event.timezone),
+                      resultsReleased: event.admissionResultsReleasedAt !== undefined,
+                      decision: terminalDecisionReleased ? application.humanDecision : null,
                     },
             },
     },

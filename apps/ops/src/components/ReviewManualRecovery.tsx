@@ -1,7 +1,7 @@
 import { api } from "@code2create/backend/api";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import { useAction, useMutation, useQuery } from "convex/react";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState, type SubmitEvent } from "react";
 
 import { eventSlug } from "../lib/config";
 import { formatMonthDayTime as formatTime } from "../lib/dateTime";
@@ -106,7 +106,7 @@ function ReviewIncidentArea({ data }: { data: IncidentData }) {
   const createAttempt = useMutationAttempt<FunctionReturnType<typeof api.incidents.create>>();
   const createPending = createAttempt.hasPending("review-incident-create");
 
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: SubmitEvent) => {
     event.preventDefault();
     setBusy(true);
     setError(null);
@@ -237,7 +237,7 @@ function ApproveIncident({ incident }: { incident: Incident }) {
     useMutationAttempt<FunctionReturnType<typeof api.incidents.approveManualMode>>();
   const approvePending = approveAttempt.hasPending("review-incident-approve");
 
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: SubmitEvent) => {
     event.preventDefault();
     setBusy(true);
     setError(null);
@@ -293,7 +293,7 @@ function ResolveIncident({ incident }: { incident: Incident }) {
   const resolveAttempt = useMutationAttempt<FunctionReturnType<typeof api.incidents.resolve>>();
   const resolvePending = resolveAttempt.hasPending("review-incident-resolve");
 
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: SubmitEvent) => {
     event.preventDefault();
     setBusy(true);
     setError(null);
@@ -403,7 +403,7 @@ function DraftReviewForm({
     );
   };
 
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: SubmitEvent) => {
     event.preventDefault();
     const incident = approvedIncidents.find((candidate) => candidate.id === incidentId);
     if (!review || !incident) {
@@ -819,7 +819,7 @@ function ReviewSourceUpload({ record }: { record: ManualRecord }) {
     useMutationAttempt<FunctionReturnType<typeof api.manualReviewRecordActions.uploadSource>>();
   const uploadPending = uploadAttempt.hasPending("manual-review-source-upload");
 
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: SubmitEvent) => {
     event.preventDefault();
     if (!file) return;
     setBusy(true);
@@ -926,7 +926,7 @@ function ReviewVerification({ record, review }: { record: ManualRecord; review: 
     useMutationAttempt<FunctionReturnType<typeof api.manualReviewRecords.verify>>();
   const verifyPending = verifyAttempt.hasPending("manual-review-verify");
 
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: SubmitEvent) => {
     event.preventDefault();
     setBusy(true);
     setError(null);
@@ -1035,7 +1035,7 @@ function ReviewDraftCancellation({ record }: { record: ManualRecord }) {
     useMutationAttempt<FunctionReturnType<typeof api.manualReviewRecords.cancelDraft>>();
   const cancelPending = cancelAttempt.hasPending("manual-review-cancel");
 
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: SubmitEvent) => {
     event.preventDefault();
     setBusy(true);
     setError(null);

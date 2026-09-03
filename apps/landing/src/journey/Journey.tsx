@@ -560,13 +560,8 @@ export default function Journey({ petalsRef }: JourneyProps) {
       tl.to(q(".sponsors__title"), { autoAlpha: 1, y: 0, duration: 7, ease: "power3.out" }, 103).to(
         q(".sponsors__title"),
         { autoAlpha: 0, y: "-5svh", duration: 3, ease: "power2.in" },
-        137,
+        139,
       );
-
-      /* Each scroll span contains launch, crack, and letter formation. */
-      const SPONSOR_CUES = [108, 120];
-      const SPONSOR_SCROLL_SPAN = 9;
-      const SPONSORS_OFF = 138;
 
       /* H3 — only now, with the volley spent, do the hills leave the frame
          entirely; nothing of them should be visible once the bonsai is on. */
@@ -748,15 +743,7 @@ export default function Journey({ petalsRef }: JourneyProps) {
       const sponsorCue = (progress: number) => {
         const api = fireworksRef.current;
         if (!api) return;
-        const at = journeyMasterTime(progress);
-        SPONSOR_CUES.forEach((mark, index) => {
-          const active = at >= mark && at < SPONSORS_OFF;
-          const fireworkProgress = active
-            ? gsap.utils.clamp(0, 1, (at - mark) / SPONSOR_SCROLL_SPAN)
-            : 0;
-          const twinklePhase = active ? (at - mark) / SPONSOR_SCROLL_SPAN : 0;
-          api.setProgress(index, fireworkProgress, twinklePhase);
-        });
+        api.setTimeline(journeyMasterTime(progress));
       };
 
       const petalCue = (progress: number) => {
@@ -1008,7 +995,7 @@ export default function Journey({ petalsRef }: JourneyProps) {
             <article className="chapter" key={chapter.title}>
               <h2 className="chapter__title">
                 <span>About</span>{" "}
-                {chapter.wordmark ? (
+                {chapter.wordmark === true ? (
                   <img
                     src="/assets/svg/wordmark-sm.svg"
                     alt="Code2Create"

@@ -28,6 +28,20 @@ const episodeDispatchRetryDelayMs = 60_000;
 const episodeAnalysisLeaseMs = 70 * 60 * 1_000;
 const minimumPredictionHorizonMs = 5 * 60 * 1_000;
 
+function activeEpisodeState(
+  state: Doc<"operationsIntelligenceEpisodes">["state"],
+): OperationsEpisodeProjection["state"] {
+  switch (state) {
+    case "forming":
+    case "active":
+    case "escalating":
+    case "recovering":
+      return state;
+    case "resolved":
+      throw new Error("A resolved intelligence episode cannot be projected as active.");
+  }
+}
+
 async function authorizedEpisodeFacts(
   ctx: Pick<QueryCtx, "db">,
   episodeId: Doc<"operationsIntelligenceEpisodes">["_id"],
@@ -262,7 +276,7 @@ export const relevant = query({
         return {
           episodeId: episode._id,
           correlationKey: episode.correlationKey,
-          state: episode.state as "forming" | "active" | "escalating" | "recovering",
+          state: activeEpisodeState(episode.state),
           severity: episode.severity,
           title: episode.title,
           summary: episode.summary,
@@ -366,7 +380,7 @@ export const serviceProjection = internalQuery({
       eventId: episode.eventId,
       revision: episode.revision,
       correlationKey: episode.correlationKey,
-      state: episode.state as "forming" | "active" | "escalating" | "recovering",
+      state: activeEpisodeState(episode.state),
       severity: episode.severity,
       title: episode.title,
       summary: episode.summary,

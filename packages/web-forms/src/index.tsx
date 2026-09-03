@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 export { useVersionedState } from "./useVersionedState";
@@ -24,14 +25,26 @@ function isFormControl(target: EventTarget | null): target is FormControl {
 }
 
 function fieldName(control: FormControl) {
-  const label = control.labels?.[0]?.textContent?.split("·")[0]?.replace(/\s+/gu, " ").trim();
-  return label || control.getAttribute("aria-label") || control.name || "This field";
+  const label = control.labels?.[0]?.textContent?.split("·")[0]?.replaceAll(/\s+/gu, " ").trim();
+  if (label !== undefined && label !== "") {
+    return label;
+  }
+  const ariaLabel = control.getAttribute("aria-label");
+  if (ariaLabel !== null && ariaLabel !== "") {
+    return ariaLabel;
+  }
+  if (control.name !== "") {
+    return control.name;
+  }
+  return "This field";
 }
 
 export function formControlValidationMessage(control: FormControl) {
   const name = fieldName(control);
   const validity = control.validity;
-  if (validity.customError) return control.validationMessage;
+  if (validity.customError) {
+    return control.validationMessage;
+  }
   if (validity.valueMissing) {
     if (control instanceof HTMLInputElement && control.type === "checkbox") {
       return "Confirm this before continuing.";
@@ -42,7 +55,9 @@ export function formControlValidationMessage(control: FormControl) {
     if (control instanceof HTMLInputElement && control.type === "file") {
       return `Choose a file for ${name.toLowerCase()}.`;
     }
-    if (control instanceof HTMLSelectElement) return `Choose ${name.toLowerCase()}.`;
+    if (control instanceof HTMLSelectElement) {
+      return `Choose ${name.toLowerCase()}.`;
+    }
     return `${name} is required.`;
   }
   if (validity.typeMismatch) {
@@ -69,7 +84,9 @@ export function formControlValidationMessage(control: FormControl) {
   if (validity.stepMismatch || validity.badInput) {
     return `Enter a valid value for ${name.toLowerCase()}.`;
   }
-  if (validity.patternMismatch) return `${name} is not in the expected format.`;
+  if (validity.patternMismatch) {
+    return `${name} is not in the expected format.`;
+  }
   return `Check ${name.toLowerCase()} and try again.`;
 }
 
@@ -109,7 +126,9 @@ export function FormValidationBoundary({ children }: { children: ReactNode }) {
 
   const clearIssue = useCallback((control?: FormControl) => {
     const active = activeControlRef.current;
-    if (!active || (control && active !== control)) return;
+    if (active === null || (control !== undefined && active !== control)) {
+      return;
+    }
     clearInvalidMark(active);
     activeControlRef.current = null;
     setIssue(null);
@@ -126,16 +145,28 @@ export function FormValidationBoundary({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const root = rootRef.current;
-    if (!root) return;
+    if (root === null) {
+      return undefined;
+    }
 
     const handleInvalid = (event: Event) => {
-      if (!isFormControl(event.target) || !root.contains(event.target)) return;
+      if (!isFormControl(event.target) || !root.contains(event.target)) {
+        return;
+      }
       event.preventDefault();
       const control = event.target;
       const active = activeControlRef.current;
-      if (active && active !== control && active.form === control.form && !active.validity.valid)
+      if (
+        active !== null &&
+        active !== control &&
+        active.form === control.form &&
+        !active.validity.valid
+      ) {
         return;
-      if (active && active !== control) clearInvalidMark(active);
+      }
+      if (active !== null && active !== control) {
+        clearInvalidMark(active);
+      }
       activeControlRef.current = control;
       markInvalid(control);
       setIssue(positionedIssue(control, formControlValidationMessage(control)));
@@ -143,11 +174,16 @@ export function FormValidationBoundary({ children }: { children: ReactNode }) {
     };
 
     const handleInput = (event: Event) => {
-      if (!isFormControl(event.target) || event.target !== activeControlRef.current) return;
+      if (!isFormControl(event.target) || event.target !== activeControlRef.current) {
+        return;
+      }
       const control = event.target;
       queueMicrotask(() => {
-        if (control.validity.valid) clearIssue(control);
-        else setIssue(positionedIssue(control, formControlValidationMessage(control)));
+        if (control.validity.valid) {
+          clearIssue(control);
+        } else {
+          setIssue(positionedIssue(control, formControlValidationMessage(control)));
+        }
       });
     };
 
