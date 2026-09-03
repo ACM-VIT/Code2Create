@@ -2002,7 +2002,16 @@ export const saveReview = mutation({
 });
 
 const rerunnableAdmissionRecommendationStates = new Set<Doc<"admissionAIRecommendations">["state"]>(
-  ["refused", "invalid", "timed_out", "rate_limited", "failed", "stale", "disabled"],
+  [
+    "succeeded",
+    "refused",
+    "invalid",
+    "timed_out",
+    "rate_limited",
+    "failed",
+    "stale",
+    "disabled",
+  ],
 );
 
 export function admissionRecommendationCanRerun(
