@@ -854,6 +854,7 @@ async function seedCorrectionFixture(backend: BackendTest) {
       projectVersionId,
       githubEntries: [],
       figmaEntries: [],
+      reviewLinkEntries: [],
       expectedResourceCount: 0,
       capturedResourceCount: 0,
       completeness: "complete",

@@ -48,6 +48,7 @@ function FigmaMark({ dim = false, size = 20 }: { dim?: boolean; size?: number })
 type ReviewWorkspace = FunctionReturnType<typeof api.reviewer.reviewWorkspace>;
 type GithubEvidence = ReviewWorkspace["evidence"]["github"][number];
 type FigmaEvidence = ReviewWorkspace["evidence"]["figma"][number];
+type ReviewLink = ReviewWorkspace["evidence"]["reviewLinks"][number];
 type GithubBrowseResult = FunctionReturnType<typeof api.reviewEvidenceActions.browseGithub>;
 type FigmaPreviewsResult = NonNullable<
   FunctionReturnType<typeof api.reviewEvidenceActions.figmaPreviews>
@@ -163,11 +164,14 @@ export function ProjectEvidence({
           </Text>
         ) : null}
       </View>
-      {review.evidence.expectedResourceCount > 0 ? (
+      {review.evidence.expectedResourceCount > 0 || review.evidence.reviewLinks.length > 0 ? (
         <Text style={styles.guidance}>
           Captured when this review was fixed. Later changes do not appear here.
         </Text>
       ) : null}
+      {review.evidence.reviewLinks.map((link) => (
+        <ReviewLinkCard key={link.id} link={link} />
+      ))}
       {review.evidence.github.map((repository) => (
         <GithubEvidenceCard
           eventSlug={eventSlug}
@@ -184,7 +188,7 @@ export function ProjectEvidence({
           reviewSessionId={review.id}
         />
       ))}
-      {review.evidence.expectedResourceCount === 0 ? (
+      {review.evidence.expectedResourceCount === 0 && review.evidence.reviewLinks.length === 0 ? (
         <View style={styles.noEvidence}>
           <GithubMark dim size={30} />
           <FigmaMark dim size={30} />
@@ -230,6 +234,38 @@ function PriorReviewCard({ prior }: { prior: PriorReview }) {
       ) : (
         <Text style={styles.guidance}>This review ended before the panel finished.</Text>
       )}
+    </View>
+  );
+}
+
+function ReviewLinkCard({ link }: { link: ReviewLink }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const open = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await Linking.openURL(link.url);
+    } catch (caught) {
+      setError(errorMessage(caught, "This submitted link could not be opened."));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <View style={styles.evidenceCard}>
+      <View style={styles.providerRow}>
+        {link.kind === "github" ? <GithubMark /> : <FigmaMark />}
+        <Text numberOfLines={1} style={[styles.value, styles.providerName]}>
+          {link.label}
+        </Text>
+      </View>
+      <Text style={styles.meta}>{link.kind === "github" ? "GitHub" : "Figma"}</Text>
+      <EvidenceButton disabled={busy} label={busy ? "Opening…" : "Open link"} onPress={open} />
+      {error ? <Text style={styles.error}>{error}</Text> : null}
     </View>
   );
 }

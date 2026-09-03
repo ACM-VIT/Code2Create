@@ -326,17 +326,7 @@ async function addLink(
     )
     .unique();
   const now = Date.now();
-  if (existing) {
-    if (existing.state === "archived") {
-      await ctx.db.patch(existing._id, {
-        state: "active",
-        url: args.url,
-        label: args.label,
-        submittedByPersonId: person._id,
-        version: existing.version + 1,
-        updatedAt: now,
-      });
-    }
+  if (existing?.state === "active") {
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -360,6 +350,40 @@ async function addLink(
           ? `This team already submitted ${limit} GitHub links.`
           : `This team already submitted ${limit} Figma links.`,
     });
+  }
+  if (existing) {
+    await ctx.db.patch(existing._id, {
+      state: "active",
+      url: args.url,
+      label: args.label,
+      submittedByPersonId: person._id,
+      version: existing.version + 1,
+      updatedAt: now,
+    });
+    await recordOperation(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      clientOperationId: args.clientOperationId,
+      commandName: "review.link.add",
+      requestFingerprint,
+      targetType: "teamReviewLink",
+      targetId: existing._id,
+      createdAt: now,
+    });
+    await writeAuditEvent(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      permissionKey: "integration.read",
+      grantIds,
+      scopeType: "team",
+      scopeId: team._id,
+      action: "review_link.added",
+      targetType: "teamReviewLink",
+      targetId: existing._id,
+      nextSummary: JSON.stringify({ kind: args.kind, url: args.url }),
+      reason: "Participant restored a review link",
+    });
+    return { linkId: existing._id };
   }
   const linkId = await ctx.db.insert("teamReviewLinks", {
     eventId: event._id,

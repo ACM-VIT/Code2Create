@@ -352,7 +352,7 @@ export async function createEvidenceCheckpoint(
   const event = await ctx.db.get(args.eventId);
   if (!event) throw new Error("The review event no longer resolves.");
   const { normalized: integrationPolicy } = await loadPublishedIntegrationPolicy(ctx, event);
-  const [githubBindings, figmaBindings, previousCheckpoint, teamCheckpointSubmission] =
+  const [githubBindings, figmaBindings, previousCheckpoint, teamCheckpointSubmission, reviewLinks] =
     await Promise.all([
       ctx.db
         .query("githubRepositoryBindings")
@@ -376,6 +376,12 @@ export async function createEvidenceCheckpoint(
         )
         .order("desc")
         .first(),
+      ctx.db
+        .query("teamReviewLinks")
+        .withIndex("by_team_state", (index) =>
+          index.eq("teamId", args.team._id).eq("state", "active"),
+        )
+        .collect(),
     ]);
   if (previousCheckpoint && previousCheckpoint.eventId !== args.eventId) {
     throw new Error("A previous evidence checkpoint belongs to another event.");
@@ -421,6 +427,14 @@ export async function createEvidenceCheckpoint(
       };
     }),
   );
+  const reviewLinkEntries = reviewLinks
+    .toSorted((left, right) => left.createdAt - right.createdAt)
+    .map((link) => ({
+      linkId: link._id,
+      kind: link.kind,
+      url: link.url,
+      label: link.label,
+    }));
   const expectedResourceCount = githubEntries.length + figmaEntries.length;
   const capturedResourceCount =
     githubEntries.filter((entry) => entry.snapshotId !== undefined).length +
@@ -437,6 +451,7 @@ export async function createEvidenceCheckpoint(
     previousCheckpoint?._id ?? "first_checkpoint",
     JSON.stringify(githubEntries),
     JSON.stringify(figmaEntries),
+    JSON.stringify(reviewLinkEntries),
   ]);
   const checkpointId = await ctx.db.insert("reviewEvidenceCheckpointSets", {
     eventId: args.eventId,
@@ -450,6 +465,7 @@ export async function createEvidenceCheckpoint(
     ...(previousCheckpoint ? { previousCheckpointSetId: previousCheckpoint._id } : {}),
     githubEntries,
     figmaEntries,
+    reviewLinkEntries,
     expectedResourceCount,
     capturedResourceCount,
     completeness,

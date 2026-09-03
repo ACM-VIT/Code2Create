@@ -802,6 +802,7 @@ async function seedAwaitingReview(backend: BackendTest, fixture: Fixture) {
       projectVersionId,
       githubEntries: [],
       figmaEntries: [],
+      reviewLinkEntries: [],
       expectedResourceCount: 0,
       capturedResourceCount: 0,
       completeness: "complete",

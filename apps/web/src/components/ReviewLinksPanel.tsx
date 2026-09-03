@@ -73,7 +73,7 @@ export function ReviewLinksPanel() {
     setError(null);
     try {
       await operations.run(
-        "review-link-archive",
+        `review-link-archive:${link.id}`,
         (clientOperationId) => () =>
           archiveLink({
             eventSlug,

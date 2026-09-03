@@ -36,7 +36,7 @@ import {
   requireCompleteAssignedRatings,
 } from "./lib/reviewScores";
 import { normalizedText } from "./lib/strings";
-import { repositoryKind } from "./values";
+import { repositoryKind, reviewLinkKind } from "./values";
 
 type ReadCtx = QueryCtx | MutationCtx;
 
@@ -1077,6 +1077,14 @@ const reviewerEvidenceView = v.object({
       ),
     }),
   ),
+  reviewLinks: v.array(
+    v.object({
+      id: v.id("teamReviewLinks"),
+      kind: reviewLinkKind,
+      url: v.string(),
+      label: v.string(),
+    }),
+  ),
 });
 
 const reviewerWorkspaceDataView = v.object({
@@ -1857,6 +1865,12 @@ export const reviewWorkspaceData = internalQuery({
         expectedResourceCount: evidence.expectedResourceCount,
         github: githubEvidence,
         figma: figmaEvidence,
+        reviewLinks: evidence.reviewLinkEntries.map((entry) => ({
+          id: entry.linkId,
+          kind: entry.kind,
+          url: entry.url,
+          label: entry.label,
+        })),
       },
       criteria: criteria.map((criterion) => ({
         id: criterion._id,
