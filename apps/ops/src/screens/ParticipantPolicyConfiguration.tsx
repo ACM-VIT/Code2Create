@@ -441,7 +441,7 @@ export function ParticipantPolicyConfiguration({ tabs }: { tabs: ConfigurationTa
               >
                 <div className="phase-card-list">
                   {policy.vitHostelResidenceCatalog.map((residence, index) => (
-                    <article className="phase-card" key={`${residence.stableKey}:${index}`}>
+                    <article className="phase-card" key={index}>
                       <header className="configuration-card-heading">
                         <div>
                           <span>Hostel block {index + 1}</span>
