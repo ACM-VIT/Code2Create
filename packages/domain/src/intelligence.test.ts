@@ -182,7 +182,7 @@ test("brief tickets cannot carry copilot conversation coordinates", () => {
 test("the copilot release uses one generalized command protocol without per-request skills", () => {
   const copilot = intelligenceAgentDefinition("operations-copilot");
   const systemPrompt = copilot.prompts.find((prompt) => prompt.name === "System prompt")?.text;
-  assert.equal(copilot.version, "operations-copilot-v1");
+  assert.equal(copilot.version, "operations-copilot-v2");
   if (systemPrompt === undefined || systemPrompt.length === 0) {
     throw new Error("The copilot agent needs a system prompt.");
   }
@@ -197,6 +197,12 @@ test("the copilot release uses one generalized command protocol without per-requ
     systemPrompt,
     /do not impose an artificial response, token, turn, or tool-call ceiling/u,
   );
+  assert.match(systemPrompt, /calm, experienced teammate/u);
+  assert.match(systemPrompt, /quick question usually needs two or three sentences/u);
+  assert.match(systemPrompt, /do not print read names/u);
+  assert.match(systemPrompt, /provenance only when the operator asks/u);
+  assert.match(systemPrompt, /recite every area that is empty or healthy/u);
+  assert.doesNotMatch(systemPrompt, /Cite each material claim by naming the read/u);
   assert.ok(copilot.tools.includes("scoped event-command catalog"));
   assert.ok(copilot.tools.includes("propose_event_command"));
 });

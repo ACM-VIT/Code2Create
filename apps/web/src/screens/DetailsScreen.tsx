@@ -5,7 +5,6 @@ import {
   normalizeParticipantName,
   normalizeParticipantPhone,
   normalizeVitHostelRoomNumberInput,
-  participantProfileCodeConfiguration,
   participantGenderLabels,
   participantNameValidationError,
   participantPhoneValidationError,
@@ -165,9 +164,10 @@ export function DetailsScreen({
   const fullNameError = vitStudent ? null : participantNameValidationError(fullName);
   const phoneError = participantPhoneValidationError(phone);
   const normalizedPhone = phoneError ? null : normalizeParticipantPhone(phone);
+  const phoneVerificationEnabled = me.participantPolicy.policy.phoneVerificationEnabled;
   const phoneVerification = useQuery(
     api.phoneVerifications.status,
-    participantProfileCodeConfiguration.phoneVerificationEnabled && membership && normalizedPhone
+    phoneVerificationEnabled && membership && normalizedPhone
       ? { eventSlug, phone: normalizedPhone }
       : "skip",
   );
@@ -183,14 +183,13 @@ export function DetailsScreen({
       ? confirmedPhoneVerification
       : null;
   const phoneVerified =
-    !participantProfileCodeConfiguration.phoneVerificationEnabled ||
+    !phoneVerificationEnabled ||
     phoneVerificationState === "verified" ||
     locallyConfirmedPhone !== null;
   const verifiedPhoneVerificationId =
     phoneVerificationState === "verified"
       ? phoneVerification?.verificationId
       : locallyConfirmedPhone?.verificationId;
-  const phoneVerificationEnabled = participantProfileCodeConfiguration.phoneVerificationEnabled;
   const codePanelState =
     phoneVerificationState && phoneVerificationState !== "verified" ? phoneVerificationState : null;
   const codePanelOpen = phoneVerificationEnabled && codePanelState !== null;
@@ -326,17 +325,14 @@ export function DetailsScreen({
     if (
       fullNameError ||
       phoneError ||
-      (participantProfileCodeConfiguration.phoneVerificationEnabled &&
-        (!phoneVerified || !verifiedPhoneVerificationId)) ||
+      (phoneVerificationEnabled && (!phoneVerified || !verifiedPhoneVerificationId)) ||
       !submittedGender ||
       (!vitStudent && (!submittedYearOfStudy || externalUniversityError || externalCollegeError)) ||
       (vitStudent && (!submittedResidenceType || hostelResidenceError || hostelRoomNumberError))
     ) {
       setPhoneVerificationTouched(true);
       setError(
-        participantProfileCodeConfiguration.phoneVerificationEnabled &&
-          !phoneVerified &&
-          !phoneError
+        phoneVerificationEnabled && !phoneVerified && !phoneError
           ? "Verify your phone number before continuing."
           : "Complete the highlighted fields before continuing.",
       );
@@ -364,8 +360,7 @@ export function DetailsScreen({
             eventSlug,
             participantPolicyVersionId: me.participantPolicy.id,
             phone: normalizeParticipantPhone(phone),
-            ...(participantProfileCodeConfiguration.phoneVerificationEnabled &&
-            verifiedPhoneVerificationId
+            ...(phoneVerificationEnabled && verifiedPhoneVerificationId
               ? { phoneVerificationId: verifiedPhoneVerificationId }
               : {}),
             gender: submittedGender,

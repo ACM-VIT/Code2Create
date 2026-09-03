@@ -277,6 +277,13 @@ function describeChanges(
   ) {
     changes.push("Update team size or mixed-team eligibility.");
   }
+  if (published.phoneVerificationEnabled !== draft.phoneVerificationEnabled) {
+    changes.push(
+      draft.phoneVerificationEnabled
+        ? "Require SMS verification for participant phone numbers."
+        : "Stop requiring SMS verification for participant phone numbers.",
+    );
+  }
   if (
     JSON.stringify(published.vitHostelResidenceCatalog) !==
     JSON.stringify(draft.vitHostelResidenceCatalog)
