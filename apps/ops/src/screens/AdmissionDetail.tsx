@@ -36,6 +36,10 @@ import { LoadingLabel, SkeletonCard, SkeletonList } from "../components/Skeleton
 import { ParticipantDeliveryStatus } from "../components/ParticipantDeliveryStatus";
 
 type AdmissionDetailData = NonNullable<FunctionReturnType<typeof api.admissions.detail>>;
+type ReviewAssignment = NonNullable<AdmissionDetailData["reviewAssignments"]>[number];
+type ReviewAssignmentEvidenceData = FunctionReturnType<
+  typeof api.admissions.reviewAssignmentEvidence
+>;
 type AiDisposition = AdmissionAiDisposition;
 
 export function AdmissionDetail() {
@@ -568,11 +572,22 @@ function ReviewAssignmentControl({ detail }: { detail: AdmissionDetailData }) {
   const operations = useOperationRunner();
   const [reviewerEmail, setReviewerEmail] = useState("");
   const [cancelTargetId, setCancelTargetId] = useState<string | null>(null);
+  const [evidenceTargetId, setEvidenceTargetId] = useState<ReviewAssignment["id"] | null>(null);
   const [cancelReason, setCancelReason] = useState("");
   const [busy, setBusy] = useState<"assign" | "cancel" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const assignments = detail.reviewAssignments ?? [];
   const cancelTarget = assignments.find((assignment) => assignment.id === cancelTargetId);
+  const assignmentEvidence = useQuery(
+    api.admissions.reviewAssignmentEvidence,
+    evidenceTargetId
+      ? {
+          eventSlug,
+          applicationId: detail.application.id,
+          assignmentId: evidenceTargetId,
+        }
+      : "skip",
+  );
 
   const assign = async (event: SubmitEvent) => {
     event.preventDefault();
@@ -693,6 +708,21 @@ function ReviewAssignmentControl({ detail }: { detail: AdmissionDetailData }) {
                   Cancel
                 </button>
               ) : null}
+              {assignment.state === "completed" && assignment.evidenceAvailable ? (
+                <button
+                  className="text-button"
+                  type="button"
+                  aria-expanded={evidenceTargetId === assignment.id}
+                  aria-controls={`assignment-evidence-${assignment.id}`}
+                  onClick={() =>
+                    setEvidenceTargetId((current) =>
+                      current === assignment.id ? null : assignment.id,
+                    )
+                  }
+                >
+                  {evidenceTargetId === assignment.id ? "Hide" : "View"}
+                </button>
+              ) : null}
               {(assignment.state === "active" || cancelPending) &&
               cancelTargetId === assignment.id ? (
                 <form className="inline-cancel-form" onSubmit={cancel}>
@@ -731,6 +761,13 @@ function ReviewAssignmentControl({ detail }: { detail: AdmissionDetailData }) {
                 </form>
               ) : null}
               {assignment.cancellationReason ? <p>{assignment.cancellationReason}</p> : null}
+              {evidenceTargetId === assignment.id ? (
+                <ReviewAssignmentEvidence
+                  id={`assignment-evidence-${assignment.id}`}
+                  detail={detail}
+                  evidence={assignmentEvidence}
+                />
+              ) : null}
             </li>
           ))}
         </ul>
@@ -741,6 +778,72 @@ function ReviewAssignmentControl({ detail }: { detail: AdmissionDetailData }) {
         </p>
       ) : null}
     </section>
+  );
+}
+
+function ReviewAssignmentEvidence({
+  id,
+  detail,
+  evidence,
+}: {
+  id: string;
+  detail: AdmissionDetailData;
+  evidence: ReviewAssignmentEvidenceData | undefined;
+}) {
+  if (evidence === undefined) {
+    return (
+      <div className="assignment-evidence" id={id} aria-live="polite">
+        <LoadingLabel>Loading the review and idea version</LoadingLabel>
+      </div>
+    );
+  }
+
+  return (
+    <div className="assignment-evidence" id={id}>
+      <section>
+        <span className="assignment-evidence-label">
+          Last review left on application version {evidence.applicationContentVersion}
+        </span>
+        {evidence.review ? (
+          <>
+            <p className="assignment-evidence-verdict">
+              <strong>{applicationDecisionLabels[evidence.review.recommendation]}</strong>
+              {reasonLabel(detail, evidence.review.reasonCode) ? (
+                <span> · {reasonLabel(detail, evidence.review.reasonCode)}</span>
+              ) : null}
+            </p>
+            <small>
+              Submitted {formatEventTime(evidence.review.createdAt, detail.eventTimezone)}
+            </small>
+            {evidence.review.note ? <p>{evidence.review.note}</p> : null}
+          </>
+        ) : (
+          <p>No review was stored for this reviewer on this application version.</p>
+        )}
+      </section>
+      <section>
+        <span className="assignment-evidence-label">
+          Idea on application version {evidence.applicationContentVersion} · stored project version{" "}
+          {evidence.project.version}
+        </span>
+        <div className="assignment-evidence-answer">
+          <small>Initial idea</small>
+          <p>{evidence.project.initialIdea}</p>
+        </div>
+        {evidence.project.intakeResponses.map((response) => (
+          <div className="assignment-evidence-answer" key={response.ordinal}>
+            <small>{response.question}</small>
+            <p>{response.answer}</p>
+          </div>
+        ))}
+        {evidence.project.additionalInformation ? (
+          <div className="assignment-evidence-answer">
+            <small>Additional information</small>
+            <p>{evidence.project.additionalInformation}</p>
+          </div>
+        ) : null}
+      </section>
+    </div>
   );
 }
 
