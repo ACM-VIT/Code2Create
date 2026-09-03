@@ -28,6 +28,7 @@ export {
   defaultParticipantEmailTemplates,
   participantEmailTemplateKeys,
   participantEmailTemplateLabels,
+  participantEmailTemplateZipMaximumBytes,
   type ParticipantEmailTemplate,
   type ParticipantEmailTemplateKey,
 } from "./participantEmailTemplates.ts";

@@ -2,12 +2,13 @@ import { api } from "@code2create/backend/api";
 import {
   participantEmailTemplateKeys,
   participantEmailTemplateLabels,
+  participantEmailTemplateZipMaximumBytes,
   type ParticipantEmailTemplateKey,
 } from "@code2create/domain";
 import { TZDateMini } from "@date-fns/tz";
-import type { FunctionReturnType } from "convex/server";
+import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import { useAction, useMutation, useQuery } from "convex/react";
-import { useEffect, useState, type ChangeEvent, type SubmitEvent } from "react";
+import { useEffect, useState, type DragEvent, type SubmitEvent } from "react";
 
 import {
   ConfigurationTabs,
@@ -18,6 +19,7 @@ import { PendingOperationRecovery } from "../components/PendingOperationRecovery
 import { LoadingLabel, SkeletonCard, SkeletonStats } from "../components/Skeleton";
 import { eventSlug } from "../lib/config";
 import { formatZonedDateTimeWindow as formatWindow } from "../lib/dateTime";
+import { readableError } from "../lib/errors";
 import {
   type ConfigurationOperationDescriptor,
   useConfigurationOperations,
@@ -33,6 +35,36 @@ type EmailTemplate = Policy["emailTemplates"][number];
 type CommunicationsPolicyOperationResult =
   | FunctionReturnType<typeof api.communicationsPolicyConfiguration.createDraft>
   | FunctionReturnType<typeof api.communicationsPolicyConfiguration.publish>;
+type EmailBundleStorageId = FunctionArgs<
+  typeof api.communicationsEmailAssetActions.importBundle
+>["sourceStorageId"];
+
+function isStorageUploadResponse(value: unknown): value is { storageId: EmailBundleStorageId } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "storageId" in value &&
+    typeof value.storageId === "string"
+  );
+}
+
+async function uploadTemplateZip(uploadUrl: string, file: File) {
+  const response = await fetch(uploadUrl, {
+    method: "POST",
+    headers: { "Content-Type": file.type || "application/zip" },
+    body: file,
+  });
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch {
+    throw new Error("The template ZIP upload returned an unreadable response.");
+  }
+  if (!response.ok || !isStorageUploadResponse(payload)) {
+    throw new Error("The template ZIP could not be uploaded. Try again.");
+  }
+  return payload.storageId;
+}
 
 const operationDescriptors = [
   {
@@ -51,7 +83,10 @@ export function CommunicationsPolicyConfiguration({ tabs }: { tabs: Configuratio
   const configuration = useQuery(api.communicationsPolicyConfiguration.current, { eventSlug });
   const createDraft = useMutation(api.communicationsPolicyConfiguration.createDraft);
   const publish = useMutation(api.communicationsPolicyConfiguration.publish);
-  const uploadEmailBundle = useAction(api.communicationsEmailAssetActions.uploadBundle);
+  const generateEmailBundleUploadUrl = useMutation(
+    api.communicationsEmailAssets.generateBundleUploadUrl,
+  );
+  const importEmailBundle = useAction(api.communicationsEmailAssetActions.importBundle);
   const operations =
     useConfigurationOperations<CommunicationsPolicyOperationResult>(operationDescriptors);
   const validation = useQuery(
@@ -73,8 +108,17 @@ export function CommunicationsPolicyConfiguration({ tabs }: { tabs: Configuratio
   const [draftReason, setDraftReason] = useState("");
   const [publishReason, setPublishReason] = useState("");
   const [selectedEmail, setSelectedEmail] = useState<ParticipantEmailTemplateKey>("accept");
-  const [emailAssetError, setEmailAssetError] = useState<string | null>(null);
-  const [uploadingEmailBundle, setUploadingEmailBundle] = useState(false);
+  const [emailAssetError, setEmailAssetError] = useState<{
+    templateKey: ParticipantEmailTemplateKey;
+    message: string;
+  } | null>(null);
+  const [uploadingEmailBundle, setUploadingEmailBundle] =
+    useState<ParticipantEmailTemplateKey | null>(null);
+  const [importedEmailBundle, setImportedEmailBundle] = useState<{
+    templateKey: ParticipantEmailTemplateKey;
+    fileName: string;
+    assetCount: number;
+  } | null>(null);
   const publishState = useVersionedState(sourceKey, false);
   const publishArmed = publishState.value;
   const setPublishArmed = publishState.replace;
@@ -144,48 +188,88 @@ export function CommunicationsPolicyConfiguration({ tabs }: { tabs: Configuratio
     throw new Error(`The ${selectedEmail} participant email template is missing.`);
   }
 
-  const updateEmailTemplate = (patch: Partial<EmailTemplate>) => {
-    updatePolicy(
-      "emailTemplates",
-      policy.emailTemplates.map((template) =>
-        template.templateKey === selectedEmail ? { ...template, ...patch } : template,
-      ),
+  const updateEmailTemplateFor = (
+    templateKey: ParticipantEmailTemplateKey,
+    patch: Partial<EmailTemplate>,
+  ) => {
+    setPolicy((current) =>
+      current
+        ? {
+            ...current,
+            emailTemplates: current.emailTemplates.map((template) =>
+              template.templateKey === templateKey ? { ...template, ...patch } : template,
+            ),
+          }
+        : current,
     );
   };
+
+  const updateEmailTemplate = (patch: Partial<EmailTemplate>) =>
+    updateEmailTemplateFor(selectedEmail, patch);
 
   const removeEmailAssetBundle = () => {
-    updatePolicy(
-      "emailTemplates",
-      policy.emailTemplates.map((template) => {
-        if (template.templateKey !== selectedEmail) return template;
-        const { assetBundleId: _removed, ...withoutBundle } = template;
-        return withoutBundle;
-      }),
+    setPolicy((current) =>
+      current
+        ? {
+            ...current,
+            emailTemplates: current.emailTemplates.map((template) => {
+              if (template.templateKey !== selectedEmail) return template;
+              const { assetBundleId: _removed, ...withoutBundle } = template;
+              return withoutBundle;
+            }),
+          }
+        : current,
     );
+    setImportedEmailBundle(null);
   };
 
-  const importEmailBundle = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.currentTarget.files?.[0];
-    event.currentTarget.value = "";
-    if (!file) return;
+  const importEmailTemplateBundle = async (file: File) => {
+    const templateKey = selectedEmail;
     setEmailAssetError(null);
-    setUploadingEmailBundle(true);
+    setImportedEmailBundle(null);
+    if (!file.name.toLocaleLowerCase("en").endsWith(".zip")) {
+      setEmailAssetError({ templateKey, message: "Choose a .zip template package." });
+      return;
+    }
+    if (file.size < 22 || file.size > participantEmailTemplateZipMaximumBytes) {
+      setEmailAssetError({
+        templateKey,
+        message: "Choose a valid ZIP file no larger than 3.5 MB.",
+      });
+      return;
+    }
+    setUploadingEmailBundle(templateKey);
     try {
-      const imported = await uploadEmailBundle({
+      const uploadUrl = await generateEmailBundleUploadUrl({ eventSlug });
+      const sourceStorageId = await uploadTemplateZip(uploadUrl, file);
+      const imported = await importEmailBundle({
         eventSlug,
-        templateKey: selectedEmail,
+        templateKey,
         fileName: file.name,
-        bytes: await file.arrayBuffer(),
+        sourceStorageId,
         clientOperationId: crypto.randomUUID(),
       });
-      updateEmailTemplate({ html: imported.html, assetBundleId: imported.bundleId });
+      updateEmailTemplateFor(templateKey, {
+        html: imported.html,
+        assetBundleId: imported.bundleId,
+      });
+      setImportedEmailBundle({
+        templateKey,
+        fileName: imported.sourceFileName,
+        assetCount: imported.assetCount,
+      });
     } catch (caught) {
-      setEmailAssetError(
-        caught instanceof Error ? caught.message : "The email ZIP could not be imported.",
-      );
+      setEmailAssetError({ templateKey, message: readableError(caught) });
     } finally {
-      setUploadingEmailBundle(false);
+      setUploadingEmailBundle(null);
     }
+  };
+
+  const dropEmailTemplateBundle = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    if (uploadingEmailBundle !== null) return;
+    const file = event.dataTransfer.files.item(0);
+    if (file) void importEmailTemplateBundle(file);
   };
 
   const saveDraft = (event: SubmitEvent) => {
@@ -524,6 +608,7 @@ export function CommunicationsPolicyConfiguration({ tabs }: { tabs: Configuratio
                         onClick={() => {
                           setSelectedEmail(templateKey);
                           setEmailAssetError(null);
+                          setImportedEmailBundle(null);
                         }}
                       >
                         <span>{participantEmailTemplateLabels[templateKey]}</span>
@@ -562,6 +647,69 @@ export function CommunicationsPolicyConfiguration({ tabs }: { tabs: Configuratio
                         }
                       />
                     </label>
+                    <div
+                      className="email-template-package"
+                      onDragOver={(event) => event.preventDefault()}
+                      onDrop={dropEmailTemplateBundle}
+                    >
+                      <div className="email-template-package-copy">
+                        <span className="eyebrow">Template ZIP</span>
+                        <strong>One HTML file with its images</strong>
+                        <p className="muted">
+                          Drop a ZIP here or choose one. The HTML remains editable after import.
+                        </p>
+                      </div>
+                      <div className="email-bundle-controls">
+                        <label
+                          aria-disabled={uploadingEmailBundle !== null}
+                          className="secondary file-button"
+                          htmlFor={`email-template-zip-${selectedEmail}`}
+                        >
+                          <input
+                            accept=".zip,application/zip"
+                            disabled={uploadingEmailBundle !== null}
+                            id={`email-template-zip-${selectedEmail}`}
+                            type="file"
+                            onChange={(event) => {
+                              const file = event.currentTarget.files?.item(0);
+                              event.currentTarget.value = "";
+                              if (file) void importEmailTemplateBundle(file);
+                            }}
+                          />
+                          {uploadingEmailBundle === selectedEmail
+                            ? "Checking ZIP…"
+                            : selectedEmailTemplate.assetBundleId
+                              ? "Replace ZIP"
+                              : "Choose ZIP"}
+                        </label>
+                        {selectedEmailTemplate.assetBundleId ? (
+                          <button
+                            className="text-button"
+                            disabled={uploadingEmailBundle !== null}
+                            type="button"
+                            onClick={removeEmailAssetBundle}
+                          >
+                            Remove package
+                          </button>
+                        ) : null}
+                      </div>
+                      <p className="muted email-template-package-rules">
+                        Exactly one .html or .htm file; up to 24 PNG, JPEG, GIF, WebP, or PDF
+                        assets; 3.5 MB ZIP maximum.
+                      </p>
+                      {importedEmailBundle?.templateKey === selectedEmail ? (
+                        <p className="notice success" role="status">
+                          Imported {importedEmailBundle.fileName} with {importedEmailBundle.assetCount}{" "}
+                          {importedEmailBundle.assetCount === 1 ? "asset" : "assets"}. Save the draft
+                          to keep it.
+                        </p>
+                      ) : null}
+                      {emailAssetError?.templateKey === selectedEmail ? (
+                        <p className="notice error" role="alert">
+                          {emailAssetError.message}
+                        </p>
+                      ) : null}
+                    </div>
                     <label className="field">
                       <span>Plain-text version</span>
                       <textarea
@@ -589,35 +737,6 @@ export function CommunicationsPolicyConfiguration({ tabs }: { tabs: Configuratio
                         }
                       />
                     </label>
-                    <div className="email-bundle-controls">
-                      <label className="secondary file-button">
-                        <input
-                          accept=".zip,application/zip"
-                          disabled={uploadingEmailBundle}
-                          type="file"
-                          onChange={(event) => void importEmailBundle(event)}
-                        />
-                        {uploadingEmailBundle ? "Checking ZIP…" : "Import HTML ZIP"}
-                      </label>
-                      {selectedEmailTemplate.assetBundleId ? (
-                        <button
-                          className="text-button"
-                          type="button"
-                          onClick={removeEmailAssetBundle}
-                        >
-                          Remove attached files
-                        </button>
-                      ) : null}
-                    </div>
-                    <p className="muted">
-                      A ZIP must contain index.html and up to 24 PNG, JPEG, GIF, WebP, or PDF
-                      assets. Imported HTML remains editable.
-                    </p>
-                    {emailAssetError ? (
-                      <p className="notice error" role="alert">
-                        {emailAssetError}
-                      </p>
-                    ) : null}
                   </div>
                   <EmailTemplatePreview template={selectedEmailTemplate} />
                 </div>
@@ -693,7 +812,6 @@ function EmailTemplatePreview({ template }: { template: EmailTemplate }) {
 
   useEffect(() => {
     let disposed = false;
-    const createdUrls: string[] = [];
     const bundleId = template.assetBundleId;
     if (!bundleId) return;
     void readBundle({ eventSlug, bundleId })
@@ -701,11 +819,7 @@ function EmailTemplatePreview({ template }: { template: EmailTemplate }) {
         if (disposed) return;
         const next = bundle.assets
           .filter((asset) => asset.disposition === "inline")
-          .map((asset) => {
-            const url = URL.createObjectURL(new Blob([asset.bytes], { type: asset.contentType }));
-            createdUrls.push(url);
-            return { fileName: asset.fileName, url };
-          });
+          .map((asset) => ({ fileName: asset.fileName, url: asset.url }));
         setAssetPreview({ bundleId, sourceFileName: bundle.sourceFileName, urls: next });
       })
       .catch((caught: unknown) => {
@@ -719,7 +833,6 @@ function EmailTemplatePreview({ template }: { template: EmailTemplate }) {
       });
     return () => {
       disposed = true;
-      for (const url of createdUrls) URL.revokeObjectURL(url);
     };
   }, [readBundle, template.assetBundleId]);
 
@@ -731,12 +844,20 @@ function EmailTemplatePreview({ template }: { template: EmailTemplate }) {
   const error = currentPreviewError?.message ?? null;
   let preview = renderEmailPreview(template.html);
   for (const asset of assetUrls) {
-    preview = preview
-      .replaceAll(`src="${asset.fileName}"`, `src="${asset.url}"`)
-      .replaceAll(`src='${asset.fileName}'`, `src='${asset.url}'`)
-      .replaceAll(`url("${asset.fileName}")`, `url("${asset.url}")`)
-      .replaceAll(`url('${asset.fileName}')`, `url('${asset.url}')`)
-      .replaceAll(`url(${asset.fileName})`, `url(${asset.url})`);
+    const references = [
+      asset.fileName,
+      `./${asset.fileName}`,
+      `cid:${asset.fileName}`,
+      `cid:./${asset.fileName}`,
+    ];
+    for (const reference of references) {
+      preview = preview
+        .replaceAll(`src="${reference}"`, `src="${asset.url}"`)
+        .replaceAll(`src='${reference}'`, `src='${asset.url}'`)
+        .replaceAll(`url("${reference}")`, `url("${asset.url}")`)
+        .replaceAll(`url('${reference}')`, `url('${asset.url}')`)
+        .replaceAll(`url(${reference})`, `url(${asset.url})`);
+    }
   }
 
   return (

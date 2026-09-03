@@ -39,7 +39,7 @@
     "test:admission-configuration": "vitest run convex/admissionPolicyConfiguration.test.ts",
     "test:benefits": "vitest run convex/benefitsLifecycle.test.ts --testTimeout=15000",
     "test:novelty": "vitest run convex/noveltyLifecycle.test.ts convex/lib/novelty.test.ts convex/lib/noveltyRateLimits.test.ts convex/lib/openAiNoveltyJudge.test.ts --testTimeout=10000",
-    "test:communications": "vitest run convex/communicationsPolicyLifecycle.test.ts",
+    "test:communications": "vitest run convex/communicationsPolicyLifecycle.test.ts convex/lib/emailTemplateBundle.test.ts",
     "test:attendance-stations": "vitest run convex/attendanceConfiguration.test.ts convex/attendanceOperations.test.ts convex/attendanceStationLifecycle.test.ts convex/lib/attendancePlanLimits.test.ts",
     "test:attendance-scan": "vitest run convex/attendanceScanTransition.test.ts",
     "test:attendance-sessions": "node --test convex/lib/attendanceExportLifetime.test.ts && vitest run convex/attendanceSessionLifecycle.test.ts convex/lib/attendanceCompletionPolicy.test.ts",

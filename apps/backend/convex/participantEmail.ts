@@ -45,12 +45,20 @@ function rewriteInlineAssetReferences(
   for (const asset of assets) {
     if (asset.disposition !== "inline") continue;
     const cid = `cid:${asset.contentId}`;
-    rewritten = rewritten
-      .replaceAll(`src="${asset.fileName}"`, `src="${cid}"`)
-      .replaceAll(`src='${asset.fileName}'`, `src='${cid}'`)
-      .replaceAll(`url("${asset.fileName}")`, `url("${cid}")`)
-      .replaceAll(`url('${asset.fileName}')`, `url('${cid}')`)
-      .replaceAll(`url(${asset.fileName})`, `url(${cid})`);
+    const references = [
+      asset.fileName,
+      `./${asset.fileName}`,
+      `cid:${asset.fileName}`,
+      `cid:./${asset.fileName}`,
+    ];
+    for (const reference of references) {
+      rewritten = rewritten
+        .replaceAll(`src="${reference}"`, `src="${cid}"`)
+        .replaceAll(`src='${reference}'`, `src='${cid}'`)
+        .replaceAll(`url("${reference}")`, `url("${cid}")`)
+        .replaceAll(`url('${reference}')`, `url('${cid}')`)
+        .replaceAll(`url(${reference})`, `url(${cid})`);
+    }
   }
   return rewritten;
 }

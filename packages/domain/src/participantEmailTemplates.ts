@@ -10,6 +10,8 @@ export const participantEmailTemplateKeys = [
 
 export type ParticipantEmailTemplateKey = (typeof participantEmailTemplateKeys)[number];
 
+export const participantEmailTemplateZipMaximumBytes = 3_500_000;
+
 export type ParticipantEmailTemplate = {
   templateKey: ParticipantEmailTemplateKey;
   subject: string;

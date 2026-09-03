@@ -94,6 +94,7 @@ import type * as lib_cloudflareEmailSending from "../lib/cloudflareEmailSending.
 import type * as lib_communicationsPolicy from "../lib/communicationsPolicy.js";
 import type * as lib_configurationOperationResult from "../lib/configurationOperationResult.js";
 import type * as lib_csv from "../lib/csv.js";
+import type * as lib_emailTemplateBundle from "../lib/emailTemplateBundle.js";
 import type * as lib_emergencyPack from "../lib/emergencyPack.js";
 import type * as lib_eventLifecycle from "../lib/eventLifecycle.js";
 import type * as lib_events from "../lib/events.js";
@@ -369,6 +370,7 @@ declare const fullApi: ApiFromModules<{
   "lib/communicationsPolicy": typeof lib_communicationsPolicy;
   "lib/configurationOperationResult": typeof lib_configurationOperationResult;
   "lib/csv": typeof lib_csv;
+  "lib/emailTemplateBundle": typeof lib_emailTemplateBundle;
   "lib/emergencyPack": typeof lib_emergencyPack;
   "lib/eventLifecycle": typeof lib_eventLifecycle;
   "lib/events": typeof lib_events;

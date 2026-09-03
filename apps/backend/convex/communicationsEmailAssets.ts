@@ -1,6 +1,6 @@
 import { ConvexError, v } from "convex/values";
 
-import { internalMutation, internalQuery } from "./_generated/server";
+import { internalMutation, internalQuery, mutation } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
@@ -17,6 +17,40 @@ const assetInput = v.object({
   disposition: v.union(v.literal("inline"), v.literal("attachment")),
   byteCount: v.number(),
   sha256: v.string(),
+});
+
+export const generateBundleUploadUrl = mutation({
+  args: { eventSlug: v.string() },
+  returns: v.string(),
+  handler: async (ctx, args) => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    await requirePermission(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey: "configuration.communications.draft.create",
+      scopeType: "event",
+    });
+    return await ctx.storage.generateUploadUrl();
+  },
+});
+
+export const authorizeBundleUpload = internalQuery({
+  args: { eventSlug: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    await requirePermission(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey: "configuration.communications.draft.create",
+      scopeType: "event",
+    });
+    return null;
+  },
 });
 
 export const uploadContext = internalQuery({
