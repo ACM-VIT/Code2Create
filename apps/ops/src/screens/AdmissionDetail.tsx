@@ -232,7 +232,9 @@ export function AdmissionDetail() {
             {canRecordDecision ? <DecisionForm detail={detail} /> : null}
             {canReview && reviewOpen ? <ReviewForm detail={detail} /> : null}
             {offerActionable ? <OfferControl detail={detail} /> : null}
-            {canManageAssignments ? <ReviewAssignmentControl detail={detail} /> : null}
+            {canManageAssignments ? (
+              <ReviewAssignmentControl key={detail.application.id} detail={detail} />
+            ) : null}
             {canReadDelivery ? (
               <ParticipantDeliveryStatus
                 applicationId={detail.application.id}

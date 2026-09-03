@@ -2020,7 +2020,12 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_application_status", ["applicationId", "status"])
-    .index("by_application_reviewer_status", ["applicationId", "reviewerPersonId", "status"]),
+    .index("by_application_reviewer_status", ["applicationId", "reviewerPersonId", "status"])
+    .index("by_application_reviewer_content_version", [
+      "applicationId",
+      "reviewerPersonId",
+      "applicationContentVersion",
+    ]),
 
   admissionReviewAssignments: defineTable({
     eventId: v.id("events"),

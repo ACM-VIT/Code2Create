@@ -2106,6 +2106,7 @@ The rehearsal result stores its source manifest/archive, exact staging target, o
 | `admissionReviewAssignments.by_event_reviewer_state_assigned`                  | Page one person's active/completed review work                                                                 |
 | `admissionReviewAssignments.by_application_state_assigned`                     | Read assignment coverage and bounded history for one application                                               |
 | `admissionHumanReviews.by_application_reviewer_status`                         | Resolve and replace one reviewer's current recommendation                                                      |
+| `admissionHumanReviews.by_application_reviewer_content_version`                | Resolve the newest immutable review for one reviewer and application-content version                           |
 | `admissionHumanReviews.by_application_status`                                  | Count current recommendations and publish a human decision                                                     |
 | `admissionAIRecommendations.by_application_input_checksum`                     | Deduplicate analysis and reject stale application/model work                                                   |
 | `admissionAIRecommendations.by_event_state_created`                            | Bound recent unavailable/stalled analysis checks without reading application content                           |

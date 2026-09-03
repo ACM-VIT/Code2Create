@@ -1415,7 +1415,7 @@ export const reviewAssignmentEvidence = query({
     if (projectVersion < 1 || assignment.applicationContentVersion > application.contentVersion) {
       throw new Error("The assignment references an invalid application-content version.");
     }
-    const [project, reviewerReviews] = await Promise.all([
+    const [project, review] = await Promise.all([
       ctx.db
         .query("projectVersions")
         .withIndex("by_team_version", (index) =>
@@ -1424,25 +1424,18 @@ export const reviewAssignmentEvidence = query({
         .unique(),
       ctx.db
         .query("admissionHumanReviews")
-        .withIndex("by_application_reviewer_status", (index) =>
+        .withIndex("by_application_reviewer_content_version", (index) =>
           index
             .eq("applicationId", application._id)
-            .eq("reviewerPersonId", assignment.reviewerPersonId),
+            .eq("reviewerPersonId", assignment.reviewerPersonId)
+            .eq("applicationContentVersion", assignment.applicationContentVersion),
         )
-        .collect(),
+        .order("desc")
+        .first(),
     ]);
     if (!project || project.eventId !== event._id) {
       throw new Error("The historical submitted project snapshot is missing.");
     }
-    const review = reviewerReviews
-      .filter(
-        (candidate) =>
-          candidate.applicationContentVersion === assignment.applicationContentVersion,
-      )
-      .sort(
-        (left, right) =>
-          right.createdAt - left.createdAt || right._creationTime - left._creationTime,
-      )[0];
 
     return {
       applicationContentVersion: assignment.applicationContentVersion,
