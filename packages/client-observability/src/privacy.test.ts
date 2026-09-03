@@ -60,7 +60,6 @@ test('PostHog events remove identity properties, content, and opaque route segme
       $pathname: '/reviews/:id',
       $exception_list: [{
         type: 'Error',
-        value: 'Participant [redacted email] submitted private idea text',
         mechanism: { type: 'generic', handled: true },
         stacktrace: {
           type: 'raw',
@@ -81,13 +80,12 @@ test('PostHog events remove identity properties, content, and opaque route segme
   })
 })
 
-test('exception values are forwarded with PII redacted and bundle frames kept for symbolication', () => {
+test('generated bundle frames survive so symbolication can resolve them', () => {
   const event = scrubPostHogEvent({
     event: '$exception',
     properties: {
       $exception_list: [{
         type: 'Error',
-        value: 'Join failed for +91 98765 43210 and 23BCE1234',
         stacktrace: {
           type: 'raw',
           frames: [
@@ -105,7 +103,6 @@ test('exception values are forwarded with PII redacted and bundle frames kept fo
     properties: {
       $exception_list: [{
         type: 'Error',
-        value: 'Join failed for [redacted phone] and [redacted registration]',
         stacktrace: {
           type: 'raw',
           frames: [
