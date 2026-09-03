@@ -34,3 +34,16 @@ test("storage-state decoder rejects empty, malformed, or expanded payloads", () 
     /unsupported top-level field/u,
   );
 });
+
+test("storage-state decoder rejects deeply nested values without overflowing the stack", () => {
+  const nestedValue = `${"[".repeat(20_000)}null${"]".repeat(20_000)}`;
+  const encoded = Buffer.from(
+    `{"cookies":[{"nested":${nestedValue}}],"origins":[]}`,
+    "utf-8",
+  ).toString("base64");
+
+  assert.throws(
+    () => decodeStorageState(encoded, "Participant"),
+    /maximum nesting depth/u,
+  );
+});

@@ -503,7 +503,6 @@ describe("score governance pagination", () => {
         version: 1,
         contentVersion: 1,
         submittedAt: fixture.now,
-        informationRequest: null,
         currentOffer: null,
       },
     });
