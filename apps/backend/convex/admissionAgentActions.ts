@@ -80,7 +80,7 @@ export const recordDispatchReceipt = internalMutation({
     const recommendation = await ctx.db.get(args.recommendationId);
     if (
       !recommendation ||
-      recommendation.state !== "pending" ||
+      (recommendation.state !== "pending" && recommendation.state !== "running") ||
       recommendation.agentDispatchAttemptId !== args.attemptId
     )
       return false;
@@ -111,11 +111,14 @@ export const recordDispatchFailure = internalMutation({
     const recommendation = await ctx.db.get(args.recommendationId);
     if (
       !recommendation ||
-      recommendation.state !== "pending" ||
+      (recommendation.state !== "pending" && recommendation.state !== "running") ||
       recommendation.agentDispatchAttemptId !== args.attemptId
     )
       return false;
-    await ctx.db.patch(recommendation._id, { agentDispatchAttemptId: undefined });
+    await ctx.db.patch(recommendation._id, {
+      state: "pending",
+      agentDispatchAttemptId: undefined,
+    });
     return true;
   },
 });
