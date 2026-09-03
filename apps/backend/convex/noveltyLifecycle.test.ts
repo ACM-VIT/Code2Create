@@ -219,6 +219,7 @@ describe("live novelty", () => {
       const applicationId = await ctx.db.insert("applications", {
         eventId: fixture.eventId,
         teamId: fixture.teamId,
+        teamOrigin: "external",
         submittedProjectVersionId: projectVersionId,
         admissionPolicyVersionId: fixture.admissionPolicyId,
         state: "submitted",

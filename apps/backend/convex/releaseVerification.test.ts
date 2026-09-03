@@ -422,6 +422,7 @@ async function seedReleaseFixture(
     const applicationId = await ctx.db.insert("applications", {
       eventId,
       teamId,
+      teamOrigin: "external",
       submittedProjectVersionId: projectVersionId,
       admissionPolicyVersionId: admissionPolicyId,
       state: "confirmed",

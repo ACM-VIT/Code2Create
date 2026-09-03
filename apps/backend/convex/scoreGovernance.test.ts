@@ -459,6 +459,7 @@ describe("score governance pagination", () => {
       return ctx.db.insert("applications", {
         eventId: fixture.eventId,
         teamId: fixture.teamId,
+        teamOrigin: "external",
         submittedProjectVersionId: fixture.projectVersionId,
         admissionPolicyVersionId: fixture.admissionPolicyVersionId,
         state: "confirmed",
@@ -492,6 +493,9 @@ describe("score governance pagination", () => {
         initialIdeaMaxLength: defaultDeterministicIntakePolicy.initialIdeaMaxLength,
         followUpAnswerMinLength: defaultDeterministicIntakePolicy.followUpAnswerMinLength,
         followUpAnswerMaxLength: defaultDeterministicIntakePolicy.followUpAnswerMaxLength,
+        deterministicFollowUpCount:
+          defaultDeterministicIntakePolicy.deterministicFollowUpCount,
+        maximumFollowUpCount: defaultDeterministicIntakePolicy.maximumFollowUpCount,
       },
       applicationsCloseAt: expect.any(Number),
       canEdit: false,

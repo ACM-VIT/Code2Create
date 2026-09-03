@@ -511,6 +511,7 @@ async function seedOfferedApplication(backend: BackendTest, expiresAt: number) {
     const applicationId = await ctx.db.insert("applications", {
       eventId,
       teamId,
+      teamOrigin: "external",
       submittedProjectVersionId: projectId,
       admissionPolicyVersionId: policyId,
       state: "accepted",
