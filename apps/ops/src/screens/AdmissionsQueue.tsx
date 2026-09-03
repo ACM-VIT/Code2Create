@@ -453,7 +453,7 @@ function ApplicationRow({
   onToggle: () => void;
 }) {
   const reviews = reviewStatus(application);
-  const ai = aiStateTag(application.aiState);
+  const ai = aiStateTag(application.aiState, application.aiRecommendation);
   const content = (
     <>
       <span className="admission-row-main">
@@ -465,7 +465,7 @@ function ApplicationRow({
         {application.decisionStage === "recorded" && application.humanDecision ? (
           <span>Recorded · {applicationDecisionLabels[application.humanDecision]}</span>
         ) : null}
-        {ai ? <span className="admission-tag">{ai}</span> : null}
+        {ai ? <span className={`admission-tag ${ai.tone}`}>{ai.text}</span> : null}
       </span>
     </>
   );
@@ -682,7 +682,7 @@ function AssignmentList() {
 
 function AssignmentRow({ assignment }: { assignment: QueueAssignment }) {
   const own = ownReviewLine(assignment);
-  const ai = aiStateTag(assignment.aiState);
+  const ai = aiStateTag(assignment.aiState, assignment.aiRecommendation);
   return (
     <div className="admission-row">
       <Link className="admission-row-link" to={`/admissions/${assignment.applicationId}`}>
@@ -695,7 +695,7 @@ function AssignmentRow({ assignment }: { assignment: QueueAssignment }) {
             {own.text}
           </span>
           <span>{applicationStateLabels[assignment.applicationState]}</span>
-          {ai ? <span className="admission-tag">{ai}</span> : null}
+          {ai ? <span className={`admission-tag ${ai.tone}`}>{ai.text}</span> : null}
         </span>
       </Link>
     </div>
