@@ -5,6 +5,7 @@ type PostHogEvent = {
 
 type SafeException = {
   type?: string
+  value?: string
   mechanism?: {
     handled?: boolean
     synthetic?: boolean
@@ -188,6 +189,9 @@ export function scrubPostHogEvent<T extends PostHogEvent>(event: T | null): T | 
   // recordings undecodable, so the replay event is passed through intact.
   if (event.event === '$snapshot') return event
 
+  const exceptionList = event.properties ? safeExceptionList(event.properties.$exception_list) : null
+  if (exceptionList && exceptionListIsInjectedThirdParty(exceptionList)) return null
+
   const properties = event.properties ? safeEventProperties(event.properties) : undefined
   Reflect.deleteProperty(event, '$set')
   Reflect.deleteProperty(event, '$set_once')
@@ -259,6 +263,9 @@ function safeExceptionList(value: unknown): SafeException[] | null {
     if (!isRecord(entry)) return []
     const exception: SafeException = {}
     if (typeof entry.type === 'string') exception.type = entry.type
+    // Keep the message so error tracking can name the issue, but scrub the
+    // emails, phone numbers, and registration numbers a message can carry.
+    if (typeof entry.value === 'string') exception.value = redactReplayPii(entry.value)
     if (isRecord(entry.mechanism)) {
       const mechanism: SafeException['mechanism'] = {}
       if (typeof entry.mechanism.handled === 'boolean') mechanism.handled = entry.mechanism.handled
@@ -296,13 +303,41 @@ function safeStackFrame(frame: Record<string, unknown>): SafeStackFrame {
 }
 
 function safeGeneratedFilename(value: string) {
+  let url: URL
   try {
-    const url = new URL(value, 'https://local.invalid')
-    if (!url.pathname.startsWith('/assets/')) return null
-    if (!/^\/[A-Za-z0-9._~/-]+$/u.test(url.pathname)) return null
-    return url.origin === 'https://local.invalid' ? url.pathname : `${url.origin}${url.pathname}`
+    url = new URL(value, 'https://local.invalid')
   } catch {
     return null
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+    // Browser extensions and native in-app browser bridges inject scripts under
+    // non-web schemes. Keep the scheme so the frame stays recognizable while
+    // dropping the extension id and path, which can carry identifiers.
+    return `${url.protocol}//[redacted]`
+  }
+  if (!/^\/[A-Za-z0-9._~/-]*$/u.test(url.pathname)) return null
+  return url.origin === 'https://local.invalid' ? url.pathname : `${url.origin}${url.pathname}`
+}
+
+function exceptionListIsInjectedThirdParty(list: SafeException[]): boolean {
+  // Scripts injected by browser extensions and native in-app browser bridges run
+  // in the page but are not part of our bundle, so their frames never resolve to
+  // our /assets/ code. Drop the exception the way browserRecovery.ts drops chunk
+  // load failures: these faults are not ours to fix and arrive unnamed. A chain
+  // that touches our code anywhere is kept, so a real error with a third-party
+  // cause still reports.
+  const filenames = list
+    .flatMap((exception) => exception.stacktrace?.frames ?? [])
+    .flatMap((frame) => typeof frame.filename === 'string' ? [frame.filename] : [])
+  return filenames.length > 0 && filenames.every((filename) => !frameFilenameIsOwnCode(filename))
+}
+
+function frameFilenameIsOwnCode(filename: string): boolean {
+  try {
+    const url = new URL(filename, 'https://local.invalid')
+    return (url.protocol === 'https:' || url.protocol === 'http:') && url.pathname.startsWith('/assets/')
+  } catch {
+    return false
   }
 }
 

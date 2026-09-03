@@ -60,6 +60,7 @@ test('PostHog events remove identity properties, content, and opaque route segme
       $pathname: '/reviews/:id',
       $exception_list: [{
         type: 'Error',
+        value: 'Participant [redacted email] submitted private idea text',
         mechanism: { type: 'generic', handled: true },
         stacktrace: {
           type: 'raw',
@@ -74,6 +75,82 @@ test('PostHog events remove identity properties, content, and opaque route segme
             filename: 'https://event.example.org/assets/index-a71f.js',
             chunk_id: 'chunk-1',
           }],
+        },
+      }],
+    },
+  })
+})
+
+test('exceptions from injected third-party scripts are dropped', () => {
+  const bridgeError = scrubPostHogEvent({
+    event: '$exception',
+    properties: {
+      token: 'public-project-token',
+      $exception_list: [{
+        type: 'Error',
+        value: 'undefined is not an object',
+        mechanism: { type: 'onerror', handled: false },
+        stacktrace: {
+          type: 'raw',
+          frames: [{
+            function: 'sendDataToNative',
+            in_app: true,
+            filename: 'https://c2c.sh/',
+          }],
+        },
+      }],
+    },
+  })
+  assert.equal(bridgeError, null)
+
+  const extensionError = scrubPostHogEvent({
+    event: '$exception',
+    properties: {
+      token: 'public-project-token',
+      $exception_list: [{
+        type: 'TypeError',
+        value: 'boom',
+        stacktrace: {
+          type: 'raw',
+          frames: [{ function: 'inject', filename: 'chrome-extension://abcdef/content.js' }],
+        },
+      }],
+    },
+  })
+  assert.equal(extensionError, null)
+})
+
+test('a real exception with a third-party cause is kept and keeps recognizable filenames', () => {
+  const event = scrubPostHogEvent({
+    event: '$exception',
+    properties: {
+      token: 'public-project-token',
+      $exception_list: [{
+        type: 'Error',
+        value: 'Rendering failed',
+        stacktrace: {
+          type: 'raw',
+          frames: [
+            { function: 'render', filename: 'https://c2c.sh/assets/index-a71f.js' },
+            { function: 'sendDataToNative', filename: 'https://c2c.sh/' },
+          ],
+        },
+      }],
+    },
+  })
+  assert.deepEqual(event, {
+    event: '$exception',
+    properties: {
+      token: 'public-project-token',
+      $exception_list: [{
+        type: 'Error',
+        value: 'Rendering failed',
+        stacktrace: {
+          type: 'raw',
+          frames: [
+            { function: 'render', filename: 'https://c2c.sh/assets/index-a71f.js' },
+            { function: 'sendDataToNative', filename: 'https://c2c.sh/' },
+          ],
         },
       }],
     },
