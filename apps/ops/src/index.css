@@ -9140,37 +9140,94 @@ textarea:focus {
 }
 
 /* Applications: a stage queue that coordinators can assign from and reviewers can work through. */
+.admissions-control-label {
+  display: block;
+  color: var(--faint);
+  font-size: 0.7rem;
+  font-weight: 500;
+}
+.admissions-scope {
+  display: grid;
+  gap: 8px;
+  margin-top: 18px;
+}
 .admissions-lead {
-  margin: 18px 0 0;
+  margin: 6px 0 0;
 }
 .admissions-views {
   margin-top: 20px;
 }
 .admissions-origins {
-  margin: 16px 0 0;
+  margin: 0;
+}
+.admissions-overview {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px 32px;
+  margin-top: 22px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--border);
+}
+.admissions-overview > div {
+  min-width: 0;
+}
+.admissions-lease-note {
+  display: grid;
+  flex: 0 1 360px;
+  gap: 3px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+.admissions-lease-note strong {
+  color: var(--text);
+  font-weight: 500;
+}
+.admissions-controls {
+  display: grid;
+  gap: 16px;
+  padding: 16px 0;
+}
+.admissions-stage-control {
+  display: grid;
+  gap: 8px;
 }
 .admissions-toolbar {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px 20px;
-  margin: 18px 0 12px;
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(320px, auto) auto;
+  align-items: end;
+  gap: 14px 24px;
 }
-.admissions-toolbar-actions {
+.admissions-filter-set {
+  display: grid;
+  gap: 8px;
+}
+.admissions-filter-set legend {
+  color: var(--faint);
+  font-size: 0.7rem;
+  font-weight: 500;
+}
+.admissions-filter-set > div,
+.admissions-toolbar-buttons {
   display: flex;
-  flex: 0 0 auto;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 16px;
+  gap: 8px 18px;
 }
-.admissions-toolbar-actions .secondary {
-  min-height: 28px;
+.admissions-toolbar-buttons {
+  justify-content: flex-end;
+  min-height: 38px;
+  gap: 10px;
+  white-space: nowrap;
 }
 .admissions-search {
-  flex: 1 1 220px;
+  width: 100%;
 }
 .admissions-search input {
   width: 100%;
+  min-height: 38px;
 }
 .admissions-search-limit {
   margin: 8px 0 0;
@@ -9300,6 +9357,35 @@ textarea:focus {
   align-self: end;
   min-height: 38px;
 }
+.admission-assign-rule {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--faint);
+  font-size: 0.75rem;
+}
+.admission-assign-confirmation {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 24px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.admission-assign-confirmation strong,
+.admission-assign-confirmation p {
+  display: block;
+  margin: 0;
+}
+.admission-assign-confirmation strong {
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+.admission-assign-confirmation p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
 .admission-assign-reviewers {
   display: flex;
   flex-wrap: wrap;
@@ -9326,6 +9412,9 @@ textarea:focus {
 .admission-assign-outcomes ul {
   margin: 0;
   padding-left: 18px;
+}
+.admission-claim-deadline {
+  color: var(--faint);
 }
 
 .application-nav {
@@ -9387,11 +9476,20 @@ textarea:focus {
 }
 
 @media (max-width: 760px) {
-  .admissions-toolbar {
+  .admissions-overview,
+  .admission-assign-confirmation {
     display: grid;
   }
-  .admissions-toolbar-actions {
-    justify-content: space-between;
+  .admissions-toolbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .admissions-filter-set > div {
+    display: grid;
+    justify-items: start;
+  }
+  .admissions-toolbar-buttons {
+    justify-content: flex-start;
   }
   .admission-row-link {
     grid-template-columns: minmax(0, 1fr);

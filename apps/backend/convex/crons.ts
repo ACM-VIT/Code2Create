@@ -25,6 +25,13 @@ crons.interval(
   {},
 );
 
+crons.interval(
+  "expire unfinished admission review claims",
+  { seconds: 30 },
+  internal.admissions.expireReviewAssignments,
+  {},
+);
+
 /** Thirty-second sweeps surface empty seats promptly and require three clear passes. */
 crons.interval(
   "sweep review operations attention",

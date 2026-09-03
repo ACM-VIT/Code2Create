@@ -3,10 +3,11 @@ import type { FunctionReturnType } from "convex/server";
 import { convexTest, type TestConvex } from "convex-test";
 import { describe, expect, test } from "vitest";
 
-import { api, components } from "./_generated/api.js";
+import { api, components, internal } from "./_generated/api.js";
 import type { Id } from "./_generated/dataModel.js";
 import type { MutationCtx } from "./_generated/server.js";
 import {
+  admissionReviewClaimMs,
   cancelAdmissionReviewAssignment,
   createAdmissionReviewAssignment,
   saveAdmissionHumanReview,
@@ -211,6 +212,100 @@ describe("admission review assignments", () => {
     expect(assignmentCounts).toEqual({ active: 1, completed: 1 });
   });
 
+  test("origin-filtered workload counts hide assignments without review access", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const { authUserId, authSessionId } = await createReviewerAuth(backend);
+    const fixture = await seedAssignmentFixture(backend, { reviewerAuthUserId: authUserId });
+    await backend.run((ctx) =>
+      ctx.db.insert("admissionReviewAssignments", {
+        eventId: fixture.eventId,
+        applicationId: fixture.applicationId,
+        applicationContentVersion: 1,
+        reviewerPersonId: fixture.reviewerPersonId,
+        assignedByPersonId: fixture.managerPersonId,
+        state: "active",
+        version: 1,
+        assignedAt: fixture.now,
+      }),
+    );
+
+    const reviewer = backend.withIdentity({ subject: authUserId, sessionId: authSessionId });
+    const assignments = await reviewer.query(api.admissions.myReviewAssignments, {
+      eventSlug: fixture.eventSlug,
+      state: "active",
+      origin: "external",
+      paginationOpts: { cursor: null, numItems: 100 },
+    });
+    const assignmentCounts = await reviewAssignmentCounts(reviewer, {
+      eventSlug: fixture.eventSlug,
+      origin: "external",
+    });
+
+    expect(assignments.page).toEqual([]);
+    expect(assignmentCounts).toEqual({ active: 0, completed: 0 });
+  });
+
+  test("expires unfinished review claims after 30 minutes", async () => {
+    const backend = convexTest(schema, modules);
+    const fixture = await seedAssignmentFixture(backend);
+    const assigned = await assignFixtureReviewer(backend, fixture, fixture.reviewerSubjectId);
+    await backend.run((ctx) =>
+      ctx.db.patch(assigned.assignmentId, {
+        assignedAt: Date.now() - admissionReviewClaimMs,
+      }),
+    );
+
+    await backend.mutation(internal.admissions.expireReviewAssignments, {});
+
+    const state = await assignmentState(backend, fixture, assigned.assignmentId);
+    expect(state.assignment).toMatchObject({
+      state: "cancelled",
+      cancellationReason: "The 30-minute review claim expired before a review was submitted.",
+    });
+    expect(state.application?.assignedReviewCount).toBe(0);
+    expect(state.assignmentGrants).toHaveLength(2);
+    expect(state.assignmentGrants.every((grant) => grant.status === "revoked")).toBe(true);
+  });
+
+  test("does not expire a claim after its review was submitted", async () => {
+    const backend = convexTest(schema, modules);
+    const fixture = await seedAssignmentFixture(backend);
+    const assigned = await assignFixtureReviewer(backend, fixture, fixture.reviewerSubjectId);
+    await saveFixtureReview(backend, fixture, fixture.reviewerPersonId, "accept");
+    await backend.run((ctx) =>
+      ctx.db.patch(assigned.assignmentId, {
+        assignedAt: Date.now() - admissionReviewClaimMs,
+      }),
+    );
+
+    await backend.mutation(internal.admissions.expireReviewAssignments, {});
+
+    const state = await assignmentState(backend, fixture, assigned.assignmentId);
+    expect(state.assignment).toMatchObject({ state: "completed" });
+  });
+
+  test("rejects a late review before the next expiry sweep", async () => {
+    const backend = convexTest(schema, modules);
+    const fixture = await seedAssignmentFixture(backend);
+    await assignFixtureReviewer(backend, fixture, fixture.reviewerSubjectId);
+
+    await expect(
+      backend.run(async (ctx) => {
+        const application = await ctx.db.get(fixture.applicationId);
+        if (!application) throw new Error("Assignment fixture is incomplete.");
+        return saveAdmissionHumanReview(ctx, {
+          application,
+          expectedApplicationContentVersion: 1,
+          reviewerPersonId: fixture.reviewerPersonId,
+          recommendation: "accept",
+          reasonCode: "clear_intent",
+          now: fixture.now + admissionReviewClaimMs,
+        });
+      }),
+    ).rejects.toThrow("This 30-minute review assignment expired");
+  });
+
   test("origin counts include matching assignments beyond 4,000 rows", async () => {
     const backend = convexTest(schema, modules);
     backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
@@ -245,6 +340,18 @@ describe("admission review assignments", () => {
         ...applicationFields,
         teamId: internalTeamId,
         submittedAt: fixture.now + 4_002,
+      });
+      await insertPermissionGrant(ctx, {
+        eventId: fixture.eventId,
+        personId: fixture.reviewerPersonId,
+        eventAccessSubjectId: fixture.reviewerSubjectId,
+        permissionKey: "application.review.read",
+        scopeType: "application",
+        scopeId: internalApplicationId,
+        sourceType: "manual",
+        sourceId: "fixture-internal-count-review",
+        grantedByPersonId: fixture.managerPersonId,
+        reason: "Read internal count assignment fixture",
       });
       for (let index = 0; index < 4_001; index += 1) {
         await ctx.db.insert("admissionReviewAssignments", {

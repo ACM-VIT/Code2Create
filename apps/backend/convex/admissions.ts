@@ -80,6 +80,7 @@ const maximumScopedApplicationsForStageCounts = 2_000;
 const maximumWorkloadAssignments = 4_000;
 const maximumApplicationSearchResults = 100;
 const maximumAdmissionPageSize = 100;
+export const admissionReviewClaimMs = 30 * 60 * 1_000;
 const admissionTeamOrigin = v.union(v.literal("internal"), v.literal("external"));
 
 function requireAdmissionPageSize(numItems: number) {
@@ -547,6 +548,7 @@ export const list = query({
     state: v.optional(applicationState),
     origin: v.optional(admissionTeamOrigin),
     completedReviewCount: v.optional(v.literal(1)),
+    needsReview: v.optional(v.literal(true)),
     paginationOpts: paginationOptsValidator,
   },
   returns: paginationResultValidator(listItem),
@@ -555,8 +557,7 @@ export const list = query({
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
     requireAdmissionPageSize(args.paginationOpts.numItems);
-    if (args.origin !== undefined) {
-      const origin = args.origin;
+    if (args.origin !== undefined || args.needsReview) {
       return paginator(ctx.db, schema)
         .query("applications")
         .withIndex("by_event_state_submitted", (index) => {
@@ -571,8 +572,21 @@ export const list = query({
           ) {
             return null;
           }
-          if (!(await applicationMatchesOrigin(ctx, application, origin))) return null;
-          return visibleApplicationListProjection(ctx, event._id, subject._id, application);
+          if (!(await applicationMatchesOrigin(ctx, application, args.origin))) return null;
+          const projected = await visibleApplicationListProjection(
+            ctx,
+            event._id,
+            subject._id,
+            application,
+          );
+          if (
+            args.needsReview &&
+            projected &&
+            projected.completedReviewCount >= projected.minimumHumanReviews
+          ) {
+            return null;
+          }
+          return projected;
         })
         .paginate({
           ...args.paginationOpts,
@@ -613,6 +627,7 @@ export const searchApplications = query({
     search: v.string(),
     origin: v.optional(admissionTeamOrigin),
     completedReviewCount: v.optional(v.literal(1)),
+    needsReview: v.optional(v.literal(true)),
   },
   returns: v.object({
     applications: v.array(listItem),
@@ -660,17 +675,24 @@ export const searchApplications = query({
             (args.completedReviewCount === undefined ||
               application.completedReviewCount === args.completedReviewCount),
         )
-        .map(async (application) => ({
-          application,
-          team: await ctx.db.get(application.teamId),
-        })),
+        .map(async (application) => {
+          const [team, policy] = await Promise.all([
+            ctx.db.get(application.teamId),
+            args.needsReview
+              ? ctx.db.get(application.admissionPolicyVersionId)
+              : Promise.resolve(null),
+          ]);
+          return { application, team, policy };
+        }),
     );
     const matches = candidates
-      .flatMap(({ application, team }) => {
+      .flatMap(({ application, team, policy }) => {
         if (
           !team ||
           !searchTerms.every((term) => team.name.toLowerCase().includes(term)) ||
-          (args.origin !== undefined && !teamMatchesOrigin(team, args.origin))
+          (args.origin !== undefined && !teamMatchesOrigin(team, args.origin)) ||
+          (args.needsReview &&
+            (!policy || application.completedReviewCount >= policy.minimumHumanReviews))
         ) {
           return [];
         }
@@ -684,7 +706,12 @@ export const searchApplications = query({
     const projected = [];
     for (const { application } of applicationsToProject) {
       const item = await applicationListProjection(ctx, event._id, subject._id, application);
-      if (item) projected.push(item);
+      if (
+        item &&
+        (!args.needsReview || item.completedReviewCount < item.minimumHumanReviews)
+      ) {
+        projected.push(item);
+      }
     }
     return {
       applications: projected,
@@ -698,6 +725,7 @@ const assignedReviewItem = v.object({
   assignmentState: admissionReviewAssignmentState,
   assignmentVersion: v.number(),
   assignedAt: v.number(),
+  claimExpiresAt: v.optional(v.number()),
   applicationId: v.id("applications"),
   applicationState,
   applicationVersion: v.number(),
@@ -713,16 +741,21 @@ const reviewAssignmentCountRow = v.object({
   state: v.union(v.literal("active"), v.literal("completed")),
 });
 
-async function visibleReviewAssignmentProjection(
+async function visibleReviewAssignmentApplication(
   ctx: QueryCtx,
   eventId: Id<"events">,
   eventAccessSubjectId: Id<"eventAccessSubjects">,
-  reviewerPersonId: Id<"people">,
   assignment: Doc<"admissionReviewAssignments">,
   origin: ExclusiveTeamOrigin | undefined,
 ) {
   const application = await ctx.db.get(assignment.applicationId);
   if (!application || application.eventId !== eventId) return null;
+  if (
+    assignment.state === "active" &&
+    assignment.assignedAt + admissionReviewClaimMs <= Date.now()
+  ) {
+    return null;
+  }
   if (!(await applicationMatchesOrigin(ctx, application, origin))) return null;
   const reviewReadGrantIds = await matchingPermissionGrantIds(ctx, {
     eventId,
@@ -731,7 +764,25 @@ async function visibleReviewAssignmentProjection(
     scopeType: "application",
     scopeId: application._id,
   });
-  if (reviewReadGrantIds.length === 0) return null;
+  return reviewReadGrantIds.length > 0 ? application : null;
+}
+
+async function visibleReviewAssignmentProjection(
+  ctx: QueryCtx,
+  eventId: Id<"events">,
+  eventAccessSubjectId: Id<"eventAccessSubjects">,
+  reviewerPersonId: Id<"people">,
+  assignment: Doc<"admissionReviewAssignments">,
+  origin: ExclusiveTeamOrigin | undefined,
+) {
+  const application = await visibleReviewAssignmentApplication(
+    ctx,
+    eventId,
+    eventAccessSubjectId,
+    assignment,
+    origin,
+  );
+  if (!application) return null;
   const [team, project, profileGrantIds, aiGrantIds, ownReview] = await Promise.all([
     ctx.db.get(application.teamId),
     ctx.db.get(application.submittedProjectVersionId),
@@ -769,6 +820,9 @@ async function visibleReviewAssignmentProjection(
     assignmentState: assignment.state,
     assignmentVersion: assignment.version,
     assignedAt: assignment.assignedAt,
+    ...(assignment.state === "active"
+      ? { claimExpiresAt: assignment.assignedAt + admissionReviewClaimMs }
+      : {}),
     applicationId: application._id,
     applicationState: application.state,
     applicationVersion: application.version,
@@ -859,7 +913,7 @@ export const myReviewAssignmentCountRows = query({
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
-    await requireEventSubject(ctx, event._id, person._id);
+    const subject = await requireEventSubject(ctx, event._id, person._id);
     requireAdmissionPageSize(args.paginationOpts.numItems);
     const page = await ctx.db
       .query("admissionReviewAssignments")
@@ -870,10 +924,14 @@ export const myReviewAssignmentCountRows = query({
     const visible = [];
     for (const assignment of page.page) {
       if (assignment.state === "cancelled") continue;
-      const application = await ctx.db.get(assignment.applicationId);
-      if (!application || !(await applicationMatchesOrigin(ctx, application, args.origin))) {
-        continue;
-      }
+      const application = await visibleReviewAssignmentApplication(
+        ctx,
+        event._id,
+        subject._id,
+        assignment,
+        args.origin,
+      );
+      if (!application) continue;
       visible.push({ state: assignment.state });
     }
     return { ...page, page: visible };
@@ -1854,6 +1912,67 @@ export async function cancelAdmissionReviewAssignment(
   };
 }
 
+const expiredReviewAssignmentBatchSize = 50;
+const expiredReviewAssignmentReason =
+  "The 30-minute review claim expired before a review was submitted.";
+
+export const expireReviewAssignments = internalMutation({
+  args: {},
+  returns: v.null(),
+  handler: async (ctx): Promise<null> => {
+    const now = Date.now();
+    const assignments = await ctx.db
+      .query("admissionReviewAssignments")
+      .withIndex("by_state_assigned", (index) =>
+        index.eq("state", "active").lte("assignedAt", now - admissionReviewClaimMs),
+      )
+      .take(expiredReviewAssignmentBatchSize);
+    for (const assignment of assignments) {
+      const application = await ctx.db.get(assignment.applicationId);
+      if (!application || application.eventId !== assignment.eventId) {
+        throw new Error("The expiring review assignment context is missing.");
+      }
+      const result = await cancelAdmissionReviewAssignment(ctx, {
+        application,
+        expectedApplicationVersion: application.version,
+        assignment,
+        expectedAssignmentVersion: assignment.version,
+        cancelledByPersonId: assignment.assignedByPersonId,
+        reason: expiredReviewAssignmentReason,
+        now,
+      });
+      await writeAuditEvent(ctx, {
+        eventId: assignment.eventId,
+        actorPersonId: assignment.assignedByPersonId,
+        permissionKey: "application.assign",
+        grantIds: [],
+        scopeType: "application",
+        scopeId: application._id,
+        action: "admission.review_assignment_expired",
+        targetType: "application",
+        targetId: application._id,
+        previousSummary: JSON.stringify({
+          assignmentId: assignment._id,
+          reviewerPersonId: assignment.reviewerPersonId,
+          state: assignment.state,
+          assignmentVersion: assignment.version,
+        }),
+        nextSummary: JSON.stringify({
+          assignmentId: assignment._id,
+          state: "cancelled",
+          assignmentVersion: result.assignmentVersion,
+          applicationVersion: result.applicationVersion,
+        }),
+        reason: expiredReviewAssignmentReason,
+      });
+    }
+    if (assignments.length === expiredReviewAssignmentBatchSize) {
+      await ctx.scheduler.runAfter(0, internal.admissions.expireReviewAssignments, {});
+    }
+    return null;
+  },
+});
+
 export async function completeAdmissionReviewAssignment(
   ctx: MutationCtx,
   args: {
@@ -2151,6 +2270,15 @@ export async function saveAdmissionHumanReview(
   ]);
   const replacesCurrentReview =
     activeReview?.applicationContentVersion === args.application.contentVersion;
+  if (
+    activeAssignment &&
+    activeAssignment.assignedAt + admissionReviewClaimMs <= args.now
+  ) {
+    throw new ConvexError({
+      code: "REVIEW_ASSIGNMENT_EXPIRED",
+      message: "This 30-minute review assignment expired. Ask a coordinator to assign it again.",
+    });
+  }
   if (activeReview) await ctx.db.patch(activeReview._id, { status: "superseded" });
   const note = optionalNormalizedText(args.note, "Review note", 600);
   const reviewReasonCode = await requirePolicyReason(
