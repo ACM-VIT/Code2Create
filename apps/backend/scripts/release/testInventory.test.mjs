@@ -16,7 +16,7 @@ const referencedTests = new Set(
 );
 const testFiles = ["convex", "scripts"]
   .flatMap((directory) => testFilesBelow(join(backendRoot, directory)))
-  .map((file) => relative(backendRoot, file))
+  .map((file) => relative(backendRoot, file).replaceAll("\\", "/"))
   .toSorted();
 
 test("every backend test file is owned by the main test command", () => {

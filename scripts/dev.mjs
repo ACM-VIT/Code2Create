@@ -65,11 +65,14 @@ const applicationPackages = [
 
 function start(args, onOutput) {
   const capturesOutput = onOutput !== undefined;
-  const child = spawn("pnpm", args, {
+  const windows = process.platform === "win32";
+  const child = spawn(windows ? "pnpm.cmd" : "pnpm", args, {
     cwd: workspace,
     env: process.env,
     stdio: capturesOutput ? ["inherit", "pipe", "pipe"] : "inherit",
     detached: usesProcessGroups,
+    windowsHide: true,
+    ...(windows ? { shell: true } : {}),
   });
   if (capturesOutput) {
     child.stdout.on("data", (chunk) => {

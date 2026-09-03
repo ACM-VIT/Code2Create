@@ -77,6 +77,8 @@ import {
   rehearsalWorkstream,
   repositoryKind,
   reviewEvaluationState,
+  reviewLinkKind,
+  reviewLinkState,
   reviewPanelStatus,
   reviewRoundStatus,
   reviewerClockInStatus,
@@ -3719,6 +3721,24 @@ export default defineSchema({
   })
     .index("by_event_membership", ["eventId", "membershipId"])
     .index("by_event_github_user", ["eventId", "githubUserId"]),
+
+  teamReviewLinks: defineTable({
+    eventId: v.id("events"),
+    teamId: v.id("teams"),
+    kind: reviewLinkKind,
+    canonicalKey: v.string(),
+    url: v.string(),
+    label: v.string(),
+    state: reviewLinkState,
+    submittedByPersonId: v.id("people"),
+    version: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    archivedAt: v.optional(v.number()),
+  })
+    .index("by_team_state", ["teamId", "state"])
+    .index("by_team_kind_key", ["teamId", "kind", "canonicalKey"])
+    .index("by_event_team", ["eventId", "teamId"]),
 
   githubInstallationConnections: defineTable({
     eventId: v.id("events"),

@@ -41,6 +41,7 @@ const [command, ...args] = process.argv.slice(2);
 if (!command) throw new Error("A command is required.");
 
 const workspaceNodeDirectory = findWorkspaceNodeDirectory();
+const windows = process.platform === "win32";
 const child = spawn(command, args, {
   cwd: process.cwd(),
   env: {
@@ -48,6 +49,7 @@ const child = spawn(command, args, {
     PATH: [workspaceNodeDirectory, process.env.PATH].filter(Boolean).join(path.delimiter),
   },
   stdio: "inherit",
+  ...(windows ? { shell: true } : {}),
 });
 
 child.once("error", (error) => {

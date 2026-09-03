@@ -194,6 +194,14 @@ const teamDetail = v.object({
       }),
     }),
   ),
+  reviewLinks: v.array(
+    v.object({
+      id: v.id("teamReviewLinks"),
+      kind: v.union(v.literal("github"), v.literal("figma")),
+      url: v.string(),
+      label: v.string(),
+    }),
+  ),
 });
 
 export const teams = query({
@@ -437,10 +445,23 @@ export const details = query({
         };
       }),
     );
+    const reviewLinkDocs = await ctx.db
+      .query("teamReviewLinks")
+      .withIndex("by_team_state", (index) => index.eq("teamId", team._id).eq("state", "active"))
+      .collect();
     return {
       canReadFigmaArtifacts: artifactGrantIds.length > 0,
       githubRepositories,
       figmaFiles,
+      reviewLinks: reviewLinkDocs
+        .filter((link) => link.eventId === event._id)
+        .toSorted((left, right) => left.createdAt - right.createdAt)
+        .map((link) => ({
+          id: link._id,
+          kind: link.kind,
+          url: link.url,
+          label: link.label,
+        })),
     };
   },
 });

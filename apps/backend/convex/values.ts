@@ -444,6 +444,9 @@ export const admissionAiDisposition = v.union(
   v.literal("unavailable"),
 );
 
+export const reviewLinkKind = v.union(v.literal("github"), v.literal("figma"));
+export const reviewLinkState = v.union(v.literal("active"), v.literal("archived"));
+
 export const repositoryKind = v.union(
   v.literal("full_product"),
   v.literal("frontend"),

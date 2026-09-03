@@ -338,6 +338,25 @@ function IntegrationDetails({ team }: { team: IntegrationTeam }) {
 
   return (
     <div className="integration-team-detail">
+      {details.reviewLinks.length > 0 ? (
+        <div>
+          <h3>Submitted for review</h3>
+          <ul className="integration-file-list">
+            {details.reviewLinks.map((link) => (
+              <li key={link.id}>
+                <div>
+                  <a href={link.url} target="_blank" rel="noreferrer">
+                    {link.label}
+                  </a>
+                  <small>{link.kind === "github" ? "GitHub" : "Figma"}</small>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : (
+        <p>This team has not submitted GitHub or Figma review links yet.</p>
+      )}
       {details.githubRepositories.length > 0 ? (
         <div>
           <h3>

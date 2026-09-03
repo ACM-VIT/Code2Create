@@ -14,12 +14,14 @@ const backend = ["--filter", "@code2create/backend", "exec", "convex"];
 const environmentInput = `${Object.entries(localConvexEnvironment)
   .map(([key, value]) => `${key}=${JSON.stringify(value)}`)
   .join("\n")}\n`;
-const result = spawnSync("pnpm", [...backend, "env", "set", "--force"], {
+const windows = process.platform === "win32";
+const result = spawnSync(windows ? "pnpm.cmd" : "pnpm", [...backend, "env", "set", "--force"], {
   input: environmentInput,
   encoding: "utf-8",
+  ...(windows ? { shell: true } : {}),
 });
-process.stdout.write(result.stdout);
+if (result.stdout) process.stdout.write(result.stdout);
 if (result.status !== 0) {
-  process.stderr.write(result.stderr);
+  if (result.stderr) process.stderr.write(result.stderr);
   process.exit(result.status ?? 1);
 }

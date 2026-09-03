@@ -10,6 +10,7 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { FigmaIntegrationPanel } from "../components/FigmaIntegrationPanel";
+import { ReviewLinksPanel } from "../components/ReviewLinksPanel";
 import { ErrorNotice } from "../components/Form";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { PortalScene } from "../components/portal/PortalScene";
@@ -489,6 +490,7 @@ export function IntegrationsScreen({
           </div>
         ) : (
           <>
+            <ReviewLinksPanel />
             <div className="section-heading">
               <div>
                 <p className="eyebrow">Your build</p>
