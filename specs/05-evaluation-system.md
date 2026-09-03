@@ -201,7 +201,7 @@ A different person must hold both `round.export.read` and `round.export.verify` 
 
 Paper recovery is limited to a review that the backend had already started. An outage does not authorize staff to invent a new review, panel, assignment, score, or evidence snapshot.
 
-Operations opens a `review_backend` incident. Two different authorized holders of `incident.manual_mode.approve` must approve that exact incident. The first recovery operator needs `review.manual_record.read` and `review.manual_record.enter` for the exact review. They copy the numbered sheet’s start/end time, outage reason, every assigned reviewer’s signature and raw ratings, evidence notes, private note when present, shared findings, and commitments. The record pins the round, review, panel/table, rubric, evidence-checkpoint set, assignments, and current scorecard versions.
+Operations opens a `review_backend` incident. Two different authorized holders of `incident.manual_mode.approve` must approve that exact incident. The first recovery operator needs `review.manual_record.read` and `review.manual_record.enter` for the exact review. They copy the numbered sheet’s start/end time, outage reason, every assigned reviewer’s signature and raw ratings, evidence notes, private note when present, shared findings, and commitments. The record pins the round, review, panel, rubric, evidence-checkpoint set, assignments, and current scorecard versions.
 
 The numbered original comes from a current restricted emergency pack prepared and printed under separate event-scoped permissions. It is prefilled for the current non-closed panel with its table, reviewers, rubric, and criteria; a spare remains available when the plan changed after the snapshot. Preparing or printing the pack does not open an incident, approve paper mode, create a review, or grant either manual-record command.
 
@@ -235,7 +235,7 @@ A judge may request a correction to their own submitted scorecard only while the
 
 ### Process complaint
 
-A participant may report a process problem such as missing panel member, wrong table, or unavailable review. Complaints do not directly edit scores. The board chooses a remedy under the approved complaint policy.
+A participant may report a process problem such as a missing panel member, incorrect assignment, or unavailable review. Complaints do not directly edit scores. The board chooses a remedy under the approved complaint policy.
 
 Operations publishes the correction-request deadline with the round. The complaint window and complaint remedies remain board decisions.
 

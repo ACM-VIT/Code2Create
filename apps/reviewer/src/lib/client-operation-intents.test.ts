@@ -66,7 +66,7 @@ describe("persistent client-operation intents", () => {
     await expect(
       runPersistentClientOperation({
         eventSlug: "code2create-7",
-        slot: "floor.claim",
+        slot: "review.presence",
         fingerprint: "claim-team-a",
         execute: async (clientOperationId) => {
           firstOperationId = clientOperationId;
@@ -78,7 +78,7 @@ describe("persistent client-operation intents", () => {
 
     const recovered = await runPersistentClientOperation({
       eventSlug: "code2create-7",
-      slot: "floor.claim",
+      slot: "review.presence",
       fingerprint: "claim-team-a",
       execute: async (clientOperationId) => {
         expect(clientOperationId).toBe(firstOperationId);
@@ -92,7 +92,7 @@ describe("persistent client-operation intents", () => {
     let nextOperationId = "";
     await runPersistentClientOperation({
       eventSlug: "code2create-7",
-      slot: "floor.claim",
+      slot: "review.presence",
       fingerprint: "claim-team-a",
       execute: async (clientOperationId) => {
         nextOperationId = clientOperationId;
@@ -163,46 +163,20 @@ describe("persistent client-operation intents", () => {
 
   test("fails closed when a stored operation cannot be trusted", async () => {
     secureStore.values.set(
-      "c2c.operation.code2create-7.floor.claim",
+      "c2c.operation.code2create-7.review.presence",
       '{"version":2,"operationId":"not-a-valid-operation"}',
     );
 
     await expect(
       runPersistentClientOperation({
         eventSlug: "code2create-7",
-        slot: "floor.claim",
+        slot: "review.presence",
         fingerprint: "claim-team-a",
         execute: async () => "must not run",
       }),
     ).rejects.toThrow("cannot be verified");
 
     expect(secureStore.deleteItemAsync).not.toHaveBeenCalled();
-  });
-
-  test("persists only the allowed non-sensitive recovery shape", async () => {
-    await expect(
-      runPersistentClientOperation({
-        eventSlug: "code2create-7",
-        slot: "floor.assign",
-        fingerprint: "claim-team-a",
-        recovery: {
-          kind: "floor_assignment_v1",
-          claimId: "claim-1",
-          x: 24,
-          y: 68,
-          expectedClaimVersion: 3,
-          requiresReason: false,
-        },
-        execute: async () => {
-          throw new Error("uncertain");
-        },
-      }),
-    ).rejects.toThrow("uncertain");
-
-    const stored = secureStore.values.get("c2c.operation.code2create-7.floor.assign");
-    expect(stored).toContain("floor_assignment_v1");
-    expect(stored).not.toContain("barcode");
-    expect(stored).not.toContain("bearer");
   });
 
   test("never persists a raw credential fingerprint", async () => {

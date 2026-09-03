@@ -6,7 +6,6 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
-import { teamRoundTableLabel } from "./lib/floor";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import {
   findOperation,
@@ -146,7 +145,6 @@ const reviewView = v.object({
   id: v.id("reviewSessions"),
   teamName: v.string(),
   panelName: v.string(),
-  tableLabel: v.optional(v.string()),
   status: v.string(),
   version: v.number(),
   roundVersion: v.number(),
@@ -366,12 +364,10 @@ export const workspace = query({
             grantsAllowReview(sourceGrants, session._id) && record.sourceStorageId !== undefined,
         });
       }
-      const reviewTableLabel = await teamRoundTableLabel(ctx, round._id, team._id);
       reviews.push({
         id: session._id,
         teamName: team.name,
         panelName: panel.name,
-        ...(reviewTableLabel !== undefined ? { tableLabel: reviewTableLabel } : {}),
         status: session.status,
         version: session.version,
         roundVersion: round.version,
@@ -627,8 +623,6 @@ export const createDraft = mutation({
         ...(privateNote !== undefined ? { privateNote } : {}),
       });
     }
-    // Leave the location blank when the team had no mapped table.
-    const recordTableLabel = await teamRoundTableLabel(ctx, round._id, session.teamId);
     const sharedFindings = optionalNormalizedText(args.sharedFindings, "Shared findings", 4_000);
     const sharedCommitments = optionalNormalizedText(
       args.sharedCommitments,
@@ -662,7 +656,6 @@ export const createDraft = mutation({
       reviewSessionId: session._id,
       teamId: session.teamId,
       panelId: panel._id,
-      tableLabel: recordTableLabel ?? "",
       evidenceCheckpointSetId: session.evidenceCheckpointSetId,
       rubricVersionId: rubric._id,
       panelVersion: panel.version,

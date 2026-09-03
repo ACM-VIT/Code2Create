@@ -1,7 +1,7 @@
 import { api } from "@code2create/backend/api";
 import type { FunctionReturnType } from "convex/server";
 
-export type Surface = "reviews" | "attendance" | "floor" | "support" | "operations" | "incidents";
+export type Surface = "reviews" | "attendance" | "support" | "operations" | "incidents";
 
 type ReviewerCapabilities = Pick<
   NonNullable<FunctionReturnType<typeof api.access.reviewerCapabilities>>,
@@ -11,7 +11,6 @@ type ReviewerCapabilities = Pick<
 const surfaceCapability = [
   ["reviews", "reviews"],
   ["attendance", "attendance"],
-  ["floor", "floor"],
   ["support", "support"],
   ["operations", "operations"],
   ["incidents", "incidents"],

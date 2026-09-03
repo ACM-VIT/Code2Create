@@ -186,7 +186,6 @@ export function DashboardLive({
           detail:
             [
               queue.panel?.name,
-              queue.tableLabel,
               teamsAheadLine(queue.teamsAhead),
               queue.round.isPaused ? "Paused by staff; stay nearby." : undefined,
             ]

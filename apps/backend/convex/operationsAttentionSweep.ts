@@ -1018,14 +1018,12 @@ function teamProjection(
   availabilityWaived: boolean,
 ): TeamProjection {
   const lastCallAt = state.lastCallAttemptAt ?? state.calledAt;
-  const tableLabel = state.tableLabel;
   return {
     teamRoundStateId: state._id,
     version: state.version,
     teamId: state.teamId,
     teamName,
     ...(state.panelId === undefined ? {} : { panelId: state.panelId }),
-    ...(tableLabel === undefined ? {} : { tableLabel }),
     state: state.state,
     ...(state.queuedAt === undefined ? {} : { queuedAt: state.queuedAt }),
     ...(state.calledAt === undefined ? {} : { calledAt: state.calledAt }),

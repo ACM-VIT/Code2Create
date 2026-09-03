@@ -43,7 +43,7 @@ The shell shows only destinations that the current person can open. It groups th
 
 - **Now:** Overview, Event monitor, Operations agent, and Help desk.
 - **Applications:** Review applications.
-- **Event day:** Check-in, Hall, and Music desk.
+- **Event day:** Check-in and Music desk.
 - **Judging:** Review rounds, Results, Team updates, and Code and design.
 - **Manage:** Event setup, People and permissions, Test run, and Recovery.
 
@@ -58,7 +58,7 @@ The event state decides which destinations lead. The stage-specific work stays v
 | Setting up          | Decide how teams apply, then open applications           | Event setup, People and permissions, Test run      |
 | Applications open   | Review applications as they arrive and answer questions  | Review applications, Help desk, Event setup        |
 | Applications closed | Finish decisions and offers, then ready the venue        | Review applications, Event setup, Test run         |
-| Event running       | Keep people checked in, teams routed, and reviews moving | Overview, Check-in, Hall, Review rounds, Help desk |
+| Event running       | Keep people checked in, teams routed, and reviews moving | Overview, Check-in, Review rounds, Help desk       |
 | Event finished      | Verify and close each round, then publish results        | Results, Overview                                  |
 
 ### Permission manager
@@ -105,7 +105,7 @@ The UI labels delegation separately from execution. Being allowed to grant an ac
 
 Seeing this control requires event-scoped `event.lifecycle.read`. Changing it requires the independent `event.lifecycle.manage` grant, current scoped authorization, the current event version, a reason, and an idempotent operation ID. The mutation writes one audit event. Two operators acting on the same event version cannot both win.
 
-Opening applications requires published event dates, external and VIT application deadlines, participant policy, intake policy, and admission policy. The external deadline must be no later than the VIT deadline, and the VIT deadline must be no later than the event start. Starting the event requires accepted-team details, event phases, team updates, check-in plan, hall plan, integration policy, and at least one published judging round. Finishing the event is blocked while an attendance session or judging round is active. The dashboard names these blockers next to the attempted transition.
+Opening applications requires published event dates, external and VIT application deadlines, participant policy, intake policy, and admission policy. The external deadline must be no later than the VIT deadline, and the VIT deadline must be no later than the event start. Starting the event requires accepted-team details, event phases, team updates, check-in plan, integration policy, and at least one published judging round. Finishing the event is blocked while an attendance session or judging round is active. The dashboard names these blockers next to the attempted transition.
 
 At `externalApplicationsCloseAt`, the server stops profile, team, intake, proposal-revision, and final-submission writes for external participants. It applies the same stop to VIT students at `applicationsCloseAt`. Saved drafts remain readable. Submitted applications remain available to admissions. The current lead can still answer a specific admission-information request after the team's deadline. An idempotent retry of a command that committed before the applicable deadline returns its first result. Extending a deadline reopens the same participant commands for that class; it does not rewrite a prior application snapshot.
 
@@ -186,7 +186,7 @@ The console may show visible user and assistant text plus fixed, sanitized tool 
 
 ### Autonomous operations policy
 
-The autonomous operations policy is a complete immutable version. It selects `observe` or `recommend`, health severities and areas, cadence, escalation severity, one accountable active event account, a closed set of redacted read tools, and the typed recommendation kinds that may be recorded for human review. The exact read registry covers operations health and attention, review rounds and exceptions, attendance counts and operations, floor-mapping progress, support load, intake jobs, admission jobs, participant deliveries, integration jobs, round-export jobs, Synesthesia operations, and incident readiness. It places no product quota on reasoning turns, read traversal, tool calls, investigator work, runtime, or proposal count. Technical endpoints still stream or paginate bounded chunks so one request cannot exhaust a Worker or Convex transaction, but a durable agent may continue through every page and checkpoint until its analysis is complete. `observe` requires an empty recommendation allowlist. `recommend` allows only the selected typed proposal kinds. The first release has no execute mode, generic action tool, or machine permission to perform a domain command.
+The autonomous operations policy is a complete immutable version. It selects `observe` or `recommend`, health severities and areas, cadence, escalation severity, one accountable active event account, a closed set of redacted read tools, and the typed recommendation kinds that may be recorded for human review. The exact read registry covers operations health and attention, review rounds and exceptions, attendance counts and operations, support load, intake jobs, admission jobs, participant deliveries, integration jobs, round-export jobs, Synesthesia operations, and incident readiness. It places no product quota on reasoning turns, read traversal, tool calls, investigator work, runtime, or proposal count. Technical endpoints still stream or paginate bounded chunks so one request cannot exhaust a Worker or Convex transaction, but a durable agent may continue through every page and checkpoint until its analysis is complete. `observe` requires an empty recommendation allowlist. `recommend` allows only the selected typed proposal kinds. The first release has no execute mode, generic action tool, or machine permission to perform a domain command.
 
 The current policy response always includes its exact selected owner, including a truthful indication when that account has since lost required access. Eligible replacement owners use a separate indexed, searchable, cursor-paginated picker. Large staff populations never make the configuration or kill-switch screen unavailable, and an empty filtered page does not imply that later eligible accounts do not exist.
 
@@ -213,7 +213,7 @@ The selected intelligence layer grows through narrow projections rather than one
 - a reviewer evidence brief and missing-evidence checklist, never a score or score recommendation;
 - support classification, duplicate hints, ownership suggestions, and reply drafts;
 - GitHub/Figma freshness and provider-anomaly explanations;
-- attendance, hall, queue, panel, reviewer-presence, and round-risk summaries for the operator's permitted scope; and
+- attendance, queue, panel, reviewer-presence, and round-risk summaries for the operator's permitted scope; and
 - rehearsal, release, and incident handover briefs from fixed operational projections.
 
 Each output is one of three classes: observation, proposed action, or executed command. Observations may publish after strict source/version validation. A proposed action must name its source facts, exact target, current target version, reason, required permission, and expiry. Execution is never an agent tool: a human opens the normal product confirmation and the ordinary Convex mutation rechecks that human's current exact grant and scope, current authorization where required, current state/version, reason, and operation ID. The mutation records the human as actor. An agent cannot impersonate them or turn a stale proposal into a command.
@@ -465,36 +465,10 @@ The board does not rank participants by hours or label an ordinary temporary exi
 
 Overlapping sessions are separate rows and per-participant states. A workshop confirmation cannot replace the broader hacking-session confirmation. The dashboard blocks open until expectation materialization completes and keeps close visibly in progress until every resumable finalization batch and count check succeeds.
 
-## 8. Hall map
-
-The hall view is a live projection of the published floor plan. Each venue zone is drawn as one rectangle at the proportions of the real room, with its published landmarks marked and every recorded team position drawn on it at once. A panel has no place of its own: panels walk to whichever team they are reviewing, so where the team is sitting is the only place a review happens.
-
-Each zone shows:
-
-- the rectangle, its size in paced metres, and its landmarks;
-- a dot per team at the position floor staff recorded, with the team name;
-- how many teams are in each of the zone's nine parts, so a crowded corner is visible before anyone walks into it;
-- mapped team, mapper, and last mapped time when authorized;
-- whether a team is queued, called, in review, or held when the caller also has the relevant queue read.
-
-Staff can:
-
-- create a bounded draft plan by pasting checked zone/landmark CSV rows;
-- publish the plan before mapping begins;
-- see placed, confirmed-team, and unlocated counts and the busiest part of the hall update live;
-- map a team in the event app after scanning the QR on that team's dashboard;
-- freeze only after every currently eligible team is mapped;
-- make a reasoned, separately authorized correction after freeze.
-
-There are no table QR stickers and no participant location-write button. `floor.plan.create`, `.publish`, `.freeze`, `floor.location.read`, `.map`, and `.override` are independent permissions. Plan commands use event or exact-plan scope. Location commands use event or exact `floor_zone` scope; a cross-zone move requires authority over origin and destination.
-
-Moving a panel does not move the team's recorded hall location, and correcting a hall location does not silently reroute or call the team. After floor freeze, an accepted correction updates participant, event-app, routing, and operations projections from the same append-and-supersede transaction.
-
 ## 9. Reviewer and panel board
 
 The panel board shows one row per panel:
 
-- table/zone;
 - lead;
 - planned and current reviewers;
 - criterion coverage;
@@ -528,7 +502,7 @@ The queue board has columns for:
 - unassigned;
 - queued by panel;
 - called;
-- at table;
+- reviewers arrived;
 - in review;
 - held;
 - missed;
@@ -581,7 +555,7 @@ Protected actions:
 - force-close only under the approved policy;
 - open a replacement-review case.
 
-The dashboard does not expose live peer score values to floor operations.
+The dashboard does not expose live peer score values to review operations.
 
 ## 12. Integration evidence and health
 
@@ -662,7 +636,7 @@ Every write uses one actor-scoped operation ID. Staff updates compare the case v
 
 The release owner creates one run from the server-owned 62-scenario template. Creation stores the exact template version and copies each scenario's stable key, workstream, expected state, and recovery action into the run. Later code changes cannot rewrite a run already in progress.
 
-The screen shows the run state, five outcome counts, every workstream assignment, a filtered scenario list, the selected scenario's expected and recovery text, and its append-only history. The workstreams are sign-in/access, intake/admissions, communications, attendance, hall operations, reviewer app, review operations, integrations, reliability, Synesthesia, and support.
+The screen shows the run state, five outcome counts, every workstream assignment, a filtered scenario list, the selected scenario's expected and recovery text, and its append-only history. The workstreams are sign-in/access, intake/admissions, communications, attendance, reviewer app, review operations, integrations, reliability, Synesthesia, and support.
 
 `rehearsal.read`, `rehearsal.manage`, `rehearsal.execute`, and `rehearsal.complete` are independent. Each accepts an exact `rehearsal_run` grant or an explicit event-wide grant. Management creates a run, assigns owners, starts it, or cancels it. Execute records scenario outcomes. Complete performs final sign-off. Read alone exposes no command.
 
@@ -808,11 +782,11 @@ The dedicated emergency-pack workspace creates one fixed print document before a
 
 - the accepted participant roster;
 - permitted phone and VIT reference fields;
-- each participant's active team and recorded hall location;
+- each participant's active team;
 - the last accepted venue state;
 - the full published station list;
 - every `ready | open | closing` attendance session; and
-- every `published | open | closing` review round with its rubric and panel/table plan.
+- every `published | open | closing` review round with its rubric and panel plan.
 
 The workspace rejects a roster above 1,200 participants. It also rejects more than 400 represented teams, more than 100 stations, more than ten current rounds, or more than 400 current panels. It does not silently truncate the pack.
 
@@ -826,7 +800,7 @@ Manual incident records are reconciled after recovery under the reliability proc
 
 ## 20. Privacy
 
-- Floor views use preferred names and event identifiers, not eligibility documents.
+- Operational views use preferred names and event identifiers, not eligibility documents.
 - Phone numbers appear only to support/operations users who need to contact the person.
 - Participant registration numbers do not appear on panel boards.
 - Attendance views contain boundary events only; they do not show GPS, Bluetooth, Wi-Fi, or background location.
@@ -853,7 +827,7 @@ Manual incident records are reconciled after recovery under the reliability proc
 - Repeating one emergency-pack operation ID returns the first pack. Concurrent requests cannot claim the same serial prefix, and every generated attendance/review serial is accepted by its corresponding manual-import validator.
 - Prepare, read, and print grants fail independently. An expired pack, revoked print grant, stale authentication, changed version, or checksum mismatch cannot mint a new print URL.
 - Opening a print document is audited and does not activate manual mode; importing any used original still requires the matching approved incident and a different verifier.
-- A person with floor-summary or scan permission cannot read detailed attendance history or export attendance without the separate scoped grants.
+- A person with attendance-summary or scan permission cannot read detailed attendance history or export attendance without the separate scoped grants.
 - Event-health read, brief read, and brief generation remain three independent permissions. A generator without brief read receives only the request receipt, and a brief reader gains no drill-down or corrective command.
 - Overview renders at most three named priorities and no system-check or brief section. Its remaining-work link opens Event monitor, where the bounded priority queue and aggregate checks remain available.
 - A repeated dispatch for one brief creates one durable agent instance; a late callback, retry, timeout, or competing callback produces one terminal stored result.
@@ -899,7 +873,7 @@ Manual incident records are reconciled after recovery under the reliability proc
 - A round pause and a concurrent call, start, close, resume, or linked-incident resolution cannot both cross the same version boundary.
 - Pausing a round preserves queue positions and allows an already-active review to save, submit, and complete.
 - Participant and reviewer surfaces show the pause without receiving the incident title, summary, or operator reason.
-- Floor operations can see missing scorecards without seeing score values.
+- Review operations can see missing scorecards without seeing score values.
 - A delivered push never appears as substitute acceptance.
 - Round close lists exact blocking sessions, criteria, and corrections.
 - Starting close freezes writes and shows export progress; it cannot display the round as closed before a different authorized person verifies both protected files.

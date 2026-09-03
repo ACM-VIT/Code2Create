@@ -1,10 +1,7 @@
 import { v } from "convex/values";
 
 import { internal } from "./_generated/api";
-import type { Doc } from "./_generated/dataModel";
-import type { MutationCtx } from "./_generated/server";
 import { internalMutation } from "./_generated/server";
-import { teamRoundTableLabel } from "./lib/floor";
 import { pushTokenFingerprint } from "./lib/pushTokens";
 
 const maxSendAttempts = 3;
@@ -18,7 +15,6 @@ const deliveryClaim = v.union(
     provider: v.union(v.literal("fcm"), v.literal("apns")),
     environment: v.union(v.literal("development"), v.literal("production")),
     roundName: v.string(),
-    tableLabel: v.optional(v.string()),
     expiresAt: v.number(),
   }),
 );
@@ -128,7 +124,6 @@ export const claimDelivery = internalMutation({
       return null;
     }
 
-    const destination = await pageDestination(ctx, page);
     const claimExpiresAt = Math.min(page.expiresAt, now + sendClaimMs);
     await ctx.db.patch(delivery._id, {
       state: "sending",
@@ -149,22 +144,10 @@ export const claimDelivery = internalMutation({
       provider: device.pushProvider,
       environment: device.pushEnvironment,
       roundName: round.name,
-      ...destination,
       expiresAt: page.expiresAt,
     };
   },
 });
-
-/** Resolves a destination only after the page targets a review session. */
-async function pageDestination(ctx: MutationCtx, page: Doc<"reviewerPages">) {
-  if (page.reviewSessionId === undefined) return {};
-  const session = await ctx.db.get(page.reviewSessionId);
-  if (!session) return {};
-  const tableLabel = await teamRoundTableLabel(ctx, session.roundId, session.teamId);
-  return {
-    ...(tableLabel !== undefined ? { tableLabel } : {}),
-  };
-}
 
 export const recordProviderAcceptance = internalMutation({
   args: {

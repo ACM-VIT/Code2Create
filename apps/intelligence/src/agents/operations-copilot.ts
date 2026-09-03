@@ -45,8 +45,6 @@ const readDescriptions: Record<OperationsIntelligenceReadName, string> = {
     "Actionable review exceptions: panel vacancies a substitute page could fill (with the vacancy id) and teams in queued, called, at-table, held, or missed states (with their state ids). The ids here are what recommendation arguments must cite.",
   attendance_counts:
     'Venue check-in total and per-session attendance counters. Answers "how many people are here and where".',
-  floor_mapping_progress:
-    "Floor-plan mapping progress: how many eligible teams are placed, how many are not, and per-zone placement counts.",
   support_load:
     "Support-desk load: case counts by state and category, the exact count of unassigned active cases, and the age of the oldest open case.",
   recommendation_history:

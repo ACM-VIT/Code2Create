@@ -22,23 +22,6 @@ export function reviewerPanelMode({
   return "duty";
 }
 
-export function hallStatus(
-  summary: { mappingState: "open" | "frozen"; placedTeamCount: number } | null | undefined,
-  enabled: boolean,
-): DutyStatus {
-  if (!enabled) return { status: "", active: false };
-  if (summary === undefined) return { status: "—", active: false };
-  if (summary === null) return { status: "No hall plan yet", active: false };
-  if (summary.mappingState === "frozen") return { status: "Map is frozen", active: false };
-  const placed = summary.placedTeamCount;
-  if (placed === 0) return { status: "Nobody placed yet", active: false };
-  return {
-    status: `${placed} team${placed === 1 ? "" : "s"} placed`,
-    active: false,
-    headline: { value: String(placed), unit: placed === 1 ? "team placed" : "teams placed" },
-  };
-}
-
 export function incidentStatus(
   summary: { liveCount: number; pendingManualModeCount: number } | undefined,
   enabled: boolean,

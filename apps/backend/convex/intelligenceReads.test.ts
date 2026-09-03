@@ -127,7 +127,6 @@ describe("intelligence read endpoint", () => {
       "review_rounds",
       "review_exceptions",
       "attendance_counts",
-      "floor_mapping_progress",
       "support_load",
       "recommendation_history",
     ]) {

@@ -1,5 +1,5 @@
 import type { Doc, Id } from "../_generated/dataModel";
-import type { MutationCtx } from "../_generated/server";
+import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { advanceAccessVersion } from "./accessVersion";
 import { insertPermissionGrant } from "./permissions";
 import { normalizedText } from "./strings";
@@ -11,8 +11,6 @@ export const teamMemberPermissionKeys = [
   "integration.read",
   "project.checkpoint.read",
   "team.lead.accept",
-  "floor.team.read",
-  "floor.team_qr.mint",
   "queue.participant.read",
   "review.team_qr.mint",
   "score.feedback.read",
@@ -27,6 +25,22 @@ const teamLeadPermissionKeys = [
   "integration.github.manage",
   "integration.figma.manage",
 ] as const;
+
+export async function currentTeamForMembership(
+  ctx: QueryCtx | MutationCtx,
+  eventId: Id<"events">,
+  membershipId: Id<"eventMemberships">,
+) {
+  const member = await ctx.db
+    .query("teamMembers")
+    .withIndex("by_event_membership_status", (index) =>
+      index.eq("eventId", eventId).eq("membershipId", membershipId).eq("status", "active"),
+    )
+    .unique();
+  if (!member) return null;
+  const team = await ctx.db.get(member.teamId);
+  return team?.eventId === eventId ? { team, member } : null;
+}
 
 function randomTeamCode() {
   const alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";

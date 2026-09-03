@@ -80,7 +80,7 @@ export const recordDispatchReceipt = internalMutation({
     const recommendation = await ctx.db.get(args.recommendationId);
     if (
       !recommendation ||
-      recommendation.state !== "pending" ||
+      (recommendation.state !== "pending" && recommendation.state !== "running") ||
       recommendation.agentDispatchAttemptId !== args.attemptId
     )
       return false;
@@ -105,17 +105,32 @@ export const recordDispatchFailure = internalMutation({
   args: {
     recommendationId: v.id("admissionAIRecommendations"),
     attemptId: v.string(),
+    workerMayHaveAccepted: v.boolean(),
   },
   returns: v.boolean(),
   handler: async (ctx, args) => {
     const recommendation = await ctx.db.get(args.recommendationId);
     if (
       !recommendation ||
-      recommendation.state !== "pending" ||
+      (recommendation.state !== "pending" && recommendation.state !== "running") ||
       recommendation.agentDispatchAttemptId !== args.attemptId
     )
       return false;
-    await ctx.db.patch(recommendation._id, { agentDispatchAttemptId: undefined });
+    if (args.workerMayHaveAccepted) {
+      await ctx.scheduler.runAfter(
+        ideaIntelligenceRecoveryLeaseMs,
+        internal.admissionIntelligence.recoverAgentDispatchAttempt,
+        {
+          recommendationId: recommendation._id,
+          attemptId: args.attemptId,
+        },
+      );
+      return true;
+    }
+    if (recommendation.state !== "pending") return false;
+    await ctx.db.patch(recommendation._id, {
+      agentDispatchAttemptId: undefined,
+    });
     return true;
   },
 });
@@ -187,6 +202,7 @@ export const dispatchRecommendation = internalAction({
   handler: async (ctx, args) => {
     const prepared = await ctx.runMutation(internal.admissionAgentActions.prepareDispatch, args);
     if (!prepared) return null;
+    let workerMayHaveAccepted = false;
     try {
       const request: IdeaIntelligenceDispatchRequest = {
         protocolVersion: operationsIntelligenceProtocolVersion,
@@ -207,6 +223,7 @@ export const dispatchRecommendation = internalAction({
         timestamp,
         body,
       });
+      workerMayHaveAccepted = true;
       const response = await fetch(
         new URL("/v1/idea-submissions", requireIntelligenceWorkerOrigin()),
         {
@@ -241,6 +258,7 @@ export const dispatchRecommendation = internalAction({
       const recorded = await ctx.runMutation(internal.admissionAgentActions.recordDispatchFailure, {
         recommendationId: prepared.recommendationId,
         attemptId: prepared.attemptId,
+        workerMayHaveAccepted,
       });
       if (recorded) throw error;
     }

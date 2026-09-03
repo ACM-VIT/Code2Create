@@ -47,7 +47,6 @@ const quickReports: readonly (readonly [SupportCategory, string])[] = [
   ["scanner_device", "This phone or its scanner is misbehaving"],
   ["missing_scan", "A scan did not record"],
   ["attendance_credential", "A card or badge will not work"],
-  ["table_location", "A team cannot be found in the hall"],
 ];
 
 const stateRank: Record<SupportState, number> = {

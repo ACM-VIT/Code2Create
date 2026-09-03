@@ -228,8 +228,6 @@ function safeToolLabel(toolName: string) {
       return "Read review exceptions";
     case "read_attendance_counts":
       return "Read attendance counts";
-    case "read_floor_mapping_progress":
-      return "Read floor progress";
     case "read_support_load":
       return "Read support load";
     case "read_recommendation_history":

@@ -57,7 +57,6 @@ export function EventSetupOverview({ tabs }: { tabs: ConfigurationTabsVisibility
     api.attendanceConfiguration.current,
     tabs.showAttendance ? { eventSlug } : "skip",
   );
-  const floor = useQuery(api.floorConfiguration.current, tabs.showFloor ? { eventSlug } : "skip");
 
   return (
     <section className="setup-home">
@@ -193,7 +192,7 @@ export function EventSetupOverview({ tabs }: { tabs: ConfigurationTabsVisibility
         </SetupSection>
       ) : null}
 
-      {tabs.showAttendance || tabs.showFloor || tabs.showIntegrations ? (
+      {tabs.showAttendance || tabs.showIntegrations ? (
         <SetupSection title="Event day">
           {tabs.showAttendance ? (
             <SetupRow
@@ -216,29 +215,6 @@ export function EventSetupOverview({ tabs }: { tabs: ConfigurationTabsVisibility
                 Boolean(attendance?.draftPlan),
               )}
               to="/attendance-setup"
-            />
-          ) : null}
-          {tabs.showFloor ? (
-            <SetupRow
-              detail={
-                floor
-                  ? floor.publishedPlan
-                    ? `${floor.publishedPlan.zoneCount} zones · ${floor.publishedPlan.landmarkCount} landmarks`
-                    : "No hall layout is published"
-                  : "Loading the hall layout…"
-              }
-              label="Hall layout"
-              state={optionalPublicationState(
-                floor,
-                Boolean(floor?.publishedPlan),
-                Boolean(floor?.draftPlan),
-              )}
-              status={optionalPublicationStatus(
-                floor,
-                Boolean(floor?.publishedPlan),
-                Boolean(floor?.draftPlan),
-              )}
-              to="/floor-setup"
             />
           ) : null}
           {tabs.showIntegrations ? (

@@ -98,7 +98,6 @@ export type TeamProjection = {
   teamId: string;
   teamName: string;
   panelId?: string;
-  tableLabel?: string;
   state:
     | "unassigned"
     | "queued"
@@ -298,7 +297,7 @@ export function reviewTeamItems(input: TeamDetectorProjection): DetectedAttentio
   const items: DetectedAttentionItem[] = [];
 
   for (const team of input.teams) {
-    const at = team.tableLabel ? `${input.roundName} · ${team.tableLabel}` : input.roundName;
+    const roundName = input.roundName;
     const teamScopes = team.panelId
       ? [`team:${team.teamId}`, `panel:${team.panelId}`]
       : [`team:${team.teamId}`];
@@ -312,7 +311,7 @@ export function reviewTeamItems(input: TeamDetectorProjection): DetectedAttentio
               name: "reviewOperations.extendReview",
               reviewSessionId: review.reviewSessionId,
               expectedVersion: review.version,
-              reason: `${team.teamName} ran past the end of its review window at ${at}.`,
+              reason: `${team.teamName} ran past the end of its review window in ${roundName}.`,
             },
             { scopeType: "review", scopeId: review.reviewSessionId },
             input.now,
@@ -324,7 +323,7 @@ export function reviewTeamItems(input: TeamDetectorProjection): DetectedAttentio
         subjectType: "review",
         subjectId: review.reviewSessionId,
         severity: "critical",
-        statement: `${team.teamName} at ${at} is ${durationPhrase(overdueBy)} past the time this review was meant to finish.`,
+        statement: `${team.teamName} in ${roundName} is ${durationPhrase(overdueBy)} past the time this review was meant to finish.`,
         route,
         actionLabel: proposal ? "Extend the timer" : "Close it out",
         visibility,
@@ -350,7 +349,7 @@ export function reviewTeamItems(input: TeamDetectorProjection): DetectedAttentio
         subjectType: "review",
         subjectId: review.reviewSessionId,
         severity: "attention",
-        statement: `${review.reviewerPresenceCount} of ${review.reviewerCount} reviewers have scanned in at ${at}, so ${team.teamName} cannot start after waiting ${durationPhrase(input.now - review.createdAt)}.`,
+        statement: `${review.reviewerPresenceCount} of ${review.reviewerCount} reviewers have scanned in for ${roundName}, so ${team.teamName} cannot start after waiting ${durationPhrase(input.now - review.createdAt)}.`,
         route,
         actionLabel: "Check the table",
         visibility,
@@ -441,7 +440,7 @@ export function reviewTeamItems(input: TeamDetectorProjection): DetectedAttentio
         subjectType: "team",
         subjectId: team.teamId,
         severity: "attention",
-        statement: `${team.teamName} was called to ${at} and the grace period ran out ${durationPhrase(input.now - team.missedEligibleAt)} ago.`,
+        statement: `${team.teamName} was called for ${roundName} and the grace period ran out ${durationPhrase(input.now - team.missedEligibleAt)} ago.`,
         route,
         actionLabel: "Mark them missed",
         visibility,
@@ -455,7 +454,7 @@ export function reviewTeamItems(input: TeamDetectorProjection): DetectedAttentio
             name: "reviewExceptions.markMissed",
             teamRoundStateId: team.teamRoundStateId,
             expectedVersion: team.version,
-            reason: `${team.teamName} did not arrive at ${at} within the grace period.`,
+            reason: `${team.teamName} did not arrive for ${roundName} within the grace period.`,
           },
           { scopeType: "team", scopeId: team.teamId },
           input.now,

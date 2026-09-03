@@ -276,7 +276,7 @@ export const intelligenceAgentDefinitions: readonly IntelligenceAgentDefinition[
       "Operator decisions and notes are read back through recommendation history",
     ],
     authority: [
-      "Read bounded operations, review, attendance, mapping, support, and admissions projections",
+      "Read bounded operations, review, attendance, support, and admissions projections",
       "Delegate one focused read-only investigation",
       "Inspect a scoped command schema and submit a typed command for human approval",
       "Cannot approve or execute its recommendation",

@@ -1206,9 +1206,6 @@ function ReviewHeading({ review, serverNow }: { review: WorkspaceReview; serverN
   }
   return (
     <View style={styles.reviewHeading}>
-      <Text ellipsizeMode="tail" numberOfLines={1} style={styles.eyebrow}>
-        {review.team.tableLabel ?? "Location not mapped"}
-      </Text>
       <Text style={styles.reviewTitle}>{review.team.name}</Text>
     </View>
   );

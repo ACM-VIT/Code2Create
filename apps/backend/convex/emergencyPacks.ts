@@ -11,7 +11,6 @@ import { internalMutation, internalQuery, mutation, query } from "./_generated/s
 import { writeAuditEvent } from "./lib/audit";
 import { loadPublishedCommunicationsPolicy } from "./lib/communicationsPolicy";
 import { requireEventBySlug } from "./lib/events";
-import { floorLocationDescription, nearestLandmarkName } from "./lib/floor";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import {
   findOperation,
@@ -64,8 +63,6 @@ const rosterRow = v.object({
   attendanceState: venuePresenceState,
   attendanceZoneName: v.optional(v.string()),
   attendanceUpdatedAt: v.optional(v.number()),
-  hallZoneName: v.optional(v.string()),
-  hallLocation: v.optional(v.string()),
 });
 
 const stationSnapshot = v.object({
@@ -203,7 +200,6 @@ async function buildSnapshot(ctx: QueryCtx, event: Doc<"events">) {
       loadPublishedParticipantPolicy(ctx, event),
     ]);
   const attendancePlanId = event.publishedAttendancePlanVersionId;
-  const floorPlanId = event.publishedFloorPlanVersionId;
   const snapshotAt = Date.now();
   const memberships = await ctx.db
     .query("eventMemberships")
@@ -275,50 +271,12 @@ async function buildSnapshot(ctx: QueryCtx, event: Doc<"events">) {
     : [];
   const attendanceZonesById = mapById(attendanceZones);
 
-  const [floorZones, floorLandmarks, floorLocations] = floorPlanId
-    ? await Promise.all([
-        ctx.db
-          .query("floorZones")
-          .withIndex("by_plan_order", (index) => index.eq("planVersionId", floorPlanId))
-          .collect(),
-        ctx.db
-          .query("floorLandmarks")
-          .withIndex("by_plan_order", (index) => index.eq("planVersionId", floorPlanId))
-          .collect(),
-        ctx.db
-          .query("teamFloorLocations")
-          .withIndex("by_plan_state", (index) =>
-            index.eq("planVersionId", floorPlanId).eq("state", "active"),
-          )
-          .collect(),
-      ])
-    : [[], [], []];
-  const floorZonesById = mapById(floorZones);
-  const floorLocationByTeam = new Map(
-    floorLocations.map((location) => [location.teamId, location]),
-  );
-
   const roster = membershipRows
     .map(({ membership, profile, venueState }) => {
       const team = teamByMembership.get(membership._id);
-      const location = team ? floorLocationByTeam.get(team._id) : undefined;
       const attendanceZone = venueState?.zoneId
         ? attendanceZonesById.get(venueState.zoneId)
         : undefined;
-      const hallZone = location ? floorZonesById.get(location.zoneId) : undefined;
-      const hallLocation =
-        location && hallZone
-          ? floorLocationDescription(
-              hallZone.name,
-              location.area,
-              nearestLandmarkName(
-                hallZone,
-                floorLandmarks.filter((landmark) => landmark.zoneId === hallZone._id),
-                location.x,
-                location.y,
-              ),
-            )
-          : undefined;
       return {
         participantReference: membership._id,
         name: profile?.fullName ?? "Profile incomplete",
@@ -351,8 +309,6 @@ async function buildSnapshot(ctx: QueryCtx, event: Doc<"events">) {
         attendanceState: venueState?.state ?? "unknown",
         ...(attendanceZone ? { attendanceZoneName: attendanceZone.name } : {}),
         ...(venueState ? { attendanceUpdatedAt: venueState.updatedAt } : {}),
-        ...(hallZone ? { hallZoneName: hallZone.name } : {}),
-        ...(hallLocation !== undefined ? { hallLocation } : {}),
       };
     })
     .sort(

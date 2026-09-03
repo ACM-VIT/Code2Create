@@ -71,9 +71,6 @@ const Rehearsal = lazy(() =>
 const SupportDesk = lazy(() =>
   import("./screens/SupportDesk").then((module) => ({ default: module.SupportDesk })),
 );
-const FloorOverview = lazy(() =>
-  import("./screens/FloorOverview").then((module) => ({ default: module.FloorOverview })),
-);
 const ReviewOverview = lazy(() =>
   import("./screens/ReviewOverview").then((module) => ({ default: module.ReviewOverview })),
 );
@@ -266,8 +263,6 @@ function Operations({
   const canPrepareEmergencyPack = capabilities.emergencyPackPrepare;
   const canPrintEmergencyPack = capabilities.emergencyPackPrint;
   const canViewEmergencyPack = capabilities.emergencyRecovery;
-  const canReadFloorLocations = capabilities.floorLocations;
-  const canReadFloorConfiguration = capabilities.floorConfiguration;
   const configurationPath =
     canViewEventLifecycle ||
     canViewParticipantConfiguration ||
@@ -279,8 +274,7 @@ function Operations({
     canViewIntelligenceConfiguration ||
     canViewPhaseConfiguration ||
     canViewCheckpointConfiguration ||
-    canSetupAttendance ||
-    canReadFloorConfiguration
+    canSetupAttendance
       ? "/configuration"
       : null;
   const configurationTabs: ConfigurationTabsVisibility = {
@@ -291,7 +285,6 @@ function Operations({
     showParticipants: canViewParticipantConfiguration,
     showAdmissions: canViewAdmissionConfiguration,
     showCommunications: canViewCommunicationsConfiguration,
-    showFloor: canReadFloorConfiguration,
     showIntegrations: canViewIntegrationConfiguration,
     showIntelligence: canViewIntelligenceConfiguration,
     showPhases: canViewPhaseConfiguration,
@@ -312,7 +305,6 @@ function Operations({
     ...(canViewCheckpointConfiguration ? ["/configuration/checkpoints"] : []),
     ...(canSetupAttendance ? ["/attendance-setup"] : []),
     ...(canViewAttendance ? ["/attendance"] : []),
-    ...(canReadFloorConfiguration ? ["/floor-setup"] : []),
     ...(canOpenReviewSetup ? ["/review-setup"] : []),
     ...(canViewReviews ? ["/reviews"] : []),
   ];
@@ -344,7 +336,6 @@ function Operations({
         ...(canViewAttendance
           ? [{ label: "Check-in", to: "/attendance", icon: "scan" as const }]
           : []),
-        ...(canReadFloorLocations ? [{ label: "Hall", to: "/floor", icon: "map" as const }] : []),
         ...(canViewSynesthesia
           ? [{ label: "Music desk", to: "/synesthesia", icon: "music" as const }]
           : []),
@@ -403,8 +394,6 @@ function Operations({
     [canViewIntelligence, "/intelligence"],
     [canViewAdmissions, "/admissions"],
     [canViewAttendance, "/attendance"],
-    [canReadFloorLocations, "/floor"],
-    [canReadFloorConfiguration, "/floor-setup"],
     [canViewReviews, "/reviews"],
     [canOpenReviewSetup, "/review-setup"],
     [canViewSupport, "/support"],
@@ -596,32 +585,6 @@ function Operations({
           {canViewAttendance ? <Route path="/attendance" element={<AttendanceOverview />} /> : null}
           {canViewAttendance ? (
             <Route path="/attendance/:sessionId" element={<AttendanceSession />} />
-          ) : null}
-          {canReadFloorLocations ? (
-            <Route
-              path="/floor"
-              element={
-                <FloorOverview
-                  canReadConfiguration={canReadFloorConfiguration}
-                  canReadLocations
-                  tabs={null}
-                  view="operations"
-                />
-              }
-            />
-          ) : null}
-          {canReadFloorConfiguration ? (
-            <Route
-              path="/floor-setup"
-              element={
-                <FloorOverview
-                  canReadConfiguration
-                  canReadLocations={canReadFloorLocations}
-                  tabs={configurationTabs}
-                  view="configuration"
-                />
-              }
-            />
           ) : null}
           {canViewEmergencyPack ? (
             <Route

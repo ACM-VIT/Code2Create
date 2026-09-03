@@ -6,7 +6,6 @@ import type { MutationCtx } from "./_generated/server";
 import { mutation } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
-import { teamTableLabel } from "./lib/floor";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import {
   findOperation,
@@ -399,7 +398,6 @@ export const resumeTeam = mutation({
     });
     const panel = state.panelId ? await ctx.db.get(state.panelId) : null;
     const canReturnToPanel = Boolean(panel && panel.status === "ready");
-    const resumedTableLabel = await teamTableLabel(ctx, state.teamId);
     const now = Date.now();
     let nextState: "unassigned" | "queued" = "unassigned";
     let preserveQueueTime = true;
@@ -416,7 +414,6 @@ export const resumeTeam = mutation({
       ...(nextState === "queued" && state.panelId
         ? { panelId: state.panelId }
         : { panelId: undefined }),
-      ...(nextState === "queued" ? { tableLabel: resumedTableLabel } : { tableLabel: undefined }),
       ...(nextState === "unassigned"
         ? { queuedAt: undefined }
         : preserveQueueTime

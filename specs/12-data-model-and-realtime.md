@@ -149,7 +149,7 @@ One temporary GitHub OAuth authorization for a participant who connected GitHub 
 
 One durable completion per event/membership. It stores the participant and GitHub identities, the fixed `sgl-project/sglang` repository identity, and server completion time. The same GitHub user cannot complete the step for two participants in one event. It stores no OAuth credential.
 
-`selected` means the human acceptance is published but no offer is open. `offer_pending` means the exact deadline-frozen roster has reserved places and awaits its current lead. `accepted` is deliberately the final membership state after offer confirmation and is the only one of those three that enables attendance, hall mapping, and review queues.
+`selected` means the human acceptance is published but no offer is open. `offer_pending` means the exact deadline-frozen roster has reserved places and awaits its current lead. `accepted` is deliberately the final membership state after offer confirmation and is the only one of those three that enables attendance and review queues.
 
 ### `eventRoles`
 
@@ -274,7 +274,7 @@ Key fields:
 
 - `eventId`, `personId`, `eventAccessSubjectId`;
 - stable `permissionKey`;
-- deployed `scopeType: event | self | person | team | application | round | panel | review | page | scorecard | attendance_plan | attendance_session | station | incident | evidence_checkpoint | permission_bundle | roster_entry | synesthesia_window | song_request | floor_plan | floor_zone | support_case | rehearsal_run`;
+- deployed `scopeType: event | self | person | team | application | round | panel | review | page | scorecard | attendance_plan | attendance_session | station | incident | evidence_checkpoint | permission_bundle | roster_entry | synesthesia_window | song_request | support_case | rehearsal_run`;
 - required `scopeId` except for intentional event scope;
 - catalog-validated bounded constraints, never executable rules;
 - optional `delegation` only on `access.permissions.grant_scoped | revoke_scoped`, containing one non-administrative permission key, exact legal scope, and `exact_person | any_event_person` target boundary;
@@ -389,7 +389,7 @@ One immutable accepted-team and notification release.
 
 One event has at most one draft and one published row. Draft replacement retires the prior draft rather than editing it. Publication revalidates the complete content, exact current draft/checksum/event version, operational-window match, recent Google session, and reason, then supersedes the old row and moves `events.publishedCommunicationsPolicyId` in the same transaction. Venue/Discord fields do not live on `events` and never enter the unauthenticated public event response.
 
-The production sender identity, reply-to, retention/redaction period, mandatory-message policy, and approved production copy remain release inventory decisions under O-034; the application does not expose unenforced retention controls. The introduction contract remains separately typed in `intakePolicyVersions`, and admission, attendance, integration, intelligence, novelty, phase, checkpoint, floor, review, and Synesthesia configuration use their own tables.
+The production sender identity, reply-to, retention/redaction period, mandatory-message policy, and approved production copy remain release inventory decisions under O-034; the application does not expose unenforced retention controls. The introduction contract remains separately typed in `intakePolicyVersions`, and admission, attendance, integration, intelligence, novelty, phase, checkpoint, review, and Synesthesia configuration use their own tables.
 
 ### `eventPhaseScheduleVersions`
 
@@ -854,74 +854,6 @@ One active venue check-in exists per membership/event. Reversal changes that row
 
 Record and reversal move one participant’s shard in the same transaction as the source row. The event-wide operations projection reads the bounded shard set instead of subscribing to every person row.
 
-### `floorPlanVersions`
-
-One versioned physical hall layout per event revision.
-
-- `eventId`, sequential `planNumber`, name, checksum;
-- `status: draft | published | superseded | retired`;
-- `mappingState: setup | open | frozen`;
-- optimistic `version`;
-- creator/publication actor and time;
-- freeze actor, time, and reason.
-
-The event points to one published version. A draft is a bounded replacement, not an edit to the published plan. Publishing a replacement is blocked after the first active team location exists.
-
-### `floorZones`
-
-- `eventId`, `planVersionId`;
-- stable key, name, and display order;
-- `widthMeters` and `depthMeters`, so the phone draws the room in proportion;
-- created time.
-
-A `floor_zone` is the exact resource boundary for reading, ordinary mapping, and post-freeze override. A cross-zone move checks the caller against both zones.
-
-### `floorLandmarks`
-
-- `eventId`, `planVersionId`, `zoneId`;
-- stable key and short name;
-- `x`, `y` percentage coordinates in the zone rectangle;
-- display order and created time.
-
-Landmarks are the fixed things in the room: the stage, the windows, the food counter, the main entrance. They are what a mapper aligns the drawn rectangle against and what an operator names when sending a reviewer over. Every zone must publish at least one. Tables are never landmarks; participants move those.
-
-The published plan is immutable. Nothing in it is addressable seating, so there is no spot to print, claim, or attach a QR to.
-
-### `teamFloorLocations`
-
-- `eventId`, `planVersionId`, `teamId`, `zoneId`;
-- `x`, `y` percentage coordinates in the zone rectangle;
-- `area`, one of nine: `north_west | north | north_east | west | centre | east | south_west | south | south_east`;
-- `state: active | superseded`;
-- `method: team_qr_scan | override`;
-- optional prior/successor location IDs;
-- optimistic version;
-- mapper/time and override reason when required.
-
-The server derives the area from the recorded point. One active location exists for each team. A location is not exclusive. Two teams can have nearby points. Each accepted scan inserts a new record and supersedes the prior version in one transaction. The location is event-scoped. `teamRoundStates.tableLabel` stores the area and nearest published landmark for one round.
-
-### `floorTeamQrTokens`
-
-- event, published floor-plan version, and team;
-- token and manual-code digests, never raw bearer values;
-- token version and `active | used | superseded | expired` state;
-- ten-minute expiry;
-- issuing participant membership and time;
-- use time.
-
-Only active team members can mint under exact-team `floor.team_qr.mint`. Minting supersedes the previous active token. The QR is shown on the participant dashboard and scanned by floor staff; nothing is printed and stuck to a table.
-
-### `floorMappingClaims`
-
-- event, plan, team, destination zone, and consumed token;
-- exact operator person;
-- `mode: map | override`;
-- expected current location ID/version when one existed;
-- `active | completed | expired`, version, three-minute expiry, and timestamps;
-- resulting location ID after completion.
-
-Claiming and assigning are separate mutations. Claiming consumes the token and returns only the team and its current location to that mapper. Assignment rechecks claim ownership/expiry, plan state, the exact current-location version, and destination/origin grants, then writes one record from the point the mapper touched. It cannot create attendance, reviewer presence, a queue row, or a panel assignment.
-
 ## 6. Attendance and presence
 
 ### `attendancePlanVersions`
@@ -1201,7 +1133,7 @@ There is no exported-row table and no paginated snapshot assembler. The client s
 - one logical snapshot time and SHA-256 plus participant, represented-team, station, active-session, current-round, panel, attendance-sheet, and review-sheet counts;
 - opaque private-S3 key, exact object-version ID, approved region/bucket, byte count, document SHA-256, and completion time when ready.
 
-The generated roster comes only from participant memberships whose onboarding state is `accepted`; applicants do not become an incident contact export. One internal query reads the accepted profile, active team, current recorded hall location, last accepted venue state, full published station set, current attendance sessions, and current round/panel/rubric plan. It rejects more than 1,200 accepted participants, 400 represented teams, 100 stations, ten current rounds, or 400 current panels rather than truncating them. The fixed HTML contains prefilled uniquely numbered forms plus requested spares and at least one attendance/review form of each kind.
+The generated roster comes only from participant memberships whose onboarding state is `accepted`; applicants do not become an incident contact export. One internal query reads the accepted profile, active team, last accepted venue state, full published station set, current attendance sessions, and current round/panel/rubric plan. It rejects more than 1,200 accepted participants, 400 represented teams, 100 stations, ten current rounds, or 400 current panels rather than truncating them. The fixed HTML contains prefilled uniquely numbered forms plus requested spares and at least one attendance/review form of each kind.
 
 The source snapshot and generated bytes have separate checksums. Generation writes and immediately reads back the exact KMS-encrypted S3 object version before setting `ready`. Pack history never returns the HTML, roster, storage location, serial prefix, or URL. A print action independently rechecks the ready/unexpired record, event-scoped print grant, Google session age, version, and both checksums before returning an audited exact-version signed URL lasting no more than 60 seconds or the remaining pack lifetime. Pack state has no manual-mode flag.
 
@@ -1278,7 +1210,7 @@ At most one operational record per team/round. No row is needed while a team is 
 
 - `eventId`, `roundId`, `teamId`
 - `state: unassigned | queued | called | at_table | in_review | completed | held | missed | withdrawn`;
-- optional panel and table label;
+- optional panel;
 - `queuedAt`, `calledAt`, call attempts and latest call time;
 - completion, hold, missed, and previous-state facts;
 - previous panel and last-move time;
@@ -1471,7 +1403,7 @@ Each unbounded actionable source appends a complete redacted fact in the transac
 
 Each signal, schedule, or manual inbox row freezes the high-watermark for every allowed source. The run keeps that vector. The vector is part of the source checksum. A traversal returns only fact versions that were effective at the frozen watermark. Later changes cannot alter the traversal.
 
-Operations health, round summaries, attendance counts, and floor progress are bounded projections. The run captures each projection once as immutable JSON. A page contains complete rows up to the response-byte limit. No autonomy page wraps a capped interactive-copilot query.
+Operations health, round summaries, and attendance counts are bounded projections. The run captures each projection once as immutable JSON. A page contains complete rows up to the response-byte limit. No autonomy page wraps a capped interactive-copilot query.
 
 ### `operationsAutonomyContinuations` and `operationsAutonomyRunSupervision`
 
@@ -1622,7 +1554,7 @@ Only rejected/canceled serials can receive a later revision. The source storage 
 
 ### `manualReviewRecords`
 
-- event, approved review-backend incident, round, existing active review, team, panel/table, panel version, evidence-checkpoint set, and rubric version;
+- event, approved review-backend incident, round, existing active review, team, panel, panel version, evidence-checkpoint set, and rubric version;
 - frozen round/review versions and one printed serial/revision;
 - copied start/end time and service-unavailability reason;
 - one entry for each current assignment containing scorecard/reviewer IDs and names, frozen scorecard version, signature confirmation, complete assigned raw ratings/evidence notes, and optional private note;
@@ -2205,17 +2137,6 @@ The rehearsal result stores its source manifest/archive, exact staging target, o
 | `venueCheckInCounterShards.by_event_shard`                                     | Realtime checked-in aggregate without one write hotspot                                                        |
 | `staffedParticipantResolutions.by_portal_token`                                | Enforce one staffed resolution per consumed portal QR                                                          |
 | `staffedParticipantResolutions.by_event_membership_time`                       | Resolve bounded recent desk context for one participant                                                        |
-| `floorPlanVersions.by_event_status`                                            | Resolve one draft or published hall plan without scanning history                                              |
-| `floorPlanVersions.by_event_number`                                            | Allocate and inspect monotonic plan revisions                                                                  |
-| `floorZones.by_plan_order`                                                     | Render zones from one exact plan                                                                               |
-| `floorLandmarks.by_plan_order`                                                 | Draw one exact plan's fixed points without per-landmark reads                                                  |
-| `floorLandmarks.by_zone_order`                                                 | Name the landmark nearest one recorded position                                                                |
-| `teamFloorLocations.by_team_state`                                             | Enforce and read one active location for a team                                                                |
-| `teamFloorLocations.by_plan_state`                                             | Render every recorded position at once and freeze the plan projection                                          |
-| `teamFloorLocations.by_zone_state`                                             | Draw and count one zone's teams for the crowding view                                                          |
-| `floorTeamQrTokens.by_digest`                                                  | Consume one opaque dashboard QR without exposing its bearer                                                    |
-| `floorTeamQrTokens.by_manual_digest`                                           | Resolve the camera-failure code through the same claim command                                                 |
-| `floorMappingClaims.by_team_state`                                             | Diagnose bounded in-flight mapper claims for one team                                                          |
 | `attendancePlanVersions.by_event_status_version`                               | Resolve the published attendance policy                                                                        |
 | `attendanceSessions.by_event_status_start`                                     | Active/upcoming session board                                                                                  |
 | `attendanceExpectations.by_session_membership`                                 | Resolve one participant’s session requirement                                                                  |
@@ -2412,7 +2333,7 @@ Recomputes the full preview. The command requires a current scoped authorization
 
 ### Participant home composition
 
-The web portal composes small subscribed queries for participant/team/project completion, application/admission state, communications, notification delivery, attendance, hall location, separately typed hall-location and review-presence QR capabilities, queue estimate, generic round pause, checkpoints, feedback, and integrations. It does not use one unbounded participant-home response. The composed view never exposes an internal incident title, summary, or pause reason.
+The web portal composes small subscribed queries for participant/team/project completion, application/admission state, communications, notification delivery, attendance, review-presence QR capability, queue estimate, generic round pause, checkpoints, feedback, and integrations. It does not use one unbounded participant-home response. The composed view never exposes an internal incident title, summary, or pause reason.
 
 ### `participants.me`
 
@@ -2448,7 +2369,7 @@ Returns one exact closed-session participant result, present duration, confirmat
 
 ### `operations.attendanceExports`
 
-Returns only the caller's ten most recent purpose, selected columns, state, expiry, snapshot time, row/byte count, checksum, and failure category for one attendance session covered by `attendance.export.identifiable`. It never returns participant rows, an object key, bucket, or URL. Request and download are separate protected calls; event-wide permission may satisfy an exact-session check but role, floor-summary access, and scan execution cannot.
+Returns only the caller's ten most recent purpose, selected columns, state, expiry, snapshot time, row/byte count, checksum, and failure category for one attendance session covered by `attendance.export.identifiable`. It never returns participant rows, an object key, bucket, or URL. Request and download are separate protected calls; event-wide permission may satisfy an exact-session check but role, attendance-summary access, and scan execution cannot.
 
 ### `emergencyPacks.list`
 
@@ -2793,7 +2714,7 @@ All cohort, attendance-result, identity, and selected profile reads occur inside
 
 Preparation resolves the client operation before insertion, so a lost response returns the same pack. A new operation derives its 16-hex serial prefix from the event, actor, and operation ID, reads the event/prefix index, inserts the pending record, enqueues the export worker, records the operation, and audits the request in one mutation. Two different operations that collide on that short prefix conflict through the same index range; after retry, one exists and the other fails with an explicit request for a new operation ID. They cannot create two packs whose printed serials overlap.
 
-The internal snapshot query has one Convex logical read point. A scan, hall move, station edit, panel edit, or roster change is wholly before or after that point; it cannot change only one page of the document. The worker may retry storage, but completion accepts only the current pending pack and one internally consistent object-version/checksum manifest. Once ready, a later retry observes the terminal record and skips generation.
+The internal snapshot query has one Convex logical read point. A scan, station edit, panel edit, or roster change is wholly before or after that point; it cannot change only one page of the document. The worker may retry storage, but completion accepts only the current pending pack and one internally consistent object-version/checksum manifest. Once ready, a later retry observes the terminal record and skips generation.
 
 Print first checks current identity, `emergency_pack.print`, recent authentication, ready state, expiry, and complete manifest before signing the exact recorded object version. Before returning that URL, a mutation repeats authorization/freshness/state checks and compares the pack version and both checksums while writing the audit event. Permission revocation, expiry, or record change between those steps prevents delivery. A successfully returned URL lasts at most 60 seconds and never beyond pack expiry; it conveys no incident approval or import permission.
 
@@ -2857,13 +2778,7 @@ Policy publication supersedes the prior state and cancels its active run transac
 
 ### Two queue moves
 
-The first updates queue and team-round versions. The second expected-version check fails and returns the current location.
-
-### Concurrent hall mapping
-
-Minting a hall-location QR reads and supersedes the team's prior active token before inserting the next token version. Two concurrent mints conflict and retry, leaving only the later token active. Claiming a token checks `active` and marks it `used` in the same mutation as the operator-owned claim, so two phones cannot both consume the same presentation.
-
-Assignment reads the claim, published plan/mapping state, and the exact expected team location. Two teams recorded near each other never contend, because no record claims a place; the only serialized race is two claims moving one team, which resolves through `teamFloorLocations.by_team_state` and the frozen expected location ID/version. A successful move inserts one active successor and supersedes the prior record in the same transaction. Freeze reads the full eligible-team set and active plan projection; it either commits before a mapper, causing that ordinary map to fail against `frozen`, or retries after the map and includes it.
+The first updates queue and team-round versions. The second expected-version check fails and returns the current state.
 
 ### Score draft from old device
 
@@ -2892,7 +2807,6 @@ Board must set exact periods. The schema supports separate policies:
 - auth sessions and expired intents;
 - participant contact/eligibility data;
 - attendance credential records, short-lived QR tokens and staffed resolutions, raw scan attempts, accepted presence events, intervals, derived results, roll calls, identifiable exports, and restricted emergency packs as separate retention classes;
-- floor plans, team-location history, short-lived team QR digests, and mapping claims as separate retention classes;
 - intake answer versions, generated questions, model interpretations, submitted proposal versions, team checkpoint drafts, and immutable checkpoint submissions;
 - immutable curated novelty corpus versions/entries, short-lived novelty preview request metadata, and no-text team-density vectors as separate retention classes; preview and team-density rows contain no raw idea, editing vectors expire quickly, obsolete durable vectors are deleted when accepted text changes, and copied draft signals expire with the mutable draft;
 - admission AI recommendations, human application reviews/decisions, and their policy/source links as separate retention classes;
@@ -2980,7 +2894,7 @@ Attendance QR tokens expire quickly. Encrypted scanner queues expire after their
 - A human admission decision records the actor/reason and whether the AI recommendation was used, cleared, overridden, stale, or unavailable. Model failure never blocks the decision.
 - A manual AI retry needs `application.ai_recommendation.run`, the current failed/stale recommendation, and current optimistic versions. It preserves the prior row, creates one replacement per operation, reveals no result without read authority, and has no human-decision side effect.
 - Human acceptance reserves no capacity. Sending an offer atomically reserves the exact immutable deadline-frozen roster against overall capacity. Only one reservation can be active for the application.
-- Only the current lead with exact-team response authority can confirm or decline an open offer. Confirmation preserves the reservation and is the only admission transition that enables attendance, hall mapping, and review queues.
+- Only the current lead with exact-team response authority can confirm or decline an open offer. Confirmation preserves the reservation and is the only admission transition that enables attendance and review queues.
 - Decline, scheduled expiry, and reasoned revocation release the exact reservation once. Repeated or stale expiry work cannot release twice or undo confirmation, and revocation returns the team to selected state without changing its deadline-frozen roster.
 - Communications-policy read, draft, validation, and publication fail independently. Two writers from one observed draft state leave one current draft. Stale publication changes neither the policy pointer nor the event version.
 - An unauthenticated event read exposes no accepted-team venue, next step, or Discord field. An exact-team participant projection returns the current published policy only for `accepted | offer_sent | confirmed`. Waitlisted, declined, submitted, and unrelated teams receive no policy payload.
@@ -3029,14 +2943,8 @@ Attendance QR tokens expire quickly. Encrypted scanner queues expire after their
 - Every autonomous recommendation references a sealed, hash-chained, cursor-pageable set of exact completed read-operation leaves and traversal snapshots. A repeated still-open effect preserves every later run as a separately sealed observation while keeping one human command. All pending decisions, settled decisions, observations, evidence leaves, runs, and queued work remain cursor-pageable from the operations dashboard.
 - The agent can observe and record typed proposals only. Access, identity, participant, judging, score, notification, money, release, and other materially consequential effects require the ordinary authorized human command with current target versions.
 - Kill, policy supersession, owner revocation, and event closure revoke authority immediately and drive a durable idempotent Worker abort until acknowledged.
-- A panel has no table; it walks to the team it is reviewing. A location change cannot call, route, start, or complete a review.
-- A team hall-location QR comes from the participant dashboard, never a physical table sticker, and cannot be accepted by attendance or reviewer-presence commands.
-- One published floor plan has at most one active location per team, and that location is a point in a zone rectangle rather than a claim on a seat. Two teams recorded next to each other is a valid reading; a stale or concurrent mapper still cannot overwrite the one-location-per-team boundary.
-- Ordinary mapping requires exact destination-zone authority and, for a cross-zone move, exact origin-zone authority. Frozen mapping rejects the ordinary key and requires the separate override key plus a reason.
-- Floor-plan freeze fails while any currently confirmed/checked-in/active team is unmapped. A selected or offer-pending team is not yet mapping-eligible. Freeze does not rewrite location history.
-- Participant, mapper, and operations hall views derive from the same location records and update without refresh. A mapper subscribes only to zones covered by their exact grants and receives every recorded position and landmark in those zones; the operations overview owns event-wide progress.
 - A participant queue estimate is absent outside a queued state or during a round pause, uses configured duration before three valid panel samples, and remains a widened five-minute window rather than an appointment. Its absolute bounds age from a server-time anchor between database changes, even when the participant device clock is wrong; an expired upper bound is labeled as taking longer instead of preserving a stale minute count.
-- Participant attendance, hall-location, and review-presence QR countdowns use the server time returned by the mint command. Device clock skew cannot extend or prematurely hide the displayed credential. Each surface subscribes to the displayed token's exact owner-checked state and stops showing it immediately after use, replacement, revocation, or supersession.
+- Participant attendance and review-presence QR countdowns use the server time returned by the mint command. Device clock skew cannot extend or prematurely hide the displayed credential. Each surface subscribes to the displayed token's exact owner-checked state and stops showing it immediately after use, replacement, revocation, or supersession.
 - Participant provisioning and approved roster claim create independently revocable self support create/read/reply grants. Revoking one is effective immediately, reusing the subject never silently recreates it, and invitation-only account creation remains grantless.
 - A reporter can create, list, open, and reply to only their own support cases; internal notes and ownership actions are absent from that view. A closed case rejects reporter replies.
 - Exact-case and event-wide support read/manage grants remain distinct. An owner, role label, linked team/review/session, or self create grant cannot substitute for either one.

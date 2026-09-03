@@ -17,7 +17,6 @@ type TeamQr = {
   expiresAt: number;
   serverNow: number;
   clientNow: number;
-  tableLabel?: string;
 };
 
 export function ReviewQueuePanel() {
@@ -62,7 +61,6 @@ export function ReviewQueuePanel() {
         expiresAt: minted.expiresAt,
         serverNow: minted.serverNow,
         clientNow,
-        ...(minted.tableLabel !== undefined ? { tableLabel: minted.tableLabel } : {}),
       });
       setNow(clientNow);
     } catch (caught) {
@@ -110,12 +108,6 @@ export function ReviewQueuePanel() {
           <dt>Status</dt>
           <dd>{teamRoundStateParticipantLabels[queue.state]}</dd>
         </div>
-        {queue.tableLabel ? (
-          <div>
-            <dt>Team location</dt>
-            <dd>{queue.tableLabel}</dd>
-          </div>
-        ) : null}
         {queue.panel ? (
           <div>
             <dt>Panel</dt>
@@ -163,8 +155,7 @@ export function ReviewQueuePanel() {
             />
           </div>
           <p className="inline-status">
-            {currentQr.tableLabel ? `${currentQr.tableLabel} · ` : ""}expires in{" "}
-            {countdownName(secondsLeft)} · show this to each reviewer when they arrive.
+            Expires in {countdownName(secondsLeft)} · show this to each reviewer when they arrive.
           </p>
           <p className="manual-code" aria-label={`Fallback code ${currentQr.manualCode}`}>
             {currentQr.manualCode}
@@ -227,7 +218,7 @@ function queueStateCopy(state: TeamRoundState, teamsAhead?: number) {
     return "Keep the team nearby. This page updates when your panel calls you.";
   }
   if (state === "called")
-    return "Stay with your team at the location shown below. Reviewers are on their way; open the team code.";
+    return "Stay with your team. Reviewers are on their way; open the team code.";
   if (state === "at_table") return "Keep the team code open until every reviewer has checked in.";
   if (state === "in_review") return "Your review is underway.";
   if (state === "completed") return "This review round is complete.";

@@ -3,10 +3,6 @@ import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 
 const uiSource = readFileSync(new URL("../components/ui.tsx", import.meta.url), "utf8");
-const reviewPanelSource = readFileSync(
-  new URL("../components/ReviewPanel.tsx", import.meta.url),
-  "utf8",
-);
 
 describe("native sheet layout contract", () => {
   test("keeps native sheet ownership in the shared UI component", () => {
@@ -23,18 +19,11 @@ describe("native sheet layout contract", () => {
     );
 
     const sheetHostStyle = extractStyle(uiSource, "sheetHost");
-    expect(sheetHostStyle).toMatch(/\bposition:\s*'absolute'/);
+    expect(sheetHostStyle).toMatch(/\bposition:\s*["']absolute["']/);
     expect(sheetHostStyle).toMatch(/\btop:\s*0/);
     expect(sheetHostStyle).toMatch(/\bleft:\s*0/);
     expect(sheetHostStyle).toMatch(/\bwidth:\s*0/);
     expect(sheetHostStyle).toMatch(/\bheight:\s*0/);
-  });
-
-  test("shows the compact team-location label once and bounds it to one line", () => {
-    expect(reviewPanelSource.match(/team\.tableLabel/g) ?? []).toHaveLength(1);
-    expect(reviewPanelSource).toMatch(
-      /<Text ellipsizeMode="tail" numberOfLines=\{1\} style=\{styles\.eyebrow\}>\s*\{review\.team\.tableLabel \?\? 'Location not mapped'\}\s*<\/Text>/,
-    );
   });
 });
 

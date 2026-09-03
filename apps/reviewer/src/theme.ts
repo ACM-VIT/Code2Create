@@ -9,14 +9,12 @@ export const palette = {
 
   judging: "#8FB99F",
   door: "#91AAC2",
-  hall: "#C29A78",
   setup: "#AA9CBC",
   pulse: "#C3B77C",
   urgent: "#D78680",
 
   onJudging: "#04140C",
   onDoor: "#050D18",
-  onHall: "#180A00",
   onSetup: "#120A24",
   onPulse: "#171200",
   onUrgent: "#1B0503",
@@ -49,12 +47,11 @@ export const type = {
 
 export const tileAspectRatio = 176 / 213;
 
-export type DutyKey = "judging" | "door" | "hall" | "help" | "pulse" | "incident";
+export type DutyKey = "judging" | "door" | "help" | "pulse" | "incident";
 
 export const duty: Record<DutyKey, { accent: string; ink: string }> = {
   judging: { accent: palette.judging, ink: palette.onJudging },
   door: { accent: palette.door, ink: palette.onDoor },
-  hall: { accent: palette.hall, ink: palette.onHall },
   help: { accent: palette.setup, ink: palette.onSetup },
   pulse: { accent: palette.pulse, ink: palette.onPulse },
   incident: { accent: palette.urgent, ink: palette.onUrgent },

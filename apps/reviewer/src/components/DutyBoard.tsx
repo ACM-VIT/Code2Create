@@ -11,7 +11,6 @@ import type { Surface } from "@/lib/reviewer-surfaces";
 import {
   type DutyStatus,
   useDoorStatus,
-  useHallStatus,
   useHelpStatus,
   useIncidentStatus,
   usePulseStatus,
@@ -28,7 +27,6 @@ export function DutyBoard({ group }: { group: "floor" | "board" }) {
   const statuses: Record<Surface, DutyStatus> = {
     reviews: judgingStatus,
     attendance: useDoorStatus(eventSlug, subscriptions.attendance),
-    floor: useHallStatus(eventSlug, subscriptions.floor),
     support: useHelpStatus(eventSlug, subscriptions.support),
     operations: usePulseStatus(eventSlug, subscriptions.operations),
     incidents: useIncidentStatus(eventSlug, subscriptions.incidents),
@@ -79,7 +77,6 @@ const dutyPriority: Surface[] = [
   "reviews",
   "attendance",
   "operations",
-  "floor",
   "support",
 ];
 

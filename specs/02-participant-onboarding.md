@@ -287,7 +287,7 @@ Each checkpoint pins the exact Figma file version, selected node renders, versio
 
 GitHub and Figma evidence gives reviewers context. Activity counts do not become scores. Missing provider access produces an explicit incomplete state and an approved alternative-evidence route.
 
-## 9. Attendance and team location
+## 9. Attendance
 
 An accepted team must confirm its live offer before venue and review workflows.
 
@@ -295,9 +295,7 @@ Staff scan the barcode on a VIT participant's existing VIT ID from a provisioned
 
 Venue arrival, session presence, temporary exit, return, and departure are separate facts. Attendance cannot change admission or judging.
 
-The team dashboard shows a short-lived team-location QR. An authorized organizer scans it while standing with the team and selects the zone and nearest landmark. The team cannot write its own location. The participant view updates from the accepted server record.
-
-The review-presence QR is a separate credential. It proves assigned-reviewer presence. It cannot create participant attendance or team location.
+The review-presence QR is a separate credential. It proves assigned-reviewer presence. It cannot create participant attendance.
 
 ## 10. Staff-managed review queue
 
@@ -309,8 +307,8 @@ The participant sees one accepted state:
 | ----------------------- | ------------------------------------------- |
 | Waiting for review desk | Staff have not placed the team              |
 | Queued                  | The team has a panel and queue position     |
-| Called                  | The team must go to the shown table         |
-| At table                | The team waits for reviewer presence        |
+| Called                  | The team gets ready for the reviewers       |
+| Reviewers arrived       | The team waits for reviewer presence        |
 | In review               | The server has started the review           |
 | Held                    | Staff paused the team and supplied a reason |
 | Missed                  | The approved missed-call policy applies     |
@@ -363,6 +361,5 @@ The participant cannot control playback or queue order. A music action cannot ch
 - One team can connect multiple GitHub repositories.
 - Figma evidence pins exact provider versions.
 - A VIT ID barcode and event QR resolve to the same participant authority.
-- A team-location write requires an organizer scan of the team's current dashboard QR.
 - Participants cannot enter their team into a review queue.
 - Realtime views use the same accepted backend records.

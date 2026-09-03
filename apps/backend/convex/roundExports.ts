@@ -8,7 +8,6 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
-import { teamRoundTableLabel } from "./lib/floor";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import {
   findOperation,
@@ -971,7 +970,6 @@ async function teamExportContext(
           reviewState: "",
           panelReference: "",
           panelName: "",
-          teamTableLabel: "",
           reviewerReference: "",
           reviewerName: "",
           scorecardReference: "",
@@ -1058,8 +1056,6 @@ async function teamExportContext(
   ) {
     throw new Error("A close entry's review context no longer resolves.");
   }
-  // Leave the archived location blank when the team had no mapped table.
-  const exportTableLabel = (await teamRoundTableLabel(ctx, round._id, team._id)) ?? "";
   const teamCheckpointSubmission = evidence.teamCheckpointSubmissionId
     ? await ctx.db.get(evidence.teamCheckpointSubmissionId)
     : null;
@@ -1248,7 +1244,6 @@ async function teamExportContext(
             reviewState: session.status,
             panelReference: String(panel._id),
             panelName: panel.name,
-            teamTableLabel: exportTableLabel,
             reviewerReference: String(reviewer.id),
             reviewerName: reviewer.name,
             scorecardReference: String(scorecard._id),
@@ -1299,7 +1294,6 @@ async function teamExportContext(
         reviewState: session.status,
         panelReference: String(panel._id),
         panelName: panel.name,
-        teamTableLabel: exportTableLabel,
         reviewerReference: "",
         reviewerName: "",
         scorecardReference: "",
@@ -1337,7 +1331,6 @@ async function teamExportContext(
           name: panel.name,
           version: panel.version,
         },
-        teamTableLabel: exportTableLabel,
         evidenceCheckpointSet: evidence,
         teamCheckpointSubmission,
         reviewers,

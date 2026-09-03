@@ -593,11 +593,7 @@ function DraftReviewForm({
 
       {review ? (
         <div className="manual-review-scorecards">
-          <p className="muted">
-            {review.tableLabel
-              ? `${review.rubric.name} · ${review.tableLabel}`
-              : review.rubric.name}
-          </p>
+          <p className="muted">{review.rubric.name}</p>
           {entries.map((entry) => (
             <fieldset
               className="manual-review-scorecard"

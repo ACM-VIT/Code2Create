@@ -5,7 +5,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { installationRevision, subscribeToInstallationChanges } from "@/lib/installation-state";
 import { loadReviewerDevice } from "@/lib/reviewer-device";
 import { loadScannerDevice } from "@/lib/scanner-device";
-import { hallStatus, helpStatus, incidentStatus, type DutyStatus } from "@/lib/judging-status";
+import { helpStatus, incidentStatus, type DutyStatus } from "@/lib/judging-status";
 
 export type { DutyStatus } from "@/lib/judging-status";
 
@@ -68,11 +68,6 @@ export function useDoorStatus(eventSlug: string, enabled: boolean): DutyStatus {
     active: true,
     headline: { value: String(sent), unit: sent === 1 ? "scan sent" : "scans sent" },
   };
-}
-
-export function useHallStatus(eventSlug: string, enabled: boolean): DutyStatus {
-  const summary = useQuery(api.floorMapping.summary, enabled ? { eventSlug } : "skip");
-  return hallStatus(summary, enabled);
 }
 
 export function usePulseStatus(eventSlug: string, enabled: boolean): DutyStatus {

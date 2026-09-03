@@ -419,7 +419,6 @@ test("an overdue review says how far past it is and offers the extension", () =>
       teams: [
         team({
           state: "in_review",
-          tableLabel: "Table 2",
           review: {
             reviewSessionId: "rev1",
             version: 5,
@@ -436,7 +435,7 @@ test("an overdue review says how far past it is and offers the extension", () =>
   );
   const overdue = only(items, "review_overdue")[0];
   assert.equal(overdue?.severity, "critical");
-  assert.match(overdue?.statement ?? "", /Nightshift at Review 1 · Table 2 is 6m past/);
+  assert.match(overdue?.statement ?? "", /Nightshift in Review 1 is 6m past/);
   assert.equal(overdue?.proposal?.command.name, "reviewOperations.extendReview");
   assert.equal(commandField(overdue?.proposal?.command, "expectedVersion"), 5);
 });

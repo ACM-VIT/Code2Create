@@ -8,7 +8,6 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
-import { teamTableLabel } from "./lib/floor";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import {
   githubTopicVerificationIsCurrent,
@@ -182,7 +181,6 @@ const roundBoardTeamValidator = v.object({
   version: v.number(),
   queuedAt: v.optional(v.number()),
   panelId: v.optional(v.id("reviewPanels")),
-  tableLabel: v.optional(v.string()),
   holdReason: v.optional(v.string()),
   callAttemptCount: v.number(),
   missedEligibleAt: v.optional(v.number()),
@@ -1126,7 +1124,6 @@ export const roundTeams = query({
           version: state?.version ?? 0,
           ...(state?.queuedAt !== undefined ? { queuedAt: state.queuedAt } : {}),
           ...(state?.panelId !== undefined ? { panelId: state.panelId } : {}),
-          ...(state?.tableLabel !== undefined ? { tableLabel: state.tableLabel } : {}),
           ...(state?.holdReason !== undefined ? { holdReason: state.holdReason } : {}),
           callAttemptCount: state?.callAttemptCount ?? 0,
           ...(lastCallAt !== undefined
@@ -1316,7 +1313,6 @@ export const queueTeam = mutation({
     }
     const now = Date.now();
     const nextVersion = (state?.version ?? 0) + 1;
-    const tableLabel = await teamTableLabel(ctx, team._id);
     const teamRoundStateId = state
       ? state._id
       : await insertTeamRoundState(ctx, {
@@ -1325,7 +1321,6 @@ export const queueTeam = mutation({
           teamId: team._id,
           panelId: panel._id,
           state: "queued",
-          ...(tableLabel !== undefined ? { tableLabel } : {}),
           queuedAt: now,
           callAttemptCount: 0,
           priority: 0,
@@ -1337,7 +1332,6 @@ export const queueTeam = mutation({
       await patchTeamRoundState(ctx, state, {
         panelId: panel._id,
         state: "queued",
-        tableLabel,
         queuedAt: now,
         calledAt: undefined,
         callAttemptCount: 0,

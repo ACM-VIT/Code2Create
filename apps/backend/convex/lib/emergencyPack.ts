@@ -26,8 +26,6 @@ export type EmergencyPackRosterRow = {
   attendanceState: VenuePresenceState;
   attendanceZoneName?: string;
   attendanceUpdatedAt?: number;
-  hallZoneName?: string;
-  hallLocation?: string;
 };
 
 export type EmergencyPackStation = {
@@ -317,7 +315,7 @@ function operationsSummary(snapshot: EmergencyPackSnapshot) {
       <table><thead><tr><th>Station</th><th>Zone</th><th>State</th><th>Phone</th><th>Config</th></tr></thead><tbody>${stationRows || '<tr><td colspan="5">No published stations.</td></tr>'}</tbody></table>
     </section>
     <section class="page wide">
-      <header class="section-header"><p class="kicker">Snapshot</p><h2>Panel and table plan</h2></header>
+      <header class="section-header"><p class="kicker">Snapshot</p><h2>Panel plan</h2></header>
       <table><thead><tr><th>Round</th><th>Round state</th><th>Panel</th><th>Panel state</th><th>Coordinator</th><th>Reviewers</th></tr></thead><tbody>${panelRows || '<tr><td colspan="6">No published, open, or closing review panels.</td></tr>'}</tbody></table>
     </section>`;
 }
@@ -335,8 +333,6 @@ function roster(snapshot: EmergencyPackSnapshot) {
           <td>${cell(participant.vitHostelRoomNumber)}</td>
           <td>${cell(participant.teamName)}</td>
           <td>${cell(participant.teamCode)}</td>
-          <td>${cell(participant.hallZoneName)}</td>
-          <td>${cell(participant.hallLocation)}</td>
           <td>${cell(words(participant.attendanceState))}</td>
           <td>${cell(participant.attendanceZoneName)}</td>
           <td>${participant.attendanceUpdatedAt === undefined ? "—" : escapeHtml(formattedTime(participant.attendanceUpdatedAt, snapshot.event.timezone))}</td>
@@ -345,9 +341,9 @@ function roster(snapshot: EmergencyPackSnapshot) {
     .join("");
   return `
     <section class="page wide roster">
-      <header class="section-header"><p class="kicker">Restricted identifiable roster</p><h2>Last accepted location and presence</h2></header>
-      <p class="caption">Presence is the last server-accepted boundary state at the snapshot time. A blank hall location means nobody had recorded where the team was sitting.</p>
-      <table><thead><tr><th>Participant ref</th><th>Name</th><th>Phone</th><th>VIT ID</th><th>Hostel</th><th>Room</th><th>Team</th><th>Code</th><th>Hall zone</th><th>Where in the hall</th><th>Presence</th><th>Presence zone</th><th>Updated</th></tr></thead><tbody>${rows || '<tr><td colspan="13">No participant memberships.</td></tr>'}</tbody></table>
+      <header class="section-header"><p class="kicker">Restricted identifiable roster</p><h2>Last accepted presence</h2></header>
+      <p class="caption">Presence is the last server-accepted boundary state at the snapshot time.</p>
+      <table><thead><tr><th>Participant ref</th><th>Name</th><th>Phone</th><th>VIT ID</th><th>Hostel</th><th>Room</th><th>Team</th><th>Code</th><th>Presence</th><th>Presence zone</th><th>Updated</th></tr></thead><tbody>${rows || '<tr><td colspan="11">No participant memberships.</td></tr>'}</tbody></table>
     </section>`;
 }
 
@@ -419,7 +415,6 @@ function reviewForm(sheet: ReviewSheet, snapshot: EmergencyPackSnapshot) {
         <div><dt>Panel</dt><dd>${cell(panel?.name)}</dd></div>
         <div><dt>Panel ID / version</dt><dd class="mono">${cell(panel?.id)} / ${panel?.version ?? "—"}</dd></div>
         <div><dt>Team / review ID</dt><dd>____________________________</dd></div>
-        <div><dt>Team table</dt><dd>____________________________</dd></div>
         <div><dt>Started / ended</dt><dd>____________________________</dd></div>
         <div><dt>Unavailable reason</dt><dd>____________________________</dd></div>
       </dl>

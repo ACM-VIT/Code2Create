@@ -57,7 +57,6 @@ const emptyConfiguration: EventLifecycleConfiguration = {
   hasAttendancePlan: false,
   hasCommunicationsPolicy: false,
   hasEventDates: false,
-  hasFloorPlan: false,
   hasIntegrationPolicy: false,
   hasIntakePolicy: false,
   hasParticipantPolicy: false,
@@ -99,7 +98,6 @@ describe("event lifecycle", () => {
       "phase_schedule",
       "checkpoint_plan",
       "attendance_plan",
-      "floor_plan",
       "integration_policy",
       "review_round",
     ]);
@@ -148,7 +146,7 @@ describe("event lifecycle", () => {
     expect(afterClose.status).toBe("registration_closed");
     expect(
       afterClose.transitions.find((transition) => transition.targetStatus === "live")?.blockers,
-    ).toHaveLength(7);
+    ).toHaveLength(6);
     await expect(
       operator.mutation(api.eventLifecycle.transition, {
         eventSlug: fixture.eventSlug,

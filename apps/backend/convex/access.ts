@@ -104,7 +104,6 @@ const participantCapabilitiesView = v.object({
   integrations: v.boolean(),
   notifications: v.boolean(),
   attendance: v.boolean(),
-  floor: v.boolean(),
   projectCheckpoints: v.boolean(),
   reviewQueue: v.boolean(),
   scoreFeedback: v.boolean(),
@@ -115,7 +114,6 @@ const participantCapabilitiesView = v.object({
 const reviewerCapabilitiesView = v.object({
   reviews: v.boolean(),
   attendance: v.boolean(),
-  floor: v.boolean(),
   support: v.boolean(),
   operations: v.boolean(),
   incidents: v.boolean(),
@@ -139,8 +137,6 @@ const operationsCapabilitiesView = v.object({
   synesthesia: v.boolean(),
   benefits: v.boolean(),
   rehearsal: v.boolean(),
-  floorConfiguration: v.boolean(),
-  floorLocations: v.boolean(),
   intelligence: v.boolean(),
   intelligenceRead: v.boolean(),
   intelligenceGenerate: v.boolean(),
@@ -192,13 +188,6 @@ const attendanceWorkspacePermissions = [
   "attendance.manual_sheet.enter",
   "attendance.manual_sheet.verify",
   "attendance.manual_sheet.source.read",
-] satisfies readonly PermissionKey[];
-
-const floorConfigurationPermissions = [
-  "floor.plan.create",
-  "floor.plan.read",
-  "floor.plan.publish",
-  "floor.plan.freeze",
 ] satisfies readonly PermissionKey[];
 
 function capabilityReader(
@@ -274,7 +263,6 @@ async function resolveParticipantCapabilities(
     integrationGrantIds,
     notificationGrantIds,
     attendanceGrantIds,
-    floorGrantIds,
     projectCheckpointGrantIds,
     reviewQueueGrantIds,
     scoreFeedbackGrantIds,
@@ -348,15 +336,6 @@ async function resolveParticipantCapabilities(
       ? matchingPermissionGrantIds(ctx, {
           eventId: args.eventId,
           eventAccessSubjectId: args.eventAccessSubjectId,
-          permissionKey: "floor.team.read",
-          scopeType: "team",
-          scopeId: teamId,
-        })
-      : Promise.resolve([]),
-    teamId
-      ? matchingPermissionGrantIds(ctx, {
-          eventId: args.eventId,
-          eventAccessSubjectId: args.eventAccessSubjectId,
           permissionKey: "project.checkpoint.read",
           scopeType: "team",
           scopeId: teamId,
@@ -390,7 +369,6 @@ async function resolveParticipantCapabilities(
     integrations: integrationGrantIds.length > 0,
     notifications: notificationGrantIds.length > 0,
     attendance: attendanceGrantIds.length > 0,
-    floor: floorGrantIds.length > 0,
     projectCheckpoints: projectCheckpointGrantIds.length > 0,
     reviewQueue: reviewQueueGrantIds.length > 0,
     scoreFeedback: scoreFeedbackGrantIds.length > 0,
@@ -410,7 +388,6 @@ async function resolveReviewerCapabilities(
   const [
     reviews,
     attendance,
-    floor,
     support,
     operations,
     incidents,
@@ -425,7 +402,6 @@ async function resolveReviewerCapabilities(
       "review.read",
     ]),
     anyOf(["attendance.station.manage", "attendance.station.read", "attendance.scan.execute"]),
-    anyOf(["floor.location.map", "floor.location.override"]),
     selfOrEvent("support.case.read"),
     any("operations.health.read"),
     any("incident.read"),
@@ -435,7 +411,6 @@ async function resolveReviewerCapabilities(
   return {
     reviews,
     attendance,
-    floor,
     support,
     operations,
     incidents,
@@ -470,8 +445,6 @@ async function resolveOperationsCapabilities(
     synesthesiaQueueRead,
     benefitsRead,
     rehearsal,
-    floorConfiguration,
-    floorLocations,
     intelligenceRead,
     intelligenceGenerate,
     emergencyPackRead,
@@ -517,8 +490,6 @@ async function resolveOperationsCapabilities(
     any("synesthesia.queue.read"),
     event("benefit.read"),
     any("rehearsal.read"),
-    anyOf(floorConfigurationPermissions),
-    any("floor.location.read"),
     event("operations.intelligence.read"),
     event("operations.intelligence.generate"),
     event("emergency_pack.read"),
@@ -568,8 +539,6 @@ async function resolveOperationsCapabilities(
       synesthesiaQueueRead,
     benefits: benefitsRead,
     rehearsal,
-    floorConfiguration,
-    floorLocations,
     intelligence: intelligenceRead || intelligenceGenerate,
     intelligenceRead,
     intelligenceGenerate,
@@ -931,20 +900,6 @@ async function resolveScopeLabel(
     return plan?.eventId === eventId
       ? `${plan.name} · version ${plan.version}`
       : "Unavailable attendance plan";
-  }
-  if (requestedScopeType === "floor_plan") {
-    const id = ctx.db.normalizeId("floorPlanVersions", scopeId);
-    const plan = id ? await ctx.db.get("floorPlanVersions", id) : null;
-    return plan?.eventId === eventId
-      ? `${plan.name} · plan ${plan.planNumber} · ${readableState(plan.mappingState)}`
-      : "Unavailable floor plan";
-  }
-  if (requestedScopeType === "floor_zone") {
-    const id = ctx.db.normalizeId("floorZones", scopeId);
-    const zone = id ? await ctx.db.get("floorZones", id) : null;
-    if (!zone || zone.eventId !== eventId) return "Unavailable floor zone";
-    const plan = await ctx.db.get(zone.planVersionId);
-    return `${plan?.name ?? "Floor plan"} · ${zone.name}`;
   }
   if (requestedScopeType === "attendance_session") {
     const id = ctx.db.normalizeId("attendanceSessions", scopeId);
@@ -1676,53 +1631,6 @@ export const scopeOptions = query({
         page: page.page.map((plan) => ({
           id: plan._id,
           label: `${plan.name} · version ${plan.version} · ${readableState(plan.status)}`,
-        })),
-      };
-    }
-    if (args.requestedScopeType === "floor_plan") {
-      const [draft, published] = await Promise.all([
-        ctx.db
-          .query("floorPlanVersions")
-          .withIndex("by_event_status", (index) =>
-            index.eq("eventId", event._id).eq("status", "draft"),
-          )
-          .unique(),
-        event.publishedFloorPlanVersionId ? ctx.db.get(event.publishedFloorPlanVersionId) : null,
-      ]);
-      const candidates = [draft, published].flatMap((plan) => (plan ? [plan] : []));
-      return {
-        page: candidates
-          .filter((plan) => {
-            if (permissionKey === "floor.plan.publish") return plan.status === "draft";
-            if (permissionKey === "floor.plan.freeze") {
-              return plan.status === "published" && plan.mappingState === "open";
-            }
-            return true;
-          })
-          .map((plan) => ({
-            id: plan._id,
-            label: `${plan.name} · plan ${plan.planNumber} · ${readableState(plan.mappingState)}`,
-          })),
-        isDone: true,
-        continueCursor: "",
-      };
-    }
-    if (args.requestedScopeType === "floor_zone") {
-      const plan = event.publishedFloorPlanVersionId
-        ? await ctx.db.get(event.publishedFloorPlanVersionId)
-        : null;
-      if (!plan || plan.status !== "published") {
-        return { page: [], isDone: true, continueCursor: "" };
-      }
-      const page = await ctx.db
-        .query("floorZones")
-        .withIndex("by_plan_order", (index) => index.eq("planVersionId", plan._id))
-        .paginate(args.paginationOpts);
-      return {
-        ...page,
-        page: page.page.map((zone) => ({
-          id: zone._id,
-          label: `${plan.name} · ${zone.name}`,
         })),
       };
     }

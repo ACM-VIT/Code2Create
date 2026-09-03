@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Animated, StyleSheet, View } from "react-native";
 
-import { palette, radius, space } from "@/theme";
+import { palette, radius } from "@/theme";
 
 function Bone({
   height = 18,
@@ -89,24 +89,6 @@ export function DoorSkeleton() {
   );
 }
 
-export function HallSkeleton() {
-  return (
-    <View style={styles.hallRoot}>
-      <Breathing>
-        <View style={styles.stack}>
-          <Bone height={26} width="48%" />
-          <View style={styles.gap} />
-          <View style={styles.hallGrid}>
-            {Array.from({ length: 12 }, (_, index) => (
-              <Bone height={62} key={index} radius={radius.tile} style={styles.hallCell} />
-            ))}
-          </View>
-        </View>
-      </Breathing>
-    </View>
-  );
-}
-
 export function PulseSkeleton() {
   return (
     <Breathing>
@@ -168,8 +150,4 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     borderColor: "rgba(255,255,255,0.28)",
   },
-
-  hallRoot: { flex: 1, paddingHorizontal: space.grid },
-  hallGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  hallCell: { width: "31%" },
 });

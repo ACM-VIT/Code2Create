@@ -38,7 +38,10 @@
     "check:release": "pnpm audit:dependencies && pnpm check:product && pnpm test && pnpm build && pnpm --filter @code2create/intelligence deploy:check && pnpm --filter @code2create/reviewer export:check"
   },
   "devDependencies": {
-    "@posthog/cli": "^0.16.0"
+    "@posthog/cli": "^0.16.0",
+    "oxlint": "^1.81.0",
+    "oxlint-tsgolint": "^7.0.2001",
+    "ultracite": "^7.10.7"
   },
   "engines": {
     "node": ">=22.22.0"

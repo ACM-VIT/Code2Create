@@ -19,7 +19,6 @@ import { intelligenceRecommendationStatus } from "./lib/intelligenceRecommendati
 import { operationsAttentionIntelligenceStatement } from "./lib/operationsAutonomyReadFacts";
 import { maximumAttendanceSessionsPerPlan } from "./lib/attendancePlanLimits";
 import { attendanceCounterShardCount } from "./lib/attendanceCounters";
-import { maximumFloorZones } from "./lib/floor";
 import {
   maximumReviewPanelsPerRound,
   maximumReviewRoundsPerEvent,
@@ -34,7 +33,6 @@ import {
   attentionDetectorKey,
   attentionSeverity,
   attentionSubjectType,
-  floorMappingState,
   reviewPanelStatus,
   reviewRoundStatus,
   supportCaseCategory,
@@ -53,7 +51,6 @@ const ordinaryReadNames = {
   review_rounds: "review_rounds",
   review_exceptions: "review_exceptions",
   attendance_counts: "attendance_counts",
-  floor_mapping_progress: "floor_mapping_progress",
   support_load: "support_load",
 } satisfies {
   [Read in Exclude<OperationsIntelligenceReadName, "recommendation_history">]: Read;
@@ -178,11 +175,6 @@ export async function runIntelligenceRead(
       });
     case "attendance_counts":
       return ctx.runQuery(internal.intelligenceReads.attendanceCountsRead, {
-        eventId: args.eventId,
-        now: args.now,
-      });
-    case "floor_mapping_progress":
-      return ctx.runQuery(internal.intelligenceReads.floorMappingProgressRead, {
         eventId: args.eventId,
         now: args.now,
       });
@@ -403,7 +395,6 @@ export const reviewExceptionsRead = internalQuery({
         queuedAt: v.optional(v.number()),
         heldAt: v.optional(v.number()),
         missedAt: v.optional(v.number()),
-        tableLabel: v.optional(v.string()),
       }),
     ),
     atLeast: v.boolean(),
@@ -469,7 +460,6 @@ export const reviewExceptionsRead = internalQuery({
             ...(row.queuedAt !== undefined ? { queuedAt: row.queuedAt } : {}),
             ...(row.heldAt !== undefined ? { heldAt: row.heldAt } : {}),
             ...(row.missedAt !== undefined ? { missedAt: row.missedAt } : {}),
-            ...(row.tableLabel !== undefined ? { tableLabel: row.tableLabel } : {}),
           });
         }
         if (teams.length >= queryLimit) break roundLoop;
@@ -654,100 +644,6 @@ export const attendanceCountsRead = internalQuery({
         }),
     );
     return { generatedAt: args.now, venueCheckedIn, sessions: views };
-  },
-});
-
-export const floorMappingProgressRead = internalQuery({
-  args: { eventId: v.id("events"), now: v.number() },
-  returns: v.object({
-    generatedAt: v.number(),
-    plan: v.union(
-      v.null(),
-      v.object({
-        name: v.string(),
-        planNumber: v.number(),
-        mappingState: floorMappingState,
-      }),
-    ),
-    eligibleTeamCount: v.number(),
-    mappedTeamCount: v.number(),
-    unmappedTeamCount: v.number(),
-    lastMappedAt: v.optional(v.number()),
-    zones: v.array(
-      v.object({
-        zoneId: v.id("floorZones"),
-        name: v.string(),
-        mappedTeamCount: v.number(),
-      }),
-    ),
-  }),
-  handler: async (ctx, args) => {
-    const event = await ctx.db.get(args.eventId);
-    if (!event) throw new Error("The intelligence read event no longer exists.");
-    const planId = event.publishedFloorPlanVersionId;
-    const plan = planId ? await ctx.db.get(planId) : null;
-    const eligibleTeams = (
-      await Promise.all(
-        (["confirmed", "checked_in", "active"] as const).map((status) =>
-          ctx.db
-            .query("teams")
-            .withIndex("by_event_status", (index) =>
-              index.eq("eventId", args.eventId).eq("status", status),
-            )
-            .take(maximumReviewTeamsPerEvent + 1),
-        ),
-      )
-    ).flat();
-    if (eligibleTeams.length > maximumReviewTeamsPerEvent) {
-      throw new Error("An event exceeds the floor intelligence team limit.");
-    }
-    if (!plan || plan.eventId !== event._id || plan.status !== "published") {
-      return {
-        generatedAt: args.now,
-        plan: null,
-        eligibleTeamCount: eligibleTeams.length,
-        mappedTeamCount: 0,
-        unmappedTeamCount: eligibleTeams.length,
-        zones: [],
-      };
-    }
-    const [zones, locations] = await Promise.all([
-      ctx.db
-        .query("floorZones")
-        .withIndex("by_plan_order", (index) => index.eq("planVersionId", plan._id))
-        .take(maximumFloorZones + 1),
-      ctx.db
-        .query("teamFloorLocations")
-        .withIndex("by_plan_state", (index) =>
-          index.eq("planVersionId", plan._id).eq("state", "active"),
-        )
-        .take(maximumReviewTeamsPerEvent + 1),
-    ]);
-    if (zones.length > maximumFloorZones) {
-      throw new Error("A floor plan exceeds the published zone limit.");
-    }
-    if (locations.length > maximumReviewTeamsPerEvent) {
-      throw new Error("A floor plan exceeds the floor intelligence team limit.");
-    }
-    const eligibleTeamIds = new Set(eligibleTeams.map((team) => team._id));
-    const eligibleLocations = locations.filter((location) => eligibleTeamIds.has(location.teamId));
-    const mappedTeamIds = new Set(eligibleLocations.map((location) => location.teamId));
-    return {
-      generatedAt: args.now,
-      plan: { name: plan.name, planNumber: plan.planNumber, mappingState: plan.mappingState },
-      eligibleTeamCount: eligibleTeams.length,
-      mappedTeamCount: mappedTeamIds.size,
-      unmappedTeamCount: eligibleTeams.filter((team) => !mappedTeamIds.has(team._id)).length,
-      ...(eligibleLocations.length > 0
-        ? { lastMappedAt: Math.max(...eligibleLocations.map((location) => location.mappedAt)) }
-        : {}),
-      zones: zones.map((zone) => ({
-        zoneId: zone._id,
-        name: zone.name,
-        mappedTeamCount: eligibleLocations.filter((location) => location.zoneId === zone._id)
-          .length,
-      })),
-    };
   },
 });
 

@@ -5,7 +5,7 @@ import type { QueryCtx } from "./_generated/server";
 import { query } from "./_generated/server";
 import { loadPublishedCommunicationsPolicy } from "./lib/communicationsPolicy";
 import { requireEventBySlug } from "./lib/events";
-import { currentTeamForMembership } from "./lib/floor";
+import { currentTeamForMembership } from "./lib/teamMembership";
 import { requireCurrentPerson, requireEventSubject, requireMembership } from "./lib/identity";
 import { requirePermission } from "./lib/permissions";
 

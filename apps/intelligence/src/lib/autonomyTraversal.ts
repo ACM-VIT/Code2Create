@@ -437,7 +437,6 @@ export function investigationAreasForPage(receipt: AutonomyReadReceipt): Operati
     case "attendance_counts":
     case "attendance_operations":
       return ["attendance"];
-    case "floor_mapping_progress":
     case "incident_readiness":
       return ["system"];
     case "support_load":

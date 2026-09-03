@@ -7,7 +7,6 @@ export const autonomyPlaybookNames = [
   "review-flow",
   "short-panel",
   "attendance-risk",
-  "floor-coverage",
   "support-load",
   "intake-job-recovery",
   "admission-job-recovery",
@@ -100,18 +99,6 @@ export const autonomyPlaybooks = {
     ],
     counterHypothesis:
       "A low present count can be normal before a session opens or after it closes; check status and times before escalating.",
-  },
-  "floor-coverage": {
-    name: "floor-coverage",
-    areas: ["system", "attendance"],
-    reads: ["floor_mapping_progress"],
-    instructions: [
-      "Compare eligible, mapped, and unmapped team counts and retain the mapping-state context.",
-      "Use zone counts only to locate coverage gaps; do not infer team performance or participant location.",
-      "An absent floor plan and an incomplete plan are different conditions and must be reported separately.",
-    ],
-    counterHypothesis:
-      "Unmapped teams can be expected while mapping is open; frozen mapping with an unexplained gap is the stronger operational signal.",
   },
   "support-load": {
     name: "support-load",
@@ -269,7 +256,6 @@ const playbookForRead = {
   review_rounds: "review-flow",
   review_exceptions: "short-panel",
   attendance_counts: "attendance-risk",
-  floor_mapping_progress: "floor-coverage",
   support_load: "support-load",
   intake_jobs: "intake-job-recovery",
   admission_jobs: "admission-job-recovery",

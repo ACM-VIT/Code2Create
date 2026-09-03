@@ -300,6 +300,41 @@ export const recoverAgentRecommendation = internalMutation({
   },
 });
 
+export const recoverAgentDispatchAttempt = internalMutation({
+  args: {
+    recommendationId: v.id("admissionAIRecommendations"),
+    attemptId: v.string(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const recommendation = await ctx.db.get(args.recommendationId);
+    if (
+      !recommendation ||
+      (recommendation.state !== "pending" && recommendation.state !== "running") ||
+      recommendation.agentDispatchAttemptId !== args.attemptId ||
+      recommendation.agentSubmissionId
+    )
+      return false;
+    await ctx.db.patch(recommendation._id, {
+      state: "pending",
+      agentDispatchAttemptId: undefined,
+      limitations: ["The durable idea agent is recovering an interrupted dispatch."],
+      failureCategory: "agent_dispatch_recovered",
+    });
+    await admissionWorkpool.enqueueAction(
+      ctx,
+      internal.admissionAgentActions.dispatchRecommendation,
+      { recommendationId: recommendation._id },
+      {
+        retry: true,
+        onComplete: internal.admissionIntelligence.agentDispatchFinished,
+        context: recommendation._id,
+      },
+    );
+    return true;
+  },
+});
+
 export const finishRecommendation = internalMutation({
   args: {
     recommendationId: v.id("admissionAIRecommendations"),
@@ -349,7 +384,14 @@ export const finishRecommendation = internalMutation({
       agentOutputChecksum === recommendation.agentOutputChecksum
     )
       return "already_exists";
-    if (!recommendation || recommendation.state !== "running") return "stale";
+    const canAcceptRecoveredDispatchCompletion =
+      recommendation?.state === "pending" &&
+      recommendation.failureCategory === "agent_dispatch_recovered";
+    if (
+      !recommendation ||
+      (recommendation.state !== "running" && !canAcceptRecoveredDispatchCompletion)
+    )
+      return "stale";
     const application = await ctx.db.get(recommendation.applicationId);
     if (
       !application ||

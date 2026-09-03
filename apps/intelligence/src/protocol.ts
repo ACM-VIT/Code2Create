@@ -23,7 +23,6 @@ const maximumReviewRounds = 20;
 const maximumReviewPanelsPerRound = 100;
 const maximumReviewExceptionRows = 100;
 const maximumAttendanceSessions = 64;
-const maximumFloorZones = 30;
 const maximumAutonomySupportRows = 4;
 const maximumRecommendationHistoryRows = 50;
 const maximumAdmissionSearchRows = 25;
@@ -257,7 +256,6 @@ export const platformReadSchemas = {
           queuedAt: v.optional(nonNegativeInteger),
           heldAt: v.optional(nonNegativeInteger),
           missedAt: v.optional(nonNegativeInteger),
-          tableLabel: v.optional(boundedText(1, 80)),
         }),
       ),
       v.maxLength(maximumReviewExceptionRows),
@@ -295,30 +293,6 @@ export const platformReadSchemas = {
         }),
       ),
       v.maxLength(maximumAttendanceSessions),
-    ),
-  }),
-  floor_mapping_progress: v.strictObject({
-    generatedAt: nonNegativeInteger,
-    plan: v.nullable(
-      v.strictObject({
-        name: boundedText(1, 160),
-        planNumber: nonNegativeInteger,
-        mappingState: v.picklist(["setup", "open", "frozen"]),
-      }),
-    ),
-    eligibleTeamCount: nonNegativeInteger,
-    mappedTeamCount: nonNegativeInteger,
-    unmappedTeamCount: nonNegativeInteger,
-    lastMappedAt: v.optional(nonNegativeInteger),
-    zones: v.pipe(
-      v.array(
-        v.strictObject({
-          zoneId: convexId,
-          name: boundedText(1, 160),
-          mappedTeamCount: nonNegativeInteger,
-        }),
-      ),
-      v.maxLength(maximumFloorZones),
     ),
   }),
   support_load: v.strictObject({

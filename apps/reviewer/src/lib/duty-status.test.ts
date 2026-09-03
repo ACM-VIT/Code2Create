@@ -1,12 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import {
-  hallStatus,
-  helpStatus,
-  incidentStatus,
-  judgingStatus,
-  reviewerPanelMode,
-} from "./judging-status";
+import { helpStatus, incidentStatus, judgingStatus, reviewerPanelMode } from "./judging-status";
 
 describe("judging duty status", () => {
   test("uses the root-owned page signal before reviewer state", () => {
@@ -63,14 +57,6 @@ describe("judging duty status", () => {
 });
 
 describe("lightweight duty summaries", () => {
-  test("renders hall progress without the map payload", () => {
-    expect(hallStatus({ mappingState: "open", placedTeamCount: 12 }, true)).toEqual({
-      status: "12 teams placed",
-      active: false,
-      headline: { value: "12", unit: "teams placed" },
-    });
-  });
-
   test("marks bounded incident and support counts as lower bounds", () => {
     expect(incidentStatus({ liveCount: 20, pendingManualModeCount: 1 }, true)).toEqual({
       status: "Awaiting approval",

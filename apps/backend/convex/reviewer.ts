@@ -9,7 +9,6 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { action, internalQuery, mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
-import { teamRoundTableLabel } from "./lib/floor";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import {
   findOperation,
@@ -53,7 +52,6 @@ const reviewPresenceOperationResult = z
     reviewSessionId: z.string().min(1),
     teamName: z.string(),
     roundName: z.string(),
-    tableLabel: z.string().optional(),
     reviewerPresenceCount: z.number().int().nonnegative(),
     reviewerCount: z.number().int().nonnegative(),
     confirmedAt: z.number().int().nonnegative(),
@@ -1327,7 +1325,6 @@ export const now = query({
         team: v.object({
           id: v.id("teams"),
           name: v.string(),
-          tableLabel: v.optional(v.string()),
         }),
         round: v.object({ id: v.id("reviewRounds"), name: v.string() }),
         panel: v.object({ id: v.id("reviewPanels"), name: v.string() }),
@@ -1605,7 +1602,6 @@ export const now = query({
     const currentPresences = presences.filter((presence) =>
       assignedReviewerIds.has(presence.reviewerPersonId),
     );
-    const activeTableLabel = await teamRoundTableLabel(ctx, round._id, team._id);
     return {
       serverNow: Date.now(),
       device: deviceView,
@@ -1630,7 +1626,6 @@ export const now = query({
         team: {
           id: team._id,
           name: team.name,
-          ...(activeTableLabel !== undefined ? { tableLabel: activeTableLabel } : {}),
         },
         round: { id: round._id, name: round.name },
         panel: { id: panel._id, name: panel.name },
@@ -2049,7 +2044,6 @@ export const confirmPresence = mutation({
     reviewSessionId: v.id("reviewSessions"),
     teamName: v.string(),
     roundName: v.string(),
-    tableLabel: v.optional(v.string()),
     reviewerPresenceCount: v.number(),
     reviewerCount: v.number(),
     confirmedAt: v.number(),
@@ -2088,7 +2082,6 @@ export const confirmPresence = mutation({
         reviewSessionId,
         teamName: result.teamName,
         roundName: result.roundName,
-        ...(result.tableLabel !== undefined ? { tableLabel: result.tableLabel } : {}),
         reviewerPresenceCount: result.reviewerPresenceCount,
         reviewerCount: result.reviewerCount,
         confirmedAt: result.confirmedAt,
@@ -2180,12 +2173,10 @@ export const confirmPresence = mutation({
         .query("reviewPresence")
         .withIndex("by_session_reviewer", (index) => index.eq("reviewSessionId", session._id))
         .collect();
-      const confirmedTableLabel = await teamRoundTableLabel(ctx, round._id, team._id);
       const result = {
         reviewSessionId: session._id,
         teamName: team.name,
         roundName: round.name,
-        ...(confirmedTableLabel !== undefined ? { tableLabel: confirmedTableLabel } : {}),
         reviewerPresenceCount: allPresence.length,
         reviewerCount: assignedRows.filter((row) => row.status === "assigned").length,
         confirmedAt: currentPresence.confirmedAt,
@@ -2257,7 +2248,6 @@ export const confirmPresence = mutation({
       reviewSessionId: session._id,
       teamName: team.name,
       roundName: round.name,
-      ...(state.tableLabel !== undefined ? { tableLabel: state.tableLabel } : {}),
       reviewerPresenceCount: allPresence.length,
       reviewerCount: assignedRows.filter((row) => row.status === "assigned").length,
       confirmedAt: now,
@@ -2418,7 +2408,6 @@ export const reportConflict = mutation({
     });
     await patchTeamRoundState(ctx, state, {
       panelId: undefined,
-      tableLabel: undefined,
       state: "unassigned",
       queuedAt: undefined,
       calledAt: undefined,

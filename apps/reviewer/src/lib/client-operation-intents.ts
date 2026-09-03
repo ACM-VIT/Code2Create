@@ -6,38 +6,21 @@ import { z } from "zod";
 
 import { OperatorError } from "./errors";
 
-const recoverySchema = z.discriminatedUnion("kind", [
-  z
-    .object({
-      kind: z.literal("floor_assignment_v1"),
-      claimId: z.string().min(1),
-      x: z.number().finite(),
-      y: z.number().finite(),
-      expectedClaimVersion: z.number().int().nonnegative(),
-      requiresReason: z.boolean(),
-    })
-    .strict(),
-]);
-
 const operationRecordSchema = z
   .object({
     version: z.literal(2),
     operationId: z.uuid(),
     fingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
-    recovery: recoverySchema.optional(),
   })
   .strict();
 
 const slotLocks = new Map<string, Promise<void>>();
 const listeners = new Set<() => void>();
 
-export type PersistentOperationRecovery = z.infer<typeof recoverySchema>;
-
 export async function runPersistentClientOperation<Result>(args: {
   eventSlug: string;
   slot: string;
   fingerprint: string;
-  recovery?: PersistentOperationRecovery;
   execute: (clientOperationId: string) => Promise<Result>;
 }) {
   const key = operationStorageKey(args.eventSlug, args.slot);
@@ -57,7 +40,6 @@ export async function runPersistentClientOperation<Result>(args: {
           version: 2,
           operationId,
           fingerprint,
-          ...(args.recovery ? { recovery: args.recovery } : {}),
         }),
         { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY },
       );

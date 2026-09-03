@@ -8,11 +8,10 @@ describe("reviewerSurfaces", () => {
       reviewerSurfaces({
         reviews: true,
         attendance: false,
-        floor: true,
         support: false,
         operations: false,
         incidents: true,
       }),
-    ).toEqual(["reviews", "floor", "incidents"]);
+    ).toEqual(["reviews", "incidents"]);
   });
 });
