@@ -49,6 +49,12 @@ const callbackSchema = z
     sourceInputFingerprint: z.string().min(1).max(240),
     operationId: z.string().min(8).max(240),
     recommendation: z.enum(["accept", "waitlist", "decline"]),
+    centralProposalConsistency: z
+      .object({
+        assessment: z.enum(["consistent", "contradictory"]),
+        sourceRefs: z.array(z.string().min(1).max(80)).min(1).max(2),
+      })
+      .strict(),
     criterionAssessments: z
       .array(
         z
@@ -229,6 +235,7 @@ export const ideaIntelligenceCallbackEndpoint = httpAction(async (ctx, request) 
     sourceInputFingerprint: parsed.data.sourceInputFingerprint,
     state: "succeeded",
     recommendation: parsed.data.recommendation,
+    centralProposalConsistency: parsed.data.centralProposalConsistency,
     criterionAssessments: parsed.data.criterionAssessments,
     strengths: parsed.data.strengths,
     concerns: parsed.data.concerns,

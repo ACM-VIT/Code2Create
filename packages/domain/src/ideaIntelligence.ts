@@ -101,8 +101,14 @@ export type IdeaIntelligenceCriterionAssessment = {
   sourceRefs: string[];
 };
 
+export type IdeaIntelligenceCentralProposalConsistency = {
+  assessment: "consistent" | "contradictory";
+  sourceRefs: string[];
+};
+
 export type IdeaIntelligenceAnalysis = {
   recommendation: "accept" | "waitlist" | "decline";
+  centralProposalConsistency: IdeaIntelligenceCentralProposalConsistency;
   criterionAssessments: IdeaIntelligenceCriterionAssessment[];
   strengths: string[];
   concerns: string[];
@@ -157,6 +163,15 @@ export function ideaIntelligenceAnalysisPolicyViolation(args: {
 
   const availableSources = new Set(args.sourceRefs);
   if (
+    args.analysis.centralProposalConsistency.sourceRefs.length < 1 ||
+    args.analysis.centralProposalConsistency.sourceRefs.length > 2 ||
+    new Set(args.analysis.centralProposalConsistency.sourceRefs).size !==
+      args.analysis.centralProposalConsistency.sourceRefs.length ||
+    args.analysis.centralProposalConsistency.sourceRefs.some(
+      (sourceRef) => !availableSources.has(sourceRef),
+    ) ||
+    (args.analysis.centralProposalConsistency.assessment === "contradictory" &&
+      args.analysis.centralProposalConsistency.sourceRefs.length !== 2) ||
     args.analysis.criterionAssessments.some(
       (assessment) =>
         assessment.sourceRefs.length < 1 ||
@@ -175,7 +190,9 @@ export function ideaIntelligenceAnalysisPolicyViolation(args: {
     (assessment) => assessment.assessment === "not_yet_clear",
   ).length;
   const expectedRecommendation =
-    notYetClearCount > 0 || partlyMeetsCount > 1
+    args.analysis.centralProposalConsistency.assessment === "contradictory" ||
+    notYetClearCount > 0 ||
+    partlyMeetsCount > 1
       ? "decline"
       : partlyMeetsCount === 1
         ? "waitlist"

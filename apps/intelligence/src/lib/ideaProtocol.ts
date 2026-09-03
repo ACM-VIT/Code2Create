@@ -90,6 +90,10 @@ const sourceRefsSchema = v.pipe(v.array(bounded(1, 80)), v.minLength(1), v.maxLe
 
 export const ideaIntelligenceAnalysisSchema = v.strictObject({
   recommendation: v.picklist(applicationDecisions),
+  centralProposalConsistency: v.strictObject({
+    assessment: v.picklist(["consistent", "contradictory"]),
+    sourceRefs: sourceRefsSchema,
+  }),
   criterionAssessments: v.pipe(
     v.array(
       v.strictObject({

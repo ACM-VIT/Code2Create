@@ -1919,6 +1919,12 @@ export default defineSchema({
     experienceBand: admissionExperienceBand,
     state: admissionRecommendationState,
     recommendation: v.optional(admissionDecision),
+    centralProposalConsistency: v.optional(
+      v.object({
+        assessment: v.union(v.literal("consistent"), v.literal("contradictory")),
+        sourceRefs: v.array(v.string()),
+      }),
+    ),
     criterionAssessments: v.array(
       v.object({
         criterionKey: v.string(),

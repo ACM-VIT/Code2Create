@@ -26,6 +26,10 @@ const signingSecret = "s".repeat(32);
 
 const validIdeaAnalysis: IdeaIntelligenceAnalysis = {
   recommendation: "waitlist",
+  centralProposalConsistency: {
+    assessment: "consistent",
+    sourceRefs: ["initial_idea"],
+  },
   criterionAssessments: [
     {
       criterionKey: "problem_clarity",
@@ -111,6 +115,10 @@ test("idea analysis policy enforces the strict recommendation ladder", () => {
     second: IdeaIntelligenceAnalysis["criterionAssessments"][number]["assessment"],
   ): IdeaIntelligenceAnalysis => ({
     recommendation,
+    centralProposalConsistency: {
+      assessment: "consistent",
+      sourceRefs: ["initial_idea"],
+    },
     criterionAssessments: [
       { criterionKey: "problem_clarity", assessment: first, sourceRefs: ["initial_idea"] },
       { criterionKey: "feasibility", assessment: second, sourceRefs: ["initial_idea"] },
@@ -153,6 +161,34 @@ test("idea analysis policy enforces the strict recommendation ladder", () => {
     ideaIntelligenceAnalysisPolicyViolation({
       analysis: analysis("waitlist", "partly_meets", "partly_meets"),
       ...context,
+    }),
+    "recommendation_mismatch",
+  );
+  assert.equal(
+    ideaIntelligenceAnalysisPolicyViolation({
+      analysis: {
+        ...analysis("decline", "meets", "meets"),
+        centralProposalConsistency: {
+          assessment: "contradictory",
+          sourceRefs: ["initial_idea", "follow_up_1"],
+        },
+      },
+      criterionKeys: context.criterionKeys,
+      sourceRefs: ["initial_idea", "follow_up_1"],
+    }),
+    null,
+  );
+  assert.equal(
+    ideaIntelligenceAnalysisPolicyViolation({
+      analysis: {
+        ...analysis("accept", "meets", "meets"),
+        centralProposalConsistency: {
+          assessment: "contradictory",
+          sourceRefs: ["initial_idea", "follow_up_1"],
+        },
+      },
+      criterionKeys: context.criterionKeys,
+      sourceRefs: ["initial_idea", "follow_up_1"],
     }),
     "recommendation_mismatch",
   );
