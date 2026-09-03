@@ -159,7 +159,7 @@ export function ReviewTile({ slot, model }: { slot: Slot; model: ReviewTileModel
         ) : queue === null ? (
           <p className="m-0 text-[13px] leading-snug text-fg/65">No review round is open. This card fills in when one starts.</p>
         ) : (
-          <Reveal key={open ? "facts" : "summary"} className="flex min-h-0 flex-col gap-1 overflow-y-auto [scrollbar-width:thin]">
+          <Reveal key={open ? "facts" : "summary"} className="flex min-h-0 flex-col gap-1">
             <p className="m-0 font-display text-[19px] leading-tight text-shadow-[0_6px_30px_var(--scene-text-glow)]">{queue.state}</p>
             {queue.detail ? <p className={`m-0 text-[12.5px] text-fg/65 ${hiddenWhenShort}`}>{queue.detail}</p> : null}
             {open && queue.wait ? <p className="m-0 text-[12.5px] text-fg/65">{queue.wait}</p> : null}

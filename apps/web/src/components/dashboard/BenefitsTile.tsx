@@ -60,7 +60,7 @@ export function BenefitsTile({ slot, model }: {
         ) : count === 0 ? (
           <p className="m-0 text-[13px] leading-snug text-fg/65">Nothing handed out yet. Codes and links land here.</p>
         ) : open ? (
-          <Reveal key="codes" className="flex min-h-0 flex-col overflow-y-auto [scrollbar-width:thin]">
+          <Reveal key="codes" className="flex min-h-0 flex-col">
             {model.benefits.map((benefit) => (
               <div key={benefit.id} className="flex flex-col gap-1.5 border-b border-rose/20 py-2 last:border-b-0">
                 <div className="flex items-baseline justify-between gap-3">

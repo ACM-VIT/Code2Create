@@ -26,7 +26,7 @@ export function SquadTile({ slot, team,
           </span>
         </div>
         {open ? (
-          <Reveal key="names" className="flex min-h-0 flex-col overflow-y-auto [scrollbar-width:thin]">
+          <Reveal key="names" className="flex min-h-0 flex-col">
             {members.map((member) => (
               <div
                 key={member.teamMemberId}
