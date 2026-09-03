@@ -120,6 +120,90 @@ test('exceptions from injected third-party scripts are dropped', () => {
   assert.equal(extensionError, null)
 })
 
+test('native bundle exceptions from React Native are kept and keep the bundle filename', () => {
+  const appScheme = scrubPostHogEvent({
+    event: '$exception',
+    properties: {
+      token: 'public-project-token',
+      $exception_list: [{
+        type: 'Error',
+        value: 'Reviewer render failed',
+        stacktrace: {
+          type: 'raw',
+          frames: [{ function: 'submitReview', filename: 'app:///index.bundle', in_app: true }],
+        },
+      }],
+    },
+  })
+  assert.deepEqual(appScheme, {
+    event: '$exception',
+    properties: {
+      token: 'public-project-token',
+      $exception_list: [{
+        type: 'Error',
+        value: 'Reviewer render failed',
+        stacktrace: {
+          type: 'raw',
+          frames: [{ function: 'submitReview', filename: 'app:///index.bundle', in_app: true }],
+        },
+      }],
+    },
+  })
+
+  const androidBundle = scrubPostHogEvent({
+    event: '$exception',
+    properties: {
+      token: 'public-project-token',
+      $exception_list: [{
+        type: 'TypeError',
+        value: 'undefined is not a function',
+        stacktrace: {
+          type: 'raw',
+          frames: [{ function: 'render', filename: 'index.android.bundle' }],
+        },
+      }],
+    },
+  })
+  assert.notEqual(androidBundle, null)
+})
+
+test('third-party frame paths are redacted while the origin is kept', () => {
+  const event = scrubPostHogEvent({
+    event: '$exception',
+    properties: {
+      token: 'public-project-token',
+      $exception_list: [{
+        type: 'Error',
+        value: 'Rendering failed',
+        stacktrace: {
+          type: 'raw',
+          frames: [
+            { function: 'render', filename: 'https://c2c.sh/assets/index-a71f.js' },
+            { function: 'load', filename: 'https://third.example/tenant-secret/project-123/script.js' },
+          ],
+        },
+      }],
+    },
+  })
+  assert.deepEqual(event, {
+    event: '$exception',
+    properties: {
+      token: 'public-project-token',
+      $exception_list: [{
+        type: 'Error',
+        value: 'Rendering failed',
+        stacktrace: {
+          type: 'raw',
+          frames: [
+            { function: 'render', filename: 'https://c2c.sh/assets/index-a71f.js' },
+            { function: 'load', filename: 'https://third.example/:id/:id/:id' },
+          ],
+        },
+      }],
+    },
+  })
+})
+
 test('a real exception with a third-party cause is kept and keeps recognizable filenames', () => {
   const event = scrubPostHogEvent({
     event: '$exception',

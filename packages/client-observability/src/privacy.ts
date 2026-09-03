@@ -309,36 +309,51 @@ function safeGeneratedFilename(value: string) {
   } catch {
     return null
   }
+  if (url.protocol === 'app:') {
+    // React Native and Expo report application frames under the app:// scheme
+    // with a JavaScript bundle path. Keep the path so native faults stay named.
+    return isApplicationBundlePath(url.pathname) ? `app://${url.pathname}` : null
+  }
   if (url.protocol !== 'https:' && url.protocol !== 'http:') {
     // Browser extensions and native in-app browser bridges inject scripts under
-    // non-web schemes. Keep the scheme so the frame stays recognizable while
-    // dropping the extension id and path, which can carry identifiers.
+    // other non-web schemes. Keep the scheme so the frame stays recognizable
+    // while dropping the extension id and path, which can carry identifiers.
     return `${url.protocol}//[redacted]`
   }
-  if (!/^\/[A-Za-z0-9._~/-]*$/u.test(url.pathname)) return null
-  return url.origin === 'https://local.invalid' ? url.pathname : `${url.origin}${url.pathname}`
+  // Our generated asset and bundle filenames are hashed and safe to keep whole.
+  // A third-party path can carry tenant or project identifiers, so redact its
+  // segments while keeping the origin that names the third party.
+  const pathname = isApplicationBundlePath(url.pathname) && /^\/[A-Za-z0-9._~/-]*$/u.test(url.pathname)
+    ? url.pathname
+    : sanitizePathname(url.pathname)
+  return url.origin === 'https://local.invalid' ? pathname : `${url.origin}${pathname}`
 }
 
 function exceptionListIsInjectedThirdParty(list: SafeException[]): boolean {
   // Scripts injected by browser extensions and native in-app browser bridges run
   // in the page but are not part of our bundle, so their frames never resolve to
-  // our /assets/ code. Drop the exception the way browserRecovery.ts drops chunk
-  // load failures: these faults are not ours to fix and arrive unnamed. A chain
-  // that touches our code anywhere is kept, so a real error with a third-party
-  // cause still reports.
+  // our own asset or native bundle code. Drop the exception the way
+  // browserRecovery.ts drops chunk load failures: these faults are not ours to
+  // fix and arrive unnamed. A chain that touches our code anywhere is kept, so a
+  // real error with a third-party cause still reports.
   const filenames = list
     .flatMap((exception) => exception.stacktrace?.frames ?? [])
     .flatMap((frame) => typeof frame.filename === 'string' ? [frame.filename] : [])
-  return filenames.length > 0 && filenames.every((filename) => !frameFilenameIsOwnCode(filename))
+  return filenames.length > 0 && filenames.every((filename) => !filenameIsApplicationCode(filename))
 }
 
-function frameFilenameIsOwnCode(filename: string): boolean {
+function filenameIsApplicationCode(filename: string): boolean {
   try {
     const url = new URL(filename, 'https://local.invalid')
-    return (url.protocol === 'https:' || url.protocol === 'http:') && url.pathname.startsWith('/assets/')
+    return (url.protocol === 'app:' || url.protocol === 'https:' || url.protocol === 'http:')
+      && isApplicationBundlePath(url.pathname)
   } catch {
     return false
   }
+}
+
+function isApplicationBundlePath(pathname: string): boolean {
+  return pathname.startsWith('/assets/') || /\.(?:js)?bundle$/u.test(pathname)
 }
 
 function sanitizePathname(value: string) {
