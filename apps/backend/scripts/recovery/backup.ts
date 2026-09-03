@@ -90,9 +90,7 @@ Optional:
     .min(1)
     .max(200)
     .parse(requiredOption(values["source-release-id"], "--source-release-id"));
-  const outputDirectory = resolve(
-    requiredOption(values["output-directory"], "--output-directory"),
-  );
+  const outputDirectory = resolve(requiredOption(values["output-directory"], "--output-directory"));
   await mkdir(outputDirectory, { recursive: true });
 
   const exportedAt = new Date();

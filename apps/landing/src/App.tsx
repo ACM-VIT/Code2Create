@@ -1,9 +1,9 @@
-import { useRef } from 'react';
+import { useRef } from "react";
 
-import Navbar from './components/Navbar.js';
-import Journey from './journey/Journey.js';
-import Petals, { type PetalFieldHandle } from './journey/Petals.js';
-import Footer from './sections/Footer.js';
+import Navbar from "./components/Navbar.js";
+import Journey from "./journey/Journey.js";
+import Petals, { type PetalFieldHandle } from "./journey/Petals.js";
+import Footer from "./sections/Footer.js";
 
 export default function App() {
   /*

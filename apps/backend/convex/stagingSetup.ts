@@ -27,9 +27,10 @@ function requireStagingDeployment() {
   }
 }
 
-async function deleteAllFromTable<
-  TableName extends TableNamesInDataModel<DataModel>,
->(ctx: MutationCtx, table: TableName) {
+async function deleteAllFromTable<TableName extends TableNamesInDataModel<DataModel>>(
+  ctx: MutationCtx,
+  table: TableName,
+) {
   const documents = await ctx.db.query(table).collect();
   for (const document of documents) await ctx.db.delete(document._id);
   return documents.length;
@@ -38,9 +39,7 @@ async function deleteAllFromTable<
 async function stagingActor(ctx: MutationCtx) {
   const existing = await ctx.db
     .query("people")
-    .withIndex("by_auth_user", (index) =>
-      index.eq("authUserId", bootstrapAuthUserId),
-    )
+    .withIndex("by_auth_user", (index) => index.eq("authUserId", bootstrapAuthUserId))
     .unique();
   if (existing) return existing;
   const now = Date.now();
@@ -58,9 +57,7 @@ async function stagingActor(ctx: MutationCtx) {
   return person;
 }
 
-function normalizedTesters(
-  testers: readonly { email: string; displayName: string }[],
-) {
+function normalizedTesters(testers: readonly { email: string; displayName: string }[]) {
   if (testers.length < 1 || testers.length > 20) {
     throw new ConvexError({
       code: "INVALID_STAGING_TESTERS",
@@ -206,20 +203,14 @@ export const configureIdeaRound = internalMutation({
       .unique();
     const eventAlreadyExisted = event !== null;
     if (!event) {
-      const created = await createInitialEvent(
-        ctx,
-        args.event,
-        actor,
-        "registration_open",
-      );
+      const created = await createInitialEvent(ctx, args.event, actor, "registration_open");
       event = await ctx.db.get("events", created.eventId);
     }
     if (!event) throw new Error("The staging event did not persist.");
     if (
       event.name !== args.event.eventName.trim() ||
       event.timezone !== args.event.timezone.trim() ||
-      event.externalApplicationsCloseAt !==
-        args.event.externalApplicationsCloseAt ||
+      event.externalApplicationsCloseAt !== args.event.externalApplicationsCloseAt ||
       event.applicationsCloseAt !== args.event.applicationsCloseAt ||
       event.startsAt !== args.event.communicationsPolicy.startsAt ||
       event.endsAt !== args.event.communicationsPolicy.endsAt
@@ -249,8 +240,7 @@ export const configureIdeaRound = internalMutation({
         internal.eventLifecycle.markExternalRegistrationClosedAtDeadline,
         {
           eventId: event._id,
-          expectedExternalApplicationsCloseAt:
-            args.event.externalApplicationsCloseAt,
+          expectedExternalApplicationsCloseAt: args.event.externalApplicationsCloseAt,
         },
       );
     }
@@ -336,14 +326,11 @@ export const resetParticipantTestingData = internalMutation({
 
     for (const grant of participantPermissionGrants) await ctx.db.delete(grant._id);
 
-    const participantAssistantThreads = await ctx.db
-      .query("participantAssistantThreads")
-      .collect();
+    const participantAssistantThreads = await ctx.db.query("participantAssistantThreads").collect();
     for (const thread of participantAssistantThreads) {
-      await ctx.runMutation(
-        components.agent.threads.deleteAllForThreadIdAsync,
-        { threadId: thread.threadId },
-      );
+      await ctx.runMutation(components.agent.threads.deleteAllForThreadIdAsync, {
+        threadId: thread.threadId,
+      });
     }
 
     const deletedCounts = await Promise.all([
@@ -355,9 +342,12 @@ export const resetParticipantTestingData = internalMutation({
       deleteAllFromTable(ctx, "outboundCallProviderEvents"),
       deleteAllFromTable(ctx, "outboundCallDeliveries"),
       deleteAllFromTable(ctx, "outboundCallConsents"),
+      deleteAllFromTable(ctx, "benefitGrantRuns"),
+      deleteAllFromTable(ctx, "benefitGrants"),
+      deleteAllFromTable(ctx, "benefitCodes"),
+      deleteAllFromTable(ctx, "benefits"),
       deleteAllFromTable(ctx, "admissionCapacityReservations"),
       deleteAllFromTable(ctx, "admissionOffers"),
-      deleteAllFromTable(ctx, "admissionInformationRequests"),
       deleteAllFromTable(ctx, "admissionHumanReviews"),
       deleteAllFromTable(ctx, "admissionAIRecommendations"),
       deleteAllFromTable(ctx, "admissionReviewAssignments"),
@@ -396,9 +386,6 @@ export const resetParticipantTestingData = internalMutation({
       deleteAllFromTable(ctx, "githubSetupIntents"),
       deleteAllFromTable(ctx, "githubInstallationConnections"),
       deleteAllFromTable(ctx, "integrationArtifacts"),
-      deleteAllFromTable(ctx, "floorMappingClaims"),
-      deleteAllFromTable(ctx, "floorTeamQrTokens"),
-      deleteAllFromTable(ctx, "teamFloorLocations"),
       deleteAllFromTable(ctx, "noveltyPreviewRequests"),
       deleteAllFromTable(ctx, "noveltyTeamIdeas"),
       deleteAllFromTable(ctx, "intakeInterpretations"),
@@ -423,8 +410,7 @@ export const resetParticipantTestingData = internalMutation({
 
     return {
       deletedDocuments:
-        deletedCounts.reduce((total, count) => total + count, 0) +
-        deletedOperationResults,
+        deletedCounts.reduce((total, count) => total + count, 0) + deletedOperationResults,
       deletedParticipantPermissionGrants: participantPermissionGrants.length,
     };
   },

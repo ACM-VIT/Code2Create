@@ -1,5 +1,5 @@
-import { StyleSheet, View } from 'react-native'
-import Svg, { Defs, LinearGradient, Path, Stop } from 'react-native-svg'
+import { StyleSheet, View } from "react-native";
+import Svg, { Defs, LinearGradient, Path, Stop } from "react-native-svg";
 
 import {
   ACM_MARK_D,
@@ -12,11 +12,11 @@ import {
   RIM,
   WORDMARK_GLYPHS,
   WORDMARK_VIEWBOX,
-} from '@/components/brand-paths'
-import { palette } from '@/theme'
+} from "@/components/brand-paths";
+import { palette } from "@/theme";
 
 export function BrandMark({ size = 96 }: { size?: number }) {
-  const height = size * (114.677 / 104.99)
+  const height = size * (114.677 / 104.99);
   return (
     <Svg fill="none" height={height} viewBox={LOGO_VIEWBOX} width={size}>
       <Defs>
@@ -33,7 +33,7 @@ export function BrandMark({ size = 96 }: { size?: number }) {
         <Path d={facet.d} fill={`url(#c2cf${index})`} key={index} />
       ))}
     </Svg>
-  )
+  );
 }
 
 export function BrandWordmark({ width = 260 }: { width?: number }) {
@@ -45,7 +45,7 @@ export function BrandWordmark({ width = 260 }: { width?: number }) {
         )),
       )}
     </Svg>
-  )
+  );
 }
 
 export function AcmMark({ size = 44 }: { size?: number }) {
@@ -53,13 +53,13 @@ export function AcmMark({ size = 44 }: { size?: number }) {
     <Svg fill="none" height={size} viewBox={ACM_MARK_VIEWBOX} width={size}>
       <Path d={ACM_MARK_D} fill={ACM_MARK_FILL} />
     </Svg>
-  )
+  );
 }
 
 export function BrandBackdrop({ children }: { children: React.ReactNode }) {
-  return <View style={styles.backdrop}>{children}</View>
+  return <View style={styles.backdrop}>{children}</View>;
 }
 
 const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: palette.background },
-})
+});

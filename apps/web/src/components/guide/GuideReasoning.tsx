@@ -1,15 +1,15 @@
-import { useEffect, useState } from 'react'
-import { LoadingLine, ShimmerLabel } from './GuideLoader'
-import { GuideMarkdown } from './GuideMarkdown'
-import { elapsedName } from './guideTime'
+import { useEffect, useState } from "react";
+import { LoadingLine, ShimmerLabel } from "./GuideLoader";
+import { GuideMarkdown } from "./GuideMarkdown";
+import { elapsedName } from "./guideTime";
 
 export type GuideStep = {
-  key: string
-  label: string
-  state: 'running' | 'done' | 'failed'
-}
+  key: string;
+  label: string;
+  state: "running" | "done" | "failed";
+};
 
-const autoCloseDelayMs = 1_000
+const autoCloseDelayMs = 1_000;
 
 export function GuideReasoning({
   reasoning,
@@ -18,30 +18,32 @@ export function GuideReasoning({
   startedAt,
   thoughtForMs,
 }: {
-  reasoning: string
-  steps: readonly GuideStep[]
-  streaming: boolean
-  startedAt?: number | undefined
-  thoughtForMs?: number | undefined
+  reasoning: string;
+  steps: readonly GuideStep[];
+  streaming: boolean;
+  startedAt?: number | undefined;
+  thoughtForMs?: number | undefined;
 }) {
   // Open on its own while the work streams in and for a beat after; once the
   // reader toggles it, their choice wins.
-  const [chosen, setChosen] = useState<boolean | null>(null)
-  const [settled, setSettled] = useState(!streaming)
+  const [chosen, setChosen] = useState<boolean | null>(null);
+  const [settled, setSettled] = useState(!streaming);
   useEffect(() => {
-    if (streaming) return
-    const timer = window.setTimeout(() => setSettled(true), autoCloseDelayMs)
-    return () => window.clearTimeout(timer)
-  }, [streaming])
-  const open = chosen ?? (streaming || !settled)
+    if (streaming) return;
+    const timer = window.setTimeout(() => setSettled(true), autoCloseDelayMs);
+    return () => window.clearTimeout(timer);
+  }, [streaming]);
+  const open = chosen ?? (streaming || !settled);
 
-  const hasBody = reasoning.trim().length > 0 || steps.length > 0
+  const hasBody = reasoning.trim().length > 0 || steps.length > 0;
   const summary = [
-    thoughtForMs === undefined ? 'Thought for a moment' : `Thought for ${elapsedName(thoughtForMs)}`,
-    steps.length > 0 ? `${steps.length} ${steps.length === 1 ? 'step' : 'steps'}` : null,
+    thoughtForMs === undefined
+      ? "Thought for a moment"
+      : `Thought for ${elapsedName(thoughtForMs)}`,
+    steps.length > 0 ? `${steps.length} ${steps.length === 1 ? "step" : "steps"}` : null,
   ]
     .filter(Boolean)
-    .join(' · ')
+    .join(" · ");
 
   return (
     <div className="mb-3">
@@ -60,7 +62,7 @@ export function GuideReasoning({
             <svg
               viewBox="0 0 24 24"
               aria-hidden
-              className={`size-3.5 fill-none stroke-current stroke-[2] transition-transform duration-200 motion-reduce:transition-none ${open ? 'rotate-180' : ''}`}
+              className={`size-3.5 fill-none stroke-current stroke-[2] transition-transform duration-200 motion-reduce:transition-none ${open ? "rotate-180" : ""}`}
             >
               <path strokeLinecap="round" strokeLinejoin="round" d="m6 9 6 6 6-6" />
             </svg>
@@ -71,7 +73,7 @@ export function GuideReasoning({
       {hasBody ? (
         <div
           className={`grid transition-[grid-template-rows,opacity] duration-300 ease-[cubic-bezier(.22,1,.36,1)] motion-reduce:transition-none ${
-            open ? 'mt-2.5 grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+            open ? "mt-2.5 grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
           }`}
         >
           <div className="min-h-0 overflow-hidden">
@@ -81,9 +83,13 @@ export function GuideReasoning({
                   {steps.map((step) => (
                     <li
                       key={step.key}
-                      className={`text-[12px] ${step.state === 'failed' ? 'text-rose-light' : 'text-fg/60'}`}
+                      className={`text-[12px] ${step.state === "failed" ? "text-rose-light" : "text-fg/60"}`}
                     >
-                      {step.state === 'running' ? <ShimmerLabel>{step.label}</ShimmerLabel> : step.label}
+                      {step.state === "running" ? (
+                        <ShimmerLabel>{step.label}</ShimmerLabel>
+                      ) : (
+                        step.label
+                      )}
                     </li>
                   ))}
                 </ol>
@@ -96,5 +102,5 @@ export function GuideReasoning({
         </div>
       ) : null}
     </div>
-  )
+  );
 }

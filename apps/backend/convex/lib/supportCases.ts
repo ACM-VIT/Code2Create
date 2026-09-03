@@ -32,12 +32,7 @@ export function supportCaseCounterShardFor(supportCaseId: string) {
   );
 }
 
-const counterKeys = [
-  ...supportCaseStates,
-  "unowned",
-  "awaitingStaffReply",
-  "safety",
-] as const;
+const counterKeys = [...supportCaseStates, "unowned", "awaitingStaffReply", "safety"] as const;
 
 export function emptySupportCaseCounters(): SupportCaseCounters {
   return {
@@ -92,9 +87,6 @@ const allowedTransitions = {
   closed: ["open"],
 } as const satisfies Record<SupportCaseState, readonly SupportCaseState[]>;
 
-export function canTransitionSupportCase(
-  current: SupportCaseState,
-  next: SupportCaseState,
-) {
+export function canTransitionSupportCase(current: SupportCaseState, next: SupportCaseState) {
   return allowedTransitions[current].some((candidate) => candidate === next);
 }

@@ -1,7 +1,4 @@
-import {
-  paginationOptsValidator,
-  paginationResultValidator,
-} from "convex/server";
+import { paginationOptsValidator, paginationResultValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import { z } from "zod";
 
@@ -11,11 +8,7 @@ import { mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { moveSessionCounter } from "./lib/attendanceCounters";
 import { requireEventBySlug } from "./lib/events";
-import {
-  requireCurrentPerson,
-  requireEventSubject,
-  requireMembership,
-} from "./lib/identity";
+import { requireCurrentPerson, requireEventSubject, requireMembership } from "./lib/identity";
 import {
   findOperation,
   operationFingerprint,
@@ -43,11 +36,7 @@ const approvedAttendanceResult = v.union(
   v.literal("needs_review"),
 );
 
-const remedyState = v.union(
-  v.literal("open"),
-  v.literal("approved"),
-  v.literal("declined"),
-);
+const remedyState = v.union(v.literal("open"), v.literal("approved"), v.literal("declined"));
 
 const remedyResolution = v.union(
   v.object({
@@ -149,10 +138,7 @@ async function requireNoOpenCase(
   const existing = await ctx.db
     .query("attendanceResultRemedyCases")
     .withIndex("by_session_membership_state", (index) =>
-      index
-        .eq("sessionId", sessionId)
-        .eq("membershipId", membershipId)
-        .eq("state", "open"),
+      index.eq("sessionId", sessionId).eq("membershipId", membershipId).eq("state", "open"),
     )
     .unique();
   if (existing) {
@@ -324,9 +310,7 @@ export const mine = query({
       const latestCase = await ctx.db
         .query("attendanceResultRemedyCases")
         .withIndex("by_session_membership_created", (index) =>
-          index
-            .eq("sessionId", session._id)
-            .eq("membershipId", membership._id),
+          index.eq("sessionId", session._id).eq("membershipId", membership._id),
         )
         .order("desc")
         .first();
@@ -350,9 +334,7 @@ export const mine = query({
                 : {}),
               version: latestCase.version,
               createdAt: latestCase.createdAt,
-              ...(latestCase.resolvedAt !== undefined
-                ? { resolvedAt: latestCase.resolvedAt }
-                : {}),
+              ...(latestCase.resolvedAt !== undefined ? { resolvedAt: latestCase.resolvedAt } : {}),
             }
           : null,
         canRequest:
@@ -380,12 +362,7 @@ export const openMine = mutation({
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const membership = await requireMembership(ctx, event._id, person._id);
-    const description = normalizedLongText(
-      args.description,
-      "Attendance issue",
-      10,
-      1_000,
-    );
+    const description = normalizedLongText(args.description, "Attendance issue", 10, 1_000);
     const requestFingerprint = operationFingerprint([
       args.sessionId,
       args.expectedSessionVersion,
@@ -473,12 +450,7 @@ export const open = mutation({
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
-    const description = normalizedLongText(
-      args.description,
-      "Attendance issue",
-      10,
-      1_000,
-    );
+    const description = normalizedLongText(args.description, "Attendance issue", 10, 1_000);
     const requestFingerprint = operationFingerprint([
       args.sessionId,
       args.membershipId,
@@ -615,18 +587,14 @@ export const forParticipant = query({
       ctx.db
         .query("attendanceResultRemedyCases")
         .withIndex("by_session_membership_created", (index) =>
-          index
-            .eq("sessionId", context.session._id)
-            .eq("membershipId", context.membership._id),
+          index.eq("sessionId", context.session._id).eq("membershipId", context.membership._id),
         )
         .order("desc")
         .take(5),
       ctx.db
         .query("attendancePresenceEvents")
         .withIndex("by_session_membership_time", (index) =>
-          index
-            .eq("sessionId", context.session._id)
-            .eq("membershipId", context.membership._id),
+          index.eq("sessionId", context.session._id).eq("membershipId", context.membership._id),
         )
         .order("desc")
         .take(10),
@@ -641,9 +609,7 @@ export const forParticipant = query({
         ? { confirmedAt: context.participant.confirmedAt }
         : {}),
       late: context.participant.late,
-      maximumPresentDurationMinutes: Math.floor(
-        (context.closingCutoffAt - sessionStart) / 60_000,
-      ),
+      maximumPresentDurationMinutes: Math.floor((context.closingCutoffAt - sessionStart) / 60_000),
       cases: cases.map((remedy) => ({
         id: remedy._id,
         state: remedy.state,
@@ -651,15 +617,11 @@ export const forParticipant = query({
         description: remedy.description,
         openedAgainstResult: remedy.openedAgainstResult,
         openedAgainstPresentDurationMs: remedy.openedAgainstPresentDurationMs,
-        ...(remedy.decisionReason !== undefined
-          ? { decisionReason: remedy.decisionReason }
-          : {}),
+        ...(remedy.decisionReason !== undefined ? { decisionReason: remedy.decisionReason } : {}),
         ...(remedy.participantResolutionNote !== undefined
           ? { participantResolutionNote: remedy.participantResolutionNote }
           : {}),
-        ...(remedy.approvedResult !== undefined
-          ? { approvedResult: remedy.approvedResult }
-          : {}),
+        ...(remedy.approvedResult !== undefined ? { approvedResult: remedy.approvedResult } : {}),
         ...(remedy.approvedPresentDurationMs !== undefined
           ? { approvedPresentDurationMs: remedy.approvedPresentDurationMs }
           : {}),
@@ -692,10 +654,7 @@ function approvedResultValues(
   session: Doc<"attendanceSessions">,
   closingCutoffAt: number,
   expectation: Doc<"attendanceSessionParticipants">["expectation"],
-  resolution: Extract<
-    typeof remedyResolution.type,
-    { kind: "approve" }
-  >,
+  resolution: Extract<typeof remedyResolution.type, { kind: "approve" }>,
 ) {
   if (!Number.isSafeInteger(resolution.presentDurationMinutes)) {
     throw new ConvexError({
@@ -705,10 +664,7 @@ function approvedResultValues(
   }
   const sessionStart = session.openedAt ?? session.startsAt;
   const maximumMinutes = Math.floor((closingCutoffAt - sessionStart) / 60_000);
-  if (
-    resolution.presentDurationMinutes < 0 ||
-    resolution.presentDurationMinutes > maximumMinutes
-  ) {
+  if (resolution.presentDurationMinutes < 0 || resolution.presentDurationMinutes > maximumMinutes) {
     throw new ConvexError({
       code: "INVALID_PRESENT_DURATION",
       message: "Present duration must fit within the finalized session window.",
@@ -795,7 +751,7 @@ export const decide = mutation({
       args.resolution.kind,
       args.resolution.kind === "approve" ? args.resolution.result : null,
       args.resolution.kind === "approve" ? args.resolution.presentDurationMinutes : null,
-      args.resolution.kind === "approve" ? args.resolution.confirmedAt ?? null : null,
+      args.resolution.kind === "approve" ? (args.resolution.confirmedAt ?? null) : null,
       participantNote,
       reason,
     ]);
@@ -969,8 +925,7 @@ export const decide = mutation({
       }),
       nextSummary: JSON.stringify({
         caseState: state,
-        result:
-          args.resolution.kind === "approve" ? args.resolution.result : context.result,
+        result: args.resolution.kind === "approve" ? args.resolution.result : context.result,
         participantVersion,
       }),
       reason,

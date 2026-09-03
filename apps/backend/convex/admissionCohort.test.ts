@@ -21,14 +21,8 @@ import {
   communicationsPolicyChecksum,
   normalizeCommunicationsPolicy,
 } from "./lib/communicationsPolicy.ts";
-import {
-  defaultDeterministicIntakePolicy,
-  intakePolicyChecksum,
-} from "./lib/intakePolicy.ts";
-import {
-  defaultParticipantPolicy,
-  participantPolicyChecksum,
-} from "./lib/participantPolicy.ts";
+import { defaultDeterministicIntakePolicy, intakePolicyChecksum } from "./lib/intakePolicy.ts";
+import { defaultParticipantPolicy, participantPolicyChecksum } from "./lib/participantPolicy.ts";
 import { insertPermissionGrant } from "./lib/permissions.ts";
 import { maximumApplicantTeamsPerEvent } from "./lib/reviewLimits.ts";
 import { createTestSubmissionSnapshot } from "./lib/testSubmissionSnapshot.ts";
@@ -39,8 +33,6 @@ const betterAuthModules = import.meta.glob(
   "../node_modules/@convex-dev/better-auth/src/component/**/*.ts",
 );
 type BackendTest = TestConvex<typeof schema>;
-type Fixture = Awaited<ReturnType<typeof seedCohortFixture>>;
-
 const readSecret = "read-secret-".padEnd(48, "r");
 const savedEnvironment = {
   INTELLIGENCE_READ_SECRET: process.env.INTELLIGENCE_READ_SECRET,
@@ -97,8 +89,9 @@ describe("admission cohort arithmetic", () => {
       7,
     );
     expect(selection[0]).toMatchObject({ entryCapacityPeople: 11, suggestedIn: false });
-    expect(selectAdmissionCohort([candidate({ applicationId: "a", teamSize: 4 })], 11, 7)[0])
-      .toMatchObject({ suggestedIn: true });
+    expect(
+      selectAdmissionCohort([candidate({ applicationId: "a", teamSize: 4 })], 11, 7)[0],
+    ).toMatchObject({ suggestedIn: true });
   });
 
   test("ordering composes admission signals: reviews, then AI, then time", () => {
@@ -133,6 +126,26 @@ describe("admission cohort arithmetic", () => {
 });
 
 describe("admission cohort query and decisions", () => {
+  test("searches every application in a stage by team name", async () => {
+    const backend = seededBackend();
+    const fixture = await seedCohortFixture(backend, { extraTeams: 31 });
+    const operator = backend.withIdentity({
+      subject: fixture.operatorAuthUserId,
+      sessionId: fixture.operatorAuthSessionId,
+    });
+
+    const result = await operator.query(api.admissions.searchApplications, {
+      eventSlug: fixture.eventSlug,
+      state: "under_review",
+      search: "  TEAM   31 ",
+    });
+
+    expect(result).toEqual({
+      applications: [expect.objectContaining({ teamName: "Additional Team 31" })],
+      truncated: false,
+    });
+  });
+
   test("ranks candidates, spends capacity in people, and marks review shortfalls", async () => {
     const backend = seededBackend();
     const fixture = await seedCohortFixture(backend);
@@ -228,9 +241,11 @@ describe("admission cohort query and decisions", () => {
       subject: fixture.operatorAuthUserId,
       sessionId: fixture.operatorAuthSessionId,
     });
-    await expect(operator.action(api.admissionCohort.cohort, {
-      eventSlug: fixture.eventSlug,
-    })).rejects.toThrow(
+    await expect(
+      operator.action(api.admissionCohort.cohort, {
+        eventSlug: fixture.eventSlug,
+      }),
+    ).rejects.toThrow(
       `Admission cohort reads support at most ${maximumApplicantTeamsPerEvent} applicant teams.`,
     );
   }, 120_000);
@@ -242,10 +257,12 @@ describe("admission cohort query and decisions", () => {
       subject: fixture.onlookerAuthUserId,
       sessionId: fixture.onlookerAuthSessionId,
     });
-    await expect(onlooker.action(api.admissionCohort.cohort, {
-      eventSlug: fixture.eventSlug,
-      capacityPeople: 3,
-    })).rejects.toThrow("permission");
+    await expect(
+      onlooker.action(api.admissionCohort.cohort, {
+        eventSlug: fixture.eventSlug,
+        capacityPeople: 3,
+      }),
+    ).rejects.toThrow("permission");
     const stranger = backend.withIdentity({
       subject: fixture.strangerAuthUserId,
       sessionId: fixture.strangerAuthSessionId,
@@ -271,7 +288,6 @@ describe("admission cohort query and decisions", () => {
       expectedApplicationVersion: 1,
       decision: "accept",
       reasonCode: "strong_fit",
-      informationQuestions: [],
       aiDisposition: "unavailable",
       clientOperationId: "cohort-apply-short-1",
     });
@@ -292,15 +308,17 @@ describe("admission cohort query and decisions", () => {
       expectedApplicationVersion: 1,
       decision: "accept",
       reasonCode: "strong_fit",
-      informationQuestions: [],
       aiDisposition: "unavailable",
       clientOperationId: "cohort-apply-1",
     });
     expect(applied).toMatchObject({ applied: true, state: "under_review" });
-    const [application, audits] = await backend.run(async (ctx) => [
-      await ctx.db.get(fixture.decidableApplicationId),
-      await ctx.db.query("auditEvents").collect(),
-    ] as const);
+    const [application, audits] = await backend.run(
+      async (ctx) =>
+        [
+          await ctx.db.get(fixture.decidableApplicationId),
+          await ctx.db.query("auditEvents").collect(),
+        ] as const,
+    );
     expect(application).toMatchObject({
       state: "under_review",
       decisionStage: "recorded",
@@ -319,7 +337,6 @@ describe("admission cohort query and decisions", () => {
       expectedApplicationVersion: 1,
       decision: "accept",
       reasonCode: "strong_fit",
-      informationQuestions: [],
       aiDisposition: "unavailable",
       clientOperationId: "cohort-apply-1",
     });
@@ -336,7 +353,6 @@ describe("admission cohort query and decisions", () => {
         expectedApplicationVersion: 1,
         decision: "accept",
         reasonCode: "strong_fit",
-        informationQuestions: [],
         aiDisposition: "unavailable",
         clientOperationId: "cohort-apply-denied-1",
       }),
@@ -354,18 +370,22 @@ describe("admission cohort query and decisions", () => {
       subject: fixture.onlookerAuthUserId,
       sessionId: fixture.onlookerAuthSessionId,
     });
-    await expect(onlooker.mutation(api.admissions.releaseAdmissionResults, {
-      eventSlug: fixture.eventSlug,
-      expectedEventVersion: 1,
-      reason: "Release the reviewed admissions set",
-      clientOperationId: "release-by-onlooker",
-    })).rejects.toThrow("Only an active Supreme");
-    await expect(operator.mutation(api.admissions.releaseAdmissionResults, {
-      eventSlug: fixture.eventSlug,
-      expectedEventVersion: 1,
-      reason: "Release the reviewed admissions set",
-      clientOperationId: "release-before-complete",
-    })).rejects.toThrow("Every active application");
+    await expect(
+      onlooker.mutation(api.admissions.releaseAdmissionResults, {
+        eventSlug: fixture.eventSlug,
+        expectedEventVersion: 1,
+        reason: "Release the reviewed admissions set",
+        clientOperationId: "release-by-onlooker",
+      }),
+    ).rejects.toThrow("Only an active Supreme");
+    await expect(
+      operator.mutation(api.admissions.releaseAdmissionResults, {
+        eventSlug: fixture.eventSlug,
+        expectedEventVersion: 1,
+        reason: "Release the reviewed admissions set",
+        clientOperationId: "release-before-complete",
+      }),
+    ).rejects.toThrow("Every active application");
 
     await backend.run(async (ctx) => {
       const decisions = [
@@ -410,42 +430,49 @@ describe("admission cohort query and decisions", () => {
       releasedByPersonId: fixture.operatorPersonId,
       communicationsPolicyVersionId: fixture.communicationsPolicyId,
     });
-    const applications = await backend.run((ctx) => Promise.all([
-      ctx.db.get(fixture.decidableApplicationId),
-      ctx.db.get(fixture.shortApplicationId),
-      ctx.db.get(fixture.splitApplicationId),
-    ]));
-    expect(applications.map((application) => [application?.state, application?.decisionStage]))
-      .toEqual([
-        ["accepted", "released"],
-        ["waitlisted", "released"],
-        ["declined", "released"],
-      ]);
+    const applications = await backend.run((ctx) =>
+      Promise.all([
+        ctx.db.get(fixture.decidableApplicationId),
+        ctx.db.get(fixture.shortApplicationId),
+        ctx.db.get(fixture.splitApplicationId),
+      ]),
+    );
+    expect(
+      applications.map((application) => [application?.state, application?.decisionStage]),
+    ).toEqual([
+      ["accepted", "released"],
+      ["waitlisted", "released"],
+      ["declined", "released"],
+    ]);
   });
 
   test("keeps decisions unavailable while teams can still revise proposals", async () => {
     const backend = seededBackend();
     const fixture = await seedCohortFixture(backend);
-    await backend.run((ctx) => ctx.db.patch(fixture.eventId, {
-      status: "registration_open",
-      applicationsCloseAt: Date.now() + 86_400_000,
-    }));
+    await backend.run((ctx) =>
+      ctx.db.patch(fixture.eventId, {
+        status: "registration_open",
+        applicationsCloseAt: Date.now() + 86_400_000,
+      }),
+    );
     const operator = backend.withIdentity({
       subject: fixture.operatorAuthUserId,
       sessionId: fixture.operatorAuthSessionId,
     });
-    await expect(operator.mutation(api.admissions.decide, {
-      eventSlug: fixture.eventSlug,
-      applicationId: fixture.decidableApplicationId,
-      expectedApplicationVersion: 1,
-      decision: "accept",
-      reasonCode: "strong_fit",
-      informationQuestions: [],
-      aiDisposition: "unavailable",
-      clientOperationId: "cohort-decision-before-deadline",
-    })).rejects.toThrow("after the application deadline");
-    await expect(backend.run((ctx) => ctx.db.get(fixture.decidableApplicationId)))
-      .resolves.toMatchObject({ state: "under_review", version: 1 });
+    await expect(
+      operator.mutation(api.admissions.decide, {
+        eventSlug: fixture.eventSlug,
+        applicationId: fixture.decidableApplicationId,
+        expectedApplicationVersion: 1,
+        decision: "accept",
+        reasonCode: "strong_fit",
+        aiDisposition: "unavailable",
+        clientOperationId: "cohort-decision-before-deadline",
+      }),
+    ).rejects.toThrow("after the application deadline");
+    await expect(
+      backend.run((ctx) => ctx.db.get(fixture.decidableApplicationId)),
+    ).resolves.toMatchObject({ state: "under_review", version: 1 });
   });
 
   test("the admission read endpoint accepts only its own signature context", async () => {
@@ -485,11 +512,7 @@ describe("admission cohort query and decisions", () => {
       data: { candidates: { teamName: string; suggestedIn: boolean; novelty: unknown }[] };
     };
     expect(payload.read).toBe("admission_cohort");
-    expect(payload.data.candidates.map((entry) => entry.suggestedIn)).toEqual([
-      true,
-      false,
-      false,
-    ]);
+    expect(payload.data.candidates.map((entry) => entry.suggestedIn)).toEqual([true, false, false]);
     expect(payload.data.candidates.every((entry) => entry.novelty === null)).toBe(true);
     expect(JSON.stringify(payload)).not.toContain("Cohort Member");
     expect(JSON.stringify(payload)).not.toContain("@example.test");
@@ -643,7 +666,7 @@ async function insertPolicyChain(
       {
         key: "needs_detail",
         label: "Needs detail",
-        allowedDecisions: ["needs_information", "waitlist"],
+        allowedDecisions: ["waitlist"],
       },
     ],
     checksum: "cohort-policy",
@@ -691,10 +714,7 @@ async function insertPolicyChain(
   };
 }
 
-async function seedCohortFixture(
-  backend: BackendTest,
-  options: { extraTeams?: number } = {},
-) {
+async function seedCohortFixture(backend: BackendTest, options: { extraTeams?: number } = {}) {
   const now = Date.now();
   const eventSlug = `cohort-${crypto.randomUUID()}`;
   const operatorAuthUserId = await createAuthUser(backend, now, "operator");

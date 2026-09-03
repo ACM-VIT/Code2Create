@@ -1,7 +1,7 @@
-import { StyleSheet, Text, View } from 'react-native'
+import { StyleSheet, Text, View } from "react-native";
 
-import { Action, CheckRow } from '@/components/ui'
-import { palette } from '@/theme'
+import { Action, CheckRow } from "@/components/ui";
+import { palette } from "@/theme";
 
 export function ReviewerSetup({
   busy,
@@ -14,39 +14,39 @@ export function ReviewerSetup({
   ready,
   registerLabel,
 }: {
-  busy: boolean
-  cameraReady: boolean
-  draftsReady: boolean
-  onOpenPaging: () => void
-  onRegister: () => void | Promise<void>
-  onRequestCamera: () => void | Promise<void>
-  pagingReady: boolean
-  ready: boolean
-  registerLabel: string
+  busy: boolean;
+  cameraReady: boolean;
+  draftsReady: boolean;
+  onOpenPaging: () => void;
+  onRegister: () => void | Promise<void>;
+  onRequestCamera: () => void | Promise<void>;
+  pagingReady: boolean;
+  ready: boolean;
+  registerLabel: string;
 }) {
   const checks = [
     {
-      title: 'Camera',
-      consequence: 'You cannot scan a team to start their review',
+      title: "Camera",
+      consequence: "You cannot scan a team to start their review",
       met: cameraReady,
-      actionLabel: 'Allow',
+      actionLabel: "Allow",
       onPress: onRequestCamera,
     },
     {
-      title: 'Getting paged',
-      consequence: 'A panel short a reviewer will not reach you',
+      title: "Getting paged",
+      consequence: "A panel short a reviewer will not reach you",
       met: pagingReady,
-      actionLabel: 'Set up',
+      actionLabel: "Set up",
       onPress: onOpenPaging,
     },
     {
-      title: 'Encrypted drafts',
-      consequence: 'Scores cannot be held safely if the network drops',
+      title: "Encrypted drafts",
+      consequence: "Scores cannot be held safely if the network drops",
       met: draftsReady,
     },
-  ] as const
+  ] as const;
 
-  const done = checks.filter((check) => check.met).length
+  const done = checks.filter((check) => check.met).length;
 
   return (
     <View style={styles.body}>
@@ -54,8 +54,8 @@ export function ReviewerSetup({
         <Text style={styles.title}>Set up this phone</Text>
         <Text style={styles.subtitle}>
           {done === checks.length
-            ? 'Everything is ready. Register to join your panel.'
-            : 'A judging phone joins a panel when all three are ready.'}
+            ? "Everything is ready. Register to join your panel."
+            : "A judging phone joins a panel when all three are ready."}
         </Text>
       </View>
 
@@ -76,7 +76,7 @@ export function ReviewerSetup({
               consequence={check.consequence}
               met={check.met}
               title={check.title}
-              {...('onPress' in check
+              {...("onPress" in check
                 ? { actionLabel: check.actionLabel, onPress: check.onPress }
                 : {})}
             />
@@ -94,16 +94,16 @@ export function ReviewerSetup({
         onPress={onRegister}
       />
     </View>
-  )
+  );
 }
 
 const styles = StyleSheet.create({
   body: { flexGrow: 1, paddingTop: 10 },
   push: { flexGrow: 1 },
   head: { gap: 8, paddingHorizontal: 4 },
-  title: { color: palette.text, fontSize: 28, fontWeight: '600', letterSpacing: -0.6 },
+  title: { color: palette.text, fontSize: 28, fontWeight: "600", letterSpacing: -0.6 },
   subtitle: { color: palette.muted, fontSize: 16, lineHeight: 22 },
-  meter: { flexDirection: 'row', gap: 6, marginTop: 20, paddingHorizontal: 4 },
+  meter: { flexDirection: "row", gap: 6, marginTop: 20, paddingHorizontal: 4 },
   meterSegment: {
     flex: 1,
     height: 4,
@@ -113,4 +113,4 @@ const styles = StyleSheet.create({
   meterDone: { backgroundColor: palette.judging },
   rows: { marginTop: 18 },
   divider: { height: StyleSheet.hairlineWidth, backgroundColor: palette.strong, marginLeft: 56 },
-})
+});

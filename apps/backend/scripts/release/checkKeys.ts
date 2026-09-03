@@ -1,6 +1,6 @@
-import { readEncryptionKeyConfiguration } from './keyEnvironment.ts'
+import { readEncryptionKeyConfiguration } from "./keyEnvironment.ts";
 
-const configuration = readEncryptionKeyConfiguration(process.env)
+const configuration = readEncryptionKeyConfiguration(process.env);
 
 console.log(
   JSON.stringify(
@@ -18,4 +18,4 @@ console.log(
     null,
     2,
   ),
-)
+);

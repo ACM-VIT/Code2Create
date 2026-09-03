@@ -14,7 +14,6 @@ const allAdmissionDecisions: AdmissionDecision[] = [
   "accept",
   "waitlist",
   "decline",
-  "needs_information",
 ];
 
 export const admissionGuidanceInput = v.object({
@@ -97,8 +96,10 @@ export const defaultAdmissionCriteria: AdmissionCriterion[] = [
     label: "Problem clarity",
     guidanceByBand: {
       firstYear: "The team identifies a real problem and who experiences it, even in simple terms.",
-      earlyYear: "The team identifies a real problem, intended users, and the useful change it wants to create.",
-      laterYear: "The problem, users, constraints, and intended outcome are specific enough to guide a build.",
+      earlyYear:
+        "The team identifies a real problem, intended users, and the useful change it wants to create.",
+      laterYear:
+        "The problem, users, constraints, and intended outcome are specific enough to guide a build.",
       postgraduateOrProfessional:
         "The problem framing is precise, bounded, and grounded in a credible user or operational need.",
       mixedOrExternal:
@@ -109,9 +110,12 @@ export const defaultAdmissionCriteria: AdmissionCriterion[] = [
     criterionKey: "genuine_intent",
     label: "Genuine intent",
     guidanceByBand: {
-      firstYear: "The response shows genuine interest and a plausible reason the team wants to work on it.",
-      earlyYear: "The response shows genuine intent and a basic understanding of why the project would matter.",
-      laterYear: "The team demonstrates ownership of the problem and a considered reason for its approach.",
+      firstYear:
+        "The response shows genuine interest and a plausible reason the team wants to work on it.",
+      earlyYear:
+        "The response shows genuine intent and a basic understanding of why the project would matter.",
+      laterYear:
+        "The team demonstrates ownership of the problem and a considered reason for its approach.",
       postgraduateOrProfessional:
         "The team demonstrates clear ownership, relevant reflection, and a credible reason to pursue this approach.",
       mixedOrExternal:
@@ -122,9 +126,11 @@ export const defaultAdmissionCriteria: AdmissionCriterion[] = [
     criterionKey: "feasibility",
     label: "Hackathon feasibility",
     guidanceByBand: {
-      firstYear: "A workable basic idea and a small end-of-event outcome are enough; implementation detail may be light.",
+      firstYear:
+        "A workable basic idea and a small end-of-event outcome are enough; implementation detail may be light.",
       earlyYear: "The team describes a plausible core flow that can be attempted during the event.",
-      laterYear: "The intended scope, core flow, and likely implementation path fit the event window.",
+      laterYear:
+        "The intended scope, core flow, and likely implementation path fit the event window.",
       postgraduateOrProfessional:
         "The scope, dependencies, risks, and event-sized deliverable form a credible execution plan.",
       mixedOrExternal:
@@ -135,9 +141,12 @@ export const defaultAdmissionCriteria: AdmissionCriterion[] = [
     criterionKey: "detail_and_differentiation",
     label: "Detail and differentiation",
     guidanceByBand: {
-      firstYear: "A simple explanation of what someone can do is sufficient; novelty and deep technical detail are not required.",
-      earlyYear: "The core interaction is understandable and the team reflects on how the project will be useful.",
-      laterYear: "The technical direction and meaningful distinction from common versions of the idea are reasonably clear.",
+      firstYear:
+        "A simple explanation of what someone can do is sufficient; novelty and deep technical detail are not required.",
+      earlyYear:
+        "The core interaction is understandable and the team reflects on how the project will be useful.",
+      laterYear:
+        "The technical direction and meaningful distinction from common versions of the idea are reasonably clear.",
       postgraduateOrProfessional:
         "The proposal gives a concrete technical direction, acknowledges common alternatives, and states a defensible distinction.",
       mixedOrExternal:
@@ -158,19 +167,14 @@ export const defaultAdmissionReasonCodes: AdmissionReasonCode[] = [
     allowedDecisions: ["waitlist"],
   },
   {
-    key: "clarification_needed",
-    label: "A short clarification is needed",
-    allowedDecisions: ["needs_information"],
-  },
-  {
     key: "scope_not_yet_workable",
     label: "The proposed event scope is not yet workable",
-    allowedDecisions: ["waitlist", "decline", "needs_information"],
+    allowedDecisions: ["waitlist", "decline"],
   },
   {
     key: "application_not_yet_clear",
     label: "The application is not yet clear enough for this experience band",
-    allowedDecisions: ["waitlist", "decline", "needs_information"],
+    allowedDecisions: ["waitlist", "decline"],
   },
 ];
 
@@ -262,7 +266,10 @@ export function normalizeAdmissionConfiguration(
     label: normalizedText(criterion.label, "Criterion label", 3, 100),
     guidanceByBand: normalizeGuidance(criterion.guidanceByBand),
   }));
-  uniqueValues(criteria.map((criterion) => criterion.criterionKey), "Criterion keys");
+  uniqueValues(
+    criteria.map((criterion) => criterion.criterionKey),
+    "Criterion keys",
+  );
   const decisionReasonCodes = input.decisionReasonCodes.map((reason) => {
     if (reason.allowedDecisions.length < 1 || reason.allowedDecisions.length > 4) {
       invalidPolicy("Every decision reason must allow one through four decisions.");
@@ -274,7 +281,10 @@ export function normalizeAdmissionConfiguration(
       allowedDecisions: [...reason.allowedDecisions],
     };
   });
-  uniqueValues(decisionReasonCodes.map((reason) => reason.key), "Decision-reason keys");
+  uniqueValues(
+    decisionReasonCodes.map((reason) => reason.key),
+    "Decision-reason keys",
+  );
   for (const decision of allAdmissionDecisions) {
     if (!decisionReasonCodes.some((reason) => reason.allowedDecisions.includes(decision))) {
       invalidPolicy(`At least one decision reason must permit ${decision}.`);
@@ -282,12 +292,7 @@ export function normalizeAdmissionConfiguration(
   }
   return {
     version: normalizedText(input.version, "Admission policy release", 1, 80),
-    minimumHumanReviews: wholeNumber(
-      input.minimumHumanReviews,
-      "Minimum human reviews",
-      1,
-      5,
-    ),
+    minimumHumanReviews: wholeNumber(input.minimumHumanReviews, "Minimum human reviews", 1, 5),
     overallParticipantCapacity: positiveWholeNumber(
       input.overallParticipantCapacity,
       "Participant capacity",
@@ -312,38 +317,42 @@ export function admissionPolicyForConfiguration(
 }
 
 export function admissionPolicyChecksum(policy: AdmissionPolicy) {
-  return fingerprintText(JSON.stringify({
-    version: policy.version,
-    aiRecommendationMode: policy.aiRecommendationMode,
-    minimumHumanReviews: policy.minimumHumanReviews,
-    overallParticipantCapacity: policy.overallParticipantCapacity,
-    criteria: policy.criteria.map((criterion) => ({
-      criterionKey: criterion.criterionKey,
-      label: criterion.label,
-      guidanceByBand: {
-        firstYear: criterion.guidanceByBand.firstYear,
-        earlyYear: criterion.guidanceByBand.earlyYear,
-        laterYear: criterion.guidanceByBand.laterYear,
-        postgraduateOrProfessional: criterion.guidanceByBand.postgraduateOrProfessional,
-        mixedOrExternal: criterion.guidanceByBand.mixedOrExternal,
-      },
-    })),
-    decisionReasonCodes: policy.decisionReasonCodes.map((reason) => ({
-      key: reason.key,
-      label: reason.label,
-      allowedDecisions: reason.allowedDecisions,
-    })),
-  }));
+  return fingerprintText(
+    JSON.stringify({
+      version: policy.version,
+      aiRecommendationMode: policy.aiRecommendationMode,
+      minimumHumanReviews: policy.minimumHumanReviews,
+      overallParticipantCapacity: policy.overallParticipantCapacity,
+      criteria: policy.criteria.map((criterion) => ({
+        criterionKey: criterion.criterionKey,
+        label: criterion.label,
+        guidanceByBand: {
+          firstYear: criterion.guidanceByBand.firstYear,
+          earlyYear: criterion.guidanceByBand.earlyYear,
+          laterYear: criterion.guidanceByBand.laterYear,
+          postgraduateOrProfessional: criterion.guidanceByBand.postgraduateOrProfessional,
+          mixedOrExternal: criterion.guidanceByBand.mixedOrExternal,
+        },
+      })),
+      decisionReasonCodes: policy.decisionReasonCodes.map((reason) => ({
+        key: reason.key,
+        label: reason.label,
+        allowedDecisions: reason.allowedDecisions,
+      })),
+    }),
+  );
 }
 
 export function admissionModelConfigurationChecksum(model: AdmissionModelConfiguration) {
-  return fingerprintText(JSON.stringify({
-    version: model.version,
-    modelId: model.modelId,
-    promptVersion: model.promptVersion,
-    schemaVersion: model.schemaVersion,
-    evaluationSuiteVersion: model.evaluationSuiteVersion,
-  }));
+  return fingerprintText(
+    JSON.stringify({
+      version: model.version,
+      modelId: model.modelId,
+      promptVersion: model.promptVersion,
+      schemaVersion: model.schemaVersion,
+      evaluationSuiteVersion: model.evaluationSuiteVersion,
+    }),
+  );
 }
 
 export function admissionPolicyFromDocument(
@@ -441,10 +450,7 @@ function validateDocumentChecksums(
   }
 }
 
-export async function loadPublishedAdmissionConfiguration(
-  ctx: ReadCtx,
-  event: Doc<"events">,
-) {
+export async function loadPublishedAdmissionConfiguration(ctx: ReadCtx, event: Doc<"events">) {
   const policyId = event.publishedAdmissionPolicyId;
   const policy = policyId ? await ctx.db.get(policyId) : null;
   if (!policy || policy.eventId !== event._id || policy.status !== "published") {
@@ -467,16 +473,10 @@ export async function loadPublishedAdmissionConfiguration(
   return { policy, model, configuration: admissionConfigurationFromDocuments(policy, model) };
 }
 
-async function ensureReleaseLabelIsAvailable(
-  ctx: ReadCtx,
-  eventId: Id<"events">,
-  version: string,
-) {
+async function ensureReleaseLabelIsAvailable(ctx: ReadCtx, eventId: Id<"events">, version: string) {
   const rows = await ctx.db
     .query("admissionPolicyVersions")
-    .withIndex("by_event_version", (index) =>
-      index.eq("eventId", eventId).eq("version", version),
-    )
+    .withIndex("by_event_version", (index) => index.eq("eventId", eventId).eq("version", version))
     .collect();
   if (rows.some((row) => row.status === "published" || row.status === "superseded")) {
     invalidPolicy("That admission policy release label has already been published.");
@@ -542,9 +542,7 @@ export async function saveAdmissionConfigurationDraft(
       message: "The admission configuration changed in another session.",
     });
   }
-  const currentModel = currentDraft
-    ? await modelForPolicy(ctx, currentDraft, "draft")
-    : null;
+  const currentModel = currentDraft ? await modelForPolicy(ctx, currentDraft, "draft") : null;
   if (
     currentDraft?.checksum === policyChecksum &&
     ((modelChecksum === null && currentModel === null) || currentModel?.checksum === modelChecksum)
@@ -632,9 +630,7 @@ export async function publishAdmissionConfiguration(
   const published = await loadPublishedAdmissionConfiguration(ctx, args.event);
   const oldCapacity = await ctx.db
     .query("admissionCapacityBuckets")
-    .withIndex("by_policy", (index) =>
-      index.eq("admissionPolicyVersionId", published.policy._id),
-    )
+    .withIndex("by_policy", (index) => index.eq("admissionPolicyVersionId", published.policy._id))
     .unique();
   if (!oldCapacity || oldCapacity.reserved !== 0) {
     throw new Error("The current admission capacity cannot be replaced safely.");

@@ -23,20 +23,24 @@ import { readBoundedJsonResponse } from "./lib/boundedHttpBody";
 import { requireIntelligenceHmacSecret } from "./lib/intelligenceServiceConfiguration";
 import { intelligenceWorkerUrl, signedStreamAccess } from "./operationsIntelligenceActions";
 
-const workerReceipt = z.object({
-  state: z.literal("accepted"),
-  runId: z.string().min(1).max(200),
-  instanceId: z.string().min(1).max(200),
-  submissionId: z.string().min(1).max(200),
-  acceptedAt: z.iso.datetime(),
-  uid: z.string().min(1).max(400),
-}).strict();
+const workerReceipt = z
+  .object({
+    state: z.literal("accepted"),
+    runId: z.string().min(1).max(200),
+    instanceId: z.string().min(1).max(200),
+    submissionId: z.string().min(1).max(200),
+    acceptedAt: z.iso.datetime(),
+    uid: z.string().min(1).max(400),
+  })
+  .strict();
 
-const abortReceipt = z.object({
-  state: z.literal("accepted"),
-  runId: z.string().min(1).max(200),
-  operationId: z.string().min(8).max(200),
-}).strict();
+const abortReceipt = z
+  .object({
+    state: z.literal("accepted"),
+    runId: z.string().min(1).max(200),
+    operationId: z.string().min(8).max(200),
+  })
+  .strict();
 
 const streamAccess = v.object({
   conversationUrl: v.string(),
@@ -47,12 +51,10 @@ const streamAccess = v.object({
   signature: v.string(),
 });
 
-async function signedPost(args: {
-  path: string;
-  context: string;
-  body: string;
-  signedAt: number;
-}) {
+const autonomyTickLeaseDurationMs = 60_000;
+const autonomyTickLeaseRenewalWindowMs = 15_000;
+
+async function signedPost(args: { path: string; context: string; body: string; signedAt: number }) {
   const timestamp = String(args.signedAt);
   const signature = await signServiceBody({
     context: args.context,
@@ -195,7 +197,8 @@ export const abortRun = internalAction({
         !parsed.success ||
         parsed.data.runId !== args.runId ||
         parsed.data.operationId !== args.operationId
-      ) throw new Error("The autonomy Worker returned an invalid abort receipt.");
+      )
+        throw new Error("The autonomy Worker returned an invalid abort receipt.");
       await ctx.runMutation(internal.operationsAutonomyDispatch.acknowledgeAbort, {
         runId: args.runId,
         operationId: args.operationId,
@@ -216,61 +219,119 @@ export const tick = internalAction({
   args: {},
   returns: v.object({ evaluated: v.number(), queued: v.number(), monitored: v.number() }),
   handler: async (ctx): Promise<{ evaluated: number; queued: number; monitored: number }> => {
-    const now = Date.now();
-    const supervisionIds: Id<"operationsAutonomyRunSupervision">[] = await ctx.runQuery(
-      internal.operationsAutonomyScheduler.supervisionCandidates,
-      { now },
-    );
-    for (const supervisionId of supervisionIds) {
-      await ctx.runMutation(internal.operationsAutonomyScheduler.reconcileSupervision, {
-        supervisionId,
+    const leaseId = crypto.randomUUID();
+    const claimedAt = Date.now();
+    const claimed = await ctx.runMutation(internal.operationsBackground.claim, {
+      holder: "autonomy_tick",
+      leaseId,
+      now: claimedAt,
+      leaseDurationMs: autonomyTickLeaseDurationMs,
+    });
+    if (!claimed) return { evaluated: 0, queued: 0, monitored: 0 };
+
+    let leaseExpiresAt = claimedAt + autonomyTickLeaseDurationMs;
+    const progress = { evaluated: 0, queued: 0, monitored: 0 };
+    const renewLeaseIfNeeded = async () => {
+      const now = Date.now();
+      if (now < leaseExpiresAt - autonomyTickLeaseRenewalWindowMs) return true;
+      const renewed = await ctx.runMutation(internal.operationsBackground.renew, {
+        leaseId,
         now,
+        leaseDurationMs: autonomyTickLeaseDurationMs,
       });
-    }
-    const stateIds: Id<"operationsAutonomyStates">[] = await ctx.runQuery(
-      internal.operationsAutonomyScheduler.dueStates,
-      { now },
-    );
-    for (const stateId of stateIds) {
-      await ctx.runMutation(internal.operationsAutonomyScheduler.enqueueDueSchedules, {
-        stateId,
-        now,
-      });
-    }
-    const cancellationPolicies: Id<"operationsAutonomyPolicyVersions">[] = await ctx.runQuery(
-      internal.operationsAutonomyScheduler.pendingCancellationPolicies,
-      {},
-    );
-    for (const policyVersionId of cancellationPolicies) {
-      await ctx.runMutation(internal.operationsAutonomyScheduler.cancelPendingInboxPage, {
-        policyVersionId,
-        now,
-      });
-    }
-    const inboxIds: Id<"operationsAutonomyInbox">[] = await ctx.runQuery(
-      internal.operationsAutonomyScheduler.pendingInboxCandidates,
-      { now },
-    );
-    for (const inboxId of inboxIds) {
-      await ctx.runMutation(internal.operationsAutonomyScheduler.materializeInbox, {
-        inboxId,
-        now,
-      });
-    }
-    const continuationIds: Id<"operationsAutonomyContinuations">[] = await ctx.runQuery(
-      internal.operationsAutonomyDispatch.dueContinuations,
-      { now },
-    );
-    for (const continuationId of continuationIds) {
-      await ctx.scheduler.runAfter(0, internal.operationsAutonomyActions.continueRun, {
-        continuationId,
-      });
-    }
-    return {
-      evaluated: stateIds.length,
-      queued: inboxIds.length,
-      monitored: supervisionIds.length,
+      if (renewed) leaseExpiresAt = now + autonomyTickLeaseDurationMs;
+      return renewed;
     };
+
+    try {
+      const now = Date.now();
+      const supervisionIds: Id<"operationsAutonomyRunSupervision">[] = await ctx.runQuery(
+        internal.operationsAutonomyScheduler.supervisionCandidates,
+        { now },
+      );
+      for (const supervisionId of supervisionIds) {
+        if (!(await renewLeaseIfNeeded())) return progress;
+        const reconciled = await ctx.runMutation(
+          internal.operationsAutonomyScheduler.reconcileSupervision,
+          {
+            supervisionId,
+            leaseId,
+            now,
+          },
+        );
+        if (!reconciled.leaseHeld) return progress;
+        progress.monitored += 1;
+      }
+      const stateIds: Id<"operationsAutonomyStates">[] = await ctx.runQuery(
+        internal.operationsAutonomyScheduler.dueStates,
+        { now },
+      );
+      for (const stateId of stateIds) {
+        if (!(await renewLeaseIfNeeded())) return progress;
+        const enqueued = await ctx.runMutation(
+          internal.operationsAutonomyScheduler.enqueueDueSchedules,
+          {
+            stateId,
+            leaseId,
+            now,
+          },
+        );
+        if (!enqueued.leaseHeld) return progress;
+        progress.evaluated += 1;
+      }
+      const cancellationPolicies: Id<"operationsAutonomyPolicyVersions">[] = await ctx.runQuery(
+        internal.operationsAutonomyScheduler.pendingCancellationPolicies,
+        {},
+      );
+      for (const policyVersionId of cancellationPolicies) {
+        if (!(await renewLeaseIfNeeded())) return progress;
+        const canceled = await ctx.runMutation(
+          internal.operationsAutonomyScheduler.cancelPendingInboxPage,
+          {
+            policyVersionId,
+            leaseId,
+            now,
+          },
+        );
+        if (!canceled.leaseHeld) return progress;
+      }
+      const inboxIds: Id<"operationsAutonomyInbox">[] = await ctx.runQuery(
+        internal.operationsAutonomyScheduler.pendingInboxCandidates,
+        { now },
+      );
+      for (const inboxId of inboxIds) {
+        if (!(await renewLeaseIfNeeded())) return progress;
+        const materialized = await ctx.runMutation(
+          internal.operationsAutonomyScheduler.materializeInbox,
+          {
+            inboxId,
+            leaseId,
+            now,
+          },
+        );
+        if (!materialized.leaseHeld) return progress;
+        progress.queued += 1;
+      }
+      const continuationIds: Id<"operationsAutonomyContinuations">[] = await ctx.runQuery(
+        internal.operationsAutonomyDispatch.dueContinuations,
+        { now },
+      );
+      for (const continuationId of continuationIds) {
+        if (!(await renewLeaseIfNeeded())) return progress;
+        const scheduled = await ctx.runMutation(
+          internal.operationsAutonomyScheduler.scheduleContinuation,
+          {
+            continuationId,
+            leaseId,
+            now,
+          },
+        );
+        if (!scheduled) return progress;
+      }
+      return progress;
+    } finally {
+      await ctx.runMutation(internal.operationsBackground.release, { leaseId });
+    }
   },
 });
 

@@ -9,11 +9,7 @@ import { internalMutation, mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { loadPublishedAdmissionConfiguration } from "./lib/admissionPolicy";
 import { createAdmissionRecommendation } from "./lib/admissionRecommendation";
-import {
-  applicationsCloseAtFor,
-  requireEventBySlug,
-  requireRegistrationOpen,
-} from "./lib/events";
+import { applicationsCloseAtFor, requireEventBySlug, requireRegistrationOpen } from "./lib/events";
 import {
   findCurrentPerson,
   requireCurrentPerson,
@@ -31,12 +27,14 @@ import {
   isProfileCompleteForPolicy,
   loadPublishedParticipantPolicy,
   normalizeParticipantPolicy,
+  participantPolicyAccepted,
   participantPolicyChecksum,
   participantPolicyFromDocument,
 } from "./lib/participantPolicy";
 import { normalizeEmail, normalizedLongText } from "./lib/strings";
 import { noveltyInputFingerprint } from "./lib/novelty";
 import { invalidateTeamNoveltyIndex } from "./lib/noveltyIndex";
+import { participantNoveltyConfig, savedNoveltySignal } from "./lib/participantNovelty";
 import {
   intakePolicyChecksum,
   intakePolicyFromDocument,
@@ -57,14 +55,16 @@ import { ideaQuestionEndToEndDeadlineMs } from "./lib/ideaSubmissionAi";
 import { teamClassesMeetPolicy, teamRosterCounts } from "./lib/teamRoster";
 import {
   admissionDecision,
-  admissionInformationRequestState,
   admissionOfferState,
   applicationState,
   projectDraftStage,
 } from "./values";
 
 const additionalInformationMaxLength = 4_000;
-const draftNoveltyIndexSpreadMs = 250;
+// Every persisted revision schedules a scorer, but only the revision that is
+// still current after this quiet period reaches the embedding and Luna calls.
+const draftNoveltyStableDelayMs = 2_500;
+const draftNoveltyIndexSpreadMs = 500;
 const intakeQuestionRefreshRateLimiter = new RateLimiter(
   components.participantAssistantRateLimiter,
   {
@@ -87,7 +87,7 @@ function draftNoveltyIndexDelayMs(
   for (const character of key) {
     hash = Math.imul(hash ^ character.charCodeAt(0), 16_777_619);
   }
-  return (hash >>> 0) % draftNoveltyIndexSpreadMs;
+  return draftNoveltyStableDelayMs + ((hash >>> 0) % draftNoveltyIndexSpreadMs);
 }
 
 function normalizedAdditionalInformation(value: string) {
@@ -101,6 +101,14 @@ function normalizedAdditionalInformation(value: string) {
   }
   return normalized || undefined;
 }
+
+const participantNoveltySignal = v.object({
+  score: v.number(),
+  band: v.union(v.literal("familiar"), v.literal("developing"), v.literal("distinct")),
+  nearestThemeLabel: v.string(),
+  reflectionPrompt: v.string(),
+  evaluatedAt: v.number(),
+});
 
 const currentDraftView = v.object({
   id: v.id("projectDrafts"),
@@ -132,20 +140,7 @@ const currentDraftView = v.object({
       debounceMs: v.number(),
     }),
   ),
-  noveltySignal: v.union(
-    v.null(),
-    v.object({
-      score: v.number(),
-      band: v.union(
-        v.literal("familiar"),
-        v.literal("developing"),
-        v.literal("distinct"),
-      ),
-      nearestThemeLabel: v.string(),
-      reflectionPrompt: v.string(),
-      evaluatedAt: v.number(),
-    }),
-  ),
+  noveltySignal: v.union(v.null(), participantNoveltySignal),
   followUps: v.array(
     v.object({
       id: v.id("intakeGeneratedQuestions"),
@@ -189,20 +184,6 @@ const participantApplicationView = v.object({
   submittedAt: v.number(),
   humanDecision: v.optional(admissionDecision),
   humanReasonCode: v.optional(v.string()),
-  informationRequest: v.union(
-    v.null(),
-    v.object({
-      id: v.id("admissionInformationRequests"),
-      state: admissionInformationRequestState,
-      questions: v.array(
-        v.object({ questionKey: v.string(), question: v.string() }),
-      ),
-      answers: v.optional(
-        v.array(v.object({ questionKey: v.string(), answer: v.string() })),
-      ),
-      version: v.number(),
-    }),
-  ),
   currentOffer: v.union(
     v.null(),
     v.object({
@@ -252,38 +233,6 @@ const participantNoveltyConfiguration = v.object({
   debounceMs: v.number(),
 });
 
-async function participantNoveltyConfig(
-  ctx: ReadCtx,
-  event: Doc<"events">,
-  draft?: Doc<"projectDrafts">,
-) {
-  const corpusVersionId = draft?.noveltyCorpusVersionId
-    ?? event.publishedNoveltyCorpusVersionId;
-  if (!corpusVersionId) return null;
-  const corpus = await ctx.db.get(corpusVersionId);
-  const validStatus = draft?.noveltyCorpusVersionId
-    ? corpus?.status === "published" || corpus?.status === "superseded"
-    : corpus?.status === "published";
-  if (
-    !corpus ||
-    corpus.eventId !== event._id ||
-    !validStatus ||
-    corpus.importState !== "ready" ||
-    !corpus.checksum ||
-    corpus.entryCount < 1
-  ) {
-    return null;
-  }
-  return {
-    corpusVersionId: corpus._id,
-    corpusVersion: corpus.version,
-    corpusLabel: corpus.label,
-    comparedProjectCount: corpus.entryCount,
-    minimumIdeaLength: corpus.minimumIdeaLength,
-    debounceMs: corpus.debounceMs,
-  };
-}
-
 export async function currentReadTeamContext(ctx: QueryCtx, eventSlug: string) {
   const person = await findCurrentPerson(ctx);
   if (!person) return null;
@@ -298,10 +247,7 @@ export async function currentReadTeamContext(ctx: QueryCtx, eventSlug: string) {
   const member = await ctx.db
     .query("teamMembers")
     .withIndex("by_event_membership_status", (index) =>
-      index
-        .eq("eventId", event._id)
-        .eq("membershipId", membership._id)
-        .eq("status", "active"),
+      index.eq("eventId", event._id).eq("membershipId", membership._id).eq("status", "active"),
     )
     .unique();
   if (!member) return null;
@@ -335,23 +281,17 @@ async function participantApplicationForTeam(
   const terminalDecisionReleased =
     event.admissionResultsReleasedAt !== undefined &&
     (application.decisionStage === "recorded" || application.decisionStage === "released") &&
-    application.humanDecision !== undefined &&
-    application.humanDecision !== "needs_information";
+    application.humanDecision !== undefined;
   const visibleState = terminalDecisionReleased
     ? application.humanDecision === "accept"
-      ? "accepted" as const
+      ? ("accepted" as const)
       : application.humanDecision === "waitlist"
-        ? "waitlisted" as const
-        : "declined" as const
+        ? ("waitlisted" as const)
+        : ("declined" as const)
     : application.state;
-  const [currentOffer, informationRequest] = await Promise.all([
-    application.currentOfferId
-      ? ctx.db.get(application.currentOfferId)
-      : Promise.resolve(null),
-    application.currentInformationRequestId
-      ? ctx.db.get(application.currentInformationRequestId)
-      : Promise.resolve(null),
-  ]);
+  const currentOffer = application.currentOfferId
+    ? await ctx.db.get(application.currentOfferId)
+    : null;
   if (
     application.currentOfferId !== undefined &&
     (!currentOffer ||
@@ -360,15 +300,6 @@ async function participantApplicationForTeam(
       currentOffer.teamId !== team._id)
   ) {
     throw new Error("A participant application has an invalid current offer.");
-  }
-  if (
-    application.currentInformationRequestId !== undefined &&
-    (!informationRequest ||
-      informationRequest.eventId !== event._id ||
-      informationRequest.applicationId !== application._id ||
-      informationRequest.teamId !== team._id)
-  ) {
-    throw new Error("A participant application has an invalid information request.");
   }
   return {
     application,
@@ -386,17 +317,6 @@ async function participantApplicationForTeam(
       application.humanReasonCode !== undefined
         ? { humanReasonCode: application.humanReasonCode }
         : {}),
-      informationRequest: informationRequest
-        ? {
-            id: informationRequest._id,
-            state: informationRequest.state,
-            questions: informationRequest.questions,
-            ...(informationRequest.answers !== undefined
-              ? { answers: informationRequest.answers }
-              : {}),
-            version: informationRequest.version,
-          }
-        : null,
       currentOffer: currentOffer
         ? {
             id: currentOffer._id,
@@ -462,9 +382,7 @@ export const current = query({
       ctx.db
         .query("intakeWorkingFields")
         .withIndex("by_team_base_version", (index) =>
-          index
-            .eq("teamId", team._id)
-            .eq("baseDraftVersion", draft?.version ?? 0),
+          index.eq("teamId", team._id).eq("baseDraftVersion", draft?.version ?? 0),
         )
         .take(5),
     ]);
@@ -499,22 +417,9 @@ export const current = query({
           ? { adaptiveQuestionDeadlineAt: draft.adaptiveQuestionDeadlineAt }
           : {}),
         novelty,
-        noveltySignal:
-          draft.initialIdea &&
-          draft.noveltyEvaluatedInputFingerprint &&
-          draft.noveltyScore !== undefined &&
-          draft.noveltyBand &&
-          draft.noveltyNearestThemeLabel &&
-          draft.noveltyReflectionPrompt &&
-          draft.noveltyEvaluatedAt !== undefined
-            ? {
-                score: draft.noveltyScore,
-                band: draft.noveltyBand,
-                nearestThemeLabel: draft.noveltyNearestThemeLabel,
-                reflectionPrompt: draft.noveltyReflectionPrompt,
-                evaluatedAt: draft.noveltyEvaluatedAt,
-              }
-            : null,
+        noveltySignal: draft.initialIdea
+          ? savedNoveltySignal(draft, draft.initialIdea, novelty?.corpusVersionId)
+          : null,
         followUps: followUps.map(({ question, answer }) => ({
           id: question._id,
           ordinal: question.ordinal,
@@ -541,9 +446,7 @@ export const current = query({
         ? []
         : storedWorkingFields.map((field) => ({
             kind: field.kind,
-            ...(field.questionId !== undefined
-              ? { questionId: field.questionId }
-              : {}),
+            ...(field.questionId !== undefined ? { questionId: field.questionId } : {}),
             value: field.value,
             baseDraftVersion: field.baseDraftVersion,
             revision: field.revision,
@@ -587,6 +490,7 @@ export const submitted = query({
       // The published corpus the revision editor previews against, as the
       // writing screen has it from `opening`.
       novelty: v.union(v.null(), participantNoveltyConfiguration),
+      noveltySignal: v.union(v.null(), participantNoveltySignal),
       application: participantApplicationView,
     }),
   ),
@@ -595,23 +499,26 @@ export const submitted = query({
     if (!context) return null;
     const { event, membership, member, team } = context;
     const now = Date.now();
-    const applicationsCloseAt = applicationsCloseAtFor(
-      event,
-      membership.participantClass,
-    );
+    const applicationsCloseAt = applicationsCloseAtFor(event, membership.participantClass);
     const participantApplication = await participantApplicationForTeam(ctx, event, team);
     if (!participantApplication) return null;
-    const project = await ctx.db.get(
-      participantApplication.application.submittedProjectVersionId,
-    );
-    if (
-      !project ||
-      project.eventId !== event._id ||
-      project.teamId !== team._id
-    ) {
+    const project = await ctx.db.get(participantApplication.application.submittedProjectVersionId);
+    if (!project || project.eventId !== event._id || project.teamId !== team._id) {
       throw new Error("A participant application has an invalid submitted project.");
     }
-    const intakePolicy = await ctx.db.get(project.intakePolicyVersionId);
+    const submittedIdeaFingerprint = noveltyInputFingerprint(project.initialIdea);
+    const [intakePolicy, draft, novelty] = await Promise.all([
+      ctx.db.get(project.intakePolicyVersionId),
+      ctx.db
+        .query("projectDrafts")
+        .withIndex("by_team", (index) => index.eq("teamId", team._id))
+        .filter((query) =>
+          query.eq(query.field("noveltyEvaluatedInputFingerprint"), submittedIdeaFingerprint),
+        )
+        .order("desc")
+        .first(),
+      participantNoveltyConfig(ctx, event),
+    ]);
     if (
       !intakePolicy ||
       intakePolicy.eventId !== event._id ||
@@ -619,9 +526,7 @@ export const submitted = query({
     ) {
       throw new Error("A submitted project references an invalid intake policy.");
     }
-    const normalizedPolicy = normalizeIntakePolicy(
-      intakePolicyFromDocument(intakePolicy),
-    );
+    const normalizedPolicy = normalizeIntakePolicy(intakePolicyFromDocument(intakePolicy));
     if (intakePolicyChecksum(normalizedPolicy) !== intakePolicy.checksum) {
       throw new Error("A submitted project's intake policy checksum is invalid.");
     }
@@ -652,10 +557,12 @@ export const submitted = query({
       canEdit:
         member.role === "lead" &&
         now < applicationsCloseAt &&
-        ["submitted", "under_review"].includes(
-          participantApplication.application.state,
-        ),
-      novelty: await participantNoveltyConfig(ctx, event),
+        ["submitted", "under_review"].includes(participantApplication.application.state),
+      novelty,
+      noveltySignal:
+        draft && novelty
+          ? savedNoveltySignal(draft, project.initialIdea, novelty.corpusVersionId)
+          : null,
       application: participantApplication.view,
     };
   },
@@ -675,8 +582,10 @@ export const reviseSubmission = mutation({
   },
   returns: proposalRevisionResult,
   handler: async (ctx, args) => {
-    const { event, person, subject, membership, member, team } =
-      await currentTeamContext(ctx, args.eventSlug);
+    const { event, person, subject, membership, member, team } = await currentTeamContext(
+      ctx,
+      args.eventSlug,
+    );
     const requestFingerprint = operationFingerprint([
       args.applicationId,
       args.expectedApplicationContentVersion,
@@ -699,10 +608,7 @@ export const reviseSubmission = mutation({
         "proposal revision",
         storedProposalRevisionResult,
       );
-      const projectVersionId = ctx.db.normalizeId(
-        "projectVersions",
-        stored.projectVersionId,
-      );
+      const projectVersionId = ctx.db.normalizeId("projectVersions", stored.projectVersionId);
       if (!projectVersionId || projectVersionId !== prior.targetId) {
         throw new Error("The stored proposal revision is invalid.");
       }
@@ -730,11 +636,7 @@ export const reviseSubmission = mutation({
       scopeId: team._id,
     });
     const application = await ctx.db.get(args.applicationId);
-    if (
-      !application ||
-      application.eventId !== event._id ||
-      application.teamId !== team._id
-    ) {
+    if (!application || application.eventId !== event._id || application.teamId !== team._id) {
       throw new ConvexError({
         code: "APPLICATION_NOT_FOUND",
         message: "That application is unavailable.",
@@ -793,14 +695,11 @@ export const reviseSubmission = mutation({
       policy.initialIdeaMinLength,
       policy.initialIdeaMaxLength,
     );
-    const additionalInformation = normalizedAdditionalInformation(
-      args.additionalInformation,
-    );
+    const additionalInformation = normalizedAdditionalInformation(args.additionalInformation);
     if (
       args.responses.length !== project.intakeResponses.length ||
       args.responses.some(
-        (response, index) =>
-          response.questionId !== project.intakeResponses[index]?.questionId,
+        (response, index) => response.questionId !== project.intakeResponses[index]?.questionId,
       )
     ) {
       throw new ConvexError({
@@ -832,9 +731,11 @@ export const reviseSubmission = mutation({
       project.additionalInformation === additionalInformation &&
       project.intakeResponses.every((response, index) => {
         const next = intakeResponses[index];
-        return next !== undefined &&
+        return (
+          next !== undefined &&
           response.questionId === next.questionId &&
-          response.answer === next.answer;
+          response.answer === next.answer
+        );
       });
     if (unchanged) {
       const result = {
@@ -899,9 +800,6 @@ export const reviseSubmission = mutation({
       finalConfirmation: project.finalConfirmation,
       participantPolicyVersionId: project.participantPolicyVersionId,
       admissionPolicyVersionId: project.admissionPolicyVersionId,
-      ...(project.admissionInformationResponses !== undefined
-        ? { admissionInformationResponses: project.admissionInformationResponses }
-        : {}),
       proposalRevision: {
         sourceProjectVersionId: project._id,
         editedByMembershipId: membership._id,
@@ -1014,11 +912,7 @@ export const status = query({
     v.null(),
     v.object({
       applicationState: v.union(v.null(), v.string()),
-      submissionState: v.union(
-        v.null(),
-        v.literal("validating"),
-        v.literal("failed"),
-      ),
+      submissionState: v.union(v.null(), v.literal("validating"), v.literal("failed")),
       submissionFailureMessage: v.optional(v.string()),
     }),
   ),
@@ -1030,15 +924,12 @@ export const status = query({
       .query("applications")
       .withIndex("by_team", (index) => index.eq("teamId", team._id))
       .unique();
-    const attempt = team.submissionAttemptId
-      ? await ctx.db.get(team.submissionAttemptId)
-      : null;
+    const attempt = team.submissionAttemptId ? await ctx.db.get(team.submissionAttemptId) : null;
     const submissionState =
       !application && attempt?.state === "failed"
-        ? "failed" as const
-        : !application &&
-            (attempt?.state === "validating" || attempt?.state === "finalizing")
-          ? "validating" as const
+        ? ("failed" as const)
+        : !application && (attempt?.state === "validating" || attempt?.state === "finalizing")
+          ? ("validating" as const)
           : null;
     return {
       applicationState: application?.state ?? null,
@@ -1058,10 +949,7 @@ export async function currentTeamContext(ctx: MutationCtx, eventSlug: string) {
   const member = await ctx.db
     .query("teamMembers")
     .withIndex("by_event_membership_status", (index) =>
-      index
-        .eq("eventId", event._id)
-        .eq("membershipId", membership._id)
-        .eq("status", "active"),
+      index.eq("eventId", event._id).eq("membershipId", membership._id).eq("status", "active"),
     )
     .unique();
   if (!member) {
@@ -1154,11 +1042,7 @@ async function enqueueIntakeInterpretation(
 ) {
   const deadlineAt = args.enqueuedAt + ideaQuestionEndToEndDeadlineMs;
   const draft = await ctx.db.get(args.draftId);
-  if (
-    !draft?.initialIdea ||
-    draft.stage !== "follow_up" ||
-    draft.version !== args.draftVersion
-  ) {
+  if (!draft?.initialIdea || draft.stage !== "follow_up" || draft.version !== args.draftVersion) {
     return;
   }
   const [{ normalized }, responses] = await Promise.all([
@@ -1197,11 +1081,7 @@ export const settleAdaptiveQuestionDeadline = mutation({
     deadlineAt: v.number(),
   },
   returns: v.object({
-    state: v.union(
-      v.literal("waiting"),
-      v.literal("settled"),
-      v.literal("stale"),
-    ),
+    state: v.union(v.literal("waiting"), v.literal("settled"), v.literal("stale")),
     serverNow: v.number(),
   }),
   handler: async (ctx, args) => {
@@ -1222,14 +1102,11 @@ export const settleAdaptiveQuestionDeadline = mutation({
     if (now < args.deadlineAt) {
       return { state: "waiting" as const, serverNow: now };
     }
-    await ctx.runMutation(
-      internal.intelligence.expireQueuedIntakeInterpretation,
-      {
-        draftId: draft._id,
-        draftVersion: draft.version,
-        deadlineAt: args.deadlineAt,
-      },
-    );
+    await ctx.runMutation(internal.intelligence.expireQueuedIntakeInterpretation, {
+      draftId: draft._id,
+      draftVersion: draft.version,
+      deadlineAt: args.deadlineAt,
+    });
     return { state: "settled" as const, serverNow: Date.now() };
   },
 });
@@ -1250,10 +1127,7 @@ async function saveAnswerVersion(
   const active = await ctx.db
     .query("intakeAnswerVersions")
     .withIndex("by_draft_prompt_status", (index) =>
-      index
-        .eq("draftId", args.draftId)
-        .eq("promptKey", args.promptKey)
-        .eq("status", "active"),
+      index.eq("draftId", args.draftId).eq("promptKey", args.promptKey).eq("status", "active"),
     )
     .unique();
   if (active?.clientOperationId === args.clientOperationId) return active;
@@ -1286,9 +1160,7 @@ async function saveAnswerVersion(
   return answerVersion;
 }
 
-function workingFieldQuestionId(
-  field: Infer<typeof intakeWorkingField>,
-) {
+function workingFieldQuestionId(field: Infer<typeof intakeWorkingField>) {
   return field.kind === "follow_up" ? field.questionId : undefined;
 }
 
@@ -1328,10 +1200,7 @@ export const autosaveWorkingField = mutation({
   },
   returns: v.object({ revision: v.number(), updatedAt: v.number() }),
   handler: async (ctx, args) => {
-    const { event, membership, team } = await currentTeamContext(
-      ctx,
-      args.eventSlug,
-    );
+    const { event, membership, team } = await currentTeamContext(ctx, args.eventSlug);
     requireRegistrationOpen(event, membership.participantClass);
     requireEditableTeam(team);
     const [application, draft] = await Promise.all([
@@ -1354,9 +1223,10 @@ export const autosaveWorkingField = mutation({
     const pinnedPolicy = draft
       ? await requirePinnedIntakePolicy(ctx, draft)
       : await requirePublishedIntakePolicy(ctx, event);
-    const maximumLength = args.field.kind === "idea"
-      ? pinnedPolicy.normalized.initialIdeaMaxLength
-      : pinnedPolicy.normalized.followUpAnswerMaxLength;
+    const maximumLength =
+      args.field.kind === "idea"
+        ? pinnedPolicy.normalized.initialIdeaMaxLength
+        : pinnedPolicy.normalized.followUpAnswerMaxLength;
     if (args.value.length > maximumLength) {
       throw new ConvexError({
         code: "DRAFT_TOO_LONG",
@@ -1391,11 +1261,7 @@ export const autosaveWorkingField = mutation({
         followUpQuestion.eventId !== event._id ||
         followUpQuestion.teamId !== team._id ||
         followUpQuestion.draftId !== draft._id ||
-        (
-          !editingActiveQuestion &&
-          !editingReviewAnswer &&
-          !delayedReviewAnswerStillCurrent
-        )
+        (!editingActiveQuestion && !editingReviewAnswer && !delayedReviewAnswerStillCurrent)
       ) {
         throw new ConvexError({
           code: "FOLLOW_UP_CHANGED",
@@ -1405,9 +1271,10 @@ export const autosaveWorkingField = mutation({
       followUpCommittedValue = response?.answer?.value ?? "";
     }
     if (draftVersion !== args.baseDraftVersion) {
-      const committedValueUnchanged = args.field.kind === "idea"
-        ? (draft?.initialIdea ?? "") === args.baseCommittedValue
-        : followUpCommittedValue === args.baseCommittedValue;
+      const committedValueUnchanged =
+        args.field.kind === "idea"
+          ? (draft?.initialIdea ?? "") === args.baseCommittedValue
+          : followUpCommittedValue === args.baseCommittedValue;
       if (!committedValueUnchanged) {
         requireDraftVersion(draftVersion, args.baseDraftVersion);
       }
@@ -1419,10 +1286,7 @@ export const autosaveWorkingField = mutation({
         message: "A teammate saved newer text in this field. Your text is still here.",
       });
     }
-    if (
-      existing?.value === args.value &&
-      existing.baseDraftVersion === draftVersion
-    ) {
+    if (existing?.value === args.value && existing.baseDraftVersion === draftVersion) {
       return { revision: existing.revision, updatedAt: existing.updatedAt };
     }
     const now = Date.now();
@@ -1440,9 +1304,7 @@ export const autosaveWorkingField = mutation({
         eventId: event._id,
         teamId: team._id,
         kind: args.field.kind,
-        ...(args.field.kind === "follow_up"
-          ? { questionId: args.field.questionId }
-          : {}),
+        ...(args.field.kind === "follow_up" ? { questionId: args.field.questionId } : {}),
         value: args.value,
         baseDraftVersion: draftVersion,
         revision,
@@ -1499,9 +1361,7 @@ export const saveInitialIdea = mutation({
       pinnedPolicy.normalized.initialIdeaMaxLength,
     );
     const now = Date.now();
-    if (
-      existing?.initialIdea === idea
-    ) {
+    if (existing?.initialIdea === idea) {
       await deleteWorkingField(ctx, team._id, { kind: "idea" });
       await recordDraftOperation(ctx, {
         eventId: event._id,
@@ -1519,20 +1379,15 @@ export const saveInitialIdea = mutation({
       teamId: team._id,
       sourceUpdatedAt: now,
     });
-    const currentResponses = existing
-      ? await loadCurrentIntakeResponses(ctx, existing._id)
-      : [];
-    const fixedResponses = currentResponses.filter(
-      ({ question }) => question.source === "fixed",
-    );
+    const currentResponses = existing ? await loadCurrentIntakeResponses(ctx, existing._id) : [];
+    const fixedResponses = currentResponses.filter(({ question }) => question.source === "fixed");
     const invalidatedResponses = currentResponses.filter(
       ({ question }) => question.ordinal > pinnedPolicy.normalized.deterministicFollowUpCount,
     );
     const fixedSequenceComplete =
       fixedResponses.length === pinnedPolicy.normalized.deterministicFollowUpCount &&
       fixedResponses.every(
-        ({ question }, index) =>
-          question.ordinal === index + 1 && question.state === "answered",
+        ({ question }, index) => question.ordinal === index + 1 && question.state === "answered",
       );
     const shouldGenerateAdaptiveQuestion =
       fixedSequenceComplete &&
@@ -1553,10 +1408,7 @@ export const saveInitialIdea = mutation({
         removedQuestionIds: invalidatedResponses.map(({ question }) => question._id),
       });
       await ctx.db.patch(existing._id, {
-        stage:
-          fixedSequenceComplete && !shouldGenerateAdaptiveQuestion
-            ? "review"
-            : "follow_up",
+        stage: fixedSequenceComplete && !shouldGenerateAdaptiveQuestion ? "review" : "follow_up",
         initialIdea: idea,
         noveltyCorpusVersionId: novelty?.corpusVersionId,
         noveltyEvaluatedInputFingerprint: undefined,
@@ -1564,6 +1416,8 @@ export const saveInitialIdea = mutation({
         noveltyBand: undefined,
         noveltyNearestThemeLabel: undefined,
         noveltyReflectionPrompt: undefined,
+        noveltyScoringVersion: undefined,
+        noveltyRefinementFailureCategory: undefined,
         noveltyPreviewRequestId: undefined,
         noveltyEvaluatedAt: undefined,
         adaptiveQuestionDeadlineAt: undefined,
@@ -1723,9 +1577,7 @@ export const respondToFollowUp = mutation({
     const responses = await loadCurrentIntakeResponses(ctx, draft._id);
     if (
       responses.some(
-        ({ question: row }) =>
-          row.ordinal < question.ordinal &&
-          row.state !== "answered",
+        ({ question: row }) => row.ordinal < question.ordinal && row.state !== "answered",
       )
     ) {
       throw new ConvexError({
@@ -1781,10 +1633,7 @@ export const respondToFollowUp = mutation({
       lastEditedByMembershipId: membership._id,
       updatedAt: now,
     });
-    if (
-      needsAnotherInterpretation &&
-      nextOrdinal > policy.deterministicFollowUpCount
-    ) {
+    if (needsAnotherInterpretation && nextOrdinal > policy.deterministicFollowUpCount) {
       await enqueueIntakeInterpretation(ctx, {
         draftId: draft._id,
         draftVersion,
@@ -2036,8 +1885,7 @@ export const reviseFollowUp = mutation({
       question.ordinal > regenerateAfterOrdinal ? [question._id] : [],
     );
     await replaceIntakeQuestionsAfter(ctx, draft._id, regenerateAfterOrdinal);
-    const needsAnotherInterpretation =
-      regenerateAfterOrdinal < policy.maximumFollowUpCount;
+    const needsAnotherInterpretation = regenerateAfterOrdinal < policy.maximumFollowUpCount;
     const draftVersion = draft.version + 1;
     await reconcileWorkingFieldsAfterDraftVersionChange(ctx, {
       teamId: team._id,
@@ -2082,10 +1930,7 @@ export const saveAdditionalInformation = mutation({
   },
   returns: v.object({ draftVersion: v.number() }),
   handler: async (ctx, args) => {
-    const { event, person, membership, team } = await currentTeamContext(
-      ctx,
-      args.eventSlug,
-    );
+    const { event, person, membership, team } = await currentTeamContext(ctx, args.eventSlug);
     const requestFingerprint = operationFingerprint([
       team._id,
       args.expectedDraftVersion,
@@ -2194,7 +2039,8 @@ export const setFreshnessAttestation = mutation({
       .query("projectDrafts")
       .withIndex("by_team", (index) => index.eq("teamId", team._id))
       .unique();
-    if (!draft) throw new ConvexError({ code: "DRAFT_REQUIRED", message: "Start the project intake first." });
+    if (!draft)
+      throw new ConvexError({ code: "DRAFT_REQUIRED", message: "Start the project intake first." });
     requireDraftVersion(draft.version, args.expectedDraftVersion);
     const now = Date.now();
     const acceptedAt = args.accepted ? now : undefined;
@@ -2277,10 +2123,7 @@ export const submissionPreview = query({
     const member = await ctx.db
       .query("teamMembers")
       .withIndex("by_event_membership_status", (index) =>
-        index
-          .eq("eventId", event._id)
-          .eq("membershipId", membership._id)
-          .eq("status", "active"),
+        index.eq("eventId", event._id).eq("membershipId", membership._id).eq("status", "active"),
       )
       .unique();
     if (!member) return null;
@@ -2306,51 +2149,53 @@ export const submissionPreview = query({
       loadCurrentIntakeResponses(ctx, draft._id),
       ctx.db
         .query("teamMembers")
-        .withIndex("by_team_status", (index) =>
-          index.eq("teamId", team._id).eq("status", "active"),
-        )
+        .withIndex("by_team_status", (index) => index.eq("teamId", team._id).eq("status", "active"))
         .take(rosterCounts.activeMemberCount + 1),
     ]);
     if (activeMembers.length !== rosterCounts.activeMemberCount) {
       throw new Error("The team roster count does not match its active members.");
     }
-    const previewMembers = await Promise.all(activeMembers.map(async (activeMember) => {
-      if (activeMember.eventId !== event._id) {
-        throw new Error("An active team member belongs to another event.");
-      }
-      const eventMembership = await ctx.db.get(activeMember.membershipId);
-      if (!eventMembership || eventMembership.eventId !== event._id) {
-        throw new Error("An active team member references an invalid event membership.");
-      }
-      const [memberPerson, profile] = await Promise.all([
-        ctx.db.get(eventMembership.personId),
-        ctx.db
-          .query("participantProfiles")
-          .withIndex("by_membership", (index) =>
-            index.eq("membershipId", eventMembership._id),
-          )
-          .unique(),
-      ]);
-      if (!memberPerson) {
-        throw new Error("An active team member references a missing person.");
-      }
-      return {
-        membershipId: eventMembership._id,
-        displayName: profile?.fullName ?? memberPerson.displayName,
-        role: activeMember.role,
-        submissionReady:
-          eventMembership.eligibilityStatus === "eligible" &&
-          memberPerson.status === "active" &&
-          isProfileCompleteForPolicy(profile, eventMembership, participantPolicy.policy),
-      };
-    }));
+    const previewMembers = await Promise.all(
+      activeMembers.map(async (activeMember) => {
+        if (activeMember.eventId !== event._id) {
+          throw new Error("An active team member belongs to another event.");
+        }
+        const eventMembership = await ctx.db.get(activeMember.membershipId);
+        if (!eventMembership || eventMembership.eventId !== event._id) {
+          throw new Error("An active team member references an invalid event membership.");
+        }
+        const [memberPerson, profile, policyAccepted] = await Promise.all([
+          ctx.db.get(eventMembership.personId),
+          ctx.db
+            .query("participantProfiles")
+            .withIndex("by_membership", (index) => index.eq("membershipId", eventMembership._id))
+            .unique(),
+          participantPolicyAccepted(ctx, eventMembership, participantPolicy.policy),
+        ]);
+        if (!memberPerson) {
+          throw new Error("An active team member references a missing person.");
+        }
+        return {
+          membershipId: eventMembership._id,
+          displayName: profile?.fullName ?? memberPerson.displayName,
+          role: activeMember.role,
+          submissionReady:
+            eventMembership.eligibilityStatus === "eligible" &&
+            memberPerson.status === "active" &&
+            policyAccepted &&
+            isProfileCompleteForPolicy(profile, eventMembership, participantPolicy.policy),
+        };
+      }),
+    );
     previewMembers.sort((left, right) => {
       if (left.role !== right.role) return left.role === "lead" ? -1 : 1;
       return left.displayName.localeCompare(right.displayName, "en");
     });
     const blockers: string[] = [];
     if (rosterCounts.activeMemberCount < participantPolicy.normalized.teamMinimumSize) {
-      blockers.push(`At least ${participantPolicy.normalized.teamMinimumSize} members are required.`);
+      blockers.push(
+        `At least ${participantPolicy.normalized.teamMinimumSize} members are required.`,
+      );
     }
     if (!teamClassesMeetPolicy(team, participantPolicy.normalized)) {
       blockers.push("The current participant policy does not allow mixed VIT and external teams.");
@@ -2364,10 +2209,7 @@ export const submissionPreview = query({
         "Every team member must be eligible, accept the current policy, and finish their profile.",
       );
     }
-    const applicationsCloseAt = applicationsCloseAtFor(
-      event,
-      membership.participantClass,
-    );
+    const applicationsCloseAt = applicationsCloseAtFor(event, membership.participantClass);
     if (Date.now() >= applicationsCloseAt) blockers.push("The application deadline has passed.");
     return {
       teamId: team._id,
@@ -2404,26 +2246,19 @@ function submissionExperienceBand(attempt: Doc<"teamSubmissionAttempts">) {
   if (attempt.hasPostgraduateYear || attempt.hasNotApplicableYear) {
     return "postgraduate_or_professional" as const;
   }
-  if (
-    attempt.hasFirstYear &&
-    !attempt.hasSecondYear &&
-    !attempt.hasLaterYear
-  ) {
+  if (attempt.hasFirstYear && !attempt.hasSecondYear && !attempt.hasLaterYear) {
     return "first_year" as const;
   }
   if (!attempt.hasLaterYear && (attempt.hasFirstYear || attempt.hasSecondYear)) {
     return "early_year" as const;
   }
-  if (attempt.hasLaterYear && !attempt.hasFirstYear && !attempt.hasSecondYear) return "later_year" as const;
+  if (attempt.hasLaterYear && !attempt.hasFirstYear && !attempt.hasSecondYear)
+    return "later_year" as const;
   return "mixed_or_external" as const;
 }
 
 const submissionResult = v.object({
-  state: v.union(
-    v.literal("validating"),
-    v.literal("complete"),
-    v.literal("failed"),
-  ),
+  state: v.union(v.literal("validating"), v.literal("complete"), v.literal("failed")),
   submissionAttemptId: v.id("teamSubmissionAttempts"),
   applicationId: v.optional(v.id("applications")),
   projectVersionId: v.optional(v.id("projectVersions")),
@@ -2466,10 +2301,10 @@ export const submit = mutation({
       }
       const state =
         priorAttempt.state === "complete"
-          ? "complete" as const
+          ? ("complete" as const)
           : priorAttempt.state === "failed"
-            ? "failed" as const
-            : "validating" as const;
+            ? ("failed" as const)
+            : ("validating" as const);
       return {
         state,
         submissionAttemptId: priorAttempt._id,
@@ -2502,14 +2337,14 @@ export const submit = mutation({
     const member = await ctx.db
       .query("teamMembers")
       .withIndex("by_event_membership_status", (index) =>
-        index
-          .eq("eventId", event._id)
-          .eq("membershipId", membership._id)
-          .eq("status", "active"),
+        index.eq("eventId", event._id).eq("membershipId", membership._id).eq("status", "active"),
       )
       .unique();
     if (!member || member.role !== "lead") {
-      throw new ConvexError({ code: "TEAM_LEAD_REQUIRED", message: "Only the team lead can submit." });
+      throw new ConvexError({
+        code: "TEAM_LEAD_REQUIRED",
+        message: "Only the team lead can submit.",
+      });
     }
     const team = await ctx.db.get(member.teamId);
     if (!team || team.membershipLocked) {
@@ -2526,21 +2361,30 @@ export const submit = mutation({
       scopeId: team._id,
     });
     if (team.version !== args.expectedTeamVersion) {
-      throw new ConvexError({ code: "TEAM_CHANGED", message: "The team changed. Review it again." });
+      throw new ConvexError({
+        code: "TEAM_CHANGED",
+        message: "The team changed. Review it again.",
+      });
     }
     const draft = await ctx.db
       .query("projectDrafts")
       .withIndex("by_team", (index) => index.eq("teamId", team._id))
       .unique();
     if (!draft || draft.version !== args.expectedDraftVersion) {
-      throw new ConvexError({ code: "DRAFT_CHANGED", message: "The project changed. Review it again." });
+      throw new ConvexError({
+        code: "DRAFT_CHANGED",
+        message: "The project changed. Review it again.",
+      });
     }
     if (
       !draft.initialIdea ||
       !draft.freshnessAttestedAt ||
       !draft.freshnessAttestedByMembershipId
     ) {
-      throw new ConvexError({ code: "DRAFT_INCOMPLETE", message: "Complete every project step first." });
+      throw new ConvexError({
+        code: "DRAFT_INCOMPLETE",
+        message: "Complete every project step first.",
+      });
     }
     const [pinnedPolicy, intakeResponses] = await Promise.all([
       requirePinnedIntakePolicy(ctx, draft),
@@ -2686,8 +2530,7 @@ export const materializeSubmissionRoster = internalMutation({
       participantPolicyFromDocument(participantPolicy),
     );
     if (
-      (participantPolicy.status !== "published" &&
-        participantPolicy.status !== "superseded") ||
+      (participantPolicy.status !== "published" && participantPolicy.status !== "superseded") ||
       participantPolicyChecksum(normalizedPolicy) !== participantPolicy.checksum
     ) {
       await failSubmissionAttempt(
@@ -2701,9 +2544,7 @@ export const materializeSubmissionRoster = internalMutation({
     }
     const page = await ctx.db
       .query("teamMembers")
-      .withIndex("by_team_status", (index) =>
-        index.eq("teamId", team._id).eq("status", "active"),
-      )
+      .withIndex("by_team_status", (index) => index.eq("teamId", team._id).eq("status", "active"))
       .paginate({
         numItems: submissionRosterBatchSize,
         cursor: attempt.cursor ?? null,
@@ -2723,9 +2564,7 @@ export const materializeSubmissionRoster = internalMutation({
       const existing = await ctx.db
         .query("teamSubmissionMembers")
         .withIndex("by_submission_attempt_and_team_member", (index) =>
-          index
-            .eq("submissionAttemptId", attempt._id)
-            .eq("teamMemberId", teamMember._id),
+          index.eq("submissionAttemptId", attempt._id).eq("teamMemberId", teamMember._id),
         )
         .unique();
       if (existing) continue;
@@ -2734,7 +2573,7 @@ export const materializeSubmissionRoster = internalMutation({
         !membership ||
         membership.eventId !== event._id ||
         membership.eligibilityStatus !== "eligible" ||
-        !membership.acceptedParticipantPolicyVersionIds.includes(participantPolicy._id)
+        !(await participantPolicyAccepted(ctx, membership, participantPolicy))
       ) {
         await failSubmissionAttempt(
           ctx,
@@ -2748,9 +2587,7 @@ export const materializeSubmissionRoster = internalMutation({
       const [profile, memberPerson] = await Promise.all([
         ctx.db
           .query("participantProfiles")
-          .withIndex("by_membership", (index) =>
-            index.eq("membershipId", membership._id),
-          )
+          .withIndex("by_membership", (index) => index.eq("membershipId", membership._id))
           .unique(),
         ctx.db.get(membership.personId),
       ]);
@@ -2777,9 +2614,7 @@ export const materializeSubmissionRoster = internalMutation({
       }
       hasFirstYear ||= profile.yearOfStudy === "first";
       hasSecondYear ||= profile.yearOfStudy === "second";
-      hasLaterYear ||= ["third", "fourth", "fifth_or_later"].includes(
-        profile.yearOfStudy,
-      );
+      hasLaterYear ||= ["third", "fourth", "fifth_or_later"].includes(profile.yearOfStudy);
       hasPostgraduateYear ||= profile.yearOfStudy === "postgraduate";
       hasNotApplicableYear ||= profile.yearOfStudy === "not_applicable";
       await ctx.db.insert("teamSubmissionMembers", {
@@ -2792,8 +2627,7 @@ export const materializeSubmissionRoster = internalMutation({
         personId: membership.personId,
         role: teamMember.role,
         participantClass: membership.participantClass,
-        displayName:
-          profile.fullName ?? memberPerson.displayName,
+        displayName: profile.fullName ?? memberPerson.displayName,
         institution: profile.institution,
         yearOfStudy: profile.yearOfStudy,
         profileVersion: profile.profileVersion,
@@ -2879,13 +2713,12 @@ export const finalizeSubmission = internalMutation({
       );
       return null;
     }
-    const [participantPolicy, admissionPolicy, pinnedPolicy, intakeResponses] =
-      await Promise.all([
-        ctx.db.get(attempt.participantPolicyVersionId),
-        ctx.db.get(attempt.admissionPolicyVersionId),
-        requirePinnedIntakePolicy(ctx, draft),
-        loadCurrentIntakeResponses(ctx, draft._id),
-      ]);
+    const [participantPolicy, admissionPolicy, pinnedPolicy, intakeResponses] = await Promise.all([
+      ctx.db.get(attempt.participantPolicyVersionId),
+      ctx.db.get(attempt.admissionPolicyVersionId),
+      requirePinnedIntakePolicy(ctx, draft),
+      loadCurrentIntakeResponses(ctx, draft._id),
+    ]);
     if (
       !participantPolicy ||
       !admissionPolicy ||

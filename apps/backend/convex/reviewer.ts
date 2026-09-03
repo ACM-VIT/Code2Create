@@ -9,7 +9,6 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { action, internalQuery, mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
-import { teamRoundTableLabel } from "./lib/floor";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import {
   findOperation,
@@ -26,10 +25,7 @@ import {
 import { normalizeNativePushRegistration, pushTokenFingerprint } from "./lib/pushTokens";
 import { patchTeamRoundState } from "./lib/reviewQueueProjection";
 import { activeRoundPause } from "./lib/reviewRoundPauses";
-import {
-  reviewerClockInIsOpenAt,
-  reviewerCoversStaffingWindow,
-} from "./lib/reviewerAvailability";
+import { reviewerClockInIsOpenAt, reviewerCoversStaffingWindow } from "./lib/reviewerAvailability";
 import {
   maximumReviewerAssignmentsPerEvent,
   maximumReviewRoundsPerEvent,
@@ -56,7 +52,6 @@ const reviewPresenceOperationResult = z
     reviewSessionId: z.string().min(1),
     teamName: z.string(),
     roundName: z.string(),
-    tableLabel: z.string().optional(),
     reviewerPresenceCount: z.number().int().nonnegative(),
     reviewerCount: z.number().int().nonnegative(),
     confirmedAt: z.number().int().nonnegative(),
@@ -152,11 +147,7 @@ async function requireReviewerDevice(
   return device;
 }
 
-async function currentPanelContexts(
-  ctx: QueryCtx,
-  eventId: Id<"events">,
-  personId: Id<"people">,
-) {
+async function currentPanelContexts(ctx: QueryCtx, eventId: Id<"events">, personId: Id<"people">) {
   const memberships = await ctx.db
     .query("reviewPanelMembers")
     .withIndex("by_event_person_status", (index) =>
@@ -176,10 +167,7 @@ async function currentPanelContexts(
         if (!round || !panel || round.eventId !== eventId || panel.eventId !== eventId) {
           throw new Error("A current panel membership has an invalid round or panel.");
         }
-        if (
-          !["published", "open", "closing"].includes(round.status) ||
-          panel.status === "closed"
-        ) {
+        if (!["published", "open", "closing"].includes(round.status) || panel.status === "closed") {
           return null;
         }
         return { membership, round, panel };
@@ -242,10 +230,7 @@ async function currentReviewContext(
   const assignments = await ctx.db
     .query("reviewAssignments")
     .withIndex("by_event_person_status", (index) =>
-      index
-        .eq("eventId", eventId)
-        .eq("reviewerPersonId", personId)
-        .eq("status", "assigned"),
+      index.eq("eventId", eventId).eq("reviewerPersonId", personId).eq("status", "assigned"),
     )
     .take(maximumReviewerAssignmentsPerEvent + 1);
   if (assignments.length > maximumReviewerAssignmentsPerEvent) {
@@ -271,10 +256,7 @@ async function currentReviewContext(
   const corrections = await ctx.db
     .query("scorecards")
     .withIndex("by_event_reviewer_status", (index) =>
-      index
-        .eq("eventId", eventId)
-        .eq("reviewerPersonId", personId)
-        .eq("status", "correction_open"),
+      index.eq("eventId", eventId).eq("reviewerPersonId", personId).eq("status", "correction_open"),
     )
     .take(2);
   if (corrections.length > 1) {
@@ -368,9 +350,7 @@ export const registerDevice = mutation({
     cameraReady: v.boolean(),
     pushToken: v.optional(v.string()),
     pushProvider: v.optional(v.union(v.literal("fcm"), v.literal("apns"))),
-    pushEnvironment: v.optional(
-      v.union(v.literal("development"), v.literal("production")),
-    ),
+    pushEnvironment: v.optional(v.union(v.literal("development"), v.literal("production"))),
     encryptedDraftReady: v.boolean(),
     expectedVersion: v.number(),
     clientOperationId: v.string(),
@@ -390,7 +370,11 @@ export const registerDevice = mutation({
     const requestedPushFingerprint = requestedPush
       ? pushTokenFingerprint(requestedPush.token)
       : undefined;
-    if (!/^[a-f0-9-]{36}$/.test(installationId) || !Number.isInteger(args.appBuild) || args.appBuild < 1) {
+    if (
+      !/^[a-f0-9-]{36}$/.test(installationId) ||
+      !Number.isInteger(args.appBuild) ||
+      args.appBuild < 1
+    ) {
       throw new ConvexError({
         code: "INVALID_REVIEWER_DEVICE",
         message: "The reviewer device identifier or build is invalid.",
@@ -440,9 +424,7 @@ export const registerDevice = mutation({
       ? await ctx.db
           .query("reviewerDevices")
           .withIndex("by_event_push_fingerprint", (index) =>
-            index
-              .eq("eventId", event._id)
-              .eq("pushTokenFingerprint", requestedPushFingerprint),
+            index.eq("eventId", event._id).eq("pushTokenFingerprint", requestedPushFingerprint),
           )
           .unique()
       : null;
@@ -470,9 +452,7 @@ export const registerDevice = mutation({
       });
     }
     const now = Date.now();
-    const pushTokenStatus = requestedPush
-      ? ("active" as const)
-      : ("not_registered" as const);
+    const pushTokenStatus = requestedPush ? ("active" as const) : ("not_registered" as const);
     if (tokenDevice && tokenDevice._id !== current?._id) {
       await ctx.db.patch(tokenDevice._id, {
         pushToken: undefined,
@@ -599,12 +579,11 @@ export const clockIn = mutation({
       };
     }
     const round = await ctx.db.get(args.roundId);
-    if (
-      !round ||
-      round.eventId !== event._id ||
-      !["published", "open"].includes(round.status)
-    ) {
-      throw new ConvexError({ code: "ROUND_NOT_AVAILABLE", message: "This review round is unavailable." });
+    if (!round || round.eventId !== event._id || !["published", "open"].includes(round.status)) {
+      throw new ConvexError({
+        code: "ROUND_NOT_AVAILABLE",
+        message: "This review round is unavailable.",
+      });
     }
     const now = Date.now();
     if (!reviewerClockInIsOpenAt(round, now)) {
@@ -629,10 +608,7 @@ export const clockIn = mutation({
       ctx.db
         .query("reviewPanelMembers")
         .withIndex("by_round_person_status", (index) =>
-          index
-            .eq("roundId", round._id)
-            .eq("personId", person._id)
-            .eq("status", "active"),
+          index.eq("roundId", round._id).eq("personId", person._id).eq("status", "active"),
         )
         .unique(),
       ctx.db
@@ -708,9 +684,7 @@ export const clockIn = mutation({
       lastHeartbeatAt: now,
       version: args.expectedVersion + 1,
     };
-    const clockInId = current
-      ? current._id
-      : await ctx.db.insert("reviewerClockIns", fields);
+    const clockInId = current ? current._id : await ctx.db.insert("reviewerClockIns", fields);
     if (current) {
       await ctx.db.patch(current._id, {
         ...fields,
@@ -762,7 +736,11 @@ export const setAvailability = mutation({
     expectedVersion: v.number(),
     clientOperationId: v.string(),
   },
-  returns: v.object({ clockInId: v.id("reviewerClockIns"), status: v.string(), version: v.number() }),
+  returns: v.object({
+    clockInId: v.id("reviewerClockIns"),
+    status: v.string(),
+    version: v.number(),
+  }),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
@@ -792,8 +770,15 @@ export const setAvailability = mutation({
       };
     }
     const round = await ctx.db.get(args.roundId);
-    if (!round || round.eventId !== event._id || !["published", "open", "closing"].includes(round.status)) {
-      throw new ConvexError({ code: "ROUND_NOT_AVAILABLE", message: "This review round is unavailable." });
+    if (
+      !round ||
+      round.eventId !== event._id ||
+      !["published", "open", "closing"].includes(round.status)
+    ) {
+      throw new ConvexError({
+        code: "ROUND_NOT_AVAILABLE",
+        message: "This review round is unavailable.",
+      });
     }
     const grantIds = await requirePermission(ctx, {
       eventId: event._id,
@@ -827,7 +812,7 @@ export const setAvailability = mutation({
         message: "Reviewer availability changed. Refresh before continuing.",
       });
     }
-    if (!['present', 'temporarily_unavailable'].includes(current.status)) {
+    if (!["present", "temporarily_unavailable"].includes(current.status)) {
       throw new ConvexError({
         code: "CLOCK_IN_REQUIRES_OPERATIONS",
         message: "This reviewer clock-in can no longer be changed from the phone.",
@@ -838,7 +823,12 @@ export const setAvailability = mutation({
     if (args.status === "temporarily_unavailable") {
       for (const assignment of assignments) {
         const session = await ctx.db.get(assignment.reviewSessionId);
-        if (session && session.eventId === event._id && session.roundId === round._id && liveReview(session.status)) {
+        if (
+          session &&
+          session.eventId === event._id &&
+          session.roundId === round._id &&
+          liveReview(session.status)
+        ) {
           throw new ConvexError({
             code: "ACTIVE_REVIEW_ASSIGNED",
             message: "Finish or reroute the current assigned review before stepping away.",
@@ -864,9 +854,10 @@ export const setAvailability = mutation({
         });
       }
     }
-    const reason = args.status === "temporarily_unavailable"
-      ? normalizedText(args.reason ?? "", "Unavailability reason", 3, 300)
-      : undefined;
+    const reason =
+      args.status === "temporarily_unavailable"
+        ? normalizedText(args.reason ?? "", "Unavailability reason", 3, 300)
+        : undefined;
     await ctx.db.patch(current._id, {
       status: args.status,
       ...(reason ? { unavailableReason: reason } : { unavailableReason: undefined }),
@@ -919,7 +910,10 @@ export const heartbeat = mutation({
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const round = await ctx.db.get(args.roundId);
     if (!round || round.eventId !== event._id) {
-      throw new ConvexError({ code: "ROUND_NOT_FOUND", message: "That review round is unavailable." });
+      throw new ConvexError({
+        code: "ROUND_NOT_FOUND",
+        message: "That review round is unavailable.",
+      });
     }
     await requirePermission(ctx, {
       eventId: event._id,
@@ -942,7 +936,10 @@ export const heartbeat = mutation({
         .unique(),
     ]);
     if (!clockIn || !["present", "temporarily_unavailable"].includes(clockIn.status)) {
-      throw new ConvexError({ code: "REVIEWER_NOT_CLOCKED_IN", message: "Clock in before sending panel liveness." });
+      throw new ConvexError({
+        code: "REVIEWER_NOT_CLOCKED_IN",
+        message: "Clock in before sending panel liveness.",
+      });
     }
     const now = Date.now();
     if (now - clockIn.lastHeartbeatAt >= 30_000) {
@@ -1328,7 +1325,6 @@ export const now = query({
         team: v.object({
           id: v.id("teams"),
           name: v.string(),
-          tableLabel: v.optional(v.string()),
         }),
         round: v.object({ id: v.id("reviewRounds"), name: v.string() }),
         panel: v.object({ id: v.id("reviewPanels"), name: v.string() }),
@@ -1377,10 +1373,7 @@ export const now = query({
     const panelMemberships = await ctx.db
       .query("reviewPanelMembers")
       .withIndex("by_event_person_status", (index) =>
-        index
-          .eq("eventId", event._id)
-          .eq("personId", person._id)
-          .eq("status", "active"),
+        index.eq("eventId", event._id).eq("personId", person._id).eq("status", "active"),
       )
       .take(maximumReviewRoundsPerEvent + 1);
     if (panelMemberships.length > maximumReviewRoundsPerEvent) {
@@ -1416,9 +1409,7 @@ export const now = query({
         ctx.db
           .query("reviewerClockIns")
           .withIndex("by_round_person", (index) =>
-            index
-              .eq("roundId", panelContext.round._id)
-              .eq("reviewerPersonId", person._id),
+            index.eq("roundId", panelContext.round._id).eq("reviewerPersonId", person._id),
           )
           .unique(),
         activeRoundPause(ctx, panelContext.round._id),
@@ -1450,19 +1441,13 @@ export const now = query({
       ctx.db
         .query("reviewRoundReserves")
         .withIndex("by_event_person_status", (index) =>
-          index
-            .eq("eventId", event._id)
-            .eq("personId", person._id)
-            .eq("status", "available"),
+          index.eq("eventId", event._id).eq("personId", person._id).eq("status", "available"),
         )
         .take(maximumReviewRoundsPerEvent + 1),
       ctx.db
         .query("reviewRoundReserves")
         .withIndex("by_event_person_status", (index) =>
-          index
-            .eq("eventId", event._id)
-            .eq("personId", person._id)
-            .eq("status", "paged"),
+          index.eq("eventId", event._id).eq("personId", person._id).eq("status", "paged"),
         )
         .take(maximumReviewRoundsPerEvent + 1),
     ]);
@@ -1501,9 +1486,7 @@ export const now = query({
         ctx.db
           .query("reviewerClockIns")
           .withIndex("by_round_person", (index) =>
-            index
-              .eq("roundId", reserveContext.round._id)
-              .eq("reviewerPersonId", person._id),
+            index.eq("roundId", reserveContext.round._id).eq("reviewerPersonId", person._id),
           )
           .unique(),
         activeRoundPause(ctx, reserveContext.round._id),
@@ -1533,10 +1516,7 @@ export const now = query({
     const assignments = await ctx.db
       .query("reviewAssignments")
       .withIndex("by_event_person_status", (index) =>
-        index
-          .eq("eventId", event._id)
-          .eq("reviewerPersonId", person._id)
-          .eq("status", "assigned"),
+        index.eq("eventId", event._id).eq("reviewerPersonId", person._id).eq("status", "assigned"),
       )
       .take(maximumReviewerAssignmentsPerEvent + 1);
     if (assignments.length > maximumReviewerAssignmentsPerEvent) {
@@ -1603,9 +1583,7 @@ export const now = query({
       ctx.db.get(active.session.panelId),
       ctx.db
         .query("reviewAssignments")
-        .withIndex("by_session_person", (index) =>
-          index.eq("reviewSessionId", active.session._id),
-        )
+        .withIndex("by_session_person", (index) => index.eq("reviewSessionId", active.session._id))
         .collect(),
       ctx.db
         .query("reviewPresence")
@@ -1624,7 +1602,6 @@ export const now = query({
     const currentPresences = presences.filter((presence) =>
       assignedReviewerIds.has(presence.reviewerPersonId),
     );
-    const activeTableLabel = await teamRoundTableLabel(ctx, round._id, team._id);
     return {
       serverNow: Date.now(),
       device: deviceView,
@@ -1634,9 +1611,7 @@ export const now = query({
         id: active.session._id,
         status: active.session.status,
         version: active.session.version,
-        ...(active.session.startedAt !== undefined
-          ? { startedAt: active.session.startedAt }
-          : {}),
+        ...(active.session.startedAt !== undefined ? { startedAt: active.session.startedAt } : {}),
         ...(active.session.plannedEndAt !== undefined
           ? { plannedEndAt: active.session.plannedEndAt }
           : {}),
@@ -1651,7 +1626,6 @@ export const now = query({
         team: {
           id: team._id,
           name: team.name,
-          ...(activeTableLabel !== undefined ? { tableLabel: activeTableLabel } : {}),
         },
         round: { id: round._id, name: round.name },
         panel: { id: panel._id, name: panel.name },
@@ -2070,7 +2044,6 @@ export const confirmPresence = mutation({
     reviewSessionId: v.id("reviewSessions"),
     teamName: v.string(),
     roundName: v.string(),
-    tableLabel: v.optional(v.string()),
     reviewerPresenceCount: v.number(),
     reviewerCount: v.number(),
     confirmedAt: v.number(),
@@ -2082,12 +2055,12 @@ export const confirmPresence = mutation({
     const isQrPayload = /^c2c-review-v1\.[a-f0-9]{64}$/.test(payload);
     const manualCode = payload.toUpperCase().replaceAll(/[^A-Z0-9]/g, "");
     if (!isQrPayload && !/^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{12}$/.test(manualCode)) {
-      throw new ConvexError({ code: "INVALID_TEAM_QR", message: "This is not a current Code2Create team code." });
+      throw new ConvexError({
+        code: "INVALID_TEAM_QR",
+        message: "This is not a current Code2Create team code.",
+      });
     }
-    const requestFingerprint = operationFingerprint([
-      args.reviewSessionId,
-      args.installationId,
-    ]);
+    const requestFingerprint = operationFingerprint([args.reviewSessionId, args.installationId]);
     const prior = await findOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -2101,10 +2074,7 @@ export const confirmPresence = mutation({
         "review presence confirmation",
         reviewPresenceOperationResult,
       );
-      const reviewSessionId = ctx.db.normalizeId(
-        "reviewSessions",
-        result.reviewSessionId,
-      );
+      const reviewSessionId = ctx.db.normalizeId("reviewSessions", result.reviewSessionId);
       if (!reviewSessionId || reviewSessionId !== prior.targetId) {
         throw new Error("The stored review presence confirmation is invalid.");
       }
@@ -2112,9 +2082,6 @@ export const confirmPresence = mutation({
         reviewSessionId,
         teamName: result.teamName,
         roundName: result.roundName,
-        ...(result.tableLabel !== undefined
-          ? { tableLabel: result.tableLabel }
-          : {}),
         reviewerPresenceCount: result.reviewerPresenceCount,
         reviewerCount: result.reviewerCount,
         confirmedAt: result.confirmedAt,
@@ -2132,13 +2099,22 @@ export const confirmPresence = mutation({
             index.eq("manualCodeDigest", reviewTokenDigest(manualCode)),
           )
           .unique();
-    if (!token || token.eventId !== event._id || token.state !== "active" || token.expiresAt <= Date.now()) {
-      throw new ConvexError({ code: "TEAM_QR_EXPIRED", message: "This team QR expired. Ask the team to refresh it." });
+    if (
+      !token ||
+      token.eventId !== event._id ||
+      token.state !== "active" ||
+      token.expiresAt <= Date.now()
+    ) {
+      throw new ConvexError({
+        code: "TEAM_QR_EXPIRED",
+        message: "This team QR expired. Ask the team to refresh it.",
+      });
     }
     if (token.reviewSessionId !== args.reviewSessionId) {
       throw new ConvexError({
         code: "REVIEW_QR_SESSION_MISMATCH",
-        message: "This code belongs to a different review. Scan the code shown by the current team.",
+        message:
+          "This code belongs to a different review. Scan the code shown by the current team.",
       });
     }
     const session = await ctx.db.get(args.reviewSessionId);
@@ -2148,7 +2124,10 @@ export const confirmPresence = mutation({
       session.teamId !== token.teamId ||
       session.status !== "awaiting_presence"
     ) {
-      throw new ConvexError({ code: "REVIEW_NOT_WAITING", message: "This team is no longer waiting for reviewer scans." });
+      throw new ConvexError({
+        code: "REVIEW_NOT_WAITING",
+        message: "This team is no longer waiting for reviewer scans.",
+      });
     }
     const grantIds = await requirePermission(ctx, {
       eventId: event._id,
@@ -2166,17 +2145,13 @@ export const confirmPresence = mutation({
       ctx.db
         .query("reviewAssignments")
         .withIndex("by_session_person", (index) =>
-          index
-            .eq("reviewSessionId", session._id)
-            .eq("reviewerPersonId", person._id),
+          index.eq("reviewSessionId", session._id).eq("reviewerPersonId", person._id),
         )
         .unique(),
       ctx.db
         .query("reviewPresence")
         .withIndex("by_session_reviewer", (index) =>
-          index
-            .eq("reviewSessionId", session._id)
-            .eq("reviewerPersonId", person._id),
+          index.eq("reviewSessionId", session._id).eq("reviewerPersonId", person._id),
         )
         .unique(),
       ctx.db.get(session.teamId),
@@ -2198,12 +2173,10 @@ export const confirmPresence = mutation({
         .query("reviewPresence")
         .withIndex("by_session_reviewer", (index) => index.eq("reviewSessionId", session._id))
         .collect();
-      const confirmedTableLabel = await teamRoundTableLabel(ctx, round._id, team._id);
       const result = {
         reviewSessionId: session._id,
         teamName: team.name,
         roundName: round.name,
-        ...(confirmedTableLabel !== undefined ? { tableLabel: confirmedTableLabel } : {}),
         reviewerPresenceCount: allPresence.length,
         reviewerCount: assignedRows.filter((row) => row.status === "assigned").length,
         confirmedAt: currentPresence.confirmedAt,
@@ -2223,12 +2196,13 @@ export const confirmPresence = mutation({
     }
     const state = await ctx.db
       .query("teamRoundStates")
-      .withIndex("by_round_team", (index) =>
-        index.eq("roundId", round._id).eq("teamId", team._id),
-      )
+      .withIndex("by_round_team", (index) => index.eq("roundId", round._id).eq("teamId", team._id))
       .unique();
     if (!state || !["called", "at_table"].includes(state.state) || state.panelId !== panel._id) {
-      throw new ConvexError({ code: "QUEUE_STATE_CHANGED", message: "The team is not currently called to this panel." });
+      throw new ConvexError({
+        code: "QUEUE_STATE_CHANGED",
+        message: "The team is not currently called to this panel.",
+      });
     }
     const now = Date.now();
     await ctx.db.insert("reviewPresence", {
@@ -2274,7 +2248,6 @@ export const confirmPresence = mutation({
       reviewSessionId: session._id,
       teamName: team.name,
       roundName: round.name,
-      ...(state.tableLabel !== undefined ? { tableLabel: state.tableLabel } : {}),
       reviewerPresenceCount: allPresence.length,
       reviewerCount: assignedRows.filter((row) => row.status === "assigned").length,
       confirmedAt: now,
@@ -2307,11 +2280,7 @@ export const reportConflict = mutation({
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const reason = normalizedText(args.reason, "Conflict reason", 3, 500);
-    const requestFingerprint = operationFingerprint([
-      args.reviewSessionId,
-      person._id,
-      reason,
-    ]);
+    const requestFingerprint = operationFingerprint([args.reviewSessionId, person._id, reason]);
     const prior = await findOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -2351,9 +2320,7 @@ export const reportConflict = mutation({
         ctx.db
           .query("reviewAssignments")
           .withIndex("by_session_person", (index) =>
-            index
-              .eq("reviewSessionId", session._id)
-              .eq("reviewerPersonId", person._id),
+            index.eq("reviewSessionId", session._id).eq("reviewerPersonId", person._id),
           )
           .unique(),
         ctx.db
@@ -2364,21 +2331,15 @@ export const reportConflict = mutation({
           .unique(),
         ctx.db
           .query("reviewAssignments")
-          .withIndex("by_session_person", (index) =>
-            index.eq("reviewSessionId", session._id),
-          )
+          .withIndex("by_session_person", (index) => index.eq("reviewSessionId", session._id))
           .collect(),
         ctx.db
           .query("scorecards")
-          .withIndex("by_session_status", (index) =>
-            index.eq("reviewSessionId", session._id),
-          )
+          .withIndex("by_session_status", (index) => index.eq("reviewSessionId", session._id))
           .collect(),
         ctx.db
           .query("reviewTeamQrTokens")
-          .withIndex("by_session_state", (index) =>
-            index.eq("reviewSessionId", session._id),
-          )
+          .withIndex("by_session_state", (index) => index.eq("reviewSessionId", session._id))
           .collect(),
         ctx.db
           .query("reviewerConflicts")
@@ -2404,16 +2365,18 @@ export const reportConflict = mutation({
       });
     }
     const now = Date.now();
-    const conflictId = existingConflict?._id ?? await ctx.db.insert("reviewerConflicts", {
-      eventId: event._id,
-      reviewerPersonId: person._id,
-      teamId: team._id,
-      kind: "declared",
-      reason,
-      status: "active",
-      createdByPersonId: person._id,
-      createdAt: now,
-    });
+    const conflictId =
+      existingConflict?._id ??
+      (await ctx.db.insert("reviewerConflicts", {
+        eventId: event._id,
+        reviewerPersonId: person._id,
+        teamId: team._id,
+        kind: "declared",
+        reason,
+        status: "active",
+        createdByPersonId: person._id,
+        createdAt: now,
+      }));
     for (const row of assignments) {
       await ctx.db.patch(row._id, {
         status: row.reviewerPersonId === person._id ? "conflict" : "removed",
@@ -2445,7 +2408,6 @@ export const reportConflict = mutation({
     });
     await patchTeamRoundState(ctx, state, {
       panelId: undefined,
-      tableLabel: undefined,
       state: "unassigned",
       queuedAt: undefined,
       calledAt: undefined,
@@ -2514,8 +2476,15 @@ async function scorecardWriteContext(
     }),
     ctx.db.get(args.scorecardId),
   ]);
-  if (!scorecard || scorecard.eventId !== args.eventId || scorecard.reviewerPersonId !== args.personId) {
-    throw new ConvexError({ code: "SCORECARD_NOT_FOUND", message: "That scorecard is unavailable." });
+  if (
+    !scorecard ||
+    scorecard.eventId !== args.eventId ||
+    scorecard.reviewerPersonId !== args.personId
+  ) {
+    throw new ConvexError({
+      code: "SCORECARD_NOT_FOUND",
+      message: "That scorecard is unavailable.",
+    });
   }
   const [session, assignment, rubric] = await Promise.all([
     ctx.db.get(scorecard.reviewSessionId),
@@ -2582,9 +2551,7 @@ async function scorecardWriteMode(
     ctx.db.get(context.scorecard.roundId),
     ctx.db
       .query("reviewEvaluations")
-      .withIndex("by_session", (index) =>
-        index.eq("reviewSessionId", context.session._id),
-      )
+      .withIndex("by_session", (index) => index.eq("reviewSessionId", context.session._id))
       .unique(),
   ]);
   if (
@@ -2664,9 +2631,7 @@ export const saveDraft = mutation({
       scopeId: context.scorecard._id,
     });
     await scorecardWriteMode(ctx, context);
-    if (
-      context.scorecard.draftVersion !== args.expectedDraftVersion
-    ) {
+    if (context.scorecard.draftVersion !== args.expectedDraftVersion) {
       throw new ConvexError({
         code: "SCORECARD_CHANGED",
         message: "The review or scorecard changed. Compare the current draft before saving.",
@@ -2767,10 +2732,7 @@ export const submitScorecard = mutation({
         scorecardSubmissionOperationResult,
       );
       const scorecardId = ctx.db.normalizeId("scorecards", result.scorecardId);
-      const scorecardVersionId = ctx.db.normalizeId(
-        "scorecardVersions",
-        result.scorecardVersionId,
-      );
+      const scorecardVersionId = ctx.db.normalizeId("scorecardVersions", result.scorecardVersionId);
       if (!scorecardId || !scorecardVersionId || scorecardVersionId !== prior.targetId) {
         throw new Error("The stored scorecard submission is invalid.");
       }
@@ -2794,9 +2756,7 @@ export const submitScorecard = mutation({
       scopeId: context.scorecard._id,
     });
     const writeMode = await scorecardWriteMode(ctx, context);
-    if (
-      context.scorecard.draftVersion !== args.expectedDraftVersion
-    ) {
+    if (context.scorecard.draftVersion !== args.expectedDraftVersion) {
       throw new ConvexError({
         code: "SCORECARD_CHANGED",
         message: "The review or scorecard changed. Refresh before submitting.",
@@ -2815,9 +2775,7 @@ export const submitScorecard = mutation({
     );
     const previousVersion = await ctx.db
       .query("scorecardVersions")
-      .withIndex("by_scorecard_version", (index) =>
-        index.eq("scorecardId", context.scorecard._id),
-      )
+      .withIndex("by_scorecard_version", (index) => index.eq("scorecardId", context.scorecard._id))
       .order("desc")
       .first();
     const version = (previousVersion?.version ?? 0) + 1;

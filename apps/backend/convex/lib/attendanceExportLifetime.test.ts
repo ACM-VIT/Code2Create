@@ -10,10 +10,7 @@ test("attendance export expiry is derived from the server request time", () => {
     attendanceExportExpiresAt("fifteen_minutes", requestedAt),
     requestedAt + 15 * 60 * 1_000,
   );
-  assert.equal(
-    attendanceExportExpiresAt("one_hour", requestedAt),
-    requestedAt + 60 * 60 * 1_000,
-  );
+  assert.equal(attendanceExportExpiresAt("one_hour", requestedAt), requestedAt + 60 * 60 * 1_000);
   assert.equal(
     attendanceExportExpiresAt("one_day", requestedAt),
     requestedAt + 24 * 60 * 60 * 1_000,

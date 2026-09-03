@@ -5,6 +5,7 @@ import {
   vStreamArgs,
   createThread,
 } from "@convex-dev/agent";
+import { participantProfileCodeConfiguration } from "@code2create/domain";
 import { MINUTE, RateLimiter } from "@convex-dev/rate-limiter";
 import { paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
@@ -12,17 +13,9 @@ import { ConvexError, v } from "convex/values";
 import { components, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import {
-  internalMutation,
-  internalQuery,
-  mutation,
-  query,
-} from "./_generated/server";
+import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { applicationsCloseAtFor, requireEventBySlug } from "./lib/events";
-import {
-  requireCurrentPerson,
-  requireEventSubject,
-} from "./lib/identity";
+import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import { requirePublishedIntakePolicy } from "./lib/intakePolicy";
 import {
   participantAssistantInstructions,
@@ -31,14 +24,21 @@ import {
   participantAssistantPhaseLabel,
   participantAssistantSuggestions,
 } from "./lib/participantAssistant";
-import { loadPublishedParticipantPolicy } from "./lib/participantPolicy";
+import {
+  isProfileCompleteForPolicy,
+  loadPublishedParticipantPolicy,
+  participantPolicyAccepted,
+} from "./lib/participantPolicy";
 import { loadPublishedPhaseSchedule } from "./lib/phaseSchedule";
 import { loadPublishedProjectCheckpointPlan } from "./lib/projectCheckpointPlan";
 import { acceptedTeamCommunicationsForTeam } from "./participantCommunications";
+import { noveltyInputFingerprint } from "./lib/novelty";
+import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
 import {
-  matchingPermissionGrantIds,
-  requirePermission,
-} from "./lib/permissions";
+  completedNoveltyPreviewSignal,
+  participantNoveltyConfig,
+  savedNoveltySignal,
+} from "./lib/participantNovelty";
 import { normalizedLongText, normalizedText } from "./lib/strings";
 import {
   participantAssistantPhase,
@@ -98,29 +98,23 @@ const assistantConversationStateView = v.object({
   humanSupportAvailable: v.boolean(),
 });
 
-const assistantRateLimiter = new RateLimiter(
-  components.participantAssistantRateLimiter,
-  {
-    participantMessages: {
-      kind: "token bucket",
-      rate: 12,
-      period: MINUTE,
-      capacity: 4,
-    },
-    eventMessages: {
-      kind: "token bucket",
-      rate: 600,
-      period: MINUTE,
-      capacity: 40,
-      shards: 10,
-    },
+const assistantRateLimiter = new RateLimiter(components.participantAssistantRateLimiter, {
+  participantMessages: {
+    kind: "token bucket",
+    rate: 12,
+    period: MINUTE,
+    capacity: 4,
   },
-);
+  eventMessages: {
+    kind: "token bucket",
+    rate: 600,
+    period: MINUTE,
+    capacity: 40,
+    shards: 10,
+  },
+});
 
-function phaseView(
-  phase: ParticipantAssistantPhase,
-  deadline: number | undefined,
-) {
+function phaseView(phase: ParticipantAssistantPhase, deadline: number | undefined) {
   return {
     key: phase,
     label: participantAssistantPhaseLabel(phase),
@@ -129,11 +123,7 @@ function phaseView(
   };
 }
 
-async function requireAssistantAccess(
-  ctx: ReadCtx,
-  eventId: Id<"events">,
-  personId: Id<"people">,
-) {
+async function requireAssistantAccess(ctx: ReadCtx, eventId: Id<"events">, personId: Id<"people">) {
   const subject = await requireEventSubject(ctx, eventId, personId);
   await requirePermission(ctx, {
     eventId,
@@ -167,9 +157,7 @@ async function requireOwnedThread(
 async function latestRequest(ctx: ReadCtx, threadId: string) {
   return ctx.db
     .query("participantAssistantRequests")
-    .withIndex("by_threadId_and_updatedAt", (index) =>
-      index.eq("threadId", threadId),
-    )
+    .withIndex("by_threadId_and_updatedAt", (index) => index.eq("threadId", threadId))
     .order("desc")
     .first();
 }
@@ -189,19 +177,14 @@ async function assistantHumanSupport(
   }
   const actions = await ctx.db
     .query("supportCaseActions")
-    .withIndex("by_case_time", (index) =>
-      index.eq("supportCaseId", supportCase._id),
-    )
+    .withIndex("by_case_time", (index) => index.eq("supportCaseId", supportCase._id))
     .order("desc")
     .take(100);
   return {
     state: supportCase.state,
     joinedAt: conversation.escalatedAt ?? supportCase.createdAt,
     messages: actions
-      .filter(
-        (action) =>
-          action.kind === "public_note" && action.body !== undefined,
-      )
+      .filter((action) => action.kind === "public_note" && action.body !== undefined)
       .reverse()
       .map((action) => ({
         id: action._id,
@@ -217,9 +200,8 @@ async function humanSupportIsAvailable(
   subjectId: Id<"eventAccessSubjects">,
   conversation: Doc<"participantAssistantThreads">,
 ) {
-  const permissionKey = conversation.supportCaseId === undefined
-    ? "support.case.create"
-    : "support.case.reply";
+  const permissionKey =
+    conversation.supportCaseId === undefined ? "support.case.create" : "support.case.reply";
   const grantIds = await matchingPermissionGrantIds(ctx, {
     eventId,
     eventAccessSubjectId: subjectId,
@@ -230,16 +212,12 @@ async function humanSupportIsAvailable(
   return grantIds.length > 0;
 }
 
-function requestView(
-  request: Doc<"participantAssistantRequests"> | null,
-) {
+function requestView(request: Doc<"participantAssistantRequests"> | null) {
   return request === null
     ? null
     : {
         state: request.state,
-        ...(request.failureMessage === undefined
-          ? {}
-          : { failureMessage: request.failureMessage }),
+        ...(request.failureMessage === undefined ? {} : { failureMessage: request.failureMessage }),
         createdAt: request.createdAt,
         ...(request.completedAt === undefined ? {} : { completedAt: request.completedAt }),
       };
@@ -297,12 +275,7 @@ export const openConversation = mutation({
       threadId: conversation.threadId,
       phase: phaseView(phase, assistantDeadline(event, membership, phase)),
       suggestions: participantAssistantSuggestions(phase),
-      officialLinks: await assistantOfficialLinks(
-        ctx,
-        event,
-        membership,
-        phase,
-      ),
+      officialLinks: await assistantOfficialLinks(ctx, event, membership, phase),
       latestRequest: requestView(await latestRequest(ctx, conversation.threadId)),
       humanSupport: await assistantHumanSupport(ctx, conversation),
       humanSupportAvailable: await humanSupportIsAvailable(
@@ -322,12 +295,7 @@ export const conversationState = query({
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireAssistantAccess(ctx, event._id, person._id);
-    const conversation = await requireOwnedThread(
-      ctx,
-      event._id,
-      person._id,
-      args.threadId,
-    );
+    const conversation = await requireOwnedThread(ctx, event._id, person._id, args.threadId);
     const membership = await ctx.db
       .query("eventMemberships")
       .withIndex("by_event_person", (index) =>
@@ -338,12 +306,7 @@ export const conversationState = query({
     return {
       phase: phaseView(phase, assistantDeadline(event, membership, phase)),
       suggestions: participantAssistantSuggestions(phase),
-      officialLinks: await assistantOfficialLinks(
-        ctx,
-        event,
-        membership,
-        phase,
-      ),
+      officialLinks: await assistantOfficialLinks(ctx, event, membership, phase),
       latestRequest: requestView(await latestRequest(ctx, args.threadId)),
       humanSupport: await assistantHumanSupport(ctx, conversation),
       humanSupportAvailable: await humanSupportIsAvailable(
@@ -377,29 +340,16 @@ async function assistantOfficialLinks(
   const member = await ctx.db
     .query("teamMembers")
     .withIndex("by_event_membership_status", (index) =>
-      index
-        .eq("eventId", event._id)
-        .eq("membershipId", membership._id)
-        .eq("status", "active"),
+      index.eq("eventId", event._id).eq("membershipId", membership._id).eq("status", "active"),
     )
     .unique();
   if (member === null) return [];
   const team = await ctx.db.get(member.teamId);
   if (team === null || team.eventId !== event._id) return [];
   const subject = await requireEventSubject(ctx, event._id, membership.personId);
-  const canReadTeam = await hasTeamPermission(
-    ctx,
-    event._id,
-    subject._id,
-    team._id,
-    "team.read",
-  );
+  const canReadTeam = await hasTeamPermission(ctx, event._id, subject._id, team._id, "team.read");
   if (!canReadTeam) return [];
-  const communications = await acceptedTeamCommunicationsForTeam(
-    ctx,
-    event,
-    team._id,
-  );
+  const communications = await acceptedTeamCommunicationsForTeam(ctx, event, team._id);
   if (communications === null) return [];
   const links = [
     ...(communications.venueMapUrl === undefined
@@ -407,9 +357,7 @@ async function assistantOfficialLinks(
       : [{ label: "Venue map", href: communications.venueMapUrl }]),
     { label: communications.discordLabel, href: communications.discordUrl },
     ...communications.nextSteps.flatMap((step) =>
-      step.actionUrl === undefined
-        ? []
-        : [{ label: step.title, href: step.actionUrl }],
+      step.actionUrl === undefined ? [] : [{ label: step.title, href: step.actionUrl }],
     ),
   ];
   return links.filter(
@@ -451,25 +399,13 @@ export const sendMessage = mutation({
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireAssistantAccess(ctx, event._id, person._id);
-    const conversation = await requireOwnedThread(
-      ctx,
-      event._id,
-      person._id,
-      args.threadId,
-    );
+    const conversation = await requireOwnedThread(ctx, event._id, person._id, args.threadId);
     const message = normalizedLongText(args.message, "Question", 2, 1_600);
-    const clientRequestId = normalizedText(
-      args.clientRequestId,
-      "Request ID",
-      8,
-      100,
-    );
+    const clientRequestId = normalizedText(args.clientRequestId, "Request ID", 8, 100);
     const prior = await ctx.db
       .query("participantAssistantRequests")
       .withIndex("by_threadId_and_clientRequestId", (index) =>
-        index
-          .eq("threadId", conversation.threadId)
-          .eq("clientRequestId", clientRequestId),
+        index.eq("threadId", conversation.threadId).eq("clientRequestId", clientRequestId),
       )
       .unique();
     if (prior !== null) {
@@ -495,15 +431,14 @@ export const sendMessage = mutation({
     if (scheduled !== null || running !== null) {
       throw new ConvexError({
         code: "ASSISTANT_BUSY",
-        message: "I’m still answering your last question. You can send another as soon as it appears.",
+        message:
+          "I’m still answering your last question. You can send another as soon as it appears.",
       });
     }
 
-    const participantLimit = await assistantRateLimiter.limit(
-      ctx,
-      "participantMessages",
-      { key: `${event._id}:${person._id}` },
-    );
+    const participantLimit = await assistantRateLimiter.limit(ctx, "participantMessages", {
+      key: `${event._id}:${person._id}`,
+    });
     if (!participantLimit.ok) {
       throw new ConvexError({
         code: "ASSISTANT_RATE_LIMITED",
@@ -516,7 +451,8 @@ export const sendMessage = mutation({
     if (!eventLimit.ok) {
       throw new ConvexError({
         code: "ASSISTANT_AT_CAPACITY",
-        message: "A lot of teams are asking for help right now. Try again in a moment, or ask me to bring in the event team.",
+        message:
+          "A lot of teams are asking for help right now. Try again in a moment, or ask me to bring in the event team.",
       });
     }
 
@@ -532,10 +468,7 @@ export const sendMessage = mutation({
       subject._id,
       conversation,
     );
-    if (
-      conversation.supportCaseId !== undefined &&
-      canContinueHumanSupport
-    ) {
+    if (conversation.supportCaseId !== undefined && canContinueHumanSupport) {
       await appendParticipantAssistantSupportMessage(ctx, {
         eventId: event._id,
         personId: person._id,
@@ -556,16 +489,12 @@ export const sendMessage = mutation({
       updatedAt: now,
     });
     await ctx.db.patch(conversation._id, { updatedAt: now });
-    await ctx.scheduler.runAfter(
-      0,
-      internal.participantAssistantActions.generateReply,
-      { requestId },
-    );
-    await ctx.scheduler.runAfter(
-      90_000,
-      internal.participantAssistant.expireGeneration,
-      { requestId },
-    );
+    await ctx.scheduler.runAfter(0, internal.participantAssistantActions.generateReply, {
+      requestId,
+    });
+    await ctx.scheduler.runAfter(90_000, internal.participantAssistant.expireGeneration, {
+      requestId,
+    });
     return { accepted: true, requestId, state: "scheduled" as const };
   },
 });
@@ -600,10 +529,7 @@ export const expireGeneration = internalMutation({
   returns: v.boolean(),
   handler: async (ctx, args) => {
     const request = await ctx.db.get(args.requestId);
-    if (
-      request === null ||
-      (request.state !== "scheduled" && request.state !== "running")
-    ) {
+    if (request === null || (request.state !== "scheduled" && request.state !== "running")) {
       return false;
     }
     const now = Date.now();
@@ -637,9 +563,7 @@ export const generationInstructions = internalQuery({
       ctx.db.get(request.personId),
       ctx.db
         .query("participantAssistantThreads")
-        .withIndex("by_threadId", (index) =>
-          index.eq("threadId", request.threadId),
-        )
+        .withIndex("by_threadId", (index) => index.eq("threadId", request.threadId))
         .unique(),
     ]);
     if (
@@ -663,10 +587,7 @@ export const generationInstructions = internalQuery({
     );
     return {
       phase,
-      instructions: participantAssistantInstructions(
-        phase,
-        JSON.stringify(eventContext),
-      ),
+      instructions: participantAssistantInstructions(phase, JSON.stringify(eventContext)),
     };
   },
 });
@@ -787,9 +708,7 @@ export const recordGuideReplyForHuman = internalMutation({
     if (request === null) return false;
     const conversation = await ctx.db
       .query("participantAssistantThreads")
-      .withIndex("by_threadId", (index) =>
-        index.eq("threadId", request.threadId),
-      )
+      .withIndex("by_threadId", (index) => index.eq("threadId", request.threadId))
       .unique();
     if (conversation?.supportCaseId === undefined) return false;
     await appendParticipantAssistantGuideReply(ctx, {
@@ -810,9 +729,12 @@ async function hasTeamPermission(
   teamId: Id<"teams">,
   permissionKey:
     | "team.read"
+    | "team.leave"
+    | "team.members.manage"
+    | "team.project.write"
+    | "application.submit"
     | "project.checkpoint.read"
-    | "integration.read"
-    | "floor.team.read",
+    | "integration.read",
 ) {
   const grantIds = await matchingPermissionGrantIds(ctx, {
     eventId,
@@ -833,76 +755,104 @@ async function buildEventContext(
   supportCaseId: Id<"supportCases"> | undefined,
 ) {
   const subject = await requireEventSubject(ctx, event._id, person._id);
-  const [membership, participantPolicy, intakePolicy] =
-    await Promise.all([
-      ctx.db
-        .query("eventMemberships")
-        .withIndex("by_event_person", (index) =>
-          index.eq("eventId", event._id).eq("personId", person._id),
-        )
-        .unique(),
-      loadPublishedParticipantPolicy(ctx, event),
-      requirePublishedIntakePolicy(ctx, event),
-    ]);
+  const [membership, participantPolicy, intakePolicy] = await Promise.all([
+    ctx.db
+      .query("eventMemberships")
+      .withIndex("by_event_person", (index) =>
+        index.eq("eventId", event._id).eq("personId", person._id),
+      )
+      .unique(),
+    loadPublishedParticipantPolicy(ctx, event),
+    requirePublishedIntakePolicy(ctx, event),
+  ]);
 
-  const activeMember = membership === null
-    ? null
-    : await ctx.db
-        .query("teamMembers")
-        .withIndex("by_event_membership_status", (index) =>
-          index
-            .eq("eventId", event._id)
-            .eq("membershipId", membership._id)
-            .eq("status", "active"),
-        )
-        .unique();
-  const rawTeam = activeMember === null
-    ? null
-    : await ctx.db.get(activeMember.teamId);
-  const team = rawTeam !== null && rawTeam.eventId === event._id
-    ? rawTeam
-    : null;
-  const canReadTeam = team === null
-    ? false
-    : await hasTeamPermission(
-        ctx,
-        event._id,
-        subject._id,
-        team._id,
-        "team.read",
-      );
+  const [activeMember, profileReadGrantIds, currentPolicyAccepted, githubStarCompletion, githubAuthorization] =
+    membership === null
+      ? [null, [], false, null, null]
+      : await Promise.all([
+          ctx.db
+            .query("teamMembers")
+            .withIndex("by_event_membership_status", (index) =>
+              index
+                .eq("eventId", event._id)
+                .eq("membershipId", membership._id)
+                .eq("status", "active"),
+            )
+            .unique(),
+          matchingPermissionGrantIds(ctx, {
+            eventId: event._id,
+            eventAccessSubjectId: subject._id,
+            permissionKey: "participant.profile.read",
+            scopeType: "self",
+            scopeId: membership._id,
+          }),
+          participantPolicyAccepted(ctx, membership, participantPolicy.policy),
+          ctx.db
+            .query("githubStarCompletions")
+            .withIndex("by_event_membership", (index) =>
+              index.eq("eventId", event._id).eq("membershipId", membership._id),
+            )
+            .unique(),
+          ctx.db
+            .query("githubStarAuthorizations")
+            .withIndex("by_event_membership", (index) =>
+              index.eq("eventId", event._id).eq("membershipId", membership._id),
+            )
+            .unique(),
+        ]);
+  const profile =
+    membership !== null && profileReadGrantIds.length > 0
+      ? await ctx.db
+          .query("participantProfiles")
+          .withIndex("by_membership", (index) => index.eq("membershipId", membership._id))
+          .unique()
+      : null;
+  const rawTeam = activeMember === null ? null : await ctx.db.get(activeMember.teamId);
+  const team = rawTeam !== null && rawTeam.eventId === event._id ? rawTeam : null;
+  const canReadTeam =
+    team === null
+      ? false
+      : await hasTeamPermission(ctx, event._id, subject._id, team._id, "team.read");
   const visibleTeam = canReadTeam ? team : null;
-  const teamRoster = visibleTeam === null
-    ? []
-    : await teamRosterContext(ctx, event._id, visibleTeam._id);
-  const draft = visibleTeam === null
-    ? null
-    : await ctx.db
-        .query("projectDrafts")
-        .withIndex("by_team", (index) => index.eq("teamId", visibleTeam._id))
-        .unique();
-  const application = visibleTeam === null
-    ? null
-    : await ctx.db
-        .query("applications")
-        .withIndex("by_team", (index) => index.eq("teamId", visibleTeam._id))
-        .unique();
-  const questions = draft === null
-    ? []
-    : await ctx.db
-        .query("intakeGeneratedQuestions")
-        .withIndex("by_draft_ordinal", (index) =>
-          index.eq("draftId", draft._id),
-        )
-        .take(12);
+  const teamRoster =
+    visibleTeam === null ? [] : await teamRosterContext(ctx, event._id, visibleTeam._id);
+  const draft =
+    visibleTeam === null
+      ? null
+      : await ctx.db
+          .query("projectDrafts")
+          .withIndex("by_team", (index) => index.eq("teamId", visibleTeam._id))
+          .unique();
+  const application =
+    visibleTeam === null
+      ? null
+      : await ctx.db
+          .query("applications")
+          .withIndex("by_team", (index) => index.eq("teamId", visibleTeam._id))
+          .unique();
+  const submittedProject =
+    application === null ? null : await ctx.db.get(application.submittedProjectVersionId);
+  if (
+    application !== null &&
+    (submittedProject === null ||
+      submittedProject.eventId !== event._id ||
+      submittedProject.teamId !== visibleTeam?._id)
+  ) {
+    throw new Error("A visible application has an invalid submitted project.");
+  }
+  const questions =
+    draft === null
+      ? []
+      : await ctx.db
+          .query("intakeGeneratedQuestions")
+          .withIndex("by_draft_ordinal", (index) => index.eq("draftId", draft._id))
+          .take(12);
   const followUps = await Promise.all(
     questions.map(async (question) => {
       const answer = await ctx.db
         .query("intakeAnswerVersions")
         .withIndex("by_generated_question_status", (index) =>
-          index
-            .eq("generatedQuestionId", question._id)
-            .eq("status", "active"),
+          index.eq("generatedQuestionId", question._id).eq("status", "active"),
         )
         .unique();
       return {
@@ -912,63 +862,159 @@ async function buildEventContext(
       };
     }),
   );
-  const linkedSupportCase = supportCaseId === undefined
-    ? null
-    : await ctx.db.get(supportCaseId);
+  const proposal =
+    submittedProject === null
+      ? draft === null
+        ? null
+        : {
+            stage: draft.stage,
+            idea: draft.initialIdea ?? null,
+            additionalInformation: draft.additionalInformation ?? null,
+            freshnessConfirmed: draft.freshnessAttestedAt !== undefined,
+            followUps,
+          }
+      : {
+          stage: "submitted" as const,
+          idea: submittedProject.initialIdea,
+          additionalInformation: submittedProject.additionalInformation ?? null,
+          freshnessConfirmed: true,
+          followUps: submittedProject.intakeResponses.map((response) => ({
+            question: response.question,
+            status: "answered" as const,
+            answer: response.answer,
+          })),
+        };
+  const applicationsCloseAt =
+    membership === null
+      ? event.applicationsCloseAt
+      : applicationsCloseAtFor(event, membership.participantClass);
+  const [canWriteDraft, hasApplicationSubmitPermission, canLeaveTeam, canManageMembers] =
+    visibleTeam === null
+      ? [false, false, false, false]
+      : await Promise.all([
+          hasTeamPermission(ctx, event._id, subject._id, visibleTeam._id, "team.project.write"),
+          hasTeamPermission(ctx, event._id, subject._id, visibleTeam._id, "application.submit"),
+          hasTeamPermission(ctx, event._id, subject._id, visibleTeam._id, "team.leave"),
+          hasTeamPermission(ctx, event._id, subject._id, visibleTeam._id, "team.members.manage"),
+        ]);
+  const beforeApplicationDeadline = generatedAt < applicationsCloseAt;
+  const draftingIsOpen = event.status === "registration_open" && beforeApplicationDeadline;
+  const submittedRosterCanChange =
+    application === null || application.state === "submitted" || application.state === "under_review";
+  const departureKeepsMinimumSize =
+    application === null ||
+    visibleTeam === null ||
+    visibleTeam.activeMemberCount - 1 >= participantPolicy.normalized.teamMinimumSize;
+  const leadMustTransferBeforeLeaving =
+    activeMember?.role === "lead" && (visibleTeam?.activeMemberCount ?? 0) > 1;
+  const hasRemovableMember = teamRoster.some((member) => member.role === "member");
+  const leaveTeamBlocker = !draftingIsOpen
+    ? ("applications_closed" as const)
+    : !canLeaveTeam
+      ? ("not_available" as const)
+      : !submittedRosterCanChange
+        ? ("application_finalized" as const)
+        : !departureKeepsMinimumSize
+          ? ("submitted_team_minimum_size" as const)
+          : leadMustTransferBeforeLeaving
+            ? ("transfer_leadership_first" as const)
+            : null;
+  const removeMemberBlocker = !draftingIsOpen
+    ? ("applications_closed" as const)
+    : !canManageMembers
+      ? ("not_available" as const)
+      : !hasRemovableMember
+        ? ("no_removable_member" as const)
+      : !submittedRosterCanChange
+          ? ("application_finalized" as const)
+          : !departureKeepsMinimumSize
+            ? ("submitted_team_minimum_size" as const)
+            : null;
+  const canEditProposal =
+    application === null
+      ? draftingIsOpen && visibleTeam !== null && !visibleTeam.membershipLocked && canWriteDraft
+      : beforeApplicationDeadline &&
+        activeMember?.role === "lead" &&
+        hasApplicationSubmitPermission &&
+        (application.state === "submitted" || application.state === "under_review");
+  const novelty = await participantNoveltyConfig(
+    ctx,
+    event,
+    application === null ? (draft ?? undefined) : undefined,
+  );
+  const latestNoveltyPreview =
+    novelty === null || visibleTeam === null || !proposal?.idea
+      ? null
+      : await ctx.db
+          .query("noveltyPreviewRequests")
+          .withIndex("by_team_fingerprint_requested", (index) =>
+            index
+              .eq("teamId", visibleTeam._id)
+              .eq("inputFingerprint", noveltyInputFingerprint(proposal.idea ?? "")),
+          )
+          .order("desc")
+          .first();
+  const noveltySignal =
+    novelty !== null && proposal?.idea
+      ? (draft === null ? null : savedNoveltySignal(draft, proposal.idea, novelty.corpusVersionId)) ??
+        completedNoveltyPreviewSignal(latestNoveltyPreview, novelty.corpusVersionId)
+      : null;
+  const terminalDecisionReleased =
+    event.admissionResultsReleasedAt !== undefined &&
+    application !== null &&
+    (application.decisionStage === "recorded" || application.decisionStage === "released") &&
+    application.humanDecision !== undefined;
+  const linkedSupportCase = supportCaseId === undefined ? null : await ctx.db.get(supportCaseId);
   if (supportCaseId !== undefined && linkedSupportCase === null) {
     throw new Error("The Guide conversation has a missing human support link.");
   }
   if (
     linkedSupportCase !== null &&
-    (linkedSupportCase.eventId !== event._id ||
-      linkedSupportCase.reporterPersonId !== person._id)
+    (linkedSupportCase.eventId !== event._id || linkedSupportCase.reporterPersonId !== person._id)
   ) {
     throw new Error("The Guide conversation has an invalid human support link.");
   }
-  const humanReplies = linkedSupportCase === null
-    ? []
-    : (
-        await ctx.db
-          .query("supportCaseActions")
-          .withIndex("by_case_time", (index) =>
-            index.eq("supportCaseId", linkedSupportCase._id),
-          )
-          .order("desc")
-          .take(40)
-      )
-        .filter(
-          (action) =>
-            action.kind === "public_note" && action.body !== undefined,
+  const humanReplies =
+    linkedSupportCase === null
+      ? []
+      : (
+          await ctx.db
+            .query("supportCaseActions")
+            .withIndex("by_case_time", (index) => index.eq("supportCaseId", linkedSupportCase._id))
+            .order("desc")
+            .take(40)
         )
-        .reverse()
-        .map((action) => ({
-          message: action.body ?? "",
-          sentAt: formatEventTime(action.createdAt, event.timezone),
-        }));
+          .filter((action) => action.kind === "public_note" && action.body !== undefined)
+          .reverse()
+          .map((action) => ({
+            message: action.body ?? "",
+            sentAt: formatEventTime(action.createdAt, event.timezone),
+          }));
   const humanSupportGrantIds = await matchingPermissionGrantIds(ctx, {
     eventId: event._id,
     eventAccessSubjectId: subject._id,
-    permissionKey:
-      linkedSupportCase === null
-        ? "support.case.create"
-        : "support.case.reply",
+    permissionKey: linkedSupportCase === null ? "support.case.create" : "support.case.reply",
     scopeType: "self",
     scopeId: subject._id,
   });
   const commonContext = {
     createdAt: formatEventTime(generatedAt, event.timezone),
     currentHelpScope: participantAssistantPhaseLabel(phase),
+    organizer: {
+      name: "ACM-VIT",
+      relationship: "Organizing team for Code2Create",
+      email: "acm@vit.ac.in",
+      links: {
+        instagram: "https://www.instagram.com/acmvit",
+        website: "https://acmvit.in",
+        github: "https://github.com/ACM-VIT",
+      },
+    },
     event: {
       name: event.name,
       status: event.status,
       timezone: event.timezone,
-      ideaSubmissionDeadline:
-        membership === null
-          ? formatEventTime(event.applicationsCloseAt, event.timezone)
-          : formatEventTime(
-              applicationsCloseAtFor(event, membership.participantClass),
-              event.timezone,
-            ),
+      ideaSubmissionDeadline: formatEventTime(applicationsCloseAt, event.timezone),
       teamSize: {
         minimum: participantPolicy.normalized.teamMinimumSize,
         maximum: participantPolicy.normalized.teamMaximumSize,
@@ -976,13 +1022,65 @@ async function buildEventContext(
     },
     participant: {
       name: person.displayName,
-      membership: membership === null
-        ? null
-        : {
-            participantClass: membership.participantClass,
-            eligibilityStatus: membership.eligibilityStatus,
-            onboardingStatus: membership.onboardingStatus,
-          },
+      membership:
+        membership === null
+          ? null
+          : {
+              participantClass: membership.participantClass,
+              eligibilityStatus: membership.eligibilityStatus,
+              onboardingStatus: membership.onboardingStatus,
+            },
+      onboarding:
+        membership === null
+          ? null
+          : {
+              policy: {
+                accepted: currentPolicyAccepted,
+                label: participantPolicy.normalized.label,
+                profileNotice: participantPolicy.normalized.profileNotice,
+                proposalAiNotice: participantPolicy.normalized.projectTextNotice,
+                privacyNoticeUrl: participantPolicy.normalized.privacyNoticeUrl,
+                finalSubmissionWarning: participantPolicy.normalized.finalSubmissionWarning,
+              },
+              profile:
+                profileReadGrantIds.length === 0
+                  ? { visible: false }
+                  : {
+                      visible: true,
+                      exists: profile !== null,
+                      detailsComplete:
+                        profile !== null &&
+                        isProfileCompleteForPolicy(
+                          profile,
+                          membership,
+                          participantPolicy.policy,
+                        ),
+                      phoneVerificationRequired:
+                        participantProfileCodeConfiguration.phoneVerificationEnabled,
+                      phoneVerified:
+                        profile !== null &&
+                        (!participantProfileCodeConfiguration.phoneVerificationEnabled ||
+                          (profile.phoneVerifiedAt !== undefined && profile.phoneVerifiedAt > 0)),
+                    },
+              github:
+                githubStarCompletion !== null
+                  ? {
+                      state: "complete" as const,
+                      login: githubStarCompletion.githubLogin,
+                      completedAt: formatEventTime(
+                        githubStarCompletion.completedAt,
+                        event.timezone,
+                      ),
+                    }
+                  : githubAuthorization !== null &&
+                      (githubAuthorization.status === "active" ||
+                        githubAuthorization.status === "starring")
+                    ? {
+                        state: "connected" as const,
+                        login: githubAuthorization.githubLogin,
+                      }
+                    : { state: "not_connected" as const },
+            },
     },
     ideaSubmission: {
       welcome: intakePolicy.normalized.openingText,
@@ -996,60 +1094,84 @@ async function buildEventContext(
         minimum: intakePolicy.normalized.followUpAnswerMinLength,
         maximum: intakePolicy.normalized.followUpAnswerMaxLength,
       },
-      team: visibleTeam === null
-        ? null
+      novelty:
+        novelty === null
+          ? { available: false }
           : {
-            name: visibleTeam.name,
-            status: visibleTeam.status,
-            memberCount: visibleTeam.activeMemberCount,
-            joinCode: visibleTeam.publicCode,
-            membershipLocked: visibleTeam.membershipLocked,
-            yourRole: activeMember?.role ?? null,
-            members: teamRoster,
-            proposal: draft === null
-              ? null
-              : {
-                  stage: draft.stage,
-                  idea: draft.initialIdea ?? null,
-                  additionalInformation: draft.additionalInformation ?? null,
-                  freshnessConfirmed: draft.freshnessAttestedAt !== undefined,
-                  followUps,
-                },
-            application: application === null
-              ? null
-              : {
-                  state: application.state,
-                  submittedAt: formatEventTime(
-                    application.submittedAt,
-                    event.timezone,
-                  ),
-                },
-          },
+              available: true,
+              minimumIdeaLength: novelty.minimumIdeaLength,
+              updatesAfterTypingStopsMs: novelty.debounceMs,
+              comparedProjectCount: novelty.comparedProjectCount,
+              currentCheckState:
+                noveltySignal !== null
+                  ? "succeeded"
+                  : latestNoveltyPreview?.state === "succeeded"
+                    ? "stale"
+                    : (latestNoveltyPreview?.state ?? "not_requested"),
+              currentResult:
+                noveltySignal === null
+                  ? null
+                  : {
+                      score: noveltySignal.score,
+                      band: noveltySignal.band,
+                      nearestThemeLabel: noveltySignal.nearestThemeLabel,
+                      reflectionPrompt: noveltySignal.reflectionPrompt,
+                      evaluatedAt: formatEventTime(noveltySignal.evaluatedAt, event.timezone),
+                    },
+            },
+      team:
+        visibleTeam === null
+          ? null
+          : {
+              name: visibleTeam.name,
+              status: visibleTeam.status,
+              memberCount: visibleTeam.activeMemberCount,
+              joinCode: visibleTeam.publicCode,
+              membershipLocked: visibleTeam.membershipLocked,
+              yourRole: activeMember?.role ?? null,
+              members: teamRoster,
+              actions: {
+                canEditProposal,
+                editResponsibility:
+                  application === null ? ("team_members" as const) : ("team_lead_only" as const),
+                canSubmitApplication:
+                  application === null &&
+                  draftingIsOpen &&
+                  activeMember?.role === "lead" &&
+                  hasApplicationSubmitPermission,
+                canLeaveTeam: leaveTeamBlocker === null,
+                leaveTeamBlocker,
+                canRemoveMember: removeMemberBlocker === null,
+                removeMemberBlocker,
+              },
+              proposal,
+              application:
+                application === null
+                  ? null
+                  : {
+                      state: application.state,
+                      submittedAt: formatEventTime(application.submittedAt, event.timezone),
+                      resultsReleased: event.admissionResultsReleasedAt !== undefined,
+                      decision: terminalDecisionReleased ? application.humanDecision : null,
+                    },
+            },
     },
     humanSupport: {
       available: humanSupportGrantIds.length > 0,
-      joined: linkedSupportCase === null
-        ? null
-        : {
-            status: linkedSupportCase.state,
-            lastUpdated: formatEventTime(
-              linkedSupportCase.updatedAt,
-              event.timezone,
-            ),
-            repliesFromEventTeam: humanReplies,
-          },
+      joined:
+        linkedSupportCase === null
+          ? null
+          : {
+              status: linkedSupportCase.state,
+              lastUpdated: formatEventTime(linkedSupportCase.updatedAt, event.timezone),
+              repliesFromEventTeam: humanReplies,
+            },
     },
   };
 
   if (phase === "idea_submission") return commonContext;
 
-  const liveContext = await buildLiveEventContext(
-    ctx,
-    event,
-    membership,
-    visibleTeam,
-    subject._id,
-  );
+  const liveContext = await buildLiveEventContext(ctx, event, membership, visibleTeam, subject._id);
   return { ...commonContext, duringTheEvent: liveContext };
 }
 
@@ -1061,15 +1183,15 @@ async function buildLiveEventContext(
   subjectId: Id<"eventAccessSubjects">,
 ) {
   const phaseSchedule = await loadPublishedPhaseSchedule(ctx, event);
-  const communications = team === null
-    ? null
-    : await acceptedTeamCommunicationsForTeam(ctx, event, team._id);
-  const schedule = phaseSchedule?.windows.map((window) => ({
-    name: window.displayName,
-    description: window.description,
-    startsAt: formatEventTime(window.startsAt, event.timezone),
-    endsAt: formatEventTime(window.endsAt, event.timezone),
-  })) ?? [];
+  const communications =
+    team === null ? null : await acceptedTeamCommunicationsForTeam(ctx, event, team._id);
+  const schedule =
+    phaseSchedule?.windows.map((window) => ({
+      name: window.displayName,
+      description: window.description,
+      startsAt: formatEventTime(window.startsAt, event.timezone),
+      endsAt: formatEventTime(window.endsAt, event.timezone),
+    })) ?? [];
   if (team === null) {
     return {
       eventDetails: null,
@@ -1077,101 +1199,67 @@ async function buildLiveEventContext(
       checkpoints: [],
       integrations: null,
       attendance: null,
-      location: null,
     };
   }
 
-  const [canReadCheckpoints, canReadIntegrations, canReadFloor] =
-    await Promise.all([
-      hasTeamPermission(
-        ctx,
-        event._id,
-        subjectId,
-        team._id,
-        "project.checkpoint.read",
-      ),
-      hasTeamPermission(
-        ctx,
-        event._id,
-        subjectId,
-        team._id,
-        "integration.read",
-      ),
-      hasTeamPermission(
-        ctx,
-        event._id,
-        subjectId,
-        team._id,
-        "floor.team.read",
-      ),
-    ]);
-  const attendanceGrantIds = membership === null
-    ? []
-    : await matchingPermissionGrantIds(ctx, {
-        eventId: event._id,
-        eventAccessSubjectId: subjectId,
-        permissionKey: "attendance.self.read",
-        scopeType: "self",
-        scopeId: membership._id,
-      });
+  const [canReadCheckpoints, canReadIntegrations] = await Promise.all([
+    hasTeamPermission(ctx, event._id, subjectId, team._id, "project.checkpoint.read"),
+    hasTeamPermission(ctx, event._id, subjectId, team._id, "integration.read"),
+  ]);
+  const attendanceGrantIds =
+    membership === null
+      ? []
+      : await matchingPermissionGrantIds(ctx, {
+          eventId: event._id,
+          eventAccessSubjectId: subjectId,
+          permissionKey: "attendance.self.read",
+          scopeType: "self",
+          scopeId: membership._id,
+        });
 
-  const checkpoints = canReadCheckpoints
-    ? await checkpointContext(ctx, event, team._id)
-    : [];
-  const integrations = canReadIntegrations
-    ? await integrationContext(ctx, team._id)
-    : null;
-  const attendance = membership !== null && attendanceGrantIds.length > 0
-    ? await attendanceContext(ctx, event, membership._id)
-    : null;
-  const location = canReadFloor
-    ? await floorContext(ctx, team._id)
-    : null;
-  const eventDetails = communications === null
-    ? null
-    : {
-        venueName: communications.venueName,
-        venueAddress: communications.venueAddress ?? null,
-        startsAt: formatEventTime(communications.startsAt, event.timezone),
-        endsAt: formatEventTime(communications.endsAt, event.timezone),
-        nextSteps: communications.nextSteps.map((step) => ({
-          title: step.title,
-          detail: step.detail,
-          dueAt: step.dueAt === undefined
-            ? null
-            : formatEventTime(step.dueAt, event.timezone),
-          actionUrl: step.actionUrl ?? null,
-        })),
-        officialLinks: [
-          ...(communications.venueMapUrl === undefined
-            ? []
-            : [{ label: "Venue map", href: communications.venueMapUrl }]),
-          {
-            label: communications.discordLabel,
-            href: communications.discordUrl,
-          },
-        ],
-      };
+  const checkpoints = canReadCheckpoints ? await checkpointContext(ctx, event, team._id) : [];
+  const integrations = canReadIntegrations ? await integrationContext(ctx, team._id) : null;
+  const attendance =
+    membership !== null && attendanceGrantIds.length > 0
+      ? await attendanceContext(ctx, event, membership._id)
+      : null;
+  const eventDetails =
+    communications === null
+      ? null
+      : {
+          venueName: communications.venueName,
+          venueAddress: communications.venueAddress ?? null,
+          startsAt: formatEventTime(communications.startsAt, event.timezone),
+          endsAt: formatEventTime(communications.endsAt, event.timezone),
+          nextSteps: communications.nextSteps.map((step) => ({
+            title: step.title,
+            detail: step.detail,
+            dueAt: step.dueAt === undefined ? null : formatEventTime(step.dueAt, event.timezone),
+            actionUrl: step.actionUrl ?? null,
+          })),
+          officialLinks: [
+            ...(communications.venueMapUrl === undefined
+              ? []
+              : [{ label: "Venue map", href: communications.venueMapUrl }]),
+            {
+              label: communications.discordLabel,
+              href: communications.discordUrl,
+            },
+          ],
+        };
   return {
     eventDetails,
     schedule,
     checkpoints,
     integrations,
     attendance,
-    location,
   };
 }
 
-async function teamRosterContext(
-  ctx: QueryCtx,
-  eventId: Id<"events">,
-  teamId: Id<"teams">,
-) {
+async function teamRosterContext(ctx: QueryCtx, eventId: Id<"events">, teamId: Id<"teams">) {
   const members = await ctx.db
     .query("teamMembers")
-    .withIndex("by_team_status", (index) =>
-      index.eq("teamId", teamId).eq("status", "active"),
-    )
+    .withIndex("by_team_status", (index) => index.eq("teamId", teamId).eq("status", "active"))
     .take(50);
   return Promise.all(
     members.map(async (member) => {
@@ -1183,9 +1271,7 @@ async function teamRosterContext(
         ctx.db.get(membership.personId),
         ctx.db
           .query("participantProfiles")
-          .withIndex("by_membership", (index) =>
-            index.eq("membershipId", membership._id),
-          )
+          .withIndex("by_membership", (index) => index.eq("membershipId", membership._id))
           .unique(),
       ]);
       if (memberPerson === null) {
@@ -1200,11 +1286,7 @@ async function teamRosterContext(
   );
 }
 
-async function checkpointContext(
-  ctx: QueryCtx,
-  event: Doc<"events">,
-  teamId: Id<"teams">,
-) {
+async function checkpointContext(ctx: QueryCtx, event: Doc<"events">, teamId: Id<"teams">) {
   const plan = await loadPublishedProjectCheckpointPlan(ctx, event);
   if (plan === null) return [];
   return Promise.all(
@@ -1213,17 +1295,13 @@ async function checkpointContext(
         ctx.db
           .query("teamCheckpointDrafts")
           .withIndex("by_team_key", (index) =>
-            index
-              .eq("teamId", teamId)
-              .eq("checkpointKey", definition.checkpointKey),
+            index.eq("teamId", teamId).eq("checkpointKey", definition.checkpointKey),
           )
           .unique(),
         ctx.db
           .query("teamCheckpointSubmissions")
           .withIndex("by_team_key", (index) =>
-            index
-              .eq("teamId", teamId)
-              .eq("checkpointKey", definition.checkpointKey),
+            index.eq("teamId", teamId).eq("checkpointKey", definition.checkpointKey),
           )
           .order("desc")
           .first(),
@@ -1232,16 +1310,14 @@ async function checkpointContext(
         name: definition.displayName,
         prompt: definition.prompt,
         followUpQuestion: definition.followUpQuestion,
-        status: submission !== null ? "submitted" : draft?.stage ?? "not_started",
-        latestSubmission: submission === null
-          ? null
-          : {
-              submittedAt: formatEventTime(
-                submission.submittedAt,
-                event.timezone,
-              ),
-              timing: submission.timing,
-            },
+        status: submission !== null ? "submitted" : (draft?.stage ?? "not_started"),
+        latestSubmission:
+          submission === null
+            ? null
+            : {
+                submittedAt: formatEventTime(submission.submittedAt, event.timezone),
+                timing: submission.timing,
+              },
       };
     }),
   );
@@ -1251,15 +1327,11 @@ async function integrationContext(ctx: QueryCtx, teamId: Id<"teams">) {
   const [repositories, figmaFiles] = await Promise.all([
     ctx.db
       .query("githubRepositoryBindings")
-      .withIndex("by_team_state", (index) =>
-        index.eq("teamId", teamId).eq("state", "active"),
-      )
+      .withIndex("by_team_state", (index) => index.eq("teamId", teamId).eq("state", "active"))
       .take(20),
     ctx.db
       .query("figmaFileBindings")
-      .withIndex("by_team_state", (index) =>
-        index.eq("teamId", teamId).eq("state", "active"),
-      )
+      .withIndex("by_team_state", (index) => index.eq("teamId", teamId).eq("state", "active"))
       .take(20),
   ]);
   return {
@@ -1284,9 +1356,7 @@ async function attendanceContext(
 ) {
   const participants = await ctx.db
     .query("attendanceSessionParticipants")
-    .withIndex("by_membership", (index) =>
-      index.eq("membershipId", membershipId),
-    )
+    .withIndex("by_membership", (index) => index.eq("membershipId", membershipId))
     .take(40);
   return Promise.all(
     participants.map(async (participant) => {
@@ -1299,36 +1369,14 @@ async function attendanceContext(
         requirement: session.requirement,
         startsAt: formatEventTime(session.startsAt, event.timezone),
         endsAt: formatEventTime(session.endsAt, event.timezone),
-        checkInOpensAt: formatEventTime(
-          session.checkInOpensAt,
-          event.timezone,
-        ),
-        checkInClosesAt: formatEventTime(
-          session.checkInClosesAt,
-          event.timezone,
-        ),
+        checkInOpensAt: formatEventTime(session.checkInOpensAt, event.timezone),
+        checkInClosesAt: formatEventTime(session.checkInClosesAt, event.timezone),
         zone: zone?.name ?? null,
         yourStatus: participant.state,
         late: participant.late,
       };
     }),
   ).then((sessions) => sessions.filter((session) => session !== null));
-}
-
-async function floorContext(ctx: QueryCtx, teamId: Id<"teams">) {
-  const location = await ctx.db
-    .query("teamFloorLocations")
-    .withIndex("by_team_state", (index) =>
-      index.eq("teamId", teamId).eq("state", "active"),
-    )
-    .unique();
-  if (location === null) return null;
-  const zone = await ctx.db.get(location.zoneId);
-  return {
-    zone: zone?.name ?? null,
-    area: location.area,
-    position: { x: location.x, y: location.y },
-  };
 }
 
 function formatEventTime(timestamp: number, timezone: string) {

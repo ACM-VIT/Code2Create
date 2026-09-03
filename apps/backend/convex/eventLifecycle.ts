@@ -11,10 +11,7 @@ import {
   type EventLifecycleConfiguration,
 } from "./lib/eventLifecycle";
 import { requireEventBySlug } from "./lib/events";
-import {
-  requireCurrentPerson,
-  requireEventSubject,
-} from "./lib/identity";
+import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import {
   findOperation,
   operationFingerprint,
@@ -235,8 +232,7 @@ export const markExternalRegistrationClosedAtDeadline = internalMutation({
     const event = await ctx.db.get(args.eventId);
     if (
       !event ||
-      event.externalApplicationsCloseAt !==
-        args.expectedExternalApplicationsCloseAt ||
+      event.externalApplicationsCloseAt !== args.expectedExternalApplicationsCloseAt ||
       event.status !== "registration_open" ||
       Date.now() < args.expectedExternalApplicationsCloseAt ||
       event.updatedAt >= args.expectedExternalApplicationsCloseAt
@@ -311,11 +307,8 @@ async function readLifecycleConfiguration(
     hasAttendancePlan: event.publishedAttendancePlanVersionId !== undefined,
     hasCommunicationsPolicy: event.publishedCommunicationsPolicyId !== undefined,
     hasEventDates:
-      event.startsAt !== undefined &&
-      event.endsAt !== undefined &&
-      event.startsAt < event.endsAt,
+      event.startsAt !== undefined && event.endsAt !== undefined && event.startsAt < event.endsAt,
     hasFutureApplicationDeadline: Date.now() < event.applicationsCloseAt,
-    hasFloorPlan: event.publishedFloorPlanVersionId !== undefined,
     hasIntegrationPolicy: event.publishedIntegrationPolicyId !== undefined,
     hasIntakePolicy: event.publishedIntakePolicyId !== undefined,
     hasParticipantPolicy: event.publishedParticipantPolicyId !== undefined,

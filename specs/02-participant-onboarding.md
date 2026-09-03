@@ -12,7 +12,7 @@ A returning participant goes to the first unfinished task.
 
 The event publishes one authoritative `externalApplicationsCloseAt` time and one authoritative VIT `applicationsCloseAt` time. The external deadline is no later than the VIT deadline. The server uses the deadline for the verified participant class. The browser clock is not authoritative.
 
-Before the applicable deadline, an eligible participant can accept policy, update a profile, change a team, edit a proposal, answer an intake follow-up, and submit. A submitted team can still add, remove, leave, switch, or transfer leadership while the resulting team remains valid. At or after that deadline, the server rejects new onboarding, team changes, submission, and participant-initiated proposal revision for that class. A later organizer-requested admission-information response remains available to the current lead. A retry with an operation ID that committed before the applicable deadline returns the original result.
+Before the applicable deadline, an eligible participant can accept policy, update a profile, change a team, edit a proposal, answer an intake follow-up, and submit. A submitted team can still add, remove, leave, switch, or transfer leadership while the resulting team remains valid. At or after that deadline, the server rejects new onboarding, team changes, submission, and participant-initiated proposal revision for that class. A retry with an operation ID that committed before the applicable deadline returns the original result.
 
 ## 2. Participant profile
 
@@ -250,10 +250,7 @@ The AI admission service reads only approved proposal fields, the deterministic 
 An authorized human can:
 
 - publish an admission decision for the current proposal version;
-- record whether the human used, cleared, or overrode the current AI recommendation; or
-- request one or two specific facts from the current lead.
-
-An information response creates another immutable proposal-content version and invalidates stale outputs in the same way as a lead revision. The response does not unlock membership.
+- record whether the human used, cleared, or overrode the current AI recommendation.
 
 An offer reserves capacity for the exact deadline-frozen member count. Only the current lead can accept or decline the offer. An expired or revoked offer releases capacity without deleting decision history.
 
@@ -287,7 +284,7 @@ Each checkpoint pins the exact Figma file version, selected node renders, versio
 
 GitHub and Figma evidence gives reviewers context. Activity counts do not become scores. Missing provider access produces an explicit incomplete state and an approved alternative-evidence route.
 
-## 9. Attendance and team location
+## 9. Attendance
 
 An accepted team must confirm its live offer before venue and review workflows.
 
@@ -295,9 +292,7 @@ Staff scan the barcode on a VIT participant's existing VIT ID from a provisioned
 
 Venue arrival, session presence, temporary exit, return, and departure are separate facts. Attendance cannot change admission or judging.
 
-The team dashboard shows a short-lived team-location QR. An authorized organizer scans it while standing with the team and selects the zone and nearest landmark. The team cannot write its own location. The participant view updates from the accepted server record.
-
-The review-presence QR is a separate credential. It proves assigned-reviewer presence. It cannot create participant attendance or team location.
+The review-presence QR is a separate credential. It proves assigned-reviewer presence. It cannot create participant attendance.
 
 ## 10. Staff-managed review queue
 
@@ -305,16 +300,16 @@ The participant portal has no command to enter a team into a panel queue or chan
 
 The participant sees one accepted state:
 
-| State | Meaning |
-| --- | --- |
-| Waiting for review desk | Staff have not placed the team |
-| Queued | The team has a panel and queue position |
-| Called | The team must go to the shown table |
-| At table | The team waits for reviewer presence |
-| In review | The server has started the review |
-| Held | Staff paused the team and supplied a reason |
-| Missed | The approved missed-call policy applies |
-| Complete | The review is recorded |
+| State                   | Meaning                                     |
+| ----------------------- | ------------------------------------------- |
+| Waiting for review desk | Staff have not placed the team              |
+| Queued                  | The team has a panel and queue position     |
+| Called                  | The team gets ready for the reviewers       |
+| Reviewers arrived       | The team waits for reviewer presence        |
+| In review               | The server has started the review           |
+| Held                    | Staff paused the team and supplied a reason |
+| Missed                  | The approved missed-call policy applies     |
+| Complete                | The review is recorded                      |
 
 The queue shows a five-minute-bucketed range. It uses server time, configured review duration, current review remainder, recent bounded median duration, teams ahead, and handover allowance. A paused round hides the estimate. An expired estimate shows **Taking longer than estimated**.
 
@@ -363,6 +358,5 @@ The participant cannot control playback or queue order. A music action cannot ch
 - One team can connect multiple GitHub repositories.
 - Figma evidence pins exact provider versions.
 - A VIT ID barcode and event QR resolve to the same participant authority.
-- A team-location write requires an organizer scan of the team's current dashboard QR.
 - Participants cannot enter their team into a review queue.
 - Realtime views use the same accepted backend records.

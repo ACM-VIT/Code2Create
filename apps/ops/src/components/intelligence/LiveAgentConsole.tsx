@@ -1,37 +1,36 @@
-import type { FlueConversationMessage } from '@flue/react'
+import type { FlueConversationMessage } from "@flue/react";
 import {
-  type FormEvent,
+  type SubmitEvent,
   type KeyboardEvent,
   type ReactNode,
+  useEffect,
   useId,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
-} from 'react'
-import { Streamdown } from 'streamdown'
+} from "react";
+import { Streamdown } from "streamdown";
 
-import {
-  projectVisibleAgentTimeline,
-  type SafeAgentTimelineItem,
-} from './liveAgentProjection'
-import { LoadingState, StatusText } from './LoadingState'
-import { useVersionedState } from '@code2create/web-forms'
+import { projectVisibleAgentTimeline, type SafeAgentTimelineItem } from "./liveAgentProjection";
+import { LoadingState, StatusText } from "./LoadingState";
+import { useVersionedState } from "@code2create/web-forms";
 
-export type LiveAgentConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'offline'
-export type LiveAgentTerminalState = 'none' | 'completed' | 'failed' | 'aborted'
-type LiveAgentCopy = Readonly<{ title: string; detail: string }>
+export type LiveAgentConnectionState = "connecting" | "connected" | "reconnecting" | "offline";
+export type LiveAgentTerminalState = "none" | "completed" | "failed" | "aborted";
+type LiveAgentCopy = Readonly<{ title: string; detail: string }>;
 
 export function LiveAgentConsole({
-  agentLabel = 'Copilot',
+  agentLabel = "Copilot",
+  autoSubmitPrompt,
   composerPendingConfirmation = false,
   composerRequiresConnection = true,
   composerResetKey = 0,
   composerDisabled = false,
   connectionState,
   embedded = false,
-  emptyDescription = 'Ask about review flow, attendance, floor mapping, support load, or admissions.',
-  emptyTitle = 'Start with the live event.',
+  emptyDescription = "Ask about review flow, attendance, support load, or admissions.",
+  emptyTitle = "Start with the live event.",
   historyCanLoadMore = false,
   historyLoadError,
   historyLoading = false,
@@ -41,143 +40,159 @@ export function LiveAgentConsole({
   onReconnect,
   onSubmitPrompt,
   showOperatorMessages = true,
+  suggestions = [],
   terminalState,
   terminalCopy: terminalCopyOverrides,
   timelineFooter,
   workingCopy = {
-    title: 'Preparing response',
-    detail: 'Live output continues here.',
+    title: "Preparing response",
+    detail: "Live output continues here.",
   },
 }: {
-  agentLabel?: string
-  composerPendingConfirmation?: boolean
-  composerRequiresConnection?: boolean
-  composerResetKey?: number
-  composerDisabled?: boolean
-  connectionState: LiveAgentConnectionState
-  embedded?: boolean
-  emptyDescription?: string
-  emptyTitle?: string
-  historyCanLoadMore?: boolean
-  historyLoadError?: Error
-  historyLoading?: boolean
-  isStreaming: boolean
-  messages: readonly FlueConversationMessage[]
-  onLoadOlder?: () => void | Promise<void>
-  onReconnect: () => void
-  onSubmitPrompt?: (prompt: string) => void | Promise<void>
-  showOperatorMessages?: boolean
-  terminalState: LiveAgentTerminalState
-  terminalCopy?: Partial<Record<Exclude<LiveAgentTerminalState, 'none'>, LiveAgentCopy>>
-  timelineFooter?: ReactNode
-  workingCopy?: LiveAgentCopy
+  agentLabel?: string;
+  /** A prompt handed in by another view; sent once, as soon as the composer can send. */
+  autoSubmitPrompt?: string;
+  composerPendingConfirmation?: boolean;
+  composerRequiresConnection?: boolean;
+  composerResetKey?: number;
+  composerDisabled?: boolean;
+  connectionState: LiveAgentConnectionState;
+  embedded?: boolean;
+  emptyDescription?: string;
+  emptyTitle?: string;
+  historyCanLoadMore?: boolean;
+  historyLoadError?: Error;
+  historyLoading?: boolean;
+  isStreaming: boolean;
+  messages: readonly FlueConversationMessage[];
+  onLoadOlder?: () => void | Promise<void>;
+  onReconnect: () => void;
+  onSubmitPrompt?: (prompt: string) => void | Promise<void>;
+  showOperatorMessages?: boolean;
+  /** Starting questions offered while the conversation is empty. */
+  suggestions?: readonly string[];
+  terminalState: LiveAgentTerminalState;
+  terminalCopy?: Partial<Record<Exclude<LiveAgentTerminalState, "none">, LiveAgentCopy>>;
+  timelineFooter?: ReactNode;
+  workingCopy?: LiveAgentCopy;
 }) {
   const timeline = useMemo(
     () => projectVisibleAgentTimeline(messages, { showOperatorMessages }),
     [messages, showOperatorMessages],
-  )
-  const timelineRef = useRef<HTMLDivElement>(null)
-  const historyAnchorRef = useRef<{ timelineId: string; viewportOffset: number } | null>(null)
-  const stickToLiveTailRef = useRef(true)
-  const promptId = useId()
-  const promptHintId = useId()
-  const composerState = useVersionedState(
-    `${composerResetKey}`,
-    { prompt: '', submitFailed: false },
-  )
-  const { prompt, submitFailed } = composerState.value
+  );
+  const timelineRef = useRef<HTMLDivElement>(null);
+  const historyAnchorRef = useRef<{ timelineId: string; viewportOffset: number } | null>(null);
+  const stickToLiveTailRef = useRef(true);
+  const promptId = useId();
+  const promptHintId = useId();
+  const composerState = useVersionedState(`${composerResetKey}`, {
+    prompt: "",
+    submitFailed: false,
+  });
+  const { prompt, submitFailed } = composerState.value;
   const setPrompt = (prompt: string) => {
-    composerState.update((current) => ({ ...current, prompt }))
-  }
+    composerState.update((current) => ({ ...current, prompt }));
+  };
   const setSubmitFailed = (submitFailed: boolean) => {
-    composerState.update((current) => ({ ...current, submitFailed }))
-  }
-  const [submitting, setSubmitting] = useState(false)
+    composerState.update((current) => ({ ...current, submitFailed }));
+  };
+  const [submitting, setSubmitting] = useState(false);
 
   useLayoutEffect(() => {
-    const timelineElement = timelineRef.current
-    if (timelineElement === null) return
+    const timelineElement = timelineRef.current;
+    if (timelineElement === null) return;
 
-    const historyAnchor = historyAnchorRef.current
+    const historyAnchor = historyAnchorRef.current;
     if (historyAnchor !== null) {
-      const anchorElement = timelineItemElement(timelineElement, historyAnchor.timelineId)
+      const anchorElement = timelineItemElement(timelineElement, historyAnchor.timelineId);
       if (anchorElement !== undefined) {
-        const currentOffset = anchorElement.getBoundingClientRect().top
-          - timelineElement.getBoundingClientRect().top
-        timelineElement.scrollTop += currentOffset - historyAnchor.viewportOffset
+        const currentOffset =
+          anchorElement.getBoundingClientRect().top - timelineElement.getBoundingClientRect().top;
+        timelineElement.scrollTop += currentOffset - historyAnchor.viewportOffset;
       }
-      if (!historyLoading) historyAnchorRef.current = null
+      if (!historyLoading) historyAnchorRef.current = null;
     } else if (historyAnchor === null && stickToLiveTailRef.current) {
-      timelineElement.scrollTop = timelineElement.scrollHeight
+      timelineElement.scrollTop = timelineElement.scrollHeight;
     }
 
-    stickToLiveTailRef.current = isNearLiveTail(timelineElement)
-  }, [historyLoading, isStreaming, timeline])
+    stickToLiveTailRef.current = isNearLiveTail(timelineElement);
+  }, [historyLoading, isStreaming, timeline]);
 
   const loadOlderActivity = () => {
-    const timelineElement = timelineRef.current
+    const timelineElement = timelineRef.current;
     if (timelineElement !== null) {
-      historyAnchorRef.current = visibleTimelineAnchor(timelineElement)
+      historyAnchorRef.current = visibleTimelineAnchor(timelineElement);
     }
-    void onLoadOlder?.()
-  }
+    void onLoadOlder?.();
+  };
 
-  const sendPrompt = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    const nextPrompt = prompt.trim()
-    if (
-      nextPrompt.length === 0
-      || onSubmitPrompt === undefined
-      || submitting
-      || composerDisabled
-      || (composerRequiresConnection && connectionState !== 'connected')
-      || isStreaming
-    ) {
-      return
-    }
+  const composerReady =
+    !submitting &&
+    !composerDisabled &&
+    !isStreaming &&
+    onSubmitPrompt !== undefined &&
+    (!composerRequiresConnection || connectionState === "connected");
 
-    setSubmitting(true)
-    setSubmitFailed(false)
+  const submitPrompt = async (nextPrompt: string) => {
+    if (nextPrompt.length === 0 || onSubmitPrompt === undefined || !composerReady) return;
+
+    setSubmitting(true);
+    setSubmitFailed(false);
     try {
-      await onSubmitPrompt(nextPrompt)
-      setPrompt('')
+      await onSubmitPrompt(nextPrompt);
+      setPrompt("");
     } catch {
-      setSubmitFailed(true)
+      setSubmitFailed(true);
     } finally {
-      setSubmitting(false)
+      setSubmitting(false);
     }
-  }
+  };
+
+  const sendPrompt = (event: SubmitEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    void submitPrompt(prompt.trim());
+  };
+
+  const sendSuggestion = (suggestion: string) => {
+    setPrompt(suggestion);
+    void submitPrompt(suggestion);
+  };
+
+  // A prompt handed in through router state is sent once, the first time the
+  // composer is able to send. The send itself is deferred a tick so the effect
+  // only observes readiness and does not schedule renders synchronously.
+  const autoSubmittedRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (autoSubmitPrompt === undefined || autoSubmittedRef.current === autoSubmitPrompt) return;
+    if (!composerReady) return;
+    autoSubmittedRef.current = autoSubmitPrompt;
+    void Promise.resolve().then(() => sendSuggestion(autoSubmitPrompt));
+  });
 
   const submitOnEnter = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
-    event.preventDefault()
-    event.currentTarget.form?.requestSubmit()
-  }
+    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
+    event.preventDefault();
+    event.currentTarget.form?.requestSubmit();
+  };
 
-  const canSubmit =
-    prompt.trim().length > 0
-    && !submitting
-    && !composerDisabled
-    && !isStreaming
-    && onSubmitPrompt !== undefined
-    && (!composerRequiresConnection || connectionState === 'connected')
+  const canSubmit = prompt.trim().length > 0 && composerReady;
 
   return (
     <section
       aria-label={`${agentLabel} conversation`}
-      className={embedded
-        ? 'flex flex-col rounded-xl border border-line bg-canvas'
-        : 'flex min-h-0 flex-1 flex-col'}
+      className={
+        embedded
+          ? "flex flex-col rounded-xl border border-line bg-canvas"
+          : "flex min-h-0 flex-1 flex-col"
+      }
     >
       <div
         aria-busy={isStreaming}
         aria-live="polite"
         aria-relevant="additions text"
-        className={embedded
-          ? 'max-h-80 overflow-y-auto'
-          : 'min-h-0 flex-1 overflow-y-auto'}
+        className={embedded ? "max-h-80 overflow-y-auto" : "min-h-0 flex-1 overflow-y-auto"}
         onScroll={(event) => {
-          stickToLiveTailRef.current = isNearLiveTail(event.currentTarget)
+          stickToLiveTailRef.current = isNearLiveTail(event.currentTarget);
         }}
         ref={timelineRef}
         role="log"
@@ -204,30 +219,38 @@ export function LiveAgentConsole({
             </p>
           )}
           {timeline.length === 0 && !isStreaming ? (
-            <AgentEmptyState description={emptyDescription} title={emptyTitle} />
+            <AgentEmptyState
+              description={emptyDescription}
+              onSuggestion={
+                onSubmitPrompt === undefined || composerDisabled ? undefined : sendSuggestion
+              }
+              suggestions={suggestions}
+              title={emptyTitle}
+            />
           ) : null}
           {timeline.map((item) => (
             <TimelineItem agentLabel={agentLabel} item={item} key={item.id} />
           ))}
           {isStreaming ? <StreamingIndicator copy={workingCopy} /> : null}
-          {terminalState !== 'none'
-            && !isStreaming
-            && (terminalState !== 'completed' || terminalCopyOverrides?.completed !== undefined) ? (
+          {terminalState !== "none" &&
+          !isStreaming &&
+          (terminalState !== "completed" || terminalCopyOverrides?.completed !== undefined) ? (
             <TerminalState
-              {...terminalCopyOverrides?.[terminalState] === undefined
+              {...(terminalCopyOverrides?.[terminalState] === undefined
                 ? {}
-                : { copy: terminalCopyOverrides[terminalState] }}
+                : { copy: terminalCopyOverrides[terminalState] })}
               state={terminalState}
             />
           ) : null}
-          {timelineFooter === undefined ? null : (
-            <div className="pt-3 pb-2">{timelineFooter}</div>
-          )}
+          {timelineFooter === undefined ? null : <div className="pt-3 pb-2">{timelineFooter}</div>}
         </div>
       </div>
 
-      {connectionState === 'offline' ? (
-        <div className="flex shrink-0 items-center justify-center gap-2 py-1 text-[11.5px] text-ink-3" role="status">
+      {connectionState === "offline" ? (
+        <div
+          className="flex shrink-0 items-center justify-center gap-2 py-1 text-[11.5px] text-ink-3"
+          role="status"
+        >
           Updates paused
           <button
             className="cursor-pointer border-0 bg-transparent p-0 text-ink-2 underline-offset-2 transition-colors duration-100 hover:text-ink hover:underline"
@@ -241,8 +264,8 @@ export function LiveAgentConsole({
 
       {onSubmitPrompt === undefined ? null : (
         <form
-          className={embedded ? 'shrink-0 p-1.5 pb-3' : 'shrink-0 px-4 pt-2 pb-8'}
-          onSubmit={(event) => void sendPrompt(event)}
+          className={embedded ? "shrink-0 p-1.5 pb-3" : "shrink-0 px-4 pt-2 pb-8"}
+          onSubmit={(event) => sendPrompt(event)}
         >
           <div className="mx-auto w-full max-w-3xl">
             <div className="flex cursor-text flex-col gap-2 rounded-[14px] border border-line bg-field p-2.5 transition-[border-color] duration-150 focus-within:border-line-strong">
@@ -256,8 +279,8 @@ export function LiveAgentConsole({
                 id={promptId}
                 maxLength={4_000}
                 onChange={(event) => {
-                  setPrompt(event.target.value)
-                  if (submitFailed) setSubmitFailed(false)
+                  setPrompt(event.target.value);
+                  if (submitFailed) setSubmitFailed(false);
                 }}
                 onKeyDown={submitOnEnter}
                 placeholder="Ask what needs attention…"
@@ -266,17 +289,19 @@ export function LiveAgentConsole({
                 value={prompt}
               />
               <div className="flex items-center justify-between gap-2">
-                <small
-                  aria-live="polite"
-                  className="text-[11px] text-ink-3"
-                  id={promptHintId}
-                >
+                <small aria-live="polite" className="text-[11px] text-ink-3" id={promptHintId}>
                   {composerPendingConfirmation
-                    ? 'Delivery was interrupted. Retry this same message; it cannot be sent twice.'
-                    : 'Enter to send · Shift+Enter for a new line'}
+                    ? "Delivery was interrupted. Retry this same message; it cannot be sent twice."
+                    : "Enter to send · Shift+Enter for a new line"}
                 </small>
                 <button
-                  aria-label={submitting ? 'Sending' : composerPendingConfirmation ? 'Retry same message' : 'Send'}
+                  aria-label={
+                    submitting
+                      ? "Sending"
+                      : composerPendingConfirmation
+                        ? "Retry same message"
+                        : "Send"
+                  }
                   className="flex size-7 shrink-0 items-center justify-center rounded-[8px] border-0 bg-ink text-canvas transition-[background-color,color,transform] duration-200 enabled:cursor-pointer enabled:active:scale-[0.96] disabled:bg-line-strong disabled:text-ink-2"
                   disabled={!canSubmit}
                   type="submit"
@@ -291,28 +316,59 @@ export function LiveAgentConsole({
             </div>
             {submitFailed && !composerPendingConfirmation ? (
               <p className="notice error" role="alert">
-                The prompt was not sent. Your draft is still here; check the connection and try again.
+                The prompt was not sent. Your draft is still here; check the connection and try
+                again.
               </p>
             ) : null}
           </div>
         </form>
       )}
     </section>
-  )
+  );
 }
 
-function AgentEmptyState({ description, title }: { description: string; title: string }) {
+function AgentEmptyState({
+  description,
+  onSuggestion,
+  suggestions,
+  title,
+}: {
+  description: string;
+  onSuggestion: ((suggestion: string) => void) | undefined;
+  suggestions: readonly string[];
+  title: string;
+}) {
   return (
-    <div className="m-auto flex flex-col items-center gap-1.5 px-6 py-10 text-center">
-      <Glyph className="text-ink-3" name="sparkle" size={20} />
-      <strong className="text-[13px] font-medium text-ink">{title}</strong>
-      <span className="max-w-90 text-[12.5px] leading-normal text-ink-3">{description}</span>
+    <div className="m-auto flex w-full max-w-[560px] flex-col items-center gap-4 px-6 py-10 text-center">
+      <div className="flex flex-col items-center gap-1.5">
+        <Glyph className="text-ink-3" name="sparkle" size={20} />
+        <strong className="text-[13px] font-medium text-ink">{title}</strong>
+        <span className="max-w-[440px] text-[12.5px] leading-normal text-ink-3">{description}</span>
+      </div>
+      {onSuggestion !== undefined && suggestions.length > 0 ? (
+        <div
+          aria-label="Suggested questions"
+          className="flex flex-wrap justify-center gap-2"
+          role="group"
+        >
+          {suggestions.map((suggestion) => (
+            <button
+              className="cursor-pointer rounded-full border border-line bg-field px-3 py-1.5 text-[12px] leading-normal text-ink-2 transition-colors duration-100 hover:border-line-strong hover:text-ink"
+              key={suggestion}
+              onClick={() => onSuggestion(suggestion)}
+              type="button"
+            >
+              {suggestion}
+            </button>
+          ))}
+        </div>
+      ) : null}
     </div>
-  )
+  );
 }
 
 function TimelineItem({ agentLabel, item }: { agentLabel: string; item: SafeAgentTimelineItem }) {
-  if (item.kind === 'operator-text') {
+  if (item.kind === "operator-text") {
     return (
       <article className="flex justify-end pl-14" data-timeline-id={item.id}>
         <span className="visually-hidden">You said:</span>
@@ -320,29 +376,24 @@ function TimelineItem({ agentLabel, item }: { agentLabel: string; item: SafeAgen
           {item.text}
         </p>
       </article>
-    )
+    );
   }
 
-  if (item.kind === 'assistant-text') {
+  if (item.kind === "assistant-text") {
     return (
       <article className="w-full animate-fade-up" data-timeline-id={item.id}>
         <span className="visually-hidden">{agentLabel} said:</span>
-        <Streamdown className="text-[13px] leading-normal text-ink">
-          {item.text}
-        </Streamdown>
+        <Streamdown className="text-[13px] leading-normal text-ink">{item.text}</Streamdown>
       </article>
-    )
+    );
   }
 
-  if (item.kind === 'thinking') {
-    return <ThinkingTrace id={item.id} state={item.state} text={item.text} />
+  if (item.kind === "thinking") {
+    return <ThinkingTrace id={item.id} state={item.state} text={item.text} />;
   }
 
   return (
-    <div
-      className="flex h-7 w-full min-w-0 items-center gap-2 px-[3px]"
-      data-timeline-id={item.id}
-    >
+    <div className="flex h-7 w-full min-w-0 items-center gap-2 px-[3px]" data-timeline-id={item.id}>
       <span className="relative flex size-4 shrink-0 items-center justify-center text-ink-3">
         <ToolStateGlyph state={item.state} />
       </span>
@@ -354,7 +405,7 @@ function TimelineItem({ agentLabel, item }: { agentLabel: string; item: SafeAgen
       )}
       <span className="visually-hidden">{toolStateLabel(item.state)}</span>
     </div>
-  )
+  );
 }
 
 function ThinkingTrace({
@@ -362,12 +413,12 @@ function ThinkingTrace({
   state,
   text,
 }: {
-  id: string
-  state: 'streaming' | 'done'
-  text: string
+  id: string;
+  state: "streaming" | "done";
+  text: string;
 }) {
-  const [preference, setPreference] = useState({ state, open: state === 'streaming' })
-  const open = preference.state === state ? preference.open : state === 'streaming'
+  const [preference, setPreference] = useState({ state, open: state === "streaming" });
+  const open = preference.state === state ? preference.open : state === "streaming";
 
   return (
     <div data-timeline-id={id}>
@@ -378,16 +429,21 @@ function ThinkingTrace({
         onClick={() => setPreference({ state, open: !open })}
       >
         <Glyph className="text-ink-3" name="sparkle" size={16} />
-        <span className={state === 'streaming'
-          ? undefined
-          : 'text-[13px] font-medium whitespace-nowrap text-ink-2'}
+        <span
+          className={
+            state === "streaming"
+              ? undefined
+              : "text-[13px] font-medium whitespace-nowrap text-ink-2"
+          }
         >
-          {state === 'streaming'
-            ? <StatusText>Thinking</StatusText>
-            : 'Thought through the request'}
+          {state === "streaming" ? (
+            <StatusText>Thinking</StatusText>
+          ) : (
+            "Thought through the request"
+          )}
         </span>
         <Glyph
-          className={`text-ink-3 transition-transform duration-300 ${open ? 'rotate-180' : ''}`}
+          className={`text-ink-3 transition-transform duration-300 ${open ? "rotate-180" : ""}`}
           name="chevron"
           size={14}
           stroke={2.2}
@@ -395,20 +451,20 @@ function ThinkingTrace({
       </button>
       <div
         className={`grid transition-[grid-template-rows,opacity] duration-400 ease-[cubic-bezier(0.23,1,0.32,1)] ${
-          open ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+          open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
         }`}
       >
         <div className="overflow-hidden">
           <div className="relative mt-1 ml-[5px] pl-4">
             <span aria-hidden className="absolute top-0 left-[3px] h-full w-px bg-line" />
             <p className="m-0 py-1 text-[12.5px] leading-[1.6] whitespace-pre-wrap text-ink-2 [overflow-wrap:anywhere]">
-              {text.length > 0 ? text : 'No reasoning text was recorded for this step.'}
+              {text.length > 0 ? text : "The agent did not record its thinking for this step."}
             </p>
           </div>
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 function StreamingIndicator({ copy }: { copy: LiveAgentCopy }) {
@@ -417,38 +473,37 @@ function StreamingIndicator({ copy }: { copy: LiveAgentCopy }) {
       <LoadingState label={copy.title} />
       <span className="visually-hidden">{copy.detail}</span>
     </div>
-  )
+  );
 }
 
 function TerminalState({
   copy: copyOverride,
   state,
 }: {
-  copy?: LiveAgentCopy
-  state: Exclude<LiveAgentTerminalState, 'none'>
+  copy?: LiveAgentCopy;
+  state: Exclude<LiveAgentTerminalState, "none">;
 }) {
-  const copy = copyOverride ?? terminalCopy(state)
+  const copy = copyOverride ?? terminalCopy(state);
   return (
-    <div
-      className="flex items-center gap-2 py-1"
-      role={state === 'failed' ? 'alert' : 'status'}
-    >
-      <span className={`inline-flex h-5.5 shrink-0 items-center rounded-full px-2 text-[11.5px] font-medium ${terminalTone(state)}`}>
+    <div className="flex items-center gap-2 py-1" role={state === "failed" ? "alert" : "status"}>
+      <span
+        className={`inline-flex h-5.5 shrink-0 items-center rounded-full px-2 text-[11.5px] font-medium ${terminalTone(state)}`}
+      >
         {terminalLabel(state)}
       </span>
       <span className="text-[11.5px] text-ink-3">{copy.detail}</span>
     </div>
-  )
+  );
 }
 
 function ToolStateGlyph({
   state,
 }: {
-  state: Extract<SafeAgentTimelineItem, { kind: 'tool' }>['state']
+  state: Extract<SafeAgentTimelineItem, { kind: "tool" }>["state"];
 }) {
-  if (state === 'running') return <Spinner />
-  if (state === 'failed') return <Glyph className="text-red" name="alert" size={14} stroke={2.2} />
-  return <Glyph name="check" size={14} stroke={2.5} />
+  if (state === "running") return <Spinner />;
+  if (state === "failed") return <Glyph className="text-red" name="alert" size={14} stroke={2.2} />;
+  return <Glyph name="check" size={14} stroke={2.5} />;
 }
 
 function Spinner() {
@@ -457,16 +512,17 @@ function Spinner() {
       aria-hidden
       className="size-3.5 shrink-0 animate-spin rounded-full border-2 border-line-strong border-t-ink-2"
     />
-  )
+  );
 }
 
 const glyphPaths = {
-  'arrow-up': 'M12 19V5M5 12l7-7 7 7',
-  check: 'M20 6L9 17l-5-5',
-  chevron: 'M6 9l6 6 6-6',
-  alert: 'M12 8.5v5M12 17h.01M10.3 3.9 2.6 17.2A2 2 0 0 0 4.3 20.2h15.4a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z',
-  sparkle: 'M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8z',
-} as const
+  "arrow-up": "M12 19V5M5 12l7-7 7 7",
+  check: "M20 6L9 17l-5-5",
+  chevron: "M6 9l6 6 6-6",
+  alert:
+    "M12 8.5v5M12 17h.01M10.3 3.9 2.6 17.2A2 2 0 0 0 4.3 20.2h15.4a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z",
+  sparkle: "M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8z",
+} as const;
 
 function Glyph({
   className,
@@ -474,92 +530,92 @@ function Glyph({
   size,
   stroke,
 }: {
-  className?: string
-  name: keyof typeof glyphPaths
-  size: number
-  stroke?: number
+  className?: string;
+  name: keyof typeof glyphPaths;
+  size: number;
+  stroke?: number;
 }) {
-  const filled = stroke === undefined
+  const filled = stroke === undefined;
   return (
     <svg
       aria-hidden
-      {...className === undefined ? {} : { className }}
-      fill={filled ? 'currentColor' : 'none'}
+      {...(className === undefined ? {} : { className })}
+      fill={filled ? "currentColor" : "none"}
       height={size}
-      {...filled
+      {...(filled
         ? {}
         : {
-            stroke: 'currentColor',
-            strokeLinecap: 'round' as const,
-            strokeLinejoin: 'round' as const,
+            stroke: "currentColor",
+            strokeLinecap: "round" as const,
+            strokeLinejoin: "round" as const,
             strokeWidth: stroke,
-          }}
+          })}
       viewBox="0 0 24 24"
       width={size}
     >
       <path d={glyphPaths[name]} />
     </svg>
-  )
+  );
 }
 
-function toolStateLabel(state: Extract<SafeAgentTimelineItem, { kind: 'tool' }>['state']) {
-  if (state === 'running') return 'Running'
-  if (state === 'complete') return 'Done'
-  return 'Stopped'
+function toolStateLabel(state: Extract<SafeAgentTimelineItem, { kind: "tool" }>["state"]) {
+  if (state === "running") return "Running";
+  if (state === "complete") return "Done";
+  return "Stopped";
 }
 
-function terminalLabel(state: Exclude<LiveAgentTerminalState, 'none'>) {
-  if (state === 'completed') return 'Completed'
-  if (state === 'aborted') return 'Stopped'
-  return 'Failed'
+function terminalLabel(state: Exclude<LiveAgentTerminalState, "none">) {
+  if (state === "completed") return "Completed";
+  if (state === "aborted") return "Stopped";
+  return "Failed";
 }
 
-function terminalTone(state: Exclude<LiveAgentTerminalState, 'none'>) {
-  if (state === 'completed') return 'bg-green/10 text-green'
-  if (state === 'aborted') return 'bg-amber/10 text-amber'
-  return 'bg-red/10 text-red'
+function terminalTone(state: Exclude<LiveAgentTerminalState, "none">) {
+  if (state === "completed") return "bg-green/10 text-green";
+  if (state === "aborted") return "bg-amber/10 text-amber";
+  return "bg-red/10 text-red";
 }
 
-function terminalCopy(state: Exclude<LiveAgentTerminalState, 'none'>) {
-  if (state === 'completed') {
-    return { title: 'Response complete', detail: 'The copilot is ready for the next question.' }
+function terminalCopy(state: Exclude<LiveAgentTerminalState, "none">) {
+  if (state === "completed") {
+    return { title: "Response complete", detail: "The copilot is ready for the next question." };
   }
-  if (state === 'aborted') {
-    return { title: 'Turn stopped', detail: 'No further work is running for this turn.' }
+  if (state === "aborted") {
+    return { title: "Answer stopped", detail: "Nothing more is running for this question." };
   }
   return {
-    title: 'Turn did not finish',
-    detail: 'Try the prompt again when the copilot is ready.',
-  }
+    title: "The answer did not finish",
+    detail: "Try the prompt again when the copilot is ready.",
+  };
 }
 
 function formatDuration(durationMs: number) {
-  if (durationMs < 1_000) return '<1s'
-  const durationSeconds = Math.round(durationMs / 1_000)
-  if (durationSeconds < 60) return `${durationSeconds}s`
-  const minutes = Math.floor(durationSeconds / 60)
-  const seconds = durationSeconds % 60
-  return seconds === 0 ? `${minutes}m` : `${minutes}m ${seconds}s`
+  if (durationMs < 1_000) return "<1s";
+  const durationSeconds = Math.round(durationMs / 1_000);
+  if (durationSeconds < 60) return `${durationSeconds}s`;
+  const minutes = Math.floor(durationSeconds / 60);
+  const seconds = durationSeconds % 60;
+  return seconds === 0 ? `${minutes}m` : `${minutes}m ${seconds}s`;
 }
 
 function isNearLiveTail(element: HTMLDivElement) {
-  return element.scrollHeight - element.scrollTop - element.clientHeight <= 48
+  return element.scrollHeight - element.scrollTop - element.clientHeight <= 48;
 }
 
 function visibleTimelineAnchor(element: HTMLDivElement) {
-  const containerTop = element.getBoundingClientRect().top
-  for (const item of element.querySelectorAll<HTMLElement>('[data-timeline-id]')) {
-    const viewportOffset = item.getBoundingClientRect().top - containerTop
-    if (viewportOffset + item.offsetHeight < 0) continue
-    const timelineId = item.dataset['timelineId']
-    if (timelineId !== undefined) return { timelineId, viewportOffset }
+  const containerTop = element.getBoundingClientRect().top;
+  for (const item of element.querySelectorAll<HTMLElement>("[data-timeline-id]")) {
+    const viewportOffset = item.getBoundingClientRect().top - containerTop;
+    if (viewportOffset + item.offsetHeight < 0) continue;
+    const timelineId = item.dataset["timelineId"];
+    if (timelineId !== undefined) return { timelineId, viewportOffset };
   }
-  return null
+  return null;
 }
 
 function timelineItemElement(element: HTMLDivElement, timelineId: string) {
-  for (const item of element.querySelectorAll<HTMLElement>('[data-timeline-id]')) {
-    if (item.dataset['timelineId'] === timelineId) return item
+  for (const item of element.querySelectorAll<HTMLElement>("[data-timeline-id]")) {
+    if (item.dataset["timelineId"] === timelineId) return item;
   }
-  return undefined
+  return undefined;
 }

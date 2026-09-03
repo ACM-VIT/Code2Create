@@ -1,7 +1,7 @@
 {
   "name": "@code2create/ops",
-  "private": true,
   "version": "0.0.0",
+  "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -15,7 +15,7 @@
     "deploy": "pnpm build:release && pnpm deploy:built",
     "deploy:built": "node ../backend/scripts/release/webEnvironment.ts operations deploy && node ../backend/scripts/release/deployCloudflareViteWorker.ts code2create-operations",
     "lint": "oxlint",
-    "test": "node --experimental-strip-types --test src/components/intelligence/intelligenceUiContract.test.ts src/components/intelligence/liveAgentProjection.test.ts src/lib/errors.test.ts src/lib/indiaDateTime.test.ts src/lib/intelligenceConversation.test.ts src/lib/intelligenceStream.test.ts src/lib/operations.test.ts src/lib/operationsAutonomyPresentation.test.ts src/lib/operationsBrief.test.ts src/lib/teamRosterCsv.test.ts",
+    "test": "node --experimental-strip-types --test src/components/intelligence/intelligenceUiContract.test.ts src/components/intelligence/liveAgentProjection.test.ts src/lib/admissionsPresentation.test.ts src/lib/errors.test.ts src/lib/eventSchedule.test.ts src/lib/indiaDateTime.test.ts src/lib/intelligenceConversation.test.ts src/lib/intelligenceStream.test.ts src/lib/operations.test.ts src/lib/operationsAutonomyPresentation.test.ts src/lib/operationsBrief.test.ts src/lib/supportDeskPresentation.test.ts src/lib/teamRosterCsv.test.ts",
     "typecheck": "tsc -b",
     "preview": "vite preview"
   },

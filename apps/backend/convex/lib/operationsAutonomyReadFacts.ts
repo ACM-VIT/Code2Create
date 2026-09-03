@@ -87,7 +87,6 @@ function reviewTeamFact(row: Doc<"teamRoundStates">) {
     ...(row.queuedAt === undefined ? {} : { queuedAt: row.queuedAt }),
     ...(row.heldAt === undefined ? {} : { heldAt: row.heldAt }),
     ...(row.missedAt === undefined ? {} : { missedAt: row.missedAt }),
-    ...(row.tableLabel === undefined ? {} : { tableLabel: row.tableLabel }),
   };
 }
 
@@ -119,18 +118,19 @@ export async function appendReviewPanelVacancyReadFact(
   const entityKey = `vacancy:${panel._id}`;
   const sequence = await nextSequence(ctx, panel.eventId, source, now);
   await closePriorFactVersion(ctx, { eventId: panel.eventId, source, entityKey, sequence });
-  const [round, removedMember] = panel.status === "needs_reviewer"
-    ? await Promise.all([
-        ctx.db.get(panel.roundId),
-        ctx.db
-          .query("reviewPanelMembers")
-          .withIndex("by_panel_status_ended", (index) =>
-            index.eq("panelId", panel._id).eq("status", "removed"),
-          )
-          .order("desc")
-          .first(),
-      ])
-    : [null, null];
+  const [round, removedMember] =
+    panel.status === "needs_reviewer"
+      ? await Promise.all([
+          ctx.db.get(panel.roundId),
+          ctx.db
+            .query("reviewPanelMembers")
+            .withIndex("by_panel_status_ended", (index) =>
+              index.eq("panelId", panel._id).eq("status", "removed"),
+            )
+            .order("desc")
+            .first(),
+        ])
+      : [null, null];
   if (round && round.eventId !== panel.eventId) {
     throw new Error("The review panel round is outside its event.");
   }
@@ -139,20 +139,19 @@ export async function appendReviewPanelVacancyReadFact(
     source,
     entityKey,
     sequence,
-    value: round && removedMember
-      ? {
-          kind: "vacancy" as const,
-          missingPanelMemberId: removedMember._id,
-          panelId: panel._id,
-          panelName: panel.name,
-          panelVersion: panel.version,
-          roundId: round._id,
-          roundName: round.name,
-          ...(removedMember.endedAt === undefined
-            ? {}
-            : { vacantSince: removedMember.endedAt }),
-        }
-      : { kind: "absent" as const },
+    value:
+      round && removedMember
+        ? {
+            kind: "vacancy" as const,
+            missingPanelMemberId: removedMember._id,
+            panelId: panel._id,
+            panelName: panel.name,
+            panelVersion: panel.version,
+            roundId: round._id,
+            roundName: round.name,
+            ...(removedMember.endedAt === undefined ? {} : { vacantSince: removedMember.endedAt }),
+          }
+        : { kind: "absent" as const },
     createdAt: now,
   });
 }
@@ -235,11 +234,7 @@ export async function appendSupportCaseReadFact(
   if (activeSupportState(after.state) && after.ownerPersonId === undefined) {
     unassignedActiveCount += 1;
   }
-  const values = [
-    ...Object.values(byState),
-    ...categories.values(),
-    unassignedActiveCount,
-  ];
+  const values = [...Object.values(byState), ...categories.values(), unassignedActiveCount];
   if (values.some((value) => !Number.isSafeInteger(value) || value < 0)) {
     throw new Error("A support autonomy counter would become invalid.");
   }
@@ -263,11 +258,12 @@ export async function appendSupportCaseReadFact(
     updatedAt: now,
   };
   if (current) await ctx.db.patch(current._id, state);
-  else await ctx.db.insert("operationsAutonomyReadFactStates", {
-    eventId: after.eventId,
-    source,
-    ...state,
-  });
+  else
+    await ctx.db.insert("operationsAutonomyReadFactStates", {
+      eventId: after.eventId,
+      source,
+      ...state,
+    });
   const health = await ctx.db
     .query("operationsHealthSnapshots")
     .withIndex("by_event", (index) => index.eq("eventId", after.eventId))

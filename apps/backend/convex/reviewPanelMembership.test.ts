@@ -9,10 +9,7 @@ import { afterAll, describe, expect, test, vi } from "vitest";
 import { api, components } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { insertPermissionGrant, type GrantSource } from "./lib/permissions.ts";
-import {
-  defaultParticipantPolicy,
-  participantPolicyChecksum,
-} from "./lib/participantPolicy.ts";
+import { defaultParticipantPolicy, participantPolicyChecksum } from "./lib/participantPolicy.ts";
 import { maximumReviewTeamsPerEvent } from "./lib/reviewLimits.ts";
 import { insertTeamRoundState } from "./lib/reviewQueueProjection.ts";
 import { createTestSubmissionSnapshot } from "./lib/testSubmissionSnapshot.ts";
@@ -125,14 +122,22 @@ describe("live panel membership", () => {
         .query("auditEvents")
         .withIndex("by_event_time", (index) => index.eq("eventId", fixture.eventId))
         .collect();
-      expect(audit.filter((entry) => entry.action === "review.panel_membership_changed"))
-        .toHaveLength(1);
+      expect(
+        audit.filter((entry) => entry.action === "review.panel_membership_changed"),
+      ).toHaveLength(1);
     });
 
-    expect(await activeSourceGrantCount(backend, fixture.eventId, "panel_assignment", fixture.memberId))
-      .toBe(0);
-    expect(await activeSourceGrantCount(backend, fixture.eventId, "reserve_assignment", fixture.reserveId))
-      .toBe(0);
+    expect(
+      await activeSourceGrantCount(backend, fixture.eventId, "panel_assignment", fixture.memberId),
+    ).toBe(0);
+    expect(
+      await activeSourceGrantCount(
+        backend,
+        fixture.eventId,
+        "reserve_assignment",
+        fixture.reserveId,
+      ),
+    ).toBe(0);
     const joiningMemberId = await backend.run(async (ctx) => {
       const members = await ctx.db
         .query("reviewPanelMembers")
@@ -144,8 +149,9 @@ describe("live panel membership", () => {
       if (!joining) throw new Error("The joining panel member is missing.");
       return joining._id;
     });
-    expect(await activeSourceGrantCount(backend, fixture.eventId, "panel_assignment", joiningMemberId))
-      .toBe(5);
+    expect(
+      await activeSourceGrantCount(backend, fixture.eventId, "panel_assignment", joiningMemberId),
+    ).toBe(5);
   });
 
   test("refuses to change a panel while a review is live on it", async () => {
@@ -218,7 +224,9 @@ describe("live panel membership", () => {
       clientOperationId: "swap-replayed",
     } as const;
     const first = await operator.mutation(api.reviewPanelMembership.swapPanelMember, request);
-    expect(await operator.mutation(api.reviewPanelMembership.swapPanelMember, request)).toEqual(first);
+    expect(await operator.mutation(api.reviewPanelMembership.swapPanelMember, request)).toEqual(
+      first,
+    );
 
     await backend.run(async (ctx) => {
       const members = await ctx.db
@@ -241,8 +249,9 @@ describe("live panel membership", () => {
         .query("auditEvents")
         .withIndex("by_event_time", (index) => index.eq("eventId", fixture.eventId))
         .collect();
-      expect(audit.filter((entry) => entry.action === "review.panel_membership_changed"))
-        .toHaveLength(1);
+      expect(
+        audit.filter((entry) => entry.action === "review.panel_membership_changed"),
+      ).toHaveLength(1);
     });
   });
 
@@ -693,7 +702,9 @@ describe("live panel membership", () => {
           clientOperationId: "clock-in-before-opening",
         }),
       ).rejects.toThrow("Clock-in is available only from the published opening");
-      expect(await reviewerPolicySnapshot(backend, fixture, reviewer.installationId)).toEqual(before);
+      expect(await reviewerPolicySnapshot(backend, fixture, reviewer.installationId)).toEqual(
+        before,
+      );
 
       clock.mockReturnValue(boundary - 60_000);
       await expect(
@@ -741,7 +752,9 @@ describe("live panel membership", () => {
           clientOperationId: "clock-in-outside-availability",
         }),
       ).rejects.toThrow("current availability no longer covers");
-      expect(await reviewerPolicySnapshot(backend, fixture, reviewer.installationId)).toEqual(before);
+      expect(await reviewerPolicySnapshot(backend, fixture, reviewer.installationId)).toEqual(
+        before,
+      );
     } finally {
       clock.mockRestore();
     }
@@ -820,7 +833,9 @@ describe("live panel membership", () => {
           clientOperationId: "present-reviewer-no-show",
         }),
       ).rejects.toThrow("A reviewer who is present cannot be marked as a no-show");
-      expect(await reviewerPolicySnapshot(backend, fixture, reviewer.installationId)).toEqual(before);
+      expect(await reviewerPolicySnapshot(backend, fixture, reviewer.installationId)).toEqual(
+        before,
+      );
     } finally {
       clock.mockRestore();
     }
@@ -905,15 +920,23 @@ describe("live panel membership", () => {
         rubric: {
           name: "Availability fixture rubric",
           spreadThreshold: 2,
-          criteria: [{
-            stableKey: "craft",
-            label: "Craft",
-            question: "How strong is the demonstrated craft?",
-            guidance: "Use only the fixed evidence shown by the team.",
-            weight: 100,
-            displayOrder: 0,
-            anchors: { zero: "None", one: "Weak", two: "Sound", three: "Strong", four: "Exceptional" },
-          }],
+          criteria: [
+            {
+              stableKey: "craft",
+              label: "Craft",
+              question: "How strong is the demonstrated craft?",
+              guidance: "Use only the fixed evidence shown by the team.",
+              weight: 100,
+              displayOrder: 0,
+              anchors: {
+                zero: "None",
+                one: "Weak",
+                two: "Sound",
+                three: "Strong",
+                four: "Exceptional",
+              },
+            },
+          ],
         },
         round: {
           stableKey: "availability_fixture_round",
@@ -940,15 +963,19 @@ describe("live panel membership", () => {
           requiresCamera: false,
           requiresNotifications: false,
         },
-        panels: [{
-          stableKey: "availability_panel",
-          name: "Availability panel",
-          members: [{
-            personId: fixture.memberPersonId,
-            criterionKeys: ["craft"],
-            isCoordinator: true,
-          }],
-        }],
+        panels: [
+          {
+            stableKey: "availability_panel",
+            name: "Availability panel",
+            members: [
+              {
+                personId: fixture.memberPersonId,
+                criterionKeys: ["craft"],
+                isCoordinator: true,
+              },
+            ],
+          },
+        ],
         reservePersonIds: [],
         reason: "Exercise unavailable reviewer publication",
         clientOperationId: "publish-unavailable-reviewer",
@@ -1120,27 +1147,45 @@ async function reviewerPolicySnapshot(
 
 async function publicationSnapshot(backend: BackendTest, eventId: Id<"events">) {
   return backend.run(async (ctx) => {
-    const [
-      rubrics,
-      criteria,
-      rounds,
-      panels,
-      members,
-      reserves,
-      grants,
-      operations,
-      audits,
-    ] = await Promise.all([
-      ctx.db.query("reviewRubricVersions").withIndex("by_event_version", (index) => index.eq("eventId", eventId)).collect(),
-      ctx.db.query("reviewRubricCriteria").collect().then((rows) => rows.filter((row) => row.eventId === eventId)),
-      ctx.db.query("reviewRounds").withIndex("by_event_status_start", (index) => index.eq("eventId", eventId)).collect(),
-      ctx.db.query("reviewPanels").withIndex("by_event_name", (index) => index.eq("eventId", eventId)).collect(),
-      ctx.db.query("reviewPanelMembers").withIndex("by_event_person_status", (index) => index.eq("eventId", eventId)).collect(),
-      ctx.db.query("reviewRoundReserves").withIndex("by_event_person_status", (index) => index.eq("eventId", eventId)).collect(),
-      ctx.db.query("permissionGrants").withIndex("by_event_permission_status", (index) => index.eq("eventId", eventId)).collect(),
-      ctx.db.query("operationResults").collect().then((rows) => rows.filter((row) => row.eventId === eventId)),
-      ctx.db.query("auditEvents").withIndex("by_event_time", (index) => index.eq("eventId", eventId)).collect(),
-    ]);
+    const [rubrics, criteria, rounds, panels, members, reserves, grants, operations, audits] =
+      await Promise.all([
+        ctx.db
+          .query("reviewRubricVersions")
+          .withIndex("by_event_version", (index) => index.eq("eventId", eventId))
+          .collect(),
+        ctx.db
+          .query("reviewRubricCriteria")
+          .collect()
+          .then((rows) => rows.filter((row) => row.eventId === eventId)),
+        ctx.db
+          .query("reviewRounds")
+          .withIndex("by_event_status_start", (index) => index.eq("eventId", eventId))
+          .collect(),
+        ctx.db
+          .query("reviewPanels")
+          .withIndex("by_event_name", (index) => index.eq("eventId", eventId))
+          .collect(),
+        ctx.db
+          .query("reviewPanelMembers")
+          .withIndex("by_event_person_status", (index) => index.eq("eventId", eventId))
+          .collect(),
+        ctx.db
+          .query("reviewRoundReserves")
+          .withIndex("by_event_person_status", (index) => index.eq("eventId", eventId))
+          .collect(),
+        ctx.db
+          .query("permissionGrants")
+          .withIndex("by_event_permission_status", (index) => index.eq("eventId", eventId))
+          .collect(),
+        ctx.db
+          .query("operationResults")
+          .collect()
+          .then((rows) => rows.filter((row) => row.eventId === eventId)),
+        ctx.db
+          .query("auditEvents")
+          .withIndex("by_event_time", (index) => index.eq("eventId", eventId))
+          .collect(),
+      ]);
     return {
       rubrics: rubrics.map((row) => row._id),
       criteria: criteria.map((row) => row._id),
@@ -1188,7 +1233,7 @@ async function seedPanel(backend: BackendTest) {
       timezone: "Asia/Kolkata",
       status: "live",
       vitEmailDomains: ["vitstudent.ac.in"],
-        applicationsCloseAt: Date.now() + 86_400_000,
+      applicationsCloseAt: Date.now() + 86_400_000,
       startsAt: now - 60_000,
       endsAt: now + 3_600_000,
       version: 1,
@@ -1197,7 +1242,10 @@ async function seedPanel(backend: BackendTest) {
     });
     const operator = await insertAccount(ctx, eventId, "operator", now, authUserId);
     const criterionKeys = ["craft", "impact"];
-    const reviewers = new Map<string, { personId: Id<"people">; subjectId: Id<"eventAccessSubjects"> }>();
+    const reviewers = new Map<
+      string,
+      { personId: Id<"people">; subjectId: Id<"eventAccessSubjects"> }
+    >();
     for (const key of ["coordinator", "member", "second-member", "reserve"]) {
       const account = await insertAccount(ctx, eventId, key, now);
       await ctx.db.insert("reviewerProfiles", {
@@ -1207,7 +1255,9 @@ async function seedPanel(backend: BackendTest) {
         productDomains: ["operations"],
         languages: ["english"],
         criterionKeys,
-        availabilityWindows: [{ startsAt: now - 2 * 60 * 60 * 1_000, endsAt: now + 4 * 60 * 60 * 1_000 }],
+        availabilityWindows: [
+          { startsAt: now - 2 * 60 * 60 * 1_000, endsAt: now + 4 * 60 * 60 * 1_000 },
+        ],
         trainingStatus: "complete",
         status: "active",
         version: 1,

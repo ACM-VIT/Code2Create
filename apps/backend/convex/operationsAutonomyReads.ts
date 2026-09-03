@@ -121,7 +121,7 @@ export const prepareRead = internalMutation({
         return { state: "rejected" as const, code: "authority_revoked" as const };
       }
       return {
-        state: isFactReadTool(boundary.prior.read) ? "execute" as const : "capture" as const,
+        state: isFactReadTool(boundary.prior.read) ? ("execute" as const) : ("capture" as const),
         eventId: boundary.run.eventId,
         runId: boundary.run._id,
         read: boundary.prior.read,
@@ -188,25 +188,24 @@ export const prepareRead = internalMutation({
           index.eq("eventId", boundary.run.eventId).eq("source", factRead),
         )
         .unique();
-      const frozenHighWatermark = boundary.run.sourceFactHighWatermarks.find(
-        (entry) => entry.read === factRead,
-      )?.sequence ?? 0;
+      const frozenHighWatermark =
+        boundary.run.sourceFactHighWatermarks.find((entry) => entry.read === factRead)?.sequence ??
+        0;
       if ((state?.sequence ?? 0) < frozenHighWatermark) {
         throw new Error("The autonomy source fact ledger is behind its frozen high-watermark.");
       }
       const highWatermark = frozenHighWatermark;
-      const summary = factRead === "support_load"
-        ? state?.source === "support_load"
-          ? {
-              byState: state.byState,
-              openByCategory: state.openByCategory,
-              unassignedActiveCount: state.unassignedActiveCount,
-              ...(state.oldestOpenAt === undefined
-                ? {}
-                : { oldestOpenAt: state.oldestOpenAt }),
-            }
-          : emptySupportSummary()
-        : {};
+      const summary =
+        factRead === "support_load"
+          ? state?.source === "support_load"
+            ? {
+                byState: state.byState,
+                openByCategory: state.openByCategory,
+                unassignedActiveCount: state.unassignedActiveCount,
+                ...(state.oldestOpenAt === undefined ? {} : { oldestOpenAt: state.oldestOpenAt }),
+              }
+            : emptySupportSummary()
+          : {};
       await ctx.db.insert("operationsAutonomyReadTraversals", {
         eventId: boundary.run.eventId,
         runId: boundary.run._id,
@@ -248,9 +247,10 @@ export const prepareRead = internalMutation({
       now: args.now,
     });
     return {
-      state: request.cursor === undefined && !isFactReadTool(request.read)
-        ? "capture" as const
-        : "execute" as const,
+      state:
+        request.cursor === undefined && !isFactReadTool(request.read)
+          ? ("capture" as const)
+          : ("execute" as const),
       eventId: boundary.run.eventId,
       runId: boundary.run._id,
       read: request.read,
@@ -358,7 +358,8 @@ export const commitRead = internalMutation({
     if (stored.state === "completed") {
       return { state: "committed" as const, responseJson: stored.responseJson };
     }
-    if (stored.state !== "reserved") throw new Error("The autonomy read reservation is not writable.");
+    if (stored.state !== "reserved")
+      throw new Error("The autonomy read reservation is not writable.");
     const run = await ctx.db.get(runId);
     if (!run) throw new Error("The autonomy read run is missing.");
     const authority = await requireCurrentAutonomyAuthority(ctx, run, args.now);
@@ -379,7 +380,8 @@ export const commitRead = internalMutation({
       checkpoint.activeRead.kind !== "reserved" ||
       checkpoint.activeRead.operationId !== operationId ||
       checkpoint.activeRead.sequence !== stored.sequence
-    ) throw new Error("The autonomy read checkpoint does not own this reservation.");
+    )
+      throw new Error("The autonomy read checkpoint does not own this reservation.");
     const continueCursor = args.isDone
       ? undefined
       : `cursor:${autonomyOperationFingerprint({

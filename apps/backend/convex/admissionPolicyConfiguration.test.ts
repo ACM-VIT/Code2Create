@@ -62,71 +62,96 @@ describe("admission policy configuration", () => {
   test("requires complete year bands, decision coverage, and bounded model metadata", () => {
     const valid = configuration("admission-v2", 900, true);
     expect(normalizeAdmissionConfiguration(valid).criteria).toHaveLength(4);
-    expect(() => normalizeAdmissionConfiguration({
-      ...valid,
-      criteria: [{
-        ...valid.criteria[0]!,
-        guidanceByBand: { ...valid.criteria[0]!.guidanceByBand, firstYear: "Too short" },
-      }],
-    })).toThrow("First-year guidance");
-    expect(() => normalizeAdmissionConfiguration({
-      ...valid,
-      decisionReasonCodes: valid.decisionReasonCodes.filter((reason) =>
-        !reason.allowedDecisions.includes("accept"),
-      ),
-    })).toThrow("permit accept");
-    expect(() => normalizeAdmissionConfiguration({
-      ...valid,
-      model: valid.model ? { ...valid.model, modelId: "x" } : null,
-    })).toThrow("Admission model ID");
+    expect(() =>
+      normalizeAdmissionConfiguration({
+        ...valid,
+        criteria: [
+          {
+            ...valid.criteria[0]!,
+            guidanceByBand: { ...valid.criteria[0]!.guidanceByBand, firstYear: "Too short" },
+          },
+        ],
+      }),
+    ).toThrow("First-year guidance");
+    expect(() =>
+      normalizeAdmissionConfiguration({
+        ...valid,
+        decisionReasonCodes: [
+          ...valid.decisionReasonCodes.filter(
+            (reason) => !reason.allowedDecisions.includes("accept"),
+          ),
+          {
+            key: "another_waitlist_reason",
+            label: "Another waitlist reason",
+            allowedDecisions: ["waitlist"],
+          },
+        ],
+      }),
+    ).toThrow("permit accept");
+    expect(() =>
+      normalizeAdmissionConfiguration({
+        ...valid,
+        model: valid.model ? { ...valid.model, modelId: "x" } : null,
+      }),
+    ).toThrow("Admission model ID");
   });
 
   test("allows one competing complete draft from the same observed state", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedFixture(backend, "draft-race");
     const attempts = await Promise.allSettled([
-      backend.run((ctx) => saveAdmissionConfigurationDraft(ctx, {
-        event: fixture.event,
-        actorPersonId: fixture.personId,
-        configuration: configuration("admission-alpha", 900, false),
-        now: fixture.now + 1,
-      })),
-      backend.run((ctx) => saveAdmissionConfigurationDraft(ctx, {
-        event: fixture.event,
-        actorPersonId: fixture.personId,
-        configuration: configuration("admission-beta", 950, true),
-        now: fixture.now + 1,
-      })),
+      backend.run((ctx) =>
+        saveAdmissionConfigurationDraft(ctx, {
+          event: fixture.event,
+          actorPersonId: fixture.personId,
+          configuration: configuration("admission-alpha", 900, false),
+          now: fixture.now + 1,
+        }),
+      ),
+      backend.run((ctx) =>
+        saveAdmissionConfigurationDraft(ctx, {
+          event: fixture.event,
+          actorPersonId: fixture.personId,
+          configuration: configuration("admission-beta", 950, true),
+          now: fixture.now + 1,
+        }),
+      ),
     ]);
     expect(attempts.filter((attempt) => attempt.status === "fulfilled")).toHaveLength(1);
     expect(attempts.filter((attempt) => attempt.status === "rejected")).toHaveLength(1);
-    const drafts = await backend.run((ctx) => ctx.db
-      .query("admissionPolicyVersions")
-      .withIndex("by_event_status", (index) =>
-        index.eq("eventId", fixture.event._id).eq("status", "draft"),
-      )
-      .collect());
+    const drafts = await backend.run((ctx) =>
+      ctx.db
+        .query("admissionPolicyVersions")
+        .withIndex("by_event_status", (index) =>
+          index.eq("eventId", fixture.event._id).eq("status", "draft"),
+        )
+        .collect(),
+    );
     expect(drafts).toHaveLength(1);
   });
 
   test("publishes policy, model, capacity, and pointer together, then freezes", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedFixture(backend, "publication");
-    const draft = await backend.run((ctx) => saveAdmissionConfigurationDraft(ctx, {
-      event: fixture.event,
-      actorPersonId: fixture.personId,
-      configuration: configuration("admission-v2", 900, true),
-      now: fixture.now + 1,
-    }));
+    const draft = await backend.run((ctx) =>
+      saveAdmissionConfigurationDraft(ctx, {
+        event: fixture.event,
+        actorPersonId: fixture.personId,
+        configuration: configuration("admission-v2", 900, true),
+        now: fixture.now + 1,
+      }),
+    );
     expect(draft.modelConfigVersionId).not.toBeNull();
-    await backend.run((ctx) => publishAdmissionConfiguration(ctx, {
-      event: fixture.event,
-      draftPolicyId: draft.policyVersionId,
-      expectedPolicyChecksum: draft.policyChecksum,
-      expectedModelConfigId: draft.modelConfigVersionId,
-      expectedModelChecksum: draft.modelChecksum,
-      now: fixture.now + 2,
-    }));
+    await backend.run((ctx) =>
+      publishAdmissionConfiguration(ctx, {
+        event: fixture.event,
+        draftPolicyId: draft.policyVersionId,
+        expectedPolicyChecksum: draft.policyChecksum,
+        expectedModelConfigId: draft.modelConfigVersionId,
+        expectedModelChecksum: draft.modelChecksum,
+        now: fixture.now + 2,
+      }),
+    );
     const published = await backend.run(async (ctx) => {
       const event = await ctx.db.get(fixture.event._id);
       if (!event) throw new Error("The event is missing after publication.");
@@ -141,7 +166,9 @@ describe("admission policy configuration", () => {
         modelVersion: release.configuration.model?.version,
         capacity: release.configuration.overallParticipantCapacity,
         oldPolicyStatus: oldPolicy?.status,
-        bucketCapacities: buckets.map((bucket) => bucket.capacity).sort((left, right) => left - right),
+        bucketCapacities: buckets
+          .map((bucket) => bucket.capacity)
+          .sort((left, right) => left - right),
         eventVersion: event.version,
       };
     });
@@ -154,32 +181,42 @@ describe("admission policy configuration", () => {
       eventVersion: 2,
     });
 
-    const nextDraft = await backend.run((ctx) => saveAdmissionConfigurationDraft(ctx, {
-      event: fixture.event,
-      actorPersonId: fixture.personId,
-      configuration: configuration("admission-v3", 950, false),
-      now: fixture.now + 3,
-    }));
+    const nextDraft = await backend.run((ctx) =>
+      saveAdmissionConfigurationDraft(ctx, {
+        event: fixture.event,
+        actorPersonId: fixture.personId,
+        configuration: configuration("admission-v3", 950, false),
+        now: fixture.now + 3,
+      }),
+    );
     const currentEvent = await backend.run(async (ctx) => {
       await insertSubmittedApplication(ctx, fixture);
       const event = await ctx.db.get(fixture.event._id);
       if (!event) throw new Error("The event is missing before the freeze check.");
       return event;
     });
-    await expect(backend.run((ctx) => publishAdmissionConfiguration(ctx, {
-      event: currentEvent,
-      draftPolicyId: nextDraft.policyVersionId,
-      expectedPolicyChecksum: nextDraft.policyChecksum,
-      expectedModelConfigId: nextDraft.modelConfigVersionId,
-      expectedModelChecksum: nextDraft.modelChecksum,
-      now: fixture.now + 4,
-    }))).rejects.toThrow("closes when the first project submission begins");
-    await expect(backend.run((ctx) => saveAdmissionConfigurationDraft(ctx, {
-      event: currentEvent,
-      actorPersonId: fixture.personId,
-      configuration: configuration("admission-v4", 975, false),
-      now: fixture.now + 5,
-    }))).rejects.toThrow("closes when the first project submission begins");
+    await expect(
+      backend.run((ctx) =>
+        publishAdmissionConfiguration(ctx, {
+          event: currentEvent,
+          draftPolicyId: nextDraft.policyVersionId,
+          expectedPolicyChecksum: nextDraft.policyChecksum,
+          expectedModelConfigId: nextDraft.modelConfigVersionId,
+          expectedModelChecksum: nextDraft.modelChecksum,
+          now: fixture.now + 4,
+        }),
+      ),
+    ).rejects.toThrow("closes when the first project submission begins");
+    await expect(
+      backend.run((ctx) =>
+        saveAdmissionConfigurationDraft(ctx, {
+          event: currentEvent,
+          actorPersonId: fixture.personId,
+          configuration: configuration("admission-v4", 975, false),
+          now: fixture.now + 5,
+        }),
+      ),
+    ).rejects.toThrow("closes when the first project submission begins");
     const afterRejectedPublication = await backend.run((ctx) => ctx.db.get(fixture.event._id));
     expect(afterRejectedPublication?.publishedAdmissionPolicyId).toBe(draft.policyVersionId);
   });
@@ -187,39 +224,47 @@ describe("admission policy configuration", () => {
   test("a request to disable recommendations still publishes the code-owned model", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedFixture(backend, "disable-model");
-    const enabledDraft = await backend.run((ctx) => saveAdmissionConfigurationDraft(ctx, {
-      event: fixture.event,
-      actorPersonId: fixture.personId,
-      configuration: configuration("admission-v2", 900, true),
-      now: fixture.now + 1,
-    }));
-    await backend.run((ctx) => publishAdmissionConfiguration(ctx, {
-      event: fixture.event,
-      draftPolicyId: enabledDraft.policyVersionId,
-      expectedPolicyChecksum: enabledDraft.policyChecksum,
-      expectedModelConfigId: enabledDraft.modelConfigVersionId,
-      expectedModelChecksum: enabledDraft.modelChecksum,
-      now: fixture.now + 2,
-    }));
+    const enabledDraft = await backend.run((ctx) =>
+      saveAdmissionConfigurationDraft(ctx, {
+        event: fixture.event,
+        actorPersonId: fixture.personId,
+        configuration: configuration("admission-v2", 900, true),
+        now: fixture.now + 1,
+      }),
+    );
+    await backend.run((ctx) =>
+      publishAdmissionConfiguration(ctx, {
+        event: fixture.event,
+        draftPolicyId: enabledDraft.policyVersionId,
+        expectedPolicyChecksum: enabledDraft.policyChecksum,
+        expectedModelConfigId: enabledDraft.modelConfigVersionId,
+        expectedModelChecksum: enabledDraft.modelChecksum,
+        now: fixture.now + 2,
+      }),
+    );
     const eventWithModel = await backend.run(async (ctx) => {
       const event = await ctx.db.get(fixture.event._id);
       if (!event) throw new Error("The event is missing after enabling the model.");
       return event;
     });
-    const disabledDraft = await backend.run((ctx) => saveAdmissionConfigurationDraft(ctx, {
-      event: eventWithModel,
-      actorPersonId: fixture.personId,
-      configuration: configuration("admission-v3", 850, false),
-      now: fixture.now + 3,
-    }));
-    await backend.run((ctx) => publishAdmissionConfiguration(ctx, {
-      event: eventWithModel,
-      draftPolicyId: disabledDraft.policyVersionId,
-      expectedPolicyChecksum: disabledDraft.policyChecksum,
-      expectedModelConfigId: disabledDraft.modelConfigVersionId,
-      expectedModelChecksum: disabledDraft.modelChecksum,
-      now: fixture.now + 4,
-    }));
+    const disabledDraft = await backend.run((ctx) =>
+      saveAdmissionConfigurationDraft(ctx, {
+        event: eventWithModel,
+        actorPersonId: fixture.personId,
+        configuration: configuration("admission-v3", 850, false),
+        now: fixture.now + 3,
+      }),
+    );
+    await backend.run((ctx) =>
+      publishAdmissionConfiguration(ctx, {
+        event: eventWithModel,
+        draftPolicyId: disabledDraft.policyVersionId,
+        expectedPolicyChecksum: disabledDraft.policyChecksum,
+        expectedModelConfigId: disabledDraft.modelConfigVersionId,
+        expectedModelChecksum: disabledDraft.modelChecksum,
+        now: fixture.now + 4,
+      }),
+    );
     const result = await backend.run(async (ctx) => {
       const event = await ctx.db.get(fixture.event._id);
       if (!event) throw new Error("The event is missing after disabling the model.");
@@ -245,21 +290,25 @@ describe("admission policy configuration", () => {
   test("a first submission and policy publication leave one matching policy boundary", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedFixture(backend, "submission-race");
-    const draft = await backend.run((ctx) => saveAdmissionConfigurationDraft(ctx, {
-      event: fixture.event,
-      actorPersonId: fixture.personId,
-      configuration: configuration("admission-v2", 900, true),
-      now: fixture.now + 1,
-    }));
-    const attempts = await Promise.allSettled([
-      backend.run((ctx) => publishAdmissionConfiguration(ctx, {
+    const draft = await backend.run((ctx) =>
+      saveAdmissionConfigurationDraft(ctx, {
         event: fixture.event,
-        draftPolicyId: draft.policyVersionId,
-        expectedPolicyChecksum: draft.policyChecksum,
-        expectedModelConfigId: draft.modelConfigVersionId,
-        expectedModelChecksum: draft.modelChecksum,
-        now: fixture.now + 2,
-      })),
+        actorPersonId: fixture.personId,
+        configuration: configuration("admission-v2", 900, true),
+        now: fixture.now + 1,
+      }),
+    );
+    const attempts = await Promise.allSettled([
+      backend.run((ctx) =>
+        publishAdmissionConfiguration(ctx, {
+          event: fixture.event,
+          draftPolicyId: draft.policyVersionId,
+          expectedPolicyChecksum: draft.policyChecksum,
+          expectedModelConfigId: draft.modelConfigVersionId,
+          expectedModelChecksum: draft.modelChecksum,
+          now: fixture.now + 2,
+        }),
+      ),
       backend.run((ctx) => insertSubmittedApplication(ctx, fixture)),
     ]);
     expect(attempts[1]?.status).toBe("fulfilled");
@@ -319,7 +368,7 @@ async function seedFixture(backend: BackendTest, slug: string): Promise<Fixture>
       timezone: "Asia/Kolkata",
       status: "registration_open",
       vitEmailDomains: ["vitstudent.ac.in"],
-        applicationsCloseAt: Date.now() + 86_400_000,
+      applicationsCloseAt: Date.now() + 86_400_000,
       createdByPersonId: personId,
       version: 1,
       createdAt: now,
@@ -367,10 +416,7 @@ async function seedFixture(backend: BackendTest, slug: string): Promise<Fixture>
   });
 }
 
-async function insertSubmittedApplication(
-  ctx: MutationCtx,
-  fixture: Fixture,
-) {
+async function insertSubmittedApplication(ctx: MutationCtx, fixture: Fixture) {
   const currentEvent = await ctx.db.get(fixture.event._id);
   const policyId = currentEvent?.publishedAdmissionPolicyId;
   if (!policyId) throw new Error("The current admission policy is missing.");
@@ -403,7 +449,7 @@ async function insertSubmittedApplication(
     leadMembershipId: membershipId,
     status: "submitted",
     activeMemberCount: 1,
-      activeVitMemberCount: 0,
+    activeVitMemberCount: 0,
     activeExternalMemberCount: 1,
     membershipLocked: true,
     version: 1,

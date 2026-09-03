@@ -74,7 +74,5 @@ export async function readBoundedJsonResponse(
   if (contentType !== "application/json" && !contentType?.endsWith("+json")) {
     throw new Error("The remote response is not JSON.");
   }
-  return JSON.parse(
-    await readBoundedResponseText(response, maximumBytes),
-  );
+  return JSON.parse(await readBoundedResponseText(response, maximumBytes));
 }

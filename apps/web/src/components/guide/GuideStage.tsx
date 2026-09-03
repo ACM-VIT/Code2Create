@@ -1,21 +1,25 @@
-import type { ReactNode } from 'react'
-import { StickToBottom, useStickToBottomContext } from 'use-stick-to-bottom'
+import type { ReactNode } from "react";
+import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
 
 export function GuideStage({
   header,
   children,
   composer,
 }: {
-  header: ReactNode
-  children: ReactNode
-  composer: ReactNode
+  header: ReactNode;
+  children: ReactNode;
+  composer: ReactNode;
 }) {
   return (
     <div className="flex h-full min-h-0 w-full max-w-[760px] flex-col overflow-hidden rounded-petal glass guide-panel">
       <div className="flex flex-none items-center justify-between gap-3 border-b border-petal-line/60 px-4 py-2.5 sm:px-5">
         {header}
       </div>
-      <StickToBottom className="relative min-h-0 flex-1 overflow-y-hidden" resize="smooth" initial="instant">
+      <StickToBottom
+        className="relative min-h-0 flex-1 overflow-y-hidden"
+        resize="smooth"
+        initial="instant"
+      >
         <StickToBottom.Content
           role="log"
           aria-live="polite"
@@ -29,12 +33,12 @@ export function GuideStage({
       </StickToBottom>
       <div className="flex-none border-t border-petal-line/60 px-3 py-2.5 sm:px-4">{composer}</div>
     </div>
-  )
+  );
 }
 
 function ScrollToNewest() {
-  const { isAtBottom, scrollToBottom } = useStickToBottomContext()
-  if (isAtBottom) return null
+  const { isAtBottom, scrollToBottom } = useStickToBottomContext();
+  if (isAtBottom) return null;
   return (
     <button
       type="button"
@@ -46,5 +50,5 @@ function ScrollToNewest() {
         <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v14m0 0 6-6m-6 6-6-6" />
       </svg>
     </button>
-  )
+  );
 }

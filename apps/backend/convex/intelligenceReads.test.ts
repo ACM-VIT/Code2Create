@@ -57,9 +57,7 @@ async function signedRead(
     protocolVersion: operationsIntelligenceProtocolVersion,
     read,
     eventSlug,
-    ...(options.conversationId !== undefined
-      ? { conversationId: options.conversationId }
-      : {}),
+    ...(options.conversationId !== undefined ? { conversationId: options.conversationId } : {}),
   });
   const timestamp = options.timestamp ?? Date.now().toString();
   const signature = await signServiceBody({
@@ -110,12 +108,9 @@ describe("intelligence read endpoint", () => {
     const unknownRead = await signedRead(backend, fixture.eventSlug, "raw_table_scan");
     expect(unknownRead.status).toBe(422);
 
-    const misplacedConversation = await signedRead(
-      backend,
-      fixture.eventSlug,
-      "review_rounds",
-      { conversationId: privateConversationId },
-    );
+    const misplacedConversation = await signedRead(backend, fixture.eventSlug, "review_rounds", {
+      conversationId: privateConversationId,
+    });
     expect(misplacedConversation.status).toBe(422);
 
     const unknownEvent = await signedRead(backend, "no-such-event", "review_rounds");
@@ -132,14 +127,11 @@ describe("intelligence read endpoint", () => {
       "review_rounds",
       "review_exceptions",
       "attendance_counts",
-      "floor_mapping_progress",
       "support_load",
       "recommendation_history",
     ]) {
       const response = await signedRead(backend, fixture.eventSlug, read, {
-        ...(read === "recommendation_history"
-          ? { conversationId: privateConversationId }
-          : {}),
+        ...(read === "recommendation_history" ? { conversationId: privateConversationId } : {}),
       });
       expect(response.status, read).toBe(200);
       const text = await response.text();
@@ -164,12 +156,9 @@ describe("intelligence read endpoint", () => {
     );
     expect(missingConversation.status).toBe(422);
 
-    const response = await signedRead(
-      backend,
-      fixture.eventSlug,
-      "recommendation_history",
-      { conversationId: privateConversationId },
-    );
+    const response = await signedRead(backend, fixture.eventSlug, "recommendation_history", {
+      conversationId: privateConversationId,
+    });
     expect(response.status).toBe(200);
     const text = await response.text();
     expect(text).toContain("private-proposal");
@@ -216,7 +205,7 @@ async function seedEvent(backend: BackendTest) {
       timezone: "Asia/Kolkata",
       status: "live",
       vitEmailDomains: ["vitstudent.ac.in"],
-        applicationsCloseAt: Date.now() + 86_400_000,
+      applicationsCloseAt: Date.now() + 86_400_000,
       version: 1,
       createdAt: now,
       updatedAt: now,

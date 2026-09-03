@@ -2,15 +2,59 @@ export const participantEmailTemplateKeys = [
   "accept",
   "waitlist",
   "decline",
-  "needs_information",
   "offer",
   "offer_confirmed",
   "offer_declined",
   "offer_expired",
 ] as const;
 
-export type ParticipantEmailTemplateKey =
-  (typeof participantEmailTemplateKeys)[number];
+export type ParticipantEmailTemplateKey = (typeof participantEmailTemplateKeys)[number];
+
+export const participantEmailTemplateZipMaximumBytes = 3_500_000;
+
+export type ParticipantEmailTemplateAssetReplacement = {
+  fileName: string;
+  replacement: string;
+};
+
+export function normalizeParticipantEmailTemplateAssetReference(value: string) {
+  const trimmed = value.trim();
+  const withoutContentId = trimmed.startsWith("cid:") ? trimmed.slice(4) : trimmed;
+  return withoutContentId.replace(/^\.\//u, "");
+}
+
+export function rewriteParticipantEmailTemplateAssetReferences(
+  html: string,
+  replacements: readonly ParticipantEmailTemplateAssetReplacement[],
+) {
+  const byFileName = new Map(
+    replacements.map(({ fileName, replacement }) => [fileName, replacement] as const),
+  );
+  const replacementFor = (reference: string) =>
+    byFileName.get(normalizeParticipantEmailTemplateAssetReference(reference));
+
+  return html
+    .replace(/\bsrc(\s*=\s*)"([^"]*)"/giu, (attribute, spacing: string, reference: string) => {
+      const replacement = replacementFor(reference);
+      return replacement === undefined ? attribute : `src${spacing}"${replacement}"`;
+    })
+    .replace(/\bsrc(\s*=\s*)'([^']*)'/giu, (attribute, spacing: string, reference: string) => {
+      const replacement = replacementFor(reference);
+      return replacement === undefined ? attribute : `src${spacing}'${replacement}'`;
+    })
+    .replace(/\burl\(\s*"([^"]*)"\s*\)/giu, (value, reference: string) => {
+      const replacement = replacementFor(reference);
+      return replacement === undefined ? value : `url("${replacement}")`;
+    })
+    .replace(/\burl\(\s*'([^']*)'\s*\)/giu, (value, reference: string) => {
+      const replacement = replacementFor(reference);
+      return replacement === undefined ? value : `url('${replacement}')`;
+    })
+    .replace(/\burl\(\s*([^"'()]*)\s*\)/giu, (value, reference: string) => {
+      const replacement = replacementFor(reference);
+      return replacement === undefined ? value : `url(${replacement})`;
+    });
+}
 
 export type ParticipantEmailTemplate = {
   templateKey: ParticipantEmailTemplateKey;
@@ -19,14 +63,10 @@ export type ParticipantEmailTemplate = {
   html: string;
 };
 
-export const participantEmailTemplateLabels: Record<
-  ParticipantEmailTemplateKey,
-  string
-> = {
+export const participantEmailTemplateLabels: Record<ParticipantEmailTemplateKey, string> = {
   accept: "Selected",
   waitlist: "Waitlisted",
   decline: "Not selected",
-  needs_information: "More information needed",
   offer: "Offer sent",
   offer_confirmed: "Offer confirmed",
   offer_declined: "Offer declined",
@@ -78,15 +118,6 @@ export function defaultParticipantEmailTemplates(): ParticipantEmailTemplate[] {
       html: emailHtml(
         "An update on your application.",
         "{{team_name}} was not selected for {{event_name}}. Thank you for taking the time to share your idea with us.",
-      ),
-    },
-    {
-      templateKey: "needs_information",
-      subject: "{{team_name}} needs to answer a Code2Create follow-up",
-      text: "Hi {{participant_name}},\n\nWe need more information from {{team_name}} before review can continue. The team lead can answer in the participant portal: {{portal_url}}",
-      html: emailHtml(
-        "We need a little more information.",
-        "The team lead for {{team_name}} can answer the review questions in the participant portal.",
       ),
     },
     {

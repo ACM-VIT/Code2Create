@@ -1,17 +1,17 @@
-import { useState } from 'react';
+import { useState } from "react";
 
 export interface FaqItem {
-  id: string
-  q: string
-  a?: string
+  id: string;
+  q: string;
+  a?: string;
 }
 
 interface FaqBoardProps {
-  columns: readonly (readonly FaqItem[])[]
+  columns: readonly (readonly FaqItem[])[];
 }
 
 export default function FaqBoard({ columns }: FaqBoardProps) {
-  const [openFaq, setOpenFaq] = useState<string | null>('register');
+  const [openFaq, setOpenFaq] = useState<string | null>("register");
 
   return (
     <div className="faq-columns">
@@ -37,9 +37,13 @@ export default function FaqBoard({ columns }: FaqBoardProps) {
                     </svg>
                   </button>
                 </h3>
-                <div className="plank__answer" id={`faq-${item.id}`} data-open={open ? 'true' : 'false'}>
+                <div
+                  className="plank__answer"
+                  id={`faq-${item.id}`}
+                  data-open={open ? "true" : "false"}
+                >
                   <div className="plank__answer-clip">
-                    <p>{item.a ?? 'Answers go live closer to the event. Watch this space.'}</p>
+                    <p>{item.a ?? "Answers go live closer to the event. Watch this space."}</p>
                   </div>
                 </div>
               </li>

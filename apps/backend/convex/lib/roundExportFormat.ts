@@ -15,7 +15,6 @@ export type RoundExportCsvRecord = {
   reviewState: string;
   panelReference: string;
   panelName: string;
-  teamTableLabel: string;
   reviewerReference: string;
   reviewerName: string;
   scorecardReference: string;
@@ -50,7 +49,6 @@ export const roundExportCsvHeader = [
   "Review state",
   "Panel reference",
   "Panel name",
-  "Team table",
   "Reviewer reference",
   "Reviewer name",
   "Scorecard reference",
@@ -86,7 +84,6 @@ export function roundExportCsvRow(record: RoundExportCsvRecord) {
     record.reviewState,
     record.panelReference,
     record.panelName,
-    record.teamTableLabel,
     record.reviewerReference,
     record.reviewerName,
     record.scorecardReference,

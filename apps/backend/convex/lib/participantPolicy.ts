@@ -14,10 +14,7 @@ import { fingerprintText, normalizedLongText, normalizedText } from "./strings";
 
 type ReadCtx = QueryCtx | MutationCtx;
 
-export const vitHostelResidenceKind = v.union(
-  v.literal("mens"),
-  v.literal("ladies"),
-);
+export const vitHostelResidenceKind = v.union(v.literal("mens"), v.literal("ladies"));
 
 export const vitHostelResidenceCatalogEntry = v.object({
   stableKey: v.string(),
@@ -60,14 +57,11 @@ export const defaultParticipantPolicy: ParticipantPolicy = {
   teamMaximumSize: 5,
   mixedParticipantClassesAllowed: false,
   vitHostelResidenceCatalog: defaultVitHostelResidenceCatalog,
-  profileNotice:
-    "We use these details to run Code2Create.",
-  projectTextNotice:
-    "We may process submissions with AI tools to help us review.",
+  profileNotice: "We use these details to run Code2Create.",
+  projectTextNotice: "We may process submissions with AI tools to help us review.",
   privacyNoticeUrl: "https://c2c.acmvit.in/privacy",
   freshProjectAttestation,
-  finalSubmissionWarning:
-    "You can edit the team and proposal until the final deadline.",
+  finalSubmissionWarning: "You can edit the team and proposal until the final deadline.",
 };
 
 function invalidPolicy(message: string): never {
@@ -97,9 +91,7 @@ function normalizedHttpsUrl(value: string, label: string) {
 
 const maximumVitHostelResidenceCount = 64;
 
-function normalizeVitHostelResidenceCatalog(
-  catalog: readonly VitHostelResidenceCatalogEntry[],
-) {
+function normalizeVitHostelResidenceCatalog(catalog: readonly VitHostelResidenceCatalogEntry[]) {
   if (catalog.length < 2 || catalog.length > maximumVitHostelResidenceCount) {
     invalidPolicy(
       `The VIT hostel block catalogue must contain 2 to ${maximumVitHostelResidenceCount} entries.`,
@@ -111,9 +103,7 @@ function normalizeVitHostelResidenceCatalog(
   const normalized = catalog.map((entry, index) => {
     const stableKey = entry.stableKey.trim().toLowerCase();
     if (!/^[a-z][a-z0-9_]{1,39}$/.test(stableKey)) {
-      invalidPolicy(
-        `VIT residence ${index + 1} needs a 2 to 40 character lowercase stable key.`,
-      );
+      invalidPolicy(`VIT residence ${index + 1} needs a 2 to 40 character lowercase stable key.`);
     }
     if (stableKeys.has(stableKey)) {
       invalidPolicy(`VIT residence stable key “${stableKey}” is duplicated.`);
@@ -152,7 +142,9 @@ export function normalizeParticipantPolicy(input: ParticipantPolicy): Participan
     240,
   );
   if (freshAttestation !== freshProjectAttestation) {
-    invalidPolicy("The fresh-project attestation must preserve the event's fixed fresh-build rule.");
+    invalidPolicy(
+      "The fresh-project attestation must preserve the event's fixed fresh-build rule.",
+    );
   }
   const finalSubmissionWarning = normalizedLongText(
     input.finalSubmissionWarning,
@@ -171,16 +163,9 @@ export function normalizeParticipantPolicy(input: ParticipantPolicy): Participan
     teamMinimumSize,
     teamMaximumSize,
     mixedParticipantClassesAllowed: false,
-    vitHostelResidenceCatalog: normalizeVitHostelResidenceCatalog(
-      input.vitHostelResidenceCatalog,
-    ),
+    vitHostelResidenceCatalog: normalizeVitHostelResidenceCatalog(input.vitHostelResidenceCatalog),
     profileNotice: normalizedLongText(input.profileNotice, "Profile notice", 20, 600),
-    projectTextNotice: normalizedLongText(
-      input.projectTextNotice,
-      "Project-text notice",
-      20,
-      800,
-    ),
+    projectTextNotice: normalizedLongText(input.projectTextNotice, "Project-text notice", 20, 800),
     privacyNoticeUrl: normalizedHttpsUrl(input.privacyNoticeUrl, "Privacy notice URL"),
     freshProjectAttestation: freshAttestation,
     finalSubmissionWarning,
@@ -189,6 +174,22 @@ export function normalizeParticipantPolicy(input: ParticipantPolicy): Participan
 
 export function participantPolicyChecksum(policy: ParticipantPolicy) {
   return fingerprintText(JSON.stringify(normalizeParticipantPolicy(policy)));
+}
+
+export function participantPolicyAcceptanceChecksum(policy: ParticipantPolicy) {
+  const normalized = normalizeParticipantPolicy(policy);
+  return fingerprintText(
+    JSON.stringify({
+      teamMinimumSize: normalized.teamMinimumSize,
+      teamMaximumSize: normalized.teamMaximumSize,
+      mixedParticipantClassesAllowed: normalized.mixedParticipantClassesAllowed,
+      profileNotice: normalized.profileNotice,
+      projectTextNotice: normalized.projectTextNotice,
+      privacyNoticeUrl: normalized.privacyNoticeUrl,
+      freshProjectAttestation: normalized.freshProjectAttestation,
+      finalSubmissionWarning: normalized.finalSubmissionWarning,
+    }),
+  );
 }
 
 export function participantPolicyFromDocument(
@@ -239,15 +240,44 @@ export async function loadPublishedParticipantCapacity(ctx: ReadCtx, event: Doc<
   return policy.overallParticipantCapacity;
 }
 
+export async function participantPolicyAccepted(
+  ctx: ReadCtx,
+  membership: Doc<"eventMemberships">,
+  policy: Doc<"participantPolicyVersions">,
+) {
+  if (membership.acceptedParticipantPolicyVersionIds.includes(policy._id)) return true;
+  const acceptanceChecksum = participantPolicyAcceptanceChecksum(
+    participantPolicyFromDocument(policy),
+  );
+  for (const acceptedPolicyId of membership.acceptedParticipantPolicyVersionIds) {
+    const acceptedPolicy = await ctx.db.get(acceptedPolicyId);
+    if (!acceptedPolicy || acceptedPolicy.eventId !== membership.eventId) {
+      throw new Error("Participant membership references an invalid accepted policy.");
+    }
+    if (
+      participantPolicyAcceptanceChecksum(participantPolicyFromDocument(acceptedPolicy)) ===
+      acceptanceChecksum
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export async function participantPolicyPublicationIssue(
   ctx: ReadCtx,
   event: Doc<"events">,
+  published: ParticipantPolicy,
   candidate: ParticipantPolicy,
 ) {
   const participantCapacity = await loadPublishedParticipantCapacity(ctx, event);
   if (candidate.teamMaximumSize > participantCapacity) {
     return `Maximum team size cannot exceed the published participant capacity of ${participantCapacity}.`;
   }
+  const minimumTightened = candidate.teamMinimumSize > published.teamMinimumSize;
+  const maximumTightened = candidate.teamMaximumSize < published.teamMaximumSize;
+  const participantClassesRestricted = !candidate.mixedParticipantClassesAllowed;
+  if (!minimumTightened && !maximumTightened && !participantClassesRestricted) return null;
   const teams = await ctx.db
     .query("teams")
     .withIndex("by_event_status", (index) => index.eq("eventId", event._id))
@@ -266,18 +296,18 @@ export async function participantPolicyPublicationIssue(
       team.activeMemberCount < 0 ||
       team.activeVitMemberCount < 0 ||
       team.activeExternalMemberCount < 0 ||
-      team.activeMemberCount !==
-        team.activeVitMemberCount + team.activeExternalMemberCount
+      team.activeMemberCount !== team.activeVitMemberCount + team.activeExternalMemberCount
     ) {
       throw new Error(`Team “${team.name}” has an invalid roster projection.`);
     }
-    if (team.activeMemberCount > candidate.teamMaximumSize) {
+    if (maximumTightened && team.activeMemberCount > candidate.teamMaximumSize) {
       return `Team “${team.name}” has more than ${candidate.teamMaximumSize} active members. Reduce its roster before publishing this team-size limit.`;
     }
-    if (team.activeMemberCount < candidate.teamMinimumSize) {
+    if (minimumTightened && team.activeMemberCount < candidate.teamMinimumSize) {
       return `Team “${team.name}” has fewer than ${candidate.teamMinimumSize} active members. Complete its roster before publishing this team-size limit.`;
     }
     if (
+      participantClassesRestricted &&
       team.activeVitMemberCount > 0 &&
       team.activeExternalMemberCount > 0
     ) {
@@ -292,17 +322,11 @@ function hostelDetailsComplete(
   catalog: readonly VitHostelResidenceCatalogEntry[],
 ) {
   if (profile.vitResidenceType === "day_scholar") {
-    return (
-      profile.vitHostelResidence === undefined
-      && profile.vitHostelRoomNumber === undefined
-    );
+    return profile.vitHostelResidence === undefined && profile.vitHostelRoomNumber === undefined;
   }
   if (profile.vitResidenceType !== "hosteller") return false;
   if (profile.vitHostelResidence === undefined) return false;
-  const residence = findVitHostelResidenceCatalogEntry(
-    catalog,
-    profile.vitHostelResidence,
-  );
+  const residence = findVitHostelResidenceCatalogEntry(catalog, profile.vitHostelResidence);
   if (!residence) return false;
   const expectedKind = profile.gender === "male" ? "mens" : "ladies";
   return residence.kind === expectedKind && profile.vitHostelRoomNumber !== undefined;
@@ -317,7 +341,6 @@ export function isProfileCompleteForPolicy(
     !profile ||
     profile.membershipId !== membership._id ||
     profile.participantClass !== membership.participantClass ||
-    !membership.acceptedParticipantPolicyVersionIds.includes(policy._id) ||
     profile.fullName.length === 0 ||
     profile.institution.length === 0 ||
     profile.phone.length === 0 ||
@@ -331,16 +354,25 @@ export function isProfileCompleteForPolicy(
       profile.yearOfStudy !== "not_applicable" &&
       profile.vitRegistrationNumber !== undefined &&
       profile.vitProgramme !== undefined &&
-      hostelDetailsComplete(
-        profile,
-        policy.vitHostelResidenceCatalog,
-      )
+      hostelDetailsComplete(profile, policy.vitHostelResidenceCatalog)
     );
   }
   return (
     profile.yearOfStudy !== "not_applicable" &&
     profile.externalUniversity !== undefined &&
     profile.externalCollege !== undefined
+  );
+}
+
+export async function isParticipantReadyForPolicy(
+  ctx: ReadCtx,
+  profile: Doc<"participantProfiles"> | null,
+  membership: Doc<"eventMemberships">,
+  policy: Doc<"participantPolicyVersions">,
+) {
+  return (
+    (await participantPolicyAccepted(ctx, membership, policy)) &&
+    isProfileCompleteForPolicy(profile, membership, policy)
   );
 }
 
@@ -445,6 +477,7 @@ export async function publishParticipantPolicy(
   const publicationIssue = await participantPolicyPublicationIssue(
     ctx,
     args.event,
+    previousNormalized,
     normalized,
   );
   if (publicationIssue) {

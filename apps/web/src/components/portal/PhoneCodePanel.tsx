@@ -1,13 +1,13 @@
-import { CodeInput } from './CodeInput'
-import { PortalTickButton } from './PortalButton'
-import { PortalLabel } from './PortalField'
+import { CodeInput } from "./CodeInput";
+import { PortalTickButton } from "./PortalButton";
+import { PortalLabel } from "./PortalField";
 
 /** Every verification state except `verified`, which the phone field shows itself. */
-export type PhoneCodeState = 'queued' | 'sending' | 'sent' | 'send_failed' | 'expired' | 'locked'
+export type PhoneCodeState = "queued" | "sending" | "sent" | "send_failed" | "expired" | "locked";
 
 function countdown(ms: number) {
-  const total = Math.max(0, Math.ceil(ms / 1000))
-  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
+  const total = Math.max(0, Math.ceil(ms / 1000));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
 }
 
 /**
@@ -29,34 +29,34 @@ export function PhoneCodePanel({
   error,
   shakeKey,
 }: {
-  maskedPhone: string
-  state: PhoneCodeState
-  canVerify: boolean
-  expiresInMs: number | null
-  resendInMs: number
-  code: string
-  onCodeChange: (next: string) => void
-  onVerify: (code: string) => void
-  onResend: () => void
-  busy: boolean
-  error: string | null
-  shakeKey: number
+  maskedPhone: string;
+  state: PhoneCodeState;
+  canVerify: boolean;
+  expiresInMs: number | null;
+  resendInMs: number;
+  code: string;
+  onCodeChange: (next: string) => void;
+  onVerify: (code: string) => void;
+  onResend: () => void;
+  busy: boolean;
+  error: string | null;
+  shakeKey: number;
 }) {
-  const waiting = state === 'queued' || state === 'sending'
-  const entryOpen = canVerify && !waiting && state !== 'expired' && state !== 'locked'
+  const waiting = state === "queued" || state === "sending";
+  const entryOpen = canVerify && !waiting && state !== "expired" && state !== "locked";
   const status = waiting
-    ? 'sending the text…'
-    : state === 'sent'
+    ? "sending the text…"
+    : state === "sent"
       ? expiresInMs !== null
         ? `expires in ${countdown(expiresInMs)}`
-        : 'check your messages'
-      : state === 'send_failed'
+        : "check your messages"
+      : state === "send_failed"
         ? canVerify
           ? "delivery wasn't confirmed · if the code arrived, it still works"
           : "the text couldn't be sent"
-        : state === 'expired'
-          ? 'that code expired'
-          : 'too many wrong attempts'
+        : state === "expired"
+          ? "that code expired"
+          : "too many wrong attempts";
   const resend = waiting ? null : resendInMs > 0 ? (
     <span>resend in {Math.ceil(resendInMs / 1000)}s</span>
   ) : (
@@ -66,9 +66,9 @@ export function PhoneCodePanel({
       onClick={onResend}
       className="rounded-sm text-rose-light transition-colors hover:underline disabled:cursor-not-allowed disabled:opacity-50"
     >
-      {state === 'sent' ? 'send again' : 'send a new code'}
+      {state === "sent" ? "send again" : "send a new code"}
     </button>
-  )
+  );
 
   return (
     <div className="flex flex-col">
@@ -86,7 +86,7 @@ export function PhoneCodePanel({
           shakeKey={shakeKey}
         />
         <PortalTickButton
-          label={busy ? 'Verifying…' : 'Verify the code'}
+          label={busy ? "Verifying…" : "Verify the code"}
           disabled={!entryOpen || busy || code.length !== 6}
           onClick={() => onVerify(code)}
         />
@@ -102,5 +102,5 @@ export function PhoneCodePanel({
         {resend ? <> · {resend}</> : null}
       </p>
     </div>
-  )
+  );
 }

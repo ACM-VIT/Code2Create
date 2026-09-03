@@ -147,10 +147,9 @@ describe("operations intelligence brief", () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedBrief(backend, { state: "pending" });
 
-    const result = await backend.mutation(
-      internal.operationsIntelligence.completeFromWorker,
-      { callback: successCallback(fixture.briefId, fixture.sourceChecksum) },
-    );
+    const result = await backend.mutation(internal.operationsIntelligence.completeFromWorker, {
+      callback: successCallback(fixture.briefId, fixture.sourceChecksum),
+    });
     const brief = await backend.run((ctx) => ctx.db.get(fixture.briefId));
 
     expect(result).toBe("stale");
@@ -166,10 +165,9 @@ describe("operations intelligence brief", () => {
     await backend.mutation(internal.operationsIntelligence.expire, {
       briefId: fixture.briefId,
     });
-    const result = await backend.mutation(
-      internal.operationsIntelligence.completeFromWorker,
-      { callback: successCallback(fixture.briefId, fixture.sourceChecksum) },
-    );
+    const result = await backend.mutation(internal.operationsIntelligence.completeFromWorker, {
+      callback: successCallback(fixture.briefId, fixture.sourceChecksum),
+    });
     const brief = await backend.run((ctx) => ctx.db.get(fixture.briefId));
 
     expect(result).toBe("already_settled");
@@ -315,7 +313,7 @@ async function seedBrief(
       timezone: "Asia/Kolkata",
       status: "live",
       vitEmailDomains: ["vitstudent.ac.in"],
-        applicationsCloseAt: Date.now() + 86_400_000,
+      applicationsCloseAt: Date.now() + 86_400_000,
       version: 1,
       createdAt: now,
       updatedAt: now,

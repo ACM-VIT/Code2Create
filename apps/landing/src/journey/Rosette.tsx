@@ -22,17 +22,17 @@
 
 /* Obovate with a claw, pointing up; the two L segments cut the V notch. */
 const PETAL_A =
-  'M 0 -6 C -6 -7 -9 -12 -10 -20 C -12 -38 -30 -48 -38 -64 C -44 -76 -45 -92 -36 -100 C -30 -105.5 -22 -107 -15 -104 L 0 -88 L 15 -104 C 22 -107 30 -105.5 36 -100 C 45 -92 44 -76 38 -64 C 30 -48 12 -38 10 -20 C 9 -12 6 -7 0 -6 Z';
+  "M 0 -6 C -6 -7 -9 -12 -10 -20 C -12 -38 -30 -48 -38 -64 C -44 -76 -45 -92 -36 -100 C -30 -105.5 -22 -107 -15 -104 L 0 -88 L 15 -104 C 22 -107 30 -105.5 36 -100 C 45 -92 44 -76 38 -64 C 30 -48 12 -38 10 -20 C 9 -12 6 -7 0 -6 Z";
 const PETAL_B =
-  'M 0 -6 C -6 -7 -10 -13 -11 -21 C -14 -40 -31 -50 -39 -65 C -45 -78 -44 -93 -34 -101 C -28 -105.5 -21 -106.5 -14 -103.5 L 0 -87 L 14 -103.5 C 21 -106.5 28 -105.5 34 -101 C 44 -93 45 -78 39 -65 C 31 -50 14 -40 11 -21 C 10 -13 6 -7 0 -6 Z';
+  "M 0 -6 C -6 -7 -10 -13 -11 -21 C -14 -40 -31 -50 -39 -65 C -45 -78 -44 -93 -34 -101 C -28 -105.5 -21 -106.5 -14 -103.5 L 0 -87 L 14 -103.5 C 21 -106.5 28 -105.5 34 -101 C 44 -93 45 -78 39 -65 C 31 -50 14 -40 11 -21 C 10 -13 6 -7 0 -6 Z";
 
 /* Seven striations fanning from the claw, as one path. */
 const STRIATIONS =
-  'M 0 -22 C -1 -48 -0.5 -72 0 -92 M -3.5 -23 C -5.5 -50 -6.5 -72 -7 -90 M 3.5 -23 C 5.5 -50 6.5 -72 7 -90 M -7 -24 C -11 -46 -14 -66 -15 -84 M 7 -24 C 11 -46 14 -66 15 -84 M -14 -28 C -20 -46 -25 -60 -27 -74 M 14 -28 C 20 -46 25 -60 27 -74';
+  "M 0 -22 C -1 -48 -0.5 -72 0 -92 M -3.5 -23 C -5.5 -50 -6.5 -72 -7 -90 M 3.5 -23 C 5.5 -50 6.5 -72 7 -90 M -7 -24 C -11 -46 -14 -66 -15 -84 M 7 -24 C 11 -46 14 -66 15 -84 M -14 -28 C -20 -46 -25 -60 -27 -74 M 14 -28 C 20 -46 25 -60 27 -74";
 
 /* A sepal point of the calyx, peeking between two claws. */
 const SEPAL =
-  'M -4.2 -8 C -2.5 -14 -1 -19 0 -23 C 1 -19 2.5 -14 4.2 -8 C 1.6 -5.5 -1.6 -5.5 -4.2 -8 Z';
+  "M -4.2 -8 C -2.5 -14 -1 -19 0 -23 C 1 -19 2.5 -14 4.2 -8 C 1.6 -5.5 -1.6 -5.5 -4.2 -8 Z";
 
 /* A hair of tilt per petal, so the flower is grown rather than drafted. */
 const TILT = [-2, 1.6, -1.2, 2.2, -1.5];
@@ -72,7 +72,14 @@ export default function Rosette() {
             <stop offset="1" stopColor="#fffdfe" />
           </radialGradient>
           {/* A whisper of extra light at the emarginate tip. */}
-          <linearGradient id="rosetteTipGlow" gradientUnits="userSpaceOnUse" x1="0" y1="-34" x2="0" y2="-106">
+          <linearGradient
+            id="rosetteTipGlow"
+            gradientUnits="userSpaceOnUse"
+            x1="0"
+            y1="-34"
+            x2="0"
+            y2="-106"
+          >
             <stop offset="0" stopColor="#ffffff" stopOpacity="0" />
             <stop offset="0.7" stopColor="#ffffff" stopOpacity="0.18" />
             <stop offset="1" stopColor="#ffffff" stopOpacity="0.34" />
@@ -114,10 +121,7 @@ export default function Rosette() {
               {/* The group is what the timeline reveals, so the detail can
                   never show before its own petal does. */}
               <g className="rosette__petal">
-                <path
-                  className="rosette__petal-shape"
-                  d={index % 2 ? PETAL_B : PETAL_A}
-                />
+                <path className="rosette__petal-shape" d={index % 2 ? PETAL_B : PETAL_A} />
                 <path className="rosette__glow" d={index % 2 ? PETAL_B : PETAL_A} />
                 <path className="rosette__vein" d={STRIATIONS} />
               </g>

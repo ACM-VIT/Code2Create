@@ -1,31 +1,33 @@
-import { ConvexReactClient } from 'convex/react'
+import { ConvexReactClient } from "convex/react";
 import {
   ClientObservabilityProvider,
   installBrowserChunkRecovery,
-} from '@code2create/client-observability'
-import { Code2CreateAuthProvider, createCode2CreateAuthClient } from '@code2create/web-auth'
-import { FormValidationBoundary } from '@code2create/web-forms'
-import { StrictMode, type ReactNode } from 'react'
-import { createRoot } from 'react-dom/client'
-import { BrowserRouter } from 'react-router-dom'
+} from "@code2create/client-observability";
+import { Code2CreateAuthProvider, createCode2CreateAuthClient } from "@code2create/web-auth";
+import { FormValidationBoundary } from "@code2create/web-forms";
+import { StrictMode, type ReactNode } from "react";
+import { createRoot } from "react-dom/client";
+import { BrowserRouter } from "react-router-dom";
 
-import App from './App'
-import { clientConfiguration } from './lib/config'
-import './index.css'
+import App from "./App";
+import { clientConfiguration } from "./lib/config";
+import "./index.css";
 
-installBrowserChunkRecovery()
+installBrowserChunkRecovery();
 
-const rootElement = document.getElementById('root')
-if (!rootElement) throw new Error('The application root element is missing.')
-const root = createRoot(rootElement)
+const rootElement = document.getElementById("root");
+if (!rootElement) throw new Error("The application root element is missing.");
+const root = createRoot(rootElement);
 
 if (!clientConfiguration.convexUrl || !clientConfiguration.convexSiteUrl) {
   render(
-    <main className="centered"><p className="muted">Operations is unavailable. Check the event setup and try again.</p></main>,
-  )
+    <main className="centered">
+      <p className="muted">Operations is unavailable. Check the event setup and try again.</p>
+    </main>,
+  );
 } else {
-  const convex = new ConvexReactClient(clientConfiguration.convexUrl)
-  const authClient = createCode2CreateAuthClient(clientConfiguration.convexSiteUrl)
+  const convex = new ConvexReactClient(clientConfiguration.convexUrl);
+  const authClient = createCode2CreateAuthClient(clientConfiguration.convexSiteUrl);
   render(
     <StrictMode>
       <BrowserRouter>
@@ -34,7 +36,7 @@ if (!clientConfiguration.convexUrl || !clientConfiguration.convexSiteUrl) {
         </Code2CreateAuthProvider>
       </BrowserRouter>
     </StrictMode>,
-  )
+  );
 }
 
 function render(children: ReactNode) {
@@ -45,11 +47,11 @@ function render(children: ReactNode) {
         host: clientConfiguration.posthogHost,
         deploymentEnvironment: clientConfiguration.deploymentEnvironment,
         release: clientConfiguration.releaseId,
-        surface: 'operations-web',
+        surface: "operations-web",
         development: import.meta.env.DEV,
       }}
     >
       <FormValidationBoundary>{children}</FormValidationBoundary>
     </ClientObservabilityProvider>,
-  )
+  );
 }

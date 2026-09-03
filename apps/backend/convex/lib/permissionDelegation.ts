@@ -3,17 +3,12 @@ import { ConvexError } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { scorecardScopeMustMatchTarget } from "./grantScopes";
-import {
-  isPermissionKey,
-  type PermissionKey,
-} from "./permissionCatalog";
+import { isPermissionKey, type PermissionKey } from "./permissionCatalog";
 import { matchingPermissionGrantIds } from "./permissions";
 
 type ReadCtx = QueryCtx | MutationCtx;
 type PermissionScopeType = Doc<"permissionGrants">["scopeType"];
-type ScopedAuthorityKey =
-  | "access.permissions.grant_scoped"
-  | "access.permissions.revoke_scoped";
+type ScopedAuthorityKey = "access.permissions.grant_scoped" | "access.permissions.revoke_scoped";
 
 export type PermissionAdministrationAction = {
   permissionKey: PermissionKey;
@@ -47,9 +42,7 @@ const permissionAdministrationKeys = [
   "access.permissions.revoke_scoped",
 ] as const satisfies readonly PermissionKey[];
 
-export function isPermissionAdministrationKey(
-  permissionKey: PermissionKey,
-) {
+export function isPermissionAdministrationKey(permissionKey: PermissionKey) {
   return permissionAdministrationKeys.some((key) => key === permissionKey);
 }
 
@@ -130,9 +123,7 @@ async function anyAuthorityGrantIds(
   args: {
     eventId: Id<"events">;
     eventAccessSubjectId: Id<"eventAccessSubjects">;
-    permissionKey:
-      | "access.permissions.grant_any"
-      | "access.permissions.revoke_any";
+    permissionKey: "access.permissions.grant_any" | "access.permissions.revoke_any";
   },
 ) {
   return matchingPermissionGrantIds(ctx, {
@@ -182,14 +173,16 @@ export async function requireGrantAuthorities(
     };
   }
   if (
-    args.actions.some((action) =>
-      args.actorPersonId === action.targetPersonId ||
-      isPermissionAdministrationKey(action.permissionKey)
+    args.actions.some(
+      (action) =>
+        args.actorPersonId === action.targetPersonId ||
+        isPermissionAdministrationKey(action.permissionKey),
     )
   ) {
     throw new ConvexError({
       code: "ACCESS_DENIED",
-      message: "Scoped grant authority cannot create permission-administration authority or grant access to itself.",
+      message:
+        "Scoped grant authority cannot create permission-administration authority or grant access to itself.",
     });
   }
   const scoped = await activeAuthorityGrants(ctx, {
@@ -207,12 +200,8 @@ export async function requireGrantAuthorities(
           permissionKey: grant.permissionKey,
           status: grant.status,
           validFrom: grant.validFrom,
-          ...(grant.validUntil !== undefined
-            ? { validUntil: grant.validUntil }
-            : {}),
-          ...(grant.delegation !== undefined
-            ? { delegation: grant.delegation }
-            : {}),
+          ...(grant.validUntil !== undefined ? { validUntil: grant.validUntil } : {}),
+          ...(grant.delegation !== undefined ? { delegation: grant.delegation } : {}),
         },
         "access.permissions.grant_scoped",
         action,
@@ -291,12 +280,8 @@ export async function requireRevokeAuthorities(
           permissionKey: grant.permissionKey,
           status: grant.status,
           validFrom: grant.validFrom,
-          ...(grant.validUntil !== undefined
-            ? { validUntil: grant.validUntil }
-            : {}),
-          ...(grant.delegation !== undefined
-            ? { delegation: grant.delegation }
-            : {}),
+          ...(grant.validUntil !== undefined ? { validUntil: grant.validUntil } : {}),
+          ...(grant.delegation !== undefined ? { delegation: grant.delegation } : {}),
         },
         "access.permissions.revoke_scoped",
         action,

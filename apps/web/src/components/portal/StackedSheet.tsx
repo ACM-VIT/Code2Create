@@ -1,14 +1,14 @@
-import type { ComponentPropsWithoutRef, ReactNode } from 'react'
+import type { ComponentPropsWithoutRef, ReactNode } from "react";
 
 export function StackedSheet({
   depth,
   label,
   children,
   ...buttonProps
-}: Omit<ComponentPropsWithoutRef<'button'>, 'children' | 'className' | 'style'> & {
-  depth: number
-  label: ReactNode
-  children?: ReactNode
+}: Omit<ComponentPropsWithoutRef<"button">, "children" | "className" | "style"> & {
+  depth: number;
+  label: ReactNode;
+  children?: ReactNode;
 }) {
   return (
     <button
@@ -20,5 +20,5 @@ export function StackedSheet({
       <span className="block truncate text-[12px] text-fg/75">{label}</span>
       {children}
     </button>
-  )
+  );
 }

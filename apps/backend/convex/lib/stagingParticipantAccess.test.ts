@@ -49,9 +49,11 @@ describe("staging participant access", () => {
       sessionId: "removed-auth-session",
     });
 
-    await expect(staleSession.query(api.participants.entryAllowed, {
-      eventSlug,
-    })).resolves.toBe(false);
+    await expect(
+      staleSession.query(api.participants.entryAllowed, {
+        eventSlug,
+      }),
+    ).resolves.toBe(false);
   });
 
   test("uses the active staff roster as the participant tester allowlist", async () => {
@@ -106,9 +108,9 @@ describe("staging participant access", () => {
       return { eventId, membershipId, personId };
     });
 
-    await expect(backend.run((ctx) =>
-      requireMembership(ctx, fixture.eventId, fixture.personId),
-    )).rejects.toThrow("available only to invited testers");
+    await expect(
+      backend.run((ctx) => requireMembership(ctx, fixture.eventId, fixture.personId)),
+    ).rejects.toThrow("available only to invited testers");
 
     const rosterEntryId = await backend.run(async (ctx) => {
       const rosterImportId = await ctx.db.insert("rosterImports", {
@@ -147,14 +149,16 @@ describe("staging participant access", () => {
       });
     });
 
-    await expect(backend.run((ctx) =>
-      requireMembership(ctx, fixture.eventId, fixture.personId),
-    )).resolves.toMatchObject({ _id: fixture.membershipId });
+    await expect(
+      backend.run((ctx) => requireMembership(ctx, fixture.eventId, fixture.personId)),
+    ).resolves.toMatchObject({ _id: fixture.membershipId });
 
     await backend.run((ctx) => ctx.db.patch(rosterEntryId, { validUntil: now - 1 }));
-    await expect(backend.run((ctx) =>
-      stagingParticipantAccessAllowed(ctx, fixture.eventId, "tester@example.test"),
-    )).resolves.toBe(false);
+    await expect(
+      backend.run((ctx) =>
+        stagingParticipantAccessAllowed(ctx, fixture.eventId, "tester@example.test"),
+      ),
+    ).resolves.toBe(false);
   });
 
   test("does not apply the tester roster gate outside staging", async () => {
@@ -185,12 +189,8 @@ describe("staging participant access", () => {
         updatedAt: now,
       });
     });
-    await expect(backend.run((ctx) =>
-      stagingParticipantAccessAllowed(
-        ctx,
-        eventId,
-        "public@example.test",
-      ),
-    )).resolves.toBe(true);
+    await expect(
+      backend.run((ctx) => stagingParticipantAccessAllowed(ctx, eventId, "public@example.test")),
+    ).resolves.toBe(true);
   });
 });

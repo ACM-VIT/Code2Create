@@ -58,9 +58,7 @@ describe("support projections", () => {
     ).resolves.toEqual({ openCount: 1, countIsLowerBound: false });
     await expect(
       operator.query(api.support.owners, { eventSlug: fixture.eventSlug }),
-    ).resolves.toEqual([
-      { personId: fixture.personId, displayName: "Support operator" },
-    ]);
+    ).resolves.toEqual([{ personId: fixture.personId, displayName: "Support operator" }]);
 
     await operator.mutation(api.support.updateStaff, {
       eventSlug: fixture.eventSlug,
@@ -178,12 +176,8 @@ describe("support projections", () => {
     });
     expect(auditReasons).toContain("Staff opened a support case.");
     expect(auditReasons).toContain("Reporter added a support reply.");
-    expect(auditReasons).not.toContain(
-      "A power cable is exposed beside the participant queue.",
-    );
-    expect(auditReasons).not.toContain(
-      "The exposed cable is still visible from the queue.",
-    );
+    expect(auditReasons).not.toContain("A power cable is exposed beside the participant queue.");
+    expect(auditReasons).not.toContain("The exposed cable is still visible from the queue.");
     expect(auditReasons).not.toContain("The cable cover has come loose again.");
 
     const revokedReadCount = await backend.run(async (ctx) => {
@@ -347,15 +341,9 @@ describe("support projections", () => {
       clientOperationId: crypto.randomUUID(),
     });
 
-    await expect(
-      operator.mutation(api.support.createStaff, createArgs),
-    ).resolves.toEqual(created);
-    await expect(
-      operator.mutation(api.support.updateStaff, updateArgs),
-    ).resolves.toEqual(updated);
-    await expect(
-      operator.mutation(api.support.replySelf, replyArgs),
-    ).resolves.toEqual(replied);
+    await expect(operator.mutation(api.support.createStaff, createArgs)).resolves.toEqual(created);
+    await expect(operator.mutation(api.support.updateStaff, updateArgs)).resolves.toEqual(updated);
+    await expect(operator.mutation(api.support.replySelf, replyArgs)).resolves.toEqual(replied);
     await expect(
       operator.query(api.support.detail, {
         eventSlug: fixture.eventSlug,
@@ -378,26 +366,20 @@ describe("support projections", () => {
       });
     });
 
-    const first = await backend.mutation(
-      internal.participantAssistant.escalateToHuman,
-      {
-        threadId,
-        category: "identity",
-        summary: "The participant cannot correct the name on their event profile.",
-        transcript:
-          "Participant: My name is wrong on my pass.\n\nGuide: I can bring in the event team to correct it.",
-      },
-    );
+    const first = await backend.mutation(internal.participantAssistant.escalateToHuman, {
+      threadId,
+      category: "identity",
+      summary: "The participant cannot correct the name on their event profile.",
+      transcript:
+        "Participant: My name is wrong on my pass.\n\nGuide: I can bring in the event team to correct it.",
+    });
     expect(first).toEqual({ status: "joined", state: "open" });
-    const second = await backend.mutation(
-      internal.participantAssistant.escalateToHuman,
-      {
-        threadId,
-        category: "identity",
-        summary: "The participant still needs the same profile correction.",
-        transcript: "Participant: Has someone seen this yet?",
-      },
-    );
+    const second = await backend.mutation(internal.participantAssistant.escalateToHuman, {
+      threadId,
+      category: "identity",
+      summary: "The participant still needs the same profile correction.",
+      transcript: "Participant: Has someone seen this yet?",
+    });
     expect(second).toEqual({ status: "already_joined", state: "open" });
 
     const linked = await backend.run(async (ctx) => {
@@ -408,9 +390,7 @@ describe("support projections", () => {
       const cases = await ctx.db
         .query("supportCases")
         .withIndex("by_event_reporter_updated", (index) =>
-          index
-            .eq("eventId", fixture.eventId)
-            .eq("reporterPersonId", fixture.personId),
+          index.eq("eventId", fixture.eventId).eq("reporterPersonId", fixture.personId),
         )
         .collect();
       return { conversation, cases };
@@ -504,7 +484,7 @@ async function seedOperator(backend: BackendTest) {
       timezone: "Asia/Kolkata",
       status: "live",
       vitEmailDomains: ["vitstudent.ac.in"],
-        applicationsCloseAt: Date.now() + 86_400_000,
+      applicationsCloseAt: Date.now() + 86_400_000,
       startsAt: now - 60_000,
       endsAt: now + 3_600_000,
       createdByPersonId: personId,

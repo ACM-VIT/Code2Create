@@ -23,7 +23,6 @@ export const communicationsEmailTemplateInput = v.object({
     v.literal("accept"),
     v.literal("waitlist"),
     v.literal("decline"),
-    v.literal("needs_information"),
     v.literal("offer"),
     v.literal("offer_confirmed"),
     v.literal("offer_declined"),
@@ -75,12 +74,7 @@ export type CommunicationsPolicy = {
   }>;
 };
 
-const allowedPlaceholders = new Set([
-  "participant_name",
-  "team_name",
-  "event_name",
-  "portal_url",
-]);
+const allowedPlaceholders = new Set(["participant_name", "team_name", "event_name", "portal_url"]);
 
 function invalidPolicy(message: string): never {
   throw new ConvexError({ code: "INVALID_COMMUNICATIONS_POLICY", message });
@@ -125,8 +119,7 @@ function normalizedDiscordUrl(value: string) {
   const host = url.hostname.toLocaleLowerCase("en");
   const validInvite =
     host === "discord.gg" ||
-    ((host === "discord.com" || host === "www.discord.com") &&
-      url.pathname.startsWith("/invite/"));
+    ((host === "discord.com" || host === "www.discord.com") && url.pathname.startsWith("/invite/"));
   if (!validInvite) {
     invalidPolicy("Discord invite URL must use discord.gg or discord.com/invite.");
   }
@@ -145,7 +138,9 @@ function validatePlaceholders(value: string, label: string) {
 function normalizedEmailHtml(value: string, label: string) {
   const normalized = normalizedLongText(value, label, 20, 250_000);
   if (
-    /<(?:script|iframe|object|embed|form|base|meta)\b/iu.test(normalized) ||
+    /<(?:script|iframe|object|embed|form|input|svg|picture|source|video|audio|base)\b/iu.test(
+      normalized,
+    ) ||
     /\son[a-z]+\s*=/iu.test(normalized) ||
     /(?:href|src)\s*=\s*["']?\s*(?:javascript|data\s*:\s*text\/html)/iu.test(normalized)
   ) {
@@ -187,9 +182,7 @@ function normalizedEmailTemplates(input: CommunicationsPolicy["emailTemplates"])
       subject,
       text,
       html: normalizedEmailHtml(template.html, `${template.templateKey} email HTML`),
-      ...(template.assetBundleId !== undefined
-        ? { assetBundleId: template.assetBundleId }
-        : {}),
+      ...(template.assetBundleId !== undefined ? { assetBundleId: template.assetBundleId } : {}),
     };
   });
 }
@@ -211,11 +204,10 @@ export function normalizeCommunicationsPolicy(input: CommunicationsPolicy): Comm
       );
     }
     const dueAt =
-      step.dueAt === undefined ? undefined : safeTimestamp(step.dueAt, `Next step ${index + 1} due time`);
-    if (
-      dueAt !== undefined &&
-      (dueAt < startsAt - 365 * 24 * 60 * 60 * 1_000 || dueAt > endsAt)
-    ) {
+      step.dueAt === undefined
+        ? undefined
+        : safeTimestamp(step.dueAt, `Next step ${index + 1} due time`);
+    if (dueAt !== undefined && (dueAt < startsAt - 365 * 24 * 60 * 60 * 1_000 || dueAt > endsAt)) {
       invalidPolicy(`Next step ${index + 1} due time is outside the accepted event window.`);
     }
     const actionUrl = normalizedActionUrl(step.actionUrl, `Next step ${index + 1} action URL`);
@@ -276,9 +268,7 @@ export function communicationsPolicyFromDocument(
       subject: template.subject,
       text: template.text,
       html: template.html,
-      ...(template.assetBundleId !== undefined
-        ? { assetBundleId: template.assetBundleId }
-        : {}),
+      ...(template.assetBundleId !== undefined ? { assetBundleId: template.assetBundleId } : {}),
     })),
   };
 }
@@ -288,19 +278,20 @@ async function assertEmailAssetBundles(
   eventId: Id<"events">,
   policy: CommunicationsPolicy,
 ) {
-  await Promise.all(policy.emailTemplates.map(async (template) => {
-    if (template.assetBundleId === undefined) return;
-    const bundle = await ctx.db.get(template.assetBundleId);
-    if (!bundle || bundle.eventId !== eventId || bundle.templateKey !== template.templateKey) {
-      invalidPolicy(`The ${template.templateKey} email asset bundle is not valid for this event.`);
-    }
-  }));
+  await Promise.all(
+    policy.emailTemplates.map(async (template) => {
+      if (template.assetBundleId === undefined) return;
+      const bundle = await ctx.db.get(template.assetBundleId);
+      if (!bundle || bundle.eventId !== eventId || bundle.templateKey !== template.templateKey) {
+        invalidPolicy(
+          `The ${template.templateKey} email asset bundle is not valid for this event.`,
+        );
+      }
+    }),
+  );
 }
 
-export async function loadPublishedCommunicationsPolicy(
-  ctx: ReadCtx,
-  event: Doc<"events">,
-) {
+export async function loadPublishedCommunicationsPolicy(ctx: ReadCtx, event: Doc<"events">) {
   const policyId = event.publishedCommunicationsPolicyId;
   const policy = policyId ? await ctx.db.get(policyId) : null;
   if (!policy || policy.eventId !== event._id || policy.status !== "published") {

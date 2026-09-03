@@ -36,7 +36,6 @@ export async function createAdmissionRecommendation(
       ? { additionalInformation: args.project.additionalInformation }
       : {}),
     intakeResponses: args.project.intakeResponses,
-    admissionInformationResponses: args.project.admissionInformationResponses ?? [],
     experienceBand: args.application.experienceBand,
     admissionPolicyVersionId: args.policy._id,
     admissionPolicyChecksum: args.policy.checksum,
@@ -61,7 +60,6 @@ export async function createAdmissionRecommendation(
     criterionAssessments: [],
     strengths: [],
     concerns: [],
-    proposedQuestions: [],
     limitations: args.modelConfig
       ? []
       : ["No published admission model is configured; human review remains required."],

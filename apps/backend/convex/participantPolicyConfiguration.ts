@@ -11,10 +11,7 @@ import {
   storedConfigurationPublicationResult,
 } from "./lib/configurationOperationResult";
 import { requireEventBySlug } from "./lib/events";
-import {
-  requireCurrentPerson,
-  requireEventSubject,
-} from "./lib/identity";
+import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import {
   findOperation,
   operationFingerprint,
@@ -93,9 +90,7 @@ export const current = query({
     }
     const draft = await ctx.db
       .query("participantPolicyVersions")
-      .withIndex("by_event_status", (index) =>
-        index.eq("eventId", event._id).eq("status", "draft"),
-      )
+      .withIndex("by_event_status", (index) => index.eq("eventId", event._id).eq("status", "draft"))
       .unique();
     const participantCapacity = await loadPublishedParticipantCapacity(ctx, event);
     if (event.externalApplicationsCloseAt === undefined) {
@@ -198,7 +193,8 @@ export const updateApplicationDeadlines = mutation({
     ) {
       throw new ConvexError({
         code: "INVALID_APPLICATION_DEADLINES",
-        message: "Both deadlines must be in the future, external must close no later than VIT, and VIT must close before the event starts.",
+        message:
+          "Both deadlines must be in the future, external must close no later than VIT, and VIT must close before the event starts.",
       });
     }
     if (event.status !== "draft" && event.status !== "registration_open") {
@@ -220,8 +216,7 @@ export const updateApplicationDeadlines = mutation({
       internal.eventLifecycle.markExternalRegistrationClosedAtDeadline,
       {
         eventId: event._id,
-        expectedExternalApplicationsCloseAt:
-          args.externalApplicationsCloseAt,
+        expectedExternalApplicationsCloseAt: args.externalApplicationsCloseAt,
       },
     );
     await ctx.scheduler.runAt(
@@ -335,12 +330,14 @@ export const validateDraft = query({
       throw new Error("The event's published participant policy is invalid.");
     }
     const normalized = normalizeParticipantPolicy(participantPolicyFromDocument(draft));
-    const issues = participantPolicyChecksum(normalized) === draft.checksum
-      ? []
-      : ["The draft checksum does not match its participant policy."];
+    const issues =
+      participantPolicyChecksum(normalized) === draft.checksum
+        ? []
+        : ["The draft checksum does not match its participant policy."];
     const publicationIssue = await participantPolicyPublicationIssue(
       ctx,
       event,
+      normalizeParticipantPolicy(participantPolicyFromDocument(published)),
       normalized,
     );
     if (publicationIssue) issues.push(publicationIssue);
@@ -386,10 +383,7 @@ export const createDraft = mutation({
     if (prior) {
       const policyVersionId = ctx.db.normalizeId("participantPolicyVersions", prior.targetId);
       if (!policyVersionId) throw new Error("The prior participant-policy draft is invalid.");
-      const stored = storedConfigurationDraftResult(
-        prior.resultJson,
-        "participant-policy draft",
-      );
+      const stored = storedConfigurationDraftResult(prior.resultJson, "participant-policy draft");
       return {
         policyVersionId,
         policyVersion: stored.version,

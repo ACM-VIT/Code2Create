@@ -4,10 +4,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { validateGrantScope } from "./grantScopes";
 import { operationFingerprint, type OperationFingerprintPart } from "./operations";
-import {
-  permissionCatalog,
-  type PermissionKey,
-} from "./permissionCatalog";
+import { permissionCatalog, type PermissionKey } from "./permissionCatalog";
 import { assertPermissionKey } from "./permissions";
 
 type ReadCtx = QueryCtx | MutationCtx;
@@ -58,12 +55,17 @@ export function normalizeBundleEntries(entries: readonly BundleEntry[]) {
     ) {
       throw new ConvexError({
         code: "INVALID_BUNDLE_ENTRY",
-        message: "Scoped grant and revoke authority must be configured as one explicit person-specific delegation, not through a bundle.",
+        message:
+          "Scoped grant and revoke authority must be configured as one explicit person-specific delegation, not through a bundle.",
       });
     }
     const definition = permissionCatalog[permissionKey];
     if (entry.scopeType === "event") {
-      if (!definition.eventWide || entry.scopeSource !== "event" || entry.bindingKey !== undefined) {
+      if (
+        !definition.eventWide ||
+        entry.scopeSource !== "event" ||
+        entry.bindingKey !== undefined
+      ) {
         throw new ConvexError({
           code: "INVALID_BUNDLE_ENTRY",
           message: `${permissionKey} cannot use that event-scope rule.`,
@@ -99,9 +101,7 @@ export function normalizeBundleEntries(entries: readonly BundleEntry[]) {
     }
 
     const bindingKey =
-      entry.scopeSource === "binding"
-        ? checkedBindingKey(entry.bindingKey ?? "")
-        : undefined;
+      entry.scopeSource === "binding" ? checkedBindingKey(entry.bindingKey ?? "") : undefined;
     if (entry.scopeSource === "binding") {
       if (entry.scopeType === "event" || entry.scopeType === "self") {
         throw new ConvexError({
@@ -119,12 +119,9 @@ export function normalizeBundleEntries(entries: readonly BundleEntry[]) {
       if (bindingKey !== undefined) bindingScopes.set(bindingKey, entry.scopeType);
     }
 
-    const identity = [
-      permissionKey,
-      entry.scopeType,
-      entry.scopeSource,
-      bindingKey ?? "",
-    ].join("|");
+    const identity = [permissionKey, entry.scopeType, entry.scopeSource, bindingKey ?? ""].join(
+      "|",
+    );
     if (seenEntries.has(identity)) {
       throw new ConvexError({
         code: "DUPLICATE_BUNDLE_ENTRY",
@@ -148,11 +145,7 @@ export function bundleContentChecksum(args: {
   defaultRole: Doc<"permissionBundleVersions">["defaultRole"];
   entries: readonly BundleEntry[];
 }) {
-  const parts: OperationFingerprintPart[] = [
-    args.key,
-    args.label,
-    args.defaultRole ?? null,
-  ];
+  const parts: OperationFingerprintPart[] = [args.key, args.label, args.defaultRole ?? null];
   for (const entry of args.entries) {
     parts.push(
       entry.permissionKey,
@@ -267,9 +260,7 @@ export async function resolveBundleGrants(
 ) {
   const requirements = bundleBindingRequirements(args.entries);
   const normalizedBindings = normalizeBundleBindings(requirements, args.bindings);
-  const bindings = new Map(
-    normalizedBindings.map((binding) => [binding.key, binding.scopeId]),
-  );
+  const bindings = new Map(normalizedBindings.map((binding) => [binding.key, binding.scopeId]));
   const resolved: ResolvedBundleGrant[] = [];
   const identities = new Set<string>();
   for (const entry of args.entries) {
@@ -279,12 +270,7 @@ export async function resolveBundleGrants(
         ? undefined
         : entry.scopeSource === "target"
           ? entry.scopeType === "self"
-            ? await targetSelfScopeId(
-                ctx,
-                args.eventId,
-                args.targetPersonId,
-                permissionKey,
-              )
+            ? await targetSelfScopeId(ctx, args.eventId, args.targetPersonId, permissionKey)
             : args.targetPersonId
           : bindings.get(entry.bindingKey ?? "");
     const scope = await validateGrantScope(
@@ -326,11 +312,7 @@ export function resolvedBundleChecksum(args: {
     args.validUntil ?? null,
   ];
   for (const grant of args.grants) {
-    parts.push(
-      grant.permissionKey,
-      grant.scopeType,
-      "scopeId" in grant ? grant.scopeId : null,
-    );
+    parts.push(grant.permissionKey, grant.scopeType, "scopeId" in grant ? grant.scopeId : null);
   }
   return operationFingerprint(parts);
 }
@@ -341,16 +323,9 @@ export function resolvedBundleSourceId(args: {
   validUntil: number | undefined;
   grants: readonly ResolvedBundleGrant[];
 }) {
-  const parts: OperationFingerprintPart[] = [
-    args.targetPersonId,
-    args.validUntil ?? null,
-  ];
+  const parts: OperationFingerprintPart[] = [args.targetPersonId, args.validUntil ?? null];
   for (const grant of args.grants) {
-    parts.push(
-      grant.permissionKey,
-      grant.scopeType,
-      "scopeId" in grant ? grant.scopeId : null,
-    );
+    parts.push(grant.permissionKey, grant.scopeType, "scopeId" in grant ? grant.scopeId : null);
   }
   return `bundle:${args.bundleVersionId}:${operationFingerprint(parts)}`;
 }

@@ -55,10 +55,7 @@ function sameQueueItem(left: QueueItem | null, right: QueueItem | null) {
   );
 }
 
-async function requirePanelQueueCapacity(
-  ctx: MutationCtx,
-  panelId: Id<"reviewPanels">,
-) {
+async function requirePanelQueueCapacity(ctx: MutationCtx, panelId: Id<"reviewPanels">) {
   const count = await reviewQueue.count(ctx, { namespace: panelId });
   if (count >= maximumReviewTeamsPerEvent) {
     throw new ConvexError({
@@ -93,10 +90,7 @@ async function syncQueueProjection(
   }
 }
 
-export async function insertTeamRoundState(
-  ctx: MutationCtx,
-  value: TeamRoundStateFields,
-) {
+export async function insertTeamRoundState(ctx: MutationCtx, value: TeamRoundStateFields) {
   const stateId = await ctx.db.insert("teamRoundStates", value);
   await syncQueueProjection(ctx, null, { _id: stateId, ...value });
   const inserted = await ctx.db.get(stateId);
@@ -117,10 +111,7 @@ export async function patchTeamRoundState(
   await appendTeamRoundStateReadFact(ctx, updated, updated.updatedAt);
 }
 
-export async function participantQueuePosition(
-  ctx: ReadCtx,
-  state: Doc<"teamRoundStates">,
-) {
+export async function participantQueuePosition(ctx: ReadCtx, state: Doc<"teamRoundStates">) {
   const item = queueItem(state);
   if (!item) throw new Error("Queue position requires a queued team.");
   const position = await reviewQueue.indexOf(ctx, item.key, {

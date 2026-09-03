@@ -9,17 +9,13 @@ export type ReviewerPagePushData = {
 export function reviewerPagePushData(args: {
   pageId: string;
   roundName: string;
-  tableLabel?: string;
   expiresAt: number;
 }): ReviewerPagePushData {
-  const body = args.tableLabel === undefined
-    ? `${args.roundName}. Open Code2Create Ops now.`
-    : `${args.roundName} at ${args.tableLabel}. Open Code2Create Ops now.`;
   return {
     kind: "reviewer_substitute_page",
     pageId: args.pageId,
     title: "Substitute request",
-    body,
+    body: `${args.roundName}. Open Code2Create Ops now.`,
     expiresAt: String(args.expiresAt),
   };
 }

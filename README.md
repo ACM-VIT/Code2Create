@@ -67,36 +67,36 @@ pnpm dev:email
 pnpm dev:voice
 ```
 
-| Surface | Local address |
-| --- | --- |
-| Participant portal | `http://localhost:5180` |
-| Operations dashboard | `http://localhost:5181` |
-| Public landing page | `http://localhost:5182` |
-| Convex HTTP/auth | `http://localhost:3211` |
-| Reviewer Metro | `http://localhost:8082` |
-| Intelligence Worker | `http://localhost:8791/health` |
-| Expo Updates Worker | `http://localhost:8792/health` |
-| Email Worker | `http://localhost:8793/health` |
-| Voice Worker | `http://localhost:8794/health` |
+| Surface              | Local address                  |
+| -------------------- | ------------------------------ |
+| Participant portal   | `http://localhost:5180`        |
+| Operations dashboard | `http://localhost:5181`        |
+| Public landing page  | `http://localhost:5182`        |
+| Convex HTTP/auth     | `http://localhost:3211`        |
+| Reviewer Metro       | `http://localhost:8082`        |
+| Intelligence Worker  | `http://localhost:8791/health` |
+| Expo Updates Worker  | `http://localhost:8792/health` |
+| Email Worker         | `http://localhost:8793/health` |
+| Voice Worker         | `http://localhost:8794/health` |
 
 Run `pnpm dev:prepare` after changing local backend or worker environment while the backend is already running.
 
 ## Applications and packages
 
-| Path | Responsibility |
-| --- | --- |
-| `apps/web` | Participant portal |
-| `apps/ops` | Organizer operations dashboard |
-| `apps/landing` | Public Code2Create landing page |
-| `apps/reviewer` | Native reviewer and floor-operations app |
-| `apps/backend` | Convex data, authorization, transactions, jobs, and provider orchestration |
-| `apps/intelligence` | Flue-based operations intelligence worker |
-| `apps/updates` | Event-owned Expo Updates Worker and R2 delivery |
-| `apps/email` | Cloudflare Email Routing delivery worker |
-| `apps/voice` | Outbound call and synthesized-audio worker |
-| `packages/domain` | Shared domain contracts and presentation vocabulary |
-| `packages/web-auth` | Shared Better Auth browser integration |
-| `packages/client-observability` | Shared client analytics and error tracking |
+| Path                            | Responsibility                                                             |
+| ------------------------------- | -------------------------------------------------------------------------- |
+| `apps/web`                      | Participant portal                                                         |
+| `apps/ops`                      | Organizer operations dashboard                                             |
+| `apps/landing`                  | Public Code2Create landing page                                            |
+| `apps/reviewer`                 | Native reviewer and floor-operations app                                   |
+| `apps/backend`                  | Convex data, authorization, transactions, jobs, and provider orchestration |
+| `apps/intelligence`             | Flue-based operations intelligence worker                                  |
+| `apps/updates`                  | Event-owned Expo Updates Worker and R2 delivery                            |
+| `apps/email`                    | Cloudflare Email Routing delivery worker                                   |
+| `apps/voice`                    | Outbound call and synthesized-audio worker                                 |
+| `packages/domain`               | Shared domain contracts and presentation vocabulary                        |
+| `packages/web-auth`             | Shared Better Auth browser integration                                     |
+| `packages/client-observability` | Shared client analytics and error tracking                                 |
 
 All product surfaces use the same Google identity and Convex deployment. Permissions are exact grants scoped to an event or resource. Role labels provide default permission bundles; they are not authorization shortcuts.
 

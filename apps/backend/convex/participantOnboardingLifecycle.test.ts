@@ -32,11 +32,13 @@ describe("participant onboarding lifecycle", () => {
       sessionId: fixture.authSessionId,
     });
 
-    await expect(participant.mutation(api.teams.create, {
-      eventSlug: fixture.eventSlug,
-      name: "Quiet Circuit",
-      clientOperationId: "team-before-consent",
-    })).rejects.toThrow("Accept the current participant policy");
+    await expect(
+      participant.mutation(api.teams.create, {
+        eventSlug: fixture.eventSlug,
+        name: "Quiet Circuit",
+        clientOperationId: "team-before-consent",
+      }),
+    ).rejects.toThrow("Accept the current participant policy");
 
     const acceptance = {
       eventSlug: fixture.eventSlug,
@@ -45,7 +47,10 @@ describe("participant onboarding lifecycle", () => {
       clientOperationId: "accept-policy-once",
     } as const;
     const firstAcceptance = await participant.mutation(api.participants.acceptPolicy, acceptance);
-    const replayedAcceptance = await participant.mutation(api.participants.acceptPolicy, acceptance);
+    const replayedAcceptance = await participant.mutation(
+      api.participants.acceptPolicy,
+      acceptance,
+    );
     expect(replayedAcceptance).toEqual(firstAcceptance);
     await expect(
       participant.query(api.access.participantCapabilities, {
@@ -57,25 +62,31 @@ describe("participant onboarding lifecycle", () => {
       const membership = await ctx.db.get(fixture.membershipId);
       if (!membership) throw new Error("The participant membership is missing.");
       expect(membership.acceptedParticipantPolicyVersionIds).toEqual([fixture.policyId]);
-      expect(await ctx.db
-        .query("participantProfiles")
-        .withIndex("by_membership", (index) => index.eq("membershipId", membership._id))
-        .unique()).toBeNull();
-      expect(await ctx.db
-        .query("operationResults")
-        .withIndex("by_actor_operation", (index) =>
-          index
-            .eq("actorPersonId", fixture.personId)
-            .eq("clientOperationId", acceptance.clientOperationId),
-        )
-        .collect()).toHaveLength(1);
+      expect(
+        await ctx.db
+          .query("participantProfiles")
+          .withIndex("by_membership", (index) => index.eq("membershipId", membership._id))
+          .unique(),
+      ).toBeNull();
+      expect(
+        await ctx.db
+          .query("operationResults")
+          .withIndex("by_actor_operation", (index) =>
+            index
+              .eq("actorPersonId", fixture.personId)
+              .eq("clientOperationId", acceptance.clientOperationId),
+          )
+          .collect(),
+      ).toHaveLength(1);
     });
 
-    await expect(participant.mutation(api.teams.create, {
-      eventSlug: fixture.eventSlug,
-      name: "Quiet Circuit",
-      clientOperationId: "team-before-profile",
-    })).rejects.toThrow("Complete your participant details");
+    await expect(
+      participant.mutation(api.teams.create, {
+        eventSlug: fixture.eventSlug,
+        name: "Quiet Circuit",
+        clientOperationId: "team-before-profile",
+      }),
+    ).rejects.toThrow("Complete your participant details");
 
     await participant.mutation(api.participants.saveProfile, {
       eventSlug: fixture.eventSlug,
@@ -90,11 +101,13 @@ describe("participant onboarding lifecycle", () => {
       expectedProfileVersion: 0,
       clientOperationId: "complete-profile-before-team",
     });
-    await expect(participant.mutation(api.teams.create, {
-      eventSlug: fixture.eventSlug,
-      name: "Quiet Circuit",
-      clientOperationId: "team-before-github-star",
-    })).rejects.toThrow("star sgl-project/sglang");
+    await expect(
+      participant.mutation(api.teams.create, {
+        eventSlug: fixture.eventSlug,
+        name: "Quiet Circuit",
+        clientOperationId: "team-before-github-star",
+      }),
+    ).rejects.toThrow("star sgl-project/sglang");
     await backend.run(async (ctx) => {
       expect((await ctx.db.get(fixture.membershipId))?.onboardingStatus).toBe("github_required");
     });
@@ -128,11 +141,13 @@ describe("participant onboarding lifecycle", () => {
         eventSlug: fixture.eventSlug,
       }),
     ).resolves.toMatchObject({ teamJoin: false });
-    await expect(participant.mutation(api.teams.create, {
-      eventSlug: fixture.eventSlug,
-      name: "Quiet Circuit",
-      clientOperationId: "team-without-permission",
-    })).rejects.toThrow();
+    await expect(
+      participant.mutation(api.teams.create, {
+        eventSlug: fixture.eventSlug,
+        name: "Quiet Circuit",
+        clientOperationId: "team-without-permission",
+      }),
+    ).rejects.toThrow();
 
     await backend.run(async (ctx) => {
       const teamJoinGrant = await ctx.db
@@ -192,7 +207,6 @@ describe("participant onboarding lifecycle", () => {
       canRespondToLeadershipTransfer: true,
       canWriteProject: true,
       canSubmitApplication: true,
-      canRespondToInformationRequest: true,
       canRespondToOffer: true,
     });
 
@@ -532,12 +546,14 @@ describe("participant onboarding lifecycle", () => {
       });
     });
     expect(await participant.mutation(api.teams.create, createRequest)).toEqual(created);
-    await expect(participant.mutation(api.teams.leave, {
-      eventSlug: fixture.eventSlug,
-      teamId: created.teamId,
-      expectedTeamVersion: 1,
-      clientOperationId: "leave-after-applications-close",
-    })).rejects.toThrow("Applications are closed");
+    await expect(
+      participant.mutation(api.teams.leave, {
+        eventSlug: fixture.eventSlug,
+        teamId: created.teamId,
+        expectedTeamVersion: 1,
+        clientOperationId: "leave-after-applications-close",
+      }),
+    ).rejects.toThrow("Applications are closed");
   }, 10_000);
 
   test("settles the GitHub connection and star with idempotent transactional claims", async () => {
@@ -598,21 +614,20 @@ describe("participant onboarding lifecycle", () => {
         authorizationExpiresAt: Date.now() + 60_000,
       },
     });
-    await expect(participant.query(api.githubStarGate.current, {
-      eventSlug: fixture.eventSlug,
-    })).resolves.toMatchObject({
+    await expect(
+      participant.query(api.githubStarGate.current, {
+        eventSlug: fixture.eventSlug,
+      }),
+    ).resolves.toMatchObject({
       connected: true,
       completed: false,
       githubLogin: "aarav-github",
     });
 
-    const starClaim = await participant.mutation(
-      internal.githubStarGate.claimStar,
-      {
-        eventSlug: fixture.eventSlug,
-        attemptId: "github-gate-star-attempt",
-      },
-    );
+    const starClaim = await participant.mutation(internal.githubStarGate.claimStar, {
+      eventSlug: fixture.eventSlug,
+      attemptId: "github-gate-star-attempt",
+    });
     expect(starClaim.kind).toBe("star");
     if (starClaim.kind !== "star") throw new Error("The star authorization was not claimed.");
     await participant.mutation(internal.githubStarGate.markStarSucceeded, {
@@ -625,13 +640,10 @@ describe("participant onboarding lifecycle", () => {
       invalidateAuthorization: false,
     });
 
-    const revocationClaim = await participant.mutation(
-      internal.githubStarGate.claimStar,
-      {
-        eventSlug: fixture.eventSlug,
-        attemptId: "github-gate-revocation-attempt",
-      },
-    );
+    const revocationClaim = await participant.mutation(internal.githubStarGate.claimStar, {
+      eventSlug: fixture.eventSlug,
+      attemptId: "github-gate-revocation-attempt",
+    });
     expect(revocationClaim.kind).toBe("revoke");
     if (revocationClaim.kind !== "revoke") {
       throw new Error("The GitHub grant revocation was not resumed.");
@@ -646,53 +658,50 @@ describe("participant onboarding lifecycle", () => {
       invalidateAuthorization: false,
     });
 
-    const completionClaim = await participant.mutation(
-      internal.githubStarGate.claimStar,
-      {
-        eventSlug: fixture.eventSlug,
-        attemptId: "github-gate-completion-attempt",
-      },
-    );
+    const completionClaim = await participant.mutation(internal.githubStarGate.claimStar, {
+      eventSlug: fixture.eventSlug,
+      attemptId: "github-gate-completion-attempt",
+    });
     expect(completionClaim.kind).toBe("finish");
     if (completionClaim.kind !== "finish") {
       throw new Error("The completed GitHub star was not resumed.");
     }
-    const completed = await participant.mutation(
-      internal.githubStarGate.finishStar,
-      {
-        eventSlug: fixture.eventSlug,
-        authorizationId: completionClaim.authorizationId,
-        attemptId: "github-gate-completion-attempt",
-      },
-    );
-    const replayed = await participant.mutation(
-      internal.githubStarGate.finishStar,
-      {
-        eventSlug: fixture.eventSlug,
-        authorizationId: completionClaim.authorizationId,
-        attemptId: "github-gate-completion-attempt",
-      },
-    );
-    expect(replayed).toEqual(completed);
-    await expect(participant.query(api.githubStarGate.current, {
+    const completed = await participant.mutation(internal.githubStarGate.finishStar, {
       eventSlug: fixture.eventSlug,
-    })).resolves.toMatchObject({
+      authorizationId: completionClaim.authorizationId,
+      attemptId: "github-gate-completion-attempt",
+    });
+    const replayed = await participant.mutation(internal.githubStarGate.finishStar, {
+      eventSlug: fixture.eventSlug,
+      authorizationId: completionClaim.authorizationId,
+      attemptId: "github-gate-completion-attempt",
+    });
+    expect(replayed).toEqual(completed);
+    await expect(
+      participant.query(api.githubStarGate.current, {
+        eventSlug: fixture.eventSlug,
+      }),
+    ).resolves.toMatchObject({
       connected: true,
       completed: true,
       githubLogin: "aarav-github",
     });
     await backend.run(async (ctx) => {
-      expect(await ctx.db
-        .query("githubStarAuthorizations")
-        .withIndex("by_event_membership", (index) =>
-          index.eq("eventId", fixture.eventId).eq("membershipId", fixture.membershipId),
-        )
-        .unique()).toBeNull();
+      expect(
+        await ctx.db
+          .query("githubStarAuthorizations")
+          .withIndex("by_event_membership", (index) =>
+            index.eq("eventId", fixture.eventId).eq("membershipId", fixture.membershipId),
+          )
+          .unique(),
+      ).toBeNull();
       expect((await ctx.db.get(fixture.membershipId))?.onboardingStatus).toBe("team_required");
     });
-    await expect(participant.mutation(internal.githubStarGate.prepareDisconnect, {
-      eventSlug: fixture.eventSlug,
-    })).rejects.toThrow("already complete");
+    await expect(
+      participant.mutation(internal.githubStarGate.prepareDisconnect, {
+        eventSlug: fixture.eventSlug,
+      }),
+    ).rejects.toThrow("already complete");
   });
 
   test("disconnects an unfinished GitHub authorization and expires open callbacks", async () => {
@@ -729,14 +738,11 @@ describe("participant onboarding lifecycle", () => {
       pkceVerifierCiphertext: "encrypted-verifier",
       redirectUri: "https://participant.example.test/onboarding/github/callback",
     });
-    const connectedClaim = await participant.mutation(
-      internal.githubStarGate.claimSetupIntent,
-      {
-        eventSlug: fixture.eventSlug,
-        stateDigest: "github-disconnect-connected-state",
-        attemptId: "github-disconnect-connected-attempt",
-      },
-    );
+    const connectedClaim = await participant.mutation(internal.githubStarGate.claimSetupIntent, {
+      eventSlug: fixture.eventSlug,
+      stateDigest: "github-disconnect-connected-state",
+      attemptId: "github-disconnect-connected-attempt",
+    });
     if (connectedClaim.kind !== "verify") throw new Error("The setup intent was not claimed.");
     await participant.mutation(internal.githubStarGate.finishSetupIntent, {
       eventSlug: fixture.eventSlug,
@@ -750,20 +756,16 @@ describe("participant onboarding lifecycle", () => {
         authorizationExpiresAt: Date.now() + 60_000,
       },
     });
-    const openIntent = await participant.mutation(
-      internal.githubStarGate.createSetupIntent,
-      {
-        eventSlug: fixture.eventSlug,
-        stateDigest: "github-disconnect-open-state",
-        pkceVerifierCiphertext: "another-encrypted-verifier",
-        redirectUri: "https://participant.example.test/onboarding/github/callback",
-      },
-    );
+    const openIntent = await participant.mutation(internal.githubStarGate.createSetupIntent, {
+      eventSlug: fixture.eventSlug,
+      stateDigest: "github-disconnect-open-state",
+      pkceVerifierCiphertext: "another-encrypted-verifier",
+      redirectUri: "https://participant.example.test/onboarding/github/callback",
+    });
 
-    const disconnectClaim = await participant.mutation(
-      internal.githubStarGate.prepareDisconnect,
-      { eventSlug: fixture.eventSlug },
-    );
+    const disconnectClaim = await participant.mutation(internal.githubStarGate.prepareDisconnect, {
+      eventSlug: fixture.eventSlug,
+    });
     expect(disconnectClaim).toMatchObject({
       kind: "revoke",
       accessTokenCiphertext: "encrypted-access-token",
@@ -771,29 +773,39 @@ describe("participant onboarding lifecycle", () => {
     if (disconnectClaim.kind !== "revoke") {
       throw new Error("The GitHub grant was not prepared for revocation.");
     }
-    await expect(participant.mutation(internal.githubStarGate.finishDisconnect, {
-      eventSlug: fixture.eventSlug,
-      authorizationId: disconnectClaim.authorizationId,
-    })).resolves.toEqual({ disconnected: true });
-    await expect(participant.query(api.githubStarGate.current, {
-      eventSlug: fixture.eventSlug,
-    })).resolves.toEqual({ connected: false, completed: false });
+    await expect(
+      participant.mutation(internal.githubStarGate.finishDisconnect, {
+        eventSlug: fixture.eventSlug,
+        authorizationId: disconnectClaim.authorizationId,
+      }),
+    ).resolves.toEqual({ disconnected: true });
+    await expect(
+      participant.query(api.githubStarGate.current, {
+        eventSlug: fixture.eventSlug,
+      }),
+    ).resolves.toEqual({ connected: false, completed: false });
     await backend.run(async (ctx) => {
-      expect(await ctx.db
-        .query("githubStarAuthorizations")
-        .withIndex("by_event_membership", (index) =>
-          index.eq("eventId", fixture.eventId).eq("membershipId", fixture.membershipId),
-        )
-        .unique()).toBeNull();
+      expect(
+        await ctx.db
+          .query("githubStarAuthorizations")
+          .withIndex("by_event_membership", (index) =>
+            index.eq("eventId", fixture.eventId).eq("membershipId", fixture.membershipId),
+          )
+          .unique(),
+      ).toBeNull();
       const expiredIntent = await ctx.db.get(openIntent.intentId);
       expect(expiredIntent).toMatchObject({ status: "expired" });
     });
-    await expect(participant.mutation(internal.githubStarGate.prepareDisconnect, {
-      eventSlug: fixture.eventSlug,
-    })).resolves.toEqual({ kind: "clear" });
-    await expect(participant.mutation(internal.githubStarGate.finishDisconnect, {
-      eventSlug: fixture.eventSlug,
-    })).resolves.toEqual({ disconnected: false });
+    await expect(
+      participant.mutation(internal.githubStarGate.prepareDisconnect, {
+        eventSlug: fixture.eventSlug,
+      }),
+    ).resolves.toEqual({ kind: "clear" });
+    await expect(
+      participant.mutation(internal.githubStarGate.finishDisconnect, {
+        eventSlug: fixture.eventSlug,
+      }),
+    ).resolves.toEqual({ disconnected: false });
   });
 
   test("completes GitHub onboarding immediately when the account already stars SGLang", async () => {
@@ -849,20 +861,24 @@ describe("participant onboarding lifecycle", () => {
       kind: "completed",
       githubLogin: "already-supports-sglang",
     });
-    await expect(participant.query(api.githubStarGate.current, {
-      eventSlug: fixture.eventSlug,
-    })).resolves.toMatchObject({
+    await expect(
+      participant.query(api.githubStarGate.current, {
+        eventSlug: fixture.eventSlug,
+      }),
+    ).resolves.toMatchObject({
       connected: true,
       completed: true,
       githubLogin: "already-supports-sglang",
     });
     await backend.run(async (ctx) => {
-      expect(await ctx.db
-        .query("githubStarAuthorizations")
-        .withIndex("by_event_membership", (index) =>
-          index.eq("eventId", fixture.eventId).eq("membershipId", fixture.membershipId),
-        )
-        .unique()).toBeNull();
+      expect(
+        await ctx.db
+          .query("githubStarAuthorizations")
+          .withIndex("by_event_membership", (index) =>
+            index.eq("eventId", fixture.eventId).eq("membershipId", fixture.membershipId),
+          )
+          .unique(),
+      ).toBeNull();
       expect((await ctx.db.get(fixture.membershipId))?.onboardingStatus).toBe("team_required");
     });
   });
@@ -882,46 +898,52 @@ describe("participant onboarding lifecycle", () => {
       clientOperationId: "external-profile-policy-accept",
     });
 
-    await expect(participant.mutation(api.participants.saveProfile, {
-      eventSlug: fixture.eventSlug,
-      participantPolicyVersionId: fixture.policyId,
-      fullName: "Aarav Krishnan",
-      phone: "+91 90000 00000",
-      phoneVerificationId: fixture.phoneVerificationId,
-      gender: "male",
-      yearOfStudy: "not_applicable",
-      externalUniversity: "Example University",
-      externalCollege: "Example College",
-      expectedProfileVersion: 0,
-      clientOperationId: "external-profile-without-year",
-    })).rejects.toThrow("current year of study");
+    await expect(
+      participant.mutation(api.participants.saveProfile, {
+        eventSlug: fixture.eventSlug,
+        participantPolicyVersionId: fixture.policyId,
+        fullName: "Aarav Krishnan",
+        phone: "+91 90000 00000",
+        phoneVerificationId: fixture.phoneVerificationId,
+        gender: "male",
+        yearOfStudy: "not_applicable",
+        externalUniversity: "Example University",
+        externalCollege: "Example College",
+        expectedProfileVersion: 0,
+        clientOperationId: "external-profile-without-year",
+      }),
+    ).rejects.toThrow("current year of study");
 
-    await expect(participant.mutation(api.participants.saveProfile, {
-      eventSlug: fixture.eventSlug,
-      participantPolicyVersionId: fixture.policyId,
-      phone: "+91 90000 00000",
-      phoneVerificationId: fixture.phoneVerificationId,
-      gender: "male",
-      yearOfStudy: "second",
-      externalUniversity: "Example University",
-      externalCollege: "Example College",
-      expectedProfileVersion: 0,
-      clientOperationId: "external-profile-without-name",
-    })).rejects.toThrow("appear for the event");
+    await expect(
+      participant.mutation(api.participants.saveProfile, {
+        eventSlug: fixture.eventSlug,
+        participantPolicyVersionId: fixture.policyId,
+        phone: "+91 90000 00000",
+        phoneVerificationId: fixture.phoneVerificationId,
+        gender: "male",
+        yearOfStudy: "second",
+        externalUniversity: "Example University",
+        externalCollege: "Example College",
+        expectedProfileVersion: 0,
+        clientOperationId: "external-profile-without-name",
+      }),
+    ).rejects.toThrow("appear for the event");
 
-    await expect(participant.mutation(api.participants.saveProfile, {
-      eventSlug: fixture.eventSlug,
-      participantPolicyVersionId: fixture.policyId,
-      fullName: "Aarav Krishnan",
-      phone: "1234",
-      phoneVerificationId: fixture.phoneVerificationId,
-      gender: "male",
-      yearOfStudy: "second",
-      externalUniversity: "Example University",
-      externalCollege: "Example College",
-      expectedProfileVersion: 0,
-      clientOperationId: "external-profile-placeholder-phone",
-    })).rejects.toThrow("10 to 15 digits");
+    await expect(
+      participant.mutation(api.participants.saveProfile, {
+        eventSlug: fixture.eventSlug,
+        participantPolicyVersionId: fixture.policyId,
+        fullName: "Aarav Krishnan",
+        phone: "1234",
+        phoneVerificationId: fixture.phoneVerificationId,
+        gender: "male",
+        yearOfStudy: "second",
+        externalUniversity: "Example University",
+        externalCollege: "Example College",
+        expectedProfileVersion: 0,
+        clientOperationId: "external-profile-placeholder-phone",
+      }),
+    ).rejects.toThrow("10 to 15 digits");
 
     const saved = await participant.mutation(api.participants.saveProfile, {
       eventSlug: fixture.eventSlug,
@@ -1044,14 +1066,18 @@ describe("participant onboarding lifecycle", () => {
       clientOperationId: "lead-transfer-request-once",
     } as const;
     const transfer = await currentLeadClient.mutation(api.teams.requestLeadershipTransfer, request);
-    expect(await currentLeadClient.mutation(api.teams.requestLeadershipTransfer, request)).toEqual(transfer);
+    expect(await currentLeadClient.mutation(api.teams.requestLeadershipTransfer, request)).toEqual(
+      transfer,
+    );
 
-    await expect(currentLeadClient.mutation(api.teams.respondToLeadershipTransfer, {
-      eventSlug: fixture.eventSlug,
-      transferId: transfer.transferId,
-      accept: true,
-      clientOperationId: "wrong-person-transfer-response",
-    })).rejects.toThrow("not available");
+    await expect(
+      currentLeadClient.mutation(api.teams.respondToLeadershipTransfer, {
+        eventSlug: fixture.eventSlug,
+        transferId: transfer.transferId,
+        accept: true,
+        clientOperationId: "wrong-person-transfer-response",
+      }),
+    ).rejects.toThrow("not available");
 
     const response = {
       eventSlug: fixture.eventSlug,
@@ -1080,7 +1106,6 @@ describe("participant onboarding lifecycle", () => {
       canRespondToLeadershipTransfer: true,
       canWriteProject: true,
       canSubmitApplication: false,
-      canRespondToInformationRequest: false,
       canRespondToOffer: false,
     });
     expect(newLeadView).toMatchObject({
@@ -1090,7 +1115,6 @@ describe("participant onboarding lifecycle", () => {
       canRespondToLeadershipTransfer: true,
       canWriteProject: true,
       canSubmitApplication: true,
-      canRespondToInformationRequest: true,
       canRespondToOffer: true,
     });
 
@@ -1183,13 +1207,15 @@ describe("participant onboarding lifecycle", () => {
     });
     if (!currentTeam) throw new Error("The sole lead team view is missing.");
 
-    await expect(participant.mutation(api.teams.switchTeam, {
-      eventSlug: fixture.eventSlug,
-      fromTeamId: created.teamId,
-      expectedFromTeamVersion: currentTeam.version,
-      code: "NOTREAL",
-      clientOperationId: "sole-lead-invalid-switch",
-    })).rejects.toThrow("not active");
+    await expect(
+      participant.mutation(api.teams.switchTeam, {
+        eventSlug: fixture.eventSlug,
+        fromTeamId: created.teamId,
+        expectedFromTeamVersion: currentTeam.version,
+        code: "NOTREAL",
+        clientOperationId: "sole-lead-invalid-switch",
+      }),
+    ).rejects.toThrow("not active");
     expect(
       await participant.query(api.teams.current, { eventSlug: fixture.eventSlug }),
     ).toMatchObject({
@@ -1201,13 +1227,15 @@ describe("participant onboarding lifecycle", () => {
     await backend.run(async (ctx) => {
       await ctx.db.patch(created.teamId, { version: currentTeam.version + 1 });
     });
-    await expect(participant.mutation(api.teams.switchTeam, {
-      eventSlug: fixture.eventSlug,
-      fromTeamId: created.teamId,
-      expectedFromTeamVersion: currentTeam.version,
-      code: hostTeam.publicCode,
-      clientOperationId: "sole-lead-stale-switch",
-    })).rejects.toThrow("changed");
+    await expect(
+      participant.mutation(api.teams.switchTeam, {
+        eventSlug: fixture.eventSlug,
+        fromTeamId: created.teamId,
+        expectedFromTeamVersion: currentTeam.version,
+        code: hostTeam.publicCode,
+        clientOperationId: "sole-lead-stale-switch",
+      }),
+    ).rejects.toThrow("changed");
     const refreshedTeam = await participant.query(api.teams.current, {
       eventSlug: fixture.eventSlug,
     });
@@ -1222,7 +1250,9 @@ describe("participant onboarding lifecycle", () => {
     } as const;
     const switched = await participant.mutation(api.teams.switchTeam, switchRequest);
     expect(switched.teamId).toBe(hostTeam.teamId);
-    await expect(participant.mutation(api.teams.switchTeam, switchRequest)).resolves.toEqual(switched);
+    await expect(participant.mutation(api.teams.switchTeam, switchRequest)).resolves.toEqual(
+      switched,
+    );
 
     await backend.run(async (ctx) => {
       const withdrawn = await ctx.db.get(created.teamId);
@@ -1395,9 +1425,11 @@ describe("participant onboarding lifecycle", () => {
       eventSlug: fixture.eventSlug,
       participantClass: "external_participant",
     });
-    expect(await participant.query(api.teams.current, {
-      eventSlug: fixture.eventSlug,
-    })).toBeNull();
+    expect(
+      await participant.query(api.teams.current, {
+        eventSlug: fixture.eventSlug,
+      }),
+    ).toBeNull();
     await participant.mutation(api.participants.acceptPolicy, {
       eventSlug: fixture.eventSlug,
       participantPolicyVersionId: fixture.policyId,
@@ -1448,9 +1480,11 @@ describe("participant onboarding lifecycle", () => {
       eventSlug: fixture.eventSlug,
       participantClass: "external_participant",
     });
-    expect(await lead.query(api.teams.current, {
-      eventSlug: fixture.eventSlug,
-    })).toBeNull();
+    expect(
+      await lead.query(api.teams.current, {
+        eventSlug: fixture.eventSlug,
+      }),
+    ).toBeNull();
     await lead.mutation(api.participants.acceptPolicy, {
       eventSlug: fixture.eventSlug,
       participantPolicyVersionId: fixture.policyId,
@@ -1472,9 +1506,8 @@ describe("participant onboarding lifecycle", () => {
       eventSlug: fixture.eventSlug,
       participantClass: "external_participant",
     });
-    const leadAssignment = (
-      await lead.query(api.participants.me, { eventSlug: fixture.eventSlug })
-    )?.pendingTeam;
+    const leadAssignment = (await lead.query(api.participants.me, { eventSlug: fixture.eventSlug }))
+      ?.pendingTeam;
     if (!leadAssignment) throw new Error("The roster lead assignment is missing.");
     await lead.mutation(api.teams.acceptAssignedTeam, {
       eventSlug: fixture.eventSlug,
@@ -1517,6 +1550,100 @@ describe("participant onboarding lifecycle", () => {
       expect(memberRows[0]?.source).toBe("backfill");
     });
   }, 10_000);
+
+  test("allows a verified email-only account to provision only as an external participant", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedParticipant(backend);
+    const email = "email-only-participant@example.test";
+    const authUserId = await createAuthUser(backend, fixture.now, "", email);
+    const authSessionId = await createAuthSession(
+      backend,
+      authUserId,
+      fixture.now,
+      "participant-onboarding-email-only-session",
+    );
+    const participant = backend.withIdentity({
+      subject: authUserId,
+      sessionId: authSessionId,
+    });
+    const previousEnvironment = process.env.C2C_DEPLOYMENT_ENVIRONMENT;
+    process.env.C2C_DEPLOYMENT_ENVIRONMENT = "development";
+
+    try {
+      await expect(
+        participant.mutation(api.participants.provision, {
+          eventSlug: fixture.eventSlug,
+          participantClass: "vit_student",
+        }),
+      ).rejects.toThrow("Google Workspace");
+      await expect(
+        participant.query(api.system.bootstrapEligibility, {
+          eventSlug: fixture.eventSlug,
+        }),
+      ).rejects.toThrow("continue with Google");
+
+      const vitEmailAuthUserId = await createAuthUser(
+        backend,
+        fixture.now,
+        "",
+        "email-only@vitstudent.ac.in",
+      );
+      const vitEmailAuthSessionId = await createAuthSession(
+        backend,
+        vitEmailAuthUserId,
+        fixture.now,
+        "participant-onboarding-vit-email-only-session",
+      );
+      const vitEmailParticipant = backend.withIdentity({
+        subject: vitEmailAuthUserId,
+        sessionId: vitEmailAuthSessionId,
+      });
+      await expect(
+        vitEmailParticipant.mutation(api.participants.provision, {
+          eventSlug: fixture.eventSlug,
+          participantClass: "external_participant",
+        }),
+      ).rejects.toThrow("must continue with Google Workspace");
+
+      const provisioned = await participant.mutation(api.participants.provision, {
+        eventSlug: fixture.eventSlug,
+        participantClass: "external_participant",
+      });
+      expect(provisioned.created).toBe(true);
+
+      await expect(
+        participant.query(api.participants.me, {
+          eventSlug: fixture.eventSlug,
+        }),
+      ).resolves.toMatchObject({
+        person: {
+          verifiedEmail: email,
+          displayName: email,
+        },
+        membership: {
+          id: provisioned.membershipId,
+          participantClass: "external_participant",
+        },
+      });
+      await backend.run(async (ctx) => {
+        const person = await ctx.db
+          .query("people")
+          .withIndex("by_auth_user", (index) => index.eq("authUserId", authUserId))
+          .unique();
+        expect(person?.googleSubject).toBeUndefined();
+        expect(
+          await ctx.db
+            .query("googleIdentityClaims")
+            .withIndex("by_auth_user", (index) => index.eq("authUserId", authUserId))
+            .unique(),
+        ).toBeNull();
+      });
+    } finally {
+      if (previousEnvironment === undefined) delete process.env.C2C_DEPLOYMENT_ENVIRONMENT;
+      else process.env.C2C_DEPLOYMENT_ENVIRONMENT = previousEnvironment;
+    }
+  });
 
   test("provisions a VIT identity from the verified Google name instead of the mutable auth name", async () => {
     const backend = convexTest(schema, modules);
@@ -1584,9 +1711,11 @@ describe("participant onboarding lifecycle", () => {
     await backend.run(async (ctx) => {
       await ctx.db.patch(provisioned.membershipId, { vitStudentIdentity: undefined });
     });
-    await expect(participant.query(api.participants.me, {
-      eventSlug: fixture.eventSlug,
-    })).resolves.toMatchObject({
+    await expect(
+      participant.query(api.participants.me, {
+        eventSlug: fixture.eventSlug,
+      }),
+    ).resolves.toMatchObject({
       membership: {
         id: provisioned.membershipId,
         vitStudentIdentity: {
@@ -1594,10 +1723,12 @@ describe("participant onboarding lifecycle", () => {
         },
       },
     });
-    await expect(participant.mutation(api.participants.provision, {
-      eventSlug: fixture.eventSlug,
-      participantClass: "vit_student",
-    })).resolves.toEqual({ membershipId: provisioned.membershipId, created: false });
+    await expect(
+      participant.mutation(api.participants.provision, {
+        eventSlug: fixture.eventSlug,
+        participantClass: "vit_student",
+      }),
+    ).resolves.toEqual({ membershipId: provisioned.membershipId, created: false });
     await backend.run(async (ctx) => {
       const repaired = await ctx.db.get(provisioned.membershipId);
       expect(repaired?.vitStudentIdentity?.registrationNumber).toBe("24TST0001");
@@ -1611,9 +1742,11 @@ describe("participant onboarding lifecycle", () => {
       });
     });
 
-    await expect(participant.query(api.participants.me, {
-      eventSlug: fixture.eventSlug,
-    })).resolves.toMatchObject({
+    await expect(
+      participant.query(api.participants.me, {
+        eventSlug: fixture.eventSlug,
+      }),
+    ).resolves.toMatchObject({
       membership: {
         id: provisioned.membershipId,
         vitStudentIdentity: {
@@ -1633,9 +1766,11 @@ describe("participant onboarding lifecycle", () => {
         ctx.db.patch(googleIdentity._id, { displayName: "Example Student" }),
       ]);
     });
-    await expect(participant.query(api.participants.me, {
-      eventSlug: fixture.eventSlug,
-    })).resolves.toMatchObject({
+    await expect(
+      participant.query(api.participants.me, {
+        eventSlug: fixture.eventSlug,
+      }),
+    ).resolves.toMatchObject({
       membership: {
         id: provisioned.membershipId,
         vitStudentIdentity: null,
@@ -1702,52 +1837,60 @@ describe("participant onboarding lifecycle", () => {
       clientOperationId: "hostel-policy-accept",
     });
 
-    await expect(participant.mutation(api.participants.saveProfile, {
-      eventSlug: fixture.eventSlug,
-      participantPolicyVersionId: fixture.policyId,
-      phone: "+91 90000 00000",
-      phoneVerificationId: hostelPhoneVerificationId,
-      gender: "male",
-      expectedProfileVersion: 0,
-      clientOperationId: "hostel-missing-residence",
-    })).rejects.toThrow("day scholar or hosteller");
+    await expect(
+      participant.mutation(api.participants.saveProfile, {
+        eventSlug: fixture.eventSlug,
+        participantPolicyVersionId: fixture.policyId,
+        phone: "+91 90000 00000",
+        phoneVerificationId: hostelPhoneVerificationId,
+        gender: "male",
+        expectedProfileVersion: 0,
+        clientOperationId: "hostel-missing-residence",
+      }),
+    ).rejects.toThrow("day scholar or hosteller");
 
-    await expect(participant.mutation(api.participants.saveProfile, {
-      eventSlug: fixture.eventSlug,
-      participantPolicyVersionId: fixture.policyId,
-      phone: "+91 90000 00000",
-      phoneVerificationId: hostelPhoneVerificationId,
-      gender: "male",
-      vitResidenceType: "hosteller",
-      vitHostelResidence: "mh_s",
-      expectedProfileVersion: 0,
-      clientOperationId: "hostel-retired-mens-s-block",
-    })).rejects.toThrow("current VIT hostel block");
+    await expect(
+      participant.mutation(api.participants.saveProfile, {
+        eventSlug: fixture.eventSlug,
+        participantPolicyVersionId: fixture.policyId,
+        phone: "+91 90000 00000",
+        phoneVerificationId: hostelPhoneVerificationId,
+        gender: "male",
+        vitResidenceType: "hosteller",
+        vitHostelResidence: "mh_s",
+        expectedProfileVersion: 0,
+        clientOperationId: "hostel-retired-mens-s-block",
+      }),
+    ).rejects.toThrow("current VIT hostel block");
 
-    await expect(participant.mutation(api.participants.saveProfile, {
-      eventSlug: fixture.eventSlug,
-      participantPolicyVersionId: fixture.policyId,
-      phone: "+91 90000 00000",
-      phoneVerificationId: hostelPhoneVerificationId,
-      gender: "male",
-      vitResidenceType: "hosteller",
-      vitHostelResidence: "mh_b",
-      expectedProfileVersion: 0,
-      clientOperationId: "hostel-missing-room",
-    })).rejects.toThrow("hostel room number");
+    await expect(
+      participant.mutation(api.participants.saveProfile, {
+        eventSlug: fixture.eventSlug,
+        participantPolicyVersionId: fixture.policyId,
+        phone: "+91 90000 00000",
+        phoneVerificationId: hostelPhoneVerificationId,
+        gender: "male",
+        vitResidenceType: "hosteller",
+        vitHostelResidence: "mh_b",
+        expectedProfileVersion: 0,
+        clientOperationId: "hostel-missing-room",
+      }),
+    ).rejects.toThrow("hostel room number");
 
-    await expect(participant.mutation(api.participants.saveProfile, {
-      eventSlug: fixture.eventSlug,
-      participantPolicyVersionId: fixture.policyId,
-      phone: "+91 90000 00000",
-      phoneVerificationId: hostelPhoneVerificationId,
-      gender: "female",
-      vitResidenceType: "day_scholar",
-      vitHostelResidence: "lh_s",
-      vitHostelRoomNumber: "412",
-      expectedProfileVersion: 0,
-      clientOperationId: "hostel-day-scholar-room",
-    })).rejects.toThrow("Day scholars do not have a hostel block or room number");
+    await expect(
+      participant.mutation(api.participants.saveProfile, {
+        eventSlug: fixture.eventSlug,
+        participantPolicyVersionId: fixture.policyId,
+        phone: "+91 90000 00000",
+        phoneVerificationId: hostelPhoneVerificationId,
+        gender: "female",
+        vitResidenceType: "day_scholar",
+        vitHostelResidence: "lh_s",
+        vitHostelRoomNumber: "412",
+        expectedProfileVersion: 0,
+        clientOperationId: "hostel-day-scholar-room",
+      }),
+    ).rejects.toThrow("Day scholars do not have a hostel block or room number");
 
     const ladies = await participant.mutation(api.participants.saveProfile, {
       eventSlug: fixture.eventSlug,

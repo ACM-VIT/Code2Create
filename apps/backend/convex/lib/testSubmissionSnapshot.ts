@@ -24,18 +24,20 @@ export async function createTestSubmissionSnapshot(
   if (!team) {
     throw new Error("The test submission context is incomplete.");
   }
-  const draftId = existingDraft?._id ?? await ctx.db.insert("projectDrafts", {
-    eventId: args.eventId,
-    teamId: team._id,
-    intakePolicyVersionId: args.intakePolicyVersionId,
-    stage: "submitted",
-    initialIdea: "Fixture submitted project.",
-    freshnessAttestedByMembershipId: team.leadMembershipId,
-    freshnessAttestedAt: args.submittedAt,
-    version: 1,
-    lastEditedByMembershipId: team.leadMembershipId,
-    updatedAt: args.submittedAt,
-  });
+  const draftId =
+    existingDraft?._id ??
+    (await ctx.db.insert("projectDrafts", {
+      eventId: args.eventId,
+      teamId: team._id,
+      intakePolicyVersionId: args.intakePolicyVersionId,
+      stage: "submitted",
+      initialIdea: "Fixture submitted project.",
+      freshnessAttestedByMembershipId: team.leadMembershipId,
+      freshnessAttestedAt: args.submittedAt,
+      version: 1,
+      lastEditedByMembershipId: team.leadMembershipId,
+      updatedAt: args.submittedAt,
+    }));
   const leadMembership = await ctx.db.get(team.leadMembershipId);
   if (!leadMembership) throw new Error("The test team lead membership is missing.");
   const submissionAttemptId = await ctx.db.insert("teamSubmissionAttempts", {

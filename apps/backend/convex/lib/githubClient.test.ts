@@ -33,18 +33,18 @@ describe("GitHub request boundary", () => {
     vi.stubEnv("GITHUB_CLIENT_ID", "participant-authorization-client");
     vi.stubEnv("GITHUB_CLIENT_SECRET", "");
 
-    expect(() => githubStarOAuthConfiguration()).toThrow(
-      "GitHub star OAuth App",
-    );
+    expect(() => githubStarOAuthConfiguration()).toThrow("GitHub star OAuth App");
   });
 
   it("forces an account choice for every participant authorization", () => {
-    const authorizationUrl = new URL(githubStarAuthorizationUrl({
-      clientId: "participant-authorization-client",
-      redirectUri: "https://participant.example.test/onboarding/github/callback",
-      state: "opaque-state",
-      codeChallenge: "pkce-challenge",
-    }));
+    const authorizationUrl = new URL(
+      githubStarAuthorizationUrl({
+        clientId: "participant-authorization-client",
+        redirectUri: "https://participant.example.test/onboarding/github/callback",
+        state: "opaque-state",
+        codeChallenge: "pkce-challenge",
+      }),
+    );
 
     expect(authorizationUrl.origin).toBe("https://github.com");
     expect(authorizationUrl.pathname).toBe("/login/oauth/authorize");
@@ -60,11 +60,7 @@ describe("GitHub request boundary", () => {
   });
 
   it("uses GitHub's documented empty-body star request", () => {
-    const request = githubUserStarRequest(
-      "gho_participant_token",
-      "sgl-project",
-      "sglang",
-    );
+    const request = githubUserStarRequest("gho_participant_token", "sgl-project", "sglang");
 
     expect(request).toEqual({
       url: "https://api.github.com/user/starred/sgl-project/sglang",
@@ -86,30 +82,24 @@ describe("GitHub request boundary", () => {
       "gho_participant_token",
     );
 
-    expect(request.url).toBe(
-      "https://api.github.com/applications/Ov1.participant/grant",
-    );
+    expect(request.url).toBe("https://api.github.com/applications/Ov1.participant/grant");
     expect(request.init.method).toBe("DELETE");
     expect(request.init.headers).toMatchObject({
       accept: "application/vnd.github+json",
       authorization: `Basic ${Buffer.from("Ov1.participant:app-secret").toString("base64")}`,
       "content-type": "application/json",
     });
-    expect(request.init.body).toBe(
-      JSON.stringify({ access_token: "gho_participant_token" }),
-    );
+    expect(request.init.body).toBe(JSON.stringify({ access_token: "gho_participant_token" }));
   });
 
   it("recognizes an existing star without changing it", async () => {
     const request = vi.fn(() => Promise.resolve({ status: 204 }));
 
-    await expect(
-      githubRepositoryIsStarred(request, "sgl-project", "sglang"),
-    ).resolves.toBe(true);
-    expect(request).toHaveBeenCalledWith(
-      "GET /user/starred/{owner}/{repo}",
-      { owner: "sgl-project", repo: "sglang" },
-    );
+    await expect(githubRepositoryIsStarred(request, "sgl-project", "sglang")).resolves.toBe(true);
+    expect(request).toHaveBeenCalledWith("GET /user/starred/{owner}/{repo}", {
+      owner: "sgl-project",
+      repo: "sglang",
+    });
   });
 
   it("treats only GitHub's not-found response as a missing star", async () => {
@@ -157,12 +147,17 @@ describe("GitHub request boundary", () => {
   it("aborts a slow provider request at the boundary", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn((_input: string | URL | Request, init?: RequestInit) =>
-        new Promise<Response>((_resolve, reject) => {
-          const signal = init?.signal;
-          if (!signal) throw new Error("The GitHub request has no deadline.");
-          signal.addEventListener("abort", () => reject(signal.reason), { once: true });
-        }),
+      vi.fn(
+        (_input: string | URL | Request, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            const signal = init?.signal;
+            if (!signal) throw new Error("The GitHub request has no deadline.");
+            signal.addEventListener(
+              "abort",
+              () => reject(new Error("The provider request was aborted.", { cause: signal.reason })),
+              { once: true },
+            );
+          }),
       ),
     );
 

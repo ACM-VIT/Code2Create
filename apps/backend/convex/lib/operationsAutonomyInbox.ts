@@ -1,5 +1,4 @@
-import type { OperationsHealthSnapshot } from "@code2create/domain";
-import type { OperationsAutonomyReadTool } from "@code2create/domain";
+import type { OperationsAutonomyReadTool, OperationsHealthSnapshot } from "@code2create/domain";
 
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
@@ -27,40 +26,51 @@ function signalFingerprint(
 ) {
   return operationFingerprint([
     policy.checksum,
-    JSON.stringify(signalKeys.map((key) => {
-      const signal = snapshot.signals.find((candidate) => candidate.key === key);
-      return signal
-        ? [
-            signal.key,
-            signal.area,
-            signal.severity,
-            signal.title,
-            signal.detail,
-            signal.owner,
-            signal.nextAction,
-            signal.count,
-            signal.atLeast,
-            signal.oldestAt ?? null,
-          ]
-        : [key];
-    })),
+    JSON.stringify(
+      signalKeys.map((key) => {
+        const signal = snapshot.signals.find((candidate) => candidate.key === key);
+        return signal
+          ? [
+              signal.key,
+              signal.area,
+              signal.severity,
+              signal.title,
+              signal.detail,
+              signal.owner,
+              signal.nextAction,
+              signal.count,
+              signal.atLeast,
+              signal.oldestAt ?? null,
+            ]
+          : [key];
+      }),
+    ),
     JSON.stringify(sourceHighWatermarks),
   ]);
 }
 
 function sourceArea(source: Doc<"operationsAutonomyReadFactStates">["source"]) {
   switch (source) {
-    case "intake_jobs": return "intake" as const;
-    case "admission_jobs": return "admissions" as const;
+    case "intake_jobs":
+      return "intake" as const;
+    case "admission_jobs":
+      return "admissions" as const;
     case "participant_deliveries":
-    case "support_load": return "communications" as const;
-    case "integration_jobs": return "integrations" as const;
-    case "round_export_jobs": return "scores" as const;
-    case "synesthesia_operations": return "synesthesia" as const;
-    case "incident_readiness": return "system" as const;
-    case "attendance_operations": return "attendance" as const;
+    case "support_load":
+      return "communications" as const;
+    case "integration_jobs":
+      return "integrations" as const;
+    case "round_export_jobs":
+      return "scores" as const;
+    case "synesthesia_operations":
+      return "synesthesia" as const;
+    case "incident_readiness":
+      return "system" as const;
+    case "attendance_operations":
+      return "attendance" as const;
     case "operations_attention":
-    case "review_exceptions": return "reviews" as const;
+    case "review_exceptions":
+      return "reviews" as const;
   }
 }
 
@@ -70,10 +80,12 @@ async function readSourceFactHighWatermarks(
   allowedReadTools: readonly OperationsAutonomyReadTool[],
 ) {
   const allowed = new Set<OperationsAutonomyReadTool>(allowedReadTools);
-  return (await ctx.db
-    .query("operationsAutonomyReadFactStates")
-    .withIndex("by_event_source", (index) => index.eq("eventId", eventId))
-    .collect())
+  return (
+    await ctx.db
+      .query("operationsAutonomyReadFactStates")
+      .withIndex("by_event_source", (index) => index.eq("eventId", eventId))
+      .collect()
+  )
     .filter((row) => allowed.has(row.source))
     .map((row) => ({ read: row.source, sequence: row.sequence }))
     .sort((left, right) => left.read.localeCompare(right.read));
@@ -125,12 +137,7 @@ export async function enqueueOperationsAutonomySignal(
     .filter((row) => qualifyingAreas.has(sourceArea(row.read)))
     .map((row) => [row.read, row.sequence] as const)
     .sort(([left], [right]) => left.localeCompare(right));
-  const fingerprint = signalFingerprint(
-    policy,
-    args.snapshot,
-    signalKeys,
-    sourceHighWatermarks,
-  );
+  const fingerprint = signalFingerprint(policy, args.snapshot, signalKeys, sourceHighWatermarks);
   if (state.lastTriggerFingerprint === fingerprint) return null;
   const episode = state.cycle + 1;
   const operationKey = `signal:${policy._id}:${episode}:${fingerprint}`;

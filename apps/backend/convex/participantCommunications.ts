@@ -5,12 +5,8 @@ import type { QueryCtx } from "./_generated/server";
 import { query } from "./_generated/server";
 import { loadPublishedCommunicationsPolicy } from "./lib/communicationsPolicy";
 import { requireEventBySlug } from "./lib/events";
-import { currentTeamForMembership } from "./lib/floor";
-import {
-  requireCurrentPerson,
-  requireEventSubject,
-  requireMembership,
-} from "./lib/identity";
+import { currentTeamForMembership } from "./lib/teamMembership";
+import { requireCurrentPerson, requireEventSubject, requireMembership } from "./lib/identity";
 import { requirePermission } from "./lib/permissions";
 
 const acceptedTeamCommunications = v.object({
@@ -54,15 +50,14 @@ export async function acceptedTeamCommunicationsForTeam(
   if (
     !application ||
     (!visibleApplicationStates.has(application.state) && !acceptedByReleasedResults)
-  ) return null;
+  )
+    return null;
   const { policy, normalized } = await loadPublishedCommunicationsPolicy(ctx, event);
   return {
     policyVersionId: policy._id,
     policyVersion: policy.version,
     venueName: normalized.venueName,
-    ...(normalized.venueAddress !== undefined
-      ? { venueAddress: normalized.venueAddress }
-      : {}),
+    ...(normalized.venueAddress !== undefined ? { venueAddress: normalized.venueAddress } : {}),
     ...(normalized.venueMapUrl !== undefined ? { venueMapUrl: normalized.venueMapUrl } : {}),
     startsAt: normalized.startsAt,
     endsAt: normalized.endsAt,

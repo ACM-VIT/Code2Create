@@ -1,13 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { Flower } from './FlowerAvatar'
+import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
+import { Flower } from "./FlowerAvatar";
 
-/**
- * The signed-in person, before there is a team to stand with: one flower
- * circle that opens a small card — who you are, the way to everything else,
- * and the way out. The same shape as the team cluster's panel, so those are
- * always found under the avatar and never as circles of their own.
- */
 export function AccountBadge({
   name,
   seed,
@@ -15,40 +9,41 @@ export function AccountBadge({
   detail,
   onSignOut,
 }: {
-  name: string
-  seed: string
-  email?: string
-  detail?: string
-  onSignOut: () => void
+  name: string;
+  seed: string;
+  email?: string;
+  detail?: string;
+  onSignOut: () => void;
 }) {
-  const [open, setOpen] = useState(false)
-  const anchor = useRef<HTMLDivElement>(null)
+  const [open, setOpen] = useState(false);
+  const anchor = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!open) return
+    if (!open) return;
     const onPointerDown = (event: PointerEvent) => {
-      if (event.target instanceof Node && !anchor.current?.contains(event.target)) setOpen(false)
-    }
+      if (event.target instanceof Node && !anchor.current?.contains(event.target)) setOpen(false);
+    };
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('pointerdown', onPointerDown)
-    document.addEventListener('keydown', onKeyDown)
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
     return () => {
-      document.removeEventListener('pointerdown', onPointerDown)
-      document.removeEventListener('keydown', onKeyDown)
-    }
-  }, [open])
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
 
   return (
     <div ref={anchor} className="relative">
       <button
         type="button"
         aria-label={`Account, ${name}`}
+        data-ph-sensitive
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
         className={`flex size-10 flex-none items-center justify-center rounded-full border-2 bg-avatar transition-colors duration-250 hover:border-rose-light lg:size-12 ${
-          open ? 'border-rose-light' : 'border-rose/70'
+          open ? "border-rose-light" : "border-rose/70"
         }`}
       >
         <Flower seed={seed} className="size-[62%]" />
@@ -56,10 +51,15 @@ export function AccountBadge({
 
       {open ? (
         <div className="absolute top-[calc(100%+12px)] right-0 z-10 w-[240px] max-w-[calc(100vw-40px)] rounded-petal-sm glass-menu px-5 py-4 text-left">
-          <p className="m-0 truncate font-ui font-normal text-base text-rose-light">{name}</p>
+          <p
+            className="m-0 truncate font-ui font-normal text-base text-rose-light"
+            data-ph-sensitive
+          >
+            {name}
+          </p>
           {email || detail ? (
-            <p className="m-0 mt-1 truncate text-[11.5px] text-fg/55">
-              {[email, detail].filter(Boolean).join(' · ')}
+            <p className="m-0 mt-1 truncate text-[11.5px] text-fg/55" data-ph-sensitive>
+              {[email, detail].filter(Boolean).join(" · ")}
             </p>
           ) : null}
           <div className="mt-3 flex items-center justify-between gap-3 border-t border-petal-line pt-2.5">
@@ -97,5 +97,5 @@ export function AccountBadge({
         </div>
       ) : null}
     </div>
-  )
+  );
 }

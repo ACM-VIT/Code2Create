@@ -5,6 +5,7 @@ import { Buffer } from "node:buffer";
 
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
+import { rewriteParticipantEmailTemplateAssetReferences } from "@code2create/domain";
 import { v } from "convex/values";
 
 import { internal } from "./_generated/api";
@@ -22,10 +23,10 @@ type TemplateVariables = {
 };
 
 function renderTemplate(template: string, variables: TemplateVariables) {
-  return template.replace(/\{\{\s*(participant_name|team_name|event_name|portal_url)\s*\}\}/gu, (
-    _match,
-    key: keyof TemplateVariables,
-  ) => variables[key]);
+  return template.replace(
+    /\{\{\s*(participant_name|team_name|event_name|portal_url)\s*\}\}/gu,
+    (_match, key: keyof TemplateVariables) => variables[key],
+  );
 }
 
 function htmlEscaped(value: string) {
@@ -41,18 +42,12 @@ function rewriteInlineAssetReferences(
   html: string,
   assets: Array<{ fileName: string; contentId: string; disposition: "inline" | "attachment" }>,
 ) {
-  let rewritten = html;
-  for (const asset of assets) {
-    if (asset.disposition !== "inline") continue;
-    const cid = `cid:${asset.contentId}`;
-    rewritten = rewritten
-      .replaceAll(`src="${asset.fileName}"`, `src="${cid}"`)
-      .replaceAll(`src='${asset.fileName}'`, `src='${cid}'`)
-      .replaceAll(`url("${asset.fileName}")`, `url("${cid}")`)
-      .replaceAll(`url('${asset.fileName}')`, `url('${cid}')`)
-      .replaceAll(`url(${asset.fileName})`, `url(${cid})`);
-  }
-  return rewritten;
+  return rewriteParticipantEmailTemplateAssetReferences(
+    html,
+    assets
+      .filter((asset) => asset.disposition === "inline")
+      .map((asset) => ({ fileName: asset.fileName, replacement: `cid:${asset.contentId}` })),
+  );
 }
 
 function configuredPortalUrl(path: string) {

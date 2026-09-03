@@ -11,11 +11,7 @@ import { internalMutation, internalQuery, mutation, query } from "./_generated/s
 import { writeAuditEvent } from "./lib/audit";
 import { loadPublishedCommunicationsPolicy } from "./lib/communicationsPolicy";
 import { requireEventBySlug } from "./lib/events";
-import { floorLocationDescription, nearestLandmarkName } from "./lib/floor";
-import {
-  requireCurrentPerson,
-  requireEventSubject,
-} from "./lib/identity";
+import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import {
   findOperation,
   operationFingerprint,
@@ -67,8 +63,6 @@ const rosterRow = v.object({
   attendanceState: venuePresenceState,
   attendanceZoneName: v.optional(v.string()),
   attendanceUpdatedAt: v.optional(v.number()),
-  hallZoneName: v.optional(v.string()),
-  hallLocation: v.optional(v.string()),
 });
 
 const stationSnapshot = v.object({
@@ -199,19 +193,13 @@ function activeSessionStatus(status: Doc<"attendanceSessions">["status"]) {
   return status === "ready" || status === "open" || status === "closing";
 }
 
-async function buildSnapshot(
-  ctx: QueryCtx,
-  event: Doc<"events">,
-) {
-  const [
-    { normalized: communicationsPolicy },
-    { normalized: participantPolicy },
-  ] = await Promise.all([
-    loadPublishedCommunicationsPolicy(ctx, event),
-    loadPublishedParticipantPolicy(ctx, event),
-  ]);
+async function buildSnapshot(ctx: QueryCtx, event: Doc<"events">) {
+  const [{ normalized: communicationsPolicy }, { normalized: participantPolicy }] =
+    await Promise.all([
+      loadPublishedCommunicationsPolicy(ctx, event),
+      loadPublishedParticipantPolicy(ctx, event),
+    ]);
   const attendancePlanId = event.publishedAttendancePlanVersionId;
-  const floorPlanId = event.publishedFloorPlanVersionId;
   const snapshotAt = Date.now();
   const memberships = await ctx.db
     .query("eventMemberships")
@@ -231,9 +219,7 @@ async function buildSnapshot(
       const [profile, teamMember, venueState] = await Promise.all([
         ctx.db
           .query("participantProfiles")
-          .withIndex("by_membership", (index) =>
-            index.eq("membershipId", membership._id),
-          )
+          .withIndex("by_membership", (index) => index.eq("membershipId", membership._id))
           .unique(),
         ctx.db
           .query("teamMembers")
@@ -254,11 +240,11 @@ async function buildSnapshot(
       return { membership, profile, teamMember, venueState };
     }),
   );
-  const teamIds = [...new Set(
-    membershipRows.flatMap(({ teamMember }) =>
-      teamMember === null ? [] : [teamMember.teamId],
+  const teamIds = [
+    ...new Set(
+      membershipRows.flatMap(({ teamMember }) => (teamMember === null ? [] : [teamMember.teamId])),
     ),
-  )];
+  ];
   if (teamIds.length > maximumEventTeams) {
     throw new ConvexError({
       code: "EMERGENCY_PACK_TEAM_COUNT_TOO_LARGE",
@@ -280,63 +266,17 @@ async function buildSnapshot(
   const attendanceZones = attendancePlanId
     ? await ctx.db
         .query("attendanceZones")
-        .withIndex("by_plan_key", (index) =>
-          index.eq("planVersionId", attendancePlanId),
-        )
+        .withIndex("by_plan_key", (index) => index.eq("planVersionId", attendancePlanId))
         .collect()
     : [];
   const attendanceZonesById = mapById(attendanceZones);
 
-  const [floorZones, floorLandmarks, floorLocations] = floorPlanId
-    ? await Promise.all([
-        ctx.db
-          .query("floorZones")
-          .withIndex("by_plan_order", (index) =>
-            index.eq("planVersionId", floorPlanId),
-          )
-          .collect(),
-        ctx.db
-          .query("floorLandmarks")
-          .withIndex("by_plan_order", (index) =>
-            index.eq("planVersionId", floorPlanId),
-          )
-          .collect(),
-        ctx.db
-          .query("teamFloorLocations")
-          .withIndex("by_plan_state", (index) =>
-            index
-              .eq("planVersionId", floorPlanId)
-              .eq("state", "active"),
-          )
-          .collect(),
-      ])
-    : [[], [], []];
-  const floorZonesById = mapById(floorZones);
-  const floorLocationByTeam = new Map(
-    floorLocations.map((location) => [location.teamId, location]),
-  );
-
   const roster = membershipRows
     .map(({ membership, profile, venueState }) => {
       const team = teamByMembership.get(membership._id);
-      const location = team ? floorLocationByTeam.get(team._id) : undefined;
       const attendanceZone = venueState?.zoneId
         ? attendanceZonesById.get(venueState.zoneId)
         : undefined;
-      const hallZone = location ? floorZonesById.get(location.zoneId) : undefined;
-      const hallLocation =
-        location && hallZone
-          ? floorLocationDescription(
-              hallZone.name,
-              location.area,
-              nearestLandmarkName(
-                hallZone,
-                floorLandmarks.filter((landmark) => landmark.zoneId === hallZone._id),
-                location.x,
-                location.y,
-              ),
-            )
-          : undefined;
       return {
         participantReference: membership._id,
         name: profile?.fullName ?? "Profile incomplete",
@@ -347,13 +287,13 @@ async function buildSnapshot(
         ...(profile?.vitResidenceType === "day_scholar"
           ? { vitHostelResidence: "Day scholar" }
           : profile?.vitHostelResidence !== undefined
-          ? {
-              vitHostelResidence: vitHostelResidenceLabel(
-                participantPolicy.vitHostelResidenceCatalog,
-                profile.vitHostelResidence,
-              ),
-            }
-          : {}),
+            ? {
+                vitHostelResidence: vitHostelResidenceLabel(
+                  participantPolicy.vitHostelResidenceCatalog,
+                  profile.vitHostelResidence,
+                ),
+              }
+            : {}),
         ...(profile?.vitHostelRoomNumber !== undefined
           ? { vitHostelRoomNumber: profile.vitHostelRoomNumber }
           : {}),
@@ -369,8 +309,6 @@ async function buildSnapshot(
         attendanceState: venueState?.state ?? "unknown",
         ...(attendanceZone ? { attendanceZoneName: attendanceZone.name } : {}),
         ...(venueState ? { attendanceUpdatedAt: venueState.updatedAt } : {}),
-        ...(hallZone ? { hallZoneName: hallZone.name } : {}),
-        ...(hallLocation !== undefined ? { hallLocation } : {}),
       };
     })
     .sort(
@@ -383,15 +321,11 @@ async function buildSnapshot(
     ? await Promise.all([
         ctx.db
           .query("attendanceSessions")
-          .withIndex("by_plan_key", (index) =>
-            index.eq("planVersionId", attendancePlanId),
-          )
+          .withIndex("by_plan_key", (index) => index.eq("planVersionId", attendancePlanId))
           .collect(),
         ctx.db
           .query("attendanceStations")
-          .withIndex("by_plan_key", (index) =>
-            index.eq("planVersionId", attendancePlanId),
-          )
+          .withIndex("by_plan_key", (index) => index.eq("planVersionId", attendancePlanId))
           .take(maximumEventStations + 1),
       ])
     : [[], []];
@@ -486,11 +420,13 @@ async function buildSnapshot(
                 ),
               );
               const coordinator = people[0];
-              const reviewerNames = [...new Set(
-                people
-                  .filter((person): person is Doc<"people"> => person !== null)
-                  .map((person) => person.displayName),
-              )].sort((left, right) => left.localeCompare(right));
+              const reviewerNames = [
+                ...new Set(
+                  people
+                    .filter((person): person is Doc<"people"> => person !== null)
+                    .map((person) => person.displayName),
+                ),
+              ].sort((left, right) => left.localeCompare(right));
               return {
                 id: panel._id,
                 name: panel.name,
@@ -522,10 +458,7 @@ async function buildSnapshot(
         };
       }),
   );
-  const currentPanelCount = rounds.reduce(
-    (count, round) => count + round.panels.length,
-    0,
-  );
+  const currentPanelCount = rounds.reduce((count, round) => count + round.panels.length, 0);
   if (currentPanelCount > maximumCurrentPanels) {
     throw new ConvexError({
       code: "EMERGENCY_PACK_PANEL_COUNT_TOO_LARGE",
@@ -628,11 +561,9 @@ export const request = mutation({
     }
     const requestedAt = Date.now();
     const expiresAt = requestedAt + packLifetimeMs;
-    const serialPrefix = operationFingerprint([
-      event._id,
-      person._id,
-      args.clientOperationId,
-    ]).slice(0, 16).toUpperCase();
+    const serialPrefix = operationFingerprint([event._id, person._id, args.clientOperationId])
+      .slice(0, 16)
+      .toUpperCase();
     const existingSerialPrefix = await ctx.db
       .query("emergencyPacks")
       .withIndex("by_event_serial_prefix", (index) =>
@@ -642,7 +573,8 @@ export const request = mutation({
     if (existingSerialPrefix) {
       throw new ConvexError({
         code: "EMERGENCY_PACK_SERIAL_COLLISION",
-        message: "This operation ID resolves to an existing paper serial. Retry with a new operation.",
+        message:
+          "This operation ID resolves to an existing paper serial. Retry with a new operation.",
       });
     }
     const packId = await ctx.db.insert("emergencyPacks", {
@@ -721,9 +653,7 @@ export const list = query({
       .withIndex("by_event_created", (index) => index.eq("eventId", event._id))
       .order("desc")
       .take(10);
-    const requesters = await Promise.all(
-      packs.map((pack) => ctx.db.get(pack.requestedByPersonId)),
-    );
+    const requesters = await Promise.all(packs.map((pack) => ctx.db.get(pack.requestedByPersonId)));
     const now = Date.now();
     return {
       serverNow: now,
@@ -737,9 +667,7 @@ export const list = query({
         expiresAt: pack.expiresAt,
         requestedAt: pack.requestedAt,
         ...(pack.snapshotAt !== undefined ? { snapshotAt: pack.snapshotAt } : {}),
-        ...(pack.snapshotChecksum !== undefined
-          ? { snapshotChecksum: pack.snapshotChecksum }
-          : {}),
+        ...(pack.snapshotChecksum !== undefined ? { snapshotChecksum: pack.snapshotChecksum } : {}),
         ...(pack.counts !== undefined ? { counts: pack.counts } : {}),
         ...(pack.byteCount !== undefined ? { byteCount: pack.byteCount } : {}),
         ...(pack.sha256 !== undefined ? { sha256: pack.sha256 } : {}),
@@ -769,7 +697,10 @@ export const generationContext = internalQuery({
   handler: async (ctx, args) => {
     const pack = await ctx.db.get(args.packId);
     if (!pack) {
-      throw new ConvexError({ code: "EMERGENCY_PACK_NOT_FOUND", message: "Emergency pack not found." });
+      throw new ConvexError({
+        code: "EMERGENCY_PACK_NOT_FOUND",
+        message: "Emergency pack not found.",
+      });
     }
     if (pack.status !== "pending") return { kind: skipGenerationKind };
     if (pack.expiresAt <= Date.now()) {

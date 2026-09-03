@@ -15,64 +15,128 @@ export const operationsAutonomyFailureClasses = [
   "webhook_error",
   "generation_failed",
 ] as const;
-export type OperationsAutonomyFailureClass =
-  (typeof operationsAutonomyFailureClasses)[number];
+export type OperationsAutonomyFailureClass = (typeof operationsAutonomyFailureClasses)[number];
 
 type OptionalFailure = { failureClass?: OperationsAutonomyFailureClass };
 
 export const operationsAutonomyIntakeJobStates = [
-  "running", "succeeded", "refused", "invalid", "timed_out",
-  "rate_limited", "failed", "stale", "disabled",
+  "running",
+  "succeeded",
+  "refused",
+  "invalid",
+  "timed_out",
+  "rate_limited",
+  "failed",
+  "stale",
+  "disabled",
 ] as const;
 export const operationsAutonomyAdmissionJobStates = [
-  "pending", ...operationsAutonomyIntakeJobStates,
+  "pending",
+  ...operationsAutonomyIntakeJobStates,
 ] as const;
 export const operationsAutonomyParticipantDeliveryStates = [
-  "pending", "sending", "retry_wait", "sent", "delivery_delayed",
-  "delivered", "bounced", "failed", "suppressed", "unknown", "superseded",
+  "pending",
+  "sending",
+  "retry_wait",
+  "sent",
+  "delivery_delayed",
+  "delivered",
+  "bounced",
+  "failed",
+  "suppressed",
+  "unknown",
+  "superseded",
 ] as const;
 export const operationsAutonomyParticipantDeliveryTemplateKeys = [
-  "accept", "waitlist", "decline", "needs_information", "offer",
-  "offer_confirmed", "offer_declined", "offer_expired",
+  "accept",
+  "waitlist",
+  "decline",
+  "offer",
+  "offer_confirmed",
+  "offer_declined",
+  "offer_expired",
 ] as const;
 export const operationsAutonomyIntegrationProviders = ["github", "figma"] as const;
 export const operationsAutonomyIntegrationStates = [
-  "setup", "active", "inaccessible", "revoked", "archived",
+  "setup",
+  "active",
+  "inaccessible",
+  "revoked",
+  "archived",
 ] as const;
 export const operationsAutonomyIntegrationSyncStates = [
-  "pending", "running", "ready", "rate_limited", "error",
+  "pending",
+  "running",
+  "ready",
+  "rate_limited",
+  "error",
 ] as const;
 export const operationsAutonomyGithubTopicStates = ["present", "missing", "unknown"] as const;
 export const operationsAutonomyFigmaWebhookStates = [
-  "pending", "active", "unavailable", "error",
+  "pending",
+  "active",
+  "unavailable",
+  "error",
 ] as const;
 export const operationsAutonomyRoundExportStates = [
-  "generating", "uploaded", "verified", "failed", "superseded",
+  "generating",
+  "uploaded",
+  "verified",
+  "failed",
+  "superseded",
 ] as const;
 export const operationsAutonomySynesthesiaOperationKinds = ["window", "request", "report"] as const;
 export const operationsAutonomySynesthesiaWindowStates = ["draft", "published", "closed"] as const;
 export const operationsAutonomySynesthesiaRequestStates = [
-  "pending", "approved", "queued", "playing", "played", "skipped", "rejected", "hidden",
+  "pending",
+  "approved",
+  "queued",
+  "playing",
+  "played",
+  "skipped",
+  "rejected",
+  "hidden",
 ] as const;
 export const operationsAutonomySynesthesiaQueueModes = ["normal", "pinned", "deferred"] as const;
 export const operationsAutonomySynesthesiaReportStates = ["open", "resolved", "dismissed"] as const;
 export const operationsAutonomyIncidentReadinessKinds = ["incident", "emergency_pack"] as const;
-export const operationsAutonomyIncidentSeverities = ["service_disruption", "major", "critical"] as const;
+export const operationsAutonomyIncidentSeverities = [
+  "service_disruption",
+  "major",
+  "critical",
+] as const;
 export const operationsAutonomyIncidentServices = ["attendance_backend", "review_backend"] as const;
 export const operationsAutonomyIncidentStates = ["open", "monitoring", "resolved"] as const;
 export const operationsAutonomyIncidentManualModeStates = [
-  "not_requested", "pending", "approved", "closed",
+  "not_requested",
+  "pending",
+  "approved",
+  "closed",
 ] as const;
 export const operationsAutonomyEmergencyPackStates = ["pending", "ready", "failed"] as const;
-export const operationsAutonomyAttendanceOperationKinds = ["session_job", "device", "station"] as const;
+export const operationsAutonomyAttendanceOperationKinds = [
+  "session_job",
+  "device",
+  "station",
+] as const;
 export const operationsAutonomyAttendanceSessionJobKinds = [
-  "build_expectations", "finalize_results", "cancel_results",
+  "build_expectations",
+  "finalize_results",
+  "cancel_results",
 ] as const;
 export const operationsAutonomyAttendanceSessionJobStates = [
-  "queued", "running", "complete", "failed", "cancelled",
+  "queued",
+  "running",
+  "complete",
+  "failed",
+  "cancelled",
 ] as const;
 export const operationsAutonomyAttendanceDeviceStates = ["active", "revoked"] as const;
-export const operationsAutonomyAttendanceStationStates = ["inactive", "active", "disabled"] as const;
+export const operationsAutonomyAttendanceStationStates = [
+  "inactive",
+  "active",
+  "disabled",
+] as const;
 
 export type OperationsAutonomyIntakeJob = OptionalFailure & {
   jobId: string;

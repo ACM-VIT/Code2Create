@@ -1,8 +1,5 @@
 import { areaForPermission, permissionName } from "@code2create/domain";
-import {
-  paginationOptsValidator,
-  paginationResultValidator,
-} from "convex/server";
+import { paginationOptsValidator, paginationResultValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import { z } from "zod";
 
@@ -34,11 +31,7 @@ import {
   type PermissionAdministrationAction,
   type PermissionDelegationAuthority,
 } from "./lib/permissionDelegation";
-import {
-  isPermissionKey,
-  permissionCatalog,
-  type PermissionKey,
-} from "./lib/permissionCatalog";
+import { isPermissionKey, permissionCatalog, type PermissionKey } from "./lib/permissionCatalog";
 import {
   hasActivePermissionGrantAtScopeTypes,
   hasAnyActivePermissionGrant,
@@ -63,12 +56,7 @@ import {
   supremeRolePermissionPlans,
 } from "./lib/rolePermissions";
 import { normalizeEmail, normalizedText } from "./lib/strings";
-import {
-  eventRole,
-  permissionGrantSourceType,
-  permissionGrantStatus,
-  scopeType,
-} from "./values";
+import { eventRole, permissionGrantSourceType, permissionGrantStatus, scopeType } from "./values";
 
 const revokedStatus = "revoked" as const;
 const maximumAccessGrantPageSize = 50;
@@ -98,9 +86,7 @@ const permissionDelegationInput = v.object({
   ),
 });
 type PermissionScopeType = Doc<"permissionGrants">["scopeType"];
-type PermissionDelegation = NonNullable<
-  Doc<"permissionGrants">["delegation"]
->;
+type PermissionDelegation = NonNullable<Doc<"permissionGrants">["delegation"]>;
 
 function unhandledScope(scope: never): never {
   throw new ConvexError({
@@ -118,7 +104,6 @@ const participantCapabilitiesView = v.object({
   integrations: v.boolean(),
   notifications: v.boolean(),
   attendance: v.boolean(),
-  floor: v.boolean(),
   projectCheckpoints: v.boolean(),
   reviewQueue: v.boolean(),
   scoreFeedback: v.boolean(),
@@ -129,7 +114,6 @@ const participantCapabilitiesView = v.object({
 const reviewerCapabilitiesView = v.object({
   reviews: v.boolean(),
   attendance: v.boolean(),
-  floor: v.boolean(),
   support: v.boolean(),
   operations: v.boolean(),
   incidents: v.boolean(),
@@ -142,6 +126,7 @@ const operationsCapabilitiesView = v.object({
   admissions: v.boolean(),
   applicationRead: v.boolean(),
   applicationReviewRead: v.boolean(),
+  applicationAssign: v.boolean(),
   attendance: v.boolean(),
   attendanceSetup: v.boolean(),
   teamRoster: v.boolean(),
@@ -150,9 +135,8 @@ const operationsCapabilitiesView = v.object({
   reviews: v.boolean(),
   scores: v.boolean(),
   synesthesia: v.boolean(),
+  benefits: v.boolean(),
   rehearsal: v.boolean(),
-  floorConfiguration: v.boolean(),
-  floorLocations: v.boolean(),
   intelligence: v.boolean(),
   intelligenceRead: v.boolean(),
   intelligenceGenerate: v.boolean(),
@@ -206,13 +190,6 @@ const attendanceWorkspacePermissions = [
   "attendance.manual_sheet.source.read",
 ] satisfies readonly PermissionKey[];
 
-const floorConfigurationPermissions = [
-  "floor.plan.create",
-  "floor.plan.read",
-  "floor.plan.publish",
-  "floor.plan.freeze",
-] satisfies readonly PermissionKey[];
-
 function capabilityReader(
   ctx: QueryCtx,
   args: {
@@ -229,10 +206,7 @@ function capabilityReader(
     anyCache.set(permissionKey, value);
     return value;
   };
-  const at = (
-    permissionKey: PermissionKey,
-    scopeTypes: readonly PermissionScopeType[],
-  ) => {
+  const at = (permissionKey: PermissionKey, scopeTypes: readonly PermissionScopeType[]) => {
     const cacheKey = `${permissionKey}:${scopeTypes.join(",")}`;
     const prior = scopedCache.get(cacheKey);
     if (prior) return prior;
@@ -247,8 +221,7 @@ function capabilityReader(
   const anyOf = async (permissionKeys: readonly PermissionKey[]) =>
     (await Promise.all(permissionKeys.map(any))).some(Boolean);
   const event = (permissionKey: PermissionKey) => at(permissionKey, ["event"]);
-  const selfOrEvent = (permissionKey: PermissionKey) =>
-    at(permissionKey, ["self", "event"]);
+  const selfOrEvent = (permissionKey: PermissionKey) => at(permissionKey, ["self", "event"]);
 
   return { any, anyOf, at, event, selfOrEvent };
 }
@@ -290,7 +263,6 @@ async function resolveParticipantCapabilities(
     integrationGrantIds,
     notificationGrantIds,
     attendanceGrantIds,
-    floorGrantIds,
     projectCheckpointGrantIds,
     reviewQueueGrantIds,
     scoreFeedbackGrantIds,
@@ -364,15 +336,6 @@ async function resolveParticipantCapabilities(
       ? matchingPermissionGrantIds(ctx, {
           eventId: args.eventId,
           eventAccessSubjectId: args.eventAccessSubjectId,
-          permissionKey: "floor.team.read",
-          scopeType: "team",
-          scopeId: teamId,
-        })
-      : Promise.resolve([]),
-    teamId
-      ? matchingPermissionGrantIds(ctx, {
-          eventId: args.eventId,
-          eventAccessSubjectId: args.eventAccessSubjectId,
           permissionKey: "project.checkpoint.read",
           scopeType: "team",
           scopeId: teamId,
@@ -406,7 +369,6 @@ async function resolveParticipantCapabilities(
     integrations: integrationGrantIds.length > 0,
     notifications: notificationGrantIds.length > 0,
     attendance: attendanceGrantIds.length > 0,
-    floor: floorGrantIds.length > 0,
     projectCheckpoints: projectCheckpointGrantIds.length > 0,
     reviewQueue: reviewQueueGrantIds.length > 0,
     scoreFeedback: scoreFeedbackGrantIds.length > 0,
@@ -426,7 +388,6 @@ async function resolveReviewerCapabilities(
   const [
     reviews,
     attendance,
-    floor,
     support,
     operations,
     incidents,
@@ -441,7 +402,6 @@ async function resolveReviewerCapabilities(
       "review.read",
     ]),
     anyOf(["attendance.station.manage", "attendance.station.read", "attendance.scan.execute"]),
-    anyOf(["floor.location.map", "floor.location.override"]),
     selfOrEvent("support.case.read"),
     any("operations.health.read"),
     any("incident.read"),
@@ -451,7 +411,6 @@ async function resolveReviewerCapabilities(
   return {
     reviews,
     attendance,
-    floor,
     support,
     operations,
     incidents,
@@ -472,6 +431,7 @@ async function resolveOperationsCapabilities(
   const [
     applicationRead,
     applicationReviewRead,
+    applicationAssign,
     attendance,
     attendanceSetup,
     roster,
@@ -483,9 +443,8 @@ async function resolveOperationsCapabilities(
     synesthesiaWindowRead,
     synesthesiaWindowManage,
     synesthesiaQueueRead,
+    benefitsRead,
     rehearsal,
-    floorConfiguration,
-    floorLocations,
     intelligenceRead,
     intelligenceGenerate,
     emergencyPackRead,
@@ -517,6 +476,7 @@ async function resolveOperationsCapabilities(
   ] = await Promise.all([
     any("application.read"),
     any("application.review.read"),
+    any("application.assign"),
     anyOf(attendanceWorkspacePermissions),
     anyOf(["configuration.manage", "attendance.plan.publish"]),
     any("access.roster.read"),
@@ -528,9 +488,8 @@ async function resolveOperationsCapabilities(
     any("synesthesia.window.read"),
     event("synesthesia.window.manage"),
     any("synesthesia.queue.read"),
+    event("benefit.read"),
     any("rehearsal.read"),
-    anyOf(floorConfigurationPermissions),
-    any("floor.location.read"),
     event("operations.intelligence.read"),
     event("operations.intelligence.generate"),
     event("emergency_pack.read"),
@@ -565,6 +524,7 @@ async function resolveOperationsCapabilities(
     admissions: applicationRead || applicationReviewRead,
     applicationRead,
     applicationReviewRead,
+    applicationAssign,
     attendance,
     attendanceSetup,
     roster,
@@ -577,9 +537,8 @@ async function resolveOperationsCapabilities(
       synesthesiaWindowRead ||
       synesthesiaWindowManage ||
       synesthesiaQueueRead,
+    benefits: benefitsRead,
     rehearsal,
-    floorConfiguration,
-    floorLocations,
     intelligence: intelligenceRead || intelligenceGenerate,
     intelligenceRead,
     intelligenceGenerate,
@@ -638,11 +597,7 @@ export const participantCapabilities = query({
     const subject = await currentCapabilitySubject(ctx, args.eventSlug);
     if (
       !subject ||
-      !(await stagingParticipantAccessAllowed(
-        ctx,
-        subject.eventId,
-        subject.emailNormalized,
-      ))
+      !(await stagingParticipantAccessAllowed(ctx, subject.eventId, subject.emailNormalized))
     ) {
       return null;
     }
@@ -697,10 +652,7 @@ export const synchronizeSupremePermissions = mutation({
     const role = await ctx.db
       .query("eventRoles")
       .withIndex("by_event_person_status", (index) =>
-        index
-          .eq("eventId", event._id)
-          .eq("personId", person._id)
-          .eq("status", "active"),
+        index.eq("eventId", event._id).eq("personId", person._id).eq("status", "active"),
       )
       .unique();
     if (!role || role.role !== "supreme") {
@@ -782,10 +734,7 @@ async function readDirectoryItem(
     ctx.db
       .query("eventRoles")
       .withIndex("by_event_person_status", (index) =>
-        index
-          .eq("eventId", eventId)
-          .eq("personId", subject.personId)
-          .eq("status", "active"),
+        index.eq("eventId", eventId).eq("personId", subject.personId).eq("status", "active"),
       )
       .unique(),
     ctx.db
@@ -856,9 +805,7 @@ export const findByEmail = query({
       scopeType: "person",
       scopeId: subject.personId,
     });
-    return grants.length > 0
-      ? readDirectoryItem(ctx, event._id, subject)
-      : null;
+    return grants.length > 0 ? readDirectoryItem(ctx, event._id, subject) : null;
   },
 });
 
@@ -868,10 +815,7 @@ const delegationCeilingView = v.object({
   scopeType,
   scopeId: v.optional(v.string()),
   scopeLabel: v.string(),
-  targetKind: v.union(
-    v.literal("exact_person"),
-    v.literal("any_event_person"),
-  ),
+  targetKind: v.union(v.literal("exact_person"), v.literal("any_event_person")),
   targetPersonId: v.optional(v.id("people")),
   targetLabel: v.string(),
   validUntil: v.number(),
@@ -901,20 +845,12 @@ function readableState(value: string) {
   return value.replaceAll("_", " ");
 }
 
-async function eventPersonLabel(
-  ctx: QueryCtx,
-  eventId: Id<"events">,
-  personId: Id<"people">,
-) {
+async function eventPersonLabel(ctx: QueryCtx, eventId: Id<"events">, personId: Id<"people">) {
   const subject = await ctx.db
     .query("eventAccessSubjects")
-    .withIndex("by_event_person", (index) =>
-      index.eq("eventId", eventId).eq("personId", personId),
-    )
+    .withIndex("by_event_person", (index) => index.eq("eventId", eventId).eq("personId", personId))
     .unique();
-  return subject
-    ? `${subject.displayName} · ${subject.emailNormalized}`
-    : undefined;
+  return subject ? `${subject.displayName} · ${subject.emailNormalized}` : undefined;
 }
 
 async function resolveScopeLabel(
@@ -930,20 +866,12 @@ async function resolveScopeLabel(
   if (requestedScopeType === "self") {
     const membershipId = ctx.db.normalizeId("eventMemberships", scopeId);
     const membership = membershipId ? await ctx.db.get(membershipId) : null;
-    if (
-      membership &&
-      membership.eventId === eventId &&
-      membership.personId === targetPersonId
-    ) {
+    if (membership && membership.eventId === eventId && membership.personId === targetPersonId) {
       return "Own participant membership";
     }
     const subjectId = ctx.db.normalizeId("eventAccessSubjects", scopeId);
     const subject = subjectId ? await ctx.db.get(subjectId) : null;
-    if (
-      subject &&
-      subject.eventId === eventId &&
-      subject.personId === targetPersonId
-    ) {
+    if (subject && subject.eventId === eventId && subject.personId === targetPersonId) {
       return "Own event account";
     }
     return "Unavailable self resource";
@@ -951,7 +879,7 @@ async function resolveScopeLabel(
   if (requestedScopeType === "person") {
     const personId = ctx.db.normalizeId("people", scopeId);
     return personId
-      ? (await eventPersonLabel(ctx, eventId, personId)) ?? "Unavailable person"
+      ? ((await eventPersonLabel(ctx, eventId, personId)) ?? "Unavailable person")
       : "Unavailable person";
   }
   if (requestedScopeType === "team") {
@@ -964,9 +892,7 @@ async function resolveScopeLabel(
     const application = id ? await ctx.db.get(id) : null;
     if (!application || application.eventId !== eventId) return "Unavailable application";
     const team = await ctx.db.get(application.teamId);
-    return team
-      ? `${team.name} · ${readableState(application.state)}`
-      : "Unavailable application";
+    return team ? `${team.name} · ${readableState(application.state)}` : "Unavailable application";
   }
   if (requestedScopeType === "attendance_plan") {
     const id = ctx.db.normalizeId("attendancePlanVersions", scopeId);
@@ -974,20 +900,6 @@ async function resolveScopeLabel(
     return plan?.eventId === eventId
       ? `${plan.name} · version ${plan.version}`
       : "Unavailable attendance plan";
-  }
-  if (requestedScopeType === "floor_plan") {
-    const id = ctx.db.normalizeId("floorPlanVersions", scopeId);
-    const plan = id ? await ctx.db.get("floorPlanVersions", id) : null;
-    return plan?.eventId === eventId
-      ? `${plan.name} · plan ${plan.planNumber} · ${readableState(plan.mappingState)}`
-      : "Unavailable floor plan";
-  }
-  if (requestedScopeType === "floor_zone") {
-    const id = ctx.db.normalizeId("floorZones", scopeId);
-    const zone = id ? await ctx.db.get("floorZones", id) : null;
-    if (!zone || zone.eventId !== eventId) return "Unavailable floor zone";
-    const plan = await ctx.db.get(zone.planVersionId);
-    return `${plan?.name ?? "Floor plan"} · ${zone.name}`;
   }
   if (requestedScopeType === "attendance_session") {
     const id = ctx.db.normalizeId("attendanceSessions", scopeId);
@@ -1119,9 +1031,7 @@ async function activeAuthorityGrants(
   ctx: QueryCtx,
   eventId: Id<"events">,
   eventAccessSubjectId: Id<"eventAccessSubjects">,
-  permissionKey:
-    | "access.permissions.grant_scoped"
-    | "access.permissions.revoke_scoped",
+  permissionKey: "access.permissions.grant_scoped" | "access.permissions.revoke_scoped",
 ) {
   const ids = await matchingPermissionGrantIds(ctx, {
     eventId,
@@ -1142,9 +1052,7 @@ function permissionDelegationAuthority(
     status: grant.status,
     validFrom: grant.validFrom,
     ...(grant.validUntil !== undefined ? { validUntil: grant.validUntil } : {}),
-    ...(grant.delegation !== undefined
-      ? { delegation: grant.delegation }
-      : {}),
+    ...(grant.delegation !== undefined ? { delegation: grant.delegation } : {}),
   };
 }
 
@@ -1156,12 +1064,9 @@ async function delegationCeiling(
 ) {
   if (!grant.delegation || grant.validUntil === undefined) return null;
   const targetPersonId =
-    grant.delegation.target.kind === "exact_person"
-      ? grant.delegation.target.personId
-      : undefined;
+    grant.delegation.target.kind === "exact_person" ? grant.delegation.target.personId : undefined;
   const targetLabel = targetPersonId
-    ? (await eventPersonLabel(ctx, eventId, targetPersonId)) ??
-      "Unavailable event account"
+    ? ((await eventPersonLabel(ctx, eventId, targetPersonId)) ?? "Unavailable event account")
     : "Any active event person";
   const scopeLabel = await resolveScopeLabel(
     ctx,
@@ -1174,9 +1079,7 @@ async function delegationCeiling(
     authorityGrantId: grant._id,
     permissionKey: grant.delegation.permissionKey,
     scopeType: grant.delegation.scopeType,
-    ...(grant.delegation.scopeId !== undefined
-      ? { scopeId: grant.delegation.scopeId }
-      : {}),
+    ...(grant.delegation.scopeId !== undefined ? { scopeId: grant.delegation.scopeId } : {}),
     scopeLabel,
     targetKind: grant.delegation.target.kind,
     ...(targetPersonId !== undefined ? { targetPersonId } : {}),
@@ -1196,16 +1099,12 @@ async function permissionGrantView(
     revokeAuthorities: readonly Doc<"permissionGrants">[];
   },
 ) {
-  const permissionKey = isPermissionKey(args.grant.permissionKey)
-    ? args.grant.permissionKey
-    : null;
+  const permissionKey = isPermissionKey(args.grant.permissionKey) ? args.grant.permissionKey : null;
   const action: PermissionAdministrationAction | null = permissionKey
     ? {
         permissionKey,
         scopeType: args.grant.scopeType,
-        ...(args.grant.scopeId !== undefined
-          ? { scopeId: args.grant.scopeId }
-          : {}),
+        ...(args.grant.scopeId !== undefined ? { scopeId: args.grant.scopeId } : {}),
         targetPersonId: args.targetPersonId,
       }
     : null;
@@ -1221,12 +1120,7 @@ async function permissionGrantView(
             args.now,
           ),
         )));
-  const delegation = await delegationCeiling(
-    ctx,
-    args.eventId,
-    args.grant.personId,
-    args.grant,
-  );
+  const delegation = await delegationCeiling(ctx, args.eventId, args.grant.personId, args.grant);
   return {
     id: args.grant._id,
     permissionKey: args.grant.permissionKey,
@@ -1240,9 +1134,7 @@ async function permissionGrantView(
       args.grant.scopeId,
     ),
     validFrom: args.grant.validFrom,
-    ...(args.grant.validUntil !== undefined
-      ? { validUntil: args.grant.validUntil }
-      : {}),
+    ...(args.grant.validUntil !== undefined ? { validUntil: args.grant.validUntil } : {}),
     status:
       args.grant.status === "active" && args.grant.validFrom > args.now
         ? "scheduled"
@@ -1254,18 +1146,10 @@ async function permissionGrantView(
     sourceType: args.grant.sourceType,
     reason: args.grant.reason,
     createdAt: args.grant.createdAt,
-    ...(args.grant.activatedAt !== undefined
-      ? { activatedAt: args.grant.activatedAt }
-      : {}),
-    ...(args.grant.expiredAt !== undefined
-      ? { expiredAt: args.grant.expiredAt }
-      : {}),
-    ...(args.grant.revokedAt !== undefined
-      ? { revokedAt: args.grant.revokedAt }
-      : {}),
-    ...(args.grant.revokeReason !== undefined
-      ? { revokeReason: args.grant.revokeReason }
-      : {}),
+    ...(args.grant.activatedAt !== undefined ? { activatedAt: args.grant.activatedAt } : {}),
+    ...(args.grant.expiredAt !== undefined ? { expiredAt: args.grant.expiredAt } : {}),
+    ...(args.grant.revokedAt !== undefined ? { revokedAt: args.grant.revokedAt } : {}),
+    ...(args.grant.revokeReason !== undefined ? { revokeReason: args.grant.revokeReason } : {}),
     ...(delegation !== null ? { delegation } : {}),
     canRevoke,
   };
@@ -1346,10 +1230,7 @@ export const detail = query({
       ctx.db
         .query("eventRoles")
         .withIndex("by_event_person_status", (index) =>
-          index
-            .eq("eventId", event._id)
-            .eq("personId", targetPersonId)
-            .eq("status", "active"),
+          index.eq("eventId", event._id).eq("personId", targetPersonId).eq("status", "active"),
         )
         .unique(),
       ctx.db
@@ -1370,18 +1251,8 @@ export const detail = query({
         permissionKey: "access.permissions.revoke_any",
         scopeType: "event",
       }),
-      activeAuthorityGrants(
-        ctx,
-        event._id,
-        actorSubject._id,
-        "access.permissions.grant_scoped",
-      ),
-      activeAuthorityGrants(
-        ctx,
-        event._id,
-        actorSubject._id,
-        "access.permissions.revoke_scoped",
-      ),
+      activeAuthorityGrants(ctx, event._id, actorSubject._id, "access.permissions.grant_scoped"),
+      activeAuthorityGrants(ctx, event._id, actorSubject._id, "access.permissions.revoke_scoped"),
       matchingPermissionGrantIds(ctx, {
         eventId: event._id,
         eventAccessSubjectId: actorSubject._id,
@@ -1419,11 +1290,8 @@ export const detail = query({
       grant.delegation?.target.kind === "any_event_person" ||
       grant.delegation?.target.personId === targetPersonId;
     const visibleGrantAuthorities =
-      person._id === targetPersonId
-        ? []
-        : grantScopedAuthorities.filter(delegationTargetsPerson);
-    const visibleRevokeAuthorities =
-      revokeScopedAuthorities.filter(delegationTargetsPerson);
+      person._id === targetPersonId ? [] : grantScopedAuthorities.filter(delegationTargetsPerson);
+    const visibleRevokeAuthorities = revokeScopedAuthorities.filter(delegationTargetsPerson);
     const [grantDelegations, revokeDelegations] = await Promise.all([
       Promise.all(
         visibleGrantAuthorities.map((grant) =>
@@ -1515,7 +1383,10 @@ export const grantLedger = query({
     const actorSubject = await requireEventSubject(ctx, event._id, person._id);
     const targetPersonId = ctx.db.normalizeId("people", args.personId);
     if (!targetPersonId) {
-      throw new ConvexError({ code: "PERSON_NOT_FOUND", message: "The target account is invalid." });
+      throw new ConvexError({
+        code: "PERSON_NOT_FOUND",
+        message: "The target account is invalid.",
+      });
     }
     const targetSubject = await ctx.db
       .query("eventAccessSubjects")
@@ -1524,7 +1395,10 @@ export const grantLedger = query({
       )
       .unique();
     if (!targetSubject) {
-      throw new ConvexError({ code: "PERSON_NOT_FOUND", message: "The target event account is unavailable." });
+      throw new ConvexError({
+        code: "PERSON_NOT_FOUND",
+        message: "The target event account is unavailable.",
+      });
     }
     await requirePermission(ctx, {
       eventId: event._id,
@@ -1540,12 +1414,7 @@ export const grantLedger = query({
         permissionKey: "access.permissions.revoke_any",
         scopeType: "event",
       }),
-      activeAuthorityGrants(
-        ctx,
-        event._id,
-        actorSubject._id,
-        "access.permissions.revoke_scoped",
-      ),
+      activeAuthorityGrants(ctx, event._id, actorSubject._id, "access.permissions.revoke_scoped"),
     ]);
     const visibleRevokeAuthorities = revokeScopedAuthorities.filter(
       (grant) =>
@@ -1561,18 +1430,14 @@ export const grantLedger = query({
             const permissionIndex = index
               .eq("eventAccessSubjectId", targetSubject._id)
               .eq("permissionKey", permissionKeyValue);
-            return statusValue
-              ? permissionIndex.eq("status", statusValue)
-              : permissionIndex;
+            return statusValue ? permissionIndex.eq("status", statusValue) : permissionIndex;
           })
           .order("desc")
           .paginate(args.paginationOpts)
       : await ctx.db
           .query("permissionGrants")
           .withIndex("by_person_status", (index) => {
-            const personIndex = index
-              .eq("eventId", event._id)
-              .eq("personId", targetPersonId);
+            const personIndex = index.eq("eventId", event._id).eq("personId", targetPersonId);
             return statusValue ? personIndex.eq("status", statusValue) : personIndex;
           })
           .order("desc")
@@ -1612,7 +1477,10 @@ export const scopeOptions = query({
     const { person } = await requireCurrentPerson(ctx);
     const targetPersonId = ctx.db.normalizeId("people", args.targetPersonId);
     if (!targetPersonId) {
-      throw new ConvexError({ code: "PERSON_NOT_FOUND", message: "The target account is invalid." });
+      throw new ConvexError({
+        code: "PERSON_NOT_FOUND",
+        message: "The target account is invalid.",
+      });
     }
     const actorSubject = await requireEventSubject(ctx, event._id, person._id);
     await requirePermission(ctx, {
@@ -1667,18 +1535,14 @@ export const scopeOptions = query({
         )
         .unique();
       return {
-        page: membership
-          ? [{ id: membership._id, label: "Own participant membership" }]
-          : [],
+        page: membership ? [{ id: membership._id, label: "Own participant membership" }] : [],
         isDone: true,
         continueCursor: "",
       };
     }
     if (args.requestedScopeType === "person") {
       const resourceStatus =
-        permissionKey === "access.subjects.reactivate"
-          ? "suspended"
-          : "active";
+        permissionKey === "access.subjects.reactivate" ? "suspended" : "active";
       const page = await ctx.db
         .query("eventAccessSubjects")
         .withIndex("by_event_status_email", (index) =>
@@ -1767,53 +1631,6 @@ export const scopeOptions = query({
         page: page.page.map((plan) => ({
           id: plan._id,
           label: `${plan.name} · version ${plan.version} · ${readableState(plan.status)}`,
-        })),
-      };
-    }
-    if (args.requestedScopeType === "floor_plan") {
-      const [draft, published] = await Promise.all([
-        ctx.db
-          .query("floorPlanVersions")
-          .withIndex("by_event_status", (index) => index.eq("eventId", event._id).eq("status", "draft"))
-          .unique(),
-        event.publishedFloorPlanVersionId
-          ? ctx.db.get(event.publishedFloorPlanVersionId)
-          : null,
-      ]);
-      const candidates = [draft, published].flatMap((plan) => plan ? [plan] : []);
-      return {
-        page: candidates
-          .filter((plan) => {
-            if (permissionKey === "floor.plan.publish") return plan.status === "draft";
-            if (permissionKey === "floor.plan.freeze") {
-              return plan.status === "published" && plan.mappingState === "open";
-            }
-            return true;
-          })
-          .map((plan) => ({
-            id: plan._id,
-            label: `${plan.name} · plan ${plan.planNumber} · ${readableState(plan.mappingState)}`,
-          })),
-        isDone: true,
-        continueCursor: "",
-      };
-    }
-    if (args.requestedScopeType === "floor_zone") {
-      const plan = event.publishedFloorPlanVersionId
-        ? await ctx.db.get(event.publishedFloorPlanVersionId)
-        : null;
-      if (!plan || plan.status !== "published") {
-        return { page: [], isDone: true, continueCursor: "" };
-      }
-      const page = await ctx.db
-        .query("floorZones")
-        .withIndex("by_plan_order", (index) => index.eq("planVersionId", plan._id))
-        .paginate(args.paginationOpts);
-      return {
-        ...page,
-        page: page.page.map((zone) => ({
-          id: zone._id,
-          label: `${plan.name} · ${zone.name}`,
         })),
       };
     }
@@ -1978,17 +1795,13 @@ export const scopeOptions = query({
         ? await ctx.db
             .query("scorecards")
             .withIndex("by_event_reviewer_created", (index) =>
-              index
-                .eq("eventId", event._id)
-                .eq("reviewerPersonId", targetPersonId),
+              index.eq("eventId", event._id).eq("reviewerPersonId", targetPersonId),
             )
             .order("desc")
             .paginate(args.paginationOpts)
         : await ctx.db
             .query("scorecards")
-            .withIndex("by_event_created", (index) =>
-              index.eq("eventId", event._id),
-            )
+            .withIndex("by_event_created", (index) => index.eq("eventId", event._id))
             .order("desc")
             .paginate(args.paginationOpts);
       return {
@@ -2034,9 +1847,7 @@ export const scopeOptions = query({
     if (args.requestedScopeType === "support_case") {
       const page = await ctx.db
         .query("supportCases")
-        .withIndex("by_event_updated", (index) =>
-          index.eq("eventId", event._id),
-        )
+        .withIndex("by_event_updated", (index) => index.eq("eventId", event._id))
         .order("desc")
         .paginate(args.paginationOpts);
       return {
@@ -2050,9 +1861,7 @@ export const scopeOptions = query({
     if (args.requestedScopeType === "rehearsal_run") {
       const page = await ctx.db
         .query("rehearsalRuns")
-        .withIndex("by_event_created", (index) =>
-          index.eq("eventId", event._id),
-        )
+        .withIndex("by_event_created", (index) => index.eq("eventId", event._id))
         .order("desc")
         .paginate(args.paginationOpts);
       return {
@@ -2073,9 +1882,7 @@ type PermissionDelegationInput = {
   permissionKey: string;
   scopeType: PermissionScopeType;
   scopeId?: string;
-  target:
-    | { kind: "any_event_person" }
-    | { kind: "exact_email"; email: string };
+  target: { kind: "any_event_person" } | { kind: "exact_email"; email: string };
 };
 
 async function validatePermissionDelegation(
@@ -2083,9 +1890,7 @@ async function validatePermissionDelegation(
   args: {
     eventId: Id<"events">;
     delegatePersonId: Id<"people">;
-    authorityKey:
-      | "access.permissions.grant_scoped"
-      | "access.permissions.revoke_scoped";
+    authorityKey: "access.permissions.grant_scoped" | "access.permissions.revoke_scoped";
     input: PermissionDelegationInput;
   },
 ): Promise<PermissionDelegation> {
@@ -2098,9 +1903,7 @@ async function validatePermissionDelegation(
         message: "The delegated permission cannot use that event scope.",
       });
     }
-  } else if (
-    !definition.scopes.some((scope) => scope === args.input.scopeType)
-  ) {
+  } else if (!definition.scopes.some((scope) => scope === args.input.scopeType)) {
     throw new ConvexError({
       code: "INVALID_DELEGATION",
       message: "That resource type is not legal for the delegated permission.",
@@ -2114,9 +1917,7 @@ async function validatePermissionDelegation(
     const targetSubject = await ctx.db
       .query("eventAccessSubjects")
       .withIndex("by_event_email", (index) =>
-        index
-          .eq("eventId", args.eventId)
-          .eq("emailNormalized", targetEmail),
+        index.eq("eventId", args.eventId).eq("emailNormalized", targetEmail),
       )
       .unique();
     if (!targetSubject || targetSubject.status !== "active") {
@@ -2161,11 +1962,7 @@ async function validatePermissionDelegation(
   };
 }
 
-function storedGrantIds(
-  ctx: MutationCtx,
-  values: readonly string[],
-  label: string,
-) {
+function storedGrantIds(ctx: MutationCtx, values: readonly string[], label: string) {
   return values.map((value) => {
     const grantId = ctx.db.normalizeId("permissionGrants", value);
     if (!grantId) throw new Error(`The stored ${label} result is invalid.`);
@@ -2234,13 +2031,23 @@ export const grant = mutation({
     const permissionKey = assertPermissionKey(args.permissionKey);
     const definition = permissionCatalog[permissionKey];
     if (args.scopeType === "event") {
-      if (!definition.eventWide) throw new ConvexError({ code: "INVALID_SCOPE", message: "That permission cannot be event-wide." });
+      if (!definition.eventWide)
+        throw new ConvexError({
+          code: "INVALID_SCOPE",
+          message: "That permission cannot be event-wide.",
+        });
     } else if (!definition.scopes.some((scope) => scope === args.scopeType)) {
-      throw new ConvexError({ code: "INVALID_SCOPE", message: "That scope is not valid for the permission." });
+      throw new ConvexError({
+        code: "INVALID_SCOPE",
+        message: "That scope is not valid for the permission.",
+      });
     }
     const now = Date.now();
     if (args.validUntil !== undefined && args.validUntil <= now) {
-      throw new ConvexError({ code: "INVALID_EXPIRY", message: "Grant expiry must be in the future." });
+      throw new ConvexError({
+        code: "INVALID_EXPIRY",
+        message: "Grant expiry must be in the future.",
+      });
     }
     if (
       args.validUntil !== undefined &&
@@ -2292,9 +2099,7 @@ export const grant = mutation({
         permissionKey,
         ...validatedScope,
         targetPersonId: args.targetPersonId,
-        ...(args.validUntil !== undefined
-          ? { validUntil: args.validUntil }
-          : {}),
+        ...(args.validUntil !== undefined ? { validUntil: args.validUntil } : {}),
       },
     });
     const { grantId, created } = await insertPermissionGrant(ctx, {
@@ -2304,18 +2109,14 @@ export const grant = mutation({
       permissionKey,
       ...validatedScope,
       sourceType:
-        authority.permissionKey === "access.permissions.grant_scoped"
-          ? "delegated"
-          : "manual",
+        authority.permissionKey === "access.permissions.grant_scoped" ? "delegated" : "manual",
       sourceId: `${authority.permissionKey}:${args.clientOperationId}`,
       grantedByPersonId: person._id,
       reason,
       ...(args.validUntil !== undefined ? { validUntil: args.validUntil } : {}),
       ...(delegation !== undefined ? { delegation } : {}),
     });
-    const accessVersion = created
-      ? targetSubject.accessVersion + 1
-      : targetSubject.accessVersion;
+    const accessVersion = created ? targetSubject.accessVersion + 1 : targetSubject.accessVersion;
     if (created) {
       await ctx.db.patch(targetSubject._id, {
         accessVersion,
@@ -2339,9 +2140,7 @@ export const grant = mutation({
       permissionKey: authority.permissionKey,
       grantIds: authority.grantIds,
       scopeType: validatedScope.scopeType,
-      ...(validatedScope.scopeType === "event"
-        ? {}
-        : { scopeId: validatedScope.scopeId }),
+      ...(validatedScope.scopeType === "event" ? {} : { scopeId: validatedScope.scopeId }),
       action: "access.permission_granted",
       targetType: "permission_grant",
       targetId: grantId,
@@ -2429,7 +2228,7 @@ function normalizeDirectGrantBatch(grants: DirectGrantBatchArgs["grants"]) {
     const exactScope = JSON.stringify([
       permissionKey,
       input.scopeType,
-      input.scopeType === "event" ? null : input.scopeId ?? null,
+      input.scopeType === "event" ? null : (input.scopeId ?? null),
     ]);
     if (exactScopes.has(exactScope)) {
       throw new ConvexError({
@@ -2453,7 +2252,7 @@ async function grantPermissionBatch(ctx: MutationCtx, args: DirectGrantBatchArgs
     ...normalized.flatMap((item) => [
       item.permissionKey,
       item.scopeType,
-      item.scopeType === "event" ? null : item.scopeId ?? null,
+      item.scopeType === "event" ? null : (item.scopeId ?? null),
     ]),
   ]);
   const event = await requireEventBySlug(ctx, args.eventSlug);
@@ -2478,11 +2277,7 @@ async function grantPermissionBatch(ctx: MutationCtx, args: DirectGrantBatchArgs
       accessVersion: stored.accessVersion,
     };
   }
-  const targetSubject = await requireEventSubject(
-    ctx,
-    event._id,
-    args.targetPersonId,
-  );
+  const targetSubject = await requireEventSubject(ctx, event._id, args.targetPersonId);
   requireAccessVersion(targetSubject, args.expectedAccessVersion);
   const now = Date.now();
   if (args.validUntil !== undefined && args.validUntil <= now) {
@@ -2533,10 +2328,7 @@ async function grantPermissionBatch(ctx: MutationCtx, args: DirectGrantBatchArgs
     ) {
       throw new Error("Permission grant authority resolved to the wrong action.");
     }
-    if (
-      authorityPermissionKey !== null &&
-      authorityPermissionKey !== authority.permissionKey
-    ) {
+    if (authorityPermissionKey !== null && authorityPermissionKey !== authority.permissionKey) {
       throw new Error("One grant batch cannot mix unrestricted and delegated authority.");
     }
     authorityPermissionKey = authority.permissionKey;
@@ -2551,18 +2343,15 @@ async function grantPermissionBatch(ctx: MutationCtx, args: DirectGrantBatchArgs
     personId: args.targetPersonId,
     eventAccessSubjectId: targetSubject._id,
     sourceType:
-      authorityPermissionKey === "access.permissions.grant_scoped"
-        ? "delegated"
-        : "manual",
+      authorityPermissionKey === "access.permissions.grant_scoped" ? "delegated" : "manual",
     sourceId: `access.grant_batch:${args.clientOperationId}`,
     grantedByPersonId: person._id,
     reason,
     ...(args.validUntil !== undefined ? { validUntil: args.validUntil } : {}),
     grants: plans,
   });
-  const accessVersion = group.createdCount > 0
-    ? targetSubject.accessVersion + 1
-    : targetSubject.accessVersion;
+  const accessVersion =
+    group.createdCount > 0 ? targetSubject.accessVersion + 1 : targetSubject.accessVersion;
   if (group.createdCount > 0) {
     await ctx.db.patch(targetSubject._id, { accessVersion, updatedAt: now });
   }
@@ -2645,7 +2434,10 @@ export const revoke = mutation({
     }
     const grant = await ctx.db.get(args.grantId);
     if (!grant || grant.eventId !== event._id) {
-      throw new ConvexError({ code: "GRANT_NOT_FOUND", message: "That grant is outside this event." });
+      throw new ConvexError({
+        code: "GRANT_NOT_FOUND",
+        message: "That grant is outside this event.",
+      });
     }
     const permissionKey = assertPermissionKey(grant.permissionKey);
     const authority = await requireRevokeAuthority(ctx, {
@@ -2728,10 +2520,7 @@ export const revokeBatch = mutation({
     accessVersion: v.number(),
   }),
   handler: async (ctx, args) => {
-    if (
-      args.grantIds.length === 0 ||
-      args.grantIds.length > maximumDirectGrantBatchSize
-    ) {
+    if (args.grantIds.length === 0 || args.grantIds.length > maximumDirectGrantBatchSize) {
       throw new ConvexError({
         code: "INVALID_REVOKE_BATCH",
         message: `Choose 1–${maximumDirectGrantBatchSize} permission grants.`,
@@ -2773,11 +2562,7 @@ export const revokeBatch = mutation({
         accessVersion: stored.accessVersion,
       };
     }
-    const targetSubject = await requireEventSubject(
-      ctx,
-      event._id,
-      args.targetPersonId,
-    );
+    const targetSubject = await requireEventSubject(ctx, event._id, args.targetPersonId);
     requireAccessVersion(targetSubject, args.expectedAccessVersion);
     const rows = await Promise.all(args.grantIds.map((grantId) => ctx.db.get(grantId)));
     const grants = rows.map((grant) => {
@@ -2823,10 +2608,7 @@ export const revokeBatch = mutation({
       ) {
         throw new Error("Permission revoke authority resolved to the wrong action.");
       }
-      if (
-        authorityPermissionKey !== null &&
-        authorityPermissionKey !== authority.permissionKey
-      ) {
+      if (authorityPermissionKey !== null && authorityPermissionKey !== authority.permissionKey) {
         throw new Error("One revoke batch cannot mix unrestricted and delegated authority.");
       }
       authorityPermissionKey = authority.permissionKey;

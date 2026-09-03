@@ -1,39 +1,36 @@
-import { api } from '@code2create/backend/api'
-import { useAction } from 'convex/react'
-import type { FunctionArgs } from 'convex/server'
-import { useCallback } from 'react'
+import { api } from "@code2create/backend/api";
+import { useAction } from "convex/react";
+import type { FunctionArgs } from "convex/server";
+import { useCallback } from "react";
 
-import { eventSlug } from '../lib/config'
+import { eventSlug } from "../lib/config";
 import {
   intelligenceConnectionState,
   intelligenceTerminalState,
-} from '../lib/intelligenceConversation'
-import { useIntelligenceStream } from '../lib/useIntelligenceStream'
-import { LiveAgentConsole } from './intelligence'
+} from "../lib/intelligenceConversation";
+import { useIntelligenceStream } from "../lib/useIntelligenceStream";
+import { LiveAgentConsole } from "./intelligence";
 
 export function OperationsBriefStream({
   briefId,
   isActive,
 }: {
-  briefId: FunctionArgs<typeof api.operationsIntelligenceActions.openBriefStream>['briefId']
-  isActive: boolean
+  briefId: FunctionArgs<typeof api.operationsIntelligenceActions.openBriefStream>["briefId"];
+  isActive: boolean;
 }) {
-  const openStream = useAction(api.operationsIntelligenceActions.openBriefStream)
-  const loadAccess = useCallback(
-    () => openStream({ eventSlug, briefId }),
-    [briefId, openStream],
-  )
+  const openStream = useAction(api.operationsIntelligenceActions.openBriefStream);
+  const loadAccess = useCallback(() => openStream({ eventSlug, briefId }), [briefId, openStream]);
   const stream = useIntelligenceStream({
     enabled: true,
     loadAccess,
     streamKey: `brief:${briefId}`,
-  })
+  });
   const connectionState = intelligenceConnectionState({
     accessFailed: stream.accessError !== undefined,
     historyReady: stream.historyReady,
     streamFailed: stream.error !== undefined,
     status: stream.status,
-  })
+  });
 
   return (
     <div className="intelligence-brief-stream">
@@ -41,12 +38,14 @@ export function OperationsBriefStream({
         agentLabel="Brief agent"
         connectionState={connectionState}
         embedded
-        emptyDescription="The trace appears when the brief agent begins reading the frozen health snapshot."
-        emptyTitle="Waiting for agent activity."
+        emptyDescription="Steps appear here once the agent starts reading the event snapshot."
+        emptyTitle="Waiting for the agent to start."
         historyCanLoadMore={stream.historyCanLoadMore}
-        {...stream.historyLoadError === undefined ? {} : { historyLoadError: stream.historyLoadError }}
+        {...(stream.historyLoadError === undefined
+          ? {}
+          : { historyLoadError: stream.historyLoadError })}
         historyLoading={stream.historyLoading}
-        isStreaming={isActive || stream.status === 'submitted' || stream.status === 'streaming'}
+        isStreaming={isActive || stream.status === "submitted" || stream.status === "streaming"}
         messages={stream.messages}
         onLoadOlder={stream.loadOlder}
         onReconnect={stream.reconnect}
@@ -54,23 +53,23 @@ export function OperationsBriefStream({
         terminalState={intelligenceTerminalState(stream.settlements)}
         terminalCopy={{
           completed: {
-            title: 'Trace complete',
-            detail: 'The published brief above is the authoritative result.',
+            title: "Done",
+            detail: "The brief above is the final result.",
           },
           failed: {
-            title: 'Brief run did not finish',
-            detail: 'The run status above records the failure; an operator may request another brief.',
+            title: "The brief did not finish",
+            detail: "The failure is recorded above. You can request another brief.",
           },
           aborted: {
-            title: 'Brief run stopped',
-            detail: 'No further work is running for this brief.',
+            title: "The brief was stopped",
+            detail: "Nothing more is running for it.",
           },
         }}
         workingCopy={{
-          title: 'Preparing brief',
-          detail: 'The agent is reading the frozen event snapshot.',
+          title: "Preparing brief",
+          detail: "The agent is reading the event snapshot.",
         }}
       />
     </div>
-  )
+  );
 }

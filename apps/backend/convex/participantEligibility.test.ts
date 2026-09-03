@@ -3,7 +3,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { internal } from "./_generated/api";
 import {
-  participantEligibilityLookupFromGoogleIdentity,
+  participantEligibilityLookupFromVerifiedIdentity,
   productionParticipantEligibilityAllowed,
 } from "./lib/participantEligibility";
 import schema from "./schema";
@@ -75,13 +75,13 @@ describe("production participant eligibility", () => {
         .withIndex("by_slug", (index) => index.eq("slug", eventSlug))
         .unique();
       if (!event) throw new Error("The eligibility test event is missing.");
-      const lookup = participantEligibilityLookupFromGoogleIdentity(event, {
+      const lookup = participantEligibilityLookupFromVerifiedIdentity(event, {
         verifiedEmail: "external.student@example.com",
         displayName: "External Student",
       });
-      await expect(
-        productionParticipantEligibilityAllowed(ctx, event, lookup),
-      ).resolves.toBe(false);
+      await expect(productionParticipantEligibilityAllowed(ctx, event, lookup)).resolves.toBe(
+        false,
+      );
     });
 
     await expect(
@@ -97,20 +97,20 @@ describe("production participant eligibility", () => {
         .withIndex("by_slug", (index) => index.eq("slug", eventSlug))
         .unique();
       if (!event) throw new Error("The eligibility test event is missing.");
-      const allowedExternal = participantEligibilityLookupFromGoogleIdentity(event, {
+      const allowedExternal = participantEligibilityLookupFromVerifiedIdentity(event, {
         verifiedEmail: "external.student@example.com",
         displayName: "External Student",
       });
-      const unknownExternal = participantEligibilityLookupFromGoogleIdentity(event, {
+      const unknownExternal = participantEligibilityLookupFromVerifiedIdentity(event, {
         verifiedEmail: "unknown@example.com",
         displayName: "Unknown Student",
       });
-      const allowedVit = participantEligibilityLookupFromGoogleIdentity(event, {
+      const allowedVit = participantEligibilityLookupFromVerifiedIdentity(event, {
         verifiedEmail: "student@vitstudent.ac.in",
         hostedDomain: "vitstudent.ac.in",
         displayName: "VIT Student 24BCE1234",
       });
-      const invalidVitProfile = participantEligibilityLookupFromGoogleIdentity(event, {
+      const invalidVitProfile = participantEligibilityLookupFromVerifiedIdentity(event, {
         verifiedEmail: "student@vitstudent.ac.in",
         hostedDomain: "vitstudent.ac.in",
         displayName: "VIT Student",
@@ -121,9 +121,9 @@ describe("production participant eligibility", () => {
       await expect(
         productionParticipantEligibilityAllowed(ctx, event, unknownExternal),
       ).resolves.toBe(false);
-      await expect(
-        productionParticipantEligibilityAllowed(ctx, event, allowedVit),
-      ).resolves.toBe(true);
+      await expect(productionParticipantEligibilityAllowed(ctx, event, allowedVit)).resolves.toBe(
+        true,
+      );
       await expect(
         productionParticipantEligibilityAllowed(ctx, event, invalidVitProfile),
       ).resolves.toBe(false);

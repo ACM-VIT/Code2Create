@@ -1,7 +1,7 @@
 {
   "name": "@code2create/web",
-  "private": true,
   "version": "0.0.0",
+  "private": true,
   "type": "module",
   "scripts": {
     "badges:generate": "node --experimental-strip-types scripts/generateAttendanceBadges.ts",
@@ -16,7 +16,7 @@
     "deploy": "pnpm build:release && pnpm deploy:built",
     "deploy:built": "node ../backend/scripts/release/webEnvironment.ts participant deploy && node ../backend/scripts/release/deployCloudflareViteWorker.ts code2create-participant",
     "lint": "oxlint",
-    "test": "node --experimental-strip-types --test scripts/generateAttendanceBadges.test.ts src/lib/errors.test.ts src/lib/googleAuthorization.test.ts src/lib/intakeCollaboration.test.ts src/lib/noveltyPreview.test.ts src/lib/operations.test.ts src/lib/proposalRevision.test.ts src/lib/sessionDraft.test.ts src/lib/submissionCelebration.test.ts src/lib/teamLeave.test.ts src/lib/time.test.ts",
+    "test": "node --experimental-strip-types --test scripts/generateAttendanceBadges.test.ts src/lib/errors.test.ts src/lib/googleAuthorization.test.ts src/lib/ideaSubmission.test.ts src/lib/intakeCollaboration.test.ts src/lib/noveltyPreview.test.ts src/lib/operations.test.ts src/lib/proposalRevision.test.ts src/lib/sessionDraft.test.ts src/lib/submissionCelebration.test.ts src/lib/teamLeave.test.ts src/lib/time.test.ts src/components/dashboard/dashboardLayout.test.ts src/components/dashboard/relevance.test.ts",
     "typecheck": "tsc -b",
     "preview": "vite preview"
   },
@@ -48,6 +48,7 @@
     "remark-gfm": "^4.0.1",
     "tailwindcss": "^4.3.3",
     "three": "^0.185.1",
+    "toqr": "0.1.1",
     "use-stick-to-bottom": "^1.1.6",
     "vaul": "^1.1.2",
     "vgpu": "^0.3.1"

@@ -9,10 +9,7 @@ import {
   saveAdmissionHumanReview,
 } from "./admissions.ts";
 import { permissionCatalog } from "./lib/permissionCatalog.ts";
-import {
-  defaultParticipantPolicy,
-  participantPolicyChecksum,
-} from "./lib/participantPolicy.ts";
+import { defaultParticipantPolicy, participantPolicyChecksum } from "./lib/participantPolicy.ts";
 import { insertPermissionGrant } from "./lib/permissions.ts";
 import { createTestSubmissionSnapshot } from "./lib/testSubmissionSnapshot.ts";
 import schema from "./schema.ts";
@@ -170,11 +167,7 @@ describe("admission review assignments", () => {
   test("saving and replacing a review keeps one completion and preserves routed read access", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedAssignmentFixture(backend);
-    const assigned = await assignFixtureReviewer(
-      backend,
-      fixture,
-      fixture.reviewerSubjectId,
-    );
+    const assigned = await assignFixtureReviewer(backend, fixture, fixture.reviewerSubjectId);
 
     const firstReview = await backend.run(async (ctx) => {
       const application = await ctx.db.get(fixture.applicationId);
@@ -248,12 +241,9 @@ describe("admission review assignments", () => {
     const fixture = await seedAssignmentFixture(backend);
     await backend.run((ctx) => ctx.db.patch(fixture.applicationId, { state }));
 
-    await expect(saveFixtureReview(
-      backend,
-      fixture,
-      fixture.reviewerPersonId,
-      "accept",
-    )).rejects.toThrow("This application no longer accepts ordinary reviews.");
+    await expect(
+      saveFixtureReview(backend, fixture, fixture.reviewerPersonId, "accept"),
+    ).rejects.toThrow("This application no longer accepts ordinary reviews.");
   });
 
   test("two stale managers cannot both cross one application version", async () => {
@@ -398,7 +388,7 @@ async function seedAssignmentFixture(backend: BackendTest) {
       timezone: "Asia/Kolkata",
       status: "registration_closed",
       vitEmailDomains: ["vitstudent.ac.in"],
-        applicationsCloseAt: Date.now() + 86_400_000,
+      applicationsCloseAt: Date.now() + 86_400_000,
       version: 1,
       createdAt: now,
       updatedAt: now,
@@ -418,13 +408,7 @@ async function seedAssignmentFixture(backend: BackendTest) {
       publishedAt: now,
     });
     await ctx.db.patch(eventId, { publishedParticipantPolicyId: participantPolicyId });
-    const reviewerSubjectId = await insertSubject(
-      ctx,
-      eventId,
-      reviewerPersonId,
-      "reviewer",
-      now,
-    );
+    const reviewerSubjectId = await insertSubject(ctx, eventId, reviewerPersonId, "reviewer", now);
     const secondReviewerSubjectId = await insertSubject(
       ctx,
       eventId,
@@ -504,7 +488,7 @@ async function seedAssignmentFixture(backend: BackendTest) {
         {
           key: "clear_intent",
           label: "Clear intent",
-          allowedDecisions: ["accept", "waitlist", "decline", "needs_information"],
+          allowedDecisions: ["accept", "waitlist", "decline"],
         },
       ],
       checksum: "admission-checksum",

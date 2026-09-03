@@ -1,17 +1,15 @@
 export type DutySurface =
-  | 'reviews'
-  | 'attendance'
-  | 'floor'
-  | 'support'
-  | 'operations'
-  | 'incidents'
+  | "reviews"
+  | "attendance"
+  | "support"
+  | "operations"
+  | "incidents";
 
 export function dutySubscriptionPlan(shown: readonly DutySurface[]) {
   return {
-    attendance: shown.includes('attendance'),
-    floor: shown.includes('floor'),
-    support: shown.includes('support'),
-    operations: shown.includes('operations'),
-    incidents: shown.includes('incidents'),
-  }
+    attendance: shown.includes("attendance"),
+    support: shown.includes("support"),
+    operations: shown.includes("operations"),
+    incidents: shown.includes("incidents"),
+  };
 }

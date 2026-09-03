@@ -1,9 +1,6 @@
 /** Stores signed proposals; only authenticated operator mutations can settle them. */
 
-import {
-  paginationOptsValidator,
-  paginationResultValidator,
-} from "convex/server";
+import { paginationOptsValidator, paginationResultValidator } from "convex/server";
 import {
   admissionIntelligenceReadNames,
   deriveOperationsCopilotConversationId,
@@ -47,10 +44,7 @@ import {
   matchingPermissionGrantIds,
   requirePermission,
 } from "./lib/permissions";
-import {
-  HttpBodyTooLargeError,
-  readBoundedRequestText,
-} from "./lib/boundedHttpBody";
+import { HttpBodyTooLargeError, readBoundedRequestText } from "./lib/boundedHttpBody";
 import { normalizedLongText, normalizedText } from "./lib/strings";
 
 const maximumBodyBytes = 24 * 1_024;
@@ -67,7 +61,6 @@ const supportCategories = [
   "attendance_credential",
   "missing_scan",
   "scanner_device",
-  "table_location",
   "integration",
   "queue",
   "reviewer_device",
@@ -201,10 +194,9 @@ export const intelligenceRecommendationWebhook = httpAction(async (ctx, request)
           ...(parsedArguments.teamId !== undefined ? { teamId: parsedArguments.teamId } : {}),
         }
       : parsedArguments;
-  const result = await ctx.runMutation(
-    internal.intelligenceRecommendations.proposeFromWorker,
-    { proposal: { ...parsed.data, arguments: cleanArguments } },
-  );
+  const result = await ctx.runMutation(internal.intelligenceRecommendations.proposeFromWorker, {
+    proposal: { ...parsed.data, arguments: cleanArguments },
+  });
   if (result === "accepted" || result === "already_exists") {
     return Response.json({ state: result }, { status: 202 });
   }
@@ -220,25 +212,32 @@ function sameBaseCitations(
   left: Array<{ read: string; generatedAt: number; keys: string[] }>,
   right: Array<{ read: string; generatedAt: number; keys: string[] }>,
 ) {
-  return left.length === right.length && left.every((citation, index) => {
-    const candidate = right[index];
-    return candidate !== undefined &&
-      citation.read === candidate.read &&
-      citation.generatedAt === candidate.generatedAt &&
-      citation.keys.length === candidate.keys.length &&
-      citation.keys.every((key, keyIndex) => key === candidate.keys[keyIndex]);
-  });
+  return (
+    left.length === right.length &&
+    left.every((citation, index) => {
+      const candidate = right[index];
+      return (
+        candidate !== undefined &&
+        citation.read === candidate.read &&
+        citation.generatedAt === candidate.generatedAt &&
+        citation.keys.length === candidate.keys.length &&
+        citation.keys.every((key, keyIndex) => key === candidate.keys[keyIndex])
+      );
+    })
+  );
 }
 
 function sameAutonomyEvidenceSeal(
   left: OperationsAutonomyRecommendationEvidenceSeal,
   right: OperationsAutonomyRecommendationEvidenceSeal,
 ) {
-  return left.evidenceSetId === right.evidenceSetId &&
+  return (
+    left.evidenceSetId === right.evidenceSetId &&
     left.rootHash === right.rootHash &&
     left.leafCount === right.leafCount &&
     left.chunkCount === right.chunkCount &&
-    left.sealedSequence === right.sealedSequence;
+    left.sealedSequence === right.sealedSequence
+  );
 }
 
 function sameRecommendationProvenance(
@@ -247,13 +246,17 @@ function sameRecommendationProvenance(
 ) {
   if (left.kind !== right.kind) return false;
   if (left.kind === "copilot") {
-    return right.kind === "copilot" &&
+    return (
+      right.kind === "copilot" &&
       left.conversationId === right.conversationId &&
-      sameBaseCitations(left.citations, right.citations);
+      sameBaseCitations(left.citations, right.citations)
+    );
   }
-  return right.kind === "autonomy" &&
+  return (
+    right.kind === "autonomy" &&
     left.runId === right.runId &&
-    sameAutonomyEvidenceSeal(left.evidenceSet, right.evidenceSet);
+    sameAutonomyEvidenceSeal(left.evidenceSet, right.evidenceSet)
+  );
 }
 
 function sameArguments(
@@ -263,30 +266,40 @@ function sameArguments(
   if (left.kind !== right.kind) return false;
   switch (left.kind) {
     case "hold_review_team":
-      return right.kind === left.kind &&
+      return (
+        right.kind === left.kind &&
         left.teamRoundStateId === right.teamRoundStateId &&
         left.expectedTeamRoundStateVersion === right.expectedTeamRoundStateVersion &&
-        left.reason === right.reason;
+        left.reason === right.reason
+      );
     case "page_reserve_reviewer":
-      return right.kind === left.kind &&
+      return (
+        right.kind === left.kind &&
         left.missingPanelMemberId === right.missingPanelMemberId &&
         left.expectedPanelVersion === right.expectedPanelVersion &&
-        left.reason === right.reason;
+        left.reason === right.reason
+      );
     case "dismiss_attention_item":
-      return right.kind === left.kind &&
+      return (
+        right.kind === left.kind &&
         left.itemId === right.itemId &&
         left.expectedItemVersion === right.expectedItemVersion &&
-        left.reason === right.reason;
+        left.reason === right.reason
+      );
     case "open_support_case":
-      return right.kind === left.kind &&
+      return (
+        right.kind === left.kind &&
         left.category === right.category &&
         left.description === right.description &&
         left.roundId === right.roundId &&
-        left.teamId === right.teamId;
+        left.teamId === right.teamId
+      );
     case "set_admission_minimum_human_reviews":
-      return right.kind === left.kind &&
+      return (
+        right.kind === left.kind &&
         left.minimumHumanReviews === right.minimumHumanReviews &&
-        left.reason === right.reason;
+        left.reason === right.reason
+      );
   }
 }
 
@@ -297,26 +310,33 @@ function sameRecommendationEffect(
   if (left.kind !== right.kind) return false;
   switch (left.kind) {
     case "hold_review_team":
-      return right.kind === left.kind &&
+      return (
+        right.kind === left.kind &&
         left.teamRoundStateId === right.teamRoundStateId &&
-        left.expectedTeamRoundStateVersion === right.expectedTeamRoundStateVersion;
+        left.expectedTeamRoundStateVersion === right.expectedTeamRoundStateVersion
+      );
     case "page_reserve_reviewer":
-      return right.kind === left.kind &&
+      return (
+        right.kind === left.kind &&
         left.missingPanelMemberId === right.missingPanelMemberId &&
-        left.expectedPanelVersion === right.expectedPanelVersion;
+        left.expectedPanelVersion === right.expectedPanelVersion
+      );
     case "dismiss_attention_item":
-      return right.kind === left.kind &&
+      return (
+        right.kind === left.kind &&
         left.itemId === right.itemId &&
-        left.expectedItemVersion === right.expectedItemVersion;
+        left.expectedItemVersion === right.expectedItemVersion
+      );
     case "open_support_case":
-      return right.kind === left.kind &&
+      return (
+        right.kind === left.kind &&
         left.category === right.category &&
         left.description === right.description &&
         left.roundId === right.roundId &&
-        left.teamId === right.teamId;
+        left.teamId === right.teamId
+      );
     case "set_admission_minimum_human_reviews":
-      return right.kind === left.kind &&
-        left.minimumHumanReviews === right.minimumHumanReviews;
+      return right.kind === left.kind && left.minimumHumanReviews === right.minimumHumanReviews;
   }
 }
 
@@ -344,12 +364,14 @@ async function appendAutonomyObservation(
     )
     .unique();
   if (existing) {
-    return existing.eventId === args.eventId &&
+    return (
+      existing.eventId === args.eventId &&
       sameAutonomyEvidenceSeal(existing.evidenceSet, args.evidenceSet) &&
       existing.statement === args.statement &&
       existing.reasoning === args.reasoning &&
       existing.agentVersion === args.agentVersion &&
-      existing.model === args.model;
+      existing.model === args.model
+    );
   }
   await ctx.db.insert("intelligenceRecommendationAutonomyObservations", {
     eventId: args.eventId,
@@ -379,11 +401,11 @@ function citationsSupportProposal(
         entry.generatedAt < now - maximumCitationAgeMs ||
         entry.generatedAt > now + maximumCitationFutureSkewMs,
     )
-  ) return false;
+  )
+    return false;
   if (args.kind === "hold_review_team") {
     return citations.some(
-      (entry) =>
-        entry.read === "review_exceptions" && entry.keys.includes(args.teamRoundStateId),
+      (entry) => entry.read === "review_exceptions" && entry.keys.includes(args.teamRoundStateId),
     );
   }
   if (args.kind === "page_reserve_reviewer") {
@@ -394,8 +416,7 @@ function citationsSupportProposal(
   }
   if (args.kind === "dismiss_attention_item") {
     return citations.some(
-      (entry) =>
-        entry.read === "operations_attention" && entry.keys.includes(args.itemId),
+      (entry) => entry.read === "operations_attention" && entry.keys.includes(args.itemId),
     );
   }
   if (args.kind === "set_admission_minimum_human_reviews") {
@@ -425,7 +446,8 @@ async function normalizedArguments(
       round.status !== "open" ||
       !["unassigned", "queued", "called", "at_table"].includes(state.state) ||
       state.version !== args.expectedTeamRoundStateVersion
-    ) return null;
+    )
+      return null;
     return {
       kind: "hold_review_team",
       teamRoundStateId: stateId,
@@ -456,7 +478,8 @@ async function normalizedArguments(
       panel.status !== "needs_reviewer" ||
       latestRemovedMember?._id !== memberId ||
       panel.version !== args.expectedPanelVersion
-    ) return null;
+    )
+      return null;
     return {
       kind: "page_reserve_reviewer",
       missingPanelMemberId: memberId,
@@ -474,7 +497,8 @@ async function normalizedArguments(
       item.roundId === undefined ||
       (item.state !== "open" && item.state !== "acknowledged") ||
       item.version !== args.expectedItemVersion
-    ) return null;
+    )
+      return null;
     return {
       kind: "dismiss_attention_item",
       itemId,
@@ -487,9 +511,7 @@ async function normalizedArguments(
     if (!event) return null;
     const draftPolicy = await ctx.db
       .query("admissionPolicyVersions")
-      .withIndex("by_event_status", (index) =>
-        index.eq("eventId", eventId).eq("status", "draft"),
-      )
+      .withIndex("by_event_status", (index) => index.eq("eventId", eventId).eq("status", "draft"))
       .unique();
     const base = draftPolicy
       ? await loadAdmissionConfigurationVersion(ctx, draftPolicy)
@@ -561,12 +583,7 @@ function comparableArguments(args: z.infer<typeof proposalArguments>) {
       return {
         kind: args.kind,
         category: args.category,
-        description: normalizedLongText(
-          args.description,
-          "Support description",
-          10,
-          2_000,
-        ),
+        description: normalizedLongText(args.description, "Support description", 10, 2_000),
         ...(args.roundId !== undefined ? { roundId: args.roundId } : {}),
         ...(args.teamId !== undefined ? { teamId: args.teamId } : {}),
       };
@@ -614,7 +631,8 @@ export async function insertIntelligenceRecommendation(
     )
     .unique();
   if (existing) {
-    const exactReplay = sameRecommendationProvenance(existing.provenance, args.provenance) &&
+    const exactReplay =
+      sameRecommendationProvenance(existing.provenance, args.provenance) &&
       sameArguments(existing.arguments, comparable) &&
       existing.statement === statement &&
       existing.reasoning === reasoning &&
@@ -645,12 +663,7 @@ export async function insertIntelligenceRecommendation(
   }
   if (
     args.provenance.kind === "copilot" &&
-    !citationsSupportProposal(
-      args.proposal.arguments,
-      args.provenance.citations,
-      args.now,
-      true,
-    )
+    !citationsSupportProposal(args.proposal.arguments, args.provenance.citations, args.now, true)
   ) {
     return { state: "invalid_citation" as const };
   }
@@ -712,9 +725,7 @@ export async function insertIntelligenceRecommendation(
   return { state: "accepted" as const, recommendationId };
 }
 
-function recommendationEffectFingerprint(
-  args: Doc<"intelligenceRecommendations">["arguments"],
-) {
+function recommendationEffectFingerprint(args: Doc<"intelligenceRecommendations">["arguments"]) {
   switch (args.kind) {
     case "hold_review_team":
       return [args.kind, args.teamRoundStateId, args.expectedTeamRoundStateVersion];
@@ -723,7 +734,13 @@ function recommendationEffectFingerprint(
     case "dismiss_attention_item":
       return [args.kind, args.itemId, args.expectedItemVersion];
     case "open_support_case":
-      return [args.kind, args.category, args.description, args.roundId ?? null, args.teamId ?? null];
+      return [
+        args.kind,
+        args.category,
+        args.description,
+        args.roundId ?? null,
+        args.teamId ?? null,
+      ];
     case "set_admission_minimum_human_reviews":
       return [
         args.kind,
@@ -798,12 +815,7 @@ export const proposeFromWorker = internalMutation({
       .unique();
     if (!event) return "event_not_found";
     const now = Date.now();
-    const conversationId = normalizedText(
-      args.proposal.conversationId,
-      "Conversation ID",
-      1,
-      200,
-    );
+    const conversationId = normalizedText(args.proposal.conversationId, "Conversation ID", 1, 200);
     const result = await insertIntelligenceRecommendation(ctx, {
       event,
       provenance: {
@@ -969,12 +981,8 @@ function recommendationViewFromDocument(row: Doc<"intelligenceRecommendations">)
     proposedAt: row.proposedAt,
     ...(row.decidedAt !== undefined ? { decidedAt: row.decidedAt } : {}),
     ...(row.operatorNote !== undefined ? { operatorNote: row.operatorNote } : {}),
-    ...(row.executedTargetType !== undefined
-      ? { executedTargetType: row.executedTargetType }
-      : {}),
-    ...(row.executedTargetId !== undefined
-      ? { executedTargetId: row.executedTargetId }
-      : {}),
+    ...(row.executedTargetType !== undefined ? { executedTargetType: row.executedTargetType } : {}),
+    ...(row.executedTargetId !== undefined ? { executedTargetId: row.executedTargetId } : {}),
     version: row.version,
   };
 }
@@ -1233,9 +1241,7 @@ async function executeApprovedKind(
       eventSlug,
       configuration,
       expectedEventVersion: args.expectedEventVersion,
-      ...(args.baseStatus === "draft"
-        ? { expectedDraftPolicyId: args.expectedBasePolicyId }
-        : {}),
+      ...(args.baseStatus === "draft" ? { expectedDraftPolicyId: args.expectedBasePolicyId } : {}),
       reason: args.reason,
       clientOperationId: `${clientOperationId}:draft`,
     });

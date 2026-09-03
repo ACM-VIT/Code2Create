@@ -1,23 +1,33 @@
 import { z } from "zod";
 
 import { readBoundedJsonResponse } from "./boundedHttpBody";
+import type { AiEmbeddingTelemetry } from "./posthog";
 
-const embeddingResponse = z.object({
-  data: z.array(z.object({
-    embedding: z.array(z.number()),
-    index: z.number().int().nonnegative(),
-  }).passthrough()),
-}).passthrough();
+const embeddingResponse = z
+  .object({
+    data: z.array(
+      z
+        .object({
+          embedding: z.array(z.number()),
+          index: z.number().int().nonnegative(),
+        })
+        .loose(),
+    ),
+    usage: z
+      .object({
+        prompt_tokens: z.number().int().nonnegative().optional(),
+        total_tokens: z.number().int().nonnegative().optional(),
+      })
+      .loose()
+      .optional(),
+  })
+  .loose();
 
 export class OpenAiEmbeddingError extends Error {
   readonly status: number | undefined;
   readonly timedOut: boolean;
 
-  constructor(
-    message: string,
-    status: number | undefined,
-    timedOut: boolean,
-  ) {
+  constructor(message: string, status: number | undefined, timedOut: boolean) {
     super(message);
     this.name = "OpenAiEmbeddingError";
     this.status = status;
@@ -26,16 +36,14 @@ export class OpenAiEmbeddingError extends Error {
 }
 
 function isTimeoutError(error: unknown) {
-  return error instanceof Error
-    && (error.name === "AbortError" || error.name === "TimeoutError");
+  return error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError");
 }
 
 function canRetry(error: unknown) {
   if (!(error instanceof OpenAiEmbeddingError)) return false;
-  return error.timedOut
-    || error.status === undefined
-    || error.status === 429
-    || error.status >= 500;
+  return (
+    error.timedOut || error.status === undefined || error.status === 429 || error.status >= 500
+  );
 }
 
 async function requestOpenAiEmbeddings(args: {
@@ -86,22 +94,23 @@ async function requestOpenAiEmbeddings(args: {
     );
   }
   const requestId = response.headers.get("x-request-id")?.trim();
-  const remainingRequestsHeader = response.headers
-    .get("x-ratelimit-remaining-requests")
-    ?.trim();
-  const remainingRequests = remainingRequestsHeader === undefined
-    ? undefined
-    : Number(remainingRequestsHeader);
+  const remainingRequestsHeader = response.headers.get("x-ratelimit-remaining-requests")?.trim();
+  const remainingRequests =
+    remainingRequestsHeader === undefined ? undefined : Number(remainingRequestsHeader);
   const requestResetHeader = response.headers.get("x-ratelimit-reset-requests")?.trim();
-  const requestReset = requestResetHeader && requestResetHeader.length <= 40
-    ? requestResetHeader
-    : undefined;
+  const requestReset =
+    requestResetHeader && requestResetHeader.length <= 40 ? requestResetHeader : undefined;
   return {
     data: parsed.data.data,
+    ...(parsed.data.usage?.prompt_tokens !== undefined
+      ? { inputTokens: parsed.data.usage.prompt_tokens }
+      : parsed.data.usage?.total_tokens !== undefined
+        ? { inputTokens: parsed.data.usage.total_tokens }
+        : {}),
     ...(requestId ? { requestId } : {}),
-    ...(remainingRequests !== undefined
-      && Number.isSafeInteger(remainingRequests)
-      && remainingRequests >= 0
+    ...(remainingRequests !== undefined &&
+    Number.isSafeInteger(remainingRequests) &&
+    remainingRequests >= 0
       ? { remainingRequests }
       : {}),
     ...(requestReset ? { requestReset } : {}),
@@ -114,13 +123,57 @@ export async function createOpenAiEmbeddings(args: {
   input: string | string[];
   timeoutMs: number;
   maximumAttempts?: 1 | 2;
+  telemetry?:
+    | {
+        traceId: string;
+        sessionId?: string | undefined;
+        distinctId?: string | undefined;
+        operation: string;
+        capture: (telemetry: AiEmbeddingTelemetry) => Promise<void>;
+      }
+    | undefined;
 }) {
   const maximumAttempts = args.maximumAttempts ?? 1;
+  const startedAt = Date.now();
   for (let attempt = 1; attempt <= maximumAttempts; attempt += 1) {
     try {
-      return await requestOpenAiEmbeddings(args);
+      const response = await requestOpenAiEmbeddings(args);
+      if (args.telemetry) {
+        await args.telemetry.capture({
+          ...args.telemetry,
+          model: args.model,
+          provider: "openai",
+          durationMs: Date.now() - startedAt,
+          isError: false,
+          inputTokens: response.inputTokens,
+          inputCount: Array.isArray(args.input) ? args.input.length : 1,
+          providerRequestId: response.requestId,
+        });
+      }
+      return response;
     } catch (error) {
-      if (attempt === maximumAttempts || !canRetry(error)) throw error;
+      if (attempt === maximumAttempts || !canRetry(error)) {
+        if (args.telemetry) {
+          const status = error instanceof OpenAiEmbeddingError ? error.status : undefined;
+          await args.telemetry.capture({
+            ...args.telemetry,
+            model: args.model,
+            provider: "openai",
+            durationMs: Date.now() - startedAt,
+            isError: true,
+            errorCategory:
+              error instanceof OpenAiEmbeddingError && error.timedOut
+                ? "provider_timed_out"
+                : status === 429
+                  ? "provider_rate_limited"
+                  : status === undefined
+                    ? "provider_request_failed"
+                    : `provider_http_${status}`,
+            inputCount: Array.isArray(args.input) ? args.input.length : 1,
+          });
+        }
+        throw error;
+      }
     }
   }
   throw new Error("The embedding request exhausted its attempts.");

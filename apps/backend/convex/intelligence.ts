@@ -87,14 +87,8 @@ function scheduleIntakeJobReadFact(
   for (const character of key) {
     hash = Math.imul(hash ^ character.charCodeAt(0), 16_777_619);
   }
-  const delayMs = args.expectedState === "running"
-    ? 30_000
-    : (hash >>> 0) % 120_000;
-  return ctx.scheduler.runAfter(
-    delayMs,
-    internal.intelligence.publishIntakeJobReadFact,
-    args,
-  );
+  const delayMs = args.expectedState === "running" ? 30_000 : (hash >>> 0) % 120_000;
+  return ctx.scheduler.runAfter(delayMs, internal.intelligence.publishIntakeJobReadFact, args);
 }
 
 export const publishIntakeJobReadFact = internalMutation({
@@ -134,9 +128,7 @@ async function applyDeterministicPath(
       now: args.now,
     });
   }
-  const stage = questionId
-    ? "follow_up" as const
-    : "additional_information" as const;
+  const stage = questionId ? ("follow_up" as const) : ("additional_information" as const);
   if (questionId || stage !== args.draft.stage) {
     await reconcileWorkingFieldsAfterDraftVersionChange(ctx, {
       teamId: args.draft.teamId,
@@ -253,9 +245,10 @@ export const beginIntakeInterpretation = internalMutation({
       modelId: ideaQuestionModelId,
       ...(!assisted
         ? {
-            failureCategory: args.provider.kind === "unavailable"
-              ? args.provider.reason
-              : "api_key_not_configured",
+            failureCategory:
+              args.provider.kind === "unavailable"
+                ? args.provider.reason
+                : "api_key_not_configured",
             completedAt: now,
           }
         : {}),
@@ -433,9 +426,7 @@ export const finishIntakeInterpretation = internalMutation({
       );
     const coverageValid =
       new Set(args.coveragePurposeKeys).size === args.coveragePurposeKeys.length &&
-      args.coveragePurposeKeys.every((purpose) =>
-        normalized.allowedPurposeKeys.includes(purpose),
-      );
+      args.coveragePurposeKeys.every((purpose) => normalized.allowedPurposeKeys.includes(purpose));
     const questionText =
       args.nextQuestionText !== undefined && args.nextQuestionPurposeKey !== undefined
         ? validateGeneratedIntakeQuestion(normalized, {
@@ -454,18 +445,17 @@ export const finishIntakeInterpretation = internalMutation({
       args.nextQuestionSourceAnswerVersionIds.length > 0;
     const stopIsValid = args.stopReason === "needs_question" && asksQuestion;
     const succeeded =
-      args.state === "succeeded" &&
-      sourceIdsValid &&
-      patternValid &&
-      coverageValid &&
-      stopIsValid;
-    const settledState = succeeded ? "succeeded" as const : args.state === "succeeded" ? "invalid" as const : args.state;
+      args.state === "succeeded" && sourceIdsValid && patternValid && coverageValid && stopIsValid;
+    const settledState = succeeded
+      ? ("succeeded" as const)
+      : args.state === "succeeded"
+        ? ("invalid" as const)
+        : args.state;
     await ctx.db.patch(interpretation._id, {
       state: settledState,
       coveragePurposeKeys: succeeded ? args.coveragePurposeKeys : [],
       nextQuestionText: succeeded && asksQuestion ? questionText : undefined,
-      nextQuestionPurposeKey:
-        succeeded && asksQuestion ? args.nextQuestionPurposeKey : undefined,
+      nextQuestionPurposeKey: succeeded && asksQuestion ? args.nextQuestionPurposeKey : undefined,
       nextQuestionAnswerLength:
         succeeded && asksQuestion ? args.nextQuestionAnswerLength : undefined,
       matchedIdeaPatternKey: succeeded ? args.matchedIdeaPatternKey : undefined,
@@ -520,9 +510,7 @@ export const finishIntakeInterpretation = internalMutation({
       return null;
     }
 
-    const stage = questionId
-      ? "follow_up" as const
-      : "additional_information" as const;
+    const stage = questionId ? ("follow_up" as const) : ("additional_information" as const);
     if (questionId || stage !== draft.stage) {
       await reconcileWorkingFieldsAfterDraftVersionChange(ctx, {
         teamId: draft.teamId,
@@ -552,18 +540,16 @@ export const expireIntakeInterpretation = internalMutation({
       !interpretation ||
       interpretation.state !== "running" ||
       interpretation.inputFingerprint !== args.inputFingerprint
-    ) return null;
-    const result: null = await ctx.runMutation(
-      internal.intelligence.finishIntakeInterpretation,
-      {
-        interpretationId: interpretation._id,
-        inputFingerprint: interpretation.inputFingerprint,
-        state: "timed_out",
-        ...emptyCompletion(),
-        latencyMs: Math.max(0, Date.now() - interpretation.createdAt),
-        failureCategory: "settlement_deadline_exceeded",
-      },
-    );
+    )
+      return null;
+    const result: null = await ctx.runMutation(internal.intelligence.finishIntakeInterpretation, {
+      interpretationId: interpretation._id,
+      inputFingerprint: interpretation.inputFingerprint,
+      state: "timed_out",
+      ...emptyCompletion(),
+      latencyMs: Math.max(0, Date.now() - interpretation.createdAt),
+      failureCategory: "settlement_deadline_exceeded",
+    });
     return result;
   },
 });
@@ -592,7 +578,8 @@ export const expireQueuedIntakeInterpretation = internalMutation({
       draft.stage !== "follow_up" ||
       draft.version !== args.draftVersion ||
       draft.adaptiveQuestionDeadlineAt !== args.deadlineAt
-    ) return null;
+    )
+      return null;
     const [{ policy, normalized }, responses, answers] = await Promise.all([
       requirePinnedIntakePolicy(ctx, draft),
       loadCurrentIntakeResponses(ctx, draft._id),
@@ -637,10 +624,7 @@ export const expireQueuedIntakeInterpretation = internalMutation({
         inputFingerprint,
         state: "timed_out",
         ...emptyCompletion(),
-        latencyMs: Math.max(
-          0,
-          now - (args.deadlineAt - ideaQuestionEndToEndDeadlineMs),
-        ),
+        latencyMs: Math.max(0, now - (args.deadlineAt - ideaQuestionEndToEndDeadlineMs)),
         failureCategory: "end_to_end_deadline_exceeded",
       });
       return null;
@@ -667,10 +651,7 @@ export const expireQueuedIntakeInterpretation = internalMutation({
       state: "disabled",
       coveragePurposeKeys: [],
       modelId: ideaQuestionModelId,
-      latencyMs: Math.max(
-        0,
-        now - (args.deadlineAt - ideaQuestionEndToEndDeadlineMs),
-      ),
+      latencyMs: Math.max(0, now - (args.deadlineAt - ideaQuestionEndToEndDeadlineMs)),
       failureCategory: "action_start_deadline_exceeded",
       completedAt: now,
       createdAt: args.deadlineAt - ideaQuestionEndToEndDeadlineMs,

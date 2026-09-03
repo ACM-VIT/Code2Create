@@ -6,12 +6,7 @@ export function normalizeEmail(value: string) {
   return value.trim().toLowerCase();
 }
 
-export function normalizedText(
-  value: string,
-  field: string,
-  minimum: number,
-  maximum: number,
-) {
+export function normalizedText(value: string, field: string, minimum: number, maximum: number) {
   const normalized = value.trim().replace(/\s+/g, " ");
   if (normalized.length < minimum || normalized.length > maximum) {
     throw new ConvexError({
@@ -23,12 +18,7 @@ export function normalizedText(
   return normalized;
 }
 
-export function normalizedLongText(
-  value: string,
-  field: string,
-  minimum: number,
-  maximum: number,
-) {
+export function normalizedLongText(value: string, field: string, minimum: number, maximum: number) {
   const normalized = value.trim().replace(/\r\n/g, "\n");
   if (normalized.length < minimum || normalized.length > maximum) {
     throw new ConvexError({
@@ -40,11 +30,7 @@ export function normalizedLongText(
   return normalized;
 }
 
-export function optionalNormalizedText(
-  value: string | undefined,
-  field: string,
-  maximum: number,
-) {
+export function optionalNormalizedText(value: string | undefined, field: string, maximum: number) {
   const normalized = value?.trim().replace(/\s+/g, " ");
   if (!normalized) return undefined;
   if (normalized.length > maximum) {
@@ -58,7 +44,10 @@ export function optionalNormalizedText(
 }
 
 export function normalizeCode(value: string) {
-  return value.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return value
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
 }
 
 export function fingerprintText(value: string) {

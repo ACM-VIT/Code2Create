@@ -4,11 +4,7 @@ import { createHash } from "node:crypto";
 import { promisify } from "node:util";
 import { gunzip, gzip } from "node:zlib";
 
-import {
-  GetObjectCommand,
-  PutObjectCommand,
-  S3Client,
-} from "@aws-sdk/client-s3";
+import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { ConvexError } from "convex/values";
 
@@ -117,10 +113,10 @@ function opaqueKeyPart(value: string) {
 export function artifactStorageConfigured() {
   return Boolean(
     process.env.ARTIFACT_S3_REGION?.trim() === artifactRegion &&
-      process.env.ARTIFACT_S3_BUCKET?.trim() &&
-      process.env.ARTIFACT_S3_ACCESS_KEY_ID?.trim() &&
-      process.env.ARTIFACT_S3_SECRET_ACCESS_KEY?.trim() &&
-      process.env.ARTIFACT_S3_KMS_KEY_ID?.trim(),
+    process.env.ARTIFACT_S3_BUCKET?.trim() &&
+    process.env.ARTIFACT_S3_ACCESS_KEY_ID?.trim() &&
+    process.env.ARTIFACT_S3_SECRET_ACCESS_KEY?.trim() &&
+    process.env.ARTIFACT_S3_KMS_KEY_ID?.trim(),
   );
 }
 
@@ -192,13 +188,7 @@ function pngDimensions(bytes: Buffer) {
   }
   const width = bytes.readUInt32BE(16);
   const height = bytes.readUInt32BE(20);
-  if (
-    width < 1 ||
-    height < 1 ||
-    width > 32_768 ||
-    height > 32_768 ||
-    width * height > 32_000_000
-  ) {
+  if (width < 1 || height < 1 || width > 32_768 || height > 32_768 || width * height > 32_000_000) {
     throw new ConvexError({
       code: "FIGMA_PREVIEW_DIMENSIONS_INVALID",
       message: "Figma returned an unsupported frame-preview size.",
@@ -540,10 +530,7 @@ export async function signRoundExportDownload(args: {
   kind: "json" | "csv";
 }) {
   const config = configuration();
-  if (
-    args.files.storageRegion !== config.region ||
-    args.files.storageBucket !== config.bucket
-  ) {
+  if (args.files.storageRegion !== config.region || args.files.storageBucket !== config.bucket) {
     throw new ConvexError({
       code: "ARTIFACT_STORE_MISMATCH",
       message: "This round export belongs to another storage configuration.",
@@ -551,8 +538,7 @@ export async function signRoundExportDownload(args: {
   }
   const file = args.files[args.kind];
   const name = args.kind === "json" ? "code2create-round.json" : "code2create-scorecards.csv";
-  const contentType =
-    args.kind === "json" ? "application/json" : "text/csv; charset=utf-8";
+  const contentType = args.kind === "json" ? "application/json" : "text/csv; charset=utf-8";
   return getSignedUrl(
     client(config),
     new GetObjectCommand({

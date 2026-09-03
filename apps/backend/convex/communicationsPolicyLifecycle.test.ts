@@ -10,15 +10,9 @@ import {
   saveCommunicationsPolicyDraft,
   type CommunicationsPolicy,
 } from "./lib/communicationsPolicy.ts";
-import {
-  defaultDeterministicIntakePolicy,
-  intakePolicyChecksum,
-} from "./lib/intakePolicy.ts";
+import { defaultDeterministicIntakePolicy, intakePolicyChecksum } from "./lib/intakePolicy.ts";
 import { permissionCatalog } from "./lib/permissionCatalog.ts";
-import {
-  defaultParticipantPolicy,
-  participantPolicyChecksum,
-} from "./lib/participantPolicy.ts";
+import { defaultParticipantPolicy, participantPolicyChecksum } from "./lib/participantPolicy.ts";
 import { enqueueApplicationNotifications } from "./lib/participantNotificationDelivery.ts";
 import { createTestSubmissionSnapshot } from "./lib/testSubmissionSnapshot.ts";
 import { acceptedTeamCommunicationsForTeam } from "./participantCommunications.ts";
@@ -50,44 +44,71 @@ describe("communications policy lifecycle", () => {
   test("rejects non-Discord destinations and unsafe email HTML", () => {
     const startsAt = Date.UTC(2027, 7, 8, 3, 30);
     const endsAt = startsAt + 48 * 60 * 60 * 1_000;
-    expect(() => normalizeCommunicationsPolicy({
-      ...policy(startsAt, endsAt, "initial"),
-      discordUrl: "https://example.test/community",
-    })).toThrow("must use discord.gg");
-    expect(() => normalizeCommunicationsPolicy({
-      ...policy(startsAt, endsAt, "initial"),
-      emailTemplates: policy(startsAt, endsAt, "initial").emailTemplates.map((template) =>
-        template.templateKey === "accept"
-          ? { ...template, html: "<script>alert('no')</script>" }
-          : template),
-    })).toThrow("unsafe HTML");
+    expect(() =>
+      normalizeCommunicationsPolicy({
+        ...policy(startsAt, endsAt, "initial"),
+        discordUrl: "https://example.test/community",
+      }),
+    ).toThrow("must use discord.gg");
+    expect(() =>
+      normalizeCommunicationsPolicy({
+        ...policy(startsAt, endsAt, "initial"),
+        emailTemplates: policy(startsAt, endsAt, "initial").emailTemplates.map((template) =>
+          template.templateKey === "accept"
+            ? { ...template, html: "<script>alert('no')</script>" }
+            : template,
+        ),
+      }),
+    ).toThrow("unsafe HTML");
+  });
+
+  test("allows standard email document metadata", () => {
+    const startsAt = Date.UTC(2027, 7, 8, 3, 30);
+    const endsAt = startsAt + 48 * 60 * 60 * 1_000;
+    const input = policy(startsAt, endsAt, "metadata");
+    input.emailTemplates = input.emailTemplates.map((template) =>
+      template.templateKey === "accept"
+        ? {
+            ...template,
+            html: '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head><body>Welcome {{participant_name}}</body></html>',
+          }
+        : template,
+    );
+
+    expect(() => normalizeCommunicationsPolicy(input)).not.toThrow();
   });
 
   test("allows one competing draft from the same observed state", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedFixture(backend, "draft-race");
     const attempts = await Promise.allSettled([
-      backend.run((ctx) => saveCommunicationsPolicyDraft(ctx, {
-        event: fixture.event,
-        actorPersonId: fixture.personId,
-        policy: policy(fixture.startsAt, fixture.endsAt, "alpha"),
-        now: fixture.now + 1,
-      })),
-      backend.run((ctx) => saveCommunicationsPolicyDraft(ctx, {
-        event: fixture.event,
-        actorPersonId: fixture.personId,
-        policy: policy(fixture.startsAt, fixture.endsAt, "beta"),
-        now: fixture.now + 1,
-      })),
+      backend.run((ctx) =>
+        saveCommunicationsPolicyDraft(ctx, {
+          event: fixture.event,
+          actorPersonId: fixture.personId,
+          policy: policy(fixture.startsAt, fixture.endsAt, "alpha"),
+          now: fixture.now + 1,
+        }),
+      ),
+      backend.run((ctx) =>
+        saveCommunicationsPolicyDraft(ctx, {
+          event: fixture.event,
+          actorPersonId: fixture.personId,
+          policy: policy(fixture.startsAt, fixture.endsAt, "beta"),
+          now: fixture.now + 1,
+        }),
+      ),
     ]);
     expect(attempts.filter((attempt) => attempt.status === "fulfilled")).toHaveLength(1);
     expect(attempts.filter((attempt) => attempt.status === "rejected")).toHaveLength(1);
-    const drafts = await backend.run((ctx) => ctx.db
-      .query("communicationsPolicyVersions")
-      .withIndex("by_event_status", (index) =>
-        index.eq("eventId", fixture.event._id).eq("status", "draft"),
-      )
-      .collect());
+    const drafts = await backend.run((ctx) =>
+      ctx.db
+        .query("communicationsPolicyVersions")
+        .withIndex("by_event_status", (index) =>
+          index.eq("eventId", fixture.event._id).eq("status", "draft"),
+        )
+        .collect(),
+    );
     expect(drafts).toHaveLength(1);
   });
 
@@ -99,41 +120,49 @@ describe("communications policy lifecycle", () => {
     );
     expect(beforeDecision).toBeNull();
 
-    await backend.run((ctx) => ctx.db.patch(fixture.applicationId, {
-      state: "accepted",
-      decisionStage: "released",
-      humanDecision: "accept",
-      humanReasonCode: "reviewed_accept",
-      decidedByPersonId: fixture.personId,
-      decidedAt: fixture.now,
-      version: 2,
-    }));
-    await backend.run((ctx) => enqueueApplicationNotifications(ctx, {
-      eventId: fixture.event._id,
-      applicationId: fixture.applicationId,
-      teamId: fixture.teamId,
-      lockedRosterSnapshotId: fixture.lockedRosterSnapshotId,
-      lockedMemberCount: 1,
-      communicationsPolicyVersionId: fixture.communicationsPolicyId,
-      templateKey: "accept",
-      applicationVersion: 2,
-      now: fixture.now + 1,
-      schedule: false,
-    }));
+    await backend.run((ctx) =>
+      ctx.db.patch(fixture.applicationId, {
+        state: "accepted",
+        decisionStage: "released",
+        humanDecision: "accept",
+        humanReasonCode: "reviewed_accept",
+        decidedByPersonId: fixture.personId,
+        decidedAt: fixture.now,
+        version: 2,
+      }),
+    );
+    await backend.run((ctx) =>
+      enqueueApplicationNotifications(ctx, {
+        eventId: fixture.event._id,
+        applicationId: fixture.applicationId,
+        teamId: fixture.teamId,
+        lockedRosterSnapshotId: fixture.lockedRosterSnapshotId,
+        lockedMemberCount: 1,
+        communicationsPolicyVersionId: fixture.communicationsPolicyId,
+        templateKey: "accept",
+        applicationVersion: 2,
+        now: fixture.now + 1,
+        schedule: false,
+      }),
+    );
     const deliveryId = await runQueuedNotificationBatch(backend, fixture);
 
-    const draft = await backend.run((ctx) => saveCommunicationsPolicyDraft(ctx, {
-      event: fixture.event,
-      actorPersonId: fixture.personId,
-      policy: policy(fixture.startsAt, fixture.endsAt, "new"),
-      now: fixture.now + 2,
-    }));
-    await backend.run((ctx) => publishCommunicationsPolicy(ctx, {
-      event: fixture.event,
-      draftPolicyId: draft.policyVersionId,
-      expectedDraftChecksum: draft.checksum,
-      now: fixture.now + 3,
-    }));
+    const draft = await backend.run((ctx) =>
+      saveCommunicationsPolicyDraft(ctx, {
+        event: fixture.event,
+        actorPersonId: fixture.personId,
+        policy: policy(fixture.startsAt, fixture.endsAt, "new"),
+        now: fixture.now + 2,
+      }),
+    );
+    await backend.run((ctx) =>
+      publishCommunicationsPolicy(ctx, {
+        event: fixture.event,
+        draftPolicyId: draft.policyVersionId,
+        expectedDraftChecksum: draft.checksum,
+        now: fixture.now + 3,
+      }),
+    );
 
     const result = await backend.run(async (ctx) => {
       const event = await ctx.db.get(fixture.event._id);
@@ -155,9 +184,7 @@ describe("communications policy lifecycle", () => {
       discordLabel: "Open new Discord",
     });
     expect(result.oldPolicy?.status).toBe("superseded");
-    expect(result.delivery?.communicationsPolicyVersionId).toBe(
-      fixture.communicationsPolicyId,
-    );
+    expect(result.delivery?.communicationsPolicyVersionId).toBe(fixture.communicationsPolicyId);
     expect(claim).toMatchObject({
       subjectTemplate: "Code2Create initial accept update",
       textTemplate: "The initial accept update for {{team_name}} is ready: {{portal_url}}",
@@ -255,17 +282,17 @@ describe("communications policy lifecycle", () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedFixture(backend, "expired-send");
     const deliveryId = await queueAcceptedNotification(backend, fixture);
-    const firstClaim = await backend.mutation(
-      internal.participantNotificationState.claimDelivery,
-      { deliveryId, attemptId: "expired-send-attempt" },
-    );
+    const firstClaim = await backend.mutation(internal.participantNotificationState.claimDelivery, {
+      deliveryId,
+      attemptId: "expired-send-attempt",
+    });
     if (!firstClaim) throw new Error("The notification delivery was not claimed.");
     await backend.run((ctx) => ctx.db.patch(deliveryId, { claimExpiresAt: 0 }));
 
-    const reclaimed = await backend.mutation(
-      internal.participantNotificationState.claimDelivery,
-      { deliveryId, attemptId: "must-not-send" },
-    );
+    const reclaimed = await backend.mutation(internal.participantNotificationState.claimDelivery, {
+      deliveryId,
+      attemptId: "must-not-send",
+    });
     const delivery = await backend.run((ctx) => ctx.db.get(deliveryId));
     expect(reclaimed).toBeNull();
     expect(delivery).toMatchObject({
@@ -282,10 +309,10 @@ describe("communications policy lifecycle", () => {
     const deliveryId = await queueAcceptedNotification(backend, fixture);
 
     for (const attemptId of ["retry-attempt-1", "retry-attempt-2", "retry-attempt-3"]) {
-      const claim = await backend.mutation(
-        internal.participantNotificationState.claimDelivery,
-        { deliveryId, attemptId },
-      );
+      const claim = await backend.mutation(internal.participantNotificationState.claimDelivery, {
+        deliveryId,
+        attemptId,
+      });
       if (!claim) throw new Error(`The delivery was not claimed for ${attemptId}.`);
       await backend.mutation(internal.participantNotificationState.recordSendFailure, {
         deliveryId,
@@ -344,27 +371,31 @@ async function queueAcceptedNotification(
   backend: BackendTest,
   fixture: Awaited<ReturnType<typeof seedFixture>>,
 ) {
-  await backend.run((ctx) => ctx.db.patch(fixture.applicationId, {
-    state: "accepted",
-    decisionStage: "released",
-    humanDecision: "accept",
-    humanReasonCode: "reviewed_accept",
-    decidedByPersonId: fixture.personId,
-    decidedAt: fixture.now,
-    version: 2,
-  }));
-  await backend.run((ctx) => enqueueApplicationNotifications(ctx, {
-    eventId: fixture.event._id,
-    applicationId: fixture.applicationId,
-    teamId: fixture.teamId,
-    lockedRosterSnapshotId: fixture.lockedRosterSnapshotId,
-    lockedMemberCount: 1,
-    communicationsPolicyVersionId: fixture.communicationsPolicyId,
-    templateKey: "accept",
-    applicationVersion: 2,
-    now: fixture.now + 1,
-    schedule: false,
-  }));
+  await backend.run((ctx) =>
+    ctx.db.patch(fixture.applicationId, {
+      state: "accepted",
+      decisionStage: "released",
+      humanDecision: "accept",
+      humanReasonCode: "reviewed_accept",
+      decidedByPersonId: fixture.personId,
+      decidedAt: fixture.now,
+      version: 2,
+    }),
+  );
+  await backend.run((ctx) =>
+    enqueueApplicationNotifications(ctx, {
+      eventId: fixture.event._id,
+      applicationId: fixture.applicationId,
+      teamId: fixture.teamId,
+      lockedRosterSnapshotId: fixture.lockedRosterSnapshotId,
+      lockedMemberCount: 1,
+      communicationsPolicyVersionId: fixture.communicationsPolicyId,
+      templateKey: "accept",
+      applicationVersion: 2,
+      now: fixture.now + 1,
+      schedule: false,
+    }),
+  );
   return runQueuedNotificationBatch(backend, fixture);
 }
 
@@ -411,7 +442,7 @@ async function seedFixture(backend: BackendTest, slug: string) {
       timezone: "Asia/Kolkata",
       status: "registration_open",
       vitEmailDomains: ["vitstudent.ac.in"],
-        applicationsCloseAt: Date.now() + 86_400_000,
+      applicationsCloseAt: Date.now() + 86_400_000,
       startsAt,
       endsAt,
       createdByPersonId: personId,

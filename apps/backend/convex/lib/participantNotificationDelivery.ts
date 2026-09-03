@@ -15,10 +15,7 @@ export function applicationMatchesNotification(
   application: Doc<"applications">,
   delivery: ApplicationNotificationContext,
 ): boolean {
-  if (
-    application.eventId !== delivery.eventId ||
-    application.teamId !== delivery.teamId
-  ) {
+  if (application.eventId !== delivery.eventId || application.teamId !== delivery.teamId) {
     return false;
   }
   const isReleasedResult =
@@ -33,11 +30,6 @@ export function applicationMatchesNotification(
       return (
         application.decisionStage === "released" &&
         application.humanDecision === delivery.templateKey
-      );
-    case "needs_information":
-      return (
-        application.state === "needs_information" &&
-        application.humanDecision === "needs_information"
       );
     case "offer":
       return application.state === "offer_sent";
@@ -112,108 +104,103 @@ export async function ensureApplicationNotification(
     now: number;
   },
 ) {
-    const { snapshotMember } = args;
-    if (snapshotMember.eventId !== args.eventId || snapshotMember.teamId !== args.teamId) {
-      throw new Error("Locked roster snapshot is invalid for participant notification.");
-    }
-    const membership = await ctx.db.get(snapshotMember.membershipId);
-    if (
-      !membership ||
-      membership.eventId !== args.eventId ||
-      membership.personId !== snapshotMember.personId
-    ) {
-      throw new Error("Participant membership is missing for participant notification.");
-    }
-    const person = await ctx.db.get(snapshotMember.personId);
-    if (!person || person.status !== "active") {
-      throw new Error("Participant identity is missing for participant notification.");
-    }
-    const emailNormalized = snapshotMember.destinationEmailNormalized;
-    let destination = await ctx.db
-      .query("participantNotificationDestinations")
-      .withIndex("by_event_person_channel", (index) =>
-        index
-          .eq("eventId", args.eventId)
-          .eq("personId", person._id)
-          .eq("channel", "verified_email"),
-      )
-      .unique();
-    if (!destination) {
-      const destinationId = await ctx.db.insert("participantNotificationDestinations", {
-        eventId: args.eventId,
-        membershipId: membership._id,
-        personId: person._id,
-        channel: "verified_email",
-        emailNormalized,
-        status: "active",
-        version: 1,
-        createdAt: args.now,
-        updatedAt: args.now,
-      });
-      destination = await ctx.db.get(destinationId);
-    } else if (destination.emailNormalized !== emailNormalized) {
-      await ctx.db.patch(destination._id, {
-        membershipId: membership._id,
-        emailNormalized,
-        status: "active",
-        disabledAt: undefined,
-        disabledByPersonId: undefined,
-        disabledReasonCode: undefined,
-        version: destination.version + 1,
-        updatedAt: args.now,
-      });
-      destination = await ctx.db.get(destination._id);
-    }
-    if (!destination) throw new Error("Participant notification destination did not persist.");
-
-    const rootNotificationKey = [
-      args.templateKey,
-      args.applicationId,
-      args.applicationVersion,
-      membership._id,
-    ].join(":");
-    const existing = await ctx.db
-      .query("participantNotificationDeliveries")
-      .withIndex("by_root_retry", (index) =>
-        index.eq("rootNotificationKey", rootNotificationKey),
-      )
-      .first();
-    if (existing) {
-      return existing._id;
-    }
-    const destinationActive = destination.status === "active";
-    const deliveryId = await ctx.db.insert("participantNotificationDeliveries", {
+  const { snapshotMember } = args;
+  if (snapshotMember.eventId !== args.eventId || snapshotMember.teamId !== args.teamId) {
+    throw new Error("Locked roster snapshot is invalid for participant notification.");
+  }
+  const membership = await ctx.db.get(snapshotMember.membershipId);
+  if (
+    !membership ||
+    membership.eventId !== args.eventId ||
+    membership.personId !== snapshotMember.personId
+  ) {
+    throw new Error("Participant membership is missing for participant notification.");
+  }
+  const person = await ctx.db.get(snapshotMember.personId);
+  if (!person || person.status !== "active") {
+    throw new Error("Participant identity is missing for participant notification.");
+  }
+  const emailNormalized = snapshotMember.destinationEmailNormalized;
+  let destination = await ctx.db
+    .query("participantNotificationDestinations")
+    .withIndex("by_event_person_channel", (index) =>
+      index.eq("eventId", args.eventId).eq("personId", person._id).eq("channel", "verified_email"),
+    )
+    .unique();
+  if (!destination) {
+    const destinationId = await ctx.db.insert("participantNotificationDestinations", {
       eventId: args.eventId,
-      applicationId: args.applicationId,
-      teamId: args.teamId,
       membershipId: membership._id,
       personId: person._id,
-      destinationId: destination._id,
-      communicationsPolicyVersionId: args.communicationsPolicyVersionId,
       channel: "verified_email",
-      destinationEmailNormalized: destination.emailNormalized,
-      templateKey: args.templateKey,
-      applicationVersion: args.applicationVersion,
-      portalPath: "/",
-      rootNotificationKey,
-      retryNumber: 0,
-      state: destinationActive ? "pending" : "suppressed",
-      attemptCount: 0,
-      ...(!destinationActive
-        ? {
-            providerErrorCode: "destination_disabled",
-            completedAt: args.now,
-          }
-        : {}),
+      emailNormalized,
+      status: "active",
       version: 1,
       createdAt: args.now,
       updatedAt: args.now,
     });
-    await appendParticipantDeliveryReadFactById(ctx, deliveryId, args.now);
-    if (destinationActive) {
-      await ctx.scheduler.runAfter(0, internal.participantEmail.deliver, { deliveryId });
-    }
-    return deliveryId;
+    destination = await ctx.db.get(destinationId);
+  } else if (destination.emailNormalized !== emailNormalized) {
+    await ctx.db.patch(destination._id, {
+      membershipId: membership._id,
+      emailNormalized,
+      status: "active",
+      disabledAt: undefined,
+      disabledByPersonId: undefined,
+      disabledReasonCode: undefined,
+      version: destination.version + 1,
+      updatedAt: args.now,
+    });
+    destination = await ctx.db.get(destination._id);
+  }
+  if (!destination) throw new Error("Participant notification destination did not persist.");
+
+  const rootNotificationKey = [
+    args.templateKey,
+    args.applicationId,
+    args.applicationVersion,
+    membership._id,
+  ].join(":");
+  const existing = await ctx.db
+    .query("participantNotificationDeliveries")
+    .withIndex("by_root_retry", (index) => index.eq("rootNotificationKey", rootNotificationKey))
+    .first();
+  if (existing) {
+    return existing._id;
+  }
+  const destinationActive = destination.status === "active";
+  const deliveryId = await ctx.db.insert("participantNotificationDeliveries", {
+    eventId: args.eventId,
+    applicationId: args.applicationId,
+    teamId: args.teamId,
+    membershipId: membership._id,
+    personId: person._id,
+    destinationId: destination._id,
+    communicationsPolicyVersionId: args.communicationsPolicyVersionId,
+    channel: "verified_email",
+    destinationEmailNormalized: destination.emailNormalized,
+    templateKey: args.templateKey,
+    applicationVersion: args.applicationVersion,
+    portalPath: "/",
+    rootNotificationKey,
+    retryNumber: 0,
+    state: destinationActive ? "pending" : "suppressed",
+    attemptCount: 0,
+    ...(!destinationActive
+      ? {
+          providerErrorCode: "destination_disabled",
+          completedAt: args.now,
+        }
+      : {}),
+    version: 1,
+    createdAt: args.now,
+    updatedAt: args.now,
+  });
+  await appendParticipantDeliveryReadFactById(ctx, deliveryId, args.now);
+  if (destinationActive) {
+    await ctx.scheduler.runAfter(0, internal.participantEmail.deliver, { deliveryId });
+  }
+  return deliveryId;
 }
 
 export async function enqueueAdmissionDecisionNotifications(

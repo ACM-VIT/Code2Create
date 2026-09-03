@@ -6,10 +6,7 @@ import {
   joinNames,
   type DetectedAttentionItem,
 } from "./operationsAttention.ts";
-import {
-  proposeCommand,
-  type AttentionProposal,
-} from "./operationsAttentionProposals.ts";
+import { proposeCommand, type AttentionProposal } from "./operationsAttentionProposals.ts";
 import { observedPace } from "./queueEstimate.ts";
 import type { AttentionSeverity } from "../values.ts";
 
@@ -101,7 +98,6 @@ export type TeamProjection = {
   teamId: string;
   teamName: string;
   panelId?: string;
-  tableLabel?: string;
   state:
     | "unassigned"
     | "queued"
@@ -175,9 +171,7 @@ export function reviewPanelItems(input: PanelDetectorProjection): DetectedAttent
   for (const panel of input.panels) {
     if (panel.status === "draft" || panel.status === "closed") continue;
     const queuedCount = panel.queuedTeams.length;
-    const seated = panel.members.filter(
-      (member) => member.clockInStatus === "present",
-    ).length;
+    const seated = panel.members.filter((member) => member.clockInStatus === "present").length;
     const missing = input.requiredPanelSize - seated;
 
     if (
@@ -303,24 +297,21 @@ export function reviewTeamItems(input: TeamDetectorProjection): DetectedAttentio
   const items: DetectedAttentionItem[] = [];
 
   for (const team of input.teams) {
-    const at = team.tableLabel
-      ? `${input.roundName} · ${team.tableLabel}`
-      : input.roundName;
+    const roundName = input.roundName;
     const teamScopes = team.panelId
       ? [`team:${team.teamId}`, `panel:${team.panelId}`]
       : [`team:${team.teamId}`];
 
     if (!input.isPaused && team.review?.status === "overdue") {
       const review = team.review;
-      const overdueBy =
-        review.plannedEndAt === undefined ? 0 : input.now - review.plannedEndAt;
+      const overdueBy = review.plannedEndAt === undefined ? 0 : input.now - review.plannedEndAt;
       const proposal: AttentionProposal | undefined = review.canExtend
         ? proposeCommand(
             {
               name: "reviewOperations.extendReview",
               reviewSessionId: review.reviewSessionId,
               expectedVersion: review.version,
-              reason: `${team.teamName} ran past the end of its review window at ${at}.`,
+              reason: `${team.teamName} ran past the end of its review window in ${roundName}.`,
             },
             { scopeType: "review", scopeId: review.reviewSessionId },
             input.now,
@@ -332,15 +323,13 @@ export function reviewTeamItems(input: TeamDetectorProjection): DetectedAttentio
         subjectType: "review",
         subjectId: review.reviewSessionId,
         severity: "critical",
-        statement: `${team.teamName} at ${at} is ${durationPhrase(overdueBy)} past the time this review was meant to finish.`,
+        statement: `${team.teamName} in ${roundName} is ${durationPhrase(overdueBy)} past the time this review was meant to finish.`,
         route,
         actionLabel: proposal ? "Extend the timer" : "Close it out",
         visibility,
         evidenceJson: JSON.stringify({
           teamId: team.teamId,
-          ...(review.plannedEndAt === undefined
-            ? {}
-            : { plannedEndAt: review.plannedEndAt }),
+          ...(review.plannedEndAt === undefined ? {} : { plannedEndAt: review.plannedEndAt }),
           canExtend: review.canExtend,
         }),
         scopes: teamScopes,
@@ -360,7 +349,7 @@ export function reviewTeamItems(input: TeamDetectorProjection): DetectedAttentio
         subjectType: "review",
         subjectId: review.reviewSessionId,
         severity: "attention",
-        statement: `${review.reviewerPresenceCount} of ${review.reviewerCount} reviewers have scanned in at ${at}, so ${team.teamName} cannot start after waiting ${durationPhrase(input.now - review.createdAt)}.`,
+        statement: `${review.reviewerPresenceCount} of ${review.reviewerCount} reviewers have scanned in for ${roundName}, so ${team.teamName} cannot start after waiting ${durationPhrase(input.now - review.createdAt)}.`,
         route,
         actionLabel: "Check the table",
         visibility,
@@ -451,7 +440,7 @@ export function reviewTeamItems(input: TeamDetectorProjection): DetectedAttentio
         subjectType: "team",
         subjectId: team.teamId,
         severity: "attention",
-        statement: `${team.teamName} was called to ${at} and the grace period ran out ${durationPhrase(input.now - team.missedEligibleAt)} ago.`,
+        statement: `${team.teamName} was called for ${roundName} and the grace period ran out ${durationPhrase(input.now - team.missedEligibleAt)} ago.`,
         route,
         actionLabel: "Mark them missed",
         visibility,
@@ -465,7 +454,7 @@ export function reviewTeamItems(input: TeamDetectorProjection): DetectedAttentio
             name: "reviewExceptions.markMissed",
             teamRoundStateId: team.teamRoundStateId,
             expectedVersion: team.version,
-            reason: `${team.teamName} did not arrive at ${at} within the grace period.`,
+            reason: `${team.teamName} did not arrive for ${roundName} within the grace period.`,
           },
           { scopeType: "team", scopeId: team.teamId },
           input.now,
@@ -509,8 +498,7 @@ function seatRisk(
   reviewerNoShowGraceSeconds: number,
 ): SeatRisk | null {
   const clockedIn =
-    member.clockInStatus === "present" ||
-    member.clockInStatus === "temporarily_unavailable";
+    member.clockInStatus === "present" || member.clockInStatus === "temporarily_unavailable";
   if (!clockedIn) return null;
 
   if (
@@ -526,10 +514,7 @@ function seatRisk(
     };
   }
 
-  if (
-    member.lastHeartbeatAt !== undefined &&
-    now - member.lastHeartbeatAt >= staleHeartbeatMs
-  ) {
+  if (member.lastHeartbeatAt !== undefined && now - member.lastHeartbeatAt >= staleHeartbeatMs) {
     const silent = durationPhrase(now - member.lastHeartbeatAt);
     return {
       statement: `${member.displayName}'s reviewer app has not checked in for ${silent}, which is a signal and not proof they left the table.`,
@@ -577,8 +562,7 @@ export function roundForecastItems(input: ReviewFloorProjection): DetectedAttent
     return {
       panel,
       pace,
-      finishAt:
-        input.now + activeRemainingMs + panel.queuedTeams.length * pace.paceSeconds * 1_000,
+      finishAt: input.now + activeRemainingMs + panel.queuedTeams.length * pace.paceSeconds * 1_000,
     };
   });
   const totalSamples = forecasts.reduce(
@@ -693,9 +677,7 @@ function overrunSeverity(overrunMs: number): AttentionSeverity {
  * Reviewer attendance is unknown, so scorecard alerts report only elapsed time
  * and the last app status.
  */
-export function scorecardChaseItems(
-  input: ScorecardChaseProjection,
-): DetectedAttentionItem[] {
+export function scorecardChaseItems(input: ScorecardChaseProjection): DetectedAttentionItem[] {
   const route = `/reviews/${input.roundId}`;
   const visibility = {
     permissionKey: "round.read",

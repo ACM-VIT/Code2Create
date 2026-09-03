@@ -13,37 +13,29 @@ import { normalizedText } from "./strings";
 
 export const operationsAutonomyLeaseDurationMs = 90_000;
 const operationIdPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,199}$/u;
+type AutonomyOperationFingerprintSource = object;
 
 export function autonomyBoundaryError(code: string, message: string): never {
   throw new ConvexError({ code, message });
 }
 
-export function autonomyOperationFingerprint(value: object) {
+export function autonomyOperationFingerprint(value: AutonomyOperationFingerprintSource) {
   return operationFingerprint([JSON.stringify(value)]);
 }
 
 export function normalizeAutonomyOperationId(value: string) {
   const operationId = normalizedText(value, "Operation ID", 8, 200);
   if (!operationIdPattern.test(operationId)) {
-    autonomyBoundaryError(
-      "OPERATIONS_AUTONOMY_OPERATION_INVALID",
-      "The operation ID is invalid.",
-    );
+    autonomyBoundaryError("OPERATIONS_AUTONOMY_OPERATION_INVALID", "The operation ID is invalid.");
   }
   return operationId;
 }
 
-export async function autonomyRunAndCheckpoint(
-  ctx: QueryCtx | MutationCtx,
-  runIdText: string,
-) {
+export async function autonomyRunAndCheckpoint(ctx: QueryCtx | MutationCtx, runIdText: string) {
   const runId = ctx.db.normalizeId("operationsAutonomyRuns", runIdText);
   const run = runId ? await ctx.db.get(runId) : null;
   if (!run) {
-    autonomyBoundaryError(
-      "OPERATIONS_AUTONOMY_RUN_NOT_FOUND",
-      "The autonomy run does not exist.",
-    );
+    autonomyBoundaryError("OPERATIONS_AUTONOMY_RUN_NOT_FOUND", "The autonomy run does not exist.");
   }
   const checkpoint = await ctx.db
     .query("operationsAutonomyRunCheckpoints")
@@ -63,9 +55,11 @@ export function exactAutonomyRunIdentity(
     sourceChecksum: string;
   },
 ) {
-  return request.policyVersionId === run.policyVersionId &&
+  return (
+    request.policyVersionId === run.policyVersionId &&
     request.policyChecksum === run.policyChecksum &&
-    request.sourceChecksum === run.sourceChecksum;
+    request.sourceChecksum === run.sourceChecksum
+  );
 }
 
 export async function existingAutonomyOperationReceipt(
@@ -132,10 +126,7 @@ export async function requireAutonomyBoundary(
     return { state: "revoked" as const, reason: authority.reason, run, checkpoint };
   }
   if (run.lifecycle.kind !== "active") {
-    autonomyBoundaryError(
-      "OPERATIONS_AUTONOMY_NOT_ACTIVE",
-      "The autonomy run is not active.",
-    );
+    autonomyBoundaryError("OPERATIONS_AUTONOMY_NOT_ACTIVE", "The autonomy run is not active.");
   }
   await ctx.db.patch(run._id, {
     lifecycle: {

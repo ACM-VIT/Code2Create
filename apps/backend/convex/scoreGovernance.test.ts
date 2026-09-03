@@ -496,13 +496,13 @@ describe("score governance pagination", () => {
       applicationsCloseAt: expect.any(Number),
       canEdit: false,
       novelty: null,
+      noveltySignal: null,
       application: {
         id: applicationId,
         state: "confirmed",
         version: 1,
         contentVersion: 1,
         submittedAt: fixture.now,
-        informationRequest: null,
         currentOffer: null,
       },
     });
@@ -544,15 +544,10 @@ async function setCorrectionDeadline(
   fixture: CorrectionFixture,
   correctionRequestsCloseAt: number,
 ) {
-  await backend.run((ctx) =>
-    ctx.db.patch(fixture.roundId, { correctionRequestsCloseAt }),
-  );
+  await backend.run((ctx) => ctx.db.patch(fixture.roundId, { correctionRequestsCloseAt }));
 }
 
-async function grantCorrectionDecision(
-  backend: BackendTest,
-  fixture: CorrectionFixture,
-) {
+async function grantCorrectionDecision(backend: BackendTest, fixture: CorrectionFixture) {
   await backend.run((ctx) =>
     insertPermissionGrant(ctx, {
       eventId: fixture.eventId,
@@ -569,10 +564,7 @@ async function grantCorrectionDecision(
   );
 }
 
-async function prepareCorrectionSubmission(
-  backend: BackendTest,
-  fixture: CorrectionFixture,
-) {
+async function prepareCorrectionSubmission(backend: BackendTest, fixture: CorrectionFixture) {
   await backend.run(async (ctx) => {
     await ctx.db.insert("reviewerDevices", {
       eventId: fixture.eventId,
@@ -618,10 +610,7 @@ async function prepareCorrectionSubmission(
   });
 }
 
-async function correctionWriteSnapshot(
-  backend: BackendTest,
-  fixture: CorrectionFixture,
-) {
+async function correctionWriteSnapshot(backend: BackendTest, fixture: CorrectionFixture) {
   return backend.run(async (ctx) => {
     const [correctionCases, operationResults, auditEvents, scorecard] = await Promise.all([
       ctx.db.query("scorecardCorrectionCases").collect(),

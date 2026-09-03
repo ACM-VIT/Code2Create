@@ -1,95 +1,97 @@
-import { api } from '@code2create/backend/api'
-import type { FunctionReturnType } from 'convex/server'
-import { useMutation, useQuery } from 'convex/react'
-import { useState, type FormEvent } from 'react'
+import { api } from "@code2create/backend/api";
+import type { FunctionReturnType } from "convex/server";
+import { useMutation, useQuery } from "convex/react";
+import { useState, type SubmitEvent } from "react";
 
-import { eventSlug } from '../lib/config'
-import { readableError } from '../lib/errors'
-import { useMutationAttempt } from '../lib/operations'
-import { useVersionedState } from '@code2create/web-forms'
+import { eventSlug } from "../lib/config";
+import { readableError } from "../lib/errors";
+import { useMutationAttempt } from "../lib/operations";
+import { useVersionedState } from "@code2create/web-forms";
 
-type Lifecycle = FunctionReturnType<typeof api.eventLifecycle.current>
-type LifecycleStatus = Lifecycle['status']
+type Lifecycle = FunctionReturnType<typeof api.eventLifecycle.current>;
+type LifecycleStatus = Lifecycle["status"];
 type TransitionDraft = {
-  targetStatus: LifecycleStatus | null
-  reason: string
-  error: string | null
-}
+  targetStatus: LifecycleStatus | null;
+  reason: string;
+  error: string | null;
+};
 
 const statusCopy: Readonly<Record<LifecycleStatus, { label: string; detail: string }>> = {
   draft: {
-    label: 'Setup',
-    detail: 'Participants cannot apply yet.',
+    label: "Setup",
+    detail: "Participants cannot apply yet.",
   },
   registration_open: {
-    label: 'Applications open',
-    detail: 'Participants can register, form teams, and submit.',
+    label: "Applications open",
+    detail: "Participants can register, form teams, and submit.",
   },
   registration_closed: {
-    label: 'Applications closed',
-    detail: 'Submitted applications remain available to the review team.',
+    label: "Applications closed",
+    detail: "Submitted applications remain available to the review team.",
   },
   live: {
-    label: 'Event live',
-    detail: 'Event-day check-in, hall, project, and judging work can run.',
+    label: "Event live",
+    detail: "Event-day check-in, hall, project, and judging work can run.",
   },
   complete: {
-    label: 'Event complete',
-    detail: 'The main event window is finished.',
+    label: "Event complete",
+    detail: "The main event window is finished.",
   },
-}
+};
 
 export function EventLifecycleControl() {
-  const lifecycle = useQuery(api.eventLifecycle.current, { eventSlug })
-  const transitionEvent = useMutation(api.eventLifecycle.transition)
-  const operationAttempt = useMutationAttempt<FunctionReturnType<typeof api.eventLifecycle.transition>>()
+  const lifecycle = useQuery(api.eventLifecycle.current, { eventSlug });
+  const transitionEvent = useMutation(api.eventLifecycle.transition);
+  const operationAttempt =
+    useMutationAttempt<FunctionReturnType<typeof api.eventLifecycle.transition>>();
   const transitionState = useVersionedState<TransitionDraft>(
-    lifecycle ? `${lifecycle.eventVersion}` : 'loading',
-    { targetStatus: null, reason: '', error: null },
-  )
-  const { targetStatus, reason, error } = transitionState.value
+    lifecycle ? `${lifecycle.eventVersion}` : "loading",
+    { targetStatus: null, reason: "", error: null },
+  );
+  const { targetStatus, reason, error } = transitionState.value;
   const setTargetStatus = (targetStatus: LifecycleStatus | null) => {
-    transitionState.update((current) => ({ ...current, targetStatus }))
-  }
+    transitionState.update((current) => ({ ...current, targetStatus }));
+  };
   const setReason = (reason: string) => {
-    transitionState.update((current) => ({ ...current, reason }))
-  }
+    transitionState.update((current) => ({ ...current, reason }));
+  };
   const setError = (error: string | null) => {
-    transitionState.update((current) => ({ ...current, error }))
-  }
-  const [busy, setBusy] = useState(false)
-  const operationSlot = 'event-lifecycle-transition'
+    transitionState.update((current) => ({ ...current, error }));
+  };
+  const [busy, setBusy] = useState(false);
+  const operationSlot = "event-lifecycle-transition";
 
   const selectedTransition = lifecycle?.transitions.find(
     (transition) => transition.targetStatus === targetStatus,
-  )
-  const operationPending = operationAttempt.hasPending(operationSlot)
+  );
+  const operationPending = operationAttempt.hasPending(operationSlot);
 
-  if (lifecycle === undefined) return <p className="muted">Loading event state…</p>
-  const current = statusCopy[lifecycle.status]
+  if (lifecycle === undefined) return <p className="muted">Loading event state…</p>;
+  const current = statusCopy[lifecycle.status];
 
   const selectTransition = (status: LifecycleStatus) => {
-    if (operationPending) return
-    setTargetStatus(status)
-    setReason('')
-    setError(null)
-  }
+    if (operationPending) return;
+    setTargetStatus(status);
+    setReason("");
+    setError(null);
+  };
 
   const cancel = () => {
-    setTargetStatus(null)
-    setReason('')
-    setError(null)
-  }
+    setTargetStatus(null);
+    setReason("");
+    setError(null);
+  };
 
-  const submit = async (event: FormEvent) => {
-    event.preventDefault()
-    if (busy) return
-    if (!operationPending && (!selectedTransition || selectedTransition.blockers.length > 0)) return
-    setBusy(true)
-    setError(null)
+  const submit = async (event: SubmitEvent) => {
+    event.preventDefault();
+    if (busy) return;
+    if (!operationPending && (!selectedTransition || selectedTransition.blockers.length > 0))
+      return;
+    setBusy(true);
+    setError(null);
     try {
       if (operationPending) {
-        await operationAttempt.retryPending(operationSlot)
+        await operationAttempt.retryPending(operationSlot);
       } else if (selectedTransition) {
         await operationAttempt.run(operationSlot, () => {
           const args = {
@@ -98,18 +100,18 @@ export function EventLifecycleControl() {
             expectedEventVersion: lifecycle.eventVersion,
             reason,
             clientOperationId: crypto.randomUUID(),
-          }
-          return () => transitionEvent(args)
-        })
+          };
+          return () => transitionEvent(args);
+        });
       }
-      setTargetStatus(null)
-      setReason('')
+      setTargetStatus(null);
+      setReason("");
     } catch (caught) {
-      setError(readableError(caught))
+      setError(readableError(caught));
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
-  }
+  };
 
   return (
     <div className="event-lifecycle">
@@ -123,9 +125,12 @@ export function EventLifecycleControl() {
         <div className="event-lifecycle-actions">
           {lifecycle.transitions.map((transition) => (
             <button
-              className={transition.targetStatus === 'registration_open' && lifecycle.status === 'registration_closed'
-                ? 'text-button'
-                : 'secondary'}
+              className={
+                transition.targetStatus === "registration_open" &&
+                lifecycle.status === "registration_closed"
+                  ? "text-button"
+                  : "secondary"
+              }
               key={transition.targetStatus}
               type="button"
               disabled={operationPending}
@@ -140,9 +145,13 @@ export function EventLifecycleControl() {
       {operationPending ? (
         <form className="event-lifecycle-confirmation" onSubmit={submit}>
           <strong>Finish the earlier event-state change</strong>
-          {error ? <p className="notice error" role="alert">{error}</p> : null}
+          {error ? (
+            <p className="notice error" role="alert">
+              {error}
+            </p>
+          ) : null}
           <button className="primary" type="submit" disabled={busy}>
-            {busy ? 'Confirming…' : 'Confirm earlier change'}
+            {busy ? "Confirming…" : "Confirm earlier change"}
           </button>
         </form>
       ) : selectedTransition ? (
@@ -150,9 +159,13 @@ export function EventLifecycleControl() {
           <div className="event-lifecycle-confirmation">
             <strong>Finish setup first</strong>
             <ul>
-              {selectedTransition.blockers.map((blocker) => <li key={blocker.key}>{blocker.label}</li>)}
+              {selectedTransition.blockers.map((blocker) => (
+                <li key={blocker.key}>{blocker.label}</li>
+              ))}
             </ul>
-            <button className="text-button" type="button" onClick={cancel}>Cancel</button>
+            <button className="text-button" type="button" onClick={cancel}>
+              Cancel
+            </button>
           </div>
         ) : (
           <form className="event-lifecycle-confirmation" onSubmit={submit}>
@@ -168,40 +181,46 @@ export function EventLifecycleControl() {
                 onChange={(event) => setReason(event.currentTarget.value)}
               />
             </label>
-            {error ? <p className="notice error" role="alert">{error}</p> : null}
+            {error ? (
+              <p className="notice error" role="alert">
+                {error}
+              </p>
+            ) : null}
             <div className="button-row">
               <button className="primary" type="submit" disabled={busy || reason.trim().length < 5}>
-                {busy ? 'Saving…' : 'Confirm'}
+                {busy ? "Saving…" : "Confirm"}
               </button>
-              <button className="text-button" type="button" disabled={busy} onClick={cancel}>Cancel</button>
+              <button className="text-button" type="button" disabled={busy} onClick={cancel}>
+                Cancel
+              </button>
             </div>
           </form>
         )
       ) : null}
     </div>
-  )
+  );
 }
 
 function transitionLabel(current: LifecycleStatus, target: LifecycleStatus) {
-  if (target === 'registration_open') {
-    return current === 'registration_closed' ? 'Reopen applications' : 'Open applications'
+  if (target === "registration_open") {
+    return current === "registration_closed" ? "Reopen applications" : "Open applications";
   }
-  if (target === 'registration_closed') return 'Close applications'
-  if (target === 'live') return 'Start event'
-  if (target === 'complete') return 'Finish event'
-  return 'Change event state'
+  if (target === "registration_closed") return "Close applications";
+  if (target === "live") return "Start event";
+  if (target === "complete") return "Finish event";
+  return "Change event state";
 }
 
 function transitionEffect(current: LifecycleStatus, target: LifecycleStatus) {
-  if (target === 'registration_open') {
-    return current === 'registration_closed'
-      ? 'Participants can change and submit applications again.'
-      : 'New participants can register and teams can submit applications.'
+  if (target === "registration_open") {
+    return current === "registration_closed"
+      ? "Participants can change and submit applications again."
+      : "New participants can register and teams can submit applications.";
   }
-  if (target === 'registration_closed') {
-    return 'Participant profiles, teams, and project applications stop changing.'
+  if (target === "registration_closed") {
+    return "Participant profiles, teams, and project applications stop changing.";
   }
-  if (target === 'live') return 'Workflows that require the live event become available.'
-  if (target === 'complete') return 'The event moves out of live operation.'
-  return 'The event state changes immediately for every open app.'
+  if (target === "live") return "Workflows that require the live event become available.";
+  if (target === "complete") return "The event moves out of live operation.";
+  return "The event state changes immediately for every open app.";
 }

@@ -24,24 +24,25 @@ import {
   stagingDeployment,
   workspaceRoot,
 } from "./commands.ts";
-import {
-  downloadExactRecoveryObject,
-  uploadVersionedRecoveryFile,
-} from "./storage.ts";
+import { downloadExactRecoveryObject, uploadVersionedRecoveryFile } from "./storage.ts";
 
-const snapshotProofSchema = z.object({
-  fileName: z.string().min(1),
-  sha256: z.string().regex(/^[a-f0-9]{64}$/),
-  byteCount: z.number().int().positive(),
-  inventory: archiveInventorySchema,
-}).strict();
+const snapshotProofSchema = z
+  .object({
+    fileName: z.string().min(1),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/),
+    byteCount: z.number().int().positive(),
+    inventory: archiveInventorySchema,
+  })
+  .strict();
 
-const comparisonSchema = z.object({
-  matches: z.boolean(),
-  missingPaths: z.array(z.string()),
-  unexpectedPaths: z.array(z.string()),
-  changedPaths: z.array(z.string()),
-}).strict();
+const comparisonSchema = z
+  .object({
+    matches: z.boolean(),
+    missingPaths: z.array(z.string()),
+    unexpectedPaths: z.array(z.string()),
+    changedPaths: z.array(z.string()),
+  })
+  .strict();
 
 const baseResultSchema = z.object({
   schemaVersion: z.literal(1),
@@ -52,30 +53,36 @@ const baseResultSchema = z.object({
   stagingDeployment: z.string(),
   sourceManifestSha256: z.string().regex(/^[a-f0-9]{64}$/),
   sourceArchive: storedObjectSchema,
-  startedAt: z.string().datetime({ offset: true }),
-  finishedAt: z.string().datetime({ offset: true }),
-  preRestore: z.object({
-    backup: storedObjectSchema,
-    inventory: archiveInventorySchema,
-  }).optional(),
+  startedAt: z.iso.datetime({ offset: true }),
+  finishedAt: z.iso.datetime({ offset: true }),
+  preRestore: z
+    .object({
+      backup: storedObjectSchema,
+      inventory: archiveInventorySchema,
+    })
+    .optional(),
   postRestore: snapshotProofSchema.optional(),
   comparison: comparisonSchema.optional(),
 });
 
-const passedResultSchema = baseResultSchema.extend({
-  status: z.literal("passed"),
-  preRestore: z.object({
-    backup: storedObjectSchema,
-    inventory: archiveInventorySchema,
-  }),
-  postRestore: snapshotProofSchema,
-  comparison: comparisonSchema.extend({ matches: z.literal(true) }),
-}).strict();
+const passedResultSchema = baseResultSchema
+  .extend({
+    status: z.literal("passed"),
+    preRestore: z.object({
+      backup: storedObjectSchema,
+      inventory: archiveInventorySchema,
+    }),
+    postRestore: snapshotProofSchema,
+    comparison: comparisonSchema.extend({ matches: z.literal(true) }),
+  })
+  .strict();
 
-const failedResultSchema = baseResultSchema.extend({
-  status: z.literal("failed"),
-  error: z.string().min(1).max(800),
-}).strict();
+const failedResultSchema = baseResultSchema
+  .extend({
+    status: z.literal("failed"),
+    error: z.string().min(1).max(800),
+  })
+  .strict();
 
 const rehearsalResultSchema = z.discriminatedUnion("status", [
   passedResultSchema,
@@ -161,24 +168,15 @@ every JSONL record and stored file.`);
   productionDeployment(manifest.sourceDeployment);
   const target = stagingDeployment(
     requiredOption(values["staging-deployment"], "--staging-deployment"),
-    requiredOption(
-      values["confirm-staging-deployment"],
-      "--confirm-staging-deployment",
-    ),
+    requiredOption(values["confirm-staging-deployment"], "--confirm-staging-deployment"),
   );
   const operatorId = z
     .string()
     .min(2)
     .max(120)
     .parse(requiredOption(values["operator-id"], "--operator-id"));
-  const reason = z
-    .string()
-    .min(5)
-    .max(300)
-    .parse(requiredOption(values.reason, "--reason"));
-  const outputDirectory = resolve(
-    requiredOption(values["output-directory"], "--output-directory"),
-  );
+  const reason = z.string().min(5).max(300).parse(requiredOption(values.reason, "--reason"));
+  const outputDirectory = resolve(requiredOption(values["output-directory"], "--output-directory"));
   await mkdir(outputDirectory, { recursive: true });
   const startedAt = new Date();
   const baseName = `restore-${manifest.eventSlug}-${safeTimestamp(startedAt)}-${randomUUID().slice(0, 8)}`;

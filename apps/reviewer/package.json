@@ -1,7 +1,24 @@
 {
   "name": "@code2create/reviewer",
-  "main": "expo-router/entry",
   "version": "1.0.0",
+  "private": true,
+  "main": "expo-router/entry",
+  "scripts": {
+    "start": "expo start",
+    "dev": "expo start --port 8082",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "config:check": "expo config --type public",
+    "export:check": "node scripts/export-check.mjs",
+    "native:android:check": "expo prebuild --platform android --clean --no-install && cd android && ./gradlew app:compileDebugKotlin --no-daemon",
+    "build:android:staging": "node scripts/nativeBuild.ts android staging",
+    "build:android:production": "node scripts/nativeBuild.ts android production",
+    "build:ios:staging": "node scripts/nativeBuild.ts ios staging",
+    "build:ios:production": "node scripts/nativeBuild.ts ios production",
+    "lint": "expo lint",
+    "test": "vitest run --config vitest.config.mts",
+    "typecheck": "tsc --noEmit"
+  },
   "dependencies": {
     "@better-auth/expo": "~1.6.30",
     "@code2create/backend": "workspace:*",
@@ -50,22 +67,5 @@
     "eslint-config-expo": "~57.0.2",
     "typescript": "~6.0.3",
     "vitest": "4.1.11"
-  },
-  "scripts": {
-    "start": "expo start",
-    "dev": "expo start --port 8082",
-    "android": "expo run:android",
-    "ios": "expo run:ios",
-    "config:check": "expo config --type public",
-    "export:check": "node scripts/export-check.mjs",
-    "native:android:check": "expo prebuild --platform android --clean --no-install && cd android && ./gradlew app:compileDebugKotlin --no-daemon",
-    "build:android:staging": "node scripts/nativeBuild.ts android staging",
-    "build:android:production": "node scripts/nativeBuild.ts android production",
-    "build:ios:staging": "node scripts/nativeBuild.ts ios staging",
-    "build:ios:production": "node scripts/nativeBuild.ts ios production",
-    "lint": "expo lint",
-    "test": "vitest run --config vitest.config.mts",
-    "typecheck": "tsc --noEmit"
-  },
-  "private": true
+  }
 }

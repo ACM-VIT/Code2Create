@@ -2,5 +2,5 @@
 export function briefStreamObserverKey(briefId: string, workerAcceptedAt: number | undefined) {
   return workerAcceptedAt === undefined
     ? `${briefId}:awaiting-worker`
-    : `${briefId}:accepted:${workerAcceptedAt}`
+    : `${briefId}:accepted:${workerAcceptedAt}`;
 }

@@ -38,14 +38,16 @@ export const prepareDispatch = internalMutation({
       recommendation.state !== "pending" ||
       recommendation.agentDispatchAttemptId ||
       recommendation.agentSubmissionId
-    ) return null;
+    )
+      return null;
     const application = await ctx.db.get(recommendation.applicationId);
     if (
       !application ||
       application.eventId !== recommendation.eventId ||
       application.aiRecommendationId !== recommendation._id ||
       application.contentVersion !== recommendation.applicationContentVersion
-    ) return null;
+    )
+      return null;
     const modelConfig = recommendation.modelConfigVersionId
       ? await ctx.db.get(recommendation.modelConfigVersionId)
       : null;
@@ -78,9 +80,10 @@ export const recordDispatchReceipt = internalMutation({
     const recommendation = await ctx.db.get(args.recommendationId);
     if (
       !recommendation ||
-      recommendation.state !== "pending" ||
+      (recommendation.state !== "pending" && recommendation.state !== "running") ||
       recommendation.agentDispatchAttemptId !== args.attemptId
-    ) return false;
+    )
+      return false;
     await ctx.db.patch(recommendation._id, {
       agentDispatchAttemptId: undefined,
       agentSubmissionId: args.submissionId,
@@ -102,16 +105,32 @@ export const recordDispatchFailure = internalMutation({
   args: {
     recommendationId: v.id("admissionAIRecommendations"),
     attemptId: v.string(),
+    workerMayHaveAccepted: v.boolean(),
   },
   returns: v.boolean(),
   handler: async (ctx, args) => {
     const recommendation = await ctx.db.get(args.recommendationId);
     if (
       !recommendation ||
-      recommendation.state !== "pending" ||
+      (recommendation.state !== "pending" && recommendation.state !== "running") ||
       recommendation.agentDispatchAttemptId !== args.attemptId
-    ) return false;
-    await ctx.db.patch(recommendation._id, { agentDispatchAttemptId: undefined });
+    )
+      return false;
+    if (args.workerMayHaveAccepted) {
+      await ctx.scheduler.runAfter(
+        ideaIntelligenceRecoveryLeaseMs,
+        internal.admissionIntelligence.recoverAgentDispatchAttempt,
+        {
+          recommendationId: recommendation._id,
+          attemptId: args.attemptId,
+        },
+      );
+      return true;
+    }
+    if (recommendation.state !== "pending") return false;
+    await ctx.db.patch(recommendation._id, {
+      agentDispatchAttemptId: undefined,
+    });
     return true;
   },
 });
@@ -133,19 +152,23 @@ export const currentRecommendation = internalQuery({
       recommendation.applicationId !== application._id ||
       recommendation.applicationContentVersion !== application.contentVersion ||
       (recommendation.state !== "pending" && recommendation.state !== "running")
-    ) return null;
+    )
+      return null;
     return recommendation._id;
   },
 });
 
 export const prepareProjectionIdentity = internalQuery({
   args: { recommendationId: v.string() },
-  returns: v.union(v.null(), v.object({
-    recommendationId: v.id("admissionAIRecommendations"),
-    applicationId: v.id("applications"),
-    eventId: v.id("events"),
-    contentVersion: v.number(),
-  })),
+  returns: v.union(
+    v.null(),
+    v.object({
+      recommendationId: v.id("admissionAIRecommendations"),
+      applicationId: v.id("applications"),
+      eventId: v.id("events"),
+      contentVersion: v.number(),
+    }),
+  ),
   handler: async (ctx, args) => {
     const recommendationId = ctx.db.normalizeId(
       "admissionAIRecommendations",
@@ -163,13 +186,15 @@ export const prepareProjectionIdentity = internalQuery({
   },
 });
 
-const receiptSchema = z.object({
-  state: z.literal("accepted"),
-  applicationId: z.string().min(1).max(200),
-  instanceId: z.string().min(1).max(200),
-  submissionId: z.string().min(1).max(200),
-  acceptedAt: z.iso.datetime(),
-}).strict();
+const receiptSchema = z
+  .object({
+    state: z.literal("accepted"),
+    applicationId: z.string().min(1).max(200),
+    instanceId: z.string().min(1).max(200),
+    submissionId: z.string().min(1).max(200),
+    acceptedAt: z.iso.datetime(),
+  })
+  .strict();
 
 export const dispatchRecommendation = internalAction({
   args: { recommendationId: v.id("admissionAIRecommendations") },
@@ -177,6 +202,7 @@ export const dispatchRecommendation = internalAction({
   handler: async (ctx, args) => {
     const prepared = await ctx.runMutation(internal.admissionAgentActions.prepareDispatch, args);
     if (!prepared) return null;
+    let workerMayHaveAccepted = false;
     try {
       const request: IdeaIntelligenceDispatchRequest = {
         protocolVersion: operationsIntelligenceProtocolVersion,
@@ -197,6 +223,7 @@ export const dispatchRecommendation = internalAction({
         timestamp,
         body,
       });
+      workerMayHaveAccepted = true;
       const response = await fetch(
         new URL("/v1/idea-submissions", requireIntelligenceWorkerOrigin()),
         {
@@ -217,7 +244,7 @@ export const dispatchRecommendation = internalAction({
       if (
         !receipt.success ||
         receipt.data.applicationId !== prepared.applicationId ||
-        receipt.data.instanceId !== prepared.applicationId
+        receipt.data.instanceId !== prepared.recommendationId
       ) {
         throw new Error("The idea intelligence Worker returned an invalid receipt.");
       }
@@ -228,13 +255,11 @@ export const dispatchRecommendation = internalAction({
         acceptedAt: Date.parse(receipt.data.acceptedAt),
       });
     } catch (error) {
-      const recorded = await ctx.runMutation(
-        internal.admissionAgentActions.recordDispatchFailure,
-        {
-          recommendationId: prepared.recommendationId,
-          attemptId: prepared.attemptId,
-        },
-      );
+      const recorded = await ctx.runMutation(internal.admissionAgentActions.recordDispatchFailure, {
+        recommendationId: prepared.recommendationId,
+        attemptId: prepared.attemptId,
+        workerMayHaveAccepted,
+      });
       if (recorded) throw error;
     }
     return null;

@@ -98,21 +98,15 @@ export async function computeReviewEvaluation(
   const [assignments, scorecards, criteria] = await Promise.all([
     ctx.db
       .query("reviewAssignments")
-      .withIndex("by_session_person", (index) =>
-        index.eq("reviewSessionId", args.session._id),
-      )
+      .withIndex("by_session_person", (index) => index.eq("reviewSessionId", args.session._id))
       .collect(),
     ctx.db
       .query("scorecards")
-      .withIndex("by_session_status", (index) =>
-        index.eq("reviewSessionId", args.session._id),
-      )
+      .withIndex("by_session_status", (index) => index.eq("reviewSessionId", args.session._id))
       .collect(),
     ctx.db
       .query("reviewRubricCriteria")
-      .withIndex("by_rubric_order", (index) =>
-        index.eq("rubricVersionId", args.rubric._id),
-      )
+      .withIndex("by_rubric_order", (index) => index.eq("rubricVersionId", args.rubric._id))
       .collect(),
   ]);
   const assigned = assignments.filter((assignment) => assignment.status === "assigned");
@@ -170,8 +164,7 @@ export async function computeReviewEvaluation(
       scoreSum,
       meanScore,
       weightedPoints: (meanScore / args.rubric.scoreMaximum) * criterion.weight,
-      spreadFlag:
-        Math.max(...scores) - Math.min(...scores) >= args.rubric.spreadThreshold,
+      spreadFlag: Math.max(...scores) - Math.min(...scores) >= args.rubric.spreadThreshold,
     };
   });
   const totalPoints = criterionResults.reduce(

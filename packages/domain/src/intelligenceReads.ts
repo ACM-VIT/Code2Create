@@ -1,4 +1,4 @@
-import { operationsIntelligenceProtocolVersion } from "./intelligenceProtocol.ts";
+import type { operationsIntelligenceProtocolVersion } from "./intelligenceProtocol.ts";
 
 // Distinct contexts prevent signed bodies replaying across routes.
 export const operationsIntelligenceReadSignatureContext =
@@ -11,12 +11,10 @@ export const operationsIntelligenceReadNames = [
   "review_rounds",
   "review_exceptions",
   "attendance_counts",
-  "floor_mapping_progress",
   "support_load",
   "recommendation_history",
 ] as const;
-export type OperationsIntelligenceReadName =
-  (typeof operationsIntelligenceReadNames)[number];
+export type OperationsIntelligenceReadName = (typeof operationsIntelligenceReadNames)[number];
 
 export type OperationsIntelligenceReadRequest =
   | {
@@ -36,8 +34,7 @@ export const admissionIntelligenceReadNames = [
   "admission_cohort",
   "admission_submission_search",
 ] as const;
-export type AdmissionIntelligenceReadName =
-  (typeof admissionIntelligenceReadNames)[number];
+export type AdmissionIntelligenceReadName = (typeof admissionIntelligenceReadNames)[number];
 
 export const admissionIntelligenceReadSignatureContext =
   "code2create.admission-intelligence.read.v1";

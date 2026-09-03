@@ -3,7 +3,7 @@ import { ConvexError } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { attendanceCounterShardFor } from "./attendanceCounters";
-import { currentTeamForMembership } from "./floor";
+import { currentTeamForMembership } from "./teamMembership";
 
 type ReadCtx = QueryCtx | MutationCtx;
 type VenueIdentityCheckMethod = Doc<"venueCheckIns">["identityCheckMethod"];
@@ -16,18 +16,12 @@ export async function activeVenueCheckIn(
   return ctx.db
     .query("venueCheckIns")
     .withIndex("by_event_membership_status", (index) =>
-      index
-        .eq("eventId", eventId)
-        .eq("membershipId", membershipId)
-        .eq("status", "checked_in"),
+      index.eq("eventId", eventId).eq("membershipId", membershipId).eq("status", "checked_in"),
     )
     .unique();
 }
 
-export async function latestVenueCheckIn(
-  ctx: ReadCtx,
-  membershipId: Id<"eventMemberships">,
-) {
+export async function latestVenueCheckIn(ctx: ReadCtx, membershipId: Id<"eventMemberships">) {
   return ctx.db
     .query("venueCheckIns")
     .withIndex("by_membership_time", (index) => index.eq("membershipId", membershipId))
@@ -86,18 +80,13 @@ export async function recordStaffedVenueCheckIn(
       message: "The identity-check method does not match this participant class.",
     });
   }
-  if (
-    args.identityCheckMethod === "approved_exception" &&
-    args.checkInReason === undefined
-  ) {
+  if (args.identityCheckMethod === "approved_exception" && args.checkInReason === undefined) {
     throw new Error("An approved identity exception requires its checked reason.");
   }
   const teamContext = await currentTeamForMembership(ctx, event._id, membership._id);
   if (
     !teamContext ||
-    !["confirmed", "checked_in", "active"].some(
-      (status) => status === teamContext.team.status,
-    )
+    !["confirmed", "checked_in", "active"].some((status) => status === teamContext.team.status)
   ) {
     throw new ConvexError({
       code: "TEAM_NOT_CONFIRMED",
@@ -240,9 +229,7 @@ async function moveVenueCheckInCounter(
   const shard = attendanceCounterShardFor(args.membershipId);
   const current = await ctx.db
     .query("venueCheckInCounterShards")
-    .withIndex("by_event_shard", (index) =>
-      index.eq("eventId", args.eventId).eq("shard", shard),
-    )
+    .withIndex("by_event_shard", (index) => index.eq("eventId", args.eventId).eq("shard", shard))
     .unique();
   const checkedIn = (current?.checkedIn ?? 0) + args.delta;
   if (checkedIn < 0) throw new Error("Venue check-in counters would become negative.");

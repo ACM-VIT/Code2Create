@@ -19,7 +19,7 @@ function deployKeyEnvironment(deployKey: string) {
     "C2C_RECOVERY_S3_SECRET_ACCESS_KEY",
     "C2C_RECOVERY_S3_KMS_KEY_ID",
   ]) {
-    delete environment[name];
+    Reflect.deleteProperty(environment, name);
   }
   environment.CONVEX_DEPLOY_KEY = deployKey;
   return environment;
@@ -81,28 +81,14 @@ async function runConvex(args: string[], deployKeyName: string) {
 
 export async function exportProductionSnapshot(deployment: string, destinationPath: string) {
   await runConvex(
-    [
-      "export",
-      "--deployment",
-      deployment,
-      "--include-file-storage",
-      "--path",
-      destinationPath,
-    ],
+    ["export", "--deployment", deployment, "--include-file-storage", "--path", destinationPath],
     "C2C_PRODUCTION_CONVEX_DEPLOY_KEY",
   );
 }
 
 export async function exportStagingSnapshot(deployment: string, destinationPath: string) {
   await runConvex(
-    [
-      "export",
-      "--deployment",
-      deployment,
-      "--include-file-storage",
-      "--path",
-      destinationPath,
-    ],
+    ["export", "--deployment", deployment, "--include-file-storage", "--path", destinationPath],
     "C2C_STAGING_CONVEX_DEPLOY_KEY",
   );
 }

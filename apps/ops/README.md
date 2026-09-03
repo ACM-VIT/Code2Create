@@ -1,6 +1,6 @@
 # Code2Create operations
 
-The permission-scoped Vite work application for admissions, event setup, attendance, hall operations, judging, support, access, integrations, rehearsals, and incident recovery.
+The permission-scoped Vite work application for admissions, event setup, attendance, review operations, judging, support, access, integrations, rehearsals, and incident recovery.
 
 Navigation and actions come from the current person's exact grants. A role label alone does not open a route or authorize a command.
 

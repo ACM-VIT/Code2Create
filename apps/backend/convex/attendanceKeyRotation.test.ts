@@ -28,9 +28,7 @@ async function credentialFingerprint(eventKey: Uint8Array, rawValue: string) {
     false,
     ["sign"],
   );
-  const signature = new Uint8Array(
-    await crypto.subtle.sign("HMAC", key, encoder.encode(rawValue)),
-  );
+  const signature = new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(rawValue)));
   return Buffer.from(signature).toString("hex");
 }
 
@@ -58,24 +56,18 @@ describe("attendance event-key rotation", () => {
     usePrevious("attendance-k1", firstWrappingKey);
     const openedFromK1 = await decryptEventKey({ eventSlug, ...underK1 });
     const underK2 = await encryptEventKey(eventSlug, openedFromK1);
-    expect(await credentialFingerprint(openedFromK1, "VIT-12345")).toBe(
-      originalFingerprint,
-    );
+    expect(await credentialFingerprint(openedFromK1, "VIT-12345")).toBe(originalFingerprint);
 
     useCurrent("attendance-k3", thirdWrappingKey);
     usePrevious("attendance-k2", secondWrappingKey);
     const openedFromK2 = await decryptEventKey({ eventSlug, ...underK2 });
     const underK3 = await encryptEventKey(eventSlug, openedFromK2);
-    expect(await credentialFingerprint(openedFromK2, "VIT-12345")).toBe(
-      originalFingerprint,
-    );
+    expect(await credentialFingerprint(openedFromK2, "VIT-12345")).toBe(originalFingerprint);
 
     vi.stubEnv("ATTENDANCE_PREVIOUS_WRAPPING_KEY_VERSION", "");
     vi.stubEnv("ATTENDANCE_PREVIOUS_WRAPPING_KEY", "");
     const openedFromK3 = await decryptEventKey({ eventSlug, ...underK3 });
-    expect(await credentialFingerprint(openedFromK3, "VIT-12345")).toBe(
-      originalFingerprint,
-    );
+    expect(await credentialFingerprint(openedFromK3, "VIT-12345")).toBe(originalFingerprint);
   });
 
   test("rejects ciphertext or event ownership that fails AES-GCM authentication", async () => {
@@ -84,7 +76,7 @@ describe("attendance event-key rotation", () => {
       "rotation-event",
       Uint8Array.from({ length: 32 }, () => 7),
     );
-    const corruptedAuthTag = `${encrypted.authTag[0] === "A" ? "B" : "A"}${encrypted.authTag.slice(1)}`;
+    const corruptedAuthTag = `${encrypted.authTag.startsWith("A") ? "B" : "A"}${encrypted.authTag.slice(1)}`;
     await expect(
       decryptEventKey({
         eventSlug: "rotation-event",
@@ -100,25 +92,37 @@ describe("attendance event-key rotation", () => {
   test("rejects malformed, incomplete, and reused wrapping-key configuration", async () => {
     useCurrent("attendance-k1", "short");
     await expect(
-      encryptEventKey("rotation-event", Uint8Array.from({ length: 32 }, () => 1)),
+      encryptEventKey(
+        "rotation-event",
+        Uint8Array.from({ length: 32 }, () => 1),
+      ),
     ).rejects.toThrow("attendance key configuration is invalid");
 
     useCurrent("attendance-k2", wrappingKey(25));
     vi.stubEnv("ATTENDANCE_PREVIOUS_WRAPPING_KEY_VERSION", "attendance-k1");
     vi.stubEnv("ATTENDANCE_PREVIOUS_WRAPPING_KEY", "");
     await expect(
-      encryptEventKey("rotation-event", Uint8Array.from({ length: 32 }, () => 2)),
+      encryptEventKey(
+        "rotation-event",
+        Uint8Array.from({ length: 32 }, () => 2),
+      ),
     ).rejects.toThrow("attendance key configuration is invalid");
 
     usePrevious("attendance-k2", wrappingKey(26));
     await expect(
-      encryptEventKey("rotation-event", Uint8Array.from({ length: 32 }, () => 3)),
+      encryptEventKey(
+        "rotation-event",
+        Uint8Array.from({ length: 32 }, () => 3),
+      ),
     ).rejects.toThrow("attendance key configuration is invalid");
 
     useCurrent("attendance-k3", wrappingKey(27));
     usePrevious("attendance-k2", wrappingKey(27));
     await expect(
-      encryptEventKey("rotation-event", Uint8Array.from({ length: 32 }, () => 4)),
+      encryptEventKey(
+        "rotation-event",
+        Uint8Array.from({ length: 32 }, () => 4),
+      ),
     ).rejects.toThrow("attendance key configuration is invalid");
   });
 });

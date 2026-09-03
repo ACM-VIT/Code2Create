@@ -64,9 +64,7 @@ async function requireEditingTarget(
     .query("applications")
     .withIndex("by_team", (index) => index.eq("teamId", args.teamId))
     .unique();
-  const project = application
-    ? await ctx.db.get(application.submittedProjectVersionId)
-    : null;
+  const project = application ? await ctx.db.get(application.submittedProjectVersionId) : null;
   if (!project?.intakeResponses.some(({ questionId }) => questionId === args.questionId)) {
     throw new ConvexError({
       code: "INVALID_EDITING_TARGET",
@@ -87,26 +85,23 @@ export const heartbeat = mutation({
     sessionToken: v.string(),
   }),
   handler: async (ctx, args) => {
-    const { event, subject, membership, member, team } =
-      await currentTeamContext(ctx, args.eventSlug);
+    const { event, subject, membership, member, team } = await currentTeamContext(
+      ctx,
+      args.eventSlug,
+    );
     await requireEditingTarget(ctx, {
       teamId: team._id,
       surface: args.surface,
       ...(args.questionId !== undefined ? { questionId: args.questionId } : {}),
     });
     if (args.surface === "proposal_revision") {
-      if (
-        Date.now() >= applicationsCloseAtFor(event, membership.participantClass)
-      ) {
+      if (Date.now() >= applicationsCloseAtFor(event, membership.participantClass)) {
         throw new ConvexError({
           code: "APPLICATION_DEADLINE_PASSED",
           message: "The application deadline has passed.",
         });
       }
-      if (
-        member.role !== "lead" ||
-        team.leadMembershipId !== membership._id
-      ) {
+      if (member.role !== "lead" || team.leadMembershipId !== membership._id) {
         throw new ConvexError({
           code: "TEAM_LEAD_REQUIRED",
           message: "Only the current team lead can edit the submitted proposal.",
@@ -160,12 +155,14 @@ export const heartbeat = mutation({
 
 export const list = query({
   args: { eventSlug: v.string() },
-  returns: v.array(v.object({
-    membershipId: v.id("eventMemberships"),
-    surface: editingSurface,
-    questionId: v.optional(v.id("intakeGeneratedQuestions")),
-    label: v.string(),
-  })),
+  returns: v.array(
+    v.object({
+      membershipId: v.id("eventMemberships"),
+      surface: editingSurface,
+      questionId: v.optional(v.id("intakeGeneratedQuestions")),
+      label: v.string(),
+    }),
+  ),
   handler: async (ctx, args) => {
     const context = await currentReadTeamContext(ctx, args.eventSlug);
     if (!context) return [];
@@ -195,11 +192,10 @@ export const list = query({
             .take(2),
         ])
       : [[], []];
-    const draftQuestions = [...activeQuestions, ...answeredQuestions]
-      .toSorted((left, right) => left.ordinal - right.ordinal);
-    const project = application
-      ? await ctx.db.get(application.submittedProjectVersionId)
-      : null;
+    const draftQuestions = [...activeQuestions, ...answeredQuestions].toSorted(
+      (left, right) => left.ordinal - right.ordinal,
+    );
+    const project = application ? await ctx.db.get(application.submittedProjectVersionId) : null;
     const targets: {
       surface: EditingSurface;
       questionId?: Id<"intakeGeneratedQuestions">;
@@ -222,15 +218,17 @@ export const list = query({
           ]
         : []),
     ];
-    const byTarget = await Promise.all(targets.map(async (target) => ({
-      ...target,
-      members: await intakeEditingPresence.listRoom(
-        ctx,
-        intakeEditingRoomId(context.team._id, target.surface, target.questionId),
-        true,
-        maximumIntakeEditors,
-      ),
-    })));
+    const byTarget = await Promise.all(
+      targets.map(async (target) => ({
+        ...target,
+        members: await intakeEditingPresence.listRoom(
+          ctx,
+          intakeEditingRoomId(context.team._id, target.surface, target.questionId),
+          true,
+          maximumIntakeEditors,
+        ),
+      })),
+    );
     return byTarget.flatMap(({ surface, questionId, label, members }) =>
       members
         .filter(({ userId }) => userId !== context.member.membershipId)

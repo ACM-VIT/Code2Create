@@ -6,20 +6,14 @@ import { mutation } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { moveSessionCounter } from "./lib/attendanceCounters";
 import { requireEventBySlug } from "./lib/events";
-import {
-  requireCurrentPerson,
-  requireEventSubject,
-} from "./lib/identity";
+import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
 import { requirePermission } from "./lib/permissions";
 import { normalizedText } from "./lib/strings";
 import { maximumAttendanceIntervalsPerParticipantSession } from "./lib/attendanceSessionTransition";
 
 type SessionState = Doc<"attendanceSessionParticipants">["state"];
-type DirectCorrectionKind =
-  | "mark_present"
-  | "mark_temporarily_out"
-  | "mark_needs_review";
+type DirectCorrectionKind = "mark_present" | "mark_temporarily_out" | "mark_needs_review";
 type ReconciliationAction =
   | { kind: DirectCorrectionKind; effectiveAt: number }
   | {
@@ -88,7 +82,8 @@ function requireNoOpenInterval(
   if (participant.currentIntervalId !== undefined || openIntervals.length !== 0) {
     throw new ConvexError({
       code: "SESSION_INTERVAL_CONFLICT",
-      message: "The current interval does not match this correction. Refresh and review the timeline.",
+      message:
+        "The current interval does not match this correction. Refresh and review the timeline.",
     });
   }
 }
@@ -105,13 +100,16 @@ function requireCurrentOpenInterval(
   ) {
     throw new ConvexError({
       code: "SESSION_INTERVAL_CONFLICT",
-      message: "The current interval does not match this correction. Refresh and review the timeline.",
+      message:
+        "The current interval does not match this correction. Refresh and review the timeline.",
     });
   }
   return interval;
 }
 
-function entryPreviousState(value: string | undefined): "confirmation_due" | "temporarily_out" | null {
+function entryPreviousState(
+  value: string | undefined,
+): "confirmation_due" | "temporarily_out" | null {
   if (value === "confirmation_due" || value === "temporarily_out") return value;
   return null;
 }
@@ -206,9 +204,7 @@ export const reconcile = mutation({
     const reusedPresenceOperation = await ctx.db
       .query("attendancePresenceEvents")
       .withIndex("by_operator_operation", (index) =>
-        index
-          .eq("operatorPersonId", person._id)
-          .eq("clientOperationId", args.clientOperationId),
+        index.eq("operatorPersonId", person._id).eq("clientOperationId", args.clientOperationId),
       )
       .unique();
     if (reusedPresenceOperation) {
@@ -379,8 +375,7 @@ export const reconcile = mutation({
       } else {
         requireNoOpenInterval(participant, openIntervals);
         const closedBySource = intervals.filter(
-          (interval) =>
-            interval.status === "closed" && interval.closedByEventId === source._id,
+          (interval) => interval.status === "closed" && interval.closedByEventId === source._id,
         );
         const interval = closedBySource[0];
         if (closedBySource.length !== 1 || interval === undefined) {
@@ -414,10 +409,7 @@ export const reconcile = mutation({
           participant.state === "needs_review" && openIntervals.length > 0
             ? requireCurrentOpenInterval(participant, openIntervals)
             : null;
-        if (
-          existingOpenInterval &&
-          args.action.effectiveAt < existingOpenInterval.openedAt
-        ) {
+        if (existingOpenInterval && args.action.effectiveAt < existingOpenInterval.openedAt) {
           throw new ConvexError({
             code: "EFFECTIVE_TIME_BEFORE_ENTRY",
             message: "The presence correction cannot precede the recorded entry.",
@@ -463,7 +455,8 @@ export const reconcile = mutation({
           if (intervals.length >= maximumAttendanceIntervalsPerParticipantSession) {
             throw new ConvexError({
               code: "ATTENDANCE_INTERVAL_LIMIT_REACHED",
-              message: "This session reached its presence-interval limit. Keep the result in review.",
+              message:
+                "This session reached its presence-interval limit. Keep the result in review.",
             });
           }
           currentIntervalId = await ctx.db.insert("attendancePresenceIntervals", {
@@ -572,7 +565,10 @@ export const reconcile = mutation({
     await ctx.db.patch(participant._id, {
       state: nextState,
       ...(participant.confirmedAt === undefined && nextState === "present"
-        ? { confirmedAt: args.action.kind === "void_last_transition" ? now : args.action.effectiveAt }
+        ? {
+            confirmedAt:
+              args.action.kind === "void_last_transition" ? now : args.action.effectiveAt,
+          }
         : {}),
       ...(args.action.kind === "void_last_transition" && nextState === "confirmation_due"
         ? { confirmedAt: undefined }

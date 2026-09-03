@@ -112,9 +112,9 @@ describe("incident summaries", () => {
     });
 
     await expect(operator.mutation(api.incidents.create, args)).resolves.toEqual(created);
-    await expect(
-      backend.run(async (ctx) => (await ctx.db.get(created.id))?.version),
-    ).resolves.toBe(2);
+    await expect(backend.run(async (ctx) => (await ctx.db.get(created.id))?.version)).resolves.toBe(
+      2,
+    );
   });
 });
 
@@ -146,7 +146,7 @@ async function seedOperator(backend: BackendTest) {
       timezone: "Asia/Kolkata",
       status: "live",
       vitEmailDomains: ["vitstudent.ac.in"],
-        applicationsCloseAt: Date.now() + 86_400_000,
+      applicationsCloseAt: Date.now() + 86_400_000,
       startsAt: now - 60_000,
       endsAt: now + 3_600_000,
       createdByPersonId: personId,

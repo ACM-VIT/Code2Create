@@ -12,7 +12,6 @@ import {
 import { advanceAccessVersion } from "./lib/accessVersion";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
-import { teamRoundTableLabel } from "./lib/floor";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import {
   findOperation,
@@ -29,10 +28,7 @@ import {
 } from "./lib/permissions";
 import { pushTokenFingerprint } from "./lib/pushTokens";
 import { grantPanelMemberAccess, grantReviewAssignmentAccess } from "./lib/reviewAccess";
-import {
-  reviewerCoversStaffingWindow,
-  reviewerNoShowBoundary,
-} from "./lib/reviewerAvailability";
+import { reviewerCoversStaffingWindow, reviewerNoShowBoundary } from "./lib/reviewerAvailability";
 import {
   maximumReviewPanelsPerRound,
   maximumReviewerAssignmentsPerEvent,
@@ -40,10 +36,7 @@ import {
   maximumReviewReservesPerRound,
 } from "./lib/reviewLimits";
 import { normalizedText } from "./lib/strings";
-import {
-  enqueueOutboundCall,
-  reviewerPageCallScript,
-} from "./lib/outboundCalls";
+import { enqueueOutboundCall, reviewerPageCallScript } from "./lib/outboundCalls";
 import {
   reviewerPageChainState,
   reviewerPageState,
@@ -255,9 +248,7 @@ async function eligibleReserve(
       ctx.db
         .query("reviewerClockIns")
         .withIndex("by_round_person", (index) =>
-          index
-            .eq("roundId", args.round._id)
-            .eq("reviewerPersonId", args.reserve.personId),
+          index.eq("roundId", args.round._id).eq("reviewerPersonId", args.reserve.personId),
         )
         .unique(),
       ctx.db
@@ -358,10 +349,7 @@ async function eligibleReserve(
     const conflict = await ctx.db
       .query("reviewerConflicts")
       .withIndex("by_reviewer_team_status", (index) =>
-        index
-          .eq("reviewerPersonId", person._id)
-          .eq("teamId", teamId)
-          .eq("status", "active"),
+        index.eq("reviewerPersonId", person._id).eq("teamId", teamId).eq("status", "active"),
       )
       .first();
     if (conflict) return null;
@@ -465,9 +453,7 @@ export async function sendNextPage(
     eventId: chain.eventId,
     roundId: chain.roundId,
     panelId: chain.panelId,
-    ...(chain.reviewSessionId !== undefined
-      ? { reviewSessionId: chain.reviewSessionId }
-      : {}),
+    ...(chain.reviewSessionId !== undefined ? { reviewSessionId: chain.reviewSessionId } : {}),
     pageChainId: chain._id,
     targetPersonId: candidate.person._id,
     targetEventAccessSubjectId: candidate.subject._id,
@@ -494,9 +480,7 @@ export async function sendNextPage(
     reviewerDeviceId: candidate.device._id,
     purpose: "substitute_page",
     logicalAttempt: 1,
-    ...(pushAvailable
-      ? { tokenFingerprint: pushTokenFingerprint(activePushToken) }
-      : {}),
+    ...(pushAvailable ? { tokenFingerprint: pushTokenFingerprint(activePushToken) } : {}),
     state: pushAvailable ? "pending" : "unavailable",
     attemptCount: 0,
     ...(!pushAvailable ? { providerErrorCode: "push_token_unavailable", completedAt: now } : {}),
@@ -549,11 +533,7 @@ export async function sendNextPage(
   return { pageId, targetPersonId: candidate.person._id, expiresAt };
 }
 
-async function enqueueReviewerPageCall(
-  ctx: MutationCtx,
-  pageId: Id<"reviewerPages">,
-  now: number,
-) {
+async function enqueueReviewerPageCall(ctx: MutationCtx, pageId: Id<"reviewerPages">, now: number) {
   const page = await ctx.db.get(pageId);
   if (!page || (page.state !== "sent" && page.state !== "opened") || page.expiresAt <= now) {
     return null;
@@ -574,32 +554,22 @@ async function enqueueReviewerPageCall(
   if (!chain || !round || round.eventId !== page.eventId) {
     throw new Error("A reviewer page has invalid call context.");
   }
-  let tableLabel: string | undefined;
-  if (page.reviewSessionId !== undefined) {
-    const session = await ctx.db.get(page.reviewSessionId);
-    if (!session || session.eventId !== page.eventId) {
-      throw new Error("A reviewer page has an invalid review session.");
-    }
-    tableLabel = await teamRoundTableLabel(ctx, page.roundId, session.teamId);
-  }
-  const currentConsent = consent?.state === "granted" &&
-      consent.consentPolicyVersion === reviewerCallConsentPolicyVersion &&
-      consent.scriptPolicyVersion === reviewerCallScriptPolicyVersion &&
-      consent.destinationPhoneE164 !== undefined
-    ? consent
-    : null;
+  const currentConsent =
+    consent?.state === "granted" &&
+    consent.consentPolicyVersion === reviewerCallConsentPolicyVersion &&
+    consent.scriptPolicyVersion === reviewerCallScriptPolicyVersion &&
+    consent.destinationPhoneE164 !== undefined
+      ? consent
+      : null;
   return enqueueOutboundCall(ctx, {
     eventId: page.eventId,
     targetPersonId: page.targetPersonId,
     sourceType: "reviewer_page",
     sourceId: page._id,
     purpose: "reviewer_substitute_page",
-    ...(currentConsent !== null
-      ? { destinationPhone: currentConsent.destinationPhoneE164 }
-      : {}),
+    ...(currentConsent !== null ? { destinationPhone: currentConsent.destinationPhoneE164 } : {}),
     script: reviewerPageCallScript({
       roundName: round.name,
-      ...(tableLabel !== undefined ? { tableLabel } : {}),
       responseWindowSeconds: chain.responseWindowSeconds,
     }),
     locale: "en-IN",
@@ -686,10 +656,7 @@ export const markNoShow = mutation({
         reviewerNoShowOperationResult,
       );
       const panelId = ctx.db.normalizeId("reviewPanels", result.panelId);
-      const panelMemberId = ctx.db.normalizeId(
-        "reviewPanelMembers",
-        result.panelMemberId,
-      );
+      const panelMemberId = ctx.db.normalizeId("reviewPanelMembers", result.panelMemberId);
       if (!panelId || !panelMemberId || panelMemberId !== prior.targetId) {
         throw new Error("The stored reviewer no-show result is invalid.");
       }
@@ -708,9 +675,7 @@ export const markNoShow = mutation({
       ctx.db
         .query("reviewerClockIns")
         .withIndex("by_round_person", (index) =>
-          index
-            .eq("roundId", member.roundId)
-            .eq("reviewerPersonId", member.personId),
+          index.eq("roundId", member.roundId).eq("reviewerPersonId", member.personId),
         )
         .unique(),
     ]);
@@ -788,21 +753,22 @@ export const markNoShow = mutation({
         ctx.db
           .query("reviewAssignments")
           .withIndex("by_session_person", (index) =>
-            index
-              .eq("reviewSessionId", pendingSession._id)
-              .eq("reviewerPersonId", member.personId),
+            index.eq("reviewSessionId", pendingSession._id).eq("reviewerPersonId", member.personId),
           )
           .unique(),
         ctx.db
           .query("scorecards")
           .withIndex("by_session_reviewer", (index) =>
-            index
-              .eq("reviewSessionId", pendingSession._id)
-              .eq("reviewerPersonId", member.personId),
+            index.eq("reviewSessionId", pendingSession._id).eq("reviewerPersonId", member.personId),
           )
           .unique(),
       ]);
-      if (!assignment || assignment.status !== "assigned" || !scorecard || scorecard.status !== "draft") {
+      if (
+        !assignment ||
+        assignment.status !== "assigned" ||
+        !scorecard ||
+        scorecard.status !== "draft"
+      ) {
         throw new Error("The pending review does not contain the expected draft assignment.");
       }
       await ctx.db.patch(assignment._id, { status: "removed", endedAt: now });
@@ -919,9 +885,7 @@ export const startPageChain = mutation({
         pageChainOperationResult,
       );
       const pageChainId = ctx.db.normalizeId("reviewerPageChains", result.pageChainId);
-      const pageId = result.pageId
-        ? ctx.db.normalizeId("reviewerPages", result.pageId)
-        : undefined;
+      const pageId = result.pageId ? ctx.db.normalizeId("reviewerPages", result.pageId) : undefined;
       if (!pageChainId || pageChainId !== prior.targetId || (result.pageId && !pageId)) {
         throw new Error("The stored substitute-page result is invalid.");
       }
@@ -932,7 +896,11 @@ export const startPageChain = mutation({
       };
     }
     const missingMember = await ctx.db.get(args.missingPanelMemberId);
-    if (!missingMember || missingMember.eventId !== event._id || missingMember.status !== "removed") {
+    if (
+      !missingMember ||
+      missingMember.eventId !== event._id ||
+      missingMember.status !== "removed"
+    ) {
       throw new ConvexError({
         code: "PANEL_VACANCY_CHANGED",
         message: "That panel vacancy no longer exists.",
@@ -1101,7 +1069,6 @@ export const currentPage = query({
         v.object({
           id: v.id("teams"),
           name: v.string(),
-          tableLabel: v.optional(v.string()),
         }),
       ),
       criteria: v.array(v.object({ id: v.id("reviewRubricCriteria"), label: v.string() })),
@@ -1146,10 +1113,7 @@ export const currentPage = query({
       scopeId: page._id,
     });
     if (grantIds.length === 0) return null;
-    const [round, panel] = await Promise.all([
-      ctx.db.get(page.roundId),
-      ctx.db.get(page.panelId),
-    ]);
+    const [round, panel] = await Promise.all([ctx.db.get(page.roundId), ctx.db.get(page.panelId)]);
     if (!round || !panel || round.eventId !== event._id || panel.eventId !== event._id) {
       throw new Error("An active substitute page has an invalid round or panel.");
     }
@@ -1161,7 +1125,7 @@ export const currentPage = query({
       }
       criteria.push({ id: criterion._id, label: criterion.label });
     }
-    let pageTeam: { id: Id<"teams">; name: string; tableLabel?: string } | null = null;
+    let pageTeam: { id: Id<"teams">; name: string } | null = null;
     if (page.reviewSessionId !== undefined) {
       const session = await ctx.db.get(page.reviewSessionId);
       if (!session || session.eventId !== event._id) {
@@ -1171,11 +1135,9 @@ export const currentPage = query({
       if (!team || team.eventId !== event._id) {
         throw new Error("An active substitute page has an invalid team.");
       }
-      const tableLabel = await teamRoundTableLabel(ctx, session.roundId, team._id);
       pageTeam = {
         id: team._id,
         name: team.name,
-        ...(tableLabel !== undefined ? { tableLabel } : {}),
       };
     }
     return {
@@ -1213,7 +1175,10 @@ export const openPage = mutation({
       page.expiresAt <= Date.now() ||
       (page.state !== "sent" && page.state !== "opened")
     ) {
-      throw new ConvexError({ code: "PAGE_CHANGED", message: "This substitute page is no longer active." });
+      throw new ConvexError({
+        code: "PAGE_CHANGED",
+        message: "This substitute page is no longer active.",
+      });
     }
     await requirePermission(ctx, {
       eventId: event._id,
@@ -1257,9 +1222,10 @@ export const respondToPage = mutation({
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
-    const declineReason = args.response === "decline"
-      ? normalizedText(args.reason ?? "", "Decline reason", 3, 300)
-      : undefined;
+    const declineReason =
+      args.response === "decline"
+        ? normalizedText(args.reason ?? "", "Decline reason", 3, 300)
+        : undefined;
     const installationId = args.installationId.trim().toLowerCase();
     const requestFingerprint = operationFingerprint([
       args.pageId,
@@ -1327,7 +1293,10 @@ export const respondToPage = mutation({
     });
     const chain = await ctx.db.get(page.pageChainId);
     if (!chain || chain.eventId !== event._id || chain.state !== "active") {
-      throw new ConvexError({ code: "PAGE_CHAIN_CHANGED", message: "The panel vacancy was already resolved." });
+      throw new ConvexError({
+        code: "PAGE_CHAIN_CHANGED",
+        message: "The panel vacancy was already resolved.",
+      });
     }
     const now = Date.now();
     if (page.expiresAt <= now) {
@@ -1533,9 +1502,7 @@ export const respondToPage = mutation({
     if (session) {
       const assignments = await ctx.db
         .query("reviewAssignments")
-        .withIndex("by_session_person", (index) =>
-          index.eq("reviewSessionId", session._id),
-        )
+        .withIndex("by_session_person", (index) => index.eq("reviewSessionId", session._id))
         .take(maximumReviewerAssignmentsPerEvent + 1);
       if (assignments.length > maximumReviewerAssignmentsPerEvent) {
         throw new Error("A review exceeds the event assignment limit.");
@@ -1777,9 +1744,7 @@ export const repage = internalMutation({
       ...(pushAvailable ? { tokenFingerprint: pushTokenFingerprint(pushToken) } : {}),
       state: pushAvailable ? "pending" : "unavailable",
       attemptCount: 0,
-      ...(!pushAvailable
-        ? { providerErrorCode: "push_token_unavailable", completedAt: now }
-        : {}),
+      ...(!pushAvailable ? { providerErrorCode: "push_token_unavailable", completedAt: now } : {}),
       version: 1,
       createdAt: now,
       updatedAt: now,
@@ -1882,10 +1847,7 @@ export const roundStatus = query({
                     state: reviewerPushDeliveryState,
                   }),
                 ),
-                call: v.union(
-                  v.null(),
-                  v.object({ state: outboundCallDeliveryState }),
-                ),
+                call: v.union(v.null(), v.object({ state: outboundCallDeliveryState })),
               }),
             ),
           }),
@@ -1910,7 +1872,10 @@ export const roundStatus = query({
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const round = await ctx.db.get(args.roundId);
     if (!round || round.eventId !== event._id) {
-      throw new ConvexError({ code: "ROUND_NOT_FOUND", message: "That review round is unavailable." });
+      throw new ConvexError({
+        code: "ROUND_NOT_FOUND",
+        message: "That review round is unavailable.",
+      });
     }
     await requirePermission(ctx, {
       eventId: event._id,
@@ -1952,7 +1917,15 @@ export const roundStatus = query({
     }
     const panelRows = await Promise.all(
       panels.map(async (panel) => {
-        const [members, removed, activeChain, latestChain, awaitingSessions, activeSessions, overdueSessions] = await Promise.all([
+        const [
+          members,
+          removed,
+          activeChain,
+          latestChain,
+          awaitingSessions,
+          activeSessions,
+          overdueSessions,
+        ] = await Promise.all([
           ctx.db
             .query("reviewPanelMembers")
             .withIndex("by_panel_status", (index) =>
@@ -2007,25 +1980,24 @@ export const roundStatus = query({
         const reviewIsRunning = activeSessions.length > 0 || overdueSessions.length > 0;
         const activeMembers = await Promise.all(
           members.map(async (member) => {
-              const [reviewer, permission] = await Promise.all([
-                ctx.db.get(member.personId),
-                noShowScope(ctx, {
-                  eventId: event._id,
-                  eventAccessSubjectId: subject._id,
-                  roundId: round._id,
-                  reviewerPersonId: member.personId,
-                }),
-              ]);
-              if (!reviewer) throw new Error("A panel member no longer resolves to a person.");
-              return {
-                panelMemberId: member._id,
-                personId: reviewer._id,
-                displayName: reviewer.displayName,
-                isCoordinator: member.isCoordinator,
-                canMarkNoShow:
-                  permission !== null && panel.status === "ready" && !reviewIsRunning,
-              };
-            }),
+            const [reviewer, permission] = await Promise.all([
+              ctx.db.get(member.personId),
+              noShowScope(ctx, {
+                eventId: event._id,
+                eventAccessSubjectId: subject._id,
+                roundId: round._id,
+                reviewerPersonId: member.personId,
+              }),
+            ]);
+            if (!reviewer) throw new Error("A panel member no longer resolves to a person.");
+            return {
+              panelMemberId: member._id,
+              personId: reviewer._id,
+              displayName: reviewer.displayName,
+              isCoordinator: member.isCoordinator,
+              canMarkNoShow: permission !== null && panel.status === "ready" && !reviewIsRunning,
+            };
+          }),
         );
         let vacancy: {
           panelMemberId: Id<"reviewPanelMembers">;
@@ -2089,16 +2061,16 @@ export const roundStatus = query({
           const currentPage = currentPages[0];
           let currentPageView: {
             id: Id<"reviewerPages">;
-              targetName: string;
-              state: Doc<"reviewerPages">["state"];
-              expiresAt: number;
-              push: {
-                state: Doc<"reviewerPushDeliveries">["state"];
-              } | null;
-              call: {
-                state: Doc<"outboundCallDeliveries">["state"];
-              } | null;
-            } | null = null;
+            targetName: string;
+            state: Doc<"reviewerPages">["state"];
+            expiresAt: number;
+            push: {
+              state: Doc<"reviewerPushDeliveries">["state"];
+            } | null;
+            call: {
+              state: Doc<"outboundCallDeliveries">["state"];
+            } | null;
+          } | null = null;
           if (currentPage) {
             const [target, push, call] = await Promise.all([
               ctx.db.get(currentPage.targetPersonId),
@@ -2127,7 +2099,7 @@ export const roundStatus = query({
               push: push
                 ? {
                     state: push.state,
-                }
+                  }
                 : null,
               call: call ? { state: call.state } : null,
             };
@@ -2175,23 +2147,24 @@ export const roundStatus = query({
       }),
     );
     const reserveRows = await Promise.all(
-      reserves
-        .map(async (reserve) => {
-          const reviewer = await ctx.db.get(reserve.personId);
-          if (!reviewer) throw new Error("A reserve reviewer no longer resolves to a person.");
-          return {
-            reserveId: reserve._id,
-            personId: reviewer._id,
-            displayName: reviewer.displayName,
-            status: reserve.status,
-            pageCount: reserve.pageCount,
-          };
-        }),
+      reserves.map(async (reserve) => {
+        const reviewer = await ctx.db.get(reserve.personId);
+        if (!reviewer) throw new Error("A reserve reviewer no longer resolves to a person.");
+        return {
+          reserveId: reserve._id,
+          personId: reviewer._id,
+          displayName: reviewer.displayName,
+          status: reserve.status,
+          pageCount: reserve.pageCount,
+        };
+      }),
     );
     return {
       serverNow: Date.now(),
       panels: panelRows,
-      reserves: reserveRows.sort((left, right) => left.displayName.localeCompare(right.displayName)),
+      reserves: reserveRows.sort((left, right) =>
+        left.displayName.localeCompare(right.displayName),
+      ),
     };
   },
 });

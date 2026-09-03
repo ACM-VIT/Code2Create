@@ -1,7 +1,4 @@
-import {
-  paginationOptsValidator,
-  paginationResultValidator,
-} from "convex/server";
+import { paginationOptsValidator, paginationResultValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import { z } from "zod";
 
@@ -10,12 +7,13 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
+import { findCurrentPerson, requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import {
-  findCurrentPerson,
-  requireCurrentPerson,
-  requireEventSubject,
-} from "./lib/identity";
-import { findOperation, operationFingerprint, recordOperation, storedOperationResult } from "./lib/operations";
+  findOperation,
+  operationFingerprint,
+  recordOperation,
+  storedOperationResult,
+} from "./lib/operations";
 import { loadPublishedParticipantPolicy } from "./lib/participantPolicy";
 import type { PermissionKey } from "./lib/permissionCatalog";
 import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
@@ -26,10 +24,7 @@ import {
   resolveTeamRosterPerson,
 } from "./lib/teamBackfill";
 import { teamRosterCounts } from "./lib/teamRoster";
-import {
-  parseVitRegistrationNumber,
-  vitIdentityReferenceYear,
-} from "./lib/vitStudentIdentity";
+import { parseVitRegistrationNumber, vitIdentityReferenceYear } from "./lib/vitStudentIdentity";
 import { memberRole, teamRosterEntryStatus } from "./values";
 
 type ReadCtx = QueryCtx | MutationCtx;
@@ -151,7 +146,7 @@ function exactTeamRosterIdentity(value: string, eventYear: number) {
     if (!emailPattern.test(email) || email.length > 254) {
       throw new ConvexError({
         code: "INVALID_TEAM_ROSTER_IDENTITY",
-        message: "Every team roster row needs a Google account email or a VIT registration number.",
+        message: "Every team roster row needs an email address or a VIT registration number.",
       });
     }
     return {
@@ -165,7 +160,7 @@ function exactTeamRosterIdentity(value: string, eventYear: number) {
   if (!parsed) {
     throw new ConvexError({
       code: "INVALID_TEAM_ROSTER_IDENTITY",
-      message: "Every team roster row needs a Google account email or a VIT registration number.",
+      message: "Every team roster row needs an email address or a VIT registration number.",
     });
   }
   return {
@@ -231,7 +226,8 @@ function normalizeTeamRosterRequest(args: {
   const leadCountByTeam: Record<string, number> = {};
   const rowCountByTeam: Record<string, number> = {};
   for (const row of rows) {
-    leadCountByTeam[row.teamName] = (leadCountByTeam[row.teamName] ?? 0) + (row.role === "lead" ? 1 : 0);
+    leadCountByTeam[row.teamName] =
+      (leadCountByTeam[row.teamName] ?? 0) + (row.role === "lead" ? 1 : 0);
     rowCountByTeam[row.teamName] = (rowCountByTeam[row.teamName] ?? 0) + 1;
   }
   for (const [teamName, leadCount] of Object.entries(leadCountByTeam)) {
@@ -292,11 +288,7 @@ async function personStateForPreview(
   };
 }
 
-async function liveTeamNamed(
-  ctx: ReadCtx,
-  eventId: Id<"events">,
-  teamName: string,
-) {
+async function liveTeamNamed(ctx: ReadCtx, eventId: Id<"events">, teamName: string) {
   const activeMatches = await activeTeamsWithName(ctx, { eventId, name: teamName });
   if (activeMatches.length > 1) {
     throw new ConvexError({
@@ -315,9 +307,7 @@ async function countTeamRosterEntries(
   let count = 0;
   for await (const _entry of ctx.db
     .query("teamRosterEntries")
-    .withIndex("by_event_status", (index) =>
-      index.eq("eventId", eventId).eq("status", status),
-    )) {
+    .withIndex("by_event_status", (index) => index.eq("eventId", eventId).eq("status", status))) {
     count += 1;
   }
   return count;
@@ -388,14 +378,16 @@ async function prepareTeamRosterPreview(
     });
     if (priorEntry) priorEntries.push(priorEntry);
     const state = await personStateForPreview(ctx, event._id, row);
-    identityStateChecksums.push(operationFingerprint([
-      row.identityNormalized,
-      state.membershipId,
-      state.activeMember?._id ?? null,
-      state.activeMember?.teamId ?? null,
-      state.hasMembership,
-      state.identityConflict,
-    ]));
+    identityStateChecksums.push(
+      operationFingerprint([
+        row.identityNormalized,
+        state.membershipId,
+        state.activeMember?._id ?? null,
+        state.activeMember?.teamId ?? null,
+        state.hasMembership,
+        state.identityConflict,
+      ]),
+    );
     const liveTeam = teamByName.get(row.teamName) ?? null;
     if (state.identityConflict) {
       rows.push({ ...row, outcome: "identity_conflict" });
@@ -439,13 +431,7 @@ async function prepareTeamRosterPreview(
       ]),
     ),
     operationFingerprint(identityStateChecksums),
-    operationFingerprint(
-      priorEntries.flatMap((entry) => [
-        entry._id,
-        entry.version,
-        entry.status,
-      ]),
-    ),
+    operationFingerprint(priorEntries.flatMap((entry) => [entry._id, entry.version, entry.status])),
     operationFingerprint(
       [...teamByName.entries()].flatMap(([teamName, team]) => [
         teamName,
@@ -530,9 +516,21 @@ export const workspace = query({
       };
     }
     const [readGrantIds, importGrantIds, revokeGrantIds] = await Promise.all([
-      eventWideGrantIds(ctx, { eventId: event._id, eventAccessSubjectId: subject._id, permissionKey: "team.roster.read" }),
-      eventWideGrantIds(ctx, { eventId: event._id, eventAccessSubjectId: subject._id, permissionKey: "team.roster.import" }),
-      eventWideGrantIds(ctx, { eventId: event._id, eventAccessSubjectId: subject._id, permissionKey: "team.roster.revoke" }),
+      eventWideGrantIds(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: subject._id,
+        permissionKey: "team.roster.read",
+      }),
+      eventWideGrantIds(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: subject._id,
+        permissionKey: "team.roster.import",
+      }),
+      eventWideGrantIds(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: subject._id,
+        permissionKey: "team.roster.revoke",
+      }),
     ]);
     if (readGrantIds.length === 0 && importGrantIds.length === 0 && revokeGrantIds.length === 0) {
       throw new ConvexError({
@@ -584,9 +582,8 @@ export const list = query({
         teamRosterImportId: entry.teamRosterImportId,
         sourceRowNumber: entry.sourceRowNumber,
         identity: entry.emailNormalized ?? entry.vitRegistrationNumber ?? "",
-        identityKind: entry.emailNormalized === undefined
-          ? "vit_registration" as const
-          : "email" as const,
+        identityKind:
+          entry.emailNormalized === undefined ? ("vit_registration" as const) : ("email" as const),
         displayName: entry.displayName,
         teamName: entry.teamName,
         role: entry.role,
@@ -693,10 +690,7 @@ export const confirmImport = mutation({
         "team roster import",
         teamRosterImportOperationResult,
       );
-      const teamRosterImportId = ctx.db.normalizeId(
-        "teamRosterImports",
-        result.teamRosterImportId,
-      );
+      const teamRosterImportId = ctx.db.normalizeId("teamRosterImports", result.teamRosterImportId);
       if (!teamRosterImportId || teamRosterImportId !== prior.targetId) {
         throw new Error("The stored team roster import is invalid.");
       }
@@ -719,9 +713,7 @@ export const confirmImport = mutation({
     const teamRosterImportId = await ctx.db.insert("teamRosterImports", {
       eventId: event._id,
       sourceName: prepared.sourceName,
-      ...(prepared.sourceFileName !== undefined
-        ? { sourceFileName: prepared.sourceFileName }
-        : {}),
+      ...(prepared.sourceFileName !== undefined ? { sourceFileName: prepared.sourceFileName } : {}),
       previewChecksum: prepared.previewChecksum,
       rowCount: prepared.rows.length,
       createdCount: prepared.rows.length,

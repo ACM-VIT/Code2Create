@@ -54,7 +54,7 @@ function snapshot(slug: string, generatedAt: number, active: boolean) {
       status: "live" as const,
     },
     summary: {
-      status: active ? "attention" as const : "healthy" as const,
+      status: active ? ("attention" as const) : ("healthy" as const),
       signalCount: signals.length,
       criticalSignalCount: 0,
       attentionSignalCount: signals.length,
@@ -81,23 +81,43 @@ async function insertEvent(backend: BackendTest, slug: string) {
   });
 }
 
+async function claimHealthRefreshLease(backend: BackendTest) {
+  const leaseId = crypto.randomUUID();
+  const claimed = await backend.mutation(internal.operationsBackground.claim, {
+    holder: "health_refresh",
+    leaseId,
+    now: 0,
+    leaseDurationMs: 8_000_000_000_000_000,
+  });
+  if (!claimed) throw new Error("The health-refresh test lease could not be claimed.");
+  return leaseId;
+}
+
 describe("operations intelligence episodes", () => {
   test("correlates related facts into one durable episode and resolves after three clear passes", async () => {
     const backend = episodeBackend();
+    const leaseId = await claimHealthRefreshLease(backend);
     const slug = `episode-${crypto.randomUUID()}`;
     const eventId = await insertEvent(backend, slug);
 
     await backend.mutation(internal.operationsHealth.upsertSnapshot, {
       eventId,
       eventVersion: 1,
+      leaseId,
+      leaseObservedAt: 0,
       snapshot: snapshot(slug, 1_000_000, true),
     });
-    let episodes = await backend.run((ctx) => ctx.db
-      .query("operationsIntelligenceEpisodes")
-      .withIndex("by_event_correlation_lifecycle", (index) =>
-        index.eq("eventId", eventId).eq("correlationKey", "participant_pipeline").eq("lifecycle", "active"),
-      )
-      .collect());
+    let episodes = await backend.run((ctx) =>
+      ctx.db
+        .query("operationsIntelligenceEpisodes")
+        .withIndex("by_event_correlation_lifecycle", (index) =>
+          index
+            .eq("eventId", eventId)
+            .eq("correlationKey", "participant_pipeline")
+            .eq("lifecycle", "active"),
+        )
+        .collect(),
+    );
     expect(episodes).toHaveLength(1);
     expect(episodes[0]).toMatchObject({
       state: "active",
@@ -127,20 +147,29 @@ describe("operations intelligence episodes", () => {
     await backend.mutation(internal.operationsHealth.upsertSnapshot, {
       eventId,
       eventVersion: 1,
+      leaseId,
+      leaseObservedAt: 0,
       snapshot: snapshot(slug, 1_000_030, true),
     });
-    episodes = await backend.run((ctx) => ctx.db
-      .query("operationsIntelligenceEpisodes")
-      .withIndex("by_event_correlation_lifecycle", (index) =>
-        index.eq("eventId", eventId).eq("correlationKey", "participant_pipeline").eq("lifecycle", "active"),
-      )
-      .collect());
+    episodes = await backend.run((ctx) =>
+      ctx.db
+        .query("operationsIntelligenceEpisodes")
+        .withIndex("by_event_correlation_lifecycle", (index) =>
+          index
+            .eq("eventId", eventId)
+            .eq("correlationKey", "participant_pipeline")
+            .eq("lifecycle", "active"),
+        )
+        .collect(),
+    );
     expect(episodes[0]).toMatchObject({ revision: 1, factCount: 4 });
 
     for (const generatedAt of [1_000_060, 1_000_090, 1_000_120]) {
       await backend.mutation(internal.operationsHealth.upsertSnapshot, {
         eventId,
         eventVersion: 1,
+        leaseId,
+        leaseObservedAt: 0,
         snapshot: snapshot(slug, generatedAt, false),
       });
     }
@@ -150,30 +179,35 @@ describe("operations intelligence episodes", () => {
       state: "resolved",
       clearPassCount: 3,
     });
-    const outcomes = await backend.run((ctx) => ctx.db
-      .query("operationsIntelligenceOutcomes")
-      .withIndex("by_episode_observed_at", (index) => index.eq("episodeId", episode._id))
-      .collect());
-    expect(outcomes).toEqual([
-      expect.objectContaining({ kind: "episode_resolved" }),
-    ]);
+    const outcomes = await backend.run((ctx) =>
+      ctx.db
+        .query("operationsIntelligenceOutcomes")
+        .withIndex("by_episode_observed_at", (index) => index.eq("episodeId", episode._id))
+        .collect(),
+    );
+    expect(outcomes).toEqual([expect.objectContaining({ kind: "episode_resolved" })]);
   });
 
   test("recovers only the exact accepted episode submission without overlapping dispatches", async () => {
     const backend = episodeBackend();
+    const leaseId = await claimHealthRefreshLease(backend);
     const slug = `episode-recovery-${crypto.randomUUID()}`;
     const eventId = await insertEvent(backend, slug);
     await backend.mutation(internal.operationsHealth.upsertSnapshot, {
       eventId,
       eventVersion: 1,
+      leaseId,
+      leaseObservedAt: 0,
       snapshot: snapshot(slug, 2_000_000, true),
     });
-    const episode = await backend.run((ctx) => ctx.db
-      .query("operationsIntelligenceEpisodes")
-      .withIndex("by_event_lifecycle_relevance", (index) =>
-        index.eq("eventId", eventId).eq("lifecycle", "active"),
-      )
-      .first());
+    const episode = await backend.run((ctx) =>
+      ctx.db
+        .query("operationsIntelligenceEpisodes")
+        .withIndex("by_event_lifecycle_relevance", (index) =>
+          index.eq("eventId", eventId).eq("lifecycle", "active"),
+        )
+        .first(),
+    );
     if (!episode) throw new Error("The recovery fixture did not create an episode.");
 
     const prepared = await backend.mutation(internal.operationsEpisodes.prepareDispatch, {
@@ -181,27 +215,35 @@ describe("operations intelligence episodes", () => {
       now: 2_000_001,
     });
     if (!prepared) throw new Error("The episode dispatch was not prepared.");
-    expect(await backend.mutation(internal.operationsEpisodes.prepareDispatch, {
-      episodeId: episode._id,
-      now: 2_000_002,
-    })).toBeNull();
-    expect(await backend.mutation(internal.operationsEpisodes.recordDispatchReceipt, {
-      episodeId: episode._id,
-      revision: prepared.revision,
-      attemptId: prepared.attemptId,
-      submissionId: "episode-submission-1",
-      acceptedAt: 2_000_003,
-    })).toBe(true);
-    expect(await backend.mutation(internal.operationsEpisodes.recoverAcceptedDispatch, {
-      episodeId: episode._id,
-      revision: prepared.revision,
-      submissionId: "another-submission",
-    })).toBe(false);
-    expect(await backend.mutation(internal.operationsEpisodes.recoverAcceptedDispatch, {
-      episodeId: episode._id,
-      revision: prepared.revision,
-      submissionId: "episode-submission-1",
-    })).toBe(true);
+    expect(
+      await backend.mutation(internal.operationsEpisodes.prepareDispatch, {
+        episodeId: episode._id,
+        now: 2_000_002,
+      }),
+    ).toBeNull();
+    expect(
+      await backend.mutation(internal.operationsEpisodes.recordDispatchReceipt, {
+        episodeId: episode._id,
+        revision: prepared.revision,
+        attemptId: prepared.attemptId,
+        submissionId: "episode-submission-1",
+        acceptedAt: 2_000_003,
+      }),
+    ).toBe(true);
+    expect(
+      await backend.mutation(internal.operationsEpisodes.recoverAcceptedDispatch, {
+        episodeId: episode._id,
+        revision: prepared.revision,
+        submissionId: "another-submission",
+      }),
+    ).toBe(false);
+    expect(
+      await backend.mutation(internal.operationsEpisodes.recoverAcceptedDispatch, {
+        episodeId: episode._id,
+        revision: prepared.revision,
+        submissionId: "episode-submission-1",
+      }),
+    ).toBe(true);
     expect(await backend.run((ctx) => ctx.db.get(episode._id))).toMatchObject({
       analysisState: { kind: "failed", revision: prepared.revision },
     });
@@ -211,30 +253,37 @@ describe("operations intelligence episodes", () => {
       now: 2_000_004,
     });
     expect(recovered?.attemptId).not.toBe(prepared.attemptId);
-    expect(await backend.mutation(internal.operationsEpisodes.recordDispatchReceipt, {
-      episodeId: episode._id,
-      revision: prepared.revision,
-      attemptId: prepared.attemptId,
-      submissionId: "stale-submission",
-      acceptedAt: 2_000_005,
-    })).toBe(false);
+    expect(
+      await backend.mutation(internal.operationsEpisodes.recordDispatchReceipt, {
+        episodeId: episode._id,
+        revision: prepared.revision,
+        attemptId: prepared.attemptId,
+        submissionId: "stale-submission",
+        acceptedAt: 2_000_005,
+      }),
+    ).toBe(false);
   });
 
   test("enforces episode evidence, causal stance, language, and forecast horizons on callback", async () => {
     const backend = episodeBackend();
+    const leaseId = await claimHealthRefreshLease(backend);
     const slug = `episode-policy-${crypto.randomUUID()}`;
     const eventId = await insertEvent(backend, slug);
     await backend.mutation(internal.operationsHealth.upsertSnapshot, {
       eventId,
       eventVersion: 1,
+      leaseId,
+      leaseObservedAt: 0,
       snapshot: snapshot(slug, 3_000_000, true),
     });
-    const episode = await backend.run((ctx) => ctx.db
-      .query("operationsIntelligenceEpisodes")
-      .withIndex("by_event_lifecycle_relevance", (index) =>
-        index.eq("eventId", eventId).eq("lifecycle", "active"),
-      )
-      .first());
+    const episode = await backend.run((ctx) =>
+      ctx.db
+        .query("operationsIntelligenceEpisodes")
+        .withIndex("by_event_lifecycle_relevance", (index) =>
+          index.eq("eventId", eventId).eq("lifecycle", "active"),
+        )
+        .first(),
+    );
     if (!episode) throw new Error("The callback-policy fixture did not create an episode.");
     const projectionJson = await backend.query(internal.operationsEpisodes.serviceProjection, {
       episodeId: episode._id,
@@ -266,47 +315,64 @@ describe("operations intelligence episodes", () => {
       completedAt,
     };
 
-    await expect(backend.mutation(internal.operationsEpisodes.recordAnalysis, {
-      ...base,
-      operationId: "episode-analysis:two-leading",
-      hypotheses: [leadingHypothesis, {
-        ...leadingHypothesis,
-        statement: "A second leading cause cannot be equally authoritative.",
-      }],
-    })).rejects.toThrow("exactly one leading hypothesis");
-    await expect(backend.mutation(internal.operationsEpisodes.recordAnalysis, {
-      ...base,
-      operationId: "episode-analysis:scoring-language",
-      summary: "The stalled pipeline has a poor operational score.",
-    })).rejects.toThrow("cannot contain scoring");
-    await expect(backend.mutation(internal.operationsEpisodes.recordAnalysis, {
-      ...base,
-      operationId: "episode-analysis:short-horizon",
-      predictions: [{
-        statement: "The episode will remain active at the stated horizon.",
-        expectedState: "active" as const,
-        probability: 0.6,
-        horizonAt: completedAt + 60_000,
-        evidenceFactKeys: [factKey],
-      }],
-    })).rejects.toThrow("between five minutes and seven days");
-    await expect(backend.mutation(internal.operationsEpisodes.recordAnalysis, {
-      ...base,
-      operationId: "episode-analysis:fabricated-fact",
-      hypotheses: [{ ...leadingHypothesis, evidenceFactKeys: ["fabricated-fact"] }],
-    })).rejects.toThrow("facts from this episode");
+    await expect(
+      backend.mutation(internal.operationsEpisodes.recordAnalysis, {
+        ...base,
+        operationId: "episode-analysis:two-leading",
+        hypotheses: [
+          leadingHypothesis,
+          {
+            ...leadingHypothesis,
+            statement: "A second leading cause cannot be equally authoritative.",
+          },
+        ],
+      }),
+    ).rejects.toThrow("exactly one leading hypothesis");
+    await expect(
+      backend.mutation(internal.operationsEpisodes.recordAnalysis, {
+        ...base,
+        operationId: "episode-analysis:scoring-language",
+        summary: "The stalled pipeline has a poor operational score.",
+      }),
+    ).rejects.toThrow("cannot contain scoring");
+    await expect(
+      backend.mutation(internal.operationsEpisodes.recordAnalysis, {
+        ...base,
+        operationId: "episode-analysis:short-horizon",
+        predictions: [
+          {
+            statement: "The episode will remain active at the stated horizon.",
+            expectedState: "active" as const,
+            probability: 0.6,
+            horizonAt: completedAt + 60_000,
+            evidenceFactKeys: [factKey],
+          },
+        ],
+      }),
+    ).rejects.toThrow("between five minutes and seven days");
+    await expect(
+      backend.mutation(internal.operationsEpisodes.recordAnalysis, {
+        ...base,
+        operationId: "episode-analysis:fabricated-fact",
+        hypotheses: [{ ...leadingHypothesis, evidenceFactKeys: ["fabricated-fact"] }],
+      }),
+    ).rejects.toThrow("facts from this episode");
 
-    expect(await backend.mutation(internal.operationsEpisodes.recordAnalysis, {
-      ...base,
-      operationId: "episode-analysis:accepted",
-      predictions: [{
-        statement: "The episode will remain active until the handoff is inspected.",
-        expectedState: "active",
-        probability: 0.6,
-        horizonAt: completedAt + 5 * 60_000,
-        evidenceFactKeys: [factKey],
-      }],
-    })).toBe("accepted");
+    expect(
+      await backend.mutation(internal.operationsEpisodes.recordAnalysis, {
+        ...base,
+        operationId: "episode-analysis:accepted",
+        predictions: [
+          {
+            statement: "The episode will remain active until the handoff is inspected.",
+            expectedState: "active",
+            probability: 0.6,
+            horizonAt: completedAt + 5 * 60_000,
+            evidenceFactKeys: [factKey],
+          },
+        ],
+      }),
+    ).toBe("accepted");
     expect(await backend.run((ctx) => ctx.db.get(episode._id))).toMatchObject({
       analysisState: { kind: "ready", revision: episode.revision },
       analysisAgentVersion: "operations-episode-v1",

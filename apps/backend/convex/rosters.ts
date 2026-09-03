@@ -1,7 +1,4 @@
-import {
-  paginationOptsValidator,
-  paginationResultValidator,
-} from "convex/server";
+import { paginationOptsValidator, paginationResultValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import { z } from "zod";
 
@@ -12,7 +9,7 @@ import { internalMutation, mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
 import {
-  ensurePerson,
+  ensureGooglePerson,
   requireAuthUser,
   requireCurrentPerson,
   requireEventSubject,
@@ -166,12 +163,7 @@ function exactRosterEmail(value: string) {
   return email;
 }
 
-function checkedValidity(
-  event: Doc<"events">,
-  validFrom: number,
-  validUntil: number,
-  now: number,
-) {
+function checkedValidity(event: Doc<"events">, validFrom: number, validUntil: number, now: number) {
   if (event.endsAt === undefined) {
     throw new ConvexError({
       code: "EVENT_SCHEDULE_REQUIRED",
@@ -187,17 +179,14 @@ function checkedValidity(
   ) {
     throw new ConvexError({
       code: "INVALID_ROSTER_VALIDITY",
-      message: "Roster access must end after it starts, remain in the future, and not outlive the event.",
+      message:
+        "Roster access must end after it starts, remain in the future, and not outlive the event.",
     });
   }
   return { validFrom, validUntil };
 }
 
-function normalizeImportRequest(
-  event: Doc<"events">,
-  request: ImportRequest,
-  now: number,
-) {
+function normalizeImportRequest(event: Doc<"events">, request: ImportRequest, now: number) {
   if (request.rows.length < 1 || request.rows.length > maximumRowsPerImport) {
     throw new ConvexError({
       code: "INVALID_ROSTER_SIZE",
@@ -222,11 +211,7 @@ function normalizeImportRequest(
   const seenRows = new Set<number>();
   const seenEmails = new Set<string>();
   const rows = request.rows.map((row) => {
-    if (
-      !Number.isSafeInteger(row.rowNumber) ||
-      row.rowNumber < 2 ||
-      seenRows.has(row.rowNumber)
-    ) {
+    if (!Number.isSafeInteger(row.rowNumber) || row.rowNumber < 2 || seenRows.has(row.rowNumber)) {
       throw new ConvexError({
         code: "INVALID_ROSTER_ROW",
         message: "Roster source row numbers must be unique positive spreadsheet rows.",
@@ -281,9 +266,7 @@ async function effectivePermissionGrants(
     throw new Error("The account has more grants for one permission than the supported bound.");
   }
   return grants.filter(
-    (grant) =>
-      grant.validFrom <= now &&
-      (grant.validUntil === undefined || grant.validUntil > now),
+    (grant) => grant.validFrom <= now && (grant.validUntil === undefined || grant.validUntil > now),
   );
 }
 
@@ -294,8 +277,7 @@ function coversScope(
 ) {
   return grants.some(
     (grant) =>
-      grant.scopeType === "event" ||
-      (grant.scopeType === scopeType && grant.scopeId === scopeId),
+      grant.scopeType === "event" || (grant.scopeType === scopeType && grant.scopeId === scopeId),
   );
 }
 
@@ -308,8 +290,7 @@ function bundleIsRosterCompatible(version: BundleVersionDoc) {
   if (bundleBindingRequirements(entries).length > 0) return false;
   return !entries.some(
     (entry) =>
-      entry.scopeType === "self" &&
-      selfScopeKind(entry.permissionKey) === "participant_membership",
+      entry.scopeType === "self" && selfScopeKind(entry.permissionKey) === "participant_membership",
   );
 }
 
@@ -324,11 +305,7 @@ function rosterConfigurationChecksum(args: {
 }) {
   const parts: OperationFingerprintPart[] = [args.validFrom, args.validUntil];
   for (const selection of args.bundleSelections) {
-    parts.push(
-      selection.bundleId,
-      selection.bundleVersionId,
-      selection.bundleChecksum,
-    );
+    parts.push(selection.bundleId, selection.bundleVersionId, selection.bundleChecksum);
   }
   return operationFingerprint(parts);
 }
@@ -362,7 +339,7 @@ async function currentBundleOption(
 
 function displayedRosterStatus(entry: RosterEntryDoc, now: number) {
   return entry.status === "pending" && entry.validUntil <= now
-    ? "expired" as const
+    ? ("expired" as const)
     : entry.status;
 }
 
@@ -533,11 +510,7 @@ export const list = query({
       permissionKey: "access.roster.read",
       scopeType: "event",
     });
-    const revokeGrants = await effectivePermissionGrants(
-      ctx,
-      subject._id,
-      "access.roster.revoke",
-    );
+    const revokeGrants = await effectivePermissionGrants(ctx, subject._id, "access.roster.revoke");
     const page = await ctx.db
       .query("rosterEntries")
       .withIndex("by_event_created", (index) => index.eq("eventId", event._id))
@@ -573,9 +546,7 @@ async function selectedBundles(
   const seenBundles = new Set<Id<"permissionBundles">>();
   for (const versionId of args.bundleVersionIds) {
     const version = await ctx.db.get("permissionBundleVersions", versionId);
-    const bundle = version
-      ? await ctx.db.get("permissionBundles", version.bundleId)
-      : null;
+    const bundle = version ? await ctx.db.get("permissionBundles", version.bundleId) : null;
     if (
       !version ||
       !bundle ||
@@ -689,19 +660,13 @@ async function prepareImport(
         ctx.db
           .query("rosterEntries")
           .withIndex("by_event_email_status", (index) =>
-            index
-              .eq("eventId", event._id)
-              .eq("emailNormalized", row.email)
-              .eq("status", "pending"),
+            index.eq("eventId", event._id).eq("emailNormalized", row.email).eq("status", "pending"),
           )
           .unique(),
         ctx.db
           .query("rosterEntries")
           .withIndex("by_event_email_status", (index) =>
-            index
-              .eq("eventId", event._id)
-              .eq("emailNormalized", row.email)
-              .eq("status", "claimed"),
+            index.eq("eventId", event._id).eq("emailNormalized", row.email).eq("status", "claimed"),
           )
           .unique(),
       ]);
@@ -745,8 +710,7 @@ async function prepareImport(
   const counts = {
     create: rows.filter((row) => row.outcome === "create").length,
     replace: rows.filter(
-      (row) =>
-        row.outcome === "replace_pending" || row.outcome === "replace_expired",
+      (row) => row.outcome === "replace_pending" || row.outcome === "replace_expired",
     ).length,
     unchanged: rows.filter((row) => row.outcome === "unchanged_pending").length,
     alreadyClaimed: rows.filter((row) => row.outcome === "already_claimed").length,
@@ -759,11 +723,7 @@ async function prepareImport(
     rows,
     counts,
     authorizingGrantIds: [
-      ...new Set([
-        ...rosterGrantIds,
-        ...roleGrantIds,
-        ...bundleContext.authorizingGrantIds,
-      ]),
+      ...new Set([...rosterGrantIds, ...roleGrantIds, ...bundleContext.authorizingGrantIds]),
     ],
   };
 }
@@ -820,21 +780,11 @@ export const confirmImport = mutation({
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
-    const operationId = normalizedText(
-      args.clientOperationId,
-      "Client operation ID",
-      10,
-      100,
-    );
+    const operationId = normalizedText(args.clientOperationId, "Client operation ID", 10, 100);
     const requestFingerprint = operationFingerprint([
       args.previewChecksum,
       operationFingerprint(
-        args.rows.flatMap((row) => [
-          row.rowNumber,
-          row.email,
-          row.displayName,
-          row.role,
-        ]),
+        args.rows.flatMap((row) => [row.rowNumber, row.email, row.displayName, row.role]),
       ),
       args.sourceName,
       args.sourceFileName ?? null,
@@ -872,7 +822,8 @@ export const confirmImport = mutation({
     if (prepared.previewChecksum !== args.previewChecksum) {
       throw new ConvexError({
         code: "ROSTER_PREVIEW_STALE",
-        message: "The roster, bundle versions, or import settings changed. Review the import again.",
+        message:
+          "The roster, bundle versions, or import settings changed. Review the import again.",
       });
     }
     const now = Date.now();
@@ -925,8 +876,7 @@ export const confirmImport = mutation({
       insertedCount += 1;
       if (row.existingPending) {
         await ctx.db.patch("rosterEntries", row.existingPending._id, {
-          status:
-            row.outcome === "replace_expired" ? "expired" : "superseded",
+          status: row.outcome === "replace_expired" ? "expired" : "superseded",
           version: row.existingPending.version + 1,
           supersededByRosterEntryId: rosterEntryId,
           supersededAt: now,
@@ -993,9 +943,7 @@ export const expireImportEntries = internalMutation({
     if (!rosterImport || rosterImport.validUntil > Date.now()) return null;
     const rows = await ctx.db
       .query("rosterEntries")
-      .withIndex("by_import_row", (index) =>
-        index.eq("rosterImportId", rosterImport._id),
-      )
+      .withIndex("by_import_row", (index) => index.eq("rosterImportId", rosterImport._id))
       .take(maximumRowsPerImport + 1);
     if (rows.length > maximumRowsPerImport) {
       throw new Error("Roster import contains more rows than its supported bound.");
@@ -1045,10 +993,7 @@ export const mine = query({
     const entry = await ctx.db
       .query("rosterEntries")
       .withIndex("by_event_email_status", (index) =>
-        index
-          .eq("eventId", event._id)
-          .eq("emailNormalized", email)
-          .eq("status", "pending"),
+        index.eq("eventId", event._id).eq("emailNormalized", email).eq("status", "pending"),
       )
       .unique();
     const now = Date.now();
@@ -1128,17 +1073,9 @@ export const claim = mutation({
   }),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
-    const { user, person, googleIdentity } = await ensurePerson(ctx);
-    const operationId = normalizedText(
-      args.clientOperationId,
-      "Client operation ID",
-      10,
-      100,
-    );
-    const requestFingerprint = operationFingerprint([
-      args.rosterEntryId,
-      args.expectedVersion,
-    ]);
+    const { user, person, googleIdentity } = await ensureGooglePerson(ctx);
+    const operationId = normalizedText(args.clientOperationId, "Client operation ID", 10, 100);
+    const requestFingerprint = operationFingerprint([args.rosterEntryId, args.expectedVersion]);
     const prior = await findOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -1197,10 +1134,7 @@ export const claim = mutation({
       entry.claimedByPersonId === person._id &&
       entry.claimedEventAccessSubjectId !== undefined
     ) {
-      const subject = await ctx.db.get(
-        "eventAccessSubjects",
-        entry.claimedEventAccessSubjectId,
-      );
+      const subject = await ctx.db.get("eventAccessSubjects", entry.claimedEventAccessSubjectId);
       if (!subject || subject.eventId !== event._id) {
         throw new Error("Claimed roster event account is missing.");
       }
@@ -1310,10 +1244,7 @@ export const claim = mutation({
     let currentRole = await ctx.db
       .query("eventRoles")
       .withIndex("by_event_person_status", (index) =>
-        index
-          .eq("eventId", event._id)
-          .eq("personId", person._id)
-          .eq("status", "active"),
+        index.eq("eventId", event._id).eq("personId", person._id).eq("status", "active"),
       )
       .unique();
     if (currentRole && currentRole.validUntil !== undefined && currentRole.validUntil <= now) {
@@ -1357,10 +1288,7 @@ export const claim = mutation({
     }> = [];
     let totalCreatedGrants = 0;
     for (const selection of rosterImport.bundleSelections) {
-      const version = await ctx.db.get(
-        "permissionBundleVersions",
-        selection.bundleVersionId,
-      );
+      const version = await ctx.db.get("permissionBundleVersions", selection.bundleVersionId);
       const bundle = await ctx.db.get("permissionBundles", selection.bundleId);
       const entries = version ? normalizeBundleEntries(version.entries) : null;
       const checksum = version
@@ -1384,7 +1312,8 @@ export const claim = mutation({
       ) {
         throw new ConvexError({
           code: "ROSTER_BUNDLE_CHANGED",
-          message: "A pinned roster permission bundle is no longer valid. Ask the roster owner to import this row again.",
+          message:
+            "A pinned roster permission bundle is no longer valid. Ask the roster owner to import this row again.",
         });
       }
       const grants = await resolveBundleGrants(ctx, {
@@ -1435,9 +1364,7 @@ export const claim = mutation({
       const grantIds: Id<"permissionGrants">[] = [];
       let createdCount = 0;
       for (const planned of grants) {
-        const existing = existingSourceGrants.find((grant) =>
-          sameResolvedGrant(grant, planned),
-        );
+        const existing = existingSourceGrants.find((grant) => sameResolvedGrant(grant, planned));
         if (existing) {
           grantIds.push(existing._id);
           continue;
@@ -1475,12 +1402,9 @@ export const claim = mutation({
       });
     }
 
-    const accessChanged =
-      roleCreated || totalCreatedGrants > 0 || createdSupportGrantCount > 0;
+    const accessChanged = roleCreated || totalCreatedGrants > 0 || createdSupportGrantCount > 0;
     const accessVersion =
-      !subjectCreated && accessChanged
-        ? subject.accessVersion + 1
-        : subject.accessVersion;
+      !subjectCreated && accessChanged ? subject.accessVersion + 1 : subject.accessVersion;
     if (accessVersion !== subject.accessVersion) {
       await ctx.db.patch("eventAccessSubjects", subject._id, {
         accessVersion,
@@ -1576,12 +1500,7 @@ export const revoke = mutation({
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const reason = normalizedText(args.reason, "Reason", 5, 300);
-    const operationId = normalizedText(
-      args.clientOperationId,
-      "Client operation ID",
-      10,
-      100,
-    );
+    const operationId = normalizedText(args.clientOperationId, "Client operation ID", 10, 100);
     const requestFingerprint = operationFingerprint([
       args.rosterEntryId,
       args.expectedVersion,

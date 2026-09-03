@@ -16,9 +16,9 @@ import { requireEventBySlug, requireRegistrationOpen } from "./lib/events";
 import {
   ensurePerson,
   findCurrentPerson,
-  participantGoogleAccessAllowed,
+  participantIdentityAccessAllowed,
   participantMembershipAccessAllowed,
-  requireParticipantGoogleAccess,
+  requireParticipantIdentityAccess,
   requireCurrentPerson,
   requireEligibleMembership,
   requireEventSubject,
@@ -39,12 +39,14 @@ import {
 import {
   isProfileCompleteForPolicy,
   loadPublishedParticipantPolicy,
+  participantPolicyAccepted,
   participantPolicyInput,
 } from "./lib/participantPolicy";
 import { normalizedText } from "./lib/strings";
 import { parsedHostelDetails } from "./lib/vitHostel";
 import {
   isApprovedVitStudentIdentity,
+  isVitStudentEmailAddress,
   parseVitStudentGoogleDisplayName,
   vitIdentityReferenceYear,
   vitInstitutionName,
@@ -118,14 +120,8 @@ const participantMembershipView = v.union(
   }),
 );
 
-function requireVitStudentProfileIdentity(
-  displayName: string,
-  event: Doc<"events">,
-) {
-  const identity = parseVitStudentGoogleDisplayName(
-    displayName,
-    vitIdentityReferenceYear(event),
-  );
+function requireVitStudentProfileIdentity(displayName: string, event: Doc<"events">) {
+  const identity = parseVitStudentGoogleDisplayName(displayName, vitIdentityReferenceYear(event));
   if (!identity) {
     throw new ConvexError({
       code: "VIT_GOOGLE_PROFILE_INVALID",
@@ -222,13 +218,12 @@ export const entryAllowed = query({
       .query("googleIdentityClaims")
       .withIndex("by_auth_user", (index) => index.eq("authUserId", user._id))
       .unique();
-    if (!googleIdentity?.displayName) return false;
-    return participantGoogleAccessAllowed(ctx, event, {
-      verifiedEmail: googleIdentity.verifiedEmail,
-      ...(googleIdentity.hostedDomain !== undefined
+    return participantIdentityAccessAllowed(ctx, event, {
+      verifiedEmail: user.email,
+      ...(googleIdentity?.hostedDomain !== undefined
         ? { hostedDomain: googleIdentity.hostedDomain }
         : {}),
-      displayName: googleIdentity.displayName,
+      displayName: googleIdentity?.displayName || user.name || user.email,
     });
   },
 });
@@ -286,21 +281,21 @@ export const me = query({
       : await (async () => {
           const googleIdentity = await ctx.db
             .query("googleIdentityClaims")
-            .withIndex("by_auth_user", (index) =>
-              index.eq("authUserId", person.authUserId),
-            )
+            .withIndex("by_auth_user", (index) => index.eq("authUserId", person.authUserId))
             .unique();
-          if (!googleIdentity?.displayName) return false;
-          return participantGoogleAccessAllowed(ctx, event, {
-            verifiedEmail: googleIdentity.verifiedEmail,
-            ...(googleIdentity.hostedDomain !== undefined
+          return participantIdentityAccessAllowed(ctx, event, {
+            verifiedEmail: person.verifiedEmail,
+            ...(googleIdentity?.hostedDomain !== undefined
               ? { hostedDomain: googleIdentity.hostedDomain }
               : {}),
-            displayName: googleIdentity.displayName,
+            displayName: googleIdentity?.displayName || person.displayName,
           });
         })();
     if (!participantAccessAllowed) return null;
     const participantPolicy = await loadPublishedParticipantPolicy(ctx, event);
+    const currentPolicyAccepted = membership
+      ? await participantPolicyAccepted(ctx, membership, participantPolicy.policy)
+      : false;
     let canReadProfile = false;
     if (membership) {
       const subject = await requireEventSubject(ctx, event._id, person._id);
@@ -313,32 +308,35 @@ export const me = query({
       });
       canReadProfile = grantIds.length > 0;
     }
-    const profile = membership && canReadProfile
-      ? await ctx.db
-          .query("participantProfiles")
-          .withIndex("by_membership", (index) => index.eq("membershipId", membership._id))
-          .unique()
-      : null;
-    const visibleMembership = membership?.participantClass === "vit_student"
-      ? {
-          id: membership._id,
-          participantClass: membership.participantClass,
-          eligibilityStatus: membership.eligibilityStatus,
-          onboardingStatus: membership.onboardingStatus,
-          vitStudentIdentity: await readVitStudentIdentity(ctx, event, person, membership),
-        }
-      : membership
+    const profile =
+      membership && canReadProfile
+        ? await ctx.db
+            .query("participantProfiles")
+            .withIndex("by_membership", (index) => index.eq("membershipId", membership._id))
+            .unique()
+        : null;
+    const visibleMembership =
+      membership?.participantClass === "vit_student"
         ? {
             id: membership._id,
             participantClass: membership.participantClass,
             eligibilityStatus: membership.eligibilityStatus,
             onboardingStatus: membership.onboardingStatus,
+            vitStudentIdentity: await readVitStudentIdentity(ctx, event, person, membership),
           }
-        : null;
+        : membership
+          ? {
+              id: membership._id,
+              participantClass: membership.participantClass,
+              eligibilityStatus: membership.eligibilityStatus,
+              onboardingStatus: membership.onboardingStatus,
+            }
+          : null;
     const viewerIdentities = [...rosterIdentitiesForPerson(person, membership)];
-    const visibleVitStudentIdentity = visibleMembership?.participantClass === "vit_student"
-      ? visibleMembership.vitStudentIdentity
-      : null;
+    const visibleVitStudentIdentity =
+      visibleMembership?.participantClass === "vit_student"
+        ? visibleMembership.vitStudentIdentity
+        : null;
     if (
       visibleVitStudentIdentity &&
       !viewerIdentities.includes(visibleVitStudentIdentity.registrationNumber)
@@ -371,52 +369,51 @@ export const me = query({
       },
       membership: visibleMembership,
       pendingTeam,
-      profile: profile && membership
-        ? {
-            id: profile._id,
-            participantClass: profile.participantClass,
-            fullName: profile.fullName,
-            phone: profile.phone,
-            ...(profile.phoneVerificationId !== undefined
-              ? { phoneVerificationId: profile.phoneVerificationId }
-              : {}),
-            ...(profile.phoneVerifiedAt !== undefined
-              ? { phoneVerifiedAt: profile.phoneVerifiedAt }
-              : {}),
-            gender: profile.gender,
-            institution: profile.institution,
-            yearOfStudy: profile.yearOfStudy,
-            ...(profile.vitRegistrationNumber !== undefined
-              ? { vitRegistrationNumber: profile.vitRegistrationNumber }
-              : {}),
-            ...(profile.vitProgramme !== undefined
-              ? { vitProgramme: profile.vitProgramme }
-              : {}),
-            ...(profile.vitResidenceType !== undefined
-              ? { vitResidenceType: profile.vitResidenceType }
-              : {}),
-            ...(profile.vitHostelResidence !== undefined
-              ? { vitHostelResidence: profile.vitHostelResidence }
-              : {}),
-            ...(profile.vitHostelRoomNumber !== undefined
-              ? { vitHostelRoomNumber: profile.vitHostelRoomNumber }
-              : {}),
-            ...(profile.externalUniversity !== undefined
-              ? { externalUniversity: profile.externalUniversity }
-              : {}),
-            ...(profile.externalCollege !== undefined
-              ? { externalCollege: profile.externalCollege }
-              : {}),
-            isComplete: isProfileCompleteForPolicy(profile, membership, participantPolicy.policy),
-            profileVersion: profile.profileVersion,
-          }
-        : null,
+      profile:
+        profile && membership
+          ? {
+              id: profile._id,
+              participantClass: profile.participantClass,
+              fullName: profile.fullName,
+              phone: profile.phone,
+              ...(profile.phoneVerificationId !== undefined
+                ? { phoneVerificationId: profile.phoneVerificationId }
+                : {}),
+              ...(profile.phoneVerifiedAt !== undefined
+                ? { phoneVerifiedAt: profile.phoneVerifiedAt }
+                : {}),
+              gender: profile.gender,
+              institution: profile.institution,
+              yearOfStudy: profile.yearOfStudy,
+              ...(profile.vitRegistrationNumber !== undefined
+                ? { vitRegistrationNumber: profile.vitRegistrationNumber }
+                : {}),
+              ...(profile.vitProgramme !== undefined ? { vitProgramme: profile.vitProgramme } : {}),
+              ...(profile.vitResidenceType !== undefined
+                ? { vitResidenceType: profile.vitResidenceType }
+                : {}),
+              ...(profile.vitHostelResidence !== undefined
+                ? { vitHostelResidence: profile.vitHostelResidence }
+                : {}),
+              ...(profile.vitHostelRoomNumber !== undefined
+                ? { vitHostelRoomNumber: profile.vitHostelRoomNumber }
+                : {}),
+              ...(profile.externalUniversity !== undefined
+                ? { externalUniversity: profile.externalUniversity }
+                : {}),
+              ...(profile.externalCollege !== undefined
+                ? { externalCollege: profile.externalCollege }
+                : {}),
+              isComplete:
+                currentPolicyAccepted &&
+                isProfileCompleteForPolicy(profile, membership, participantPolicy.policy),
+              profileVersion: profile.profileVersion,
+            }
+          : null,
       participantPolicy: {
         id: participantPolicy.policy._id,
         version: participantPolicy.policy.version,
-        accepted: Boolean(
-          membership?.acceptedParticipantPolicyVersionIds.includes(participantPolicy.policy._id),
-        ),
+        accepted: currentPolicyAccepted,
         policy: participantPolicy.normalized,
       },
     };
@@ -428,29 +425,33 @@ export const provision = mutation({
   returns: v.object({ membershipId: v.id("eventMemberships"), created: v.boolean() }),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
-    const { person, googleIdentity } = await ensurePerson(ctx);
+    const { person, identity } = await ensurePerson(ctx);
     const approvedVitIdentity = isApprovedVitStudentIdentity({
-      verifiedEmail: googleIdentity.verifiedEmail,
-      ...(googleIdentity.hostedDomain !== undefined
-        ? { hostedDomain: googleIdentity.hostedDomain }
-        : {}),
+      verifiedEmail: identity.verifiedEmail,
+      ...(identity.hostedDomain !== undefined ? { hostedDomain: identity.hostedDomain } : {}),
       allowedDomains: event.vitEmailDomains,
     });
+    if (
+      !approvedVitIdentity &&
+      isVitStudentEmailAddress(identity.verifiedEmail, event.vitEmailDomains)
+    ) {
+      throw new ConvexError({
+        code: "VIT_GOOGLE_REQUIRED",
+        message: "VIT email addresses must continue with Google Workspace.",
+      });
+    }
     if (args.participantClass === "vit_student" && !approvedVitIdentity) {
       throw new ConvexError({
         code: "VIT_EMAIL_REQUIRED",
-        message: "VIT student registration requires a verified @vitstudent.ac.in Google Workspace account.",
+        message:
+          "VIT student registration requires a verified @vitstudent.ac.in Google Workspace account.",
       });
     }
-    const resolvedParticipantClass = approvedVitIdentity
-      ? "vit_student"
-      : "external_participant";
-    await requireParticipantGoogleAccess(ctx, event, {
-      verifiedEmail: googleIdentity.verifiedEmail,
-      ...(googleIdentity.hostedDomain !== undefined
-        ? { hostedDomain: googleIdentity.hostedDomain }
-        : {}),
-      displayName: googleIdentity.displayName,
+    const resolvedParticipantClass = approvedVitIdentity ? "vit_student" : "external_participant";
+    await requireParticipantIdentityAccess(ctx, event, {
+      verifiedEmail: identity.verifiedEmail,
+      ...(identity.hostedDomain !== undefined ? { hostedDomain: identity.hostedDomain } : {}),
+      displayName: identity.displayName,
     });
     requireRegistrationOpen(event, resolvedParticipantClass);
 
@@ -473,9 +474,10 @@ export const provision = mutation({
       return { membershipId: existingMembership._id, created: false };
     }
 
-    const vitStudentIdentity = resolvedParticipantClass === "vit_student"
-      ? requireVitStudentProfileIdentity(googleIdentity.displayName, event)
-      : null;
+    const vitStudentIdentity =
+      resolvedParticipantClass === "vit_student"
+        ? requireVitStudentProfileIdentity(identity.displayName, event)
+        : null;
     if (vitStudentIdentity) {
       await requireAvailableVitRegistrationNumber(ctx, {
         eventId: event._id,
@@ -528,9 +530,7 @@ export const provision = mutation({
       eligibilityStatus: "eligible",
       onboardingStatus: "profile_required",
       acceptedParticipantPolicyVersionIds: [],
-      ...(googleIdentity.hostedDomain !== undefined
-        ? { googleHostedDomain: googleIdentity.hostedDomain }
-        : {}),
+      ...(identity.hostedDomain !== undefined ? { googleHostedDomain: identity.hostedDomain } : {}),
       createdAt: now,
       updatedAt: now,
     });
@@ -813,7 +813,7 @@ export const saveProfile = mutation({
         message: "The participant policy changed. Review it before saving your profile.",
       });
     }
-    if (!membership.acceptedParticipantPolicyVersionIds.includes(participantPolicy.policy._id)) {
+    if (!(await participantPolicyAccepted(ctx, membership, participantPolicy.policy))) {
       throw new ConvexError({
         code: "POLICY_REQUIRED",
         message: "Accept the current participant policy before continuing.",
@@ -821,15 +821,14 @@ export const saveProfile = mutation({
     }
 
     const policy = participantPolicy.normalized;
-    const vitStudentIdentity = membership.participantClass === "vit_student"
-      ? await repairVitStudentIdentity(ctx, event, person, membership)
-      : null;
+    const vitStudentIdentity =
+      membership.participantClass === "vit_student"
+        ? await repairVitStudentIdentity(ctx, event, person, membership)
+        : null;
     const fullName = vitStudentIdentity
       ? vitStudentIdentity.fullName
       : normalizeParticipantName(args.fullName ?? "");
-    const fullNameError = vitStudentIdentity
-      ? null
-      : participantNameValidationError(fullName);
+    const fullNameError = vitStudentIdentity ? null : participantNameValidationError(fullName);
     if (fullNameError) {
       throw new ConvexError({ code: "INVALID_PARTICIPANT_NAME", message: fullNameError });
     }
@@ -838,10 +837,10 @@ export const saveProfile = mutation({
       throw new ConvexError({ code: "INVALID_PHONE", message: phoneError });
     }
     const phone = normalizeParticipantPhone(args.phone);
-    const phoneVerification = participantProfileCodeConfiguration.phoneVerificationEnabled &&
-      args.phoneVerificationId
-      ? await ctx.db.get(args.phoneVerificationId)
-      : null;
+    const phoneVerification =
+      participantProfileCodeConfiguration.phoneVerificationEnabled && args.phoneVerificationId
+        ? await ctx.db.get(args.phoneVerificationId)
+        : null;
     if (
       participantProfileCodeConfiguration.phoneVerificationEnabled &&
       (!phoneVerification ||
@@ -870,24 +869,16 @@ export const saveProfile = mutation({
     if (vitStudentIdentity) {
       institution = vitInstitutionName;
     } else {
-      externalUniversity = normalizedText(
-        args.externalUniversity ?? "",
-        "University",
-        2,
-        160,
-      );
+      externalUniversity = normalizedText(args.externalUniversity ?? "", "University", 2, 160);
       externalCollege = normalizedText(args.externalCollege ?? "", "College", 2, 160);
-      institution = externalCollege === externalUniversity
-        ? externalUniversity
-        : `${externalCollege}, ${externalUniversity}`;
+      institution =
+        externalCollege === externalUniversity
+          ? externalUniversity
+          : `${externalCollege}, ${externalUniversity}`;
     }
     const vitRegistrationNumber = vitStudentIdentity?.registrationNumber;
     const vitProgramme = vitStudentIdentity?.programmeCode;
-    const {
-      vitResidenceType,
-      vitHostelResidence,
-      vitHostelRoomNumber,
-    } = parsedHostelDetails(
+    const { vitResidenceType, vitHostelResidence, vitHostelRoomNumber } = parsedHostelDetails(
       membership.participantClass,
       args.gender,
       args.vitResidenceType,
@@ -903,10 +894,7 @@ export const saveProfile = mutation({
     const teamMembership = await ctx.db
       .query("teamMembers")
       .withIndex("by_event_membership_status", (index) =>
-        index
-          .eq("eventId", event._id)
-          .eq("membershipId", membership._id)
-          .eq("status", "active"),
+        index.eq("eventId", event._id).eq("membershipId", membership._id).eq("status", "active"),
       )
       .unique();
     if (teamMembership) {
@@ -1008,9 +996,7 @@ export const saveProfile = mutation({
       nextSummary: JSON.stringify({
         profileVersion,
         participantPolicyVersionId: participantPolicy.policy._id,
-        ...(phoneVerification
-          ? { phoneVerificationId: phoneVerification._id }
-          : {}),
+        ...(phoneVerification ? { phoneVerificationId: phoneVerification._id } : {}),
       }),
       reason: "Participant profile save",
     });
@@ -1038,10 +1024,7 @@ export const declineAssignedTeam = mutation({
       await requireMembership(ctx, event._id, person._id),
     );
     const operationId = normalizedText(args.clientOperationId, "Client operation ID", 10, 100);
-    const requestFingerprint = operationFingerprint([
-      args.teamRosterEntryId,
-      args.expectedVersion,
-    ]);
+    const requestFingerprint = operationFingerprint([args.teamRosterEntryId, args.expectedVersion]);
     const prior = await findOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,

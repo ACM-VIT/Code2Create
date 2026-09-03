@@ -1,8 +1,7 @@
 import { operationsIntelligenceProtocolVersion } from "./intelligenceProtocol.ts";
 import { signServiceBody } from "./intelligenceSigning.ts";
 
-export const operationsCopilotIngressSignatureContext =
-  "code2create.operations-copilot.ingress.v1";
+export const operationsCopilotIngressSignatureContext = "code2create.operations-copilot.ingress.v1";
 export const operationsCopilotRecommendationSignatureContext =
   "code2create.operations-copilot.recommendation.v1";
 export const operationsCopilotConversationIdSignatureContext =
@@ -43,9 +42,6 @@ export async function deriveOperationsCopilotConversationId(args: {
   return `cv_${digest}`;
 }
 
-export function operationsCopilotInstanceId(args: {
-  eventSlug: string;
-  conversationId: string;
-}) {
+export function operationsCopilotInstanceId(args: { eventSlug: string; conversationId: string }) {
   return `copilot:${args.eventSlug}:${args.conversationId}`;
 }

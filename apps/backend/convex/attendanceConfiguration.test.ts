@@ -35,19 +35,16 @@ describe("attendance station configuration", () => {
     },
   );
 
-  test.each(["venue_entry", "venue_exit"] as const)(
-    "%s rejects a bound session",
-    (mode) => {
-      expect(() =>
-        validateAttendanceStationBinding({
-          mode,
-          stationZoneKey: "main",
-          sessionKey: "main_session",
-          sessions,
-        }),
-      ).toThrow("cannot select a session");
-    },
-  );
+  test.each(["venue_entry", "venue_exit"] as const)("%s rejects a bound session", (mode) => {
+    expect(() =>
+      validateAttendanceStationBinding({
+        mode,
+        stationZoneKey: "main",
+        sessionKey: "main_session",
+        sessions,
+      }),
+    ).toThrow("cannot select a session");
+  });
 
   test("a bound session must exist in the station zone", () => {
     expect(() =>

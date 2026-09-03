@@ -1,7 +1,4 @@
-import {
-  HttpBodyTooLargeError,
-  readBoundedResponseBytes,
-} from "./boundedHttpBody";
+import { HttpBodyTooLargeError, readBoundedResponseBytes } from "./boundedHttpBody";
 
 const figmaPreviewHost = "s3-alpha-sig.figma.com";
 const previewDownloadTimeoutMs = 30_000;

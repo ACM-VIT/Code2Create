@@ -3,11 +3,12 @@ import { verifyGoogleIdToken } from "@better-auth/core/social-providers";
 import { createClient, type GenericCtx } from "@convex-dev/better-auth";
 import { convex, crossDomain } from "@convex-dev/better-auth/plugins";
 import { betterAuth } from "better-auth/minimal";
-import { bearer, oneTap } from "better-auth/plugins";
+import { bearer, emailOTP, oneTap } from "better-auth/plugins";
 
 import { components, internal } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
 import authConfig from "./auth.config";
+import { sendAuthenticationOtp } from "./lib/authenticationEmail";
 
 function requiredEnvironmentValue(name: string) {
   const value = process.env[name]?.trim();
@@ -21,7 +22,9 @@ function requiredWebOrigin(name: string) {
   const value = requiredEnvironmentValue(name);
   const url = new URL(value);
   if (url.origin !== value || (url.protocol !== "https:" && url.hostname !== "localhost")) {
-    throw new Error(`${name} must be an HTTPS origin, or an HTTP localhost origin for development.`);
+    throw new Error(
+      `${name} must be an HTTPS origin, or an HTTP localhost origin for development.`,
+    );
   }
   return url.origin;
 }
@@ -90,11 +93,7 @@ export function createAuth(ctx: GenericCtx<DataModel>) {
   return betterAuth({
     appName: "Code2Create",
     baseURL: requiredWebOrigin("AUTH_SITE_URL"),
-    trustedOrigins: [
-      participantSiteUrl,
-      operationsSiteUrl,
-      "code2create-ops://",
-    ],
+    trustedOrigins: [participantSiteUrl, operationsSiteUrl, "code2create-ops://"],
     database: authComponent.adapter(ctx),
     socialProviders: googleProvider,
     databaseHooks: {
@@ -111,6 +110,13 @@ export function createAuth(ctx: GenericCtx<DataModel>) {
       expo(),
       bearer(),
       oneTap(),
+      emailOTP({
+        sendVerificationOTP: sendAuthenticationOtp,
+        expiresIn: 10 * 60,
+        allowedAttempts: 5,
+        storeOTP: "hashed",
+        rateLimit: { window: 60, max: 5 },
+      }),
       crossDomain({ siteUrl: participantSiteUrl }),
       convex({ authConfig }),
     ],

@@ -2,7 +2,7 @@ import { ConvexError, v } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalQuery, type QueryCtx } from "./_generated/server";
-import { isProfileCompleteForPolicy } from "./lib/participantPolicy";
+import { isParticipantReadyForPolicy } from "./lib/participantPolicy";
 import { matchingPermissionGrantIds } from "./lib/permissions";
 import { normalizeEmail } from "./lib/strings";
 
@@ -22,11 +22,7 @@ const supportedEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function releaseIdentifier(value: string, label: string) {
   const normalized = value.trim().toLowerCase();
-  if (
-    normalized.length === 0 ||
-    normalized.length > 80 ||
-    !supportedIdentifier.test(normalized)
-  ) {
+  if (normalized.length === 0 || normalized.length > 80 || !supportedIdentifier.test(normalized)) {
     throw new ConvexError({
       code: "INVALID_RELEASE_FIXTURE_INPUT",
       message: `${label} is invalid.`,
@@ -68,11 +64,7 @@ async function releaseAccount(
     .unique();
   if (!subject || subject.status !== "active") return null;
   const person = await ctx.db.get(subject.personId);
-  if (
-    !person ||
-    person.status !== "active" ||
-    normalizeEmail(person.verifiedEmail) !== email
-  ) {
+  if (!person || person.status !== "active" || normalizeEmail(person.verifiedEmail) !== email) {
     return null;
   }
   return { person, subject };
@@ -86,10 +78,7 @@ function fixtureNotReady(missing: readonly string[]): never {
   });
 }
 
-export async function inspectReleaseFixture(
-  ctx: QueryCtx,
-  args: ReleaseFixtureArgs,
-) {
+export async function inspectReleaseFixture(ctx: QueryCtx, args: ReleaseFixtureArgs) {
   const eventSlug = releaseIdentifier(args.eventSlug, "Event slug");
   const participantAccountEmail = releaseEmail(
     args.participantAccountEmail,
@@ -117,16 +106,16 @@ export async function inspectReleaseFixture(
     : null;
   const participantPolicyReady = Boolean(
     participantPolicy &&
-      participantPolicy.eventId === event._id &&
-      participantPolicy.status === "published",
+    participantPolicy.eventId === event._id &&
+    participantPolicy.status === "published",
   );
   const communicationsPolicy = event.publishedCommunicationsPolicyId
     ? await ctx.db.get(event.publishedCommunicationsPolicyId)
     : null;
   const communicationsPolicyReady = Boolean(
     communicationsPolicy &&
-      communicationsPolicy.eventId === event._id &&
-      communicationsPolicy.status === "published",
+    communicationsPolicy.eventId === event._id &&
+    communicationsPolicy.status === "published",
   );
   const [participantAccount, operationsAccount] = await Promise.all([
     releaseAccount(ctx, event._id, participantAccountEmail),
@@ -171,9 +160,7 @@ export async function inspectReleaseFixture(
       const [profile, member, profileReadGrantIds] = await Promise.all([
         ctx.db
           .query("participantProfiles")
-          .withIndex("by_membership", (index) =>
-            index.eq("membershipId", membership._id),
-          )
+          .withIndex("by_membership", (index) => index.eq("membershipId", membership._id))
           .unique(),
         ctx.db
           .query("teamMembers")
@@ -195,7 +182,7 @@ export async function inspectReleaseFixture(
       if (
         !participantPolicy ||
         !participantPolicyReady ||
-        !isProfileCompleteForPolicy(profile, membership, participantPolicy)
+        !(await isParticipantReadyForPolicy(ctx, profile, membership, participantPolicy))
       ) {
         missing.push("participant_profile");
       }
@@ -240,16 +227,14 @@ export async function inspectReleaseFixture(
           ]);
           if (
             !teamReadGrants.some(
-              (grant) =>
-                grant?.scopeType === "team" && grant.scopeId === team._id,
+              (grant) => grant?.scopeType === "team" && grant.scopeId === team._id,
             )
           ) {
             missing.push("participant_team_read");
           }
           if (
             !integrationReadGrants.some(
-              (grant) =>
-                grant?.scopeType === "team" && grant.scopeId === team._id,
+              (grant) => grant?.scopeType === "team" && grant.scopeId === team._id,
             )
           ) {
             missing.push("participant_integration_read");

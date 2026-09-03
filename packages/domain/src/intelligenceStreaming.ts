@@ -1,4 +1,4 @@
-import { operationsIntelligenceProtocolVersion } from "./intelligenceProtocol.ts";
+import type { operationsIntelligenceProtocolVersion } from "./intelligenceProtocol.ts";
 
 export const operationsCopilotStreamTicketSignatureContext =
   "code2create.operations-copilot.stream-ticket.v1";
@@ -80,9 +80,10 @@ export function encodeOperationsIntelligenceStreamTicket(
 ) {
   const bytes = new TextEncoder().encode(serializeOperationsIntelligenceStreamTicket(ticket));
   let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary)
-    .replaceAll("+", "-")
-    .replaceAll("/", "_")
-    .replace(/=+$/u, "");
+  for (const byte of bytes) {
+    // These are UTF-8 bytes for btoa, not Unicode scalar values.
+    // oxlint-disable-next-line unicorn/prefer-code-point
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, "");
 }

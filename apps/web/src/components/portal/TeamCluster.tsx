@@ -1,63 +1,68 @@
-import { safePolygon, useFloating, useHover, useInteractions } from '@floating-ui/react'
-import { useState } from 'react'
-import { Link } from 'react-router-dom'
-import { Petal } from './Petal'
-import { usePortalSignOut } from './portalSceneContext'
-import { Flower } from './FlowerAvatar'
-import { assignFlowerVariants } from './flowerVariants'
+import { safePolygon, useFloating, useHover, useInteractions } from "@floating-ui/react";
+import { useState } from "react";
+import { useDesktop } from "../../lib/useDesktop";
+import { Link } from "react-router-dom";
+import { Petal } from "./Petal";
+import { usePortalSignOut } from "./portalSceneContext";
+import { assignFlowerVariants } from "./flowerVariants";
+import { MemberAvatarVisual } from "./MemberAvatarVisual";
 
 // Structural props rather than the generated Convex views: this is a
 // presentational component, and Convex `Id<T>` widens to `string`, so real
 // query results still satisfy these while fixtures stay constructible.
 export type ClusterTeam = {
-  name: string
-  publicCode: string
-  activeMemberCount: number
-  teamMaximumSize: number
-  currentMembershipId: string
-}
+  name: string;
+  publicCode: string;
+  activeMemberCount: number;
+  teamMaximumSize: number;
+  currentMembershipId: string;
+};
 
 export type ClusterMember = {
-  teamMemberId: string
-  membershipId: string
-  role: string
-  displayName: string
-}
+  teamMemberId: string;
+  membershipId: string;
+  role: string;
+  displayName: string;
+  githubAvatarUrl?: string | undefined;
+};
 
 function Avatar({
   displayName,
+  githubAvatarUrl,
   seed,
   lead,
   variant,
-  size = 'md',
-  className = '',
+  size = "md",
+  className = "",
 }: {
-  displayName: string
-  seed: string
-  lead: boolean
-  variant?: number
-  size?: 'sm' | 'md'
-  className?: string
+  displayName: string;
+  githubAvatarUrl?: string | undefined;
+  seed: string;
+  lead: boolean;
+  variant?: number;
+  size?: "sm" | "md";
+  className?: string;
 }) {
   // The mockup's 48px stack crowds a 390px header, so it steps down on mobile.
-  const box = size === 'md' ? 'size-10 lg:size-12' : 'size-[34px]'
+  const box = size === "md" ? "size-10 lg:size-12" : "size-[34px]";
   return (
     <div
       title={displayName}
-      className={`flex flex-none items-center justify-center rounded-full ${box} ${
-        lead
-          ? 'border-2 border-ring-lead bg-avatar-lead shadow-[0_0_18px_var(--avatar-glow)]'
-          : 'border-2 border-rose/70 bg-avatar'
+      data-ph-sensitive
+      className={`relative flex flex-none items-center justify-center rounded-full ${box} ${
+        lead ? "border-2 border-ring-lead bg-avatar-lead" : "border-2 border-rose/70 bg-avatar"
       } ${className}`}
     >
-      <Flower
+      <MemberAvatarVisual
+        displayName={displayName}
+        githubAvatarUrl={githubAvatarUrl}
         seed={seed}
         lead={lead}
         {...(variant === undefined ? {} : { variant })}
-        className="size-[62%]"
+        flowerClassName="size-[62%]"
       />
     </div>
-  )
+  );
 }
 
 /**
@@ -71,51 +76,56 @@ export function TeamCluster({
   editable = true,
   canManage = false,
 }: {
-  team: ClusterTeam
-  members: readonly ClusterMember[]
-  editable?: boolean
-  canManage?: boolean
+  team: ClusterTeam;
+  members: readonly ClusterMember[];
+  editable?: boolean;
+  canManage?: boolean;
 }) {
   // Hover previews the roster; a click pins it, while keyboard focus keeps the
   // whole cluster open for tabbing. Keeping those channels separate prevents a
   // pointer-induced focus event from cancelling the click that should pin it.
-  const [pinned, setPinned] = useState(false)
-  const [hovered, setHovered] = useState(false)
-  const [keyboardFocused, setKeyboardFocused] = useState(false)
-  const [reference, setReference] = useState<HTMLElement | null>(null)
-  const [floating, setFloating] = useState<HTMLDivElement | null>(null)
-  const open = pinned || hovered || keyboardFocused
+  const [pinned, setPinned] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  const [keyboardFocused, setKeyboardFocused] = useState(false);
+  const [reference, setReference] = useState<HTMLElement | null>(null);
+  const [floating, setFloating] = useState<HTMLDivElement | null>(null);
+  const open = pinned || hovered || keyboardFocused;
   const { context } = useFloating({
     elements: { reference, floating },
     open: hovered,
     onOpenChange: setHovered,
-    placement: 'bottom-end',
-  })
+    placement: "bottom-end",
+  });
   const hover = useHover(context, {
     mouseOnly: true,
     handleClose: safePolygon({ buffer: 1 }),
-  })
-  const { getFloatingProps, getReferenceProps } = useInteractions([hover])
-  const shown = members.slice(0, 4)
+  });
+  const { getFloatingProps, getReferenceProps } = useInteractions([hover]);
   // One deal for the whole roster so no two members share a bloom.
   const flowerVariants = assignFlowerVariants(
-    members.filter((member) => member.role !== 'lead').map((member) => member.membershipId),
-  )
+    members.filter((member) => member.role !== "lead").map((member) => member.membershipId),
+  );
+
+  // Every face fits on a wide screen; a phone header shows three and a count
+  // once the stack would pass four.
+  const desktop = useDesktop();
+  const shown = !desktop && members.length > 4 ? members.slice(0, 3) : members;
+  const hidden = members.slice(shown.length);
 
   return (
     <div
       className="relative text-right"
       onFocus={(event) => {
-        const target = event.target
-        if (target instanceof HTMLElement && target.matches(':focus-visible')) {
-          setKeyboardFocused(true)
+        const target = event.target;
+        if (target instanceof HTMLElement && target.matches(":focus-visible")) {
+          setKeyboardFocused(true);
         }
       }}
       onBlur={(event) => {
-        const nextTarget = event.relatedTarget
-        if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) return
-        setPinned(false)
-        setKeyboardFocused(false)
+        const nextTarget = event.relatedTarget;
+        if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) return;
+        setPinned(false);
+        setKeyboardFocused(false);
       }}
     >
       <div
@@ -130,20 +140,29 @@ export function TeamCluster({
           onClick={() => setPinned((value) => !value)}
           className="block cursor-pointer rounded-lg"
         >
-          <div className="flex justify-end">
-            {shown.map((member, index) => {
-              const variant = flowerVariants.get(member.membershipId)
+          <div className="avatar-stack justify-end">
+            {shown.map((member) => {
+              const variant = flowerVariants.get(member.membershipId);
               return (
                 <Avatar
                   key={member.teamMemberId}
                   displayName={member.displayName}
+                  githubAvatarUrl={member.githubAvatarUrl}
                   seed={member.membershipId}
-                  lead={member.role === 'lead'}
+                  lead={member.role === "lead"}
                   {...(variant === undefined ? {} : { variant })}
-                  className={index > 0 ? '-ml-2 lg:-ml-2.5' : ''}
                 />
-              )
+              );
             })}
+            {hidden.length > 0 ? (
+              <div
+                title={hidden.map((member) => member.displayName).join(", ")}
+                data-ph-sensitive
+                className="flex size-10 flex-none items-center justify-center rounded-full bg-fg/15 font-ui text-[13px] text-fg/80 lg:size-12 lg:text-sm"
+              >
+                +{hidden.length}
+              </div>
+            ) : null}
           </div>
           <p className="mt-2 hidden font-ui font-normal text-[13.5px] text-rose-light sm:block">
             {team.name}
@@ -166,27 +185,28 @@ export function TeamCluster({
         </div>
       ) : null}
     </div>
-  )
+  );
 }
 
 /** The join code as a one-tap copy. */
 function CopyCode({ code }: { code: string }) {
-  const [copied, setCopied] = useState(false)
+  const [copied, setCopied] = useState(false);
   return (
     <button
       type="button"
       title="Copy the join code"
+      data-ph-sensitive
       onClick={() => {
         void navigator.clipboard.writeText(code).then(() => {
-          setCopied(true)
-          window.setTimeout(() => setCopied(false), 1600)
-        })
+          setCopied(true);
+          window.setTimeout(() => setCopied(false), 1600);
+        });
       }}
       className="font-mono text-[12.5px] tracking-[.12em] text-rose-light transition-colors hover:text-fg"
     >
-      {copied ? 'copied' : code}
+      {copied ? "copied" : code}
     </button>
-  )
+  );
 }
 
 /**
@@ -200,15 +220,15 @@ export function TeamRosterPanel({
   editable = true,
   canManage = false,
 }: {
-  team: ClusterTeam
-  members: readonly ClusterMember[]
-  editable?: boolean
-  canManage?: boolean
+  team: ClusterTeam;
+  members: readonly ClusterMember[];
+  editable?: boolean;
+  canManage?: boolean;
 }) {
   const flowerVariants = assignFlowerVariants(
-    members.filter((member) => member.role !== 'lead').map((member) => member.membershipId),
-  )
-  const onSignOut = usePortalSignOut()
+    members.filter((member) => member.role !== "lead").map((member) => member.membershipId),
+  );
+  const onSignOut = usePortalSignOut();
   return (
     <div className="rounded-petal-sm glass-menu px-5 py-4 text-left">
       <div className="mb-3 flex items-baseline justify-between">
@@ -220,51 +240,51 @@ export function TeamRosterPanel({
       {/* Preflight is off, so a bare ul keeps the UA's 40px indent. */}
       <ul className="m-0 list-none p-0">
         {members.map((member) => {
-          const isYou = member.membershipId === team.currentMembershipId
-          const variant = flowerVariants.get(member.membershipId)
+          const isYou = member.membershipId === team.currentMembershipId;
+          const variant = flowerVariants.get(member.membershipId);
           return (
             <li key={member.teamMemberId} className="flex items-center gap-3 py-2">
               <Avatar
                 displayName={member.displayName}
+                githubAvatarUrl={member.githubAvatarUrl}
                 seed={member.membershipId}
-                lead={member.role === 'lead'}
+                lead={member.role === "lead"}
                 {...(variant === undefined ? {} : { variant })}
                 size="sm"
               />
               <div className="min-w-0 flex-1">
-                <div className="truncate text-[12.5px] font-semibold">{member.displayName}</div>
+                <div className="truncate text-[12.5px] font-semibold" data-ph-sensitive>
+                  {member.displayName}
+                </div>
                 <div
                   className={`text-[10.5px] ${
-                    member.role === 'lead' || isYou
-                      ? 'font-ui font-normal text-rose-light'
-                      : 'text-fg/50'
+                    member.role === "lead" || isYou
+                      ? "font-ui font-normal text-rose-light"
+                      : "text-fg/50"
                   }`}
                 >
-                  {[member.role === 'lead' ? 'lead' : null, isYou ? 'you' : null]
+                  {[member.role === "lead" ? "lead" : null, isYou ? "you" : null]
                     .filter(Boolean)
-                    .join(' · ') || 'member'}
+                    .join(" · ") || "member"}
                 </div>
               </div>
-              {member.role === 'lead' ? <Petal size={13} /> : null}
+              {member.role === "lead" ? <Petal size={13} /> : null}
             </li>
-          )
+          );
         })}
       </ul>
       <div className="mt-3 flex items-center justify-between gap-3 border-t border-petal-line pt-3">
         {editable ? (
           <CopyCode code={team.publicCode} />
         ) : (
-          <p className="m-0 flex items-center gap-1.5 text-[11.5px] text-fg/50">
-            <Petal size={12} />
-            changes closed
-          </p>
+          <p className="m-0 text-[11.5px] text-fg/50">changes closed</p>
         )}
         <Link
           to="/team"
           viewTransition
           className="flex-none text-[11.5px] text-fg/55 no-underline transition-colors hover:text-rose-light"
         >
-          {canManage && editable ? 'manage team' : 'view team'}
+          {canManage && editable ? "manage team" : "view team"}
         </Link>
       </div>
       {onSignOut ? (
@@ -297,5 +317,5 @@ export function TeamRosterPanel({
         </div>
       ) : null}
     </div>
-  )
+  );
 }

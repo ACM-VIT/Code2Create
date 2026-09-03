@@ -12,19 +12,13 @@ import { z } from "zod";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { httpAction, internalQuery, type ActionCtx, type QueryCtx } from "./_generated/server";
-import {
-  HttpBodyTooLargeError,
-  readBoundedRequestText,
-} from "./lib/boundedHttpBody";
+import { HttpBodyTooLargeError, readBoundedRequestText } from "./lib/boundedHttpBody";
 import { redactProjectText } from "./lib/projectText";
 import { requireIntelligenceHmacSecret } from "./lib/intelligenceServiceConfiguration";
-import {
-  intelligenceRecommendationStatus,
-} from "./lib/intelligenceRecommendationValidators";
+import { intelligenceRecommendationStatus } from "./lib/intelligenceRecommendationValidators";
 import { operationsAttentionIntelligenceStatement } from "./lib/operationsAutonomyReadFacts";
 import { maximumAttendanceSessionsPerPlan } from "./lib/attendancePlanLimits";
 import { attendanceCounterShardCount } from "./lib/attendanceCounters";
-import { maximumFloorZones } from "./lib/floor";
 import {
   maximumReviewPanelsPerRound,
   maximumReviewRoundsPerEvent,
@@ -39,7 +33,6 @@ import {
   attentionDetectorKey,
   attentionSeverity,
   attentionSubjectType,
-  floorMappingState,
   reviewPanelStatus,
   reviewRoundStatus,
   supportCaseCategory,
@@ -58,7 +51,6 @@ const ordinaryReadNames = {
   review_rounds: "review_rounds",
   review_exceptions: "review_exceptions",
   attendance_counts: "attendance_counts",
-  floor_mapping_progress: "floor_mapping_progress",
   support_load: "support_load",
 } satisfies {
   [Read in Exclude<OperationsIntelligenceReadName, "recommendation_history">]: Read;
@@ -124,14 +116,17 @@ export const intelligenceReadEndpoint = httpAction(async (ctx, request) => {
   if (!resolved) return Response.json({ error: "event_not_found" }, { status: 404 });
   const eventId = resolved.eventId;
   const now = Date.now();
-  const data = await runIntelligenceRead(ctx, parsed.data.read === "recommendation_history"
-    ? {
-        read: parsed.data.read,
-        eventId,
-        now,
-        conversationId: parsed.data.conversationId,
-      }
-    : { read: parsed.data.read, eventId, now });
+  const data = await runIntelligenceRead(
+    ctx,
+    parsed.data.read === "recommendation_history"
+      ? {
+          read: parsed.data.read,
+          eventId,
+          now,
+          conversationId: parsed.data.conversationId,
+        }
+      : { read: parsed.data.read, eventId, now },
+  );
   if (data === null) {
     return Response.json({ error: "operations_health_unavailable" }, { status: 503 });
   }
@@ -154,7 +149,7 @@ type IntelligenceReadDispatch =
 export async function runIntelligenceRead(
   ctx: ActionCtx,
   args: IntelligenceReadDispatch,
-): Promise<unknown> {
+) {
   switch (args.read) {
     case "operations_health": {
       const health = await ctx.runQuery(internal.operationsHealth.materializedForEvent, {
@@ -180,11 +175,6 @@ export async function runIntelligenceRead(
       });
     case "attendance_counts":
       return ctx.runQuery(internal.intelligenceReads.attendanceCountsRead, {
-        eventId: args.eventId,
-        now: args.now,
-      });
-    case "floor_mapping_progress":
-      return ctx.runQuery(internal.intelligenceReads.floorMappingProgressRead, {
         eventId: args.eventId,
         now: args.now,
       });
@@ -300,35 +290,36 @@ export const reviewRoundsRead = internalQuery({
     const reviewableTeams = eventTeams.filter(isReviewableTeam);
     const views = [];
     for (const round of rounds.sort((left, right) => left.startsAt - right.startsAt)) {
-      const [panels, states, awaitingSessions, activeSessions, overdueSessions, isPaused] = await Promise.all([
-        ctx.db
-          .query("reviewPanels")
-          .withIndex("by_round_status", (index) => index.eq("roundId", round._id))
-          .take(maximumReviewPanelsPerRound + 1),
-        ctx.db
-          .query("teamRoundStates")
-          .withIndex("by_round_state_priority_queued", (index) => index.eq("roundId", round._id))
-          .take(maximumReviewTeamsPerEvent + 1),
-        ctx.db
-          .query("reviewSessions")
-          .withIndex("by_round_status_updated", (index) =>
-            index.eq("roundId", round._id).eq("status", "awaiting_presence"),
-          )
-          .take(maximumReviewPanelsPerRound + 1),
-        ctx.db
-          .query("reviewSessions")
-          .withIndex("by_round_status_updated", (index) =>
-            index.eq("roundId", round._id).eq("status", "active"),
-          )
-          .take(maximumReviewPanelsPerRound + 1),
-        ctx.db
-          .query("reviewSessions")
-          .withIndex("by_round_status_updated", (index) =>
-            index.eq("roundId", round._id).eq("status", "overdue"),
-          )
-          .take(maximumReviewPanelsPerRound + 1),
-        activeRoundPauseExists(ctx, round._id),
-      ]);
+      const [panels, states, awaitingSessions, activeSessions, overdueSessions, isPaused] =
+        await Promise.all([
+          ctx.db
+            .query("reviewPanels")
+            .withIndex("by_round_status", (index) => index.eq("roundId", round._id))
+            .take(maximumReviewPanelsPerRound + 1),
+          ctx.db
+            .query("teamRoundStates")
+            .withIndex("by_round_state_priority_queued", (index) => index.eq("roundId", round._id))
+            .take(maximumReviewTeamsPerEvent + 1),
+          ctx.db
+            .query("reviewSessions")
+            .withIndex("by_round_status_updated", (index) =>
+              index.eq("roundId", round._id).eq("status", "awaiting_presence"),
+            )
+            .take(maximumReviewPanelsPerRound + 1),
+          ctx.db
+            .query("reviewSessions")
+            .withIndex("by_round_status_updated", (index) =>
+              index.eq("roundId", round._id).eq("status", "active"),
+            )
+            .take(maximumReviewPanelsPerRound + 1),
+          ctx.db
+            .query("reviewSessions")
+            .withIndex("by_round_status_updated", (index) =>
+              index.eq("roundId", round._id).eq("status", "overdue"),
+            )
+            .take(maximumReviewPanelsPerRound + 1),
+          activeRoundPauseExists(ctx, round._id),
+        ]);
       if (panels.length > maximumReviewPanelsPerRound) {
         throw new Error("A review round exceeds the published panel limit.");
       }
@@ -346,8 +337,7 @@ export const reviewRoundsRead = internalQuery({
         queuedCount: states.filter(
           (state) => state.panelId === panel._id && state.state === "queued",
         ).length,
-        activeReviewCount: liveSessions.filter((session) => session.panelId === panel._id)
-          .length,
+        activeReviewCount: liveSessions.filter((session) => session.panelId === panel._id).length,
       }));
       const stateTeamIds = new Set(states.map((state) => state.teamId));
       const count = (state: Doc<"teamRoundStates">["state"]) =>
@@ -405,7 +395,6 @@ export const reviewExceptionsRead = internalQuery({
         queuedAt: v.optional(v.number()),
         heldAt: v.optional(v.number()),
         missedAt: v.optional(v.number()),
-        tableLabel: v.optional(v.string()),
       }),
     ),
     atLeast: v.boolean(),
@@ -438,9 +427,7 @@ export const reviewExceptionsRead = internalQuery({
           panelVersion: panel.version,
           roundId: round._id,
           roundName: round.name,
-          ...(removedMember.endedAt !== undefined
-            ? { vacantSince: removedMember.endedAt }
-            : {}),
+          ...(removedMember.endedAt !== undefined ? { vacantSince: removedMember.endedAt } : {}),
         });
       }
     }
@@ -455,8 +442,7 @@ export const reviewExceptionsRead = internalQuery({
     }
     const exceptionStates = ["queued", "called", "at_table", "held", "missed"] as const;
     const teams = [];
-    roundLoop:
-    for (const round of rounds) {
+    roundLoop: for (const round of rounds) {
       for (const state of exceptionStates) {
         const rows = await ctx.db
           .query("teamRoundStates")
@@ -474,7 +460,6 @@ export const reviewExceptionsRead = internalQuery({
             ...(row.queuedAt !== undefined ? { queuedAt: row.queuedAt } : {}),
             ...(row.heldAt !== undefined ? { heldAt: row.heldAt } : {}),
             ...(row.missedAt !== undefined ? { missedAt: row.missedAt } : {}),
-            ...(row.tableLabel !== undefined ? { tableLabel: row.tableLabel } : {}),
           });
         }
         if (teams.length >= queryLimit) break roundLoop;
@@ -662,102 +647,6 @@ export const attendanceCountsRead = internalQuery({
   },
 });
 
-export const floorMappingProgressRead = internalQuery({
-  args: { eventId: v.id("events"), now: v.number() },
-  returns: v.object({
-    generatedAt: v.number(),
-    plan: v.union(
-      v.null(),
-      v.object({
-        name: v.string(),
-        planNumber: v.number(),
-        mappingState: floorMappingState,
-      }),
-    ),
-    eligibleTeamCount: v.number(),
-    mappedTeamCount: v.number(),
-    unmappedTeamCount: v.number(),
-    lastMappedAt: v.optional(v.number()),
-    zones: v.array(
-      v.object({
-        zoneId: v.id("floorZones"),
-        name: v.string(),
-        mappedTeamCount: v.number(),
-      }),
-    ),
-  }),
-  handler: async (ctx, args) => {
-    const event = await ctx.db.get(args.eventId);
-    if (!event) throw new Error("The intelligence read event no longer exists.");
-    const planId = event.publishedFloorPlanVersionId;
-    const plan = planId ? await ctx.db.get(planId) : null;
-    const eligibleTeams = (
-      await Promise.all(
-        (["confirmed", "checked_in", "active"] as const).map((status) =>
-          ctx.db
-            .query("teams")
-            .withIndex("by_event_status", (index) =>
-              index.eq("eventId", args.eventId).eq("status", status),
-            )
-            .take(maximumReviewTeamsPerEvent + 1),
-        ),
-      )
-    ).flat();
-    if (eligibleTeams.length > maximumReviewTeamsPerEvent) {
-      throw new Error("An event exceeds the floor intelligence team limit.");
-    }
-    if (!plan || plan.eventId !== event._id || plan.status !== "published") {
-      return {
-        generatedAt: args.now,
-        plan: null,
-        eligibleTeamCount: eligibleTeams.length,
-        mappedTeamCount: 0,
-        unmappedTeamCount: eligibleTeams.length,
-        zones: [],
-      };
-    }
-    const [zones, locations] = await Promise.all([
-      ctx.db
-        .query("floorZones")
-        .withIndex("by_plan_order", (index) => index.eq("planVersionId", plan._id))
-        .take(maximumFloorZones + 1),
-      ctx.db
-        .query("teamFloorLocations")
-        .withIndex("by_plan_state", (index) =>
-          index.eq("planVersionId", plan._id).eq("state", "active"),
-        )
-        .take(maximumReviewTeamsPerEvent + 1),
-    ]);
-    if (zones.length > maximumFloorZones) {
-      throw new Error("A floor plan exceeds the published zone limit.");
-    }
-    if (locations.length > maximumReviewTeamsPerEvent) {
-      throw new Error("A floor plan exceeds the floor intelligence team limit.");
-    }
-    const eligibleTeamIds = new Set(eligibleTeams.map((team) => team._id));
-    const eligibleLocations = locations.filter((location) =>
-      eligibleTeamIds.has(location.teamId),
-    );
-    const mappedTeamIds = new Set(eligibleLocations.map((location) => location.teamId));
-    return {
-      generatedAt: args.now,
-      plan: { name: plan.name, planNumber: plan.planNumber, mappingState: plan.mappingState },
-      eligibleTeamCount: eligibleTeams.length,
-      mappedTeamCount: mappedTeamIds.size,
-      unmappedTeamCount: eligibleTeams.filter((team) => !mappedTeamIds.has(team._id)).length,
-      ...(eligibleLocations.length > 0
-        ? { lastMappedAt: Math.max(...eligibleLocations.map((location) => location.mappedAt)) }
-        : {}),
-      zones: zones.map((zone) => ({
-        zoneId: zone._id,
-        name: zone.name,
-        mappedTeamCount: eligibleLocations.filter((location) => location.zoneId === zone._id)
-          .length,
-      })),
-    };
-  },
-});
-
 export const supportLoadRead = internalQuery({
   args: { eventId: v.id("events"), now: v.number() },
   returns: v.object({
@@ -769,9 +658,7 @@ export const supportLoadRead = internalQuery({
       resolved: v.number(),
       closed: v.number(),
     }),
-    openByCategory: v.array(
-      v.object({ category: supportCaseCategory, count: v.number() }),
-    ),
+    openByCategory: v.array(v.object({ category: supportCaseCategory, count: v.number() })),
     unassignedActiveCount: v.number(),
     oldestOpenAt: v.optional(v.number()),
     atLeast: v.boolean(),
@@ -779,11 +666,7 @@ export const supportLoadRead = internalQuery({
       v.object({
         caseId: v.id("supportCases"),
         category: supportCaseCategory,
-        state: v.union(
-          v.literal("open"),
-          v.literal("investigating"),
-          v.literal("waiting"),
-        ),
+        state: v.union(v.literal("open"), v.literal("investigating"), v.literal("waiting")),
         createdAt: v.number(),
         teamId: v.optional(v.id("teams")),
         roundId: v.optional(v.id("reviewRounds")),
@@ -851,13 +734,13 @@ export const supportLoadRead = internalQuery({
       row: Doc<"supportCases">,
       state: "open" | "investigating" | "waiting",
     ) => ({
-        caseId: row._id,
-        category: row.category,
-        state,
-        createdAt: row.createdAt,
-        ...(row.teamId !== undefined ? { teamId: row.teamId } : {}),
-        ...(row.roundId !== undefined ? { roundId: row.roundId } : {}),
-      });
+      caseId: row._id,
+      category: row.category,
+      state,
+      createdAt: row.createdAt,
+      ...(row.teamId !== undefined ? { teamId: row.teamId } : {}),
+      ...(row.roundId !== undefined ? { roundId: row.roundId } : {}),
+    });
     const activeCases = [
       ...openRows.map((row) => supportCaseView(row, "open")),
       ...investigatingRows.map((row) => supportCaseView(row, "investigating")),
@@ -912,8 +795,8 @@ export const recommendationHistoryRead = internalQuery({
       .withIndex("by_event_copilot_conversation_proposed", (index) =>
         index
           .eq("eventId", args.eventId)
-        .eq("provenance.kind", "copilot")
-        .eq("provenance.conversationId", args.conversationId),
+          .eq("provenance.kind", "copilot")
+          .eq("provenance.conversationId", args.conversationId),
       )
       .order("desc")
       .take(50);
@@ -921,17 +804,19 @@ export const recommendationHistoryRead = internalQuery({
       generatedAt: args.now,
       recommendations: rows.flatMap((row) => {
         if (row.arguments.kind === "set_admission_minimum_human_reviews") return [];
-        return [{
-          proposalKey: row.proposalKey,
-          kind: row.arguments.kind,
-          statement: redactProjectText(row.statement),
-          status: row.status,
-          ...(row.operatorNote !== undefined
-            ? { operatorNote: redactProjectText(row.operatorNote) }
-            : {}),
-          proposedAt: row.proposedAt,
-          ...(row.decidedAt !== undefined ? { decidedAt: row.decidedAt } : {}),
-        }];
+        return [
+          {
+            proposalKey: row.proposalKey,
+            kind: row.arguments.kind,
+            statement: redactProjectText(row.statement),
+            status: row.status,
+            ...(row.operatorNote !== undefined
+              ? { operatorNote: redactProjectText(row.operatorNote) }
+              : {}),
+            proposedAt: row.proposedAt,
+            ...(row.decidedAt !== undefined ? { decidedAt: row.decidedAt } : {}),
+          },
+        ];
       }),
     };
   },

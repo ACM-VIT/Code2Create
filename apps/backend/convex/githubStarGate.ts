@@ -12,7 +12,7 @@ import {
   requireMembership,
 } from "./lib/identity";
 import {
-  isProfileCompleteForPolicy,
+  isParticipantReadyForPolicy,
   loadPublishedParticipantPolicy,
 } from "./lib/participantPolicy";
 
@@ -22,16 +22,14 @@ const providerClaimLifetimeMs = 60 * 1_000;
 async function onboardingContext(ctx: MutationCtx, eventSlug: string) {
   const event = await requireEventBySlug(ctx, eventSlug);
   const { person } = await requireCurrentPerson(ctx);
-  const membership = requireEligibleMembership(
-    await requireMembership(ctx, event._id, person._id),
-  );
+  const membership = requireEligibleMembership(await requireMembership(ctx, event._id, person._id));
   requireRegistrationOpen(event, membership.participantClass);
   const profile = await ctx.db
     .query("participantProfiles")
     .withIndex("by_membership", (index) => index.eq("membershipId", membership._id))
     .unique();
   const participantPolicy = await loadPublishedParticipantPolicy(ctx, event);
-  if (!isProfileCompleteForPolicy(profile, membership, participantPolicy.policy)) {
+  if (!(await isParticipantReadyForPolicy(ctx, profile, membership, participantPolicy.policy))) {
     throw new ConvexError({
       code: "PROFILE_REQUIRED",
       message: "Complete your participant details before connecting GitHub.",
@@ -50,7 +48,7 @@ export async function requireGitHubStarCompletion(
     .withIndex("by_membership", (index) => index.eq("membershipId", membership._id))
     .unique();
   const participantPolicy = await loadPublishedParticipantPolicy(ctx, event);
-  if (!isProfileCompleteForPolicy(profile, membership, participantPolicy.policy)) {
+  if (!(await isParticipantReadyForPolicy(ctx, profile, membership, participantPolicy.policy))) {
     throw new ConvexError({
       code: "PROFILE_REQUIRED",
       message: "Complete your participant details before connecting GitHub.",
@@ -387,7 +385,8 @@ async function completeGitHubStar(
   if (githubCompletion) {
     throw new ConvexError({
       code: "GITHUB_ACCOUNT_IN_USE",
-      message: "That GitHub account was already used by another participant. Disconnect it, then connect a different GitHub account.",
+      message:
+        "That GitHub account was already used by another participant. Disconnect it, then connect a different GitHub account.",
     });
   }
   const completedAt = Date.now();
@@ -473,7 +472,8 @@ export const finishSetupIntent = internalMutation({
     if (githubCompletion && githubCompletion.membershipId !== membership._id) {
       throw new ConvexError({
         code: "GITHUB_ACCOUNT_IN_USE",
-        message: "That GitHub account was already used by another participant. Disconnect it, then connect a different GitHub account.",
+        message:
+          "That GitHub account was already used by another participant. Disconnect it, then connect a different GitHub account.",
       });
     }
     const githubAuthorization = await ctx.db
@@ -641,11 +641,12 @@ export const claimStar = internalMutation({
         message: "The repository star is already being confirmed.",
       });
     }
-    const kind = authorization.status === "revoking"
-      ? "revoke" as const
-      : authorization.status === "revoked"
-        ? "finish" as const
-        : "star" as const;
+    const kind =
+      authorization.status === "revoking"
+        ? ("revoke" as const)
+        : authorization.status === "revoked"
+          ? ("finish" as const)
+          : ("star" as const);
     await ctx.db.patch(authorization._id, {
       status: kind === "star" ? "starring" : authorization.status,
       attemptId: args.attemptId,

@@ -5,10 +5,7 @@ import type { MutationCtx } from "./_generated/server";
 import { mutation } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
-import {
-  requireCurrentPerson,
-  requireEventSubject,
-} from "./lib/identity";
+import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import {
   findOperation,
   operationFingerprint,
@@ -18,9 +15,7 @@ import {
 import { requirePermission } from "./lib/permissions";
 import { normalizedText } from "./lib/strings";
 
-type SubjectLifecyclePermission =
-  | "access.subjects.suspend"
-  | "access.subjects.reactivate";
+type SubjectLifecyclePermission = "access.subjects.suspend" | "access.subjects.reactivate";
 
 async function changeStatus(
   ctx: MutationCtx,
@@ -39,12 +34,7 @@ async function changeStatus(
   const { person } = await requireCurrentPerson(ctx);
   const actorSubject = await requireEventSubject(ctx, event._id, person._id);
   const reason = normalizedText(args.reason, "Reason", 5, 300);
-  const operationId = normalizedText(
-    args.clientOperationId,
-    "Client operation ID",
-    10,
-    100,
-  );
+  const operationId = normalizedText(args.clientOperationId, "Client operation ID", 10, 100);
   const requestFingerprint = operationFingerprint([
     args.targetPersonId,
     args.targetStatus,
@@ -59,10 +49,7 @@ async function changeStatus(
     requestFingerprint,
   });
   if (prior) {
-    const targetSubjectId = ctx.db.normalizeId(
-      "eventAccessSubjects",
-      prior.targetId,
-    );
+    const targetSubjectId = ctx.db.normalizeId("eventAccessSubjects", prior.targetId);
     if (!targetSubjectId) {
       throw new Error("Prior event-account status result is invalid.");
     }
@@ -85,9 +72,7 @@ async function changeStatus(
   const targetSubject = await ctx.db
     .query("eventAccessSubjects")
     .withIndex("by_event_person", (index) =>
-      index
-        .eq("eventId", event._id)
-        .eq("personId", args.targetPersonId),
+      index.eq("eventId", event._id).eq("personId", args.targetPersonId),
     )
     .unique();
   if (!targetSubject) {
@@ -139,9 +124,7 @@ async function changeStatus(
     scopeType: "person",
     scopeId: args.targetPersonId,
     action:
-      args.targetStatus === "suspended"
-        ? "access.subject_suspended"
-        : "access.subject_reactivated",
+      args.targetStatus === "suspended" ? "access.subject_suspended" : "access.subject_reactivated",
     targetType: "event_access_subject",
     targetId: targetSubject._id,
     previousSummary: JSON.stringify({

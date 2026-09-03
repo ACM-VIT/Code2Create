@@ -8,11 +8,7 @@ import {
   maximumSimultaneousAttendanceSessionsPerParticipant,
 } from "./lib/attendancePlanLimits";
 import { requireEventBySlug } from "./lib/events";
-import {
-  requireCurrentPerson,
-  requireEventSubject,
-  requireMembership,
-} from "./lib/identity";
+import { requireCurrentPerson, requireEventSubject, requireMembership } from "./lib/identity";
 import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
 import { latestVenueCheckIn } from "./lib/venueCheckInLifecycle";
 import {
@@ -46,11 +42,7 @@ export const mine = query({
     physicalCredential: v.union(
       v.object({
         kind: v.literal("vit_id_barcode"),
-        state: v.union(
-          v.literal("not_enrolled"),
-          v.literal("active"),
-          v.literal("suspended"),
-        ),
+        state: v.union(v.literal("not_enrolled"), v.literal("active"), v.literal("suspended")),
       }),
       v.object({
         kind: v.literal("badge_qr"),
@@ -132,9 +124,7 @@ export const mine = query({
         ? ctx.db
             .query("attendanceParticipantCurrentSessions")
             .withIndex("by_membership_plan_start", (index) =>
-              index
-                .eq("membershipId", membership._id)
-                .eq("planVersionId", publishedPlanId),
+              index.eq("membershipId", membership._id).eq("planVersionId", publishedPlanId),
             )
             .take(maximumAttendanceSessionsPerPlan + 1)
         : [],
@@ -161,19 +151,23 @@ export const mine = query({
       });
     }
     const projectedSessions = publishedPlanId
-      ? await Promise.all(projections.map(async (projection) => {
-          const session = await ctx.db.get(projection.sessionId);
-          if (!session) {
-            throw invalidParticipantProjection("A projected attendance session no longer exists.");
-          }
-          return await participantSessionView(ctx, {
-            eventId: event._id,
-            planVersionId: publishedPlanId,
-            membershipId: membership._id,
-            projection,
-            session,
-          });
-        }))
+      ? await Promise.all(
+          projections.map(async (projection) => {
+            const session = await ctx.db.get(projection.sessionId);
+            if (!session) {
+              throw invalidParticipantProjection(
+                "A projected attendance session no longer exists.",
+              );
+            }
+            return await participantSessionView(ctx, {
+              eventId: event._id,
+              planVersionId: publishedPlanId,
+              membershipId: membership._id,
+              projection,
+              session,
+            });
+          }),
+        )
       : [];
     const currentSessions = projectedSessions.filter(
       (session) => session.status === "open" || session.status === "closing",
@@ -189,16 +183,13 @@ export const mine = query({
     );
     const sessions = [
       ...currentSessions.map((session) => ({ ...session, timing: "current" as const })),
-      ...(nextSession
-        ? [{ ...nextSession, timing: "upcoming" as const }]
-        : []),
+      ...(nextSession ? [{ ...nextSession, timing: "upcoming" as const }] : []),
     ];
     return {
-      available: Boolean(
+      available:
         membership.eligibilityStatus === "eligible" &&
-          membership.onboardingStatus === "accepted" &&
-          planIsPublished,
-      ),
+        membership.onboardingStatus === "accepted" &&
+        planIsPublished,
       canMintPortalQr: portalQrGrantIds.length > 0,
       canReadResultHistory: resultHistoryGrantIds.length > 0,
       physicalCredential,
@@ -242,11 +233,7 @@ export const portalQrState = query({
       scopeId: membership._id,
     });
     const token = await ctx.db.get(args.tokenId);
-    if (
-      !token ||
-      token.eventId !== event._id ||
-      token.membershipId !== membership._id
-    ) {
+    if (!token || token.eventId !== event._id || token.membershipId !== membership._id) {
       return null;
     }
     return { state: token.state, expiresAt: token.expiresAt };
@@ -290,11 +277,7 @@ async function participantSessionView(
     throw invalidParticipantProjection("The current attendance schedule is inconsistent.");
   }
   const zone = await ctx.db.get(args.session.zoneId);
-  if (
-    !zone ||
-    zone.eventId !== args.eventId ||
-    zone.planVersionId !== args.planVersionId
-  ) {
+  if (!zone || zone.eventId !== args.eventId || zone.planVersionId !== args.planVersionId) {
     throw invalidParticipantProjection("The current attendance area is inconsistent.");
   }
   return {

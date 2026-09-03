@@ -12,12 +12,10 @@ export function normalizedE164Phone(value: string | undefined) {
 
 export function reviewerPageCallScript(args: {
   roundName: string;
-  tableLabel?: string;
   responseWindowSeconds: number;
 }) {
-  const location = args.tableLabel === undefined ? "" : ` at ${args.tableLabel}`;
   return [
-    `Code2Create needs you as a substitute reviewer for ${args.roundName}${location}.`,
+    `Code2Create needs you as a substitute reviewer for ${args.roundName}.`,
     `Open the reviewer app now and accept or decline within ${args.responseWindowSeconds} seconds.`,
   ].join(" ");
 }
@@ -76,9 +74,8 @@ export async function enqueueOutboundCall(
     attemptCount: 0,
     ...(destinationPhoneE164 === null
       ? {
-          providerErrorCode: args.destinationPhone === undefined
-            ? "call_consent_not_granted"
-            : "phone_not_e164",
+          providerErrorCode:
+            args.destinationPhone === undefined ? "call_consent_not_granted" : "phone_not_e164",
           completedAt: args.now,
         }
       : {}),

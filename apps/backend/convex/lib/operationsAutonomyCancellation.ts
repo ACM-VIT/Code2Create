@@ -4,13 +4,7 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 
-const terminalKinds = new Set([
-  "succeeded",
-  "no_op",
-  "escalated",
-  "failed",
-  "canceled",
-]);
+const terminalKinds = new Set(["succeeded", "no_op", "escalated", "failed", "canceled"]);
 
 export async function cancelAutonomyRun(
   ctx: MutationCtx,

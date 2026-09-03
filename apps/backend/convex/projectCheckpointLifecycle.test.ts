@@ -71,46 +71,56 @@ describe("project checkpoint lifecycle", () => {
     const dueAt = Date.UTC(2027, 8, 10, 12);
     const closesAt = projectCheckpointClosesAt(dueAt, 30);
     expect(closesAt).toBe(dueAt + 30 * 60_000);
-    expect(projectCheckpointAvailabilityAt({
-      admitted: true,
-      submitted: false,
-      startsAt: dueAt - 60_000,
-      dueAt,
-      closesAt,
-      now: dueAt,
-    })).toBe("open");
-    expect(projectCheckpointAvailabilityAt({
-      admitted: true,
-      submitted: false,
-      startsAt: dueAt - 60_000,
-      dueAt,
-      closesAt,
-      now: dueAt + 1,
-    })).toBe("late");
-    expect(projectCheckpointAvailabilityAt({
-      admitted: true,
-      submitted: false,
-      startsAt: dueAt - 60_000,
-      dueAt,
-      closesAt,
-      now: closesAt,
-    })).toBe("closed");
-    expect(projectCheckpointAvailabilityAt({
-      admitted: false,
-      submitted: false,
-      startsAt: dueAt - 60_000,
-      dueAt,
-      closesAt,
-      now: dueAt,
-    })).toBe("awaiting_confirmation");
-    expect(projectCheckpointAvailabilityAt({
-      admitted: false,
-      submitted: true,
-      startsAt: dueAt - 60_000,
-      dueAt,
-      closesAt,
-      now: closesAt + 1,
-    })).toBe("submitted");
+    expect(
+      projectCheckpointAvailabilityAt({
+        admitted: true,
+        submitted: false,
+        startsAt: dueAt - 60_000,
+        dueAt,
+        closesAt,
+        now: dueAt,
+      }),
+    ).toBe("open");
+    expect(
+      projectCheckpointAvailabilityAt({
+        admitted: true,
+        submitted: false,
+        startsAt: dueAt - 60_000,
+        dueAt,
+        closesAt,
+        now: dueAt + 1,
+      }),
+    ).toBe("late");
+    expect(
+      projectCheckpointAvailabilityAt({
+        admitted: true,
+        submitted: false,
+        startsAt: dueAt - 60_000,
+        dueAt,
+        closesAt,
+        now: closesAt,
+      }),
+    ).toBe("closed");
+    expect(
+      projectCheckpointAvailabilityAt({
+        admitted: false,
+        submitted: false,
+        startsAt: dueAt - 60_000,
+        dueAt,
+        closesAt,
+        now: dueAt,
+      }),
+    ).toBe("awaiting_confirmation");
+    expect(
+      projectCheckpointAvailabilityAt({
+        admitted: false,
+        submitted: true,
+        startsAt: dueAt - 60_000,
+        dueAt,
+        closesAt,
+        now: closesAt + 1,
+      }),
+    ).toBe("submitted");
   });
 
   test("reports global checkpoint totals independently of a loaded page", () => {
@@ -163,9 +173,7 @@ describe("project checkpoint lifecycle", () => {
           updatedAt: fixture.now,
         });
       }
-      for (const [index, status] of (
-        ["checked_in", "active", "completed"] as const
-      ).entries()) {
+      for (const [index, status] of (["checked_in", "active", "completed"] as const).entries()) {
         await ctx.db.insert("teams", {
           eventId: fixture.event._id,
           name: `Included team ${index}`,
@@ -272,8 +280,9 @@ describe("project checkpoint lifecycle", () => {
     const state = await participant.query(api.projectCheckpoints.mine, {
       eventSlug: fixture.event.slug,
     });
-    expect(state.checkpoints.find((checkpoint) => checkpoint.checkpointKey === "ideation"))
-      .toMatchObject({ availability: "open", canEdit: false });
+    expect(
+      state.checkpoints.find((checkpoint) => checkpoint.checkpointKey === "ideation"),
+    ).toMatchObject({ availability: "open", canEdit: false });
     await expect(
       participant.mutation(api.projectCheckpoints.saveUpdate, {
         eventSlug: fixture.event.slug,
@@ -369,10 +378,7 @@ describe("project checkpoint lifecycle", () => {
       expectedDraftVersion: first.draftVersion,
       clientOperationId: "checkpoint-second-save",
     });
-    const replayedFirst = await participant.mutation(
-      api.projectCheckpoints.saveUpdate,
-      firstArgs,
-    );
+    const replayedFirst = await participant.mutation(api.projectCheckpoints.saveUpdate, firstArgs);
     const currentDraft = await backend.run((ctx) => ctx.db.get(first.draftId));
 
     expect(first.draftVersion).toBe(1);
@@ -410,14 +416,15 @@ describe("project checkpoint lifecycle", () => {
   test("allows only one competing current draft", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedFixture(backend);
-    const create = (suffix: string) => backend.run((ctx) =>
-      saveProjectCheckpointPlanDraft(ctx, {
-        event: fixture.event,
-        actorPersonId: fixture.personId,
-        definitions: definitions(suffix),
-        now: fixture.now,
-      }),
-    );
+    const create = (suffix: string) =>
+      backend.run((ctx) =>
+        saveProjectCheckpointPlanDraft(ctx, {
+          event: fixture.event,
+          actorPersonId: fixture.personId,
+          definitions: definitions(suffix),
+          now: fixture.now,
+        }),
+      );
     const results = await Promise.allSettled([create("One"), create("Two")]);
     expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
     expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
@@ -541,13 +548,15 @@ function phases(start: number): PhaseScheduleInput[] {
     ["intermediate_update", "Intermediate update", "Teams record a progress checkpoint."],
     ["final_update", "Final update", "Teams complete the final project checkpoint."],
   ] as const satisfies readonly (readonly [PhaseScheduleInput["phaseKey"], string, string])[];
-  return normalizePhaseSchedule(names.map(([phaseKey, displayName, description], index) => ({
-    phaseKey,
-    displayName,
-    description,
-    startsAt: start + index * 60 * 60_000,
-    endsAt: start + (index + 1) * 60 * 60_000,
-  })));
+  return normalizePhaseSchedule(
+    names.map(([phaseKey, displayName, description], index) => ({
+      phaseKey,
+      displayName,
+      description,
+      startsAt: start + index * 60 * 60_000,
+      endsAt: start + (index + 1) * 60 * 60_000,
+    })),
+  );
 }
 
 async function publishedPhaseFixture(backend: BackendTest) {
@@ -596,7 +605,7 @@ async function seedFixture(backend: BackendTest, authUserId?: string) {
       timezone: "Asia/Kolkata",
       status: "registration_open",
       vitEmailDomains: ["vitstudent.ac.in"],
-        applicationsCloseAt: Date.now() + 86_400_000,
+      applicationsCloseAt: Date.now() + 86_400_000,
       createdByPersonId: personId,
       version: 1,
       createdAt: now,

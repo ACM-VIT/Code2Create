@@ -66,9 +66,7 @@ export async function timedGitHubFetch(
   const timeoutSignal = AbortSignal.timeout(timeoutMs);
   return fetch(input, {
     ...init,
-    signal: callerSignal
-      ? AbortSignal.any([callerSignal, timeoutSignal])
-      : timeoutSignal,
+    signal: callerSignal ? AbortSignal.any([callerSignal, timeoutSignal]) : timeoutSignal,
   });
 }
 
@@ -119,7 +117,7 @@ export function githubOAuthGrantRevocationRequest(
 type GitHubStarLookup = (
   route: "GET /user/starred/{owner}/{repo}",
   options: { owner: string; repo: string },
-) => Promise<unknown>;
+) => Promise<object>;
 
 function requiredEnvironment(name: string) {
   const value = process.env[name]?.trim();

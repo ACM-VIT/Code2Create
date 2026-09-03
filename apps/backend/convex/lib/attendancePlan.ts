@@ -1,4 +1,6 @@
-export function attendancePlanChecksum(value: object) {
+type AttendancePlanChecksumSource = object;
+
+export function attendancePlanChecksum(value: AttendancePlanChecksumSource) {
   const text = JSON.stringify(value);
   let hash = 2_166_136_261;
   for (let index = 0; index < text.length; index += 1) {

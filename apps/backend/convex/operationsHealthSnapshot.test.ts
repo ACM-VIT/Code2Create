@@ -38,42 +38,61 @@ describe("operations-health materialization", () => {
       eventId: firstEventId,
     });
     await backend.run((ctx) => insertEvent(ctx, "second-event", 1));
-    await expect(
-      backend.query(internal.operationsHealth.refreshTarget, {}),
-    ).rejects.toThrow("exactly one event");
+    await expect(backend.query(internal.operationsHealth.refreshTarget, {})).rejects.toThrow(
+      "exactly one event",
+    );
   });
 
   test("upserts one row and makes exact or stale retries no-ops", async () => {
     const backend = convexTest(schema, modules);
+    const leaseId = await claimHealthRefreshLease(backend);
     const eventId = await backend.run((ctx) => insertEvent(ctx, "health-upsert", 3));
     const first = healthySnapshot("health-upsert", 1_000);
 
-    expect(await backend.mutation(internal.operationsHealth.upsertSnapshot, {
-      eventId,
-      eventVersion: 3,
-      snapshot: first,
-    })).toBe("created");
-    expect(await backend.mutation(internal.operationsHealth.upsertSnapshot, {
-      eventId,
-      eventVersion: 3,
-      snapshot: first,
-    })).toBe("unchanged");
-    expect(await backend.mutation(internal.operationsHealth.upsertSnapshot, {
-      eventId,
-      eventVersion: 2,
-      snapshot: healthySnapshot("health-upsert", 1_002),
-    })).toBe("stale");
+    expect(
+      await backend.mutation(internal.operationsHealth.upsertSnapshot, {
+        eventId,
+        eventVersion: 3,
+        leaseId,
+        leaseObservedAt: 0,
+        snapshot: first,
+      }),
+    ).toBe("created");
+    expect(
+      await backend.mutation(internal.operationsHealth.upsertSnapshot, {
+        eventId,
+        eventVersion: 3,
+        leaseId,
+        leaseObservedAt: 0,
+        snapshot: first,
+      }),
+    ).toBe("unchanged");
+    expect(
+      await backend.mutation(internal.operationsHealth.upsertSnapshot, {
+        eventId,
+        eventVersion: 2,
+        leaseId,
+        leaseObservedAt: 0,
+        snapshot: healthySnapshot("health-upsert", 1_002),
+      }),
+    ).toBe("stale");
     await backend.run((ctx) => ctx.db.patch(eventId, { version: 4 }));
-    expect(await backend.mutation(internal.operationsHealth.upsertSnapshot, {
-      eventId,
-      eventVersion: 4,
-      snapshot: healthySnapshot("health-upsert", 1_001),
-    })).toBe("updated");
+    expect(
+      await backend.mutation(internal.operationsHealth.upsertSnapshot, {
+        eventId,
+        eventVersion: 4,
+        leaseId,
+        leaseObservedAt: 0,
+        snapshot: healthySnapshot("health-upsert", 1_001),
+      }),
+    ).toBe("updated");
 
-    const rows = await backend.run((ctx) => ctx.db
-      .query("operationsHealthSnapshots")
-      .withIndex("by_event", (index) => index.eq("eventId", eventId))
-      .collect());
+    const rows = await backend.run((ctx) =>
+      ctx.db
+        .query("operationsHealthSnapshots")
+        .withIndex("by_event", (index) => index.eq("eventId", eventId))
+        .collect(),
+    );
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
       eventVersion: 4,
@@ -83,32 +102,77 @@ describe("operations-health materialization", () => {
     });
   });
 
+  test("a health refresh cannot write after autonomy takes over its expired lease", async () => {
+    const backend = convexTest(schema, modules);
+    const eventId = await backend.run((ctx) => insertEvent(ctx, "health-fenced", 1));
+    expect(
+      await backend.mutation(internal.operationsBackground.claim, {
+        holder: "health_refresh",
+        leaseId: "expired-health-refresh",
+        now: 1_000,
+        leaseDurationMs: 1,
+      }),
+    ).toBe(true);
+    expect(
+      await backend.mutation(internal.operationsBackground.claim, {
+        holder: "autonomy_tick",
+        leaseId: "current-autonomy-tick",
+        now: 1_001,
+        leaseDurationMs: 60_000,
+      }),
+    ).toBe(true);
+
+    expect(
+      await backend.mutation(internal.operationsHealth.upsertSnapshot, {
+        eventId,
+        eventVersion: 1,
+        leaseId: "expired-health-refresh",
+        leaseObservedAt: 1_001,
+        snapshot: healthySnapshot("health-fenced", 1_001),
+      }),
+    ).toBe("lease_lost");
+    expect(await backend.run((ctx) => ctx.db.query("operationsHealthSnapshots").collect())).toEqual(
+      [],
+    );
+  });
+
   test("only the current generation's deadline can mark a snapshot stale", async () => {
     const backend = convexTest(schema, modules);
+    const leaseId = await claimHealthRefreshLease(backend);
     const eventId = await backend.run((ctx) => insertEvent(ctx, "health-expiry", 1));
     await backend.mutation(internal.operationsHealth.upsertSnapshot, {
       eventId,
       eventVersion: 1,
+      leaseId,
+      leaseObservedAt: 0,
       snapshot: healthySnapshot("health-expiry", 1_000),
     });
     await backend.mutation(internal.operationsHealth.upsertSnapshot, {
       eventId,
       eventVersion: 1,
+      leaseId,
+      leaseObservedAt: 0,
       snapshot: healthySnapshot("health-expiry", 2_000),
     });
 
-    expect(await backend.mutation(internal.operationsHealth.markSnapshotStale, {
-      eventId,
-      expectedGeneratedAt: 1_000,
-    })).toBe(false);
-    expect(await backend.mutation(internal.operationsHealth.markSnapshotStale, {
-      eventId,
-      expectedGeneratedAt: 2_000,
-    })).toBe(true);
-    expect(await backend.query(internal.operationsHealth.materializedForEvent, {
-      eventId,
-      now: 2_001,
-    })).toEqual({ state: "stale", lastGeneratedAt: 2_000 });
+    expect(
+      await backend.mutation(internal.operationsHealth.markSnapshotStale, {
+        eventId,
+        expectedGeneratedAt: 1_000,
+      }),
+    ).toBe(false);
+    expect(
+      await backend.mutation(internal.operationsHealth.markSnapshotStale, {
+        eventId,
+        expectedGeneratedAt: 2_000,
+      }),
+    ).toBe(true);
+    expect(
+      await backend.query(internal.operationsHealth.materializedForEvent, {
+        eventId,
+        now: 2_001,
+      }),
+    ).toEqual({ state: "stale", lastGeneratedAt: 2_000 });
   });
 
   test("the scheduled action computes once and retains one snapshot row", async () => {
@@ -118,10 +182,12 @@ describe("operations-health materialization", () => {
     expect(await backend.action(internal.operationsHealth.refresh, {})).toBe("created");
     const second = await backend.action(internal.operationsHealth.refresh, {});
     expect(["unchanged", "updated"]).toContain(second);
-    const rows = await backend.run((ctx) => ctx.db
-      .query("operationsHealthSnapshots")
-      .withIndex("by_event", (index) => index.eq("eventId", eventId))
-      .collect());
+    const rows = await backend.run((ctx) =>
+      ctx.db
+        .query("operationsHealthSnapshots")
+        .withIndex("by_event", (index) => index.eq("eventId", eventId))
+        .collect(),
+    );
     expect(rows).toHaveLength(1);
   });
 
@@ -225,14 +291,17 @@ describe("operations-health materialization", () => {
     const { snapshot } = await backend.query(internal.operationsHealth.computeSnapshot, {
       eventId,
     });
-    expect(snapshot.signals).toEqual(expect.arrayContaining([
-      expect.objectContaining({ key: "novelty_preview_stalls", count: 1 }),
-      expect.objectContaining({ key: "recent_novelty_unavailable", count: 1 }),
-    ]));
+    expect(snapshot.signals).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: "novelty_preview_stalls", count: 1 }),
+        expect.objectContaining({ key: "recent_novelty_unavailable", count: 1 }),
+      ]),
+    );
   });
 
   test("the public read exposes missing and stale states and rejects the removed refresh bucket", async () => {
     const backend = convexTest(schema, modules);
+    const leaseId = await claimHealthRefreshLease(backend);
     backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
     const fixture = await seedAuthorizedReader(backend);
     const reader = backend.withIdentity({
@@ -240,32 +309,40 @@ describe("operations-health materialization", () => {
       sessionId: fixture.authSessionId,
     });
 
-    expect(await reader.query(api.operationsHealth.overview, {
-      eventSlug: fixture.eventSlug,
-    })).toEqual({ state: "missing" });
-    await expect(reader.mutation(api.operationsIntelligence.request, {
-      eventSlug: fixture.eventSlug,
-      clientOperationId: "missing-health-request",
-    })).rejects.toThrow("first operations-health check");
+    expect(
+      await reader.query(api.operationsHealth.overview, {
+        eventSlug: fixture.eventSlug,
+      }),
+    ).toEqual({ state: "missing" });
+    await expect(
+      reader.mutation(api.operationsIntelligence.request, {
+        eventSlug: fixture.eventSlug,
+        clientOperationId: "missing-health-request",
+      }),
+    ).rejects.toThrow("first operations-health check");
 
     const staleGeneratedAt = Date.now() - 91_000;
     await backend.mutation(internal.operationsHealth.upsertSnapshot, {
       eventId: fixture.eventId,
       eventVersion: 1,
+      leaseId,
+      leaseObservedAt: 0,
       snapshot: healthySnapshot(fixture.eventSlug, staleGeneratedAt),
     });
-    expect(await reader.query(api.operationsHealth.overview, {
-      eventSlug: fixture.eventSlug,
-    })).toEqual({ state: "stale", lastGeneratedAt: staleGeneratedAt });
-    await expect(reader.mutation(api.operationsIntelligence.request, {
-      eventSlug: fixture.eventSlug,
-      clientOperationId: "stale-health-request",
-    })).rejects.toThrow("checks are delayed");
+    expect(
+      await reader.query(api.operationsHealth.overview, {
+        eventSlug: fixture.eventSlug,
+      }),
+    ).toEqual({ state: "stale", lastGeneratedAt: staleGeneratedAt });
+    await expect(
+      reader.mutation(api.operationsIntelligence.request, {
+        eventSlug: fixture.eventSlug,
+        clientOperationId: "stale-health-request",
+      }),
+    ).rejects.toThrow("checks are delayed");
 
     const obsoleteArgs = { eventSlug: fixture.eventSlug, refreshBucket: 1 };
-    await expect(
-      reader.query(api.operationsHealth.overview, obsoleteArgs),
-    ).rejects.toThrow();
+    await expect(reader.query(api.operationsHealth.overview, obsoleteArgs)).rejects.toThrow();
   });
 });
 
@@ -301,7 +378,7 @@ function insertEvent(
     timezone: "Asia/Kolkata",
     status: "live",
     vitEmailDomains: ["vitstudent.ac.in"],
-        applicationsCloseAt: Date.now() + 86_400_000,
+    applicationsCloseAt: Date.now() + 86_400_000,
     version,
     createdAt: now,
     updatedAt: now,
@@ -361,6 +438,18 @@ async function seedAuthorizedReader(backend: BackendTest) {
     return createdEventId;
   });
   return { eventId, eventSlug, authUserId, authSessionId };
+}
+
+async function claimHealthRefreshLease(backend: BackendTest) {
+  const leaseId = crypto.randomUUID();
+  const claimed = await backend.mutation(internal.operationsBackground.claim, {
+    holder: "health_refresh",
+    leaseId,
+    now: 0,
+    leaseDurationMs: 8_000_000_000_000_000,
+  });
+  if (!claimed) throw new Error("The health-refresh test lease could not be claimed.");
+  return leaseId;
 }
 
 async function createAuthUser(backend: BackendTest, now: number) {

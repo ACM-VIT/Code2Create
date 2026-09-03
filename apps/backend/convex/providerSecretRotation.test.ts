@@ -92,9 +92,9 @@ describe("provider secret rotation", () => {
         publicCode: crypto.randomUUID(),
         leadMembershipId: membershipId,
         status: "confirmed",
-      activeMemberCount: 0,
-      activeVitMemberCount: 0,
-      activeExternalMemberCount: 0,
+        activeMemberCount: 0,
+        activeVitMemberCount: 0,
+        activeExternalMemberCount: 0,
         membershipLocked: true,
         version: 1,
         createdAt: now,
@@ -162,11 +162,7 @@ describe("provider secret rotation", () => {
     });
     expect(dryRun).toMatchObject({ needingRotation: 1, rotated: 0, isDone: true });
 
-    for (const owner of [
-      "active_credentials",
-      "pending_intents",
-      "verifying_intents",
-    ] as const) {
+    for (const owner of ["active_credentials", "pending_intents", "verifying_intents"] as const) {
       const result = await backend.action(internal.figmaActions.rotateProviderSecrets, {
         owner,
         limit: 10,
@@ -194,12 +190,8 @@ describe("provider secret rotation", () => {
 
     vi.stubEnv("PROVIDER_TOKEN_PREVIOUS_ENCRYPTION_KEY_VERSION", "");
     vi.stubEnv("PROVIDER_TOKEN_PREVIOUS_ENCRYPTION_KEY", "");
-    expect(decryptProviderSecret(stored.credential?.accessTokenCiphertext ?? "")).toBe(
-      "access",
-    );
-    expect(decryptProviderSecret(stored.credential?.refreshTokenCiphertext ?? "")).toBe(
-      "refresh",
-    );
+    expect(decryptProviderSecret(stored.credential?.accessTokenCiphertext ?? "")).toBe("access");
+    expect(decryptProviderSecret(stored.credential?.refreshTokenCiphertext ?? "")).toBe("refresh");
     expect(decryptProviderSecret(stored.pending?.pkceVerifierCiphertext ?? "")).toBe(
       "pending-pkce",
     );

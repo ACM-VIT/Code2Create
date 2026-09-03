@@ -73,9 +73,7 @@ export const overview = query({
 
     const sweepStates = await ctx.db
       .query("operationsAttentionSweepStates")
-      .withIndex("by_event_state", (index) =>
-        index.eq("eventId", event._id).eq("state", "active"),
-      )
+      .withIndex("by_event_state", (index) => index.eq("eventId", event._id).eq("state", "active"))
       .take(maximumCurrentAttentionRounds + 1);
     if (sweepStates.length > maximumCurrentAttentionRounds) {
       throw new Error("The attention feed exceeds the current-round limit.");
@@ -100,10 +98,7 @@ export const overview = query({
             ...(await ctx.db
               .query("operationsAttentionItems")
               .withIndex("by_round_state_severity_first", (index) =>
-                index
-                  .eq("roundId", roundId)
-                  .eq("state", state)
-                  .eq("severity", severity),
+                index.eq("roundId", roundId).eq("state", state).eq("severity", severity),
               )
               .take(maximumAttentionOverviewRows + 1)),
           );
@@ -125,44 +120,44 @@ export const overview = query({
     const visible = sortAttentionItems(candidates);
     const hasMore = visible.length > maximumAttentionOverviewRows;
     const now = Date.now();
-    const rows = await Promise.all(visible.slice(0, maximumAttentionOverviewRows).map(async (item) => {
-      const proposal =
-        item.proposal !== undefined && item.proposal.expiresAt > now
-          ? item.proposal
-          : undefined;
-      const canAct =
-        proposal !== undefined &&
-        (
-          await matchingPermissionGrantIds(ctx, {
-            eventId: event._id,
-            eventAccessSubjectId: subject._id,
-            permissionKey: assertPermissionKey(proposal.permissionKey),
-            scopeType: proposal.scopeType,
-            scopeId: proposal.scopeId,
-          })
-        ).length > 0;
-      return {
-        id: item._id,
-        detectorKey: item.detectorKey,
-        subjectType: item.subjectType,
-        subjectId: item.subjectId,
-        severity: item.severity,
-        statement: item.statement,
-        route: item.route,
-        actionLabel: item.actionLabel,
-        acknowledged: item.state === "acknowledged",
-        recurrenceCount: item.recurrenceCount,
-        firstObservedAt: item.firstObservedAt,
-        lastObservedAt: item.lastObservedAt,
-        version: item.version,
-        canAct,
-        ...(proposal === undefined
-          ? {}
-          : {
-              proposal,
-            }),
-      };
-    }));
+    const rows = await Promise.all(
+      visible.slice(0, maximumAttentionOverviewRows).map(async (item) => {
+        const proposal =
+          item.proposal !== undefined && item.proposal.expiresAt > now ? item.proposal : undefined;
+        const canAct =
+          proposal !== undefined &&
+          (
+            await matchingPermissionGrantIds(ctx, {
+              eventId: event._id,
+              eventAccessSubjectId: subject._id,
+              permissionKey: assertPermissionKey(proposal.permissionKey),
+              scopeType: proposal.scopeType,
+              scopeId: proposal.scopeId,
+            })
+          ).length > 0;
+        return {
+          id: item._id,
+          detectorKey: item.detectorKey,
+          subjectType: item.subjectType,
+          subjectId: item.subjectId,
+          severity: item.severity,
+          statement: item.statement,
+          route: item.route,
+          actionLabel: item.actionLabel,
+          acknowledged: item.state === "acknowledged",
+          recurrenceCount: item.recurrenceCount,
+          firstObservedAt: item.firstObservedAt,
+          lastObservedAt: item.lastObservedAt,
+          version: item.version,
+          canAct,
+          ...(proposal === undefined
+            ? {}
+            : {
+                proposal,
+              }),
+        };
+      }),
+    );
 
     return {
       rows,
@@ -256,11 +251,7 @@ export const dismiss = mutation({
   handler: async (ctx, args) => {
     const actor = await requireAttentionActor(ctx, args.eventSlug);
     const reason = normalizedText(args.reason, "Dismissal reason", 5, 500);
-    const requestFingerprint = operationFingerprint([
-      args.itemId,
-      args.expectedVersion,
-      reason,
-    ]);
+    const requestFingerprint = operationFingerprint([args.itemId, args.expectedVersion, reason]);
     const prior = await findOperation(ctx, {
       eventId: actor.event._id,
       actorPersonId: actor.person._id,

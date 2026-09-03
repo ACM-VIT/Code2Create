@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState } from "react";
 
 /*
  * The blossom boughs across the top of the FAQ act.
@@ -14,16 +14,16 @@ import { useEffect, useState } from 'react';
  */
 
 interface BoughLayout {
-  side: 'left' | 'right'
-  left: number
-  top: number
-  width: number
-  ghost?: boolean
+  side: "left" | "right";
+  left: number;
+  top: number;
+  width: number;
+  ghost?: boolean;
 }
 
 const WIDE: readonly BoughLayout[] = [
-  { side: 'left', left: -8, top: -14, width: 60 },
-  { side: 'right', left: 48, top: -16, width: 60 },
+  { side: "left", left: -8, top: -14, width: 60 },
+  { side: "right", left: 48, top: -16, width: 60 },
 ];
 
 const NARROW: readonly BoughLayout[] = [
@@ -31,21 +31,21 @@ const NARROW: readonly BoughLayout[] = [
      aspect. The shell's top tracks the plate's height (46vw) instead, so a
      wide-but-short window pushes the ladder down rather than shrinking the
      branch. */
-  { side: 'left', left: -4, top: -2, width: 108 },
-  { side: 'right', left: 120, top: -26, width: 40, ghost: true },
+  { side: "left", left: -4, top: -2, width: 108 },
+  { side: "right", left: 120, top: -26, width: 40, ghost: true },
 ];
 
 export default function Branches() {
   const [narrow, setNarrow] = useState(
-    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 760px)').matches,
+    () => typeof window !== "undefined" && window.matchMedia("(max-width: 760px)").matches,
   );
 
   useEffect(() => {
-    const query = window.matchMedia('(max-width: 760px)');
+    const query = window.matchMedia("(max-width: 760px)");
     const sync = () => setNarrow(query.matches);
     sync();
-    query.addEventListener('change', sync);
-    return () => query.removeEventListener('change', sync);
+    query.addEventListener("change", sync);
+    return () => query.removeEventListener("change", sync);
   }, []);
 
   const boughs = narrow ? NARROW : WIDE;
@@ -54,12 +54,12 @@ export default function Branches() {
     <div className="branches" aria-hidden="true">
       {boughs.map((bough) => (
         <div
-          className={`bough bough--${bough.side}${bough.ghost ? ' bough--ghost' : ''}`}
+          className={`bough bough--${bough.side}${bough.ghost === true ? " bough--ghost" : ""}`}
           key={bough.side}
           data-bough-side={bough.side}
           style={{ left: `${bough.left}%`, top: `${bough.top}%`, width: `${bough.width}%` }}
         >
-          {!bough.ghost && <img src="/assets/img/branch-plate.png" alt="" />}
+          {bough.ghost !== true && <img src="/assets/img/branch-plate.png" alt="" />}
         </div>
       ))}
     </div>

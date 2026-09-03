@@ -1,8 +1,8 @@
-import { getRandomBytesAsync, randomUUID } from 'expo-crypto'
-import * as SecureStore from 'expo-secure-store'
-import { z } from 'zod'
+import { getRandomBytesAsync, randomUUID } from "expo-crypto";
+import * as SecureStore from "expo-secure-store";
+import { z } from "zod";
 
-import { notifyInstallationChanged } from './installation-state'
+import { notifyInstallationChanged } from "./installation-state";
 
 const scannerDeviceSchema = z
   .object({
@@ -12,48 +12,50 @@ const scannerDeviceSchema = z
     registrationOperationId: z.uuid(),
     stationStableKey: z.string().min(1).max(100),
     deviceName: z.string().min(2).max(80),
-    platform: z.enum(['android', 'ios']),
+    platform: z.enum(["android", "ios"]),
     lastIssuedSequence: z.number().int().nonnegative(),
   })
-  .strict()
+  .strict();
 
-export type ScannerDeviceRecord = z.infer<typeof scannerDeviceSchema>
-export type ScannerPlatform = ScannerDeviceRecord['platform']
+export type ScannerDeviceRecord = z.infer<typeof scannerDeviceSchema>;
+export type ScannerPlatform = ScannerDeviceRecord["platform"];
 
 function storageKey(eventSlug: string) {
-  return `code2create.scanner.${eventSlug}`
+  return `code2create.scanner.${eventSlug}`;
 }
 
 function bytesToHex(bytes: Uint8Array) {
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 export async function loadScannerDevice(eventSlug: string) {
-  const stored = await SecureStore.getItemAsync(storageKey(eventSlug))
-  if (!stored) return null
-  let decoded: unknown
+  const stored = await SecureStore.getItemAsync(storageKey(eventSlug));
+  if (!stored) return null;
+  let decoded: unknown;
   try {
-    decoded = JSON.parse(stored)
+    decoded = JSON.parse(stored);
   } catch {
-    throw invalidScannerSetupError()
+    throw invalidScannerSetupError();
   }
-  const parsed = scannerDeviceSchema.safeParse(decoded)
+  const parsed = scannerDeviceSchema.safeParse(decoded);
   if (!parsed.success) {
-    throw invalidScannerSetupError()
+    throw invalidScannerSetupError();
   }
-  return parsed.data
+  return parsed.data;
 }
 
 function invalidScannerSetupError() {
-  return new Error('The scanner setup stored on this phone is invalid. Ask operations to reprovision it.')
+  return new Error(
+    "The scanner setup stored on this phone is invalid. Ask operations to reprovision it.",
+  );
 }
 
 export async function createScannerDevice(args: {
-  eventSlug: string
-  stationStableKey: string
-  platform: ScannerPlatform
+  eventSlug: string;
+  stationStableKey: string;
+  platform: ScannerPlatform;
 }) {
-  const installationId = randomUUID()
+  const installationId = randomUUID();
   const record: ScannerDeviceRecord = {
     version: 1,
     installationId,
@@ -63,30 +65,30 @@ export async function createScannerDevice(args: {
     deviceName: `Scanner ${installationId.slice(-4)}`,
     platform: args.platform,
     lastIssuedSequence: 0,
-  }
-  await saveScannerDevice(args.eventSlug, record)
-  return record
+  };
+  await saveScannerDevice(args.eventSlug, record);
+  return record;
 }
 
 export async function saveScannerDevice(eventSlug: string, record: ScannerDeviceRecord) {
-  await SecureStore.setItemAsync(storageKey(eventSlug), JSON.stringify(record))
-  notifyInstallationChanged(eventSlug)
+  await SecureStore.setItemAsync(storageKey(eventSlug), JSON.stringify(record));
+  notifyInstallationChanged(eventSlug);
 }
 
 export async function clearScannerDevice(eventSlug: string) {
-  await SecureStore.deleteItemAsync(storageKey(eventSlug))
-  notifyInstallationChanged(eventSlug)
+  await SecureStore.deleteItemAsync(storageKey(eventSlug));
+  notifyInstallationChanged(eventSlug);
 }
 
 export async function reserveDeviceSequence(args: {
-  eventSlug: string
-  record: ScannerDeviceRecord
-  serverSequence: number
+  eventSlug: string;
+  record: ScannerDeviceRecord;
+  serverSequence: number;
 }) {
   const next: ScannerDeviceRecord = {
     ...args.record,
     lastIssuedSequence: Math.max(args.record.lastIssuedSequence, args.serverSequence) + 1,
-  }
-  await saveScannerDevice(args.eventSlug, next)
-  return next
+  };
+  await saveScannerDevice(args.eventSlug, next);
+  return next;
 }

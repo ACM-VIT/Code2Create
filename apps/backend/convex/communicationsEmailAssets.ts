@@ -4,11 +4,7 @@ import { internalMutation, internalQuery } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
-import {
-  findOperation,
-  operationFingerprint,
-  recordOperation,
-} from "./lib/operations";
+import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
 import { requirePermission } from "./lib/permissions";
 import { normalizedText } from "./lib/strings";
 import { participantEmailTemplateKey } from "./values";
@@ -21,6 +17,23 @@ const assetInput = v.object({
   disposition: v.union(v.literal("inline"), v.literal("attachment")),
   byteCount: v.number(),
   sha256: v.string(),
+});
+
+export const authorizeBundleUpload = internalQuery({
+  args: { eventSlug: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    await requirePermission(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey: "configuration.communications.draft.create",
+      scopeType: "event",
+    });
+    return null;
+  },
 });
 
 export const uploadContext = internalQuery({
@@ -108,10 +121,7 @@ export const recordBundle = internalMutation({
       requestFingerprint,
     });
     if (prior) {
-      const priorBundleId = ctx.db.normalizeId(
-        "communicationsEmailAssetBundles",
-        prior.targetId,
-      );
+      const priorBundleId = ctx.db.normalizeId("communicationsEmailAssetBundles", prior.targetId);
       if (!priorBundleId) throw new Error("The prior email bundle upload result is invalid.");
       return { bundleId: priorBundleId, attached: false };
     }

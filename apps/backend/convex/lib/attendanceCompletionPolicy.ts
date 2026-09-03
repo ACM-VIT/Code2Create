@@ -19,10 +19,7 @@ export function requireAttendanceCompletionPolicy(
   session: { startsAt: number; endsAt: number },
 ) {
   if (policy.kind === "confirmation") return;
-  if (
-    !Number.isSafeInteger(policy.minimumPresentMinutes) ||
-    policy.minimumPresentMinutes < 1
-  ) {
+  if (!Number.isSafeInteger(policy.minimumPresentMinutes) || policy.minimumPresentMinutes < 1) {
     throw new ConvexError({
       code: "INVALID_ATTENDANCE_COMPLETION_POLICY",
       message: "Minimum presence must be a positive whole number of minutes.",
@@ -38,10 +35,7 @@ export function requireAttendanceCompletionPolicy(
 }
 
 export function attendanceCompletionResult(args: {
-  participant: Pick<
-    Doc<"attendanceSessionParticipants">,
-    "state" | "confirmedAt" | "result"
-  >;
+  participant: Pick<Doc<"attendanceSessionParticipants">, "state" | "confirmedAt" | "result">;
   intervalsValid: boolean;
   presentDurationMs: number;
   policy: AttendanceCompletionPolicy;

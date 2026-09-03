@@ -5,17 +5,17 @@
  * distance, so the stops are derived from master-timeline positions through
  * the same weighted mapping as the ScrollTrigger.
  */
-import { journeyScrollProgress } from '../journey/timing.js';
+import { journeyScrollProgress } from "../journey/timing.js";
 
-export const JOURNEY_LEAP_EVENT = 'journey:leap';
+export const JOURNEY_LEAP_EVENT = "journey:leap";
 
 export interface JourneyLeapDetail {
-  progress: number
+  progress: number;
 }
 
 declare global {
   interface WindowEventMap {
-    'journey:leap': CustomEvent<JourneyLeapDetail>
+    "journey:leap": CustomEvent<JourneyLeapDetail>;
   }
 }
 
@@ -29,7 +29,7 @@ export const JOURNEY_STOPS = {
 
 /** Jump directly to a fraction of the journey (0 = hero, 1 = its end). */
 export function leapTo(at: number) {
-  const journey = document.querySelector<HTMLElement>('.journey');
+  const journey = document.querySelector<HTMLElement>(".journey");
   if (!journey) return;
 
   const progress = Math.max(0, Math.min(1, at));
@@ -37,8 +37,8 @@ export function leapTo(at: number) {
   const root = document.documentElement;
   const previousScrollBehavior = root.style.scrollBehavior;
 
-  root.style.scrollBehavior = 'auto';
-  window.scrollTo({ top: journey.offsetTop + travel * progress, behavior: 'auto' });
+  root.style.scrollBehavior = "auto";
+  window.scrollTo({ top: journey.offsetTop + travel * progress, behavior: "auto" });
   root.style.scrollBehavior = previousScrollBehavior;
 
   /* ScrollTrigger's numeric scrub normally eases toward a new scroll

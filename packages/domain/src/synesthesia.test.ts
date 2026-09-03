@@ -31,12 +31,10 @@ test("orders the live queue by operational state before votes", () => {
     item("playing", 0, 4),
   ].sort(compareSynesthesiaQueueItems);
 
-  assert.deepEqual(rows.map((row) => row.state), [
-    "playing",
-    "queued",
-    "approved",
-    "pending",
-  ]);
+  assert.deepEqual(
+    rows.map((row) => row.state),
+    ["playing", "queued", "approved", "pending"],
+  );
 });
 
 test("merges a sparse count projection and orders the resulting queue", () => {
@@ -49,11 +47,14 @@ test("merges a sparse count projection and orders the resulting queue", () => {
     [{ requestId: "popular", voteCount: 4 }],
   );
 
-  assert.deepEqual(rows.map((row) => [row.id, row.voteCount]), [
-    ["popular", 4],
-    ["no-votes", 0],
-    ["older", 0],
-  ]);
+  assert.deepEqual(
+    rows.map((row) => [row.id, row.voteCount]),
+    [
+      ["popular", 4],
+      ["no-votes", 0],
+      ["older", 0],
+    ],
+  );
 });
 
 test("orders equal-state requests by queue controls, votes, then age", () => {
@@ -64,10 +65,13 @@ test("orders equal-state requests by queue controls, votes, then age", () => {
     item("queued", 99, 20, "deferred", 90),
   ].sort(compareSynesthesiaQueueItems);
 
-  assert.deepEqual(rows.map((row) => [row.queueMode, row.createdAt]), [
-    ["pinned", 40],
-    ["normal", 50],
-    ["normal", 30],
-    ["deferred", 20],
-  ]);
+  assert.deepEqual(
+    rows.map((row) => [row.queueMode, row.createdAt]),
+    [
+      ["pinned", 40],
+      ["normal", 50],
+      ["normal", 30],
+      ["deferred", 20],
+    ],
+  );
 });

@@ -24,7 +24,7 @@ type TeamBackfillResult = {
 
 function isTeamPlacementFailure(error: unknown): boolean {
   if (!(error instanceof ConvexError)) return false;
-  const data = error.data;
+  const data: unknown = error.data;
   const code =
     typeof data === "object" && data !== null && "code" in data && typeof data.code === "string"
       ? data.code
@@ -103,10 +103,7 @@ export async function applyTeamRosterEntry(
   const existingMember = await ctx.db
     .query("teamMembers")
     .withIndex("by_event_membership_status", (index) =>
-      index
-        .eq("eventId", args.event._id)
-        .eq("membershipId", membership._id)
-        .eq("status", "active"),
+      index.eq("eventId", args.event._id).eq("membershipId", membership._id).eq("status", "active"),
     )
     .unique();
   if (existingMember) {
@@ -207,7 +204,10 @@ async function placeTeamRosterEntry(
         teamName: entry.teamName,
         actorPersonId: args.actorPersonId,
         teamMaximumSize: participantPolicy.normalized.teamMaximumSize,
-        maximumClaims: Math.max(0, (args.maximumClaims ?? participantPolicy.normalized.teamMaximumSize) - 1),
+        maximumClaims: Math.max(
+          0,
+          (args.maximumClaims ?? participantPolicy.normalized.teamMaximumSize) - 1,
+        ),
       });
       return { outcome: "claimed", claimedCount: 1 + followerCount };
     }
@@ -218,9 +218,6 @@ async function placeTeamRosterEntry(
     return { outcome: "waiting_for_lead", claimedCount: 0 };
   }
 
-  if (team.membershipLocked) {
-    return { outcome: "still_pending", claimedCount: 0 };
-  }
   const rosterCounts = teamRosterCounts(team);
   if (rosterCounts.activeMemberCount >= participantPolicy.normalized.teamMaximumSize) {
     return { outcome: "still_pending", claimedCount: 0 };
@@ -237,13 +234,10 @@ async function placeTeamRosterEntry(
   if (role === "lead") {
     const leadMember = await ctx.db
       .query("teamMembers")
-      .withIndex("by_team_status", (index) =>
-        index.eq("teamId", team._id).eq("status", "active"),
-      )
+      .withIndex("by_team_status", (index) => index.eq("teamId", team._id).eq("status", "active"))
       .take(team.activeMemberCount);
     const leadSeatTaken = leadMember.some(
-      (member) =>
-        member.role === "lead" && member.membershipId !== membership._id,
+      (member) => member.role === "lead" && member.membershipId !== membership._id,
     );
     if (leadSeatTaken) {
       return { outcome: "still_pending", claimedCount: 0 };
@@ -307,9 +301,7 @@ async function applyFollowingEntries(
         .eq("status", "waiting_for_lead"),
     )
     .take(args.teamMaximumSize);
-  const ordered = [...waiting].sort(
-    (left, right) => left.sourceRowNumber - right.sourceRowNumber,
-  );
+  const ordered = [...waiting].sort((left, right) => left.sourceRowNumber - right.sourceRowNumber);
   let claimedCount = 0;
   for (const entry of ordered) {
     if (claimedCount >= args.maximumClaims) break;
@@ -317,10 +309,7 @@ async function applyFollowingEntries(
     if (!team) throw new Error("The backfilled team did not persist.");
     if (teamRosterCounts(team).activeMemberCount >= args.teamMaximumSize) break;
     const currentEntry = await ctx.db.get(entry._id);
-    if (
-      !currentEntry ||
-      currentEntry.status !== "waiting_for_lead"
-    ) {
+    if (!currentEntry || currentEntry.status !== "waiting_for_lead") {
       continue;
     }
     const result = await applyTeamRosterEntry(ctx, {
@@ -340,10 +329,7 @@ async function applyFollowingEntries(
  */
 type PendingTeamRosterEntryStatus = "pending" | "waiting_for_lead" | "choice_required";
 
-type PendingTeamRosterEntry = Omit<
-  Doc<"teamRosterEntries">,
-  "status"
-> & {
+type PendingTeamRosterEntry = Omit<Doc<"teamRosterEntries">, "status"> & {
   status: PendingTeamRosterEntryStatus;
 };
 
@@ -435,9 +421,7 @@ export async function resolveTeamRosterPerson(
     const emailNormalized = args.entry.emailNormalized;
     const person = await ctx.db
       .query("people")
-      .withIndex("by_verified_email", (index) =>
-        index.eq("verifiedEmail", emailNormalized),
-      )
+      .withIndex("by_verified_email", (index) => index.eq("verifiedEmail", emailNormalized))
       .unique();
     if (!person) return { kind: "not_found" };
     const membership = await ctx.db
@@ -491,10 +475,7 @@ export async function pendingTeamAssignees(
   const pending = await ctx.db
     .query("teamRosterEntries")
     .withIndex("by_event_team_status", (index) =>
-      index
-        .eq("eventId", args.eventId)
-        .eq("teamName", args.teamName)
-        .eq("status", "pending"),
+      index.eq("eventId", args.eventId).eq("teamName", args.teamName).eq("status", "pending"),
     )
     .take(maximumPendingAssignees);
   const waiting = await ctx.db
@@ -518,10 +499,7 @@ export async function pendingTeamAssignees(
   const claimed = await ctx.db
     .query("teamRosterEntries")
     .withIndex("by_event_team_status", (index) =>
-      index
-        .eq("eventId", args.eventId)
-        .eq("teamName", args.teamName)
-        .eq("status", "claimed"),
+      index.eq("eventId", args.eventId).eq("teamName", args.teamName).eq("status", "claimed"),
     )
     .take(maximumPendingAssignees);
   const entries = [...pending, ...waiting, ...choices, ...claimed]

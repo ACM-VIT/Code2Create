@@ -10,10 +10,7 @@ import {
   storedConfigurationPublicationResult,
 } from "./lib/configurationOperationResult";
 import { requireEventBySlug } from "./lib/events";
-import {
-  requireCurrentPerson,
-  requireEventSubject,
-} from "./lib/identity";
+import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import {
   findOperation,
   operationFingerprint,
@@ -86,22 +83,23 @@ async function ownerProjection(
   if (!subject || subject.eventId !== eventId) {
     throw new Error("The autonomy policy accountable owner is missing or outside its event.");
   }
-  const [readGrants, generateGrants] = subject.status === "active"
-    ? await Promise.all([
-        matchingPermissionGrantIds(ctx, {
-          eventId,
-          eventAccessSubjectId: subject._id,
-          permissionKey: "operations.intelligence.read",
-          scopeType: "event",
-        }),
-        matchingPermissionGrantIds(ctx, {
-          eventId,
-          eventAccessSubjectId: subject._id,
-          permissionKey: "operations.intelligence.generate",
-          scopeType: "event",
-        }),
-      ])
-    : [[], []];
+  const [readGrants, generateGrants] =
+    subject.status === "active"
+      ? await Promise.all([
+          matchingPermissionGrantIds(ctx, {
+            eventId,
+            eventAccessSubjectId: subject._id,
+            permissionKey: "operations.intelligence.read",
+            scopeType: "event",
+          }),
+          matchingPermissionGrantIds(ctx, {
+            eventId,
+            eventAccessSubjectId: subject._id,
+            permissionKey: "operations.intelligence.generate",
+            scopeType: "event",
+          }),
+        ])
+      : [[], []];
   return {
     eventAccessSubjectId: subject._id,
     displayName: subject.displayName,
@@ -182,7 +180,11 @@ export const current = query({
       .query("operationsAutonomyStates")
       .withIndex("by_policy", (index) => index.eq("policyVersionId", published._id))
       .unique();
-    if (!scheduler || scheduler.eventId !== event._id || scheduler.lifecycle.kind === "superseded") {
+    if (
+      !scheduler ||
+      scheduler.eventId !== event._id ||
+      scheduler.lifecycle.kind === "superseded"
+    ) {
       throw new Error("The event's autonomy scheduler state is invalid.");
     }
     const selectedPolicy = draft ?? published;
@@ -241,10 +243,7 @@ export const ownerOptionsPage = query({
       ? await ctx.db
           .query("eventAccessSubjects")
           .withSearchIndex("search_by_event_status_name", (index) =>
-            index
-              .search("displayName", search)
-              .eq("eventId", event._id)
-              .eq("status", "active"),
+            index.search("displayName", search).eq("eventId", event._id).eq("status", "active"),
           )
           .paginate(args.paginationOpts)
       : await ctx.db
@@ -350,10 +349,7 @@ export const createDraft = mutation({
       if (!id) {
         throw new Error("The prior autonomy-policy draft result is invalid.");
       }
-      const stored = storedConfigurationDraftResult(
-        prior.resultJson,
-        "autonomy-policy draft",
-      );
+      const stored = storedConfigurationDraftResult(prior.resultJson, "autonomy-policy draft");
       return {
         policyVersionId: id,
         policyVersion: stored.version,

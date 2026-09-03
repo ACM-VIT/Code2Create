@@ -2,10 +2,6 @@
   "name": "code2create",
   "version": "0.1.0",
   "private": true,
-  "packageManager": "pnpm@11.18.0",
-  "engines": {
-    "node": ">=22.22.0"
-  },
   "type": "module",
   "scripts": {
     "dev": "node scripts/dev.mjs",
@@ -35,13 +31,21 @@
     "recovery:rehearse": "pnpm --filter @code2create/backend recovery:rehearse",
     "test": "pnpm --filter './apps/**' --filter './packages/**' --if-present test",
     "test:recovery": "pnpm --filter @code2create/backend test:recovery",
-    "lint": "pnpm --filter './apps/**' --filter './packages/**' --if-present lint",
+    "lint": "oxlint .",
     "typecheck": "pnpm --filter './apps/**' --filter './packages/**' --if-present typecheck",
     "audit:dependencies": "node scripts/audit-production-dependencies.mjs",
     "check:product": "pnpm lint && pnpm typecheck",
     "check:release": "pnpm audit:dependencies && pnpm check:product && pnpm test && pnpm build && pnpm --filter @code2create/intelligence deploy:check && pnpm --filter @code2create/reviewer export:check"
   },
   "devDependencies": {
-    "@posthog/cli": "^0.16.0"
-  }
+    "@posthog/cli": "^0.16.0",
+    "@types/node": "^26.4.0",
+    "oxlint": "^1.81.0",
+    "oxlint-tsgolint": "^7.0.2001",
+    "ultracite": "^7.10.7"
+  },
+  "engines": {
+    "node": ">=22.22.0"
+  },
+  "packageManager": "pnpm@11.18.0"
 }

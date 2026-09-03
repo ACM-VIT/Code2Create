@@ -6,10 +6,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
-import {
-  requireCurrentPerson,
-  requireEventSubject,
-} from "./lib/identity";
+import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import {
   findOperation,
   operationFingerprint,
@@ -161,10 +158,7 @@ function matchesStaffFilter(state: SupportCaseState, filter: StaffStateFilter) {
 function randomSupportCode() {
   const alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
   const bytes = crypto.getRandomValues(new Uint8Array(7));
-  const suffix = Array.from(
-    bytes,
-    (byte) => alphabet.charAt(byte % alphabet.length),
-  ).join("");
+  const suffix = Array.from(bytes, (byte) => alphabet.charAt(byte % alphabet.length)).join("");
   return `C2C-${suffix}`;
 }
 
@@ -173,9 +167,7 @@ async function unusedSupportCode(ctx: MutationCtx, eventId: Id<"events">) {
     const code = randomSupportCode();
     const existing = await ctx.db
       .query("supportCases")
-      .withIndex("by_event_code", (index) =>
-        index.eq("eventId", eventId).eq("publicCode", code),
-      )
+      .withIndex("by_event_code", (index) => index.eq("eventId", eventId).eq("publicCode", code))
       .unique();
     if (!existing) return code;
   }
@@ -202,17 +194,13 @@ async function activePermissionGrants(
 }
 
 function hasEventGrant(grants: Doc<"permissionGrants">[]) {
-  return grants.some(
-    (grant) => grant.scopeType === "event" && grant.scopeId === undefined,
-  );
+  return grants.some((grant) => grant.scopeType === "event" && grant.scopeId === undefined);
 }
 
 function exactCaseGrantIds(grants: Doc<"permissionGrants">[]) {
   return new Set(
     grants.flatMap((grant) =>
-      grant.scopeType === "support_case" && grant.scopeId !== undefined
-        ? [grant.scopeId]
-        : [],
+      grant.scopeType === "support_case" && grant.scopeId !== undefined ? [grant.scopeId] : [],
     ),
   );
 }
@@ -276,10 +264,7 @@ async function toCaseView(
 }
 
 function counterSource(
-  supportCase: Pick<
-    SupportCaseDoc,
-    "state" | "category" | "ownerPersonId" | "awaitingStaffReply"
-  >,
+  supportCase: Pick<SupportCaseDoc, "state" | "category" | "ownerPersonId" | "awaitingStaffReply">,
 ): SupportCaseCounterSource {
   return {
     state: supportCase.state,
@@ -330,9 +315,7 @@ async function updateSupportCaseStats(
   const shard = supportCaseCounterShardFor(args.supportCaseId);
   const stats = await ctx.db
     .query("supportCaseStatShards")
-    .withIndex("by_event_shard", (index) =>
-      index.eq("eventId", args.eventId).eq("shard", shard),
-    )
+    .withIndex("by_event_shard", (index) => index.eq("eventId", args.eventId).eq("shard", shard))
     .unique();
   if (stats === null) {
     if (args.before !== undefined) {
@@ -353,11 +336,7 @@ async function updateSupportCaseStats(
     return;
   }
   const current = statsCounters(stats);
-  const counters = applySupportCaseCounterChange(
-    current,
-    args.before,
-    args.after,
-  );
+  const counters = applySupportCaseCounterChange(current, args.before, args.after);
   if (sameCounters(current, counters)) return;
   await ctx.db.patch(stats._id, {
     ...counters,
@@ -386,25 +365,15 @@ function sumStatShards(stats: readonly Doc<"supportCaseStatShards">[]) {
 function countersForCases(cases: readonly SupportCaseDoc[]) {
   let counters = emptySupportCaseCounters();
   for (const supportCase of cases) {
-    counters = applySupportCaseCounterChange(
-      counters,
-      undefined,
-      counterSource(supportCase),
-    );
+    counters = applySupportCaseCounterChange(counters, undefined, counterSource(supportCase));
   }
   return counters;
 }
 
-async function caseActions(
-  ctx: ReadCtx,
-  supportCase: SupportCaseDoc,
-  includeInternal: boolean,
-) {
+async function caseActions(ctx: ReadCtx, supportCase: SupportCaseDoc, includeInternal: boolean) {
   const candidates = await ctx.db
     .query("supportCaseActions")
-    .withIndex("by_case_time", (index) =>
-      index.eq("supportCaseId", supportCase._id),
-    )
+    .withIndex("by_case_time", (index) => index.eq("supportCaseId", supportCase._id))
     .order("desc")
     .take(100);
   const actions = candidates
@@ -433,27 +402,22 @@ async function caseActions(
     kind: action.kind,
     visibility: action.visibility,
     actorName:
-      action.kind === "internal_note" &&
-      action.body?.startsWith("Code2Create Guide") === true
+      action.kind === "internal_note" && action.body?.startsWith("Code2Create Guide") === true
         ? "Code2Create Guide"
         : includeInternal || action.actorPersonId === supportCase.reporterPersonId
-        ? names.get(action.actorPersonId) ?? "Event member"
-        : "Support",
+          ? (names.get(action.actorPersonId) ?? "Event member")
+          : "Support",
     ...(action.body !== undefined ? { body: action.body } : {}),
-    ...(action.previousState !== undefined
-      ? { previousState: action.previousState }
-      : {}),
+    ...(action.previousState !== undefined ? { previousState: action.previousState } : {}),
     ...(action.nextState !== undefined ? { nextState: action.nextState } : {}),
     ...(action.previousOwnerPersonId !== undefined
       ? {
-          previousOwnerName:
-            names.get(action.previousOwnerPersonId) ?? "Event member",
+          previousOwnerName: names.get(action.previousOwnerPersonId) ?? "Event member",
         }
       : {}),
     ...(action.nextOwnerPersonId !== undefined
       ? {
-          nextOwnerName:
-            names.get(action.nextOwnerPersonId) ?? "Event member",
+          nextOwnerName: names.get(action.nextOwnerPersonId) ?? "Event member",
         }
       : {}),
     createdAt: action.createdAt,
@@ -469,18 +433,13 @@ async function selfContext(
 ) {
   const membership = await ctx.db
     .query("eventMemberships")
-    .withIndex("by_event_person", (index) =>
-      index.eq("eventId", eventId).eq("personId", personId),
-    )
+    .withIndex("by_event_person", (index) => index.eq("eventId", eventId).eq("personId", personId))
     .unique();
   const member = membership
     ? await ctx.db
         .query("teamMembers")
         .withIndex("by_event_membership_status", (index) =>
-          index
-            .eq("eventId", eventId)
-            .eq("membershipId", membership._id)
-            .eq("status", "active"),
+          index.eq("eventId", eventId).eq("membershipId", membership._id).eq("status", "active"),
         )
         .unique()
     : null;
@@ -506,9 +465,7 @@ async function selfContext(
     const assignment = await ctx.db
       .query("reviewAssignments")
       .withIndex("by_session_person", (index) =>
-        index
-          .eq("reviewSessionId", review._id)
-          .eq("reviewerPersonId", personId),
+        index.eq("reviewSessionId", review._id).eq("reviewerPersonId", personId),
       )
       .unique();
     const belongsToTeam = teamId !== undefined && teamId === review.teamId;
@@ -539,9 +496,7 @@ async function selfContext(
     const participation = await ctx.db
       .query("attendanceSessionParticipants")
       .withIndex("by_session_membership", (index) =>
-        index
-          .eq("sessionId", session._id)
-          .eq("membershipId", membership._id),
+        index.eq("sessionId", session._id).eq("membershipId", membership._id),
       )
       .unique();
     if (!participation) {
@@ -583,9 +538,7 @@ async function staffContext(
     const subject = await ctx.db
       .query("eventAccessSubjects")
       .withIndex("by_event_person", (index) =>
-        index
-          .eq("eventId", eventId)
-          .eq("personId", subjectPersonId),
+        index.eq("eventId", eventId).eq("personId", subjectPersonId),
       )
       .unique();
     if (!subject) {
@@ -595,18 +548,14 @@ async function staffContext(
       });
     }
   }
-  const team =
-    args.teamId === undefined ? null : await ctx.db.get("teams", args.teamId);
+  const team = args.teamId === undefined ? null : await ctx.db.get("teams", args.teamId);
   if (args.teamId !== undefined && (!team || team.eventId !== eventId)) {
     throw new ConvexError({
       code: "INVALID_SUPPORT_CONTEXT",
       message: "The referenced team is outside this event.",
     });
   }
-  const round =
-    args.roundId === undefined
-      ? null
-      : await ctx.db.get("reviewRounds", args.roundId);
+  const round = args.roundId === undefined ? null : await ctx.db.get("reviewRounds", args.roundId);
   if (args.roundId !== undefined && (!round || round.eventId !== eventId)) {
     throw new ConvexError({
       code: "INVALID_SUPPORT_CONTEXT",
@@ -643,18 +592,14 @@ async function staffContext(
     });
   }
   return {
-    ...(args.subjectPersonId !== undefined
-      ? { subjectPersonId: args.subjectPersonId }
-      : {}),
+    ...(args.subjectPersonId !== undefined ? { subjectPersonId: args.subjectPersonId } : {}),
     ...(review !== null
       ? { teamId: review.teamId, roundId: review.roundId, reviewSessionId: review._id }
       : {
           ...(team !== null ? { teamId: team._id } : {}),
           ...(round !== null ? { roundId: round._id } : {}),
         }),
-    ...(attendanceSession !== null
-      ? { attendanceSessionId: attendanceSession._id }
-      : {}),
+    ...(attendanceSession !== null ? { attendanceSessionId: attendanceSession._id } : {}),
   };
 }
 
@@ -686,14 +631,10 @@ async function insertSupportCase(
     reporterPersonId: args.reporterPersonId,
     reporterEventAccessSubjectId: args.reporterEventAccessSubjectId,
     contactEmail: args.contactEmail,
-    ...(args.subjectPersonId !== undefined
-      ? { subjectPersonId: args.subjectPersonId }
-      : {}),
+    ...(args.subjectPersonId !== undefined ? { subjectPersonId: args.subjectPersonId } : {}),
     ...(args.teamId !== undefined ? { teamId: args.teamId } : {}),
     ...(args.roundId !== undefined ? { roundId: args.roundId } : {}),
-    ...(args.reviewSessionId !== undefined
-      ? { reviewSessionId: args.reviewSessionId }
-      : {}),
+    ...(args.reviewSessionId !== undefined ? { reviewSessionId: args.reviewSessionId } : {}),
     ...(args.attendanceSessionId !== undefined
       ? { attendanceSessionId: args.attendanceSessionId }
       : {}),
@@ -748,18 +689,8 @@ export async function openParticipantAssistantSupportCase(
   if (person === null) {
     throw new Error("The participant for this Guide conversation is unavailable.");
   }
-  const summary = normalizedLongText(
-    args.summary,
-    "Handoff summary",
-    10,
-    1_600,
-  );
-  const transcript = normalizedLongText(
-    args.transcript,
-    "Guide conversation",
-    2,
-    16_000,
-  );
+  const summary = normalizedLongText(args.summary, "Handoff summary", 10, 1_600);
+  const transcript = normalizedLongText(args.transcript, "Guide conversation", 2, 16_000);
   const grantIds = await requirePermission(ctx, {
     eventId: args.eventId,
     eventAccessSubjectId: subject._id,
@@ -767,13 +698,7 @@ export async function openParticipantAssistantSupportCase(
     scopeType: "self",
     scopeId: subject._id,
   });
-  const context = await selfContext(
-    ctx,
-    args.eventId,
-    args.personId,
-    undefined,
-    undefined,
-  );
+  const context = await selfContext(ctx, args.eventId, args.personId, undefined, undefined);
   const result = await insertSupportCase(ctx, {
     eventId: args.eventId,
     category: args.category,
@@ -824,12 +749,7 @@ export async function appendParticipantAssistantSupportMessage(
     now: number;
   },
 ) {
-  const message = normalizedLongText(
-    args.message,
-    "Conversation message",
-    2,
-    1_600,
-  );
+  const message = normalizedLongText(args.message, "Conversation message", 2, 1_600);
   const subject = await requireEventSubject(ctx, args.eventId, args.personId);
   const grantIds = await requirePermission(ctx, {
     eventId: args.eventId,
@@ -864,9 +784,7 @@ export async function appendParticipantAssistantSupportMessage(
   };
   await ctx.db.patch(supportCase._id, {
     state: nextState,
-    ...(nextState !== supportCase.state
-      ? { resolvedAt: undefined, closedAt: undefined }
-      : {}),
+    ...(nextState !== supportCase.state ? { resolvedAt: undefined, closedAt: undefined } : {}),
     lastActionAt: args.now,
     awaitingStaffReply: true,
     version: supportCase.version + 1,
@@ -946,12 +864,7 @@ export async function appendParticipantAssistantGuideReply(
   ) {
     throw new Error("The human support conversation is unavailable.");
   }
-  const message = normalizedLongText(
-    args.message,
-    "Guide reply",
-    2,
-    12_000,
-  );
+  const message = normalizedLongText(args.message, "Guide reply", 2, 12_000);
   await ctx.db.insert("supportCaseActions", {
     eventId: args.eventId,
     supportCaseId: supportCase._id,
@@ -1029,10 +942,7 @@ export const mineSummary = query({
           ctx.db
             .query("supportCases")
             .withIndex("by_event_reporter_state_updated", (index) =>
-              index
-                .eq("eventId", event._id)
-                .eq("reporterPersonId", person._id)
-                .eq("state", state),
+              index.eq("eventId", event._id).eq("reporterPersonId", person._id).eq("state", state),
             )
             .take(supportSummaryLimit + 1),
         ),
@@ -1115,7 +1025,8 @@ export const staffList = query({
       if (exactReadIds.size > staffPageSize) {
         throw new ConvexError({
           code: "SUPPORT_CASE_GRANT_LIMIT_EXCEEDED",
-          message: "This account has too many individually granted support cases. Use an event-wide support role.",
+          message:
+            "This account has too many individually granted support cases. Use an event-wide support role.",
         });
       }
       const readableCases = (
@@ -1128,9 +1039,7 @@ export const staffList = query({
           }),
         )
       ).flatMap((supportCase) =>
-        supportCase !== null && supportCase.eventId === event._id
-          ? [supportCase]
-          : [],
+        supportCase !== null && supportCase.eventId === event._id ? [supportCase] : [],
       );
       totals = countersForCases(readableCases);
       candidates = readableCases.filter((supportCase) =>
@@ -1196,7 +1105,8 @@ export const owners = query({
     if (grants.length > ownerCandidateLimit) {
       throw new ConvexError({
         code: "SUPPORT_OWNER_LIMIT_EXCEEDED",
-        message: "Too many support-manager grants are active. Retire duplicate grants before assigning an owner.",
+        message:
+          "Too many support-manager grants are active. Retire duplicate grants before assigning an owner.",
       });
     }
     const subjects = await Promise.all(
@@ -1284,19 +1194,16 @@ async function supportCaseDetail(
 }
 
 export const detail = query({
-  args: { eventSlug: v.string(), supportCaseId: v.id("supportCases") },
+  args: { eventSlug: v.string(), supportCaseId: v.string() },
   returns: v.union(v.null(), detailView),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
-    const supportCase = await ctx.db.get("supportCases", args.supportCaseId);
-    if (!supportCase || supportCase.eventId !== event._id) {
-      throw new ConvexError({
-        code: "SUPPORT_CASE_NOT_FOUND",
-        message: "Support case not found.",
-      });
-    }
+    // The desk deep-links by id from the address bar, so the id is untrusted text.
+    const supportCaseId = ctx.db.normalizeId("supportCases", args.supportCaseId);
+    const supportCase = supportCaseId ? await ctx.db.get("supportCases", supportCaseId) : null;
+    if (!supportCase || supportCase.eventId !== event._id) return null;
     return await supportCaseDetail(ctx, {
       eventId: event._id,
       personId: person._id,
@@ -1348,18 +1255,8 @@ export const createSelf = mutation({
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
-    const description = normalizedLongText(
-      args.description,
-      "Support description",
-      10,
-      2_000,
-    );
-    const operationId = normalizedText(
-      args.clientOperationId,
-      "Operation ID",
-      8,
-      100,
-    );
+    const description = normalizedLongText(args.description, "Support description", 10, 2_000);
+    const operationId = normalizedText(args.clientOperationId, "Operation ID", 8, 100);
     const requestFingerprint = operationFingerprint([
       args.category,
       description,
@@ -1463,18 +1360,8 @@ export const createStaff = mutation({
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
-    const description = normalizedLongText(
-      args.description,
-      "Support description",
-      10,
-      2_000,
-    );
-    const operationId = normalizedText(
-      args.clientOperationId,
-      "Operation ID",
-      8,
-      100,
-    );
+    const description = normalizedLongText(args.description, "Support description", 10, 2_000);
+    const operationId = normalizedText(args.clientOperationId, "Operation ID", 8, 100);
     const requestFingerprint = operationFingerprint([
       args.category,
       description,
@@ -1515,14 +1402,10 @@ export const createStaff = mutation({
       scopeType: "event",
     });
     const context = await staffContext(ctx, event._id, {
-      ...(args.subjectPersonId !== undefined
-        ? { subjectPersonId: args.subjectPersonId }
-        : {}),
+      ...(args.subjectPersonId !== undefined ? { subjectPersonId: args.subjectPersonId } : {}),
       ...(args.teamId !== undefined ? { teamId: args.teamId } : {}),
       ...(args.roundId !== undefined ? { roundId: args.roundId } : {}),
-      ...(args.reviewSessionId !== undefined
-        ? { reviewSessionId: args.reviewSessionId }
-        : {}),
+      ...(args.reviewSessionId !== undefined ? { reviewSessionId: args.reviewSessionId } : {}),
       ...(args.attendanceSessionId !== undefined
         ? { attendanceSessionId: args.attendanceSessionId }
         : {}),
@@ -1583,12 +1466,7 @@ export const replySelf = mutation({
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const message = normalizedLongText(args.message, "Reply", 2, 2_000);
-    const operationId = normalizedText(
-      args.clientOperationId,
-      "Operation ID",
-      8,
-      100,
-    );
+    const operationId = normalizedText(args.clientOperationId, "Operation ID", 8, 100);
     const requestFingerprint = operationFingerprint([
       args.supportCaseId,
       args.expectedVersion,
@@ -1756,12 +1634,7 @@ export const updateStaff = mutation({
         message: "Choose an owner or clear the owner, not both.",
       });
     }
-    const operationId = normalizedText(
-      args.clientOperationId,
-      "Operation ID",
-      8,
-      100,
-    );
+    const operationId = normalizedText(args.clientOperationId, "Operation ID", 8, 100);
     const requestFingerprint = operationFingerprint([
       args.supportCaseId,
       args.expectedVersion,
@@ -1809,12 +1682,8 @@ export const updateStaff = mutation({
       scopeId: supportCase._id,
     });
     const requestedState = args.nextState;
-    const stateChanged =
-      requestedState !== undefined && requestedState !== supportCase.state;
-    if (
-      stateChanged &&
-      !canTransitionSupportCase(supportCase.state, requestedState)
-    ) {
+    const stateChanged = requestedState !== undefined && requestedState !== supportCase.state;
+    if (stateChanged && !canTransitionSupportCase(supportCase.state, requestedState)) {
       throw new ConvexError({
         code: "INVALID_SUPPORT_TRANSITION",
         message: `A ${supportCase.state.replaceAll("_", " ")} case cannot move directly to ${requestedState.replaceAll("_", " ")}.`,
@@ -1827,9 +1696,7 @@ export const updateStaff = mutation({
       const ownerSubject = await ctx.db
         .query("eventAccessSubjects")
         .withIndex("by_event_person", (index) =>
-          index
-            .eq("eventId", event._id)
-            .eq("personId", requestedOwnerPersonId),
+          index.eq("eventId", event._id).eq("personId", requestedOwnerPersonId),
         )
         .unique();
       if (!ownerSubject || ownerSubject.status !== "active") {
@@ -1853,9 +1720,7 @@ export const updateStaff = mutation({
       publicNote !== undefined && supportCase.firstResponseAt === undefined
         ? now
         : supportCase.firstResponseAt;
-    const awaitingStaffReply = publicNote === undefined
-      ? supportCase.awaitingStaffReply
-      : false;
+    const awaitingStaffReply = publicNote === undefined ? supportCase.awaitingStaffReply : false;
     const beforeCounters = counterSource(supportCase);
     const afterCounters: SupportCaseCounterSource = {
       state: nextState,
@@ -1875,9 +1740,7 @@ export const updateStaff = mutation({
       ...(ownerChanged ? { ownerPersonId: nextOwnerPersonId } : {}),
       ...lifecycle,
       lastActionAt: now,
-      ...(firstResponseAt !== supportCase.firstResponseAt
-        ? { firstResponseAt }
-        : {}),
+      ...(firstResponseAt !== supportCase.firstResponseAt ? { firstResponseAt } : {}),
       awaitingStaffReply,
       version: supportCase.version + 1,
       updatedAt: now,
@@ -1909,9 +1772,7 @@ export const updateStaff = mutation({
         ...(supportCase.ownerPersonId !== undefined
           ? { previousOwnerPersonId: supportCase.ownerPersonId }
           : {}),
-        ...(nextOwnerPersonId !== undefined
-          ? { nextOwnerPersonId }
-          : {}),
+        ...(nextOwnerPersonId !== undefined ? { nextOwnerPersonId } : {}),
         createdAt: now,
       });
     }

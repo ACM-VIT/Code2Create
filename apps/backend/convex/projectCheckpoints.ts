@@ -1,7 +1,4 @@
-import {
-  paginationOptsValidator,
-  paginationResultValidator,
-} from "convex/server";
+import { paginationOptsValidator, paginationResultValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import { z } from "zod";
 
@@ -10,11 +7,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
-import {
-  requireCurrentPerson,
-  requireEventSubject,
-  requireMembership,
-} from "./lib/identity";
+import { requireCurrentPerson, requireEventSubject, requireMembership } from "./lib/identity";
 import {
   findOperation,
   operationFingerprint,
@@ -157,10 +150,7 @@ async function currentTeamForRead(ctx: QueryCtx, eventSlug: string) {
   const member = await ctx.db
     .query("teamMembers")
     .withIndex("by_event_membership_status", (index) =>
-      index
-        .eq("eventId", event._id)
-        .eq("membershipId", membership._id)
-        .eq("status", "active"),
+      index.eq("eventId", event._id).eq("membershipId", membership._id).eq("status", "active"),
     )
     .unique();
   if (!member) throw new ConvexError({ code: "TEAM_REQUIRED", message: "Join a team first." });
@@ -186,10 +176,7 @@ async function currentTeamForWrite(ctx: MutationCtx, eventSlug: string) {
   const member = await ctx.db
     .query("teamMembers")
     .withIndex("by_event_membership_status", (index) =>
-      index
-        .eq("eventId", event._id)
-        .eq("membershipId", membership._id)
-        .eq("status", "active"),
+      index.eq("eventId", event._id).eq("membershipId", membership._id).eq("status", "active"),
     )
     .unique();
   if (!member) throw new ConvexError({ code: "TEAM_REQUIRED", message: "Join a team first." });
@@ -297,9 +284,7 @@ function checkpointDraftView(draft: Doc<"teamCheckpointDrafts">) {
     id: draft._id,
     stage: draft.stage,
     ...(draft.updateText !== undefined ? { updateText: draft.updateText } : {}),
-    ...(draft.followUpAnswer !== undefined
-      ? { followUpAnswer: draft.followUpAnswer }
-      : {}),
+    ...(draft.followUpAnswer !== undefined ? { followUpAnswer: draft.followUpAnswer } : {}),
     version: draft.version,
     updatedAt: draft.updatedAt,
   };
@@ -372,9 +357,7 @@ export const mine = query({
         dueAt: window.endsAt,
         closesAt,
         availability,
-        canEdit:
-          writeGrantIds.length > 0 &&
-          (availability === "open" || availability === "late"),
+        canEdit: writeGrantIds.length > 0 && (availability === "open" || availability === "late"),
         draft: draft ? checkpointDraftView(draft) : null,
         submission: submission ? checkpointSubmissionView(submission) : null,
       });
@@ -732,10 +715,7 @@ export const submit = mutation({
         "checkpoint submission",
         checkpointSubmissionOperationResult,
       );
-      const submissionId = ctx.db.normalizeId(
-        "teamCheckpointSubmissions",
-        result.submissionId,
-      );
+      const submissionId = ctx.db.normalizeId("teamCheckpointSubmissions", result.submissionId);
       if (!submissionId || submissionId !== priorOperation.targetId) {
         throw new Error("The stored checkpoint submission is invalid.");
       }
@@ -870,9 +850,7 @@ export function projectCheckpointSummaryCounts(
   readableTeamIds: readonly string[],
   submittedTeamIds: ReadonlySet<string>,
 ) {
-  const submittedCount = readableTeamIds.filter((teamId) =>
-    submittedTeamIds.has(teamId),
-  ).length;
+  const submittedCount = readableTeamIds.filter((teamId) => submittedTeamIds.has(teamId)).length;
   return {
     totalTeamCount: readableTeamIds.length,
     submittedCount,
@@ -918,15 +896,9 @@ export const teams = query({
     const readableTeams = scope.eventWide
       ? eventTeams
       : scope.teamIds.length === 0
-        ? eventTeams.filter((filter) =>
-            filter.neq(filter.field("eventId"), event._id),
-          )
+        ? eventTeams.filter((filter) => filter.neq(filter.field("eventId"), event._id))
         : eventTeams.filter((filter) =>
-            filter.or(
-              ...scope.teamIds.map((teamId) =>
-                filter.eq(filter.field("_id"), teamId),
-              ),
-            ),
+            filter.or(...scope.teamIds.map((teamId) => filter.eq(filter.field("_id"), teamId))),
           );
     const page = await readableTeams.paginate(args.paginationOpts);
     const visible = [];
@@ -956,12 +928,8 @@ export const teams = query({
         availability,
         ...(draft ? { draftVersion: draft.version } : {}),
         ...(draft?.updateText !== undefined ? { updateText: draft.updateText } : {}),
-        ...(draft?.followUpAnswer !== undefined
-          ? { followUpAnswer: draft.followUpAnswer }
-          : {}),
-        ...(submission
-          ? { submittedAt: submission.submittedAt, timing: submission.timing }
-          : {}),
+        ...(draft?.followUpAnswer !== undefined ? { followUpAnswer: draft.followUpAnswer } : {}),
+        ...(submission ? { submittedAt: submission.submittedAt, timing: submission.timing } : {}),
       });
     }
     return { ...page, page: visible };
@@ -983,10 +951,11 @@ export const operationsCheckpointSummary = query({
       .query("teams")
       .withIndex("by_event_status", (index) => index.eq("eventId", event._id))
       .collect();
-    const readableTeams = (scope.eventWide
-      ? eventTeams
-      : eventTeams.filter((team) => scope.teamIds.some((teamId) => teamId === team._id)))
-      .filter(isAdmittedTeam);
+    const readableTeams = (
+      scope.eventWide
+        ? eventTeams
+        : eventTeams.filter((team) => scope.teamIds.some((teamId) => teamId === team._id))
+    ).filter(isAdmittedTeam);
     const submissions = await ctx.db
       .query("teamCheckpointSubmissions")
       .withIndex("by_event_key_submitted", (index) =>

@@ -131,14 +131,11 @@ describe("participant review queue projection", () => {
       });
     });
     const participant = asParticipant(backend, fixture);
-    const boardWithoutApplicationAccess = await participant.query(
-      api.reviewOperations.roundTeams,
-      {
-        eventSlug: fixture.eventSlug,
-        roundId: fixture.roundId,
-        paginationOpts: { cursor: null, numItems: 10 },
-      },
-    );
+    const boardWithoutApplicationAccess = await participant.query(api.reviewOperations.roundTeams, {
+      eventSlug: fixture.eventSlug,
+      roundId: fixture.roundId,
+      paginationOpts: { cursor: null, numItems: 10 },
+    });
 
     expect(boardWithoutApplicationAccess.page).toHaveLength(1);
     expect(boardWithoutApplicationAccess.page[0]?.applicationId).toBeUndefined();
@@ -157,14 +154,11 @@ describe("participant review queue projection", () => {
         reason: "Admission link access test",
       });
     });
-    const boardWithApplicationAccess = await participant.query(
-      api.reviewOperations.roundTeams,
-      {
-        eventSlug: fixture.eventSlug,
-        roundId: fixture.roundId,
-        paginationOpts: { cursor: null, numItems: 10 },
-      },
-    );
+    const boardWithApplicationAccess = await participant.query(api.reviewOperations.roundTeams, {
+      eventSlug: fixture.eventSlug,
+      roundId: fixture.roundId,
+      paginationOpts: { cursor: null, numItems: 10 },
+    });
 
     expect(boardWithApplicationAccess.page[0]?.applicationId).toBe(applicationId);
   });
@@ -327,9 +321,7 @@ describe("participant review queue projection", () => {
             tokenVersion,
             state: tokenVersion === historicalTokenCount ? "active" : "superseded",
             expiresAt:
-              tokenVersion === historicalTokenCount
-                ? fixture.now - 1
-                : fixture.now + 60_000,
+              tokenVersion === historicalTokenCount ? fixture.now - 1 : fixture.now + 60_000,
             issuedByMembershipId: fixture.membershipId,
             issuedAt: fixture.now + tokenVersion,
           });
@@ -372,9 +364,7 @@ describe("participant review queue projection", () => {
         .take(2);
       const latest = await ctx.db
         .query("reviewTeamQrTokens")
-        .withIndex("by_session_version", (index) =>
-          index.eq("reviewSessionId", reviewSessionId),
-        )
+        .withIndex("by_session_version", (index) => index.eq("reviewSessionId", reviewSessionId))
         .order("desc")
         .take(3);
       expect(active).toHaveLength(1);
@@ -409,10 +399,9 @@ describe("participant review queue projection", () => {
           index.eq("reviewSessionId", reviewSessionId).eq("state", "active"),
         )
         .take(3);
-      expect(active.map((token) => token.tokenVersion).sort((left, right) => left - right)).toEqual([
-        71,
-        72,
-      ]);
+      expect(active.map((token) => token.tokenVersion).sort((left, right) => left - right)).toEqual(
+        [71, 72],
+      );
     });
   });
 });
@@ -496,10 +485,7 @@ async function addQueueTeam(
 
 async function seedQueueFixture(
   backend: BackendTest,
-  {
-    grantTeamQr = true,
-    targetQueuedAt,
-  }: { grantTeamQr?: boolean; targetQueuedAt?: number } = {},
+  { grantTeamQr = true, targetQueuedAt }: { grantTeamQr?: boolean; targetQueuedAt?: number } = {},
 ) {
   const now = fixtureNow();
   const eventSlug = `participant-review-${crypto.randomUUID()}`;
@@ -512,7 +498,7 @@ async function seedQueueFixture(
       timezone: "Asia/Kolkata",
       status: "live",
       vitEmailDomains: ["vitstudent.ac.in"],
-        applicationsCloseAt: Date.now() + 86_400_000,
+      applicationsCloseAt: Date.now() + 86_400_000,
       startsAt: now - 60_000,
       endsAt: now + 3_600_000,
       version: 1,

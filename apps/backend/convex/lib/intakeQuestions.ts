@@ -1,9 +1,6 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
-import {
-  fixedQuestionForOrdinal,
-  type IntakePolicy,
-} from "./intakePolicy";
+import { fixedQuestionForOrdinal, type IntakePolicy } from "./intakePolicy";
 import { fingerprintText } from "./strings";
 
 type ReadCtx = QueryCtx | MutationCtx;
@@ -20,10 +17,7 @@ function isCurrentQuestion(
   return question.state === "active" || question.state === "answered";
 }
 
-export async function loadCurrentIntakeQuestions(
-  ctx: ReadCtx,
-  draftId: Id<"projectDrafts">,
-) {
+export async function loadCurrentIntakeQuestions(ctx: ReadCtx, draftId: Id<"projectDrafts">) {
   const rows = await ctx.db
     .query("intakeGeneratedQuestions")
     .withIndex("by_draft_ordinal", (index) => index.eq("draftId", draftId))
@@ -37,19 +31,14 @@ export async function loadCurrentIntakeQuestions(
   return current;
 }
 
-export async function loadCurrentIntakeResponses(
-  ctx: ReadCtx,
-  draftId: Id<"projectDrafts">,
-) {
+export async function loadCurrentIntakeResponses(ctx: ReadCtx, draftId: Id<"projectDrafts">) {
   const questions = await loadCurrentIntakeQuestions(ctx, draftId);
   return Promise.all(
     questions.map(async (question) => {
       const answer = await ctx.db
         .query("intakeAnswerVersions")
         .withIndex("by_generated_question_status", (index) =>
-          index
-            .eq("generatedQuestionId", question._id)
-            .eq("status", "active"),
+          index.eq("generatedQuestionId", question._id).eq("status", "active"),
         )
         .unique();
       if (question.state === "answered" && !answer) {
@@ -63,15 +52,10 @@ export async function loadCurrentIntakeResponses(
   );
 }
 
-export async function loadActiveIntakeAnswers(
-  ctx: ReadCtx,
-  draftId: Id<"projectDrafts">,
-) {
+export async function loadActiveIntakeAnswers(ctx: ReadCtx, draftId: Id<"projectDrafts">) {
   return ctx.db
     .query("intakeAnswerVersions")
-    .withIndex("by_draft_status", (index) =>
-      index.eq("draftId", draftId).eq("status", "active"),
-    )
+    .withIndex("by_draft_status", (index) => index.eq("draftId", draftId).eq("status", "active"))
     .collect();
 }
 
@@ -143,18 +127,13 @@ export async function deactivateCurrentQuestionAnswer(
   const answer = await ctx.db
     .query("intakeAnswerVersions")
     .withIndex("by_generated_question_status", (index) =>
-      index
-        .eq("generatedQuestionId", questionId)
-        .eq("status", "active"),
+      index.eq("generatedQuestionId", questionId).eq("status", "active"),
     )
     .unique();
   if (answer) await ctx.db.patch(answer._id, { status: "inactive_for_route" });
 }
 
-async function replaceQuestion(
-  ctx: MutationCtx,
-  question: CurrentIntakeQuestion,
-) {
+async function replaceQuestion(ctx: MutationCtx, question: CurrentIntakeQuestion) {
   await ctx.db.patch(question._id, { state: "replaced" });
   await deactivateCurrentQuestionAnswer(ctx, question._id);
 }
@@ -196,9 +175,7 @@ export async function createIntakeQuestion(
     source: args.source,
     sourceAnswerVersionIds: args.sourceAnswerVersionIds,
     intakePolicyVersionId: args.policy._id,
-    ...(args.interpretationId !== undefined
-      ? { interpretationId: args.interpretationId }
-      : {}),
+    ...(args.interpretationId !== undefined ? { interpretationId: args.interpretationId } : {}),
     ...(args.matchedIdeaPatternKey !== undefined
       ? { matchedIdeaPatternKey: args.matchedIdeaPatternKey }
       : {}),
@@ -237,10 +214,7 @@ export async function createFixedIntakeQuestion(
     text: question.text,
     purposeKey: question.purposeKey,
     answerLength: question.answerLength,
-    source:
-      args.ordinal <= args.normalizedPolicy.deterministicFollowUpCount
-        ? "fixed"
-        : "fallback",
+    source: args.ordinal <= args.normalizedPolicy.deterministicFollowUpCount ? "fixed" : "fallback",
     sourceAnswerVersionIds: args.sourceAnswerVersionIds,
     validationCategory:
       args.ordinal <= args.normalizedPolicy.deterministicFollowUpCount
@@ -265,9 +239,7 @@ export function intakeSequenceComplete(
   return (
     responses.length === policy.maximumFollowUpCount &&
     responses.every(
-      ({ question }, index) =>
-        question.ordinal === index + 1 &&
-        question.state === "answered",
+      ({ question }, index) => question.ordinal === index + 1 && question.state === "answered",
     )
   );
 }

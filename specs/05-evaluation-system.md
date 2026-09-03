@@ -4,28 +4,28 @@
 
 Each criterion is scored from 0 to 4.
 
-| Criterion | Weight | Question |
-| --- | ---: | --- |
-| Problem & User Fit | 15 | Is the problem specific, evidenced, and relevant to a clear user? |
-| Working Solution | 20 | Does the demonstrated solution perform the important flow? |
-| Event Build Contribution | 15 | What did this team build during Code2Create from the official event baseline? |
-| Technical Execution | 15 | Are the implementation choices sound for the problem and current stage? |
-| User Readiness | 10 | Can the intended user understand and use the current experience? |
-| Trust & Responsible Use | 15 | Has the team handled privacy, security, safety, data, accessibility, and misuse risk? |
-| Communication & Evidence | 10 | Did the team explain its decisions and support claims with a demo or other evidence? |
-| **Total** | **100** | |
+| Criterion                |  Weight | Question                                                                              |
+| ------------------------ | ------: | ------------------------------------------------------------------------------------- |
+| Problem & User Fit       |      15 | Is the problem specific, evidenced, and relevant to a clear user?                     |
+| Working Solution         |      20 | Does the demonstrated solution perform the important flow?                            |
+| Event Build Contribution |      15 | What did this team build during Code2Create from the official event baseline?         |
+| Technical Execution      |      15 | Are the implementation choices sound for the problem and current stage?               |
+| User Readiness           |      10 | Can the intended user understand and use the current experience?                      |
+| Trust & Responsible Use  |      15 | Has the team handled privacy, security, safety, data, accessibility, and misuse risk? |
+| Communication & Evidence |      10 | Did the team explain its decisions and support claims with a demo or other evidence?  |
+| **Total**                | **100** |                                                                                       |
 
 Board must approve wording and round applicability before the rubric is published.
 
 ## 2. Shared score anchors
 
-| Score | Meaning |
-| ---: | --- |
-| 0 | Not shown |
-| 1 | Weak or mostly claimed |
-| 2 | Basic or partially shown |
-| 3 | Strong or clearly shown |
-| 4 | Excellent; the reviewer can confidently verify it |
+| Score | Meaning                                           |
+| ----: | ------------------------------------------------- |
+|     0 | Not shown                                         |
+|     1 | Weak or mostly claimed                            |
+|     2 | Basic or partially shown                          |
+|     3 | Strong or clearly shown                           |
+|     4 | Excellent; the reviewer can confidently verify it |
 
 Each rubric criterion also has examples for 0, 2, and 4. Reviewer training uses the same examples as the app.
 
@@ -77,15 +77,15 @@ The final minimum scorer count remains an open event decision and is stored with
 
 Before routing opens, the panel plan creates a coverage matrix:
 
-| Criterion | Reviewer A | Reviewer B | Reviewer C |
-| --- | :---: | :---: | :---: |
-| Problem & User Fit | ✓ | ✓ | |
-| Working Solution | ✓ | | ✓ |
-| Event Build Contribution | | ✓ | ✓ |
-| Technical Execution | ✓ | | ✓ |
-| User Readiness | ✓ | ✓ | |
-| Trust & Responsible Use | | ✓ | ✓ |
-| Communication & Evidence | ✓ | ✓ | |
+| Criterion                | Reviewer A | Reviewer B | Reviewer C |
+| ------------------------ | :--------: | :--------: | :--------: |
+| Problem & User Fit       |     ✓      |     ✓      |            |
+| Working Solution         |     ✓      |            |     ✓      |
+| Event Build Contribution |            |     ✓      |     ✓      |
+| Technical Execution      |     ✓      |            |     ✓      |
+| User Readiness           |     ✓      |     ✓      |            |
+| Trust & Responsible Use  |            |     ✓      |     ✓      |
+| Communication & Evidence |     ✓      |     ✓      |            |
 
 This is an example, not a fixed mapping. The planner uses reviewer expertise and ensures the configured minimum.
 
@@ -170,7 +170,7 @@ It must:
 - avoid admission recommendations, rank, score, or winner language;
 - never replace reviewer access to original answers.
 
-A separate pre-event admission-analysis contract may read the redacted submitted application, deterministic year/study band, and published admission rubric and return a structured `accept | waitlist | decline | needs_information` recommendation. It receives no human admission recommendation, private reviewer note, judging rubric, peer score, scorecard, evaluation result, ranking, attendance history, or provider-activity count. Its result is visibly advisory, has no numeric score, and cannot call an admission or project mutation. A human with the exact permission publishes the application decision and records whether the AI record was used, cleared, or overridden.
+A separate pre-event admission-analysis contract may read the redacted submitted application, deterministic year/study band, and published admission rubric and return a structured `accept | waitlist | decline` recommendation. Missing evidence remains visible in concerns, limitations, and confidence instead of creating another participant workflow. It receives no human admission recommendation, private reviewer note, judging rubric, peer score, scorecard, evaluation result, ranking, attendance history, or provider-activity count. Its result is visibly advisory, has no numeric score, and cannot call an admission or project mutation. A human with the exact permission publishes the application decision and records whether the AI record was used, cleared, or overridden.
 
 No model can generate, change, normalize, predict, or recommend a hackathon judging score, award, rank, or winner. Admission-analysis output is never supplied to venue judges or judging functions. Reviewer/panel routing and criterion coverage use fixed rules.
 
@@ -201,7 +201,7 @@ A different person must hold both `round.export.read` and `round.export.verify` 
 
 Paper recovery is limited to a review that the backend had already started. An outage does not authorize staff to invent a new review, panel, assignment, score, or evidence snapshot.
 
-Operations opens a `review_backend` incident. Two different authorized holders of `incident.manual_mode.approve` must approve that exact incident. The first recovery operator needs `review.manual_record.read` and `review.manual_record.enter` for the exact review. They copy the numbered sheet’s start/end time, outage reason, every assigned reviewer’s signature and raw ratings, evidence notes, private note when present, shared findings, and commitments. The record pins the round, review, panel/table, rubric, evidence-checkpoint set, assignments, and current scorecard versions.
+Operations opens a `review_backend` incident. Two different authorized holders of `incident.manual_mode.approve` must approve that exact incident. The first recovery operator needs `review.manual_record.read` and `review.manual_record.enter` for the exact review. They copy the numbered sheet’s start/end time, outage reason, every assigned reviewer’s signature and raw ratings, evidence notes, private note when present, shared findings, and commitments. The record pins the round, review, panel, rubric, evidence-checkpoint set, assignments, and current scorecard versions.
 
 The numbered original comes from a current restricted emergency pack prepared and printed under separate event-scoped permissions. It is prefilled for the current non-closed panel with its table, reviewers, rubric, and criteria; a spare remains available when the plan changed after the snapshot. Preparing or printing the pack does not open an incident, approve paper mode, create a review, or grant either manual-record command.
 
@@ -235,7 +235,7 @@ A judge may request a correction to their own submitted scorecard only while the
 
 ### Process complaint
 
-A participant may report a process problem such as missing panel member, wrong table, or unavailable review. Complaints do not directly edit scores. The board chooses a remedy under the approved complaint policy.
+A participant may report a process problem such as a missing panel member, incorrect assignment, or unavailable review. Complaints do not directly edit scores. The board chooses a remedy under the approved complaint policy.
 
 Operations publishes the correction-request deadline with the round. The complaint window and complaint remedies remain board decisions.
 

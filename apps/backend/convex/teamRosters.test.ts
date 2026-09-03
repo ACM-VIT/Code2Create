@@ -88,9 +88,11 @@ describe("team roster backfill", () => {
       role: "member",
       status: "pending",
     });
-    expect(await member.person.query(api.teams.current, {
-      eventSlug: fixture.eventSlug,
-    })).toBeNull();
+    expect(
+      await member.person.query(api.teams.current, {
+        eventSlug: fixture.eventSlug,
+      }),
+    ).toBeNull();
     await acceptPolicy(member.person, fixture, "accept-policy-member");
     const memberAssignment = (
       await member.person.query(api.participants.me, { eventSlug: fixture.eventSlug })
@@ -603,9 +605,11 @@ describe("team roster backfill", () => {
       email: "late-lead@example.test",
       googleSubject: "team-roster-late-lead-subject",
     });
-    expect(await lead.person.query(api.teams.current, {
-      eventSlug: fixture.eventSlug,
-    })).toBeNull();
+    expect(
+      await lead.person.query(api.teams.current, {
+        eventSlug: fixture.eventSlug,
+      }),
+    ).toBeNull();
     await acceptRosterAssignment(lead.person, fixture, "accept-gamma-lead");
     const leadTeam = await lead.person.query(api.teams.current, {
       eventSlug: fixture.eventSlug,
@@ -846,8 +850,7 @@ describe("team roster backfill", () => {
       }),
     ).rejects.toThrow("You are already on that team. Leave it from the team panel.");
     expect(
-      (await lead.person.query(api.participants.me, { eventSlug: fixture.eventSlug }))
-        ?.pendingTeam,
+      (await lead.person.query(api.participants.me, { eventSlug: fixture.eventSlug }))?.pendingTeam,
     ).toBeNull();
   }, 30_000);
 
@@ -1144,13 +1147,15 @@ describe("team roster backfill", () => {
       googleSubject: "team-roster-stale-preview",
     });
     await acceptPolicy(assignee.person, fixture, "accept-stale-preview");
-    const rows: ImportRow[] = [{
-      rowNumber: 2,
-      identity: assignee.me.person.verifiedEmail,
-      displayName: "Stale Preview",
-      teamName: "Preview Team",
-      role: "lead",
-    }];
+    const rows: ImportRow[] = [
+      {
+        rowNumber: 2,
+        identity: assignee.me.person.verifiedEmail,
+        displayName: "Stale Preview",
+        teamName: "Preview Team",
+        role: "lead",
+      },
+    ];
     const preview = await importer.person.query(api.teamRosters.previewImport, {
       eventSlug: fixture.eventSlug,
       sourceName: "State-bound preview",
@@ -1182,13 +1187,15 @@ describe("team roster backfill", () => {
     backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
     const fixture = await seedEvent(backend);
     const importer = await seedImporter(backend, fixture);
-    const rows: ImportRow[] = [{
-      rowNumber: 2,
-      identity: "pending-after-preview@gmail.com",
-      displayName: "Pending After Preview",
-      teamName: "Pending Team",
-      role: "lead",
-    }];
+    const rows: ImportRow[] = [
+      {
+        rowNumber: 2,
+        identity: "pending-after-preview@gmail.com",
+        displayName: "Pending After Preview",
+        teamName: "Pending Team",
+        role: "lead",
+      },
+    ];
     const originalPreview = await importer.person.query(api.teamRosters.previewImport, {
       eventSlug: fixture.eventSlug,
       sourceName: "Original preview",
@@ -1350,8 +1357,7 @@ describe("team roster backfill", () => {
     });
     await acceptRosterAssignment(lead.person, fixture, "accept-revoked-lead");
     expect(
-      (await lead.person.query(api.participants.me, { eventSlug: fixture.eventSlug }))
-        ?.pendingTeam,
+      (await lead.person.query(api.participants.me, { eventSlug: fixture.eventSlug }))?.pendingTeam,
     ).toBeNull();
     expect(dropped.me.pendingTeam).toBeNull();
     const droppedTeam = await dropped.person.query(api.teams.current, {
@@ -1443,9 +1449,7 @@ describe("team roster backfill", () => {
         )
         .collect();
       expect(leads.filter((member) => member.role === "lead")).toHaveLength(1);
-      expect(leads.some((member) => member.membershipId === usurper.membershipId)).toBe(
-        false,
-      );
+      expect(leads.some((member) => member.membershipId === usurper.membershipId)).toBe(false);
     });
   }, 30_000);
 
@@ -1508,7 +1512,7 @@ describe("team roster backfill", () => {
     });
   }, 30_000);
 
-  test("a locked team does not block the imported person from signing up", async () => {
+  test("lets an imported member join a submitted team before the deadline", async () => {
     const backend = convexTest(schema, modules);
     backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
     const fixture = await seedEvent(backend);
@@ -1551,7 +1555,19 @@ describe("team roster backfill", () => {
     const me = await lockedMember.person.query(api.participants.me, {
       eventSlug: fixture.eventSlug,
     });
-    expect(me?.membership).not.toBeNull();
+    if (!me?.membership) throw new Error("The imported member was not provisioned.");
+    await completeMandatoryOnboarding(backend, fixture, me);
+
+    await expect(
+      acceptRosterAssignment(
+        lockedMember.person,
+        fixture,
+        "accept-assignment-to-submitted-team",
+      ),
+    ).resolves.toMatchObject({ status: "claimed" });
+    await expect(
+      lockedMember.person.query(api.teams.current, { eventSlug: fixture.eventSlug }),
+    ).resolves.toMatchObject({ id: live.teamId, name: "Locked" });
   }, 30_000);
 
   test("records duplicate registration identities as conflicts and applies safe rows", async () => {
@@ -1624,10 +1640,7 @@ describe("team roster backfill", () => {
       reason: "Isolate legacy duplicate registrations",
     });
     expect(preview.counts.identityConflicts).toBe(1);
-    expect(preview.rows.map((row) => row.outcome)).toEqual([
-      "identity_conflict",
-      "pending",
-    ]);
+    expect(preview.rows.map((row) => row.outcome)).toEqual(["identity_conflict", "pending"]);
     await importer.person.mutation(api.teamRosters.confirmImport, {
       eventSlug: fixture.eventSlug,
       sourceName: "Legacy duplicates",
@@ -1645,10 +1658,10 @@ describe("team roster backfill", () => {
         .collect();
       return entries.map((entry) => ({ teamName: entry.teamName, status: entry.status }));
     });
-    expect(statuses.find((entry) => entry.teamName === "Conflict Team")?.status)
-      .toBe("identity_conflict");
-    expect(statuses.find((entry) => entry.teamName === "Safe Team")?.status)
-      .toBe("pending");
+    expect(statuses.find((entry) => entry.teamName === "Conflict Team")?.status).toBe(
+      "identity_conflict",
+    );
+    expect(statuses.find((entry) => entry.teamName === "Safe Team")?.status).toBe("pending");
     await acceptRosterAssignment(safeLead.person, fixture, "accept-safe-team-lead");
     const safeTeam = await safeLead.person.query(api.teams.current, {
       eventSlug: fixture.eventSlug,
@@ -1664,13 +1677,15 @@ describe("team roster backfill", () => {
     await importRows(importer, fixture, {
       sourceName: "VIT-only registration assignment",
       clientOperationId: "team-roster-import-vit-only-display-name",
-      rows: [{
-        rowNumber: 2,
-        identity: "24BCI0500",
-        displayName: "Actual VIT Student",
-        teamName: "VIT Team",
-        role: "lead",
-      }],
+      rows: [
+        {
+          rowNumber: 2,
+          identity: "24BCI0500",
+          displayName: "Actual VIT Student",
+          teamName: "VIT Team",
+          role: "lead",
+        },
+      ],
     });
     await drainScheduler(backend);
 
@@ -1775,24 +1790,28 @@ describe("team roster backfill", () => {
     await importRows(importer, fixture, {
       sourceName: "Email assignment",
       clientOperationId: "team-roster-import-dual-email",
-      rows: [{
-        rowNumber: 2,
-        identity: email,
-        displayName: "Dual Identity",
-        teamName: "Email Team",
-        role: "lead",
-      }],
+      rows: [
+        {
+          rowNumber: 2,
+          identity: email,
+          displayName: "Dual Identity",
+          teamName: "Email Team",
+          role: "lead",
+        },
+      ],
     });
     await importRows(importer, fixture, {
       sourceName: "Registration assignment",
       clientOperationId: "team-roster-import-dual-regno",
-      rows: [{
-        rowNumber: 2,
-        identity: "24BCI0300",
-        displayName: "Dual Identity",
-        teamName: "Registration Team",
-        role: "lead",
-      }],
+      rows: [
+        {
+          rowNumber: 2,
+          identity: "24BCI0300",
+          displayName: "Dual Identity",
+          teamName: "Registration Team",
+          role: "lead",
+        },
+      ],
     });
     await drainScheduler(backend);
 
@@ -1846,7 +1865,7 @@ describe("team roster backfill", () => {
         ],
         reason: "Invalid registration number",
       }),
-    ).rejects.toThrow("Google account email or a VIT registration number");
+    ).rejects.toThrow("email address or a VIT registration number");
 
     await expect(
       importer.person.query(api.teamRosters.previewImport, {
@@ -1863,7 +1882,7 @@ describe("team roster backfill", () => {
         ],
         reason: "Future registration number",
       }),
-    ).rejects.toThrow("Google account email or a VIT registration number");
+    ).rejects.toThrow("email address or a VIT registration number");
   }, 30_000);
 
   test("pending registration-number assignment blocks create and can be declined", async () => {
@@ -2156,7 +2175,6 @@ async function importRows(
     previewChecksum: preview.previewChecksum,
     clientOperationId: args.clientOperationId,
   });
-  if (args.drain === false) return;
 }
 
 async function acceptPolicy(
@@ -2236,12 +2254,7 @@ async function fillTeam(
 async function seedEvent(backend: BackendTest) {
   const now = Date.UTC(2027, 6, 1, 9, 0);
   const eventSlug = "team-roster-backfill";
-  const ownerAuthUserId = await createAuthUser(
-    backend,
-    now,
-    "Event Owner",
-    "owner@example.test",
-  );
+  const ownerAuthUserId = await createAuthUser(backend, now, "Event Owner", "owner@example.test");
   return backend.run(async (ctx) => {
     const ownerId = await ctx.db.insert("people", {
       authUserId: ownerAuthUserId,
@@ -2359,8 +2372,8 @@ async function signInParticipant(
     displayName?: string;
   },
 ) {
-  const displayName = args.displayName
-    ?? (args.vitHostedDomain ? "VIT Student 24TST0001" : args.email);
+  const displayName =
+    args.displayName ?? (args.vitHostedDomain ? "VIT Student 24TST0001" : args.email);
   const authUserId = await createAuthUser(backend, fixture.now, displayName, args.email);
   const authSessionId = await createAuthSession(
     backend,

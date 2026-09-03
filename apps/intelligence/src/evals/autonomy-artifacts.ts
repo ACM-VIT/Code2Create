@@ -1,4 +1,4 @@
-import { memoryAutonomyArtifactStore } from '../lib/autonomyArtifacts.ts';
+import { memoryAutonomyArtifactStore } from "../lib/autonomyArtifacts.ts";
 
 const evaluationArtifacts = memoryAutonomyArtifactStore();
 
@@ -8,14 +8,14 @@ const evaluationArtifacts = memoryAutonomyArtifactStore();
  * replaced because no workerd storage context exists in the Node Flue runtime.
  */
 export function cloudflareAutonomyArtifactStore() {
-	return evaluationArtifacts;
+  return evaluationArtifacts;
 }
 
 export function resetAutonomyEvaluationArtifacts() {
-	return evaluationArtifacts.clearRunArtifacts();
+  return evaluationArtifacts.clearRunArtifacts();
 }
 
 export function purgeCloudflareAutonomyArtifacts() {
-	// Node evaluations have no workerd SQL owner. The singleton store is reset
-	// explicitly by the evaluation lifecycle instead.
+  // Node evaluations have no workerd SQL owner. The singleton store is reset
+  // explicitly by the evaluation lifecycle instead.
 }

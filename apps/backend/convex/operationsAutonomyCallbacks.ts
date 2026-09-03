@@ -119,10 +119,11 @@ export const applyCallback = internalMutation({
       if (
         boundary.run.executor.agentVersion !== callback.agentVersion ||
         boundary.run.executor.model !== callback.model
-      ) throw new ConvexError({
-        code: "OPERATIONS_AUTONOMY_EXECUTOR_CONFLICT",
-        message: "The autonomy executor identity changed during the run.",
-      });
+      )
+        throw new ConvexError({
+          code: "OPERATIONS_AUTONOMY_EXECUTOR_CONFLICT",
+          message: "The autonomy executor identity changed during the run.",
+        });
     } else {
       await ctx.db.patch(boundary.run._id, {
         executor: { kind: "known", agentVersion: callback.agentVersion, model: callback.model },
@@ -139,14 +140,18 @@ export const applyCallback = internalMutation({
         message: "The autonomy callback attempted to move its phase backward.",
       });
     }
-    if (callback.status !== "running" && callback.status !== "failed" && boundary.checkpoint.phase !== "finalizing") {
+    if (
+      callback.status !== "running" &&
+      callback.status !== "failed" &&
+      boundary.checkpoint.phase !== "finalizing"
+    ) {
       throw new ConvexError({
         code: "OPERATIONS_AUTONOMY_TERMINAL_INVALID",
         message: "A successful autonomy run may settle only after finalization.",
       });
     }
     const sequence = await nextAutonomySequence(ctx, boundary.checkpoint);
-    const runState = callback.status === "running" ? "running" as const : callback.status;
+    const runState = callback.status === "running" ? ("running" as const) : callback.status;
     const receipt: OperationsAutonomyCallbackReceipt = {
       state: "accepted",
       sequence,
@@ -189,9 +194,10 @@ export const applyCallback = internalMutation({
       return { state: "accepted" as const, responseJson };
     }
     await ctx.db.patch(boundary.run._id, {
-      lifecycle: callback.status === "failed"
-        ? { kind: "failed", failureCode: callback.failureCode, completedAt: args.now }
-        : { kind: callback.status, completedAt: args.now },
+      lifecycle:
+        callback.status === "failed"
+          ? { kind: "failed", failureCode: callback.failureCode, completedAt: args.now }
+          : { kind: callback.status, completedAt: args.now },
       updatedAt: args.now,
       version: boundary.run.version + (boundary.run.executor.kind === "unknown" ? 2 : 1),
     });

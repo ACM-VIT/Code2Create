@@ -9,6 +9,7 @@ import {
 import {
   defaultParticipantPolicy,
   isProfileCompleteForPolicy,
+  isParticipantReadyForPolicy,
   normalizeParticipantPolicy,
   participantClassesMeetPolicy,
   participantPolicyChecksum,
@@ -43,30 +44,43 @@ describe("participant policy lifecycle", () => {
   });
 
   test("preserves the fresh-build rule and explicit team-lock and edit-deadline warning", () => {
-    expect(() => normalizeParticipantPolicy({
-      ...defaultParticipantPolicy,
-      freshProjectAttestation: "We might start the project whenever it is convenient for us.",
-    })).toThrow("fixed fresh-build rule");
-    expect(() => normalizeParticipantPolicy({
-      ...defaultParticipantPolicy,
-      finalSubmissionWarning: "Please check everything carefully before submitting this application.",
-    })).toThrow("team and proposal remain editable until the deadline");
-    expect(participantClassesMeetPolicy(
-      ["vit_student", "external_participant"],
-      { ...defaultParticipantPolicy, mixedParticipantClassesAllowed: false },
-    )).toBe(false);
-    expect(() => normalizeParticipantPolicy({
-      ...defaultParticipantPolicy,
-      mixedParticipantClassesAllowed: true,
-    })).toThrow("must form separate teams");
-    expect(normalizeParticipantPolicy({
-      ...defaultParticipantPolicy,
-      teamMaximumSize: 24,
-    }).teamMaximumSize).toBe(24);
-    expect(() => normalizeParticipantPolicy({
-      ...defaultParticipantPolicy,
-      teamMinimumSize: 0,
-    })).toThrow("positive whole number");
+    expect(() =>
+      normalizeParticipantPolicy({
+        ...defaultParticipantPolicy,
+        freshProjectAttestation: "We might start the project whenever it is convenient for us.",
+      }),
+    ).toThrow("fixed fresh-build rule");
+    expect(() =>
+      normalizeParticipantPolicy({
+        ...defaultParticipantPolicy,
+        finalSubmissionWarning:
+          "Please check everything carefully before submitting this application.",
+      }),
+    ).toThrow("team and proposal remain editable until the deadline");
+    expect(
+      participantClassesMeetPolicy(["vit_student", "external_participant"], {
+        ...defaultParticipantPolicy,
+        mixedParticipantClassesAllowed: false,
+      }),
+    ).toBe(false);
+    expect(() =>
+      normalizeParticipantPolicy({
+        ...defaultParticipantPolicy,
+        mixedParticipantClassesAllowed: true,
+      }),
+    ).toThrow("must form separate teams");
+    expect(
+      normalizeParticipantPolicy({
+        ...defaultParticipantPolicy,
+        teamMaximumSize: 24,
+      }).teamMaximumSize,
+    ).toBe(24);
+    expect(() =>
+      normalizeParticipantPolicy({
+        ...defaultParticipantPolicy,
+        teamMinimumSize: 0,
+      }),
+    ).toThrow("positive whole number");
   });
 
   test("normalizes an Ops-managed VIT residence catalogue", () => {
@@ -81,20 +95,24 @@ describe("participant policy lifecycle", () => {
       { stableKey: "mh_new_annex", label: "New annex", kind: "mens" },
       { stableKey: "lh_new_annex", label: "New ladies annex", kind: "ladies" },
     ]);
-    expect(() => normalizeParticipantPolicy({
-      ...defaultParticipantPolicy,
-      vitHostelResidenceCatalog: [
-        { stableKey: "mh_a", label: "A block", kind: "mens" },
-        { stableKey: "mh_a", label: "Duplicate", kind: "ladies" },
-      ],
-    })).toThrow("duplicated");
-    expect(() => normalizeParticipantPolicy({
-      ...defaultParticipantPolicy,
-      vitHostelResidenceCatalog: [
-        { stableKey: "mh_a", label: "A block", kind: "mens" },
-        { stableKey: "mh_b", label: "B block", kind: "mens" },
-      ],
-    })).toThrow("at least one men's and one ladies' block");
+    expect(() =>
+      normalizeParticipantPolicy({
+        ...defaultParticipantPolicy,
+        vitHostelResidenceCatalog: [
+          { stableKey: "mh_a", label: "A block", kind: "mens" },
+          { stableKey: "mh_a", label: "Duplicate", kind: "ladies" },
+        ],
+      }),
+    ).toThrow("duplicated");
+    expect(() =>
+      normalizeParticipantPolicy({
+        ...defaultParticipantPolicy,
+        vitHostelResidenceCatalog: [
+          { stableKey: "mh_a", label: "A block", kind: "mens" },
+          { stableKey: "mh_b", label: "B block", kind: "mens" },
+        ],
+      }),
+    ).toThrow("at least one men's and one ladies' block");
   });
 
   test("VIT hostel completeness requires a current block and room, or day scholar", async () => {
@@ -143,31 +161,37 @@ describe("participant policy lifecycle", () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedFixture(backend, "draft-race");
     const attempts = await Promise.allSettled([
-      backend.run((ctx) => saveParticipantPolicyDraft(ctx, {
-        event: fixture.event,
-        actorPersonId: fixture.personId,
-        policy: policy("Alpha", 4),
-        now: fixture.now + 1,
-      })),
-      backend.run((ctx) => saveParticipantPolicyDraft(ctx, {
-        event: fixture.event,
-        actorPersonId: fixture.personId,
-        policy: policy("Beta", 5),
-        now: fixture.now + 1,
-      })),
+      backend.run((ctx) =>
+        saveParticipantPolicyDraft(ctx, {
+          event: fixture.event,
+          actorPersonId: fixture.personId,
+          policy: policy("Alpha", 4),
+          now: fixture.now + 1,
+        }),
+      ),
+      backend.run((ctx) =>
+        saveParticipantPolicyDraft(ctx, {
+          event: fixture.event,
+          actorPersonId: fixture.personId,
+          policy: policy("Beta", 5),
+          now: fixture.now + 1,
+        }),
+      ),
     ]);
     expect(attempts.filter((attempt) => attempt.status === "fulfilled")).toHaveLength(1);
     expect(attempts.filter((attempt) => attempt.status === "rejected")).toHaveLength(1);
-    const drafts = await backend.run((ctx) => ctx.db
-      .query("participantPolicyVersions")
-      .withIndex("by_event_status", (index) =>
-        index.eq("eventId", fixture.event._id).eq("status", "draft"),
-      )
-      .collect());
+    const drafts = await backend.run((ctx) =>
+      ctx.db
+        .query("participantPolicyVersions")
+        .withIndex("by_event_status", (index) =>
+          index.eq("eventId", fixture.event._id).eq("status", "draft"),
+        )
+        .collect(),
+    );
     expect(drafts).toHaveLength(1);
   });
 
-  test("publication makes current-policy acceptance explicit", async () => {
+  test("material publication makes current-policy acceptance explicit", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedFixture(backend, "publication");
     const before = await backend.run(async (ctx) => {
@@ -175,23 +199,27 @@ describe("participant policy lifecycle", () => {
       const membership = await ctx.db.get(fixture.membershipId);
       const policy = await ctx.db.get(fixture.policyId);
       if (!membership || !policy) throw new Error("The fixture policy state is missing.");
-      return isProfileCompleteForPolicy(profile, membership, policy);
+      return isParticipantReadyForPolicy(ctx, profile, membership, policy);
     });
     expect(before).toBe(true);
 
     const nextPolicy = policy("Second", 5);
-    const draft = await backend.run((ctx) => saveParticipantPolicyDraft(ctx, {
-      event: fixture.event,
-      actorPersonId: fixture.personId,
-      policy: nextPolicy,
-      now: fixture.now + 1,
-    }));
-    await backend.run((ctx) => publishParticipantPolicy(ctx, {
-      event: fixture.event,
-      draftPolicyId: draft.policyVersionId,
-      expectedDraftChecksum: draft.checksum,
-      now: fixture.now + 2,
-    }));
+    const draft = await backend.run((ctx) =>
+      saveParticipantPolicyDraft(ctx, {
+        event: fixture.event,
+        actorPersonId: fixture.personId,
+        policy: nextPolicy,
+        now: fixture.now + 1,
+      }),
+    );
+    await backend.run((ctx) =>
+      publishParticipantPolicy(ctx, {
+        event: fixture.event,
+        draftPolicyId: draft.policyVersionId,
+        expectedDraftChecksum: draft.checksum,
+        now: fixture.now + 2,
+      }),
+    );
 
     const afterPublication = await backend.run(async (ctx) => {
       const profile = await ctx.db.get(fixture.profileId);
@@ -202,7 +230,7 @@ describe("participant policy lifecycle", () => {
         throw new Error("The published participant policy state is missing.");
       }
       return {
-        complete: isProfileCompleteForPolicy(profile, membership, published),
+        complete: await isParticipantReadyForPolicy(ctx, profile, membership, published),
         previousStatus: previous?.status,
       };
     });
@@ -224,7 +252,7 @@ describe("participant policy lifecycle", () => {
       if (!membership || !published) {
         throw new Error("The published participant policy state is missing.");
       }
-      return isProfileCompleteForPolicy(profile, membership, published);
+      return isParticipantReadyForPolicy(ctx, profile, membership, published);
     });
     expect(afterAcceptance).toBe(true);
   });
@@ -294,60 +322,82 @@ describe("participant policy lifecycle", () => {
       }
     });
 
-    const overCapacity = await backend.run((ctx) => saveParticipantPolicyDraft(ctx, {
-      event: fixture.event,
-      actorPersonId: fixture.personId,
-      policy: policy("Over capacity", 31),
-      now: fixture.now + 1,
-    }));
-    await expect(backend.run((ctx) => publishParticipantPolicy(ctx, {
-      event: fixture.event,
-      draftPolicyId: overCapacity.policyVersionId,
-      expectedDraftChecksum: overCapacity.checksum,
-      now: fixture.now + 2,
-    }))).rejects.toThrow("cannot exceed the published participant capacity of 30");
+    const overCapacity = await backend.run((ctx) =>
+      saveParticipantPolicyDraft(ctx, {
+        event: fixture.event,
+        actorPersonId: fixture.personId,
+        policy: policy("Over capacity", 31),
+        now: fixture.now + 1,
+      }),
+    );
+    await expect(
+      backend.run((ctx) =>
+        publishParticipantPolicy(ctx, {
+          event: fixture.event,
+          draftPolicyId: overCapacity.policyVersionId,
+          expectedDraftChecksum: overCapacity.checksum,
+          now: fixture.now + 2,
+        }),
+      ),
+    ).rejects.toThrow("cannot exceed the published participant capacity of 30");
 
-    const belowRoster = await backend.run((ctx) => saveParticipantPolicyDraft(ctx, {
-      event: fixture.event,
-      actorPersonId: fixture.personId,
-      expectedDraftPolicyId: overCapacity.policyVersionId,
-      policy: policy("Below roster", 12),
-      now: fixture.now + 3,
-    }));
-    await expect(backend.run((ctx) => publishParticipantPolicy(ctx, {
-      event: fixture.event,
-      draftPolicyId: belowRoster.policyVersionId,
-      expectedDraftChecksum: belowRoster.checksum,
-      now: fixture.now + 4,
-    }))).rejects.toThrow("Thirteen-member team");
+    const belowRoster = await backend.run((ctx) =>
+      saveParticipantPolicyDraft(ctx, {
+        event: fixture.event,
+        actorPersonId: fixture.personId,
+        expectedDraftPolicyId: overCapacity.policyVersionId,
+        policy: policy("Below roster", 12),
+        now: fixture.now + 3,
+      }),
+    );
+    await expect(
+      backend.run((ctx) =>
+        publishParticipantPolicy(ctx, {
+          event: fixture.event,
+          draftPolicyId: belowRoster.policyVersionId,
+          expectedDraftChecksum: belowRoster.checksum,
+          now: fixture.now + 4,
+        }),
+      ),
+    ).rejects.toThrow("Thirteen-member team");
 
-    const aboveRosterMinimum = await backend.run((ctx) => saveParticipantPolicyDraft(ctx, {
-      event: fixture.event,
-      actorPersonId: fixture.personId,
-      expectedDraftPolicyId: belowRoster.policyVersionId,
-      policy: policy("Above roster minimum", 20, 14),
-      now: fixture.now + 5,
-    }));
-    await expect(backend.run((ctx) => publishParticipantPolicy(ctx, {
-      event: fixture.event,
-      draftPolicyId: aboveRosterMinimum.policyVersionId,
-      expectedDraftChecksum: aboveRosterMinimum.checksum,
-      now: fixture.now + 6,
-    }))).rejects.toThrow("fewer than 14 active members");
+    const aboveRosterMinimum = await backend.run((ctx) =>
+      saveParticipantPolicyDraft(ctx, {
+        event: fixture.event,
+        actorPersonId: fixture.personId,
+        expectedDraftPolicyId: belowRoster.policyVersionId,
+        policy: policy("Above roster minimum", 20, 14),
+        now: fixture.now + 5,
+      }),
+    );
+    await expect(
+      backend.run((ctx) =>
+        publishParticipantPolicy(ctx, {
+          event: fixture.event,
+          draftPolicyId: aboveRosterMinimum.policyVersionId,
+          expectedDraftChecksum: aboveRosterMinimum.checksum,
+          now: fixture.now + 6,
+        }),
+      ),
+    ).rejects.toThrow("fewer than 14 active members");
 
-    const loosenedBounds = await backend.run((ctx) => saveParticipantPolicyDraft(ctx, {
-      event: fixture.event,
-      actorPersonId: fixture.personId,
-      expectedDraftPolicyId: aboveRosterMinimum.policyVersionId,
-      policy: policy("Loosened bounds", 25, 5),
-      now: fixture.now + 7,
-    }));
-    await backend.run((ctx) => publishParticipantPolicy(ctx, {
-      event: fixture.event,
-      draftPolicyId: loosenedBounds.policyVersionId,
-      expectedDraftChecksum: loosenedBounds.checksum,
-      now: fixture.now + 8,
-    }));
+    const loosenedBounds = await backend.run((ctx) =>
+      saveParticipantPolicyDraft(ctx, {
+        event: fixture.event,
+        actorPersonId: fixture.personId,
+        expectedDraftPolicyId: aboveRosterMinimum.policyVersionId,
+        policy: policy("Loosened bounds", 25, 5),
+        now: fixture.now + 7,
+      }),
+    );
+    await backend.run((ctx) =>
+      publishParticipantPolicy(ctx, {
+        event: fixture.event,
+        draftPolicyId: loosenedBounds.policyVersionId,
+        expectedDraftChecksum: loosenedBounds.checksum,
+        now: fixture.now + 8,
+      }),
+    );
     const published = await backend.run((ctx) => ctx.db.get(loosenedBounds.policyVersionId));
     expect(published?.status).toBe("published");
     expect(published?.teamMinimumSize).toBe(5);
@@ -357,35 +407,108 @@ describe("participant policy lifecycle", () => {
   test("withdrawn team history does not block a new minimum", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedFixture(backend, "withdrawn-team-history", 4, 30);
-    await backend.run((ctx) => ctx.db.insert("teams", {
-      eventId: fixture.event._id,
-      name: "Withdrawn team",
-      publicCode: "WITHDRAWN",
-      leadMembershipId: fixture.membershipId,
-      status: "withdrawn",
-      activeMemberCount: 0,
-      activeVitMemberCount: 0,
-      activeExternalMemberCount: 0,
-      membershipLocked: false,
-      version: 2,
-      createdAt: fixture.now,
-      updatedAt: fixture.now,
-    }));
-    const draft = await backend.run((ctx) => saveParticipantPolicyDraft(ctx, {
-      event: fixture.event,
-      actorPersonId: fixture.personId,
-      policy: policy("Larger minimum", 4, 2),
-      now: fixture.now + 1,
-    }));
-    await backend.run((ctx) => publishParticipantPolicy(ctx, {
-      event: fixture.event,
-      draftPolicyId: draft.policyVersionId,
-      expectedDraftChecksum: draft.checksum,
-      now: fixture.now + 2,
-    }));
+    await backend.run((ctx) =>
+      ctx.db.insert("teams", {
+        eventId: fixture.event._id,
+        name: "Withdrawn team",
+        publicCode: "WITHDRAWN",
+        leadMembershipId: fixture.membershipId,
+        status: "withdrawn",
+        activeMemberCount: 0,
+        activeVitMemberCount: 0,
+        activeExternalMemberCount: 0,
+        membershipLocked: false,
+        version: 2,
+        createdAt: fixture.now,
+        updatedAt: fixture.now,
+      }),
+    );
+    const draft = await backend.run((ctx) =>
+      saveParticipantPolicyDraft(ctx, {
+        event: fixture.event,
+        actorPersonId: fixture.personId,
+        policy: policy("Larger minimum", 4, 2),
+        now: fixture.now + 1,
+      }),
+    );
+    await backend.run((ctx) =>
+      publishParticipantPolicy(ctx, {
+        event: fixture.event,
+        draftPolicyId: draft.policyVersionId,
+        expectedDraftChecksum: draft.checksum,
+        now: fixture.now + 2,
+      }),
+    );
     const published = await backend.run((ctx) => ctx.db.get(draft.policyVersionId));
     expect(published?.status).toBe("published");
     expect(published?.teamMinimumSize).toBe(2);
+  });
+
+  test("unchanged team bounds do not block an unrelated policy update", async () => {
+    const backend = convexTest(schema, modules);
+    const fixture = await seedFixture(backend, "unchanged-team-bounds", 5, 30, 2);
+    await backend.run((ctx) =>
+      ctx.db.insert("teams", {
+        eventId: fixture.event._id,
+        name: "Still forming",
+        publicCode: "FORMING",
+        leadMembershipId: fixture.membershipId,
+        status: "forming",
+        activeMemberCount: 1,
+        activeVitMemberCount: 0,
+        activeExternalMemberCount: 1,
+        membershipLocked: false,
+        version: 1,
+        createdAt: fixture.now,
+        updatedAt: fixture.now,
+      }),
+    );
+    const draft = await backend.run((ctx) =>
+      saveParticipantPolicyDraft(ctx, {
+        event: fixture.event,
+        actorPersonId: fixture.personId,
+        policy: {
+          ...policy("Residence catalogue", 5, 2),
+          vitHostelResidenceCatalog: [
+            ...defaultParticipantPolicy.vitHostelResidenceCatalog,
+            { stableKey: "b_annex", label: "B Annex", kind: "mens" },
+          ],
+        },
+        now: fixture.now + 1,
+      }),
+    );
+
+    await backend.run((ctx) =>
+      publishParticipantPolicy(ctx, {
+        event: fixture.event,
+        draftPolicyId: draft.policyVersionId,
+        expectedDraftChecksum: draft.checksum,
+        now: fixture.now + 2,
+      }),
+    );
+
+    const state = await backend.run(async (ctx) => {
+      const published = await ctx.db.get(draft.policyVersionId);
+      const membership = await ctx.db.get(fixture.membershipId);
+      const profile = await ctx.db.get(fixture.profileId);
+      if (!published || !membership) {
+        throw new Error("The published participant policy state is missing.");
+      }
+      return {
+        status: published.status,
+        residence: published.vitHostelResidenceCatalog.at(-1),
+        ready: await isParticipantReadyForPolicy(ctx, profile, membership, published),
+      };
+    });
+    expect(state).toEqual({
+      status: "published",
+      residence: {
+        stableKey: "b_annex",
+        label: "B Annex",
+        kind: "mens",
+      },
+      ready: true,
+    });
   });
 
   test("a single-class policy cannot strand a current mixed team", async () => {
@@ -457,44 +580,50 @@ describe("participant policy lifecycle", () => {
       });
       return id;
     });
-    const draft = await backend.run((ctx) => saveParticipantPolicyDraft(ctx, {
-      event: fixture.event,
-      actorPersonId: fixture.personId,
-      policy: {
-        ...policy("Single class", 4),
-        mixedParticipantClassesAllowed: false,
-      },
-      now: fixture.now + 1,
-    }));
-    await expect(backend.run((ctx) => publishParticipantPolicy(ctx, {
-      event: fixture.event,
-      draftPolicyId: draft.policyVersionId,
-      expectedDraftChecksum: draft.checksum,
-      now: fixture.now + 2,
-    }))).rejects.toThrow("contains both VIT and external participants");
+    const draft = await backend.run((ctx) =>
+      saveParticipantPolicyDraft(ctx, {
+        event: fixture.event,
+        actorPersonId: fixture.personId,
+        policy: {
+          ...policy("Single class", 4),
+          mixedParticipantClassesAllowed: false,
+        },
+        now: fixture.now + 1,
+      }),
+    );
+    await expect(
+      backend.run((ctx) =>
+        publishParticipantPolicy(ctx, {
+          event: fixture.event,
+          draftPolicyId: draft.policyVersionId,
+          expectedDraftChecksum: draft.checksum,
+          now: fixture.now + 2,
+        }),
+      ),
+    ).rejects.toThrow("contains both VIT and external participants");
 
-    await backend.run((ctx) => ctx.db.patch(teamId, {
-      status: "withdrawn",
-      version: 2,
-      updatedAt: fixture.now + 3,
-    }));
-    await backend.run((ctx) => publishParticipantPolicy(ctx, {
-      event: fixture.event,
-      draftPolicyId: draft.policyVersionId,
-      expectedDraftChecksum: draft.checksum,
-      now: fixture.now + 4,
-    }));
+    await backend.run((ctx) =>
+      ctx.db.patch(teamId, {
+        status: "withdrawn",
+        version: 2,
+        updatedAt: fixture.now + 3,
+      }),
+    );
+    await backend.run((ctx) =>
+      publishParticipantPolicy(ctx, {
+        event: fixture.event,
+        draftPolicyId: draft.policyVersionId,
+        expectedDraftChecksum: draft.checksum,
+        now: fixture.now + 4,
+      }),
+    );
     const published = await backend.run((ctx) => ctx.db.get(draft.policyVersionId));
     expect(published?.status).toBe("published");
     expect(published?.mixedParticipantClassesAllowed).toBe(false);
   });
 });
 
-function policy(
-  label: string,
-  teamMaximumSize: number,
-  teamMinimumSize = 1,
-): ParticipantPolicy {
+function policy(label: string, teamMaximumSize: number, teamMinimumSize = 1): ParticipantPolicy {
   return {
     ...defaultParticipantPolicy,
     label: `Participant policy · ${label}`,

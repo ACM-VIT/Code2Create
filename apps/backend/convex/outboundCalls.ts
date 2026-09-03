@@ -37,9 +37,7 @@ function requiredServiceUrl(name: "OUTBOUND_CALL_WORKER_URL" | "CONVEX_SITE_URL"
 
 function outboundCallCallbackUrl() {
   const site = requiredServiceUrl("CONVEX_SITE_URL");
-  return site
-    ? new URL("/communications/outbound-call/events", site).toString()
-    : null;
+  return site ? new URL("/communications/outbound-call/events", site).toString() : null;
 }
 
 async function recordFailure(
@@ -52,10 +50,7 @@ async function recordFailure(
     retryable: boolean;
   },
 ) {
-  const result = await ctx.runMutation(
-    internal.outboundCallState.recordDispatchFailure,
-    args,
-  );
+  const result = await ctx.runMutation(internal.outboundCallState.recordDispatchFailure, args);
   if (result.retry && result.delayMs !== undefined) {
     await ctx.scheduler.runAfter(result.delayMs, internal.outboundCalls.deliver, {
       deliveryId: args.deliveryId,

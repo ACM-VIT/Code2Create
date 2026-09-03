@@ -13,30 +13,43 @@ import {
 } from "./_generated/server";
 import { authComponent } from "./auth";
 import { applicationsCloseAtFor, requireEventBySlug } from "./lib/events";
+import { requireCurrentPerson, requireEventSubject, requireMembership } from "./lib/identity";
 import {
-  requireCurrentPerson,
-  requireEventSubject,
-  requireMembership,
-} from "./lib/identity";
-import {
-  effectiveSimilarTeams,
+  calibratedNoveltyMatch,
+  isCurrentNoveltyScoringVersion,
   normalizeNoveltyIdea,
   noveltyBandForScore,
   noveltyDensitySimilarity,
   noveltyDensitySimilarityPolicy,
   noveltyEmbeddingDimensions,
   noveltyEmbeddingModel,
+  noveltyEmbeddingScoringVersion,
   noveltyInputFingerprint,
-  noveltyScoreForDensity,
+  noveltyJudgeCandidateLimit,
+  noveltyLifecycleWeight,
+  noveltyScoreForEvidence,
+  noveltyScoringVersion,
   noveltyDensityMatchLimit,
+  noveltySimilarityWeight,
+  semanticOverlapFromEmbedding,
+  strongestCalibratedNoveltyMatch,
   strongestNoveltyMatchPerTeam,
   type NoveltyIdeaLifecycle,
+  type NoveltyScoringVersion,
   validEmbedding,
 } from "./lib/novelty";
 import { requirePermission } from "./lib/permissions";
 import { requirePinnedIntakePolicy, requirePublishedIntakePolicy } from "./lib/intakePolicy";
+import { redactProjectText } from "./lib/projectText";
 import { normalizedText } from "./lib/strings";
 import { createOpenAiEmbeddings, OpenAiEmbeddingError } from "./lib/openAiEmbeddings";
+import { scheduledAiEmbeddingTelemetry } from "./lib/posthog";
+import {
+  noveltyJudgeModelId,
+  noveltyJudgePromptVersion,
+  requestOpenAiNoveltyJudgments,
+  requestOpenAiNoveltyJudgmentsWithFallback,
+} from "./lib/openAiNoveltyJudge";
 import {
   backgroundNoveltyIndexDeduplicationLimit,
   backgroundNoveltyIndexRateLimit,
@@ -45,11 +58,7 @@ import {
   teamNoveltyRateLimit,
 } from "./lib/noveltyRateLimits";
 
-const noveltyBand = v.union(
-  v.literal("familiar"),
-  v.literal("developing"),
-  v.literal("distinct"),
-);
+const noveltyBand = v.union(v.literal("familiar"), v.literal("developing"), v.literal("distinct"));
 
 const noveltyIdeaLifecycle = v.union(
   v.literal("editing"),
@@ -62,6 +71,12 @@ const noveltyEditingIdeaLifetimeMs = 45_000;
 const noveltyPreviewCacheLifetimeMs = 30_000;
 const noveltyPreviewRunningLifetimeMs = 8_000;
 const noveltyPreviewProviderAttemptTimeoutMs = 1_500;
+const noveltyJudgeProviderTimeoutMs = 10_000;
+
+const noveltyScoringVersionValue = v.union(
+  v.literal(noveltyEmbeddingScoringVersion),
+  v.literal(noveltyScoringVersion),
+);
 
 const readyPreview = v.object({
   state: v.literal("ready"),
@@ -103,9 +118,9 @@ type ReadyPreview = {
 
 function indexedLifecycle(draft: Doc<"projectDrafts">, inputFingerprint: string) {
   if (
-    draft.initialIdea !== undefined
-    && noveltyInputFingerprint(draft.initialIdea) === inputFingerprint
-) {
+    draft.initialIdea !== undefined &&
+    noveltyInputFingerprint(draft.initialIdea) === inputFingerprint
+  ) {
     return draft.stage === "submitted" ? "submitted" : "saved";
   }
   return "editing";
@@ -117,8 +132,8 @@ function orderedEmbeddings(
 ) {
   const ordered = data.toSorted((left, right) => left.index - right.index);
   if (
-    ordered.length !== expectedCount
-    || ordered.some((entry, index) => entry.index !== index || !validEmbedding(entry.embedding))
+    ordered.length !== expectedCount ||
+    ordered.some((entry, index) => entry.index !== index || !validEmbedding(entry.embedding))
   ) {
     return null;
   }
@@ -174,6 +189,7 @@ function readyResult(
 ): ReadyPreview | null {
   if (
     request.state !== "succeeded" ||
+    !isCurrentNoveltyScoringVersion(request.scoringVersion) ||
     request.score === undefined ||
     request.band === undefined ||
     request.comparedTeamCount === undefined ||
@@ -208,6 +224,7 @@ const beginPreviewResult = v.union(
   v.object({
     kind: v.literal("run"),
     requestId: v.id("noveltyPreviewRequests"),
+    personId: v.id("people"),
     eventId: v.id("events"),
     teamId: v.id("teams"),
     corpusVersionId: v.id("noveltyCorpusVersions"),
@@ -275,10 +292,7 @@ export const beginPreview = internalMutation({
     const member = await ctx.db
       .query("teamMembers")
       .withIndex("by_event_membership_status", (index) =>
-        index
-          .eq("eventId", event._id)
-          .eq("membershipId", membership._id)
-          .eq("status", "active"),
+        index.eq("eventId", event._id).eq("membershipId", membership._id).eq("status", "active"),
       )
       .unique();
     if (!member) {
@@ -303,11 +317,11 @@ export const beginPreview = internalMutation({
         .withIndex("by_team", (index) => index.eq("teamId", team._id))
         .unique();
       if (
-        member.role !== "lead"
-        || team.leadMembershipId !== membership._id
-        || Date.now() >= applicationsCloseAtFor(event, membership.participantClass)
-        || !application
-        || (application.state !== "submitted" && application.state !== "under_review")
+        member.role !== "lead" ||
+        team.leadMembershipId !== membership._id ||
+        Date.now() >= applicationsCloseAtFor(event, membership.participantClass) ||
+        !application ||
+        (application.state !== "submitted" && application.state !== "under_review")
       ) {
         throw new ConvexError({
           code: "SUBMISSION_LOCKED",
@@ -315,8 +329,7 @@ export const beginPreview = internalMutation({
         });
       }
     }
-    const expectedCorpusId = draft?.noveltyCorpusVersionId
-      ?? event.publishedNoveltyCorpusVersionId;
+    const expectedCorpusId = draft?.noveltyCorpusVersionId ?? event.publishedNoveltyCorpusVersionId;
     if (!expectedCorpusId || expectedCorpusId !== args.corpusVersionId) {
       throw new ConvexError({
         code: "NOVELTY_CORPUS_CHANGED",
@@ -380,11 +393,7 @@ export const beginPreview = internalMutation({
       .order("desc")
       .first();
     const now = Date.now();
-    if (
-      cached &&
-      cached.corpusVersionId === corpus._id &&
-      cached.state === "running"
-    ) {
+    if (cached && cached.corpusVersionId === corpus._id && cached.state === "running") {
       if (cached.requestedAt >= now - noveltyPreviewRunningLifetimeMs) {
         return { kind: "complete", result: pendingResult(cached) };
       }
@@ -421,9 +430,7 @@ export const beginPreview = internalMutation({
       });
     }
     const globalLimit = await noveltyRateLimiter.limit(ctx, "globalPreview", {
-      config: globalNoveltyRateLimit(
-        process.env.NOVELTY_GLOBAL_REQUESTS_PER_MINUTE,
-      ),
+      config: globalNoveltyRateLimit(process.env.NOVELTY_GLOBAL_REQUESTS_PER_MINUTE),
     });
     if (!globalLimit.ok) {
       return recordUnavailablePreview(ctx, {
@@ -452,6 +459,7 @@ export const beginPreview = internalMutation({
     return {
       kind: "run",
       requestId,
+      personId: person._id,
       eventId: event._id,
       teamId: team._id,
       corpusVersionId: corpus._id,
@@ -474,6 +482,7 @@ export const readMatchMetadata = internalQuery({
     v.object({
       id: v.id("noveltyCorpusEntries"),
       themeLabel: v.string(),
+      summary: v.string(),
       reflectionPrompt: v.string(),
     }),
   ),
@@ -486,6 +495,7 @@ export const readMatchMetadata = internalQuery({
       return {
         id: entry._id,
         themeLabel: entry.themeLabel,
+        summary: entry.summary,
         reflectionPrompt: entry.reflectionPrompt,
       };
     });
@@ -505,9 +515,9 @@ export const upsertPreviewTeamIdea = internalMutation({
     }
     const request = await ctx.db.get(args.requestId);
     if (
-      !request
-      || request.state !== "running"
-      || request.inputFingerprint !== args.inputFingerprint
+      !request ||
+      request.state !== "running" ||
+      request.inputFingerprint !== args.inputFingerprint
     ) {
       throw new Error("The novelty request is no longer indexable.");
     }
@@ -553,9 +563,9 @@ export const expireEditingTeamIdea = internalMutation({
       .collect();
     for (const idea of ideas) {
       if (
-        idea.lifecycle === "editing"
-        && idea.inputFingerprint === args.inputFingerprint
-        && idea.sourceUpdatedAt === args.sourceUpdatedAt
+        idea.lifecycle === "editing" &&
+        idea.inputFingerprint === args.inputFingerprint &&
+        idea.sourceUpdatedAt === args.sourceUpdatedAt
       ) {
         await ctx.db.delete(idea._id);
       }
@@ -570,12 +580,14 @@ export const readTeamIdeaMetadata = internalQuery({
     ideaIds: v.array(v.id("noveltyTeamIdeas")),
     now: v.number(),
   },
-  returns: v.array(v.object({
-    id: v.id("noveltyTeamIdeas"),
-    teamId: v.id("teams"),
-    lifecycle: noveltyIdeaLifecycle,
-    active: v.boolean(),
-  })),
+  returns: v.array(
+    v.object({
+      id: v.id("noveltyTeamIdeas"),
+      teamId: v.id("teams"),
+      lifecycle: noveltyIdeaLifecycle,
+      active: v.boolean(),
+    }),
+  ),
   handler: async (ctx, args) => {
     const ideas = await Promise.all(args.ideaIds.map((ideaId) => ctx.db.get(ideaId)));
     const editingCutoff = args.now - noveltyEditingIdeaLifetimeMs;
@@ -601,47 +613,59 @@ type NoveltyEvaluation = {
   nearestSimilarity: number;
   nearestThemeLabel: string;
   reflectionPrompt: string;
+  scoringVersion: NoveltyScoringVersion;
+  refinementFailureCategory?: string;
+  agent?: {
+    version: string;
+    model: string;
+    operationId: string;
+    outputChecksum: string;
+  };
 };
+
+type NoveltyEvaluationRequest = {
+  eventId: Id<"events">;
+  teamId: Id<"teams">;
+  corpusVersionId: Id<"noveltyCorpusVersions">;
+  embedding: number[];
+} & (
+  | { mode: "embedding" }
+  | {
+      mode: "hybrid";
+      idea: string;
+      apiKey: string;
+      safetyIdentifier: string;
+    }
+);
 
 async function evaluateNoveltyEmbedding(
   ctx: ActionCtx,
-  args: {
-    eventId: Id<"events">;
-    teamId: Id<"teams">;
-    corpusVersionId: Id<"noveltyCorpusVersions">;
-    embedding: number[];
-  },
+  args: NoveltyEvaluationRequest,
 ): Promise<NoveltyEvaluation | null> {
   const [corpusMatches, teamMatches] = await Promise.all([
-    ctx.vectorSearch(
-      "noveltyCorpusEntries",
-      "by_corpus_embedding",
-      {
-        vector: args.embedding,
-        limit: noveltyDensityMatchLimit,
-        filter: (filter) => filter.eq("corpusVersionId", args.corpusVersionId),
-      },
-    ),
-    ctx.vectorSearch(
-      "noveltyTeamIdeas",
-      "by_event_embedding",
-      {
-        vector: args.embedding,
-        limit: noveltyTeamVectorMatchLimit,
-        filter: (filter) => filter.eq("eventId", args.eventId),
-      },
-    ),
+    ctx.vectorSearch("noveltyCorpusEntries", "by_corpus_embedding", {
+      vector: args.embedding,
+      limit: noveltyDensityMatchLimit,
+      filter: (filter) => filter.eq("corpusVersionId", args.corpusVersionId),
+    }),
+    ctx.vectorSearch("noveltyTeamIdeas", "by_event_embedding", {
+      vector: args.embedding,
+      limit: noveltyTeamVectorMatchLimit,
+      filter: (filter) => filter.eq("eventId", args.eventId),
+    }),
   ]);
   const nearest = corpusMatches[0];
   if (!nearest) return null;
 
   const metadata = await ctx.runQuery(internal.novelty.readMatchMetadata, {
     corpusVersionId: args.corpusVersionId,
-    entryIds: [nearest._id],
+    entryIds: corpusMatches.map((match) => match._id),
   });
-  const nearestMetadata = metadata[0];
-  if (!nearestMetadata || nearestMetadata.id !== nearest._id) {
-    throw new Error("The nearest novelty result has no approved metadata.");
+  if (
+    metadata.length !== corpusMatches.length ||
+    metadata.some((entry, index) => entry.id !== corpusMatches[index]?._id)
+  ) {
+    throw new Error("A novelty result has no matching approved metadata.");
   }
 
   const teamMetadata = await ctx.runQuery(internal.novelty.readTeamIdeaMetadata, {
@@ -652,46 +676,122 @@ async function evaluateNoveltyEmbedding(
   const teamSimilarityById = new Map(
     teamMatches.map((match) => [match._id, match._score] as const),
   );
-  const teamDensityCandidates: Array<{
+  const teamCandidates: Array<{
     teamId: Id<"teams">;
     similarity: number;
+    rawSimilarity: number;
     lifecycle: NoveltyIdeaLifecycle;
   }> = [];
   for (const idea of teamMetadata) {
-    if (idea.teamId === args.teamId || !idea.active) continue;
+    if (!idea.active) continue;
     const rawSimilarity = teamSimilarityById.get(idea.id);
     if (rawSimilarity === undefined) {
       throw new Error("Team novelty metadata has no vector similarity.");
     }
-    teamDensityCandidates.push({
+    teamCandidates.push({
       teamId: idea.teamId,
       similarity: noveltyDensitySimilarity(rawSimilarity),
+      rawSimilarity,
       lifecycle: idea.lifecycle,
     });
   }
-  const teamDensityMatches = [
-    ...strongestNoveltyMatchPerTeam(teamDensityCandidates).values(),
-  ];
-  const corpusDensityMatches = corpusMatches.map((match) => ({
-    similarity: noveltyDensitySimilarity(match._score),
-    lifecycle: "submitted" as const,
-  }));
-  const densityMatches = [...corpusDensityMatches, ...teamDensityMatches]
-    .toSorted((left, right) => right.similarity - left.similarity)
-    .slice(0, noveltyDensityMatchLimit);
-  const density = effectiveSimilarTeams(
-    densityMatches,
-    noveltyDensitySimilarityPolicy,
+  const strongestTeamCandidates = strongestNoveltyMatchPerTeam(teamCandidates, args.teamId);
+
+  const judgedMetadata = metadata.slice(0, noveltyJudgeCandidateLimit);
+  let judgeResponse: Awaited<ReturnType<typeof requestOpenAiNoveltyJudgments>> | undefined;
+  let refinementFailureCategory: string | undefined;
+  if (args.mode === "hybrid") {
+    const judgeAttempt = await requestOpenAiNoveltyJudgmentsWithFallback({
+      apiKey: args.apiKey,
+      query: redactProjectText(args.idea),
+      candidates: judgedMetadata.map((entry, index) => ({
+        key: `candidate-${index + 1}`,
+        text: `${entry.themeLabel}\n${entry.summary}`,
+      })),
+      safetyIdentifier: args.safetyIdentifier,
+      timeoutMs: noveltyJudgeProviderTimeoutMs,
+    });
+    if (judgeAttempt.kind === "judged") {
+      judgeResponse = judgeAttempt.result;
+    } else {
+      refinementFailureCategory = judgeAttempt.failureCategory;
+    }
+  }
+  const judgmentByKey = new Map(
+    (judgeResponse?.comparisons ?? []).map(
+      (comparison) => [comparison.candidateKey, comparison] as const,
+    ),
   );
-  const score = noveltyScoreForDensity(density);
+  const candidateKeyByEntryId = new Map(
+    judgedMetadata.map((entry, index) => [entry.id, `candidate-${index + 1}`] as const),
+  );
+  const corpusWeightedMatches = corpusMatches.map((match, index) => {
+    const entry = metadata[index];
+    if (!entry) throw new Error("A novelty result has no approved metadata.");
+    const candidateKey = candidateKeyByEntryId.get(match._id);
+    const judgment = candidateKey ? judgmentByKey.get(candidateKey) : undefined;
+    return calibratedNoveltyMatch({
+      metadata: entry,
+      rawSimilarity: match._score,
+      ...(judgment ? { relationship: judgment.relationship, confidence: judgment.confidence } : {}),
+    });
+  });
+  const strongestCorpusMatch = strongestCalibratedNoveltyMatch(corpusWeightedMatches);
+  if (!strongestCorpusMatch) return null;
+
+  const weightedMatches: Array<{
+    weight: number;
+    lifecycle: NoveltyIdeaLifecycle;
+    semanticOverlap: number;
+  }> = corpusWeightedMatches.map((match) => ({
+    weight: match.weight,
+    lifecycle: "submitted" as const,
+    semanticOverlap: match.semanticOverlap,
+  }));
+  for (const candidate of strongestTeamCandidates.values()) {
+    weightedMatches.push({
+      weight: noveltySimilarityWeight(candidate.similarity, noveltyDensitySimilarityPolicy),
+      lifecycle: candidate.lifecycle,
+      semanticOverlap: semanticOverlapFromEmbedding(candidate.rawSimilarity),
+    });
+  }
+  const densityMatches = weightedMatches
+    .toSorted(
+      (left, right) =>
+        right.weight * noveltyLifecycleWeight(right.lifecycle) -
+        left.weight * noveltyLifecycleWeight(left.lifecycle),
+    )
+    .slice(0, noveltyDensityMatchLimit);
+  const density = densityMatches.reduce(
+    (total, match) => total + match.weight * noveltyLifecycleWeight(match.lifecycle),
+    0,
+  );
+  const strongestOverlap = densityMatches.reduce(
+    (strongest, match) =>
+      Math.max(strongest, match.semanticOverlap * noveltyLifecycleWeight(match.lifecycle)),
+    0,
+  );
+  const score = noveltyScoreForEvidence(density, strongestOverlap);
   return {
     score,
     band: noveltyBandForScore(score),
     effectiveSimilarTeams: density,
     comparedTeamCount: densityMatches.length,
-    nearestSimilarity: nearest._score,
-    nearestThemeLabel: nearestMetadata.themeLabel,
-    reflectionPrompt: nearestMetadata.reflectionPrompt,
+    nearestSimilarity: strongestCorpusMatch.rawSimilarity,
+    nearestThemeLabel: strongestCorpusMatch.metadata.themeLabel,
+    reflectionPrompt: strongestCorpusMatch.metadata.reflectionPrompt,
+    scoringVersion: judgeResponse ? noveltyScoringVersion : noveltyEmbeddingScoringVersion,
+    ...(refinementFailureCategory ? { refinementFailureCategory } : {}),
+    ...(judgeResponse
+      ? {
+          agent: {
+            version: noveltyJudgePromptVersion,
+            model: `openai/${noveltyJudgeModelId}`,
+            operationId: judgeResponse.responseId,
+            outputChecksum: judgeResponse.outputChecksum,
+          },
+        }
+      : {}),
   };
 }
 
@@ -703,6 +803,7 @@ const prepareDraftIndexResult = v.union(
     teamId: v.id("teams"),
     corpusVersionId: v.id("noveltyCorpusVersions"),
     embedding: v.array(v.float64()),
+    idea: v.string(),
   }),
   v.object({
     kind: v.literal("run"),
@@ -735,8 +836,8 @@ export const prepareDraftIndex = internalMutation({
   handler: async (ctx, args): Promise<PrepareDraftIndexResult> => {
     const draft = await ctx.db.get(args.draftId);
     if (
-      !draft?.initialIdea
-      || noveltyInputFingerprint(draft.initialIdea) !== args.inputFingerprint
+      !draft?.initialIdea ||
+      noveltyInputFingerprint(draft.initialIdea) !== args.inputFingerprint
     ) {
       return { kind: "complete" };
     }
@@ -744,20 +845,22 @@ export const prepareDraftIndex = internalMutation({
       ? await ctx.db.get(draft.noveltyCorpusVersionId)
       : null;
     if (
-      !corpus
-      || (corpus.status !== "published" && corpus.status !== "superseded")
-      || corpus.importState !== "ready"
+      !corpus ||
+      (corpus.status !== "published" && corpus.status !== "superseded") ||
+      corpus.importState !== "ready"
     ) {
       return { kind: "complete" };
     }
-    const existing = (await ctx.db
-      .query("noveltyTeamIdeas")
-      .withIndex("by_team", (index) => index.eq("teamId", draft.teamId))
-      .collect()).filter((idea) => idea.lifecycle !== "editing");
+    const existing = (
+      await ctx.db
+        .query("noveltyTeamIdeas")
+        .withIndex("by_team", (index) => index.eq("teamId", draft.teamId))
+        .collect()
+    ).filter((idea) => idea.lifecycle !== "editing");
     const embeddingInputs = [draft.initialIdea];
     if (
-      existing.length === 1
-      && existing.every((idea) => idea.inputFingerprint === args.inputFingerprint)
+      existing.length === 1 &&
+      existing.every((idea) => idea.inputFingerprint === args.inputFingerprint)
     ) {
       for (const idea of existing) {
         if (idea.sourceUpdatedAt <= args.sourceUpdatedAt) {
@@ -776,6 +879,7 @@ export const prepareDraftIndex = internalMutation({
           teamId: draft.teamId,
           corpusVersionId: corpus._id,
           embedding,
+          idea: draft.initialIdea,
         };
       }
     }
@@ -807,8 +911,8 @@ export const finishDraftIndex = internalMutation({
     }
     const draft = await ctx.db.get(args.draftId);
     if (
-      !draft?.initialIdea
-      || noveltyInputFingerprint(draft.initialIdea) !== args.inputFingerprint
+      !draft?.initialIdea ||
+      noveltyInputFingerprint(draft.initialIdea) !== args.inputFingerprint
     ) {
       return null;
     }
@@ -833,17 +937,25 @@ export const finishDraftNovelty = internalMutation({
     band: noveltyBand,
     nearestThemeLabel: v.string(),
     reflectionPrompt: v.string(),
+    scoringVersion: noveltyScoringVersionValue,
+    refinementFailureCategory: v.optional(v.string()),
   },
-  returns: v.null(),
+  returns: v.boolean(),
   handler: async (ctx, args) => {
     const draft = await ctx.db.get(args.draftId);
     if (
-      !draft?.initialIdea
-      || draft.stage === "submitted"
-      || draft.noveltyCorpusVersionId !== args.corpusVersionId
-      || noveltyInputFingerprint(draft.initialIdea) !== args.inputFingerprint
+      !draft?.initialIdea ||
+      draft.noveltyCorpusVersionId !== args.corpusVersionId ||
+      noveltyInputFingerprint(draft.initialIdea) !== args.inputFingerprint
     ) {
-      return null;
+      return false;
+    }
+    if (
+      args.scoringVersion === noveltyEmbeddingScoringVersion &&
+      draft.noveltyEvaluatedInputFingerprint === args.inputFingerprint &&
+      draft.noveltyScoringVersion === noveltyScoringVersion
+    ) {
+      return false;
     }
     await ctx.db.patch(draft._id, {
       noveltyEvaluatedInputFingerprint: args.inputFingerprint,
@@ -851,9 +963,11 @@ export const finishDraftNovelty = internalMutation({
       noveltyBand: args.band,
       noveltyNearestThemeLabel: args.nearestThemeLabel,
       noveltyReflectionPrompt: args.reflectionPrompt,
+      noveltyScoringVersion: args.scoringVersion,
+      noveltyRefinementFailureCategory: args.refinementFailureCategory,
       noveltyEvaluatedAt: Date.now(),
     });
-    return null;
+    return true;
   },
 });
 
@@ -875,49 +989,60 @@ export const indexDraftIdea = internalAction({
     });
     if (prepared.kind === "complete") return null;
     try {
+      const apiKey = process.env.OPENAI_API_KEY?.trim();
+      if (!apiKey) return null;
+      if (!args.deduplicationReserved) {
+        const duplicate = await noveltyRateLimiter.limit(ctx, "backgroundIndexInput", {
+          key: `draft:${args.draftId}:${args.inputFingerprint}`,
+          config: backgroundNoveltyIndexDeduplicationLimit(),
+        });
+        if (!duplicate.ok) return null;
+      }
+      if (!args.providerCapacityReserved) {
+        const capacity = await noveltyRateLimiter.limit(ctx, "backgroundIndexGlobal", {
+          config: backgroundNoveltyIndexRateLimit(process.env.NOVELTY_INDEX_REQUESTS_PER_MINUTE),
+          reserve: true,
+        });
+        if (capacity.retryAfter !== undefined) {
+          await ctx.scheduler.runAfter(capacity.retryAfter, internal.novelty.indexDraftIdea, {
+            draftId: args.draftId,
+            inputFingerprint: args.inputFingerprint,
+            sourceUpdatedAt: args.sourceUpdatedAt,
+            ...(args.attempt !== undefined ? { attempt: args.attempt } : {}),
+            deduplicationReserved: true,
+            ...(capacity.ok ? { providerCapacityReserved: true } : {}),
+          });
+          return null;
+        }
+        if (!capacity.ok) return null;
+      }
       let embedding: number[];
+      let idea: string;
       if (prepared.kind === "score") {
         embedding = prepared.embedding;
+        idea = prepared.idea;
       } else {
-        const apiKey = process.env.OPENAI_API_KEY?.trim();
-        if (!apiKey) return null;
-        if (!args.deduplicationReserved) {
-          const duplicate = await noveltyRateLimiter.limit(ctx, "backgroundIndexInput", {
-            key: `draft:${args.draftId}:${args.inputFingerprint}`,
-            config: backgroundNoveltyIndexDeduplicationLimit(),
-          });
-          if (!duplicate.ok) return null;
-        }
-        if (!args.providerCapacityReserved) {
-          const capacity = await noveltyRateLimiter.limit(ctx, "backgroundIndexGlobal", {
-            config: backgroundNoveltyIndexRateLimit(
-              process.env.NOVELTY_INDEX_REQUESTS_PER_MINUTE,
-            ),
-            reserve: true,
-          });
-          if (capacity.retryAfter !== undefined) {
-            await ctx.scheduler.runAfter(
-              capacity.retryAfter,
-              internal.novelty.indexDraftIdea,
-              {
-                draftId: args.draftId,
-                inputFingerprint: args.inputFingerprint,
-                sourceUpdatedAt: args.sourceUpdatedAt,
-                ...(args.attempt !== undefined ? { attempt: args.attempt } : {}),
-                deduplicationReserved: true,
-                ...(capacity.ok ? { providerCapacityReserved: true } : {}),
-              },
-            );
-            return null;
-          }
-          if (!capacity.ok) return null;
-        }
+        const embeddingInput = prepared.embeddingInputs[0];
+        if (!embeddingInput) throw new Error("A saved idea requires complete text.");
+        idea = embeddingInput;
         const response = await createOpenAiEmbeddings({
           apiKey,
           model: prepared.embeddingModel,
           input: prepared.embeddingInputs,
           timeoutMs: noveltyPreviewProviderAttemptTimeoutMs,
           maximumAttempts: 2,
+          telemetry: {
+            traceId: `${args.draftId}:${args.inputFingerprint}`,
+            sessionId: args.draftId,
+            operation: "novelty.index_draft",
+            capture: async (telemetry) => {
+              await ctx.scheduler.runAfter(
+                0,
+                internal.intelligenceActions.captureEmbeddingTelemetry,
+                scheduledAiEmbeddingTelemetry(telemetry),
+              );
+            },
+          },
         });
         const embeddings = orderedEmbeddings(response.data, prepared.embeddingInputs.length);
         const generatedEmbedding = embeddings?.[0];
@@ -937,9 +1062,19 @@ export const indexDraftIdea = internalAction({
         teamId: prepared.teamId,
         corpusVersionId: prepared.corpusVersionId,
         embedding,
+        mode: "hybrid",
+        idea,
+        apiKey,
+        safetyIdentifier: String(prepared.teamId),
       });
       if (evaluation) {
-        await ctx.runMutation(internal.novelty.finishDraftNovelty, {
+        if (evaluation.refinementFailureCategory) {
+          console.warn("Novelty judge used embedding fallback.", {
+            draftId: String(args.draftId),
+            failureCategory: evaluation.refinementFailureCategory,
+          });
+        }
+        const applied: boolean = await ctx.runMutation(internal.novelty.finishDraftNovelty, {
           draftId: args.draftId,
           corpusVersionId: prepared.corpusVersionId,
           inputFingerprint: args.inputFingerprint,
@@ -947,22 +1082,36 @@ export const indexDraftIdea = internalAction({
           band: evaluation.band,
           nearestThemeLabel: evaluation.nearestThemeLabel,
           reflectionPrompt: evaluation.reflectionPrompt,
+          scoringVersion: evaluation.scoringVersion,
+          ...(evaluation.refinementFailureCategory
+            ? { refinementFailureCategory: evaluation.refinementFailureCategory }
+            : {}),
         });
+        const attempt = args.attempt ?? 1;
+        if (applied && evaluation.refinementFailureCategory && attempt < 3) {
+          await ctx.scheduler.runAfter(
+            1_000 * 2 ** (attempt - 1),
+            internal.novelty.indexDraftIdea,
+            {
+              draftId: args.draftId,
+              inputFingerprint: args.inputFingerprint,
+              sourceUpdatedAt: args.sourceUpdatedAt,
+              attempt: attempt + 1,
+              deduplicationReserved: true,
+            },
+          );
+        }
       }
     } catch {
       const attempt = args.attempt ?? 1;
       if (attempt < 3) {
-        await ctx.scheduler.runAfter(
-          1_000 * (2 ** (attempt - 1)),
-          internal.novelty.indexDraftIdea,
-          {
-            draftId: args.draftId,
-            inputFingerprint: args.inputFingerprint,
-            sourceUpdatedAt: args.sourceUpdatedAt,
-            attempt: attempt + 1,
-            deduplicationReserved: true,
-          },
-        );
+        await ctx.scheduler.runAfter(1_000 * 2 ** (attempt - 1), internal.novelty.indexDraftIdea, {
+          draftId: args.draftId,
+          inputFingerprint: args.inputFingerprint,
+          sourceUpdatedAt: args.sourceUpdatedAt,
+          attempt: attempt + 1,
+          deduplicationReserved: true,
+        });
       }
       return null;
     }
@@ -979,22 +1128,21 @@ export const prepareSubmittedProjectIndex = internalMutation({
   returns: prepareSubmittedIndexResult,
   handler: async (ctx, args): Promise<PrepareSubmittedIndexResult> => {
     const project = await ctx.db.get(args.projectVersionId);
-    if (
-      !project
-      || noveltyInputFingerprint(project.initialIdea) !== args.inputFingerprint
-    ) {
+    if (!project || noveltyInputFingerprint(project.initialIdea) !== args.inputFingerprint) {
       return { kind: "complete" };
     }
     const team = await ctx.db.get(project.teamId);
     if (!team || team.lockedProjectVersionId !== project._id) return { kind: "complete" };
-    const existing = (await ctx.db
-      .query("noveltyTeamIdeas")
-      .withIndex("by_team", (index) => index.eq("teamId", project.teamId))
-      .collect()).filter((idea) => idea.lifecycle !== "editing");
+    const existing = (
+      await ctx.db
+        .query("noveltyTeamIdeas")
+        .withIndex("by_team", (index) => index.eq("teamId", project.teamId))
+        .collect()
+    ).filter((idea) => idea.lifecycle !== "editing");
     const embeddingInputs = [project.initialIdea];
     if (
-      existing.length === 1
-      && existing.every((idea) => idea.inputFingerprint === args.inputFingerprint)
+      existing.length === 1 &&
+      existing.every((idea) => idea.inputFingerprint === args.inputFingerprint)
     ) {
       for (const idea of existing) {
         if (idea.sourceUpdatedAt <= args.sourceUpdatedAt) {
@@ -1059,14 +1207,11 @@ export const indexSubmittedProjectIdea = internalAction({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const prepared = await ctx.runMutation(
-      internal.novelty.prepareSubmittedProjectIndex,
-      {
-        projectVersionId: args.projectVersionId,
-        inputFingerprint: args.inputFingerprint,
-        sourceUpdatedAt: args.sourceUpdatedAt,
-      },
-    );
+    const prepared = await ctx.runMutation(internal.novelty.prepareSubmittedProjectIndex, {
+      projectVersionId: args.projectVersionId,
+      inputFingerprint: args.inputFingerprint,
+      sourceUpdatedAt: args.sourceUpdatedAt,
+    });
     if (prepared.kind === "complete") return null;
     const apiKey = process.env.OPENAI_API_KEY?.trim();
     if (!apiKey) return null;
@@ -1079,9 +1224,7 @@ export const indexSubmittedProjectIdea = internalAction({
     }
     if (!args.providerCapacityReserved) {
       const capacity = await noveltyRateLimiter.limit(ctx, "backgroundIndexGlobal", {
-        config: backgroundNoveltyIndexRateLimit(
-          process.env.NOVELTY_INDEX_REQUESTS_PER_MINUTE,
-        ),
+        config: backgroundNoveltyIndexRateLimit(process.env.NOVELTY_INDEX_REQUESTS_PER_MINUTE),
         reserve: true,
       });
       if (capacity.retryAfter !== undefined) {
@@ -1107,6 +1250,18 @@ export const indexSubmittedProjectIdea = internalAction({
         model: prepared.embeddingModel,
         input: prepared.embeddingInputs,
         timeoutMs: 12_000,
+        telemetry: {
+          traceId: `${args.projectVersionId}:${args.inputFingerprint}`,
+          sessionId: args.projectVersionId,
+          operation: "novelty.index_submission",
+          capture: async (telemetry) => {
+            await ctx.scheduler.runAfter(
+              0,
+              internal.intelligenceActions.captureEmbeddingTelemetry,
+              scheduledAiEmbeddingTelemetry(telemetry),
+            );
+          },
+        },
       });
       const embeddings = orderedEmbeddings(response.data, prepared.embeddingInputs.length);
       const embedding = embeddings?.[0];
@@ -1121,7 +1276,7 @@ export const indexSubmittedProjectIdea = internalAction({
       const attempt = args.attempt ?? 1;
       if (attempt < 3) {
         await ctx.scheduler.runAfter(
-          1_000 * (2 ** (attempt - 1)),
+          1_000 * 2 ** (attempt - 1),
           internal.novelty.indexSubmittedProjectIdea,
           {
             projectVersionId: args.projectVersionId,
@@ -1142,11 +1297,7 @@ export const finishPreview = internalMutation({
   args: {
     requestId: v.id("noveltyPreviewRequests"),
     inputFingerprint: v.string(),
-    state: v.union(
-      v.literal("succeeded"),
-      v.literal("unavailable"),
-      v.literal("failed"),
-    ),
+    state: v.union(v.literal("succeeded"), v.literal("unavailable"), v.literal("failed")),
     score: v.optional(v.number()),
     band: v.optional(noveltyBand),
     effectiveSimilarTeams: v.optional(v.number()),
@@ -1154,9 +1305,14 @@ export const finishPreview = internalMutation({
     nearestSimilarity: v.optional(v.number()),
     nearestThemeLabel: v.optional(v.string()),
     reflectionPrompt: v.optional(v.string()),
+    scoringVersion: v.optional(noveltyScoringVersionValue),
     providerRequestId: v.optional(v.string()),
     providerRemainingRequests: v.optional(v.number()),
     providerRequestReset: v.optional(v.string()),
+    agentOperationId: v.optional(v.string()),
+    agentOutputChecksum: v.optional(v.string()),
+    agentVersion: v.optional(v.string()),
+    agentModel: v.optional(v.string()),
     latencyMs: v.number(),
     failureCategory: v.optional(v.string()),
   },
@@ -1185,9 +1341,7 @@ export const finishPreview = internalMutation({
         ...(args.providerRemainingRequests !== undefined
           ? { providerRemainingRequests: args.providerRemainingRequests }
           : {}),
-        ...(args.providerRequestReset
-          ? { providerRequestReset: args.providerRequestReset }
-          : {}),
+        ...(args.providerRequestReset ? { providerRequestReset: args.providerRequestReset } : {}),
         latencyMs: args.latencyMs,
         ...(args.failureCategory ? { failureCategory: args.failureCategory } : {}),
         completedAt: now,
@@ -1197,6 +1351,7 @@ export const finishPreview = internalMutation({
     if (
       args.score === undefined ||
       args.band === undefined ||
+      !isCurrentNoveltyScoringVersion(args.scoringVersion) ||
       args.effectiveSimilarTeams === undefined ||
       args.comparedTeamCount === undefined ||
       args.nearestSimilarity === undefined ||
@@ -1214,12 +1369,18 @@ export const finishPreview = internalMutation({
       nearestSimilarity: args.nearestSimilarity,
       nearestThemeLabel: args.nearestThemeLabel,
       reflectionPrompt: args.reflectionPrompt,
+      scoringVersion: args.scoringVersion,
       ...(args.providerRequestId ? { providerRequestId: args.providerRequestId } : {}),
       ...(args.providerRemainingRequests !== undefined
         ? { providerRemainingRequests: args.providerRemainingRequests }
         : {}),
       ...(args.providerRequestReset ? { providerRequestReset: args.providerRequestReset } : {}),
+      ...(args.agentOperationId ? { agentOperationId: args.agentOperationId } : {}),
+      ...(args.agentOutputChecksum ? { agentOutputChecksum: args.agentOutputChecksum } : {}),
+      agentVersion: args.agentVersion,
+      ...(args.agentModel ? { agentModel: args.agentModel } : {}),
       latencyMs: args.latencyMs,
+      ...(args.failureCategory ? { failureCategory: args.failureCategory } : {}),
       completedAt: now,
     });
     const team = await ctx.db.get(request.teamId);
@@ -1233,7 +1394,12 @@ export const finishPreview = internalMutation({
       draft?.initialIdea &&
       draft.stage !== "submitted" &&
       draft.noveltyCorpusVersionId === request.corpusVersionId &&
-      noveltyInputFingerprint(draft.initialIdea) === request.inputFingerprint
+      noveltyInputFingerprint(draft.initialIdea) === request.inputFingerprint &&
+      !(
+        args.scoringVersion === noveltyEmbeddingScoringVersion &&
+        draft.noveltyEvaluatedInputFingerprint === request.inputFingerprint &&
+        draft.noveltyScoringVersion === noveltyScoringVersion
+      )
     ) {
       await ctx.db.patch(draft._id, {
         noveltyEvaluatedInputFingerprint: request.inputFingerprint,
@@ -1241,6 +1407,8 @@ export const finishPreview = internalMutation({
         noveltyBand: args.band,
         noveltyNearestThemeLabel: args.nearestThemeLabel,
         noveltyReflectionPrompt: args.reflectionPrompt,
+        noveltyScoringVersion: args.scoringVersion,
+        noveltyRefinementFailureCategory: undefined,
         noveltyPreviewRequestId: request._id,
         noveltyEvaluatedAt: now,
       });
@@ -1273,10 +1441,7 @@ export const previewStatus = query({
     const member = await ctx.db
       .query("teamMembers")
       .withIndex("by_event_membership_status", (index) =>
-        index
-          .eq("eventId", event._id)
-          .eq("membershipId", membership._id)
-          .eq("status", "active"),
+        index.eq("eventId", event._id).eq("membershipId", membership._id).eq("status", "active"),
       )
       .unique();
     const request = await ctx.db.get(args.requestId);
@@ -1293,9 +1458,9 @@ export const previewStatus = query({
     if (request.state === "running") return pendingResult(request);
     const corpus = await ctx.db.get(request.corpusVersionId);
     if (
-      !corpus
-      || corpus.eventId !== event._id
-      || (corpus.status !== "published" && corpus.status !== "superseded")
+      !corpus ||
+      corpus.eventId !== event._id ||
+      (corpus.status !== "published" && corpus.status !== "superseded")
     ) {
       return { state: "unavailable" };
     }
@@ -1317,10 +1482,7 @@ export const previewStatusByClientRequest = query({
     const member = await ctx.db
       .query("teamMembers")
       .withIndex("by_event_membership_status", (index) =>
-        index
-          .eq("eventId", event._id)
-          .eq("membershipId", membership._id)
-          .eq("status", "active"),
+        index.eq("eventId", event._id).eq("membershipId", membership._id).eq("status", "active"),
       )
       .unique();
     if (!member) return { state: "waiting" };
@@ -1331,12 +1493,7 @@ export const previewStatusByClientRequest = query({
       scopeType: "team",
       scopeId: member.teamId,
     });
-    const clientRequestId = normalizedText(
-      args.clientRequestId,
-      "Client request ID",
-      8,
-      120,
-    );
+    const clientRequestId = normalizedText(args.clientRequestId, "Client request ID", 8, 120);
     const request = await ctx.db
       .query("noveltyPreviewRequests")
       .withIndex("by_team_client_request", (index) =>
@@ -1348,9 +1505,9 @@ export const previewStatusByClientRequest = query({
     if (request.state === "running") return pendingResult(request);
     const corpus = await ctx.db.get(request.corpusVersionId);
     if (
-      !corpus
-      || corpus.eventId !== event._id
-      || (corpus.status !== "published" && corpus.status !== "superseded")
+      !corpus ||
+      corpus.eventId !== event._id ||
+      (corpus.status !== "published" && corpus.status !== "superseded")
     ) {
       return { state: "unavailable" };
     }
@@ -1374,10 +1531,10 @@ export const preview = action({
         message: "Google must verify the email address before it can be used.",
       });
     }
-    const begun: BeginPreviewResult = await ctx.runMutation(
-      internal.novelty.beginPreview,
-      { authUserId: user._id, ...args },
-    );
+    const begun: BeginPreviewResult = await ctx.runMutation(internal.novelty.beginPreview, {
+      authUserId: user._id,
+      ...args,
+    });
     if (begun.kind === "complete") return begun.result;
     const startedAt = Date.now();
     let providerRequestId: string | undefined;
@@ -1386,7 +1543,7 @@ export const preview = action({
     try {
       const apiKey = process.env.OPENAI_API_KEY?.trim();
       if (!apiKey) {
-        return ctx.runMutation(internal.novelty.finishPreview, {
+        return await ctx.runMutation(internal.novelty.finishPreview, {
           requestId: begun.requestId,
           inputFingerprint: begun.inputFingerprint,
           state: "unavailable",
@@ -1403,6 +1560,19 @@ export const preview = action({
         // that tail and still keeps the full preview outside the save path.
         timeoutMs: noveltyPreviewProviderAttemptTimeoutMs,
         maximumAttempts: 2,
+        telemetry: {
+          traceId: begun.requestId,
+          sessionId: begun.teamId,
+          distinctId: begun.personId,
+          operation: "novelty.preview",
+          capture: async (telemetry) => {
+            await ctx.scheduler.runAfter(
+              0,
+              internal.intelligenceActions.captureEmbeddingTelemetry,
+              scheduledAiEmbeddingTelemetry(telemetry),
+            );
+          },
+        },
       });
       const embeddings = orderedEmbeddings(response.data, begun.embeddingInputs.length);
       const embedding = embeddings?.[0];
@@ -1422,9 +1592,10 @@ export const preview = action({
         teamId: begun.teamId,
         corpusVersionId: begun.corpusVersionId,
         embedding,
+        mode: "embedding",
       });
       if (!evaluation) {
-        return ctx.runMutation(internal.novelty.finishPreview, {
+        return await ctx.runMutation(internal.novelty.finishPreview, {
           requestId: begun.requestId,
           inputFingerprint: begun.inputFingerprint,
           state: "unavailable",
@@ -1435,7 +1606,7 @@ export const preview = action({
           failureCategory: "corpus_index_empty",
         });
       }
-      return ctx.runMutation(internal.novelty.finishPreview, {
+      return await ctx.runMutation(internal.novelty.finishPreview, {
         requestId: begun.requestId,
         inputFingerprint: begun.inputFingerprint,
         state: "succeeded",
@@ -1446,20 +1617,30 @@ export const preview = action({
         nearestSimilarity: evaluation.nearestSimilarity,
         nearestThemeLabel: evaluation.nearestThemeLabel,
         reflectionPrompt: evaluation.reflectionPrompt,
+        scoringVersion: evaluation.scoringVersion,
         ...(providerRequestId ? { providerRequestId } : {}),
         ...(providerRemainingRequests !== undefined ? { providerRemainingRequests } : {}),
         ...(providerRequestReset ? { providerRequestReset } : {}),
+        ...(evaluation.agent
+          ? {
+              agentOperationId: evaluation.agent.operationId,
+              agentOutputChecksum: evaluation.agent.outputChecksum,
+              agentVersion: evaluation.agent.version,
+              agentModel: evaluation.agent.model,
+            }
+          : {}),
         latencyMs: Date.now() - startedAt,
       });
     } catch (error) {
-      const status = error instanceof OpenAiEmbeddingError ? error.status : undefined;
-      const failureCategory = status === 429
-        ? "provider_rate_limited"
-        : status
-          ? `provider_http_${status}`
-          : error instanceof OpenAiEmbeddingError && error.timedOut
-            ? "provider_timed_out"
-            : "provider_request_failed";
+      const embeddingStatus = error instanceof OpenAiEmbeddingError ? error.status : undefined;
+      const failureCategory =
+        embeddingStatus === 429
+          ? "provider_rate_limited"
+          : embeddingStatus
+            ? `provider_http_${embeddingStatus}`
+            : error instanceof OpenAiEmbeddingError && error.timedOut
+              ? "provider_timed_out"
+              : "provider_request_failed";
       return ctx.runMutation(internal.novelty.finishPreview, {
         requestId: begun.requestId,
         inputFingerprint: begun.inputFingerprint,

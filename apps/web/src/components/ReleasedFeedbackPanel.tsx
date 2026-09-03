@@ -1,22 +1,22 @@
-import { api } from '@code2create/backend/api'
-import { useQuery } from 'convex/react'
+import { api } from "@code2create/backend/api";
+import { useQuery } from "convex/react";
 
-import { eventSlug } from '../lib/config'
+import { eventSlug } from "../lib/config";
 
 export function ReleasedFeedbackPanel() {
-  const releases = useQuery(api.scoreGovernance.participantFeedback, { eventSlug })
+  const releases = useQuery(api.scoreGovernance.participantFeedback, { eventSlug });
 
   if (releases === undefined) {
-    return null
+    return null;
   }
-  if (releases.length === 0) return null
+  if (releases.length === 0) return null;
 
   return (
     <section className="attendance-panel" aria-labelledby="released-feedback-heading">
       <div>
         <p className="eyebrow">Released feedback</p>
         <h2 id="released-feedback-heading">Your review</h2>
-        <p className="muted">Only fields approved in the published participant-feedback policy appear here.</p>
+        <p className="muted">Only the fields the organisers chose to share appear here.</p>
       </div>
       <div className="released-feedback-list">
         {releases.map((release) => (
@@ -26,7 +26,9 @@ export function ReleasedFeedbackPanel() {
               <span>{formatTime(release.publishedAt)}</span>
             </div>
             {release.totalScore !== undefined ? (
-              <p className="feedback-total">{formatScore(release.totalScore)} <span>/ 100</span></p>
+              <p className="feedback-total">
+                {formatScore(release.totalScore)} <span>/ 100</span>
+              </p>
             ) : null}
             {release.criteria.length > 0 ? (
               <dl className="detail-list compact-details">
@@ -54,17 +56,17 @@ export function ReleasedFeedbackPanel() {
         ))}
       </div>
     </section>
-  )
+  );
 }
 
 function formatScore(value: number) {
-  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(value)
+  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(value);
 }
 
 function formatTime(value: number) {
   return new Intl.DateTimeFormat(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  }).format(value)
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(value);
 }

@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from "react";
 
 export function ConfigurationEditorDisclosure({
   children,
@@ -6,12 +6,12 @@ export function ConfigurationEditorDisclosure({
   description,
   title,
 }: {
-  children: ReactNode
-  defaultOpen: boolean
-  description: string
-  title: string
+  children: ReactNode;
+  defaultOpen: boolean;
+  description: string;
+  title: string;
 }) {
-  const [open, setOpen] = useState(defaultOpen)
+  const [open, setOpen] = useState(defaultOpen);
 
   return (
     <details
@@ -28,5 +28,5 @@ export function ConfigurationEditorDisclosure({
       </summary>
       <div className="configuration-editor-body">{children}</div>
     </details>
-  )
+  );
 }

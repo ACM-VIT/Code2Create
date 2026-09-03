@@ -13,10 +13,7 @@ describe("configuration operation results", () => {
     const publication = { version: 3, eventVersion: 8 };
 
     expect(
-      storedConfigurationDraftResult(
-        configurationDraftResultJson(draft),
-        "configuration-draft",
-      ),
+      storedConfigurationDraftResult(configurationDraftResultJson(draft), "configuration-draft"),
     ).toEqual(draft);
     expect(
       storedConfigurationPublicationResult(

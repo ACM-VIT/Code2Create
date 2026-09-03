@@ -65,7 +65,6 @@ test("the autonomy read frontier is closed, modular, and excludes private conver
     "review_rounds",
     "review_exceptions",
     "attendance_counts",
-    "floor_mapping_progress",
     "support_load",
     "intake_jobs",
     "admission_jobs",
@@ -96,11 +95,7 @@ test("the public autonomy trace has one closed content-free vocabulary", () => {
     new Set(operationsAutonomyPublicLifecycleRoles).size,
     operationsAutonomyPublicLifecycleRoles.length,
   );
-  assert.deepEqual(operationsAutonomyPublicLifecycleStatuses, [
-    "started",
-    "completed",
-    "failed",
-  ]);
+  assert.deepEqual(operationsAutonomyPublicLifecycleStatuses, ["started", "completed", "failed"]);
 });
 
 test("autonomy boundaries have route-specific signature contexts", () => {

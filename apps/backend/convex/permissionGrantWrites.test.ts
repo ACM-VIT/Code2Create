@@ -84,36 +84,19 @@ describe("permission grant writes", () => {
       grants,
     };
 
-    const first = await backend.run((ctx) =>
-      insertPermissionGrantGroup(ctx, args),
-    );
+    const first = await backend.run((ctx) => insertPermissionGrantGroup(ctx, args));
     expect(first.createdCount).toBe(2);
-    expect(first.results.map((result) => result.created)).toEqual([
-      true,
-      true,
-      false,
-    ]);
+    expect(first.results.map((result) => result.created)).toEqual([true, true, false]);
     expect(first.results[2]?.grantId).toBe(first.results[0]?.grantId);
 
-    const retry = await backend.run((ctx) =>
-      insertPermissionGrantGroup(ctx, args),
-    );
+    const retry = await backend.run((ctx) => insertPermissionGrantGroup(ctx, args));
     expect(retry.createdCount).toBe(0);
-    expect(retry.results.map((result) => result.created)).toEqual([
-      false,
-      false,
-      false,
-    ]);
+    expect(retry.results.map((result) => result.created)).toEqual([false, false, false]);
     expect(retry.results.map((result) => result.grantId)).toEqual(
       first.results.map((result) => result.grantId),
     );
     expect(
-      await activeSourceGrantCount(
-        backend,
-        fixture.eventId,
-        "production_seed",
-        args.sourceId,
-      ),
+      await activeSourceGrantCount(backend, fixture.eventId, "production_seed", args.sourceId),
     ).toBe(2);
     await expect(
       backend.run((ctx) =>
@@ -177,12 +160,7 @@ describe("permission grant writes", () => {
       ),
     ).rejects.toThrow("exceeds the current-grant source limit");
     expect(
-      await activeSourceGrantCount(
-        backend,
-        fixture.eventId,
-        "production_seed",
-        "oversized-group",
-      ),
+      await activeSourceGrantCount(backend, fixture.eventId, "production_seed", "oversized-group"),
     ).toBe(0);
   });
 
@@ -317,10 +295,7 @@ async function activeSourceGrantCount(
   });
 }
 
-async function subjectAccessVersion(
-  backend: BackendTest,
-  subjectId: Id<"eventAccessSubjects">,
-) {
+async function subjectAccessVersion(backend: BackendTest, subjectId: Id<"eventAccessSubjects">) {
   const subject = await backend.run((ctx) => ctx.db.get(subjectId));
   if (!subject) throw new Error("Fixture event access subject is missing.");
   return subject.accessVersion;
@@ -336,7 +311,7 @@ async function seedWriteFixture(backend: BackendTest, now: number) {
       timezone: "Asia/Kolkata",
       status: "live",
       vitEmailDomains: ["vitstudent.ac.in"],
-        applicationsCloseAt: Date.now() + 86_400_000,
+      applicationsCloseAt: Date.now() + 86_400_000,
       startsAt: now - 60_000,
       endsAt: now + 3_600_000,
       version: 1,
@@ -354,11 +329,7 @@ async function seedWriteFixture(backend: BackendTest, now: number) {
   });
 }
 
-async function seedReviewAssignment(
-  backend: BackendTest,
-  fixture: WriteFixture,
-  now: number,
-) {
+async function seedReviewAssignment(backend: BackendTest, fixture: WriteFixture, now: number) {
   return backend.run(async (ctx) => {
     const rubricVersionId = await ctx.db.insert("reviewRubricVersions", {
       eventId: fixture.eventId,

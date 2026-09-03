@@ -1,7 +1,7 @@
-import { ConvexReactClient } from 'convex/react'
+import { ConvexReactClient } from "convex/react";
 
-import { createReviewerAuthClient } from './auth-client'
-import { reviewerConfiguration } from './config'
+import { createReviewerAuthClient } from "./auth-client";
+import { reviewerConfiguration } from "./config";
 
 export const reviewerRuntime = reviewerConfiguration
   ? {
@@ -14,6 +14,6 @@ export const reviewerRuntime = reviewerConfiguration
         reviewerConfiguration.scheme,
       ),
     }
-  : null
+  : null;
 
-export type ReviewerRuntime = NonNullable<typeof reviewerRuntime>
+export type ReviewerRuntime = NonNullable<typeof reviewerRuntime>;

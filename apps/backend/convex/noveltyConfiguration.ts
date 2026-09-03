@@ -13,10 +13,7 @@ import {
   storedConfigurationResult,
 } from "./lib/configurationOperationResult";
 import { requireEventBySlug } from "./lib/events";
-import {
-  requireCurrentPerson,
-  requireEventSubject,
-} from "./lib/identity";
+import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import {
   defaultNoveltyPolicy,
   maximumNoveltyCorpusEntries,
@@ -34,6 +31,7 @@ import { findOperation, operationFingerprint, recordOperation } from "./lib/oper
 import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
 import { normalizedText } from "./lib/strings";
 import { createOpenAiEmbeddings, OpenAiEmbeddingError } from "./lib/openAiEmbeddings";
+import { scheduledAiEmbeddingTelemetry } from "./lib/posthog";
 
 const noveltyPolicyInput = v.object({
   label: v.string(),
@@ -194,9 +192,7 @@ export const current = query({
     }
     const draftCorpus = await ctx.db
       .query("noveltyCorpusVersions")
-      .withIndex("by_event_status", (index) =>
-        index.eq("eventId", event._id).eq("status", "draft"),
-      )
+      .withIndex("by_event_status", (index) => index.eq("eventId", event._id).eq("status", "draft"))
       .unique();
     const [draftGrants, entryGrants, publishGrants] = await Promise.all([
       matchingPermissionGrantIds(ctx, {
@@ -298,9 +294,7 @@ export const createDraft = mutation({
     }
     const currentDraft = await ctx.db
       .query("noveltyCorpusVersions")
-      .withIndex("by_event_status", (index) =>
-        index.eq("eventId", event._id).eq("status", "draft"),
-      )
+      .withIndex("by_event_status", (index) => index.eq("eventId", event._id).eq("status", "draft"))
       .unique();
     if (currentDraft?._id !== args.expectedDraftCorpusId) {
       throw new ConvexError({
@@ -331,12 +325,13 @@ export const createDraft = mutation({
     const now = Date.now();
     const sourceCorpus = currentDraft?.entryCount ? currentDraft : publishedCorpus;
     const sourceEntries = sourceCorpus ? await entriesForCorpus(ctx, sourceCorpus._id) : [];
-    const normalizedEntries = sourceEntries.length > 0
-      ? normalizeNoveltyCorpusEntries(
-          sourceEntries.map(entryFromDocument),
-          new Date(now).getUTCFullYear(),
-        )
-      : [];
+    const normalizedEntries =
+      sourceEntries.length > 0
+        ? normalizeNoveltyCorpusEntries(
+            sourceEntries.map(entryFromDocument),
+            new Date(now).getUTCFullYear(),
+          )
+        : [];
     if (currentDraft) await ctx.db.patch(currentDraft._id, { status: "retired", updatedAt: now });
     const corpusVersionId = await ctx.db.insert("noveltyCorpusVersions", {
       eventId: event._id,
@@ -466,10 +461,7 @@ export const beginEntryImport = internalMutation({
       scopeType: "event",
     });
     const now = Date.now();
-    const entries = normalizeNoveltyCorpusEntries(
-      args.entries,
-      new Date(now).getUTCFullYear(),
-    );
+    const entries = normalizeNoveltyCorpusEntries(args.entries, new Date(now).getUTCFullYear());
     const reason = normalizedText(args.reason, "Import reason", 5, 500);
     const requestFingerprint = operationFingerprint([
       args.corpusVersionId,
@@ -731,8 +723,8 @@ export const replaceEntries = action({
     const begun: BeginImportResult = await ctx.runMutation(
       internal.noveltyConfiguration.beginEntryImport,
       {
-      authUserId: user._id,
-      ...args,
+        authUserId: user._id,
+        ...args,
       },
     );
     if (begun.kind === "complete") return begun;
@@ -758,6 +750,19 @@ export const replaceEntries = action({
         model: begun.model,
         input: begun.entries.map((entry) => `${entry.themeLabel}\n${entry.summary}`),
         timeoutMs: 15_000,
+        telemetry: {
+          traceId: `${begun.corpusVersionId}:${args.clientOperationId}`,
+          sessionId: begun.corpusVersionId,
+          distinctId: begun.actorPersonId,
+          operation: "novelty.import_corpus",
+          capture: async (telemetry) => {
+            await ctx.scheduler.runAfter(
+              0,
+              internal.intelligenceActions.captureEmbeddingTelemetry,
+              scheduledAiEmbeddingTelemetry(telemetry),
+            );
+          },
+        },
       });
       const ordered = response.data.toSorted((left, right) => left.index - right.index);
       if (
@@ -783,13 +788,14 @@ export const replaceEntries = action({
       });
     } catch (error) {
       const status = error instanceof OpenAiEmbeddingError ? error.status : undefined;
-      const failureCategory = status === 429
-        ? "provider_rate_limited"
-        : status
-          ? `provider_http_${status}`
-          : error instanceof OpenAiEmbeddingError && error.timedOut
-            ? "provider_timed_out"
-            : "provider_request_failed";
+      const failureCategory =
+        status === 429
+          ? "provider_rate_limited"
+          : status
+            ? `provider_http_${status}`
+            : error instanceof OpenAiEmbeddingError && error.timedOut
+              ? "provider_timed_out"
+              : "provider_request_failed";
       await ctx.runMutation(internal.noveltyConfiguration.failEntryImport, {
         actorPersonId: begun.actorPersonId,
         corpusVersionId: begun.corpusVersionId,

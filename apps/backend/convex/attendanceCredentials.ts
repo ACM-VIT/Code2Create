@@ -17,9 +17,7 @@ import {
 } from "./lib/attendanceCredentialLifecycle";
 import { consumePortalQrToken } from "./lib/attendancePortalQrLifecycle";
 import { requireEventBySlug } from "./lib/events";
-import {
-  requireCurrentPerson,
-} from "./lib/identity";
+import { requireCurrentPerson } from "./lib/identity";
 import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
 import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
 import {
@@ -29,7 +27,7 @@ import {
   requireClaimedStaffedCredentialResolution,
 } from "./lib/staffedParticipantResolution";
 import { normalizedText } from "./lib/strings";
-import { currentTeamForMembership } from "./lib/floor";
+import { currentTeamForMembership } from "./lib/teamMembership";
 import { latestVenueCheckIn } from "./lib/venueCheckInLifecycle";
 import { barcodeSymbology } from "./values";
 
@@ -110,16 +108,14 @@ type StaffedParticipantResult = {
         canReplace: boolean;
         canRevoke: boolean;
       };
-  venueCheckIn:
-    | null
-    | {
-        id: Id<"venueCheckIns">;
-        status: "checked_in" | "reversed";
-        version: number;
-        checkedInAt: number;
-        stationName: string;
-        reversedAt?: number;
-      };
+  venueCheckIn: null | {
+    id: Id<"venueCheckIns">;
+    status: "checked_in" | "reversed";
+    version: number;
+    checkedInAt: number;
+    stationName: string;
+    reversedAt?: number;
+  };
   canRecordVenueCheckIn: boolean;
   canOverrideVenueIdentity: boolean;
   canReverseVenueCheckIn: boolean;
@@ -173,10 +169,7 @@ const suspendVitResult = v.object({
 const credentialParticipantResult = v.object({
   resolutionId: v.id("staffedParticipantResolutions"),
   membershipId: v.id("eventMemberships"),
-  participantClass: v.union(
-    v.literal("vit_student"),
-    v.literal("external_participant"),
-  ),
+  participantClass: v.union(v.literal("vit_student"), v.literal("external_participant")),
   displayName: v.string(),
   institution: v.string(),
   teamName: v.string(),
@@ -261,8 +254,7 @@ async function resolveVitCredential(
       credentialId: args.currentCredential._id,
       expectedCredentialVersion: args.currentCredential.version,
       canRebind: rebindGrantIds.length > 0,
-      canSuspend:
-        args.currentCredential.state === "active" && suspendGrantIds.length > 0,
+      canSuspend: args.currentCredential.state === "active" && suspendGrantIds.length > 0,
     };
   }
   const grantIds = await matchingPermissionGrantIds(ctx, {
@@ -303,7 +295,11 @@ async function resolveBadgeCredential(
     };
   }
   if (!args.activeCredential.badgeReference) {
-    throw new ConvexError({ code: "BADGE_RECORD_INCOMPLETE", message: "This badge record is missing its printed reference. Revoke it and issue a fresh badge." });
+    throw new ConvexError({
+      code: "BADGE_RECORD_INCOMPLETE",
+      message:
+        "This badge record is missing its printed reference. Revoke it and issue a fresh badge.",
+    });
   }
   const [replaceGrantIds, revokeGrantIds] = await Promise.all([
     matchingPermissionGrantIds(ctx, {
@@ -486,8 +482,7 @@ export const resolveStaffedParticipant = internalMutation({
     if (!participantPerson || !profile || !teamContext) {
       throw new ConvexError({
         code: "PARTICIPANT_INCOMPLETE",
-        message:
-          "This participant's profile or team is incomplete. Send them to the help desk.",
+        message: "This participant's profile or team is incomplete. Send them to the help desk.",
       });
     }
     const currentVitCredential = memberCredentials.find(
@@ -498,25 +493,28 @@ export const resolveStaffedParticipant = internalMutation({
     const activeBadgeCredential = memberCredentials.find(
       (credential) => credential.kind === "badge_qr" && credential.state === "active",
     );
-    const credential = membership.participantClass === "vit_student"
-      ? await resolveVitCredential(ctx, {
-          eventId: event._id,
-          eventAccessSubjectId: subject._id,
-          personId: membership.personId,
-          stationId: station._id,
-          currentCredential: currentVitCredential,
-        })
-      : await resolveBadgeCredential(ctx, {
-          eventId: event._id,
-          eventAccessSubjectId: subject._id,
-          personId: membership.personId,
-          activeCredential: activeBadgeCredential,
-        });
-    const checkInStation = latestCheckIn
-      ? await ctx.db.get(latestCheckIn.stationId)
-      : null;
+    const credential =
+      membership.participantClass === "vit_student"
+        ? await resolveVitCredential(ctx, {
+            eventId: event._id,
+            eventAccessSubjectId: subject._id,
+            personId: membership.personId,
+            stationId: station._id,
+            currentCredential: currentVitCredential,
+          })
+        : await resolveBadgeCredential(ctx, {
+            eventId: event._id,
+            eventAccessSubjectId: subject._id,
+            personId: membership.personId,
+            activeCredential: activeBadgeCredential,
+          });
+    const checkInStation = latestCheckIn ? await ctx.db.get(latestCheckIn.stationId) : null;
     if (latestCheckIn && (!checkInStation || checkInStation.eventId !== event._id)) {
-      throw new ConvexError({ code: "CHECK_IN_STATION_MISSING", message: "The station that recorded this check-in no longer exists. Ask operations to review the check-in." });
+      throw new ConvexError({
+        code: "CHECK_IN_STATION_MISSING",
+        message:
+          "The station that recorded this check-in no longer exists. Ask operations to review the check-in.",
+      });
     }
     await writeAuditEvent(ctx, {
       eventId: event._id,
@@ -535,7 +533,8 @@ export const resolveStaffedParticipant = internalMutation({
         credentialState: credential.state,
         venueCheckInStatus: latestCheckIn?.status ?? "not_checked_in",
       }),
-      reason: "Participant presented a short-lived portal QR at a staffed arrival or credential desk",
+      reason:
+        "Participant presented a short-lived portal QR at a staffed arrival or credential desk",
     });
     await consumePortalQrToken(ctx, {
       tokenId: token._id,
@@ -563,24 +562,22 @@ export const resolveStaffedParticipant = internalMutation({
         ? { vitRegistrationNumber: profile.vitRegistrationNumber }
         : {}),
       credential,
-      venueCheckIn: latestCheckIn && checkInStation
-        ? {
-            id: latestCheckIn._id,
-            status: latestCheckIn.status,
-            version: latestCheckIn.version,
-            checkedInAt: latestCheckIn.checkedInAt,
-            stationName: checkInStation.name,
-            ...(latestCheckIn.reversedAt !== undefined
-              ? { reversedAt: latestCheckIn.reversedAt }
-              : {}),
-          }
-        : null,
-      canRecordVenueCheckIn:
-        recordCheckInGrantIds.length > 0,
-      canOverrideVenueIdentity:
-        overrideIdentityGrantIds.length > 0,
-      canReverseVenueCheckIn:
-        reverseCheckInGrantIds.length > 0,
+      venueCheckIn:
+        latestCheckIn && checkInStation
+          ? {
+              id: latestCheckIn._id,
+              status: latestCheckIn.status,
+              version: latestCheckIn.version,
+              checkedInAt: latestCheckIn.checkedInAt,
+              stationName: checkInStation.name,
+              ...(latestCheckIn.reversedAt !== undefined
+                ? { reversedAt: latestCheckIn.reversedAt }
+                : {}),
+            }
+          : null,
+      canRecordVenueCheckIn: recordCheckInGrantIds.length > 0,
+      canOverrideVenueIdentity: overrideIdentityGrantIds.length > 0,
+      canReverseVenueCheckIn: reverseCheckInGrantIds.length > 0,
     };
   },
 });
@@ -732,7 +729,10 @@ export const beginVitBarcodeEnrollment = internalMutation({
       });
     }
     if (liveMatch?.state === "active") {
-      throw new ConvexError({ code: "ALREADY_ENROLLED", message: "This VIT ID is already enrolled." });
+      throw new ConvexError({
+        code: "ALREADY_ENROLLED",
+        message: "This VIT ID is already enrolled.",
+      });
     }
     if (liveMatch?.state === "suspended") {
       throw new ConvexError({
@@ -766,11 +766,10 @@ export const beginVitBarcodeEnrollment = internalMutation({
       enrolledByPersonId: person._id,
       enrolledAt: now,
     });
-    await ctx.scheduler.runAt(
-      pendingExpiresAt,
-      internal.attendanceCredentials.expirePending,
-      { credentialId, expectedVersion: 1 },
-    );
+    await ctx.scheduler.runAt(pendingExpiresAt, internal.attendanceCredentials.expirePending, {
+      credentialId,
+      expectedVersion: 1,
+    });
     await claimStaffedCredentialResolution(ctx, {
       resolutionId: resolution._id,
       credentialAction: "begin_vit_enrolment",
@@ -853,11 +852,7 @@ export const verifyVitBarcodeEnrollment = internalMutation({
     });
     const credential = await ctx.db.get(args.credentialId);
     const now = Date.now();
-    if (
-      !credential ||
-      credential.eventId !== event._id ||
-      credential.kind !== "vit_id_barcode"
-    ) {
+    if (!credential || credential.eventId !== event._id || credential.kind !== "vit_id_barcode") {
       throw new ConvexError({
         code: "VERIFICATION_MISMATCH",
         message: "The second scan did not match the pending VIT ID enrolment.",
@@ -976,10 +971,7 @@ export const beginVitBarcodeRebind = internalMutation({
       requestFingerprint,
     });
     if (priorOperation) {
-      const credentialId = ctx.db.normalizeId(
-        "attendanceCredentials",
-        priorOperation.targetId,
-      );
+      const credentialId = ctx.db.normalizeId("attendanceCredentials", priorOperation.targetId);
       if (!credentialId) {
         throw new Error("The stored VIT barcode replacement result is invalid.");
       }
@@ -1103,8 +1095,7 @@ export const beginVitBarcodeRebind = internalMutation({
       .collect();
     const conflictingCredential = matchingCredentials.find(
       (credential) =>
-        credential.state === "active" ||
-        isCurrentPendingAttendanceCredential(credential, now),
+        credential.state === "active" || isCurrentPendingAttendanceCredential(credential, now),
     );
     if (conflictingCredential) {
       throw new ConvexError({
@@ -1128,11 +1119,10 @@ export const beginVitBarcodeRebind = internalMutation({
       enrolledByPersonId: person._id,
       enrolledAt: now,
     });
-    await ctx.scheduler.runAt(
-      pendingExpiresAt,
-      internal.attendanceCredentials.expirePending,
-      { credentialId, expectedVersion: 1 },
-    );
+    await ctx.scheduler.runAt(pendingExpiresAt, internal.attendanceCredentials.expirePending, {
+      credentialId,
+      expectedVersion: 1,
+    });
     await claimStaffedCredentialResolution(ctx, {
       resolutionId: resolution._id,
       credentialAction: "begin_vit_rebind",
@@ -1539,10 +1529,7 @@ export const beginExternalBadgeIssue = internalMutation({
       requestFingerprint,
     });
     if (priorOperation) {
-      const credentialId = ctx.db.normalizeId(
-        "attendanceCredentials",
-        priorOperation.targetId,
-      );
+      const credentialId = ctx.db.normalizeId("attendanceCredentials", priorOperation.targetId);
       if (!credentialId) {
         throw new Error("The stored external badge issue result is invalid.");
       }
@@ -1579,9 +1566,7 @@ export const beginExternalBadgeIssue = internalMutation({
     });
     const memberCredentials = await ctx.db
       .query("attendanceCredentials")
-      .withIndex("by_membership_state", (index) =>
-        index.eq("membershipId", context.membership._id),
-      )
+      .withIndex("by_membership_state", (index) => index.eq("membershipId", context.membership._id))
       .collect();
     for (const credential of memberCredentials) {
       if (
@@ -1608,8 +1593,7 @@ export const beginExternalBadgeIssue = internalMutation({
     }
     const currentPending = memberCredentials.find(
       (credential) =>
-        credential.kind === "badge_qr" &&
-        isCurrentPendingAttendanceCredential(credential, now),
+        credential.kind === "badge_qr" && isCurrentPendingAttendanceCredential(credential, now),
     );
     if (currentPending) {
       throw new ConvexError({
@@ -1631,10 +1615,7 @@ export const beginExternalBadgeIssue = internalMutation({
         )
         .collect(),
     ]);
-    if (
-      lookupMatches.length > 0 ||
-      referenceMatches.length > 0
-    ) {
+    if (lookupMatches.length > 0 || referenceMatches.length > 0) {
       throw new ConvexError({
         code: "BADGE_ALREADY_USED",
         message: "This event badge was already used. Choose a different printed badge.",
@@ -1653,11 +1634,10 @@ export const beginExternalBadgeIssue = internalMutation({
       enrolledByPersonId: person._id,
       enrolledAt: now,
     });
-    await ctx.scheduler.runAt(
-      pendingExpiresAt,
-      internal.attendanceCredentials.expirePending,
-      { credentialId, expectedVersion: 1 },
-    );
+    await ctx.scheduler.runAt(pendingExpiresAt, internal.attendanceCredentials.expirePending, {
+      credentialId,
+      expectedVersion: 1,
+    });
     await claimStaffedCredentialResolution(ctx, {
       resolutionId: resolution._id,
       credentialAction: "begin_badge_issue",
@@ -1876,10 +1856,7 @@ export const beginExternalBadgeReplacement = internalMutation({
       requestFingerprint,
     });
     if (priorOperation) {
-      const credentialId = ctx.db.normalizeId(
-        "attendanceCredentials",
-        priorOperation.targetId,
-      );
+      const credentialId = ctx.db.normalizeId("attendanceCredentials", priorOperation.targetId);
       if (!credentialId) {
         throw new Error("The stored external badge replacement result is invalid.");
       }
@@ -1939,9 +1916,7 @@ export const beginExternalBadgeReplacement = internalMutation({
     });
     const memberCredentials = await ctx.db
       .query("attendanceCredentials")
-      .withIndex("by_membership_state", (index) =>
-        index.eq("membershipId", context.membership._id),
-      )
+      .withIndex("by_membership_state", (index) => index.eq("membershipId", context.membership._id))
       .collect();
     for (const credential of memberCredentials) {
       if (
@@ -1958,8 +1933,7 @@ export const beginExternalBadgeReplacement = internalMutation({
     }
     const currentPending = memberCredentials.find(
       (credential) =>
-        credential.kind === "badge_qr" &&
-        isCurrentPendingAttendanceCredential(credential, now),
+        credential.kind === "badge_qr" && isCurrentPendingAttendanceCredential(credential, now),
     );
     if (currentPending) {
       throw new ConvexError({
@@ -1981,10 +1955,7 @@ export const beginExternalBadgeReplacement = internalMutation({
         )
         .collect(),
     ]);
-    if (
-      lookupMatches.length > 0 ||
-      referenceMatches.length > 0
-    ) {
+    if (lookupMatches.length > 0 || referenceMatches.length > 0) {
       throw new ConvexError({
         code: "BADGE_ALREADY_USED",
         message: "This event badge was already used. Choose a different printed badge.",
@@ -2005,11 +1976,10 @@ export const beginExternalBadgeReplacement = internalMutation({
       enrolledByPersonId: person._id,
       enrolledAt: now,
     });
-    await ctx.scheduler.runAt(
-      pendingExpiresAt,
-      internal.attendanceCredentials.expirePending,
-      { credentialId, expectedVersion: 1 },
-    );
+    await ctx.scheduler.runAt(pendingExpiresAt, internal.attendanceCredentials.expirePending, {
+      credentialId,
+      expectedVersion: 1,
+    });
     await claimStaffedCredentialResolution(ctx, {
       resolutionId: resolution._id,
       credentialAction: "begin_badge_replacement",

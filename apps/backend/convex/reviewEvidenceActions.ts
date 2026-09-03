@@ -223,15 +223,19 @@ const githubContentEntry = z.object({
   name: z.string().min(1).max(1_024),
   path: z.string().max(4_096),
   sha: z.string().min(1).max(128),
-  size: z.number().int().nonnegative().max(100 * 1024 * 1024),
+  size: z
+    .number()
+    .int()
+    .nonnegative()
+    .max(100 * 1024 * 1024),
   encoding: z.string().max(32).optional(),
-  content: z.string().max(2 * 1024 * 1024).optional(),
+  content: z
+    .string()
+    .max(2 * 1024 * 1024)
+    .optional(),
 });
 
-const githubContentResponse = z.union([
-  z.array(githubContentEntry).max(1_000),
-  githubContentEntry,
-]);
+const githubContentResponse = z.union([z.array(githubContentEntry).max(1_000), githubContentEntry]);
 
 const githubBrowseResult = v.union(
   v.object({
@@ -268,11 +272,7 @@ const githubBrowseResult = v.union(
     type: v.string(),
     sha: v.string(),
     size: v.number(),
-    reason: v.union(
-      v.literal("binary"),
-      v.literal("too_large"),
-      v.literal("content_unavailable"),
-    ),
+    reason: v.union(v.literal("binary"), v.literal("too_large"), v.literal("content_unavailable")),
   }),
 );
 
@@ -310,11 +310,7 @@ const figmaPreviewListResult = v.object({
         v.literal("unchanged"),
         v.literal("unknown"),
       ),
-      renderState: v.union(
-        v.literal("pending"),
-        v.literal("available"),
-        v.literal("failed"),
-      ),
+      renderState: v.union(v.literal("pending"), v.literal("available"), v.literal("failed")),
       width: v.optional(v.number()),
       height: v.optional(v.number()),
     }),
@@ -358,11 +354,7 @@ const figmaActivityResult = v.object({
   ),
 });
 
-const previewState = v.union(
-  v.literal("pending"),
-  v.literal("available"),
-  v.literal("failed"),
-);
+const previewState = v.union(v.literal("pending"), v.literal("available"), v.literal("failed"));
 
 const figmaComparisonResult = v.object({
   current: v.object({
@@ -593,10 +585,7 @@ function directoryType(value: z.infer<typeof githubContentEntry>["type"]) {
 
 function decodeTextFile(content: string) {
   const compact = content.replaceAll(/\s/gu, "");
-  if (
-    compact.length % 4 !== 0 ||
-    !/^[A-Za-z0-9+/]*={0,2}$/u.test(compact)
-  ) {
+  if (compact.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/u.test(compact)) {
     return null;
   }
   const bytes = Buffer.from(compact, "base64");
@@ -627,9 +616,9 @@ export const browseGithub = action({
     const context: GitHubAccessContext = await ctx.runQuery(
       internal.reviewEvidence.githubAccessContext,
       {
-      eventSlug: args.eventSlug,
-      reviewSessionId: args.reviewSessionId,
-      bindingId: args.bindingId,
+        eventSlug: args.eventSlug,
+        reviewSessionId: args.reviewSessionId,
+        bindingId: args.bindingId,
       },
     );
     const requestedPath = providerPath(context.rootPath, args.path);
@@ -734,10 +723,7 @@ export const figmaPreviews = action({
       bindingId: Id<"figmaFileBindings">;
     },
   ): Promise<FigmaPreviewListResult | null> => {
-    return ctx.runQuery(
-      internal.reviewEvidence.figmaPreviewListContext,
-      args,
-    );
+    return ctx.runQuery(internal.reviewEvidence.figmaPreviewListContext, args);
   },
 });
 
@@ -811,12 +797,7 @@ export const browseFigma = action({
       return {
         capturedAt: context.capturedAt,
         providerVersionId: context.providerVersionId,
-        ...browseFigmaEvidence(
-          rawJson,
-          context.providerVersionId,
-          args.nodeId,
-          args.childOffset,
-        ),
+        ...browseFigmaEvidence(rawJson, context.providerVersionId, args.nodeId, args.childOffset),
       };
     } catch (error) {
       if (error instanceof FigmaEvidenceBrowseError) {
@@ -858,23 +839,20 @@ export const openFigmaArtifact = action({
     );
     const expiresAt = Date.now() + 60_000;
     const url = await signArtifactDownload(context);
-    const access = await ctx.runMutation(
-      internal.reviewEvidence.recordFigmaArtifactAccess,
-      {
-        ...args,
-        artifactId: context.artifactId,
-        snapshotId: context.snapshotId,
-        expectedObjectKey: context.objectKey,
-        expectedStorageRegion: context.storageRegion,
-        expectedStorageBucket: context.storageBucket,
-        expectedStoredBytes: context.storedBytes,
-        expectedUncompressedBytes: context.uncompressedBytes,
-        expectedSha256: context.sha256,
-        expectedCapturedAt: context.capturedAt,
-        expectedProviderVersionId: context.providerVersionId,
-        signedUrlExpiresAt: expiresAt,
-      },
-    );
+    const access = await ctx.runMutation(internal.reviewEvidence.recordFigmaArtifactAccess, {
+      ...args,
+      artifactId: context.artifactId,
+      snapshotId: context.snapshotId,
+      expectedObjectKey: context.objectKey,
+      expectedStorageRegion: context.storageRegion,
+      expectedStorageBucket: context.storageBucket,
+      expectedStoredBytes: context.storedBytes,
+      expectedUncompressedBytes: context.uncompressedBytes,
+      expectedSha256: context.sha256,
+      expectedCapturedAt: context.capturedAt,
+      expectedProviderVersionId: context.providerVersionId,
+      signedUrlExpiresAt: expiresAt,
+    });
     return {
       url,
       expiresAt,
@@ -919,14 +897,11 @@ export const openFigmaPreview = action({
     );
     const expiresAt = Date.now() + 60_000;
     const url = await signFigmaPreview(context);
-    const access = await ctx.runMutation(
-      internal.reviewEvidence.recordFigmaPreviewAccess,
-      {
-        ...args,
-        expected: context,
-        signedUrlExpiresAt: expiresAt,
-      },
-    );
+    const access = await ctx.runMutation(internal.reviewEvidence.recordFigmaPreviewAccess, {
+      ...args,
+      expected: context,
+      signedUrlExpiresAt: expiresAt,
+    });
     return {
       url,
       expiresAt,
@@ -966,10 +941,7 @@ export const openFigmaComparison = action({
     const context: {
       current?: FigmaPreviewAccessContext;
       previous?: FigmaPreviewAccessContext;
-    } = await ctx.runQuery(
-      internal.reviewEvidence.figmaComparisonPreviewAccessContext,
-      args,
-    );
+    } = await ctx.runQuery(internal.reviewEvidence.figmaComparisonPreviewAccessContext, args);
     const expiresAt = Date.now() + 60_000;
     const [currentUrl, previousUrl] = await Promise.all([
       context.current ? signFigmaPreview(context.current) : Promise.resolve(null),

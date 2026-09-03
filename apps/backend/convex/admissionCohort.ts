@@ -10,10 +10,7 @@ import {
   admissionIntelligenceReadSignatureContext,
   verifyServiceBody,
 } from "@code2create/domain";
-import {
-  paginationOptsValidator,
-  paginationResultValidator,
-} from "convex/server";
+import { paginationOptsValidator, paginationResultValidator } from "convex/server";
 import { ConvexError, v, type Infer } from "convex/values";
 import { z } from "zod";
 
@@ -30,16 +27,10 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import { requireEventBySlug } from "./lib/events";
-import {
-  HttpBodyTooLargeError,
-  readBoundedRequestText,
-} from "./lib/boundedHttpBody";
+import { HttpBodyTooLargeError, readBoundedRequestText } from "./lib/boundedHttpBody";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import { findOperation, operationFingerprint } from "./lib/operations";
-import {
-  boundedActivePermissionGrants,
-  requirePermission,
-} from "./lib/permissions";
+import { boundedActivePermissionGrants, requirePermission } from "./lib/permissions";
 import { noveltyInputFingerprint } from "./lib/novelty";
 import { redactProjectText } from "./lib/projectText";
 import {
@@ -62,13 +53,12 @@ export type AdmissionCohortSignals = {
   submittedAt: number;
   reviewAccepts: number;
   reviewDeclines: number;
-  aiRecommendation: "accept" | "waitlist" | "decline" | "needs_information" | null;
+  aiRecommendation: "accept" | "waitlist" | "decline" | null;
 };
 
 const aiSupportRank = {
   accept: 2,
   waitlist: 1,
-  needs_information: 0,
   decline: -1,
 } as const;
 const maximumActiveApplicationPermissionGrants = 2_000;
@@ -135,7 +125,6 @@ const committedStates = new Set<Doc<"applications">["state"]>([
 const candidateStates = new Set<Doc<"applications">["state"]>([
   "submitted",
   "under_review",
-  "needs_information",
 ]);
 
 const experienceBands = [
@@ -158,7 +147,7 @@ type CohortRow = {
   novelty: ReturnType<typeof noveltySignal>;
   teamSize: number;
   minimumHumanReviews: number;
-  reviewSignal: { accept: number; waitlist: number; decline: number; needsInformation: number };
+  reviewSignal: { accept: number; waitlist: number; decline: number };
   completedCurrentReviews: number;
   ai: {
     state: Doc<"admissionAIRecommendations">["state"];
@@ -192,7 +181,8 @@ function noveltySignal(draft: Doc<"projectDrafts"> | null, submittedIdea: string
     !Number.isSafeInteger(draft.noveltyScore) ||
     draft.noveltyScore < 0 ||
     draft.noveltyScore > 100
-  ) return null;
+  )
+    return null;
   return {
     score: draft.noveltyScore,
     band: draft.noveltyBand,
@@ -261,7 +251,10 @@ function rosterEntry(row: CohortRow) {
   };
 }
 
-function candidateView(row: CohortRow, selection: ReturnType<typeof selectAdmissionCohort>[number]) {
+function candidateView(
+  row: CohortRow,
+  selection: ReturnType<typeof selectAdmissionCohort>[number],
+) {
   const decidable = row.completedCurrentReviews >= row.minimumHumanReviews;
   return {
     applicationId: row.applicationId,
@@ -372,7 +365,6 @@ const reviewSignalView = v.object({
   accept: v.number(),
   waitlist: v.number(),
   decline: v.number(),
-  needsInformation: v.number(),
 });
 
 const aiRecommendationView = v.object({
@@ -524,20 +516,19 @@ export const cohortRowPage = internalQuery({
       const currentReviews = reviews.filter(
         (review) => review.applicationContentVersion === application.contentVersion,
       );
-      const reviewSignal = { accept: 0, waitlist: 0, decline: 0, needsInformation: 0 };
+      const reviewSignal = { accept: 0, waitlist: 0, decline: 0 };
       for (const review of currentReviews) {
         if (review.recommendation === "accept") reviewSignal.accept += 1;
         else if (review.recommendation === "waitlist") reviewSignal.waitlist += 1;
-        else if (review.recommendation === "decline") reviewSignal.decline += 1;
-        else reviewSignal.needsInformation += 1;
+        else reviewSignal.decline += 1;
       }
       const aiCurrent = Boolean(
         recommendation &&
-          recommendation.state === "succeeded" &&
-          recommendation.applicationContentVersion === application.contentVersion &&
-          recommendation.projectVersionId === project._id &&
-          recommendation.admissionPolicyVersionId === application.admissionPolicyVersionId &&
-          recommendation.recommendation,
+        recommendation.state === "succeeded" &&
+        recommendation.applicationContentVersion === application.contentVersion &&
+        recommendation.projectVersionId === project._id &&
+        recommendation.admissionPolicyVersionId === application.admissionPolicyVersionId &&
+        recommendation.recommendation,
       );
       const ai = recommendation
         ? {
@@ -661,25 +652,24 @@ export const operatorCohortAccess = internalQuery({
       permissionKey: "application.read",
       scopeType: "event",
     });
-    const [applicationRead, profileContextRead, aiRecommendationRead, policy] =
-      await Promise.all([
-        applicationGrantAccess(ctx, {
-          eventId: event._id,
-          eventAccessSubjectId: subject._id,
-          permissionKey: "application.read",
-        }),
-        applicationGrantAccess(ctx, {
-          eventId: event._id,
-          eventAccessSubjectId: subject._id,
-          permissionKey: "application.profile_context.read",
-        }),
-        applicationGrantAccess(ctx, {
-          eventId: event._id,
-          eventAccessSubjectId: subject._id,
-          permissionKey: "application.ai_recommendation.read",
-        }),
-        publishedCohortPolicy(ctx, event),
-      ]);
+    const [applicationRead, profileContextRead, aiRecommendationRead, policy] = await Promise.all([
+      applicationGrantAccess(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: subject._id,
+        permissionKey: "application.read",
+      }),
+      applicationGrantAccess(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: subject._id,
+        permissionKey: "application.profile_context.read",
+      }),
+      applicationGrantAccess(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: subject._id,
+        permissionKey: "application.ai_recommendation.read",
+      }),
+      publishedCohortPolicy(ctx, event),
+    ]);
     return {
       eventId: event._id,
       policy,
@@ -773,7 +763,6 @@ export const applyDecision = mutation({
     expectedApplicationVersion: v.number(),
     decision: admissionDecision,
     reasonCode: v.string(),
-    informationQuestions: v.array(v.string()),
     aiDisposition: admissionAiDisposition,
     clientOperationId: v.string(),
   },
@@ -827,7 +816,6 @@ export const applyDecision = mutation({
         args.expectedApplicationVersion,
         args.decision,
         args.reasonCode,
-        JSON.stringify(args.informationQuestions),
         args.aiDisposition,
       ]),
     });
@@ -870,14 +858,12 @@ export const applyDecision = mutation({
       applicationId: Id<"applications">;
       state: Infer<typeof applicationState>;
       applicationVersion: number;
-      informationRequestId: Id<"admissionInformationRequests"> | null;
     } = await ctx.runMutation(api.admissions.decide, {
       eventSlug: args.eventSlug,
       applicationId: args.applicationId,
       expectedApplicationVersion: args.expectedApplicationVersion,
       decision: args.decision,
       reasonCode: args.reasonCode,
-      informationQuestions: args.informationQuestions,
       aiDisposition: args.aiDisposition,
       clientOperationId: args.clientOperationId,
     });
@@ -999,12 +985,7 @@ export const submissionSearchRead = internalAction({
     }
     const rows = await loadAdmissionCohortRows(ctx, context.eventId);
     const matched = rows.filter((row) => {
-      const haystack = [
-        row.teamName,
-        row.initialIdea,
-      ]
-        .join("\n")
-        .toLocaleLowerCase("en");
+      const haystack = [row.teamName, row.initialIdea].join("\n").toLocaleLowerCase("en");
       return tokens.every((token) => haystack.includes(token));
     });
     matched.sort((left, right) => left.submittedAt - right.submittedAt);

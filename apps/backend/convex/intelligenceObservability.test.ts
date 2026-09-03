@@ -73,12 +73,8 @@ describe("intelligence observability", () => {
       expect(() => parseIntelligenceWorkerOrigin(invalid), invalid).toThrow();
     }
 
-    expect(validateIntelligenceHmacSecret("s".repeat(32), "TEST_SECRET")).toBe(
-      "s".repeat(32),
-    );
-    expect(validateIntelligenceHmacSecret("é".repeat(16), "TEST_SECRET")).toBe(
-      "é".repeat(16),
-    );
+    expect(validateIntelligenceHmacSecret("s".repeat(32), "TEST_SECRET")).toBe("s".repeat(32));
+    expect(validateIntelligenceHmacSecret("é".repeat(16), "TEST_SECRET")).toBe("é".repeat(16));
     expect(() => validateIntelligenceHmacSecret("s".repeat(31), "TEST_SECRET")).toThrow(
       "at least 32 UTF-8 bytes",
     );
@@ -140,10 +136,12 @@ describe("intelligence observability", () => {
     expect(first.page).toHaveLength(20);
     expect(second.page).toHaveLength(7);
     expect(new Set([...first.page, ...second.page].map((run) => run.id)).size).toBe(27);
-    expect([...first.page, ...second.page]).toContainEqual(expect.objectContaining({
-      headline: "Queue pressure is the story",
-      model: "cloudflare/test-model",
-    }));
+    expect([...first.page, ...second.page]).toContainEqual(
+      expect.objectContaining({
+        headline: "Queue pressure is the story",
+        model: "cloudflare/test-model",
+      }),
+    );
   });
 
   test("stream capabilities are short-lived, read-only, and bound to the exact run", async () => {
@@ -167,7 +165,11 @@ describe("intelligence observability", () => {
     expect(copilotBody).toContain('"agentName":"operations-copilot"');
     expect(copilotBody).toContain('"capability":"read"');
     expect(copilot.signature).toBe(
-      await signTicket(copilotBody, copilot.issuedAt, operationsCopilotStreamTicketSignatureContext),
+      await signTicket(
+        copilotBody,
+        copilot.issuedAt,
+        operationsCopilotStreamTicketSignatureContext,
+      ),
     );
 
     const brief = await viewer.action(api.operationsIntelligenceActions.openBriefStream, {
@@ -274,18 +276,13 @@ describe("intelligence observability", () => {
     expect(malformedConflict).toBeInstanceOf(Error);
     expect(malformedConflict).not.toBeInstanceOf(ConvexError);
 
-    const receipt = await viewer.action(
-      api.operationsIntelligenceActions.submitCopilotTurn,
-      args,
-    );
+    const receipt = await viewer.action(api.operationsIntelligenceActions.submitCopilotTurn, args);
     expect(receipt).toMatchObject({
       submissionId: "submission-0001",
       acceptedAt: "2026-08-13T00:00:00.000Z",
       deduplicated: false,
     });
-    expect(receipt.instanceId).toBe(
-      `copilot:${fixture.eventSlug}:${receipt.conversationId}`,
-    );
+    expect(receipt.instanceId).toBe(`copilot:${fixture.eventSlug}:${receipt.conversationId}`);
     expect(requestBodies).toHaveLength(3);
     expect(requestBodies[1]).toBe(requestBodies[0]);
     expect(requestBodies[2]).toBe(requestBodies[0]);
@@ -294,12 +291,14 @@ describe("intelligence observability", () => {
       agent: "operations-copilot",
       paginationOpts: { numItems: 20, cursor: null },
     });
-    expect(turnLedger.page).toContainEqual(expect.objectContaining({
-      state: "accepted",
-      title: args.message,
-      operationId: args.turnId,
-      instanceId: receipt.conversationId,
-    }));
+    expect(turnLedger.page).toContainEqual(
+      expect.objectContaining({
+        state: "accepted",
+        title: args.message,
+        operationId: args.turnId,
+        instanceId: receipt.conversationId,
+      }),
+    );
 
     vi.stubGlobal("fetch", async () =>
       Response.json(
@@ -328,7 +327,6 @@ describe("intelligence observability", () => {
       "operations-autopilot",
     ]);
   });
-
 });
 
 async function signTicket(body: string, issuedAt: number, context: string) {
@@ -374,7 +372,7 @@ async function seedActivity(backend: BackendTest) {
       timezone: "Asia/Kolkata",
       status: "live",
       vitEmailDomains: ["vitstudent.ac.in"],
-        applicationsCloseAt: Date.now() + 86_400_000,
+      applicationsCloseAt: Date.now() + 86_400_000,
       version: 1,
       createdAt: now,
       updatedAt: now,

@@ -6,16 +6,10 @@ export const participantClass = v.union(
 );
 export type ParticipantClass = Infer<typeof participantClass>;
 
-export const participantGender = v.union(
-  v.literal("male"),
-  v.literal("female"),
-);
+export const participantGender = v.union(v.literal("male"), v.literal("female"));
 export type ParticipantGender = Infer<typeof participantGender>;
 
-export const vitResidenceType = v.union(
-  v.literal("day_scholar"),
-  v.literal("hosteller"),
-);
+export const vitResidenceType = v.union(v.literal("day_scholar"), v.literal("hosteller"));
 export type VitResidenceType = Infer<typeof vitResidenceType>;
 
 export const participantEligibilityStatus = v.union(
@@ -47,9 +41,7 @@ export const participantPhoneVerificationStatus = v.union(
   v.literal("locked"),
   v.literal("superseded"),
 );
-export type ParticipantPhoneVerificationStatus = Infer<
-  typeof participantPhoneVerificationStatus
->;
+export type ParticipantPhoneVerificationStatus = Infer<typeof participantPhoneVerificationStatus>;
 
 export const studyYear = v.union(
   v.literal("first"),
@@ -95,9 +87,7 @@ export const participantAssistantRequestState = v.union(
   v.literal("failed"),
 );
 
-export type ParticipantAssistantRequestState = Infer<
-  typeof participantAssistantRequestState
->;
+export type ParticipantAssistantRequestState = Infer<typeof participantAssistantRequestState>;
 
 export const projectCheckpointKey = v.union(
   v.literal("ideation"),
@@ -118,10 +108,7 @@ export const intakeQuestionPurpose = v.union(
 
 export type IntakeQuestionPurpose = Infer<typeof intakeQuestionPurpose>;
 
-export const intakeAnswerLength = v.union(
-  v.literal("short"),
-  v.literal("medium"),
-);
+export const intakeAnswerLength = v.union(v.literal("short"), v.literal("medium"));
 
 export type IntakeAnswerLength = Infer<typeof intakeAnswerLength>;
 
@@ -173,8 +160,6 @@ export const scopeType = v.union(
   v.literal("roster_entry"),
   v.literal("synesthesia_window"),
   v.literal("song_request"),
-  v.literal("floor_plan"),
-  v.literal("floor_zone"),
   v.literal("support_case"),
   v.literal("rehearsal_run"),
 );
@@ -199,7 +184,6 @@ export const supportCaseCategory = v.union(
   v.literal("attendance_credential"),
   v.literal("missing_scan"),
   v.literal("scanner_device"),
-  v.literal("table_location"),
   v.literal("integration"),
   v.literal("queue"),
   v.literal("reviewer_device"),
@@ -236,7 +220,6 @@ export const rehearsalWorkstream = v.union(
   v.literal("intake_admissions"),
   v.literal("communications"),
   v.literal("attendance"),
-  v.literal("floor"),
   v.literal("reviewer_app"),
   v.literal("review_operations"),
   v.literal("integrations"),
@@ -375,7 +358,6 @@ export const scorecardCorrectionState = v.union(
 export const applicationState = v.union(
   v.literal("submitted"),
   v.literal("under_review"),
-  v.literal("needs_information"),
   v.literal("accepted"),
   v.literal("waitlisted"),
   v.literal("declined"),
@@ -389,7 +371,6 @@ export const admissionDecision = v.union(
   v.literal("accept"),
   v.literal("waitlist"),
   v.literal("decline"),
-  v.literal("needs_information"),
 );
 
 export const terminalAdmissionDecision = v.union(
@@ -408,7 +389,6 @@ export const participantEmailTemplateKey = v.union(
   v.literal("accept"),
   v.literal("waitlist"),
   v.literal("decline"),
-  v.literal("needs_information"),
   v.literal("offer"),
   v.literal("offer_confirmed"),
   v.literal("offer_declined"),
@@ -441,12 +421,6 @@ export const admissionOfferState = v.union(
   v.literal("declined"),
   v.literal("expired"),
   v.literal("revoked"),
-);
-
-export const admissionInformationRequestState = v.union(
-  v.literal("open"),
-  v.literal("answered"),
-  v.literal("superseded"),
 );
 
 export const admissionRecommendationState = v.union(
@@ -640,10 +614,7 @@ export const attendanceScannerCredentialKind = v.union(
 
 export type AttendanceScannerCredentialKind = Infer<typeof attendanceScannerCredentialKind>;
 
-export const venueCheckInStatus = v.union(
-  v.literal("checked_in"),
-  v.literal("reversed"),
-);
+export const venueCheckInStatus = v.union(v.literal("checked_in"), v.literal("reversed"));
 
 export const venueIdentityCheckMethod = v.union(
   v.literal("vit_id"),
@@ -903,10 +874,7 @@ export const figmaCredentialState = v.union(
   v.literal("error"),
 );
 
-export const figmaCredentialConnectionState = v.union(
-  v.literal("active"),
-  v.literal("revoked"),
-);
+export const figmaCredentialConnectionState = v.union(v.literal("active"), v.literal("revoked"));
 
 export const figmaFileBindingState = v.union(
   v.literal("active"),
@@ -930,60 +898,6 @@ export const figmaPreviewState = v.union(
   v.literal("rate_limited"),
   v.literal("failed"),
 );
-
-export const floorPlanStatus = v.union(
-  v.literal("draft"),
-  v.literal("published"),
-  v.literal("superseded"),
-  v.literal("retired"),
-);
-
-export const floorMappingState = v.union(
-  v.literal("setup"),
-  v.literal("open"),
-  v.literal("frozen"),
-);
-
-/** The two states in which a published plan is visible to floor staff at all. */
-export const floorActiveMappingState = v.union(v.literal("open"), v.literal("frozen"));
-
-export const floorMappingMode = v.union(v.literal("map"), v.literal("override"));
-
-export const floorTeamQrTokenState = v.union(
-  v.literal("active"),
-  v.literal("used"),
-  v.literal("superseded"),
-  v.literal("expired"),
-);
-
-export const floorMappingClaimState = v.union(
-  v.literal("active"),
-  v.literal("completed"),
-  v.literal("expired"),
-);
-
-export const floorLocationState = v.union(v.literal("active"), v.literal("superseded"));
-
-export const floorLocationMethod = v.union(
-  v.literal("team_qr_scan"),
-  v.literal("override"),
-);
-
-/** Nine named areas derived from a team's normalized position in a zone. */
-export const floorArea = v.union(
-  v.literal("north_west"),
-  v.literal("north"),
-  v.literal("north_east"),
-  v.literal("west"),
-  v.literal("centre"),
-  v.literal("east"),
-  v.literal("south_west"),
-  v.literal("south"),
-  v.literal("south_east"),
-);
-
-export type FloorArea = Infer<typeof floorArea>;
-export type FloorMappingState = Infer<typeof floorMappingState>;
 
 export const rosterEntryStatus = v.union(
   v.literal("pending"),
@@ -1106,3 +1020,14 @@ export type AttentionDetectorKey = Infer<typeof attentionDetectorKey>;
 export type AttentionSubjectType = Infer<typeof attentionSubjectType>;
 export type AttentionItemState = Infer<typeof attentionItemState>;
 export type AttentionScopeType = Infer<typeof attentionScopeType>;
+
+export const youtubeVideo = v.object({
+  videoId: v.string(),
+  title: v.string(),
+  channelTitle: v.string(),
+  durationSeconds: v.number(),
+  thumbnailUrl: v.optional(v.string()),
+  ageRestricted: v.boolean(),
+  embeddable: v.boolean(),
+});
+export type YouTubeVideo = Infer<typeof youtubeVideo>;

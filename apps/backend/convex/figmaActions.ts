@@ -28,10 +28,7 @@ import {
   providerSecretKeyVersion,
   reencryptProviderSecret,
 } from "./lib/providerSecrets";
-import {
-  downloadFigmaPreview,
-  FigmaPreviewDownloadError,
-} from "./lib/figmaPreviewDownload";
+import { downloadFigmaPreview, FigmaPreviewDownloadError } from "./lib/figmaPreviewDownload";
 
 const figmaApiOrigin = "https://api.figma.com";
 const figmaAuthorizationUrl = "https://www.figma.com/oauth";
@@ -109,23 +106,16 @@ export const rotateProviderSecrets = internalAction({
       );
       const rotated = args.dryRun
         ? 0
-        : await ctx.runMutation(
-            internal.providerSecretRotation.commitCredentialRotations,
-            {
-              rotations: needingRotation.map((credential) => ({
-                credentialId: credential.id,
-                expectedVersion: credential.version,
-                expectedAccessTokenCiphertext: credential.accessTokenCiphertext,
-                expectedRefreshTokenCiphertext: credential.refreshTokenCiphertext,
-                accessTokenCiphertext: reencryptProviderSecret(
-                  credential.accessTokenCiphertext,
-                ),
-                refreshTokenCiphertext: reencryptProviderSecret(
-                  credential.refreshTokenCiphertext,
-                ),
-              })),
-            },
-          );
+        : await ctx.runMutation(internal.providerSecretRotation.commitCredentialRotations, {
+            rotations: needingRotation.map((credential) => ({
+              credentialId: credential.id,
+              expectedVersion: credential.version,
+              expectedAccessTokenCiphertext: credential.accessTokenCiphertext,
+              expectedRefreshTokenCiphertext: credential.refreshTokenCiphertext,
+              accessTokenCiphertext: reencryptProviderSecret(credential.accessTokenCiphertext),
+              refreshTokenCiphertext: reencryptProviderSecret(credential.refreshTokenCiphertext),
+            })),
+          });
       return {
         owner: args.owner,
         targetKeyVersion,
@@ -147,8 +137,7 @@ export const rotateProviderSecrets = internalAction({
     const now = Date.now();
     const live = page.page.filter((intent) => intent.expiresAt > now);
     const needingRotation = live.filter(
-      (intent) =>
-        providerSecretKeyVersion(intent.pkceVerifierCiphertext) !== targetKeyVersion,
+      (intent) => providerSecretKeyVersion(intent.pkceVerifierCiphertext) !== targetKeyVersion,
     );
     const rotated = args.dryRun
       ? 0
@@ -158,9 +147,7 @@ export const rotateProviderSecrets = internalAction({
             intentId: intent.id,
             expectedStatus: intent.status,
             expectedPkceVerifierCiphertext: intent.pkceVerifierCiphertext,
-            pkceVerifierCiphertext: reencryptProviderSecret(
-              intent.pkceVerifierCiphertext,
-            ),
+            pkceVerifierCiphertext: reencryptProviderSecret(intent.pkceVerifierCiphertext),
           })),
         });
     return {
@@ -214,10 +201,7 @@ type CredentialRefreshClaim =
       credentialVersion: number;
     };
 
-type ProviderSecretRotationOwner =
-  | "active_credentials"
-  | "pending_intents"
-  | "verifying_intents";
+type ProviderSecretRotationOwner = "active_credentials" | "pending_intents" | "verifying_intents";
 
 type ProviderSecretRotationResult = {
   owner: ProviderSecretRotationOwner;
@@ -425,14 +409,22 @@ const initialTokenResponse = z.object({
   access_token: z.string().min(1).max(8_192),
   refresh_token: z.string().min(1).max(8_192),
   token_type: z.string().toLowerCase().pipe(z.literal("bearer")),
-  expires_in: z.number().int().positive().max(366 * 24 * 60 * 60),
+  expires_in: z
+    .number()
+    .int()
+    .positive()
+    .max(366 * 24 * 60 * 60),
 });
 
 const refreshTokenResponse = z.object({
   access_token: z.string().min(1).max(8_192),
   refresh_token: z.string().min(1).max(8_192).optional(),
   token_type: z.string().toLowerCase().pipe(z.literal("bearer")),
-  expires_in: z.number().int().positive().max(366 * 24 * 60 * 60),
+  expires_in: z
+    .number()
+    .int()
+    .positive()
+    .max(366 * 24 * 60 * 60),
 });
 
 type FigmaNode = {
@@ -444,7 +436,10 @@ type FigmaNode = {
 const figmaNodeSchema: z.ZodType<FigmaNode> = z.lazy(() =>
   z.object({
     type: z.string(),
-    interactions: z.array(z.object({})).transform((items) => items.length).optional(),
+    interactions: z
+      .array(z.object({}))
+      .transform((items) => items.length)
+      .optional(),
     children: z.array(figmaNodeSchema).optional(),
   }),
 );
@@ -459,7 +454,7 @@ const fileResponse = z.object({
   lastModified: z.string().min(1).max(80),
   editorType: z.string().min(1).max(80),
   linkAccess: z.string().min(1).max(80),
-  thumbnailUrl: z.string().url().optional(),
+  thumbnailUrl: z.url().optional(),
   version: z.string().min(1).max(256),
   mainFileKey: z.string().min(1).max(256).optional(),
   document: figmaNodeSchema,
@@ -472,7 +467,7 @@ const fileMetadataResponse = z.object({
   file: z.object({
     name: z.string().min(1).max(512),
     last_touched_at: z.string().min(1).max(80),
-    thumbnail_url: z.string().url(),
+    thumbnail_url: z.url(),
     editorType: z.string().min(1).max(80),
     version: z.string().min(1).max(256),
     role: z.string().min(1).max(80),
@@ -516,13 +511,13 @@ const versionsResponse = z.object({
     .max(1_000),
   pagination: z
     .object({
-      next_page: z.string().url().nullable().optional(),
+      next_page: z.url().nullable().optional(),
     })
     .optional(),
 });
 
 const renderedImagesResponse = z.object({
-  images: z.record(z.string(), z.string().url().nullable()),
+  images: z.record(z.string(), z.url().nullable()),
   err: z.string().optional(),
   status: z.number().int().optional(),
 });
@@ -580,8 +575,7 @@ function configuredSiteUrl(name: string) {
       message: "Figma is not configured for this environment.",
     });
   }
-  const localHttp =
-    url.protocol === "http:" && ["localhost", "127.0.0.1"].includes(url.hostname);
+  const localHttp = url.protocol === "http:" && ["localhost", "127.0.0.1"].includes(url.hostname);
   if (
     (url.protocol !== "https:" && !localHttp) ||
     url.username ||
@@ -611,10 +605,7 @@ function redirectUri(configuration: FigmaConfiguration) {
 }
 
 function webhookEndpoint(configuration: FigmaConfiguration) {
-  const endpoint = new URL(
-    "/integrations/figma/webhook",
-    configuration.convexSiteUrl,
-  );
+  const endpoint = new URL("/integrations/figma/webhook", configuration.convexSiteUrl);
   return endpoint.protocol === "https:" ? endpoint.toString() : null;
 }
 
@@ -751,9 +742,7 @@ function providerFailure(error: unknown): ProviderFailure {
         code: "figma_rate_limited",
         retryAt,
         ...(error.planTier !== undefined ? { planTier: error.planTier } : {}),
-        ...(error.rateLimitType !== undefined
-          ? { rateLimitType: error.rateLimitType }
-          : {}),
+        ...(error.rateLimitType !== undefined ? { rateLimitType: error.rateLimitType } : {}),
       };
     }
     if (error.status === 401) return { state: "error", code: "figma_authentication_failed" };
@@ -787,7 +776,9 @@ function providerFacingError(error: unknown) {
 }
 
 function wait(milliseconds: number) {
-  return new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+  return new Promise<void>((resolve) => {
+    setTimeout(resolve, milliseconds);
+  });
 }
 
 async function freshAccessToken(ctx: ActionCtx, credentialId: Id<"figmaOAuthCredentials">) {
@@ -836,8 +827,7 @@ async function freshAccessToken(ctx: ActionCtx, credentialId: Id<"figmaOAuthCred
       await ctx.runMutation(internal.figmaIntegrations.failCredentialRefresh, {
         credentialId,
         leaseId,
-        invalidateCredential:
-          error instanceof FigmaHttpError && [400, 401].includes(error.status),
+        invalidateCredential: error instanceof FigmaHttpError && [400, 401].includes(error.status),
       });
       throw error;
     }
@@ -896,14 +886,11 @@ export const completeConnection = action({
       });
     }
     const attemptId = randomUUID();
-    const claim: SetupClaim = await ctx.runMutation(
-      internal.figmaIntegrations.claimSetupIntent,
-      {
-        eventSlug: args.eventSlug,
-        stateDigest: opaqueDigest(args.state),
-        attemptId,
-      },
-    );
+    const claim: SetupClaim = await ctx.runMutation(internal.figmaIntegrations.claimSetupIntent, {
+      eventSlug: args.eventSlug,
+      stateDigest: opaqueDigest(args.state),
+      attemptId,
+    });
     if (claim.kind === "completed") {
       return { credentialConnectionId: claim.credentialConnectionId };
     }
@@ -1003,6 +990,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function unknownArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value.map((entry: unknown) => entry) : [];
+}
+
 function boundedProviderString(value: unknown, maximumLength: number) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -1030,13 +1021,13 @@ function sourceDimensions(value: Record<string, unknown>) {
 }
 
 function descendantCount(value: Record<string, unknown>) {
-  const pending = Array.isArray(value.children) ? [...value.children] : [];
+  const pending = unknownArray(value.children);
   let count = 0;
   while (pending.length > 0) {
     const child = pending.pop();
     if (!isRecord(child)) continue;
     count += 1;
-    if (Array.isArray(child.children)) pending.push(...child.children);
+    pending.push(...unknownArray(child.children));
   }
   return count;
 }
@@ -1073,16 +1064,14 @@ function selectPreviewCandidates(parsedFile: unknown): FigmaPreviewPlan {
   if (!isRecord(parsedFile) || !isRecord(parsedFile.document)) {
     return { discoveredNodeCount: 0, truncated: false, candidates: [] };
   }
-  const allPages = Array.isArray(parsedFile.document.children)
-    ? parsedFile.document.children
-    : [];
+  const allPages = unknownArray(parsedFile.document.children);
   const pages = allPages.slice(0, maximumPreviewPages);
   const candidatesByPage: FigmaPreviewCandidate[][] = [];
   let discoveredNodeCount = 0;
   for (let pageOrder = 0; pageOrder < pages.length; pageOrder += 1) {
     const page = pages[pageOrder];
     if (!isRecord(page)) continue;
-    const children = Array.isArray(page.children) ? page.children : [];
+    const children = unknownArray(page.children);
     const pageCandidates = children.flatMap((child, nodeOrder) => {
       if (!isRecord(child) || child.visible === false) return [];
       const nodeType = boundedProviderString(child.type, 128);
@@ -1111,8 +1100,7 @@ function selectPreviewCandidates(parsedFile: unknown): FigmaPreviewPlan {
   }
   return {
     discoveredNodeCount,
-    truncated:
-      allPages.length > maximumPreviewPages || discoveredNodeCount > candidates.length,
+    truncated: allPages.length > maximumPreviewPages || discoveredNodeCount > candidates.length,
     candidates,
   };
 }
@@ -1216,9 +1204,7 @@ function captureComments(response: z.infer<typeof commentsResponse>) {
       message: message.text,
       messageTruncated: message.truncated,
       providerCreatedAt: parseProviderTime(comment.created_at),
-      ...(comment.resolved_at
-        ? { resolvedAt: parseProviderTime(comment.resolved_at) }
-        : {}),
+      ...(comment.resolved_at ? { resolvedAt: parseProviderTime(comment.resolved_at) } : {}),
       ...(comment.order_id !== undefined ? { orderId: comment.order_id } : {}),
       reactionCount: comment.reactions?.length ?? 0,
       displayOrder: 0,
@@ -1243,8 +1229,7 @@ function captureComments(response: z.infer<typeof commentsResponse>) {
     unresolvedThreadCount: ordered.filter(
       (comment) => comment.parentCommentId === undefined && comment.resolvedAt === undefined,
     ).length,
-    complete:
-      comments.size === response.comments.length && captured.length === comments.size,
+    complete: comments.size === response.comments.length && captured.length === comments.size,
   };
 }
 
@@ -1294,8 +1279,7 @@ async function captureFile(accessToken: string, fileKey: string): Promise<FileCa
       commentCount: capturedComments.commentCount,
       unresolvedCommentCount: capturedComments.unresolvedThreadCount,
       versionCount: versions.versionCount,
-      completeness:
-        versions.complete && capturedComments.complete ? "complete" : "partial",
+      completeness: versions.complete && capturedComments.complete ? "complete" : "partial",
     },
     activity: {
       versionCount: versions.versionCount,
@@ -1346,9 +1330,7 @@ export const configureFileWebhook = internalAction({
       await ctx.runMutation(internal.figmaIntegrations.failWebhookSetup, {
         bindingId: setup.bindingId,
         leaseId: args.leaseId,
-        ...(setup.webhookId !== undefined
-          ? { expectedWebhookId: setup.webhookId }
-          : {}),
+        ...(setup.webhookId !== undefined ? { expectedWebhookId: setup.webhookId } : {}),
         state: "error",
       });
       throw error;
@@ -1358,9 +1340,7 @@ export const configureFileWebhook = internalAction({
       await ctx.runMutation(internal.figmaIntegrations.failWebhookSetup, {
         bindingId: setup.bindingId,
         leaseId: args.leaseId,
-        ...(setup.webhookId !== undefined
-          ? { expectedWebhookId: setup.webhookId }
-          : {}),
+        ...(setup.webhookId !== undefined ? { expectedWebhookId: setup.webhookId } : {}),
         state: "unavailable",
       });
       return null;
@@ -1372,24 +1352,19 @@ export const configureFileWebhook = internalAction({
       accessToken = await freshAccessToken(ctx, setup.credentialId);
       if (webhookId === undefined) {
         const passcode = randomBytes(32).toString("base64url");
-        const webhook = await figmaRequest(
-          accessToken,
-          "/v2/webhooks",
-          webhookResponse,
-          {
-            method: "POST",
-            body: JSON.stringify({
-              event_type: "FILE_UPDATE",
-              context: "file",
-              context_id: setup.fileKey,
-              endpoint,
-              passcode,
-              status: "PAUSED",
-              description: "Code2Create project file",
-            }),
-            timeoutMs: 30_000,
-          },
-        );
+        const webhook = await figmaRequest(accessToken, "/v2/webhooks", webhookResponse, {
+          method: "POST",
+          body: JSON.stringify({
+            event_type: "FILE_UPDATE",
+            context: "file",
+            context_id: setup.fileKey,
+            endpoint,
+            passcode,
+            status: "PAUSED",
+            description: "Code2Create project file",
+          }),
+          timeoutMs: 30_000,
+        });
         webhookId = webhook.id;
         const attachment: { attached: boolean } = await ctx.runMutation(
           internal.figmaIntegrations.attachWebhook,
@@ -1555,9 +1530,7 @@ export const reconcileFile = internalAction({
         errorCode: failure.code,
         ...(failure.retryAt !== undefined ? { retryAt: failure.retryAt } : {}),
         ...(failure.planTier !== undefined ? { planTier: failure.planTier } : {}),
-        ...(failure.rateLimitType !== undefined
-          ? { rateLimitType: failure.rateLimitType }
-          : {}),
+        ...(failure.rateLimitType !== undefined ? { rateLimitType: failure.rateLimitType } : {}),
       });
       if (failure.retryAt !== undefined) {
         await ctx.scheduler.runAt(failure.retryAt, internal.figmaActions.reconcileFile, {
@@ -1610,9 +1583,7 @@ export const checkFileMetadata = internalAction({
         errorCode: failure.code,
         ...(failure.retryAt !== undefined ? { retryAt: failure.retryAt } : {}),
         ...(failure.planTier !== undefined ? { planTier: failure.planTier } : {}),
-        ...(failure.rateLimitType !== undefined
-          ? { rateLimitType: failure.rateLimitType }
-          : {}),
+        ...(failure.rateLimitType !== undefined ? { rateLimitType: failure.rateLimitType } : {}),
       });
     }
     return null;
@@ -1637,11 +1608,7 @@ async function renderPreviewResults(
   );
   const results: PreviewRenderResult[] = [];
   let acceptedBytes = 0;
-  for (
-    let offset = 0;
-    offset < claim.nodes.length;
-    offset += previewDownloadParallelism
-  ) {
+  for (let offset = 0; offset < claim.nodes.length; offset += previewDownloadParallelism) {
     const group = claim.nodes.slice(offset, offset + previewDownloadParallelism);
     const downloads = await Promise.all(
       group.map(async (node) => {
@@ -1667,9 +1634,7 @@ async function renderPreviewResults(
             nodeId: node.nodeId,
             state: "failed" as const,
             failureCode:
-              error instanceof FigmaPreviewDownloadError
-                ? error.code
-                : "preview_download_failed",
+              error instanceof FigmaPreviewDownloadError ? error.code : "preview_download_failed",
           };
         }
       }),
@@ -1838,11 +1803,9 @@ export const removeArchivedWebhook = internalAction({
       } else {
         const failure = providerFailure(error);
         if (failure.retryAt !== undefined) {
-          await ctx.scheduler.runAt(
-            failure.retryAt,
-            internal.figmaActions.removeArchivedWebhook,
-            { bindingId: cleanup.bindingId },
-          );
+          await ctx.scheduler.runAt(failure.retryAt, internal.figmaActions.removeArchivedWebhook, {
+            bindingId: cleanup.bindingId,
+          });
         }
       }
     }

@@ -11,8 +11,12 @@ import {
   cancelPendingOperationsAutonomyRun,
   materializeOperationsAutonomyInboxRun,
 } from "./lib/operationsAutonomyRunCreation";
-import { autonomyRunIsTerminal, requireCurrentAutonomyAuthority } from "./lib/operationsAutonomyRuntime";
+import {
+  autonomyRunIsTerminal,
+  requireCurrentAutonomyAuthority,
+} from "./lib/operationsAutonomyRuntime";
 import { cancelPendingAutonomyInboxPage } from "./lib/operationsAutonomyRevocation";
+import { operationsBackgroundLeaseIsHeld } from "./operationsBackground";
 
 const maximumStatesPerTick = 8;
 const maximumScheduleSlotsPerStatePass = 16;
@@ -35,11 +39,25 @@ export const dueStates = internalQuery({
 });
 
 export const enqueueDueSchedules = internalMutation({
-  args: { stateId: v.id("operationsAutonomyStates"), now: v.number() },
-  returns: v.object({ enqueued: v.number(), hasMore: v.boolean() }),
+  args: {
+    stateId: v.id("operationsAutonomyStates"),
+    leaseId: v.string(),
+    now: v.number(),
+  },
+  returns: v.object({ leaseHeld: v.boolean(), enqueued: v.number(), hasMore: v.boolean() }),
   handler: async (ctx, args) => {
+    if (
+      !(await operationsBackgroundLeaseIsHeld(ctx, {
+        holder: "autonomy_tick",
+        leaseId: args.leaseId,
+        now: args.now,
+      }))
+    )
+      return { leaseHeld: false, enqueued: 0, hasMore: false };
     const state = await ctx.db.get(args.stateId);
-    if (!state || state.lifecycle.kind !== "active") return { enqueued: 0, hasMore: false };
+    if (!state || state.lifecycle.kind !== "active") {
+      return { leaseHeld: true, enqueued: 0, hasMore: false };
+    }
     const [event, policy, source] = await Promise.all([
       ctx.db.get(state.eventId),
       ctx.db.get(state.policyVersionId),
@@ -49,8 +67,11 @@ export const enqueueDueSchedules = internalMutation({
         .unique(),
     ]);
     if (
-      !event || !operationsAutonomyAvailable(event, args.now) ||
-      !policy || !policy.enabled || !source
+      !event ||
+      !operationsAutonomyAvailable(event, args.now) ||
+      !policy ||
+      !policy.enabled ||
+      !source
     ) {
       await ctx.db.patch(state._id, {
         lastEvaluatedAt: args.now,
@@ -59,22 +80,19 @@ export const enqueueDueSchedules = internalMutation({
         updatedAt: args.now,
         version: state.version + 1,
       });
-      return { enqueued: 0, hasMore: false };
+      return { leaseHeld: true, enqueued: 0, hasMore: false };
     }
     const intervalMs = policy.scheduleIntervalMinutes * 60_000;
     const currentSlot = Math.floor(args.now / intervalMs) * intervalMs;
-    let slot = state.lastScheduleSlot === undefined
-      ? currentSlot
-      : state.lastScheduleSlot + intervalMs;
+    let slot =
+      state.lastScheduleSlot === undefined ? currentSlot : state.lastScheduleSlot + intervalMs;
     let enqueued = 0;
     let lastSlot = state.lastScheduleSlot;
     while (slot <= currentSlot && enqueued < maximumScheduleSlotsPerStatePass) {
       const prior = await ctx.db
         .query("operationsAutonomyInbox")
         .withIndex("by_event_operation_key", (index) =>
-          index
-            .eq("eventId", event._id)
-            .eq("operationKey", `schedule:${policy._id}:${slot}`),
+          index.eq("eventId", event._id).eq("operationKey", `schedule:${policy._id}:${slot}`),
         )
         .unique();
       await enqueueOperationsAutonomySchedule(ctx, {
@@ -90,7 +108,7 @@ export const enqueueDueSchedules = internalMutation({
     }
     const refreshed = await ctx.db.get(state._id);
     if (!refreshed || refreshed.lifecycle.kind !== "active") {
-      return { enqueued, hasMore: false };
+      return { leaseHeld: true, enqueued, hasMore: false };
     }
     const hasMore = slot <= currentSlot;
     await ctx.db.patch(state._id, {
@@ -101,7 +119,7 @@ export const enqueueDueSchedules = internalMutation({
       updatedAt: args.now,
       version: refreshed.version + 1,
     });
-    return { enqueued, hasMore };
+    return { leaseHeld: true, enqueued, hasMore };
   },
 });
 
@@ -133,26 +151,54 @@ export const pendingCancellationPolicies = internalQuery({
 });
 
 export const cancelPendingInboxPage = internalMutation({
-  args: { policyVersionId: v.id("operationsAutonomyPolicyVersions"), now: v.number() },
-  returns: v.boolean(),
-  handler: (ctx, args) => cancelPendingAutonomyInboxPage(ctx, args),
+  args: {
+    policyVersionId: v.id("operationsAutonomyPolicyVersions"),
+    leaseId: v.string(),
+    now: v.number(),
+  },
+  returns: v.object({ leaseHeld: v.boolean(), hasMore: v.boolean() }),
+  handler: async (ctx, args) => {
+    if (
+      !(await operationsBackgroundLeaseIsHeld(ctx, {
+        holder: "autonomy_tick",
+        leaseId: args.leaseId,
+        now: args.now,
+      }))
+    )
+      return { leaseHeld: false, hasMore: false };
+    return {
+      leaseHeld: true,
+      hasMore: await cancelPendingAutonomyInboxPage(ctx, args),
+    };
+  },
 });
 
 export const materializeInbox = internalMutation({
-  args: { inboxId: v.id("operationsAutonomyInbox"), now: v.number() },
-  returns: v.union(v.null(), v.id("operationsAutonomyRuns")),
+  args: { inboxId: v.id("operationsAutonomyInbox"), leaseId: v.string(), now: v.number() },
+  returns: v.object({
+    leaseHeld: v.boolean(),
+    runId: v.union(v.null(), v.id("operationsAutonomyRuns")),
+  }),
   handler: async (ctx, args) => {
+    if (
+      !(await operationsBackgroundLeaseIsHeld(ctx, {
+        holder: "autonomy_tick",
+        leaseId: args.leaseId,
+        now: args.now,
+      }))
+    )
+      return { leaseHeld: false, runId: null };
     const inbox = await ctx.db.get(args.inboxId);
-    if (!inbox || inbox.lifecycle.kind !== "pending") return null;
+    if (!inbox || inbox.lifecycle.kind !== "pending") return { leaseHeld: true, runId: null };
     const state = await ctx.db
       .query("operationsAutonomyStates")
       .withIndex("by_policy", (index) => index.eq("policyVersionId", inbox.policyVersionId))
       .unique();
-    if (!state || state.lifecycle.kind !== "active") return null;
+    if (!state || state.lifecycle.kind !== "active") return { leaseHeld: true, runId: null };
     const event = await ctx.db.get(inbox.eventId);
     if (!event || !operationsAutonomyAvailable(event, args.now)) {
       const run = await materializeOperationsAutonomyInboxRun(ctx, inbox, args.now);
-      if (!run) return null;
+      if (!run) return { leaseHeld: true, runId: null };
       const claimedInbox = await ctx.db.get(inbox._id);
       if (!claimedInbox) throw new Error("The claimed autonomy inbox disappeared.");
       await cancelPendingOperationsAutonomyRun(ctx, {
@@ -161,7 +207,7 @@ export const materializeInbox = internalMutation({
         state,
         now: args.now,
       });
-      return run._id;
+      return { leaseHeld: true, runId: run._id };
     }
     const [activeRun, pendingRun] = await Promise.all([
       ctx.db
@@ -188,17 +234,18 @@ export const materializeInbox = internalMutation({
         nextAttemptAt: args.now + retryDelayMs,
         updatedAt: args.now,
       });
-      return null;
+      return { leaseHeld: true, runId: null };
     }
     const run = await materializeOperationsAutonomyInboxRun(ctx, inbox, args.now);
-    if (!run) return null;
+    if (!run) return { leaseHeld: true, runId: null };
     const activated = await activateOperationsAutonomyRun(ctx, run, args.now);
     if (!activated) {
       const currentEvent = await ctx.db.get(inbox.eventId);
       if (!currentEvent || !operationsAutonomyAvailable(currentEvent, args.now)) {
         const currentState = await ctx.db.get(state._id);
         const currentInbox = await ctx.db.get(inbox._id);
-        if (!currentState || !currentInbox) throw new Error("The autonomy queue owner disappeared.");
+        if (!currentState || !currentInbox)
+          throw new Error("The autonomy queue owner disappeared.");
         await cancelPendingOperationsAutonomyRun(ctx, {
           run,
           inbox: currentInbox,
@@ -207,7 +254,7 @@ export const materializeInbox = internalMutation({
         });
       }
     }
-    return run._id;
+    return { leaseHeld: true, runId: run._id };
   },
 });
 
@@ -253,8 +300,14 @@ export const supervisionCandidates = internalQuery({
     ]);
     return [...aborting, ...active]
       .toSorted((left, right) => {
-        const leftAt = left.lifecycle.kind === "terminal" ? Number.MAX_SAFE_INTEGER : left.lifecycle.nextActionAt;
-        const rightAt = right.lifecycle.kind === "terminal" ? Number.MAX_SAFE_INTEGER : right.lifecycle.nextActionAt;
+        const leftAt =
+          left.lifecycle.kind === "terminal"
+            ? Number.MAX_SAFE_INTEGER
+            : left.lifecycle.nextActionAt;
+        const rightAt =
+          right.lifecycle.kind === "terminal"
+            ? Number.MAX_SAFE_INTEGER
+            : right.lifecycle.nextActionAt;
         return leftAt - rightAt;
       })
       .slice(0, maximumSupervisionRowsPerTick)
@@ -263,11 +316,33 @@ export const supervisionCandidates = internalQuery({
 });
 
 export const reconcileSupervision = internalMutation({
-  args: { supervisionId: v.id("operationsAutonomyRunSupervision"), now: v.number() },
-  returns: v.union(v.literal("unchanged"), v.literal("abort"), v.literal("dispatch"), v.literal("continue")),
+  args: {
+    supervisionId: v.id("operationsAutonomyRunSupervision"),
+    leaseId: v.string(),
+    now: v.number(),
+  },
+  returns: v.object({
+    leaseHeld: v.boolean(),
+    outcome: v.union(
+      v.literal("unchanged"),
+      v.literal("abort"),
+      v.literal("dispatch"),
+      v.literal("continue"),
+    ),
+  }),
   handler: async (ctx, args) => {
+    if (
+      !(await operationsBackgroundLeaseIsHeld(ctx, {
+        holder: "autonomy_tick",
+        leaseId: args.leaseId,
+        now: args.now,
+      }))
+    )
+      return { leaseHeld: false, outcome: "unchanged" as const };
     const supervision = await ctx.db.get(args.supervisionId);
-    if (!supervision || supervision.lifecycle.kind === "terminal") return "unchanged";
+    if (!supervision || supervision.lifecycle.kind === "terminal") {
+      return { leaseHeld: true, outcome: "unchanged" as const };
+    }
     const run = await ctx.db.get(supervision.runId);
     if (supervision.lifecycle.kind === "abort_pending") {
       if (
@@ -281,7 +356,7 @@ export const reconcileSupervision = internalMutation({
           },
           updatedAt: args.now,
         });
-        return "unchanged";
+        return { leaseHeld: true, outcome: "unchanged" as const };
       }
       await ctx.db.patch(supervision._id, {
         outboundAttempt: { kind: "idle" },
@@ -297,18 +372,20 @@ export const reconcileSupervision = internalMutation({
         reason: supervision.lifecycle.reason,
         operationId: supervision.lifecycle.operationId,
       });
-      return "abort";
+      return { leaseHeld: true, outcome: "abort" as const };
     }
     if (!run || autonomyRunIsTerminal(run)) {
       await ctx.db.patch(supervision._id, { lifecycle: { kind: "terminal" }, updatedAt: args.now });
-      return "unchanged";
+      return { leaseHeld: true, outcome: "unchanged" as const };
     }
     const authority = await requireCurrentAutonomyAuthority(ctx, run, args.now);
     if (authority.state !== "active") {
       await cancelAutonomyRun(ctx, { runId: run._id, reason: authority.reason, now: args.now });
-      return "abort";
+      return { leaseHeld: true, outcome: "abort" as const };
     }
-    if (run.lifecycle.kind !== "active") return "unchanged";
+    if (run.lifecycle.kind !== "active") {
+      return { leaseHeld: true, outcome: "unchanged" as const };
+    }
     await ctx.db.patch(supervision._id, {
       lifecycle: {
         kind: "active",
@@ -320,13 +397,36 @@ export const reconcileSupervision = internalMutation({
       await ctx.scheduler.runAfter(0, internal.operationsAutonomyActions.dispatchRun, {
         runId: run._id,
       });
-      return "dispatch";
+      return { leaseHeld: true, outcome: "dispatch" as const };
     }
     await ctx.scheduler.runAfter(0, internal.operationsAutonomyDispatch.recoverRun, {
       runId: run._id,
       causedByOperationId: `lease-recovery:${run.lifecycle.leaseId}`,
       priorSubmissionId: run.admission.currentSubmissionId,
     });
-    return "continue";
+    return { leaseHeld: true, outcome: "continue" as const };
+  },
+});
+
+export const scheduleContinuation = internalMutation({
+  args: {
+    continuationId: v.id("operationsAutonomyContinuations"),
+    leaseId: v.string(),
+    now: v.number(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    if (
+      !(await operationsBackgroundLeaseIsHeld(ctx, {
+        holder: "autonomy_tick",
+        leaseId: args.leaseId,
+        now: args.now,
+      }))
+    )
+      return false;
+    await ctx.scheduler.runAfter(0, internal.operationsAutonomyActions.continueRun, {
+      continuationId: args.continuationId,
+    });
+    return true;
   },
 });

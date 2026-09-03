@@ -1,9 +1,6 @@
 import type { OutboundCallEventType } from "@code2create/domain";
 
-import {
-  twilioCreateResponseSchema,
-  twilioErrorResponseSchema,
-} from "./contracts.js";
+import { twilioCreateResponseSchema, twilioErrorResponseSchema } from "./contracts.js";
 
 export type TelephonyEnvironment = {
   TWILIO_ACCOUNT_SID: string;
@@ -72,7 +69,9 @@ export function fallbackVoiceTwiml(script: string) {
 }
 
 export async function synthesizeSpeech(environment: TelephonyEnvironment, script: string) {
-  if (!environment.SARVAM_API_KEY) return null;
+  if (environment.SARVAM_API_KEY === undefined || environment.SARVAM_API_KEY.length === 0) {
+    return null;
+  }
   const response = await fetch("https://api.sarvam.ai/text-to-speech/stream", {
     method: "POST",
     headers: {
@@ -84,7 +83,7 @@ export async function synthesizeSpeech(environment: TelephonyEnvironment, script
       language_code: "en-IN",
       speaker: "shubh",
       pace: 1.05,
-      speech_sample_rate: 8_000,
+      speech_sample_rate: 8000,
       model: "bulbul:v3",
       temperature: 0.55,
       output_audio_codec: "mp3",
@@ -92,9 +91,13 @@ export async function synthesizeSpeech(environment: TelephonyEnvironment, script
     }),
     signal: AbortSignal.timeout(25_000),
   });
-  if (!response.ok) return null;
+  if (!response.ok) {
+    return null;
+  }
   const audio = await response.arrayBuffer();
-  if (audio.byteLength < 1_000) return null;
+  if (audio.byteLength < 1000) {
+    return null;
+  }
   const bytes = new Uint8Array(audio, 0, Math.min(3, audio.byteLength));
   const mp3 =
     (bytes[0] === 0x49 && bytes[1] === 0x44 && bytes[2] === 0x33) ||
@@ -142,18 +145,23 @@ export async function queueTwilioCall(
   try {
     decoded = JSON.parse(text);
   } catch {
-    if (response.ok) throw new AmbiguousCallDispatchError();
+    if (response.ok) {
+      throw new AmbiguousCallDispatchError();
+    }
     throw new Error(`Twilio rejected the call with HTTP ${response.status}.`);
   }
   if (!response.ok) {
     const error = twilioErrorResponseSchema.safeParse(decoded);
-    const detail = error.success && error.data.message
-      ? error.data.message
-      : `HTTP ${response.status}`;
+    const detail =
+      error.success && error.data.message !== undefined
+        ? error.data.message
+        : `HTTP ${response.status}`;
     throw new Error(`Twilio rejected the call: ${detail}`);
   }
   const accepted = twilioCreateResponseSchema.safeParse(decoded);
-  if (!accepted.success) throw new AmbiguousCallDispatchError();
+  if (!accepted.success) {
+    throw new AmbiguousCallDispatchError();
+  }
   return {
     providerCallId: accepted.data.sid,
     providerStatus: accepted.data.status ?? "queued",
@@ -162,32 +170,46 @@ export async function queueTwilioCall(
 
 export function twilioStatusEvent(status: string): OutboundCallEventType | null {
   switch (status.trim().toLocaleLowerCase("en")) {
-    case "queued":
+    case "queued": {
       return "call.queued";
-    case "initiated":
+    }
+    case "initiated": {
       return "call.initiated";
-    case "ringing":
+    }
+    case "ringing": {
       return "call.ringing";
-    case "in-progress":
+    }
+    case "in-progress": {
       return "call.answered";
-    case "completed":
+    }
+    case "completed": {
       return "call.completed";
-    case "busy":
+    }
+    case "busy": {
       return "call.busy";
-    case "no-answer":
+    }
+    case "no-answer": {
       return "call.no_answer";
-    case "canceled":
+    }
+    case "canceled": {
       return "call.cancelled";
-    case "failed":
+    }
+    case "failed": {
       return "call.failed";
-    default:
+    }
+    default: {
       return null;
+    }
   }
 }
 
 function bytesToBase64(bytes: Uint8Array) {
   let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
+  for (const byte of bytes) {
+    // These are raw bytes for btoa, not Unicode scalar values.
+    // oxlint-disable-next-line unicorn/prefer-code-point
+    binary += String.fromCharCode(byte);
+  }
   return btoa(binary);
 }
 
@@ -200,7 +222,9 @@ export async function verifyTwilioSignature(args: {
   const keys = [...new Set(args.form.keys())].toSorted();
   let signed = args.requestUrl;
   for (const key of keys) {
-    for (const value of args.form.getAll(key).toSorted()) signed += `${key}${value}`;
+    for (const value of args.form.getAll(key).toSorted()) {
+      signed += `${key}${value}`;
+    }
   }
   const key = await crypto.subtle.importKey(
     "raw",
@@ -212,9 +236,13 @@ export async function verifyTwilioSignature(args: {
   const expected = bytesToBase64(
     new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(signed))),
   );
-  if (expected.length !== args.signature.length) return false;
+  if (expected.length !== args.signature.length) {
+    return false;
+  }
   let difference = 0;
   for (let index = 0; index < expected.length; index += 1) {
+    // Twilio signatures are ASCII Base64; comparing UTF-16 code units is deliberate.
+    // oxlint-disable-next-line unicorn/prefer-code-point
     difference |= expected.charCodeAt(index) ^ args.signature.charCodeAt(index);
   }
   return difference === 0;

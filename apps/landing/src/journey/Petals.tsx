@@ -1,6 +1,6 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 
-import { CANOPY_POINTS } from './canopyPoints.js';
+import { CANOPY_POINTS } from "./canopyPoints.js";
 
 /*
  * Sakura petals.
@@ -31,60 +31,60 @@ import { CANOPY_POINTS } from './canopyPoints.js';
 
 type Point = readonly [number, number];
 type Color = readonly [number, number, number];
-export type PetalMode = 'none' | 'canopy' | 'drift' | 'path' | 'swirl';
-type PetalKind = 'fall' | 'path' | 'swirl';
+export type PetalMode = "none" | "canopy" | "drift" | "path" | "swirl";
+type PetalKind = "fall" | "path" | "swirl";
 
 export interface PetalFieldHandle {
-  setMode(next: PetalMode): void
-  setPurge(kind: PetalKind, on: boolean): void
-  setIntensity(value: number): void
-  setFocus(x: number, y: number): void
-  setWind(value: number): void
+  setMode(next: PetalMode): void;
+  setPurge(kind: PetalKind, on: boolean): void;
+  setIntensity(value: number): void;
+  setFocus(x: number, y: number): void;
+  setWind(value: number): void;
 }
 
 interface PetalsProps {
-  trackSelector?: string | null
-  floorSelector?: string | null
-  fillSelector?: string | null
-  interactive?: boolean
-  max?: number
+  trackSelector?: string | null;
+  floorSelector?: string | null;
+  fillSelector?: string | null;
+  interactive?: boolean;
+  max?: number;
 }
 
 interface Petal {
-  dead: boolean
-  kind: PetalKind
-  size: number
-  angle: number
-  spin: number
-  flutter: number
-  phase: number
-  sway: number
-  terminal: number
-  alpha: number
-  swirl: number
-  refill: boolean
-  life: number
-  maxLife: number
-  sprite: HTMLCanvasElement
-  x: number
-  y: number
-  vx: number
-  vy: number
-  fade: number
-  offset: number
-  orbit: number
-  pace: number
-  t: number
+  dead: boolean;
+  kind: PetalKind;
+  size: number;
+  angle: number;
+  spin: number;
+  flutter: number;
+  phase: number;
+  sway: number;
+  terminal: number;
+  alpha: number;
+  swirl: number;
+  refill: boolean;
+  life: number;
+  maxLife: number;
+  sprite: HTMLCanvasElement;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  fade: number;
+  offset: number;
+  orbit: number;
+  pace: number;
+  t: number;
 }
 
 interface StepCanvas extends HTMLCanvasElement {
-  __step?: (frames?: number) => void
+  __step?: (frames?: number) => void;
 }
 
 interface PetalFloor {
-  rect: DOMRect
-  floorY: number
-  target: number
+  rect: DOMRect;
+  floorY: number;
+  target: number;
 }
 
 const BASE: Color = [210, 105, 143];
@@ -117,13 +117,28 @@ const SLUMP = 0.14;
    inside this loop, and the old climb at ~0.63–0.71 cut into the card's right
    edge on tablet and small-laptop widths. */
 const PATH_WIDE: readonly Point[] = [
-  [-0.08, -0.1], [0.02, 0.14], [0.05, 0.3], [0.075, 0.62], [0.11, 0.8],
-  [0.2, 0.87], [0.34, 0.885], [0.46, 0.885], [0.6, 0.86],
-  [0.7, 0.72], [0.73, 0.45], [0.77, 0.24], [0.84, 0.16],
-  [0.9, 0.14], [1.08, 0.13],
+  [-0.08, -0.1],
+  [0.02, 0.14],
+  [0.05, 0.3],
+  [0.075, 0.62],
+  [0.11, 0.8],
+  [0.2, 0.87],
+  [0.34, 0.885],
+  [0.46, 0.885],
+  [0.6, 0.86],
+  [0.7, 0.72],
+  [0.73, 0.45],
+  [0.77, 0.24],
+  [0.84, 0.16],
+  [0.9, 0.14],
+  [1.08, 0.13],
 ];
 const PATH_NARROW: readonly Point[] = [
-  [-0.12, 0.61], [0.2, 0.585], [0.5, 0.58], [0.8, 0.585], [1.12, 0.61],
+  [-0.12, 0.61],
+  [0.2, 0.585],
+  [0.5, 0.58],
+  [0.8, 0.585],
+  [1.12, 0.61],
 ];
 
 function rand(min: number, max: number) {
@@ -148,11 +163,11 @@ const buildSprites = () =>
   Array.from({ length: SPRITE_TINTS }, (_, i) => {
     const shift = -26 + (56 * i) / (SPRITE_TINTS - 1);
     const s = SPRITE_BOX;
-    const c = document.createElement('canvas');
+    const c = document.createElement("canvas");
     c.width = SPRITE_BOX + SPRITE_PAD * 2;
     c.height = c.width;
-    const g = c.getContext('2d');
-    if (!g) throw new Error('The browser could not create the petal sprite canvas.');
+    const g = c.getContext("2d");
+    if (!g) throw new Error("The browser could not create the petal sprite canvas.");
     g.translate(c.width / 2, c.height / 2);
     g.fillStyle = `rgb(${BASE[0] + shift * 0.5}, ${BASE[1] + shift}, ${BASE[2] + shift * 0.7})`;
     g.beginPath();
@@ -186,13 +201,13 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
 ) {
   const canvasRef = useRef<StepCanvas>(null);
   const cfg = useRef<{
-    mode: PetalMode
-    intensity: number
-    focus: Point
-    wind: number
-    purge: Set<PetalKind>
+    mode: PetalMode;
+    intensity: number;
+    focus: Point;
+    wind: number;
+    purge: Set<PetalKind>;
   }>({
-    mode: 'none',
+    mode: "none",
     intensity: 0,
     focus: [0.5, 0.5],
     wind: 0,
@@ -223,17 +238,17 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) throw new Error('The petal canvas did not mount.');
-    const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('The browser could not create the petal canvas.');
-    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (!canvas) throw new Error("The petal canvas did not mount.");
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("The browser could not create the petal canvas.");
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const MAX = reduced ? 0 : max;
     if (!sprites) sprites = buildSprites();
     const availableSprites = sprites;
 
     const petals: Petal[] = Array.from({ length: MAX }, (_, index) => ({
       dead: true,
-      kind: 'fall',
+      kind: "fall",
       size: 0,
       angle: 0,
       spin: 0,
@@ -288,12 +303,12 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
        * point stays where it is: it is off screen above, and is what keeps the
        * mouth of the stream out of frame.
        */
-      const nav = document.querySelector<HTMLElement>('.navbar');
+      const nav = document.querySelector<HTMLElement>(".navbar");
       const navBottom = nav ? nav.getBoundingClientRect().bottom : h * 0.1;
       const spread = Math.min(w, h) * 0.055 + 9;
       const clearFraction = Math.min(0.45, (navBottom + spread + 48) / h);
-      const source: readonly Point[] = (wide ? PATH_WIDE : PATH_NARROW).map(
-        (pt, i): Point => (i === 0 ? pt : [pt[0], Math.max(pt[1], clearFraction)]),
+      const source: readonly Point[] = (wide ? PATH_WIDE : PATH_NARROW).map((pt, i): Point =>
+        i === 0 ? pt : [pt[0], Math.max(pt[1], clearFraction)],
       );
 
       /* Catmull-Rom through the control points, so the corners are curves. */
@@ -308,12 +323,18 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
           const t2 = t * t;
           const t3 = t2 * t;
           pts.push([
-            0.5 * ((2 * p1[0]) + (-p0[0] + p2[0]) * t +
-              (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2 +
-              (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t3) * w,
-            0.5 * ((2 * p1[1]) + (-p0[1] + p2[1]) * t +
-              (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2 +
-              (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3) * h,
+            0.5 *
+              (2 * p1[0] +
+                (-p0[0] + p2[0]) * t +
+                (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2 +
+                (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t3) *
+              w,
+            0.5 *
+              (2 * p1[1] +
+                (-p0[1] + p2[1]) * t +
+                (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2 +
+                (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3) *
+              h,
           ]);
         }
       }
@@ -343,8 +364,8 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
       }
       const a = route[lo - 1];
       const b = route[lo];
-      if (!a || !b) {
-        const last = route[route.length - 1] || [0, 0];
+      if (a === undefined || b === undefined) {
+        const last = route[route.length - 1] ?? [0, 0];
         return { x: last[0], y: last[1], dx: 1, dy: 0 };
       }
       const seg = routeCum[lo] - routeCum[lo - 1] || 1;
@@ -365,9 +386,9 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
      * fill for the height map's shape.
      */
     const TILE = 240;
-    const tile = document.createElement('canvas');
-    const tileCtx = tile.getContext('2d');
-    if (!tileCtx) throw new Error('The browser could not create the petal texture canvas.');
+    const tile = document.createElement("canvas");
+    const tileCtx = tile.getContext("2d");
+    if (!tileCtx) throw new Error("The browser could not create the petal texture canvas.");
     let pattern: CanvasPattern | null = null;
 
     const buildTile = (dpr: number) => {
@@ -418,9 +439,9 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
       pass(1500, 5.4, 8.6, [150, 66, 100], [188, 92, 128]);
       pass(1100, 4.2, 7.0, [198, 100, 136], [238, 150, 178]);
 
-      pattern = ctx.createPattern(tile, 'repeat');
+      pattern = ctx.createPattern(tile, "repeat");
       /* The tile is at device resolution; bring it back to CSS pixels. */
-      if (pattern && pattern.setTransform) {
+      if (pattern !== null) {
         pattern.setTransform(new DOMMatrix().scale(1 / dpr));
       }
     };
@@ -437,7 +458,7 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
       bedSeeded = false;
     };
     resize();
-    window.addEventListener('resize', resize);
+    window.addEventListener("resize", resize);
 
     const pointer = { x: -9999, y: -9999, px: -9999, py: -9999, on: false, holding: false };
     const setPointer = (x: number, y: number, on: boolean) => {
@@ -474,35 +495,44 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
       event.preventDefault();
     };
 
-    const floorHost = floorSelector ? document.querySelector<HTMLElement>(floorSelector) : null;
-    const playEl = floorHost?.querySelector<HTMLElement>('.footer__play') ?? null;
+    const floorHost =
+      floorSelector !== null && floorSelector.length > 0
+        ? document.querySelector<HTMLElement>(floorSelector)
+        : null;
+    const playEl = floorHost?.querySelector<HTMLElement>(".footer__play") ?? null;
 
     if (interactive) {
-      window.addEventListener('pointermove', onMove, { passive: true });
-      document.addEventListener('pointerleave', onLeave);
-      if (playEl) {
-        playEl.addEventListener('pointerdown', onDown);
-        playEl.addEventListener('pointerup', onUp);
-        playEl.addEventListener('pointercancel', onUp);
-        playEl.addEventListener('lostpointercapture', onUp);
-        playEl.addEventListener('touchmove', onTouchMove, { passive: false });
+      window.addEventListener("pointermove", onMove, { passive: true });
+      document.addEventListener("pointerleave", onLeave);
+      if (playEl !== null) {
+        playEl.addEventListener("pointerdown", onDown);
+        playEl.addEventListener("pointerup", onUp);
+        playEl.addEventListener("pointercancel", onUp);
+        playEl.addEventListener("lostpointercapture", onUp);
+        playEl.addEventListener("touchmove", onTouchMove, { passive: false });
       }
     }
 
     /** Where the drift lives right now, in viewport coordinates. */
     const readFloor = () => {
-      const el = floorSelector ? document.querySelector<HTMLElement>(floorSelector) : null;
-      if (!el) return null;
+      const el =
+        floorSelector !== null && floorSelector.length > 0
+          ? document.querySelector<HTMLElement>(floorSelector)
+          : null;
+      if (el === null) return null;
       const rect = el.getBoundingClientRect();
       if (rect.bottom < -240 || rect.top > h + 240 || rect.width < 1) return null;
 
       bedWidth = rect.width;
 
-      const fill = fillSelector ? document.querySelector<HTMLElement>(fillSelector) : null;
+      const fill =
+        fillSelector !== null && fillSelector.length > 0
+          ? document.querySelector<HTMLElement>(fillSelector)
+          : null;
       /* Four fifths of the wordmark clears the drift; only its foot is
          buried. */
       let target = rect.height * 0.2;
-      if (fill) {
+      if (fill !== null) {
         const box = fill.getBoundingClientRect();
         target = Math.max(30, rect.bottom - (box.top + box.height * 0.8));
       }
@@ -546,9 +576,9 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
 
       /* Depth: the petals further down sit in their own shadow. */
       const shade = ctx.createLinearGradient(0, base - peak, 0, base + 4);
-      shade.addColorStop(0, 'rgba(58, 18, 38, 0)');
-      shade.addColorStop(0.6, 'rgba(58, 18, 38, 0.1)');
-      shade.addColorStop(1, 'rgba(44, 12, 30, 0.24)');
+      shade.addColorStop(0, "rgba(58, 18, 38, 0)");
+      shade.addColorStop(0.6, "rgba(58, 18, 38, 0.1)");
+      shade.addColorStop(1, "rgba(44, 12, 30, 0.24)");
       ctx.fillStyle = shade;
       ctx.fillRect(left, top, bedWidth, height);
       ctx.restore();
@@ -581,7 +611,7 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
          scroll across an act boundary hands the field over instead of
          teleporting stale petals onto the new route (NaN) or letting the
          overflow cull bleach the fresh ones. */
-      p.kind = 'fall';
+      p.kind = "fall";
       p.size = rand(7, 13);
       p.angle = rand(0, TAU);
       p.spin = rand(-0.55, 0.55) / 60;
@@ -601,12 +631,15 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
       const { mode, wind } = cfg.current;
       reset(p);
 
-      if (mode === 'canopy') {
-        const tree = trackSelector ? document.querySelector<HTMLElement>(trackSelector) : null;
+      if (mode === "canopy") {
+        const tree =
+          trackSelector !== null && trackSelector.length > 0
+            ? document.querySelector<HTMLElement>(trackSelector)
+            : null;
         const box = tree?.getBoundingClientRect();
         const point = CANOPY_POINTS[(Math.random() * CANOPY_POINTS.length) | 0];
 
-        if (box && box.width > 0) {
+        if (box !== undefined && box.width > 0) {
           p.x = box.left + point[0] * box.width;
           p.y = box.top + point[1] * box.height;
         } else {
@@ -623,13 +656,13 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
         return;
       }
 
-      if (mode === 'path') {
+      if (mode === "path") {
         /* Strung out along the route, spread either side of it, and each with
            its own pace so they do not travel as one rigid column. Every spawn
            lands somewhere along the whole route — never queued at the mouth —
            so the stream is full from its first frame; latecomers fade in
            where they appear instead of popping. */
-        p.kind = 'path';
+        p.kind = "path";
         p.t = rand(-0.02, 1.0);
         /* Kept tight: the ribbon's spread eats into the card's pocket on
            every side, so it stays narrower than the route's own margins. */
@@ -647,8 +680,8 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
         return;
       }
 
-      if (mode === 'swirl') {
-        p.kind = 'swirl';
+      if (mode === "swirl") {
+        p.kind = "swirl";
         const fromLeft = Math.random() < 0.5;
         p.x = fromLeft ? rand(-0.14, -0.02) * w : rand(1.02, 1.14) * w;
         p.y = rand(-0.05, 1.05) * h;
@@ -686,7 +719,9 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
     };
 
     const free = () => {
-      for (let i = 0; i < petals.length; i += 1) if (petals[i].dead) return petals[i];
+      for (const petal of petals) {
+        if (petal.dead) return petal;
+      }
       return null;
     };
 
@@ -791,9 +826,9 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
       }
 
       const gust = wind * (1 + Math.sin(clock * 0.006) * 0.35 + Math.sin(clock * 0.021) * 0.12);
-      const cap = mode === 'swirl' ? 0.46 : 0.4;
+      const cap = mode === "swirl" ? 0.46 : 0.4;
       const want =
-        mode === 'none' ? 0 : Math.min(Math.round(MAX * intensity), Math.round(MAX * cap));
+        mode === "none" ? 0 : Math.min(Math.round(MAX * intensity), Math.round(MAX * cap));
       let live = 0;
 
       const purge = cfg.current.purge;
@@ -822,11 +857,11 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
           }
         }
 
-        if (mode === 'path' && p.kind === 'path' && !p.refill) {
+        if (mode === "path" && p.kind === "path" && !p.refill) {
           /* Carried along the route rather than falling. The drift either side
              of the line breathes, so the stream reads as loose petals on a
              current and not as beads on a wire. */
-          if (!purge.has('path') && p.alpha < p.fade) {
+          if (!purge.has("path") && p.alpha < p.fade) {
             p.alpha = Math.min(p.fade, p.alpha + 0.035);
           }
           p.t += p.pace * dtScale;
@@ -848,7 +883,7 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
           continue;
         }
 
-        if (mode === 'swirl' && p.kind === 'swirl' && !p.refill) {
+        if (mode === "swirl" && p.kind === "swirl" && !p.refill) {
           const fx = cfg.current.focus[0] * w;
           const fy = cfg.current.focus[1] * h;
           const dx = fx - p.x;
@@ -951,7 +986,7 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
 
       /* Ambient fall, suppressed once the drift is full and the footer owns the
          viewport — nothing should be falling into a finished bed. */
-      const footerOwnsView = floor && floor.rect.top < h * 0.4;
+      const footerOwnsView = floor !== null && floor.rect.top < h * 0.4;
       if (footerOwnsView && shortfall === 0) {
         seeded = true;
       } else if (live < want) {
@@ -994,18 +1029,17 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
       };
     }
 
-
     return () => {
       cancelAnimationFrame(raf);
-      window.removeEventListener('resize', resize);
-      window.removeEventListener('pointermove', onMove);
-      document.removeEventListener('pointerleave', onLeave);
+      window.removeEventListener("resize", resize);
+      window.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerleave", onLeave);
       if (playEl) {
-        playEl.removeEventListener('pointerdown', onDown);
-        playEl.removeEventListener('pointerup', onUp);
-        playEl.removeEventListener('pointercancel', onUp);
-        playEl.removeEventListener('lostpointercapture', onUp);
-        playEl.removeEventListener('touchmove', onTouchMove);
+        playEl.removeEventListener("pointerdown", onDown);
+        playEl.removeEventListener("pointerup", onUp);
+        playEl.removeEventListener("pointercancel", onUp);
+        playEl.removeEventListener("lostpointercapture", onUp);
+        playEl.removeEventListener("touchmove", onTouchMove);
       }
     };
   }, [max, interactive, trackSelector, floorSelector, fillSelector]);

@@ -20,12 +20,10 @@ body {
   min-height: 100vh;
   padding: 0 20px;
   color: var(--paper);
-  font-family: 'Geist', ui-sans-serif, system-ui, sans-serif;
+  font-family: "Geist", ui-sans-serif, system-ui, sans-serif;
   font-size: 15.5px;
   line-height: 1.75;
-  background:
-    linear-gradient(180deg, var(--ink) 78%, rgb(160 66 99 / 0.35) 118%),
-    var(--ink);
+  background: linear-gradient(180deg, var(--ink) 78%, rgb(160 66 99 / 0.35) 118%), var(--ink);
 }
 
 main {
@@ -67,7 +65,7 @@ a:hover {
 
 h1 {
   margin-bottom: 10px;
-  font-family: 'Fraunces', ui-serif, Georgia, serif;
+  font-family: "Fraunces", ui-serif, Georgia, serif;
   font-size: clamp(34px, 6vw, 46px);
   font-weight: 500;
   line-height: 1.1;
@@ -92,7 +90,7 @@ section {
 
 h2 {
   margin-bottom: 10px;
-  font-family: 'Fraunces', ui-serif, Georgia, serif;
+  font-family: "Fraunces", ui-serif, Georgia, serif;
   font-size: 21px;
   font-weight: 500;
   letter-spacing: -0.005em;

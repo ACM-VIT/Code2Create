@@ -24,7 +24,11 @@ import { requireIntelligenceHmacSecret } from "./lib/intelligenceServiceConfigur
 
 const maximumBodyBytes = 24 * 1_024;
 const maximumSignatureAgeMs = 5 * 60 * 1_000;
-const operationId = z.string().min(8).max(200).regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/u);
+const operationId = z
+  .string()
+  .min(8)
+  .max(200)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/u);
 const digest = z.string().regex(/^[a-f0-9]{64}$/u);
 const runIdentity = {
   protocolVersion: z.literal(operationsIntelligenceProtocolVersion),
@@ -35,121 +39,165 @@ const runIdentity = {
   operationId,
 };
 
-const readRequest = z.object({
-  ...runIdentity,
-  read: z.enum(operationsAutonomyReadTools),
-  cursor: z.string().min(1).max(1_024).optional(),
-}).strict();
+const readRequest = z
+  .object({
+    ...runIdentity,
+    read: z.enum(operationsAutonomyReadTools),
+    cursor: z.string().min(1).max(1_024).optional(),
+  })
+  .strict();
 
-const workRequest = z.object({
-  ...runIdentity,
-  operation: z.discriminatedUnion("kind", [
-    z.object({ kind: z.literal("model") }).strict(),
-    z.object({ kind: z.literal("delegation"), area: z.enum(operationsHealthAreas) }).strict(),
-  ]),
-}).strict();
+const workRequest = z
+  .object({
+    ...runIdentity,
+    operation: z.discriminatedUnion("kind", [
+      z.object({ kind: z.literal("model") }).strict(),
+      z.object({ kind: z.literal("delegation"), area: z.enum(operationsHealthAreas) }).strict(),
+    ]),
+  })
+  .strict();
 
 const supportCategories = [
-  "identity", "team", "project_intake",
-  "attendance_credential", "missing_scan", "scanner_device", "table_location",
-  "integration", "queue", "reviewer_device", "scorecard", "accessibility", "safety",
+  "identity",
+  "team",
+  "project_intake",
+  "attendance_credential",
+  "missing_scan",
+  "scanner_device",
+  "integration",
+  "queue",
+  "reviewer_device",
+  "scorecard",
+  "accessibility",
+  "safety",
 ] as const;
 
 const recommendationArguments = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("hold_review_team"),
-    teamRoundStateId: z.string().min(1).max(64),
-    expectedTeamRoundStateVersion: z.number().int().positive(),
-    reason: z.string().min(5).max(500),
-  }).strict(),
-  z.object({
-    kind: z.literal("page_reserve_reviewer"),
-    missingPanelMemberId: z.string().min(1).max(64),
-    expectedPanelVersion: z.number().int().positive(),
-    reason: z.string().min(5).max(500),
-  }).strict(),
-  z.object({
-    kind: z.literal("open_support_case"),
-    category: z.enum(supportCategories),
-    description: z.string().min(10).max(2_000),
-    roundId: z.string().min(1).max(64).optional(),
-    teamId: z.string().min(1).max(64).optional(),
-  }).strict(),
-  z.object({
-    kind: z.literal("dismiss_attention_item"),
-    itemId: z.string().min(1).max(64),
-    expectedItemVersion: z.number().int().positive(),
-    reason: z.string().min(5).max(500),
-  }).strict(),
+  z
+    .object({
+      kind: z.literal("hold_review_team"),
+      teamRoundStateId: z.string().min(1).max(64),
+      expectedTeamRoundStateVersion: z.number().int().positive(),
+      reason: z.string().min(5).max(500),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("page_reserve_reviewer"),
+      missingPanelMemberId: z.string().min(1).max(64),
+      expectedPanelVersion: z.number().int().positive(),
+      reason: z.string().min(5).max(500),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("open_support_case"),
+      category: z.enum(supportCategories),
+      description: z.string().min(10).max(2_000),
+      roundId: z.string().min(1).max(64).optional(),
+      teamId: z.string().min(1).max(64).optional(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("dismiss_attention_item"),
+      itemId: z.string().min(1).max(64),
+      expectedItemVersion: z.number().int().positive(),
+      reason: z.string().min(5).max(500),
+    })
+    .strict(),
 ]);
 
-const citation = z.object({
-  read: z.enum(operationsAutonomyReadTools),
-  generatedAt: z.number().int().nonnegative(),
-  keys: z.array(z.string().min(1).max(200)).min(1).max(16),
-  operationId,
-  snapshot: z.string().min(1).max(200),
-}).strict();
+const citation = z
+  .object({
+    read: z.enum(operationsAutonomyReadTools),
+    generatedAt: z.number().int().nonnegative(),
+    keys: z.array(z.string().min(1).max(200)).min(1).max(16),
+    operationId,
+    snapshot: z.string().min(1).max(200),
+  })
+  .strict();
 
-const recommendationRequest = z.object({
-  ...runIdentity,
-  proposalKey: z.string().min(8).max(200),
-  eventSlug: z.string().min(1).max(120),
-  agentVersion: z.string().min(1).max(80),
-  model: z.string().min(3).max(160),
-  statement: z.string().min(10).max(300),
-  reasoning: z.string().min(10).max(1_500),
-  evidenceSet: z.object({
+const recommendationRequest = z
+  .object({
+    ...runIdentity,
+    proposalKey: z.string().min(8).max(200),
+    eventSlug: z.string().min(1).max(120),
+    agentVersion: z.string().min(1).max(80),
+    model: z.string().min(3).max(160),
+    statement: z.string().min(10).max(300),
+    reasoning: z.string().min(10).max(1_500),
+    evidenceSet: z
+      .object({
+        evidenceSetId: operationId,
+        rootHash: digest,
+        leafCount: z.number().int().positive(),
+        chunkCount: z.number().int().positive(),
+        sealedSequence: z.number().int().positive(),
+      })
+      .strict(),
+    targetCitationIdentity: digest.optional(),
+    arguments: recommendationArguments,
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (!intelligenceRecommendationKinds.includes(value.arguments.kind)) {
+      context.addIssue({ code: "custom", message: "Unsupported recommendation kind." });
+    }
+  });
+
+const recommendationEvidenceRequest = z
+  .object({
+    ...runIdentity,
+    proposalKey: operationId,
     evidenceSetId: operationId,
-    rootHash: digest,
-    leafCount: z.number().int().positive(),
-    chunkCount: z.number().int().positive(),
-    sealedSequence: z.number().int().positive(),
-  }).strict(),
-  targetCitationIdentity: digest.optional(),
-  arguments: recommendationArguments,
-}).strict().superRefine((value, context) => {
-  if (!intelligenceRecommendationKinds.includes(value.arguments.kind)) {
-    context.addIssue({ code: "custom", message: "Unsupported recommendation kind." });
-  }
-});
-
-const recommendationEvidenceRequest = z.object({
-  ...runIdentity,
-  proposalKey: operationId,
-  evidenceSetId: operationId,
-  pageIndex: z.number().int().nonnegative(),
-  previousPageHash: digest.optional(),
-  citations: z.array(citation)
-    .min(1)
-    .max(operationsAutonomyRecommendationEvidenceChunkMaximumCitations),
-  isDone: z.boolean(),
-}).strict();
+    pageIndex: z.number().int().nonnegative(),
+    previousPageHash: digest.optional(),
+    citations: z
+      .array(citation)
+      .min(1)
+      .max(operationsAutonomyRecommendationEvidenceChunkMaximumCitations),
+    isDone: z.boolean(),
+  })
+  .strict();
 
 const callbackBase = {
   ...runIdentity,
   agentVersion: z.string().min(1).max(80),
   model: z.string().min(3).max(160),
-  observedSignalKeys: z.array(z.enum(operationsHealthSignalKeys)).max(operationsHealthSignalKeys.length),
+  observedSignalKeys: z
+    .array(z.enum(operationsHealthSignalKeys))
+    .max(operationsHealthSignalKeys.length),
 };
 
 const callbackRequest = z.discriminatedUnion("status", [
-  z.object({
-    ...callbackBase,
-    status: z.literal("running"),
-    phase: z.enum(operationsAutonomyRunPhases.filter((phase) => phase !== "terminal")),
-  }).strict(),
-  z.object({
-    ...callbackBase,
-    status: z.enum(["succeeded", "no_op", "escalated"]),
-    phase: z.literal("terminal"),
-  }).strict(),
-  z.object({
-    ...callbackBase,
-    status: z.literal("failed"),
-    phase: z.literal("terminal"),
-    failureCode: z.enum(["provider_failed", "tool_failed", "policy_violation", "callback_rejected"]),
-  }).strict(),
+  z
+    .object({
+      ...callbackBase,
+      status: z.literal("running"),
+      phase: z.enum(operationsAutonomyRunPhases.filter((phase) => phase !== "terminal")),
+    })
+    .strict(),
+  z
+    .object({
+      ...callbackBase,
+      status: z.enum(["succeeded", "no_op", "escalated"]),
+      phase: z.literal("terminal"),
+    })
+    .strict(),
+  z
+    .object({
+      ...callbackBase,
+      status: z.literal("failed"),
+      phase: z.literal("terminal"),
+      failureCode: z.enum([
+        "provider_failed",
+        "tool_failed",
+        "policy_violation",
+        "callback_rejected",
+      ]),
+    })
+    .strict(),
 ]);
 
 type SignedContext =
@@ -216,7 +264,8 @@ function citationRows(value: unknown) {
       if (
         (typeof child === "string" && child.length <= 200) ||
         (typeof child === "number" && Number.isSafeInteger(child))
-      ) facts.add(String(child));
+      )
+        facts.add(String(child));
     }
     if (facts.size > 0) rows.push([...facts].sort());
     for (const [, child] of entries) visit(child);
@@ -231,7 +280,7 @@ function rejectedOperation() {
 
 function rejection(error: unknown): Response {
   if (error instanceof ConvexError) {
-    const data = error.data;
+    const data: unknown = error.data;
     const code =
       typeof data === "object" && data !== null && "code" in data && typeof data.code === "string"
         ? data.code
@@ -272,7 +321,7 @@ export const autonomyReadEndpoint = httpAction(async (ctx, request) => {
     let page;
     try {
       if (prepared.state === "capture") {
-        const dataJson = await ctx.runAction(
+        const dataJson: unknown = await ctx.runAction(
           internal.operationsAutonomyReadPages.captureProjection,
           {
             eventId: prepared.eventId,
@@ -280,6 +329,9 @@ export const autonomyReadEndpoint = httpAction(async (ctx, request) => {
             generatedAt: prepared.generatedAt,
           },
         );
+        if (typeof dataJson !== "string") {
+          throw new TypeError("The autonomy read capture returned a non-string payload.");
+        }
         await ctx.runMutation(internal.operationsAutonomyReads.storeFrozenTraversal, {
           request: read,
           dataJson,
@@ -347,15 +399,20 @@ export const autonomyRecommendationEndpoint = httpAction(async (ctx, request) =>
   if ("response" in signed) return signed.response;
   const parsed = recommendationRequest.safeParse(signed.value);
   if (!parsed.success) return Response.json({ error: "invalid_request" }, { status: 422 });
-  const argumentsValue = parsed.data.arguments.kind === "open_support_case"
-    ? {
-        kind: parsed.data.arguments.kind,
-        category: parsed.data.arguments.category,
-        description: parsed.data.arguments.description,
-        ...(parsed.data.arguments.roundId === undefined ? {} : { roundId: parsed.data.arguments.roundId }),
-        ...(parsed.data.arguments.teamId === undefined ? {} : { teamId: parsed.data.arguments.teamId }),
-      }
-    : parsed.data.arguments;
+  const argumentsValue =
+    parsed.data.arguments.kind === "open_support_case"
+      ? {
+          kind: parsed.data.arguments.kind,
+          category: parsed.data.arguments.category,
+          description: parsed.data.arguments.description,
+          ...(parsed.data.arguments.roundId === undefined
+            ? {}
+            : { roundId: parsed.data.arguments.roundId }),
+          ...(parsed.data.arguments.teamId === undefined
+            ? {}
+            : { teamId: parsed.data.arguments.teamId }),
+        }
+      : parsed.data.arguments;
   const { targetCitationIdentity, ...recommendationBase } = parsed.data;
   try {
     const result = await ctx.runMutation(

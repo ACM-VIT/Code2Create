@@ -64,8 +64,7 @@ export function reviewerCoversStaffingWindow(
   staffing: Pick<ReviewerRoundStaffingPolicy, "clockInOpensAt" | "endsAt">,
 ) {
   return windows.some(
-    (window) =>
-      window.startsAt <= staffing.clockInOpensAt && window.endsAt >= staffing.endsAt,
+    (window) => window.startsAt <= staffing.clockInOpensAt && window.endsAt >= staffing.endsAt,
   );
 }
 
@@ -76,9 +75,7 @@ export function reviewerClockInIsOpenAt(
   return now >= round.clockInOpensAt && now < round.endsAt;
 }
 
-export function validateReviewerRoundStaffingPolicy(
-  round: ReviewerRoundStaffingPolicy,
-) {
+export function validateReviewerRoundStaffingPolicy(round: ReviewerRoundStaffingPolicy) {
   const noShowBoundary = round.reviewerReportAt + round.noShowGraceSeconds * 1_000;
   if (
     !Number.isSafeInteger(round.clockInOpensAt) ||
@@ -107,9 +104,10 @@ export function reviewerNoShowBoundary(
   round: Pick<ReviewerRoundStaffingPolicy, "reviewerReportAt" | "noShowGraceSeconds">,
   clockIn: ReviewerClockInState | null,
 ) {
-  const startsAt = clockIn?.status === "temporarily_unavailable"
-    ? clockIn.expectedReturnAt
-    : round.reviewerReportAt;
+  const startsAt =
+    clockIn?.status === "temporarily_unavailable"
+      ? clockIn.expectedReturnAt
+      : round.reviewerReportAt;
   if (startsAt === undefined) {
     throw new Error("A temporarily unavailable reviewer has no expected return time.");
   }

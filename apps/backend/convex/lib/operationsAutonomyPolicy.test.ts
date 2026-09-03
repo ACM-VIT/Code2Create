@@ -22,31 +22,36 @@ test("the baseline is disabled, observe-only, and always reads current health", 
 test("policy validation controls authority without imposing cognition quotas", () => {
   const baseline = defaultOperationsAutonomyPolicy(ownerId);
   assert.throws(
-    () => normalizeOperationsAutonomyPolicy({
-      ...baseline,
-      allowedRecommendationKinds: ["open_support_case"],
-    }),
+    () =>
+      normalizeOperationsAutonomyPolicy({
+        ...baseline,
+        allowedRecommendationKinds: ["open_support_case"],
+      }),
     /Observe mode cannot publish recommendations/u,
   );
   assert.throws(
-    () => normalizeOperationsAutonomyPolicy({
-      ...baseline,
-      mode: "recommend",
-    }),
+    () =>
+      normalizeOperationsAutonomyPolicy({
+        ...baseline,
+        mode: "recommend",
+      }),
     /Allowed recommendation kinds must not be empty/u,
   );
   assert.throws(
-    () => normalizeOperationsAutonomyPolicy({
-      ...baseline,
-      allowedReadTools: ["support_load"],
-    }),
+    () =>
+      normalizeOperationsAutonomyPolicy({
+        ...baseline,
+        allowedReadTools: ["support_load"],
+      }),
     /must always read current operations health/u,
   );
-  assert.doesNotThrow(() => normalizeOperationsAutonomyPolicy({
-    ...baseline,
-    mode: "recommend",
-    allowedRecommendationKinds: ["open_support_case"],
-  }));
+  assert.doesNotThrow(() =>
+    normalizeOperationsAutonomyPolicy({
+      ...baseline,
+      mode: "recommend",
+      allowedRecommendationKinds: ["open_support_case"],
+    }),
+  );
 });
 
 test("schedule cadence is the only numeric product control", () => {
@@ -73,7 +78,10 @@ test("checksum is canonical across caller ordering and changes with authority", 
     triggerSeverities: ["critical", "watch"],
     allowedReadTools: ["operations_health", "support_load"],
   });
-  assert.equal(operationsAutonomyPolicyChecksum(ordered), operationsAutonomyPolicyChecksum(reordered));
+  assert.equal(
+    operationsAutonomyPolicyChecksum(ordered),
+    operationsAutonomyPolicyChecksum(reordered),
+  );
   assert.notEqual(
     operationsAutonomyPolicyChecksum(ordered),
     operationsAutonomyPolicyChecksum({ ...ordered, enabled: true }),

@@ -49,9 +49,7 @@ export async function refreshFigmaTeamMetrics(
           .unique(),
         ctx.db
           .query("figmaFileSnapshots")
-          .withIndex("by_binding_time", (index) =>
-            index.eq("figmaFileBindingId", binding._id),
-          )
+          .withIndex("by_binding_time", (index) => index.eq("figmaFileBindingId", binding._id))
           .order("desc")
           .first(),
       ]);
@@ -83,44 +81,46 @@ export async function refreshFigmaTeamMetrics(
       return { binding, metric, snapshot, preview };
     }),
   );
-  const fileComplete = sources.map(({ binding, metric, snapshot, preview }) =>
-    binding.state === "active" &&
-    binding.syncState === "ready" &&
-    !binding.contentDirty &&
-    binding.metadataErrorCode === undefined &&
-    binding.rateLimitRetryAt === undefined &&
-    binding.metadataRateLimitRetryAt === undefined &&
-    binding.webhookState !== "error" &&
-    metric.completeness === "complete" &&
-    snapshot.artifactId !== undefined &&
-    preview.state === "ready",
+  const fileComplete = sources.map(
+    ({ binding, metric, snapshot, preview }) =>
+      binding.state === "active" &&
+      binding.syncState === "ready" &&
+      !binding.contentDirty &&
+      binding.metadataErrorCode === undefined &&
+      binding.rateLimitRetryAt === undefined &&
+      binding.metadataRateLimitRetryAt === undefined &&
+      binding.webhookState !== "error" &&
+      metric.completeness === "complete" &&
+      snapshot.artifactId !== undefined &&
+      preview.state === "ready",
   );
   const completeFileCount = fileComplete.filter(Boolean).length;
-  const previewAttentionCount = sources.filter(({ preview }) =>
-    preview.state === "partial" ||
-    preview.state === "rate_limited" ||
-    preview.state === "failed",
+  const previewAttentionCount = sources.filter(
+    ({ preview }) =>
+      preview.state === "partial" || preview.state === "rate_limited" || preview.state === "failed",
   ).length;
-  const needsAttention = sources.some(({ binding, metric, snapshot, preview }) =>
-    binding.state !== "active" ||
-    binding.syncState === "error" ||
-    binding.syncState === "rate_limited" ||
-    binding.contentDirty ||
-    binding.metadataErrorCode !== undefined ||
-    binding.rateLimitRetryAt !== undefined ||
-    binding.metadataRateLimitRetryAt !== undefined ||
-    binding.webhookState === "error" ||
-    metric.completeness !== "complete" ||
-    snapshot.artifactId === undefined ||
-    preview.state === "partial" ||
-    preview.state === "rate_limited" ||
-    preview.state === "failed",
+  const needsAttention = sources.some(
+    ({ binding, metric, snapshot, preview }) =>
+      binding.state !== "active" ||
+      binding.syncState === "error" ||
+      binding.syncState === "rate_limited" ||
+      binding.contentDirty ||
+      binding.metadataErrorCode !== undefined ||
+      binding.rateLimitRetryAt !== undefined ||
+      binding.metadataRateLimitRetryAt !== undefined ||
+      binding.webhookState === "error" ||
+      metric.completeness !== "complete" ||
+      snapshot.artifactId === undefined ||
+      preview.state === "partial" ||
+      preview.state === "rate_limited" ||
+      preview.state === "failed",
   );
-  const syncing = sources.some(({ binding, preview }) =>
-    binding.syncState === "pending" ||
-    binding.syncState === "running" ||
-    preview.state === "pending" ||
-    preview.state === "running",
+  const syncing = sources.some(
+    ({ binding, preview }) =>
+      binding.syncState === "pending" ||
+      binding.syncState === "running" ||
+      preview.state === "pending" ||
+      preview.state === "running",
   );
   const health: Doc<"figmaTeamMetrics">["health"] =
     bindings.length === 0
@@ -179,10 +179,7 @@ export async function refreshFigmaTeamMetrics(
     pageCount: sources.reduce((total, { metric }) => total + metric.pageCount, 0),
     frameCount: sources.reduce((total, { metric }) => total + metric.frameCount, 0),
     componentCount: sources.reduce((total, { metric }) => total + metric.componentCount, 0),
-    componentSetCount: sources.reduce(
-      (total, { metric }) => total + metric.componentSetCount,
-      0,
-    ),
+    componentSetCount: sources.reduce((total, { metric }) => total + metric.componentSetCount, 0),
     styleCount: sources.reduce((total, { metric }) => total + metric.styleCount, 0),
     nodeCount: sources.reduce((total, { metric }) => total + metric.nodeCount, 0),
     prototypeInteractionCount: sources.reduce(

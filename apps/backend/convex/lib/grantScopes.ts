@@ -55,10 +55,7 @@ export async function validateGrantScope(
   permissionKey: PermissionKey,
   requestedScopeType: PermissionScopeType,
   scopeId: string | undefined,
-): Promise<
-  | { scopeType: "event" }
-  | { scopeType: ResourceScopeType; scopeId: string }
-> {
+): Promise<{ scopeType: "event" } | { scopeType: ResourceScopeType; scopeId: string }> {
   if (requestedScopeType === "event") {
     if (scopeId !== undefined) {
       throw new ConvexError({ code: "INVALID_SCOPE", message: "Event scope has no ID." });
@@ -76,7 +73,10 @@ export async function validateGrantScope(
     const id = ctx.db.normalizeId("teams", scopeId);
     const team = id ? await ctx.db.get("teams", id) : null;
     if (!id || !team || team.eventId !== eventId) {
-      throw new ConvexError({ code: "INVALID_SCOPE", message: "Team scope is outside this event." });
+      throw new ConvexError({
+        code: "INVALID_SCOPE",
+        message: "Team scope is outside this event.",
+      });
     }
     return { scopeType: requestedScopeType, scopeId: id };
   }
@@ -98,12 +98,9 @@ export async function validateGrantScope(
     }
     const subject = await ctx.db
       .query("eventAccessSubjects")
-      .withIndex("by_event_person", (index) =>
-        index.eq("eventId", eventId).eq("personId", id),
-      )
+      .withIndex("by_event_person", (index) => index.eq("eventId", eventId).eq("personId", id))
       .unique();
-    const requiredStatus =
-      permissionKey === "access.subjects.reactivate" ? "suspended" : "active";
+    const requiredStatus = permissionKey === "access.subjects.reactivate" ? "suspended" : "active";
     if (!subject || subject.status !== requiredStatus) {
       throw new ConvexError({
         code: "INVALID_SCOPE",
@@ -162,43 +159,6 @@ export async function validateGrantScope(
       throw new ConvexError({
         code: "INVALID_SCOPE",
         message: "Attendance-plan publication can target only this event's current draft.",
-      });
-    }
-    return { scopeType: requestedScopeType, scopeId: id };
-  }
-  if (requestedScopeType === "floor_plan") {
-    const id = ctx.db.normalizeId("floorPlanVersions", scopeId);
-    const plan = id ? await ctx.db.get("floorPlanVersions", id) : null;
-    const stateIsValid =
-      plan !== null &&
-      plan.eventId === eventId &&
-      plan.status !== "retired" &&
-      (permissionKey !== "floor.plan.publish" || plan.status === "draft") &&
-      (permissionKey !== "floor.plan.freeze" ||
-        (plan.status === "published" && plan.mappingState === "open"));
-    if (!id || !stateIsValid) {
-      throw new ConvexError({
-        code: "INVALID_SCOPE",
-        message: "Floor plan is outside this event or unavailable for that permission.",
-      });
-    }
-    return { scopeType: requestedScopeType, scopeId: id };
-  }
-  if (requestedScopeType === "floor_zone") {
-    const id = ctx.db.normalizeId("floorZones", scopeId);
-    const zone = id ? await ctx.db.get("floorZones", id) : null;
-    const plan = zone ? await ctx.db.get(zone.planVersionId) : null;
-    if (
-      !id ||
-      !zone ||
-      zone.eventId !== eventId ||
-      !plan ||
-      plan.eventId !== eventId ||
-      plan.status !== "published"
-    ) {
-      throw new ConvexError({
-        code: "INVALID_SCOPE",
-        message: "Floor zone is outside this event's published plan.",
       });
     }
     return { scopeType: requestedScopeType, scopeId: id };
@@ -325,9 +285,7 @@ export async function validateGrantScope(
   }
   if (requestedScopeType === "evidence_checkpoint") {
     const id = ctx.db.normalizeId("reviewEvidenceCheckpointSets", scopeId);
-    const checkpoint = id
-      ? await ctx.db.get("reviewEvidenceCheckpointSets", id)
-      : null;
+    const checkpoint = id ? await ctx.db.get("reviewEvidenceCheckpointSets", id) : null;
     if (!id || !checkpoint || checkpoint.eventId !== eventId) {
       throw new ConvexError({
         code: "INVALID_SCOPE",

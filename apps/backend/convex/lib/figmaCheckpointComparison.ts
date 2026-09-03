@@ -8,12 +8,7 @@ export type FigmaComparableFact<FactId extends string> = {
   renderState: "pending" | "available" | "failed";
 };
 
-export type FigmaComparisonState =
-  | "added"
-  | "removed"
-  | "changed"
-  | "unchanged"
-  | "uncertain";
+export type FigmaComparisonState = "added" | "removed" | "changed" | "unchanged" | "uncertain";
 
 export type FigmaComparisonRow<FactId extends string> = {
   nodeId: string;

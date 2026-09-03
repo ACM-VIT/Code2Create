@@ -14,11 +14,7 @@ import {
   appendAttendanceStationReadFactById,
 } from "./lib/operationsAutonomyReadFacts/attendanceOperations";
 import { requireEventBySlug } from "./lib/events";
-import {
-  requireCurrentPerson,
-  requireEventSubject,
-  requireMembership,
-} from "./lib/identity";
+import { requireCurrentPerson, requireEventSubject, requireMembership } from "./lib/identity";
 import { insertPermissionGrant, requirePermission } from "./lib/permissions";
 import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
 import { normalizedText } from "./lib/strings";
@@ -76,10 +72,7 @@ export const ensurePortalKeySet = internalMutation({
       scopeType: "self",
       scopeId: membership._id,
     });
-    if (
-      membership.eligibilityStatus !== "eligible" ||
-      membership.onboardingStatus !== "accepted"
-    ) {
+    if (membership.eligibilityStatus !== "eligible" || membership.onboardingStatus !== "accepted") {
       throw new ConvexError({
         code: "ATTENDANCE_NOT_AVAILABLE",
         message: "Attendance credentials are available to accepted participants.",
@@ -167,7 +160,10 @@ export const ensureBarcodeKeySet = internalMutation({
     });
     const plan = await ctx.db.get(station.planVersionId);
     if (!plan || plan.eventId !== event._id || plan.status !== "published") {
-      throw new ConvexError({ code: "PLAN_NOT_ACTIVE", message: "The station's attendance plan is not published." });
+      throw new ConvexError({
+        code: "PLAN_NOT_ACTIVE",
+        message: "The station's attendance plan is not published.",
+      });
     }
     const active = await ctx.db
       .query("attendanceBarcodeKeySets")
@@ -330,10 +326,16 @@ export const registerDevice = internalMutation({
     const { subject, station, grantIds } = stationContext;
     const plan = await ctx.db.get(station.planVersionId);
     if (!plan || plan.eventId !== event._id || plan.status !== "published") {
-      throw new ConvexError({ code: "PLAN_NOT_ACTIVE", message: "Publish the attendance plan before assigning devices." });
+      throw new ConvexError({
+        code: "PLAN_NOT_ACTIVE",
+        message: "Publish the attendance plan before assigning devices.",
+      });
     }
     if (station.deviceInstallationId !== undefined || station.status === "active") {
-      throw new ConvexError({ code: "STATION_ALREADY_ASSIGNED", message: "This station already has a device." });
+      throw new ConvexError({
+        code: "STATION_ALREADY_ASSIGNED",
+        message: "This station already has a device.",
+      });
     }
     const installationId = normalizedText(args.installationId, "Installation ID", 16, 100);
     const existing = await ctx.db
@@ -343,7 +345,10 @@ export const registerDevice = internalMutation({
       )
       .unique();
     if (existing) {
-      throw new ConvexError({ code: "DEVICE_ALREADY_REGISTERED", message: "This installation is already registered." });
+      throw new ConvexError({
+        code: "DEVICE_ALREADY_REGISTERED",
+        message: "This installation is already registered.",
+      });
     }
     const now = Date.now();
     const deviceInstallationId = await ctx.db.insert("attendanceDeviceInstallations", {
@@ -458,7 +463,11 @@ export const disableStation = mutation({
     if (prior) {
       const configurationVersion = Number(prior.resultJson);
       if (!Number.isSafeInteger(configurationVersion) || configurationVersion < 1) {
-        throw new ConvexError({ code: "REPLAY_STATE_MISSING", message: "An earlier attempt of this action can no longer be verified. Start the step again from the beginning." });
+        throw new ConvexError({
+          code: "REPLAY_STATE_MISSING",
+          message:
+            "An earlier attempt of this action can no longer be verified. Start the step again from the beginning.",
+        });
       }
       return { stationId: args.stationId, status: "disabled" as const, configurationVersion };
     }
@@ -548,7 +557,11 @@ export const enableStation = mutation({
     if (prior) {
       const configurationVersion = Number(prior.resultJson);
       if (!Number.isSafeInteger(configurationVersion) || configurationVersion < 1) {
-        throw new ConvexError({ code: "REPLAY_STATE_MISSING", message: "An earlier attempt of this action can no longer be verified. Start the step again from the beginning." });
+        throw new ConvexError({
+          code: "REPLAY_STATE_MISSING",
+          message:
+            "An earlier attempt of this action can no longer be verified. Start the step again from the beginning.",
+        });
       }
       return { stationId: args.stationId, status: "inactive" as const, configurationVersion };
     }
@@ -647,8 +660,7 @@ export const scannerHeartbeat = internalMutation({
       args.oldestPendingCapturedAt !== undefined &&
       (!Number.isSafeInteger(args.oldestPendingCapturedAt) ||
         args.oldestPendingCapturedAt > serverNow + 30_000 ||
-        serverNow - args.oldestPendingCapturedAt >
-          plan.offlineQueueMaxAgeSeconds * 1_000 + 30_000)
+        serverNow - args.oldestPendingCapturedAt > plan.offlineQueueMaxAgeSeconds * 1_000 + 30_000)
     ) {
       throw new ConvexError({
         code: "PENDING_REPLAY_STATUS_INVALID",

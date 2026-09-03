@@ -1,7 +1,4 @@
-import {
-  paginationOptsValidator,
-  paginationResultValidator,
-} from "convex/server";
+import { paginationOptsValidator, paginationResultValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 
 import type { Id } from "./_generated/dataModel";
@@ -18,17 +15,9 @@ import {
 } from "./lib/operations";
 import { requirePermission } from "./lib/permissions";
 import { normalizedText, optionalNormalizedText } from "./lib/strings";
-import {
-  activeGrantScopes,
-  maximumRequestsPerWindow,
-  scopeAllows,
-} from "./lib/synesthesia";
+import { activeGrantScopes, maximumRequestsPerWindow, scopeAllows } from "./lib/synesthesia";
 import { songRequestVoteCounts } from "./lib/synesthesiaVotes";
-import {
-  songQueueMode,
-  songRequestState,
-  synesthesiaWindowStatus,
-} from "./values";
+import { songQueueMode, songRequestState, synesthesiaWindowStatus } from "./values";
 import {
   appendSongRequestReadFactById,
   appendSynesthesiaReportReadFactById,
@@ -45,6 +34,8 @@ const reportView = v.object({
 
 const queueRequestView = v.object({
   id: v.id("songRequests"),
+  provider: v.string(),
+  providerTrackId: v.string(),
   title: v.string(),
   artist: v.string(),
   album: v.optional(v.string()),
@@ -116,69 +107,56 @@ export const queue = query({
   }),
   handler: async (ctx, args) => {
     const { event, subject } = await staffContext(ctx, args.eventSlug);
-    const window = await requireQueueWindow(
-      ctx,
-      event._id,
-      subject._id,
-      args.windowId,
-    );
-    const [
-      requests,
-      moderate,
-      schedule,
-      playback,
-      reportRead,
-      reportResolve,
-      suspend,
-      restore,
-    ] = await Promise.all([
-      ctx.db
-        .query("songRequests")
-        .withIndex("by_window_created", (index) => index.eq("windowId", window._id))
-        .take(maximumRequestsPerWindow + 1),
-      activeGrantScopes(ctx, {
-        eventId: event._id,
-        eventAccessSubjectId: subject._id,
-        permissionKey: "synesthesia.request.moderate",
-        maximumScopeCount: maximumRequestsPerWindow,
-      }),
-      activeGrantScopes(ctx, {
-        eventId: event._id,
-        eventAccessSubjectId: subject._id,
-        permissionKey: "synesthesia.queue.schedule",
-        maximumScopeCount: maximumRequestsPerWindow,
-      }),
-      activeGrantScopes(ctx, {
-        eventId: event._id,
-        eventAccessSubjectId: subject._id,
-        permissionKey: "synesthesia.playback.acknowledge",
-        maximumScopeCount: maximumRequestsPerWindow,
-      }),
-      activeGrantScopes(ctx, {
-        eventId: event._id,
-        eventAccessSubjectId: subject._id,
-        permissionKey: "synesthesia.report.read",
-        maximumScopeCount: maximumRequestsPerWindow,
-      }),
-      activeGrantScopes(ctx, {
-        eventId: event._id,
-        eventAccessSubjectId: subject._id,
-        permissionKey: "synesthesia.report.resolve",
-        maximumScopeCount: maximumRequestsPerWindow,
-      }),
-      activeGrantScopes(ctx, {
-        eventId: event._id,
-        eventAccessSubjectId: subject._id,
-        permissionKey: "synesthesia.access.suspend",
-        maximumScopeCount: maximumRequestsPerWindow,
-      }),
-      activeGrantScopes(ctx, {
-        eventId: event._id,
-        eventAccessSubjectId: subject._id,
-        permissionKey: "synesthesia.access.restore",
-        maximumScopeCount: maximumRequestsPerWindow,
-      }),
-    ]);
+    const window = await requireQueueWindow(ctx, event._id, subject._id, args.windowId);
+    const [requests, moderate, schedule, playback, reportRead, reportResolve, suspend, restore] =
+      await Promise.all([
+        ctx.db
+          .query("songRequests")
+          .withIndex("by_window_created", (index) => index.eq("windowId", window._id))
+          .take(maximumRequestsPerWindow + 1),
+        activeGrantScopes(ctx, {
+          eventId: event._id,
+          eventAccessSubjectId: subject._id,
+          permissionKey: "synesthesia.request.moderate",
+          maximumScopeCount: maximumRequestsPerWindow,
+        }),
+        activeGrantScopes(ctx, {
+          eventId: event._id,
+          eventAccessSubjectId: subject._id,
+          permissionKey: "synesthesia.queue.schedule",
+          maximumScopeCount: maximumRequestsPerWindow,
+        }),
+        activeGrantScopes(ctx, {
+          eventId: event._id,
+          eventAccessSubjectId: subject._id,
+          permissionKey: "synesthesia.playback.acknowledge",
+          maximumScopeCount: maximumRequestsPerWindow,
+        }),
+        activeGrantScopes(ctx, {
+          eventId: event._id,
+          eventAccessSubjectId: subject._id,
+          permissionKey: "synesthesia.report.read",
+          maximumScopeCount: maximumRequestsPerWindow,
+        }),
+        activeGrantScopes(ctx, {
+          eventId: event._id,
+          eventAccessSubjectId: subject._id,
+          permissionKey: "synesthesia.report.resolve",
+          maximumScopeCount: maximumRequestsPerWindow,
+        }),
+        activeGrantScopes(ctx, {
+          eventId: event._id,
+          eventAccessSubjectId: subject._id,
+          permissionKey: "synesthesia.access.suspend",
+          maximumScopeCount: maximumRequestsPerWindow,
+        }),
+        activeGrantScopes(ctx, {
+          eventId: event._id,
+          eventAccessSubjectId: subject._id,
+          permissionKey: "synesthesia.access.restore",
+          maximumScopeCount: maximumRequestsPerWindow,
+        }),
+      ]);
     const visibleRequests = requests.slice(0, maximumRequestsPerWindow);
     const membershipIds = [
       ...new Set(visibleRequests.map((request) => request.requestedByMembershipId)),
@@ -214,6 +192,8 @@ export const queue = query({
         const accessState = accessByMembership.get(request.requestedByMembershipId);
         return {
           id: request._id,
+          provider: request.provider,
+          providerTrackId: request.providerTrackId,
           title: request.title,
           artist: request.artist,
           ...(request.album !== undefined ? { album: request.album } : {}),
@@ -224,12 +204,8 @@ export const queue = query({
           state: request.state,
           openReportCount: request.openReportCount,
           queueMode: request.queueMode,
-          ...(request.scheduledFor !== undefined
-            ? { scheduledFor: request.scheduledFor }
-            : {}),
-          ...(request.publicReason !== undefined
-            ? { publicReason: request.publicReason }
-            : {}),
+          ...(request.scheduledFor !== undefined ? { scheduledFor: request.scheduledFor } : {}),
+          ...(request.publicReason !== undefined ? { publicReason: request.publicReason } : {}),
           ...(canModerate && request.internalNote !== undefined
             ? { internalNote: request.internalNote }
             : {}),
@@ -246,8 +222,7 @@ export const queue = query({
             (accessState?.state ?? "active") === "active" &&
             scopeAllows(suspend, request.requestedByPersonId),
           canRestoreRequester:
-            accessState?.state === "suspended" &&
-            scopeAllows(restore, request.requestedByPersonId),
+            accessState?.state === "suspended" && scopeAllows(restore, request.requestedByPersonId),
         };
       }),
       truncated: requests.length > maximumRequestsPerWindow,
@@ -322,12 +297,7 @@ export const voteCounts = query({
   }),
   handler: async (ctx, args) => {
     const { event, subject } = await staffContext(ctx, args.eventSlug);
-    const window = await requireQueueWindow(
-      ctx,
-      event._id,
-      subject._id,
-      args.windowId,
-    );
+    const window = await requireQueueWindow(ctx, event._id, subject._id, args.windowId);
     const requests = await ctx.db
       .query("songRequests")
       .withIndex("by_window_created", (index) => index.eq("windowId", window._id))
@@ -403,11 +373,7 @@ export const moderateRequest = mutation({
       });
     }
     const nextState =
-      args.decision === "approve"
-        ? "approved"
-        : args.decision === "reject"
-          ? "rejected"
-          : "hidden";
+      args.decision === "approve" ? "approved" : args.decision === "reject" ? "rejected" : "hidden";
     const valid =
       (args.decision === "approve" && request.state === "pending") ||
       ((args.decision === "reject" || args.decision === "hide") &&
@@ -696,9 +662,7 @@ export const acknowledgePlayback = mutation({
     const version = request.version + 1;
     await ctx.db.patch("songRequests", request._id, {
       state: nextState,
-      ...(args.action === "start"
-        ? { playbackStartedAt: now }
-        : { playbackFinishedAt: now }),
+      ...(args.action === "start" ? { playbackStartedAt: now } : { playbackFinishedAt: now }),
       ...(args.action === "skip" ? { publicReason: reason } : {}),
       version,
       updatedAt: now,
@@ -757,12 +721,7 @@ export const resolveReport = mutation({
   returns: v.object({ reportId: v.id("synesthesiaReports"), version: v.number() }),
   handler: async (ctx, args) => {
     const { event, person, subject } = await staffContext(ctx, args.eventSlug);
-    const publicResolution = normalizedText(
-      args.publicResolution,
-      "Public resolution",
-      3,
-      160,
-    );
+    const publicResolution = normalizedText(args.publicResolution, "Public resolution", 3, 160);
     const internalResolution = optionalNormalizedText(
       args.internalResolution,
       "Internal resolution",
@@ -876,9 +835,7 @@ export const setRequesterAccess = mutation({
     const { event, person, subject } = await staffContext(ctx, args.eventSlug);
     const reason = normalizedText(args.reason, "Access reason", 5, 200);
     const permissionKey =
-      args.state === "suspended"
-        ? "synesthesia.access.suspend"
-        : "synesthesia.access.restore";
+      args.state === "suspended" ? "synesthesia.access.suspend" : "synesthesia.access.restore";
     const requestFingerprint = operationFingerprint([
       args.requestId,
       args.state,
@@ -981,9 +938,7 @@ export const setRequesterAccess = mutation({
       scopeType: "person",
       scopeId: membership.personId,
       action:
-        args.state === "suspended"
-          ? "synesthesia.access_suspended"
-          : "synesthesia.access_restored",
+        args.state === "suspended" ? "synesthesia.access_suspended" : "synesthesia.access_restored",
       targetType: "participant_membership",
       targetId: membership._id,
       previousSummary: JSON.stringify({ state: currentState, version: currentVersion }),

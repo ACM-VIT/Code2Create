@@ -42,19 +42,16 @@ export const deliver = internalAction({
       readAwsSmsConfiguration();
       const secret = requirePhoneVerificationSecret();
       const code = randomInt(0, 1_000_000).toString().padStart(6, "0");
-      const prepared = await ctx.runMutation(
-        internal.phoneVerifications.prepareDelivery,
-        {
+      const prepared = await ctx.runMutation(internal.phoneVerifications.prepareDelivery, {
+        verificationId: args.verificationId,
+        codeDigest: phoneVerificationCodeDigest({
+          secret,
           verificationId: args.verificationId,
-          codeDigest: phoneVerificationCodeDigest({
-            secret,
-            verificationId: args.verificationId,
-            phone: await verificationPhone(ctx, args.verificationId),
-            code,
-          }),
-          expiresAt: Date.now() + phoneVerificationLifetimeMs,
-        },
-      );
+          phone: await verificationPhone(ctx, args.verificationId),
+          code,
+        }),
+        expiresAt: Date.now() + phoneVerificationLifetimeMs,
+      });
       if (!prepared) return null;
       const providerMessageId = await sendPhoneVerificationSms({
         phone: prepared.phone,

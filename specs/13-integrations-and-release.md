@@ -117,13 +117,13 @@ Before applications open, operations publishes the complete human rubric. The pl
 
 Admission analysis uses that policy's attached model ID, prompt, JSON Schema, evaluation-suite labels, deduplication key, and `admission_ai` Workpool whenever the provider key is configured. It runs only after final submission has created an immutable team and proposal snapshot. A valid post-submission team change supersedes that analysis and queues work for the new snapshot. There is no model fallback to a different policy release.
 
-The request includes the redacted current proposal, optional additional information or links, follow-up answers, participant-visible questions, cumulative organizer questions and lead answers, deterministic experience-band key, and published admission criteria. Requested-information entries receive stable source references in request and answer order. The request excludes names, contact and registration data, institution-prestige signals, raw eligibility evidence, human review and decision state, capacity, attendance, GitHub and Figma activity, judging rubrics, scores, and rankings.
+The request includes the redacted current proposal, optional additional information or links, follow-up answers, participant-visible questions, deterministic experience-band key, and published admission criteria. The request excludes names, contact and registration data, institution-prestige signals, raw eligibility evidence, human review and decision state, capacity, attendance, GitHub and Figma activity, judging rubrics, scores, and rankings.
 
 The strict output contains:
 
-- `recommendation: accept | waitlist | decline | needs_information`;
+- `recommendation: accept | waitlist | decline`;
 - `criterionAssessments[]` with `meets | partly_meets | not_yet_clear` and application source references;
-- concise strengths, concerns, and no more than two suggested information questions;
+- concise strengths and concerns;
 - confidence/limitations and the exact policy/schema version echoed from allowed IDs.
 
 Application validation rejects numeric pseudo-scores, judging or winner language, unsupported facts, institution or prestige reasoning, unknown criteria or sources, overlong explanations, stale versions, and any attempt to encode an action. Valid output is an immutable advisory record. The decision command requires a human permission, an explicit outcome, and an audited `used | cleared | overridden | stale | unavailable` disposition. Refusal, timeout, invalid output, or a disabled provider leaves the human workflow usable.
@@ -142,7 +142,7 @@ Manual briefs remain one frozen-input job. Copilot turns are operator-authored a
 
 An autonomous run may use as many model turns, investigator delegations, redacted read pages, reduction passes, proposals, and continuation submissions as it needs. Per-request body, response, provider-call, transaction, and page bounds protect infrastructure only. Every incomplete page or bounded reasoning batch persists an opaque cursor and exact snapshot, emits a nonterminal `continuing` checkpoint, settles the current Flue submission, and resumes through a backend-owned idempotent work item. Distinct health fingerprints, schedule slots, and manual requests remain in the durable inbox while one executor is active; only exact semantic duplicates coalesce. Provider congestion and transient interruption retry the same work item instead of terminalizing cognitive work.
 
-The autonomy allowlist is the complete evidence scope, not a menu the model may prune. Its shared closed registry covers operations health and attention, review rounds and exceptions, attendance counts and operations, floor progress, support load, intake jobs, admission jobs, participant deliveries, integration jobs, round exports, Synesthesia operations, and incident readiness. Trusted orchestration refreshes operations health first and traverses every authorized read to `isDone`, rejecting snapshot drift and cursor cycles. Unbounded actionable Convex sources append complete redacted temporal facts in their owning mutations. Each semantic inbox item freezes the high-watermark vector for all allowed fact sources; the full vector is source provenance, and the coordinates for currently qualifying policy areas distinguish signal episodes even when their aggregate health fields stay equal. The eventual run and each traversal use that exact frozen vector. Keyset pages return only versions effective at the frozen sequence, while bounded aggregate sources are captured once as immutable traversal JSON. Page-local evidence becomes individually bounded artifacts. Compact digests are navigation indexes over a lossless append-only finding and candidate catalog; fixed-size durable reduction passes page through the entire catalog without placing an unbounded event in one prompt or discarding facts between prompts. Derived records name one to four exact parents, so a durable support traversal can recover their complete source-leaf closure. The Worker uploads those canonical leaves in separately signed pages of at most four; Convex grounds every leaf against its completed read receipt, extends an ordered hash chain, and accepts a proposal only after the set is sealed. A repeated still-open effect appends the later run's sealed observation to the one human decision instead of discarding either run's evidence.
+The autonomy allowlist is the complete evidence scope, not a menu the model may prune. Its shared closed registry covers operations health and attention, review rounds and exceptions, attendance counts and operations, support load, intake jobs, admission jobs, participant deliveries, integration jobs, round exports, Synesthesia operations, and incident readiness. Trusted orchestration refreshes operations health first and traverses every authorized read to `isDone`, rejecting snapshot drift and cursor cycles. Unbounded actionable Convex sources append complete redacted temporal facts in their owning mutations. Each semantic inbox item freezes the high-watermark vector for all allowed fact sources; the full vector is source provenance, and the coordinates for currently qualifying policy areas distinguish signal episodes even when their aggregate health fields stay equal. The eventual run and each traversal use that exact frozen vector. Keyset pages return only versions effective at the frozen sequence, while bounded aggregate sources are captured once as immutable traversal JSON. Page-local evidence becomes individually bounded artifacts. Compact digests are navigation indexes over a lossless append-only finding and candidate catalog; fixed-size durable reduction passes page through the entire catalog without placing an unbounded event in one prompt or discarding facts between prompts. Derived records name one to four exact parents, so a durable support traversal can recover their complete source-leaf closure. The Worker uploads those canonical leaves in separately signed pages of at most four; Convex grounds every leaf against its completed read receipt, extends an ordered hash chain, and accepts a proposal only after the set is sealed. A repeated still-open effect appends the later run's sealed observation to the one human decision instead of discarding either run's evidence.
 
 The autonomous agent has no generic mutation tool and no unattended execution mode. It can create only a typed recommendation that the published policy permits. Consequential effects still use a human-confirmed permissioned mutation with current versions. The kill switch, policy replacement, owner revocation, or event-state change cancels the authoritative run and schedules an idempotent abort. Admission and continuation requests expire after 30 seconds. A durable Worker run fence prevents delayed work from creating a submission after cancellation, including when no Flue instance existed at abort time.
 
@@ -198,20 +198,20 @@ The reorder command accepts the complete current non-archived ID/version sequenc
 
 Repository kind is a required enum:
 
-| Value | Use |
-| --- | --- |
-| `full_product` | Full product or monorepo containing several application layers |
-| `frontend` | Web or other client-facing interface |
-| `backend_api` | API, server, worker, or backend service |
-| `mobile_app` | Android, iOS, or cross-platform mobile client |
-| `desktop_app` | Desktop client |
-| `ai_ml` | Model, agent, inference, training, or evaluation code |
-| `data_pipeline` | Data ingestion, transformation, analytics, or dataset tooling |
-| `hardware_firmware` | Firmware, embedded software, HDL, or hardware-control code |
-| `infrastructure` | Deployment, cloud, containers, observability, or infrastructure-as-code |
-| `library_sdk` | Shared package, SDK, plugin, or reusable library |
-| `docs_research` | Project documentation, specifications, experiments, or research material |
-| `other` | Another role; a custom kind label is required |
+| Value               | Use                                                                      |
+| ------------------- | ------------------------------------------------------------------------ |
+| `full_product`      | Full product or monorepo containing several application layers           |
+| `frontend`          | Web or other client-facing interface                                     |
+| `backend_api`       | API, server, worker, or backend service                                  |
+| `mobile_app`        | Android, iOS, or cross-platform mobile client                            |
+| `desktop_app`       | Desktop client                                                           |
+| `ai_ml`             | Model, agent, inference, training, or evaluation code                    |
+| `data_pipeline`     | Data ingestion, transformation, analytics, or dataset tooling            |
+| `hardware_firmware` | Firmware, embedded software, HDL, or hardware-control code               |
+| `infrastructure`    | Deployment, cloud, containers, observability, or infrastructure-as-code  |
+| `library_sdk`       | Shared package, SDK, plugin, or reusable library                         |
+| `docs_research`     | Project documentation, specifications, experiments, or research material |
+| `other`             | Another role; a custom kind label is required                            |
 
 The portal does not infer kind from languages or filenames. A team can change the kind or purpose before the integration freeze; the history records the previous values. External dependencies that the team cannot administer belong in the prior-work/tool disclosure, not in the connected-repository set.
 
@@ -497,7 +497,7 @@ Staff scan the printed barcode on an existing VIT ID with the event app camera. 
 
 The Expo app includes:
 
-- `expo-camera` for VIT ID barcodes, external-badge QR, dynamic attendance portal QR, review-presence team QR, and hall-location team QR;
+- `expo-camera` for VIT ID barcodes, external-badge QR, dynamic attendance portal QR, and review-presence team QR;
 - an app-owned adapter that accepts only the barcode symbologies and normalization rules approved after real-card testing;
 - camera permission handling in development, preview, and production builds;
 - secure auth/device registration and a SQLCipher pending-attendance queue whose database key is stored as device-only SecureStore material.
@@ -505,8 +505,6 @@ The Expo app includes:
 The current published attendance plan supplies the queue count and age limits; the configuration UI starts at eight scans and three minutes, within the enforced ranges of 1–25 scans and 30–600 seconds. Each row holds one operation ID, device sequence, original capture time, exact station/configuration, and credential payload only until a definite server outcome or expiry. A phone that is definitely offline creates new rows only for a VIT ID or event badge and directs a portal-QR holder to another online station. A portal row can remain only when a transmission that began online has an uncertain response, in which case replay uses that exact operation. A heartbeat exposes only count and oldest capture.
 
 The event qualifies the proposed Android and iOS scanner models with representative current VIT IDs from available campuses and batches. The test identifies the actual barcode symbology. It covers first scan, repeat scan, stable value normalization, glare, worn cards, app resume, screen lock, rapid mixed barcode/QR scans, duplicates, low battery, and connection loss. It also covers 30 minutes of continuous station operation. An unreadable card uses the participant portal QR without losing attendance access.
-
-The same installed application exposes hall mapping only to accounts with `floor.location.map` or `.override`. The operator explicitly selects Attendance, Reviews, or Hall map before the camera mounts. Only the hall claim mutation accepts a hall-location QR. The team's live dashboard always shows the QR. A table has no QR sticker. No shared decoder guesses the intended write.
 
 VIT ID barcode enrollment is a protected staffed workflow:
 
@@ -589,23 +587,23 @@ If VIT policy requires another provider/region, replace this decision before pro
 
 ## 10. Environment matrix
 
-| Item | Development | Staging | Production |
-| --- | --- | --- | --- |
-| Web | local/preview | protected staging domain | event domain |
-| Convex | developer deployment | rehearsal deployment | production deployment |
-| Better Auth | dev secret/clients | staging secret/clients | production secret/clients |
-| OpenAI | dev project/key and synthetic corpus/input | staging project/key, approved staging novelty corpus, and intake/admission evals | production project/key, published privacy-reviewed novelty corpus, and separately published intake/admission model configs |
-| Intelligence | local Flue Worker, repository development OpenAI key, synthetic aggregate snapshots, exact local service URLs, and four development HMAC domains | `code2create-intelligence-staging`, encrypted staging OpenAI key, exact staging Convex service URLs, and four staging-only HMAC domains | `code2create-intelligence`, encrypted production OpenAI key, approved pinned OpenAI model, exact production Convex service URLs, and four production-only HMAC domains |
-| Event app | local development build/scheme with synthetic barcode fixtures | locally signed build, staging update Worker/R2 bucket, representative VIT IDs, and rehearsal scanners | locally signed production build, production update Worker/R2 bucket, and provisioned scanner/reviewer fleet |
-| GitHub | dev App | staging App/test repos | production App/team repos |
-| Figma | dev OAuth/webhook/test files | staging OAuth/webhook/test files | approved production OAuth App and webhook endpoint |
-| Push | test devices | reviewer training devices | registered event devices |
-| Outbound calls | local signed callback fixtures and test destinations | staging voice Worker/provider account, consent fixtures, approved synthesized reviewer script, and test phones | event-owned voice service, approved provider account and reviewer script, consented destinations, consent records, rate limits, audit, and runner fallback |
-| Participant email | local normalized-event fixtures and test forwarding target | staging Cloudflare sending domain/identity, Event Subscription Queue/DLQ, email Worker/HMAC pair, Email Routing alias, and test recipients | verified Cloudflare production sending domain/identity, least-privilege send token, generic approved text, production Queue/DLQ and Worker, approved Email Routing alias/forward target, bounce/support procedure, and smoke-test recipient |
-| Synesthesia | synthetic catalog and operator | approved staging catalog, scoped test operators, and licensed test account | frozen event catalog, named scoped operators/moderators, and approved licensed venue account |
-| S3 | local/test bucket | staging integration/export prefixes | production integration/export prefixes |
-| Recovery operator | no production key | exact disposable staging target and restore key | data-read export key only; destructive production restore uses a separate incident-controlled identity |
-| PostHog | one EU project with development release tags | the Code2Create EU project with staging release tags and source maps | the Code2Create EU project with production release tags and source maps |
+| Item              | Development                                                                                                                                      | Staging                                                                                                                                    | Production                                                                                                                                                                                                                                  |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Web               | local/preview                                                                                                                                    | protected staging domain                                                                                                                   | event domain                                                                                                                                                                                                                                |
+| Convex            | developer deployment                                                                                                                             | rehearsal deployment                                                                                                                       | production deployment                                                                                                                                                                                                                       |
+| Better Auth       | dev secret/clients                                                                                                                               | staging secret/clients                                                                                                                     | production secret/clients                                                                                                                                                                                                                   |
+| OpenAI            | dev project/key and synthetic corpus/input                                                                                                       | staging project/key, approved staging novelty corpus, and intake/admission evals                                                           | production project/key, published privacy-reviewed novelty corpus, and separately published intake/admission model configs                                                                                                                  |
+| Intelligence      | local Flue Worker, repository development OpenAI key, synthetic aggregate snapshots, exact local service URLs, and four development HMAC domains | `code2create-intelligence-staging`, encrypted staging OpenAI key, exact staging Convex service URLs, and four staging-only HMAC domains    | `code2create-intelligence`, encrypted production OpenAI key, approved pinned OpenAI model, exact production Convex service URLs, and four production-only HMAC domains                                                                      |
+| Event app         | local development build/scheme with synthetic barcode fixtures                                                                                   | locally signed build, staging update Worker/R2 bucket, representative VIT IDs, and rehearsal scanners                                      | locally signed production build, production update Worker/R2 bucket, and provisioned scanner/reviewer fleet                                                                                                                                 |
+| GitHub            | dev App                                                                                                                                          | staging App/test repos                                                                                                                     | production App/team repos                                                                                                                                                                                                                   |
+| Figma             | dev OAuth/webhook/test files                                                                                                                     | staging OAuth/webhook/test files                                                                                                           | approved production OAuth App and webhook endpoint                                                                                                                                                                                          |
+| Push              | test devices                                                                                                                                     | reviewer training devices                                                                                                                  | registered event devices                                                                                                                                                                                                                    |
+| Outbound calls    | local signed callback fixtures and test destinations                                                                                             | staging voice Worker/provider account, consent fixtures, approved synthesized reviewer script, and test phones                             | event-owned voice service, approved provider account and reviewer script, consented destinations, consent records, rate limits, audit, and runner fallback                                                                                  |
+| Participant email | local normalized-event fixtures and test forwarding target                                                                                       | staging Cloudflare sending domain/identity, Event Subscription Queue/DLQ, email Worker/HMAC pair, Email Routing alias, and test recipients | verified Cloudflare production sending domain/identity, least-privilege send token, generic approved text, production Queue/DLQ and Worker, approved Email Routing alias/forward target, bounce/support procedure, and smoke-test recipient |
+| Synesthesia       | synthetic catalog and operator                                                                                                                   | approved staging catalog, scoped test operators, and licensed test account                                                                 | frozen event catalog, named scoped operators/moderators, and approved licensed venue account                                                                                                                                                |
+| S3                | local/test bucket                                                                                                                                | staging integration/export prefixes                                                                                                        | production integration/export prefixes                                                                                                                                                                                                      |
+| Recovery operator | no production key                                                                                                                                | exact disposable staging target and restore key                                                                                            | data-read export key only; destructive production restore uses a separate incident-controlled identity                                                                                                                                      |
+| PostHog           | one EU project with development release tags                                                                                                     | the Code2Create EU project with staging release tags and source maps                                                                       | the Code2Create EU project with production release tags and source maps                                                                                                                                                                     |
 
 No callback URL, provider key, auth secret, user record, or push token is shared across staging and production.
 
@@ -648,46 +646,48 @@ Cloudflare Workers Builds owns Worker deployment from GitHub. `staging` is the s
 
 Each Worker connects separately to `ACM-VIT/Code2Create`. This preserves independent build logs, runtime bindings, secrets, rollback, and failure state. No build deploys another Worker as a side effect.
 
-| Staging Worker | Root directory | Build command | Deploy command |
-| --- | --- | --- | --- |
-| `code2create-landing-staging` | `apps/landing` | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
-| `code2create-participant-staging` | `apps/web` | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
-| `code2create-operations-staging` | `apps/ops` | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
+| Staging Worker                     | Root directory      | Build command                   | Deploy command                   |
+| ---------------------------------- | ------------------- | ------------------------------- | -------------------------------- |
+| `code2create-landing-staging`      | `apps/landing`      | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
+| `code2create-participant-staging`  | `apps/web`          | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
+| `code2create-operations-staging`   | `apps/ops`          | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
 | `code2create-intelligence-staging` | `apps/intelligence` | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
-| `code2create-updates-staging` | `apps/updates` | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
-| `code2create-email-staging` | `apps/email` | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
-| `code2create-voice-staging` | `apps/voice` | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
+| `code2create-updates-staging`      | `apps/updates`      | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
+| `code2create-email-staging`        | `apps/email`        | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
+| `code2create-voice-staging`        | `apps/voice`        | `pnpm cloudflare:build:staging` | `pnpm cloudflare:deploy:staging` |
 
 Production uses the same one-Worker-per-application shape from `main`:
 
-| Production Worker | Public domain | Root directory | Build command | Deploy command |
-| --- | --- | --- | --- | --- |
-| `code2create-landing` | `c2c.acmvit.in`, `code2create.acmvit.in` | `apps/landing` | `pnpm cloudflare:build:production` | `pnpm cloudflare:deploy:production` |
-| `code2create-participant` | `c2c.sh` | `apps/web` | `pnpm cloudflare:build:production` | `pnpm cloudflare:deploy:production` |
-| `code2create-operations` | `ops.c2c.sh` | `apps/ops` | `pnpm cloudflare:build:production` | `pnpm cloudflare:deploy:production` |
-| `code2create-intelligence` | `intelligence.c2c.sh` | `apps/intelligence` | `pnpm cloudflare:build:production` | `pnpm cloudflare:deploy:production` |
-| `code2create-updates` | `updates.c2c.sh` | `apps/updates` | `pnpm cloudflare:build:production` | `pnpm cloudflare:deploy:production` |
-| `code2create-email` | `email.c2c.sh` | `apps/email` | `pnpm cloudflare:build:production` | `pnpm cloudflare:deploy:production` |
-| `code2create-voice` | `voice.c2c.sh` | `apps/voice` | `pnpm cloudflare:build:production` | `pnpm cloudflare:deploy:production` |
+| Production Worker          | Public domain                            | Root directory      | Build command                      | Deploy command                      |
+| -------------------------- | ---------------------------------------- | ------------------- | ---------------------------------- | ----------------------------------- |
+| `code2create-landing`      | `c2c.acmvit.in`, `code2create.acmvit.in` | `apps/landing`      | `pnpm cloudflare:build:production` | `pnpm cloudflare:deploy:production` |
+| `code2create-participant`  | `c2c.sh`                                 | `apps/web`          | `pnpm cloudflare:build:production` | `pnpm cloudflare:deploy:production` |
+| `code2create-operations`   | `ops.c2c.sh`                             | `apps/ops`          | `pnpm cloudflare:build:production` | `pnpm cloudflare:deploy:production` |
+| `code2create-intelligence` | `intelligence.c2c.sh`                    | `apps/intelligence` | `pnpm cloudflare:build:production` | `pnpm cloudflare:deploy:production` |
+| `code2create-updates`      | `updates.c2c.sh`                         | `apps/updates`      | `pnpm cloudflare:build:production` | `pnpm cloudflare:deploy:production` |
+| `code2create-email`        | `email.c2c.sh`                           | `apps/email`        | `pnpm cloudflare:build:production` | `pnpm cloudflare:deploy:production` |
+| `code2create-voice`        | `voice.c2c.sh`                           | `apps/voice`        | `pnpm cloudflare:build:production` | `pnpm cloudflare:deploy:production` |
 
 Every Worker build sets `NODE_VERSION=24.18.0` and `PNPM_VERSION=11.18.0`. Cloudflare supplies `WORKERS_CI`, `WORKERS_CI_BRANCH`, and `WORKERS_CI_COMMIT_SHA`. Cloudflare's production-branch setting owns the branch boundary. The environment-specific package commands set `CLOUDFLARE_ENV` and `VITE_DEPLOYMENT_ENVIRONMENT`, and the Vite deployments use `WORKERS_CI_COMMIT_SHA` as `VITE_RELEASE_ID`. Do not create user-defined copies of the `WORKERS_CI_*` values.
 
 The three browser applications use these additional build values:
 
-| Application | Plain build variables | Secret build variables |
-| --- | --- | --- |
-| Landing | `VITE_POSTHOG_PROJECT_TOKEN`, `VITE_POSTHOG_HOST`, `POSTHOG_CLI_HOST`, `POSTHOG_CLI_PROJECT_ID` | `POSTHOG_CLI_API_KEY` |
-| Participant | `VITE_CONVEX_URL`, `VITE_CONVEX_SITE_URL`, `VITE_EVENT_SLUG`, `VITE_POSTHOG_PROJECT_TOKEN`, `VITE_POSTHOG_HOST`, `POSTHOG_CLI_HOST`, `POSTHOG_CLI_PROJECT_ID` | `POSTHOG_CLI_API_KEY` |
-| Operations | `VITE_CONVEX_URL`, `VITE_CONVEX_SITE_URL`, `VITE_EVENT_SLUG`, `VITE_POSTHOG_PROJECT_TOKEN`, `VITE_POSTHOG_HOST`, `POSTHOG_CLI_HOST`, `POSTHOG_CLI_PROJECT_ID` | `POSTHOG_CLI_API_KEY` |
+| Application | Plain build variables                                                                                                                                         | Secret build variables |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| Landing     | `VITE_POSTHOG_PROJECT_TOKEN`, `VITE_POSTHOG_HOST`, `POSTHOG_CLI_HOST`, `POSTHOG_CLI_PROJECT_ID`                                                               | `POSTHOG_CLI_API_KEY`  |
+| Participant | `VITE_CONVEX_URL`, `VITE_CONVEX_SITE_URL`, `VITE_EVENT_SLUG`, `VITE_POSTHOG_PROJECT_TOKEN`, `VITE_POSTHOG_HOST`, `POSTHOG_CLI_HOST`, `POSTHOG_CLI_PROJECT_ID` | `POSTHOG_CLI_API_KEY`  |
+| Operations  | `VITE_CONVEX_URL`, `VITE_CONVEX_SITE_URL`, `VITE_EVENT_SLUG`, `VITE_POSTHOG_PROJECT_TOKEN`, `VITE_POSTHOG_HOST`, `POSTHOG_CLI_HOST`, `POSTHOG_CLI_PROJECT_ID` | `POSTHOG_CLI_API_KEY`  |
 
 The remaining Workers need only the common build-tool versions. Their operational configuration belongs to the matching Worker runtime, not to Workers Builds:
 
-| Worker | Wrangler-owned bindings and plain runtime values | Runtime secrets |
-| --- | --- | --- |
-| Intelligence | OpenAI Responses, admission-fence Durable Object, exact Ops origin, and exact Convex callback/read/work/recommendation URLs | `OPENAI_API_KEY`, `INTELLIGENCE_INGRESS_SECRET`, `INTELLIGENCE_CALLBACK_SECRET`, `INTELLIGENCE_READ_SECRET`, `INTELLIGENCE_STREAM_SECRET`; the URLs and Ops origin may also be stored as encrypted Worker secrets |
-| Updates | environment-specific R2 bucket and `UPDATE_CHANNEL` | `C2C_UPDATES_ADMIN_TOKEN` |
-| Email | environment-specific Queue consumer and dead-letter Queue | `CONVEX_EMAIL_EVENT_CALLBACK_URL`, `EMAIL_EVENT_CALLBACK_SECRET`, `EMAIL_ROUTING_ADDRESS`, `EMAIL_ROUTING_FORWARD_TO`, `EMAIL_SENDING_DOMAIN` |
-| Voice | outbound-call Durable Object and environment-specific `PUBLIC_BASE_URL` | `OUTBOUND_CALL_REQUEST_SECRET`, `OUTBOUND_CALL_EVENT_SECRET`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`, `SARVAM_API_KEY` |
+| Worker       | Wrangler-owned bindings and plain runtime values                                                                                                                                                                     | Runtime secrets                                                                                                                                                                                                   |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Intelligence | OpenAI Responses, admission-fence Durable Object, exact Ops origin, exact Convex callback/read/work/recommendation URLs, `POSTHOG_PROJECT_TOKEN`, `POSTHOG_HOST`, `C2C_DEPLOYMENT_ENVIRONMENT`, and `C2C_RELEASE_ID` | `OPENAI_API_KEY`, `INTELLIGENCE_INGRESS_SECRET`, `INTELLIGENCE_CALLBACK_SECRET`, `INTELLIGENCE_READ_SECRET`, `INTELLIGENCE_STREAM_SECRET`; the URLs and Ops origin may also be stored as encrypted Worker secrets |
+| Updates      | environment-specific R2 bucket and `UPDATE_CHANNEL`                                                                                                                                                                  | `C2C_UPDATES_ADMIN_TOKEN`                                                                                                                                                                                         |
+| Email        | environment-specific Queue consumer and dead-letter Queue                                                                                                                                                            | `CONVEX_EMAIL_EVENT_CALLBACK_URL`, `EMAIL_EVENT_CALLBACK_SECRET`, `EMAIL_ROUTING_ADDRESS`, `EMAIL_ROUTING_FORWARD_TO`, `EMAIL_SENDING_DOMAIN`                                                                     |
+| Voice        | outbound-call Durable Object and environment-specific `PUBLIC_BASE_URL`                                                                                                                                              | `OUTBOUND_CALL_REQUEST_SECRET`, `OUTBOUND_CALL_EVENT_SECRET`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`, `SARVAM_API_KEY`                                                                   |
+
+The PostHog project token is an ingestion identifier rather than an administrative credential. Store it as a Worker runtime value and a Convex deployment environment value; never use the personal `POSTHOG_CLI_API_KEY` at runtime. The matching PostHog ingest host is the first-party proxy `https://i.c2c.sh`. Server-side AI telemetry is content-free and must use the same environment-specific project as the corresponding clients.
 
 The Cloudflare GitHub App and the Worker-specific build token are configured in Cloudflare. They do not become repository or application environment variables. Cloudflare's automatic dependency installation uses the workspace lockfile. Watch paths remain unrestricted for the first staging release so a shared package, generated API, specification, lockfile, or patch cannot leave one Worker stale.
 

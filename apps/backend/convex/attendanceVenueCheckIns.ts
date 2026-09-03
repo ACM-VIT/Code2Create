@@ -6,9 +6,7 @@ import { internalMutation, type MutationCtx } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireAssignedDevice, requireStationPermission } from "./lib/attendance";
 import { requireEventBySlug } from "./lib/events";
-import {
-  requireCurrentPerson,
-} from "./lib/identity";
+import { requireCurrentPerson } from "./lib/identity";
 import {
   findOperation,
   operationFingerprint,
@@ -18,10 +16,7 @@ import {
 import { requirePermission } from "./lib/permissions";
 import { requireAvailableStaffedVenueResolution } from "./lib/staffedParticipantResolution";
 import { normalizedText } from "./lib/strings";
-import {
-  recordStaffedVenueCheckIn,
-  reverseStaffedVenueCheckIn,
-} from "./lib/venueCheckInLifecycle";
+import { recordStaffedVenueCheckIn, reverseStaffedVenueCheckIn } from "./lib/venueCheckInLifecycle";
 import { venueIdentityCheckMethod } from "./values";
 
 const recordedResult = v.object({
@@ -60,7 +55,7 @@ type ReversedResult = {
 
 const storedRecordedResult = z.object({
   checkInId: z.string().min(1),
-  checkedInAt: z.number().finite(),
+  checkedInAt: z.number(),
   version: z.number().int().positive(),
   identityCheckMethod: z.enum(["vit_id", "external_photo_id", "approved_exception"]),
   teamStatusChanged: z.boolean(),
@@ -68,7 +63,7 @@ const storedRecordedResult = z.object({
 
 const storedReversedResult = z.object({
   checkInId: z.string().min(1),
-  reversedAt: z.number().finite(),
+  reversedAt: z.number(),
   version: z.number().int().positive(),
   teamStatusChanged: z.boolean(),
 });
@@ -81,10 +76,7 @@ export const record = internalMutation({
     deviceInstallationId: v.id("attendanceDeviceInstallations"),
     deviceSecretHash: v.string(),
     resolutionId: v.id("staffedParticipantResolutions"),
-    identityCheckKind: v.union(
-      v.literal("class_id"),
-      v.literal("approved_exception"),
-    ),
+    identityCheckKind: v.union(v.literal("class_id"), v.literal("approved_exception")),
     visibleIdentityConfirmed: v.boolean(),
     reason: v.optional(v.string()),
     clientOperationId: v.string(),
@@ -162,8 +154,6 @@ export const record = internalMutation({
       args.identityCheckKind === "approved_exception"
         ? normalizedText(args.reason ?? "", "Identity exception reason", 5, 300)
         : undefined;
-    if (args.identityCheckKind === "approved_exception") {
-    }
     const identityCheckMethod: RecordedResult["identityCheckMethod"] =
       args.identityCheckKind === "approved_exception"
         ? "approved_exception"
@@ -203,7 +193,8 @@ export const record = internalMutation({
       resultJson: JSON.stringify(result),
       createdAt: saved.checkedInAt,
     });
-    const auditReason = checkInReason ??
+    const auditReason =
+      checkInReason ??
       (identityCheckMethod === "vit_id"
         ? "Visible VIT ID matched the participant profile"
         : "Visible external participant photo ID matched the participant profile");
@@ -366,15 +357,8 @@ export const reverse = internalMutation({
   },
 });
 
-function priorRecordedResult(
-  ctx: MutationCtx,
-  resultJson: string | undefined,
-): RecordedResult {
-  const stored = storedOperationResult(
-    resultJson,
-    "venue check-in",
-    storedRecordedResult,
-  );
+function priorRecordedResult(ctx: MutationCtx, resultJson: string | undefined): RecordedResult {
+  const stored = storedOperationResult(resultJson, "venue check-in", storedRecordedResult);
   const checkInId = ctx.db.normalizeId("venueCheckIns", stored.checkInId);
   if (!checkInId) throw new Error("Stored venue check-in ID is invalid.");
   return {
@@ -387,15 +371,8 @@ function priorRecordedResult(
   };
 }
 
-function priorReversedResult(
-  ctx: MutationCtx,
-  resultJson: string | undefined,
-): ReversedResult {
-  const stored = storedOperationResult(
-    resultJson,
-    "venue check-in reversal",
-    storedReversedResult,
-  );
+function priorReversedResult(ctx: MutationCtx, resultJson: string | undefined): ReversedResult {
+  const stored = storedOperationResult(resultJson, "venue check-in reversal", storedReversedResult);
   const checkInId = ctx.db.normalizeId("venueCheckIns", stored.checkInId);
   if (!checkInId) throw new Error("Stored venue check-in reversal ID is invalid.");
   return {

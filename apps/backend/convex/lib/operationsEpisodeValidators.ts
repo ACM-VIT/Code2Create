@@ -6,10 +6,7 @@ import {
   operationsHealthSignalKey,
 } from "./operationsIntelligenceValidators";
 
-export const operationsEpisodeLifecycle = v.union(
-  v.literal("active"),
-  v.literal("terminal"),
-);
+export const operationsEpisodeLifecycle = v.union(v.literal("active"), v.literal("terminal"));
 
 export const operationsEpisodeState = v.union(
   v.literal("forming"),
@@ -72,11 +69,7 @@ export const operationsEpisodeHypothesisStance = v.union(
 export const operationsEpisodePredictionOutcome = v.union(
   v.object({ kind: v.literal("pending") }),
   v.object({
-    kind: v.union(
-      v.literal("confirmed"),
-      v.literal("disconfirmed"),
-      v.literal("expired"),
-    ),
+    kind: v.union(v.literal("confirmed"), v.literal("disconfirmed"), v.literal("expired")),
     actualState: operationsEpisodeExpectedState,
     resolvedAt: v.number(),
     brierScore: v.number(),

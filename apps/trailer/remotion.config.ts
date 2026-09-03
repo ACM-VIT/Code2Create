@@ -1,6 +1,6 @@
-import { Config } from '@remotion/cli/config'
+import { Config } from "@remotion/cli/config";
 
-Config.setVideoImageFormat('jpeg')
-Config.setOverwriteOutput(true)
+Config.setVideoImageFormat("jpeg");
+Config.setOverwriteOutput(true);
 // Tag the output as BT.709 to prevent black QuickTime playback.
-Config.setColorSpace('bt709')
+Config.setColorSpace("bt709");

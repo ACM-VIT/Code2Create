@@ -10,15 +10,8 @@ import {
 } from "./lib/communicationsPolicy.ts";
 import { permissionCatalog } from "./lib/permissionCatalog.ts";
 import { createTestSubmissionSnapshot } from "./lib/testSubmissionSnapshot.ts";
-import {
-  defaultParticipantPolicy,
-  participantPolicyChecksum,
-} from "./lib/participantPolicy.ts";
-import { teamCanBeMapped } from "./lib/floor.ts";
-import {
-  defaultDeterministicIntakePolicy,
-  intakePolicyChecksum,
-} from "./lib/intakePolicy.ts";
+import { defaultParticipantPolicy, participantPolicyChecksum } from "./lib/participantPolicy.ts";
+import { defaultDeterministicIntakePolicy, intakePolicyChecksum } from "./lib/intakePolicy.ts";
 import schema from "./schema.ts";
 
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
@@ -35,13 +28,6 @@ describe("admission offer lifecycle", () => {
       scopes: ["team"],
       eventWide: false,
     });
-  });
-
-  test("keeps hall mapping closed until the team confirms its offer", () => {
-    expect(teamCanBeMapped("admitted")).toBe(false);
-    expect(teamCanBeMapped("confirmed")).toBe(true);
-    expect(teamCanBeMapped("checked_in")).toBe(true);
-    expect(teamCanBeMapped("active")).toBe(true);
   });
 
   test("rejects admission evidence that is absent from the submitted intake", async () => {
@@ -61,7 +47,6 @@ describe("admission offer lifecycle", () => {
         criterionAssessments: [],
         strengths: [],
         concerns: [],
-        proposedQuestions: [],
         limitations: [],
         createdAt: Date.now(),
       }),
@@ -74,14 +59,15 @@ describe("admission offer lifecycle", () => {
       sourceInputFingerprint: "admission-source-v1",
       state: "succeeded",
       recommendation: "accept",
-      criterionAssessments: [{
-        criterionKey: "intent",
-        assessment: "meets",
-        sourceRefs: ["follow_up_2"],
-      }],
+      criterionAssessments: [
+        {
+          criterionKey: "intent",
+          assessment: "meets",
+          sourceRefs: ["follow_up_2"],
+        },
+      ],
       strengths: ["The intended venue workflow is clear."],
       concerns: [],
-      proposedQuestions: [],
       confidence: "medium",
       limitations: [],
       latencyMs: 20,
@@ -141,7 +127,8 @@ describe("admission offer lifecycle", () => {
         ctx.db.get(fixture.projectId),
         ctx.db.get(fixture.teamId),
       ]);
-      if (!application || !offer || !project || !team) throw new Error("Offer fixture is incomplete.");
+      if (!application || !offer || !project || !team)
+        throw new Error("Offer fixture is incomplete.");
       await transitionOffer(ctx, {
         application,
         offer,
@@ -177,7 +164,9 @@ describe("admission offer lifecycle", () => {
     expect(state.reservation).toMatchObject({ state: "active", participantCount: 1 });
     expect(state.capacity).toMatchObject({ reserved: 1, version: 2 });
     expect(state.deliveries).toHaveLength(2);
-    expect(state.deliveries.find((delivery) => delivery.templateKey === "offer_confirmed")).toMatchObject({
+    expect(
+      state.deliveries.find((delivery) => delivery.templateKey === "offer_confirmed"),
+    ).toMatchObject({
       templateKey: "offer_confirmed",
       applicationVersion: 4,
       state: "pending",
@@ -211,11 +200,15 @@ describe("admission offer lifecycle", () => {
     });
     expect(state.capacity).toMatchObject({ reserved: 0, version: 3 });
     expect(state.deliveries).toHaveLength(2);
-    expect(state.deliveries.find((delivery) => delivery.templateKey === "offer_expired")).toMatchObject({
+    expect(
+      state.deliveries.find((delivery) => delivery.templateKey === "offer_expired"),
+    ).toMatchObject({
       templateKey: "offer_expired",
       applicationVersion: 4,
     });
-    expect(state.audits.filter((entry) => entry.action === "admission.offer_expired")).toHaveLength(1);
+    expect(state.audits.filter((entry) => entry.action === "admission.offer_expired")).toHaveLength(
+      1,
+    );
   });
 
   test("declining releases capacity but never changes the locked roster", async () => {
@@ -230,7 +223,8 @@ describe("admission offer lifecycle", () => {
         ctx.db.get(fixture.projectId),
         ctx.db.get(fixture.teamId),
       ]);
-      if (!application || !offer || !project || !team) throw new Error("Offer fixture is incomplete.");
+      if (!application || !offer || !project || !team)
+        throw new Error("Offer fixture is incomplete.");
       await transitionOffer(ctx, {
         application,
         offer,
@@ -276,7 +270,7 @@ async function seedOfferedApplication(backend: BackendTest, expiresAt: number) {
       timezone: "Asia/Kolkata",
       status: "registration_open",
       vitEmailDomains: ["vitstudent.ac.in"],
-        applicationsCloseAt: Date.now() + 86_400_000,
+      applicationsCloseAt: Date.now() + 86_400_000,
       startsAt,
       endsAt,
       version: 1,
@@ -355,17 +349,21 @@ async function seedOfferedApplication(backend: BackendTest, expiresAt: number) {
       aiRecommendationMode: "disabled",
       minimumHumanReviews: 1,
       overallParticipantCapacity: 100,
-      criteria: [{
-        criterionKey: "intent",
-        label: "Intent",
-        guidanceByBand: {
-          firstYear: "The team explains a genuine problem and workable basic idea.",
-          earlyYear: "The team explains a genuine problem and a coherent event-sized idea.",
-          laterYear: "The team explains a clear problem, scope, feasibility, and differentiation.",
-          postgraduateOrProfessional: "The team explains a credible plan, trade-offs, and differentiation.",
-          mixedOrExternal: "The team explains a clear problem and workable event-sized approach.",
+      criteria: [
+        {
+          criterionKey: "intent",
+          label: "Intent",
+          guidanceByBand: {
+            firstYear: "The team explains a genuine problem and workable basic idea.",
+            earlyYear: "The team explains a genuine problem and a coherent event-sized idea.",
+            laterYear:
+              "The team explains a clear problem, scope, feasibility, and differentiation.",
+            postgraduateOrProfessional:
+              "The team explains a credible plan, trade-offs, and differentiation.",
+            mixedOrExternal: "The team explains a clear problem and workable event-sized approach.",
+          },
         },
-      }],
+      ],
       decisionReasonCodes: [],
       checksum: "offer-policy",
       createdByPersonId: personId,

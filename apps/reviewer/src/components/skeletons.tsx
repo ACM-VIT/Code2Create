@@ -1,8 +1,7 @@
-import { useEffect, useState } from 'react'
-import { Animated, StyleSheet, View } from 'react-native'
+import { useEffect, useState } from "react";
+import { Animated, StyleSheet, View } from "react-native";
 
-import { palette, radius, space } from '@/theme'
-
+import { palette, radius } from "@/theme";
 
 function Bone({
   height = 18,
@@ -10,10 +9,10 @@ function Bone({
   style,
   width,
 }: {
-  height?: number
-  radius?: number
-  style?: object
-  width?: number | `${number}%`
+  height?: number;
+  radius?: number;
+  style?: object;
+  width?: number | `${number}%`;
 }) {
   return (
     <View
@@ -24,11 +23,11 @@ function Bone({
         style ?? null,
       ]}
     />
-  )
+  );
 }
 
 function Breathing({ children }: { children: React.ReactNode }) {
-  const [pulse] = useState(() => new Animated.Value(0.45))
+  const [pulse] = useState(() => new Animated.Value(0.45));
 
   useEffect(() => {
     const loop = Animated.loop(
@@ -44,12 +43,12 @@ function Breathing({ children }: { children: React.ReactNode }) {
           useNativeDriver: true,
         }),
       ]),
-    )
-    loop.start()
-    return () => loop.stop()
-  }, [pulse])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulse]);
 
-  return <Animated.View style={{ opacity: pulse }}>{children}</Animated.View>
+  return <Animated.View style={{ opacity: pulse }}>{children}</Animated.View>;
 }
 
 export function JudgingSkeleton() {
@@ -72,7 +71,7 @@ export function JudgingSkeleton() {
         <Bone height={58} radius={radius.control} />
       </View>
     </Breathing>
-  )
+  );
 }
 
 export function DoorSkeleton() {
@@ -87,25 +86,7 @@ export function DoorSkeleton() {
         </View>
       </Breathing>
     </View>
-  )
-}
-
-export function HallSkeleton() {
-  return (
-    <View style={styles.hallRoot}>
-      <Breathing>
-        <View style={styles.stack}>
-          <Bone height={26} width="48%" />
-          <View style={styles.gap} />
-          <View style={styles.hallGrid}>
-            {Array.from({ length: 12 }, (_, index) => (
-              <Bone height={62} key={index} radius={radius.tile} style={styles.hallCell} />
-            ))}
-          </View>
-        </View>
-      </Breathing>
-    </View>
-  )
+  );
 }
 
 export function PulseSkeleton() {
@@ -123,7 +104,7 @@ export function PulseSkeleton() {
         ))}
       </View>
     </Breathing>
-  )
+  );
 }
 
 export function CaseListSkeleton({ rows = 5 }: { rows?: number }) {
@@ -138,7 +119,7 @@ export function CaseListSkeleton({ rows = 5 }: { rows?: number }) {
         ))}
       </View>
     </Breathing>
-  )
+  );
 }
 
 const styles = StyleSheet.create({
@@ -147,8 +128,8 @@ const styles = StyleSheet.create({
   gap: { height: 12 },
 
   checkRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 14,
     paddingVertical: 10,
   },
@@ -156,21 +137,17 @@ const styles = StyleSheet.create({
 
   listRow: { gap: 7, paddingVertical: 11 },
 
-  doorRoot: { flex: 1, backgroundColor: '#000' },
+  doorRoot: { flex: 1, backgroundColor: "#000" },
   doorFill: { flex: 1 },
-  doorControls: { position: 'absolute', top: 12, right: 16, left: 16, alignItems: 'center' },
+  doorControls: { position: "absolute", top: 12, right: 16, left: 16, alignItems: "center" },
   doorGuide: {
-    position: 'absolute',
-    top: '24%',
-    right: '12%',
-    bottom: '30%',
-    left: '12%',
+    position: "absolute",
+    top: "24%",
+    right: "12%",
+    bottom: "30%",
+    left: "12%",
     borderWidth: 2,
     borderRadius: 22,
-    borderColor: 'rgba(255,255,255,0.28)',
+    borderColor: "rgba(255,255,255,0.28)",
   },
-
-  hallRoot: { flex: 1, paddingHorizontal: space.grid },
-  hallGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  hallCell: { width: '31%' },
-})
+});

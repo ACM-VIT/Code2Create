@@ -4,10 +4,7 @@ import { z } from "zod";
 import { mutation } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
-import {
-  requireCurrentPerson,
-  requireEventSubject,
-} from "./lib/identity";
+import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import {
   findOperation,
   operationFingerprint,
@@ -63,11 +60,7 @@ export const pause = mutation({
       if (!pauseId) throw new Error("Prior round pause result is invalid.");
       return {
         pauseId,
-        ...storedOperationResult(
-          prior.resultJson,
-          "round-pause",
-          pauseOperationResult,
-        ),
+        ...storedOperationResult(prior.resultJson, "round-pause", pauseOperationResult),
       };
     }
 
@@ -203,11 +196,7 @@ export const resume = mutation({
       if (!pauseId) throw new Error("Prior round resume result is invalid.");
       return {
         pauseId,
-        ...storedOperationResult(
-          prior.resultJson,
-          "round-resume",
-          pauseOperationResult,
-        ),
+        ...storedOperationResult(prior.resultJson, "round-resume", pauseOperationResult),
       };
     }
 

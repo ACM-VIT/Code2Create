@@ -17,9 +17,7 @@ const configurationPublicationOperationResult = z
   })
   .strict();
 
-type ConfigurationDraftOperationResult = z.infer<
-  typeof configurationDraftOperationResult
->;
+type ConfigurationDraftOperationResult = z.infer<typeof configurationDraftOperationResult>;
 type ConfigurationPublicationOperationResult = z.infer<
   typeof configurationPublicationOperationResult
 >;
@@ -32,21 +30,12 @@ export function storedConfigurationResult<Result>(
   return storedOperationResult(resultJson, label, schema);
 }
 
-export function configurationDraftResultJson(
-  result: ConfigurationDraftOperationResult,
-) {
+export function configurationDraftResultJson(result: ConfigurationDraftOperationResult) {
   return JSON.stringify(result);
 }
 
-export function storedConfigurationDraftResult(
-  resultJson: string | undefined,
-  label: string,
-) {
-  return storedConfigurationResult(
-    resultJson,
-    label,
-    configurationDraftOperationResult,
-  );
+export function storedConfigurationDraftResult(resultJson: string | undefined, label: string) {
+  return storedConfigurationResult(resultJson, label, configurationDraftOperationResult);
 }
 
 export function configurationPublicationResultJson(
@@ -59,9 +48,5 @@ export function storedConfigurationPublicationResult(
   resultJson: string | undefined,
   label: string,
 ) {
-  return storedConfigurationResult(
-    resultJson,
-    label,
-    configurationPublicationOperationResult,
-  );
+  return storedConfigurationResult(resultJson, label, configurationPublicationOperationResult);
 }

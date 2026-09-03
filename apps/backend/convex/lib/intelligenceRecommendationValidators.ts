@@ -9,7 +9,6 @@ export const intelligenceReadName = v.union(
   v.literal("review_rounds"),
   v.literal("review_exceptions"),
   v.literal("attendance_counts"),
-  v.literal("floor_mapping_progress"),
   v.literal("support_load"),
   v.literal("recommendation_history"),
   v.literal("admission_cohort"),

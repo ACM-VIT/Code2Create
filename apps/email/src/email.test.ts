@@ -1,16 +1,18 @@
-import {
-  participantEmailEventSignatureContext,
-  verifyServiceBody,
-} from "@code2create/domain";
+import { participantEmailEventSignatureContext, verifyServiceBody } from "@code2create/domain";
+import type { ParticipantEmailEvent } from "@code2create/domain";
 import { describe, expect, test, vi } from "vitest";
+import { z } from "zod";
 
-import { normalizeCloudflareEmailEvent } from "./contracts.js";
+import {
+  cloudflareEmailSendingEventSchema,
+  normalizeCloudflareEmailEvent,
+} from "./contracts.js";
 import {
   consumeEmailEventMessages,
   relayEmailEvent,
   routeInboundEmail,
-  type EmailBridgeEnvironment,
 } from "./worker.js";
+import type { EmailBridgeEnvironment } from "./worker.js";
 
 const domain = "mail.code2create.example";
 const eventTimestamp = "2026-08-08T12:00:00.000Z";
@@ -26,7 +28,7 @@ const environment: EmailBridgeEnvironment = {
 
 describe("Cloudflare Email Service bridge", () => {
   test("normalizes lifecycle events without retaining SMTP or message content", () => {
-    expect(normalizeCloudflareEmailEvent(event({ kind: "delivered" }), domain)).toEqual({
+    expect(normalizedEvent({ kind: "delivered" })).toEqual({
       protocolVersion: "participant-email-v1",
       eventId: "email-event-1",
       messageId: "provider-message-1",
@@ -35,49 +37,45 @@ describe("Cloudflare Email Service bridge", () => {
       providerAt: Date.parse(eventTimestamp),
       disableDestination: false,
     });
-    expect(normalizeCloudflareEmailEvent(event({ kind: "deferred" }), domain)).toMatchObject({
+    expect(normalizedEvent({ kind: "deferred" })).toMatchObject({
       eventType: "email.delivery_delayed",
       disableDestination: false,
       providerErrorCode: "cloudflare_email_deferred",
     });
-    expect(normalizeCloudflareEmailEvent(
-      event({ kind: "bounced", bounceType: "soft" }),
-      domain,
-    )).toMatchObject({
+    expect(
+      normalizedEvent({ kind: "bounced", bounceType: "soft" }),
+    ).toMatchObject({
       eventType: "email.bounced",
       disableDestination: false,
       providerErrorCode: "cloudflare_email_bounced_soft",
     });
-    expect(normalizeCloudflareEmailEvent(
-      event({ kind: "bounced", bounceType: "hard" }),
-      domain,
-    )).toMatchObject({
+    expect(
+      normalizedEvent({ kind: "bounced", bounceType: "hard" }),
+    ).toMatchObject({
       eventType: "email.bounced",
       disableDestination: true,
       providerErrorCode: "cloudflare_email_bounced_hard",
     });
-    expect(normalizeCloudflareEmailEvent(event({ kind: "failed" }), domain)).toMatchObject({
+    expect(normalizedEvent({ kind: "failed" })).toMatchObject({
       eventType: "email.failed",
       disableDestination: false,
       providerErrorCode: "cloudflare_email_failed",
     });
-    expect(normalizeCloudflareEmailEvent(
-      event({ kind: "rejected", reason: "suppressed" }),
-      domain,
-    )).toMatchObject({
+    expect(
+      normalizedEvent({ kind: "rejected", reason: "suppressed" }),
+    ).toMatchObject({
       eventType: "email.suppressed",
       disableDestination: true,
       providerErrorCode: "cloudflare_email_suppressed",
     });
-    expect(normalizeCloudflareEmailEvent(
-      event({ kind: "rejected", reason: "spam_policy" }),
-      domain,
-    )).toMatchObject({
+    expect(
+      normalizedEvent({ kind: "rejected", reason: "spam_policy" }),
+    ).toMatchObject({
       eventType: "email.failed",
       disableDestination: false,
       providerErrorCode: "cloudflare_email_rejected",
     });
-    expect(normalizeCloudflareEmailEvent(event({ kind: "complained" }), domain)).toMatchObject({
+    expect(normalizedEvent({ kind: "complained" })).toMatchObject({
       eventType: "email.complained",
       disableDestination: true,
       providerErrorCode: "cloudflare_email_complained",
@@ -86,23 +84,28 @@ describe("Cloudflare Email Service bridge", () => {
 
   test("rejects events from a different sending domain", () => {
     expect(() =>
-      normalizeCloudflareEmailEvent(event({ kind: "delivered" }), "other.example")
+      normalizeCloudflareEmailEvent(
+        cloudflareEmailSendingEventSchema.parse(event({ kind: "delivered" })),
+        "other.example",
+      ),
     ).toThrow("unexpected domain");
   });
 
   test("relays the bounded event with an independently verifiable signature", async () => {
     const eventFetcher = vi.fn(async (_url: string, init: RequestInit) => {
-      const body = typeof init.body === "string" ? init.body : "";
+      const body = z.string().parse(init.body);
       const headers = new Headers(init.headers);
-      expect(await verifyServiceBody({
-        context: participantEmailEventSignatureContext,
-        secret: callbackSecret,
-        timestamp: headers.get("x-c2c-timestamp") ?? "",
-        signature: headers.get("x-c2c-signature") ?? "",
-        body,
-        now: Date.now(),
-        maximumAgeMs: 60_000,
-      })).toBe(true);
+      expect(
+        await verifyServiceBody({
+          context: participantEmailEventSignatureContext,
+          secret: callbackSecret,
+          timestamp: headers.get("x-c2c-timestamp") ?? "",
+          signature: headers.get("x-c2c-signature") ?? "",
+          body,
+          now: Date.now(),
+          maximumAgeMs: 60_000,
+        }),
+      ).toBe(true);
       expect(JSON.parse(body)).toMatchObject({
         eventId: "email-event-1",
         messageId: "provider-message-1",
@@ -110,7 +113,7 @@ describe("Cloudflare Email Service bridge", () => {
       });
       return new Response(null, { status: 200 });
     });
-    await relayEmailEvent(event({ kind: "delivered" }), environment, eventFetcher);
+    await relayEmailEvent(normalizedEvent({ kind: "delivered" }), environment, eventFetcher);
     expect(eventFetcher).toHaveBeenCalledOnce();
   });
 
@@ -119,28 +122,40 @@ describe("Cloudflare Email Service bridge", () => {
     const firstRetry = vi.fn();
     const secondAck = vi.fn();
     const secondRetry = vi.fn();
-    const relay = vi.fn<(
-      input: unknown,
-      relayEnvironment: EmailBridgeEnvironment,
-    ) => Promise<void>>()
+    const relay = vi
+      .fn<
+        (event: ParticipantEmailEvent, relayEnvironment: EmailBridgeEnvironment) => Promise<void>
+      >()
       .mockRejectedValueOnce(new Error("callback unavailable"))
       .mockResolvedValueOnce(undefined);
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
-    await consumeEmailEventMessages([
-      {
-        id: "queue-message-1",
-        body: event({ kind: "delivered" }),
-        ack: firstAck,
-        retry: firstRetry,
-      },
-      {
-        id: "queue-message-2",
-        body: event({ kind: "complained" }),
-        ack: secondAck,
-        retry: secondRetry,
-      },
-    ], environment, relay);
+    await consumeEmailEventMessages(
+      [
+        {
+          id: "queue-message-1",
+          body: event({ kind: "delivered" }),
+          ack: () => {
+            firstAck();
+          },
+          retry: () => {
+            firstRetry();
+          },
+        },
+        {
+          id: "queue-message-2",
+          body: event({ kind: "complained" }),
+          ack: () => {
+            secondAck();
+          },
+          retry: () => {
+            secondRetry();
+          },
+        },
+      ],
+      environment,
+      relay,
+    );
 
     expect(firstAck).not.toHaveBeenCalled();
     expect(firstRetry).toHaveBeenCalledOnce();
@@ -156,10 +171,16 @@ describe("Cloudflare Email Service bridge", () => {
   });
 
   test("forwards an inbound routed message only to the configured verified destination", async () => {
-    const forward = vi.fn(async () => undefined);
+    const forward = vi.fn(async (_recipient: string) => ({ messageId: "forwarded-message" }));
     const setReject = vi.fn();
     await routeInboundEmail(
-      { to: "Support@mail.code2create.example", forward, setReject },
+      {
+        to: "Support@mail.code2create.example",
+        forward,
+        setReject: (reason) => {
+          setReject(reason);
+        },
+      },
       "support@mail.code2create.example",
       "operations@example.test",
     );
@@ -167,7 +188,13 @@ describe("Cloudflare Email Service bridge", () => {
     expect(setReject).not.toHaveBeenCalled();
 
     await routeInboundEmail(
-      { to: "other@mail.code2create.example", forward, setReject },
+      {
+        to: "other@mail.code2create.example",
+        forward,
+        setReject: (reason) => {
+          setReject(reason);
+        },
+      },
       "support@mail.code2create.example",
       "operations@example.test",
     );
@@ -175,7 +202,13 @@ describe("Cloudflare Email Service bridge", () => {
     expect(setReject).toHaveBeenCalledWith("Inbound support routing is unavailable.");
 
     await routeInboundEmail(
-      { to: "support@mail.code2create.example", forward, setReject },
+      {
+        to: "support@mail.code2create.example",
+        forward,
+        setReject: (reason) => {
+          setReject(reason);
+        },
+      },
       "support@mail.code2create.example",
       "not-an-email",
     );
@@ -190,6 +223,10 @@ type EventFixture =
   | { kind: "failed" }
   | { kind: "rejected"; reason: string }
   | { kind: "complained" };
+
+function normalizedEvent(fixture: EventFixture): ParticipantEmailEvent {
+  return normalizeCloudflareEmailEvent(cloudflareEmailSendingEventSchema.parse(event(fixture)), domain);
+}
 
 function event(fixture: EventFixture) {
   const payload = {

@@ -9,47 +9,59 @@ import { z } from "zod";
 
 import { internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
-import {
-  HttpBodyTooLargeError,
-  readBoundedRequestText,
-} from "./lib/boundedHttpBody";
+import { HttpBodyTooLargeError, readBoundedRequestText } from "./lib/boundedHttpBody";
 import { requireIntelligenceHmacSecret } from "./lib/intelligenceServiceConfiguration";
 import { redactProjectText } from "./lib/projectText";
 
 const maximumSignatureAgeMs = 5 * 60 * 1_000;
 
-const readRequestSchema = z.object({
-  protocolVersion: z.literal(operationsIntelligenceProtocolVersion),
-  applicationId: z.string().min(1).max(200),
-  eventId: z.string().min(1).max(200),
-  recommendationId: z.string().min(1).max(200).optional(),
-  operationId: z.string().min(8).max(240),
-}).strict();
+const readRequestSchema = z
+  .object({
+    protocolVersion: z.literal(operationsIntelligenceProtocolVersion),
+    applicationId: z.string().min(1).max(200),
+    eventId: z.string().min(1).max(200),
+    recommendationId: z.string().min(1).max(200).optional(),
+    operationId: z.string().min(8).max(240),
+  })
+  .strict();
 
-const callbackSchema = z.object({
-  protocolVersion: z.literal(operationsIntelligenceProtocolVersion),
-  recommendationId: z.string().min(1).max(200),
-  applicationId: z.string().min(1).max(200),
-  contentVersion: z.number().int().positive(),
-  sourceInputFingerprint: z.string().min(1).max(240),
-  operationId: z.string().min(8).max(240),
-  recommendation: z.enum(["accept", "waitlist", "decline", "needs_information"]),
-  criterionAssessments: z.array(z.object({
-    criterionKey: z.string().min(1).max(80),
-    assessment: z.enum(["meets", "partly_meets", "not_yet_clear"]),
-    sourceRefs: z.array(z.string().min(1).max(80)).min(1).max(2),
-  }).strict()).min(1).max(12),
-  strengths: z.array(z.string().min(3).max(180)).max(3),
-  concerns: z.array(z.string().min(3).max(180)).max(3),
-  proposedQuestions: z.array(z.string().min(8).max(180)).max(2),
-  confidence: z.enum(["low", "medium", "high"]),
-  limitations: z.array(z.string().min(3).max(180)).max(3),
-  agentVersion: z.string().min(3).max(120),
-  model: z.string().min(3).max(120),
-  completedAt: z.number().int().positive(),
-}).strict();
+const callbackSchema = z
+  .object({
+    protocolVersion: z.literal(operationsIntelligenceProtocolVersion),
+    recommendationId: z.string().min(1).max(200),
+    applicationId: z.string().min(1).max(200),
+    contentVersion: z.number().int().positive(),
+    sourceInputFingerprint: z.string().min(1).max(240),
+    operationId: z.string().min(8).max(240),
+    recommendation: z.enum(["accept", "waitlist", "decline"]),
+    criterionAssessments: z
+      .array(
+        z
+          .object({
+            criterionKey: z.string().min(1).max(80),
+            assessment: z.enum(["meets", "partly_meets", "not_yet_clear"]),
+            sourceRefs: z.array(z.string().min(1).max(80)).min(1).max(2),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(12),
+    strengths: z.array(z.string().min(3).max(180)).max(3),
+    concerns: z.array(z.string().min(3).max(180)).max(3),
+    confidence: z.enum(["low", "medium", "high"]),
+    limitations: z.array(z.string().min(3).max(180)).max(3),
+    agentVersion: z.string().min(3).max(120),
+    model: z.string().min(3).max(120),
+    completedAt: z.number().int().positive(),
+  })
+  .strict();
 
-async function verifiedBody(request: Request, context: string, secretName: string, maximumBytes: number) {
+async function verifiedBody(
+  request: Request,
+  context: string,
+  secretName: string,
+  maximumBytes: number,
+) {
   if (request.headers.get("content-type")?.split(";", 1)[0]?.trim() !== "application/json") {
     return { response: Response.json({ error: "unsupported_media_type" }, { status: 415 }) };
   }
@@ -113,14 +125,13 @@ export const ideaIntelligenceReadEndpoint = httpAction(async (ctx, request) => {
     !recommendation ||
     recommendation.applicationId !== parsed.data.applicationId ||
     recommendation.eventId !== parsed.data.eventId
-  ) return Response.json({ error: "authority_revoked" }, { status: 409 });
+  )
+    return Response.json({ error: "authority_revoked" }, { status: 409 });
   const projection = await ctx.runMutation(internal.admissionIntelligence.beginRecommendation, {
     recommendationId: recommendation.recommendationId,
   });
-  if (
-    !projection ||
-    projection.applicationId !== parsed.data.applicationId
-  ) return Response.json({ error: "authority_revoked" }, { status: 409 });
+  if (!projection || projection.applicationId !== parsed.data.applicationId)
+    return Response.json({ error: "authority_revoked" }, { status: 409 });
   const result: IdeaIntelligenceProjection = {
     protocolVersion: operationsIntelligenceProtocolVersion,
     recommendationId: recommendation.recommendationId,
@@ -136,18 +147,15 @@ export const ideaIntelligenceReadEndpoint = httpAction(async (ctx, request) => {
     sources: [
       { sourceRef: "initial_idea", answer: redactProjectText(projection.initialIdea) },
       ...(projection.additionalInformation
-        ? [{
-            sourceRef: "additional_information",
-            question: "Additional information or links (optional, please no PPTs)",
-            answer: redactProjectText(projection.additionalInformation),
-          }]
+        ? [
+            {
+              sourceRef: "additional_information",
+              question: "Additional information or links (optional, please no PPTs)",
+              answer: redactProjectText(projection.additionalInformation),
+            },
+          ]
         : []),
       ...projection.intakeResponses.map((source) => ({
-        sourceRef: source.sourceRef,
-        question: source.question,
-        answer: redactProjectText(source.answer),
-      })),
-      ...projection.informationResponses.map((source) => ({
         sourceRef: source.sourceRef,
         question: source.question,
         answer: redactProjectText(source.answer),
@@ -175,7 +183,8 @@ export const ideaIntelligenceCallbackEndpoint = httpAction(async (ctx, request) 
     !identity ||
     identity.applicationId !== parsed.data.applicationId ||
     identity.contentVersion !== parsed.data.contentVersion
-  ) return Response.json({ error: "stale_analysis" }, { status: 409 });
+  )
+    return Response.json({ error: "stale_analysis" }, { status: 409 });
   const result = await ctx.runMutation(internal.admissionIntelligence.finishRecommendation, {
     recommendationId: identity.recommendationId,
     sourceInputFingerprint: parsed.data.sourceInputFingerprint,
@@ -184,7 +193,6 @@ export const ideaIntelligenceCallbackEndpoint = httpAction(async (ctx, request) 
     criterionAssessments: parsed.data.criterionAssessments,
     strengths: parsed.data.strengths,
     concerns: parsed.data.concerns,
-    proposedQuestions: parsed.data.proposedQuestions,
     confidence: parsed.data.confidence,
     limitations: parsed.data.limitations,
     operationId: parsed.data.operationId,

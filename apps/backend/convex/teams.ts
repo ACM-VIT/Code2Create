@@ -1,7 +1,4 @@
-import {
-  paginationOptsValidator,
-  paginationResultValidator,
-} from "convex/server";
+import { paginationOptsValidator, paginationResultValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import { z } from "zod";
 
@@ -16,11 +13,7 @@ import {
   createFormingTeamWithLead,
   unusedTeamCode,
 } from "./lib/teamMembership";
-import {
-  applicationsCloseAtFor,
-  requireEventBySlug,
-  requireRegistrationOpen,
-} from "./lib/events";
+import { applicationsCloseAtFor, requireEventBySlug, requireRegistrationOpen } from "./lib/events";
 import {
   findCurrentPerson,
   requireCurrentPerson,
@@ -41,6 +34,7 @@ import {
 } from "./lib/operations";
 import {
   loadPublishedParticipantPolicy,
+  participantPolicyAccepted,
 } from "./lib/participantPolicy";
 import { normalizeCode, normalizedText } from "./lib/strings";
 import { refreshSubmittedApplicationRoster } from "./lib/submittedTeamRoster";
@@ -87,7 +81,6 @@ const teamView = v.object({
   canRespondToLeadershipTransfer: v.boolean(),
   canWriteProject: v.boolean(),
   canSubmitApplication: v.boolean(),
-  canRespondToInformationRequest: v.boolean(),
   canRespondToOffer: v.boolean(),
   pendingLeadershipTransfer: v.union(
     v.null(),
@@ -117,10 +110,7 @@ export const current = query({
     const currentMember = await ctx.db
       .query("teamMembers")
       .withIndex("by_event_membership_status", (index) =>
-        index
-          .eq("eventId", event._id)
-          .eq("membershipId", membership._id)
-          .eq("status", "active"),
+        index.eq("eventId", event._id).eq("membershipId", membership._id).eq("status", "active"),
       )
       .unique();
     if (!currentMember) return null;
@@ -146,15 +136,12 @@ export const current = query({
       acceptLeadershipGrantIds,
       projectWriteGrantIds,
       applicationSubmitGrantIds,
-      informationResponseGrantIds,
       offerResponseGrantIds,
     ] = await Promise.all([
       loadPublishedParticipantPolicy(ctx, event),
       ctx.db
         .query("teamLeadershipTransfers")
-        .withIndex("by_team_state", (index) =>
-          index.eq("teamId", team._id).eq("state", "pending"),
-        )
+        .withIndex("by_team_state", (index) => index.eq("teamId", team._id).eq("state", "pending"))
         .take(2),
       matchingPermissionGrantIds(ctx, {
         eventId: event._id,
@@ -201,13 +188,6 @@ export const current = query({
       matchingPermissionGrantIds(ctx, {
         eventId: event._id,
         eventAccessSubjectId: subject._id,
-        permissionKey: "application.information.respond",
-        scopeType: "team",
-        scopeId: team._id,
-      }),
-      matchingPermissionGrantIds(ctx, {
-        eventId: event._id,
-        eventAccessSubjectId: subject._id,
         permissionKey: "application.offer.respond",
         scopeType: "team",
         scopeId: team._id,
@@ -236,8 +216,7 @@ export const current = query({
       membershipEditableUntil: applicationsCloseAtFor(event, membership.participantClass),
       teamMinimumSize: participantPolicy.normalized.teamMinimumSize,
       teamMaximumSize: participantPolicy.normalized.teamMaximumSize,
-      mixedParticipantClassesAllowed:
-        participantPolicy.normalized.mixedParticipantClassesAllowed,
+      mixedParticipantClassesAllowed: participantPolicy.normalized.mixedParticipantClassesAllowed,
       activeMemberCount: rosterCounts.activeMemberCount,
       version: team.version,
       currentMembershipId: membership._id,
@@ -247,9 +226,7 @@ export const current = query({
       canTransferLeadership: transferLeadershipGrantIds.length > 0,
       canRespondToLeadershipTransfer: acceptLeadershipGrantIds.length > 0,
       canWriteProject: projectWriteGrantIds.length > 0,
-      canSubmitApplication:
-        currentMember.role === "lead" && applicationSubmitGrantIds.length > 0,
-      canRespondToInformationRequest: informationResponseGrantIds.length > 0,
+      canSubmitApplication: currentMember.role === "lead" && applicationSubmitGrantIds.length > 0,
       canRespondToOffer: offerResponseGrantIds.length > 0,
       pendingLeadershipTransfer: pendingLeadershipTransfer
         ? {
@@ -268,6 +245,7 @@ const teamMemberView = v.object({
   membershipId: v.id("eventMemberships"),
   role: memberRole,
   displayName: v.string(),
+  githubAvatarUrl: v.optional(v.string()),
   institution: v.optional(v.string()),
   participantClass,
 });
@@ -276,7 +254,11 @@ export const members = query({
   args: { eventSlug: v.string(), paginationOpts: paginationOptsValidator },
   returns: paginationResultValidator(teamMemberView),
   handler: async (ctx, args) => {
-    if (!Number.isSafeInteger(args.paginationOpts.numItems) || args.paginationOpts.numItems < 1 || args.paginationOpts.numItems > 50) {
+    if (
+      !Number.isSafeInteger(args.paginationOpts.numItems) ||
+      args.paginationOpts.numItems < 1 ||
+      args.paginationOpts.numItems > 50
+    ) {
       throw new ConvexError({
         code: "INVALID_PAGE_SIZE",
         message: "Team roster pages contain between 1 and 50 members.",
@@ -297,10 +279,7 @@ export const members = query({
     const currentMember = await ctx.db
       .query("teamMembers")
       .withIndex("by_event_membership_status", (index) =>
-        index
-          .eq("eventId", event._id)
-          .eq("membershipId", membership._id)
-          .eq("status", "active"),
+        index.eq("eventId", event._id).eq("membershipId", membership._id).eq("status", "active"),
       )
       .unique();
     if (!currentMember) return { page: [], isDone: true, continueCursor: "" };
@@ -321,47 +300,56 @@ export const members = query({
     }
     const page = await ctx.db
       .query("teamMembers")
-      .withIndex("by_team_status", (index) =>
-        index.eq("teamId", team._id).eq("status", "active"),
-      )
+      .withIndex("by_team_status", (index) => index.eq("teamId", team._id).eq("status", "active"))
       .paginate(args.paginationOpts);
-    const memberViews = await Promise.all(page.page.map(async (member) => {
-      if (member.eventId !== event._id) {
-        throw new Error("An active team member belongs to another event.");
-      }
-      const eventMembership = await ctx.db.get(member.membershipId);
-      if (!eventMembership || eventMembership.eventId !== event._id) {
-        throw new Error("Team member references an invalid event membership.");
-      }
-      const [memberPerson, profile] = await Promise.all([
-        ctx.db.get(eventMembership.personId),
-        ctx.db
-          .query("participantProfiles")
-          .withIndex("by_membership", (index) =>
-            index.eq("membershipId", member.membershipId),
-          )
-          .unique(),
-      ]);
-      if (!memberPerson) throw new Error("Membership references a missing person.");
-      return {
-        teamMemberId: member._id,
-        membershipId: member.membershipId,
-        role: member.role,
-        displayName: profile?.fullName ?? memberPerson.displayName,
-        ...(profile?.institution !== undefined ? { institution: profile.institution } : {}),
-        participantClass: eventMembership.participantClass,
-      };
-    }));
+    const memberViews = await Promise.all(
+      page.page.map(async (member) => {
+        if (member.eventId !== event._id) {
+          throw new Error("An active team member belongs to another event.");
+        }
+        const eventMembership = await ctx.db.get(member.membershipId);
+        if (!eventMembership || eventMembership.eventId !== event._id) {
+          throw new Error("Team member references an invalid event membership.");
+        }
+        const [memberPerson, profile, githubCompletion] = await Promise.all([
+          ctx.db.get(eventMembership.personId),
+          ctx.db
+            .query("participantProfiles")
+            .withIndex("by_membership", (index) => index.eq("membershipId", member.membershipId))
+            .unique(),
+          ctx.db
+            .query("githubStarCompletions")
+            .withIndex("by_event_membership", (index) =>
+              index.eq("eventId", event._id).eq("membershipId", member.membershipId),
+            )
+            .unique(),
+        ]);
+        if (!memberPerson) throw new Error("Membership references a missing person.");
+        return {
+          teamMemberId: member._id,
+          membershipId: member.membershipId,
+          role: member.role,
+          displayName: profile?.fullName ?? memberPerson.displayName,
+          ...(githubCompletion
+            ? {
+                githubAvatarUrl: `https://avatars.githubusercontent.com/u/${githubCompletion.githubUserId}?v=4`,
+              }
+            : {}),
+          ...(profile?.institution !== undefined ? { institution: profile.institution } : {}),
+          participantClass: eventMembership.participantClass,
+        };
+      }),
+    );
     return { ...page, page: memberViews };
   },
 });
 
-
-function requireCurrentPolicyAcceptance(
+async function requireCurrentPolicyAcceptance(
+  ctx: MutationCtx,
   membership: Doc<"eventMemberships">,
   participantPolicy: Doc<"participantPolicyVersions">,
 ) {
-  if (!membership.acceptedParticipantPolicyVersionIds.includes(participantPolicy._id)) {
+  if (!(await participantPolicyAccepted(ctx, membership, participantPolicy))) {
     throw new ConvexError({
       code: "POLICY_REQUIRED",
       message: "Accept the current participant policy before creating or joining a team.",
@@ -453,9 +441,7 @@ async function cancelPendingLeadershipTransfers(
 ) {
   const pendingTransfers = await ctx.db
     .query("teamLeadershipTransfers")
-    .withIndex("by_team_state", (index) =>
-      index.eq("teamId", args.teamId).eq("state", "pending"),
-    )
+    .withIndex("by_team_state", (index) => index.eq("teamId", args.teamId).eq("state", "pending"))
     .take(2);
   if (pendingTransfers.length > 1) {
     throw new Error("A team has more than one pending leadership transfer.");
@@ -544,7 +530,7 @@ export const create = mutation({
       await requireMembership(ctx, event._id, person._id),
     );
     requireRegistrationOpen(event, membership.participantClass);
-    requireCurrentPolicyAcceptance(membership, participantPolicy.policy);
+    await requireCurrentPolicyAcceptance(ctx, membership, participantPolicy.policy);
     await requireGitHubStarCompletion(ctx, event, membership);
     const grantIds = await requirePermission(ctx, {
       eventId: event._id,
@@ -618,7 +604,7 @@ export const join = mutation({
       await requireMembership(ctx, event._id, person._id),
     );
     requireRegistrationOpen(event, membership.participantClass);
-    requireCurrentPolicyAcceptance(membership, participantPolicy.policy);
+    await requireCurrentPolicyAcceptance(ctx, membership, participantPolicy.policy);
     await requireGitHubStarCompletion(ctx, event, membership);
     const grantIds = await requirePermission(ctx, {
       eventId: event._id,
@@ -680,7 +666,9 @@ export const join = mutation({
     await ctx.db.patch(team._id, { version: team.version + 1, updatedAt: now });
     await ctx.db.patch(membership._id, {
       onboardingStatus:
-        membership.onboardingStatus === "profile_required" ? "profile_required" : "project_required",
+        membership.onboardingStatus === "profile_required"
+          ? "profile_required"
+          : "project_required",
       updatedAt: now,
     });
     await refreshSubmittedApplicationRoster(ctx, {
@@ -755,7 +743,7 @@ export const switchTeam = mutation({
       await requireMembership(ctx, event._id, person._id),
     );
     requireRegistrationOpen(event, membership.participantClass);
-    requireCurrentPolicyAcceptance(membership, participantPolicy.policy);
+    await requireCurrentPolicyAcceptance(ctx, membership, participantPolicy.policy);
     const joinGrantIds = await requirePermission(ctx, {
       eventId: event._id,
       eventAccessSubjectId: subject._id,
@@ -772,10 +760,7 @@ export const switchTeam = mutation({
     const currentMember = await ctx.db
       .query("teamMembers")
       .withIndex("by_event_membership_status", (index) =>
-        index
-          .eq("eventId", event._id)
-          .eq("membershipId", membership._id)
-          .eq("status", "active"),
+        index.eq("eventId", event._id).eq("membershipId", membership._id).eq("status", "active"),
       )
       .unique();
     if (!currentMember || currentMember.teamId !== args.fromTeamId) {
@@ -808,9 +793,7 @@ export const switchTeam = mutation({
 
     const toTeam = await ctx.db
       .query("teams")
-      .withIndex("by_event_code", (index) =>
-        index.eq("eventId", event._id).eq("publicCode", code),
-      )
+      .withIndex("by_event_code", (index) => index.eq("eventId", event._id).eq("publicCode", code))
       .unique();
     if (!toTeam || toTeam.status === "withdrawn" || toTeam.status === "disqualified") {
       throw new ConvexError({ code: "TEAM_NOT_FOUND", message: "That team code is not active." });
@@ -866,7 +849,9 @@ export const switchTeam = mutation({
     await ctx.db.patch(toTeam._id, { version: toTeam.version + 1, updatedAt: now });
     await ctx.db.patch(membership._id, {
       onboardingStatus:
-        membership.onboardingStatus === "profile_required" ? "profile_required" : "project_required",
+        membership.onboardingStatus === "profile_required"
+          ? "profile_required"
+          : "project_required",
       updatedAt: now,
     });
     await refreshSubmittedApplicationRoster(ctx, {
@@ -973,10 +958,7 @@ export const acceptAssignedTeam = mutation({
         "imported team acceptance",
         teamAssignmentAcceptanceResult,
       );
-      const teamRosterEntryId = ctx.db.normalizeId(
-        "teamRosterEntries",
-        stored.teamRosterEntryId,
-      );
+      const teamRosterEntryId = ctx.db.normalizeId("teamRosterEntries", stored.teamRosterEntryId);
       if (!teamRosterEntryId || teamRosterEntryId !== prior.targetId) {
         throw new Error("The stored imported team acceptance is invalid.");
       }
@@ -988,7 +970,7 @@ export const acceptAssignedTeam = mutation({
       await requireMembership(ctx, event._id, person._id),
     );
     requireRegistrationOpen(event, membership.participantClass);
-    requireCurrentPolicyAcceptance(membership, participantPolicy.policy);
+    await requireCurrentPolicyAcceptance(ctx, membership, participantPolicy.policy);
     await requireGitHubStarCompletion(ctx, event, membership);
     const joinGrantIds = await requirePermission(ctx, {
       eventId: event._id,
@@ -1015,9 +997,10 @@ export const acceptAssignedTeam = mutation({
         message: "You can only accept your own imported team assignment.",
       });
     }
-    const allowedEntryStatus = args.currentTeam === null
-      ? entry.status === "pending"
-      : entry.status === "pending" || entry.status === "choice_required";
+    const allowedEntryStatus =
+      args.currentTeam === null
+        ? entry.status === "pending"
+        : entry.status === "pending" || entry.status === "choice_required";
     if (entry.version !== args.expectedEntryVersion || !allowedEntryStatus) {
       throw new ConvexError({
         code: "TEAM_ASSIGNMENT_CHANGED",
@@ -1028,10 +1011,7 @@ export const acceptAssignedTeam = mutation({
     const currentMember = await ctx.db
       .query("teamMembers")
       .withIndex("by_event_membership_status", (index) =>
-        index
-          .eq("eventId", event._id)
-          .eq("membershipId", membership._id)
-          .eq("status", "active"),
+        index.eq("eventId", event._id).eq("membershipId", membership._id).eq("status", "active"),
       )
       .unique();
     if (args.currentTeam === null && currentMember) {
@@ -1042,15 +1022,13 @@ export const acceptAssignedTeam = mutation({
     }
 
     const now = Date.now();
-    let priorTeam:
-      | {
-          team: Doc<"teams">;
-          member: Doc<"teamMembers">;
-          activeMemberCount: number;
-          withdrawTeam: boolean;
-          leaveGrantIds: Id<"permissionGrants">[];
-        }
-      | null = null;
+    let priorTeam: {
+      team: Doc<"teams">;
+      member: Doc<"teamMembers">;
+      activeMemberCount: number;
+      withdrawTeam: boolean;
+      leaveGrantIds: Id<"permissionGrants">[];
+    } | null = null;
     let entryToApply = entry;
     if (args.currentTeam !== null) {
       if (!currentMember || currentMember.teamId !== args.currentTeam.id) {
@@ -1239,10 +1217,7 @@ export const leave = mutation({
     const member = await ctx.db
       .query("teamMembers")
       .withIndex("by_event_membership_status", (index) =>
-        index
-          .eq("eventId", event._id)
-          .eq("membershipId", membership._id)
-          .eq("status", "active"),
+        index.eq("eventId", event._id).eq("membershipId", membership._id).eq("status", "active"),
       )
       .unique();
     if (!member || member.teamId !== args.teamId) {
@@ -1522,21 +1497,24 @@ export const requestLeadershipTransfer = mutation({
     const member = await ctx.db
       .query("teamMembers")
       .withIndex("by_event_membership_status", (index) =>
-        index
-          .eq("eventId", event._id)
-          .eq("membershipId", membership._id)
-          .eq("status", "active"),
+        index.eq("eventId", event._id).eq("membershipId", membership._id).eq("status", "active"),
       )
       .unique();
     if (!member || member.role !== "lead") {
-      throw new ConvexError({ code: "TEAM_LEAD_REQUIRED", message: "Only the team lead can do that." });
+      throw new ConvexError({
+        code: "TEAM_LEAD_REQUIRED",
+        message: "Only the team lead can do that.",
+      });
     }
     const team = await ctx.db.get(member.teamId);
     if (!team) {
       throw new ConvexError({ code: "TEAM_NOT_FOUND", message: "That team is not available." });
     }
     if (team.version !== args.expectedTeamVersion) {
-      throw new ConvexError({ code: "TEAM_CHANGED", message: "The team changed. Review it and try again." });
+      throw new ConvexError({
+        code: "TEAM_CHANGED",
+        message: "The team changed. Review it and try again.",
+      });
     }
     const grantIds = await requirePermission(ctx, {
       eventId: event._id,
@@ -1548,10 +1526,7 @@ export const requestLeadershipTransfer = mutation({
     const targetMember = await ctx.db
       .query("teamMembers")
       .withIndex("by_team_membership_status", (index) =>
-        index
-          .eq("teamId", team._id)
-          .eq("membershipId", args.toMembershipId)
-          .eq("status", "active"),
+        index.eq("teamId", team._id).eq("membershipId", args.toMembershipId).eq("status", "active"),
       )
       .unique();
     if (!targetMember || targetMember.role !== "member") {
@@ -1646,7 +1621,10 @@ export const respondToLeadershipTransfer = mutation({
       transfer.toMembershipId !== membership._id ||
       transfer.state !== "pending"
     ) {
-      throw new ConvexError({ code: "TRANSFER_NOT_AVAILABLE", message: "That transfer is not available." });
+      throw new ConvexError({
+        code: "TRANSFER_NOT_AVAILABLE",
+        message: "That transfer is not available.",
+      });
     }
     const now = Date.now();
     if (transfer.expiresAt <= now) {
@@ -1716,12 +1694,7 @@ export const respondToLeadershipTransfer = mutation({
           .eq("status", "active"),
       )
       .unique();
-    if (
-      !fromMember ||
-      !toMember ||
-      fromMember.role !== "lead" ||
-      toMember.role !== "member"
-    ) {
+    if (!fromMember || !toMember || fromMember.role !== "lead" || toMember.role !== "member") {
       throw new ConvexError({ code: "TRANSFER_STALE", message: "Team leadership has changed." });
     }
     const fromMembership = await ctx.db.get(transfer.fromMembershipId);

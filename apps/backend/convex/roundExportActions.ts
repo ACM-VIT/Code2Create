@@ -13,8 +13,8 @@ import {
   verifyRoundExport,
 } from "./lib/artifactStorage";
 import { csvDocument } from "./lib/csv";
-import { roundExportCsvHeader } from "./lib/roundExportFormat";
 import {
+  roundExportCsvHeader,
   roundExportPageOptions,
   type RoundExportPageResult,
 } from "./lib/roundExportFormat";
@@ -47,10 +47,7 @@ const emptyCounts = () => ({
   manualReviewRecord: 0,
 });
 
-function addCounts(
-  left: ReturnType<typeof emptyCounts>,
-  right: ReturnType<typeof emptyCounts>,
-) {
+function addCounts(left: ReturnType<typeof emptyCounts>, right: ReturnType<typeof emptyCounts>) {
   return {
     team: left.team + right.team,
     result: left.result + right.result,
@@ -78,13 +75,10 @@ export const generate = internalAction({
     let counts = emptyCounts();
     let cursor: string | null = null;
     while (true) {
-      const page: RoundExportPageResult = await ctx.runQuery(
-        internal.roundExports.exportPage,
-        {
-          roundExportId: context.roundExportId,
-          paginationOpts: roundExportPageOptions(cursor),
-        },
-      );
+      const page: RoundExportPageResult = await ctx.runQuery(internal.roundExports.exportPage, {
+        roundExportId: context.roundExportId,
+        paginationOpts: roundExportPageOptions(cursor),
+      });
       jsonEntries.push(...page.jsonEntries);
       csvRows.push(...page.csvRows);
       counts = addCounts(counts, page.counts);
@@ -97,10 +91,7 @@ export const generate = internalAction({
       jsonEntries.join(","),
       "]}\n",
     ].join("");
-    const csv = csvDocument([
-      [...roundExportCsvHeader],
-      ...csvRows,
-    ]);
+    const csv = csvDocument([[...roundExportCsvHeader], ...csvRows]);
     const files = await storeRoundExport({
       eventId: context.eventId,
       roundId: context.roundId,

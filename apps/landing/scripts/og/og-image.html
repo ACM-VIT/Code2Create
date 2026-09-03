@@ -1,68 +1,151 @@
 <!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8" />
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Do+Hyeon&family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Poppins:wght@400;500&display=block" rel="stylesheet" />
-<style>
-  * { margin: 0; box-sizing: border-box; }
-  html, body { width: 1200px; height: 630px; overflow: hidden; background: #0c0004; }
-  .card {
-    position: relative; width: 1200px; height: 630px; overflow: hidden;
-    background: linear-gradient(180deg, #0c0004 0%, #1d0510 48%, #5a2238 84%, #7c3350 100%);
-    color: #f8f8f8; font-family: Poppins, ui-sans-serif, system-ui, sans-serif;
-  }
-  .hills {
-    position: absolute; left: -20px; right: -20px; bottom: -30px; height: 300px;
-    background: url("../../../web/public/assets/hills-band.webp") center bottom / cover no-repeat;
-    opacity: .55; filter: brightness(.7) saturate(.9);
-  }
-  .tree {
-    position: absolute; left: -130px; bottom: -40px; width: 620px;
-    filter: brightness(.82) saturate(.9);
-  }
-  .tree.right { left: auto; right: -170px; width: 520px; transform: scaleX(-1); filter: brightness(.55) saturate(.8); }
-  .vignette {
-    position: absolute; inset: 0;
-    background: radial-gradient(ellipse at 50% 42%, transparent 44%, rgba(6, 0, 2, .55) 100%);
-  }
-  .corner { position: absolute; top: 34px; font-family: Fraunces, Georgia, serif; font-weight: 600; letter-spacing: .01em; }
-  .edition { left: 44px; font-size: 24px; color: #feb4cb; }
-  .club { right: 44px; display: flex; align-items: center; gap: 12px; }
-  .club img { width: 46px; height: 46px; opacity: .92; }
-  .center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; padding-top: 6px; }
-  .logo { width: 116px; height: auto; filter: drop-shadow(0 0 28px rgba(216, 132, 162, .55)); margin-bottom: 18px; }
-  .wordmark { width: 640px; height: auto; filter: drop-shadow(0 10px 40px rgba(0, 0, 0, .6)); }
-  .tagline {
-    margin-top: 26px; font-family: 'Do Hyeon', Poppins, sans-serif; font-size: 30px; letter-spacing: .04em; text-transform: uppercase;
-    color: #f8f8f8; text-shadow: 0 4px 24px rgba(0, 0, 0, .6);
-  }
-  .meta {
-    margin-top: 12px; font-family: Fraunces, Georgia, serif; font-weight: 500; font-size: 24px;
-    color: #feb4cb; letter-spacing: .005em; text-shadow: 0 4px 24px rgba(0, 0, 0, .6);
-  }
-  .meta b { font-weight: 500; color: #f8f8f8; }
-</style>
-</head>
-<body>
-  <div class="card">
-    <div class="hills"></div>
-    <img class="tree right" src="../../../web/public/assets/tree.webp" alt="" />
-    <img class="tree" src="../../../web/public/assets/tree.webp" alt="" />
-    <div class="vignette"></div>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Do+Hyeon&family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Poppins:wght@400;500&display=block"
+      rel="stylesheet"
+    />
+    <style>
+      * {
+        margin: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 1200px;
+        height: 630px;
+        overflow: hidden;
+        background: #0c0004;
+      }
+      .card {
+        position: relative;
+        width: 1200px;
+        height: 630px;
+        overflow: hidden;
+        background: linear-gradient(180deg, #0c0004 0%, #1d0510 48%, #5a2238 84%, #7c3350 100%);
+        color: #f8f8f8;
+        font-family: Poppins, ui-sans-serif, system-ui, sans-serif;
+      }
+      .hills {
+        position: absolute;
+        left: -20px;
+        right: -20px;
+        bottom: -30px;
+        height: 300px;
+        background: url("../../../web/public/assets/hills-band.webp") center bottom / cover
+          no-repeat;
+        opacity: 0.55;
+        filter: brightness(0.7) saturate(0.9);
+      }
+      .tree {
+        position: absolute;
+        left: -130px;
+        bottom: -40px;
+        width: 620px;
+        filter: brightness(0.82) saturate(0.9);
+      }
+      .tree.right {
+        left: auto;
+        right: -170px;
+        width: 520px;
+        transform: scaleX(-1);
+        filter: brightness(0.55) saturate(0.8);
+      }
+      .vignette {
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(ellipse at 50% 42%, transparent 44%, rgba(6, 0, 2, 0.55) 100%);
+      }
+      .corner {
+        position: absolute;
+        top: 34px;
+        font-family: Fraunces, Georgia, serif;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+      }
+      .edition {
+        left: 44px;
+        font-size: 24px;
+        color: #feb4cb;
+      }
+      .club {
+        right: 44px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .club img {
+        width: 46px;
+        height: 46px;
+        opacity: 0.92;
+      }
+      .center {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding-top: 6px;
+      }
+      .logo {
+        width: 116px;
+        height: auto;
+        filter: drop-shadow(0 0 28px rgba(216, 132, 162, 0.55));
+        margin-bottom: 18px;
+      }
+      .wordmark {
+        width: 640px;
+        height: auto;
+        filter: drop-shadow(0 10px 40px rgba(0, 0, 0, 0.6));
+      }
+      .tagline {
+        margin-top: 26px;
+        font-family: "Do Hyeon", Poppins, sans-serif;
+        font-size: 30px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #f8f8f8;
+        text-shadow: 0 4px 24px rgba(0, 0, 0, 0.6);
+      }
+      .meta {
+        margin-top: 12px;
+        font-family: Fraunces, Georgia, serif;
+        font-weight: 500;
+        font-size: 24px;
+        color: #feb4cb;
+        letter-spacing: 0.005em;
+        text-shadow: 0 4px 24px rgba(0, 0, 0, 0.6);
+      }
+      .meta b {
+        font-weight: 500;
+        color: #f8f8f8;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="hills"></div>
+      <img class="tree right" src="../../../web/public/assets/tree.webp" alt="" />
+      <img class="tree" src="../../../web/public/assets/tree.webp" alt="" />
+      <div class="vignette"></div>
 
-    <div class="corner edition">v7.0</div>
-    <div class="corner club">
-      <img src="../../../web/public/assets/acm-mark.svg" alt="ACM-VIT" />
-    </div>
+      <div class="corner edition">v7.0</div>
+      <div class="corner club">
+        <img src="../../../web/public/assets/acm-mark.svg" alt="ACM-VIT" />
+      </div>
 
-    <div class="center">
-      <img class="logo" src="../../../web/public/assets/logo.svg" alt="" />
-      <img class="wordmark" src="../../../web/public/assets/wordmark.svg" alt="Code2Create" />
-      <p class="tagline">Don’t just code for the vibes, Code2Create.</p>
-      <p class="meta">48-hour national hackathon · <b>VIT Vellore</b> · <b>6 September 2026</b></p>
+      <div class="center">
+        <img class="logo" src="../../../web/public/assets/logo.svg" alt="" />
+        <img class="wordmark" src="../../../web/public/assets/wordmark.svg" alt="Code2Create" />
+        <p class="tagline">Don’t just code for the vibes, Code2Create.</p>
+        <p class="meta">
+          48-hour national hackathon · <b>VIT Vellore</b> · <b>6 September 2026</b>
+        </p>
+      </div>
     </div>
-  </div>
-</body>
+  </body>
 </html>

@@ -6,8 +6,6 @@ type ReadCtx = QueryCtx | MutationCtx;
 export function activeRoundPause(ctx: ReadCtx, roundId: Id<"reviewRounds">) {
   return ctx.db
     .query("reviewRoundPauses")
-    .withIndex("by_round_state", (index) =>
-      index.eq("roundId", roundId).eq("state", "active"),
-    )
+    .withIndex("by_round_state", (index) => index.eq("roundId", roundId).eq("state", "active"))
     .unique();
 }

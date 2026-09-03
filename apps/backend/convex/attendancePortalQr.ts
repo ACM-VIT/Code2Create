@@ -2,11 +2,7 @@ import { ConvexError, v } from "convex/values";
 
 import { internalMutation } from "./_generated/server";
 import { requireEventBySlug } from "./lib/events";
-import {
-  requireCurrentPerson,
-  requireEventSubject,
-  requireMembership,
-} from "./lib/identity";
+import { requireCurrentPerson, requireEventSubject, requireMembership } from "./lib/identity";
 import { revokeActivePortalQrTokens } from "./lib/attendancePortalQrLifecycle";
 import { requirePermission } from "./lib/permissions";
 
@@ -35,10 +31,7 @@ export const mint = internalMutation({
       scopeType: "self",
       scopeId: membership._id,
     });
-    if (
-      membership.eligibilityStatus !== "eligible" ||
-      membership.onboardingStatus !== "accepted"
-    ) {
+    if (membership.eligibilityStatus !== "eligible" || membership.onboardingStatus !== "accepted") {
       throw new ConvexError({
         code: "ATTENDANCE_NOT_AVAILABLE",
         message: "Attendance credentials are available to accepted participants.",

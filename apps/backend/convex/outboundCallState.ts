@@ -1,6 +1,4 @@
-import {
-  type OutboundCallEventType,
-} from "@code2create/domain";
+import type { OutboundCallEventType } from "@code2create/domain";
 import { v } from "convex/values";
 
 import type { Doc } from "./_generated/dataModel";
@@ -31,20 +29,17 @@ const activeStateRank = {
 
 type ActiveState = keyof typeof activeStateRank;
 
-function isActiveState(
-  state: Doc<"outboundCallDeliveries">["state"],
-): state is ActiveState {
-  return state === "provider_accepted" ||
+function isActiveState(state: Doc<"outboundCallDeliveries">["state"]): state is ActiveState {
+  return (
+    state === "provider_accepted" ||
     state === "queued" ||
     state === "initiated" ||
     state === "ringing" ||
-    state === "answered";
+    state === "answered"
+  );
 }
 
-function eventState(
-  eventType: OutboundCallEventType,
-  providerErrorCode: string | undefined,
-) {
+function eventState(eventType: OutboundCallEventType, providerErrorCode: string | undefined) {
   switch (eventType) {
     case "call.queued":
       return "queued" as const;
@@ -64,18 +59,20 @@ function eventState(
       return "cancelled" as const;
     case "call.failed":
       return providerErrorCode === "provider_dispatch_ambiguous"
-        ? "ambiguous" as const
-        : "failed" as const;
+        ? ("ambiguous" as const)
+        : ("failed" as const);
   }
 }
 
 function terminalState(state: Doc<"outboundCallDeliveries">["state"]) {
-  return state === "unavailable" ||
+  return (
+    state === "unavailable" ||
     state === "completed" ||
     state === "busy" ||
     state === "no_answer" ||
     state === "cancelled" ||
-    state === "failed";
+    state === "failed"
+  );
 }
 
 function completionState(state: Doc<"outboundCallDeliveries">["state"]) {
@@ -107,9 +104,10 @@ async function undispatchableReason(
   ) {
     return "call_consent_changed";
   }
-  const requiredPermissionKey = delivery.purpose === "reviewer_substitute_page"
-    ? "review.substitute.page"
-    : "communications.delivery.manage";
+  const requiredPermissionKey =
+    delivery.purpose === "reviewer_substitute_page"
+      ? "review.substitute.page"
+      : "communications.delivery.manage";
   const grants = await Promise.all(
     delivery.authorizationGrantIds.map((grantId) => ctx.db.get(grantId)),
   );
@@ -272,9 +270,7 @@ export const recordProviderEvent = internalMutation({
   handler: async (ctx, args) => {
     const duplicate = await ctx.db
       .query("outboundCallProviderEvents")
-      .withIndex("by_provider_event", (index) =>
-        index.eq("providerEventId", args.providerEventId),
-      )
+      .withIndex("by_provider_event", (index) => index.eq("providerEventId", args.providerEventId))
       .unique();
     if (duplicate) {
       if (
@@ -298,9 +294,7 @@ export const recordProviderEvent = internalMutation({
       deliveryId: delivery._id,
       providerEventId: args.providerEventId,
       eventType: args.eventType,
-      ...(args.providerCallId !== undefined
-        ? { providerCallId: args.providerCallId }
-        : {}),
+      ...(args.providerCallId !== undefined ? { providerCallId: args.providerCallId } : {}),
       ...(args.providerErrorCode !== undefined
         ? { providerErrorCode: args.providerErrorCode }
         : {}),
@@ -309,18 +303,14 @@ export const recordProviderEvent = internalMutation({
     });
     if (terminalState(delivery.state)) return null;
     const nextState = eventState(args.eventType, args.providerErrorCode);
-    const currentRank = isActiveState(delivery.state)
-      ? activeStateRank[delivery.state]
-      : -1;
+    const currentRank = isActiveState(delivery.state) ? activeStateRank[delivery.state] : -1;
     const nextRank = isActiveState(nextState)
       ? activeStateRank[nextState]
       : Number.POSITIVE_INFINITY;
     if (nextRank < currentRank) return null;
     await ctx.db.patch(delivery._id, {
       state: nextState,
-      ...(args.providerCallId !== undefined
-        ? { providerCallId: args.providerCallId }
-        : {}),
+      ...(args.providerCallId !== undefined ? { providerCallId: args.providerCallId } : {}),
       ...(args.providerErrorCode !== undefined
         ? { providerErrorCode: args.providerErrorCode }
         : {}),

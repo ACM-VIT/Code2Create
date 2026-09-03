@@ -21,10 +21,7 @@ import {
   saveIntegrationPolicyDraft,
   type IntegrationPolicy,
 } from "./lib/integrationPolicy";
-import {
-  requireCurrentPerson,
-  requireEventSubject,
-} from "./lib/identity";
+import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
 import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
 import { normalizedText } from "./lib/strings";
@@ -88,9 +85,7 @@ export const current = query({
     }
     const draft = await ctx.db
       .query("integrationPolicyVersions")
-      .withIndex("by_event_status", (index) =>
-        index.eq("eventId", event._id).eq("status", "draft"),
-      )
+      .withIndex("by_event_status", (index) => index.eq("eventId", event._id).eq("status", "draft"))
       .unique();
     const [draftGrants, validateGrants, publishGrants] = await Promise.all([
       matchingPermissionGrantIds(ctx, {
@@ -186,18 +181,13 @@ function describeChanges(published: IntegrationPolicy, draft: IntegrationPolicy)
       `Require the GitHub topic ${draft.requiredGitHubTopic} and recheck every active repository.`,
     );
   }
-  if (
-    published.maxActiveGitHubRepositoriesPerTeam !==
-    draft.maxActiveGitHubRepositoriesPerTeam
-  ) {
+  if (published.maxActiveGitHubRepositoriesPerTeam !== draft.maxActiveGitHubRepositoriesPerTeam) {
     changes.push(
       `Allow up to ${draft.maxActiveGitHubRepositoriesPerTeam} active GitHub repositories per team.`,
     );
   }
   if (published.maxActiveFigmaFilesPerTeam !== draft.maxActiveFigmaFilesPerTeam) {
-    changes.push(
-      `Allow up to ${draft.maxActiveFigmaFilesPerTeam} active Figma files per team.`,
-    );
+    changes.push(`Allow up to ${draft.maxActiveFigmaFilesPerTeam} active Figma files per team.`);
   }
   if (published.githubFreezeAt !== draft.githubFreezeAt) {
     changes.push(
@@ -236,12 +226,7 @@ export const createDraft = mutation({
     const { person } = await requireCurrentPerson(ctx);
     const policy = normalizeIntegrationPolicy(args.policy);
     const reason = normalizedText(args.reason, "Draft reason", 5, 500);
-    const clientOperationId = normalizedText(
-      args.clientOperationId,
-      "Client operation ID",
-      8,
-      120,
-    );
+    const clientOperationId = normalizedText(args.clientOperationId, "Client operation ID", 8, 120);
     const requestFingerprint = operationFingerprint([
       args.expectedEventVersion,
       args.expectedDraftPolicyId ?? null,
@@ -258,10 +243,7 @@ export const createDraft = mutation({
     if (prior) {
       const policyVersionId = ctx.db.normalizeId("integrationPolicyVersions", prior.targetId);
       if (!policyVersionId) throw new Error("The prior integration-policy draft is invalid.");
-      const stored = storedConfigurationDraftResult(
-        prior.resultJson,
-        "integration-policy draft",
-      );
+      const stored = storedConfigurationDraftResult(prior.resultJson, "integration-policy draft");
       return {
         policyVersionId,
         policyVersion: stored.version,
@@ -345,12 +327,7 @@ export const publish = mutation({
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const reason = normalizedText(args.reason, "Publication reason", 5, 500);
-    const clientOperationId = normalizedText(
-      args.clientOperationId,
-      "Client operation ID",
-      8,
-      120,
-    );
+    const clientOperationId = normalizedText(args.clientOperationId, "Client operation ID", 8, 120);
     const requestFingerprint = operationFingerprint([
       args.draftPolicyId,
       args.expectedDraftChecksum,

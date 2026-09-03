@@ -156,11 +156,7 @@ export const githubAccessContext = internalQuery({
       throw new Error("The pinned GitHub evidence context is invalid.");
     }
     const connection = await ctx.db.get(binding.installationConnectionId);
-    if (
-      !connection ||
-      connection.eventId !== event._id ||
-      connection.teamId !== session.teamId
-    ) {
+    if (!connection || connection.eventId !== event._id || connection.teamId !== session.teamId) {
       throw new Error("The pinned GitHub repository connection is invalid.");
     }
     if (connection.state !== "active") {
@@ -265,16 +261,8 @@ export const recordFigmaArtifactAccess = internalMutation({
   },
   returns: v.object({ serverNow: v.number() }),
   handler: async (ctx, args) => {
-    const {
-      event,
-      person,
-      session,
-      binding,
-      snapshot,
-      artifact,
-      grantIds,
-      permissionScope,
-    } = await requireFigmaArtifactAccess(ctx, args);
+    const { event, person, session, binding, snapshot, artifact, grantIds, permissionScope } =
+      await requireFigmaArtifactAccess(ctx, args);
     if (
       artifact._id !== args.artifactId ||
       snapshot._id !== args.snapshotId ||
@@ -368,11 +356,7 @@ export const figmaPreviewListContext = internalQuery({
             v.literal("unchanged"),
             v.literal("unknown"),
           ),
-          renderState: v.union(
-            v.literal("pending"),
-            v.literal("available"),
-            v.literal("failed"),
-          ),
+          renderState: v.union(v.literal("pending"), v.literal("available"), v.literal("failed")),
           width: v.optional(v.number()),
           height: v.optional(v.number()),
         }),
@@ -396,9 +380,7 @@ export const figmaPreviewListContext = internalQuery({
     }
     const facts = await ctx.db
       .query("figmaNodeFacts")
-      .withIndex("by_preview_page_order", (index) =>
-        index.eq("previewSetId", previewSet._id),
-      )
+      .withIndex("by_preview_page_order", (index) => index.eq("previewSetId", previewSet._id))
       .collect();
     if (
       facts.length !== previewSet.selectedNodeCount ||
@@ -563,11 +545,7 @@ export const figmaActivityContext = internalQuery({
   },
 });
 
-const previewState = v.union(
-  v.literal("pending"),
-  v.literal("available"),
-  v.literal("failed"),
-);
+const previewState = v.union(v.literal("pending"), v.literal("available"), v.literal("failed"));
 
 export const figmaComparisonListContext = internalQuery({
   args: {
@@ -938,11 +916,7 @@ export const figmaComparisonPreviewAccessContext = internalQuery({
     ) {
       throw new Error("The fixed Figma comparison sets are invalid.");
     }
-    if (
-      currentFact &&
-      previousFact &&
-      currentFact.nodeId !== previousFact.nodeId
-    ) {
+    if (currentFact && previousFact && currentFact.nodeId !== previousFact.nodeId) {
       throw new ConvexError({
         code: "FIGMA_COMPARISON_INVALID",
         message: "Choose both sides of the same fixed frame comparison.",
@@ -1006,16 +980,8 @@ export const recordFigmaComparisonPreviewAccess = internalMutation({
       });
     }
     const context = await pinnedFigmaContext(ctx, args);
-    const {
-      event,
-      person,
-      session,
-      checkpoint,
-      binding,
-      snapshot,
-      grantIds,
-      permissionScope,
-    } = context;
+    const { event, person, session, checkpoint, binding, snapshot, grantIds, permissionScope } =
+      context;
     if (!checkpoint.previousCheckpointSetId) {
       throw new ConvexError({
         code: "FIGMA_COMPARISON_UNAVAILABLE",
@@ -1243,15 +1209,8 @@ export const recordFigmaPreviewAccess = internalMutation({
   },
   returns: v.object({ serverNow: v.number() }),
   handler: async (ctx, args) => {
-    const {
-      event,
-      person,
-      session,
-      binding,
-      preview,
-      grantIds,
-      permissionScope,
-    } = await requireFigmaPreviewAccess(ctx, args);
+    const { event, person, session, binding, preview, grantIds, permissionScope } =
+      await requireFigmaPreviewAccess(ctx, args);
     if (!samePrivateFigmaPreview(preview, args.expected)) {
       throw new ConvexError({
         code: "FIGMA_PREVIEW_CHANGED",

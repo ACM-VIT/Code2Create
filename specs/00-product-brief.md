@@ -4,13 +4,13 @@
 
 Code2Create 7.0 is a 48-hour event for about 900 to 1,000 people in one venue.
 
-The product controls participant registration, proposal intake, admission, attendance, floor operations, reviews, judging records, and staff response. Convex is the authority for event state. All clients read accepted state from the realtime backend.
+The product controls participant registration, proposal intake, admission, attendance, review operations, judging records, and staff response. Convex is the authority for event state. All clients read accepted state from the realtime backend.
 
 The product must prevent these failures:
 
-- A reviewer is absent or at the wrong table.
+- A reviewer is absent or assigned to the wrong team.
 - A panel does not have the required expertise.
-- A team does not know its current review state or location.
+- A team does not know its current review state.
 - A reviewer starts without the required project and review context.
 - One reviewer replaces independent panel scores with one consensus score.
 - A score or operational decision is lost in a message or spreadsheet.
@@ -18,15 +18,15 @@ The product must prevent these failures:
 
 ## 2. Actors
 
-| Actor | Main work |
-| --- | --- |
-| Participant | Maintain a profile, join a team, submit a proposal, attend sessions, follow review state, and receive feedback |
-| Team lead | Manage membership, transfer leadership, revise the proposal, answer admission questions, and connect team tools |
-| Supreme | Hold suggested event-governance grants |
-| Board | Hold suggested policy, admission, rubric, result, correction, export, and override grants |
-| SC | Hold suggested workflow-management grants for assigned scopes |
-| JC | Hold suggested station, table, queue, support, verification, runner, or playback grants |
-| External Judge | Hold assigned-panel, presence, and own-scorecard grants |
+| Actor          | Main work                                                                                                       |
+| -------------- | --------------------------------------------------------------------------------------------------------------- |
+| Participant    | Maintain a profile, join a team, submit a proposal, attend sessions, follow review state, and receive feedback  |
+| Team lead      | Manage membership, transfer leadership, revise the proposal, answer admission questions, and connect team tools |
+| Supreme        | Hold suggested event-governance grants                                                                          |
+| Board          | Hold suggested policy, admission, rubric, result, correction, export, and override grants                       |
+| SC             | Hold suggested workflow-management grants for assigned scopes                                                   |
+| JC             | Hold suggested station, table, queue, support, verification, runner, or playback grants                         |
+| External Judge | Hold assigned-panel, presence, and own-scorecard grants                                                         |
 
 The only role labels are `Supreme`, `Board`, `SC`, `JC`, and `External Judge`. Protected functions never authorize from the label itself; each action requires an atomic permission grant for one person, one scope, and one validity window. Assigning Supreme atomically materializes its code-owned role template only when the assigner can grant every permission in that template. A person can still receive a grant without a role label.
 
@@ -43,11 +43,10 @@ The participant portal is a Vite web application. It provides:
 - two fixed proposal questions followed by two useful AI-attempted follow-ups;
 - a non-blocking live novelty number above the idea text box;
 - proposal submission and revision;
-- admission status and information requests;
+- admission status and offers;
 - team-scoped GitHub and Figma connections;
 - venue and session attendance status;
 - a personal attendance QR when required;
-- a team-location QR for organizer scanning;
 - a separate review-presence QR;
 - staff-managed review-queue state;
 - support cases;
@@ -72,7 +71,7 @@ Reviewer paging uses a reusable outbound-calling service. The service sends push
 
 ### Operations dashboard
 
-The operations dashboard is a separate Vite web application. It provides permission-scoped workspaces for event setup, access, applications, admission, panels, reviewer paging, attendance, team-location mapping, queues, reviews, judging, integrations, support, incidents, rehearsal, and Synesthesia.
+The operations dashboard is a separate Vite web application. It provides permission-scoped workspaces for event setup, access, applications, admission, panels, reviewer paging, attendance, queues, reviews, judging, integrations, support, incidents, rehearsal, and Synesthesia.
 
 The dashboard shows accepted state and legal next actions. Each protected command rechecks the caller's exact permission, target scope, current version, and current authorization requirement in the mutation that writes the result.
 
@@ -99,14 +98,6 @@ The dashboard shows accepted state and legal next actions. Each protected comman
 4. The server records session entry, temporary exit, return, and final exit as participant-scoped facts.
 5. The participant and operations views update from the same accepted records.
 6. Attendance does not change admission, review scores, or awards.
-
-### Team location
-
-1. The team opens a short-lived team-location QR on its dashboard.
-2. An authorized organizer scans the QR while standing with the team.
-3. The organizer selects the team's zone and nearest published landmark.
-4. The server validates the organizer's zone-scoped grant and writes the mapping.
-5. The team sees the accepted location in realtime.
 
 ### Review
 
@@ -211,7 +202,6 @@ Board and the named owners must publish these values before the applicable relea
 - reviewer eligibility, panel size, and expertise coverage;
 - round schedule, rubric, correction deadline, feedback policy, and award rules;
 - attendance sessions, expected groups, grace windows, and result policy;
-- floor plan, zone grants, and location-mapping freeze;
 - reviewer page timeout, push policy, call script, consent text, provider rate limits, and retention;
 - GitHub and Figma requirements and accepted alternatives;
 - support categories, retention, and privacy periods;

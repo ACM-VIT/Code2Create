@@ -6,10 +6,7 @@ import type { QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
-import {
-  requireCurrentPerson,
-  requireEventSubject,
-} from "./lib/identity";
+import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import {
   findOperation,
   operationFingerprint,
@@ -26,10 +23,7 @@ const severity = v.union(
   v.literal("critical"),
 );
 
-const affectedService = v.union(
-  v.literal("attendance_backend"),
-  v.literal("review_backend"),
-);
+const affectedService = v.union(v.literal("attendance_backend"), v.literal("review_backend"));
 
 const incidentView = v.object({
   id: v.id("incidents"),
@@ -195,9 +189,8 @@ export const activeSummary = query({
     const incidents = await visibleActiveIncidents(ctx, event._id, subject._id);
     return {
       liveCount: incidents.length,
-      pendingManualModeCount: incidents.filter(
-        (incident) => incident.manualModeState === "pending",
-      ).length,
+      pendingManualModeCount: incidents.filter((incident) => incident.manualModeState === "pending")
+        .length,
     };
   },
 });
@@ -222,9 +215,7 @@ export const forService = query({
     const candidates = await ctx.db
       .query("incidents")
       .withIndex("by_event_service_opened", (index) =>
-        index
-          .eq("eventId", event._id)
-          .eq("affectedService", args.affectedService),
+        index.eq("eventId", event._id).eq("affectedService", args.affectedService),
       )
       .order("desc")
       .take(20);
@@ -441,13 +432,22 @@ export const approveManualMode = mutation({
       throw new ConvexError({ code: "INCIDENT_NOT_FOUND", message: "Incident not found." });
     }
     if (incident.version !== args.expectedIncidentVersion) {
-      throw new ConvexError({ code: "INCIDENT_CHANGED", message: "The incident changed. Refresh and try again." });
+      throw new ConvexError({
+        code: "INCIDENT_CHANGED",
+        message: "The incident changed. Refresh and try again.",
+      });
     }
     if (incident.state === "resolved" || incident.manualModeState === "closed") {
-      throw new ConvexError({ code: "INCIDENT_CLOSED", message: "Manual mode is closed for this incident." });
+      throw new ConvexError({
+        code: "INCIDENT_CLOSED",
+        message: "Manual mode is closed for this incident.",
+      });
     }
     if (incident.manualModeState === "approved") {
-      throw new ConvexError({ code: "MANUAL_MODE_APPROVED", message: "Manual mode already has both approvals." });
+      throw new ConvexError({
+        code: "MANUAL_MODE_APPROVED",
+        message: "Manual mode already has both approvals.",
+      });
     }
     const grantIds = await requirePermission(ctx, {
       eventId: event._id,
@@ -569,10 +569,16 @@ export const resolve = mutation({
       throw new ConvexError({ code: "INCIDENT_NOT_FOUND", message: "Incident not found." });
     }
     if (incident.version !== args.expectedIncidentVersion) {
-      throw new ConvexError({ code: "INCIDENT_CHANGED", message: "The incident changed. Refresh and try again." });
+      throw new ConvexError({
+        code: "INCIDENT_CHANGED",
+        message: "The incident changed. Refresh and try again.",
+      });
     }
     if (incident.state === "resolved") {
-      throw new ConvexError({ code: "INCIDENT_RESOLVED", message: "This incident is already resolved." });
+      throw new ConvexError({
+        code: "INCIDENT_RESOLVED",
+        message: "This incident is already resolved.",
+      });
     }
     const grantIds = await requirePermission(ctx, {
       eventId: event._id,
@@ -581,38 +587,39 @@ export const resolve = mutation({
       scopeType: "incident",
       scopeId: incident._id,
     });
-    const [draftSheet, submittedSheet, draftReview, submittedReview, activeRoundPause] = await Promise.all([
-      ctx.db
-        .query("attendanceManualSheets")
-        .withIndex("by_incident_status_created", (index) =>
-          index.eq("incidentId", incident._id).eq("status", "draft"),
-        )
-        .first(),
-      ctx.db
-        .query("attendanceManualSheets")
-        .withIndex("by_incident_status_created", (index) =>
-          index.eq("incidentId", incident._id).eq("status", "submitted"),
-        )
-        .first(),
-      ctx.db
-        .query("manualReviewRecords")
-        .withIndex("by_incident_status_created", (index) =>
-          index.eq("incidentId", incident._id).eq("status", "draft"),
-        )
-        .first(),
-      ctx.db
-        .query("manualReviewRecords")
-        .withIndex("by_incident_status_created", (index) =>
-          index.eq("incidentId", incident._id).eq("status", "submitted"),
-        )
-        .first(),
-      ctx.db
-        .query("reviewRoundPauses")
-        .withIndex("by_incident_state", (index) =>
-          index.eq("incidentId", incident._id).eq("state", "active"),
-        )
-        .first(),
-    ]);
+    const [draftSheet, submittedSheet, draftReview, submittedReview, activeRoundPause] =
+      await Promise.all([
+        ctx.db
+          .query("attendanceManualSheets")
+          .withIndex("by_incident_status_created", (index) =>
+            index.eq("incidentId", incident._id).eq("status", "draft"),
+          )
+          .first(),
+        ctx.db
+          .query("attendanceManualSheets")
+          .withIndex("by_incident_status_created", (index) =>
+            index.eq("incidentId", incident._id).eq("status", "submitted"),
+          )
+          .first(),
+        ctx.db
+          .query("manualReviewRecords")
+          .withIndex("by_incident_status_created", (index) =>
+            index.eq("incidentId", incident._id).eq("status", "draft"),
+          )
+          .first(),
+        ctx.db
+          .query("manualReviewRecords")
+          .withIndex("by_incident_status_created", (index) =>
+            index.eq("incidentId", incident._id).eq("status", "submitted"),
+          )
+          .first(),
+        ctx.db
+          .query("reviewRoundPauses")
+          .withIndex("by_incident_state", (index) =>
+            index.eq("incidentId", incident._id).eq("state", "active"),
+          )
+          .first(),
+      ]);
     if (activeRoundPause) {
       throw new ConvexError({
         code: "ROUND_STILL_PAUSED",
@@ -622,7 +629,8 @@ export const resolve = mutation({
     if (draftSheet || submittedSheet || draftReview || submittedReview) {
       throw new ConvexError({
         code: "MANUAL_RECORDS_PENDING",
-        message: "Cancel, reject, or import every pending paper record before resolving the incident.",
+        message:
+          "Cancel, reject, or import every pending paper record before resolving the incident.",
       });
     }
     const now = Date.now();
@@ -658,7 +666,10 @@ export const resolve = mutation({
       action: "incident.resolved",
       targetType: "incident",
       targetId: incident._id,
-      previousSummary: JSON.stringify({ state: incident.state, manualModeState: incident.manualModeState }),
+      previousSummary: JSON.stringify({
+        state: incident.state,
+        manualModeState: incident.manualModeState,
+      }),
       nextSummary: JSON.stringify({ state: "resolved", manualModeState: "closed", version }),
       reason,
     });

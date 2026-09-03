@@ -1,129 +1,129 @@
-import { api } from '@code2create/backend/api'
-import { useAction } from 'convex/react'
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { DaybreakToggle } from '../components/portal/DaybreakToggle'
-import { Petals } from '../components/portal/Petals'
-import { PortalButton, PortalTextButton } from '../components/portal/PortalButton'
-import { releaseBalloons } from '../lib/balloons'
-import { eventSlug } from '../lib/config'
-import { convexErrorCode, readableError } from '../lib/errors'
-import type { GitHubStarConnectionResult, GitHubStarGateState } from '../types'
+import { api } from "@code2create/backend/api";
+import { useAction } from "convex/react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { DaybreakToggle } from "../components/portal/DaybreakToggle";
+import { Petals } from "../components/portal/Petals";
+import { PortalButton, PortalTextButton } from "../components/portal/PortalButton";
+import { releaseBalloons } from "../lib/balloons";
+import { eventSlug } from "../lib/config";
+import { convexErrorCode, readableError } from "../lib/errors";
+import type { GitHubStarConnectionResult, GitHubStarGateState } from "../types";
 
-const callbackAttempts = new Map<string, Promise<GitHubStarConnectionResult>>()
+const callbackAttempts = new Map<string, Promise<GitHubStarConnectionResult>>();
 type InterludeFailure = {
-  code: string | null
-  message: string
-}
+  code: string | null;
+  message: string;
+};
 
 export function SglangInterlude({
   state,
   callback,
   header,
 }: {
-  state: GitHubStarGateState
-  callback: boolean
+  state: GitHubStarGateState;
+  callback: boolean;
   /** The account badge, the same one every other pre-team screen wears. */
-  header: ReactNode
+  header: ReactNode;
 }) {
-  const beginConnection = useAction(api.githubStarActions.beginConnection)
-  const completeConnection = useAction(api.githubStarActions.completeConnection)
-  const starRepository = useAction(api.githubStarActions.star)
-  const disconnectGitHub = useAction(api.githubStarActions.disconnect)
-  const navigate = useNavigate()
-  const [searchParams] = useSearchParams()
+  const beginConnection = useAction(api.githubStarActions.beginConnection);
+  const completeConnection = useAction(api.githubStarActions.completeConnection);
+  const starRepository = useAction(api.githubStarActions.star);
+  const disconnectGitHub = useAction(api.githubStarActions.disconnect);
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const callbackValues = useMemo(() => {
-    if (!callback) return null
-    const oauthError = searchParams.get('error')
-    if (oauthError) return { kind: 'error' as const }
-    const code = searchParams.get('code')
-    const oauthState = searchParams.get('state')
-    if (!code || !oauthState) return { kind: 'invalid' as const }
-    return { kind: 'complete' as const, code, oauthState }
-  }, [callback, searchParams])
-  const [busy, setBusy] = useState<'callback' | 'connect' | 'disconnect' | 'star' | null>(
-    callbackValues?.kind === 'complete' ? 'callback' : null,
-  )
-  const [failure, setFailure] = useState<InterludeFailure | null>(null)
+    if (!callback) return null;
+    const oauthError = searchParams.get("error");
+    if (oauthError) return { kind: "error" as const };
+    const code = searchParams.get("code");
+    const oauthState = searchParams.get("state");
+    if (!code || !oauthState) return { kind: "invalid" as const };
+    return { kind: "complete" as const, code, oauthState };
+  }, [callback, searchParams]);
+  const [busy, setBusy] = useState<"callback" | "connect" | "disconnect" | "star" | null>(
+    callbackValues?.kind === "complete" ? "callback" : null,
+  );
+  const [failure, setFailure] = useState<InterludeFailure | null>(null);
 
   useEffect(() => {
-    if (callbackValues?.kind !== 'complete') return
-    const key = callbackValues.oauthState
-    let attempt = callbackAttempts.get(key)
+    if (callbackValues?.kind !== "complete") return;
+    const key = callbackValues.oauthState;
+    let attempt = callbackAttempts.get(key);
     if (!attempt) {
       attempt = completeConnection({
         eventSlug,
         state: callbackValues.oauthState,
         code: callbackValues.code,
-      })
-      callbackAttempts.set(key, attempt)
+      });
+      callbackAttempts.set(key, attempt);
     }
-    let active = true
-    attempt.then(
-      (result) => {
-        if (!active) return
-        setBusy(null)
+    let active = true;
+    void attempt
+      .then((result) => {
+        if (!active) return;
+        setBusy(null);
         // A star that already existed completes the gate at the callback,
         // so the release happens here rather than on the star button.
-        if (result.state === 'completed') releaseBalloons()
-        navigate('/', { replace: true, viewTransition: true })
-      },
-      (reason: unknown) => {
-        if (!active) return
-        setBusy(null)
-        setFailure({ code: convexErrorCode(reason), message: readableError(reason) })
-      },
-    )
+        if (result.state === "completed") releaseBalloons();
+        void navigate("/", { replace: true, viewTransition: true });
+      })
+      .catch((reason: unknown) => {
+        if (!active) return;
+        setBusy(null);
+        setFailure({ code: convexErrorCode(reason), message: readableError(reason) });
+      });
     return () => {
-      active = false
-    }
-  }, [callbackValues, completeConnection, navigate])
+      active = false;
+    };
+  }, [callbackValues, completeConnection, navigate]);
 
-  const callbackMessage = callbackValues?.kind === 'error'
-    ? 'GitHub did not authorize this connection. Try again.'
-    : callbackValues?.kind === 'invalid'
-      ? 'This GitHub callback is incomplete. Connect GitHub again.'
-      : null
-  const displayedError = failure?.message ?? callbackMessage
-  const accountInUse = failure?.code === 'GITHUB_ACCOUNT_IN_USE'
+  const callbackMessage =
+    callbackValues?.kind === "error"
+      ? "GitHub did not authorize this connection. Try again."
+      : callbackValues?.kind === "invalid"
+        ? "This GitHub callback is incomplete. Connect GitHub again."
+        : null;
+  const displayedError = failure?.message ?? callbackMessage;
+  const accountInUse = failure?.code === "GITHUB_ACCOUNT_IN_USE";
 
   const connect = async () => {
-    setBusy('connect')
-    setFailure(null)
+    setBusy("connect");
+    setFailure(null);
     try {
-      const result = await beginConnection({ eventSlug })
-      window.location.assign(result.authorizationUrl)
+      const result = await beginConnection({ eventSlug });
+      window.location.assign(result.authorizationUrl);
     } catch (reason) {
-      setBusy(null)
-      setFailure({ code: convexErrorCode(reason), message: readableError(reason) })
+      setBusy(null);
+      setFailure({ code: convexErrorCode(reason), message: readableError(reason) });
     }
-  }
+  };
 
   const star = async () => {
-    setBusy('star')
-    setFailure(null)
+    setBusy("star");
+    setFailure(null);
     try {
-      await starRepository({ eventSlug })
-      setBusy(null)
-      releaseBalloons()
+      await starRepository({ eventSlug });
+      setBusy(null);
+      releaseBalloons();
     } catch (reason) {
-      setBusy(null)
-      setFailure({ code: convexErrorCode(reason), message: readableError(reason) })
+      setBusy(null);
+      setFailure({ code: convexErrorCode(reason), message: readableError(reason) });
     }
-  }
+  };
 
   const disconnect = async () => {
-    setBusy('disconnect')
-    setFailure(null)
+    setBusy("disconnect");
+    setFailure(null);
     try {
-      await disconnectGitHub({ eventSlug })
-      setBusy(null)
-      navigate('/', { replace: true, viewTransition: true })
+      await disconnectGitHub({ eventSlug });
+      setBusy(null);
+      void navigate("/", { replace: true, viewTransition: true });
     } catch (reason) {
-      setBusy(null)
-      setFailure({ code: convexErrorCode(reason), message: readableError(reason) })
+      setBusy(null);
+      setFailure({ code: convexErrorCode(reason), message: readableError(reason) });
     }
-  }
+  };
 
   return (
     <div
@@ -131,7 +131,12 @@ export function SglangInterlude({
       className="relative flex min-h-dvh flex-col items-center overflow-hidden bg-wash bg-[image:var(--note-bg)] px-5 font-ui text-fg"
     >
       <Petals className="opacity-25" />
-      <Link to="/" viewTransition aria-label="Home" className="absolute top-7 left-6 z-10 lg:top-9 lg:left-11">
+      <Link
+        to="/"
+        viewTransition
+        aria-label="Home"
+        className="absolute top-7 left-6 z-10 lg:top-9 lg:left-11"
+      >
         <img
           src="/assets/logo.svg"
           alt="Code2Create"
@@ -149,18 +154,18 @@ export function SglangInterlude({
         <div className="mx-auto flex max-w-[620px] flex-col gap-3.5 text-[13.5px] leading-[1.6] text-fg/70 sm:gap-5 sm:text-[15px] sm:leading-[1.7]">
           <p className="m-0 text-balance">
             SGLang is the leading open-source inference engine, outperforming vLLM across many
-            workloads and serving{' '}
+            workloads and serving{" "}
             <strong className="font-semibold text-fg/90">
               trillions of tokens daily across 400,000+ GPUs
-            </strong>{' '}
-            at companies like{' '}
+            </strong>{" "}
+            at companies like{" "}
             <strong className="font-semibold text-fg/90">
               xAI, NVIDIA, AMD, LinkedIn, and Cursor
             </strong>
             .
           </p>
           <p className="m-0 text-balance">
-            ACM-VIT contributes to SGLang, and our alum{' '}
+            ACM-VIT contributes to SGLang, and our alum{" "}
             <a
               href="https://github.com/adarshxs"
               target="_blank"
@@ -168,17 +173,17 @@ export function SglangInterlude({
               className="font-semibold text-rose-light underline underline-offset-[3px]"
             >
               Adarsh Shriwalmath
-            </a>{' '}
-            went from contributor to maintainer to{' '}
+            </a>{" "}
+            went from contributor to maintainer to{" "}
             <strong className="font-semibold text-fg/90">ML Engineer at Hugging Face</strong>.
           </p>
           <p className="m-0 text-balance">
-            The SGLang team also sponsors{' '}
+            The SGLang team also sponsors{" "}
             <strong className="font-semibold text-fg/90">Code2Create 7.0</strong>, elevating the
             participant experience and helping us raise an exciting prize pool.
           </p>
           <p className="m-0 text-balance">
-            All they ask for is that everyone takes a few seconds to star{' '}
+            All they ask for is that everyone takes a few seconds to star{" "}
             <a
               href="https://github.com/sgl-project/sglang"
               target="_blank"
@@ -196,7 +201,10 @@ export function SglangInterlude({
             <p className="m-0 text-[13px] text-fg/55">connected as @{state.githubLogin}</p>
           ) : null}
           {displayedError ? (
-            <p role="alert" className="m-0 max-w-[440px] text-[13px] leading-relaxed text-rose-light">
+            <p
+              role="alert"
+              className="m-0 max-w-[440px] text-[13px] leading-relaxed text-rose-light"
+            >
               {displayedError}
             </p>
           ) : null}
@@ -207,7 +215,7 @@ export function SglangInterlude({
               onClick={() => void disconnect()}
               className="min-w-[190px]"
             >
-              {busy === 'disconnect' ? 'Disconnecting…' : 'Disconnect GitHub'}
+              {busy === "disconnect" ? "Disconnecting…" : "Disconnect GitHub"}
             </PortalButton>
           ) : (
             <>
@@ -217,15 +225,15 @@ export function SglangInterlude({
                 onClick={state.connected ? () => void star() : () => void connect()}
                 className="min-w-[190px]"
               >
-                {busy === 'callback'
-                  ? 'Connecting…'
-                  : busy === 'connect'
-                    ? 'Opening GitHub…'
-                    : busy === 'star'
-                      ? 'Starring…'
+                {busy === "callback"
+                  ? "Connecting…"
+                  : busy === "connect"
+                    ? "Opening GitHub…"
+                    : busy === "star"
+                      ? "Starring…"
                       : state.connected
-                        ? 'Star SGLang'
-                        : 'Connect GitHub'}
+                        ? "Star SGLang"
+                        : "Connect GitHub"}
               </PortalButton>
               {state.connected ? (
                 <PortalTextButton
@@ -233,7 +241,7 @@ export function SglangInterlude({
                   disabled={busy !== null}
                   onClick={() => void disconnect()}
                 >
-                  {busy === 'disconnect' ? 'Disconnecting…' : 'Disconnect GitHub'}
+                  {busy === "disconnect" ? "Disconnecting…" : "Disconnect GitHub"}
                 </PortalTextButton>
               ) : null}
             </>
@@ -257,7 +265,11 @@ export function SglangInterlude({
             rel="noreferrer"
             className="inline-flex items-center gap-[7px] text-fg no-underline transition-opacity hover:opacity-80"
           >
-            <img src="/assets/lmsys-logo.svg" alt="" className="w-[17px] [filter:var(--mark-filter)]" />
+            <img
+              src="/assets/lmsys-logo.svg"
+              alt=""
+              className="w-[17px] [filter:var(--mark-filter)]"
+            />
             <span className="text-sm font-semibold tracking-[.1em]">LMSYS</span>
           </a>
           <span aria-hidden className="h-3.5 w-px bg-fg/30" />
@@ -277,5 +289,5 @@ export function SglangInterlude({
         </div>
       </div>
     </div>
-  )
+  );
 }

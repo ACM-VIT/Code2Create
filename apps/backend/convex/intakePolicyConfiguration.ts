@@ -11,10 +11,7 @@ import {
   storedConfigurationPublicationResult,
 } from "./lib/configurationOperationResult";
 import { requireEventBySlug } from "./lib/events";
-import {
-  requireCurrentPerson,
-  requireEventSubject,
-} from "./lib/identity";
+import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import {
   intakePolicyChecksum,
   intakePolicyFromDocument,
@@ -47,9 +44,7 @@ async function activeDraftCount(ctx: QueryCtx, policy: Doc<"intakePolicyVersions
   const drafts = await ctx.db
     .query("projectDrafts")
     .withIndex("by_event_intake_policy", (index) =>
-      index
-        .eq("eventId", policy.eventId)
-        .eq("intakePolicyVersionId", policy._id),
+      index.eq("eventId", policy.eventId).eq("intakePolicyVersionId", policy._id),
     )
     .collect();
   return drafts.filter((draft) => draft.stage !== "submitted").length;
@@ -89,9 +84,7 @@ export const current = query({
       scopeType: "event",
     });
     const publishedPolicyId = event.publishedIntakePolicyId;
-    const publishedPolicy = publishedPolicyId
-      ? await ctx.db.get(publishedPolicyId)
-      : null;
+    const publishedPolicy = publishedPolicyId ? await ctx.db.get(publishedPolicyId) : null;
     if (
       !publishedPolicy ||
       publishedPolicy.eventId !== event._id ||
@@ -101,9 +94,7 @@ export const current = query({
     }
     const draftPolicy = await ctx.db
       .query("intakePolicyVersions")
-      .withIndex("by_event_status", (index) =>
-        index.eq("eventId", event._id).eq("status", "draft"),
-      )
+      .withIndex("by_event_status", (index) => index.eq("eventId", event._id).eq("status", "draft"))
       .unique();
     const [draftGrantIds, validateGrantIds, publishGrantIds] = await Promise.all([
       matchingPermissionGrantIds(ctx, {
@@ -177,10 +168,7 @@ export const validateDraft = query({
     return {
       valid: issues.length === 0,
       issues,
-      changes: describeChanges(
-        intakePolicyFromDocument(published),
-        normalized,
-      ),
+      changes: describeChanges(intakePolicyFromDocument(published), normalized),
       pinnedParticipantDraftCount: await activeDraftCount(ctx, published),
     };
   },
@@ -252,10 +240,7 @@ export const createDraft = mutation({
     if (prior) {
       const policyVersionId = ctx.db.normalizeId("intakePolicyVersions", prior.targetId);
       if (!policyVersionId) throw new Error("The prior intake-policy draft result is invalid.");
-      const stored = storedConfigurationDraftResult(
-        prior.resultJson,
-        "intake-policy draft",
-      );
+      const stored = storedConfigurationDraftResult(prior.resultJson, "intake-policy draft");
       return {
         policyVersionId,
         policyVersion: stored.version,

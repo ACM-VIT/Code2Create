@@ -33,13 +33,6 @@ const recommendationContext = v.object({
       answer: v.string(),
     }),
   ),
-  informationResponses: v.array(
-    v.object({
-      sourceRef,
-      question: v.string(),
-      answer: v.string(),
-    }),
-  ),
   criteria: v.array(
     v.object({
       criterionKey: v.string(),
@@ -56,10 +49,7 @@ function validSubmittedIntakeResponses(
     ordinal: number;
     answer: string;
   }[],
-  intakePolicy: Pick<
-    Doc<"intakePolicyVersions">,
-    "minimumFollowUpCount" | "maximumFollowUpCount"
-  >,
+  intakePolicy: Pick<Doc<"intakePolicyVersions">, "minimumFollowUpCount" | "maximumFollowUpCount">,
 ) {
   return (
     responses.length >= intakePolicy.minimumFollowUpCount &&
@@ -75,18 +65,6 @@ function followUpSourceRef(ordinal: number): SourceRef {
   return `follow_up_${ordinal}`;
 }
 
-export function admissionInformationSources(
-  responses: Doc<"projectVersions">["admissionInformationResponses"],
-) {
-  return (responses ?? []).flatMap((response, responseIndex) =>
-    response.answers.map((answer, answerIndex) => ({
-      sourceRef: `requested_information_${responseIndex + 1}_${answerIndex + 1}`,
-      question: answer.question,
-      answer: answer.answer,
-    })),
-  );
-}
-
 export const beginRecommendation = internalMutation({
   args: { recommendationId: v.id("admissionAIRecommendations") },
   returns: v.union(v.null(), recommendationContext),
@@ -95,7 +73,8 @@ export const beginRecommendation = internalMutation({
     if (
       !recommendation ||
       (recommendation.state !== "pending" && recommendation.state !== "running")
-    ) return null;
+    )
+      return null;
     const [application, project, policy, modelConfig] = await Promise.all([
       ctx.db.get(recommendation.applicationId),
       ctx.db.get(recommendation.projectVersionId),
@@ -104,30 +83,28 @@ export const beginRecommendation = internalMutation({
         ? ctx.db.get(recommendation.modelConfigVersionId)
         : Promise.resolve(null),
     ]);
-    const intakePolicy = project
-      ? await ctx.db.get(project.intakePolicyVersionId)
-      : null;
+    const intakePolicy = project ? await ctx.db.get(project.intakePolicyVersionId) : null;
     const valid = Boolean(
       application &&
-        application.eventId === recommendation.eventId &&
-        application.teamId === recommendation.teamId &&
-        application.submittedProjectVersionId === recommendation.projectVersionId &&
-        application.contentVersion === recommendation.applicationContentVersion &&
-        application.admissionPolicyVersionId === recommendation.admissionPolicyVersionId &&
-        application.aiRecommendationId === recommendation._id &&
-        project &&
-        project.eventId === recommendation.eventId &&
-        intakePolicy &&
-        intakePolicy.eventId === recommendation.eventId &&
-        (intakePolicy.status === "published" || intakePolicy.status === "superseded") &&
-        validSubmittedIntakeResponses(project.intakeResponses, intakePolicy) &&
-        policy &&
-        policy.eventId === recommendation.eventId &&
-        policy.status === "published" &&
-        modelConfig &&
-        modelConfig.eventId === recommendation.eventId &&
-        modelConfig.status === "published" &&
-        modelConfig.admissionPolicyVersionId === policy._id,
+      application.eventId === recommendation.eventId &&
+      application.teamId === recommendation.teamId &&
+      application.submittedProjectVersionId === recommendation.projectVersionId &&
+      application.contentVersion === recommendation.applicationContentVersion &&
+      application.admissionPolicyVersionId === recommendation.admissionPolicyVersionId &&
+      application.aiRecommendationId === recommendation._id &&
+      project &&
+      project.eventId === recommendation.eventId &&
+      intakePolicy &&
+      intakePolicy.eventId === recommendation.eventId &&
+      (intakePolicy.status === "published" || intakePolicy.status === "superseded") &&
+      validSubmittedIntakeResponses(project.intakeResponses, intakePolicy) &&
+      policy &&
+      policy.eventId === recommendation.eventId &&
+      policy.status === "published" &&
+      modelConfig &&
+      modelConfig.eventId === recommendation.eventId &&
+      modelConfig.status === "published" &&
+      modelConfig.admissionPolicyVersionId === policy._id,
     );
     if (!valid || !application || !project || !policy || !modelConfig) {
       await ctx.db.patch(recommendation._id, {
@@ -150,7 +127,6 @@ export const beginRecommendation = internalMutation({
         ? { additionalInformation: project.additionalInformation }
         : {}),
       intakeResponses: project.intakeResponses,
-      admissionInformationResponses: project.admissionInformationResponses ?? [],
       experienceBand: application.experienceBand,
       admissionPolicyVersionId: policy._id,
       admissionPolicyChecksum: policy.checksum,
@@ -191,16 +167,10 @@ export const beginRecommendation = internalMutation({
         question: response.question,
         answer: response.answer,
       })),
-      informationResponses: admissionInformationSources(
-        project.admissionInformationResponses,
-      ),
       criteria: policy.criteria.map((criterion) => ({
         criterionKey: criterion.criterionKey,
         label: criterion.label,
-        guidance: admissionGuidanceForBand(
-          criterion.guidanceByBand,
-          application.experienceBand,
-        ),
+        guidance: admissionGuidanceForBand(criterion.guidanceByBand, application.experienceBand),
       })),
     };
   },
@@ -234,7 +204,8 @@ export const agentDispatchFinished = admissionWorkpool.defineOnComplete<
       recommendation.state !== "pending" ||
       recommendation.agentDispatchAttemptId ||
       recommendation.agentSubmissionId
-    ) return;
+    )
+      return;
     await ctx.db.patch(recommendation._id, {
       limitations: ["The idea agent dispatch is retrying; human review remains available."],
       failureCategory: "agent_dispatch_retry",
@@ -257,7 +228,8 @@ export const retryAgentDispatch = internalMutation({
       recommendation.state !== "pending" ||
       recommendation.agentDispatchAttemptId ||
       recommendation.agentSubmissionId
-    ) return false;
+    )
+      return false;
     await admissionWorkpool.enqueueAction(
       ctx,
       internal.admissionAgentActions.dispatchRecommendation,
@@ -284,13 +256,49 @@ export const recoverAgentRecommendation = internalMutation({
       !recommendation ||
       (recommendation.state !== "pending" && recommendation.state !== "running") ||
       recommendation.agentSubmissionId !== args.submissionId
-    ) return false;
+    )
+      return false;
     await ctx.db.patch(recommendation._id, {
       state: "pending",
       agentSubmissionId: undefined,
       agentAcceptedAt: undefined,
       limitations: ["The durable idea agent is recovering an interrupted analysis."],
       failureCategory: "agent_analysis_recovered",
+    });
+    await admissionWorkpool.enqueueAction(
+      ctx,
+      internal.admissionAgentActions.dispatchRecommendation,
+      { recommendationId: recommendation._id },
+      {
+        retry: true,
+        onComplete: internal.admissionIntelligence.agentDispatchFinished,
+        context: recommendation._id,
+      },
+    );
+    return true;
+  },
+});
+
+export const recoverAgentDispatchAttempt = internalMutation({
+  args: {
+    recommendationId: v.id("admissionAIRecommendations"),
+    attemptId: v.string(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const recommendation = await ctx.db.get(args.recommendationId);
+    if (
+      !recommendation ||
+      (recommendation.state !== "pending" && recommendation.state !== "running") ||
+      recommendation.agentDispatchAttemptId !== args.attemptId ||
+      recommendation.agentSubmissionId
+    )
+      return false;
+    await ctx.db.patch(recommendation._id, {
+      state: "pending",
+      agentDispatchAttemptId: undefined,
+      limitations: ["The durable idea agent is recovering an interrupted dispatch."],
+      failureCategory: "agent_dispatch_recovered",
     });
     await admissionWorkpool.enqueueAction(
       ctx,
@@ -321,7 +329,6 @@ export const finishRecommendation = internalMutation({
     ),
     strengths: v.array(v.string()),
     concerns: v.array(v.string()),
-    proposedQuestions: v.array(v.string()),
     confidence: v.optional(v.union(v.literal("low"), v.literal("medium"), v.literal("high"))),
     limitations: v.array(v.string()),
     providerRequestId: v.optional(v.string()),
@@ -342,7 +349,6 @@ export const finishRecommendation = internalMutation({
           JSON.stringify(args.criterionAssessments),
           JSON.stringify(args.strengths),
           JSON.stringify(args.concerns),
-          JSON.stringify(args.proposedQuestions),
           args.confidence ?? null,
           JSON.stringify(args.limitations),
           args.agentVersion ?? null,
@@ -353,8 +359,16 @@ export const finishRecommendation = internalMutation({
       recommendation?.agentOperationId !== undefined &&
       args.operationId === recommendation.agentOperationId &&
       agentOutputChecksum === recommendation.agentOutputChecksum
-    ) return "already_exists";
-    if (!recommendation || recommendation.state !== "running") return "stale";
+    )
+      return "already_exists";
+    const canAcceptRecoveredDispatchCompletion =
+      recommendation?.state === "pending" &&
+      recommendation.failureCategory === "agent_dispatch_recovered";
+    if (
+      !recommendation ||
+      (recommendation.state !== "running" && !canAcceptRecoveredDispatchCompletion)
+    )
+      return "stale";
     const application = await ctx.db.get(recommendation.applicationId);
     if (
       !application ||
@@ -379,16 +393,14 @@ export const finishRecommendation = internalMutation({
         ctx.db.get(recommendation.admissionPolicyVersionId),
         ctx.db.get(recommendation.projectVersionId),
       ]);
-      const intakePolicy = project
-        ? await ctx.db.get(project.intakePolicyVersionId)
-        : null;
+      const intakePolicy = project ? await ctx.db.get(project.intakePolicyVersionId) : null;
       const expectedKeys = policy?.criteria.map((criterion) => criterion.criterionKey) ?? [];
       const validProjectResponses = Boolean(
         project &&
-          intakePolicy &&
-          intakePolicy.eventId === recommendation.eventId &&
-          (intakePolicy.status === "published" || intakePolicy.status === "superseded") &&
-          validSubmittedIntakeResponses(project.intakeResponses, intakePolicy),
+        intakePolicy &&
+        intakePolicy.eventId === recommendation.eventId &&
+        (intakePolicy.status === "published" || intakePolicy.status === "superseded") &&
+        validSubmittedIntakeResponses(project.intakeResponses, intakePolicy),
       );
       const availableSourceRefs = new Set<SourceRef>(["initial_idea"]);
       if (project?.additionalInformation) {
@@ -399,28 +411,21 @@ export const finishRecommendation = internalMutation({
           availableSourceRefs.add(followUpSourceRef(response.ordinal));
         }
       }
-      if (project) {
-        for (const response of admissionInformationSources(
-          project.admissionInformationResponses,
-        )) {
-          availableSourceRefs.add(response.sourceRef);
-        }
-      }
-      const policyViolation = args.recommendation && args.confidence
-        ? ideaIntelligenceAnalysisPolicyViolation({
-            analysis: {
-              recommendation: args.recommendation,
-              criterionAssessments: args.criterionAssessments,
-              strengths: args.strengths,
-              concerns: args.concerns,
-              proposedQuestions: args.proposedQuestions,
-              confidence: args.confidence,
-              limitations: args.limitations,
-            },
-            criterionKeys: expectedKeys,
-            sourceRefs: [...availableSourceRefs],
-          })
-        : "shape_mismatch";
+      const policyViolation =
+        args.recommendation && args.confidence
+          ? ideaIntelligenceAnalysisPolicyViolation({
+              analysis: {
+                recommendation: args.recommendation,
+                criterionAssessments: args.criterionAssessments,
+                strengths: args.strengths,
+                concerns: args.concerns,
+                confidence: args.confidence,
+                limitations: args.limitations,
+              },
+              criterionKeys: expectedKeys,
+              sourceRefs: [...availableSourceRefs],
+            })
+          : "shape_mismatch";
       const valid =
         project?.eventId === recommendation.eventId &&
         validProjectResponses &&
@@ -435,7 +440,6 @@ export const finishRecommendation = internalMutation({
       criterionAssessments: succeeded ? args.criterionAssessments : [],
       strengths: succeeded ? args.strengths : [],
       concerns: succeeded ? args.concerns : [],
-      proposedQuestions: succeeded ? args.proposedQuestions : [],
       confidence: succeeded ? args.confidence : undefined,
       limitations: args.limitations,
       providerRequestId: args.providerRequestId,

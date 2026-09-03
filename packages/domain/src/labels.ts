@@ -210,7 +210,6 @@ export const teamStatusLabels: Record<TeamStatus, string> = {
 export type ApplicationState =
   | "submitted"
   | "under_review"
-  | "needs_information"
   | "accepted"
   | "waitlisted"
   | "declined"
@@ -222,7 +221,6 @@ export type ApplicationState =
 export const applicationStateLabels: Record<ApplicationState, string> = {
   submitted: "Needs review",
   under_review: "Review in progress",
-  needs_information: "Waiting for the team",
   accepted: "Accepted, offer not sent",
   waitlisted: "Waitlisted",
   declined: "Not selected",
@@ -236,7 +234,6 @@ export const applicationDecisionLabels: Record<ApplicationDecision, string> = {
   accept: "Accept",
   waitlist: "Waitlist",
   decline: "Do not select",
-  needs_information: "Ask the team for more",
 };
 
 /** Past-tense labels for published decisions. */
@@ -244,7 +241,6 @@ export const applicationDecisionOutcomeLabels: Record<ApplicationDecision, strin
   accept: "Accepted",
   waitlist: "Waitlisted",
   decline: "Not selected",
-  needs_information: "Sent back to the team for more",
 };
 
 export type AdmissionExperienceBand =
@@ -255,19 +251,14 @@ export type AdmissionExperienceBand =
   | "mixed_or_external";
 
 export const admissionExperienceBandLabels: Record<AdmissionExperienceBand, string> = {
-  first_year: "Review as a first-year team",
-  early_year: "Review as an early-year team",
-  later_year: "Review as a later-year team",
-  postgraduate_or_professional: "Review as a postgraduate or professional team",
-  mixed_or_external: "Review as a mixed or external team",
+  first_year: "First year",
+  early_year: "Second or early year",
+  later_year: "Later year",
+  postgraduate_or_professional: "Postgraduate or working professional",
+  mixed_or_external: "Mixed years or external team",
 };
 
-export type AdmissionOfferState =
-  | "offered"
-  | "confirmed"
-  | "declined"
-  | "expired"
-  | "revoked";
+export type AdmissionOfferState = "offered" | "confirmed" | "declined" | "expired" | "revoked";
 
 export const admissionOfferStateLabels: Record<AdmissionOfferState, string> = {
   offered: "Waiting for the team to accept",
@@ -277,27 +268,14 @@ export const admissionOfferStateLabels: Record<AdmissionOfferState, string> = {
   revoked: "Withdrawn by an organizer",
 };
 
-export type AdmissionInformationRequestState = "open" | "answered" | "superseded";
-
-export const admissionInformationRequestStateLabels: Record<
-  AdmissionInformationRequestState,
-  string
-> = {
-  open: "Waiting for the team",
-  answered: "Answered",
-  superseded: "Replaced by a newer request",
-};
-
 export type AdmissionReviewAssignmentState = "active" | "completed" | "cancelled";
 
-export const admissionReviewAssignmentStateLabels: Record<
-  AdmissionReviewAssignmentState,
-  string
-> = {
-  active: "Has not reviewed yet",
-  completed: "Review submitted",
-  cancelled: "Cancelled",
-};
+export const admissionReviewAssignmentStateLabels: Record<AdmissionReviewAssignmentState, string> =
+  {
+    active: "Has not reviewed yet",
+    completed: "Review submitted",
+    cancelled: "Cancelled",
+  };
 
 export type AdmissionRecommendationState =
   | "pending"
@@ -324,12 +302,7 @@ export const admissionRecommendationStateLabels: Record<AdmissionRecommendationS
   disabled: "Turned off for this event",
 };
 
-export type AdmissionAiDisposition =
-  | "used"
-  | "cleared"
-  | "overridden"
-  | "stale"
-  | "unavailable";
+export type AdmissionAiDisposition = "used" | "cleared" | "overridden" | "stale" | "unavailable";
 
 export const admissionAiDispositionLabels: Record<AdmissionAiDisposition, string> = {
   used: "I agreed with the recommendation",
@@ -450,10 +423,7 @@ export const rollCallPresenceStateLabels: Record<RollCallPresenceState, string> 
   unknown: "Unknown",
 };
 
-export type AttendancePresenceSourceKind =
-  | "scanner"
-  | "staff_reconciliation"
-  | "manual_import";
+export type AttendancePresenceSourceKind = "scanner" | "staff_reconciliation" | "manual_import";
 
 export type AttendancePresenceTransition =
   | "venue_entry"
@@ -558,10 +528,7 @@ export const synesthesiaWindowKindLabels: Record<SynesthesiaWindowKind, string> 
 
 export type SynesthesiaCatalogTrackStatus = "active" | "disabled";
 
-export const synesthesiaCatalogTrackStatusLabels: Record<
-  SynesthesiaCatalogTrackStatus,
-  string
-> = {
+export const synesthesiaCatalogTrackStatusLabels: Record<SynesthesiaCatalogTrackStatus, string> = {
   active: "Participants can request it",
   disabled: "Withdrawn, nobody can request it",
 };
@@ -596,12 +563,7 @@ export const rehearsalRunStateLabels: Record<RehearsalRunState, string> = {
   cancelled: "Cancelled",
 };
 
-export type RehearsalScenarioState =
-  | "pending"
-  | "running"
-  | "passed"
-  | "failed"
-  | "blocked";
+export type RehearsalScenarioState = "pending" | "running" | "passed" | "failed" | "blocked";
 
 export const rehearsalScenarioStateLabels: Record<RehearsalScenarioState, string> = {
   pending: "Not tried yet",
@@ -616,7 +578,6 @@ export type RehearsalWorkstream =
   | "intake_admissions"
   | "communications"
   | "attendance"
-  | "floor"
   | "reviewer_app"
   | "review_operations"
   | "integrations"
@@ -629,7 +590,6 @@ export const rehearsalWorkstreamLabels: Record<RehearsalWorkstream, string> = {
   intake_admissions: "Intake and admissions",
   communications: "Communications",
   attendance: "Attendance",
-  floor: "Hall operations",
   reviewer_app: "Reviewer app",
   review_operations: "Review operations",
   integrations: "GitHub and Figma",
@@ -648,61 +608,6 @@ export const emergencyPackStatusLabels: Record<EmergencyPackStatus, string> = {
   expired: "Too old to use",
 };
 
-export type FloorMappingState = "setup" | "open" | "frozen";
-
-export const floorMappingStateLabels: Record<FloorMappingState, string> = {
-  setup: "Not open for mapping yet",
-  open: "Open for mapping",
-  frozen: "Locations frozen",
-};
-
-/** The nine spoken areas of a zone without fixed table numbers. */
-export type FloorArea =
-  | "north_west"
-  | "north"
-  | "north_east"
-  | "west"
-  | "centre"
-  | "east"
-  | "south_west"
-  | "south"
-  | "south_east";
-
-export const floorAreaLabels: Record<FloorArea, string> = {
-  north_west: "North-west corner",
-  north: "North side",
-  north_east: "North-east corner",
-  west: "West side",
-  centre: "Middle",
-  east: "East side",
-  south_west: "South-west corner",
-  south: "South side",
-  south_east: "South-east corner",
-};
-
-/** Maps a north-up normalized zone point to one spoken area. */
-export function floorAreaAt(x: number, y: number): FloorArea {
-  const west = x < 100 / 3;
-  const east = x >= 200 / 3;
-  const north = y < 100 / 3;
-  const south = y >= 200 / 3;
-  if (north) return west ? "north_west" : east ? "north_east" : "north";
-  if (south) return west ? "south_west" : east ? "south_east" : "south";
-  return west ? "west" : east ? "east" : "centre";
-}
-
-export const floorAreas = [
-  "north_west",
-  "north",
-  "north_east",
-  "west",
-  "centre",
-  "east",
-  "south_west",
-  "south",
-  "south_east",
-] as const satisfies readonly FloorArea[];
-
 export type ReviewEvaluationState = "complete" | "void";
 
 export const reviewEvaluationStateLabels: Record<ReviewEvaluationState, string> = {
@@ -710,12 +615,7 @@ export const reviewEvaluationStateLabels: Record<ReviewEvaluationState, string> 
   void: "Result voided",
 };
 
-export type RoundExportState =
-  | "generating"
-  | "uploaded"
-  | "verified"
-  | "failed"
-  | "superseded";
+export type RoundExportState = "generating" | "uploaded" | "verified" | "failed" | "superseded";
 
 export const roundExportStateLabels: Record<RoundExportState, string> = {
   generating: "Being written",
@@ -769,12 +669,7 @@ export const integrationProviderHealthLabels: Record<IntegrationProviderHealth, 
   not_connected: "Nothing connected",
 };
 
-export type GithubRepositorySyncState =
-  | "pending"
-  | "running"
-  | "ready"
-  | "rate_limited"
-  | "error";
+export type GithubRepositorySyncState = "pending" | "running" | "ready" | "rate_limited" | "error";
 
 export const githubRepositorySyncStateLabels: Record<GithubRepositorySyncState, string> = {
   pending: "Waiting to read",
@@ -800,12 +695,7 @@ export const githubRepositoryCoverageLabels: Record<GithubRepositoryCoverage, st
   unknown: "Changes not counted yet",
 };
 
-export type FigmaFileSyncState =
-  | "pending"
-  | "running"
-  | "ready"
-  | "rate_limited"
-  | "error";
+export type FigmaFileSyncState = "pending" | "running" | "ready" | "rate_limited" | "error";
 
 export const figmaFileSyncStateLabels: Record<FigmaFileSyncState, string> = {
   pending: "Waiting to read",
@@ -854,7 +744,6 @@ export type SupportCaseCategory =
   | "attendance_credential"
   | "missing_scan"
   | "scanner_device"
-  | "table_location"
   | "integration"
   | "queue"
   | "reviewer_device"
@@ -870,7 +759,6 @@ export const supportCaseCategoryLabels: Record<SupportCaseCategory, string> = {
   attendance_credential: "Check-in or ID",
   missing_scan: "Check-in scan",
   scanner_device: "Scanner device",
-  table_location: "Hall location",
   integration: "GitHub or Figma",
   queue: "Judging queue",
   reviewer_device: "Reviewer device",
@@ -886,7 +774,6 @@ export const supportCaseCategoryOrder: readonly SupportCaseCategory[] = [
   "attendance_credential",
   "missing_scan",
   "scanner_device",
-  "table_location",
   "integration",
   "queue",
   "reviewer_device",

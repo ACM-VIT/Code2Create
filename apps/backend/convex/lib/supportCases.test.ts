@@ -38,11 +38,7 @@ describe("support case counters", () => {
       ownerPersonId: "person-1",
       awaitingStaffReply: false,
     };
-    const assigned = applySupportCaseCounterChange(
-      opened,
-      openedSafetyCase,
-      investigating,
-    );
+    const assigned = applySupportCaseCounterChange(opened, openedSafetyCase, investigating);
     expect(assigned).toMatchObject({
       open: 0,
       investigating: 1,
@@ -78,11 +74,7 @@ describe("support case counters", () => {
 
   test("rejects projection drift instead of hiding a negative count", () => {
     expect(() =>
-      applySupportCaseCounterChange(
-        emptySupportCaseCounters(),
-        openedSafetyCase,
-        undefined,
-      ),
+      applySupportCaseCounterChange(emptySupportCaseCounters(), openedSafetyCase, undefined),
     ).toThrow("would become invalid");
   });
 

@@ -8,10 +8,8 @@ import {
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { mutation, query, type MutationCtx } from "./_generated/server";
-import {
-  ensurePerson,
-  requireVerifiedGoogleIdentity,
-} from "./lib/identity";
+import { authenticationEmailConfigured } from "./lib/authenticationEmail";
+import { ensureGooglePerson, requireVerifiedGoogleIdentity } from "./lib/identity";
 import {
   admissionModelConfigurationChecksum,
   admissionPolicyChecksum,
@@ -24,15 +22,8 @@ import {
   communicationsPolicyInput,
   normalizeCommunicationsPolicy,
 } from "./lib/communicationsPolicy";
-import {
-  intakePolicyChecksum,
-  intakePolicyInput,
-  normalizeIntakePolicy,
-} from "./lib/intakePolicy";
-import {
-  integrationPolicyChecksum,
-  normalizeIntegrationPolicy,
-} from "./lib/integrationPolicy";
+import { intakePolicyChecksum, intakePolicyInput, normalizeIntakePolicy } from "./lib/intakePolicy";
+import { integrationPolicyChecksum, normalizeIntegrationPolicy } from "./lib/integrationPolicy";
 import {
   defaultOperationsAutonomyPolicy,
   normalizeOperationsAutonomyPolicy,
@@ -62,6 +53,7 @@ const publicEventPhase = v.object({
 const publicShellState = v.object({
   serverNow: v.number(),
   auth: v.object({
+    emailOtpConfigured: v.boolean(),
     googleConfigured: v.boolean(),
     googleClientId: v.union(v.string(), v.null()),
   }),
@@ -81,16 +73,14 @@ function publicAuthState() {
   const googleClientId = process.env.GOOGLE_CLIENT_ID?.trim() || null;
   const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim() || null;
   return {
+    emailOtpConfigured: authenticationEmailConfigured(),
     googleConfigured: googleClientId !== null && googleClientSecret !== null,
     googleClientId: googleClientSecret === null ? null : googleClientId,
   };
 }
 
 function initialSupremeEmails() {
-  return (process.env.INITIAL_SUPREME_EMAILS ?? "")
-    .split(",")
-    .map(normalizeEmail)
-    .filter(Boolean);
+  return (process.env.INITIAL_SUPREME_EMAILS ?? "").split(",").map(normalizeEmail).filter(Boolean);
 }
 
 function initialEventSlug() {
@@ -130,6 +120,7 @@ export const getPublicState = query({
   returns: v.object({
     serverNow: v.number(),
     auth: v.object({
+      emailOtpConfigured: v.boolean(),
       googleConfigured: v.boolean(),
       googleClientId: v.union(v.string(), v.null()),
     }),
@@ -265,7 +256,7 @@ export const bootstrapEvent = mutation({
   args: bootstrapEventInput.fields,
   returns: v.object({ eventId: v.id("events") }),
   handler: async (ctx, args) => {
-    const { user, person } = await ensurePerson(ctx);
+    const { user, person } = await ensureGooglePerson(ctx);
     if (!initialSupremeEmails().includes(normalizeEmail(user.email))) {
       throw new ConvexError({
         code: "BOOTSTRAP_NOT_ALLOWED",
@@ -296,7 +287,10 @@ export async function createInitialEvent(
   }
   const existingEvent = await ctx.db.query("events").first();
   if (existingEvent) {
-    throw new ConvexError({ code: "EVENT_EXISTS", message: "This deployment already has an event." });
+    throw new ConvexError({
+      code: "EVENT_EXISTS",
+      message: "This deployment already has an event.",
+    });
   }
   const participantPolicy = normalizeParticipantPolicy(args.participantPolicy);
   if (
@@ -314,8 +308,7 @@ export async function createInitialEvent(
   const integrationPolicy = normalizeIntegrationPolicy({
     policyVersion: args.integrationPolicy.version,
     requiredGitHubTopic: args.integrationPolicy.requiredGitHubTopic,
-    maxActiveGitHubRepositoriesPerTeam:
-      args.integrationPolicy.maxActiveGitHubRepositoriesPerTeam,
+    maxActiveGitHubRepositoriesPerTeam: args.integrationPolicy.maxActiveGitHubRepositoriesPerTeam,
     maxActiveFigmaFilesPerTeam: args.integrationPolicy.maxActiveFigmaFilesPerTeam,
     ...(args.integrationPolicy.githubFreezeAt !== undefined
       ? { githubFreezeAt: args.integrationPolicy.githubFreezeAt }
@@ -355,7 +348,8 @@ export async function createInitialEvent(
   ) {
     throw new ConvexError({
       code: "INVALID_APPLICATION_DEADLINE",
-      message: "The application deadline must be in the future and no later than the event start.",
+      message:
+        "Both deadlines must be in the future, external must close no later than VIT, and VIT must close no later than the event start.",
     });
   }
   const admissionPolicyVersion = normalizedText(
@@ -399,19 +393,16 @@ export async function createInitialEvent(
     createdAt: now,
     publishedAt: now,
   });
-  const communicationsPolicyVersionId = await ctx.db.insert(
-    "communicationsPolicyVersions",
-    {
-      eventId,
-      version: 1,
-      status: "published",
-      ...communicationsPolicy,
-      checksum: communicationsPolicyChecksum(communicationsPolicy),
-      createdByPersonId: person._id,
-      createdAt: now,
-      publishedAt: now,
-    },
-  );
+  const communicationsPolicyVersionId = await ctx.db.insert("communicationsPolicyVersions", {
+    eventId,
+    version: 1,
+    status: "published",
+    ...communicationsPolicy,
+    checksum: communicationsPolicyChecksum(communicationsPolicy),
+    createdByPersonId: person._id,
+    createdAt: now,
+    publishedAt: now,
+  });
   await ctx.db.patch(eventId, {
     publishedParticipantPolicyId: participantPolicyVersionId,
     publishedIntakePolicyId: intakePolicyVersionId,
@@ -575,8 +566,7 @@ export async function createInitialEvent(
     internal.eventLifecycle.markExternalRegistrationClosedAtDeadline,
     {
       eventId,
-      expectedExternalApplicationsCloseAt:
-        args.externalApplicationsCloseAt,
+      expectedExternalApplicationsCloseAt: args.externalApplicationsCloseAt,
     },
   );
   await ctx.scheduler.runAt(

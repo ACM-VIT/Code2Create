@@ -15,10 +15,7 @@ import {
 import { writeAuditEvent } from "./lib/audit";
 import { storedConfigurationResult } from "./lib/configurationOperationResult";
 import { requireEventBySlug } from "./lib/events";
-import {
-  requireCurrentPerson,
-  requireEventSubject,
-} from "./lib/identity";
+import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
 import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
 import { normalizedText } from "./lib/strings";
@@ -138,9 +135,7 @@ export const current = query({
         .first(),
       configurationPermissions(ctx, event._id, subject._id),
     ]);
-    const draft = draftPolicy
-      ? await loadAdmissionConfigurationVersion(ctx, draftPolicy)
-      : null;
+    const draft = draftPolicy ? await loadAdmissionConfigurationVersion(ctx, draftPolicy) : null;
     return {
       eventVersion: event.version,
       publicationLocked: firstApplication !== null,
@@ -157,7 +152,9 @@ function describeChanges(
 ) {
   const changes: string[] = [];
   if (published.minimumHumanReviews !== draft.minimumHumanReviews) {
-    changes.push(`Require ${draft.minimumHumanReviews} human review${draft.minimumHumanReviews === 1 ? "" : "s"}.`);
+    changes.push(
+      `Require ${draft.minimumHumanReviews} human review${draft.minimumHumanReviews === 1 ? "" : "s"}.`,
+    );
   }
   if (published.overallParticipantCapacity !== draft.overallParticipantCapacity) {
     changes.push(`Set participant capacity to ${draft.overallParticipantCapacity}.`);

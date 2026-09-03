@@ -2,10 +2,7 @@ import { ConvexError } from "convex/values";
 
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
-import type {
-  AttendanceScannerCredentialKind,
-  AttendanceStationMode,
-} from "../values";
+import type { AttendanceScannerCredentialKind, AttendanceStationMode } from "../values";
 import { requireEventBySlug } from "./events";
 import { requireCurrentPerson, requireEventSubject } from "./identity";
 import { requirePermission } from "./permissions";
@@ -44,7 +41,8 @@ export function requireConfiguredAttendanceStation(
   if (!isConfiguredAttendanceStation(station)) {
     throw new ConvexError({
       code: "STATION_CONFIGURATION_REQUIRED",
-      message: "Replace this attendance plan and explicitly configure each scanner action and credential method.",
+      message:
+        "Replace this attendance plan and explicitly configure each scanner action and credential method.",
     });
   }
 }
@@ -107,11 +105,17 @@ export async function requireAssignedDevice(
     device.status !== "active" ||
     device.secretHash !== args.deviceSecretHash
   ) {
-    throw new ConvexError({ code: "DEVICE_NOT_ACTIVE", message: "This scanner device is not active." });
+    throw new ConvexError({
+      code: "DEVICE_NOT_ACTIVE",
+      message: "This scanner device is not active.",
+    });
   }
   const station = await ctx.db.get(args.stationId);
   if (!station || station.deviceInstallationId !== device._id || station.status !== "active") {
-    throw new ConvexError({ code: "DEVICE_NOT_ASSIGNED", message: "This device is not assigned to the active station." });
+    throw new ConvexError({
+      code: "DEVICE_NOT_ASSIGNED",
+      message: "This device is not assigned to the active station.",
+    });
   }
   return device;
 }
