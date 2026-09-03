@@ -1,14 +1,12 @@
-name: Backend deployment
+name: Backend production deployment
 
 on:
   push:
     branches:
-      - dev
       - main
     paths:
       - .github/workflows/backend-deploy.yml
       - apps/backend/**
-      - infra/azure/staging/deploy-convex.sh
       - infra/azure/production/deploy-convex.sh
       - package.json
       - packages/domain/**
@@ -20,13 +18,13 @@ permissions:
   contents: read
 
 concurrency:
-  group: backend-deployment-${{ github.ref_name }}
+  group: backend-production-deployment
   cancel-in-progress: false
 
 jobs:
   verify:
     name: Verify backend
-    if: github.event_name == 'push' || github.ref_name == 'main'
+    if: github.ref_name == 'main'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
@@ -43,35 +41,6 @@ jobs:
 
       - name: Test backend
         run: pnpm --filter @code2create/backend test
-
-  deploy-staging:
-    name: Deploy staging backend
-    if: github.event_name == 'push' && github.ref_name == 'dev'
-    needs: verify
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    environment: staging
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Install pnpm, Node.js, and dependencies
-        uses: pnpm/setup@c9883cc79df532ad1a7b81bf9ab944ceb090d65c
-        with:
-          runtime: node@24
-          cache: true
-
-      - name: Sign in to Azure with GitHub OIDC
-        uses: azure/login@v2
-        with:
-          client-id: ${{ vars.AZURE_CLIENT_ID }}
-          tenant-id: ${{ vars.AZURE_TENANT_ID }}
-          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-
-      - name: Deploy exact revision to self-hosted Convex
-        run: bash infra/azure/staging/deploy-convex.sh "${GITHUB_SHA}"
 
   deploy-production:
     name: Deploy production backend
