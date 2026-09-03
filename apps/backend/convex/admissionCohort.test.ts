@@ -33,8 +33,6 @@ const betterAuthModules = import.meta.glob(
   "../node_modules/@convex-dev/better-auth/src/component/**/*.ts",
 );
 type BackendTest = TestConvex<typeof schema>;
-type Fixture = Awaited<ReturnType<typeof seedCohortFixture>>;
-
 const readSecret = "read-secret-".padEnd(48, "r");
 const savedEnvironment = {
   INTELLIGENCE_READ_SECRET: process.env.INTELLIGENCE_READ_SECRET,

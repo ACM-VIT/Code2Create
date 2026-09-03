@@ -98,22 +98,25 @@ export function PagingSetup({
             title="Reachable"
           />
         ) : null}
-        {(checks ?? []).map((check, index) => (
-          <View key={check.key} style={index === 0 ? undefined : styles.divider}>
-            <CheckRow
-              consequence={check.consequence}
-              met={check.met}
-              title={check.title}
-              {...(check.fix
-                ? {
-                    onPress: async () => {
-                      await openPagingSetting(check.fix!);
-                    },
-                  }
-                : {})}
-            />
-          </View>
-        ))}
+        {(checks ?? []).map((check, index) => {
+          const fix = check.fix;
+          return (
+            <View key={check.key} style={index === 0 ? undefined : styles.divider}>
+              <CheckRow
+                consequence={check.consequence}
+                met={check.met}
+                title={check.title}
+                {...(fix
+                  ? {
+                      onPress: async () => {
+                        await openPagingSetting(fix);
+                      },
+                    }
+                  : {})}
+              />
+            </View>
+          );
+        })}
       </View>
 
       <View style={styles.callSection}>

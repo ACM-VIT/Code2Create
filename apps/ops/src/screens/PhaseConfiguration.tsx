@@ -2,7 +2,7 @@ import { api } from "@code2create/backend/api";
 import { TZDateMini } from "@date-fns/tz";
 import type { FunctionReturnType } from "convex/server";
 import { useMutation, useQuery } from "convex/react";
-import { useState, type FormEvent } from "react";
+import { useState, type SubmitEvent } from "react";
 
 import {
   ConfigurationTabs,
@@ -134,7 +134,7 @@ export function PhaseConfiguration({ tabs }: { tabs: ConfigurationTabsVisibility
     );
   };
 
-  const saveDraft = (event: FormEvent) => {
+  const saveDraft = (event: SubmitEvent) => {
     event.preventDefault();
     void operations.run(
       "phase-schedule-draft",
@@ -221,7 +221,7 @@ export function PhaseConfiguration({ tabs }: { tabs: ConfigurationTabsVisibility
         <PendingOperationRecovery
           action={pendingOperation.action}
           busy={busy}
-          onConfirm={() => void confirmPendingOperation()}
+          onConfirm={() => confirmPendingOperation()}
           title={pendingOperation.title}
         />
       ) : null}
@@ -308,7 +308,7 @@ export function PhaseConfiguration({ tabs }: { tabs: ConfigurationTabsVisibility
               className="primary"
               disabled={busy || publishReason.trim().length < 5}
               type="button"
-              onClick={() => void publishDraft()}
+              onClick={() => publishDraft()}
             >
               {busy
                 ? "Publishing…"

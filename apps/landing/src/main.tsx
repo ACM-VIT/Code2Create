@@ -8,7 +8,7 @@ import "./styles/botanical.css";
 import App from "./App.js";
 import { clientConfiguration } from "./lib/config.js";
 
-const rootElement = document.getElementById("root");
+const rootElement = document.querySelector("#root");
 if (!rootElement) throw new Error("The landing page root element is missing.");
 
 createRoot(rootElement).render(

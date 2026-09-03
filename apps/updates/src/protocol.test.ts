@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { Buffer } from "node:buffer";
 
 import {
   isMultipartPartWithName,
@@ -107,7 +108,9 @@ describe("Expo Updates protocol service", () => {
         body: JSON.stringify({ expectedCurrentReleaseId: first.releaseId }),
       }),
     ]);
-    expect(responses.map((response) => response.status).sort()).toEqual([200, 409]);
+    expect(responses.map((response) => response.status).sort((left, right) => left - right)).toEqual([
+      200, 409,
+    ]);
   });
 
   test("serves a signed rollback directive and protects publishing routes", async () => {
@@ -167,7 +170,7 @@ describe("Expo Updates protocol service", () => {
   });
 
   test.each([
-    ["/admin/assets/" + "a".repeat(64), "application/octet-stream", maximumUpdateAssetBytes],
+    [`/admin/assets/${"a".repeat(64)}`, "application/octet-stream", maximumUpdateAssetBytes],
     ["/admin/releases/oversized", "application/json", maximumUpdateReleaseBytes],
     ["/admin/releases/oversized/activate", "application/json", maximumUpdateActivationBytes],
   ])("stops an undeclared oversized write to %s", async (path, contentType, maximumBytes) => {
@@ -286,7 +289,15 @@ function manifest(updateId: string, releaseCreatedAt: string, asset: FixtureAsse
   };
 }
 
-function signed(value: object) {
+type JsonFixture =
+  | boolean
+  | number
+  | string
+  | null
+  | JsonFixture[]
+  | { [key: string]: JsonFixture };
+
+function signed(value: JsonFixture) {
   return { body: JSON.stringify(value), signature };
 }
 
@@ -324,7 +335,9 @@ async function request(
   if (authenticated && path.startsWith("/admin/")) {
     headers.set("authorization", `Bearer ${adminToken}`);
   }
-  if (init.body && !headers.has("content-type")) headers.set("content-type", "application/json");
+  if (init.body !== undefined && init.body !== null && !headers.has("content-type")) {
+    headers.set("content-type", "application/json");
+  }
   return handleUpdateRequest(new Request(`${origin}${path}`, { ...init, headers }), {
     store,
     channel: "staging",
@@ -334,7 +347,9 @@ async function request(
 
 async function multipartPart(response: Response, name: string) {
   const contentType = response.headers.get("content-type");
-  if (!contentType) throw new Error("Multipart response has no content type.");
+  if (contentType === null || contentType.length === 0) {
+    throw new Error("Multipart response has no content type.");
+  }
   const parts = await parseMultipartMixedResponseAsync(
     contentType,
     Buffer.from(await response.arrayBuffer()),

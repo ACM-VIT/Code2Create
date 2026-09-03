@@ -174,7 +174,7 @@ export function ParticipantApp({
   const joinCode = joinCodeParam?.trim().toUpperCase() ?? "";
   const finishTeamSwitch = () => {
     setPendingTeamSwitchCode(null);
-    navigate("/", { replace: true, viewTransition: true });
+    void navigate("/", { replace: true, viewTransition: true });
   };
   const requestedTeamSwitchCode = pendingTeamSwitchCode ?? joinCode;
   const teamSwitch =

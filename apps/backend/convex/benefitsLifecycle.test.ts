@@ -3,7 +3,6 @@ import { convexTest, type TestConvex } from "convex-test";
 import { describe, expect, test, vi } from "vitest";
 
 import { api, components } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
 import { insertPermissionGrant } from "./lib/permissions.ts";
 import schema from "./schema.ts";
 

@@ -55,7 +55,7 @@ type ReversedResult = {
 
 const storedRecordedResult = z.object({
   checkInId: z.string().min(1),
-  checkedInAt: z.number().finite(),
+  checkedInAt: z.number(),
   version: z.number().int().positive(),
   identityCheckMethod: z.enum(["vit_id", "external_photo_id", "approved_exception"]),
   teamStatusChanged: z.boolean(),
@@ -63,7 +63,7 @@ const storedRecordedResult = z.object({
 
 const storedReversedResult = z.object({
   checkInId: z.string().min(1),
-  reversedAt: z.number().finite(),
+  reversedAt: z.number(),
   version: z.number().int().positive(),
   teamStatusChanged: z.boolean(),
 });
@@ -154,8 +154,6 @@ export const record = internalMutation({
       args.identityCheckKind === "approved_exception"
         ? normalizedText(args.reason ?? "", "Identity exception reason", 5, 300)
         : undefined;
-    if (args.identityCheckKind === "approved_exception") {
-    }
     const identityCheckMethod: RecordedResult["identityCheckMethod"] =
       args.identityCheckKind === "approved_exception"
         ? "approved_exception"

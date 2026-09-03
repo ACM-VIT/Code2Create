@@ -4,9 +4,11 @@ import {
   outboundCallProtocolVersion,
   signServiceBody,
   verifyServiceBody,
-  type OutboundCallEvent,
-  type OutboundCallEventType,
-  type OutboundCallRequest,
+} from "@code2create/domain";
+import type {
+  OutboundCallEvent,
+  OutboundCallEventType,
+  OutboundCallRequest,
 } from "@code2create/domain";
 
 import { outboundCallRequestSchema } from "./contracts.js";
@@ -18,9 +20,8 @@ import {
   synthesizeSpeech,
   twilioStatusEvent,
   verifyTwilioSignature,
-  type QueuedCall,
-  type TelephonyEnvironment,
 } from "./telephony.js";
+import type { QueuedCall, TelephonyEnvironment } from "./telephony.js";
 
 export interface VoiceEnvironment extends TelephonyEnvironment {
   OUTBOUND_CALLS: DurableObjectNamespace;
@@ -45,12 +46,14 @@ type CallSession = {
 
 const sessionStorageKey = "call-session";
 const audioStorageKey = "call-audio";
-const maximumRequestBytes = 16 * 1_024;
-const signatureMaximumAgeMs = 5 * 60 * 1_000;
-const callbackRetryMs = 30 * 1_000;
-const providerDispatchResolutionMs = 60 * 1_000;
+const maximumRequestBytes = 16 * 1024;
+const signatureMaximumAgeMs = 5 * 60 * 1000;
+const callbackRetryMs = 30 * 1000;
+const providerDispatchResolutionMs = 60 * 1000;
 
-function noStoreJson(value: object, status = 200) {
+type NoStoreJsonBody = Record<string, boolean | number | string>;
+
+function noStoreJson(value: NoStoreJsonBody, status = 200) {
   return Response.json(value, {
     status,
     headers: { "cache-control": "no-store" },
@@ -59,7 +62,9 @@ function noStoreJson(value: object, status = 200) {
 
 async function boundedBody(request: Request) {
   const declared = request.headers.get("content-length");
-  if (declared !== null && Number(declared) > maximumRequestBytes) return null;
+  if (declared !== null && Number(declared) > maximumRequestBytes) {
+    return null;
+  }
   const body = await request.text();
   return new TextEncoder().encode(body).byteLength <= maximumRequestBytes ? body : null;
 }
@@ -67,7 +72,11 @@ async function boundedBody(request: Request) {
 function randomToken() {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
   let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
+  for (const byte of bytes) {
+    // These are raw bytes for btoa, not Unicode scalar values.
+    // oxlint-disable-next-line unicorn/prefer-code-point
+    binary += String.fromCharCode(byte);
+  }
   return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
 }
 
@@ -140,10 +149,13 @@ function terminalEvent(eventType: OutboundCallEventType) {
 }
 
 export class OutboundCallSession {
-  constructor(
-    private readonly state: DurableObjectState,
-    private readonly environment: VoiceEnvironment,
-  ) {}
+  private readonly state: DurableObjectState;
+  private readonly environment: VoiceEnvironment;
+
+  constructor(state: DurableObjectState, environment: VoiceEnvironment) {
+    this.state = state;
+    this.environment = environment;
+  }
 
   async fetch(request: Request) {
     const url = new URL(request.url);
@@ -166,9 +178,13 @@ export class OutboundCallSession {
   }
 
   async alarm() {
-    if (!(await this.flushPendingEvents())) return;
+    if (!(await this.flushPendingEvents())) {
+      return;
+    }
     let session = await this.state.storage.get<CallSession>(sessionStorageKey);
-    if (!session) return;
+    if (session === undefined) {
+      return;
+    }
     if (session.phase === "dispatching") {
       const dispatchDeadlineAt = session.dispatchDeadlineAt;
       if (dispatchDeadlineAt === undefined) {
@@ -194,12 +210,18 @@ export class OutboundCallSession {
       await this.state.storage.setAlarm(Date.now());
       return;
     }
-    if (session.phase !== "accepted") return;
+    if (session.phase !== "accepted") {
+      return;
+    }
 
     const audio = await synthesizeSpeech(this.environment, session.request.script);
     const current = await this.state.storage.get<CallSession>(sessionStorageKey);
-    if (!current || current.phase !== "accepted") return;
-    if (audio) await this.state.storage.put(audioStorageKey, audio);
+    if (current === undefined || current.phase !== "accepted") {
+      return;
+    }
+    if (audio !== null) {
+      await this.state.storage.put(audioStorageKey, audio);
+    }
     const dispatchDeadlineAt = Date.now() + providerDispatchResolutionMs;
     session = {
       ...current,
@@ -226,7 +248,9 @@ export class OutboundCallSession {
     }
     if (!dispatchResult.ok) {
       const latest = await this.state.storage.get<CallSession>(sessionStorageKey);
-      if (!latest) return;
+      if (latest === undefined) {
+        return;
+      }
       if (latest.phase !== "dispatching") {
         await this.state.storage.setAlarm(Date.now());
         return;
@@ -254,7 +278,9 @@ export class OutboundCallSession {
     }
     const queued = dispatchResult.queued;
     const latest = await this.state.storage.get<CallSession>(sessionStorageKey);
-    if (!latest) return;
+    if (latest === undefined) {
+      return;
+    }
     if (latest.providerCallId !== undefined && latest.providerCallId !== queued.providerCallId) {
       throw new Error("The telephony provider returned conflicting call IDs.");
     }
@@ -285,13 +311,17 @@ export class OutboundCallSession {
     while (true) {
       const session = await this.state.storage.get<CallSession>(sessionStorageKey);
       const event = session?.pendingEvents[0];
-      if (!session || !event) return true;
+      if (session === undefined || event === undefined) {
+        return true;
+      }
       if (!(await relayEvent(this.environment, session.request, event))) {
         await this.state.storage.setAlarm(Date.now() + callbackRetryMs);
         return false;
       }
       const latest = await this.state.storage.get<CallSession>(sessionStorageKey);
-      if (!latest) return true;
+      if (latest === undefined) {
+        return true;
+      }
       await this.state.storage.put(sessionStorageKey, {
         ...latest,
         pendingEvents: latest.pendingEvents.filter(
@@ -304,7 +334,9 @@ export class OutboundCallSession {
 
   private async create(request: Request) {
     const body = await boundedBody(request);
-    if (body === null) return noStoreJson({ error: "request_too_large" }, 413);
+    if (body === null) {
+      return noStoreJson({ error: "request_too_large" }, 413);
+    }
     let decoded: unknown;
     try {
       decoded = JSON.parse(body);
@@ -312,9 +344,11 @@ export class OutboundCallSession {
       return noStoreJson({ error: "invalid_json" }, 422);
     }
     const parsed = outboundCallRequestSchema.safeParse(decoded);
-    if (!parsed.success) return noStoreJson({ error: "invalid_request" }, 422);
+    if (!parsed.success) {
+      return noStoreJson({ error: "invalid_request" }, 422);
+    }
     const existing = await this.state.storage.get<CallSession>(sessionStorageKey);
-    if (existing) {
+    if (existing !== undefined) {
       if (!sameRequest(existing.request, parsed.data)) {
         return noStoreJson({ error: "delivery_conflict" }, 409);
       }
@@ -340,7 +374,9 @@ export class OutboundCallSession {
 
   private async voice(request: Request, forceFallback: boolean) {
     const session = await this.authorizedSession(request);
-    if (!session) return new Response("Not found.", { status: 404 });
+    if (session === null) {
+      return new Response("Not found.", { status: 404 });
+    }
     const twiml =
       !forceFallback && session.speech === "synthesized"
         ? synthesizedVoiceTwiml(this.environment, session.request.deliveryId, session.token)
@@ -359,7 +395,9 @@ export class OutboundCallSession {
       return new Response("Not found.", { status: 404 });
     }
     const audio = await this.state.storage.get<ArrayBuffer>(audioStorageKey);
-    if (!audio) return new Response("Not found.", { status: 404 });
+    if (audio === undefined) {
+      return new Response("Not found.", { status: 404 });
+    }
     return new Response(audio, {
       headers: {
         "content-type": "audio/mpeg",
@@ -370,14 +408,18 @@ export class OutboundCallSession {
 
   private async status(request: Request) {
     const session = await this.authorizedSession(request);
-    if (!session) return new Response("Not found.", { status: 404 });
+    if (session === null) {
+      return new Response("Not found.", { status: 404 });
+    }
     const body = await boundedBody(request);
-    if (body === null) return new Response("Request too large.", { status: 413 });
+    if (body === null) {
+      return new Response("Request too large.", { status: 413 });
+    }
     const form = new URLSearchParams(body);
     const originalUrl = request.headers.get("x-c2c-original-url") ?? "";
     const signature = request.headers.get("x-twilio-signature") ?? "";
     if (
-      !originalUrl ||
+      originalUrl.length === 0 ||
       !(await verifyTwilioSignature({
         authToken: this.environment.TWILIO_AUTH_TOKEN,
         requestUrl: originalUrl,
@@ -390,15 +432,17 @@ export class OutboundCallSession {
     const providerCallId = form.get("CallSid")?.trim() ?? "";
     const eventType = twilioStatusEvent(form.get("CallStatus") ?? "");
     if (
-      !providerCallId ||
+      providerCallId.length === 0 ||
       providerCallId.length > 128 ||
-      !eventType ||
+      eventType === null ||
       (session.providerCallId !== undefined && session.providerCallId !== providerCallId)
     ) {
       return new Response("Invalid status.", { status: 422 });
     }
     const current = await this.authorizedSession(request);
-    if (!current) return new Response("Not found.", { status: 404 });
+    if (current === null) {
+      return new Response("Not found.", { status: 404 });
+    }
     if (current.reportedEventTypes.includes(eventType) || current.phase === "terminal") {
       return new Response(null, { status: 204 });
     }
@@ -421,12 +465,16 @@ export class OutboundCallSession {
 
   private async authorizedSession(request: Request) {
     const session = await this.state.storage.get<CallSession>(sessionStorageKey);
-    return session && request.headers.get("x-c2c-call-token") === session.token ? session : null;
+    return session !== undefined && request.headers.get("x-c2c-call-token") === session.token
+      ? session
+      : null;
   }
 }
 
 function decodedPathPart(value: string | undefined) {
-  if (!value) return null;
+  if (value === undefined || value.length === 0) {
+    return null;
+  }
   try {
     return decodeURIComponent(value);
   } catch {
@@ -447,13 +495,19 @@ async function callStub(
   const id = environment.OUTBOUND_CALLS.idFromName(args.deliveryId);
   const stub = environment.OUTBOUND_CALLS.get(id);
   const headers = new Headers();
-  if (args.token !== undefined) headers.set("x-c2c-call-token", args.token);
+  if (args.token !== undefined) {
+    headers.set("x-c2c-call-token", args.token);
+  }
   if (args.route === "status") {
     headers.set("x-c2c-original-url", args.request.url);
     const signature = args.request.headers.get("x-twilio-signature");
-    if (signature) headers.set("x-twilio-signature", signature);
+    if (signature !== null && signature.length > 0) {
+      headers.set("x-twilio-signature", signature);
+    }
   }
-  if (args.body !== undefined) headers.set("content-type", "application/json");
+  if (args.body !== undefined) {
+    headers.set("content-type", "application/json");
+  }
   return stub.fetch(`https://voice.internal/${args.route}`, {
     method: args.request.method,
     headers,
@@ -468,18 +522,23 @@ export default {
       return noStoreJson({
         service: "code2create-voice",
         ok: true,
-        telephonyConfigured: Boolean(
-          environment.TWILIO_ACCOUNT_SID &&
-          environment.TWILIO_AUTH_TOKEN &&
-          environment.TWILIO_FROM_NUMBER &&
+        telephonyConfigured: [
+          environment.TWILIO_ACCOUNT_SID,
+          environment.TWILIO_AUTH_TOKEN,
+          environment.TWILIO_FROM_NUMBER,
           environment.PUBLIC_BASE_URL,
-        ),
-        speechProvider: environment.SARVAM_API_KEY ? "sarvam-bulbul-v3" : "twilio-say",
+        ].every((value) => value.length > 0),
+        speechProvider:
+          environment.SARVAM_API_KEY !== undefined && environment.SARVAM_API_KEY.length > 0
+            ? "sarvam-bulbul-v3"
+            : "twilio-say",
       });
     }
     if (request.method === "POST" && url.pathname === "/v1/calls") {
       const body = await boundedBody(request);
-      if (body === null) return noStoreJson({ error: "request_too_large" }, 413);
+      if (body === null) {
+        return noStoreJson({ error: "request_too_large" }, 413);
+      }
       const verified = await verifyServiceBody({
         context: outboundCallRequestSignatureContext,
         secret: environment.OUTBOUND_CALL_REQUEST_SECRET,
@@ -489,7 +548,9 @@ export default {
         now: Date.now(),
         maximumAgeMs: signatureMaximumAgeMs,
       });
-      if (!verified) return noStoreJson({ error: "unauthorized" }, 401);
+      if (!verified) {
+        return noStoreJson({ error: "unauthorized" }, 401);
+      }
       let decoded: unknown;
       try {
         decoded = JSON.parse(body);
@@ -497,7 +558,9 @@ export default {
         return noStoreJson({ error: "invalid_json" }, 422);
       }
       const parsed = outboundCallRequestSchema.safeParse(decoded);
-      if (!parsed.success) return noStoreJson({ error: "invalid_request" }, 422);
+      if (!parsed.success) {
+        return noStoreJson({ error: "invalid_request" }, 422);
+      }
       return callStub(environment, {
         deliveryId: parsed.data.deliveryId,
         route: "create",
@@ -507,21 +570,31 @@ export default {
     }
 
     const parts = url.pathname.split("/").filter(Boolean);
-    if (parts[0] !== "twilio") return new Response("Not found.", { status: 404 });
+    if (parts[0] !== "twilio") {
+      return new Response("Not found.", { status: 404 });
+    }
     const route = parts[1];
     const deliveryId = decodedPathPart(parts[2]);
     const rawToken = route === "audio" ? parts[3]?.replace(/\.mp3$/u, "") : parts[3];
     const token = decodedPathPart(rawToken);
-    if (!deliveryId || !token || !["voice", "fallback", "audio", "status"].includes(route ?? "")) {
+    if (
+      deliveryId === null ||
+      token === null ||
+      !["voice", "fallback", "audio", "status"].includes(route ?? "")
+    ) {
       return new Response("Not found.", { status: 404 });
     }
     const body = request.method === "POST" ? await boundedBody(request) : undefined;
-    if (body === null) return new Response("Request too large.", { status: 413 });
+    if (body === null) {
+      return new Response("Request too large.", { status: 413 });
+    }
     const internalRoute =
       route === "voice" || route === "fallback" || route === "audio" || route === "status"
         ? route
         : null;
-    if (!internalRoute) return new Response("Not found.", { status: 404 });
+    if (internalRoute === null) {
+      return new Response("Not found.", { status: 404 });
+    }
     return callStub(environment, {
       deliveryId,
       token,

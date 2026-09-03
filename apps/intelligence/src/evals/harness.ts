@@ -7,6 +7,7 @@ import {
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { AgentRunError, init, setProvider } from "@flue/runtime";
 import { start, type Flue } from "@flue/runtime/node";
+import { Buffer } from "node:buffer";
 import { createHash, randomUUID } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";

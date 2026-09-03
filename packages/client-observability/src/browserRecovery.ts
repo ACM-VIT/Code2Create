@@ -7,12 +7,12 @@ type AutomaticReloadAttempt = {
 };
 
 const chunkLoadFailurePatterns = [
-  /chunkloaderror/i,
-  /loading (?:css )?chunk [\w-]+ failed/i,
-  /failed to fetch dynamically imported module/i,
-  /error loading dynamically imported module/i,
-  /importing a module script failed/i,
-  /unable to preload css/i,
+  /chunkloaderror/iu,
+  /loading (?:css )?chunk [\w-]+ failed/iu,
+  /failed to fetch dynamically imported module/iu,
+  /error loading dynamically imported module/iu,
+  /importing a module script failed/iu,
+  /unable to preload css/iu,
 ];
 
 export function isChunkLoadFailure(error: unknown): boolean {
@@ -40,24 +40,32 @@ export function automaticChunkReloadIsAvailable(
  * waiting for connectivity when the device is offline.
  */
 export function installBrowserChunkRecovery(): void {
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined") {
+    return;
+  }
 
   let waitingForConnectivity = false;
 
   window.addEventListener("vite:preloadError", (event) => {
     const now = Date.now();
     const href = window.location.href;
-    if (!automaticReloadAvailableInSession(href, now)) return;
+    if (!automaticReloadAvailableInSession(href, now)) {
+      return;
+    }
 
     if (window.navigator.onLine) {
-      if (!claimAutomaticReload(href, now)) return;
+      if (!claimAutomaticReload(href, now)) {
+        return;
+      }
       event.preventDefault();
       window.location.reload();
       return;
     }
 
     event.preventDefault();
-    if (waitingForConnectivity) return;
+    if (waitingForConnectivity) {
+      return;
+    }
     waitingForConnectivity = true;
     window.addEventListener(
       "online",
@@ -65,7 +73,9 @@ export function installBrowserChunkRecovery(): void {
         waitingForConnectivity = false;
         const connectedAt = Date.now();
         const connectedHref = window.location.href;
-        if (claimAutomaticReload(connectedHref, connectedAt)) window.location.reload();
+        if (claimAutomaticReload(connectedHref, connectedAt)) {
+          window.location.reload();
+        }
       },
       { once: true },
     );
@@ -87,7 +97,9 @@ function automaticReloadAvailableInSession(href: string, now: number): boolean {
 function claimAutomaticReload(href: string, attemptedAt: number): boolean {
   try {
     const storedAttempt = window.sessionStorage.getItem(automaticReloadGuardKey);
-    if (!automaticChunkReloadIsAvailable(storedAttempt, href, attemptedAt)) return false;
+    if (!automaticChunkReloadIsAvailable(storedAttempt, href, attemptedAt)) {
+      return false;
+    }
     window.sessionStorage.setItem(
       automaticReloadGuardKey,
       JSON.stringify({ href, attemptedAt } satisfies AutomaticReloadAttempt),
@@ -99,12 +111,16 @@ function claimAutomaticReload(href: string, attemptedAt: number): boolean {
 }
 
 function errorMessage(error: unknown): string {
-  if (error instanceof Error) return `${error.name}: ${error.message}`;
+  if (error instanceof Error) {
+    return `${error.name}: ${error.message}`;
+  }
   return typeof error === "string" ? error : "";
 }
 
 function parseAutomaticReloadAttempt(value: string | null): AutomaticReloadAttempt | null {
-  if (value === null) return null;
+  if (value === null) {
+    return null;
+  }
   try {
     const parsed: unknown = JSON.parse(value);
     if (

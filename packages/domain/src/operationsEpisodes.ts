@@ -3,7 +3,7 @@ import type {
   OperationsHealthSeverity,
   OperationsHealthSignalKey,
 } from "./operationsHealth.ts";
-import { operationsIntelligenceProtocolVersion } from "./intelligenceProtocol.ts";
+import type { operationsIntelligenceProtocolVersion } from "./intelligenceProtocol.ts";
 
 export const operationsEpisodeIngressSignatureContext = "code2create.operations-episode.ingress.v1";
 export const operationsEpisodeReadSignatureContext = "code2create.operations-episode.read.v1";

@@ -1,4 +1,5 @@
-import { participantEmailProtocolVersion, type ParticipantEmailEvent } from "@code2create/domain";
+import { participantEmailProtocolVersion } from "@code2create/domain";
+import type { ParticipantEmailEvent } from "@code2create/domain";
 import { z } from "zod";
 
 const boundedText = (minimum: number, maximum: number) => z.string().min(minimum).max(maximum);
@@ -71,11 +72,13 @@ export const cloudflareEmailSendingEventSchema = z.discriminatedUnion("type", [
   }),
 ]);
 
+export type CloudflareEmailSendingEvent = z.infer<typeof cloudflareEmailSendingEventSchema>;
+
+// oxlint-disable-next-line typescript/consistent-return -- The Zod discriminant is exhaustive; an impossible fallback would weaken that invariant.
 export function normalizeCloudflareEmailEvent(
-  input: unknown,
+  event: CloudflareEmailSendingEvent,
   expectedDomain: string,
 ): ParticipantEmailEvent {
-  const event = cloudflareEmailSendingEventSchema.parse(input);
   if (event.source.domain.toLocaleLowerCase("en") !== expectedDomain.toLocaleLowerCase("en")) {
     throw new Error("Cloudflare Email Sending event came from an unexpected domain.");
   }
@@ -87,29 +90,33 @@ export function normalizeCloudflareEmailEvent(
     providerAt: Date.parse(event.metadata.eventTimestamp),
   };
   switch (event.type) {
-    case "cf.email.sending.message.delivered":
+    case "cf.email.sending.message.delivered": {
       return { ...common, eventType: "email.delivered", disableDestination: false };
-    case "cf.email.sending.message.deferred":
+    }
+    case "cf.email.sending.message.deferred": {
       return {
         ...common,
         eventType: "email.delivery_delayed",
         disableDestination: false,
         providerErrorCode: "cloudflare_email_deferred",
       };
-    case "cf.email.sending.message.bounced":
+    }
+    case "cf.email.sending.message.bounced": {
       return {
         ...common,
         eventType: "email.bounced",
         disableDestination: event.payload.bounce.type === "hard",
         providerErrorCode: `cloudflare_email_bounced_${event.payload.bounce.type}`,
       };
-    case "cf.email.sending.message.failed":
+    }
+    case "cf.email.sending.message.failed": {
       return {
         ...common,
         eventType: "email.failed",
         disableDestination: false,
         providerErrorCode: "cloudflare_email_failed",
       };
+    }
     case "cf.email.sending.message.rejected": {
       const suppressed = event.payload.rejection.reason === "suppressed";
       return {
@@ -119,12 +126,13 @@ export function normalizeCloudflareEmailEvent(
         providerErrorCode: suppressed ? "cloudflare_email_suppressed" : "cloudflare_email_rejected",
       };
     }
-    case "cf.email.sending.message.complained":
+    case "cf.email.sending.message.complained": {
       return {
         ...common,
         eventType: "email.complained",
         disableDestination: true,
         providerErrorCode: "cloudflare_email_complained",
       };
+    }
   }
 }

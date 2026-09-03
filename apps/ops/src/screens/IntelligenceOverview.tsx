@@ -1,6 +1,6 @@
 import { api } from "@code2create/backend/api";
 import { useQuery } from "convex/react";
-import { type FormEvent, useState } from "react";
+import { type SubmitEvent, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { Icon } from "../components/Icon";
@@ -74,7 +74,7 @@ function AskComposer({
   const [draft, setDraft] = useState("");
   const ready = canGenerate && draft.trim().length > 0;
 
-  const submit = (event: FormEvent<HTMLFormElement>) => {
+  const submit = (event: SubmitEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!ready) return;
     onAsk(draft.trim());

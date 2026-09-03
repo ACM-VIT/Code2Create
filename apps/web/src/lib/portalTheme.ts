@@ -63,7 +63,7 @@ export function setPortalTheme(theme: PortalTheme) {
   // The dawn breaks as a crossfade where the browser supports view
   // transitions; elsewhere (and under reduced motion) it is instant.
   const transition = (
-    document as Document & { startViewTransition?: (update: () => void) => unknown }
+    document as Document & { startViewTransition?: (update: () => void) => void }
   ).startViewTransition;
   if (transition && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
     transition.call(document, swap);

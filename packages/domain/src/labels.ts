@@ -255,11 +255,11 @@ export type AdmissionExperienceBand =
   | "mixed_or_external";
 
 export const admissionExperienceBandLabels: Record<AdmissionExperienceBand, string> = {
-  first_year: "Review as a first-year team",
-  early_year: "Review as an early-year team",
-  later_year: "Review as a later-year team",
-  postgraduate_or_professional: "Review as a postgraduate or professional team",
-  mixed_or_external: "Review as a mixed or external team",
+  first_year: "First year",
+  early_year: "Second or early year",
+  later_year: "Later year",
+  postgraduate_or_professional: "Postgraduate or working professional",
+  mixed_or_external: "Mixed years or external team",
 };
 
 export type AdmissionOfferState = "offered" | "confirmed" | "declined" | "expired" | "revoked";

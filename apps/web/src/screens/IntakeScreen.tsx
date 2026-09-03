@@ -2,7 +2,7 @@ import { api } from "@code2create/backend/api";
 import { useProductAnalytics } from "@code2create/client-observability";
 import { useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type SubmitEvent, type ReactNode } from "react";
 import {
   FloatingPortal,
   autoUpdate,
@@ -949,7 +949,7 @@ function IntakeWorkspace({
     },
   });
 
-  const run = async (command: () => Promise<unknown>) => {
+  const run = async <Result,>(command: () => Promise<Result>) => {
     if (commandInFlight.current) return;
     commandInFlight.current = true;
     setBusy(true);
@@ -1075,7 +1075,7 @@ function IntakeWorkspace({
     });
   };
 
-  const submitIdea = (event: FormEvent) => {
+  const submitIdea = (event: SubmitEvent) => {
     event.preventDefault();
     const submittedDraftVersion = ideaBase.current.version;
     pendingIdeaBaseVersion.current = submittedDraftVersion;
@@ -1107,7 +1107,7 @@ function IntakeWorkspace({
     });
   };
 
-  const submitAnswer = (event: FormEvent<HTMLFormElement>) => {
+  const submitAnswer = (event: SubmitEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!activeFollowUp || pendingFollowUp) return;
     const submittedAnswer = new FormData(event.currentTarget).get("follow-up-answer");
@@ -1149,7 +1149,7 @@ function IntakeWorkspace({
     });
   };
 
-  const submitAdditionalInformation = (event: FormEvent) => {
+  const submitAdditionalInformation = (event: SubmitEvent) => {
     event.preventDefault();
     const completingStep = draft?.stage === "additional_information";
     if (!completingStep && (!preview || additionalInformationEdit === null)) return;

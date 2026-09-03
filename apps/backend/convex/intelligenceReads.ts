@@ -149,7 +149,7 @@ type IntelligenceReadDispatch =
 export async function runIntelligenceRead(
   ctx: ActionCtx,
   args: IntelligenceReadDispatch,
-): Promise<unknown> {
+) {
   switch (args.read) {
     case "operations_health": {
       const health = await ctx.runQuery(internal.operationsHealth.materializedForEvent, {

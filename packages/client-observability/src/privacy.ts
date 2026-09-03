@@ -1,6 +1,9 @@
 type PostHogEvent = {
   event: string;
   properties?: Record<string, unknown>;
+  $set?: unknown;
+  $set_once?: unknown;
+  $unset?: unknown;
 };
 
 const replaySensitiveSelector = "[data-ph-sensitive], .ph-sensitive";
@@ -65,14 +68,20 @@ export function maskReplayAttribute(name: string, value: string, element?: Eleme
 }
 
 function replayElementIsSensitive(element: Element | undefined) {
-  if (!element) return false;
-  if (element.closest(replaySensitiveSelector)) return true;
+  if (element === undefined) {
+    return false;
+  }
+  if (element.closest(replaySensitiveSelector) !== null) {
+    return true;
+  }
   const metadata = [
     element.id,
     element.getAttribute("name"),
     element.getAttribute("type"),
     element.getAttribute("autocomplete"),
     element.getAttribute("aria-label"),
+    // Element also covers SVGElement, so getAttribute is the portable DOM API here.
+    // oxlint-disable-next-line unicorn/prefer-dom-node-dataset
     element.getAttribute("data-field"),
   ]
     .filter((value): value is string => value !== null)
@@ -92,21 +101,27 @@ function maskedReplayValue(value: string) {
 }
 
 export function scrubPostHogEvent<T extends PostHogEvent>(event: T | null): T | null {
-  if (!event) return null;
+  if (event === null) {
+    return null;
+  }
 
   // rrweb has already applied the field-level masking functions below. Its
   // payload must remain structurally untouched or the recording is undecodable.
-  if (event.event === "$snapshot") return event;
+  if (event.event === "$snapshot") {
+    return event;
+  }
   if (event.event === "$exception" && isInjectedBrowserBridgeException(event.properties)) {
     return null;
   }
 
-  if (event.properties) {
+  if (event.properties !== undefined) {
     Object.assign(event, { properties: sanitizeTelemetryRecord(event.properties) });
   }
   for (const key of ["$set", "$set_once", "$unset"] as const) {
-    const value = Reflect.get(event, key);
-    if (value !== undefined) Reflect.set(event, key, sanitizeTelemetryValue(value, key));
+    const value = event[key];
+    if (value !== undefined) {
+      Object.assign(event, { [key]: sanitizeTelemetryValue(value, key) });
+    }
   }
   return event;
 }
@@ -122,20 +137,30 @@ function sanitizeTelemetryValue(value: unknown, key: string): unknown {
     return typeof value === "string" ? maskedReplayValue(value) : "[redacted]";
   }
   if (typeof value === "string") {
-    if (urlProperties.has(key)) return sanitizeTelemetryUrl(value);
-    if (key === "$pathname") return sanitizePathname(value);
-    if (key === "filename" || key === "abs_path") return safeGeneratedFilename(value);
+    if (urlProperties.has(key)) {
+      return sanitizeTelemetryUrl(value);
+    }
+    if (key === "$pathname") {
+      return sanitizePathname(value);
+    }
+    if (key === "filename" || key === "abs_path") {
+      return safeGeneratedFilename(value);
+    }
     return redactTelemetryPii(value);
   }
   if (Array.isArray(value)) {
     return value.map((entry) => sanitizeTelemetryValue(entry, key));
   }
-  if (isRecord(value)) return sanitizeTelemetryRecord(value);
+  if (isRecord(value)) {
+    return sanitizeTelemetryRecord(value);
+  }
   return value;
 }
 
 function telemetryPropertyIsSensitive(key: string) {
-  if (key === "token") return false;
+  if (key === "token") {
+    return false;
+  }
   return (
     telemetrySensitivePropertyPattern.test(key) ||
     telemetryPersonNamePropertyPattern.test(key) ||
@@ -145,9 +170,13 @@ function telemetryPropertyIsSensitive(key: string) {
 
 function isInjectedBrowserBridgeException(properties: Record<string, unknown> | undefined) {
   const exceptionList = properties?.$exception_list;
-  if (!Array.isArray(exceptionList)) return false;
+  if (!Array.isArray(exceptionList)) {
+    return false;
+  }
   return exceptionList.some((exception) => {
-    if (!isRecord(exception) || !isRecord(exception.stacktrace)) return false;
+    if (!isRecord(exception) || !isRecord(exception.stacktrace)) {
+      return false;
+    }
     const frames = exception.stacktrace.frames;
     return (
       Array.isArray(frames) &&

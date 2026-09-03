@@ -1,7 +1,7 @@
 import { api } from "@code2create/backend/api";
 import type { FunctionReturnType } from "convex/server";
 import { useMutation, useQuery } from "convex/react";
-import { useState, type FormEvent } from "react";
+import { useState, type SubmitEvent } from "react";
 import { Link } from "react-router-dom";
 
 import {
@@ -140,7 +140,7 @@ export function CheckpointConfiguration({ tabs }: { tabs: ConfigurationTabsVisib
     );
   };
 
-  const saveDraft = (event: FormEvent) => {
+  const saveDraft = (event: SubmitEvent) => {
     event.preventDefault();
     void operations.run(
       "checkpoint-draft",
@@ -223,7 +223,7 @@ export function CheckpointConfiguration({ tabs }: { tabs: ConfigurationTabsVisib
         <PendingOperationRecovery
           action={pendingOperation.action}
           busy={busy}
-          onConfirm={() => void confirmPendingOperation()}
+          onConfirm={() => confirmPendingOperation()}
           title={pendingOperation.title}
         />
       ) : null}
@@ -329,7 +329,7 @@ export function CheckpointConfiguration({ tabs }: { tabs: ConfigurationTabsVisib
                     className="primary"
                     disabled={busy}
                     type="button"
-                    onClick={() => void publishDraft()}
+                    onClick={() => publishDraft()}
                   >
                     {busy
                       ? "Publishing…"

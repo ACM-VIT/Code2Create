@@ -735,9 +735,18 @@ export const processGrantAllBatch = internalMutation({
     let alreadyHadCount = run.alreadyHadCount;
     let outOfCodesCount = run.outOfCodesCount;
     for (const targetRow of page.page) {
-      const target = run.scope === "team"
-        ? { teamId: targetRow._id as Id<"teams"> }
-        : { membershipId: targetRow._id as Id<"eventMemberships"> };
+      let target: { teamId: Id<"teams"> } | { membershipId: Id<"eventMemberships"> };
+      if (run.scope === "team") {
+        const teamId = ctx.db.normalizeId("teams", targetRow._id);
+        if (!teamId) throw new Error("The benefit grant run returned an invalid team ID.");
+        target = { teamId };
+      } else {
+        const membershipId = ctx.db.normalizeId("eventMemberships", targetRow._id);
+        if (!membershipId) {
+          throw new Error("The benefit grant run returned an invalid membership ID.");
+        }
+        target = { membershipId };
+      }
       const result = await grantTo(ctx, {
         benefitId: benefit._id,
         target,

@@ -2,7 +2,7 @@ import { api } from "@code2create/backend/api";
 import { attendanceSessionResultLabels } from "@code2create/domain";
 import type { FunctionReturnType } from "convex/server";
 import { useMutation, usePaginatedQuery } from "convex/react";
-import { useState, type FormEvent } from "react";
+import { useState, type SubmitEvent } from "react";
 
 import { eventSlug } from "../lib/config";
 import { readableError } from "../lib/errors";
@@ -38,7 +38,7 @@ export function AttendanceResultHistory() {
     setError(null);
   };
 
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: SubmitEvent) => {
     event.preventDefault();
     if (!remedyPending && !selectedSession) return;
     setBusy(true);

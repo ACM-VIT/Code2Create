@@ -13,7 +13,9 @@ const retryDelaysMs = [250, 500, 1_000, 2_000, 5_000] as const;
 export const accessTokenRefreshLeewayMs = 60_000;
 
 function wait(delayMs: number) {
-  return new Promise<void>((resolve) => window.setTimeout(resolve, delayMs));
+  return new Promise<void>((resolve) => {
+    window.setTimeout(resolve, delayMs);
+  });
 }
 
 export function isRetryableAccessTokenStatus(status: number | null) {
@@ -29,11 +31,11 @@ export function isRetryableAccessTokenStatus(status: number | null) {
 
 export function accessTokenExpiresAt(token: string): number | null {
   const payload = token.split(".")[1];
-  if (!payload) return null;
+  if (payload === undefined || payload.length === 0) return null;
   try {
-    const base64 = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const base64 = payload.replaceAll("-", "+").replaceAll("_", "/");
     const normalized = base64.padEnd(Math.ceil(base64.length / 4) * 4, "=");
-    const decoded = JSON.parse(globalThis.atob(normalized));
+    const decoded: unknown = JSON.parse(globalThis.atob(normalized));
     if (
       typeof decoded !== "object" ||
       decoded === null ||
@@ -43,7 +45,7 @@ export function accessTokenExpiresAt(token: string): number | null {
     ) {
       return null;
     }
-    return decoded.exp * 1_000;
+    return decoded.exp * 1000;
   } catch {
     return null;
   }
@@ -73,10 +75,10 @@ export async function fetchAccessTokenUntilSettled({
       attempt = { token: null, status: null };
     }
     if (!isActive()) return null;
-    if (attempt.token) return attempt.token;
+    if (attempt.token !== null && attempt.token.length > 0) return attempt.token;
     if (!isRetryableAccessTokenStatus(attempt.status)) return null;
 
-    const delayMs = retryDelaysMs[retryIndex] ?? 5_000;
+    const delayMs = retryDelaysMs[retryIndex] ?? 5000;
     await waitForRetry(delayMs);
     retryIndex += 1;
   }

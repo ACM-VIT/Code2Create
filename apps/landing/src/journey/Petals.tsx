@@ -364,8 +364,8 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
       }
       const a = route[lo - 1];
       const b = route[lo];
-      if (!a || !b) {
-        const last = route[route.length - 1] || [0, 0];
+      if (a === undefined || b === undefined) {
+        const last = route[route.length - 1] ?? [0, 0];
         return { x: last[0], y: last[1], dx: 1, dy: 0 };
       }
       const seg = routeCum[lo] - routeCum[lo - 1] || 1;
@@ -441,7 +441,7 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
 
       pattern = ctx.createPattern(tile, "repeat");
       /* The tile is at device resolution; bring it back to CSS pixels. */
-      if (pattern && pattern.setTransform) {
+      if (pattern !== null) {
         pattern.setTransform(new DOMMatrix().scale(1 / dpr));
       }
     };
@@ -495,13 +495,16 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
       event.preventDefault();
     };
 
-    const floorHost = floorSelector ? document.querySelector<HTMLElement>(floorSelector) : null;
+    const floorHost =
+      floorSelector !== null && floorSelector.length > 0
+        ? document.querySelector<HTMLElement>(floorSelector)
+        : null;
     const playEl = floorHost?.querySelector<HTMLElement>(".footer__play") ?? null;
 
     if (interactive) {
       window.addEventListener("pointermove", onMove, { passive: true });
       document.addEventListener("pointerleave", onLeave);
-      if (playEl) {
+      if (playEl !== null) {
         playEl.addEventListener("pointerdown", onDown);
         playEl.addEventListener("pointerup", onUp);
         playEl.addEventListener("pointercancel", onUp);
@@ -512,18 +515,24 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
 
     /** Where the drift lives right now, in viewport coordinates. */
     const readFloor = () => {
-      const el = floorSelector ? document.querySelector<HTMLElement>(floorSelector) : null;
-      if (!el) return null;
+      const el =
+        floorSelector !== null && floorSelector.length > 0
+          ? document.querySelector<HTMLElement>(floorSelector)
+          : null;
+      if (el === null) return null;
       const rect = el.getBoundingClientRect();
       if (rect.bottom < -240 || rect.top > h + 240 || rect.width < 1) return null;
 
       bedWidth = rect.width;
 
-      const fill = fillSelector ? document.querySelector<HTMLElement>(fillSelector) : null;
+      const fill =
+        fillSelector !== null && fillSelector.length > 0
+          ? document.querySelector<HTMLElement>(fillSelector)
+          : null;
       /* Four fifths of the wordmark clears the drift; only its foot is
          buried. */
       let target = rect.height * 0.2;
-      if (fill) {
+      if (fill !== null) {
         const box = fill.getBoundingClientRect();
         target = Math.max(30, rect.bottom - (box.top + box.height * 0.8));
       }
@@ -623,11 +632,14 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
       reset(p);
 
       if (mode === "canopy") {
-        const tree = trackSelector ? document.querySelector<HTMLElement>(trackSelector) : null;
+        const tree =
+          trackSelector !== null && trackSelector.length > 0
+            ? document.querySelector<HTMLElement>(trackSelector)
+            : null;
         const box = tree?.getBoundingClientRect();
         const point = CANOPY_POINTS[(Math.random() * CANOPY_POINTS.length) | 0];
 
-        if (box && box.width > 0) {
+        if (box !== undefined && box.width > 0) {
           p.x = box.left + point[0] * box.width;
           p.y = box.top + point[1] * box.height;
         } else {
@@ -707,7 +719,9 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
     };
 
     const free = () => {
-      for (let i = 0; i < petals.length; i += 1) if (petals[i].dead) return petals[i];
+      for (const petal of petals) {
+        if (petal.dead) return petal;
+      }
       return null;
     };
 
@@ -972,7 +986,7 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
 
       /* Ambient fall, suppressed once the drift is full and the footer owns the
          viewport — nothing should be falling into a finished bed. */
-      const footerOwnsView = floor && floor.rect.top < h * 0.4;
+      const footerOwnsView = floor !== null && floor.rect.top < h * 0.4;
       if (footerOwnsView && shortfall === 0) {
         seeded = true;
       } else if (live < want) {

@@ -2,7 +2,7 @@ import { api } from "@code2create/backend/api";
 import { TZDateMini } from "@date-fns/tz";
 import type { FunctionReturnType } from "convex/server";
 import { useMutation, useQuery } from "convex/react";
-import { useState, type FormEvent } from "react";
+import { useState, type SubmitEvent } from "react";
 
 import {
   ConfigurationTabs,
@@ -96,7 +96,7 @@ export function IntegrationPolicyConfiguration({ tabs }: { tabs: ConfigurationTa
     setPolicy((current) => (current ? { ...current, [key]: value } : current));
   };
 
-  const saveDraft = (event: FormEvent) => {
+  const saveDraft = (event: SubmitEvent) => {
     event.preventDefault();
     void operations.run(
       "integration-policy-draft",
@@ -180,7 +180,7 @@ export function IntegrationPolicyConfiguration({ tabs }: { tabs: ConfigurationTa
         <PendingOperationRecovery
           action={pendingOperation.action}
           busy={busy}
-          onConfirm={() => void confirmPendingOperation()}
+          onConfirm={() => confirmPendingOperation()}
           title={pendingOperation.title}
         />
       ) : null}
@@ -250,7 +250,7 @@ export function IntegrationPolicyConfiguration({ tabs }: { tabs: ConfigurationTa
               className="primary"
               disabled={busy || publishReason.trim().length < 5}
               type="button"
-              onClick={() => void publishDraft()}
+              onClick={() => publishDraft()}
             >
               {busy
                 ? "Publishing…"

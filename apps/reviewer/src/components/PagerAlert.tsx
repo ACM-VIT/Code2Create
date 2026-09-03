@@ -60,10 +60,12 @@ export function PagerAlert({
   useEffect(() => {
     if (page.state !== "sent" || openedPageRef.current === page.id) return;
     openedPageRef.current = page.id;
-    void openPage({ eventSlug, pageId: page.id, expectedVersion: page.version }).catch((caught) => {
+    void openPage({ eventSlug, pageId: page.id, expectedVersion: page.version }).catch(
+      (caught: unknown) => {
       openedPageRef.current = null;
       setError(errorMessage(caught, "The request could not be acknowledged."));
-    });
+      },
+    );
   }, [eventSlug, openAttempt, openPage, page.id, page.state, page.version]);
 
   const respond = async (response: "accept" | "decline") => {

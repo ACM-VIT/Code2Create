@@ -122,7 +122,7 @@ export default function Footer() {
         {socials.map((social) => (
           <li key={social.label}>
             <a href={social.href} target="_blank" rel="noreferrer" aria-label={social.label}>
-              {social.mask ? (
+              {social.mask === true ? (
                 <span
                   className="footer__mask-icon"
                   style={{

@@ -2221,7 +2221,9 @@ function errorMessage(caught: unknown, fallback: string) {
   return describeError(caught, fallback);
 }
 
-function operationFingerprint(value: object) {
+type OperationFingerprintSource = object;
+
+function operationFingerprint(value: OperationFingerprintSource) {
   const encoded = JSON.stringify(value);
   if (encoded === undefined) throw new Error("The client operation cannot be serialized.");
   return encoded;

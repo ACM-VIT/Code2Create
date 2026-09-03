@@ -102,16 +102,16 @@ const providerEnvelopeSchema = z
                     type: z.string(),
                     text: z.string().optional(),
                   })
-                  .passthrough(),
+                  .loose(),
               )
               .max(32)
               .optional(),
           })
-          .passthrough(),
+          .loose(),
       )
       .max(64),
   })
-  .passthrough();
+  .loose();
 
 const judgmentEnvelopeSchema = z
   .object({
@@ -206,7 +206,13 @@ function validatedJudgments(
   }
   if (comparisonsByKey.size !== expectedKeys.size) return null;
 
-  return expectedCandidateKeys.map((key) => comparisonsByKey.get(key)!);
+  return expectedCandidateKeys.map((key) => {
+    const comparison = comparisonsByKey.get(key);
+    if (comparison === undefined) {
+      throw new Error("The validated novelty result is missing an expected comparison.");
+    }
+    return comparison;
+  });
 }
 
 function outputSchema(candidateKeys: string[]) {

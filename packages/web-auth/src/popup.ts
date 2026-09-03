@@ -9,7 +9,7 @@ export type AuthPopupErrorCode =
 const authPopupNonceParameter = "authPopup";
 const authPopupResultStorageKey = "code2create.auth.popup-result";
 const authPopupWindowName = "code2create-google-auth";
-const authPopupTimeoutMs = 5 * 60 * 1_000;
+const authPopupTimeoutMs = 5 * 60 * 1000;
 
 export async function signInWithGooglePopup(
   authClient: Code2CreateAuthClient,
@@ -18,7 +18,7 @@ export async function signInWithGooglePopup(
     authorizationUrl,
 ): Promise<{ error: { code: AuthPopupErrorCode } | null }> {
   const popup = window.open("about:blank", authPopupWindowName, centeredPopupFeatures());
-  if (!popup) return { error: { code: "POPUP_BLOCKED" } };
+  if (popup === null) return { error: { code: "POPUP_BLOCKED" } };
 
   const nonce = randomPopupNonce();
   const callback = new URL(callbackURL);
@@ -33,7 +33,11 @@ export async function signInWithGooglePopup(
       disableRedirect: true,
     });
     const authorizationURL = result.data?.url;
-    if (result.error || !authorizationURL) {
+    if (
+      result.error !== null ||
+      authorizationURL === undefined ||
+      authorizationURL.length === 0
+    ) {
       completionAbort.abort();
       return { error: { code: "POPUP_SIGN_IN_FAILED" } };
     }
@@ -44,8 +48,8 @@ export async function signInWithGooglePopup(
   }
 
   const error = await completion;
-  if (error) return { error: { code: error } };
-  authClient.updateSession();
+  if (error !== null) return { error: { code: error } };
+  await authClient.updateSession();
   return { error: null };
 }
 
@@ -65,7 +69,18 @@ function waitForAuthPopup(
 ): Promise<AuthPopupErrorCode | null> {
   return new Promise((resolve) => {
     let settled = false;
-    const settle = (error: AuthPopupErrorCode | null) => {
+    let closedPoll = 0;
+    let timeout = 0;
+
+    function onStorage(event: StorageEvent) {
+      if (event.key === authPopupResultStorageKey && event.newValue === nonce) settle(null);
+    }
+
+    function onAbort() {
+      settle("POPUP_SIGN_IN_FAILED");
+    }
+
+    function settle(error: AuthPopupErrorCode | null) {
       if (settled) return;
       settled = true;
       window.removeEventListener("storage", onStorage);
@@ -74,15 +89,12 @@ function waitForAuthPopup(
       window.clearTimeout(timeout);
       if (!popup.closed) popup.close();
       resolve(error);
-    };
-    const onStorage = (event: StorageEvent) => {
-      if (event.key === authPopupResultStorageKey && event.newValue === nonce) settle(null);
-    };
-    const onAbort = () => settle("POPUP_SIGN_IN_FAILED");
-    const closedPoll = window.setInterval(() => {
+    }
+
+    closedPoll = window.setInterval(() => {
       if (popup.closed) settle("POPUP_CLOSED");
     }, 500);
-    const timeout = window.setTimeout(() => settle("POPUP_TIMEOUT"), authPopupTimeoutMs);
+    timeout = window.setTimeout(() => settle("POPUP_TIMEOUT"), authPopupTimeoutMs);
     window.addEventListener("storage", onStorage);
     signal.addEventListener("abort", onAbort, { once: true });
   });
@@ -91,7 +103,7 @@ function waitForAuthPopup(
 function randomPopupNonce() {
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 function centeredPopupFeatures() {

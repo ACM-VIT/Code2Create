@@ -15,7 +15,7 @@ const signatureMaximumAgeMs = 5 * 60 * 1_000;
 const eventSchema = z
   .object({
     protocolVersion: z.literal(outboundCallProtocolVersion),
-    eventId: z.string().uuid(),
+    eventId: z.uuid(),
     deliveryId: z.string().min(1).max(128),
     eventType: z.enum(outboundCallEventTypes),
     providerAt: z.number().int().nonnegative(),

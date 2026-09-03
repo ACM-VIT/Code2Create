@@ -2,6 +2,9 @@ packages:
   - "."
   - "apps/*"
   - "packages/*"
+# Corepack owns the exact version pinned in package.json. Nested workspace scripts may resolve the
+# host pnpm binary, so they must not try to self-switch through pnpm's separate package-manager store.
+pmOnFail: ignore
 allowBuilds:
   "@firebase/util": false
   "@google/genai": false

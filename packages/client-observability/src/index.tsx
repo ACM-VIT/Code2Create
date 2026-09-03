@@ -7,9 +7,8 @@ import {
   useEffect,
   useRef,
   useState,
-  type ErrorInfo,
-  type ReactNode,
 } from "react";
+import type { ErrorInfo, ReactNode } from "react";
 
 import {
   parseDeploymentEnvironment,
@@ -47,6 +46,25 @@ const ObservabilityContext = createContext(false);
 const missingConfigurationMessage =
   "PostHog is not configured. Set the project token and host in your environment variables.";
 
+class LocalErrorBoundary extends Component<
+  { children: ReactNode },
+  { error: unknown; failed: boolean }
+> {
+  override state = { error: null, failed: false };
+
+  static getDerivedStateFromError(error: unknown) {
+    return { error, failed: true };
+  }
+
+  override componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error(error, errorInfo.componentStack);
+  }
+
+  override render() {
+    return this.state.failed ? <ErrorFallback error={this.state.error} /> : this.props.children;
+  }
+}
+
 export function ClientObservabilityProvider({
   children,
   configuration,
@@ -56,18 +74,19 @@ export function ClientObservabilityProvider({
 }) {
   const projectToken = configuration.projectToken?.trim();
   const host = configuration.host?.trim();
+  const configured =
+    projectToken !== undefined &&
+    projectToken.length > 0 &&
+    host !== undefined &&
+    host.length > 0;
   useEffect(() => {
-    if ((!projectToken || !host) && configuration.development) {
+    if (!configured && configuration.development) {
       console.error(new Error(`${configuration.surface}: ${missingConfigurationMessage}`));
     }
-  }, [configuration.development, configuration.surface, host, projectToken]);
+  }, [configuration.development, configuration.surface, configured]);
 
-  if (!projectToken || !host) {
-    return (
-      <>
-        <LocalErrorBoundary>{children}</LocalErrorBoundary>
-      </>
-    );
+  if (!configured) {
+    return <LocalErrorBoundary>{children}</LocalErrorBoundary>;
   }
 
   const deploymentEnvironment = parseDeploymentEnvironment(configuration.deploymentEnvironment);
@@ -163,7 +182,9 @@ export function useProductAnalytics() {
   const posthog = usePostHog();
   const capture = useCallback(
     (event: string, properties?: ProductEventProperties) => {
-      if (!enabled) return;
+      if (!enabled) {
+        return;
+      }
       posthog.capture(event, properties);
     },
     [enabled, posthog],
@@ -171,7 +192,9 @@ export function useProductAnalytics() {
 
   const captureLog = useCallback(
     (level: "info" | "warn" | "error", code: string, properties?: ProductEventProperties) => {
-      if (!enabled) return;
+      if (!enabled) {
+        return;
+      }
       posthog.capture("c2c_client_log", {
         c2c_log_level: level,
         c2c_log_code: code,
@@ -193,12 +216,12 @@ function EnabledIdentity({ distinctId }: { distinctId: string | null }) {
   const posthog = usePostHog();
   const previousDistinctId = useRef<string | null>(null);
   useEffect(() => {
-    if (distinctId) {
+    if (distinctId !== null && distinctId.length > 0) {
       posthog.identify(distinctId);
       previousDistinctId.current = distinctId;
       return;
     }
-    if (previousDistinctId.current) {
+    if (previousDistinctId.current !== null) {
       posthog.reset();
       previousDistinctId.current = null;
     }
@@ -206,31 +229,14 @@ function EnabledIdentity({ distinctId }: { distinctId: string | null }) {
   return null;
 }
 
-class LocalErrorBoundary extends Component<
-  { children: ReactNode },
-  { error: unknown; failed: boolean }
-> {
-  override state = { error: null, failed: false };
-
-  static getDerivedStateFromError(error: unknown) {
-    return { error, failed: true };
-  }
-
-  override componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error(error, errorInfo.componentStack);
-  }
-
-  override render() {
-    return this.state.failed ? <ErrorFallback error={this.state.error} /> : this.props.children;
-  }
-}
-
 function ErrorFallback({ error }: { error: unknown }) {
   const online = useOnlineStatus();
   const chunkFailure = isChunkLoadFailure(error);
 
   useEffect(() => {
-    if (!chunkFailure || online) return;
+    if (!chunkFailure || online) {
+      return undefined;
+    }
     const reload = () => window.location.reload();
     window.addEventListener("online", reload, { once: true });
     return () => window.removeEventListener("online", reload);

@@ -10,7 +10,7 @@ console.log("Production dependency audit passed with no moderate-or-higher advis
 function runAudit() {
   const result = spawnSync("pnpm", ["audit", "--prod", "--audit-level=moderate", "--json"], {
     cwd: workspaceRoot,
-    encoding: "utf8",
+    encoding: "utf-8",
     maxBuffer: 32 * 1024 * 1024,
   });
   if (result.error || (result.status !== 0 && result.status !== 1)) {
@@ -37,6 +37,7 @@ function verifyAuditReport(report) {
   }
 }
 
+/** @param {string} message @returns {never} */
 function fail(message) {
   console.error(message);
   process.exit(1);

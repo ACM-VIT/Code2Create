@@ -266,7 +266,7 @@ export function EmailOtpSignIn({
         setError(verifyErrorMessage(result.error.code));
         return;
       }
-      authClient.updateSession();
+      await authClient.updateSession();
     } catch {
       setCode("");
       setShakeKey((current) => current + 1);

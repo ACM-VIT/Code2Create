@@ -7,7 +7,7 @@ import {
 import { TZDateMini } from "@date-fns/tz";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import { useMutation, useQuery } from "convex/react";
-import { useState, type FormEvent } from "react";
+import { useState, type SubmitEvent } from "react";
 
 import { ConfigurationEditorDisclosure } from "../components/ConfigurationEditorDisclosure";
 import {
@@ -244,7 +244,7 @@ export function AttendanceSetup({ tabs }: { tabs: ConfigurationTabsVisibility })
     );
   };
 
-  const saveDraft = async (event: FormEvent) => {
+  const saveDraft = async (event: SubmitEvent) => {
     event.preventDefault();
     if (busy || operationPending) return;
     setBusy(true);
@@ -443,7 +443,7 @@ export function AttendanceSetup({ tabs }: { tabs: ConfigurationTabsVisibility })
         <PendingOperationRecovery
           action={pendingOperation.action}
           busy={busy}
-          onConfirm={() => void confirmPendingOperation()}
+          onConfirm={() => confirmPendingOperation()}
           title={pendingOperation.title}
         />
       ) : null}
@@ -487,7 +487,7 @@ export function AttendanceSetup({ tabs }: { tabs: ConfigurationTabsVisibility })
               className="primary"
               type="button"
               disabled={busy || publishReason.trim().length < 5}
-              onClick={() => void publishDraft()}
+              onClick={() => publishDraft()}
             >
               {busy
                 ? "Publishing…"

@@ -117,7 +117,7 @@ export function githubOAuthGrantRevocationRequest(
 type GitHubStarLookup = (
   route: "GET /user/starred/{owner}/{repo}",
   options: { owner: string; repo: string },
-) => Promise<unknown>;
+) => Promise<object>;
 
 function requiredEnvironment(name: string) {
   const value = process.env[name]?.trim();

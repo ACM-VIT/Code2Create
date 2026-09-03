@@ -77,7 +77,8 @@ test("every lifecycle blocker knows which product screen resolves it", () => {
     "review_round",
   ];
   for (const key of blockerKeys) {
-    assert.ok(eventBlockerPaths[key], `${key} has no route`);
+    const path = eventBlockerPaths[key];
+    assert.ok(path !== undefined && path.length > 0, `${key} has no route`);
     assert.match(eventBlockerPaths[key] ?? "", /^\//);
   }
 });

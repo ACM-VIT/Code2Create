@@ -1,6 +1,7 @@
 /// <reference types="google.accounts" />
 
-import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { ReactNode, RefObject } from "react";
 
 import { googleButtonConfiguration, googleFedCmConfiguration } from "./google-fedcm-config";
 import type { Code2CreateAuthClient } from "./index";
@@ -65,13 +66,17 @@ export function GoogleFedCmButton({
   useEffect(() => {
     const nextLayer: ButtonLayer = activeLayerRef.current === 0 ? 1 : 0;
     const element = nextLayer === 0 ? firstContainer.current : secondContainer.current;
-    if (!element) return;
+    if (element === null) return undefined;
     const hasActiveButton = activeLayerRef.current !== null;
     let active = true;
-    if (hasActiveButton) setReplacing(true);
+    if (hasActiveButton) {
+      setReplacing(true);
+    }
 
     const receiveCredential = async (response: google.accounts.id.CredentialResponse) => {
-      if (!active || signInPending.current) return;
+      if (!active || signInPending.current) {
+        return;
+      }
       signInPending.current = true;
       setPhase("signing-in");
       try {
@@ -91,7 +96,7 @@ export function GoogleFedCmButton({
           }
           return;
         }
-        authClient.updateSession();
+        await authClient.updateSession();
       } catch {
         if (active) {
           setPhase("ready");
@@ -110,12 +115,14 @@ export function GoogleFedCmButton({
           loadGoogleIdentityServices(),
           supportsGoogleFedCmButton(),
         ]);
-        if (!active) return;
+        if (!active) {
+          return;
+        }
 
         google.accounts.id.initialize(
           googleFedCmConfiguration({
             clientId,
-            ...(hostedDomain ? { hostedDomain } : {}),
+            ...(hostedDomain !== undefined && hostedDomain.length > 0 ? { hostedDomain } : {}),
             onCredential: (response) => void receiveCredential(response),
             useFedCm,
           }),
@@ -129,18 +136,26 @@ export function GoogleFedCmButton({
           googleButtonConfiguration(buttonWidth, appearance),
         );
         const ready = await waitForRenderedGoogleButton(element, () => active);
-        if (!active) return;
-        if (!ready) throw new Error("Google button did not finish rendering.");
+        if (!active) {
+          return;
+        }
+        if (!ready) {
+          throw new Error("Google button did not finish rendering.");
+        }
 
         await waitForGoogleButtonPaint(() => active);
-        if (!active) return;
+        if (!active) {
+          return;
+        }
 
         activeLayerRef.current = nextLayer;
         setActiveLayer(nextLayer);
         setReplacing(false);
         setPhase("ready");
       } catch {
-        if (!active) return;
+        if (!active) {
+          return;
+        }
         setReplacing(false);
         setPhase("unavailable");
       }
@@ -275,7 +290,7 @@ function waitForRenderedGoogleButton(element: HTMLDivElement, isActive: () => bo
         resolve(false);
         return;
       }
-      const iframe = Array.from(element.querySelectorAll("iframe")).find(
+      const iframe = [...element.querySelectorAll("iframe")].find(
         (candidate) => candidate.title === "Sign in with Google Button",
       );
       const bounds = iframe?.getBoundingClientRect();
@@ -283,7 +298,7 @@ function waitForRenderedGoogleButton(element: HTMLDivElement, isActive: () => bo
         resolve(true);
         return;
       }
-      if (performance.now() - startedAt >= 8_000) {
+      if (performance.now() - startedAt >= 8000) {
         resolve(false);
         return;
       }
@@ -308,8 +323,8 @@ function waitForGoogleButtonPaint(isActive: () => boolean) {
 }
 
 async function supportsGoogleFedCmButton() {
-  if (typeof window.IdentityCredential === "undefined") return false;
-  if (!navigator.brave) return true;
+  if (window.IdentityCredential === undefined) return false;
+  if (navigator.brave === undefined) return true;
 
   try {
     return !(await navigator.brave.isBrave());
@@ -319,31 +334,33 @@ async function supportsGoogleFedCmButton() {
 }
 
 function loadGoogleIdentityServices() {
-  if (typeof google !== "undefined" && google.accounts?.id) return Promise.resolve();
-  if (googleIdentityScript) return googleIdentityScript;
+  if (typeof google !== "undefined" && google.accounts?.id !== undefined) {
+    return Promise.resolve();
+  }
+  if (googleIdentityScript !== null) return googleIdentityScript;
 
   googleIdentityScript = new Promise((resolve, reject) => {
     const script = document.createElement("script");
     const timeout = window.setTimeout(
       () => reject(new Error("Google Identity Services timed out.")),
-      8_000,
+      8000,
     );
     script.src = googleIdentityScriptUrl;
     script.async = true;
     script.defer = true;
-    script.onload = () => {
+    script.addEventListener("load", () => {
       window.clearTimeout(timeout);
-      if (typeof google === "undefined" || !google.accounts?.id) {
+      if (typeof google === "undefined" || google.accounts?.id === undefined) {
         reject(new Error("Google Identity Services did not initialize."));
         return;
       }
       resolve();
-    };
-    script.onerror = () => {
+    });
+    script.addEventListener("error", () => {
       window.clearTimeout(timeout);
       reject(new Error("Google Identity Services could not be loaded."));
-    };
-    document.head.appendChild(script);
+    });
+    document.head.append(script);
   });
   void googleIdentityScript.catch(() => {
     googleIdentityScript = null;

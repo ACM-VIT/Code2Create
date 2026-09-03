@@ -92,9 +92,9 @@ export function limbAt(t: number) {
   const i = Math.max(0, Math.min(n - 1, Math.round(t * (n - 1))));
   for (let d = 0; d < n; d += 1) {
     const a = LIMB_UNDERSIDE[i - d];
-    if (i - d >= 0 && a != null) return a;
+    if (i - d >= 0 && a !== null && a !== undefined) return a;
     const b = LIMB_UNDERSIDE[i + d];
-    if (i + d < n && b != null) return b;
+    if (i + d < n && b !== null && b !== undefined) return b;
   }
   return null;
 }

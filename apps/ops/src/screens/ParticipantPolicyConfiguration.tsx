@@ -1,7 +1,7 @@
 import { api } from "@code2create/backend/api";
 import type { FunctionReturnType } from "convex/server";
 import { useMutation, useQuery } from "convex/react";
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useState, type SubmitEvent, type ReactNode } from "react";
 
 import {
   ConfigurationTabs,
@@ -119,7 +119,7 @@ export function ParticipantPolicyConfiguration({ tabs }: { tabs: ConfigurationTa
     );
   };
 
-  const saveDraft = (event: FormEvent) => {
+  const saveDraft = (event: SubmitEvent) => {
     event.preventDefault();
     void operations.run(
       "participant-policy-draft",
@@ -155,7 +155,7 @@ export function ParticipantPolicyConfiguration({ tabs }: { tabs: ConfigurationTa
     );
   };
 
-  const saveDeadlines = (event: FormEvent) => {
+  const saveDeadlines = (event: SubmitEvent) => {
     event.preventDefault();
     const externalApplicationsCloseAt = indiaInputToTimestamp(
       externalDeadline ??
@@ -288,7 +288,7 @@ export function ParticipantPolicyConfiguration({ tabs }: { tabs: ConfigurationTa
         <PendingOperationRecovery
           action={pendingOperation.action}
           busy={busy}
-          onConfirm={() => void confirmPendingOperation()}
+          onConfirm={() => confirmPendingOperation()}
           title={pendingOperation.title}
         />
       ) : null}
@@ -357,7 +357,7 @@ export function ParticipantPolicyConfiguration({ tabs }: { tabs: ConfigurationTa
               className="primary"
               disabled={busy || publishReason.trim().length < 5}
               type="button"
-              onClick={() => void publishDraft()}
+              onClick={() => publishDraft()}
             >
               {busy
                 ? "Publishing…"

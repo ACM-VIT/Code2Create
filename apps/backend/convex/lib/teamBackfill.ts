@@ -24,7 +24,7 @@ type TeamBackfillResult = {
 
 function isTeamPlacementFailure(error: unknown): boolean {
   if (!(error instanceof ConvexError)) return false;
-  const data = error.data;
+  const data: unknown = error.data;
   const code =
     typeof data === "object" && data !== null && "code" in data && typeof data.code === "string"
       ? data.code

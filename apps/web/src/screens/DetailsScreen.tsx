@@ -15,7 +15,7 @@ import {
   type VitResidenceType,
 } from "@code2create/domain";
 import { useMutation, useQuery } from "convex/react";
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useState, type SubmitEvent, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { AccountBadge } from "../components/portal/AccountBadge";
 import { PetalCard } from "../components/portal/PetalCard";
@@ -154,6 +154,8 @@ export function DetailsScreen({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const operations = useOperationRunner();
+  const phoneVerificationOperations =
+    useOperationRunner<Awaited<ReturnType<typeof verifyPhone>>>();
   const { capture } = useProductAnalytics();
   const savePending = operations.hasPending("profile-save");
   const acceptPending = operations.hasPending("participant-policy-accept");
@@ -270,7 +272,7 @@ export function DetailsScreen({
     setPhoneActionBusy(true);
     setPhoneActionError(null);
     try {
-      const result = (await operations.run(
+      const result = await phoneVerificationOperations.run(
         "phone-verification-confirm",
         (clientOperationId) => () =>
           verifyPhone({
@@ -279,7 +281,7 @@ export function DetailsScreen({
             code,
             clientOperationId,
           }),
-      )) as Awaited<ReturnType<typeof verifyPhone>>;
+      );
       if (result.outcome === "incorrect") {
         capture("c2c_phone_verification_attempted", { c2c_outcome: "incorrect" });
         setCodeShake((count) => count + 1);
@@ -307,7 +309,7 @@ export function DetailsScreen({
     }
   };
 
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: SubmitEvent) => {
     event.preventDefault();
     setFullNameTouched(true);
     setPhoneTouched(true);

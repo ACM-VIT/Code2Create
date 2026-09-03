@@ -1,4 +1,4 @@
-import { type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
+import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
 
 import { slotAreaClass, type Slot } from "./dashboardLayout";
 
@@ -35,7 +35,12 @@ export function Tile({
   };
   const onClick = (event: MouseEvent<HTMLDivElement>) => {
     if (!tappable) return;
-    if ((event.target as HTMLElement).closest("button, a, input, textarea, select, label")) return;
+    if (
+      event.target instanceof Element &&
+      event.target.closest("button, a, input, textarea, select, label")
+    ) {
+      return;
+    }
     onToggle();
   };
   const lit = open || expanded;
@@ -48,7 +53,7 @@ export function Tile({
           ? "cursor-pointer hover:border-rose-light/70 hover:bg-fg/8 focus-visible:border-rose-light focus-visible:outline-none active:scale-[.995]"
           : ""
       } ${slotAreaClass[slot]} ${className}`}
-      style={{ viewTransitionName: `dash-${slot}` } as CSSProperties}
+      style={{ viewTransitionName: `dash-${slot}` }}
       {...(tappable
         ? { role: "button", tabIndex: 0, onClick, onKeyDown, "aria-expanded": lit }
         : { "aria-expanded": true })}

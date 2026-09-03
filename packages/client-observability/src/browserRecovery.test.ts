@@ -14,7 +14,9 @@ test("recognizes browser and Vite lazy-module failures", () => {
     new Error("Unable to preload CSS for /assets/ops.css"),
   ];
 
-  for (const failure of failures) assert.equal(isChunkLoadFailure(failure), true);
+  for (const failure of failures) {
+    assert.equal(isChunkLoadFailure(failure), true);
+  }
 });
 
 test("does not misclassify ordinary application failures as network failures", () => {

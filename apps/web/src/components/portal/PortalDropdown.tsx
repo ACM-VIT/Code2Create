@@ -16,6 +16,7 @@ import {
   useRole,
   useTransitionStyles,
   useTypeahead,
+  type UseInteractionsReturn,
 } from "@floating-ui/react";
 import {
   Children,
@@ -33,7 +34,7 @@ import {
 type DropdownContextValue = {
   activeIndex: number | null;
   selectedIndex: number | null;
-  getItemProps: (props?: Record<string, unknown>) => Record<string, unknown>;
+  getItemProps: UseInteractionsReturn["getItemProps"];
   onSelect: (index: number) => void;
 };
 
@@ -51,6 +52,12 @@ export type DropdownOption = {
   disabled?: boolean;
 };
 
+type DropdownOptionElementProps = {
+  value?: string | number;
+  disabled?: boolean;
+  children?: ReactNode;
+};
+
 function readOptions(children: ReactNode): {
   options: DropdownOption[];
   placeholder: string | null;
@@ -58,12 +65,8 @@ function readOptions(children: ReactNode): {
   const options: DropdownOption[] = [];
   let placeholder: string | null = null;
   for (const child of Children.toArray(children)) {
-    if (!isValidElement(child) || child.type !== "option") continue;
-    const props = child.props as {
-      value?: string | number;
-      disabled?: boolean;
-      children?: ReactNode;
-    };
+    if (!isValidElement<DropdownOptionElementProps>(child) || child.type !== "option") continue;
+    const props = child.props;
     const value = String(props.value ?? "");
     const label =
       typeof props.children === "string"

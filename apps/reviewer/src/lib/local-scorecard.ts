@@ -2,6 +2,7 @@ import type { SQLiteDatabase } from "expo-sqlite";
 import { z } from "zod";
 
 import { withEncryptedLocalDatabase } from "./encrypted-local-database";
+
 const storedDraftSchema = z
   .object({
     version: z.literal(1),

@@ -1,4 +1,4 @@
-import { operationsIntelligenceProtocolVersion } from "./intelligenceProtocol.ts";
+import type { operationsIntelligenceProtocolVersion } from "./intelligenceProtocol.ts";
 
 // Distinct contexts prevent signed bodies replaying across routes.
 export const operationsIntelligenceReadSignatureContext =

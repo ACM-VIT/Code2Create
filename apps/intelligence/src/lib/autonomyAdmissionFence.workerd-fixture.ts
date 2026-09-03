@@ -1,5 +1,7 @@
-import type { AutonomyAdmissionControllerDebugState } from "./autonomyAdmissionController.ts";
-import type { AutonomyTerminalSettlement } from "./autonomyAdmissionController.ts";
+import type {
+  AutonomyAdmissionControllerDebugState,
+  AutonomyTerminalSettlement,
+} from "./autonomyAdmissionController.ts";
 import {
   AutonomyAdmissionFenceState,
   type AutonomyFenceAdmissionRequest,
@@ -155,7 +157,7 @@ export default {
       return Response.json({ ok: true });
     }
     if (url.pathname === "/release") {
-      fence.releaseDispatch();
+      await fence.releaseDispatch();
       return Response.json({ ok: true });
     }
     if (url.pathname === "/inspect") {

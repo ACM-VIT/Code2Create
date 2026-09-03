@@ -6,7 +6,7 @@ import {
   type ApplicationState,
 } from "@code2create/domain";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
-import { useState, type FormEvent } from "react";
+import { useState, type SubmitEvent } from "react";
 import { Link } from "react-router-dom";
 
 import { LoadingLabel, SkeletonLine, SkeletonList } from "../components/Skeleton";
@@ -484,7 +484,7 @@ function AssignBar({
   const reviewerEmail = email.trim().toLowerCase();
   const ready = reviewerEmail.length > 0 && applications.length > 0;
 
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: SubmitEvent) => {
     event.preventDefault();
     if (busy || !ready) return;
     setBusy(true);

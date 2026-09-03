@@ -53,8 +53,8 @@ const baseResultSchema = z.object({
   stagingDeployment: z.string(),
   sourceManifestSha256: z.string().regex(/^[a-f0-9]{64}$/),
   sourceArchive: storedObjectSchema,
-  startedAt: z.string().datetime({ offset: true }),
-  finishedAt: z.string().datetime({ offset: true }),
+  startedAt: z.iso.datetime({ offset: true }),
+  finishedAt: z.iso.datetime({ offset: true }),
   preRestore: z
     .object({
       backup: storedObjectSchema,

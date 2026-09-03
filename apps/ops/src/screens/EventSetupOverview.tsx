@@ -288,18 +288,18 @@ function SetupRow({ detail, label, state, status, to }: SetupRowProps) {
   );
 }
 
-function publishedState(value: object | undefined, hasDraft: boolean): SetupState {
+function publishedState(value: unknown, hasDraft: boolean): SetupState {
   if (value === undefined) return "loading";
   return hasDraft ? "draft" : "ready";
 }
 
-function publishedStatus(value: object | undefined, hasDraft: boolean) {
+function publishedStatus(value: unknown, hasDraft: boolean) {
   if (value === undefined) return "Loading";
   return hasDraft ? "Finish draft" : "Ready";
 }
 
 function optionalPublicationState(
-  value: object | undefined,
+  value: unknown,
   hasPublished: boolean,
   hasDraft: boolean,
 ): SetupState {
@@ -309,7 +309,7 @@ function optionalPublicationState(
 }
 
 function optionalPublicationStatus(
-  value: object | undefined,
+  value: unknown,
   hasPublished: boolean,
   hasDraft: boolean,
 ) {

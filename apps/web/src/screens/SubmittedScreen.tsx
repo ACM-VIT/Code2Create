@@ -1,7 +1,7 @@
 import { api } from "@code2create/backend/api";
 import type { FunctionReturnType } from "convex/server";
 import { useMutation, useQuery } from "convex/react";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type SubmitEvent } from "react";
 import { Link } from "react-router-dom";
 
 import type { CurrentTeam, CurrentTeamMember, PublicState, SubmittedIntake } from "../types";
@@ -741,7 +741,7 @@ function ProposalSummary({
     setDraft(proposalDraft(intake));
   }, [application, editing, hasRecoveredDraft, intake]);
 
-  const save = async (event: FormEvent) => {
+  const save = async (event: SubmitEvent) => {
     event.preventDefault();
     setBusy(true);
     setError(null);
@@ -1101,7 +1101,7 @@ function InformationResponsePanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: SubmitEvent) => {
     event.preventDefault();
     setBusy(true);
     setError(null);

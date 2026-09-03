@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 
+declare global {
+  interface CredentialRequestOptions {
+    otp?: { transport: string[] };
+  }
+}
+
 /**
  * A one-time code typed into a row of cells. One real input sits invisibly
  * over the cells, so SMS autofill, paste, and assistive tech all see a single
@@ -57,18 +63,13 @@ export function CodeInput({
       !("OTPCredential" in window)
     )
       return;
-    const credentials = navigator.credentials as
-      | {
-          get: (options: { otp: { transport: string[] }; signal: AbortSignal }) => Promise<unknown>;
-        }
-      | undefined;
-    if (!credentials) return;
     const controller = new AbortController();
-    credentials
+    navigator.credentials
       .get({ otp: { transport: ["sms"] }, signal: controller.signal })
       .then((credential) => {
-        const code = (credential as { code?: unknown } | null)?.code;
-        if (typeof code === "string") accept(code);
+        if (credential !== null && "code" in credential && typeof credential.code === "string") {
+          accept(credential.code);
+        }
       })
       .catch(() => {});
     return () => controller.abort();

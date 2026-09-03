@@ -327,7 +327,6 @@ describe("autonomy hierarchical evidence", () => {
       pairCursor = page.cursor === undefined ? undefined : recoverCursor(page.cursor);
       if (page.isDone) break;
     }
-    while (pairCursor !== undefined);
     expect(pairPageCount).toBeGreaterThan(1);
     expect(recoveredFindings).toEqual(
       new Set(leaves.flatMap((leaf) => leaf.content.findings.map((finding) => finding.statement))),

@@ -9,7 +9,7 @@ import {
 import { useVersionedState } from "@code2create/web-forms";
 import type { FunctionReturnType } from "convex/server";
 import { useMutation, useQuery } from "convex/react";
-import { useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
+import { useRef, useState, type SubmitEvent, type KeyboardEvent, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { Icon, type IconName } from "../components/Icon";
@@ -264,7 +264,7 @@ function CreateCase({ onCreated }: { onCreated: (supportCaseId: SupportCaseId) =
   const createPending = createAttempt.hasPending(createSlot);
   const ready = description.trim().length >= 10;
 
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: SubmitEvent) => {
     event.preventDefault();
     const normalizedDescription = description.trim();
     if (busyRef.current || normalizedDescription.length < 10) return;
@@ -415,7 +415,7 @@ function CaseDetail({
     ownerChoices.push({ personId: ownerPersonId, displayName: ownerName });
   }
 
-  const guarded = async (work: () => Promise<unknown>) => {
+  const guarded = async <Result,>(work: () => Promise<Result>) => {
     if (busyRef.current) return;
     busyRef.current = true;
     setBusy(true);
@@ -430,7 +430,7 @@ function CaseDetail({
     }
   };
 
-  const save = (event: FormEvent) => {
+  const save = (event: SubmitEvent) => {
     event.preventDefault();
     if (!ready && !formPending) return;
     void guarded(async () => {

@@ -64,7 +64,7 @@ export function UpdatesTile({ slot, model }: {
             <span className="text-[11px] text-fg/50">{stateLabels[primary.state]}</span>
           ) : null}
         </div>
-        {!model.available || checkpoints.length === 0 ? (
+        {!model.available || checkpoints.length === 0 || primary === null ? (
           <p className="m-0 text-[13px] leading-snug text-fg/65">
             {model.available
               ? "Team updates open once the schedule is set."
@@ -118,9 +118,11 @@ export function UpdatesTile({ slot, model }: {
               ))}
             </span>
             <p className="m-0 font-display text-[19px] leading-tight text-shadow-[0_6px_30px_var(--scene-text-glow)]">
-              {primary!.name}
+              {primary.name}
             </p>
-            <p className={`m-0 text-[12.5px] text-fg/65 ${hiddenWhenShort}`}>{whenLine(primary!, timezone)}</p>
+            <p className={`m-0 text-[12.5px] text-fg/65 ${hiddenWhenShort}`}>
+              {whenLine(primary, timezone)}
+            </p>
           </Reveal>
         )}
       </div>

@@ -24,7 +24,7 @@ export function googleFedCmConfiguration({
     itp_support: true,
     use_fedcm_for_button: useFedCm,
     ux_mode: "popup",
-    ...(hostedDomain ? { hd: hostedDomain } : {}),
+    ...(hostedDomain !== undefined && hostedDomain.length > 0 ? { hd: hostedDomain } : {}),
   };
 }
 

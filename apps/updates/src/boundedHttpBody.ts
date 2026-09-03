@@ -30,7 +30,7 @@ async function readBoundedBytes(message: Request | Response, maximumBytes: numbe
       throw new HttpBodyTooLargeError();
     }
   }
-  if (!message.body) {
+  if (message.body === null) {
     const bytes = new Uint8Array(await message.arrayBuffer());
     if (bytes.byteLength > maximumBytes) throw new HttpBodyTooLargeError();
     return bytes;
@@ -41,7 +41,7 @@ async function readBoundedBytes(message: Request | Response, maximumBytes: numbe
   while (true) {
     const result = await reader.read();
     if (result.done) break;
-    if (!result.value) continue;
+    if (result.value === undefined) continue;
     totalBytes += result.value.byteLength;
     if (totalBytes > maximumBytes) {
       try {
@@ -88,7 +88,7 @@ export async function readBoundedJsonResponse(
 
 function requireJsonContentType(headers: Headers) {
   const contentType = headers.get("content-type")?.split(";", 1)[0]?.trim();
-  if (contentType !== "application/json" && !contentType?.endsWith("+json")) {
+  if (contentType !== "application/json" && contentType?.endsWith("+json") !== true) {
     throw new HttpBodyNotJsonError();
   }
 }

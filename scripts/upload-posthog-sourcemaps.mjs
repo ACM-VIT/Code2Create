@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { resolve } from "node:path";
+import path from "node:path";
 
 const directoryArgument = process.argv[2];
 const releaseName = process.argv[3];
@@ -10,7 +10,7 @@ if (!directoryArgument || !releaseName) {
 }
 if (!releaseVersion) throw new Error("Set VITE_RELEASE_ID before uploading PostHog source maps.");
 
-const directory = resolve(directoryArgument);
+const directory = path.resolve(directoryArgument);
 run(["sourcemap", "inject", "--directory", directory]);
 run([
   "sourcemap",

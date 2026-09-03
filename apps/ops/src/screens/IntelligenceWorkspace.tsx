@@ -159,7 +159,7 @@ function AskView({ canGenerate, canRead }: { canGenerate: boolean; canRead: bool
   // reload or a back-navigation does not send the same question twice.
   useEffect(() => {
     if (initialPrompt === undefined) return;
-    navigate(location.pathname, { replace: true, state: null });
+    void navigate(location.pathname, { replace: true, state: null });
   }, [initialPrompt, location.pathname, navigate]);
 
   return (

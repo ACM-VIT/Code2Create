@@ -27,27 +27,27 @@ test("release browser configuration accepts distinct staging origins and account
 test("release browser configuration rejects production", () => {
   const environment = validEnvironment();
   environment.C2C_E2E_ENVIRONMENT = "production";
-  assert.throws(() => readReleaseEnvironment(environment), /only against staging/);
+  assert.throws(() => readReleaseEnvironment(environment), /only against staging/u);
 });
 
 test("release browser configuration rejects shared or non-origin targets", () => {
   const shared = validEnvironment();
   shared.C2C_OPERATIONS_URL = shared.C2C_PARTICIPANT_URL;
-  assert.throws(() => readReleaseEnvironment(shared), /different origins/);
+  assert.throws(() => readReleaseEnvironment(shared), /different origins/u);
 
   const withPath = validEnvironment();
   withPath.C2C_PARTICIPANT_URL = "https://participant-staging.example.test/app";
-  assert.throws(() => readReleaseEnvironment(withPath), /one HTTPS origin/);
+  assert.throws(() => readReleaseEnvironment(withPath), /one HTTPS origin/u);
 });
 
 test("release browser configuration rejects one account for both surfaces", () => {
   const environment = validEnvironment();
   environment.C2C_OPERATIONS_ACCOUNT_EMAIL = "PARTICIPANT-RELEASE@example.test";
-  assert.throws(() => readReleaseEnvironment(environment), /accounts must be different/);
+  assert.throws(() => readReleaseEnvironment(environment), /accounts must be different/u);
 });
 
 test("release browser configuration requires absolute storage-state paths", () => {
   const environment = validEnvironment();
   environment.C2C_PARTICIPANT_STORAGE_STATE_PATH = "participant.json";
-  assert.throws(() => readReleaseEnvironment(environment), /absolute path/);
+  assert.throws(() => readReleaseEnvironment(environment), /absolute path/u);
 });

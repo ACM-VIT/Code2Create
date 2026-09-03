@@ -40,7 +40,7 @@ export function ConfigurationTabs({ visibility }: { visibility: ConfigurationTab
             value={location.pathname}
             onChange={(event) => {
               const destination = visibleItems.find((item) => item.to === event.target.value);
-              if (destination) navigate(destination.to);
+              if (destination) void navigate(destination.to);
             }}
           >
             {visibleItems.map((item) => (

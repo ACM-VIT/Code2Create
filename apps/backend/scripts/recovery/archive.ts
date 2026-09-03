@@ -50,7 +50,7 @@ export const backupManifestSchema = z
     sourceDeployment: z.string().min(1).max(200),
     sourceReleaseId: z.string().min(1).max(200),
     convexCliVersion: z.string().min(1).max(40),
-    exportedAt: z.string().datetime({ offset: true }),
+    exportedAt: z.iso.datetime({ offset: true }),
     includesFileStorage: z.literal(true),
     archive: storedObjectSchema,
     inventory: archiveInventorySchema,
@@ -184,7 +184,9 @@ async function inspectJsonLines(archivePath: string, entryPath: string): Promise
     }
   } catch (error) {
     child.kill();
-    throw new Error(`Invalid snapshot entry ${entryPath}: ${errorMessage(error)}`);
+    throw new Error(`Invalid snapshot entry ${entryPath}: ${errorMessage(error)}`, {
+      cause: error,
+    });
   }
   await waitForChild(child, `unzip ${entryPath}`, () => errorOutput);
   lineHashes.sort();

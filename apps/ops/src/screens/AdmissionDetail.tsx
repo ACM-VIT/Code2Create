@@ -17,7 +17,7 @@ import {
 import { TZDateMini } from "@date-fns/tz";
 import type { FunctionReturnType } from "convex/server";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useState, type SubmitEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import {
@@ -262,7 +262,7 @@ function OfferControl({ detail }: { detail: AdmissionDetailData }) {
   const [busy, setBusy] = useState<"send" | "revoke" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const submitOffer = async (event: FormEvent) => {
+  const submitOffer = async (event: SubmitEvent) => {
     event.preventDefault();
     setBusy("send");
     setError(null);
@@ -286,7 +286,7 @@ function OfferControl({ detail }: { detail: AdmissionDetailData }) {
     }
   };
 
-  const revoke = async (event: FormEvent) => {
+  const revoke = async (event: SubmitEvent) => {
     event.preventDefault();
     const offer = detail.currentOffer;
     if (!operations.hasPending("revoke") && (!offer || !reason.trim())) return;
@@ -477,7 +477,7 @@ function AdmissionAnalysisRetry({
   const [error, setError] = useState<string | null>(null);
   const rerunPending = operations.hasPending("rerun-analysis");
 
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: SubmitEvent) => {
     event.preventDefault();
     if (!rerunPending && reason.trim().length < 8) return;
     setBusy(true);
@@ -614,7 +614,7 @@ function ReviewAssignmentControl({ detail }: { detail: AdmissionDetailData }) {
   const assignments = detail.reviewAssignments ?? [];
   const cancelTarget = assignments.find((assignment) => assignment.id === cancelTargetId);
 
-  const assign = async (event: FormEvent) => {
+  const assign = async (event: SubmitEvent) => {
     event.preventDefault();
     const normalizedEmail = reviewerEmail.trim().toLowerCase();
     if (!operations.hasPending("assign") && !normalizedEmail) return;
@@ -639,7 +639,7 @@ function ReviewAssignmentControl({ detail }: { detail: AdmissionDetailData }) {
     }
   };
 
-  const cancel = async (event: FormEvent) => {
+  const cancel = async (event: SubmitEvent) => {
     event.preventDefault();
     if (!operations.hasPending("cancel") && (!cancelTarget || !cancelReason.trim())) return;
     setBusy("cancel");
@@ -853,7 +853,7 @@ function ReviewForm({ detail }: { detail: AdmissionDetailData }) {
     );
   };
 
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: SubmitEvent) => {
     event.preventDefault();
     setBusy(true);
     setError(null);
@@ -1062,7 +1062,7 @@ function DecisionForm({ detail }: { detail: AdmissionDetailData }) {
         : (availableAiDispositions[0] ?? null);
   const recordPending = operations.hasPending("record");
 
-  const record = async (event: FormEvent) => {
+  const record = async (event: SubmitEvent) => {
     event.preventDefault();
     setBusy(true);
     setError(null);

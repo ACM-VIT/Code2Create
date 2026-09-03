@@ -2163,7 +2163,6 @@ async function importRows(
     previewChecksum: preview.previewChecksum,
     clientOperationId: args.clientOperationId,
   });
-  if (args.drain === false) return;
 }
 
 async function acceptPolicy(
