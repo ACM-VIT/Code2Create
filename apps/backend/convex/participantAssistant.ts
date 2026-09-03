@@ -894,8 +894,7 @@ async function buildEventContext(
     event.admissionResultsReleasedAt !== undefined &&
     application !== null &&
     (application.decisionStage === "recorded" || application.decisionStage === "released") &&
-    application.humanDecision !== undefined &&
-    application.humanDecision !== "needs_information";
+    application.humanDecision !== undefined;
   const linkedSupportCase = supportCaseId === undefined ? null : await ctx.db.get(supportCaseId);
   if (supportCaseId !== undefined && linkedSupportCase === null) {
     throw new Error("The Guide conversation has a missing human support link.");
