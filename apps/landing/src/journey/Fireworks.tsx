@@ -209,7 +209,7 @@ const FIREWORK_TIERS: Record<SponsorTier, FireworkTierSpec> = {
     },
   },
   supporting: {
-    budget: 400,
+    budget: 680,
     desktop: {
       burstScale: 0.62,
       starScale: 0.58,
