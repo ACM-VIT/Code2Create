@@ -95,6 +95,7 @@ export function DetailsScreen({
   variant = "onboarding",
   header: headerOverride,
   onDone,
+  verificationOnly = false,
 }: {
   me: ParticipantMe;
   profileSeed: string;
@@ -109,6 +110,8 @@ export function DetailsScreen({
   header?: ReactNode;
   /** Called after a successful save — the profile variant's way back. */
   onDone?: () => void;
+  /** Existing details and consent are valid; only the newly required phone check remains. */
+  verificationOnly?: boolean;
 }) {
   const membership = me.membership;
   const existing = me.profile;
@@ -404,6 +407,11 @@ export function DetailsScreen({
   };
 
   const editingProfile = variant === "profile";
+  const screenTitle = verificationOnly
+    ? "Verify your phone."
+    : editingProfile
+      ? "Your profile"
+      : "A few details, once.";
   const header = headerOverride ?? (
     <AccountBadge
       name={me.person.displayName}
@@ -437,7 +445,7 @@ export function DetailsScreen({
             editingProfile ? "mb-2" : "mb-7"
           }`}
         >
-          {editingProfile ? "Your profile" : "A few details, once."}
+          {screenTitle}
         </h1>
         {editingProfile ? (
           <p className="mb-7 text-xs text-fg/50">
@@ -453,36 +461,39 @@ export function DetailsScreen({
               <div
                 className="grid grid-cols-1 gap-x-4 gap-y-3.5 sm:grid-flow-row-dense sm:grid-cols-2"
               >
-                <PortalField
-                  label="full name"
-                  hint={vitStudent ? "verified" : "editable"}
-                  error={!vitStudent && fullNameTouched ? fullNameError : null}
-                >
-                  {(id) => (
-                    <PortalInput
-                      id={id}
-                      aria-invalid={!vitStudent && fullNameTouched && fullNameError !== null}
-                      autoComplete="name"
-                      maxLength={100}
-                      minLength={2}
-                      readOnly={vitStudent}
-                      required={!vitStudent}
-                      value={vitStudentIdentity?.fullName ?? fullName}
-                      onBlur={() => {
-                        if (vitStudent) return;
-                        setFullNameTouched(true);
-                        setFullName((current) => normalizeParticipantName(current));
-                      }}
-                      onChange={(event) => {
-                        setFullNameTouched(true);
-                        setFullName(event.currentTarget.value);
-                      }}
-                    />
-                  )}
-                </PortalField>
+                {!verificationOnly ? (
+                  <PortalField
+                    label="full name"
+                    hint={vitStudent ? "verified" : "editable"}
+                    error={!vitStudent && fullNameTouched ? fullNameError : null}
+                  >
+                    {(id) => (
+                      <PortalInput
+                        id={id}
+                        aria-invalid={!vitStudent && fullNameTouched && fullNameError !== null}
+                        autoComplete="name"
+                        maxLength={100}
+                        minLength={2}
+                        readOnly={vitStudent}
+                        required={!vitStudent}
+                        value={vitStudentIdentity?.fullName ?? fullName}
+                        onBlur={() => {
+                          if (vitStudent) return;
+                          setFullNameTouched(true);
+                          setFullName((current) => normalizeParticipantName(current));
+                        }}
+                        onChange={(event) => {
+                          setFullNameTouched(true);
+                          setFullName(event.currentTarget.value);
+                        }}
+                      />
+                    )}
+                  </PortalField>
+                ) : null}
 
                 <PortalField
                   label="phone"
+                  className={verificationOnly ? "sm:col-span-2" : ""}
                   {...(phoneVerificationEnabled && phoneVerified ? { hint: "verified" } : {})}
                   error={phoneFieldError ?? (codePanelOpen ? null : phoneActionError)}
                 >
@@ -533,7 +544,7 @@ export function DetailsScreen({
                 </PortalField>
 
                 {codePanelOpen && codePanelState && phoneVerification ? (
-                  <div className="sm:col-start-2">
+                  <div className={verificationOnly ? "sm:col-span-2" : "sm:col-start-2"}>
                     <PhoneCodePanel
                       maskedPhone={phoneVerification.maskedPhone}
                       state={codePanelState}
@@ -558,27 +569,29 @@ export function DetailsScreen({
                   </div>
                 ) : null}
 
-                <PortalField label="gender" error={genderTouched ? genderError : null}>
-                  {(id) => (
-                    <PortalSelect
-                      id={id}
-                      aria-invalid={genderTouched && genderError !== null}
-                      value={gender}
-                      onValueChange={(next) => {
-                        setGenderTouched(true);
-                        setGender(parseParticipantGender(next) ?? "");
-                        setHostelResidence("");
-                        setHostelRoomNumber("");
-                      }}
-                    >
-                      <option value="">Select gender</option>
-                      <option value="male">{participantGenderLabels.male}</option>
-                      <option value="female">{participantGenderLabels.female}</option>
-                    </PortalSelect>
-                  )}
-                </PortalField>
+                {!verificationOnly ? (
+                  <PortalField label="gender" error={genderTouched ? genderError : null}>
+                    {(id) => (
+                      <PortalSelect
+                        id={id}
+                        aria-invalid={genderTouched && genderError !== null}
+                        value={gender}
+                        onValueChange={(next) => {
+                          setGenderTouched(true);
+                          setGender(parseParticipantGender(next) ?? "");
+                          setHostelResidence("");
+                          setHostelRoomNumber("");
+                        }}
+                      >
+                        <option value="">Select gender</option>
+                        <option value="male">{participantGenderLabels.male}</option>
+                        <option value="female">{participantGenderLabels.female}</option>
+                      </PortalSelect>
+                    )}
+                  </PortalField>
+                ) : null}
 
-                {vitStudentIdentity ? (
+                {!verificationOnly && vitStudentIdentity ? (
                   <>
                     <PortalField label="college or university" hint="fixed">
                       {(id) => <PortalInput id={id} readOnly value={vitInstitutionName} />}
@@ -688,7 +701,7 @@ export function DetailsScreen({
                       </>
                     ) : null}
                   </>
-                ) : (
+                ) : !verificationOnly ? (
                   <>
                     <PortalField
                       label="university"
@@ -762,37 +775,39 @@ export function DetailsScreen({
                       )}
                     </PortalField>
                   </>
-                )}
+                ) : null}
               </div>
 
-              <div className="mt-4.5 border-t border-petal-line pt-4">
-                <PortalCheckRow
-                  checked={accepted}
-                  disabled={policyAlreadyAccepted || disabled}
-                  required={!policyAlreadyAccepted}
-                  onChange={setAccepted}
-                >
-                  I accept the{" "}
-                  <a
-                    href={participantPolicyUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-rose-light underline decoration-rose-light/50 decoration-1 underline-offset-2 transition-colors hover:decoration-rose-light"
+              {!verificationOnly ? (
+                <div className="mt-4.5 border-t border-petal-line pt-4">
+                  <PortalCheckRow
+                    checked={accepted}
+                    disabled={policyAlreadyAccepted || disabled}
+                    required={!policyAlreadyAccepted}
+                    onChange={setAccepted}
                   >
-                    participant policy
-                  </a>{" "}
-                  and the{" "}
-                  <a
-                    href={policy.privacyNoticeUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-rose-light underline decoration-rose-light/50 decoration-1 underline-offset-2 transition-colors hover:decoration-rose-light"
-                  >
-                    privacy notice
-                  </a>
-                </PortalCheckRow>
-                <p className="mt-2 pl-6 text-[11.5px] text-fg/45">{policy.profileNotice}</p>
-              </div>
+                    I accept the{" "}
+                    <a
+                      href={participantPolicyUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-rose-light underline decoration-rose-light/50 decoration-1 underline-offset-2 transition-colors hover:decoration-rose-light"
+                    >
+                      participant policy
+                    </a>{" "}
+                    and the{" "}
+                    <a
+                      href={policy.privacyNoticeUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-rose-light underline decoration-rose-light/50 decoration-1 underline-offset-2 transition-colors hover:decoration-rose-light"
+                    >
+                      privacy notice
+                    </a>
+                  </PortalCheckRow>
+                  <p className="mt-2 pl-6 text-[11.5px] text-fg/45">{policy.profileNotice}</p>
+                </div>
+              ) : null}
             </fieldset>
 
             <PortalError message={error} />
@@ -805,7 +820,11 @@ export function DetailsScreen({
                     ? ""
                     : "saved when you continue"}
               </span>
-              <PortalButton type="submit" size="sm" disabled={disabled || !accepted}>
+              <PortalButton
+                type="submit"
+                size="sm"
+                disabled={disabled || (!verificationOnly && !accepted)}
+              >
                 {busy
                   ? "Saving…"
                   : savePending || acceptPending

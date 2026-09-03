@@ -148,7 +148,7 @@ export const intelligenceAgentDefinitions: readonly IntelligenceAgentDefinition[
     thinking: "High reasoning with no fixed model- or tool-call limit",
     compaction: "Disabled because every recommendation has an isolated bounded context",
     durability:
-      "No tool-call limit within the 90-second delivery window; Flue durable retries and backend recovery cover interruption",
+      "No tool-call limit within the one-hour delivery window; Flue durable retries and backend recovery cover interruption",
     identity:
       "One isolated durable agent per version-fenced recommendation",
     trigger: "Initial submission, material resubmission, or authorized recommendation rerun",

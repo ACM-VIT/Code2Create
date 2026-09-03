@@ -4,8 +4,8 @@ import type { operationsIntelligenceProtocolVersion } from "./intelligenceProtoc
 export const ideaIntelligenceIngressSignatureContext = "code2create.idea-intelligence.ingress.v1";
 export const ideaIntelligenceReadSignatureContext = "code2create.idea-intelligence.read.v1";
 export const ideaIntelligenceCallbackSignatureContext = "code2create.idea-intelligence.callback.v1";
-export const ideaIntelligenceSubmissionTimeoutMs = 90_000;
-export const ideaIntelligenceRecoveryLeaseMs = 3 * 60 * 1_000;
+export const ideaIntelligenceSubmissionTimeoutMs = 60 * 60 * 1_000;
+export const ideaIntelligenceRecoveryLeaseMs = ideaIntelligenceSubmissionTimeoutMs + 5 * 60 * 1_000;
 
 export const ideaIntelligenceSimilarityBands = ["moderate", "high", "very_high"] as const;
 export type IdeaIntelligenceSimilarityBand = (typeof ideaIntelligenceSimilarityBands)[number];

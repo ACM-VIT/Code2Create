@@ -310,6 +310,6 @@ export function IdeaSubmission() {
   ].join("\n\n");
 }
 
-IdeaSubmission.agentName = "idea-submission";
+IdeaSubmission.agentName = "idea-submission-review";
 IdeaSubmission.initialData = ideaIntelligenceInitialDataSchema;
 IdeaSubmission.durability = { timeoutMs: ideaIntelligenceSubmissionTimeoutMs };

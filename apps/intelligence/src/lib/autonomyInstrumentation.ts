@@ -31,7 +31,7 @@ export function createAutonomyExecutionInterceptor(
   bindings: IntelligenceExecutionBindings,
 ): FlueExecutionInterceptor {
   return async (operation, context, next) => {
-    if (context.agentName === "idea-submission") {
+    if (context.agentName === "idea-submission-review") {
       if (operation.type !== "model" && operation.type !== "task") return next();
       const input = v.safeParse(ideaIntelligenceInitialDataSchema, context.initialData);
       if (!input.success || context.instanceId !== input.output.recommendationId) {

@@ -277,6 +277,30 @@ describe("admission idea similarity boundaries", () => {
     });
 
     await expect(
+      backend.mutation(internal.admissionIdeaSimilarity.reconcileMissingComparisonScopes, {
+        eventId: fixture.eventId,
+      }),
+    ).resolves.toBe(3);
+    await expect(
+      backend.mutation(internal.admissionIdeaSimilarity.reconcileMissingComparisonScopes, {
+        eventId: fixture.eventId,
+      }),
+    ).resolves.toBe(0);
+    await expect(
+      backend.run(async (ctx) =>
+        Promise.all(
+          [fixture.currentIdeaId, fixture.otherIdeaId, fixture.savedIdeaId].map(
+            async (ideaId) => (await ctx.db.get(ideaId))?.comparisonScope,
+          ),
+        ),
+      ),
+    ).resolves.toEqual([
+      `${fixture.eventId}:submitted`,
+      `${fixture.eventId}:submitted`,
+      `${fixture.eventId}:saved`,
+    ]);
+
+    await expect(
       backend.query(internal.admissionIdeaSimilarity.readCurrentSubmissionMatchMetadata, {
         eventId: fixture.eventId,
         excludedTeamId: fixture.currentTeamId,

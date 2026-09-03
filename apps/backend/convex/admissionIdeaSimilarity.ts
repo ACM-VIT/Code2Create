@@ -10,10 +10,16 @@ import { v } from "convex/values";
 
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { internalQuery, type ActionCtx, type QueryCtx } from "./_generated/server";
+import {
+  internalMutation,
+  internalQuery,
+  type ActionCtx,
+  type QueryCtx,
+} from "./_generated/server";
 import {
   noveltyEmbeddingDimensions,
   noveltyEmbeddingModel,
+  noveltyIdeaComparisonScope,
   noveltyInputFingerprint,
   validEmbedding,
 } from "./lib/novelty";
@@ -22,7 +28,7 @@ import { scheduledAiEmbeddingTelemetry } from "./lib/posthog";
 import { redactProjectText } from "./lib/projectText";
 
 const historicalVectorLimit = 16;
-const currentSubmissionVectorLimit = 64;
+const currentSubmissionVectorLimit = 256;
 const maximumMatchesPerCollection = 6;
 const minimumMeaningfulSimilarity = 0.54;
 const maximumComparisonSummaryCharacters = 800;
@@ -200,6 +206,25 @@ export const readCurrentSubmissionMatchMetadata = internalQuery({
   },
 });
 
+export const reconcileMissingComparisonScopes = internalMutation({
+  args: { eventId: v.id("events") },
+  returns: v.number(),
+  handler: async (ctx, args) => {
+    const ideas = await ctx.db
+      .query("noveltyTeamIdeas")
+      .withIndex("by_event_comparison_scope", (index) =>
+        index.eq("eventId", args.eventId).eq("comparisonScope", undefined),
+      )
+      .take(128);
+    for (const idea of ideas) {
+      await ctx.db.patch(idea._id, {
+        comparisonScope: noveltyIdeaComparisonScope(idea.eventId, idea.lifecycle),
+      });
+    }
+    return ideas.length;
+  },
+});
+
 function orderedHistoricalMatches(
   vectorMatches: readonly { _id: Id<"noveltyCorpusEntries">; _score: number }[],
   metadata: readonly {
@@ -303,6 +328,19 @@ export async function searchSimilarIdeas(
     internal.admissionIdeaSimilarity.readSimilarityConfiguration,
     { eventId: projection.eventId },
   );
+  while (
+    (await ctx.runMutation(
+      internal.admissionIdeaSimilarity.reconcileMissingComparisonScopes,
+      { eventId: projection.eventId },
+    )) > 0
+  ) {
+    // Vector search is fully consistent, so each bounded reconciliation batch
+    // becomes eligible for this same comparison request immediately.
+  }
+  const currentSubmissionScope = noveltyIdeaComparisonScope(
+    projection.eventId,
+    "submitted",
+  );
   const [historicalVectorMatches, currentVectorMatches] = await Promise.all([
     configuration
       ? ctx.vectorSearch("noveltyCorpusEntries", "by_corpus_embedding", {
@@ -314,7 +352,7 @@ export async function searchSimilarIdeas(
     ctx.vectorSearch("noveltyTeamIdeas", "by_event_embedding", {
       vector: embedding,
       limit: currentSubmissionVectorLimit,
-      filter: (filter) => filter.eq("eventId", projection.eventId),
+      filter: (filter) => filter.eq("comparisonScope", currentSubmissionScope),
     }),
   ]);
   const [historicalMetadataRows, currentMetadataRows] = await Promise.all([

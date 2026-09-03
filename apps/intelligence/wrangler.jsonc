@@ -24,6 +24,11 @@
     { "tag": "v4", "new_sqlite_classes": ["OperationsAutonomyAdmissionFence"] },
     { "tag": "v5", "new_sqlite_classes": ["FlueOperationsEpisodeAgent"] },
     { "tag": "v6", "new_sqlite_classes": ["FlueIdeaSubmissionAgent"] },
+    {
+      "tag": "v7",
+      "deleted_classes": ["FlueIdeaSubmissionAgent"],
+      "new_sqlite_classes": ["FlueIdeaSubmissionReviewAgent"],
+    },
   ],
   "env": {
     "staging": {

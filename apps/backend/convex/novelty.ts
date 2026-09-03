@@ -24,6 +24,7 @@ import {
   noveltyEmbeddingDimensions,
   noveltyEmbeddingModel,
   noveltyEmbeddingScoringVersion,
+  noveltyIdeaComparisonScope,
   noveltyInputFingerprint,
   noveltyJudgeCandidateLimit,
   noveltyLifecycleWeight,
@@ -176,6 +177,7 @@ async function storeTeamIdeaEmbeddings(
     teamId: args.teamId,
     inputFingerprint: args.inputFingerprint,
     lifecycle: args.lifecycle,
+    comparisonScope: noveltyIdeaComparisonScope(args.eventId, args.lifecycle),
     embedding,
     sourceUpdatedAt: args.sourceUpdatedAt,
     updatedAt: now,
@@ -864,8 +866,10 @@ export const prepareDraftIndex = internalMutation({
     ) {
       for (const idea of existing) {
         if (idea.sourceUpdatedAt <= args.sourceUpdatedAt) {
+          const lifecycle = indexedLifecycle(draft, args.inputFingerprint);
           await ctx.db.patch(idea._id, {
-            lifecycle: indexedLifecycle(draft, args.inputFingerprint),
+            lifecycle,
+            comparisonScope: noveltyIdeaComparisonScope(draft.eventId, lifecycle),
             sourceUpdatedAt: args.sourceUpdatedAt,
             updatedAt: Date.now(),
           });
@@ -1148,6 +1152,7 @@ export const prepareSubmittedProjectIndex = internalMutation({
         if (idea.sourceUpdatedAt <= args.sourceUpdatedAt) {
           await ctx.db.patch(idea._id, {
             lifecycle: "submitted",
+            comparisonScope: noveltyIdeaComparisonScope(project.eventId, "submitted"),
             sourceUpdatedAt: args.sourceUpdatedAt,
             updatedAt: Date.now(),
           });
