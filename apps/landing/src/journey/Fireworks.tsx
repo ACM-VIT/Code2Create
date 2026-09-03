@@ -12,18 +12,19 @@ import gsap from "gsap";
  * The sponsor volley is a scroll animation. No firework physics continues
  * after the wheel stops: each rocket, crack, and letter position is derived
  * from the progress supplied by Journey. The same prepared stars draw the
- * radial crack and then travel into the sponsor name.
+ * radial crack and then travel into the sponsor name. This component owns the
+ * whole sponsor cue sequence so rendering and timing cannot drift apart.
  */
 
 export interface FireworksHandle {
-  setProgress(index: number, progress: number, twinklePhase: number): void;
+  setTimeline(masterTime: number): void;
 }
 
 type Color = readonly [number, number, number];
 
 type SponsorTier = "lead" | "featured" | "supporting";
 
-export interface SponsorSpec {
+interface SponsorSpec {
   name: string;
   logo: string;
   logoClass: string;
@@ -40,7 +41,7 @@ export interface SponsorSpec {
   phone: { x: number; y: number; logoY: number; from: number };
 }
 
-export const SPONSORS: readonly SponsorSpec[] = [
+const SPONSORS: readonly SponsorSpec[] = [
   {
     name: "SGLang",
     logo: "/assets/sponsors/sglang.png",
@@ -155,7 +156,7 @@ export const SPONSORS: readonly SponsorSpec[] = [
   },
 ];
 
-export const SPONSORS_END = 142;
+const SPONSORS_END = 142;
 
 interface FireworkDimensions {
   burstScale: number;
@@ -381,16 +382,22 @@ const Fireworks = forwardRef<FireworksHandle, Record<never, never>>(
     };
 
     useImperativeHandle(ref, () => ({
-      setProgress(index, progress, twinklePhase) {
-        const next = clamp01(progress);
-        const nextTwinkle = Math.max(0, twinklePhase);
-        const progressChanged = Math.abs(progresses.current[index] - next) >= 0.0001;
-        const twinkleChanged = Math.abs(twinklePhases.current[index] - nextTwinkle) >= 0.0001;
-        if (!progressChanged && !twinkleChanged) return;
-        progresses.current[index] = next;
-        twinklePhases.current[index] = nextTwinkle;
-        if (progressChanged) setLogoProgress(index, next);
-        renderer.current?.request();
+      setTimeline(masterTime) {
+        let changed = false;
+        SPONSORS.forEach((sponsor, index) => {
+          const active = masterTime >= sponsor.cue && masterTime < SPONSORS_END;
+          const next = active ? clamp01((masterTime - sponsor.cue) / sponsor.duration) : 0;
+          const nextTwinkle = active ? (masterTime - sponsor.cue) / sponsor.duration : 0;
+          const progressChanged = Math.abs(progresses.current[index] - next) >= 0.0001;
+          const twinkleChanged = Math.abs(twinklePhases.current[index] - nextTwinkle) >= 0.0001;
+          if (!progressChanged && !twinkleChanged) return;
+
+          progresses.current[index] = next;
+          twinklePhases.current[index] = nextTwinkle;
+          if (progressChanged) setLogoProgress(index, next);
+          changed = true;
+        });
+        if (changed) renderer.current?.request();
       },
     }));
 
