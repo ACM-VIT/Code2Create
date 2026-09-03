@@ -4,7 +4,6 @@ import {
   admissionAiDispositionLabels,
   admissionOfferStateLabels,
   admissionRecommendationStateLabels,
-  admissionReviewAssignmentStateLabels,
   applicationDecisionLabels,
   applicationDecisionOutcomeLabels,
   applicationDecisions,
@@ -24,6 +23,8 @@ import {
   memberContextLine,
   nextAssignmentId,
   remainingAssignmentsLine,
+  reviewAssignmentStatusLine,
+  reviewAssignmentSummary,
   teamLine,
 } from "../lib/admissionsPresentation";
 import { eventSlug } from "../lib/config";
@@ -628,28 +629,25 @@ function ReviewAssignmentControl({ detail }: { detail: AdmissionDetailData }) {
   };
 
   const assignmentOrder = { active: 0, completed: 1, cancelled: 2 };
-  const ordered = [...assignments].sort(
-    (left, right) =>
+  const currentContentVersion = detail.application.contentVersion;
+  const ordered = [...assignments].sort((left, right) => {
+    const versionDifference = right.applicationContentVersion - left.applicationContentVersion;
+    if (versionDifference !== 0) return versionDifference;
+    return (
       assignmentOrder[left.state] - assignmentOrder[right.state] ||
-      left.assignedAt - right.assignedAt,
-  );
-  const owing = assignments.filter((assignment) => assignment.state === "active").length;
+      left.assignedAt - right.assignedAt
+    );
+  });
   const assignPending = operations.hasPending("assign");
   const cancelPending = operations.hasPending("cancel");
   const operationPending = assignPending || cancelPending;
 
   return (
     <section className="detail-section command-section">
-      <h2>Assigned reviewers</h2>
-      <p className="muted">
-        {assignments.length === 0
-          ? "Nobody is assigned. Anyone added here sees this in their queue."
-          : owing === 0
-            ? "Everyone assigned has reviewed."
-            : `${owing} of ${assignments.length} assigned reviewers still owe a review.`}
-      </p>
+      <h2>Review assignments</h2>
+      <p className="muted">{reviewAssignmentSummary(assignments, currentContentVersion)}</p>
       <form className="command-form compact-command" onSubmit={assign}>
-        <Field label="Reviewer Google email">
+        <Field label={`Reviewer Google email for application version ${currentContentVersion}`}>
           <input
             required
             type="email"
@@ -677,7 +675,7 @@ function ReviewAssignmentControl({ detail }: { detail: AdmissionDetailData }) {
               <div>
                 <strong>{assignment.reviewerName}</strong>
                 <span>
-                  {admissionReviewAssignmentStateLabels[assignment.state]} ·{" "}
+                  {reviewAssignmentStatusLine(assignment, currentContentVersion)} ·{" "}
                   {assignment.reviewerEmail}
                 </span>
               </div>
