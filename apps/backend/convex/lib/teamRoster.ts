@@ -106,6 +106,25 @@ export async function endActiveTeamMember(
   return counts;
 }
 
+export type ExclusiveTeamOrigin = "internal" | "external";
+
+/** VIT-only and external-only teams. Mixed or empty rosters match neither filter. */
+export function exclusiveTeamOrigin(
+  counts: Pick<TeamRosterCounts, "activeVitMemberCount" | "activeExternalMemberCount">,
+): ExclusiveTeamOrigin | null {
+  if (counts.activeVitMemberCount > 0 && counts.activeExternalMemberCount === 0) {
+    return "internal";
+  }
+  if (counts.activeExternalMemberCount > 0 && counts.activeVitMemberCount === 0) {
+    return "external";
+  }
+  return null;
+}
+
+export function teamMatchesOrigin(team: Doc<"teams">, origin: ExclusiveTeamOrigin) {
+  return exclusiveTeamOrigin(teamRosterCounts(team)) === origin;
+}
+
 export function teamContainsParticipantClass(
   team: Doc<"teams">,
   participantClass: Doc<"eventMemberships">["participantClass"],

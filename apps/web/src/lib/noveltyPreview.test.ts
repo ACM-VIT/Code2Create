@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { noveltyRequestDelayMs, noveltyRetryDelayMs } from "./noveltyPreview.ts";
+import {
+  noveltyRequestDelayMs,
+  noveltyRetryDelayMs,
+  visibleNoveltySignal,
+} from "./noveltyPreview.ts";
 
 test("starts a live novelty check no more than 400ms after typing stops", () => {
   assert.equal(noveltyRequestDelayMs({ configuredDebounceMs: 800, retryAt: null }), 400);
@@ -21,4 +25,19 @@ test("backs off failed checks without giving up permanently", () => {
     }),
     1_500,
   );
+});
+
+test("keeps a completed live score visible before the draft query catches up", () => {
+  assert.deepEqual(
+    visibleNoveltySignal({ status: "ready", signal: { score: 82, band: "distinct" } }),
+    { score: 82, band: "distinct" },
+  );
+  assert.deepEqual(
+    visibleNoveltySignal({
+      status: "checking",
+      previous: { score: 71, band: "distinct" },
+    }),
+    { score: 71, band: "distinct" },
+  );
+  assert.equal(visibleNoveltySignal({ status: "idle" }), null);
 });

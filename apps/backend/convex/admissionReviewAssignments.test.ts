@@ -1,4 +1,5 @@
 import betterAuthSchema from "../node_modules/@convex-dev/better-auth/src/component/schema.ts";
+import type { FunctionReturnType } from "convex/server";
 import { convexTest, type TestConvex } from "convex-test";
 import { describe, expect, test } from "vitest";
 
@@ -21,8 +22,263 @@ const betterAuthModules = import.meta.glob(
   "../node_modules/@convex-dev/better-auth/src/component/**/*.ts",
 );
 type BackendTest = TestConvex<typeof schema>;
+type ReviewerClient = ReturnType<BackendTest["withIdentity"]>;
+type ReviewAssignmentCountPage = FunctionReturnType<
+  typeof api.admissions.myReviewAssignmentCountRows
+>;
 
 describe("admission review assignments", () => {
+  test("origin filters fill pages past assignments and applications from the other origin", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const { authUserId, authSessionId } = await createReviewerAuth(backend);
+    const fixture = await seedAssignmentFixture(backend, { reviewerAuthUserId: authUserId });
+    const liveRows = await backend.run(async (ctx) => {
+      const externalApplication = await ctx.db.get(fixture.applicationId);
+      if (!externalApplication) throw new Error("Assignment fixture is incomplete.");
+      const externalProject = await ctx.db.get(externalApplication.submittedProjectVersionId);
+      if (!externalProject) throw new Error("Assignment fixture project is missing.");
+      const internalTeamId = await ctx.db.insert("teams", {
+        eventId: fixture.eventId,
+        name: "Internal team",
+        publicCode: "INTERNAL1",
+        leadMembershipId: externalProject.lockedLeadMembershipId,
+        status: "submitted",
+        activeMemberCount: 1,
+        activeVitMemberCount: 1,
+        activeExternalMemberCount: 0,
+        membershipLocked: true,
+        version: 1,
+        createdAt: fixture.now - 1,
+        updatedAt: fixture.now - 1,
+      });
+      const { _id: _projectId, _creationTime: _projectCreatedAt, ...projectFields } =
+        externalProject;
+      const internalProjectId = await ctx.db.insert("projectVersions", {
+        ...projectFields,
+        teamId: internalTeamId,
+        submittedAt: fixture.now - 1,
+      });
+      const {
+        _id: _applicationId,
+        _creationTime: _applicationCreatedAt,
+        ...applicationFields
+      } = externalApplication;
+      const internalApplicationId = await ctx.db.insert("applications", {
+        ...applicationFields,
+        teamId: internalTeamId,
+        submittedProjectVersionId: internalProjectId,
+        submittedAt: fixture.now - 1,
+      });
+      const secondExternalTeamId = await ctx.db.insert("teams", {
+        eventId: fixture.eventId,
+        name: "Second external team",
+        publicCode: "EXTERNAL2",
+        leadMembershipId: externalProject.lockedLeadMembershipId,
+        status: "submitted",
+        activeMemberCount: 1,
+        activeVitMemberCount: 0,
+        activeExternalMemberCount: 1,
+        membershipLocked: true,
+        version: 1,
+        createdAt: fixture.now + 2,
+        updatedAt: fixture.now + 2,
+      });
+      const secondExternalProjectId = await ctx.db.insert("projectVersions", {
+        ...projectFields,
+        teamId: secondExternalTeamId,
+        submittedAt: fixture.now + 2,
+      });
+      const secondExternalApplicationId = await ctx.db.insert("applications", {
+        ...applicationFields,
+        teamId: secondExternalTeamId,
+        submittedProjectVersionId: secondExternalProjectId,
+        submittedAt: fixture.now + 2,
+      });
+      await insertPermissionGrant(ctx, {
+        eventId: fixture.eventId,
+        personId: fixture.reviewerPersonId,
+        eventAccessSubjectId: fixture.reviewerSubjectId,
+        permissionKey: "application.read",
+        scopeType: "event",
+        sourceType: "manual",
+        sourceId: "fixture-application-read",
+        grantedByPersonId: fixture.managerPersonId,
+        reason: "Read origin-filter fixtures",
+      });
+      for (const [applicationId, sourceId] of [
+        [fixture.applicationId, "fixture-external-review"],
+        [internalApplicationId, "fixture-internal-review"],
+        [secondExternalApplicationId, "fixture-second-external-review"],
+      ] as const) {
+        await insertPermissionGrant(ctx, {
+          eventId: fixture.eventId,
+          personId: fixture.reviewerPersonId,
+          eventAccessSubjectId: fixture.reviewerSubjectId,
+          permissionKey: "application.review.read",
+          scopeType: "application",
+          scopeId: applicationId,
+          sourceType: "manual",
+          sourceId,
+          grantedByPersonId: fixture.managerPersonId,
+          reason: "Read origin-filter assignment fixture",
+        });
+      }
+      const secondExternalAssignmentId = await ctx.db.insert("admissionReviewAssignments", {
+        eventId: fixture.eventId,
+        applicationId: secondExternalApplicationId,
+        applicationContentVersion: 1,
+        reviewerPersonId: fixture.reviewerPersonId,
+        assignedByPersonId: fixture.managerPersonId,
+        state: "active",
+        version: 1,
+        assignedAt: fixture.now + 2,
+      });
+      await ctx.db.insert("admissionReviewAssignments", {
+        eventId: fixture.eventId,
+        applicationId: fixture.applicationId,
+        applicationContentVersion: 1,
+        reviewerPersonId: fixture.reviewerPersonId,
+        assignedByPersonId: fixture.managerPersonId,
+        state: "active",
+        version: 1,
+        assignedAt: fixture.now,
+      });
+      await ctx.db.insert("admissionReviewAssignments", {
+        eventId: fixture.eventId,
+        applicationId: internalApplicationId,
+        applicationContentVersion: 1,
+        reviewerPersonId: fixture.reviewerPersonId,
+        assignedByPersonId: fixture.managerPersonId,
+        state: "active",
+        version: 1,
+        assignedAt: fixture.now + 1,
+      });
+      return { secondExternalAssignmentId };
+    });
+    const reviewer = backend.withIdentity({ subject: authUserId, sessionId: authSessionId });
+    const paginationOpts = { cursor: null, numItems: 1 };
+    const firstApplications = await reviewer.query(api.admissions.list, {
+      eventSlug: fixture.eventSlug,
+      state: "submitted",
+      origin: "external",
+      paginationOpts,
+    });
+    expect(firstApplications.page.map((application) => application.teamName)).toEqual([
+      "Assigned team",
+    ]);
+    expect(firstApplications.isDone).toBe(false);
+
+    await backend.run((ctx) => ctx.db.patch(fixture.applicationId, { state: "under_review" }));
+    const secondApplications = await reviewer.query(api.admissions.list, {
+      eventSlug: fixture.eventSlug,
+      state: "submitted",
+      origin: "external",
+      paginationOpts: { cursor: firstApplications.continueCursor, numItems: 1 },
+    });
+    expect(secondApplications.page.map((application) => application.teamName)).toEqual([
+      "Second external team",
+    ]);
+
+    const firstAssignments = await reviewer.query(api.admissions.myReviewAssignments, {
+      eventSlug: fixture.eventSlug,
+      state: "active",
+      origin: "external",
+      paginationOpts,
+    });
+    expect(firstAssignments.page.map((assignment) => assignment.teamName)).toEqual([
+      "Second external team",
+    ]);
+    expect(firstAssignments.isDone).toBe(false);
+
+    await backend.run((ctx) =>
+      ctx.db.patch(liveRows.secondExternalAssignmentId, { state: "completed" }),
+    );
+    const secondAssignments = await reviewer.query(api.admissions.myReviewAssignments, {
+      eventSlug: fixture.eventSlug,
+      state: "active",
+      origin: "external",
+      paginationOpts: { cursor: firstAssignments.continueCursor, numItems: 1 },
+    });
+    const assignmentCounts = await reviewAssignmentCounts(reviewer, {
+      eventSlug: fixture.eventSlug,
+      origin: "external",
+    });
+
+    expect(secondAssignments.page.map((assignment) => assignment.teamName)).toEqual([
+      "Assigned team",
+    ]);
+    expect(assignmentCounts).toEqual({ active: 1, completed: 1 });
+  });
+
+  test("origin counts include matching assignments beyond 4,000 rows", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const { authUserId, authSessionId } = await createReviewerAuth(backend);
+    const fixture = await seedAssignmentFixture(backend, { reviewerAuthUserId: authUserId });
+
+    await backend.run(async (ctx) => {
+      const externalApplication = await ctx.db.get(fixture.applicationId);
+      if (!externalApplication) throw new Error("Assignment fixture is incomplete.");
+      const externalTeam = await ctx.db.get(externalApplication.teamId);
+      if (!externalTeam) throw new Error("Assignment fixture team is missing.");
+      const internalTeamId = await ctx.db.insert("teams", {
+        eventId: fixture.eventId,
+        name: "Internal count team",
+        publicCode: "INTERNALCOUNT",
+        leadMembershipId: externalTeam.leadMembershipId,
+        status: "submitted",
+        activeMemberCount: 1,
+        activeVitMemberCount: 1,
+        activeExternalMemberCount: 0,
+        membershipLocked: true,
+        version: 1,
+        createdAt: fixture.now,
+        updatedAt: fixture.now,
+      });
+      const {
+        _id: _applicationId,
+        _creationTime: _applicationCreatedAt,
+        ...applicationFields
+      } = externalApplication;
+      const internalApplicationId = await ctx.db.insert("applications", {
+        ...applicationFields,
+        teamId: internalTeamId,
+        submittedAt: fixture.now + 4_002,
+      });
+      for (let index = 0; index < 4_001; index += 1) {
+        await ctx.db.insert("admissionReviewAssignments", {
+          eventId: fixture.eventId,
+          applicationId: fixture.applicationId,
+          applicationContentVersion: 1,
+          reviewerPersonId: fixture.reviewerPersonId,
+          assignedByPersonId: fixture.managerPersonId,
+          state: "active",
+          version: 1,
+          assignedAt: fixture.now + index,
+        });
+      }
+      await ctx.db.insert("admissionReviewAssignments", {
+        eventId: fixture.eventId,
+        applicationId: internalApplicationId,
+        applicationContentVersion: 1,
+        reviewerPersonId: fixture.reviewerPersonId,
+        assignedByPersonId: fixture.managerPersonId,
+        state: "active",
+        version: 1,
+        assignedAt: fixture.now + 4_001,
+      });
+    });
+
+    const reviewer = backend.withIdentity({ subject: authUserId, sessionId: authSessionId });
+    await expect(
+      reviewAssignmentCounts(reviewer, {
+        eventSlug: fixture.eventSlug,
+        origin: "internal",
+      }),
+    ).resolves.toEqual({ active: 1, completed: 0 });
+  });
+
   test("keeps routing, profile context, and AI analysis behind separate exact scopes", () => {
     expect(permissionCatalog["application.review.read"]).toEqual({
       scopes: ["application"],
@@ -55,7 +311,7 @@ describe("admission review assignments", () => {
     backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
     const authUserId = await createAuthUser(backend);
     const authSessionId = await createAuthSession(backend, authUserId);
-    const fixture = await seedAssignmentFixture(backend, authUserId);
+    const fixture = await seedAssignmentFixture(backend, { managerAuthUserId: authUserId });
     const assigned = await assignFixtureReviewer(backend, fixture, fixture.reviewerSubjectId);
 
     await backend.run(async (ctx) => {
@@ -523,7 +779,10 @@ async function assignmentState(
   }));
 }
 
-async function seedAssignmentFixture(backend: BackendTest, managerAuthUserId?: string) {
+async function seedAssignmentFixture(
+  backend: BackendTest,
+  auth: { managerAuthUserId?: string; reviewerAuthUserId?: string } = {},
+) {
   const now = Date.UTC(2027, 1, 2, 3, 4, 5);
   const eventSlug = `assignment-${now}-${crypto.randomUUID()}`;
   return backend.run(async (ctx) => {
@@ -538,8 +797,8 @@ async function seedAssignmentFixture(backend: BackendTest, managerAuthUserId?: s
       createdAt: now,
       updatedAt: now,
     });
-    const managerPersonId = await insertPerson(ctx, "manager", now, managerAuthUserId);
-    const reviewerPersonId = await insertPerson(ctx, "reviewer", now);
+    const managerPersonId = await insertPerson(ctx, "manager", now, auth.managerAuthUserId);
+    const reviewerPersonId = await insertPerson(ctx, "reviewer", now, auth.reviewerAuthUserId);
     const secondReviewerPersonId = await insertPerson(ctx, "reviewer-two", now);
     const leadPersonId = await insertPerson(ctx, "lead", now);
     const participantPolicyId = await ctx.db.insert("participantPolicyVersions", {
@@ -709,6 +968,27 @@ async function seedAssignmentFixture(backend: BackendTest, managerAuthUserId?: s
   });
 }
 
+async function reviewAssignmentCounts(
+  reviewer: ReviewerClient,
+  args: { eventSlug: string; origin?: "internal" | "external" },
+) {
+  const totals = { active: 0, completed: 0 };
+  let cursor: string | null = null;
+  for (;;) {
+    const page: ReviewAssignmentCountPage = await reviewer.query(
+      api.admissions.myReviewAssignmentCountRows,
+      {
+        eventSlug: args.eventSlug,
+        ...(args.origin === undefined ? {} : { origin: args.origin }),
+        paginationOpts: { cursor, numItems: 100 },
+      },
+    );
+    for (const row of page.page) totals[row.state] += 1;
+    if (page.isDone) return totals;
+    cursor = page.continueCursor;
+  }
+}
+
 function insertPerson(ctx: MutationCtx, key: string, now: number, authUserId?: string) {
   return ctx.db.insert("people", {
     authUserId: authUserId ?? `auth-${key}`,
@@ -764,6 +1044,12 @@ function documentId(value: unknown, label: string): string {
     throw new Error(`${label} returned an invalid document ID.`);
   }
   return id;
+}
+
+async function createReviewerAuth(backend: BackendTest) {
+  const authUserId = await createAuthUser(backend);
+  const authSessionId = await createAuthSession(backend, authUserId);
+  return { authUserId, authSessionId };
 }
 
 function insertSubject(

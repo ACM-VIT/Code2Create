@@ -3,19 +3,13 @@ import { useAction, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { useEffect, useRef, useState } from "react";
 import { eventSlug } from "../lib/config";
-import { noveltyRequestDelayMs, noveltyRetryDelayMs } from "../lib/noveltyPreview";
-
-export type NoveltyBand = "familiar" | "developing" | "distinct";
-
-export type NoveltySignal = {
-  score: number;
-  band: NoveltyBand | null;
-};
-
-export type NoveltyState =
-  | { status: "idle" }
-  | { status: "checking"; previous: NoveltySignal | null }
-  | { status: "ready"; signal: NoveltySignal };
+import {
+  noveltyRequestDelayMs,
+  noveltyRetryDelayMs,
+  type NoveltyBand,
+  type NoveltySignal,
+  type NoveltyState,
+} from "../lib/noveltyPreview";
 
 type PendingPreview = Extract<
   FunctionReturnType<typeof api.novelty.preview>,

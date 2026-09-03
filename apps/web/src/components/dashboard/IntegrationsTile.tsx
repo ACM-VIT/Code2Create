@@ -1,4 +1,18 @@
-import { useState } from "react";
+import {
+  FloatingFocusManager,
+  FloatingPortal,
+  autoUpdate,
+  flip,
+  offset,
+  shift,
+  useClick,
+  useDismiss,
+  useFloating,
+  useInteractions,
+  useRole,
+} from "@floating-ui/react";
+import { useState, type ReactNode } from "react";
+import type { AvailableGitHubRepository } from "../../types";
 
 import { Reveal, Tile, TileEyebrow } from "./Tile";
 import { tileBody } from "./tileClasses";
@@ -6,12 +20,25 @@ import type { Slot } from "./dashboardLayout";
 
 export type IntegrationTarget = "github" | "figma";
 
+export type IntegrationRepository = {
+  id: string;
+  fullName: string;
+  url: string;
+  connectionId?: string;
+  raw?: AvailableGitHubRepository;
+};
+
 export type IntegrationsTileModel = {
   /** False until the team can connect tools at all. */
   available: boolean;
-  github: { connected: boolean; detail: string };
+  github: {
+    connected: boolean;
+    detail: string;
+    repositories: readonly IntegrationRepository[];
+    listRepositories?: () => Promise<readonly IntegrationRepository[]>;
+  };
   figma: { connected: boolean; detail: string };
-  open: (target: IntegrationTarget) => void;
+  open: (target: IntegrationTarget, repository?: IntegrationRepository) => void;
 };
 
 function GitHubMark({ className }: { className: string }) {
@@ -30,87 +57,315 @@ function FigmaMark({ className }: { className: string }) {
   );
 }
 
-function IntegrationOrb({
-  target,
-  label,
-  connected,
-  onOpen,
-}: {
-  target: IntegrationTarget;
-  label: string;
-  connected: boolean;
-  onOpen: () => void;
-}) {
+
+function MarkBox({ target }: { target: IntegrationTarget }) {
   const Mark = target === "github" ? GitHubMark : FigmaMark;
+  return (
+    <span className="flex size-8 flex-none items-center justify-center rounded-full border border-rose/45 bg-wash/35 text-fg/85">
+      <Mark className="size-4" />
+    </span>
+  );
+}
+
+function ActionButton({ children, onClick }: {
+  children: string;
+  onClick: () => void;
+}) {
   return (
     <button
       type="button"
-      onClick={onOpen}
-      aria-label={`${label}: ${connected ? "linked" : "not linked yet"}`}
-      className="group flex flex-col items-center gap-1.5 text-center"
+      onClick={onClick}
+      className="flex-none rounded-full border border-rose/55 bg-wash/35 px-3 py-1 text-[11px] text-rose-light transition-colors hover:border-rose-light hover:bg-fg/8"
     >
-      <span
-        className={`flex size-12 items-center justify-center rounded-full border transition-[transform,border-color,box-shadow] duration-300 group-hover:-translate-y-0.5 group-hover:border-rose-light ${
-          connected
-            ? "border-ring-lead bg-avatar-lead text-rose-light shadow-[0_0_18px_var(--avatar-glow)]"
-            : "border-rose/60 bg-avatar text-fg/80 group-hover:text-fg"
-        }`}
-      >
-        <Mark className="size-[19px]" />
-      </span>
-      <span className="text-[11.5px] leading-none text-fg/80">{label}</span>
-      <span className={`text-[10.5px] leading-none ${connected ? "text-rose-light" : "text-fg/45"}`}>
-        {connected ? "linked" : "not yet"}
-      </span>
+      {children}
     </button>
   );
 }
 
-/**
- * The integrations tile. A tap raises GitHub and Figma inside the card; each
- * is one more tap into the connection flow.
- */
+function GitHubRepositoryManager({
+  model,
+  addControl,
+  onBack,
+  onManage,
+}: {
+  model: IntegrationsTileModel["github"];
+  addControl: ReactNode;
+  onBack: () => void;
+  onManage: (repository?: IntegrationRepository) => void;
+}) {
+  return (
+    <Reveal key="github-manager" className="flex min-h-0 flex-1 flex-col gap-1.5">
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={onBack}
+          aria-label="Back to integrations"
+          className="flex size-7 flex-none items-center justify-center rounded-full border border-rose/40 bg-wash/30 text-fg/65 hover:border-rose-light hover:text-fg"
+        >
+          <span aria-hidden>←</span>
+        </button>
+        <MarkBox target="github" />
+        <div className="min-w-0 flex-1">
+          <p className="m-0 text-[13px] text-fg">GitHub</p>
+          <p className="m-0 truncate text-[10.5px] text-fg/45">
+            {!model.connected
+              ? "Not connected"
+              : model.repositories.length === 1
+                ? "1 repo connected"
+                : `${model.repositories.length} repos connected`}
+          </p>
+        </div>
+        {model.connected ? addControl : <ActionButton onClick={onManage}>Connect</ActionButton>}
+      </div>
+
+      {model.connected ? (
+        model.repositories.length === 0 ? (
+          <p className="m-0 text-[10.5px] text-fg/45">No repositories connected.</p>
+        ) : (
+          <div className="grid gap-1">
+            {model.repositories.map((repository) => (
+              <div
+                key={repository.id}
+                className="flex items-center gap-2 rounded-lg border border-rose/20 bg-fg/4 px-2 py-1"
+              >
+                <a
+                  href={repository.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="min-w-0 flex-1 truncate text-[10.5px] text-fg/80 underline-offset-4 hover:text-rose-light hover:underline"
+                >
+                  {repository.fullName}
+                </a>
+                <button
+                  type="button"
+                  onClick={() => onManage(repository)}
+                  className="flex-none text-[10px] text-fg/45 hover:text-rose-light"
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+        )
+      ) : null}
+    </Reveal>
+  );
+}
+
+type IntegrationsView = "closed" | "providers" | "github";
+
+/** Opens from a quiet tile into provider choices, then replaces itself with GitHub management. */
 export function IntegrationsTile({ slot, model }: {
-  slot: Slot; model: IntegrationsTileModel }) {
-  const [open, setOpen] = useState(false);
-  const summary = !model.available
-    ? "Opens once your team is confirmed."
-    : `GitHub ${model.github.connected ? "connected" : "not linked"} · Figma ${
-        model.figma.connected ? "connected" : "not linked"
-      }`;
+  slot: Slot;
+  model: IntegrationsTileModel;
+}) {
+  const [view, setView] = useState<IntegrationsView>("closed");
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [availableRepositories, setAvailableRepositories] =
+    useState<readonly IntegrationRepository[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
+
+  const loadAvailableRepositories = async () => {
+    if (
+      !model.github.connected ||
+      !model.github.listRepositories ||
+      availableRepositories !== null ||
+      loading
+    ) {
+      return;
+    }
+    setLoading(true);
+    setLoadFailed(false);
+    try {
+      setAvailableRepositories(await model.github.listRepositories());
+    } catch {
+      setLoadFailed(true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const {
+    refs: { setReference, setFloating },
+    floatingStyles,
+    context,
+  } = useFloating({
+    open: pickerOpen,
+    onOpenChange(nextOpen) {
+      setPickerOpen(nextOpen);
+      if (nextOpen) void loadAvailableRepositories();
+    },
+    whileElementsMounted: autoUpdate,
+    placement: "bottom-end",
+    middleware: [offset(6), flip({ padding: 12 }), shift({ padding: 12 })],
+  });
+  const click = useClick(context);
+  const dismiss = useDismiss(context);
+  const role = useRole(context, { role: "dialog" });
+  const { getReferenceProps, getFloatingProps } = useInteractions([click, dismiss, role]);
+
+  const connectedIds = new Set(model.github.repositories.map((repository) => repository.id));
+  const query = search.trim().toLocaleLowerCase("en");
+  const filteredRepositories = (availableRepositories ?? []).filter(
+    (repository) =>
+      !connectedIds.has(repository.id) &&
+      (!query || repository.fullName.toLocaleLowerCase("en").includes(query)),
+  );
+
+  const openGitHubPicker = () => {
+    setView("github");
+    setPickerOpen(true);
+    void loadAvailableRepositories();
+  };
+  const toggleTile = () => {
+    if (!model.available) return;
+    setPickerOpen(false);
+    setView((current) => (current === "closed" ? "providers" : "closed"));
+  };
+  const addControl = (
+    <button
+      type="button"
+      ref={setReference}
+      className="flex-none rounded-full border border-rose/55 bg-wash/35 px-2.5 py-1 text-[10.5px] text-rose-light transition-colors hover:border-rose-light hover:bg-fg/8"
+      {...getReferenceProps()}
+    >
+      Add
+    </button>
+  );
 
   return (
-    <Tile slot={slot} open={open} onToggle={() => setOpen((value) => !value)}>
-      <div className={tileBody}>
-        <TileEyebrow>integrations</TileEyebrow>
-        {open && model.available ? (
-          <Reveal key="orbs" className="flex items-end gap-6">
-            <IntegrationOrb target="github" label="GitHub" connected={model.github.connected} onOpen={() => model.open("github")} />
-            <IntegrationOrb target="figma" label="Figma" connected={model.figma.connected} onOpen={() => model.open("figma")} />
-          </Reveal>
-        ) : (
-          <Reveal key="summary" className="flex flex-col gap-2">
-            {model.available ? (
-              <span className="flex flex-wrap gap-x-4 gap-y-1 text-[13px] text-fg/80">
-                {(["github", "figma"] as const).map((target) => (
-                  <span key={target} className="flex items-center gap-2">
-                    <span
-                      aria-hidden
-                      className={`block size-2 rounded-full border ${
-                        model[target].connected ? "border-rose-light bg-rose-light shadow-[0_0_8px_var(--glow-rose)]" : "border-rose/50"
-                      }`}
-                    />
-                    {target === "github" ? "GitHub" : "Figma"}
-                    <span className="text-fg/45">{model[target].connected ? "linked" : "not yet"}</span>
+    <>
+      <Tile slot={slot} open={view !== "closed"} onToggle={toggleTile}>
+        <div className={tileBody}>
+          {view === "closed" || !model.available ? <TileEyebrow>Integrations</TileEyebrow> : null}
+          {!model.available ? (
+            <p className="m-0 text-[13px] leading-snug text-fg/65">
+              Opens once your team is confirmed.
+            </p>
+          ) : view === "closed" ? null : view === "github" ? (
+            <GitHubRepositoryManager
+              model={model.github}
+              addControl={addControl}
+              onBack={() => {
+                setPickerOpen(false);
+                setView("providers");
+              }}
+              onManage={(repo) => model.open("github", repo)}
+            />
+          ) : (
+            <Reveal key="providers" className="grid min-h-0 flex-1 grid-cols-2 gap-2">
+              <div className="flex min-w-0 flex-col items-center justify-center gap-1 text-center">
+                <button
+                  type="button"
+                  onClick={() => setView("github")}
+                  className="flex flex-col items-center gap-1 rounded-lg text-fg hover:text-rose-light"
+                >
+                  <MarkBox target="github" />
+                  <span className="max-w-full truncate text-[11.5px]">
+                    GitHub{" "}
+                    <span className="text-[9.5px] text-fg/45">
+                      · {model.github.connected ? "Connected" : "Not connected"}
+                    </span>
                   </span>
-                ))}
-              </span>
-            ) : (
-              <p className="m-0 text-[13px] leading-snug text-fg/70">{summary}</p>
-            )}
-          </Reveal>
-        )}
-      </div>
-    </Tile>
+                </button>
+                <ActionButton
+                  onClick={
+                    !model.github.connected
+                      ? () => model.open("github")
+                      : model.github.repositories.length === 0
+                        ? openGitHubPicker
+                        : () => setView("github")
+                  }
+                >
+                  {!model.github.connected
+                    ? "Connect"
+                    : model.github.repositories.length === 0
+                      ? "Add repo"
+                      : "Manage"}
+                </ActionButton>
+              </div>
+
+              <div className="flex min-w-0 flex-col items-center justify-center gap-1 text-center">
+                <button
+                  type="button"
+                  onClick={() => model.open("figma")}
+                  className="flex flex-col items-center gap-1 rounded-lg text-fg hover:text-rose-light"
+                >
+                  <MarkBox target="figma" />
+                  <span className="max-w-full truncate text-[11.5px]">
+                    Figma{" "}
+                    <span className="text-[9.5px] text-fg/45">
+                      · {model.figma.connected ? "Connected" : "Not connected"}
+                    </span>
+                  </span>
+                </button>
+                <ActionButton onClick={() => model.open("figma")}>
+                  {model.figma.connected ? "Manage" : "Connect"}
+                </ActionButton>
+              </div>
+            </Reveal>
+          )}
+        </div>
+      </Tile>
+
+      {pickerOpen ? (
+        <FloatingPortal>
+          <FloatingFocusManager context={context} modal={false} initialFocus={0}>
+            <div
+              ref={setFloating}
+              style={floatingStyles}
+              className="z-[70] flex w-[min(340px,calc(100vw-24px))] flex-col gap-2 rounded-petal-xs glass-menu bg-wash/95 p-2.5 font-ui text-fg shadow-[0_24px_48px_-18px_var(--shade-2)]"
+              {...getFloatingProps()}
+            >
+              <input
+                type="search"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search repositories"
+                aria-label="Search GitHub repositories"
+                className="h-8 w-full rounded-lg border border-rose/35 bg-wash/40 px-2.5 text-[11.5px] text-fg outline-none placeholder:text-fg/35 focus:border-rose-light"
+              />
+              <div className="max-h-56 overflow-y-auto rounded-lg border border-rose/20 bg-fg/5 px-2.5 [scrollbar-width:thin]">
+                {loading ? (
+                  <p className="my-2 text-[10.5px] text-fg/45">Loading repositories…</p>
+                ) : loadFailed ? (
+                  <p className="my-2 text-[10.5px] text-fg/45">Repositories are unavailable right now.</p>
+                ) : filteredRepositories.length === 0 ? (
+                  <p className="my-2 text-[10.5px] text-fg/45">No repositories found.</p>
+                ) : (
+                  filteredRepositories.slice(0, 10).map((repository) => (
+                    <div
+                      key={repository.id}
+                      className="flex items-center gap-2 border-b border-rose/15 py-2 last:border-b-0"
+                    >
+                      <a
+                        href={repository.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="min-w-0 flex-1 truncate text-[11.5px] text-fg/70 underline-offset-4 hover:text-rose-light hover:underline"
+                      >
+                        {repository.fullName}
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPickerOpen(false);
+                          model.open("github", repository);
+                        }}
+                        className="flex-none text-[10.5px] text-rose-light"
+                      >
+                        Add
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </FloatingFocusManager>
+        </FloatingPortal>
+      ) : null}
+    </>
   );
 }

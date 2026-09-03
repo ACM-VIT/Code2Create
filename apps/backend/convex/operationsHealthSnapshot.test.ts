@@ -102,7 +102,7 @@ describe("operations-health materialization", () => {
     });
   });
 
-  test("a health refresh cannot write after autonomy takes over its expired lease", async () => {
+  test("a health refresh cannot write after another refresh takes over its expired lease", async () => {
     const backend = convexTest(schema, modules);
     const eventId = await backend.run((ctx) => insertEvent(ctx, "health-fenced", 1));
     expect(
@@ -115,8 +115,8 @@ describe("operations-health materialization", () => {
     ).toBe(true);
     expect(
       await backend.mutation(internal.operationsBackground.claim, {
-        holder: "autonomy_tick",
-        leaseId: "current-autonomy-tick",
+        holder: "health_refresh",
+        leaseId: "current-health-refresh",
         now: 1_001,
         leaseDurationMs: 60_000,
       }),

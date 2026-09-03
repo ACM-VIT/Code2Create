@@ -1007,6 +1007,119 @@ describe("participant onboarding lifecycle", () => {
     expect(me?.profile?.fullName).toBe("Q Li");
   });
 
+  test("renames a team through exact lead authority and an idempotent versioned command", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedParticipant(backend);
+    const teammate = await seedAdditionalParticipant(backend, fixture);
+    const leadClient = backend.withIdentity({
+      subject: fixture.authUserId,
+      sessionId: fixture.authSessionId,
+    });
+    const teammateClient = backend.withIdentity({
+      subject: teammate.authUserId,
+      sessionId: teammate.authSessionId,
+    });
+
+    await leadClient.mutation(api.participants.acceptPolicy, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      accepted: true,
+      clientOperationId: "rename-lead-policy-acceptance",
+    });
+    await teammateClient.mutation(api.participants.acceptPolicy, {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      accepted: true,
+      clientOperationId: "rename-member-policy-acceptance",
+    });
+    await completeExternalOnboarding(backend, fixture, {
+      personId: fixture.personId,
+      membershipId: fixture.membershipId,
+      fullName: "Aarav Menon",
+      githubUserId: "rename-lead-github",
+      githubLogin: "rename-lead",
+    });
+    await completeExternalOnboarding(backend, fixture, {
+      personId: teammate.personId,
+      membershipId: teammate.membershipId,
+      fullName: "Meera Rao",
+      githubUserId: "rename-member-github",
+      githubLogin: "rename-member",
+    });
+
+    const created = await leadClient.mutation(api.teams.create, {
+      eventSlug: fixture.eventSlug,
+      name: "First Name",
+      clientOperationId: "rename-team-create",
+    });
+    await teammateClient.mutation(api.teams.join, {
+      eventSlug: fixture.eventSlug,
+      code: created.publicCode,
+      clientOperationId: "rename-team-join",
+    });
+
+    await expect(
+      teammateClient.mutation(api.teams.rename, {
+        eventSlug: fixture.eventSlug,
+        teamId: created.teamId,
+        name: "Not Allowed",
+        expectedTeamVersion: 2,
+        clientOperationId: "rename-without-authority",
+      }),
+    ).rejects.toThrow();
+
+    const request = {
+      eventSlug: fixture.eventSlug,
+      teamId: created.teamId,
+      name: "  Paper Cranes  ",
+      expectedTeamVersion: 2,
+      clientOperationId: "rename-team-once",
+    } as const;
+    const renamed = await leadClient.mutation(api.teams.rename, request);
+    expect(await leadClient.mutation(api.teams.rename, request)).toEqual(renamed);
+
+    const [leadView, teammateView] = await Promise.all([
+      leadClient.query(api.teams.current, { eventSlug: fixture.eventSlug }),
+      teammateClient.query(api.teams.current, { eventSlug: fixture.eventSlug }),
+    ]);
+    expect(leadView).toMatchObject({ name: "Paper Cranes", version: 3, canRename: true });
+    expect(teammateView).toMatchObject({ name: "Paper Cranes", version: 3, canRename: false });
+
+    await backend.run(async (ctx) => {
+      const auditEvents = await ctx.db
+        .query("auditEvents")
+        .filter((query) => query.eq(query.field("action"), "team.renamed"))
+        .collect();
+      expect(auditEvents).toHaveLength(1);
+      expect(auditEvents[0]).toMatchObject({
+        authorizingPermissionKey: "team.members.manage",
+        previousSummary: JSON.stringify({ name: "First Name" }),
+        nextSummary: JSON.stringify({ name: "Paper Cranes" }),
+      });
+    });
+
+    await backend.run(async (ctx) => {
+      const deadline = Date.now();
+      await ctx.db.patch(fixture.eventId, {
+        externalApplicationsCloseAt: deadline,
+        applicationsCloseAt: deadline,
+      });
+    });
+    await expect(
+      leadClient.mutation(api.teams.rename, {
+        eventSlug: fixture.eventSlug,
+        teamId: created.teamId,
+        name: "Deadline Escape",
+        expectedTeamVersion: 3,
+        clientOperationId: "rename-after-idea-deadline",
+      }),
+    ).rejects.toThrow("Applications are closed");
+    await expect(
+      leadClient.query(api.teams.current, { eventSlug: fixture.eventSlug }),
+    ).resolves.toMatchObject({ name: "Paper Cranes", version: 3, canRename: false });
+  }, 10_000);
+
   test("transfers team leadership and its exact grants through an idempotent acceptance", async () => {
     const backend = convexTest(schema, modules);
     backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
