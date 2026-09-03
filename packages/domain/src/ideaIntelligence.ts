@@ -4,7 +4,8 @@ import { operationsIntelligenceProtocolVersion } from "./intelligenceProtocol.ts
 export const ideaIntelligenceIngressSignatureContext = "code2create.idea-intelligence.ingress.v1";
 export const ideaIntelligenceReadSignatureContext = "code2create.idea-intelligence.read.v1";
 export const ideaIntelligenceCallbackSignatureContext = "code2create.idea-intelligence.callback.v1";
-export const ideaIntelligenceRecoveryLeaseMs = 70 * 60 * 1_000;
+export const ideaIntelligenceSubmissionTimeoutMs = 90_000;
+export const ideaIntelligenceRecoveryLeaseMs = 3 * 60 * 1_000;
 
 export type IdeaIntelligenceDispatchRequest = {
   protocolVersion: typeof operationsIntelligenceProtocolVersion;
@@ -20,8 +21,10 @@ export type IdeaIntelligenceDispatchRequest = {
 
 export type IdeaIntelligenceInitialData = {
   protocolVersion: typeof operationsIntelligenceProtocolVersion;
+  recommendationId: string;
   applicationId: string;
   eventId: string;
+  modelId: string;
 };
 
 export type IdeaIntelligenceSource = {

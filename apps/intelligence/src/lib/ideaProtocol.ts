@@ -8,14 +8,14 @@ const identifier = bounded(1, 200);
 
 export const ideaIntelligenceInitialDataSchema = v.strictObject({
   protocolVersion: v.literal(operationsIntelligenceProtocolVersion),
+  recommendationId: identifier,
   applicationId: identifier,
   eventId: identifier,
+  modelId: bounded(1, 120),
 });
 
 export const ideaIntelligenceDispatchSchema = v.strictObject({
   ...ideaIntelligenceInitialDataSchema.entries,
-  recommendationId: identifier,
-  modelId: bounded(1, 120),
   promptVersion: bounded(1, 80),
   schemaVersion: bounded(1, 80),
   evaluationSuiteVersion: bounded(1, 80),

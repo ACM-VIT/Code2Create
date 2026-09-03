@@ -374,7 +374,7 @@ export const agentRunHistory = query({
             ...(run.completedAt !== undefined ? { completedAt: run.completedAt } : {}),
             ...(run.agentVersion !== undefined ? { agentVersion: run.agentVersion } : {}),
             ...(run.agentModel !== undefined ? { model: run.agentModel } : {}),
-            instanceId: run.applicationId,
+            instanceId: run._id,
             ...(run.agentOperationId !== undefined ? { operationId: run.agentOperationId } : {}),
             href: `/admissions/${run.applicationId}`,
             metadata: [
