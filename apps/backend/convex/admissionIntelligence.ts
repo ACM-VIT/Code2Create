@@ -310,7 +310,7 @@ export const recoverAgentDispatchAttempt = internalMutation({
     const recommendation = await ctx.db.get(args.recommendationId);
     if (
       !recommendation ||
-      recommendation.state !== "running" ||
+      (recommendation.state !== "pending" && recommendation.state !== "running") ||
       recommendation.agentDispatchAttemptId !== args.attemptId ||
       recommendation.agentSubmissionId
     )

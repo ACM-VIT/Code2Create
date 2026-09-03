@@ -105,6 +105,7 @@ export const recordDispatchFailure = internalMutation({
   args: {
     recommendationId: v.id("admissionAIRecommendations"),
     attemptId: v.string(),
+    workerMayHaveAccepted: v.boolean(),
   },
   returns: v.boolean(),
   handler: async (ctx, args) => {
@@ -115,7 +116,7 @@ export const recordDispatchFailure = internalMutation({
       recommendation.agentDispatchAttemptId !== args.attemptId
     )
       return false;
-    if (recommendation.state === "running") {
+    if (args.workerMayHaveAccepted) {
       await ctx.scheduler.runAfter(
         ideaIntelligenceRecoveryLeaseMs,
         internal.admissionIntelligence.recoverAgentDispatchAttempt,
@@ -126,6 +127,7 @@ export const recordDispatchFailure = internalMutation({
       );
       return true;
     }
+    if (recommendation.state !== "pending") return false;
     await ctx.db.patch(recommendation._id, {
       agentDispatchAttemptId: undefined,
     });
@@ -200,6 +202,7 @@ export const dispatchRecommendation = internalAction({
   handler: async (ctx, args) => {
     const prepared = await ctx.runMutation(internal.admissionAgentActions.prepareDispatch, args);
     if (!prepared) return null;
+    let workerMayHaveAccepted = false;
     try {
       const request: IdeaIntelligenceDispatchRequest = {
         protocolVersion: operationsIntelligenceProtocolVersion,
@@ -220,6 +223,7 @@ export const dispatchRecommendation = internalAction({
         timestamp,
         body,
       });
+      workerMayHaveAccepted = true;
       const response = await fetch(
         new URL("/v1/idea-submissions", requireIntelligenceWorkerOrigin()),
         {
@@ -254,6 +258,7 @@ export const dispatchRecommendation = internalAction({
       const recorded = await ctx.runMutation(internal.admissionAgentActions.recordDispatchFailure, {
         recommendationId: prepared.recommendationId,
         attemptId: prepared.attemptId,
+        workerMayHaveAccepted,
       });
       if (recorded) throw error;
     }

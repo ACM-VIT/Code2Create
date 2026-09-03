@@ -406,6 +406,7 @@ describe("manual admission analysis retry", () => {
       await backend.mutation(internal.admissionAgentActions.recordDispatchFailure, {
         recommendationId: rerun.recommendationId,
         attemptId: prepared.attemptId,
+        workerMayHaveAccepted: true,
       }),
     ).toBe(true);
     const running = await backend.run((ctx) => ctx.db.get(rerun.recommendationId));
@@ -462,16 +463,16 @@ describe("manual admission analysis retry", () => {
     });
     if (!prepared) throw new Error("The durable dispatch was not prepared.");
     expect(
-      await backend.mutation(internal.admissionIntelligence.beginRecommendation, {
-        recommendationId: rerun.recommendationId,
-      }),
-    ).not.toBeNull();
-    expect(
       await backend.mutation(internal.admissionAgentActions.recordDispatchFailure, {
         recommendationId: rerun.recommendationId,
         attemptId: prepared.attemptId,
+        workerMayHaveAccepted: true,
       }),
     ).toBe(true);
+    expect(await backend.run((ctx) => ctx.db.get(rerun.recommendationId))).toMatchObject({
+      state: "pending",
+      agentDispatchAttemptId: prepared.attemptId,
+    });
 
     expect(
       await backend.mutation(internal.admissionIntelligence.recoverAgentDispatchAttempt, {
@@ -496,6 +497,38 @@ describe("manual admission analysis retry", () => {
       recommendationId: rerun.recommendationId,
     });
     expect(next?.attemptId).not.toBe(prepared.attemptId);
+  });
+
+  test("releases a dispatch attempt that failed before reaching the worker", async () => {
+    const backend = seededBackend();
+    const fixture = await seedFixture(backend);
+    const runner = backend.withIdentity({
+      subject: fixture.runnerAuthUserId,
+      sessionId: fixture.runnerAuthSessionId,
+    });
+    const rerun = await runner.mutation(api.admissions.rerunAiRecommendation, {
+      eventSlug: fixture.eventSlug,
+      applicationId: fixture.applicationId,
+      expectedApplicationVersion: 1,
+      expectedRecommendationId: fixture.failedRecommendationId,
+      reason: "Retry after a local dispatch failure",
+      clientOperationId: "local-agent-dispatch-failure",
+    });
+    const prepared = await backend.mutation(internal.admissionAgentActions.prepareDispatch, {
+      recommendationId: rerun.recommendationId,
+    });
+    if (!prepared) throw new Error("The durable dispatch was not prepared.");
+
+    expect(
+      await backend.mutation(internal.admissionAgentActions.recordDispatchFailure, {
+        recommendationId: rerun.recommendationId,
+        attemptId: prepared.attemptId,
+        workerMayHaveAccepted: false,
+      }),
+    ).toBe(true);
+    const released = await backend.run((ctx) => ctx.db.get(rerun.recommendationId));
+    expect(released).toMatchObject({ state: "pending" });
+    expect(released?.agentDispatchAttemptId).toBeUndefined();
   });
 });
 
