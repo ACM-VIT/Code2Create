@@ -824,19 +824,33 @@ function ReviewForm({ detail }: { detail: AdmissionDetailData }) {
   const [recommendation, setRecommendation] = useState<ApplicationDecision | null>(
     ownReview?.recommendation ?? null,
   );
-  const [reason, setReason] = useState(
-    ownReview ? reasonLabel(detail, ownReview.reasonCode) : "",
+  const reasons = useMemo(
+    () =>
+      recommendation === null
+        ? []
+        : detail.policy.decisionReasonCodes.filter((reason) =>
+            reason.allowedDecisions.includes(recommendation),
+          ),
+    [detail.policy.decisionReasonCodes, recommendation],
   );
+  const [reason, setReason] = useState(ownReview?.reasonCode ?? "");
   const [note, setNote] = useState(ownReview?.note ?? "");
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const reviewReason = reason.trim();
+  const selectedReason = reasons.some((candidate) => candidate.key === reason)
+    ? reason
+    : (reasons[0]?.key ?? "");
   const savePending = operations.hasPending("save");
 
   const choose = (next: ApplicationDecision) => {
     setRecommendation(next);
+    setReason(
+      detail.policy.decisionReasonCodes.find((candidate) =>
+        candidate.allowedDecisions.includes(next),
+      )?.key ?? "",
+    );
   };
 
   const submit = async (event: FormEvent) => {
@@ -847,14 +861,14 @@ function ReviewForm({ detail }: { detail: AdmissionDetailData }) {
       if (savePending) {
         await operations.retryPending("save");
       } else {
-        if (recommendation === null || reviewReason.length < 3) return;
+        if (recommendation === null || !selectedReason) return;
         await operations.run("save", (clientOperationId) => {
           const command = {
             eventSlug,
             applicationId: detail.application.id,
             expectedApplicationContentVersion: detail.application.contentVersion,
             recommendation,
-            reasonCode: reviewReason,
+            reasonCode: selectedReason,
             ...(note.trim() ? { note: note.trim() } : {}),
             clientOperationId,
           };
@@ -919,7 +933,7 @@ function ReviewForm({ detail }: { detail: AdmissionDetailData }) {
     <section className="detail-section command-section">
       <h2>{ownReview ? "Change your review" : "Your review"}</h2>
       <p className="muted">
-        Pick one, enter a reason, and save. Whoever records the decision sees both.
+        Pick one, choose the reason that fits, and save. Whoever records the decision sees both.
       </p>
       <form className="command-form" onSubmit={submit}>
         <fieldset disabled={savePending || busy} style={{ display: "contents" }}>
@@ -947,14 +961,13 @@ function ReviewForm({ detail }: { detail: AdmissionDetailData }) {
               label="Reason"
               hint="The team may be told this if the decision follows your review."
             >
-              <input
-                required
-                minLength={3}
-                maxLength={240}
-                placeholder="Why does this recommendation fit?"
-                value={reason}
-                onChange={(event) => setReason(event.target.value)}
-              />
+              <select value={selectedReason} onChange={(event) => setReason(event.target.value)}>
+                {reasons.map((option) => (
+                  <option key={option.key} value={option.key}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
             </Field>
           ) : null}
           <Field label="Note for the decision maker" hint="Optional.">
@@ -974,10 +987,7 @@ function ReviewForm({ detail }: { detail: AdmissionDetailData }) {
           <button
             className="primary"
             type="submit"
-            disabled={
-              busy ||
-              (!savePending && (recommendation === null || reviewReason.length < 3))
-            }
+            disabled={busy || (!savePending && (recommendation === null || !selectedReason))}
           >
             {busy
               ? "Saving…"
@@ -994,7 +1004,7 @@ function ReviewForm({ detail }: { detail: AdmissionDetailData }) {
               type="button"
               onClick={() => {
                 setRecommendation(ownReview.recommendation);
-                setReason(reasonLabel(detail, ownReview.reasonCode));
+                setReason(ownReview.reasonCode);
                 setNote(ownReview.note ?? "");
                 setEditing(false);
               }}
@@ -1408,8 +1418,8 @@ function sourceName(value: string) {
   return "follow-up answer";
 }
 
-function reasonLabel(detail: AdmissionDetailData, key: string): string {
-  return detail.policy.decisionReasonCodes.find((reason) => reason.key === key)?.label ?? key;
+function reasonLabel(detail: AdmissionDetailData, key: string): string | null {
+  return detail.policy.decisionReasonCodes.find((reason) => reason.key === key)?.label ?? null;
 }
 
 function decidedSentence(detail: AdmissionDetailData, decision: ApplicationDecision) {
