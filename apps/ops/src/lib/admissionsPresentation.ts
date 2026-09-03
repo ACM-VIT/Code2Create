@@ -65,9 +65,14 @@ export function parseApplicationStage(value: string): ApplicationState {
   return applicationStageOrder.find((stage) => stage === value) ?? "submitted";
 }
 
-export function queueLeadSentence(counts: ReadonlyMap<ApplicationState, number>): string {
+export function queueLeadSentence(
+  counts: ReadonlyMap<ApplicationState, number>,
+  oneReviewOnly = false,
+): string {
   const total = [...counts.values()].reduce((sum, count) => sum + count, 0);
-  if (total === 0) return "No team has applied yet.";
+  if (total === 0) {
+    return oneReviewOnly ? "No team has exactly 1 review in." : "No team has applied yet.";
+  }
   const clauses: string[] = [];
   const submitted = counts.get("submitted") ?? 0;
   const underReview = counts.get("under_review") ?? 0;
@@ -82,6 +87,12 @@ export function queueLeadSentence(counts: ReadonlyMap<ApplicationState, number>)
   if (clauses.length === 0)
     return `${total} ${total === 1 ? "application" : "applications"}, all decided.`;
   return `${joinClauses(clauses.slice(0, 3))}.`;
+}
+
+export function completedReviewCountQueryArgs(oneReviewOnly: boolean): {
+  completedReviewCount?: 1;
+} {
+  return oneReviewOnly ? { completedReviewCount: 1 } : {};
 }
 
 export function reviewerLeadSentence(counts: ReviewAssignmentCounts | undefined): string {

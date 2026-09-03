@@ -6,6 +6,7 @@ import {
   assignmentOutcomeSummary,
   busiestStage,
   cohortSummary,
+  completedReviewCountQueryArgs,
   memberContextLine,
   needsAssignment,
   nextAssignmentId,
@@ -96,6 +97,7 @@ test("stage chips only show stages with something in them", () => {
 
 test("the queue opens with one sentence about where applications are", () => {
   assert.equal(queueLeadSentence(new Map()), "No team has applied yet.");
+  assert.equal(queueLeadSentence(new Map(), true), "No team has exactly 1 review in.");
   assert.equal(
     queueLeadSentence(
       stageCountMap([
@@ -127,6 +129,11 @@ test("the queue opens with one sentence about where applications are", () => {
     reviewerLeadSentence({ active: 0, completed: 0 }),
     "Nothing is assigned to you yet. A coordinator hands out applications from the full list.",
   );
+});
+
+test("the one-review filter only sends its exact count when selected", () => {
+  assert.deepEqual(completedReviewCountQueryArgs(false), {});
+  assert.deepEqual(completedReviewCountQueryArgs(true), { completedReviewCount: 1 });
 });
 
 test("short tags replace the AI sentences in the list", () => {

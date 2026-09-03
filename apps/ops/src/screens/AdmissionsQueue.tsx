@@ -14,6 +14,7 @@ import {
   aiStateTag,
   assignmentOutcomeSummary,
   busiestStage,
+  completedReviewCountQueryArgs,
   needsAssignment,
   ownReviewLine,
   queueLeadSentence,
@@ -278,7 +279,9 @@ function AdmissionResultsRelease() {
 }
 
 function ApplicationList({ canAssign }: { canAssign: boolean }) {
-  const counts = useQuery(api.admissions.stageCounts, { eventSlug });
+  const [oneReviewOnly, setOneReviewOnly] = useState(false);
+  const reviewCountArgs = completedReviewCountQueryArgs(oneReviewOnly);
+  const counts = useQuery(api.admissions.stageCounts, { eventSlug, ...reviewCountArgs });
   const countByState = stageCountMap(counts ?? []);
   const [chosen, setChosen] = useState<ApplicationState | null>(null);
   const stage = chosen ?? busiestStage(countByState) ?? "submitted";
@@ -287,12 +290,12 @@ function ApplicationList({ canAssign }: { canAssign: boolean }) {
   const searching = searchQuery.length > 0;
   const applicationPage = usePaginatedQuery(
     api.admissions.list,
-    searching ? "skip" : { eventSlug, state: stage },
+    searching ? "skip" : { eventSlug, state: stage, ...reviewCountArgs },
     { initialNumItems: 30 },
   );
   const searchResult = useQuery(
     api.admissions.searchApplications,
-    searching ? { eventSlug, state: stage, search: searchQuery } : "skip",
+    searching ? { eventSlug, state: stage, search: searchQuery, ...reviewCountArgs } : "skip",
   );
   const [assigning, setAssigning] = useState(false);
   const [unassignedOnly, setUnassignedOnly] = useState(false);
@@ -321,7 +324,9 @@ function ApplicationList({ canAssign }: { canAssign: boolean }) {
       {counts === undefined ? (
         <SkeletonLine width="48%" />
       ) : (
-        <p className="muted admissions-lead">{queueLeadSentence(countByState)}</p>
+        <p className="muted admissions-lead">
+          {queueLeadSentence(countByState, oneReviewOnly)}
+        </p>
       )}
       <div className="admissions-toolbar">
         <div className="stage-filter admissions-stages">
@@ -354,6 +359,18 @@ function ApplicationList({ canAssign }: { canAssign: boolean }) {
                 setSelected(new Set());
               }}
             />
+          </label>
+          <label className="check-filter">
+            <input
+              checked={oneReviewOnly}
+              type="checkbox"
+              onChange={(event) => {
+                setOneReviewOnly(event.target.checked);
+                setChosen(null);
+                setSelected(new Set());
+              }}
+            />
+            Only 1 review in
           </label>
           {reviewable ? (
             <>
@@ -422,7 +439,9 @@ function ApplicationList({ canAssign }: { canAssign: boolean }) {
                 ? "Every matching team already has a reviewer."
                 : `No teams match “${searchQuery}” at ${applicationStateLabels[stage]}.`
               : countByState.size === 0
-                ? "No team has applied yet."
+                ? oneReviewOnly
+                  ? "No team has exactly 1 review in."
+                  : "No team has applied yet."
                 : applications.length > 0
                   ? "Everyone shown here has a reviewer."
                   : `Nothing at ${applicationStateLabels[stage]} right now.`}
