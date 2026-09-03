@@ -37,6 +37,7 @@ import {
 import { eventSlug } from "../lib/config";
 import { isConvexErrorCode, readableError } from "../lib/errors";
 import { useOperationRunner } from "../lib/operations";
+import { useReviewAssignmentCounts } from "../lib/useReviewAssignmentCounts";
 
 type AssignmentState = "active" | "completed";
 type QueueView = "all" | "mine";
@@ -661,7 +662,7 @@ function AssignBar({
 
 function AssignmentList({ origin }: { origin: TeamOriginFilter }) {
   const originArgs = teamOriginQueryArgs(origin);
-  const counts = useQuery(api.admissions.myReviewAssignmentCounts, { eventSlug, ...originArgs });
+  const counts = useReviewAssignmentCounts(origin);
   const [state, setState] = useState<AssignmentState>("active");
   const { results, status, loadMore } = usePaginatedQuery(
     api.admissions.myReviewAssignments,

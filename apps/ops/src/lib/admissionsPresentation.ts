@@ -15,9 +15,7 @@ export type QueueApplication = ApplicationPage["page"][number];
 type AssignmentPage = FunctionReturnType<typeof api.admissions.myReviewAssignments>;
 export type QueueAssignment = AssignmentPage["page"][number];
 export type StageCount = FunctionReturnType<typeof api.admissions.stageCounts>[number];
-export type ReviewAssignmentCounts = FunctionReturnType<
-  typeof api.admissions.myReviewAssignmentCounts
->;
+export type ReviewAssignmentCounts = { active: number; completed: number };
 export type ReviewerWorkload = FunctionReturnType<typeof api.admissions.reviewerWorkload>[number];
 export type RosterCohortMember = { participantClass: ParticipantClass; yearOfStudy: StudyYear };
 export type ReviewStatusTone = "done" | "waiting" | "unassigned";

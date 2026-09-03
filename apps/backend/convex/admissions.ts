@@ -684,6 +684,10 @@ const assignedReviewItem = v.object({
   ownRecommendation: v.optional(admissionDecision),
 });
 
+const reviewAssignmentCountRow = v.object({
+  state: v.union(v.literal("active"), v.literal("completed")),
+});
+
 async function visibleReviewAssignmentProjection(
   ctx: QueryCtx,
   eventId: Id<"events">,
@@ -819,37 +823,35 @@ export const myReviewAssignments = query({
   },
 });
 
-/** How much review work the caller has, so the queue can say it before the page loads. */
-export const myReviewAssignmentCounts = query({
-  args: { eventSlug: v.string(), origin: v.optional(admissionTeamOrigin) },
-  returns: v.object({ active: v.number(), completed: v.number() }),
+/** Pages the caller's workload so the client can derive exact totals without a read ceiling. */
+export const myReviewAssignmentCountRows = query({
+  args: {
+    eventSlug: v.string(),
+    origin: v.optional(admissionTeamOrigin),
+    paginationOpts: paginationOptsValidator,
+  },
+  returns: paginationResultValidator(reviewAssignmentCountRow),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     await requireEventSubject(ctx, event._id, person._id);
-    const count = async (state: "active" | "completed") => {
-      const rows = await ctx.db
-        .query("admissionReviewAssignments")
-        .withIndex("by_event_reviewer_state_assigned", (index) =>
-          index.eq("eventId", event._id).eq("reviewerPersonId", person._id).eq("state", state),
-        )
-        .take(maximumWorkloadAssignments + 1);
-      if (rows.length > maximumWorkloadAssignments) {
-        throw new Error(
-          `Admission workload counts support at most ${maximumWorkloadAssignments} assignments per state.`,
-        );
+    requireAdmissionPageSize(args.paginationOpts.numItems);
+    const page = await ctx.db
+      .query("admissionReviewAssignments")
+      .withIndex("by_event_reviewer_state_assigned", (index) =>
+        index.eq("eventId", event._id).eq("reviewerPersonId", person._id),
+      )
+      .paginate(args.paginationOpts);
+    const visible = [];
+    for (const assignment of page.page) {
+      if (assignment.state === "cancelled") continue;
+      const application = await ctx.db.get(assignment.applicationId);
+      if (!application || !(await applicationMatchesOrigin(ctx, application, args.origin))) {
+        continue;
       }
-      if (args.origin === undefined) return rows.length;
-      let matching = 0;
-      for (const row of rows) {
-        const application = await ctx.db.get(row.applicationId);
-        if (application && (await applicationMatchesOrigin(ctx, application, args.origin))) {
-          matching += 1;
-        }
-      }
-      return matching;
-    };
-    return { active: await count("active"), completed: await count("completed") };
+      visible.push({ state: assignment.state });
+    }
+    return { ...page, page: visible };
   },
 });
 

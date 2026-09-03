@@ -1,4 +1,5 @@
 import betterAuthSchema from "../node_modules/@convex-dev/better-auth/src/component/schema.ts";
+import type { FunctionReturnType } from "convex/server";
 import { convexTest, type TestConvex } from "convex-test";
 import { describe, expect, test } from "vitest";
 
@@ -21,6 +22,10 @@ const betterAuthModules = import.meta.glob(
   "../node_modules/@convex-dev/better-auth/src/component/**/*.ts",
 );
 type BackendTest = TestConvex<typeof schema>;
+type ReviewerClient = ReturnType<BackendTest["withIdentity"]>;
+type ReviewAssignmentCountPage = FunctionReturnType<
+  typeof api.admissions.myReviewAssignmentCountRows
+>;
 
 describe("admission review assignments", () => {
   test("origin filters fill pages past assignments and applications from the other origin", async () => {
@@ -195,7 +200,7 @@ describe("admission review assignments", () => {
       origin: "external",
       paginationOpts: { cursor: firstAssignments.continueCursor, numItems: 1 },
     });
-    const assignmentCounts = await reviewer.query(api.admissions.myReviewAssignmentCounts, {
+    const assignmentCounts = await reviewAssignmentCounts(reviewer, {
       eventSlug: fixture.eventSlug,
       origin: "external",
     });
@@ -206,7 +211,7 @@ describe("admission review assignments", () => {
     expect(assignmentCounts).toEqual({ active: 1, completed: 1 });
   });
 
-  test("origin counts include matching assignments beyond the first 500 rows", async () => {
+  test("origin counts include matching assignments beyond 4,000 rows", async () => {
     const backend = convexTest(schema, modules);
     backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
     const { authUserId, authSessionId } = await createReviewerAuth(backend);
@@ -239,9 +244,9 @@ describe("admission review assignments", () => {
       const internalApplicationId = await ctx.db.insert("applications", {
         ...applicationFields,
         teamId: internalTeamId,
-        submittedAt: fixture.now + 501,
+        submittedAt: fixture.now + 4_002,
       });
-      for (let index = 0; index < 500; index += 1) {
+      for (let index = 0; index < 4_001; index += 1) {
         await ctx.db.insert("admissionReviewAssignments", {
           eventId: fixture.eventId,
           applicationId: fixture.applicationId,
@@ -261,13 +266,13 @@ describe("admission review assignments", () => {
         assignedByPersonId: fixture.managerPersonId,
         state: "active",
         version: 1,
-        assignedAt: fixture.now + 500,
+        assignedAt: fixture.now + 4_001,
       });
     });
 
     const reviewer = backend.withIdentity({ subject: authUserId, sessionId: authSessionId });
     await expect(
-      reviewer.query(api.admissions.myReviewAssignmentCounts, {
+      reviewAssignmentCounts(reviewer, {
         eventSlug: fixture.eventSlug,
         origin: "internal",
       }),
@@ -815,6 +820,27 @@ async function seedAssignmentFixture(backend: BackendTest, reviewerAuthUserId?: 
       secondReviewerSubjectId,
     };
   });
+}
+
+async function reviewAssignmentCounts(
+  reviewer: ReviewerClient,
+  args: { eventSlug: string; origin?: "internal" | "external" },
+) {
+  const totals = { active: 0, completed: 0 };
+  let cursor: string | null = null;
+  for (;;) {
+    const page: ReviewAssignmentCountPage = await reviewer.query(
+      api.admissions.myReviewAssignmentCountRows,
+      {
+        eventSlug: args.eventSlug,
+        ...(args.origin === undefined ? {} : { origin: args.origin }),
+        paginationOpts: { cursor, numItems: 100 },
+      },
+    );
+    for (const row of page.page) totals[row.state] += 1;
+    if (page.isDone) return totals;
+    cursor = page.continueCursor;
+  }
 }
 
 function insertPerson(ctx: MutationCtx, key: string, now: number, authUserId?: string) {
