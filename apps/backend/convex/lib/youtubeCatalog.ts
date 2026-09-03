@@ -39,8 +39,8 @@ const videosResponse = z.object({
           channelTitle: z.string(),
           thumbnails: z
             .object({
-              medium: z.object({ url: z.string().url() }).optional(),
-              default: z.object({ url: z.string().url() }).optional(),
+              medium: z.object({ url: z.url() }).optional(),
+              default: z.object({ url: z.url() }).optional(),
             })
             .optional(),
         }),

@@ -211,45 +211,45 @@ function safeToolState(state: FlueToolPart["state"]): Extract<
 function safeToolLabel(toolName: string) {
   switch (toolName) {
     case "plan_operations":
-      return "Plan operations review";
+      return "Planned what to check";
     case "read_operations_data":
-      return "Read approved event data";
+      return "Read event data";
     case "investigate_area":
-      return "Investigate event area";
+      return "Looked into one part of the event";
     case "critique_plan":
-      return "Check evidence and conclusions";
+      return "Double-checked its own conclusions";
     case "read_operations_health":
-      return "Read operations health";
+      return "Checked how the event is running";
     case "read_operations_attention":
-      return "Read attention queue";
+      return "Read what needs attention";
     case "read_review_rounds":
-      return "Read review rounds";
+      return "Read the review rounds";
     case "read_review_exceptions":
-      return "Read review exceptions";
+      return "Read reviews that went wrong";
     case "read_attendance_counts":
-      return "Read attendance counts";
+      return "Read who is checked in";
     case "read_support_load":
-      return "Read support load";
+      return "Read the help desk load";
     case "read_recommendation_history":
-      return "Read recommendation history";
+      return "Read past suggestions";
     case "search_submissions":
       return "Search submitted ideas";
     case "read_admission_cohort":
-      return "Read admission cohort";
+      return "Read who was admitted";
     case "propose_recommendation":
-      return "Record recommendation proposal";
+      return "Drafted a suggestion";
     case "inspect_event_commands":
-      return "Inspect event controls";
+      return "Looked up which changes are possible";
     case "propose_event_command":
-      return "Request command approval";
+      return "Asked an organiser to approve a change";
     case "publish_operations_brief":
-      return "Publish operations brief";
+      return "Published the brief";
     case "task":
-      return "Investigator agent";
+      return "Sent a helper to dig deeper";
     case "activate_skill":
-      return "Load operating procedure";
+      return "Opened an operating guide";
     case "read_skill_resource":
-      return "Read operating guidance";
+      return "Read an operating guide";
     default:
       return null;
   }

@@ -147,7 +147,7 @@ export async function refreshSubmittedApplicationRoster(
   if (!application) return null;
   if (
     application.eventId !== args.event._id ||
-    !["submitted", "under_review", "needs_information"].includes(application.state)
+    !["submitted", "under_review"].includes(application.state)
   ) {
     throw new ConvexError({
       code: "APPLICATION_TEAM_FINALIZED",
@@ -279,9 +279,6 @@ export async function refreshSubmittedApplicationRoster(
     finalConfirmation: project.finalConfirmation,
     participantPolicyVersionId: participantPolicy._id,
     admissionPolicyVersionId: project.admissionPolicyVersionId,
-    ...(project.admissionInformationResponses !== undefined
-      ? { admissionInformationResponses: project.admissionInformationResponses }
-      : {}),
     ...(project.proposalRevision !== undefined
       ? { proposalRevision: project.proposalRevision }
       : {}),

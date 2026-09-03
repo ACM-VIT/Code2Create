@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type SubmitEvent } from "react";
 
 import { readableError } from "../../lib/errors";
 import { useSceneryPlayer } from "../../lib/useYouTubePlayer";
@@ -309,7 +309,7 @@ function OpenMusic({ model }: { model: MusicTileModel }) {
       setPanel("queue");
     });
 
-  const submitLink = (event: FormEvent) => {
+  const submitLink = (event: SubmitEvent) => {
     event.preventDefault();
     if (!canRequest || !looksLikeYouTubeLink(trimmed)) return;
     void request(trimmed, "That link");

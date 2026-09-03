@@ -4,15 +4,26 @@ const immutableCacheControl = "public, max-age=31536000, immutable";
 const privateCacheControl = "private, no-store";
 
 export class R2UpdateStore implements UpdateStore {
-  constructor(private readonly bucket: R2Bucket) {}
+  private readonly bucket: R2Bucket;
+
+  constructor(bucket: R2Bucket) {
+    this.bucket = bucket;
+  }
 
   async getAsset(key: string): Promise<StoredAsset | null> {
     const object = await this.bucket.get(assetPath(key));
-    if (!object) return null;
+    if (object === null) return null;
 
     const contentType = object.httpMetadata?.contentType;
     const sha256 = object.customMetadata?.sha256;
-    if (!contentType || !sha256) return null;
+    if (
+      contentType === undefined ||
+      contentType.length === 0 ||
+      sha256 === undefined ||
+      sha256.length === 0
+    ) {
+      return null;
+    }
 
     return {
       body: object.body,
@@ -39,7 +50,7 @@ export class R2UpdateStore implements UpdateStore {
       },
       customMetadata: { sha256: key },
     });
-    if (written) return "created";
+    if (written !== null) return "created";
 
     const existing = await this.bucket.head(assetPath(key));
     return existing?.customMetadata?.sha256 === key && existing.size === bytes.byteLength
@@ -60,10 +71,10 @@ export class R2UpdateStore implements UpdateStore {
         cacheControl: privateCacheControl,
       },
     });
-    if (written) return "created";
+    if (written !== null) return "created";
 
     const existing = await this.getText(path);
-    if (!existing) return "conflict";
+    if (existing === null) return "conflict";
     return existing.body === body ? "unchanged" : "conflict";
   }
 
@@ -77,7 +88,10 @@ export class R2UpdateStore implements UpdateStore {
     expectedEtag: string | null,
   ): Promise<boolean> {
     const written = await this.bucket.put(currentPath(runtimeVersion), body, {
-      onlyIf: expectedEtag ? { etagMatches: expectedEtag } : { etagDoesNotMatch: "*" },
+      onlyIf:
+        expectedEtag !== null && expectedEtag.length > 0
+          ? { etagMatches: expectedEtag }
+          : { etagDoesNotMatch: "*" },
       httpMetadata: {
         contentType: "application/json; charset=utf-8",
         cacheControl: privateCacheControl,
@@ -88,7 +102,7 @@ export class R2UpdateStore implements UpdateStore {
 
   private async getText(path: string): Promise<StoredText | null> {
     const object = await this.bucket.get(path);
-    if (!object) return null;
+    if (object === null) return null;
     return {
       body: await object.text(),
       etag: object.etag,

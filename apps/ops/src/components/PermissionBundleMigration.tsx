@@ -1,7 +1,7 @@
 import { api } from "@code2create/backend/api";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
-import { useState, type FormEvent } from "react";
+import { useState, type SubmitEvent } from "react";
 
 import { BundleBindingField } from "./BundleBindingField";
 import { eventSlug } from "../lib/config";
@@ -117,7 +117,7 @@ export function PermissionBundleMigration({ bundleId }: { bundleId: BundleId }) 
     resetPreview();
   };
 
-  const requestPreview = (event: FormEvent) => {
+  const requestPreview = (event: SubmitEvent) => {
     event.preventDefault();
     if (!sourceVersionId || selections.length === 0 || !bindingsComplete(selections)) return;
     if (migrationPending) return;

@@ -9093,6 +9093,16 @@ textarea:focus {
 .admissions-toolbar-actions .secondary {
   min-height: 28px;
 }
+.admissions-search {
+  flex: 1 1 220px;
+}
+.admissions-search input {
+  width: 100%;
+}
+.admissions-search-limit {
+  margin: 8px 0 0;
+  font-size: 0.75rem;
+}
 .admissions-stages {
   margin: 0;
 }

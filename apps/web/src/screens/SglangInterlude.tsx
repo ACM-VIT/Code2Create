@@ -59,21 +59,20 @@ export function SglangInterlude({
       callbackAttempts.set(key, attempt);
     }
     let active = true;
-    attempt.then(
-      (result) => {
+    void attempt
+      .then((result) => {
         if (!active) return;
         setBusy(null);
         // A star that already existed completes the gate at the callback,
         // so the release happens here rather than on the star button.
         if (result.state === "completed") releaseBalloons();
-        navigate("/", { replace: true, viewTransition: true });
-      },
-      (reason: unknown) => {
+        void navigate("/", { replace: true, viewTransition: true });
+      })
+      .catch((reason: unknown) => {
         if (!active) return;
         setBusy(null);
         setFailure({ code: convexErrorCode(reason), message: readableError(reason) });
-      },
-    );
+      });
     return () => {
       active = false;
     };
@@ -119,7 +118,7 @@ export function SglangInterlude({
     try {
       await disconnectGitHub({ eventSlug });
       setBusy(null);
-      navigate("/", { replace: true, viewTransition: true });
+      void navigate("/", { replace: true, viewTransition: true });
     } catch (reason) {
       setBusy(null);
       setFailure({ code: convexErrorCode(reason), message: readableError(reason) });

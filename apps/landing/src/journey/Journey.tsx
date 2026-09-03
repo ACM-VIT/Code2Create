@@ -1008,7 +1008,7 @@ export default function Journey({ petalsRef }: JourneyProps) {
             <article className="chapter" key={chapter.title}>
               <h2 className="chapter__title">
                 <span>About</span>{" "}
-                {chapter.wordmark ? (
+                {chapter.wordmark === true ? (
                   <img
                     src="/assets/svg/wordmark-sm.svg"
                     alt="Code2Create"

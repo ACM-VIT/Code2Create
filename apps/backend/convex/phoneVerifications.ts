@@ -110,12 +110,16 @@ function storedVerificationResult(
   if (!result || typeof result !== "object") {
     throw new Error("The stored phone verification result is invalid.");
   }
-  const candidate = result as Record<string, unknown>;
+  if (!("verificationId" in result) || !("maskedPhone" in result) || !("outcome" in result)) {
+    throw new Error("The stored phone verification result is invalid.");
+  }
+  const candidate = result;
   if (candidate.verificationId !== verificationId || typeof candidate.maskedPhone !== "string") {
     throw new Error("The stored phone verification result is invalid.");
   }
   if (
     candidate.outcome === "verified" &&
+    "verifiedAt" in candidate &&
     typeof candidate.verifiedAt === "number" &&
     Number.isFinite(candidate.verifiedAt)
   ) {
@@ -128,6 +132,7 @@ function storedVerificationResult(
   }
   if (
     (candidate.outcome === "incorrect" || candidate.outcome === "locked") &&
+    "attemptsRemaining" in candidate &&
     typeof candidate.attemptsRemaining === "number" &&
     Number.isSafeInteger(candidate.attemptsRemaining) &&
     candidate.attemptsRemaining >= 0 &&

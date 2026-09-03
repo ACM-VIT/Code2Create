@@ -3,7 +3,7 @@ import { eventRoleLabels } from "@code2create/domain";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import * as Papa from "papaparse";
-import { useState, type ChangeEvent, type FormEvent } from "react";
+import { useState, type ChangeEvent, type SubmitEvent } from "react";
 import { Link } from "react-router-dom";
 
 import { Icon, type IconName } from "../components/Icon";
@@ -119,7 +119,7 @@ export function Roster({ canReadBundles }: { canReadBundles: boolean }) {
     }
   };
 
-  const requestPreview = (event: FormEvent) => {
+  const requestPreview = (event: SubmitEvent) => {
     event.preventDefault();
     setMessage(null);
     if (!loadedRoster) {

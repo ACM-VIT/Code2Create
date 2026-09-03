@@ -21,9 +21,6 @@ export function admissionInputFingerprint(args: {
   initialIdea: string;
   additionalInformation?: string;
   intakeResponses: Doc<"projectVersions">["intakeResponses"];
-  admissionInformationResponses: NonNullable<
-    Doc<"projectVersions">["admissionInformationResponses"]
-  >;
   experienceBand: Doc<"applications">["experienceBand"];
   admissionPolicyVersionId: Doc<"admissionPolicyVersions">["_id"];
   admissionPolicyChecksum: string;

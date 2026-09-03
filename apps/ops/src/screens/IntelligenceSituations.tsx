@@ -44,7 +44,7 @@ export function IntelligenceSituations() {
       ) : episodes.length === 0 ? (
         <div className="health-empty">
           <strong>No active situation.</strong>
-          <span>New ones appear here as soon as health signals correlate into one.</span>
+          <span>New ones appear here when separate warnings start pointing at the same problem.</span>
         </div>
       ) : (
         <div className="grid gap-3">
@@ -62,10 +62,10 @@ function SituationCard({ episode }: { episode: OperationsEpisode }) {
     episode.hypotheses.length + episode.predictions.length + episode.counterfactuals.length;
   const analysisPending = episode.analysisStatus !== "ready";
   const stats = [
-    `${formatPercent(episode.confidence)} confidence`,
-    `${episode.signalCount} ${episode.signalCount === 1 ? "signal" : "signals"}`,
+    `${formatPercent(episode.confidence)} sure`,
+    `${episode.signalCount} ${episode.signalCount === 1 ? "warning" : "warnings"}`,
     `${episode.factCount} ${episode.factCount === 1 ? "fact" : "facts"}`,
-    `relevance ${episode.relevanceScore}`,
+    `relevance ${episode.relevanceScore} out of 100`,
     `first seen ${formatCompactDateTime(episode.firstObservedAt)}`,
     ...(analysisPending ? [episodeAnalysisLabel(episode.analysisStatus)] : []),
   ];
@@ -110,7 +110,7 @@ function SituationCard({ episode }: { episode: OperationsEpisode }) {
       {analysisCount === 0 ? null : (
         <details className="group rounded-lg border border-line">
           <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3.5 py-2.5 text-[12px] text-ink-2 hover:bg-hover [&::-webkit-details-marker]:hidden">
-            <span>Analyst reasoning · {analysisSummary(episode)}</span>
+            <span>How the agent read this · {analysisSummary(episode)}</span>
             <span
               aria-hidden
               className="font-mono text-[14px] text-ink-3 transition-transform group-open:rotate-45"
@@ -120,7 +120,7 @@ function SituationCard({ episode }: { episode: OperationsEpisode }) {
           </summary>
           <div className="grid gap-4 border-t border-line px-3.5 py-3.5">
             {episode.hypotheses.length === 0 ? null : (
-              <AnalysisList title="Hypotheses">
+              <AnalysisList title="Possible causes">
                 {episode.hypotheses.map((hypothesis, index) => (
                   <li className="grid gap-0.5" key={`${hypothesis.stance}-${index}`}>
                     <span className="text-[12.5px] leading-5 text-ink-2">
@@ -135,7 +135,7 @@ function SituationCard({ episode }: { episode: OperationsEpisode }) {
               </AnalysisList>
             )}
             {episode.predictions.length === 0 ? null : (
-              <AnalysisList title="Forecasts">
+              <AnalysisList title="What happens if nothing changes">
                 {episode.predictions.map((prediction, index) => (
                   <li className="grid gap-0.5" key={`${prediction.horizonAt}-${index}`}>
                     <span className="text-[12.5px] leading-5 text-ink-2">
@@ -152,7 +152,7 @@ function SituationCard({ episode }: { episode: OperationsEpisode }) {
               </AnalysisList>
             )}
             {episode.counterfactuals.length === 0 ? null : (
-              <AnalysisList title="What an intervention could change">
+              <AnalysisList title="What acting now would change">
                 {episode.counterfactuals.map((counterfactual, index) => (
                   <li className="grid gap-0.5" key={`${counterfactual.expectedState}-${index}`}>
                     <span className="text-[12.5px] leading-5 text-ink-2">
@@ -178,12 +178,12 @@ function analysisSummary(episode: OperationsEpisode) {
   const parts = [
     ...(episode.hypotheses.length > 0
       ? [
-          `${episode.hypotheses.length} ${episode.hypotheses.length === 1 ? "hypothesis" : "hypotheses"}`,
+          `${episode.hypotheses.length} possible ${episode.hypotheses.length === 1 ? "cause" : "causes"}`,
         ]
       : []),
     ...(episode.predictions.length > 0
       ? [
-          `${episode.predictions.length} ${episode.predictions.length === 1 ? "forecast" : "forecasts"}`,
+          `${episode.predictions.length} ${episode.predictions.length === 1 ? "prediction" : "predictions"}`,
         ]
       : []),
     ...(episode.counterfactuals.length > 0 ? [`${episode.counterfactuals.length} what-if`] : []),

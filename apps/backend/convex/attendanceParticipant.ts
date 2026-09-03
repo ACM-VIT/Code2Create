@@ -186,11 +186,10 @@ export const mine = query({
       ...(nextSession ? [{ ...nextSession, timing: "upcoming" as const }] : []),
     ];
     return {
-      available: Boolean(
+      available:
         membership.eligibilityStatus === "eligible" &&
         membership.onboardingStatus === "accepted" &&
         planIsPublished,
-      ),
       canMintPortalQr: portalQrGrantIds.length > 0,
       canReadResultHistory: resultHistoryGrantIds.length > 0,
       physicalCredential,

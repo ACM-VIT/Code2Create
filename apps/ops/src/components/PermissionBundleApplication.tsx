@@ -1,7 +1,7 @@
 import { api } from "@code2create/backend/api";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
-import { useMutation, useQuery } from "convex/react";
-import { useState, type FormEvent } from "react";
+import { useMutation, useQuery, useQuery_experimental } from "convex/react";
+import { useState, type SubmitEvent } from "react";
 
 import { AccessManagementDisclosure } from "./AccessManagementDisclosure";
 import { BundleBindingField } from "./BundleBindingField";
@@ -43,9 +43,9 @@ export function PermissionBundleApplication({
   const [error, setError] = useState<string | null>(null);
   const applyPending = operations.hasPending("permission-bundle-apply");
   const selected = applicable?.find((bundle) => bundle.versionId === selectedVersionId);
-  const preview = useQuery(
-    api.permissionBundles.previewApplication,
-    previewRequest
+  const previewResult = useQuery_experimental({
+    query: api.permissionBundles.previewApplication,
+    args: previewRequest
       ? {
           eventSlug,
           targetPersonId,
@@ -56,7 +56,8 @@ export function PermissionBundleApplication({
             : {}),
         }
       : "skip",
-  );
+  });
+  const preview = previewResult.status === "success" ? previewResult.data : undefined;
 
   if (applicable === undefined) return <p className="muted">Checking which access sets apply…</p>;
   if (applicable.length === 0 && !applyPending) return null;
@@ -71,7 +72,7 @@ export function PermissionBundleApplication({
     setError(null);
   };
 
-  const requestPreview = (event: FormEvent) => {
+  const requestPreview = (event: SubmitEvent) => {
     event.preventDefault();
     if (applyPending) return;
     if (!selected) return;
@@ -189,8 +190,13 @@ export function PermissionBundleApplication({
           </fieldset>
         </form>
 
-        {previewRequest && preview === undefined ? (
+        {previewRequest && previewResult.status === "pending" ? (
           <p className="muted">Preparing access…</p>
+        ) : null}
+        {previewRequest && previewResult.status === "error" ? (
+          <p className="notice error" role="alert">
+            {readableError(previewResult.error)}
+          </p>
         ) : null}
         {preview || applyPending ? (
           <div className="bundle-application-preview">

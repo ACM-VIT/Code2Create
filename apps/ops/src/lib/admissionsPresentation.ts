@@ -26,7 +26,6 @@ export type AssignmentOutcome = { teamName: string; ok: boolean; message?: strin
 export const applicationStageOrder: readonly ApplicationState[] = [
   "submitted",
   "under_review",
-  "needs_information",
   "accepted",
   "offer_sent",
   "confirmed",
@@ -38,7 +37,7 @@ export const applicationStageOrder: readonly ApplicationState[] = [
 
 /** The stages that still take ordinary reviews and assignments. */
 export function stageAcceptsReviews(state: ApplicationState) {
-  return state === "submitted" || state === "under_review" || state === "needs_information";
+  return state === "submitted" || state === "under_review";
 }
 
 export function stageCountMap(counts: readonly StageCount[]) {
@@ -71,14 +70,12 @@ export function queueLeadSentence(counts: ReadonlyMap<ApplicationState, number>)
   const clauses: string[] = [];
   const submitted = counts.get("submitted") ?? 0;
   const underReview = counts.get("under_review") ?? 0;
-  const waiting = counts.get("needs_information") ?? 0;
   const accepted = counts.get("accepted") ?? 0;
   const offered = counts.get("offer_sent") ?? 0;
   if (submitted > 0)
     clauses.push(`${submitted} ${submitted === 1 ? "needs" : "need"} a first review`);
   if (underReview > 0)
     clauses.push(`${underReview} ${underReview === 1 ? "is" : "are"} being reviewed`);
-  if (waiting > 0) clauses.push(`${waiting} ${waiting === 1 ? "is" : "are"} waiting on the team`);
   if (accepted > 0) clauses.push(`${accepted} accepted without an offer yet`);
   if (offered > 0) clauses.push(`${offered} waiting for the team to confirm`);
   if (clauses.length === 0)

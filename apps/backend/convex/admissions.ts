@@ -33,6 +33,7 @@ import {
   enqueueAdmissionDecisionNotifications,
   enqueueApplicationNotifications,
 } from "./lib/participantNotificationDelivery";
+import { maximumApplicantTeamsPerEvent } from "./lib/reviewLimits";
 import {
   normalizeEmail,
   normalizedLongText,
@@ -43,7 +44,6 @@ import {
   admissionAiDisposition,
   admissionDecision,
   admissionDecisionStage,
-  admissionInformationRequestState,
   admissionOfferState,
   admissionRecommendationState,
   admissionReviewAssignmentState,
@@ -75,6 +75,7 @@ const listItem = v.object({
 const maximumScopedApplicationsForStageCounts = 2_000;
 const maximumCountedReviewAssignments = 500;
 const maximumWorkloadAssignments = 4_000;
+const maximumApplicationSearchResults = 100;
 
 async function rosterCohort(ctx: QueryCtx, project: Doc<"projectVersions">) {
   const members = await ctx.db
@@ -209,7 +210,6 @@ export const admissionResultsReleaseStatus = query({
       if (
         application.decisionStage === "unrecorded" ||
         application.humanDecision === undefined ||
-        application.humanDecision === "needs_information" ||
         application.humanReasonCode === undefined ||
         application.decidedByPersonId === undefined ||
         application.decidedAt === undefined
@@ -350,7 +350,6 @@ export const releaseAdmissionResults = mutation({
     for (const application of active) {
       if (
         application.humanDecision === undefined ||
-        application.humanDecision === "needs_information" ||
         application.humanReasonCode === undefined ||
         application.decidedByPersonId === undefined ||
         application.decidedAt === undefined
@@ -433,6 +432,73 @@ async function scopedApplicationsForStageCounts(
   return applications.filter((application) => application !== null);
 }
 
+async function applicationListProjection(
+  ctx: QueryCtx,
+  eventId: Id<"events">,
+  eventAccessSubjectId: Id<"eventAccessSubjects">,
+  application: Doc<"applications">,
+) {
+  const [profileGrantIds, aiGrantIds, team, project, policy] = await Promise.all([
+    matchingPermissionGrantIds(ctx, {
+      eventId,
+      eventAccessSubjectId,
+      permissionKey: "application.profile_context.read",
+      scopeType: "application",
+      scopeId: application._id,
+    }),
+    matchingPermissionGrantIds(ctx, {
+      eventId,
+      eventAccessSubjectId,
+      permissionKey: "application.ai_recommendation.read",
+      scopeType: "application",
+      scopeId: application._id,
+    }),
+    ctx.db.get(application.teamId),
+    ctx.db.get(application.submittedProjectVersionId),
+    ctx.db.get(application.admissionPolicyVersionId),
+  ]);
+  if (!team || !project || !policy) return null;
+  const recommendation =
+    aiGrantIds.length > 0 && application.aiRecommendationId
+      ? await ctx.db.get(application.aiRecommendationId)
+      : null;
+  return {
+    id: application._id,
+    teamName: team.name,
+    state: application.state,
+    decisionStage: application.decisionStage,
+    ...(application.humanDecision !== undefined
+      ? { humanDecision: application.humanDecision }
+      : {}),
+    ...(profileGrantIds.length > 0 ? { cohort: await rosterCohort(ctx, project) } : {}),
+    memberCount: project.lockedMemberCount,
+    minimumHumanReviews: policy.minimumHumanReviews,
+    submittedAt: application.submittedAt,
+    ...(recommendation ? { aiState: recommendation.state } : {}),
+    assignedReviewCount: application.assignedReviewCount,
+    completedReviewCount: application.completedReviewCount,
+    version: application.version,
+  };
+}
+
+async function visibleApplicationListProjection(
+  ctx: QueryCtx,
+  eventId: Id<"events">,
+  eventAccessSubjectId: Id<"eventAccessSubjects">,
+  application: Doc<"applications">,
+) {
+  const grantIds = await matchingPermissionGrantIds(ctx, {
+    eventId,
+    eventAccessSubjectId,
+    permissionKey: "application.read",
+    scopeType: "application",
+    scopeId: application._id,
+  });
+  return grantIds.length > 0
+    ? applicationListProjection(ctx, eventId, eventAccessSubjectId, application)
+    : null;
+}
+
 export const list = query({
   args: {
     eventSlug: v.string(),
@@ -454,57 +520,94 @@ export const list = query({
       .paginate(args.paginationOpts);
     const visible = [];
     for (const application of page.page) {
-      const grantIds = await matchingPermissionGrantIds(ctx, {
-        eventId: event._id,
-        eventAccessSubjectId: subject._id,
-        permissionKey: "application.read",
-        scopeType: "application",
-        scopeId: application._id,
-      });
-      if (grantIds.length === 0) continue;
-      const [profileGrantIds, aiGrantIds, team, project, policy] = await Promise.all([
-        matchingPermissionGrantIds(ctx, {
-          eventId: event._id,
-          eventAccessSubjectId: subject._id,
-          permissionKey: "application.profile_context.read",
-          scopeType: "application",
-          scopeId: application._id,
-        }),
-        matchingPermissionGrantIds(ctx, {
-          eventId: event._id,
-          eventAccessSubjectId: subject._id,
-          permissionKey: "application.ai_recommendation.read",
-          scopeType: "application",
-          scopeId: application._id,
-        }),
-        ctx.db.get(application.teamId),
-        ctx.db.get(application.submittedProjectVersionId),
-        ctx.db.get(application.admissionPolicyVersionId),
-      ]);
-      if (!team || !project || !policy) continue;
-      const recommendation =
-        aiGrantIds.length > 0 && application.aiRecommendationId
-          ? await ctx.db.get(application.aiRecommendationId)
-          : null;
-      visible.push({
-        id: application._id,
-        teamName: team.name,
-        state: application.state,
-        decisionStage: application.decisionStage,
-        ...(application.humanDecision !== undefined
-          ? { humanDecision: application.humanDecision }
-          : {}),
-        ...(profileGrantIds.length > 0 ? { cohort: await rosterCohort(ctx, project) } : {}),
-        memberCount: project.lockedMemberCount,
-        minimumHumanReviews: policy.minimumHumanReviews,
-        submittedAt: application.submittedAt,
-        ...(recommendation ? { aiState: recommendation.state } : {}),
-        assignedReviewCount: application.assignedReviewCount,
-        completedReviewCount: application.completedReviewCount,
-        version: application.version,
-      });
+      const item = await visibleApplicationListProjection(
+        ctx,
+        event._id,
+        subject._id,
+        application,
+      );
+      if (item) visible.push(item);
     }
     return { ...page, page: visible };
+  },
+});
+
+export const searchApplications = query({
+  args: {
+    eventSlug: v.string(),
+    state: applicationState,
+    search: v.string(),
+  },
+  returns: v.object({
+    applications: v.array(listItem),
+    truncated: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    const searchTerms = normalizedText(args.search, "Team search", 1, 80)
+      .toLowerCase()
+      .split(" ");
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    const applications = await ctx.db
+      .query("applications")
+      .withIndex("by_event_state_submitted", (index) =>
+        index.eq("eventId", event._id).eq("state", args.state),
+      )
+      .take(maximumApplicantTeamsPerEvent + 1);
+    if (applications.length > maximumApplicantTeamsPerEvent) {
+      throw new Error(
+        `Admission searches support at most ${maximumApplicantTeamsPerEvent} applicant teams.`,
+      );
+    }
+    const eventGrantIds = await matchingPermissionGrantIds(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey: "application.read",
+      scopeType: "event",
+    });
+    const readableScopeIds =
+      eventGrantIds.length > 0
+        ? null
+        : await boundedActivePermissionScopeIds(ctx, {
+            eventId: event._id,
+            eventAccessSubjectId: subject._id,
+            permissionKey: "application.read",
+            scopeType: "application",
+            maximumScopeCount: maximumApplicantTeamsPerEvent,
+          });
+    const candidates = await Promise.all(
+      applications
+        .filter(
+          (application) =>
+            readableScopeIds === null || readableScopeIds.has(application._id),
+        )
+        .map(async (application) => ({
+          application,
+          team: await ctx.db.get(application.teamId),
+        })),
+    );
+    const matches = candidates
+      .flatMap(({ application, team }) => {
+        if (!team || !searchTerms.every((term) => team.name.toLowerCase().includes(term))) {
+          return [];
+        }
+        return [{ application, teamName: team.name }];
+      })
+      .sort((left, right) => {
+        const byName = left.teamName.localeCompare(right.teamName);
+        return byName || left.application.submittedAt - right.application.submittedAt;
+      });
+    const applicationsToProject = matches.slice(0, maximumApplicationSearchResults);
+    const projected = [];
+    for (const { application } of applicationsToProject) {
+      const item = await applicationListProjection(ctx, event._id, subject._id, application);
+      if (item) projected.push(item);
+    }
+    return {
+      applications: projected,
+      truncated: matches.length > maximumApplicationSearchResults,
+    };
   },
 });
 
@@ -833,19 +936,6 @@ export const detail = query({
             answer: v.string(),
           }),
         ),
-        informationResponses: v.array(
-          v.object({
-            requestId: v.id("admissionInformationRequests"),
-            answers: v.array(
-              v.object({
-                questionKey: v.string(),
-                question: v.string(),
-                answer: v.string(),
-              }),
-            ),
-            respondedAt: v.number(),
-          }),
-        ),
       }),
       policy: v.object({
         id: v.id("admissionPolicyVersions"),
@@ -881,7 +971,6 @@ export const detail = query({
           ),
           strengths: v.array(v.string()),
           concerns: v.array(v.string()),
-          proposedQuestions: v.array(v.string()),
           confidence: v.optional(v.string()),
           limitations: v.array(v.string()),
           agentVersion: v.optional(v.string()),
@@ -902,18 +991,6 @@ export const detail = query({
           reasonCode: v.string(),
           note: v.optional(v.string()),
           createdAt: v.number(),
-        }),
-      ),
-      currentInformationRequest: v.union(
-        v.null(),
-        v.object({
-          id: v.id("admissionInformationRequests"),
-          state: admissionInformationRequestState,
-          questions: v.array(v.object({ questionKey: v.string(), question: v.string() })),
-          answers: v.optional(v.array(v.object({ questionKey: v.string(), answer: v.string() }))),
-          requestedAt: v.number(),
-          respondedAt: v.optional(v.number()),
-          version: v.number(),
         }),
       ),
       reviewAssignments: v.optional(v.array(reviewAssignmentView)),
@@ -1029,13 +1106,10 @@ export const detail = query({
         .collect(),
     ]);
     if (!team || !project || !policy || policy.eventId !== event._id) return null;
-    const [recommendation, currentInformationRequest, capacity, currentOffer, assignmentRows] =
+    const [recommendation, capacity, currentOffer, assignmentRows] =
       await Promise.all([
         (canReadAiRecommendation || canRunAiRecommendation) && application.aiRecommendationId
           ? ctx.db.get(application.aiRecommendationId)
-          : Promise.resolve(null),
-        application.currentInformationRequestId
-          ? ctx.db.get(application.currentInformationRequestId)
           : Promise.resolve(null),
         canReadApplication
           ? ctx.db
@@ -1143,11 +1217,6 @@ export const detail = query({
           question: response.question,
           answer: response.answer,
         })),
-        informationResponses: (project.admissionInformationResponses ?? []).map((response) => ({
-          requestId: response.requestId,
-          answers: response.answers,
-          respondedAt: response.respondedAt,
-        })),
       },
       policy: {
         id: policy._id,
@@ -1181,7 +1250,6 @@ export const detail = query({
               criterionAssessments: recommendation.criterionAssessments,
               strengths: recommendation.strengths,
               concerns: recommendation.concerns,
-              proposedQuestions: recommendation.proposedQuestions,
               ...(recommendation.confidence !== undefined
                 ? { confidence: recommendation.confidence }
                 : {}),
@@ -1204,25 +1272,6 @@ export const detail = query({
           ? { recommendationId: recommendation._id }
           : null,
       humanReviews: reviewViews,
-      currentInformationRequest:
-        currentInformationRequest &&
-        currentInformationRequest.eventId === event._id &&
-        currentInformationRequest.applicationId === application._id &&
-        currentInformationRequest.teamId === team._id
-          ? {
-              id: currentInformationRequest._id,
-              state: currentInformationRequest.state,
-              questions: currentInformationRequest.questions,
-              ...(currentInformationRequest.answers !== undefined
-                ? { answers: currentInformationRequest.answers }
-                : {}),
-              requestedAt: currentInformationRequest.requestedAt,
-              ...(currentInformationRequest.respondedAt !== undefined
-                ? { respondedAt: currentInformationRequest.respondedAt }
-                : {}),
-              version: currentInformationRequest.version,
-            }
-          : null,
       ...(canManageAssignments ? { reviewAssignments } : {}),
       currentOffer:
         currentOffer &&
@@ -1289,8 +1338,7 @@ function decisionState(
 ): Doc<"applications">["state"] {
   if (decision === "accept") return "accepted";
   if (decision === "waitlist") return "waitlisted";
-  if (decision === "decline") return "declined";
-  return "needs_information";
+  return "declined";
 }
 
 async function publishedCommunicationsPolicyId(ctx: QueryCtx | MutationCtx, eventId: Id<"events">) {
@@ -1304,89 +1352,6 @@ async function publishedCommunicationsPolicyId(ctx: QueryCtx | MutationCtx, even
     });
   }
   return policy._id;
-}
-
-export function normalizeInformationQuestions(
-  decision: NonNullable<Doc<"applications">["humanDecision"]>,
-  values: readonly string[],
-) {
-  if (decision !== "needs_information") {
-    if (values.length !== 0) {
-      throw new ConvexError({
-        code: "INFORMATION_QUESTIONS_NOT_ALLOWED",
-        message: "Information questions apply only to Needs information.",
-      });
-    }
-    return [];
-  }
-  if (values.length < 1 || values.length > 2) {
-    throw new ConvexError({
-      code: "INFORMATION_QUESTIONS_REQUIRED",
-      message: "Ask one or two short questions for the team.",
-    });
-  }
-  const questions = values.map((value, index) => ({
-    questionKey: `question_${index + 1}`,
-    question: normalizedLongText(value, `Information question ${index + 1}`, 8, 240),
-  }));
-  if (new Set(questions.map(({ question }) => question.toLowerCase())).size !== questions.length) {
-    throw new ConvexError({
-      code: "INFORMATION_QUESTIONS_DUPLICATE",
-      message: "Ask two different questions.",
-    });
-  }
-  return questions;
-}
-
-export async function replaceAdmissionInformationRequest(
-  ctx: MutationCtx,
-  args: {
-    event: Doc<"events">;
-    application: Doc<"applications">;
-    project: Doc<"projectVersions">;
-    decision: NonNullable<Doc<"applications">["humanDecision"]>;
-    decisionReasonCode: string;
-    informationQuestions: readonly string[];
-    requestedByPersonId: Id<"people">;
-    now: number;
-  },
-) {
-  const questions = normalizeInformationQuestions(args.decision, args.informationQuestions);
-  const currentInformationRequest = args.application.currentInformationRequestId
-    ? await ctx.db.get(args.application.currentInformationRequestId)
-    : null;
-  if (
-    currentInformationRequest &&
-    (currentInformationRequest.eventId !== args.event._id ||
-      currentInformationRequest.applicationId !== args.application._id ||
-      currentInformationRequest.teamId !== args.application.teamId)
-  ) {
-    throw new Error("The application's information request pointer is invalid.");
-  }
-  if (currentInformationRequest?.state === "open") {
-    await ctx.db.patch(currentInformationRequest._id, {
-      state: "superseded",
-      supersededAt: args.now,
-      version: currentInformationRequest.version + 1,
-    });
-  }
-  const informationRequestId =
-    args.decision === "needs_information"
-      ? await ctx.db.insert("admissionInformationRequests", {
-          eventId: args.event._id,
-          applicationId: args.application._id,
-          teamId: args.application.teamId,
-          sourceProjectVersionId: args.project._id,
-          applicationContentVersion: args.application.contentVersion,
-          decisionReasonCode: args.decisionReasonCode,
-          questions,
-          state: "open",
-          requestedByPersonId: args.requestedByPersonId,
-          requestedAt: args.now,
-          version: 1,
-        })
-      : null;
-  return { informationRequestId, informationQuestionCount: questions.length };
 }
 
 async function applicationContext(
@@ -1440,8 +1405,7 @@ export async function createAdmissionReviewAssignment(
   }
   if (
     args.application.state !== "submitted" &&
-    args.application.state !== "under_review" &&
-    args.application.state !== "needs_information"
+    args.application.state !== "under_review"
   ) {
     throw new ConvexError({
       code: "APPLICATION_NOT_REVIEWABLE",
@@ -1859,8 +1823,7 @@ export async function saveAdmissionHumanReview(
   }
   if (
     args.application.state !== "submitted" &&
-    args.application.state !== "under_review" &&
-    args.application.state !== "needs_information"
+    args.application.state !== "under_review"
   ) {
     throw new ConvexError({
       code: "APPLICATION_DECIDED",
@@ -2307,9 +2270,8 @@ async function releaseAdmissionCapacity(
 
 const admissionDecisionOperationResult = z
   .object({
-    state: z.enum(["under_review", "needs_information", "accepted", "waitlisted", "declined"]),
+    state: z.literal("under_review"),
     applicationVersion: z.number().int().positive(),
-    informationRequestId: z.string().nullable(),
   })
   .strict();
 
@@ -2320,7 +2282,6 @@ export const decide = mutation({
     expectedApplicationVersion: v.number(),
     decision: admissionDecision,
     reasonCode: v.string(),
-    informationQuestions: v.array(v.string()),
     aiDisposition,
     clientOperationId: v.string(),
   },
@@ -2328,7 +2289,6 @@ export const decide = mutation({
     applicationId: v.id("applications"),
     state: applicationState,
     applicationVersion: v.number(),
-    informationRequestId: v.union(v.null(), v.id("admissionInformationRequests")),
   }),
   handler: async (ctx, args) => {
     const { event, person, subject, application } = await applicationContext(ctx, args);
@@ -2337,7 +2297,6 @@ export const decide = mutation({
       args.expectedApplicationVersion,
       args.decision,
       args.reasonCode,
-      JSON.stringify(args.informationQuestions),
       args.aiDisposition,
     ]);
     const prior = await findOperation(ctx, {
@@ -2355,17 +2314,10 @@ export const decide = mutation({
         "admission-decision",
         admissionDecisionOperationResult,
       );
-      const informationRequestId = stored.informationRequestId
-        ? ctx.db.normalizeId("admissionInformationRequests", stored.informationRequestId)
-        : null;
-      if (stored.informationRequestId && !informationRequestId) {
-        throw new Error("Prior admission decision is invalid.");
-      }
       return {
         applicationId: replayApplicationId,
         state: stored.state,
         applicationVersion: stored.applicationVersion,
-        informationRequestId,
       };
     }
     const grantIds = await requirePermission(ctx, {
@@ -2479,21 +2431,9 @@ export const decide = mutation({
       args.decision,
       args.reasonCode,
     );
-    const state: "needs_information" | "under_review" =
-      args.decision === "needs_information" ? "needs_information" : "under_review";
-    const decisionStage = args.decision === "needs_information" ? "unrecorded" : "recorded";
+    const state = "under_review" as const;
+    const decisionStage = "recorded" as const;
     const applicationVersion = application.version + 1;
-    const informationRequest = await replaceAdmissionInformationRequest(ctx, {
-      event,
-      application,
-      project,
-      decision: args.decision,
-      decisionReasonCode,
-      informationQuestions: args.informationQuestions,
-      requestedByPersonId: person._id,
-      now,
-    });
-    const informationRequestId = informationRequest.informationRequestId;
     await ctx.db.patch(application._id, {
       state,
       decisionStage,
@@ -2502,24 +2442,8 @@ export const decide = mutation({
       aiDisposition: args.aiDisposition,
       decidedByPersonId: person._id,
       decidedAt: now,
-      currentInformationRequestId: informationRequestId ?? undefined,
       version: applicationVersion,
     });
-    let notificationDeliveryIds = 0;
-    if (args.decision === "needs_information") {
-      const communicationsPolicyVersionId = await publishedCommunicationsPolicyId(ctx, event._id);
-      notificationDeliveryIds = await enqueueAdmissionDecisionNotifications(ctx, {
-        eventId: event._id,
-        applicationId: application._id,
-        teamId: application.teamId,
-        lockedRosterSnapshotId: project.lockedRosterSnapshotId,
-        lockedMemberCount: project.lockedMemberCount,
-        communicationsPolicyVersionId,
-        decision: args.decision,
-        applicationVersion,
-        now,
-      });
-    }
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -2528,7 +2452,7 @@ export const decide = mutation({
       requestFingerprint,
       targetType: "application",
       targetId: application._id,
-      resultJson: JSON.stringify({ state, applicationVersion, informationRequestId }),
+      resultJson: JSON.stringify({ state, applicationVersion }),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -2538,10 +2462,7 @@ export const decide = mutation({
       grantIds,
       scopeType: "application",
       scopeId: application._id,
-      action:
-        args.decision === "needs_information"
-          ? "admission.information_requested"
-          : "admission.human_decision_recorded",
+      action: "admission.human_decision_recorded",
       targetType: "application",
       targetId: application._id,
       previousSummary: JSON.stringify({ state: application.state, version: application.version }),
@@ -2552,368 +2473,15 @@ export const decide = mutation({
         reasonCode: decisionReasonCode,
         aiDisposition: args.aiDisposition,
         humanReviewCount: currentReviews.length,
-        informationQuestionCount: informationRequest.informationQuestionCount,
-        notificationDeliveryCount: notificationDeliveryIds,
         version: applicationVersion,
       }),
-      reason:
-        args.decision === "needs_information"
-          ? "Requested more information before a final decision"
-          : "Recorded the human admission decision for Supreme release",
+      reason: "Recorded the human admission decision for Supreme release",
     });
     return {
       applicationId: application._id,
       state,
       applicationVersion,
-      informationRequestId,
     };
-  },
-});
-
-type InformationAnswer = NonNullable<Doc<"admissionInformationRequests">["answers"]>[number];
-
-export function normalizeInformationAnswers(
-  request: Doc<"admissionInformationRequests">,
-  values: readonly InformationAnswer[],
-) {
-  if (values.length !== request.questions.length) {
-    throw new ConvexError({
-      code: "INFORMATION_ANSWERS_INCOMPLETE",
-      message: "Answer every requested question before submitting.",
-    });
-  }
-  const answers = values.map((value) => ({
-    questionKey: normalizedText(value.questionKey, "Question key", 1, 40),
-    answer: normalizedLongText(value.answer, "Information answer", 2, 1_200),
-  }));
-  if (new Set(answers.map(({ questionKey }) => questionKey)).size !== answers.length) {
-    throw new ConvexError({
-      code: "INFORMATION_ANSWERS_DUPLICATE",
-      message: "Each requested question must have one answer.",
-    });
-  }
-  if (
-    request.questions.some(
-      (question, index) => answers[index]?.questionKey !== question.questionKey,
-    )
-  ) {
-    throw new ConvexError({
-      code: "INFORMATION_ANSWERS_CHANGED",
-      message: "The requested questions changed. Review them before submitting.",
-    });
-  }
-  return answers;
-}
-
-export async function respondToAdmissionInformationRequest(
-  ctx: MutationCtx,
-  args: {
-    event: Doc<"events">;
-    application: Doc<"applications">;
-    expectedApplicationVersion: number;
-    request: Doc<"admissionInformationRequests">;
-    expectedRequestVersion: number;
-    membership: Doc<"eventMemberships">;
-    answers: readonly InformationAnswer[];
-    now: number;
-  },
-) {
-  if (args.application.version !== args.expectedApplicationVersion) {
-    throw new ConvexError({
-      code: "APPLICATION_CHANGED",
-      message: "The application changed. Review the current request before submitting.",
-    });
-  }
-  if (
-    args.application.state !== "needs_information" ||
-    args.application.currentInformationRequestId !== args.request._id ||
-    args.request.eventId !== args.event._id ||
-    args.request.applicationId !== args.application._id ||
-    args.request.teamId !== args.application.teamId ||
-    args.request.sourceProjectVersionId !== args.application.submittedProjectVersionId ||
-    args.request.applicationContentVersion !== args.application.contentVersion
-  ) {
-    throw new ConvexError({
-      code: "INFORMATION_REQUEST_CHANGED",
-      message: "That information request is no longer current.",
-    });
-  }
-  if (args.request.version !== args.expectedRequestVersion || args.request.state !== "open") {
-    throw new ConvexError({
-      code: "INFORMATION_REQUEST_CHANGED",
-      message: "That information request changed. Refresh before submitting.",
-    });
-  }
-  const answers = normalizeInformationAnswers(args.request, args.answers);
-  const [team, project, member, admissionConfiguration] = await Promise.all([
-    ctx.db.get(args.application.teamId),
-    ctx.db.get(args.application.submittedProjectVersionId),
-    ctx.db
-      .query("teamMembers")
-      .withIndex("by_event_membership_status", (index) =>
-        index
-          .eq("eventId", args.event._id)
-          .eq("membershipId", args.membership._id)
-          .eq("status", "active"),
-      )
-      .unique(),
-    loadPublishedAdmissionConfiguration(ctx, args.event),
-  ]);
-  if (
-    !team ||
-    !project ||
-    !member ||
-    member.teamId !== team._id ||
-    project.lockedRosterSnapshotId !== team.submissionAttemptId ||
-    member.role !== "lead" ||
-    team.leadMembershipId !== args.membership._id ||
-    project.lockedLeadMembershipId !== args.membership._id
-  ) {
-    throw new ConvexError({
-      code: "LOCKED_LEAD_REQUIRED",
-      message: "The locked team lead must submit this response.",
-    });
-  }
-  if (
-    team.lockedProjectVersionId !== project._id ||
-    admissionConfiguration.policy._id !== args.application.admissionPolicyVersionId
-  ) {
-    throw new Error("The locked application context is inconsistent.");
-  }
-  const [previousProjectVersion, activeReviews, activeAssignments, priorRecommendation] =
-    await Promise.all([
-      ctx.db
-        .query("projectVersions")
-        .withIndex("by_team_version", (index) => index.eq("teamId", team._id))
-        .order("desc")
-        .first(),
-      ctx.db
-        .query("admissionHumanReviews")
-        .withIndex("by_application_status", (index) =>
-          index.eq("applicationId", args.application._id).eq("status", "active"),
-        )
-        .collect(),
-      ctx.db
-        .query("admissionReviewAssignments")
-        .withIndex("by_application_state_assigned", (index) =>
-          index.eq("applicationId", args.application._id).eq("state", "active"),
-        )
-        .collect(),
-      args.application.aiRecommendationId
-        ? ctx.db.get(args.application.aiRecommendationId)
-        : Promise.resolve(null),
-    ]);
-  if (!previousProjectVersion || previousProjectVersion._id !== project._id) {
-    throw new Error("The application does not point to the latest project version.");
-  }
-  const projectAnswers = args.request.questions.map((question) => {
-    const answer = answers.find((candidate) => candidate.questionKey === question.questionKey);
-    if (!answer) throw new Error("A normalized information answer is missing.");
-    return { ...answer, question: question.question };
-  });
-  const nextContentVersion = args.application.contentVersion + 1;
-  const responseProjectVersionId = await ctx.db.insert("projectVersions", {
-    eventId: project.eventId,
-    teamId: project.teamId,
-    version: project.version + 1,
-    initialIdea: project.initialIdea,
-    ...(project.additionalInformation !== undefined
-      ? { additionalInformation: project.additionalInformation }
-      : {}),
-    intakePolicyVersionId: project.intakePolicyVersionId,
-    intakeResponses: project.intakeResponses,
-    lockedRosterSnapshotId: project.lockedRosterSnapshotId,
-    lockedMemberCount: project.lockedMemberCount,
-    lockedLeadMembershipId: project.lockedLeadMembershipId,
-    freshForEventAttestation: project.freshForEventAttestation,
-    finalConfirmation: project.finalConfirmation,
-    participantPolicyVersionId: project.participantPolicyVersionId,
-    admissionPolicyVersionId: project.admissionPolicyVersionId,
-    admissionInformationResponses: [
-      ...(project.admissionInformationResponses ?? []),
-      {
-        requestId: args.request._id,
-        sourceProjectVersionId: project._id,
-        answers: projectAnswers,
-        respondedByMembershipId: args.membership._id,
-        respondedAt: args.now,
-      },
-    ],
-    sourceDraftVersion: project.sourceDraftVersion,
-    submittedByMembershipId: args.membership._id,
-    submittedAt: args.now,
-  });
-  const responseProject = await ctx.db.get(responseProjectVersionId);
-  if (!responseProject) throw new Error("The information-response project did not persist.");
-  for (const review of activeReviews) {
-    await ctx.db.patch(review._id, { status: "superseded" });
-  }
-  for (const assignment of activeAssignments) {
-    await ctx.db.patch(assignment._id, {
-      applicationContentVersion: nextContentVersion,
-      version: assignment.version + 1,
-    });
-  }
-  if (
-    priorRecommendation &&
-    (priorRecommendation.state === "pending" || priorRecommendation.state === "running")
-  ) {
-    await ctx.db.patch(priorRecommendation._id, {
-      state: "stale",
-      completedAt: args.now,
-      failureCategory: "information_response_submitted",
-    });
-  }
-  await ctx.db.patch(args.request._id, {
-    state: "answered",
-    answers,
-    responseProjectVersionId,
-    respondedByMembershipId: args.membership._id,
-    respondedAt: args.now,
-    version: args.request.version + 1,
-  });
-  await ctx.db.patch(team._id, {
-    lockedProjectVersionId: responseProjectVersionId,
-    version: team.version + 1,
-    updatedAt: args.now,
-  });
-  await ctx.db.patch(args.application._id, {
-    submittedProjectVersionId: responseProjectVersionId,
-    state: "under_review",
-    decisionStage: "unrecorded",
-    humanDecision: undefined,
-    humanReasonCode: undefined,
-    aiDisposition: undefined,
-    aiRecommendationId: undefined,
-    decidedByPersonId: undefined,
-    decidedAt: undefined,
-    assignedReviewCount: activeAssignments.length,
-    completedReviewCount: 0,
-    contentVersion: nextContentVersion,
-    version: args.application.version + 1,
-  });
-  const updatedApplication = await ctx.db.get(args.application._id);
-  if (!updatedApplication) throw new Error("The updated application did not persist.");
-  await createAdmissionRecommendation(ctx, {
-    application: updatedApplication,
-    project: responseProject,
-    policy: admissionConfiguration.policy,
-    modelConfig: admissionConfiguration.model,
-    now: args.now,
-  });
-  return {
-    responseProjectVersionId,
-    applicationVersion: args.application.version + 1,
-    applicationContentVersion: nextContentVersion,
-    requestVersion: args.request.version + 1,
-  };
-}
-
-export const respondToInformationRequest = mutation({
-  args: {
-    eventSlug: v.string(),
-    applicationId: v.id("applications"),
-    expectedApplicationVersion: v.number(),
-    requestId: v.id("admissionInformationRequests"),
-    expectedRequestVersion: v.number(),
-    answers: v.array(
-      v.object({
-        questionKey: v.string(),
-        answer: v.string(),
-      }),
-    ),
-    clientOperationId: v.string(),
-  },
-  returns: v.object({ responseProjectVersionId: v.id("projectVersions") }),
-  handler: async (ctx, args) => {
-    const { event, person, subject, application } = await applicationContext(ctx, args);
-    const requestFingerprint = operationFingerprint([
-      args.applicationId,
-      args.expectedApplicationVersion,
-      args.requestId,
-      args.expectedRequestVersion,
-      JSON.stringify(args.answers),
-    ]);
-    const prior = await findOperation(ctx, {
-      eventId: event._id,
-      actorPersonId: person._id,
-      clientOperationId: args.clientOperationId,
-      commandName: "admissions.information.respond",
-      requestFingerprint,
-    });
-    if (prior) {
-      const responseProjectVersionId = ctx.db.normalizeId("projectVersions", prior.targetId);
-      if (!responseProjectVersionId) {
-        throw new Error("The prior information response is invalid.");
-      }
-      return { responseProjectVersionId };
-    }
-    const grantIds = await requirePermission(ctx, {
-      eventId: event._id,
-      eventAccessSubjectId: subject._id,
-      permissionKey: "application.information.respond",
-      scopeType: "team",
-      scopeId: application.teamId,
-    });
-    const [membership, request] = await Promise.all([
-      requireMembership(ctx, event._id, person._id),
-      ctx.db.get(args.requestId),
-    ]);
-    if (!request) {
-      throw new ConvexError({
-        code: "INFORMATION_REQUEST_NOT_FOUND",
-        message: "That information request is unavailable.",
-      });
-    }
-    const now = Date.now();
-    const result = await respondToAdmissionInformationRequest(ctx, {
-      event,
-      application,
-      expectedApplicationVersion: args.expectedApplicationVersion,
-      request,
-      expectedRequestVersion: args.expectedRequestVersion,
-      membership,
-      answers: args.answers,
-      now,
-    });
-    await recordOperation(ctx, {
-      eventId: event._id,
-      actorPersonId: person._id,
-      clientOperationId: args.clientOperationId,
-      commandName: "admissions.information.respond",
-      requestFingerprint,
-      targetType: "project_version",
-      targetId: result.responseProjectVersionId,
-      createdAt: now,
-    });
-    await writeAuditEvent(ctx, {
-      eventId: event._id,
-      actorPersonId: person._id,
-      permissionKey: "application.information.respond",
-      grantIds,
-      scopeType: "team",
-      scopeId: application.teamId,
-      action: "admission.information_response_submitted",
-      targetType: "application",
-      targetId: application._id,
-      previousSummary: JSON.stringify({
-        state: application.state,
-        applicationVersion: application.version,
-        contentVersion: application.contentVersion,
-        requestId: request._id,
-        requestVersion: request.version,
-      }),
-      nextSummary: JSON.stringify({
-        state: "under_review",
-        applicationVersion: result.applicationVersion,
-        contentVersion: result.applicationContentVersion,
-        requestVersion: result.requestVersion,
-        responseProjectVersionId: result.responseProjectVersionId,
-        answerCount: args.answers.length,
-      }),
-      reason: "Submitted the requested application information",
-    });
-    return { responseProjectVersionId: result.responseProjectVersionId };
   },
 });
 
@@ -3260,7 +2828,7 @@ export const finalizeReleasedAdmissionResults = internalMutation({
         continue;
       }
       const decision = application.humanDecision;
-      if (!decision || decision === "needs_information") {
+      if (!decision) {
         throw new Error("A released admission result has no terminal decision.");
       }
       const [project, team] = await Promise.all([

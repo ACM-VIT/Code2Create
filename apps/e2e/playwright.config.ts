@@ -26,11 +26,11 @@ export default defineConfig({
   projects: [
     {
       name: "release setup",
-      testMatch: /release\.setup\.ts/,
+      testMatch: /release\.setup\.ts/u,
     },
     {
       name: "participant public",
-      testMatch: /participant-public\.spec\.ts/,
+      testMatch: /participant-public\.spec\.ts/u,
       dependencies: ["release setup"],
       use: {
         ...devices["Desktop Chrome"],
@@ -40,7 +40,7 @@ export default defineConfig({
     },
     {
       name: "participant authenticated",
-      testMatch: /participant-authenticated\.spec\.ts/,
+      testMatch: /participant-authenticated\.spec\.ts/u,
       dependencies: ["release setup"],
       use: {
         ...devices["Desktop Chrome"],
@@ -50,7 +50,7 @@ export default defineConfig({
     },
     {
       name: "operations public",
-      testMatch: /operations-public\.spec\.ts/,
+      testMatch: /operations-public\.spec\.ts/u,
       dependencies: ["release setup"],
       use: {
         ...devices["Desktop Chrome"],
@@ -60,7 +60,7 @@ export default defineConfig({
     },
     {
       name: "operations authenticated",
-      testMatch: /operations-authenticated\.spec\.ts/,
+      testMatch: /operations-authenticated\.spec\.ts/u,
       dependencies: ["release setup"],
       use: {
         ...devices["Desktop Chrome"],

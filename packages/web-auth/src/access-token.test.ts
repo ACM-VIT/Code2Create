@@ -9,7 +9,9 @@ import {
   type AccessTokenAttempt,
 } from "./access-token.ts";
 
-function tokenWithPayload(payload: object) {
+type JwtPayloadFixture = { exp: number };
+
+function tokenWithPayload(payload: JwtPayloadFixture) {
   return `header.${Buffer.from(JSON.stringify(payload)).toString("base64url")}.signature`;
 }
 
@@ -23,7 +25,7 @@ test("reads JWT expiry and refreshes only inside the resume leeway", () => {
 });
 
 test("retries interrupted and temporary token requests without signing out", async () => {
-  const attempts: Array<AccessTokenAttempt | Error> = [
+  const attempts: (AccessTokenAttempt | Error)[] = [
     new Error("Safari suspended the request"),
     { token: null, status: 503 },
     { token: "signed-token", status: 200 },
@@ -33,7 +35,7 @@ test("retries interrupted and temporary token requests without signing out", asy
     request: async () => {
       const attempt = attempts.shift();
       if (attempt instanceof Error) throw attempt;
-      if (!attempt) throw new Error("The test made too many token requests.");
+      if (attempt === undefined) throw new Error("The test made too many token requests.");
       return attempt;
     },
     isActive: () => true,

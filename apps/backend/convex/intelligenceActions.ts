@@ -1,6 +1,6 @@
 "use node";
 
-import OpenAI from "openai";
+import OpenAI, { APIConnectionTimeoutError, APIError } from "openai";
 import { v } from "convex/values";
 
 import { internal } from "./_generated/api";
@@ -192,8 +192,9 @@ async function requestIdeaQuestionFromProvider(
         : {}),
     };
   } catch (error) {
-    const status = error instanceof OpenAI.APIError ? error.status : undefined;
-    const timedOut = error instanceof OpenAI.APIConnectionTimeoutError;
+    const providerStatus: unknown = error instanceof APIError ? error.status : undefined;
+    const status = typeof providerStatus === "number" ? providerStatus : undefined;
+    const timedOut = error instanceof APIConnectionTimeoutError;
     return {
       kind: "failure",
       state: status === 429 ? "rate_limited" : timedOut ? "timed_out" : "failed",

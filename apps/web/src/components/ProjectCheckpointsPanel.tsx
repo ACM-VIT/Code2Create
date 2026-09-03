@@ -1,7 +1,7 @@
 import { api } from "@code2create/backend/api";
 import type { FunctionReturnType } from "convex/server";
 import { useMutation, useQuery } from "convex/react";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState, type SubmitEvent } from "react";
 
 import { eventSlug } from "../lib/config";
 import { readableError } from "../lib/errors";
@@ -117,7 +117,7 @@ function CheckpointCard({ checkpoint, timezone }: { checkpoint: Checkpoint; time
     setError(null);
   };
 
-  const saveFirstAnswer = async (event: FormEvent) => {
+  const saveFirstAnswer = async (event: SubmitEvent) => {
     event.preventDefault();
     const expectedVersion = loadedDraft.version;
     setBusy("update");
@@ -149,7 +149,7 @@ function CheckpointCard({ checkpoint, timezone }: { checkpoint: Checkpoint; time
     }
   };
 
-  const saveSecondAnswer = async (event: FormEvent) => {
+  const saveSecondAnswer = async (event: SubmitEvent) => {
     event.preventDefault();
     const draft = checkpoint.draft;
     if (!draft) return;

@@ -1,7 +1,7 @@
 import { api } from "@code2create/backend/api";
 import type { FunctionReturnType } from "convex/server";
 import { useMutation, usePaginatedQuery } from "convex/react";
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type SubmitEvent } from "react";
 
 import { AccessManagementDisclosure } from "./AccessManagementDisclosure";
 import { eventSlug } from "../lib/config";
@@ -153,7 +153,7 @@ function BatchGrantForm({
     drafts.every((draft) => draft.scopeType === "event" || draft.scopeId.length > 0) &&
     (detail.canGrantAny || selectedCeilings.every((ceiling) => ceiling !== undefined));
 
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: SubmitEvent) => {
     event.preventDefault();
     if (!pending && !ready) return;
     setBusy(true);
@@ -419,7 +419,7 @@ function BatchRevokeForm({
   const selectedGrants = grants.filter((grant) => selected.includes(grant.id));
   const ready = selectedGrants.length >= 2 && reason.trim().length >= 5;
 
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: SubmitEvent) => {
     event.preventDefault();
     if (!pending && !ready) return;
     setBusy(true);
@@ -515,11 +515,11 @@ function draftForDefinition(
   if (!detail.canGrantAny) {
     const ceiling = ceilingsFor(detail, definition.key)[0];
     if (!ceiling)
-      throw new Error("A delegated batch permission has no matching authority ceiling.");
+      throw new Error("One of these permissions is not yours to grant.");
     return draftForCeiling(id, definition, ceiling);
   }
   const scopeType = scopesFor(definition)[0];
-  if (!scopeType) throw new Error("A permission in the catalog has no usable scope.");
+  if (!scopeType) throw new Error("A permission in the list has nowhere it can apply.");
   return { id, permissionKey: definition.key, scopeType, scopeId: "" };
 }
 
@@ -568,12 +568,12 @@ function isScopedAuthorityKey(value: string) {
 
 function requireFirstDefinition(definitions: PermissionDefinition[]) {
   const definition = definitions[0];
-  if (!definition) throw new Error("Batch permission editing needs a grantable permission.");
+  if (!definition) throw new Error("There is no permission here that you can grant.");
   return definition;
 }
 
 function requireDefinition(definitions: PermissionDefinition[], permissionKey: string) {
   const definition = definitions.find((candidate) => candidate.key === permissionKey);
-  if (!definition) throw new Error("A selected batch permission is no longer in the catalog.");
+  if (!definition) throw new Error("One of the selected permissions no longer exists.");
   return definition;
 }

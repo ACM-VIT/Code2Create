@@ -77,7 +77,7 @@ export function RecommendationCard({
     if (decision === undefined) return;
     const normalizedNote = note.trim();
     if (normalizedNote.length < 5) {
-      setError("Add at least five characters so the agent has actionable feedback.");
+      setError("Write at least a few words so the agent knows what to change.");
       return;
     }
     const slot = decision === "reject" ? rejectSlot : suggestSlot;
@@ -178,14 +178,14 @@ export function RecommendationCard({
       )}
       {recommendation.operatorNote === undefined ? null : (
         <p className="m-0 rounded-lg bg-field px-3 py-2 text-[12.5px] leading-5 text-ink-2">
-          <span className="text-ink-3">Operator note · </span>
+          <span className="text-ink-3">Organiser note · </span>
           {recommendation.operatorNote}
         </p>
       )}
 
       <details className="group rounded-lg border border-line">
         <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3.5 py-2.5 text-[12px] text-ink-2 hover:bg-hover [&::-webkit-details-marker]:hidden">
-          <span>Evidence and provenance</span>
+          <span>Evidence and where it came from</span>
           <span
             aria-hidden
             className="font-mono text-[14px] text-ink-3 transition-transform group-open:rotate-45"
@@ -195,9 +195,9 @@ export function RecommendationCard({
         </summary>
         <div className="grid gap-4 border-t border-line px-3.5 py-3.5">
           <dl className="m-0 grid gap-x-6 gap-y-2 sm:grid-cols-2">
-            <ProvenanceDatum label="Agent release" value={recommendation.agentVersion} />
+            <ProvenanceDatum label="Agent version" value={recommendation.agentVersion} />
             <ProvenanceDatum label="Model" value={recommendation.model} />
-            <ProvenanceDatum label="Command version" value={String(recommendation.version)} />
+            <ProvenanceDatum label="Proposal version" value={String(recommendation.version)} />
             <ProvenanceDatum
               label={
                 recommendation.provenance.kind === "autonomy" ? "Autonomous run" : "Conversation"
@@ -365,11 +365,11 @@ function AutonomyEvidence({ recommendationId }: { recommendationId: Recommendati
       <p className="m-0 text-[12px] font-medium text-ink-2">Evidence used</p>
       {observations.status === "LoadingFirstPage" ? (
         <p className="m-0 text-[12px] text-ink-3" role="status">
-          Loading supporting observations
+          Loading the evidence behind this
         </p>
       ) : observations.results.length === 0 ? (
         <p className="m-0 text-[12px] text-ink-3">
-          No sealed observation is attached to this proposal.
+          Nothing was recorded to back this proposal up.
         </p>
       ) : null}
       {observations.results.map((observation) => (
@@ -433,10 +433,10 @@ function AutonomyEvidenceObservation({
         />
         <ProvenanceDatum label="Run" value={observation.runId} />
         <ProvenanceDatum
-          label="Exact citations"
+          label="Sources cited"
           value={String(observation.evidenceSet.leafCount)}
         />
-        <ProvenanceDatum label="Evidence root" value={observation.evidenceSet.rootHash} />
+        <ProvenanceDatum label="Evidence fingerprint" value={observation.evidenceSet.rootHash} />
       </dl>
       <CitationList citations={evidence.results.map((leaf) => leaf.citation)} />
       {evidence.status === "CanLoadMore" ? (
@@ -458,7 +458,7 @@ function CitationList({
   citations: Array<IntelligenceRecommendationCitation | OperationsAutonomyRecommendationCitation>;
 }) {
   if (citations.length === 0) {
-    return <p className="m-0 text-[12px] text-ink-3">No citation was recorded.</p>;
+    return <p className="m-0 text-[12px] text-ink-3">No source was recorded.</p>;
   }
   return (
     <ul className="m-0 grid list-none gap-2 p-0">

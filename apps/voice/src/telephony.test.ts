@@ -52,7 +52,7 @@ describe("outbound voice transport", () => {
   });
 
   test("sends Sarvam's current streaming request shape", async () => {
-    const audio = new Uint8Array(1_001);
+    const audio = new Uint8Array(1001);
     audio.set([0x49, 0x44, 0x33]);
     const fetchMock = vi
       .spyOn(globalThis, "fetch")
@@ -70,9 +70,16 @@ describe("outbound voice transport", () => {
       ),
     ).resolves.toBeInstanceOf(ArrayBuffer);
     const request = fetchMock.mock.calls[0];
-    if (!request) throw new Error("The speech request was not sent.");
-    expect(String(request[0])).toBe("https://api.sarvam.ai/text-to-speech/stream");
-    const body = String(request[1]?.body);
+    if (request === undefined) {
+      throw new Error("The speech request was not sent.");
+    }
+    expect(request[0]).toBe("https://api.sarvam.ai/text-to-speech/stream");
+    const body = request[1]?.body;
+    // The assertion verifies the exact transport representation sent to fetch.
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof
+    if (typeof body !== "string") {
+      throw new TypeError("The speech request did not contain a string body.");
+    }
     expect(body).toContain('"language_code":"en-IN"');
     expect(body).toContain('"model":"bulbul:v3"');
     expect(body).toContain('"output_audio_codec":"mp3"');
@@ -100,8 +107,14 @@ describe("outbound voice transport", () => {
       ),
     ).resolves.toEqual({ providerCallId: "CA123", providerStatus: "queued" });
     const request = fetchMock.mock.calls[0];
-    if (!request) throw new Error("The call request was not sent.");
-    const form = new URLSearchParams(String(request[1]?.body));
+    if (request === undefined) {
+      throw new Error("The call request was not sent.");
+    }
+    const body = request[1]?.body;
+    if (!(body instanceof URLSearchParams)) {
+      throw new Error("The call request did not contain form data.");
+    }
+    const form = new URLSearchParams(body);
     expect(form.getAll("StatusCallbackEvent")).toEqual([
       "initiated",
       "ringing",

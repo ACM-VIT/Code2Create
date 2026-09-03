@@ -4,18 +4,20 @@ const fallbackMessage = "Something went wrong. Try again.";
 
 export function convexErrorCode(error: unknown) {
   if (!(error instanceof ConvexError)) return null;
-  if (typeof error.data !== "object" || error.data === null || !("code" in error.data)) {
+  const data: unknown = error.data;
+  if (typeof data !== "object" || data === null || !("code" in data)) {
     return null;
   }
-  const code = error.data.code;
+  const code = data.code;
   return typeof code === "string" ? code : null;
 }
 
 export function readableError(error: unknown) {
   if (error instanceof ConvexError) {
-    if (typeof error.data === "string" && error.data.trim()) return error.data;
-    if (typeof error.data === "object" && error.data !== null && "message" in error.data) {
-      const message = error.data.message;
+    const data: unknown = error.data;
+    if (typeof data === "string" && data.trim()) return data;
+    if (typeof data === "object" && data !== null && "message" in data) {
+      const message = data.message;
       if (typeof message === "string" && message.trim()) return message;
     }
   }

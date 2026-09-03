@@ -36,11 +36,12 @@ interface RequestContext {
 }
 
 class HttpError extends Error {
-  constructor(
-    readonly status: number,
-    message: string,
-  ) {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
     super(message);
+    this.name = "HttpError";
+    this.status = status;
   }
 }
 
@@ -128,14 +129,15 @@ async function serveManifest(request: Request, context: RequestContext): Promise
   if (request.headers.get("expo-protocol-version") !== "1") {
     throw new HttpError(400, "Expo Updates protocol version 1 is required.");
   }
-  if (!request.headers.get("expo-expect-signature")) {
+  const expectedSignature = request.headers.get("expo-expect-signature");
+  if (expectedSignature === null || expectedSignature.length === 0) {
     throw new HttpError(400, "A signed response is required.");
   }
 
   const runtimeVersion = runtimeVersionSchema.parse(request.headers.get("expo-runtime-version"));
   const platform = updatePlatformSchema.parse(request.headers.get("expo-platform"));
   const current = await context.store.getCurrent(runtimeVersion);
-  if (!current) throw new HttpError(404, "No release is published for this runtime.");
+  if (current === null) throw new HttpError(404, "No release is published for this runtime.");
 
   const release = parseReleaseRecord(current.body);
   if (release.channel !== context.channel || release.runtimeVersion !== runtimeVersion) {
@@ -151,7 +153,7 @@ async function serveManifest(request: Request, context: RequestContext): Promise
   }
 
   const embeddedUpdateId = request.headers.get("expo-embedded-update-id");
-  if (!embeddedUpdateId) {
+  if (embeddedUpdateId === null || embeddedUpdateId.length === 0) {
     throw new HttpError(400, "Expo-Embedded-Update-ID is required for rollback.");
   }
   return currentUpdateId === embeddedUpdateId
@@ -165,7 +167,7 @@ async function serveAsset(
   store: UpdateStore,
 ): Promise<Response> {
   const asset = await store.getAsset(key);
-  if (!asset || asset.sha256 !== key) throw new HttpError(404, "Asset not found.");
+  if (asset === null || asset.sha256 !== key) throw new HttpError(404, "Asset not found.");
 
   return new Response(method === "HEAD" ? null : asset.body, {
     status: 200,
@@ -180,7 +182,12 @@ async function serveAsset(
 
 async function uploadAsset(request: Request, key: string, store: UpdateStore): Promise<Response> {
   const contentType = request.headers.get("content-type")?.trim();
-  if (!contentType || contentType.length > 120 || /[\r\n]/u.test(contentType)) {
+  if (
+    contentType === undefined ||
+    contentType.length === 0 ||
+    contentType.length > 120 ||
+    /[\r\n]/u.test(contentType)
+  ) {
     throw new HttpError(400, "A valid Content-Type is required.");
   }
 
@@ -202,10 +209,12 @@ async function registerRelease(
   const release = releaseRecordSchema.parse(
     await readBoundedRequestJson(request, maximumUpdateReleaseBytes),
   );
-  if (release.releaseId !== releaseId)
+  if (release.releaseId !== releaseId) {
     throw new HttpError(400, "Release ID does not match the path.");
-  if (release.channel !== context.channel)
+  }
+  if (release.channel !== context.channel) {
     throw new HttpError(400, "Release channel is incorrect.");
+  }
   if (Date.parse(release.createdAt) > Date.now() + maximumUpdateFutureSkewMs) {
     throw new HttpError(400, "Release creation time is too far in the future.");
   }
@@ -213,15 +222,16 @@ async function registerRelease(
   await validateRelease(release, requestOrigin, context.store);
   const body = JSON.stringify(release);
   const result = await context.store.putReleaseIfAbsent(releaseId, body);
-  if (result === "conflict")
+  if (result === "conflict") {
     throw new HttpError(409, "Release ID already contains different data.");
+  }
   return jsonResponse(result === "created" ? 201 : 200, { releaseId, result });
 }
 
 async function getCurrentRelease(url: URL, store: UpdateStore): Promise<Response> {
   const runtimeVersion = runtimeVersionSchema.parse(url.searchParams.get("runtimeVersion"));
   const current = await store.getCurrent(runtimeVersion);
-  if (!current) {
+  if (current === null) {
     return jsonResponse(
       200,
       currentReleaseResponseSchema.parse({
@@ -243,7 +253,7 @@ async function getCurrentRelease(url: URL, store: UpdateStore): Promise<Response
 
 async function getRelease(releaseId: string, store: UpdateStore): Promise<Response> {
   const release = await store.getRelease(releaseId);
-  if (!release) throw new HttpError(404, "Release not found.");
+  if (release === null) throw new HttpError(404, "Release not found.");
   return jsonResponse(200, parseReleaseRecord(release.body));
 }
 
@@ -256,17 +266,18 @@ async function activateRelease(
     await readBoundedRequestJson(request, maximumUpdateActivationBytes),
   );
   const storedRelease = await context.store.getRelease(releaseId);
-  if (!storedRelease) throw new HttpError(404, "Release not found.");
+  if (storedRelease === null) throw new HttpError(404, "Release not found.");
 
   const release = parseReleaseRecord(storedRelease.body);
-  if (release.channel !== context.channel)
+  if (release.channel !== context.channel) {
     throw new Error("Stored release channel is inconsistent.");
+  }
   if (Date.parse(release.createdAt) > Date.now() + maximumUpdateFutureSkewMs) {
     throw new HttpError(409, "Release creation time is too far in the future.");
   }
 
   const current = await context.store.getCurrent(release.runtimeVersion);
-  const currentRelease = current ? parseReleaseRecord(current.body) : null;
+  const currentRelease = current === null ? null : parseReleaseRecord(current.body);
   const currentReleaseId = currentRelease?.releaseId ?? null;
   if (activation.expectedCurrentReleaseId !== currentReleaseId) {
     throw new HttpError(409, "The current release changed before activation.");
@@ -275,7 +286,10 @@ async function activateRelease(
   if (currentReleaseId === releaseId) {
     return jsonResponse(200, { releaseId, result: "already-current" });
   }
-  if (currentRelease && Date.parse(release.createdAt) <= Date.parse(currentRelease.createdAt)) {
+  if (
+    currentRelease !== null &&
+    Date.parse(release.createdAt) <= Date.parse(currentRelease.createdAt)
+  ) {
     throw new HttpError(409, "A release must be newer than the current release.");
   }
 
@@ -371,7 +385,7 @@ function parseJson(body: string): unknown {
 }
 
 async function requireAdmin(request: Request, adminToken?: string) {
-  if (!adminToken || adminToken.length < 32) {
+  if (adminToken === undefined || adminToken.length < 32) {
     throw new HttpError(503, "Publishing is not configured.");
   }
   const provided = request.headers.get("authorization") ?? "";
@@ -408,7 +422,11 @@ function hexToBase64Url(hex: string) {
     bytes[index] = Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16);
   }
   let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
+  for (const byte of bytes) {
+    // These are raw bytes for btoa, not Unicode scalar values.
+    // oxlint-disable-next-line unicorn/prefer-code-point
+    binary += String.fromCharCode(byte);
+  }
   return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, "");
 }
 
@@ -450,10 +468,14 @@ function multipartResponse(parts: MultipartPart[]) {
   const boundary = `expo-${crypto.randomUUID()}`;
   const lines: string[] = [];
   for (const part of parts) {
-    lines.push(`--${boundary}`);
-    lines.push(`content-disposition: form-data; name="${part.name}"`);
-    lines.push(`content-type: ${part.contentType}`);
-    if (part.signature) lines.push(`expo-signature: ${part.signature}`);
+    lines.push(
+      `--${boundary}`,
+      `content-disposition: form-data; name="${part.name}"`,
+      `content-type: ${part.contentType}`,
+    );
+    if (part.signature !== undefined && part.signature.length > 0) {
+      lines.push(`expo-signature: ${part.signature}`);
+    }
     lines.push("", part.body);
   }
   lines.push(`--${boundary}--`, "");
@@ -470,7 +492,15 @@ function multipartResponse(parts: MultipartPart[]) {
   });
 }
 
-function jsonResponse(status: number, value: object) {
+type JsonValue =
+  | boolean
+  | number
+  | string
+  | null
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
+function jsonResponse(status: number, value: { [key: string]: JsonValue }) {
   return Response.json(value, {
     status,
     headers: {

@@ -1,14 +1,14 @@
 import { api } from "@code2create/backend/api";
 import {
   defaultParticipantEmailTemplates,
+  defaultVitHostelResidenceCatalog,
   ideaIntakeFallbackQuestions,
   ideaQuestionRelease,
   ideaQuestionSystemInstruction,
 } from "@code2create/domain";
-import { defaultVitHostelResidenceCatalog } from "@code2create/domain";
 import type { Code2CreateAuthClient } from "@code2create/web-auth";
 import { useMutation, useQuery } from "convex/react";
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useState, type SubmitEvent, type ReactNode } from "react";
 
 import { eventSlug } from "../lib/config";
 import { readableError } from "../lib/errors";
@@ -64,7 +64,7 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
     );
   }
 
-  const submit = async (event: FormEvent<HTMLFormElement>) => {
+  const submit = async (event: SubmitEvent<HTMLFormElement>) => {
     event.preventDefault();
     const startsAt = indiaDateTimeToTimestamp(startsAtLocal);
     const endsAt = indiaDateTimeToTimestamp(endsAtLocal);

@@ -1,7 +1,7 @@
 import { api } from "@code2create/backend/api";
 import type { FunctionReturnType } from "convex/server";
 import { useMutation, usePaginatedQuery } from "convex/react";
-import { useState, type FormEvent } from "react";
+import { useState, type SubmitEvent } from "react";
 
 import { eventSlug } from "../lib/config";
 import { readableError } from "../lib/errors";
@@ -33,7 +33,7 @@ export function AccessInvitations({ serverNow }: { serverNow: number }) {
   } | null>(null);
   const createPending = operations.hasPending("access-invitation-create");
 
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: SubmitEvent) => {
     event.preventDefault();
     const expiry = new Date(validUntil).getTime();
     if (!createPending && !Number.isFinite(expiry)) {

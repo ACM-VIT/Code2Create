@@ -26,12 +26,18 @@ test("a rejected one-time token remains available for retry", async () => {
             events.push("verify");
             throw new Error("rejected");
           },
-          storeSessionToken: () => events.push("store"),
+          storeSessionToken: () => {
+            events.push("store");
+          },
           establishSession: async () => {
             events.push("establish");
           },
-          clearSessionToken: () => events.push("clear-storage"),
-          removeOneTimeToken: () => events.push("clear-url"),
+          clearSessionToken: () => {
+            events.push("clear-storage");
+          },
+          removeOneTimeToken: () => {
+            events.push("clear-url");
+          },
         },
       ),
     /rejected/,
@@ -63,7 +69,7 @@ test("a verified session token survives establishment failure and is used on ret
 
   const retryCredential = selectTransferCredential(storedToken, null);
   assert.deepEqual(retryCredential, { kind: "session-token", value: "verified-session" });
-  if (!retryCredential) throw new Error("Expected a retry credential.");
+  if (retryCredential === null) throw new Error("Expected a retry credential.");
   await completeAuthTransfer(retryCredential, operations);
   assert.equal(establishAttempts, 2);
   assert.equal(storedToken, null);
@@ -78,12 +84,18 @@ test("verification consumes the one-time token before session establishment", as
         events.push("verify");
         return "session";
       },
-      storeSessionToken: () => events.push("store"),
+      storeSessionToken: () => {
+        events.push("store");
+      },
       establishSession: async () => {
         events.push("establish");
       },
-      clearSessionToken: () => events.push("clear-storage"),
-      removeOneTimeToken: () => events.push("clear-url"),
+      clearSessionToken: () => {
+        events.push("clear-storage");
+      },
+      removeOneTimeToken: () => {
+        events.push("clear-url");
+      },
     },
   );
   assert.deepEqual(events, ["verify", "store", "clear-url", "establish", "clear-storage"]);
@@ -97,13 +109,19 @@ test("a verified one-time token is removed even when session establishment fails
         { kind: "one-time-token", value: "ott-b" },
         {
           verifyOneTimeToken: async () => "session-b",
-          storeSessionToken: () => events.push("store-b"),
+          storeSessionToken: () => {
+            events.push("store-b");
+          },
           establishSession: async () => {
             events.push("establish-b");
             throw new Error("network lost");
           },
-          clearSessionToken: () => events.push("clear-storage"),
-          removeOneTimeToken: () => events.push("clear-url-b"),
+          clearSessionToken: () => {
+            events.push("clear-storage");
+          },
+          removeOneTimeToken: () => {
+            events.push("clear-url-b");
+          },
         },
       ),
     /network lost/,
@@ -114,8 +132,12 @@ test("a verified one-time token is removed even when session establishment fails
 test("starting sign-in again abandons both retained credentials and returns to idle", () => {
   const events: string[] = [];
   const state = abandonAuthTransfer({
-    clearSessionToken: () => events.push("clear-storage"),
-    removeOneTimeToken: () => events.push("clear-url"),
+    clearSessionToken: () => {
+      events.push("clear-storage");
+    },
+    removeOneTimeToken: () => {
+      events.push("clear-url");
+    },
   });
   assert.equal(state, "idle");
   assert.deepEqual(events, ["clear-storage", "clear-url"]);

@@ -51,7 +51,7 @@ export function vitHostelResidenceCatalogLabel(entry: VitHostelResidenceCatalogE
 }
 
 export function normalizeVitHostelRoomNumberInput(value: string) {
-  return value.trim().replace(/\s+/g, "").toUpperCase();
+  return value.trim().replaceAll(/\s+/gu, "").toUpperCase();
 }
 
 export function isVitHostelRoomNumber(value: string) {

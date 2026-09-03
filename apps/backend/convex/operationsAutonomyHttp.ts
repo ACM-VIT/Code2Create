@@ -280,7 +280,7 @@ function rejectedOperation() {
 
 function rejection(error: unknown): Response {
   if (error instanceof ConvexError) {
-    const data = error.data;
+    const data: unknown = error.data;
     const code =
       typeof data === "object" && data !== null && "code" in data && typeof data.code === "string"
         ? data.code
@@ -321,7 +321,7 @@ export const autonomyReadEndpoint = httpAction(async (ctx, request) => {
     let page;
     try {
       if (prepared.state === "capture") {
-        const dataJson = await ctx.runAction(
+        const dataJson: unknown = await ctx.runAction(
           internal.operationsAutonomyReadPages.captureProjection,
           {
             eventId: prepared.eventId,
@@ -329,6 +329,9 @@ export const autonomyReadEndpoint = httpAction(async (ctx, request) => {
             generatedAt: prepared.generatedAt,
           },
         );
+        if (typeof dataJson !== "string") {
+          throw new TypeError("The autonomy read capture returned a non-string payload.");
+        }
         await ctx.runMutation(internal.operationsAutonomyReads.storeFrozenTraversal, {
           request: read,
           dataJson,

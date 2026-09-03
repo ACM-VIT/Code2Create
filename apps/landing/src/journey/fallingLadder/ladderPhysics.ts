@@ -397,7 +397,9 @@ export function createLadderSim(world: LadderWorld): LadderSimulation {
     columns.forEach((column) => {
       column.sway = 0;
       column.swayV = 0;
-      column.anchors.forEach((anchor) => anchorAt(anchor.bough, anchor));
+      column.anchors.forEach((anchor) => {
+        anchorAt(anchor.bough, anchor);
+      });
       column.anchorX = column.anchorRest.x;
       column.anchorY = column.anchorRest.y;
       column.rungs.forEach((rung) => {

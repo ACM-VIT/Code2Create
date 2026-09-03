@@ -45,7 +45,10 @@ export const LANTERNS = [
   },
 ];
 
-export const lanternAt = (index: number, phone: boolean) =>
-  phone && LANTERNS[index].phone
-    ? { ...LANTERNS[index], ...LANTERNS[index].phone }
-    : LANTERNS[index];
+export const lanternAt = (index: number, phone: boolean) => {
+  const lantern = LANTERNS[index];
+  if (lantern === undefined) {
+    throw new RangeError(`No lantern exists at index ${index}.`);
+  }
+  return phone && lantern.phone !== undefined ? { ...lantern, ...lantern.phone } : lantern;
+};

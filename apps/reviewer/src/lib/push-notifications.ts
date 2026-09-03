@@ -83,7 +83,7 @@ export async function currentReviewerPushRegistration(
   try {
     await prepareAndroidChannel();
     const permission = await Notifications.getPermissionsAsync();
-    return registrationForPermission(permission, apnsEnvironment);
+    return await registrationForPermission(permission, apnsEnvironment);
   } catch {
     return {
       status: "unavailable" as const,
@@ -100,7 +100,7 @@ export async function requestReviewerPushRegistration(
     const permission = await Notifications.requestPermissionsAsync({
       ios: { allowAlert: true, allowBadge: true, allowSound: true },
     });
-    return registrationForPermission(permission, apnsEnvironment);
+    return await registrationForPermission(permission, apnsEnvironment);
   } catch {
     return {
       status: "unavailable" as const,

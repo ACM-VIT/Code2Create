@@ -12,15 +12,18 @@ export function settleWithin<T>(operation: Promise<T>, maximumMilliseconds: numb
   }
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => reject(new OperationDeadlineError()), maximumMilliseconds);
-    operation.then(
-      (value) => {
+    void operation
+      .then((value) => {
         clearTimeout(timer);
         resolve(value);
-      },
-      (error: unknown) => {
+      })
+      .catch((error: unknown) => {
         clearTimeout(timer);
-        reject(error);
-      },
-    );
+        reject(
+          error instanceof Error
+            ? error
+            : new Error("The operation rejected without an Error.", { cause: error }),
+        );
+      });
   });
 }

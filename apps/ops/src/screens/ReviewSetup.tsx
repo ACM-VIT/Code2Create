@@ -2,7 +2,7 @@ import { api } from "@code2create/backend/api";
 import { reviewRoundStatusLabels } from "@code2create/domain";
 import type { FunctionReturnType } from "convex/server";
 import { useMutation, useQuery } from "convex/react";
-import { useRef, useState, type FormEvent } from "react";
+import { useRef, useState, type SubmitEvent } from "react";
 import { Link } from "react-router-dom";
 
 import { eventSlug } from "../lib/config";
@@ -408,7 +408,7 @@ function ReviewerProfileRow({
     changed();
   };
 
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: SubmitEvent) => {
     event.preventDefault();
     setBusy(true);
     setError(null);
@@ -842,7 +842,7 @@ function RoundPublisher({
     });
   };
 
-  const publish = async (event: FormEvent) => {
+  const publish = async (event: SubmitEvent) => {
     event.preventDefault();
     if (!canPublish || !confirmed) return;
     setBusy(true);
@@ -872,11 +872,11 @@ function RoundPublisher({
           members: panel.members.map((member) => {
             const candidate = readyCandidates.find((item) => item.personId === member.personId);
             if (!candidate)
-              throw new Error("A selected reviewer is no longer active and training-complete.");
+              throw new Error("A selected reviewer is no longer active, or has not finished training.");
             const criterionKeys = member.criterionIds.map((criterionId) => {
               const criterion = criteria.find((item) => item.id === criterionId);
               if (!criterion)
-                throw new Error("A reviewer criterion assignment no longer resolves.");
+                throw new Error("A criterion assigned to a reviewer no longer exists.");
               return criterion.stableKey;
             });
             return {
@@ -890,7 +890,7 @@ function RoundPublisher({
           eventSlug,
           rubric: {
             name: rubricName,
-            spreadThreshold: boundedInteger(spreadThreshold, "Score-spread threshold", 1, 4),
+            spreadThreshold: boundedInteger(spreadThreshold, "How far scores may differ", 1, 4),
             criteria: criteria.map((criterion, index) => ({
               stableKey: criterion.stableKey,
               label: criterion.label,

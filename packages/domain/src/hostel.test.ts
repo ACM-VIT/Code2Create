@@ -29,7 +29,7 @@ test("the configurable catalogue defaults to the initial residences", () => {
     kind: "mens",
   });
   assert.equal(
-    residence ? vitHostelResidenceCatalogLabel(residence) : null,
+    residence === null ? null : vitHostelResidenceCatalogLabel(residence),
     "Men's hostel · D annex",
   );
 });

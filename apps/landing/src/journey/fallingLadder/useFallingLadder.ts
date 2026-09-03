@@ -205,21 +205,21 @@ export function useFallingLadder(stageRef: RefObject<HTMLElement | null>, remoun
             /* Whichever bough covers this cord, and the lowest of them where two
              overlap — the ladder hangs off the limb in front. */
             let best: { bough: LadderBough; ay: number; y: number } | null = null;
-            boughs.forEach((bough) => {
-              if (worldX < bough.left || worldX > bough.left + bough.width) return;
+            for (const bough of boughs) {
+              if (worldX < bough.left || worldX > bough.left + bough.width) continue;
               let t = (worldX - bough.left) / bough.width;
               if (bough.dir < 0) t = 1 - t;
               const under = limbAt(t);
-              if (under == null) return;
+              if (under === null) continue;
               const ay = under * bough.height;
               if (!best || bough.top + ay > best.y) {
                 best = { bough, ay, y: bough.top + ay };
               }
-            });
+            }
 
             /* Past the end of every plate: tie to the nearest one rather than
              leave the cord hanging off nothing. */
-            if (!best) {
+            if (best === null) {
               const bough = boughs.reduce((closest, candidate) => {
                 const centre = candidate.left + candidate.width / 2;
                 const rival = closest.left + closest.width / 2;

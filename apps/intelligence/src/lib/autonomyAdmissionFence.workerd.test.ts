@@ -104,7 +104,9 @@ async function waitForTerminalDeliveries(runId: string, expected: number) {
   for (let attempt = 0; attempt < 120; attempt += 1) {
     const state = await debug(runId);
     if (state.terminalDeliveries >= expected) return state;
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 50);
+    });
   }
   throw new Error("The durable terminal outbox did not reach its expected delivery count.");
 }
@@ -144,7 +146,7 @@ beforeAll(async () => {
         entry: resolve("src/lib/autonomyAdmissionFence.workerd-fixture.ts"),
         formats: ["es"],
       },
-      rollupOptions: { external: ["cloudflare:workers"] },
+      rolldownOptions: { external: ["cloudflare:workers"] },
     },
   });
   const builds = Array.isArray(built) ? built : [built];
@@ -351,7 +353,9 @@ describe("durable autonomy admission fence", () => {
     const admission = request("/initial", runId, autonomyInput(runId));
     for (let attempt = 0; attempt < 20; attempt += 1) {
       if ((await debug(runId)).dispatches === 1) break;
-      await new Promise((resolve) => setTimeout(resolve, 10));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 10);
+      });
     }
     const abort = await json(
       await request("/revoke", runId, {
@@ -381,7 +385,9 @@ describe("durable autonomy admission fence", () => {
     const admission = request("/initial", runId, autonomyInput(runId));
     for (let attempt = 0; attempt < 20; attempt += 1) {
       if ((await debug(runId)).pending === 1) break;
-      await new Promise((resolve) => setTimeout(resolve, 10));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 10);
+      });
     }
     expect(
       await json(
@@ -414,7 +420,9 @@ describe("durable autonomy admission fence", () => {
     const alarm = request("/alarm", runId);
     for (let attempt = 0; attempt < 20; attempt += 1) {
       if ((await debug(runId)).dispatches === 2) break;
-      await new Promise((resolve) => setTimeout(resolve, 10));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 10);
+      });
     }
     expect(
       await json(

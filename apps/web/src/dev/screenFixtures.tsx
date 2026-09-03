@@ -524,7 +524,10 @@ function EntryFixture() {
 // ---- dashboard · the live-event bento ----------------------------------------
 // Night one of the build: a track playing, a short queue, tools half linked.
 
-const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+const wait = (ms: number) =>
+  new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
 
 const dashboardMusic: MusicTileModel = {
   eligible: true,

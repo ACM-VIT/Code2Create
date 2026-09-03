@@ -11,17 +11,17 @@ const embeddingResponse = z
           embedding: z.array(z.number()),
           index: z.number().int().nonnegative(),
         })
-        .passthrough(),
+        .loose(),
     ),
     usage: z
       .object({
         prompt_tokens: z.number().int().nonnegative().optional(),
         total_tokens: z.number().int().nonnegative().optional(),
       })
-      .passthrough()
+      .loose()
       .optional(),
   })
-  .passthrough();
+  .loose();
 
 export class OpenAiEmbeddingError extends Error {
   readonly status: number | undefined;

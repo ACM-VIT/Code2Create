@@ -101,7 +101,7 @@ function ReviewerTelemetry({
   const distinctId = session?.user.id ?? null;
 
   useEffect(() => {
-    posthog.register({ c2c_environment, c2c_release, c2c_surface });
+    void posthog.register({ c2c_environment, c2c_release, c2c_surface });
   }, [c2c_environment, c2c_release, c2c_surface, posthog]);
 
   useEffect(() => {
@@ -117,7 +117,7 @@ function ReviewerTelemetry({
   }, [distinctId, posthog]);
 
   useEffect(() => {
-    posthog.screen(sanitizeTelemetryUrl(pathname), {
+    void posthog.screen(sanitizeTelemetryUrl(pathname), {
       c2c_environment,
       c2c_release,
       c2c_surface,

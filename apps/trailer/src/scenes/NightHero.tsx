@@ -9,7 +9,8 @@ import {
   useVideoConfig,
 } from "remotion";
 import { noise3D } from "@remotion/noise";
-import { PetalField, type PetalLayer } from "../components/PetalField.tsx";
+import { PetalField } from "../components/PetalField.tsx";
+import type { PetalLayer } from "../components/PetalField.tsx";
 import { LogoMark } from "../components/LogoMark.tsx";
 import { Wordmark } from "../components/Wordmark.tsx";
 import { COLORS, CLAMP } from "../theme.ts";

@@ -258,9 +258,9 @@ test("Ask keeps operator-scoped command approval inline with explicit recovery a
 test("the setup surface configures effect-bounded autonomy, not cognitive quotas", () => {
   const completePolicySource = `${policySource}\n${policyFieldsSource}`;
   assert.match(policySource, /api\.operationsAutonomyPolicyConfiguration/);
-  assert.match(policyFieldsSource, /Authority boundary/);
-  assert.match(policyFieldsSource, /investigate as deeply as needed/);
-  assert.match(policyFieldsSource, /cannot\s+change access, identity, participant/);
+  assert.match(policyFieldsSource, /What it can never do/);
+  assert.match(policyFieldsSource, /dig as deep as it needs to/);
+  assert.match(policyFieldsSource, /cannot change access, identity, participant/);
   assert.doesNotMatch(completePolicySource, /label="Model calls"/);
   assert.doesNotMatch(
     completePolicySource,
@@ -272,7 +272,7 @@ test("the setup surface configures effect-bounded autonomy, not cognitive quotas
   assert.match(policyFieldsSource, /Search by display name/);
   assert.match(policyFieldsSource, /Load more accounts/);
   assert.doesNotMatch(policySource, /configuration\.ownerOptions/);
-  assert.match(policyFieldsSource, /The agent cannot execute them/);
+  assert.match(policyFieldsSource, /never carries them out itself/);
   assert.match(policyFieldsSource, /operationsAutonomyReadTools/);
   assert.match(policyFieldsSource, /const readToolOptions = operationsAutonomyReadTools/);
   assert.match(policyFieldsSource, /const areaOptions = operationsHealthAreas/);
@@ -322,7 +322,7 @@ test("autonomy uses the existing activity and recommendation primitives", () => 
 });
 
 test("a proposal reads as a decision: statement and command first, evidence one disclosure away", () => {
-  assert.match(recommendationSource, /Evidence and provenance/);
+  assert.match(recommendationSource, /Evidence and where it came from/);
   assert.match(recommendationSource, /<details className="group rounded-lg border border-line">/);
   assert.match(recommendationSource, /Approve and execute/);
   assert.match(recommendationSource, /Suggest a change/);
@@ -331,7 +331,7 @@ test("a proposal reads as a decision: statement and command first, evidence one 
   assert.match(recommendationSource, /collapsed = false/);
   assert.match(decisionsSource, /<RecommendationCard\n\s+collapsed/);
   assert.match(situationsSource, /Next step · /);
-  assert.match(situationsSource, /Analyst reasoning/);
+  assert.match(situationsSource, /How the agent read this/);
   assert.match(situationsSource, /api\.operationsEpisodes\.calibration/);
 });
 
@@ -348,7 +348,7 @@ test("the agent control plane is the engine room, not the landing page", () => {
   assert.match(controlPlaneSource, /role="tablist"/);
   assert.match(controlPlaneSource, /function PromptText/);
   assert.doesNotMatch(controlPlaneSource, /<pre/);
-  assert.match(controlPlaneSource, /Deployed agents/);
+  assert.match(controlPlaneSource, /Agents in use/);
   assert.doesNotMatch(
     controlPlaneSource,
     /Operations intelligence|Deployed configuration|Code-owned release|Authoritative ledger/,

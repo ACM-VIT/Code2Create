@@ -1,7 +1,11 @@
 import { participantEmailEventSignatureContext, signServiceBody } from "@code2create/domain";
+import type { ParticipantEmailEvent } from "@code2create/domain";
 import { z } from "zod";
 
-import { normalizeCloudflareEmailEvent } from "./contracts.js";
+import {
+  cloudflareEmailSendingEventSchema,
+  normalizeCloudflareEmailEvent,
+} from "./contracts.js";
 
 export interface EmailBridgeEnvironment {
   CONVEX_EMAIL_EVENT_CALLBACK_URL: string;
@@ -13,11 +17,7 @@ export interface EmailBridgeEnvironment {
 
 type EventFetcher = (url: string, init: RequestInit) => Promise<Response>;
 
-type RoutedEmailMessage = {
-  readonly to: string;
-  forward(recipient: string): Promise<unknown>;
-  setReject(reason: string): void;
-};
+type RoutedEmailMessage = Pick<ForwardableEmailMessage, "forward" | "setReject" | "to">;
 
 type EmailEventQueueMessage = {
   readonly id: string;
@@ -26,7 +26,10 @@ type EmailEventQueueMessage = {
   retry(): void;
 };
 
-type EmailEventRelay = (input: unknown, environment: EmailBridgeEnvironment) => Promise<void>;
+type EmailEventRelay = (
+  event: ParticipantEmailEvent,
+  environment: EmailBridgeEnvironment,
+) => Promise<void>;
 
 const callbackUrlSchema = z.url().refine((value) => value.startsWith("https://"), {
   message: "Expected an HTTPS callback URL.",
@@ -35,11 +38,10 @@ const callbackUrlSchema = z.url().refine((value) => value.startsWith("https://")
 const emailAddressSchema = z.email().max(320);
 
 export async function relayEmailEvent(
-  input: unknown,
+  event: ParticipantEmailEvent,
   environment: EmailBridgeEnvironment,
   eventFetcher: EventFetcher = fetch,
 ) {
-  const event = normalizeCloudflareEmailEvent(input, environment.EMAIL_SENDING_DOMAIN);
   const body = JSON.stringify(event);
   const timestamp = String(Date.now());
   const signature = await signServiceBody({
@@ -91,7 +93,11 @@ export async function consumeEmailEventMessages(
 ) {
   for (const message of messages) {
     try {
-      await relay(message.body, environment);
+      const event = normalizeCloudflareEmailEvent(
+        cloudflareEmailSendingEventSchema.parse(message.body),
+        environment.EMAIL_SENDING_DOMAIN,
+      );
+      await relay(event, environment);
       message.ack();
     } catch (error) {
       console.error(

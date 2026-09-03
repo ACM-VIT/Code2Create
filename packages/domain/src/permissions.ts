@@ -58,7 +58,7 @@ const exactPermissionNames: Readonly<Record<string, string>> = {
   "application.assign": "Assign application reviews",
   "application.ai_recommendation.read": "View admission recommendation",
   "application.ai_recommendation.run": "Retry admission analysis",
-  "application.profile_context.read": "View application study context",
+  "application.profile_context.read": "View an applicant’s year and course",
   "communications.call_consent.manage": "Manage own phone-call consent",
   "attendance.export.identifiable": "Export named attendance records",
   "attendance.portal_qr.mint": "Show own attendance QR",
@@ -110,8 +110,8 @@ const permissionActionNames: Readonly<Record<string, string>> = {
   print: "Print",
   publish: "Publish",
   read: "View",
-  rebind: "Rebind",
-  reconcile: "Reconcile",
+  rebind: "Reassign",
+  reconcile: "Correct",
   record: "Record",
   register: "Register",
   release: "Release",
@@ -144,7 +144,6 @@ const permissionSubjectNames: Readonly<Record<string, string>> = {
   "access roles": "role labels",
   "access roster": "event team",
   "access subjects": "event accounts",
-  "application information": "application information request",
   "application offer": "admission offer",
   "attendance badge": "external participant badge",
   "attendance credential": "physical ID credential",
@@ -152,7 +151,7 @@ const permissionSubjectNames: Readonly<Record<string, string>> = {
   "attendance manual sheet": "paper check-in sheet",
   "attendance manual sheet source": "paper check-in sheet image",
   "attendance plan": "check-in plan",
-  "attendance presence": "attendance presence",
+  "attendance presence": "who is present",
   "attendance remedy": "attendance correction",
   "attendance remedy self": "own attendance correction",
   "attendance roll call": "emergency roll call",
@@ -200,7 +199,7 @@ const permissionSubjectNames: Readonly<Record<string, string>> = {
   "reviewer device": "reviewer phone",
   "reviewer profile": "reviewer profile",
   "round export": "results export",
-  "score completeness": "score completeness",
+  "score completeness": "missing scores",
   "score feedback": "team feedback",
   "score values": "score values",
   "support case": "help case",
@@ -219,11 +218,19 @@ const permissionSubjectNames: Readonly<Record<string, string>> = {
 
 export function permissionName(value: string) {
   const exact = exactPermissionNames[value];
-  if (exact) return exact;
+  if (exact !== undefined && exact.length > 0) return exact;
   const parts = value.split(".").map((part) => part.replaceAll("_", " "));
   const action = parts.at(-1);
-  const actionName = action ? permissionActionNames[action] : undefined;
-  if (!action || !actionName) return sentenceName(parts.join(" "));
+  const actionName =
+    action !== undefined && action.length > 0 ? permissionActionNames[action] : undefined;
+  if (
+    action === undefined ||
+    action.length === 0 ||
+    actionName === undefined ||
+    actionName.length === 0
+  ) {
+    return sentenceName(parts.join(" "));
+  }
   const rawSubject = parts.slice(0, -1).join(" ");
   return `${actionName} ${permissionSubjectNames[rawSubject] ?? rawSubject}`;
 }
@@ -242,13 +249,19 @@ export function areaForPermission(value: string): PermissionArea {
     value.startsWith("queue.") ||
     value.startsWith("score.") ||
     value.startsWith("scorecard.")
-  )
+  ) {
     return "judging";
+  }
   if (value.startsWith("benefit.")) return "participants";
   if (value.startsWith("synesthesia.")) return "music";
   if (value.startsWith("access.")) return "people";
-  if (value.startsWith("participant.") || value.startsWith("team.") || value.startsWith("project."))
+  if (
+    value.startsWith("participant.") ||
+    value.startsWith("team.") ||
+    value.startsWith("project.")
+  ) {
     return "participants";
+  }
   return "operations";
 }
 
@@ -274,7 +287,7 @@ export function scopeName(value: string, permissionKey?: string) {
     application: "One application",
     attendance_plan: "One attendance plan",
     attendance_session: "One hacking session",
-    evidence_checkpoint: "One evidence checkpoint",
+    evidence_checkpoint: "One team update",
     incident: "One incident",
     page: "One reviewer page",
     panel: "One judging panel",

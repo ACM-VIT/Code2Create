@@ -214,7 +214,7 @@ describe("operations intelligence transport", () => {
       experienceBand: "early_year",
       teamSize: 3,
       reviewCoverage: { assigned: 2, completed: 2, required: 2, decidable: true, shortfall: 0 },
-      reviewSignal: { accept: 2, waitlist: 0, decline: 0, needsInformation: 0 },
+      reviewSignal: { accept: 2, waitlist: 0, decline: 0 },
       novelty: null,
       rank: 1,
       cumulativePeople: 3,

@@ -76,9 +76,16 @@ describe("admission policy configuration", () => {
     expect(() =>
       normalizeAdmissionConfiguration({
         ...valid,
-        decisionReasonCodes: valid.decisionReasonCodes.filter(
-          (reason) => !reason.allowedDecisions.includes("accept"),
-        ),
+        decisionReasonCodes: [
+          ...valid.decisionReasonCodes.filter(
+            (reason) => !reason.allowedDecisions.includes("accept"),
+          ),
+          {
+            key: "another_waitlist_reason",
+            label: "Another waitlist reason",
+            allowedDecisions: ["waitlist"],
+          },
+        ],
       }),
     ).toThrow("permit accept");
     expect(() =>

@@ -95,7 +95,7 @@ export function TeamLobbyScreen({
   >(null);
   const currentTransfer = team.pendingLeadershipTransfer;
 
-  const run = async (command: () => Promise<unknown>) => {
+  const run = async <Result,>(command: () => Promise<Result>) => {
     setBusy(true);
     setError(null);
     try {

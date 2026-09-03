@@ -31,8 +31,9 @@ import {
   participantPolicyFromDocument,
 } from "./lib/participantPolicy";
 import { normalizeEmail, normalizedLongText } from "./lib/strings";
-import { isCurrentNoveltyScoringVersion, noveltyInputFingerprint } from "./lib/novelty";
+import { noveltyInputFingerprint } from "./lib/novelty";
 import { invalidateTeamNoveltyIndex } from "./lib/noveltyIndex";
+import { participantNoveltyConfig, savedNoveltySignal } from "./lib/participantNovelty";
 import {
   intakePolicyChecksum,
   intakePolicyFromDocument,
@@ -53,7 +54,6 @@ import { ideaQuestionEndToEndDeadlineMs } from "./lib/ideaSubmissionAi";
 import { teamClassesMeetPolicy, teamRosterCounts } from "./lib/teamRoster";
 import {
   admissionDecision,
-  admissionInformationRequestState,
   admissionOfferState,
   applicationState,
   projectDraftStage,
@@ -97,32 +97,6 @@ const participantNoveltySignal = v.object({
   reflectionPrompt: v.string(),
   evaluatedAt: v.number(),
 });
-
-function savedNoveltySignal(
-  draft: Doc<"projectDrafts">,
-  idea: string,
-  corpusVersionId?: Id<"noveltyCorpusVersions">,
-) {
-  if (
-    (corpusVersionId !== undefined && draft.noveltyCorpusVersionId !== corpusVersionId) ||
-    draft.noveltyEvaluatedInputFingerprint !== noveltyInputFingerprint(idea) ||
-    draft.noveltyScore === undefined ||
-    draft.noveltyBand === undefined ||
-    draft.noveltyNearestThemeLabel === undefined ||
-    draft.noveltyReflectionPrompt === undefined ||
-    draft.noveltyEvaluatedAt === undefined ||
-    !isCurrentNoveltyScoringVersion(draft.noveltyScoringVersion)
-  ) {
-    return null;
-  }
-  return {
-    score: draft.noveltyScore,
-    band: draft.noveltyBand,
-    nearestThemeLabel: draft.noveltyNearestThemeLabel,
-    reflectionPrompt: draft.noveltyReflectionPrompt,
-    evaluatedAt: draft.noveltyEvaluatedAt,
-  };
-}
 
 const currentDraftView = v.object({
   id: v.id("projectDrafts"),
@@ -198,16 +172,6 @@ const participantApplicationView = v.object({
   submittedAt: v.number(),
   humanDecision: v.optional(admissionDecision),
   humanReasonCode: v.optional(v.string()),
-  informationRequest: v.union(
-    v.null(),
-    v.object({
-      id: v.id("admissionInformationRequests"),
-      state: admissionInformationRequestState,
-      questions: v.array(v.object({ questionKey: v.string(), question: v.string() })),
-      answers: v.optional(v.array(v.object({ questionKey: v.string(), answer: v.string() }))),
-      version: v.number(),
-    }),
-  ),
   currentOffer: v.union(
     v.null(),
     v.object({
@@ -257,37 +221,6 @@ const participantNoveltyConfiguration = v.object({
   debounceMs: v.number(),
 });
 
-async function participantNoveltyConfig(
-  ctx: ReadCtx,
-  event: Doc<"events">,
-  draft?: Doc<"projectDrafts">,
-) {
-  const corpusVersionId = draft?.noveltyCorpusVersionId ?? event.publishedNoveltyCorpusVersionId;
-  if (!corpusVersionId) return null;
-  const corpus = await ctx.db.get(corpusVersionId);
-  const validStatus = draft?.noveltyCorpusVersionId
-    ? corpus?.status === "published" || corpus?.status === "superseded"
-    : corpus?.status === "published";
-  if (
-    !corpus ||
-    corpus.eventId !== event._id ||
-    !validStatus ||
-    corpus.importState !== "ready" ||
-    !corpus.checksum ||
-    corpus.entryCount < 1
-  ) {
-    return null;
-  }
-  return {
-    corpusVersionId: corpus._id,
-    corpusVersion: corpus.version,
-    corpusLabel: corpus.label,
-    comparedProjectCount: corpus.entryCount,
-    minimumIdeaLength: corpus.minimumIdeaLength,
-    debounceMs: corpus.debounceMs,
-  };
-}
-
 export async function currentReadTeamContext(ctx: QueryCtx, eventSlug: string) {
   const person = await findCurrentPerson(ctx);
   if (!person) return null;
@@ -336,8 +269,7 @@ async function participantApplicationForTeam(
   const terminalDecisionReleased =
     event.admissionResultsReleasedAt !== undefined &&
     (application.decisionStage === "recorded" || application.decisionStage === "released") &&
-    application.humanDecision !== undefined &&
-    application.humanDecision !== "needs_information";
+    application.humanDecision !== undefined;
   const visibleState = terminalDecisionReleased
     ? application.humanDecision === "accept"
       ? ("accepted" as const)
@@ -345,12 +277,9 @@ async function participantApplicationForTeam(
         ? ("waitlisted" as const)
         : ("declined" as const)
     : application.state;
-  const [currentOffer, informationRequest] = await Promise.all([
-    application.currentOfferId ? ctx.db.get(application.currentOfferId) : Promise.resolve(null),
-    application.currentInformationRequestId
-      ? ctx.db.get(application.currentInformationRequestId)
-      : Promise.resolve(null),
-  ]);
+  const currentOffer = application.currentOfferId
+    ? await ctx.db.get(application.currentOfferId)
+    : null;
   if (
     application.currentOfferId !== undefined &&
     (!currentOffer ||
@@ -359,15 +288,6 @@ async function participantApplicationForTeam(
       currentOffer.teamId !== team._id)
   ) {
     throw new Error("A participant application has an invalid current offer.");
-  }
-  if (
-    application.currentInformationRequestId !== undefined &&
-    (!informationRequest ||
-      informationRequest.eventId !== event._id ||
-      informationRequest.applicationId !== application._id ||
-      informationRequest.teamId !== team._id)
-  ) {
-    throw new Error("A participant application has an invalid information request.");
   }
   return {
     application,
@@ -385,17 +305,6 @@ async function participantApplicationForTeam(
       application.humanReasonCode !== undefined
         ? { humanReasonCode: application.humanReasonCode }
         : {}),
-      informationRequest: informationRequest
-        ? {
-            id: informationRequest._id,
-            state: informationRequest.state,
-            questions: informationRequest.questions,
-            ...(informationRequest.answers !== undefined
-              ? { answers: informationRequest.answers }
-              : {}),
-            version: informationRequest.version,
-          }
-        : null,
       currentOffer: currentOffer
         ? {
             id: currentOffer._id,
@@ -879,9 +788,6 @@ export const reviseSubmission = mutation({
       finalConfirmation: project.finalConfirmation,
       participantPolicyVersionId: project.participantPolicyVersionId,
       admissionPolicyVersionId: project.admissionPolicyVersionId,
-      ...(project.admissionInformationResponses !== undefined
-        ? { admissionInformationResponses: project.admissionInformationResponses }
-        : {}),
       proposalRevision: {
         sourceProjectVersionId: project._id,
         editedByMembershipId: membership._id,

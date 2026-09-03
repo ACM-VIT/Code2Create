@@ -82,19 +82,15 @@ function start(args, onOutput) {
     });
   }
   children.add(child);
-  child.once("exit", () => children.delete(child));
+  child.once("exit", () => {
+    children.delete(child);
+  });
   return child;
 }
 
 function startBackend() {
-  let markListenerReady = () => {};
-  const listenerReady = new Promise((resolve) => {
-    markListenerReady = resolve;
-  });
-  let markPushReady = () => {};
-  const pushReady = new Promise((resolve) => {
-    markPushReady = resolve;
-  });
+  const { promise: listenerReady, resolve: markListenerReady } = Promise.withResolvers();
+  const { promise: pushReady, resolve: markPushReady } = Promise.withResolvers();
   let outputTail = "";
   let listenerWasReady = false;
   let pushWasReady = false;

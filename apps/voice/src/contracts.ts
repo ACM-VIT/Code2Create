@@ -1,8 +1,8 @@
 import {
   outboundCallEventTypes,
   outboundCallProtocolVersion,
-  type OutboundCallRequest,
 } from "@code2create/domain";
+import type { OutboundCallRequest } from "@code2create/domain";
 import { z } from "zod";
 
 const deliveryId = z.string().min(1).max(128);
@@ -24,7 +24,7 @@ export const outboundCallRequestSchema: z.ZodType<OutboundCallRequest> = z
 export const outboundCallEventSchema = z
   .object({
     protocolVersion: z.literal(outboundCallProtocolVersion),
-    eventId: z.string().uuid(),
+    eventId: z.uuid(),
     deliveryId,
     eventType: z.enum(outboundCallEventTypes),
     providerAt: z.number().int().nonnegative(),
@@ -38,11 +38,11 @@ export const twilioCreateResponseSchema = z
     sid: z.string().min(1).max(128),
     status: z.string().min(1).max(40).optional(),
   })
-  .passthrough();
+  .loose();
 
 export const twilioErrorResponseSchema = z
   .object({ message: z.string().min(1).max(500).optional() })
-  .passthrough();
+  .loose();
 
 export const callAcceptedResponseSchema = z
   .object({ accepted: z.literal(true), deliveryId })

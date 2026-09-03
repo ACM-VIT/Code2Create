@@ -454,7 +454,7 @@ const fileResponse = z.object({
   lastModified: z.string().min(1).max(80),
   editorType: z.string().min(1).max(80),
   linkAccess: z.string().min(1).max(80),
-  thumbnailUrl: z.string().url().optional(),
+  thumbnailUrl: z.url().optional(),
   version: z.string().min(1).max(256),
   mainFileKey: z.string().min(1).max(256).optional(),
   document: figmaNodeSchema,
@@ -467,7 +467,7 @@ const fileMetadataResponse = z.object({
   file: z.object({
     name: z.string().min(1).max(512),
     last_touched_at: z.string().min(1).max(80),
-    thumbnail_url: z.string().url(),
+    thumbnail_url: z.url(),
     editorType: z.string().min(1).max(80),
     version: z.string().min(1).max(256),
     role: z.string().min(1).max(80),
@@ -511,13 +511,13 @@ const versionsResponse = z.object({
     .max(1_000),
   pagination: z
     .object({
-      next_page: z.string().url().nullable().optional(),
+      next_page: z.url().nullable().optional(),
     })
     .optional(),
 });
 
 const renderedImagesResponse = z.object({
-  images: z.record(z.string(), z.string().url().nullable()),
+  images: z.record(z.string(), z.url().nullable()),
   err: z.string().optional(),
   status: z.number().int().optional(),
 });
@@ -776,7 +776,9 @@ function providerFacingError(error: unknown) {
 }
 
 function wait(milliseconds: number) {
-  return new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+  return new Promise<void>((resolve) => {
+    setTimeout(resolve, milliseconds);
+  });
 }
 
 async function freshAccessToken(ctx: ActionCtx, credentialId: Id<"figmaOAuthCredentials">) {
@@ -988,6 +990,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function unknownArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value.map((entry: unknown) => entry) : [];
+}
+
 function boundedProviderString(value: unknown, maximumLength: number) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -1015,13 +1021,13 @@ function sourceDimensions(value: Record<string, unknown>) {
 }
 
 function descendantCount(value: Record<string, unknown>) {
-  const pending = Array.isArray(value.children) ? [...value.children] : [];
+  const pending = unknownArray(value.children);
   let count = 0;
   while (pending.length > 0) {
     const child = pending.pop();
     if (!isRecord(child)) continue;
     count += 1;
-    if (Array.isArray(child.children)) pending.push(...child.children);
+    pending.push(...unknownArray(child.children));
   }
   return count;
 }
@@ -1058,14 +1064,14 @@ function selectPreviewCandidates(parsedFile: unknown): FigmaPreviewPlan {
   if (!isRecord(parsedFile) || !isRecord(parsedFile.document)) {
     return { discoveredNodeCount: 0, truncated: false, candidates: [] };
   }
-  const allPages = Array.isArray(parsedFile.document.children) ? parsedFile.document.children : [];
+  const allPages = unknownArray(parsedFile.document.children);
   const pages = allPages.slice(0, maximumPreviewPages);
   const candidatesByPage: FigmaPreviewCandidate[][] = [];
   let discoveredNodeCount = 0;
   for (let pageOrder = 0; pageOrder < pages.length; pageOrder += 1) {
     const page = pages[pageOrder];
     if (!isRecord(page)) continue;
-    const children = Array.isArray(page.children) ? page.children : [];
+    const children = unknownArray(page.children);
     const pageCandidates = children.flatMap((child, nodeOrder) => {
       if (!isRecord(child) || child.visible === false) return [];
       const nodeType = boundedProviderString(child.type, 128);

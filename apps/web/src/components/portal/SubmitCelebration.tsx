@@ -76,7 +76,7 @@ export function SubmitCelebration({ onDone }: { onDone: () => void }) {
       // crossfades away while the closing "submitted." morphs up into the
       // Submitted screen's heading. Elsewhere, a plain fade.
       const transition = (
-        document as Document & { startViewTransition?: (update: () => void) => unknown }
+        document as Document & { startViewTransition?: (update: () => void) => void }
       ).startViewTransition;
       if (transition) {
         transition.call(document, () => flushSync(() => onDoneRef.current()));
@@ -96,12 +96,16 @@ export function SubmitCelebration({ onDone }: { onDone: () => void }) {
       .then(({ createFlowerScene }) => {
         if (cancelled) return;
         const canvas = canvasRef.current;
-        if (!canvas) return finish();
+        if (!canvas) {
+          finish();
+          return;
+        }
         try {
           scene = createFlowerScene(canvas);
           scene.play(BLOOM_MS);
         } catch {
-          return finish();
+          finish();
+          return;
         }
         later(() => setBurst(true), BURST_AT_MS);
         later(finish, HOLD_MS);

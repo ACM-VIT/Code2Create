@@ -19,7 +19,7 @@ function deployKeyEnvironment(deployKey: string) {
     "C2C_RECOVERY_S3_SECRET_ACCESS_KEY",
     "C2C_RECOVERY_S3_KMS_KEY_ID",
   ]) {
-    delete environment[name];
+    Reflect.deleteProperty(environment, name);
   }
   environment.CONVEX_DEPLOY_KEY = deployKey;
   return environment;

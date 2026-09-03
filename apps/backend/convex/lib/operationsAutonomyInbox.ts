@@ -1,5 +1,4 @@
-import type { OperationsHealthSnapshot } from "@code2create/domain";
-import type { OperationsAutonomyReadTool } from "@code2create/domain";
+import type { OperationsAutonomyReadTool, OperationsHealthSnapshot } from "@code2create/domain";
 
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";

@@ -1512,7 +1512,7 @@ describe("team roster backfill", () => {
     });
   }, 30_000);
 
-  test("a locked team does not block the imported person from signing up", async () => {
+  test("lets an imported member join a submitted team before the deadline", async () => {
     const backend = convexTest(schema, modules);
     backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
     const fixture = await seedEvent(backend);
@@ -1555,7 +1555,19 @@ describe("team roster backfill", () => {
     const me = await lockedMember.person.query(api.participants.me, {
       eventSlug: fixture.eventSlug,
     });
-    expect(me?.membership).not.toBeNull();
+    if (!me?.membership) throw new Error("The imported member was not provisioned.");
+    await completeMandatoryOnboarding(backend, fixture, me);
+
+    await expect(
+      acceptRosterAssignment(
+        lockedMember.person,
+        fixture,
+        "accept-assignment-to-submitted-team",
+      ),
+    ).resolves.toMatchObject({ status: "claimed" });
+    await expect(
+      lockedMember.person.query(api.teams.current, { eventSlug: fixture.eventSlug }),
+    ).resolves.toMatchObject({ id: live.teamId, name: "Locked" });
   }, 30_000);
 
   test("records duplicate registration identities as conflicts and applies safe rows", async () => {
@@ -2163,7 +2175,6 @@ async function importRows(
     previewChecksum: preview.previewChecksum,
     clientOperationId: args.clientOperationId,
   });
-  if (args.drain === false) return;
 }
 
 async function acceptPolicy(

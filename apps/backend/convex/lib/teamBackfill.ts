@@ -24,7 +24,7 @@ type TeamBackfillResult = {
 
 function isTeamPlacementFailure(error: unknown): boolean {
   if (!(error instanceof ConvexError)) return false;
-  const data = error.data;
+  const data: unknown = error.data;
   const code =
     typeof data === "object" && data !== null && "code" in data && typeof data.code === "string"
       ? data.code
@@ -218,9 +218,6 @@ async function placeTeamRosterEntry(
     return { outcome: "waiting_for_lead", claimedCount: 0 };
   }
 
-  if (team.membershipLocked) {
-    return { outcome: "still_pending", claimedCount: 0 };
-  }
   const rosterCounts = teamRosterCounts(team);
   if (rosterCounts.activeMemberCount >= participantPolicy.normalized.teamMaximumSize) {
     return { outcome: "still_pending", claimedCount: 0 };

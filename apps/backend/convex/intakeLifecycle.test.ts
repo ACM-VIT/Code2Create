@@ -4,7 +4,6 @@ import { convexTest, type TestConvex } from "convex-test";
 import { describe, expect, test } from "vitest";
 
 import { api, components, internal } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
 import {
   admissionPolicyChecksum,
   admissionPolicyForConfiguration,

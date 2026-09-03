@@ -12,7 +12,7 @@ A returning participant goes to the first unfinished task.
 
 The event publishes one authoritative `externalApplicationsCloseAt` time and one authoritative VIT `applicationsCloseAt` time. The external deadline is no later than the VIT deadline. The server uses the deadline for the verified participant class. The browser clock is not authoritative.
 
-Before the applicable deadline, an eligible participant can accept policy, update a profile, change a team, edit a proposal, answer an intake follow-up, and submit. A submitted team can still add, remove, leave, switch, or transfer leadership while the resulting team remains valid. At or after that deadline, the server rejects new onboarding, team changes, submission, and participant-initiated proposal revision for that class. A later organizer-requested admission-information response remains available to the current lead. A retry with an operation ID that committed before the applicable deadline returns the original result.
+Before the applicable deadline, an eligible participant can accept policy, update a profile, change a team, edit a proposal, answer an intake follow-up, and submit. A submitted team can still add, remove, leave, switch, or transfer leadership while the resulting team remains valid. At or after that deadline, the server rejects new onboarding, team changes, submission, and participant-initiated proposal revision for that class. A retry with an operation ID that committed before the applicable deadline returns the original result.
 
 ## 2. Participant profile
 
@@ -250,10 +250,7 @@ The AI admission service reads only approved proposal fields, the deterministic 
 An authorized human can:
 
 - publish an admission decision for the current proposal version;
-- record whether the human used, cleared, or overrode the current AI recommendation; or
-- request one or two specific facts from the current lead.
-
-An information response creates another immutable proposal-content version and invalidates stale outputs in the same way as a lead revision. The response does not unlock membership.
+- record whether the human used, cleared, or overrode the current AI recommendation.
 
 An offer reserves capacity for the exact deadline-frozen member count. Only the current lead can accept or decline the offer. An expired or revoked offer releases capacity without deleting decision history.
 

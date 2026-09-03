@@ -743,8 +743,7 @@ code {
 }
 
 .submitted-summary,
-.offer-response,
-.information-response {
+.offer-response {
   display: grid;
   gap: 10px;
   margin: 28px 0;
@@ -833,30 +832,14 @@ code {
 
 .submitted-summary h2,
 .offer-response h2,
-.information-response h2,
 .submitted-summary p,
-.offer-response p,
-.information-response p {
+.offer-response p {
   margin: 0;
 }
 
 .offer-response p {
   color: var(--muted);
   line-height: 1.6;
-}
-
-.information-response > p {
-  color: var(--muted);
-  line-height: 1.6;
-}
-
-.information-response form {
-  display: grid;
-  gap: 18px;
-}
-
-.information-response .field {
-  gap: 8px;
 }
 
 .offer-actions {

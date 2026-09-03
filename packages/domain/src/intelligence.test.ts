@@ -8,7 +8,6 @@ import {
   operationsIntelligenceStreamCapability,
   operationsIntelligenceStreamTicketHeaders,
   operationsIntelligenceProtocolVersion,
-  operationsIntelligenceReadSignatureContext,
   operationsBriefStreamTicketSignatureContext,
   operationsCopilotStreamTicketSignatureContext,
   serializeOperationsIntelligenceStreamTicket,
@@ -24,7 +23,7 @@ import {
 const signingSecret = "s".repeat(32);
 
 const validIdeaAnalysis: IdeaIntelligenceAnalysis = {
-  recommendation: "needs_information",
+  recommendation: "waitlist",
   criterionAssessments: [
     {
       criterionKey: "problem_clarity",
@@ -34,12 +33,15 @@ const validIdeaAnalysis: IdeaIntelligenceAnalysis = {
   ],
   strengths: ["The proposal identifies a concrete operational problem."],
   concerns: ["The user validation approach is not yet described."],
-  proposedQuestions: ["How will the team validate the need with intended users?"],
   confidence: "medium",
   limitations: ["Only the submitted project answers were available."],
 };
 
 test("idea analysis policy accepts only exact, grounded, non-scoring output", () => {
+  const firstAssessment = validIdeaAnalysis.criterionAssessments[0];
+  if (firstAssessment === undefined) {
+    throw new Error("The valid analysis fixture needs one criterion assessment.");
+  }
   const context = {
     criterionKeys: ["problem_clarity"],
     sourceRefs: ["initial_idea"],
@@ -54,7 +56,7 @@ test("idea analysis policy accepts only exact, grounded, non-scoring output", ()
         ...validIdeaAnalysis,
         criterionAssessments: [
           {
-            ...validIdeaAnalysis.criterionAssessments[0]!,
+            ...firstAssessment,
             sourceRefs: ["invented_source"],
           },
         ],
@@ -146,7 +148,7 @@ test("stream tickets have one canonical signed representation", () => {
     '{"protocolVersion":"operations-intelligence-v1","eventSlug":"code2create-7","instanceId":"copilot:code2create-7:cv_abc","agentName":"operations-copilot","capability":"read","issuedAt":1000,"expiresAt":61000,"nonce":"nonce_123","conversationId":"cv_abc"}',
   );
   assert.equal(
-    Buffer.from(encodeOperationsIntelligenceStreamTicket(ticket), "base64url").toString("utf8"),
+    Buffer.from(encodeOperationsIntelligenceStreamTicket(ticket), "base64url").toString("utf-8"),
     serialized,
   );
   assert.deepEqual(operationsIntelligenceStreamTicketHeaders, {
@@ -181,7 +183,9 @@ test("the copilot release uses one generalized command protocol without per-requ
   const copilot = intelligenceAgentDefinition("operations-copilot");
   const systemPrompt = copilot.prompts.find((prompt) => prompt.name === "System prompt")?.text;
   assert.equal(copilot.version, "operations-copilot-v1");
-  assert.ok(systemPrompt);
+  if (systemPrompt === undefined || systemPrompt.length === 0) {
+    throw new Error("The copilot agent needs a system prompt.");
+  }
   assert.match(systemPrompt, /first call inspect_event_commands/u);
   assert.match(systemPrompt, /only write is propose_event_command/u);
   assert.match(systemPrompt, /Never invent a command or argument/u);
@@ -201,7 +205,9 @@ test("the idea agent may iterate until it publishes a valid assessment", () => {
   const ideaAgent = intelligenceAgentDefinition("idea-submission");
   const systemPrompt = ideaAgent.prompts.find((prompt) => prompt.name === "System prompt")?.text;
 
-  assert.ok(systemPrompt);
+  if (systemPrompt === undefined || systemPrompt.length === 0) {
+    throw new Error("The idea agent needs a system prompt.");
+  }
   assert.match(systemPrompt, /as many reasoning and tool turns as needed/u);
   assert.match(systemPrompt, /correct it and retry/u);
   assert.doesNotMatch(systemPrompt, /exactly once|at most \d+ .*calls?/u);

@@ -2,7 +2,7 @@ import { api } from "@code2create/backend/api";
 import { eventRoleLabels } from "@code2create/domain";
 import type { FunctionReturnType } from "convex/server";
 import { useMutation } from "convex/react";
-import { useState, type FormEvent } from "react";
+import { useState, type SubmitEvent } from "react";
 
 import { AccessManagementDisclosure } from "./AccessManagementDisclosure";
 import { eventSlug } from "../lib/config";
@@ -48,7 +48,7 @@ export function AccessRoleLabel({
     if (role) setSelectedRole(role);
   };
 
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: SubmitEvent) => {
     event.preventDefault();
     setBusy(true);
     setError(null);
@@ -78,7 +78,7 @@ export function AccessRoleLabel({
       description={
         currentRole === "supreme"
           ? "Supreme includes every event-wide permission and the account’s own reviewer permissions."
-          : `Currently ${currentRole ? eventRoleLabels[currentRole] : "no role"}. Exact scoped permissions remain separate.`
+          : `Currently ${currentRole ? eventRoleLabels[currentRole] : "no role"}. Permissions granted one by one are handled separately.`
       }
       title="Change role"
     >
@@ -134,7 +134,7 @@ export function AccessRoleLabel({
           <small>
             {roleCeilingAllowsChange
               ? "You may be asked to sign in again before this change."
-              : "Your permission ceiling does not cover every permission changed by this role."}
+              : "You cannot grant everything this role changes."}
           </small>
         </div>
       </form>

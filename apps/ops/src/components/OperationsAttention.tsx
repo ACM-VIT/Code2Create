@@ -19,16 +19,16 @@ const groupRowLimit = 3;
 
 const attentionGroupLabels: Record<AttentionRow["detectorKey"], string> = {
   panel_seat_empty: "Empty panel seats",
-  seat_at_risk: "Reviewer devices at risk",
+  seat_at_risk: "Reviewers about to drop off",
   review_overdue: "Overdue reviews",
-  review_presence_incomplete: "Incomplete reviewer presence",
+  review_presence_incomplete: "Reviewers not fully checked in",
   team_below_minimum: "Teams below minimum size",
-  team_held: "Held teams",
+  team_held: "Teams on hold",
   team_call_overdue: "Overdue team calls",
   team_waiting_long: "Teams waiting too long",
-  round_finish_forecast: "Round finish risk",
-  panel_bottleneck: "Panel bottlenecks",
-  scorecard_outstanding: "Outstanding scorecards",
+  round_finish_forecast: "Rounds that may not finish in time",
+  panel_bottleneck: "Panels falling behind",
+  scorecard_outstanding: "Scorecards not handed in",
 };
 
 export function OperationsAttention({

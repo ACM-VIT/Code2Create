@@ -459,7 +459,7 @@ Admission analysis is a second stateless contract and queue. Final submission co
 - a deterministic team experience-band key derived under the published policy;
 - the published year-adjusted admission criteria and closed output enums.
 
-It excludes names, email, phone, registration number, institution prestige signals, raw eligibility evidence, human recommendations, decision state, capacity, attendance, integration activity, reviewer or judging records, and scores. The result contains a non-numeric `accept | waitlist | decline | needs_information` recommendation, criterion assessments with source references, concise strengths and concerns, no more than two proposed information questions, confidence and limitations, and exact proposal, policy, and model versions.
+It excludes names, email, phone, registration number, institution prestige signals, raw eligibility evidence, human recommendations, decision state, capacity, attendance, integration activity, reviewer or judging records, and scores. The result contains a non-numeric `accept | waitlist | decline` recommendation, criterion assessments with source references, concise strengths and concerns, confidence and limitations, and exact proposal, policy, and model versions. Missing evidence lowers confidence and appears in concerns or limitations; it does not create a participant follow-up path.
 
 The current lead can revise submitted proposal content before `applicationsCloseAt`. The revision transaction creates a new immutable proposal version, moves the application's current pointer, invalidates old human and AI outputs, and queues new optional analysis. A settlement for an older proposal version remains stale.
 

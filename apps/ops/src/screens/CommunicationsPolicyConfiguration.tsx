@@ -7,7 +7,7 @@ import {
 import { TZDateMini } from "@date-fns/tz";
 import type { FunctionReturnType } from "convex/server";
 import { useAction, useMutation, useQuery } from "convex/react";
-import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
+import { useEffect, useState, type ChangeEvent, type SubmitEvent } from "react";
 
 import {
   ConfigurationTabs,
@@ -188,7 +188,7 @@ export function CommunicationsPolicyConfiguration({ tabs }: { tabs: Configuratio
     }
   };
 
-  const saveDraft = (event: FormEvent) => {
+  const saveDraft = (event: SubmitEvent) => {
     event.preventDefault();
     void operations.run(
       "communications-policy-draft",
@@ -263,7 +263,7 @@ export function CommunicationsPolicyConfiguration({ tabs }: { tabs: Configuratio
         <PendingOperationRecovery
           action={pendingOperation.action}
           busy={busy}
-          onConfirm={() => void confirmPendingOperation()}
+          onConfirm={() => confirmPendingOperation()}
           title={pendingOperation.title}
         />
       ) : null}
@@ -334,7 +334,7 @@ export function CommunicationsPolicyConfiguration({ tabs }: { tabs: Configuratio
               className="primary"
               disabled={busy || publishReason.trim().length < 5}
               type="button"
-              onClick={() => void publishDraft()}
+              onClick={() => publishDraft()}
             >
               {busy
                 ? "Publishing…"
@@ -708,7 +708,7 @@ function EmailTemplatePreview({ template }: { template: EmailTemplate }) {
           });
         setAssetPreview({ bundleId, sourceFileName: bundle.sourceFileName, urls: next });
       })
-      .catch((caught) => {
+      .catch((caught: unknown) => {
         if (!disposed) {
           setPreviewError({
             bundleId,

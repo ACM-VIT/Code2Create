@@ -151,8 +151,9 @@ const sampleText = (name: string): TextSample => {
     }
   }
 
-  if (points.length === 0)
+  if (points.length === 0) {
     throw new Error(`The firework text sampler returned no points for ${name}.`);
+  }
   return { points, minX, maxX, minY, maxY };
 };
 

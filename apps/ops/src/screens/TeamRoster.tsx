@@ -1,7 +1,7 @@
 import { api } from "@code2create/backend/api";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
-import { useState, type ChangeEvent, type FormEvent } from "react";
+import { useState, type ChangeEvent, type SubmitEvent } from "react";
 import { Link } from "react-router-dom";
 
 import { Icon, type IconName } from "../components/Icon";
@@ -108,7 +108,7 @@ export function TeamRoster() {
     }
   };
 
-  const requestPreview = (event: FormEvent) => {
+  const requestPreview = (event: SubmitEvent) => {
     event.preventDefault();
     setMessage(null);
     if (!loadedRoster) {

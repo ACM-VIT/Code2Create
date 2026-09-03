@@ -13,7 +13,7 @@ import {
   autonomyRunTerminalState,
   type AutonomyRun,
 } from "../lib/operationsAutonomyPresentation";
-import { LiveAgentConsole } from "./intelligence";
+import { LiveAgentConsole } from "./intelligence/LiveAgentConsole";
 
 export function OperationsAutonomyRunStream({
   embedded = true,

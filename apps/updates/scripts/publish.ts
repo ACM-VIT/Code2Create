@@ -1,9 +1,9 @@
+import { Buffer } from "node:buffer";
 import { X509Certificate, createHash, createSign, verify as verifySignature } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 
 import mime from "mime";
@@ -29,7 +29,7 @@ import {
 } from "../src/contracts.ts";
 import { readBoundedJsonResponse, readBoundedResponseText } from "../src/boundedHttpBody.ts";
 
-const updatesDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const updatesDirectory = resolve(import.meta.dirname, "..");
 const repositoryRoot = resolve(updatesDirectory, "../..");
 const reviewerDirectory = join(repositoryRoot, "apps/reviewer");
 const certificatePath = join(reviewerDirectory, "certs/certificate.pem");
@@ -42,8 +42,9 @@ loadEnvironmentFile(join(updatesDirectory, `.env.${channel}.local`));
 async function publish(selectedChannel: "staging" | "production", isRollback: boolean) {
   const updatesUrl = readUpdatesUrl();
   const adminToken = requiredEnvironmentValue("C2C_UPDATES_ADMIN_TOKEN");
-  if (adminToken.length < 32)
+  if (adminToken.length < 32) {
     throw new Error("C2C_UPDATES_ADMIN_TOKEN must contain at least 32 characters.");
+  }
   await verifyUpdateService(updatesUrl, selectedChannel);
 
   const privateKeyPath = resolvePrivateKeyPath(
@@ -57,9 +58,13 @@ async function publish(selectedChannel: "staging" | "production", isRollback: bo
   verifySigningPair(privateKey, certificate);
 
   const gitCommit = (await runAndCapture("git", ["rev-parse", "HEAD"], repositoryRoot)).trim();
+  const configuredReleaseId = process.env.C2C_UPDATE_RELEASE_ID?.trim();
   const releaseId = releaseIdSchema.parse(
-    process.env.C2C_UPDATE_RELEASE_ID?.trim() ||
-      (isRollback ? `${gitCommit}.rollback.${compactTimestamp(new Date())}` : gitCommit),
+    configuredReleaseId !== undefined && configuredReleaseId.length > 0
+      ? configuredReleaseId
+      : isRollback
+        ? `${gitCommit}.rollback.${compactTimestamp(new Date())}`
+        : gitCommit,
   );
   const expoConfig = await readExpoConfig(selectedChannel, !isRollback, releaseId);
   const runtimeVersion = resolveRuntimeVersion(expoConfig);
@@ -241,7 +246,9 @@ async function createPlatformManifest(
     platformMetadata.assets.map(async (asset) => {
       const extension = normalizeExtension(asset.ext || extname(asset.path));
       const contentType = mime.getType(extension);
-      if (!contentType) throw new Error(`No MIME type is known for ${asset.path}.`);
+      if (contentType === null || contentType.length === 0) {
+        throw new Error(`No MIME type is known for ${asset.path}.`);
+      }
       return describeAsset(
         exportDirectory,
         asset.path,
@@ -477,7 +484,7 @@ function resolvePrivateKeyPath(value: string) {
 
 function requiredEnvironmentValue(name: string) {
   const value = process.env[name]?.trim();
-  if (!value) throw new Error(`Set ${name}.`);
+  if (value === undefined || value.length === 0) throw new Error(`Set ${name}.`);
   return value;
 }
 
@@ -524,7 +531,7 @@ function deterministicUuid(seed: string) {
 }
 
 function compactTimestamp(date: Date) {
-  return date.toISOString().replace(/[-:.]/gu, "");
+  return date.toISOString().replaceAll(/[-:.]/gu, "");
 }
 
 async function forEachConcurrent<T>(
@@ -601,7 +608,9 @@ async function runAndCapture(
       stdio: ["ignore", "pipe", "inherit"],
     });
     const chunks: Buffer[] = [];
-    child.stdout.on("data", (chunk: Buffer) => chunks.push(chunk));
+    child.stdout.on("data", (chunk: Buffer) => {
+      chunks.push(chunk);
+    });
     child.once("error", rejectPromise);
     child.once("exit", (code, signal) => {
       if (code === 0) resolvePromise(Buffer.concat(chunks).toString("utf8"));
@@ -645,7 +654,7 @@ const expoPublicConfigSchema = z
       url: z.url().refine((value) => value.startsWith("https://")),
     }),
   })
-  .passthrough();
+  .loose();
 
 type ExpoPublicConfig = z.infer<typeof expoPublicConfigSchema>;
 
