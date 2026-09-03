@@ -5,7 +5,11 @@ import { ScrollTrigger } from "gsap/ScrollTrigger";
 
 import Lanterns, { Wind } from "./Lanterns.js";
 import { lanternAt } from "./lanternLayout.js";
-import Fireworks, { type FireworksHandle } from "./Fireworks.js";
+import Fireworks, {
+  SPONSORS,
+  SPONSORS_END,
+  type FireworksHandle,
+} from "./Fireworks.js";
 import Branches from "./Branches.js";
 import Rosette from "./Rosette.js";
 import { useFallingLadder } from "./fallingLadder/index.js";
@@ -560,13 +564,8 @@ export default function Journey({ petalsRef }: JourneyProps) {
       tl.to(q(".sponsors__title"), { autoAlpha: 1, y: 0, duration: 7, ease: "power3.out" }, 103).to(
         q(".sponsors__title"),
         { autoAlpha: 0, y: "-5svh", duration: 3, ease: "power2.in" },
-        137,
+        139,
       );
-
-      /* Each scroll span contains launch, crack, and letter formation. */
-      const SPONSOR_CUES = [108, 120];
-      const SPONSOR_SCROLL_SPAN = 9;
-      const SPONSORS_OFF = 138;
 
       /* H3 — only now, with the volley spent, do the hills leave the frame
          entirely; nothing of them should be visible once the bonsai is on. */
@@ -749,12 +748,12 @@ export default function Journey({ petalsRef }: JourneyProps) {
         const api = fireworksRef.current;
         if (!api) return;
         const at = journeyMasterTime(progress);
-        SPONSOR_CUES.forEach((mark, index) => {
-          const active = at >= mark && at < SPONSORS_OFF;
+        SPONSORS.forEach((sponsor, index) => {
+          const active = at >= sponsor.cue && at < SPONSORS_END;
           const fireworkProgress = active
-            ? gsap.utils.clamp(0, 1, (at - mark) / SPONSOR_SCROLL_SPAN)
+            ? gsap.utils.clamp(0, 1, (at - sponsor.cue) / sponsor.duration)
             : 0;
-          const twinklePhase = active ? (at - mark) / SPONSOR_SCROLL_SPAN : 0;
+          const twinklePhase = active ? (at - sponsor.cue) / sponsor.duration : 0;
           api.setProgress(index, fireworkProgress, twinklePhase);
         });
       };
