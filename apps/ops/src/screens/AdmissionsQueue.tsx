@@ -282,18 +282,30 @@ function ApplicationList({ canAssign }: { canAssign: boolean }) {
   const countByState = stageCountMap(counts ?? []);
   const [chosen, setChosen] = useState<ApplicationState | null>(null);
   const stage = chosen ?? busiestStage(countByState) ?? "submitted";
-  const { results, status, loadMore } = usePaginatedQuery(
+  const [search, setSearch] = useState("");
+  const searchQuery = search.trim().replace(/\s+/g, " ");
+  const searching = searchQuery.length > 0;
+  const applicationPage = usePaginatedQuery(
     api.admissions.list,
-    { eventSlug, state: stage },
+    searching ? "skip" : { eventSlug, state: stage },
     { initialNumItems: 30 },
+  );
+  const searchResult = useQuery(
+    api.admissions.searchApplications,
+    searching ? { eventSlug, state: stage, search: searchQuery } : "skip",
   );
   const [assigning, setAssigning] = useState(false);
   const [unassignedOnly, setUnassignedOnly] = useState(false);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const reviewable = stageAcceptsReviews(stage);
   const selecting = canAssign && assigning && reviewable;
-  const shown = unassignedOnly && reviewable ? results.filter(needsAssignment) : results;
+  const applications = searching ? (searchResult?.applications ?? []) : applicationPage.results;
+  const shown =
+    unassignedOnly && reviewable ? applications.filter(needsAssignment) : applications;
   const chosenApplications = shown.filter((application) => selected.has(application.id));
+  const loading = searching
+    ? searchResult === undefined
+    : applicationPage.status === "LoadingFirstPage";
 
   const toggle = (applicationId: string) => {
     setSelected((current) => {
@@ -329,33 +341,48 @@ function ApplicationList({ canAssign }: { canAssign: boolean }) {
             </button>
           ))}
         </div>
-        {reviewable ? (
-          <div className="admissions-toolbar-actions">
-            <label className="check-filter">
-              <input
-                checked={unassignedOnly}
-                type="checkbox"
-                onChange={(event) => {
-                  setUnassignedOnly(event.target.checked);
-                  setSelected(new Set());
-                }}
-              />
-              Only nobody assigned
-            </label>
-            {canAssign ? (
-              <button
-                className={selecting ? "secondary active" : "secondary"}
-                type="button"
-                onClick={() => {
-                  setAssigning(!assigning);
-                  setSelected(new Set());
-                }}
-              >
-                {selecting ? "Done assigning" : "Assign reviewers"}
-              </button>
-            ) : null}
-          </div>
-        ) : null}
+        <div className="admissions-toolbar-actions">
+          <label className="compact-search admissions-search">
+            <span className="visually-hidden">Find a team</span>
+            <input
+              maxLength={80}
+              placeholder="Find a team"
+              type="search"
+              value={search}
+              onChange={(event) => {
+                setSearch(event.target.value);
+                setSelected(new Set());
+              }}
+            />
+          </label>
+          {reviewable ? (
+            <>
+              <label className="check-filter">
+                <input
+                  checked={unassignedOnly}
+                  type="checkbox"
+                  onChange={(event) => {
+                    setUnassignedOnly(event.target.checked);
+                    setSelected(new Set());
+                  }}
+                />
+                Only nobody assigned
+              </label>
+              {canAssign ? (
+                <button
+                  className={selecting ? "secondary active" : "secondary"}
+                  type="button"
+                  onClick={() => {
+                    setAssigning(!assigning);
+                    setSelected(new Set());
+                  }}
+                >
+                  {selecting ? "Done assigning" : "Assign reviewers"}
+                </button>
+              ) : null}
+            </>
+          ) : null}
+        </div>
       </div>
       {selecting ? (
         <AssignBar
@@ -382,24 +409,31 @@ function ApplicationList({ canAssign }: { canAssign: boolean }) {
             onToggle={() => toggle(application.id)}
           />
         ))}
-        {status === "LoadingFirstPage" ? (
+        {loading ? (
           <>
-            <LoadingLabel>Loading applications</LoadingLabel>
+            <LoadingLabel>{searching ? "Searching teams" : "Loading applications"}</LoadingLabel>
             <SkeletonList rows={5} />
           </>
         ) : null}
-        {status !== "LoadingFirstPage" && shown.length === 0 ? (
+        {!loading && shown.length === 0 ? (
           <p className="empty">
-            {countByState.size === 0
-              ? "No team has applied yet."
-              : results.length > 0
-                ? "Everyone shown here has a reviewer."
-                : `Nothing at ${applicationStateLabels[stage]} right now.`}
+            {searching
+              ? applications.length > 0
+                ? "Every matching team already has a reviewer."
+                : `No teams match “${searchQuery}” at ${applicationStateLabels[stage]}.`
+              : countByState.size === 0
+                ? "No team has applied yet."
+                : applications.length > 0
+                  ? "Everyone shown here has a reviewer."
+                  : `Nothing at ${applicationStateLabels[stage]} right now.`}
           </p>
         ) : null}
       </div>
-      {status === "CanLoadMore" ? (
-        <button className="secondary" type="button" onClick={() => loadMore(30)}>
+      {searchResult?.truncated ? (
+        <p className="muted admissions-search-limit">More teams match. Refine your search.</p>
+      ) : null}
+      {!searching && applicationPage.status === "CanLoadMore" ? (
+        <button className="secondary" type="button" onClick={() => applicationPage.loadMore(30)}>
           Load more
         </button>
       ) : null}

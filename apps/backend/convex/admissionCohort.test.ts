@@ -126,6 +126,26 @@ describe("admission cohort arithmetic", () => {
 });
 
 describe("admission cohort query and decisions", () => {
+  test("searches every application in a stage by team name", async () => {
+    const backend = seededBackend();
+    const fixture = await seedCohortFixture(backend, { extraTeams: 31 });
+    const operator = backend.withIdentity({
+      subject: fixture.operatorAuthUserId,
+      sessionId: fixture.operatorAuthSessionId,
+    });
+
+    const result = await operator.query(api.admissions.searchApplications, {
+      eventSlug: fixture.eventSlug,
+      state: "under_review",
+      search: "  TEAM   31 ",
+    });
+
+    expect(result).toEqual({
+      applications: [expect.objectContaining({ teamName: "Additional Team 31" })],
+      truncated: false,
+    });
+  });
+
   test("ranks candidates, spends capacity in people, and marks review shortfalls", async () => {
     const backend = seededBackend();
     const fixture = await seedCohortFixture(backend);

@@ -33,6 +33,7 @@ import {
   enqueueAdmissionDecisionNotifications,
   enqueueApplicationNotifications,
 } from "./lib/participantNotificationDelivery";
+import { maximumApplicantTeamsPerEvent } from "./lib/reviewLimits";
 import {
   normalizeEmail,
   normalizedLongText,
@@ -75,6 +76,7 @@ const listItem = v.object({
 const maximumScopedApplicationsForStageCounts = 2_000;
 const maximumCountedReviewAssignments = 500;
 const maximumWorkloadAssignments = 4_000;
+const maximumApplicationSearchResults = 100;
 
 async function rosterCohort(ctx: QueryCtx, project: Doc<"projectVersions">) {
   const members = await ctx.db
@@ -433,6 +435,73 @@ async function scopedApplicationsForStageCounts(
   return applications.filter((application) => application !== null);
 }
 
+async function applicationListProjection(
+  ctx: QueryCtx,
+  eventId: Id<"events">,
+  eventAccessSubjectId: Id<"eventAccessSubjects">,
+  application: Doc<"applications">,
+) {
+  const [profileGrantIds, aiGrantIds, team, project, policy] = await Promise.all([
+    matchingPermissionGrantIds(ctx, {
+      eventId,
+      eventAccessSubjectId,
+      permissionKey: "application.profile_context.read",
+      scopeType: "application",
+      scopeId: application._id,
+    }),
+    matchingPermissionGrantIds(ctx, {
+      eventId,
+      eventAccessSubjectId,
+      permissionKey: "application.ai_recommendation.read",
+      scopeType: "application",
+      scopeId: application._id,
+    }),
+    ctx.db.get(application.teamId),
+    ctx.db.get(application.submittedProjectVersionId),
+    ctx.db.get(application.admissionPolicyVersionId),
+  ]);
+  if (!team || !project || !policy) return null;
+  const recommendation =
+    aiGrantIds.length > 0 && application.aiRecommendationId
+      ? await ctx.db.get(application.aiRecommendationId)
+      : null;
+  return {
+    id: application._id,
+    teamName: team.name,
+    state: application.state,
+    decisionStage: application.decisionStage,
+    ...(application.humanDecision !== undefined
+      ? { humanDecision: application.humanDecision }
+      : {}),
+    ...(profileGrantIds.length > 0 ? { cohort: await rosterCohort(ctx, project) } : {}),
+    memberCount: project.lockedMemberCount,
+    minimumHumanReviews: policy.minimumHumanReviews,
+    submittedAt: application.submittedAt,
+    ...(recommendation ? { aiState: recommendation.state } : {}),
+    assignedReviewCount: application.assignedReviewCount,
+    completedReviewCount: application.completedReviewCount,
+    version: application.version,
+  };
+}
+
+async function visibleApplicationListProjection(
+  ctx: QueryCtx,
+  eventId: Id<"events">,
+  eventAccessSubjectId: Id<"eventAccessSubjects">,
+  application: Doc<"applications">,
+) {
+  const grantIds = await matchingPermissionGrantIds(ctx, {
+    eventId,
+    eventAccessSubjectId,
+    permissionKey: "application.read",
+    scopeType: "application",
+    scopeId: application._id,
+  });
+  return grantIds.length > 0
+    ? applicationListProjection(ctx, eventId, eventAccessSubjectId, application)
+    : null;
+}
+
 export const list = query({
   args: {
     eventSlug: v.string(),
@@ -454,57 +523,94 @@ export const list = query({
       .paginate(args.paginationOpts);
     const visible = [];
     for (const application of page.page) {
-      const grantIds = await matchingPermissionGrantIds(ctx, {
-        eventId: event._id,
-        eventAccessSubjectId: subject._id,
-        permissionKey: "application.read",
-        scopeType: "application",
-        scopeId: application._id,
-      });
-      if (grantIds.length === 0) continue;
-      const [profileGrantIds, aiGrantIds, team, project, policy] = await Promise.all([
-        matchingPermissionGrantIds(ctx, {
-          eventId: event._id,
-          eventAccessSubjectId: subject._id,
-          permissionKey: "application.profile_context.read",
-          scopeType: "application",
-          scopeId: application._id,
-        }),
-        matchingPermissionGrantIds(ctx, {
-          eventId: event._id,
-          eventAccessSubjectId: subject._id,
-          permissionKey: "application.ai_recommendation.read",
-          scopeType: "application",
-          scopeId: application._id,
-        }),
-        ctx.db.get(application.teamId),
-        ctx.db.get(application.submittedProjectVersionId),
-        ctx.db.get(application.admissionPolicyVersionId),
-      ]);
-      if (!team || !project || !policy) continue;
-      const recommendation =
-        aiGrantIds.length > 0 && application.aiRecommendationId
-          ? await ctx.db.get(application.aiRecommendationId)
-          : null;
-      visible.push({
-        id: application._id,
-        teamName: team.name,
-        state: application.state,
-        decisionStage: application.decisionStage,
-        ...(application.humanDecision !== undefined
-          ? { humanDecision: application.humanDecision }
-          : {}),
-        ...(profileGrantIds.length > 0 ? { cohort: await rosterCohort(ctx, project) } : {}),
-        memberCount: project.lockedMemberCount,
-        minimumHumanReviews: policy.minimumHumanReviews,
-        submittedAt: application.submittedAt,
-        ...(recommendation ? { aiState: recommendation.state } : {}),
-        assignedReviewCount: application.assignedReviewCount,
-        completedReviewCount: application.completedReviewCount,
-        version: application.version,
-      });
+      const item = await visibleApplicationListProjection(
+        ctx,
+        event._id,
+        subject._id,
+        application,
+      );
+      if (item) visible.push(item);
     }
     return { ...page, page: visible };
+  },
+});
+
+export const searchApplications = query({
+  args: {
+    eventSlug: v.string(),
+    state: applicationState,
+    search: v.string(),
+  },
+  returns: v.object({
+    applications: v.array(listItem),
+    truncated: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    const searchTerms = normalizedText(args.search, "Team search", 1, 80)
+      .toLowerCase()
+      .split(" ");
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    const applications = await ctx.db
+      .query("applications")
+      .withIndex("by_event_state_submitted", (index) =>
+        index.eq("eventId", event._id).eq("state", args.state),
+      )
+      .take(maximumApplicantTeamsPerEvent + 1);
+    if (applications.length > maximumApplicantTeamsPerEvent) {
+      throw new Error(
+        `Admission searches support at most ${maximumApplicantTeamsPerEvent} applicant teams.`,
+      );
+    }
+    const eventGrantIds = await matchingPermissionGrantIds(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey: "application.read",
+      scopeType: "event",
+    });
+    const readableScopeIds =
+      eventGrantIds.length > 0
+        ? null
+        : await boundedActivePermissionScopeIds(ctx, {
+            eventId: event._id,
+            eventAccessSubjectId: subject._id,
+            permissionKey: "application.read",
+            scopeType: "application",
+            maximumScopeCount: maximumApplicantTeamsPerEvent,
+          });
+    const candidates = await Promise.all(
+      applications
+        .filter(
+          (application) =>
+            readableScopeIds === null || readableScopeIds.has(application._id),
+        )
+        .map(async (application) => ({
+          application,
+          team: await ctx.db.get(application.teamId),
+        })),
+    );
+    const matches = candidates
+      .flatMap(({ application, team }) => {
+        if (!team || !searchTerms.every((term) => team.name.toLowerCase().includes(term))) {
+          return [];
+        }
+        return [{ application, teamName: team.name }];
+      })
+      .sort((left, right) => {
+        const byName = left.teamName.localeCompare(right.teamName);
+        return byName || left.application.submittedAt - right.application.submittedAt;
+      });
+    const applicationsToProject = matches.slice(0, maximumApplicationSearchResults);
+    const projected = [];
+    for (const { application } of applicationsToProject) {
+      const item = await applicationListProjection(ctx, event._id, subject._id, application);
+      if (item) projected.push(item);
+    }
+    return {
+      applications: projected,
+      truncated: matches.length > maximumApplicationSearchResults,
+    };
   },
 });
 
