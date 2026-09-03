@@ -25,6 +25,7 @@ import {
 import { enqueueOperationsAutonomySignal } from "./lib/operationsAutonomyInbox";
 import { requirePermission } from "./lib/permissions";
 import { activeSynesthesiaWindow } from "./lib/synesthesia";
+import { operationsBackgroundLeaseIsHeld } from "./operationsBackground";
 import { reconcileOperationsEpisodes } from "./lib/operationsEpisodes";
 
 const queryLimit = 101;
@@ -990,10 +991,20 @@ export const upsertSnapshot = internalMutation({
   args: {
     eventId: v.id("events"),
     eventVersion: v.number(),
+    leaseId: v.string(),
+    leaseObservedAt: v.number(),
     snapshot: operationsHealthSnapshot,
   },
-  returns: snapshotWriteResult,
+  returns: v.union(snapshotWriteResult, v.literal("lease_lost")),
   handler: async (ctx, args) => {
+    if (
+      !(await operationsBackgroundLeaseIsHeld(ctx, {
+        holder: "health_refresh",
+        leaseId: args.leaseId,
+        now: args.leaseObservedAt,
+      }))
+    )
+      return "lease_lost";
     const event = await ctx.db.get(args.eventId);
     if (!event) throw new Error("The operations-health event no longer exists.");
     if (event.version !== args.eventVersion) return "stale";
@@ -1012,7 +1023,9 @@ export const upsertSnapshot = internalMutation({
     const staleAt = args.snapshot.generatedAt + operationsHealthMaximumAgeMs;
     if (!existing) {
       await ctx.db.insert("operationsHealthSnapshots", {
-        ...args,
+        eventId: args.eventId,
+        eventVersion: args.eventVersion,
+        snapshot: args.snapshot,
         state: "ready",
         staleAt,
       });
@@ -1109,11 +1122,14 @@ export const refresh = internalAction({
         leaseDurationMs: operationsHealthMaximumAgeMs,
       });
       if (!renewed) return "in_progress";
-      return await ctx.runMutation(internal.operationsHealth.upsertSnapshot, {
+      const result = await ctx.runMutation(internal.operationsHealth.upsertSnapshot, {
         eventId: target.eventId,
         eventVersion: computed.eventVersion,
+        leaseId,
+        leaseObservedAt: Date.now(),
         snapshot: computed.snapshot,
       });
+      return result === "lease_lost" ? "in_progress" : result;
     } finally {
       await ctx.runMutation(internal.operationsBackground.release, { leaseId });
     }

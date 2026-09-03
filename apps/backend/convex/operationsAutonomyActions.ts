@@ -231,7 +231,7 @@ export const tick = internalAction({
 
     let leaseExpiresAt = claimedAt + autonomyTickLeaseDurationMs;
     const progress = { evaluated: 0, queued: 0, monitored: 0 };
-    const retainLease = async () => {
+    const renewLeaseIfNeeded = async () => {
       const now = Date.now();
       if (now < leaseExpiresAt - autonomyTickLeaseRenewalWindowMs) return true;
       const renewed = await ctx.runMutation(internal.operationsBackground.renew, {
@@ -250,11 +250,16 @@ export const tick = internalAction({
         { now },
       );
       for (const supervisionId of supervisionIds) {
-        if (!(await retainLease())) return progress;
-        await ctx.runMutation(internal.operationsAutonomyScheduler.reconcileSupervision, {
-          supervisionId,
-          now,
-        });
+        if (!(await renewLeaseIfNeeded())) return progress;
+        const reconciled = await ctx.runMutation(
+          internal.operationsAutonomyScheduler.reconcileSupervision,
+          {
+            supervisionId,
+            leaseId,
+            now,
+          },
+        );
+        if (!reconciled.leaseHeld) return progress;
         progress.monitored += 1;
       }
       const stateIds: Id<"operationsAutonomyStates">[] = await ctx.runQuery(
@@ -262,11 +267,16 @@ export const tick = internalAction({
         { now },
       );
       for (const stateId of stateIds) {
-        if (!(await retainLease())) return progress;
-        await ctx.runMutation(internal.operationsAutonomyScheduler.enqueueDueSchedules, {
-          stateId,
-          now,
-        });
+        if (!(await renewLeaseIfNeeded())) return progress;
+        const enqueued = await ctx.runMutation(
+          internal.operationsAutonomyScheduler.enqueueDueSchedules,
+          {
+            stateId,
+            leaseId,
+            now,
+          },
+        );
+        if (!enqueued.leaseHeld) return progress;
         progress.evaluated += 1;
       }
       const cancellationPolicies: Id<"operationsAutonomyPolicyVersions">[] = await ctx.runQuery(
@@ -274,22 +284,32 @@ export const tick = internalAction({
         {},
       );
       for (const policyVersionId of cancellationPolicies) {
-        if (!(await retainLease())) return progress;
-        await ctx.runMutation(internal.operationsAutonomyScheduler.cancelPendingInboxPage, {
-          policyVersionId,
-          now,
-        });
+        if (!(await renewLeaseIfNeeded())) return progress;
+        const canceled = await ctx.runMutation(
+          internal.operationsAutonomyScheduler.cancelPendingInboxPage,
+          {
+            policyVersionId,
+            leaseId,
+            now,
+          },
+        );
+        if (!canceled.leaseHeld) return progress;
       }
       const inboxIds: Id<"operationsAutonomyInbox">[] = await ctx.runQuery(
         internal.operationsAutonomyScheduler.pendingInboxCandidates,
         { now },
       );
       for (const inboxId of inboxIds) {
-        if (!(await retainLease())) return progress;
-        await ctx.runMutation(internal.operationsAutonomyScheduler.materializeInbox, {
-          inboxId,
-          now,
-        });
+        if (!(await renewLeaseIfNeeded())) return progress;
+        const materialized = await ctx.runMutation(
+          internal.operationsAutonomyScheduler.materializeInbox,
+          {
+            inboxId,
+            leaseId,
+            now,
+          },
+        );
+        if (!materialized.leaseHeld) return progress;
         progress.queued += 1;
       }
       const continuationIds: Id<"operationsAutonomyContinuations">[] = await ctx.runQuery(
@@ -297,10 +317,16 @@ export const tick = internalAction({
         { now },
       );
       for (const continuationId of continuationIds) {
-        if (!(await retainLease())) return progress;
-        await ctx.scheduler.runAfter(0, internal.operationsAutonomyActions.continueRun, {
-          continuationId,
-        });
+        if (!(await renewLeaseIfNeeded())) return progress;
+        const scheduled = await ctx.runMutation(
+          internal.operationsAutonomyScheduler.scheduleContinuation,
+          {
+            continuationId,
+            leaseId,
+            now,
+          },
+        );
+        if (!scheduled) return progress;
       }
       return progress;
     } finally {

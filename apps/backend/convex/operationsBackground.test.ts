@@ -11,6 +11,13 @@ describe("operations background lease", () => {
     const backend = convexTest(schema, modules);
 
     await expect(
+      backend.mutation(internal.operationsBackground.renew, {
+        leaseId: "autonomy-2",
+        now: 1_250,
+        leaseDurationMs: 100,
+      }),
+    ).resolves.toBe(false);
+    await expect(
       backend.mutation(internal.operationsBackground.claim, {
         holder: "health_refresh",
         leaseId: "health-1",

@@ -1,9 +1,26 @@
 import { v } from "convex/values";
 
-import { internalMutation } from "./_generated/server";
+import { internalMutation, type MutationCtx } from "./_generated/server";
 
 const backgroundHolder = v.union(v.literal("health_refresh"), v.literal("autonomy_tick"));
 const backgroundLeaseKey = "operations_background";
+
+type BackgroundHolder = "health_refresh" | "autonomy_tick";
+
+export async function operationsBackgroundLeaseIsHeld(
+  ctx: Pick<MutationCtx, "db">,
+  args: { holder: BackgroundHolder; leaseId: string; now: number },
+) {
+  const existing = await ctx.db
+    .query("operationsBackgroundLeases")
+    .withIndex("by_key", (index) => index.eq("key", backgroundLeaseKey))
+    .unique();
+  return (
+    existing?.holder === args.holder &&
+    existing.leaseId === args.leaseId &&
+    existing.leaseExpiresAt > args.now
+  );
+}
 
 export const claim = internalMutation({
   args: {
@@ -43,7 +60,12 @@ export const renew = internalMutation({
       .query("operationsBackgroundLeases")
       .withIndex("by_key", (index) => index.eq("key", backgroundLeaseKey))
       .unique();
-    if (!existing || existing.leaseId !== args.leaseId) return false;
+    if (
+      !existing ||
+      existing.leaseId !== args.leaseId ||
+      existing.leaseExpiresAt <= args.now
+    )
+      return false;
 
     await ctx.db.patch(existing._id, {
       leaseExpiresAt: args.now + args.leaseDurationMs,
