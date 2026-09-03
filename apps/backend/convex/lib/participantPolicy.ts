@@ -186,7 +186,6 @@ export function participantPolicyAcceptanceChecksum(policy: ParticipantPolicy) {
       teamMinimumSize: normalized.teamMinimumSize,
       teamMaximumSize: normalized.teamMaximumSize,
       mixedParticipantClassesAllowed: normalized.mixedParticipantClassesAllowed,
-      phoneVerificationEnabled: normalized.phoneVerificationEnabled,
       profileNotice: normalized.profileNotice,
       projectTextNotice: normalized.projectTextNotice,
       privacyNoticeUrl: normalized.privacyNoticeUrl,
@@ -337,7 +336,7 @@ function hostelDetailsComplete(
   return residence.kind === expectedKind && profile.vitHostelRoomNumber !== undefined;
 }
 
-export function isProfileCompleteForPolicy(
+export function isProfileDetailsCompleteForPolicy(
   profile: Doc<"participantProfiles"> | null,
   membership: Doc<"eventMemberships">,
   policy: Doc<"participantPolicyVersions">,
@@ -348,9 +347,7 @@ export function isProfileCompleteForPolicy(
     profile.participantClass !== membership.participantClass ||
     profile.fullName.length === 0 ||
     profile.institution.length === 0 ||
-    profile.phone.length === 0 ||
-    (policy.phoneVerificationEnabled &&
-      (profile.phoneVerifiedAt === undefined || profile.phoneVerifiedAt <= 0))
+    profile.phone.length === 0
   ) {
     return false;
   }
@@ -366,6 +363,18 @@ export function isProfileCompleteForPolicy(
     profile.yearOfStudy !== "not_applicable" &&
     profile.externalUniversity !== undefined &&
     profile.externalCollege !== undefined
+  );
+}
+
+export function isProfileCompleteForPolicy(
+  profile: Doc<"participantProfiles"> | null,
+  membership: Doc<"eventMemberships">,
+  policy: Doc<"participantPolicyVersions">,
+) {
+  return (
+    isProfileDetailsCompleteForPolicy(profile, membership, policy) &&
+    (!policy.phoneVerificationEnabled ||
+      (profile?.phoneVerifiedAt !== undefined && profile.phoneVerifiedAt > 0))
   );
 }
 
