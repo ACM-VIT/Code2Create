@@ -5,6 +5,7 @@ type PostHogEvent = {
 
 type SafeException = {
   type?: string
+  value?: string
   mechanism?: {
     handled?: boolean
     synthetic?: boolean
@@ -31,6 +32,7 @@ type SafeStackFrame = {
 }
 
 const opaqueSegment = ':id'
+const maxExceptionMessageLength = 300
 const replaySensitiveSelector = '[data-ph-sensitive], .ph-sensitive'
 const replaySensitiveContextSelector = [
   '[class*="account" i]',
@@ -259,6 +261,10 @@ function safeExceptionList(value: unknown): SafeException[] | null {
     if (!isRecord(entry)) return []
     const exception: SafeException = {}
     if (typeof entry.type === 'string') exception.type = entry.type
+    if (typeof entry.value === 'string') {
+      const message = safeExceptionMessage(entry.value)
+      if (message) exception.value = message
+    }
     if (isRecord(entry.mechanism)) {
       const mechanism: SafeException['mechanism'] = {}
       if (typeof entry.mechanism.handled === 'boolean') mechanism.handled = entry.mechanism.handled
@@ -274,6 +280,13 @@ function safeExceptionList(value: unknown): SafeException[] | null {
     }
     return [exception]
   })
+}
+
+function safeExceptionMessage(value: string) {
+  const redacted = redactReplayPii(value).trim()
+  return redacted.length > maxExceptionMessageLength
+    ? `${redacted.slice(0, maxExceptionMessageLength)}…`
+    : redacted
 }
 
 function safeStackFrame(frame: Record<string, unknown>): SafeStackFrame {

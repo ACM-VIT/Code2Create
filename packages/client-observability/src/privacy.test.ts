@@ -60,6 +60,7 @@ test('PostHog events remove identity properties, content, and opaque route segme
       $pathname: '/reviews/:id',
       $exception_list: [{
         type: 'Error',
+        value: 'Participant [redacted email] submitted private idea text',
         mechanism: { type: 'generic', handled: true },
         stacktrace: {
           type: 'raw',
@@ -76,6 +77,21 @@ test('PostHog events remove identity properties, content, and opaque route segme
           }],
         },
       }],
+    },
+  })
+})
+
+test('exception messages are kept but capped to a bounded length', () => {
+  const event = scrubPostHogEvent({
+    event: '$exception',
+    properties: {
+      $exception_list: [{ type: 'Error', value: 'x'.repeat(600) }],
+    },
+  })
+  assert.deepEqual(event, {
+    event: '$exception',
+    properties: {
+      $exception_list: [{ type: 'Error', value: `${'x'.repeat(300)}…` }],
     },
   })
 })
