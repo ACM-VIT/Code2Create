@@ -23,7 +23,7 @@ import {
 const signingSecret = "s".repeat(32);
 
 const validIdeaAnalysis: IdeaIntelligenceAnalysis = {
-  recommendation: "needs_information",
+  recommendation: "waitlist",
   criterionAssessments: [
     {
       criterionKey: "problem_clarity",
@@ -33,7 +33,6 @@ const validIdeaAnalysis: IdeaIntelligenceAnalysis = {
   ],
   strengths: ["The proposal identifies a concrete operational problem."],
   concerns: ["The user validation approach is not yet described."],
-  proposedQuestions: ["How will the team validate the need with intended users?"],
   confidence: "medium",
   limitations: ["Only the submitted project answers were available."],
 };

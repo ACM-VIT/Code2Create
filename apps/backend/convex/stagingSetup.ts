@@ -348,7 +348,6 @@ export const resetParticipantTestingData = internalMutation({
       deleteAllFromTable(ctx, "benefits"),
       deleteAllFromTable(ctx, "admissionCapacityReservations"),
       deleteAllFromTable(ctx, "admissionOffers"),
-      deleteAllFromTable(ctx, "admissionInformationRequests"),
       deleteAllFromTable(ctx, "admissionHumanReviews"),
       deleteAllFromTable(ctx, "admissionAIRecommendations"),
       deleteAllFromTable(ctx, "admissionReviewAssignments"),

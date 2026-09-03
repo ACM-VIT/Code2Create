@@ -488,7 +488,7 @@ One immutable release owns the complete human admissions contract.
 - the code-owned AI recommendation release marker;
 - minimum human-review count from one through five and a positive whole-number overall participant capacity chosen by operations;
 - one through twelve uniquely keyed criteria, each with a label and complete guidance for `firstYear`, `earlyYear`, `laterYear`, `postgraduateOrProfessional`, and `mixedOrExternal`;
-- four through twenty uniquely keyed human decision reasons, each permitting one or more of `accept | waitlist | decline | needs_information`, with every disposition covered by at least one reason;
+- four through twenty uniquely keyed human decision reasons, each permitting one or more of `accept | waitlist | decline`, with every disposition covered by at least one reason;
 - checksum, creator/time, and optional publication time.
 
 The policy uses different guidance for each experience band. It is the public admission rubric. It is not a judging rubric. Novelty, institutional prestige, and judging facts are absent from its criteria.
@@ -690,12 +690,11 @@ Immutable submitted proposal versions.
 - immutable roster-snapshot ID, snapshot member count, and snapshot lead membership ID;
 - final confirmation `{ participantPolicyVersionId, previewedDraftVersion, previewedTeamVersion, confirmedBy, confirmedAt }`;
 - exact participant- and admission-policy version IDs;
-- optional cumulative admission-information response snapshots, each carrying the request ID, source project-version ID, exact question keys/text and participant answers, responding membership, and response time;
 - optional proposal-revision provenance and optional roster-revision provenance, each pointing to the source project version and actor/time;
 - source draft version;
 - submitted by/at.
 
-The initial application proposal version is immutable. The current lead can append a revised version before the applicable class deadline. A valid membership or leadership change appends a version with a fresh immutable roster snapshot. A requested-information response also appends an immutable version. Each later version copies unchanged attestation and confirmation facts, records its provenance, and carries the current team and content. It does not edit an earlier version. Repository, Figma, demo, and later checkpoint state remain in separate team-scoped records and evidence snapshots.
+The initial application proposal version is immutable. The current lead can append a revised version before the applicable class deadline. A valid membership or leadership change appends a version with a fresh immutable roster snapshot. Each later version copies unchanged attestation and confirmation facts, records its provenance, and carries the current team and content. It does not edit an earlier version. Repository, Figma, demo, and later checkpoint state remain in separate team-scoped records and evidence snapshots.
 
 ### `projectCheckpointPlanVersions` and `projectCheckpointDefinitions`
 
@@ -739,30 +738,16 @@ One pre-event application per team/event.
 - `eventId`, `teamId`;
 - current proposal-version ID;
 - admission-policy configuration ID;
-- `state: submitted | under_review | needs_information | accepted | waitlisted | declined | offer_sent | confirmed | offer_expired | withdrawn`;
+- `state: submitted | under_review | accepted | waitlisted | declined | offer_sent | confirmed | offer_expired | withdrawn`;
 - current non-canceled assignment count and current-content completed-review count;
 - current admission-AI-recommendation ID/state;
 - published human decision, reason code, AI disposition `used | cleared | overridden | stale | unavailable`, actor, and time;
-- optional current information-request ID;
 - current offer ID;
 - application `contentVersion` plus optimistic row `version`.
 
-Any accepted lead revision or information response moves `currentProposalVersionId` to the new immutable version. It increments `contentVersion` and returns the state to `under_review`. It clears invalid decision and AI pointers, supersedes human reviews for older content, and resets current completed review coverage. It leaves earlier proposal, review, and model rows as history.
+Any accepted lead revision moves `currentProposalVersionId` to the new immutable version. It increments `contentVersion` and returns the state to `under_review`. It clears invalid decision and AI pointers, supersedes human reviews for older content, and resets current completed review coverage. It leaves earlier proposal, review, and model rows as history.
 
 The aggregate admissions cohort is assembled through bounded internal pages ordered by immutable `submittedAt`. One page hydrates at most 20 applications with their bounded related projections. The public whole-event action requires event-wide `application.read`, applies the caller's separate profile/AI visibility grants to every row, and refuses to cross the 1,500-team applicant release envelope. Mutable state transitions do not reorder the scan.
-
-### `admissionInformationRequests`
-
-One immutable organizer question set and its single response lifecycle.
-
-- event, application, team, source proposal-version ID, and source application-content version;
-- published human decision-reason code;
-- one or two ordered `{ questionKey, question }` entries;
-- `state: open | answered | superseded`;
-- optional ordered answers, response proposal-version ID, responding locked-lead membership, and response time;
-- requesting person/time, optional superseded time, and optimistic version.
-
-A new needs-information decision supersedes the current open row before it inserts a replacement. A response requires the current application pointer, source proposal and content versions, exact question order, current request version, and deadline-frozen membership snapshot. The current lead must appear in the team and immutable snapshot. One transaction appends the proposal version and answers the request. The same transaction advances the application pointer, supersedes active human reviews, rebinds active assignments, makes pending or running AI analysis stale, and creates a fresh policy-pinned recommendation. An operation replay returns the same response version.
 
 ### `admissionReviewAssignments`
 
@@ -778,7 +763,7 @@ One active assignment exists per application/reviewer. Creation materializes sou
 
 - event/application and application-content version;
 - reviewer person ID;
-- recommendation `accept | waitlist | decline | needs_information`;
+- recommendation `accept | waitlist | decline`;
 - published reason code, optional note, and creation time;
 - `status: active | superseded`.
 
@@ -789,16 +774,16 @@ One active recommendation exists per application/reviewer. Replacing a recommend
 Immutable, non-authoritative application analysis.
 
 - `eventId`, `applicationId`, `teamId`, current proposal-version ID;
-- closed source references `initial_idea | follow_up_1 | follow_up_2 | requested_information_<requestOrdinal>_<answerOrdinal>` and input checksum;
+- closed source references `initial_idea | follow_up_1 | follow_up_2` and input checksum;
 - admission-policy, experience-band, admission-model-config, instruction, schema, redaction, and evaluation-suite version IDs;
 - `state: pending | running | succeeded | refused | invalid | timed_out | rate_limited | failed | stale | disabled`;
-- recommendation `accept | waitlist | decline | needs_information` when succeeded;
+- recommendation `accept | waitlist | decline` when succeeded;
 - criterion assessments `{ criterionKey, assessment: meets | partly_meets | not_yet_clear, sourceRefs[] }`;
-- concise strengths, concerns, up to two proposed information questions, confidence, and limitations;
+- concise strengths, concerns, confidence, and limitations;
 - deterministic validation result, provider request/model/latency/token metadata, and non-sensitive failure category;
 - created/completed time.
 
-The input contains the deterministic experience-band key and cumulative requested-information question and answer snapshots. It does not contain raw year or institution identity fields. It excludes human review and decision state, capacity, attendance, integration statistics, judging material, and scores. A successful row does not update an application decision.
+The input contains the deterministic experience-band key. It does not contain raw year or institution identity fields. It excludes human review and decision state, capacity, attendance, integration statistics, judging material, and scores. A successful row does not update an application decision.
 
 A manual retry never edits this row. `application.ai_recommendation.run` can create a replacement only when this row is the application's current recommendation, the application is `submitted` or `under_review`, and the row state is `refused`, `invalid`, `timed_out`, `rate_limited`, `failed`, or `stale`. The command checks the current application version and recommendation ID. The same transaction inserts the replacement, updates the application pointer/version, and stores one operation receipt and audit event. The old row remains queryable to a caller with read authority. Run authority alone reveals only whether the current row can be retried.
 
@@ -1931,7 +1916,7 @@ One current verified-email destination per event/person/channel.
 One append-only provider attempt for one locked team member and published admission or offer-state version.
 
 - `eventId`, `applicationId`, `teamId`, `membershipId`, `personId`, `destinationId`, and the exact `communicationsPolicyVersionId` used for rendering;
-- `channel: verified_email`, exact destination email, generic template key `accept | waitlist | decline | needs_information | offer | offer_confirmed | offer_declined | offer_expired`, and authenticated portal path;
+- `channel: verified_email`, exact destination email, generic template key `accept | waitlist | decline | offer | offer_confirmed | offer_declined | offer_expired`, and authenticated portal path;
 - application version and a root key composed from template/application version/member;
 - retry number and optional `supersedesDeliveryId`;
 - `state: pending | sending | retry_wait | sent | delivery_delayed | delivered | bounced | failed | suppressed | unknown | superseded`;
@@ -2122,9 +2107,6 @@ The rehearsal result stores its source manifest/archive, exact staging target, o
 | `admissionReviewAssignments.by_application_state_assigned`                     | Read assignment coverage and bounded history for one application                                               |
 | `admissionHumanReviews.by_application_reviewer_status`                         | Resolve and replace one reviewer's current recommendation                                                      |
 | `admissionHumanReviews.by_application_status`                                  | Count current recommendations and publish a human decision                                                     |
-| `admissionInformationRequests.by_application_created`                          | Return immutable information-request history in order                                                          |
-| `admissionInformationRequests.by_application_state`                            | Resolve the one current open request for an application                                                        |
-| `admissionInformationRequests.by_team_state`                                   | Resolve the participant team's current open request without scanning applications                              |
 | `admissionAIRecommendations.by_application_input_checksum`                     | Deduplicate analysis and reject stale application/model work                                                   |
 | `admissionAIRecommendations.by_event_state_created`                            | Bound recent unavailable/stalled analysis checks without reading application content                           |
 | `admissionOffers.by_event_state_expiry`                                        | Find open offers due for version-checked expiry                                                                |
@@ -2660,7 +2642,7 @@ Claim and revoke both read and update the same pending row version. Only one can
 
 ### Admission analysis versus application correction
 
-Completion compares the application/project version, input checksum, experience-band policy, admission policy, and model config. A correction or information-response version makes pending output stale. Publishing a decision can reference only the current valid recommendation or record it as stale/unavailable; no analysis completion can change the human decision.
+Completion compares the application/project version, input checksum, experience-band policy, admission policy, and model config. A correction makes pending output stale. Publishing a decision can reference only the current valid recommendation or record it as stale/unavailable; no analysis completion can change the human decision.
 
 ### Admission publication versus first submission
 
@@ -2900,8 +2882,6 @@ Attendance QR tokens expire quickly. Encrypted scanner queues expire after their
 - An unauthenticated event read exposes no accepted-team venue, next step, or Discord field. An exact-team participant projection returns the current published policy only for `accepted | offer_sent | confirmed`. Waitlisted, declined, submitted, and unrelated teams receive no policy payload.
 - Publishing a new communications policy updates eligible portals without changing an already queued delivery's pinned policy/wording. An important state change creates a deduplicated official notification delivery whose receipt is not treated as acknowledgment.
 - Publishing an admission decision creates one delivery per locked team member in the same transaction, while provider failure cannot change or roll back the portal decision.
-- A needs-information decision has exactly one or two questions and at most one current open request. Only the current lead can answer every current question once. The deadline-frozen roster remains unchanged.
-- An information response creates one newer immutable project/content version, supersedes prior current-content human reviews, rebinds active assignments, and starts fresh optional admission analysis. A stale response, duplicate operation, or late older AI completion cannot alter the new application state.
 - A participant self query returns only that membership's minimal transport state. Detailed delivery rows and commands independently require exact-person communications read/manage grants.
 - Only a structured provider non-acceptance can retry automatically. An ambiguous request or expired lease becomes `unknown`. A manual retry creates a new linked row only from the latest definite failure. Concurrent retry, stale versions, a changed/disabled verified email, and an unknown outcome cannot create another attempt.
 - Signed duplicate, out-of-order, equal-time, and event-before-send-response Cloudflare events converge by event ID, provider message ID, recipient, provider time, and deterministic event-ID ordering without becoming read acknowledgment.

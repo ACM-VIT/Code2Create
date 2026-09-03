@@ -20,7 +20,6 @@ const teamLeadPermissionKeys = [
   "team.members.manage",
   "team.lead.transfer",
   "application.submit",
-  "application.information.respond",
   "application.offer.respond",
   "integration.github.manage",
   "integration.figma.manage",

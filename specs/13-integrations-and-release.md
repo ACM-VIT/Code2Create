@@ -117,13 +117,13 @@ Before applications open, operations publishes the complete human rubric. The pl
 
 Admission analysis uses that policy's attached model ID, prompt, JSON Schema, evaluation-suite labels, deduplication key, and `admission_ai` Workpool whenever the provider key is configured. It runs only after final submission has created an immutable team and proposal snapshot. A valid post-submission team change supersedes that analysis and queues work for the new snapshot. There is no model fallback to a different policy release.
 
-The request includes the redacted current proposal, optional additional information or links, follow-up answers, participant-visible questions, cumulative organizer questions and lead answers, deterministic experience-band key, and published admission criteria. Requested-information entries receive stable source references in request and answer order. The request excludes names, contact and registration data, institution-prestige signals, raw eligibility evidence, human review and decision state, capacity, attendance, GitHub and Figma activity, judging rubrics, scores, and rankings.
+The request includes the redacted current proposal, optional additional information or links, follow-up answers, participant-visible questions, deterministic experience-band key, and published admission criteria. The request excludes names, contact and registration data, institution-prestige signals, raw eligibility evidence, human review and decision state, capacity, attendance, GitHub and Figma activity, judging rubrics, scores, and rankings.
 
 The strict output contains:
 
-- `recommendation: accept | waitlist | decline | needs_information`;
+- `recommendation: accept | waitlist | decline`;
 - `criterionAssessments[]` with `meets | partly_meets | not_yet_clear` and application source references;
-- concise strengths, concerns, and no more than two suggested information questions;
+- concise strengths and concerns;
 - confidence/limitations and the exact policy/schema version echoed from allowed IDs.
 
 Application validation rejects numeric pseudo-scores, judging or winner language, unsupported facts, institution or prestige reasoning, unknown criteria or sources, overlong explanations, stale versions, and any attempt to encode an action. Valid output is an immutable advisory record. The decision command requires a human permission, an explicit outcome, and an audited `used | cleared | overridden | stale | unavailable` disposition. Refusal, timeout, invalid output, or a disabled provider leaves the human workflow usable.

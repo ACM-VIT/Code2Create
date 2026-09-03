@@ -73,7 +73,6 @@ export const ideaIntelligenceAnalysisSchema = v.strictObject({
   ),
   strengths: v.pipe(v.array(bounded(3, 180)), v.maxLength(3)),
   concerns: v.pipe(v.array(bounded(3, 180)), v.maxLength(3)),
-  proposedQuestions: v.pipe(v.array(bounded(8, 180)), v.maxLength(2)),
   confidence: v.picklist(["low", "medium", "high"]),
   limitations: v.pipe(v.array(bounded(3, 180)), v.maxLength(3)),
 });

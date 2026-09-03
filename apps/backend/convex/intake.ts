@@ -53,7 +53,6 @@ import { ideaQuestionEndToEndDeadlineMs } from "./lib/ideaSubmissionAi";
 import { teamClassesMeetPolicy, teamRosterCounts } from "./lib/teamRoster";
 import {
   admissionDecision,
-  admissionInformationRequestState,
   admissionOfferState,
   applicationState,
   projectDraftStage,
@@ -198,16 +197,6 @@ const participantApplicationView = v.object({
   submittedAt: v.number(),
   humanDecision: v.optional(admissionDecision),
   humanReasonCode: v.optional(v.string()),
-  informationRequest: v.union(
-    v.null(),
-    v.object({
-      id: v.id("admissionInformationRequests"),
-      state: admissionInformationRequestState,
-      questions: v.array(v.object({ questionKey: v.string(), question: v.string() })),
-      answers: v.optional(v.array(v.object({ questionKey: v.string(), answer: v.string() }))),
-      version: v.number(),
-    }),
-  ),
   currentOffer: v.union(
     v.null(),
     v.object({
@@ -336,8 +325,7 @@ async function participantApplicationForTeam(
   const terminalDecisionReleased =
     event.admissionResultsReleasedAt !== undefined &&
     (application.decisionStage === "recorded" || application.decisionStage === "released") &&
-    application.humanDecision !== undefined &&
-    application.humanDecision !== "needs_information";
+    application.humanDecision !== undefined;
   const visibleState = terminalDecisionReleased
     ? application.humanDecision === "accept"
       ? ("accepted" as const)
@@ -345,12 +333,9 @@ async function participantApplicationForTeam(
         ? ("waitlisted" as const)
         : ("declined" as const)
     : application.state;
-  const [currentOffer, informationRequest] = await Promise.all([
-    application.currentOfferId ? ctx.db.get(application.currentOfferId) : Promise.resolve(null),
-    application.currentInformationRequestId
-      ? ctx.db.get(application.currentInformationRequestId)
-      : Promise.resolve(null),
-  ]);
+  const currentOffer = application.currentOfferId
+    ? await ctx.db.get(application.currentOfferId)
+    : null;
   if (
     application.currentOfferId !== undefined &&
     (!currentOffer ||
@@ -359,15 +344,6 @@ async function participantApplicationForTeam(
       currentOffer.teamId !== team._id)
   ) {
     throw new Error("A participant application has an invalid current offer.");
-  }
-  if (
-    application.currentInformationRequestId !== undefined &&
-    (!informationRequest ||
-      informationRequest.eventId !== event._id ||
-      informationRequest.applicationId !== application._id ||
-      informationRequest.teamId !== team._id)
-  ) {
-    throw new Error("A participant application has an invalid information request.");
   }
   return {
     application,
@@ -385,17 +361,6 @@ async function participantApplicationForTeam(
       application.humanReasonCode !== undefined
         ? { humanReasonCode: application.humanReasonCode }
         : {}),
-      informationRequest: informationRequest
-        ? {
-            id: informationRequest._id,
-            state: informationRequest.state,
-            questions: informationRequest.questions,
-            ...(informationRequest.answers !== undefined
-              ? { answers: informationRequest.answers }
-              : {}),
-            version: informationRequest.version,
-          }
-        : null,
       currentOffer: currentOffer
         ? {
             id: currentOffer._id,
@@ -879,9 +844,6 @@ export const reviseSubmission = mutation({
       finalConfirmation: project.finalConfirmation,
       participantPolicyVersionId: project.participantPolicyVersionId,
       admissionPolicyVersionId: project.admissionPolicyVersionId,
-      ...(project.admissionInformationResponses !== undefined
-        ? { admissionInformationResponses: project.admissionInformationResponses }
-        : {}),
       proposalRevision: {
         sourceProjectVersionId: project._id,
         editedByMembershipId: membership._id,

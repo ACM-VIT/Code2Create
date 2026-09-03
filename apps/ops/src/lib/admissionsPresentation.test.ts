@@ -82,14 +82,14 @@ test("review status says how many reviews are in and whether anyone is on it", (
 test("stage chips only show stages with something in them", () => {
   const counts = stageCountMap([
     { state: "submitted", count: 18 },
-    { state: "needs_information", count: 2 },
+    { state: "waitlisted", count: 2 },
   ]);
   assert.equal(busiestStage(counts), "submitted");
-  assert.deepEqual(visibleStages(counts, "submitted"), ["submitted", "needs_information"]);
+  assert.deepEqual(visibleStages(counts, "submitted"), ["submitted", "waitlisted"]);
   assert.deepEqual(visibleStages(counts, "confirmed"), [
     "submitted",
-    "needs_information",
     "confirmed",
+    "waitlisted",
   ]);
   assert.equal(busiestStage(new Map()), null);
 });
@@ -101,10 +101,10 @@ test("the queue opens with one sentence about where applications are", () => {
       stageCountMap([
         { state: "submitted", count: 18 },
         { state: "under_review", count: 3 },
-        { state: "needs_information", count: 1 },
+        { state: "waitlisted", count: 1 },
       ]),
     ),
-    "18 need a first review, 3 are being reviewed and 1 is waiting on the team.",
+    "18 need a first review and 3 are being reviewed.",
   );
   assert.equal(
     queueLeadSentence(

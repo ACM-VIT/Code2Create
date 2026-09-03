@@ -33,13 +33,6 @@ const recommendationContext = v.object({
       answer: v.string(),
     }),
   ),
-  informationResponses: v.array(
-    v.object({
-      sourceRef,
-      question: v.string(),
-      answer: v.string(),
-    }),
-  ),
   criteria: v.array(
     v.object({
       criterionKey: v.string(),
@@ -70,18 +63,6 @@ function followUpSourceRef(ordinal: number): SourceRef {
     throw new Error("A submitted intake response has an invalid ordinal.");
   }
   return `follow_up_${ordinal}`;
-}
-
-export function admissionInformationSources(
-  responses: Doc<"projectVersions">["admissionInformationResponses"],
-) {
-  return (responses ?? []).flatMap((response, responseIndex) =>
-    response.answers.map((answer, answerIndex) => ({
-      sourceRef: `requested_information_${responseIndex + 1}_${answerIndex + 1}`,
-      question: answer.question,
-      answer: answer.answer,
-    })),
-  );
 }
 
 export const beginRecommendation = internalMutation({
@@ -146,7 +127,6 @@ export const beginRecommendation = internalMutation({
         ? { additionalInformation: project.additionalInformation }
         : {}),
       intakeResponses: project.intakeResponses,
-      admissionInformationResponses: project.admissionInformationResponses ?? [],
       experienceBand: application.experienceBand,
       admissionPolicyVersionId: policy._id,
       admissionPolicyChecksum: policy.checksum,
@@ -187,7 +167,6 @@ export const beginRecommendation = internalMutation({
         question: response.question,
         answer: response.answer,
       })),
-      informationResponses: admissionInformationSources(project.admissionInformationResponses),
       criteria: policy.criteria.map((criterion) => ({
         criterionKey: criterion.criterionKey,
         label: criterion.label,
@@ -350,7 +329,6 @@ export const finishRecommendation = internalMutation({
     ),
     strengths: v.array(v.string()),
     concerns: v.array(v.string()),
-    proposedQuestions: v.array(v.string()),
     confidence: v.optional(v.union(v.literal("low"), v.literal("medium"), v.literal("high"))),
     limitations: v.array(v.string()),
     providerRequestId: v.optional(v.string()),
@@ -371,7 +349,6 @@ export const finishRecommendation = internalMutation({
           JSON.stringify(args.criterionAssessments),
           JSON.stringify(args.strengths),
           JSON.stringify(args.concerns),
-          JSON.stringify(args.proposedQuestions),
           args.confidence ?? null,
           JSON.stringify(args.limitations),
           args.agentVersion ?? null,
@@ -434,11 +411,6 @@ export const finishRecommendation = internalMutation({
           availableSourceRefs.add(followUpSourceRef(response.ordinal));
         }
       }
-      if (project) {
-        for (const response of admissionInformationSources(project.admissionInformationResponses)) {
-          availableSourceRefs.add(response.sourceRef);
-        }
-      }
       const policyViolation =
         args.recommendation && args.confidence
           ? ideaIntelligenceAnalysisPolicyViolation({
@@ -447,7 +419,6 @@ export const finishRecommendation = internalMutation({
                 criterionAssessments: args.criterionAssessments,
                 strengths: args.strengths,
                 concerns: args.concerns,
-                proposedQuestions: args.proposedQuestions,
                 confidence: args.confidence,
                 limitations: args.limitations,
               },
@@ -469,7 +440,6 @@ export const finishRecommendation = internalMutation({
       criterionAssessments: succeeded ? args.criterionAssessments : [],
       strengths: succeeded ? args.strengths : [],
       concerns: succeeded ? args.concerns : [],
-      proposedQuestions: succeeded ? args.proposedQuestions : [],
       confidence: succeeded ? args.confidence : undefined,
       limitations: args.limitations,
       providerRequestId: args.providerRequestId,

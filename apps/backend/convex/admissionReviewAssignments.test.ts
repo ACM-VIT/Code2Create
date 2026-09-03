@@ -488,7 +488,7 @@ async function seedAssignmentFixture(backend: BackendTest) {
         {
           key: "clear_intent",
           label: "Clear intent",
-          allowedDecisions: ["accept", "waitlist", "decline", "needs_information"],
+          allowedDecisions: ["accept", "waitlist", "decline"],
         },
       ],
       checksum: "admission-checksum",

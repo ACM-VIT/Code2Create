@@ -23,7 +23,6 @@ export const communicationsEmailTemplateInput = v.object({
     v.literal("accept"),
     v.literal("waitlist"),
     v.literal("decline"),
-    v.literal("needs_information"),
     v.literal("offer"),
     v.literal("offer_confirmed"),
     v.literal("offer_declined"),

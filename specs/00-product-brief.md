@@ -43,7 +43,7 @@ The participant portal is a Vite web application. It provides:
 - two fixed proposal questions followed by two useful AI-attempted follow-ups;
 - a non-blocking live novelty number above the idea text box;
 - proposal submission and revision;
-- admission status and information requests;
+- admission status and offers;
 - team-scoped GitHub and Figma connections;
 - venue and session attendance status;
 - a personal attendance QR when required;

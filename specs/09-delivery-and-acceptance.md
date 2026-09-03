@@ -43,7 +43,6 @@ Deliver:
 - stale human-review and AI-output invalidation;
 - human admission review;
 - advisory AI admission recommendation;
-- information requests;
 - offers and capacity;
 - selected-team communications;
 - generic email delivery; and

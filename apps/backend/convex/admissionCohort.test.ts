@@ -288,7 +288,6 @@ describe("admission cohort query and decisions", () => {
       expectedApplicationVersion: 1,
       decision: "accept",
       reasonCode: "strong_fit",
-      informationQuestions: [],
       aiDisposition: "unavailable",
       clientOperationId: "cohort-apply-short-1",
     });
@@ -309,7 +308,6 @@ describe("admission cohort query and decisions", () => {
       expectedApplicationVersion: 1,
       decision: "accept",
       reasonCode: "strong_fit",
-      informationQuestions: [],
       aiDisposition: "unavailable",
       clientOperationId: "cohort-apply-1",
     });
@@ -339,7 +337,6 @@ describe("admission cohort query and decisions", () => {
       expectedApplicationVersion: 1,
       decision: "accept",
       reasonCode: "strong_fit",
-      informationQuestions: [],
       aiDisposition: "unavailable",
       clientOperationId: "cohort-apply-1",
     });
@@ -356,7 +353,6 @@ describe("admission cohort query and decisions", () => {
         expectedApplicationVersion: 1,
         decision: "accept",
         reasonCode: "strong_fit",
-        informationQuestions: [],
         aiDisposition: "unavailable",
         clientOperationId: "cohort-apply-denied-1",
       }),
@@ -470,7 +466,6 @@ describe("admission cohort query and decisions", () => {
         expectedApplicationVersion: 1,
         decision: "accept",
         reasonCode: "strong_fit",
-        informationQuestions: [],
         aiDisposition: "unavailable",
         clientOperationId: "cohort-decision-before-deadline",
       }),
@@ -671,7 +666,7 @@ async function insertPolicyChain(
       {
         key: "needs_detail",
         label: "Needs detail",
-        allowedDecisions: ["needs_information", "waitlist"],
+        allowedDecisions: ["waitlist"],
       },
     ],
     checksum: "cohort-policy",

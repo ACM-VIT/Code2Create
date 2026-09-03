@@ -358,7 +358,6 @@ export const scorecardCorrectionState = v.union(
 export const applicationState = v.union(
   v.literal("submitted"),
   v.literal("under_review"),
-  v.literal("needs_information"),
   v.literal("accepted"),
   v.literal("waitlisted"),
   v.literal("declined"),
@@ -372,7 +371,6 @@ export const admissionDecision = v.union(
   v.literal("accept"),
   v.literal("waitlist"),
   v.literal("decline"),
-  v.literal("needs_information"),
 );
 
 export const terminalAdmissionDecision = v.union(
@@ -391,7 +389,6 @@ export const participantEmailTemplateKey = v.union(
   v.literal("accept"),
   v.literal("waitlist"),
   v.literal("decline"),
-  v.literal("needs_information"),
   v.literal("offer"),
   v.literal("offer_confirmed"),
   v.literal("offer_declined"),
@@ -424,12 +421,6 @@ export const admissionOfferState = v.union(
   v.literal("declined"),
   v.literal("expired"),
   v.literal("revoked"),
-);
-
-export const admissionInformationRequestState = v.union(
-  v.literal("open"),
-  v.literal("answered"),
-  v.literal("superseded"),
 );
 
 export const admissionRecommendationState = v.union(

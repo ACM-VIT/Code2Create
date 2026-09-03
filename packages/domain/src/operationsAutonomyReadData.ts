@@ -51,7 +51,6 @@ export const operationsAutonomyParticipantDeliveryTemplateKeys = [
   "accept",
   "waitlist",
   "decline",
-  "needs_information",
   "offer",
   "offer_confirmed",
   "offer_declined",

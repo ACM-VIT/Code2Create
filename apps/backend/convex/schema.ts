@@ -1703,23 +1703,6 @@ export default defineSchema({
     }),
     participantPolicyVersionId: v.id("participantPolicyVersions"),
     admissionPolicyVersionId: v.id("admissionPolicyVersions"),
-    admissionInformationResponses: v.optional(
-      v.array(
-        v.object({
-          requestId: v.id("admissionInformationRequests"),
-          sourceProjectVersionId: v.id("projectVersions"),
-          answers: v.array(
-            v.object({
-              questionKey: v.string(),
-              question: v.string(),
-              answer: v.string(),
-            }),
-          ),
-          respondedByMembershipId: v.id("eventMemberships"),
-          respondedAt: v.number(),
-        }),
-      ),
-    ),
     proposalRevision: v.optional(
       v.object({
         sourceProjectVersionId: v.id("projectVersions"),
@@ -1806,7 +1789,6 @@ export default defineSchema({
     decidedAt: v.optional(v.number()),
     releasedByPersonId: v.optional(v.id("people")),
     releasedAt: v.optional(v.number()),
-    currentInformationRequestId: v.optional(v.id("admissionInformationRequests")),
     currentOfferId: v.optional(v.id("admissionOffers")),
     assignedReviewCount: v.number(),
     completedReviewCount: v.number(),
@@ -1850,7 +1832,6 @@ export default defineSchema({
       v.literal("accept"),
       v.literal("waitlist"),
       v.literal("decline"),
-      v.literal("needs_information"),
       v.literal("offer"),
       v.literal("offer_confirmed"),
       v.literal("offer_declined"),
@@ -1944,7 +1925,6 @@ export default defineSchema({
     ),
     strengths: v.array(v.string()),
     concerns: v.array(v.string()),
-    proposedQuestions: v.array(v.string()),
     confidence: v.optional(v.union(v.literal("low"), v.literal("medium"), v.literal("high"))),
     limitations: v.array(v.string()),
     providerRequestId: v.optional(v.string()),
@@ -2040,40 +2020,6 @@ export default defineSchema({
   })
     .index("by_application_status", ["applicationId", "status"])
     .index("by_application_reviewer_status", ["applicationId", "reviewerPersonId", "status"]),
-
-  admissionInformationRequests: defineTable({
-    eventId: v.id("events"),
-    applicationId: v.id("applications"),
-    teamId: v.id("teams"),
-    sourceProjectVersionId: v.id("projectVersions"),
-    applicationContentVersion: v.number(),
-    decisionReasonCode: v.string(),
-    questions: v.array(
-      v.object({
-        questionKey: v.string(),
-        question: v.string(),
-      }),
-    ),
-    state: v.union(v.literal("open"), v.literal("answered"), v.literal("superseded")),
-    answers: v.optional(
-      v.array(
-        v.object({
-          questionKey: v.string(),
-          answer: v.string(),
-        }),
-      ),
-    ),
-    responseProjectVersionId: v.optional(v.id("projectVersions")),
-    requestedByPersonId: v.id("people"),
-    requestedAt: v.number(),
-    respondedByMembershipId: v.optional(v.id("eventMemberships")),
-    respondedAt: v.optional(v.number()),
-    supersededAt: v.optional(v.number()),
-    version: v.number(),
-  })
-    .index("by_application_created", ["applicationId", "requestedAt"])
-    .index("by_application_state", ["applicationId", "state"])
-    .index("by_team_state", ["teamId", "state"]),
 
   admissionReviewAssignments: defineTable({
     eventId: v.id("events"),

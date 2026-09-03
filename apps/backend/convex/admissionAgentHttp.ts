@@ -33,7 +33,7 @@ const callbackSchema = z
     contentVersion: z.number().int().positive(),
     sourceInputFingerprint: z.string().min(1).max(240),
     operationId: z.string().min(8).max(240),
-    recommendation: z.enum(["accept", "waitlist", "decline", "needs_information"]),
+    recommendation: z.enum(["accept", "waitlist", "decline"]),
     criterionAssessments: z
       .array(
         z
@@ -48,7 +48,6 @@ const callbackSchema = z
       .max(12),
     strengths: z.array(z.string().min(3).max(180)).max(3),
     concerns: z.array(z.string().min(3).max(180)).max(3),
-    proposedQuestions: z.array(z.string().min(8).max(180)).max(2),
     confidence: z.enum(["low", "medium", "high"]),
     limitations: z.array(z.string().min(3).max(180)).max(3),
     agentVersion: z.string().min(3).max(120),
@@ -161,11 +160,6 @@ export const ideaIntelligenceReadEndpoint = httpAction(async (ctx, request) => {
         question: source.question,
         answer: redactProjectText(source.answer),
       })),
-      ...projection.informationResponses.map((source) => ({
-        sourceRef: source.sourceRef,
-        question: source.question,
-        answer: redactProjectText(source.answer),
-      })),
     ],
     criteria: projection.criteria,
   };
@@ -199,7 +193,6 @@ export const ideaIntelligenceCallbackEndpoint = httpAction(async (ctx, request) 
     criterionAssessments: parsed.data.criterionAssessments,
     strengths: parsed.data.strengths,
     concerns: parsed.data.concerns,
-    proposedQuestions: parsed.data.proposedQuestions,
     confidence: parsed.data.confidence,
     limitations: parsed.data.limitations,
     operationId: parsed.data.operationId,

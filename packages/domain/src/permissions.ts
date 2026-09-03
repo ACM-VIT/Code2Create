@@ -144,7 +144,6 @@ const permissionSubjectNames: Readonly<Record<string, string>> = {
   "access roles": "role labels",
   "access roster": "event team",
   "access subjects": "event accounts",
-  "application information": "application information request",
   "application offer": "admission offer",
   "attendance badge": "external participant badge",
   "attendance credential": "physical ID credential",

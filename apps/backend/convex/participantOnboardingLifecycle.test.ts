@@ -207,7 +207,6 @@ describe("participant onboarding lifecycle", () => {
       canRespondToLeadershipTransfer: true,
       canWriteProject: true,
       canSubmitApplication: true,
-      canRespondToInformationRequest: true,
       canRespondToOffer: true,
     });
 
@@ -1107,7 +1106,6 @@ describe("participant onboarding lifecycle", () => {
       canRespondToLeadershipTransfer: true,
       canWriteProject: true,
       canSubmitApplication: false,
-      canRespondToInformationRequest: false,
       canRespondToOffer: false,
     });
     expect(newLeadView).toMatchObject({
@@ -1117,7 +1115,6 @@ describe("participant onboarding lifecycle", () => {
       canRespondToLeadershipTransfer: true,
       canWriteProject: true,
       canSubmitApplication: true,
-      canRespondToInformationRequest: true,
       canRespondToOffer: true,
     });
 

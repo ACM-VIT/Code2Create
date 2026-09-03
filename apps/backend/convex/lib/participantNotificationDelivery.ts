@@ -31,11 +31,6 @@ export function applicationMatchesNotification(
         application.decisionStage === "released" &&
         application.humanDecision === delivery.templateKey
       );
-    case "needs_information":
-      return (
-        application.state === "needs_information" &&
-        application.humanDecision === "needs_information"
-      );
     case "offer":
       return application.state === "offer_sent";
     case "offer_confirmed":

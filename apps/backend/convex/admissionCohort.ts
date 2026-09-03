@@ -53,13 +53,12 @@ export type AdmissionCohortSignals = {
   submittedAt: number;
   reviewAccepts: number;
   reviewDeclines: number;
-  aiRecommendation: "accept" | "waitlist" | "decline" | "needs_information" | null;
+  aiRecommendation: "accept" | "waitlist" | "decline" | null;
 };
 
 const aiSupportRank = {
   accept: 2,
   waitlist: 1,
-  needs_information: 0,
   decline: -1,
 } as const;
 const maximumActiveApplicationPermissionGrants = 2_000;
@@ -126,7 +125,6 @@ const committedStates = new Set<Doc<"applications">["state"]>([
 const candidateStates = new Set<Doc<"applications">["state"]>([
   "submitted",
   "under_review",
-  "needs_information",
 ]);
 
 const experienceBands = [
@@ -149,7 +147,7 @@ type CohortRow = {
   novelty: ReturnType<typeof noveltySignal>;
   teamSize: number;
   minimumHumanReviews: number;
-  reviewSignal: { accept: number; waitlist: number; decline: number; needsInformation: number };
+  reviewSignal: { accept: number; waitlist: number; decline: number };
   completedCurrentReviews: number;
   ai: {
     state: Doc<"admissionAIRecommendations">["state"];
@@ -367,7 +365,6 @@ const reviewSignalView = v.object({
   accept: v.number(),
   waitlist: v.number(),
   decline: v.number(),
-  needsInformation: v.number(),
 });
 
 const aiRecommendationView = v.object({
@@ -519,12 +516,11 @@ export const cohortRowPage = internalQuery({
       const currentReviews = reviews.filter(
         (review) => review.applicationContentVersion === application.contentVersion,
       );
-      const reviewSignal = { accept: 0, waitlist: 0, decline: 0, needsInformation: 0 };
+      const reviewSignal = { accept: 0, waitlist: 0, decline: 0 };
       for (const review of currentReviews) {
         if (review.recommendation === "accept") reviewSignal.accept += 1;
         else if (review.recommendation === "waitlist") reviewSignal.waitlist += 1;
-        else if (review.recommendation === "decline") reviewSignal.decline += 1;
-        else reviewSignal.needsInformation += 1;
+        else reviewSignal.decline += 1;
       }
       const aiCurrent = Boolean(
         recommendation &&
@@ -767,7 +763,6 @@ export const applyDecision = mutation({
     expectedApplicationVersion: v.number(),
     decision: admissionDecision,
     reasonCode: v.string(),
-    informationQuestions: v.array(v.string()),
     aiDisposition: admissionAiDisposition,
     clientOperationId: v.string(),
   },
@@ -821,7 +816,6 @@ export const applyDecision = mutation({
         args.expectedApplicationVersion,
         args.decision,
         args.reasonCode,
-        JSON.stringify(args.informationQuestions),
         args.aiDisposition,
       ]),
     });
@@ -864,14 +858,12 @@ export const applyDecision = mutation({
       applicationId: Id<"applications">;
       state: Infer<typeof applicationState>;
       applicationVersion: number;
-      informationRequestId: Id<"admissionInformationRequests"> | null;
     } = await ctx.runMutation(api.admissions.decide, {
       eventSlug: args.eventSlug,
       applicationId: args.applicationId,
       expectedApplicationVersion: args.expectedApplicationVersion,
       decision: args.decision,
       reasonCode: args.reasonCode,
-      informationQuestions: args.informationQuestions,
       aiDisposition: args.aiDisposition,
       clientOperationId: args.clientOperationId,
     });

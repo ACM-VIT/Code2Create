@@ -30,7 +30,6 @@ const decisions: { value: AdmissionDecision; label: string }[] = [
   { value: "accept", label: "Accept" },
   { value: "waitlist", label: "Waitlist" },
   { value: "decline", label: "Decline" },
-  { value: "needs_information", label: "Needs information" },
 ];
 
 const guidanceFields: {
@@ -610,6 +609,6 @@ function newReason(position: number): ReasonCode {
   return {
     key: `decision_reason_${position}`,
     label: `Decision reason ${position}`,
-    allowedDecisions: ["needs_information"],
+    allowedDecisions: ["waitlist"],
   };
 }

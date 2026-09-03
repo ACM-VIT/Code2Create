@@ -210,7 +210,6 @@ export const teamStatusLabels: Record<TeamStatus, string> = {
 export type ApplicationState =
   | "submitted"
   | "under_review"
-  | "needs_information"
   | "accepted"
   | "waitlisted"
   | "declined"
@@ -222,7 +221,6 @@ export type ApplicationState =
 export const applicationStateLabels: Record<ApplicationState, string> = {
   submitted: "Needs review",
   under_review: "Review in progress",
-  needs_information: "Waiting for the team",
   accepted: "Accepted, offer not sent",
   waitlisted: "Waitlisted",
   declined: "Not selected",
@@ -236,7 +234,6 @@ export const applicationDecisionLabels: Record<ApplicationDecision, string> = {
   accept: "Accept",
   waitlist: "Waitlist",
   decline: "Do not select",
-  needs_information: "Ask the team for more",
 };
 
 /** Past-tense labels for published decisions. */
@@ -244,7 +241,6 @@ export const applicationDecisionOutcomeLabels: Record<ApplicationDecision, strin
   accept: "Accepted",
   waitlist: "Waitlisted",
   decline: "Not selected",
-  needs_information: "Sent back to the team for more",
 };
 
 export type AdmissionExperienceBand =
@@ -270,17 +266,6 @@ export const admissionOfferStateLabels: Record<AdmissionOfferState, string> = {
   declined: "Declined by the team",
   expired: "Expired without an answer",
   revoked: "Withdrawn by an organizer",
-};
-
-export type AdmissionInformationRequestState = "open" | "answered" | "superseded";
-
-export const admissionInformationRequestStateLabels: Record<
-  AdmissionInformationRequestState,
-  string
-> = {
-  open: "Waiting for the team",
-  answered: "Answered",
-  superseded: "Replaced by a newer request",
 };
 
 export type AdmissionReviewAssignmentState = "active" | "completed" | "cancelled";

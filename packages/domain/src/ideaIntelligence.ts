@@ -62,11 +62,10 @@ export type IdeaIntelligenceCriterionAssessment = {
 };
 
 export type IdeaIntelligenceAnalysis = {
-  recommendation: "accept" | "waitlist" | "decline" | "needs_information";
+  recommendation: "accept" | "waitlist" | "decline";
   criterionAssessments: IdeaIntelligenceCriterionAssessment[];
   strengths: string[];
   concerns: string[];
-  proposedQuestions: string[];
   confidence: "low" | "medium" | "high";
   limitations: string[];
 };
@@ -98,7 +97,6 @@ export function ideaIntelligenceAnalysisPolicyViolation(args: {
     args.analysis.criterionAssessments.length > 12 ||
     !boundedList(args.analysis.strengths, 3, 3, 180) ||
     !boundedList(args.analysis.concerns, 3, 3, 180) ||
-    !boundedList(args.analysis.proposedQuestions, 2, 8, 180) ||
     !boundedList(args.analysis.limitations, 3, 3, 180)
   ) {
     return "shape_mismatch";
@@ -135,7 +133,6 @@ export function ideaIntelligenceAnalysisPolicyViolation(args: {
     [
       ...args.analysis.strengths,
       ...args.analysis.concerns,
-      ...args.analysis.proposedQuestions,
       ...args.analysis.limitations,
     ].some((text) => prohibitedLanguage.test(text))
   ) {
