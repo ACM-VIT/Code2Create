@@ -1488,6 +1488,7 @@ async function seedLiveReview(backend: BackendTest, fixture: Fixture) {
       teamMinimumSize: 1,
       teamMaximumSize: 4,
       mixedParticipantClassesAllowed: false,
+      phoneVerificationEnabled: false,
       vitHostelResidenceCatalog: defaultVitHostelResidenceCatalog,
       profileNotice: "Fixture profile notice.",
       projectTextNotice: "Fixture project notice.",

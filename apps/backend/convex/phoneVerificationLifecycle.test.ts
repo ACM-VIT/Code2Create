@@ -1,7 +1,6 @@
 import betterAuthSchema from "../node_modules/@convex-dev/better-auth/src/component/schema.ts";
 import { convexTest, type TestConvex } from "convex-test";
 import { describe, expect, test } from "vitest";
-import { participantProfileCodeConfiguration } from "@code2create/domain";
 
 import { api, components, internal } from "./_generated/api";
 import {
@@ -24,8 +23,7 @@ const betterAuthModules = import.meta.glob(
 type BackendTest = TestConvex<typeof schema>;
 
 describe("participant phone verification lifecycle", () => {
-  test("requires the verified phone and keeps the OTP lifecycle idempotent", async () => {
-    expect(participantProfileCodeConfiguration.phoneVerificationEnabled).toBe(true);
+  test("keeps the idempotent OTP lifecycle available when the published policy does not require it", async () => {
     const backend = testBackend();
     const fixture = await seedParticipant(backend);
     const participant = backend.withIdentity({
@@ -96,9 +94,6 @@ describe("participant phone verification lifecycle", () => {
       verificationId: queued.verificationId,
       maskedPhone: "••••0000",
     });
-    if (verified.outcome !== "verified") {
-      throw new Error("The valid phone code was not accepted.");
-    }
     await expect(
       participant.query(api.phoneVerifications.status, {
         eventSlug: fixture.eventSlug,
@@ -119,24 +114,8 @@ describe("participant phone verification lifecycle", () => {
     await expect(
       participant.mutation(api.participants.saveProfile, {
         ...profileArgs,
-        phone: "+91 90000 00000",
-        clientOperationId: "profile-without-verification",
-      }),
-    ).rejects.toThrow("Verify this phone number");
-    await expect(
-      participant.mutation(api.participants.saveProfile, {
-        ...profileArgs,
         phone: "+91 80000 00000",
-        phoneVerificationId: queued.verificationId,
-        clientOperationId: "profile-with-mismatched-verification",
-      }),
-    ).rejects.toThrow("Verify this phone number");
-    await expect(
-      participant.mutation(api.participants.saveProfile, {
-        ...profileArgs,
-        phone: "+91 90000 00000",
-        phoneVerificationId: queued.verificationId,
-        clientOperationId: "profile-with-verification",
+        clientOperationId: "profile-with-verification-disabled",
       }),
     ).resolves.toMatchObject({ profileVersion: 1 });
     await backend.run(async (ctx) => {
@@ -144,12 +123,71 @@ describe("participant phone verification lifecycle", () => {
         .query("participantProfiles")
         .withIndex("by_membership", (index) => index.eq("membershipId", fixture.membershipId))
         .unique();
-      expect(profile).toMatchObject({
-        phone: "+919000000000",
-        phoneVerificationId: queued.verificationId,
-        phoneVerifiedAt: verified.verifiedAt,
-      });
+      expect(profile).toMatchObject({ phone: "+918000000000" });
+      expect(profile?.phoneVerificationId).toBeUndefined();
+      expect(profile?.phoneVerifiedAt).toBeUndefined();
     });
+  });
+
+  test("enforces the published policy when phone verification is required", async () => {
+    const backend = testBackend();
+    const fixture = await seedParticipant(backend, true);
+    const participant = backend.withIdentity({
+      subject: fixture.authUserId,
+      sessionId: fixture.authSessionId,
+    });
+    const profileArgs = {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      fullName: "Test Participant",
+      phone: "+91 90000 00000",
+      gender: "female" as const,
+      yearOfStudy: "second" as const,
+      externalUniversity: "Example University",
+      externalCollege: "Example College",
+      expectedProfileVersion: 0,
+    };
+    await expect(
+      participant.mutation(api.participants.saveProfile, {
+        ...profileArgs,
+        clientOperationId: "profile-without-required-verification",
+      }),
+    ).rejects.toThrow("Verify this phone number");
+
+    const queued = await participant.mutation(api.phoneVerifications.request, {
+      eventSlug: fixture.eventSlug,
+      phone: profileArgs.phone,
+      clientOperationId: "required-phone-request",
+    });
+    const code = "123456";
+    await backend.mutation(internal.phoneVerifications.prepareDelivery, {
+      verificationId: queued.verificationId,
+      codeDigest: phoneVerificationCodeDigest({
+        secret: process.env.PHONE_VERIFICATION_HMAC_SECRET!,
+        verificationId: queued.verificationId,
+        phone: "+919000000000",
+        code,
+      }),
+      expiresAt: Date.now() + phoneVerificationLifetimeMs,
+    });
+    await backend.mutation(internal.phoneVerifications.completeDelivery, {
+      verificationId: queued.verificationId,
+      providerMessageId: "aws-required-message",
+    });
+    await participant.mutation(api.phoneVerifications.verify, {
+      eventSlug: fixture.eventSlug,
+      verificationId: queued.verificationId,
+      code,
+      clientOperationId: "required-phone-verify",
+    });
+
+    await expect(
+      participant.mutation(api.participants.saveProfile, {
+        ...profileArgs,
+        phoneVerificationId: queued.verificationId,
+        clientOperationId: "profile-with-required-verification",
+      }),
+    ).resolves.toMatchObject({ profileVersion: 1 });
   });
 
   test("persists every incorrect attempt and locks the fifth attempt", async () => {
@@ -210,7 +248,7 @@ function testBackend() {
   return backend;
 }
 
-async function seedParticipant(backend: BackendTest) {
+async function seedParticipant(backend: BackendTest, phoneVerificationEnabled = false) {
   const now = Date.now();
   const eventSlug = "phone-verification-lifecycle";
   const authUserId = await createAuthUser(backend, now);
@@ -238,7 +276,10 @@ async function seedParticipant(backend: BackendTest) {
       createdAt: now,
       updatedAt: now,
     });
-    const policy = normalizeParticipantPolicy(defaultParticipantPolicy);
+    const policy = normalizeParticipantPolicy({
+      ...defaultParticipantPolicy,
+      phoneVerificationEnabled,
+    });
     const policyId = await ctx.db.insert("participantPolicyVersions", {
       eventId,
       version: 1,

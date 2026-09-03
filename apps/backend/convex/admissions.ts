@@ -68,6 +68,7 @@ const listItem = v.object({
   minimumHumanReviews: v.number(),
   submittedAt: v.number(),
   aiState: v.optional(admissionRecommendationState),
+  aiRecommendation: v.optional(admissionDecision),
   assignedReviewCount: v.number(),
   completedReviewCount: v.number(),
   version: v.number(),
@@ -487,7 +488,14 @@ async function applicationListProjection(
     memberCount: project.lockedMemberCount,
     minimumHumanReviews: policy.minimumHumanReviews,
     submittedAt: application.submittedAt,
-    ...(recommendation ? { aiState: recommendation.state } : {}),
+    ...(recommendation
+      ? {
+          aiState: recommendation.state,
+          ...(recommendation.state === "succeeded" && recommendation.recommendation !== undefined
+            ? { aiRecommendation: recommendation.recommendation }
+            : {}),
+        }
+      : {}),
     assignedReviewCount: application.assignedReviewCount,
     completedReviewCount: application.completedReviewCount,
     version: application.version,
@@ -643,6 +651,7 @@ const assignedReviewItem = v.object({
   cohort: v.optional(rosterCohortView),
   memberCount: v.number(),
   aiState: v.optional(admissionRecommendationState),
+  aiRecommendation: v.optional(admissionDecision),
   ownRecommendation: v.optional(admissionDecision),
 });
 
@@ -721,7 +730,15 @@ export const myReviewAssignments = query({
         teamName: team.name,
         ...(profileGrantIds.length > 0 ? { cohort: await rosterCohort(ctx, project) } : {}),
         memberCount: project.lockedMemberCount,
-        ...(recommendation ? { aiState: recommendation.state } : {}),
+        ...(recommendation
+          ? {
+              aiState: recommendation.state,
+              ...(recommendation.state === "succeeded" &&
+              recommendation.recommendation !== undefined
+                ? { aiRecommendation: recommendation.recommendation }
+                : {}),
+            }
+          : {}),
         ...(ownReview?.applicationContentVersion === application.contentVersion
           ? { ownRecommendation: ownReview.recommendation }
           : {}),
@@ -2015,7 +2032,16 @@ export const saveReview = mutation({
 });
 
 const rerunnableAdmissionRecommendationStates = new Set<Doc<"admissionAIRecommendations">["state"]>(
-  ["refused", "invalid", "timed_out", "rate_limited", "failed", "stale", "disabled"],
+  [
+    "succeeded",
+    "refused",
+    "invalid",
+    "timed_out",
+    "rate_limited",
+    "failed",
+    "stale",
+    "disabled",
+  ],
 );
 
 export function admissionRecommendationCanRerun(
