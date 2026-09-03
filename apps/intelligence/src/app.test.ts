@@ -469,7 +469,7 @@ describe("idea submission ingress", () => {
     runtime.dispatchBrief.mockReset();
   });
 
-  test("signals the durable application agent for each frozen content version", async () => {
+  test("isolates each recommendation in its own durable agent instance", async () => {
     const receipt: DispatchReceipt = {
       submissionId: "idea-submission-1",
       acceptedAt: "2026-08-29T00:00:00.000Z",
@@ -494,17 +494,19 @@ describe("idea submission ingress", () => {
     expect(await response.json()).toEqual({
       state: "accepted",
       applicationId: "application-1",
-      instanceId: "application-1",
+      instanceId: "recommendation-1",
       submissionId: receipt.submissionId,
       acceptedAt: receipt.acceptedAt,
     });
     expect(runtime.dispatchBrief).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
-        id: "application-1",
+        id: "recommendation-1",
         initialData: expect.objectContaining({
+          recommendationId: "recommendation-1",
           applicationId: "application-1",
           eventId: "event-1",
+          modelId: "gpt-4.1-mini",
         }),
         message: expect.objectContaining({
           kind: "signal",

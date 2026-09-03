@@ -227,7 +227,7 @@ export const dispatchRecommendation = internalAction({
       if (
         !receipt.success ||
         receipt.data.applicationId !== prepared.applicationId ||
-        receipt.data.instanceId !== prepared.applicationId
+        receipt.data.instanceId !== prepared.recommendationId
       ) {
         throw new Error("The idea intelligence Worker returned an invalid receipt.");
       }
