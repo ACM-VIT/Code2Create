@@ -54,6 +54,16 @@ describe("benefit lifecycle", () => {
     const listed = await operator.query(api.benefits.list, { eventSlug: fixture.eventSlug });
     expect(listed.benefits[0]).toMatchObject({ availableCodes: 1, grantCount: 1 });
 
+    await expect(
+      operator.mutation(api.benefits.addCodes, {
+        eventSlug: fixture.eventSlug,
+        benefitId: created.benefitId,
+        codes: Array.from({ length: 2_001 }, (_, index) => `BULK-${index}`),
+        reason: "Request ceiling test",
+        clientOperationId: crypto.randomUUID(),
+      }),
+    ).rejects.toThrow("Add at most 2000 codes at a time");
+
     await backend.run((ctx) =>
       ctx.db.patch("benefits", created.benefitId, {
         codeCount: 1_999,
