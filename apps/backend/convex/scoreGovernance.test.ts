@@ -496,6 +496,7 @@ describe("score governance pagination", () => {
       applicationsCloseAt: expect.any(Number),
       canEdit: false,
       novelty: null,
+      noveltySignal: null,
       application: {
         id: applicationId,
         state: "confirmed",
