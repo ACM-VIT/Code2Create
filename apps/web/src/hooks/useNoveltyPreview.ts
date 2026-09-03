@@ -34,6 +34,16 @@ type TrackedRequest = {
   attempt: number;
 };
 
+type KeyedNoveltyState = {
+  key: string;
+  value: NoveltyState;
+};
+
+type RememberedNoveltySignal = {
+  key: string;
+  signal: NoveltySignal;
+};
+
 function normalizeIdea(value: string) {
   // Match the backend's stored idea normalization exactly so the preview
   // fingerprint can be attached to the saved draft, including paragraphs.
@@ -69,20 +79,36 @@ export function useNoveltyPreview({
   const savedScore = saved.score;
   const savedBand = saved.band;
   const normalizedIdea = normalizeIdea(idea);
+  const requestKey = corpusVersionId === null ? "" : `${corpusVersionId}:${normalizedIdea}`;
+  const savedRequestKey =
+    corpusVersionId === null || savedIdea === undefined
+      ? null
+      : `${corpusVersionId}:${normalizeIdea(savedIdea)}`;
   const previewNovelty = useAction(api.novelty.preview);
-  const [state, setState] = useState<NoveltyState>(() => {
+  const [state, setState] = useState<KeyedNoveltyState>(() => {
     const savedIdeaMatches = savedIdea !== undefined && normalizeIdea(savedIdea) === normalizedIdea;
-    return corpusVersionId !== null && savedScore !== null && savedIdeaMatches
-      ? { status: "ready", signal: { score: savedScore, band: savedBand } }
-      : { status: "idle" };
+    const value: NoveltyState =
+      corpusVersionId !== null && savedScore !== null && savedIdeaMatches
+        ? { status: "ready", signal: { score: savedScore, band: savedBand } }
+        : { status: "idle" };
+    return { key: requestKey, value };
   });
   const [pending, setPending] = useState<PendingPreview | null>(null);
   const [recovery, setRecovery] = useState<Recovery | null>(null);
   const [trackedRequest, setTrackedRequest] = useState<TrackedRequest | null>(null);
   const sequence = useRef(0);
-  const lastSignal = useRef<NoveltySignal | null>(state.status === "ready" ? state.signal : null);
+  const lastSignal = useRef<NoveltySignal | null>(
+    state.value.status === "ready" ? state.value.signal : null,
+  );
+  // The latest edit and the saved submission can have different scores. Keep
+  // both identities so cancel restores only the score for the saved text.
+  const rememberedSavedSignal = useRef<RememberedNoveltySignal | null>(
+    state.value.status === "ready" ? { key: requestKey, signal: state.value.signal } : null,
+  );
+  const latestReadySignal = useRef<RememberedNoveltySignal | null>(
+    state.value.status === "ready" ? { key: requestKey, signal: state.value.signal } : null,
+  );
   const requestIdentity = useRef<{ key: string; id: string } | null>(null);
-  const requestKey = corpusVersionId === null ? "" : `${corpusVersionId}:${normalizedIdea}`;
   const matchingRecovery = recovery?.key === requestKey ? recovery : null;
   const recoveryAttempt = matchingRecovery?.attempt ?? 0;
   const recoveryRetryAt = matchingRecovery?.retryAt ?? null;
@@ -108,15 +134,29 @@ export function useNoveltyPreview({
     if (hasSavedSignal) {
       const signal = { score: savedScore, band: savedBand };
       lastSignal.current = signal;
+      rememberedSavedSignal.current = { key: requestKey, signal };
+      latestReadySignal.current = { key: requestKey, signal };
       // oxlint-disable-next-line react/set-state-in-effect -- Seed the async novelty state machine from the authoritative saved signal.
-      setState({ status: "ready", signal });
+      setState({ key: requestKey, value: { status: "ready", signal } });
       setPending(null);
       setTrackedRequest(null);
       return;
     }
 
     if (!active) {
-      setState({ status: "idle" });
+      const remembered =
+        rememberedSavedSignal.current?.key === requestKey
+          ? rememberedSavedSignal.current.signal
+          : savedRequestKey === requestKey && latestReadySignal.current?.key === requestKey
+            ? latestReadySignal.current.signal
+            : null;
+      if (remembered !== null) {
+        rememberedSavedSignal.current = { key: requestKey, signal: remembered };
+      }
+      setState({
+        key: requestKey,
+        value: remembered === null ? { status: "idle" } : { status: "ready", signal: remembered },
+      });
       setPending(null);
       setTrackedRequest(null);
       return;
@@ -128,13 +168,16 @@ export function useNoveltyPreview({
       debounceMs === null ||
       ideaLength < minimumIdeaLength
     ) {
-      setState({ status: "idle" });
+      setState({ key: requestKey, value: { status: "idle" } });
       setPending(null);
       setTrackedRequest(null);
       return;
     }
 
-    setState({ status: "checking", previous: lastSignal.current });
+    setState({
+      key: requestKey,
+      value: { status: "checking", previous: lastSignal.current },
+    });
     setPending(null);
     const priorIdentity = requestIdentity.current;
     const clientRequestId =
@@ -146,7 +189,10 @@ export function useNoveltyPreview({
     const recover = () => {
       if (sequence.current !== current) return;
       const attempt = recoveryAttempt + 1;
-      setState({ status: "checking", previous: lastSignal.current });
+      setState({
+        key: requestKey,
+        value: { status: "checking", previous: lastSignal.current },
+      });
       setPending(null);
       setTrackedRequest(null);
       setRecovery({
@@ -174,7 +220,11 @@ export function useNoveltyPreview({
           }
           const signal = { score: result.score, band: result.band };
           lastSignal.current = signal;
-          setState({ status: "ready", signal });
+          latestReadySignal.current = { key: requestKey, signal };
+          if (savedRequestKey === requestKey) {
+            rememberedSavedSignal.current = { key: requestKey, signal };
+          }
+          setState({ key: requestKey, value: { status: "ready", signal } });
           setTrackedRequest(null);
         })
         .catch(() => {
@@ -202,6 +252,7 @@ export function useNoveltyPreview({
     requestKey,
     savedBand,
     savedIdea,
+    savedRequestKey,
     savedScore,
   ]);
 
@@ -210,15 +261,22 @@ export function useNoveltyPreview({
     if (pendingStatus.state === "ready") {
       const signal = { score: pendingStatus.score, band: pendingStatus.band };
       lastSignal.current = signal;
+      latestReadySignal.current = { key: requestKey, signal };
+      if (savedRequestKey === requestKey) {
+        rememberedSavedSignal.current = { key: requestKey, signal };
+      }
       // oxlint-disable-next-line react/set-state-in-effect -- A reactive backend job has settled.
-      setState({ status: "ready", signal });
+      setState({ key: requestKey, value: { status: "ready", signal } });
       setPending(null);
       setTrackedRequest(null);
       return;
     }
     if (pendingStatus.state === "unavailable") {
       const attempt = pending.attempt + 1;
-      setState({ status: "checking", previous: lastSignal.current });
+      setState({
+        key: requestKey,
+        value: { status: "checking", previous: lastSignal.current },
+      });
       setPending(null);
       setTrackedRequest(null);
       setRecovery({
@@ -227,7 +285,7 @@ export function useNoveltyPreview({
         retryAt: Date.now() + noveltyRetryDelayMs(attempt),
       });
     }
-  }, [pending, pendingStatus, requestKey]);
+  }, [pending, pendingStatus, requestKey, savedRequestKey]);
 
   useEffect(() => {
     if (
@@ -241,14 +299,21 @@ export function useNoveltyPreview({
     if (trackedStatus.state === "ready") {
       const signal = { score: trackedStatus.score, band: trackedStatus.band };
       lastSignal.current = signal;
+      latestReadySignal.current = { key: requestKey, signal };
+      if (savedRequestKey === requestKey) {
+        rememberedSavedSignal.current = { key: requestKey, signal };
+      }
       // oxlint-disable-next-line react/set-state-in-effect -- The request result is delivered by the authoritative reactive query.
-      setState({ status: "ready", signal });
+      setState({ key: requestKey, value: { status: "ready", signal } });
       setPending(null);
       setTrackedRequest(null);
       return;
     }
     const attempt = trackedRequest.attempt + 1;
-    setState({ status: "checking", previous: lastSignal.current });
+    setState({
+      key: requestKey,
+      value: { status: "checking", previous: lastSignal.current },
+    });
     setPending(null);
     setTrackedRequest(null);
     setRecovery({
@@ -256,7 +321,7 @@ export function useNoveltyPreview({
       attempt,
       retryAt: Date.now() + noveltyRetryDelayMs(attempt),
     });
-  }, [requestKey, trackedRequest, trackedStatus]);
+  }, [requestKey, savedRequestKey, trackedRequest, trackedStatus]);
 
   useEffect(() => {
     if (
@@ -279,5 +344,20 @@ export function useNoveltyPreview({
     return () => window.clearTimeout(timer);
   }, [pending, pendingStatus, requestKey]);
 
-  return state;
+  if (savedRequestKey === requestKey && savedScore !== null) {
+    return { status: "ready", signal: { score: savedScore, band: savedBand } };
+  }
+  if (!active) {
+    if (state.key === requestKey && state.value.status === "ready") return state.value;
+    const remembered =
+      rememberedSavedSignal.current?.key === requestKey
+        ? rememberedSavedSignal.current.signal
+        : savedRequestKey === requestKey && latestReadySignal.current?.key === requestKey
+          ? latestReadySignal.current.signal
+          : null;
+    return remembered === null ? { status: "idle" } : { status: "ready", signal: remembered };
+  }
+  return state.key === requestKey
+    ? state.value
+    : { status: "checking", previous: lastSignal.current };
 }
