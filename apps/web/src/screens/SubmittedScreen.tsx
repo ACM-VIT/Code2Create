@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type SubmitEvent } from "react";
 import { Link } from "react-router-dom";
 
 import type { CurrentTeam, CurrentTeamMember, PublicState, SubmittedIntake } from "../types";
+import { DelayedBonsai } from "../components/portal/DelayedBonsai";
 import { EditingPresence } from "../components/EditingPresence";
 import { useEditingPresence } from "../hooks/useEditingPresence";
 import { eventSlug } from "../lib/config";
@@ -133,7 +134,13 @@ export function SubmittedScreen({
   onSignOut: () => void;
 }) {
   const intake = useQuery(api.intake.submitted, { eventSlug });
-  if (intake === undefined) return <p className="muted">Loading your application…</p>;
+  if (intake === undefined) {
+    return (
+      <PortalScene tree="left">
+        <DelayedBonsai />
+      </PortalScene>
+    );
+  }
   if (intake === null) {
     return (
       <p className="notice notice-error" role="alert">
