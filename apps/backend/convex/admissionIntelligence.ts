@@ -384,7 +384,14 @@ export const finishRecommendation = internalMutation({
       agentOutputChecksum === recommendation.agentOutputChecksum
     )
       return "already_exists";
-    if (!recommendation || recommendation.state !== "running") return "stale";
+    const canAcceptRecoveredDispatchCompletion =
+      recommendation?.state === "pending" &&
+      recommendation.failureCategory === "agent_dispatch_recovered";
+    if (
+      !recommendation ||
+      (recommendation.state !== "running" && !canAcceptRecoveredDispatchCompletion)
+    )
+      return "stale";
     const application = await ctx.db.get(recommendation.applicationId);
     if (
       !application ||

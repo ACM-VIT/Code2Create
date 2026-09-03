@@ -462,6 +462,11 @@ describe("manual admission analysis retry", () => {
       recommendationId: rerun.recommendationId,
     });
     if (!prepared) throw new Error("The durable dispatch was not prepared.");
+    const projection = await backend.mutation(
+      internal.admissionIntelligence.beginRecommendation,
+      { recommendationId: rerun.recommendationId },
+    );
+    if (!projection) throw new Error("The running dispatch has no projection.");
     expect(
       await backend.mutation(internal.admissionAgentActions.recordDispatchFailure, {
         recommendationId: rerun.recommendationId,
@@ -470,7 +475,7 @@ describe("manual admission analysis retry", () => {
       }),
     ).toBe(true);
     expect(await backend.run((ctx) => ctx.db.get(rerun.recommendationId))).toMatchObject({
-      state: "pending",
+      state: "running",
       agentDispatchAttemptId: prepared.attemptId,
     });
 
@@ -493,10 +498,33 @@ describe("manual admission analysis retry", () => {
     });
     expect(recovered?.agentDispatchAttemptId).toBeUndefined();
 
-    const next = await backend.mutation(internal.admissionAgentActions.prepareDispatch, {
-      recommendationId: rerun.recommendationId,
-    });
-    expect(next?.attemptId).not.toBe(prepared.attemptId);
+    expect(
+      await backend.mutation(internal.admissionIntelligence.finishRecommendation, {
+        recommendationId: rerun.recommendationId,
+        sourceInputFingerprint: projection.sourceInputFingerprint,
+        state: "succeeded",
+        recommendation: "accept",
+        criterionAssessments: projection.criteria.map((criterion) => ({
+          criterionKey: criterion.criterionKey,
+          assessment: "meets" as const,
+          sourceRefs: ["initial_idea"],
+        })),
+        strengths: ["The proposal identifies a concrete operational handoff."],
+        concerns: [],
+        proposedQuestions: [],
+        confidence: "medium",
+        limitations: ["The analysis uses only the submitted project answers."],
+        operationId: `idea-analysis:${rerun.recommendationId}`,
+        agentVersion: "idea-submission-v1",
+        agentModel: "openai/gpt-4.1-mini",
+      }),
+    ).toBe("accepted");
+
+    expect(
+      await backend.mutation(internal.admissionAgentActions.prepareDispatch, {
+        recommendationId: rerun.recommendationId,
+      }),
+    ).toBeNull();
   });
 
   test("releases a dispatch attempt that failed before reaching the worker", async () => {
