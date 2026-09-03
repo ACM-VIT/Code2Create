@@ -1,7 +1,7 @@
 import { api } from "@code2create/backend/api";
 import type { FunctionReturnType } from "convex/server";
 import { useMutation } from "convex/react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { eventSlug } from "../lib/config";
 import { readableError } from "../lib/errors";
@@ -97,6 +97,20 @@ export function SynesthesiaHostPlayer({
     onEnded: () => void advance(),
     onError: () => void skipBroken(),
   });
+
+  // While hosting, an idle desk with something approved starts it on its own;
+  // a click is only needed once, to let the browser play sound.
+  const advanceRef = useRef(advance);
+  useEffect(() => {
+    advanceRef.current = advance;
+  });
+  const idleWithNext = hosting && !playing && next !== null && windowOpen && canDrive;
+  const nextId = next?.id ?? null;
+  useEffect(() => {
+    if (!idleWithNext || busy) return;
+    const timer = window.setTimeout(() => void advanceRef.current(), 600);
+    return () => window.clearTimeout(timer);
+  }, [idleWithNext, nextId, busy]);
 
   if (!canDrive && !playing) return null;
 

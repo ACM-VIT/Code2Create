@@ -9932,3 +9932,13 @@ textarea:focus {
   padding: 10px 2px;
   border-bottom: 1px solid var(--border);
 }
+
+/* The benefits desk. */
+.benefits-shell { width: min(100%, 1120px); margin: 0 auto; }
+.benefits-list { display: grid; margin-top: 22px; border-top: 1px solid var(--border); }
+.benefit { display: grid; gap: 10px; padding: 18px 2px; border-bottom: 1px solid var(--border); }
+.benefit-heading { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px 24px; }
+.benefit-heading strong { display: block; margin-bottom: 4px; font-size: .86rem; }
+.benefit-heading span { display: block; color: var(--muted); font-size: .7rem; }
+.benefit-heading p { margin: 6px 0 0; max-width: 60ch; color: var(--muted); font-size: .74rem; }
+.benefit-heading a { display: inline-block; margin-top: 4px; font-size: .72rem; word-break: break-all; }

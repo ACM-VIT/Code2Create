@@ -33,6 +33,7 @@ const loadIntegrationsScreen = () => import("./screens/IntegrationsScreen");
 const loadSubmittedScreen = () => import("./screens/SubmittedScreen");
 const loadSynesthesiaScreen = () => import("./screens/SynesthesiaScreen");
 const loadSupportScreen = () => import("./screens/SupportScreen");
+const loadUpdatesScreen = () => import("./screens/UpdatesScreen");
 
 const FigmaCallbackScreen = lazy(() =>
   loadFigmaCallbackScreen().then((module) => ({ default: module.FigmaCallbackScreen })),
@@ -51,6 +52,9 @@ const SynesthesiaScreen = lazy(() =>
 );
 const SupportScreen = lazy(() =>
   loadSupportScreen().then((module) => ({ default: module.SupportScreen })),
+)
+const UpdatesScreen = lazy(() =>
+  loadUpdatesScreen().then((module) => ({ default: module.UpdatesScreen })),
 );
 
 export function ParticipantApp({
@@ -387,6 +391,24 @@ export function ParticipantApp({
         <IntegrationsScreen team={team} members={teamMembers.results} onSignOut={signOut} />
       </Suspense>
     );
+  }
+
+  // ---- team updates: the checkpoint forms, on the scene --------------------
+  if (location.pathname === '/updates') {
+    if (!acceptedFeatures || !(access?.projectCheckpoints ?? false) || !publicState.event) {
+      return <Navigate replace to="/" />
+    }
+    return (
+      <Suspense fallback={<PortalLoading />}>
+        <UpdatesScreen
+          team={team}
+          members={teamMembers.results}
+          teamEditable={teamEditable}
+          timezone={publicState.event.timezone}
+          onSignOut={signOut}
+        />
+      </Suspense>
+    )
   }
 
   // ---- f8 / f9 / closed states, full-bleed ---------------------------------

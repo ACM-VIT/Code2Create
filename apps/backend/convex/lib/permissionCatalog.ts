@@ -184,6 +184,8 @@ export const permissionCatalog = {
   },
   "synesthesia.access.suspend": { scopes: ["person"], eventWide: true },
   "synesthesia.access.restore": { scopes: ["person"], eventWide: true },
+  "benefit.read": { scopes: [], eventWide: true },
+  "benefit.manage": { scopes: [], eventWide: true },
   "incident.read": { scopes: ["incident"], eventWide: true },
   "incident.create": { scopes: [], eventWide: true },
   "incident.manual_mode.approve": { scopes: ["incident"], eventWide: true },

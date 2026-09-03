@@ -5371,6 +5371,74 @@ export default defineSchema({
     .index("by_event_state", ["eventId", "state"])
     .index("by_state", ["state"]),
 
+  benefits: defineTable({
+    eventId: v.id("events"),
+    name: v.string(),
+    description: v.optional(v.string()),
+    link: v.optional(v.string()),
+    scope: v.union(v.literal("team"), v.literal("person")),
+    codeMode: v.union(v.literal("shared"), v.literal("unique")),
+    sharedCode: v.optional(v.string()),
+    codeCount: v.number(),
+    availableCodeCount: v.number(),
+    grantCount: v.number(),
+    latestGrantRunId: v.optional(v.id("benefitGrantRuns")),
+    status: v.union(v.literal("active"), v.literal("archived")),
+    version: v.number(),
+    createdByPersonId: v.id("people"),
+    updatedByPersonId: v.id("people"),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_event_status", ["eventId", "status"]),
+
+  benefitCodes: defineTable({
+    eventId: v.id("events"),
+    benefitId: v.id("benefits"),
+    code: v.string(),
+    state: v.union(v.literal("available"), v.literal("assigned")),
+    grantId: v.optional(v.id("benefitGrants")),
+    createdAt: v.number(),
+  })
+    .index("by_benefit_state", ["benefitId", "state"])
+    .index("by_benefit_code", ["benefitId", "code"]),
+
+  benefitGrants: defineTable({
+    eventId: v.id("events"),
+    benefitId: v.id("benefits"),
+    teamId: v.optional(v.id("teams")),
+    membershipId: v.optional(v.id("eventMemberships")),
+    code: v.string(),
+    grantedByPersonId: v.id("people"),
+    createdAt: v.number(),
+  })
+    .index("by_benefit", ["benefitId", "createdAt"])
+    .index("by_benefit_team", ["benefitId", "teamId"])
+    .index("by_benefit_membership", ["benefitId", "membershipId"])
+    .index("by_team", ["teamId"])
+    .index("by_membership", ["membershipId"]),
+
+  benefitGrantRuns: defineTable({
+    eventId: v.id("events"),
+    benefitId: v.id("benefits"),
+    scope: v.union(v.literal("team"), v.literal("person")),
+    status: v.union(v.literal("queued"), v.literal("running"), v.literal("complete")),
+    teamStatusIndex: v.number(),
+    cursor: v.optional(v.string()),
+    scannedCount: v.number(),
+    grantedCount: v.number(),
+    alreadyHadCount: v.number(),
+    outOfCodesCount: v.number(),
+    reason: v.string(),
+    authorizingGrantIds: v.array(v.id("permissionGrants")),
+    requestedByPersonId: v.id("people"),
+    clientOperationId: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    completedAt: v.optional(v.number()),
+  })
+    .index("by_event_created", ["eventId", "createdAt"])
+    .index("by_benefit_created", ["benefitId", "createdAt"]),
+
   operationResults: defineTable({
     eventId: v.id("events"),
     actorPersonId: v.id("people"),

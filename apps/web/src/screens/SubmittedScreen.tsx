@@ -213,9 +213,13 @@ function SubmittedWorkspace({
     ]
       .filter((timestamp) => timestamp > phaseTime)
       .toSorted((left, right) => left - right)[0];
-    if (nextBoundary === undefined) return;
     const observedAt = performance.now();
     const observedServerNow = phaseTime;
+    const nextTickIn = Math.min(
+      30_000,
+      nextBoundary === undefined ? 30_000 : nextBoundary - phaseTime + 100,
+      2_147_000_000,
+    );
     const timer = window.setTimeout(
       () => {
         setPhaseClock({
@@ -223,7 +227,7 @@ function SubmittedWorkspace({
           phaseTime: observedServerNow + performance.now() - observedAt,
         });
       },
-      Math.min(nextBoundary - phaseTime + 100, 2_147_000_000),
+      nextTickIn,
     );
     return () => window.clearTimeout(timer);
   }, [intake.applicationsCloseAt, intake.serverNow, phaseTime, phases]);
@@ -439,6 +443,9 @@ function SubmittedWorkspace({
     return (
       <DashboardLive
         capabilities={capabilities}
+        event={event}
+        phaseTime={phaseTime}
+        discordUrl={communications?.discordUrl ?? null}
         team={team}
         members={members}
         teamEditable={teamEditable}

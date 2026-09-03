@@ -137,6 +137,7 @@ const operationsCapabilitiesView = v.object({
   reviews: v.boolean(),
   scores: v.boolean(),
   synesthesia: v.boolean(),
+  benefits: v.boolean(),
   rehearsal: v.boolean(),
   floorConfiguration: v.boolean(),
   floorLocations: v.boolean(),
@@ -467,6 +468,7 @@ async function resolveOperationsCapabilities(
     synesthesiaWindowRead,
     synesthesiaWindowManage,
     synesthesiaQueueRead,
+    benefitsRead,
     rehearsal,
     floorConfiguration,
     floorLocations,
@@ -513,6 +515,7 @@ async function resolveOperationsCapabilities(
     any("synesthesia.window.read"),
     event("synesthesia.window.manage"),
     any("synesthesia.queue.read"),
+    event("benefit.read"),
     any("rehearsal.read"),
     anyOf(floorConfigurationPermissions),
     any("floor.location.read"),
@@ -563,6 +566,7 @@ async function resolveOperationsCapabilities(
       synesthesiaWindowRead ||
       synesthesiaWindowManage ||
       synesthesiaQueueRead,
+    benefits: benefitsRead,
     rehearsal,
     floorConfiguration,
     floorLocations,

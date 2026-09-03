@@ -26,8 +26,13 @@ import { PortalScene } from "../components/portal/PortalScene";
 import { StackedSheet } from "../components/portal/StackedSheet";
 import { TreeLoader } from "../components/portal/TreeLoader";
 import { releaseBalloons } from "../lib/balloons";
+import type { BenefitsTileModel } from "../components/dashboard/BenefitsTile";
+import type { EventTileModel } from "../components/dashboard/EventTile";
+import type { HelpTileModel } from "../components/dashboard/HelpTile";
 import type { IntegrationsTileModel } from "../components/dashboard/IntegrationsTile";
 import type { MusicTileModel } from "../components/dashboard/MusicTile";
+import type { ReviewTileModel } from "../components/dashboard/ReviewTile";
+import type { UpdatesTileModel } from "../components/dashboard/UpdatesTile";
 import { DashboardScreen } from "../screens/DashboardScreen";
 import { SglangInterlude } from "../screens/SglangInterlude";
 import { ConfirmCard } from "../screens/TeamLobbyScreen";
@@ -632,15 +637,91 @@ const dashboardIntegrations: IntegrationsTileModel = {
   open: noop,
 };
 
-function DashboardFixture() {
+// Night one of the build, on the event clock (IST).
+const eventTimezone = "Asia/Kolkata";
+const eventClock = (day: number, hour: number, minute = 0) => Date.UTC(2026, 9, day, hour - 5, minute - 30);
+const eventPhases = [
+  { phaseKey: "introduction", displayName: "Introduction", startsAt: eventClock(9, 18), endsAt: eventClock(9, 19) },
+  { phaseKey: "ideation", displayName: "Ideation", startsAt: eventClock(9, 19), endsAt: eventClock(9, 22) },
+  { phaseKey: "build", displayName: "Build", startsAt: eventClock(9, 22), endsAt: eventClock(10, 20) },
+  { phaseKey: "intermediate_update", displayName: "Midpoint update", startsAt: eventClock(10, 20), endsAt: eventClock(10, 21) },
+  { phaseKey: "final_update", displayName: "Final update", startsAt: eventClock(10, 21), endsAt: eventClock(11, 18) },
+] as const;
+
+const dashboardEvent: EventTileModel = {
+  phases: eventPhases.map((phase) => ({ key: phase.phaseKey, name: phase.displayName, startsAt: phase.startsAt, endsAt: phase.endsAt })),
+  now: eventClock(10, 2),
+  timezone: eventTimezone,
+};
+
+const dashboardUpdates: UpdatesTileModel = {
+  available: true,
+  timezone: eventTimezone,
+  checkpoints: [
+    { key: "ideation", name: "Ideation update", state: "submitted", opensAt: eventClock(9, 19), dueAt: eventClock(9, 22) },
+    { key: "intermediate_update", name: "Midpoint update", state: "open", opensAt: eventClock(10, 2), dueAt: eventClock(10, 21) },
+    { key: "final_update", name: "Final update", state: "upcoming", opensAt: eventClock(10, 21), dueAt: eventClock(11, 18) },
+  ],
+  write: noop,
+};
+
+const dashboardReview: ReviewTileModel = {
+  available: true,
+  queue: {
+    round: "Midpoint review",
+    state: "Reviewers on the way",
+    detail: "Panel C · Table 14",
+    wait: null,
+    reviewers: { present: 1, total: 3 },
+  },
+  showCode: {
+    sessionId: "fixture-review-session",
+    mint: async () => {
+      await wait(500);
+      return { payload: "c2c:review:paper-cranes:staged", manualCode: "7K2P4-Q9M3X", expiresAt: Date.now() + 120_000, serverNow: Date.now() };
+    },
+  },
+};
+
+const dashboardHelp: HelpTileModel = {
+  discordUrl: "https://discord.gg/code2create",
+  support: { open: 1 },
+};
+
+const dashboardBenefits: BenefitsTileModel = {
+  available: true,
+  benefits: [
+    { id: "b1", name: "Cloud credits", description: "USD 200 on the event account.", link: "https://example.com/credits", scope: "team", code: "C2C-CLOUD-4F7Q" },
+    { id: "b2", name: "Design tool seat", link: "https://example.com/seat", scope: "person", code: "SEAT-91KD-22" },
+  ],
+};
+
+const quietMusic: MusicTileModel = { ...dashboardMusic, nowPlaying: null, queue: [], window: null };
+const reviewMusic: MusicTileModel = { ...dashboardMusic, nowPlaying: null, queue: dashboardMusic.queue.slice(0, 2) };
+const quietReview: ReviewTileModel = { available: true, queue: null, showCode: null };
+const queuedReview: ReviewTileModel = {
+  ...dashboardReview,
+  queue: { round: "Midpoint review", state: "In queue", detail: "Panel C · 2 teams ahead of you.", wait: "About within 15 min", reviewers: null },
+  showCode: null,
+};
+
+type DashboardVariant = "build" | "review" | "quiet";
+
+function DashboardFixture({ variant = "build" }: { variant?: DashboardVariant }) {
+  const now = variant === "review" ? eventClock(10, 20, 30) : eventClock(10, 2);
   return (
     <DashboardScreen
       team={team}
       members={members}
       teamEditable
       onSignOut={noop}
-      music={dashboardMusic}
+      event={{ ...dashboardEvent, now }}
+      music={variant === "build" ? dashboardMusic : variant === "review" ? reviewMusic : quietMusic}
       integrations={dashboardIntegrations}
+      updates={variant === "quiet" ? { ...dashboardUpdates, checkpoints: dashboardUpdates.checkpoints.map((c) => ({ ...c, state: c.key === "ideation" ? "upcoming" : c.state })) } : dashboardUpdates}
+      review={variant === "review" ? dashboardReview : variant === "quiet" ? quietReview : queuedReview}
+      help={dashboardHelp}
+      benefits={variant === "quiet" ? { available: true, benefits: [] } : dashboardBenefits}
     />
   );
 }
@@ -858,7 +939,9 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries([
       </PortalScene>
     ),
   ],
-  ["dashboard", () => <DashboardFixture />],
+  ["dashboard", () => <DashboardFixture variant="build" />],
+  ["dashboardReview", () => <DashboardFixture variant="review" />],
+  ["dashboardQuiet", () => <DashboardFixture variant="quiet" />],
   [
     "f2",
     () => (

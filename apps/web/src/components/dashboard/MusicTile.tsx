@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { readableError } from "../../lib/errors";
+import { useSceneryPlayer } from "../../lib/useYouTubePlayer";
 import { PortalButton } from "../portal/PortalButton";
 import { Tile, TileEyebrow } from "./Tile";
+import { clampWhenShort, tileBody } from "./tileClasses";
+import type { Slot } from "./dashboardLayout";
 import { useReducedMotion } from "./useReducedMotion";
 
 export type MusicRequestState =
@@ -112,34 +115,35 @@ function useElapsed(playing: MusicRequestView | null) {
 }
 
 /**
- * The video behind the tile: muted and looping, cropped to cover and zoomed
- * well past the edges so YouTube's title bar, logo, and controls all fall
- * outside the card; the frame never receives the pointer, so nothing of the
- * player's own UI can appear. Under reduced motion, the still frame instead.
+ * The video behind the tile: muted and looping, cropped to cover and zoomed well
+ * past the edges so YouTube's title bar and bottom bar stay outside the
+ * card. YouTube also draws centre controls whenever the player starts, pauses,
+ * or is resized, so the still frame veils the player until it has been
+ * playing quietly for a moment. Under reduced motion, the still frame only.
  */
-function VideoBackdrop({ videoId, still }: { videoId: string; still: boolean }) {
-  const source = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&mute=1&controls=0&loop=1&playlist=${videoId}&playsinline=1&rel=0&iv_load_policy=3&disablekb=1`;
+function VideoBackdrop({ videoId, still, resizeKey }: { videoId: string; still: boolean; resizeKey: string }) {
+  const { container, state } = useSceneryPlayer({ videoId: still ? null : videoId });
+  const [settled, setSettled] = useState(false);
+  useEffect(() => {
+    if (state !== "playing") return;
+    const timer = window.setTimeout(() => setSettled(true), 3_200);
+    return () => window.clearTimeout(timer);
+  }, [state, resizeKey]);
+  const veiled = still || state !== "playing" || !settled;
   return (
-    <div
-      aria-hidden
-      className="pointer-events-none absolute inset-0 overflow-hidden [container-type:size]"
-    >
-      {still ? (
-        <img
-          src={`https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`}
-          alt=""
-          className="absolute inset-0 size-full object-cover opacity-70 saturate-[.85]"
+    <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden [container-type:size]">
+      {!still ? (
+        <div
+          ref={container}
+          className="absolute top-1/2 left-1/2 h-[max(160cqh,90cqw)] w-[max(160cqw,284cqh)] -translate-x-1/2 -translate-y-1/2 opacity-80 saturate-[.9] [&_iframe]:absolute [&_iframe]:inset-0 [&_iframe]:size-full"
         />
-      ) : (
-        <iframe
-          src={source}
-          title=""
-          tabIndex={-1}
-          allow="autoplay; encrypted-media"
-          className="absolute top-1/2 left-1/2 h-[max(175cqh,98.5cqw)] w-[max(175cqw,311cqh)] -translate-x-1/2 -translate-y-1/2 opacity-80 saturate-[.9]"
-        />
-      )}
-      <div className="absolute inset-0 bg-[linear-gradient(to_bottom,color-mix(in_srgb,var(--color-wash)_65%,transparent)_0%,transparent_26%),linear-gradient(to_top,var(--color-wash)_0%,color-mix(in_srgb,var(--color-wash)_55%,transparent)_42%,color-mix(in_srgb,var(--color-wash)_12%,transparent)_100%)]" />
+      ) : null}
+      <img
+        src={`https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`}
+        alt=""
+        className={`absolute inset-0 size-full object-cover opacity-70 saturate-[.85] transition-opacity duration-700 ${veiled ? "" : "opacity-0"}`}
+      />
+      <div className="absolute inset-0 bg-[linear-gradient(to_top,var(--color-wash)_0%,color-mix(in_srgb,var(--color-wash)_55%,transparent)_42%,color-mix(in_srgb,var(--color-wash)_12%,transparent)_100%)]" />
     </div>
   );
 }
@@ -563,11 +567,13 @@ function OpenMusic({ model }: { model: MusicTileModel }) {
  * ground; the player floats on it, and the queue and search open as a sheet.
  */
 export function MusicTile({
+  slot,
   model,
   focused,
   onFocus,
   onRelease,
 }: {
+  slot: Slot;
   model: MusicTileModel;
   focused: boolean;
   onFocus: () => void;
@@ -582,12 +588,12 @@ export function MusicTile({
       request.state === "pending" || request.state === "approved" || request.state === "queued",
   ).length;
   const backdrop = nowPlaying?.videoId ? (
-    <VideoBackdrop videoId={nowPlaying.videoId} still={reducedMotion} />
+    <VideoBackdrop videoId={nowPlaying.videoId} still={reducedMotion} resizeKey={focused ? "open" : "rest"} />
   ) : undefined;
 
   return (
     <Tile
-      area="music"
+      slot={slot}
       expanded={focused}
       onToggle={onFocus}
       onRelease={onRelease}
@@ -596,12 +602,12 @@ export function MusicTile({
       {focused ? (
         <OpenMusic model={model} />
       ) : (
-        <div className="flex flex-1 flex-col justify-between gap-3 p-[18px]">
+        <div className={tileBody}>
           <TileEyebrow>music</TileEyebrow>
           <div className="min-w-0">
             {nowPlaying ? (
               <>
-                <p className="m-0 line-clamp-2 font-display text-[19px] leading-tight text-shadow-[0_6px_30px_var(--scene-text-glow)]">
+                <p className={`m-0 line-clamp-2 font-display text-[19px] leading-tight text-shadow-[0_6px_30px_var(--scene-text-glow)] ${clampWhenShort}`}>
                   {nowPlaying.title}
                 </p>
               </>

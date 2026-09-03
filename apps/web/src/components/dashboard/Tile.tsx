@@ -1,6 +1,6 @@
 import { type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 
-import { tileAreaClass, type TileKey } from "./dashboardLayout";
+import { slotAreaClass, type Slot } from "./dashboardLayout";
 
 /**
  * One glass tile on the bento. Tapping the card (anywhere that is not a
@@ -8,7 +8,7 @@ import { tileAreaClass, type TileKey } from "./dashboardLayout";
  * case where the card has taken the big slot and a corner control releases it.
  */
 export function Tile({
-  area,
+  slot,
   open = false,
   expanded = false,
   onToggle,
@@ -17,7 +17,7 @@ export function Tile({
   className = "",
   children,
 }: {
-  area: TileKey;
+  slot: Slot;
   open?: boolean;
   expanded?: boolean;
   onToggle: () => void;
@@ -47,14 +47,14 @@ export function Tile({
         tappable
           ? "cursor-pointer hover:border-rose-light/70 hover:bg-fg/8 focus-visible:border-rose-light focus-visible:outline-none active:scale-[.995]"
           : ""
-      } ${tileAreaClass[area]} ${className}`}
-      style={{ viewTransitionName: `dash-${area}` } as CSSProperties}
+      } ${slotAreaClass[slot]} ${className}`}
+      style={{ viewTransitionName: `dash-${slot}` } as CSSProperties}
       {...(tappable
         ? { role: "button", tabIndex: 0, onClick, onKeyDown, "aria-expanded": lit }
         : { "aria-expanded": true })}
     >
       {backdrop}
-      <div className="relative flex min-h-0 flex-1 flex-col">{children}</div>
+      <div className="relative flex min-h-0 flex-1 flex-col [container-type:size]">{children}</div>
       {expanded && onRelease ? (
         <button
           type="button"
@@ -90,21 +90,4 @@ export function Reveal({ children, className = "" }: { children: ReactNode; clas
       {children}
     </div>
   );
-}
-
-export function timeLabel(timestamp: number, timezone?: string) {
-  return new Intl.DateTimeFormat(undefined, {
-    ...(timezone ? { timeZone: timezone } : {}),
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(timestamp);
-}
-
-export function dayTimeLabel(timestamp: number, timezone?: string) {
-  return new Intl.DateTimeFormat(undefined, {
-    ...(timezone ? { timeZone: timezone } : {}),
-    weekday: "short",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(timestamp);
 }

@@ -51,6 +51,8 @@ export const permissionAreas: ReadonlyArray<{ value: PermissionArea; label: stri
 ];
 
 const exactPermissionNames: Readonly<Record<string, string>> = {
+  "benefit.read": "View benefits",
+  "benefit.manage": "Create and hand out benefits",
   "access.permissions.grant_any": "Grant any permission",
   "access.permissions.revoke_any": "Revoke any permission",
   "access.permissions.grant_scoped": "Let someone grant one scoped permission",
@@ -249,6 +251,7 @@ export function areaForPermission(value: string): PermissionArea {
     value.startsWith("scorecard.")
   )
     return "judging";
+  if (value.startsWith("benefit.")) return "participants";
   if (value.startsWith("synesthesia.")) return "music";
   if (value.startsWith("access.")) return "people";
   if (value.startsWith("participant.") || value.startsWith("team.") || value.startsWith("project."))

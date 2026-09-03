@@ -1,7 +1,10 @@
 import { useState } from "react";
 
 import { PortalButton } from "../portal/PortalButton";
-import { Reveal, Tile, TileEyebrow, dayTimeLabel } from "./Tile";
+import { dayTimeLabel } from "./format";
+import { Reveal, Tile, TileEyebrow } from "./Tile";
+import { hiddenWhenShort, tileBody } from "./tileClasses";
+import type { Slot } from "./dashboardLayout";
 
 export type CheckpointState = "locked" | "upcoming" | "open" | "late" | "closed" | "submitted";
 
@@ -39,7 +42,8 @@ function whenLine(checkpoint: CheckpointView, timezone: string) {
 }
 
 /** The updates tile: the checkpoint that matters now; a tap lists them all. */
-export function UpdatesTile({ model }: { model: UpdatesTileModel }) {
+export function UpdatesTile({ slot, model }: {
+  slot: Slot; model: UpdatesTileModel }) {
   const [open, setOpen] = useState(false);
   const { checkpoints, timezone } = model;
   const primary =
@@ -52,8 +56,8 @@ export function UpdatesTile({ model }: { model: UpdatesTileModel }) {
   const writable = primary !== null && (primary.state === "open" || primary.state === "late");
 
   return (
-    <Tile area="updates" open={open} onToggle={() => setOpen((value) => !value)}>
-      <div className="flex flex-1 flex-col justify-between gap-3 p-[18px]">
+    <Tile slot={slot} open={open} onToggle={() => setOpen((value) => !value)}>
+      <div className={tileBody}>
         <div className="flex items-baseline justify-between gap-3">
           <TileEyebrow>updates</TileEyebrow>
           {primary ? (
@@ -67,7 +71,7 @@ export function UpdatesTile({ model }: { model: UpdatesTileModel }) {
               : "Team updates open once your place is confirmed."}
           </p>
         ) : open ? (
-          <Reveal key="list" className="flex flex-col">
+          <Reveal key="list" className="flex min-h-0 flex-col overflow-y-auto [scrollbar-width:thin]">
             {checkpoints.map((checkpoint) => (
               <div
                 key={checkpoint.key}
@@ -97,11 +101,26 @@ export function UpdatesTile({ model }: { model: UpdatesTileModel }) {
             ) : null}
           </Reveal>
         ) : (
-          <Reveal key="primary" className="flex flex-col gap-1">
+          <Reveal key="primary" className="flex flex-col gap-1.5">
+            <span className="flex items-center gap-1.5" aria-hidden>
+              {checkpoints.map((checkpoint) => (
+                <span
+                  key={checkpoint.key}
+                  title={`${checkpoint.name} · ${stateLabels[checkpoint.state]}`}
+                  className={`block size-2 rounded-full border ${
+                    checkpoint.state === "submitted"
+                      ? "border-rose-light bg-rose-light"
+                      : checkpoint.state === "open" || checkpoint.state === "late"
+                        ? "border-rose-light bg-rose-light/35 shadow-[0_0_8px_var(--glow-rose)]"
+                        : "border-rose/50"
+                  }`}
+                />
+              ))}
+            </span>
             <p className="m-0 font-display text-[19px] leading-tight text-shadow-[0_6px_30px_var(--scene-text-glow)]">
               {primary!.name}
             </p>
-            <p className="m-0 text-[12.5px] text-fg/65">{whenLine(primary!, timezone)}</p>
+            <p className={`m-0 text-[12.5px] text-fg/65 ${hiddenWhenShort}`}>{whenLine(primary!, timezone)}</p>
           </Reveal>
         )}
       </div>

@@ -92,6 +92,9 @@ const ScoreRound = lazy(() =>
 const Synesthesia = lazy(() =>
   import("./screens/Synesthesia").then((module) => ({ default: module.Synesthesia })),
 );
+const Benefits = lazy(() =>
+  import("./screens/Benefits").then((module) => ({ default: module.Benefits })),
+);
 const ProjectCheckpointOverview = lazy(() =>
   import("./screens/ProjectCheckpointOverview").then((module) => ({
     default: module.ProjectCheckpointOverview,
@@ -250,6 +253,7 @@ function Operations({
   const canViewReviews = capabilities.reviews;
   const canViewScores = capabilities.scores;
   const canViewSynesthesia = capabilities.synesthesia;
+  const canViewBenefits = capabilities.benefits;
   const canViewHealth = capabilities.health;
   const canReadIntelligence = capabilities.intelligenceRead;
   const canGenerateIntelligence = capabilities.intelligenceGenerate;
@@ -344,6 +348,7 @@ function Operations({
         ...(canViewSynesthesia
           ? [{ label: "Music desk", to: "/synesthesia", icon: "music" as const }]
           : []),
+        ...(canViewBenefits ? [{ label: "Benefits", to: "/benefits", icon: "inbox" as const }] : []),
       ],
     },
     {
@@ -633,6 +638,7 @@ function Operations({
             />
           ) : null}
           {canViewSynesthesia ? <Route path="/synesthesia" element={<Synesthesia />} /> : null}
+          {canViewBenefits ? <Route path="/benefits" element={<Benefits />} /> : null}
           {canSetupAttendance ? (
             <Route
               path="/attendance-setup"

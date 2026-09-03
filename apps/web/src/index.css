@@ -961,3 +961,19 @@ p {
     #000 calc(var(--stack-size) / 2 + var(--stack-gap) + 0.5px)
   );
 }
+
+/* Dashboard cards adapt to their cell: below a comfortable height the
+   secondary line hides, the padding tightens, and titles keep one line. */
+.tile-body {
+  display: flex;
+  flex: 1 1 0%;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px;
+}
+@container (max-height: 118px) {
+  .tile-body { gap: 6px; padding: 12px; }
+  .tile-short-hidden { display: none; }
+  .tile-short-clamp { -webkit-line-clamp: 1; }
+}

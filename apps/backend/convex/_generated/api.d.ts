@@ -37,6 +37,7 @@ import type * as attendanceSecurity from "../attendanceSecurity.js";
 import type * as attendanceSessions from "../attendanceSessions.js";
 import type * as attendanceVenueCheckIns from "../attendanceVenueCheckIns.js";
 import type * as auth from "../auth.js";
+import type * as benefits from "../benefits.js";
 import type * as checkpointConfiguration from "../checkpointConfiguration.js";
 import type * as communicationsEmailAssetActions from "../communicationsEmailAssetActions.js";
 import type * as communicationsEmailAssets from "../communicationsEmailAssets.js";
@@ -314,6 +315,7 @@ declare const fullApi: ApiFromModules<{
   attendanceSessions: typeof attendanceSessions;
   attendanceVenueCheckIns: typeof attendanceVenueCheckIns;
   auth: typeof auth;
+  benefits: typeof benefits;
   checkpointConfiguration: typeof checkpointConfiguration;
   communicationsEmailAssetActions: typeof communicationsEmailAssetActions;
   communicationsEmailAssets: typeof communicationsEmailAssets;
