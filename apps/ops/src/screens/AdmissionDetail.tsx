@@ -30,6 +30,7 @@ import { eventSlug } from "../lib/config";
 import { readableError } from "../lib/errors";
 import { useOperationRunner } from "../lib/operations";
 import { useEstimatedServerNow } from "../lib/useEstimatedServerNow";
+import { useReviewAssignmentCounts } from "../lib/useReviewAssignmentCounts";
 import { Icon } from "../components/Icon";
 import { LoadingLabel, SkeletonCard, SkeletonList } from "../components/Skeleton";
 import { ParticipantDeliveryStatus } from "../components/ParticipantDeliveryStatus";
@@ -777,7 +778,7 @@ function ReviewForm({ detail }: { detail: AdmissionDetailData }) {
   const saveReview = useMutation(api.admissions.saveReview);
   const operations = useOperationRunner();
   const { capture } = useProductAnalytics();
-  const assignmentCounts = useQuery(api.admissions.myReviewAssignmentCounts, { eventSlug });
+  const assignmentCounts = useReviewAssignmentCounts();
   const ownReview = detail.humanReviews.find((review) => review.own) ?? null;
   const [editing, setEditing] = useState(ownReview === null);
   const [recommendation, setRecommendation] = useState<ApplicationDecision | null>(
