@@ -5,15 +5,6 @@ type VersionedState<Value> = {
   value: Value;
 };
 
-/**
- * Keeps local edits until the authoritative source version changes.
- *
- * Query results can update while an editor is open. A plain effect that copies
- * every result into local state either clobbers in-progress edits or needs a
- * second "loaded version" state. This hook makes the source version part of
- * the draft itself: renders immediately project a new authoritative value,
- * while later edits continue from that projected value.
- */
 export function useVersionedState<Value>(sourceKey: string, sourceValue: Value) {
   const [state, setState] = useState<VersionedState<Value>>(() => ({
     sourceKey,

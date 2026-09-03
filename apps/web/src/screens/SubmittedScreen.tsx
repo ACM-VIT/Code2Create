@@ -5,10 +5,12 @@ import { useEffect, useRef, useState, type SubmitEvent } from "react";
 import { Link } from "react-router-dom";
 
 import type { CurrentTeam, CurrentTeamMember, PublicState, SubmittedIntake } from "../types";
+import { DelayedBonsai } from "../components/portal/DelayedBonsai";
 import { EditingPresence } from "../components/EditingPresence";
 import { useEditingPresence } from "../hooks/useEditingPresence";
 import { eventSlug } from "../lib/config";
 import { readableError } from "../lib/errors";
+import { initialIdeaMaximumLength } from "../lib/ideaSubmission";
 import { useMutationAttempt } from "../lib/operations";
 import { PortalScene } from "../components/portal/PortalScene";
 import { PetalCard } from "../components/portal/PetalCard";
@@ -133,7 +135,13 @@ export function SubmittedScreen({
   onSignOut: () => void;
 }) {
   const intake = useQuery(api.intake.submitted, { eventSlug });
-  if (intake === undefined) return <p className="muted">Loading your application…</p>;
+  if (intake === undefined) {
+    return (
+      <PortalScene tree="left">
+        <DelayedBonsai />
+      </PortalScene>
+    );
+  }
   if (intake === null) {
     return (
       <p className="notice notice-error" role="alert">
@@ -753,6 +761,7 @@ function ProposalSummary({
   };
 
   const ideaLength = draft.initialIdea.trim().length;
+  const ideaMaximumLength = initialIdeaMaximumLength(intake.editRules.initialIdeaMaxLength);
   const invalidResponse = draft.responses.some(
     (response) =>
       response.answer.trim().length < intake.editRules.followUpAnswerMinLength ||
@@ -760,7 +769,7 @@ function ProposalSummary({
   );
   const invalidIdea =
     ideaLength < intake.editRules.initialIdeaMinLength ||
-    ideaLength > intake.editRules.initialIdeaMaxLength;
+    draft.initialIdea.length > ideaMaximumLength;
   const invalidAdditionalInformation =
     draft.additionalInformation.trim().length > intake.editRules.additionalInformationMaxLength;
   const hasLocalChanges =
@@ -882,7 +891,7 @@ function ProposalSummary({
                     required
                     rows={5}
                     minLength={intake.editRules.initialIdeaMinLength}
-                    maxLength={intake.editRules.initialIdeaMaxLength}
+                    maxLength={ideaMaximumLength}
                     value={draft.initialIdea}
                     disabled={locked}
                     onChange={(event) => {
@@ -892,6 +901,14 @@ function ProposalSummary({
                       markEditing("proposal_revision");
                     }}
                   />
+                  <p className="mt-1 text-right font-mono text-[11px] tracking-[.04em] text-fg/45">
+                    {draft.initialIdea.length} / {ideaMaximumLength}
+                  </p>
+                  {draft.initialIdea.length > ideaMaximumLength ? (
+                    <PortalError
+                      message={`Keep the idea within ${ideaMaximumLength} characters.`}
+                    />
+                  ) : null}
                 </>
               ) : (
                 <>

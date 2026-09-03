@@ -5,6 +5,7 @@ import {
   vStreamArgs,
   createThread,
 } from "@convex-dev/agent";
+import { participantProfileCodeConfiguration } from "@code2create/domain";
 import { MINUTE, RateLimiter } from "@convex-dev/rate-limiter";
 import { paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
@@ -23,7 +24,11 @@ import {
   participantAssistantPhaseLabel,
   participantAssistantSuggestions,
 } from "./lib/participantAssistant";
-import { loadPublishedParticipantPolicy } from "./lib/participantPolicy";
+import {
+  isProfileCompleteForPolicy,
+  loadPublishedParticipantPolicy,
+  participantPolicyAccepted,
+} from "./lib/participantPolicy";
 import { loadPublishedPhaseSchedule } from "./lib/phaseSchedule";
 import { loadPublishedProjectCheckpointPlan } from "./lib/projectCheckpointPlan";
 import { acceptedTeamCommunicationsForTeam } from "./participantCommunications";
@@ -724,6 +729,8 @@ async function hasTeamPermission(
   teamId: Id<"teams">,
   permissionKey:
     | "team.read"
+    | "team.leave"
+    | "team.members.manage"
     | "team.project.write"
     | "application.submit"
     | "project.checkpoint.read"
@@ -759,18 +766,47 @@ async function buildEventContext(
     requirePublishedIntakePolicy(ctx, event),
   ]);
 
-  const activeMember =
+  const [activeMember, profileReadGrantIds, currentPolicyAccepted, githubStarCompletion, githubAuthorization] =
     membership === null
-      ? null
-      : await ctx.db
-          .query("teamMembers")
-          .withIndex("by_event_membership_status", (index) =>
-            index
-              .eq("eventId", event._id)
-              .eq("membershipId", membership._id)
-              .eq("status", "active"),
-          )
-          .unique();
+      ? [null, [], false, null, null]
+      : await Promise.all([
+          ctx.db
+            .query("teamMembers")
+            .withIndex("by_event_membership_status", (index) =>
+              index
+                .eq("eventId", event._id)
+                .eq("membershipId", membership._id)
+                .eq("status", "active"),
+            )
+            .unique(),
+          matchingPermissionGrantIds(ctx, {
+            eventId: event._id,
+            eventAccessSubjectId: subject._id,
+            permissionKey: "participant.profile.read",
+            scopeType: "self",
+            scopeId: membership._id,
+          }),
+          participantPolicyAccepted(ctx, membership, participantPolicy.policy),
+          ctx.db
+            .query("githubStarCompletions")
+            .withIndex("by_event_membership", (index) =>
+              index.eq("eventId", event._id).eq("membershipId", membership._id),
+            )
+            .unique(),
+          ctx.db
+            .query("githubStarAuthorizations")
+            .withIndex("by_event_membership", (index) =>
+              index.eq("eventId", event._id).eq("membershipId", membership._id),
+            )
+            .unique(),
+        ]);
+  const profile =
+    membership !== null && profileReadGrantIds.length > 0
+      ? await ctx.db
+          .query("participantProfiles")
+          .withIndex("by_membership", (index) => index.eq("membershipId", membership._id))
+          .unique()
+      : null;
   const rawTeam = activeMember === null ? null : await ctx.db.get(activeMember.teamId);
   const team = rawTeam !== null && rawTeam.eventId === event._id ? rawTeam : null;
   const canReadTeam =
@@ -852,15 +888,48 @@ async function buildEventContext(
     membership === null
       ? event.applicationsCloseAt
       : applicationsCloseAtFor(event, membership.participantClass);
-  const [canWriteDraft, hasApplicationSubmitPermission] =
+  const [canWriteDraft, hasApplicationSubmitPermission, canLeaveTeam, canManageMembers] =
     visibleTeam === null
-      ? [false, false]
+      ? [false, false, false, false]
       : await Promise.all([
           hasTeamPermission(ctx, event._id, subject._id, visibleTeam._id, "team.project.write"),
           hasTeamPermission(ctx, event._id, subject._id, visibleTeam._id, "application.submit"),
+          hasTeamPermission(ctx, event._id, subject._id, visibleTeam._id, "team.leave"),
+          hasTeamPermission(ctx, event._id, subject._id, visibleTeam._id, "team.members.manage"),
         ]);
   const beforeApplicationDeadline = generatedAt < applicationsCloseAt;
   const draftingIsOpen = event.status === "registration_open" && beforeApplicationDeadline;
+  const submittedRosterCanChange =
+    application === null || application.state === "submitted" || application.state === "under_review";
+  const departureKeepsMinimumSize =
+    application === null ||
+    visibleTeam === null ||
+    visibleTeam.activeMemberCount - 1 >= participantPolicy.normalized.teamMinimumSize;
+  const leadMustTransferBeforeLeaving =
+    activeMember?.role === "lead" && (visibleTeam?.activeMemberCount ?? 0) > 1;
+  const hasRemovableMember = teamRoster.some((member) => member.role === "member");
+  const leaveTeamBlocker = !draftingIsOpen
+    ? ("applications_closed" as const)
+    : !canLeaveTeam
+      ? ("not_available" as const)
+      : !submittedRosterCanChange
+        ? ("application_finalized" as const)
+        : !departureKeepsMinimumSize
+          ? ("submitted_team_minimum_size" as const)
+          : leadMustTransferBeforeLeaving
+            ? ("transfer_leadership_first" as const)
+            : null;
+  const removeMemberBlocker = !draftingIsOpen
+    ? ("applications_closed" as const)
+    : !canManageMembers
+      ? ("not_available" as const)
+      : !hasRemovableMember
+        ? ("no_removable_member" as const)
+      : !submittedRosterCanChange
+          ? ("application_finalized" as const)
+          : !departureKeepsMinimumSize
+            ? ("submitted_team_minimum_size" as const)
+            : null;
   const canEditProposal =
     application === null
       ? draftingIsOpen && visibleTeam !== null && !visibleTeam.membershipLocked && canWriteDraft
@@ -931,6 +1000,16 @@ async function buildEventContext(
   const commonContext = {
     createdAt: formatEventTime(generatedAt, event.timezone),
     currentHelpScope: participantAssistantPhaseLabel(phase),
+    organizer: {
+      name: "ACM-VIT",
+      relationship: "Organizing team for Code2Create",
+      email: "acm@vit.ac.in",
+      links: {
+        instagram: "https://www.instagram.com/acmvit",
+        website: "https://acmvit.in",
+        github: "https://github.com/ACM-VIT",
+      },
+    },
     event: {
       name: event.name,
       status: event.status,
@@ -950,6 +1029,57 @@ async function buildEventContext(
               participantClass: membership.participantClass,
               eligibilityStatus: membership.eligibilityStatus,
               onboardingStatus: membership.onboardingStatus,
+            },
+      onboarding:
+        membership === null
+          ? null
+          : {
+              policy: {
+                accepted: currentPolicyAccepted,
+                label: participantPolicy.normalized.label,
+                profileNotice: participantPolicy.normalized.profileNotice,
+                proposalAiNotice: participantPolicy.normalized.projectTextNotice,
+                privacyNoticeUrl: participantPolicy.normalized.privacyNoticeUrl,
+                finalSubmissionWarning: participantPolicy.normalized.finalSubmissionWarning,
+              },
+              profile:
+                profileReadGrantIds.length === 0
+                  ? { visible: false }
+                  : {
+                      visible: true,
+                      exists: profile !== null,
+                      detailsComplete:
+                        profile !== null &&
+                        isProfileCompleteForPolicy(
+                          profile,
+                          membership,
+                          participantPolicy.policy,
+                        ),
+                      phoneVerificationRequired:
+                        participantProfileCodeConfiguration.phoneVerificationEnabled,
+                      phoneVerified:
+                        profile !== null &&
+                        (!participantProfileCodeConfiguration.phoneVerificationEnabled ||
+                          (profile.phoneVerifiedAt !== undefined && profile.phoneVerifiedAt > 0)),
+                    },
+              github:
+                githubStarCompletion !== null
+                  ? {
+                      state: "complete" as const,
+                      login: githubStarCompletion.githubLogin,
+                      completedAt: formatEventTime(
+                        githubStarCompletion.completedAt,
+                        event.timezone,
+                      ),
+                    }
+                  : githubAuthorization !== null &&
+                      (githubAuthorization.status === "active" ||
+                        githubAuthorization.status === "starring")
+                    ? {
+                        state: "connected" as const,
+                        login: githubAuthorization.githubLogin,
+                      }
+                    : { state: "not_connected" as const },
             },
     },
     ideaSubmission: {
@@ -1009,6 +1139,10 @@ async function buildEventContext(
                   draftingIsOpen &&
                   activeMember?.role === "lead" &&
                   hasApplicationSubmitPermission,
+                canLeaveTeam: leaveTeamBlocker === null,
+                leaveTeamBlocker,
+                canRemoveMember: removeMemberBlocker === null,
+                removeMemberBlocker,
               },
               proposal,
               application:

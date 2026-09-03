@@ -157,6 +157,7 @@ import type * as lib_outboundCalls from "../lib/outboundCalls.js";
 import type * as lib_participantAssistant from "../lib/participantAssistant.js";
 import type * as lib_participantEligibility from "../lib/participantEligibility.js";
 import type * as lib_participantNotificationDelivery from "../lib/participantNotificationDelivery.js";
+import type * as lib_participantNovelty from "../lib/participantNovelty.js";
 import type * as lib_participantPolicy from "../lib/participantPolicy.js";
 import type * as lib_permissionBundleEntries from "../lib/permissionBundleEntries.js";
 import type * as lib_permissionCatalog from "../lib/permissionCatalog.js";
@@ -431,6 +432,7 @@ declare const fullApi: ApiFromModules<{
   "lib/participantAssistant": typeof lib_participantAssistant;
   "lib/participantEligibility": typeof lib_participantEligibility;
   "lib/participantNotificationDelivery": typeof lib_participantNotificationDelivery;
+  "lib/participantNovelty": typeof lib_participantNovelty;
   "lib/participantPolicy": typeof lib_participantPolicy;
   "lib/permissionBundleEntries": typeof lib_permissionBundleEntries;
   "lib/permissionCatalog": typeof lib_permissionCatalog;
