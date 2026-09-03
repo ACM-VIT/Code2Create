@@ -18,6 +18,9 @@ type SourceRef = Infer<typeof sourceRef>;
 const recommendationContext = v.object({
   recommendationId: v.id("admissionAIRecommendations"),
   applicationId: v.id("applications"),
+  eventId: v.id("events"),
+  teamId: v.id("teams"),
+  contentVersion: v.number(),
   sourceInputFingerprint: v.string(),
   modelId: v.string(),
   promptVersion: v.string(),
@@ -153,6 +156,9 @@ export const beginRecommendation = internalMutation({
     return {
       recommendationId: recommendation._id,
       applicationId: application._id,
+      eventId: application.eventId,
+      teamId: application.teamId,
+      contentVersion: application.contentVersion,
       sourceInputFingerprint: fingerprint,
       modelId: modelConfig.modelId,
       promptVersion: modelConfig.promptVersion,

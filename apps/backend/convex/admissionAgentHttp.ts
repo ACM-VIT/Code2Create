@@ -9,6 +9,7 @@ import { z } from "zod";
 
 import { internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
+import { searchSimilarIdeas } from "./admissionIdeaSimilarity";
 import { HttpBodyTooLargeError, readBoundedRequestText } from "./lib/boundedHttpBody";
 import { requireIntelligenceHmacSecret } from "./lib/intelligenceServiceConfiguration";
 import { redactProjectText } from "./lib/projectText";
@@ -21,6 +22,20 @@ const readRequestSchema = z
     applicationId: z.string().min(1).max(200),
     eventId: z.string().min(1).max(200),
     recommendationId: z.string().min(1).max(200).optional(),
+    operationId: z.string().min(8).max(240),
+  })
+  .strict();
+
+const similarityRequestSchema = z
+  .object({
+    protocolVersion: z.literal(operationsIntelligenceProtocolVersion),
+    operation: z.literal("find_similar_ideas"),
+    recommendationId: z.string().min(1).max(200),
+    applicationId: z.string().min(1).max(200),
+    eventId: z.string().min(1).max(200),
+    contentVersion: z.number().int().positive(),
+    sourceInputFingerprint: z.string().min(1).max(240),
+    sourceRefs: z.array(z.string().min(1).max(80)).min(1).max(4),
     operationId: z.string().min(8).max(240),
   })
   .strict();
@@ -164,6 +179,29 @@ export const ideaIntelligenceReadEndpoint = httpAction(async (ctx, request) => {
     ],
     criteria: projection.criteria,
   };
+  return Response.json(result, { status: 200 });
+});
+
+export const ideaIntelligenceSimilarityEndpoint = httpAction(async (ctx, request) => {
+  const body = await verifiedBody(
+    request,
+    ideaIntelligenceReadSignatureContext,
+    "INTELLIGENCE_READ_SECRET",
+    16 * 1_024,
+  );
+  if (body.response) return body.response;
+  const parsed = similarityRequestSchema.safeParse(body.json);
+  if (!parsed.success) return Response.json({ error: "invalid_request" }, { status: 422 });
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
+  if (!apiKey) return Response.json({ error: "service_unavailable" }, { status: 503 });
+  const result = await searchSimilarIdeas(ctx, {
+    request: parsed.data,
+    apiKey,
+  });
+  if (result === null) return Response.json({ error: "authority_revoked" }, { status: 409 });
+  if (result === "invalid_sources") {
+    return Response.json({ error: "invalid_source_refs" }, { status: 422 });
+  }
   return Response.json(result, { status: 200 });
 });
 

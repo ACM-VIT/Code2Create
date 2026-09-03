@@ -1,4 +1,8 @@
-import { applicationDecisions, operationsIntelligenceProtocolVersion } from "@code2create/domain";
+import {
+  applicationDecisions,
+  ideaIntelligenceSimilarityBands,
+  operationsIntelligenceProtocolVersion,
+} from "@code2create/domain";
 import * as v from "valibot";
 
 const bounded = (minimum: number, maximum: number) =>
@@ -57,6 +61,31 @@ export const ideaIntelligenceProjectionSchema = v.strictObject({
   criteria: v.pipe(v.array(criterionSchema), v.minLength(1), v.maxLength(12)),
 });
 
+const similarityMatchSchema = v.strictObject({
+  comparisonRef: bounded(1, 80),
+  similarity: v.picklist(ideaIntelligenceSimilarityBands),
+  summary: bounded(1, 800),
+});
+
+const historicalSimilarityMatchSchema = v.strictObject({
+  ...similarityMatchSchema.entries,
+  themeLabel: bounded(1, 80),
+  sourceYear: v.pipe(v.number(), v.integer(), v.minValue(2000), v.maxValue(2100)),
+});
+
+export const ideaIntelligenceSimilarityResultSchema = v.strictObject({
+  protocolVersion: v.literal(operationsIntelligenceProtocolVersion),
+  recommendationId: identifier,
+  applicationId: identifier,
+  eventId: identifier,
+  contentVersion: v.pipe(v.number(), v.integer(), v.minValue(1)),
+  sourceInputFingerprint: bounded(1, 240),
+  sourceRefs: v.pipe(v.array(bounded(1, 80)), v.minLength(1), v.maxLength(4)),
+  historicalProjectCount: v.pipe(v.number(), v.integer(), v.minValue(0)),
+  historicalMatches: v.pipe(v.array(historicalSimilarityMatchSchema), v.maxLength(6)),
+  currentSubmissionMatches: v.pipe(v.array(similarityMatchSchema), v.maxLength(6)),
+});
+
 const sourceRefsSchema = v.pipe(v.array(bounded(1, 80)), v.minLength(1), v.maxLength(2));
 
 export const ideaIntelligenceAnalysisSchema = v.strictObject({
@@ -94,4 +123,7 @@ export const ideaIntelligenceAnalysisDataSchema = v.strictObject({
 
 export type IdeaIntelligenceInitialData = v.InferOutput<typeof ideaIntelligenceInitialDataSchema>;
 export type IdeaIntelligenceProjection = v.InferOutput<typeof ideaIntelligenceProjectionSchema>;
+export type IdeaIntelligenceSimilarityResult = v.InferOutput<
+  typeof ideaIntelligenceSimilarityResultSchema
+>;
 export type IdeaIntelligenceAnalysis = v.InferOutput<typeof ideaIntelligenceAnalysisSchema>;

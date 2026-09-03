@@ -304,6 +304,9 @@ test("the idea agent may iterate until it publishes a valid assessment", () => {
   assert.match(systemPrompt, /as many reasoning and tool turns as needed/u);
   assert.match(systemPrompt, /correct it and retry/u);
   assert.doesNotMatch(systemPrompt, /exactly once|at most \d+ .*calls?/u);
+  assert.match(analysisPrompt, /Before publishing, call find_similar_ideas/u);
+  assert.match(analysisPrompt, /other currently submitted ideas/u);
+  assert.match(analysisPrompt, /Similarity bands are retrieval hints, not proof/u);
   assert.match(analysisPrompt, /Use search_public_web with focused concept terms/u);
   assert.match(analysisPrompt, /Formulaic-language stress test/u);
   assert.match(analysisPrompt, /Overused em dashes or semicolons/u);
@@ -313,5 +316,6 @@ test("the idea agent may iterate until it publishes a valid assessment", () => {
   assert.match(analysisPrompt, /Waitlist only when exactly one criterion partly meets/u);
   assert.match(analysisPrompt, /Do not use waitlist as a safe default/u);
   assert.ok(ideaAgent.tools.includes("search_public_web"));
+  assert.ok(ideaAgent.tools.includes("find_similar_ideas"));
   assert.ok(ideaAgent.tools.includes("publish_idea_analysis"));
 });

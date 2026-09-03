@@ -7,6 +7,9 @@ export const ideaIntelligenceCallbackSignatureContext = "code2create.idea-intell
 export const ideaIntelligenceSubmissionTimeoutMs = 90_000;
 export const ideaIntelligenceRecoveryLeaseMs = 3 * 60 * 1_000;
 
+export const ideaIntelligenceSimilarityBands = ["moderate", "high", "very_high"] as const;
+export type IdeaIntelligenceSimilarityBand = (typeof ideaIntelligenceSimilarityBands)[number];
+
 export type IdeaIntelligenceDispatchRequest = {
   protocolVersion: typeof operationsIntelligenceProtocolVersion;
   recommendationId: string;
@@ -54,6 +57,42 @@ export type IdeaIntelligenceProjection = {
   overallParticipantCapacity: number;
   sources: IdeaIntelligenceSource[];
   criteria: IdeaIntelligenceCriterion[];
+};
+
+export type IdeaIntelligenceSimilarityRequest = {
+  protocolVersion: typeof operationsIntelligenceProtocolVersion;
+  operation: "find_similar_ideas";
+  recommendationId: string;
+  applicationId: string;
+  eventId: string;
+  contentVersion: number;
+  sourceInputFingerprint: string;
+  sourceRefs: string[];
+  operationId: string;
+};
+
+export type IdeaIntelligenceSimilarityMatch = {
+  comparisonRef: string;
+  similarity: IdeaIntelligenceSimilarityBand;
+  summary: string;
+};
+
+export type IdeaIntelligenceHistoricalSimilarityMatch = IdeaIntelligenceSimilarityMatch & {
+  themeLabel: string;
+  sourceYear: number;
+};
+
+export type IdeaIntelligenceSimilarityResult = {
+  protocolVersion: typeof operationsIntelligenceProtocolVersion;
+  recommendationId: string;
+  applicationId: string;
+  eventId: string;
+  contentVersion: number;
+  sourceInputFingerprint: string;
+  sourceRefs: string[];
+  historicalProjectCount: number;
+  historicalMatches: IdeaIntelligenceHistoricalSimilarityMatch[];
+  currentSubmissionMatches: IdeaIntelligenceSimilarityMatch[];
 };
 
 export type IdeaIntelligenceCriterionAssessment = {
