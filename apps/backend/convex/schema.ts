@@ -271,6 +271,7 @@ export default defineSchema({
     teamMinimumSize: v.number(),
     teamMaximumSize: v.number(),
     mixedParticipantClassesAllowed: v.boolean(),
+    phoneVerificationEnabled: v.boolean(),
     vitHostelResidenceCatalog: v.array(
       v.object({
         stableKey: v.string(),
@@ -4268,13 +4269,13 @@ export default defineSchema({
     staleAt: v.number(),
   }).index("by_event", ["eventId"]),
 
-  /** One lease serializes the background jobs that update shared operations state. */
+  /** Each background job is single-owner without making unrelated jobs contend on one row. */
   operationsBackgroundLeases: defineTable({
     key: v.literal("operations_background"),
     holder: v.union(v.literal("health_refresh"), v.literal("autonomy_tick")),
     leaseId: v.string(),
     leaseExpiresAt: v.number(),
-  }).index("by_key", ["key"]),
+  }).index("by_key_and_holder", ["key", "holder"]),
 
   /** Append-only, redacted observations that form the intelligence world model. */
   operationsIntelligenceFacts: defineTable({

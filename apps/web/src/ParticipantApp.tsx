@@ -333,6 +333,24 @@ export function ParticipantApp({
   }
 
   // ---- f1-f6 · home, then the writing flow, full-bleed on the night scene --
+  if (
+    intakeStatus.revisionInProgress &&
+    team.currentRole === "lead" &&
+    (location.pathname === "/" || location.pathname === "/write")
+  ) {
+    return (
+      <Suspense fallback={<PortalLoading />}>
+        <IntakeScreen
+          team={team}
+          members={teamMembers.results}
+          teamEditable={teamEditable}
+          serverNow={publicState.serverNow}
+          submissionInProgress={false}
+          onSignOut={signOut}
+        />
+      </Suspense>
+    );
+  }
   if (intakeStatus.applicationState === null && location.pathname === "/") {
     return (
       <HomeScreen

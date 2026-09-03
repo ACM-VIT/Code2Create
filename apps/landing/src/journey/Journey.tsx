@@ -373,10 +373,9 @@ export default function Journey({ petalsRef }: JourneyProps) {
 
       gsap.set(ridges.mid, { yPercent: 120 });
       gsap.set(q(".lantern__label"), { autoAlpha: 0 });
-      /* The title begins below the stage. Because the sponsor layer sits
-         behind the near ridge, its scroll-linked rise emerges from the hills
-         instead of fading into an arbitrary point in the sky. */
-      gsap.set(q(".sponsors__title"), { autoAlpha: 0, y: "36svh" });
+      /* The title rides in from above with the clearing sky and settles into
+         the open band at its foot before the first sponsor shell launches. */
+      gsap.set(q(".sponsors__title"), { autoAlpha: 0, y: "-100svh" });
       gsap.set(panels, { autoAlpha: 0, xPercent: 8 });
       gsap.set(q(".bonsai"), { xPercent: 135, autoAlpha: 0 });
       gsap.set(q(".branches"), { autoAlpha: 1 });
@@ -544,32 +543,30 @@ export default function Journey({ petalsRef }: JourneyProps) {
 
       tl.to(q(".lantern__label"), { autoAlpha: 1, duration: 3, stagger: 0.8 }, 86);
 
-      /* H — the wind takes the lanterns away. The hills HOLD: the sponsor
-         volley fires from behind them, so they stay for one more act. */
+      /* H — the wind takes the lanterns away while every ridge drops below
+         the stage. The sponsor act begins only after the sky is fully clear. */
       tl.to(q(".lantern__label"), { autoAlpha: 0, duration: 2.5 }, 94)
         .to(q(".wind"), { autoAlpha: 0, duration: 4 }, 96)
         .to(
           lanterns,
-          { x: "86vw", y: "-52vh", autoAlpha: 0, duration: 13, stagger: 0.7, ease: "power2.in" },
+          { x: "86vw", y: "-52vh", autoAlpha: 0, duration: 7, stagger: 0.5, ease: "power2.in" },
           95,
-        );
+        )
+        .to([ridges.near, ridges.mid], { yPercent: 130, duration: 8, ease: "power2.inOut" }, 95)
+        .to(ridges.far, { yPercent: 130, duration: 7.5, ease: "power2.inOut" }, 95.5);
 
-      /* H2 — the sponsor volley. The heading climbs from below the foreground
-         ridge, and every firecracker phase is scrubbed by this same timeline.
-         Stop the wheel and the shell stops; reverse it and the shell rewinds. */
-      tl.to(q(".sponsors__title"), { autoAlpha: 1, y: 0, duration: 7, ease: "power3.out" }, 103).to(
+      /* H2 — the title travels with the descending background and reaches the
+         bottom of the cleared sky before the sponsor volley begins. Every
+         firecracker phase is scrubbed by this timeline: stop the wheel and
+         the shell stops; reverse it and the shell rewinds. */
+      tl.to(q(".sponsors__title"), { autoAlpha: 1, y: 0, duration: 8, ease: "power2.inOut" }, 95).to(
         q(".sponsors__title"),
-        { autoAlpha: 0, y: "-5svh", duration: 3, ease: "power2.in" },
-        139,
+        { autoAlpha: 0, y: "18svh", duration: 8, ease: "power2.in" },
+        142,
       );
 
-      /* H3 — only now, with the volley spent, do the hills leave the frame
-         entirely; nothing of them should be visible once the bonsai is on. */
-      tl.to([ridges.near, ridges.mid], { yPercent: 130, duration: 9, ease: "power2.inOut" }, 141)
-        .to(ridges.far, { yPercent: 130, duration: 9, ease: "power2.inOut" }, 142)
-        /* With the hills gone the rose in the sky would sit exposed at the
-           bottom of the frame and read as a section edge; wash it out. */
-        .to(q(".sky-dim"), { autoAlpha: 1, duration: 10, ease: "power1.inOut" }, 141);
+      /* H3 — wash the clear sponsor sky into the ink of the timeline act. */
+      tl.to(q(".sky-dim"), { autoAlpha: 1, duration: 10, ease: "power1.inOut" }, 141);
 
       /* I — the bonsai slides in from the right and blooms inside a swirl of
          petals that crosses the whole frame. */
@@ -738,8 +735,8 @@ export default function Journey({ petalsRef }: JourneyProps) {
       };
 
       /* Firework progress comes only from scroll. Past its own span a sponsor
-         holds in its resolved state until the act exits; crossing backward
-         plays the exact same positions in reverse. */
+         holds in its resolved state, then every particle and logo falls with
+         the departing hills; crossing backward rewinds those exact positions. */
       const sponsorCue = (progress: number) => {
         const api = fireworksRef.current;
         if (!api) return;
@@ -807,8 +804,8 @@ export default function Journey({ petalsRef }: JourneyProps) {
        * scroll: the page's own smooth behavior would turn the wall to rubber.
        */
       /* The scroll timeline carries a weighted playhead over the unchanged
-         choreography. This doubles the wheel distance only for About and
-         Sponsors while preserving every animation cue's authored timing. */
+         choreography. This doubles the wheel distance for About and the
+         sponsor reveals, while the sponsor exit returns to normal speed. */
       tl.pause(0);
       const playhead = { at: 0 };
       const syncMaster = () => tl.time(playhead.at);

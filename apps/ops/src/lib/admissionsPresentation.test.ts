@@ -132,10 +132,30 @@ test("the queue opens with one sentence about where applications are", () => {
 test("short tags replace the AI sentences in the list", () => {
   assert.equal(aiStateTag(undefined), null);
   assert.equal(aiStateTag("disabled"), null);
-  assert.equal(aiStateTag("running"), "AI preparing");
-  assert.equal(aiStateTag("succeeded"), "AI ready");
-  assert.equal(aiStateTag("stale"), "AI out of date");
-  assert.equal(aiStateTag("failed"), "AI unavailable");
+  assert.deepEqual(aiStateTag("running"), {
+    text: "Idea agent · Preparing",
+    tone: "neutral",
+  });
+  assert.deepEqual(aiStateTag("succeeded", "accept"), {
+    text: "Idea agent · Accept",
+    tone: "accept",
+  });
+  assert.deepEqual(aiStateTag("succeeded", "waitlist"), {
+    text: "Idea agent · Waitlist",
+    tone: "waitlist",
+  });
+  assert.deepEqual(aiStateTag("succeeded", "decline"), {
+    text: "Idea agent · Do not select",
+    tone: "decline",
+  });
+  assert.deepEqual(aiStateTag("stale"), {
+    text: "Idea agent · Out of date",
+    tone: "neutral",
+  });
+  assert.deepEqual(aiStateTag("failed"), {
+    text: "Idea agent · Unavailable",
+    tone: "neutral",
+  });
 });
 
 test("a reviewer sees what they said and where to go next", () => {

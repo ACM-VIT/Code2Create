@@ -701,6 +701,7 @@ async function seedCorrectionFixture(backend: BackendTest) {
       teamMinimumSize: 1,
       teamMaximumSize: 4,
       mixedParticipantClassesAllowed: false,
+      phoneVerificationEnabled: false,
       vitHostelResidenceCatalog: defaultVitHostelResidenceCatalog,
       profileNotice: "Correction fixture profile notice",
       projectTextNotice: "Correction fixture project notice",

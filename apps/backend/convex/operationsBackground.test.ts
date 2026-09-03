@@ -7,11 +7,12 @@ import schema from "./schema";
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
 
 describe("operations background lease", () => {
-  test("serializes health refresh and autonomy work and permits expiry recovery", async () => {
+  test("serializes each job independently and permits expiry recovery", async () => {
     const backend = convexTest(schema, modules);
 
     await expect(
       backend.mutation(internal.operationsBackground.renew, {
+        holder: "autonomy_tick",
         leaseId: "autonomy-2",
         now: 1_250,
         leaseDurationMs: 100,
@@ -32,12 +33,26 @@ describe("operations background lease", () => {
         now: 1_050,
         leaseDurationMs: 100,
       }),
+    ).resolves.toBe(true);
+    await expect(
+      backend.mutation(internal.operationsBackground.claim, {
+        holder: "health_refresh",
+        leaseId: "health-2",
+        now: 1_050,
+        leaseDurationMs: 100,
+      }),
     ).resolves.toBe(false);
     await expect(
-      backend.mutation(internal.operationsBackground.release, { leaseId: "not-the-owner" }),
+      backend.mutation(internal.operationsBackground.release, {
+        holder: "health_refresh",
+        leaseId: "not-the-owner",
+      }),
     ).resolves.toBe(false);
     await expect(
-      backend.mutation(internal.operationsBackground.release, { leaseId: "health-1" }),
+      backend.mutation(internal.operationsBackground.release, {
+        holder: "health_refresh",
+        leaseId: "health-1",
+      }),
     ).resolves.toBe(true);
 
     await expect(
@@ -47,10 +62,19 @@ describe("operations background lease", () => {
         now: 1_060,
         leaseDurationMs: 100,
       }),
-    ).resolves.toBe(true);
+    ).resolves.toBe(false);
     await expect(
       backend.mutation(internal.operationsBackground.renew, {
-        leaseId: "autonomy-2",
+        holder: "autonomy_tick",
+        leaseId: "autonomy-1",
+        now: 1_140,
+        leaseDurationMs: 100,
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      backend.mutation(internal.operationsBackground.claim, {
+        holder: "health_refresh",
+        leaseId: "health-2",
         now: 1_150,
         leaseDurationMs: 100,
       }),
@@ -58,22 +82,15 @@ describe("operations background lease", () => {
     await expect(
       backend.mutation(internal.operationsBackground.claim, {
         holder: "health_refresh",
-        leaseId: "health-2",
-        now: 1_160,
-        leaseDurationMs: 100,
-      }),
-    ).resolves.toBe(false);
-    await expect(
-      backend.mutation(internal.operationsBackground.claim, {
-        holder: "health_refresh",
-        leaseId: "health-2",
+        leaseId: "health-3",
         now: 1_250,
         leaseDurationMs: 100,
       }),
     ).resolves.toBe(true);
     await expect(
       backend.mutation(internal.operationsBackground.renew, {
-        leaseId: "autonomy-2",
+        holder: "health_refresh",
+        leaseId: "health-2",
         now: 1_250,
         leaseDurationMs: 100,
       }),

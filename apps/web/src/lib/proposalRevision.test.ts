@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   proposalRevisionBase,
   proposalRevisionBaseFingerprint,
+  proposalRevisionRegeneratesQuestions,
   recoverProposalRevision,
 } from "./proposalRevision.ts";
 
@@ -15,6 +16,54 @@ test("operational application updates do not create proposal conflicts", () => {
   const after = proposalRevisionBase(afterApplication, project);
 
   assert.equal(proposalRevisionBaseFingerprint(before), proposalRevisionBaseFingerprint(after));
+});
+
+test("idea and upstream answer changes regenerate only when later questions depend on them", () => {
+  const savedResponses = [
+    { ordinal: 1, answer: "First fixed answer" },
+    { ordinal: 2, answer: "Second fixed answer" },
+    { ordinal: 3, answer: "First generated answer" },
+    { ordinal: 4, answer: "Last generated answer" },
+  ];
+  const unchangedResponses = savedResponses.map(({ answer }) => ({ answer }));
+
+  assert.equal(
+    proposalRevisionRegeneratesQuestions({
+      savedIdea: "Original idea",
+      nextIdea: "Meaningfully changed idea",
+      savedResponses,
+      nextResponses: unchangedResponses,
+      deterministicFollowUpCount: 2,
+      maximumFollowUpCount: 4,
+    }),
+    true,
+  );
+  assert.equal(
+    proposalRevisionRegeneratesQuestions({
+      savedIdea: "Original idea",
+      nextIdea: "Original idea",
+      savedResponses,
+      nextResponses: savedResponses.map((response) => ({
+        answer: response.ordinal === 3 ? "Changed generated answer" : response.answer,
+      })),
+      deterministicFollowUpCount: 2,
+      maximumFollowUpCount: 4,
+    }),
+    true,
+  );
+  assert.equal(
+    proposalRevisionRegeneratesQuestions({
+      savedIdea: "Original idea",
+      nextIdea: " Original idea\r\n",
+      savedResponses,
+      nextResponses: savedResponses.map((response) => ({
+        answer: response.ordinal === 4 ? "Changed final answer" : response.answer,
+      })),
+      deterministicFollowUpCount: 2,
+      maximumFollowUpCount: 4,
+    }),
+    false,
+  );
 });
 
 test("content and project changes still create proposal conflicts", () => {
