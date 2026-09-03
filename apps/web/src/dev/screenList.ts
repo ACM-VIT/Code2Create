@@ -24,6 +24,7 @@ export const GALLERY_SCREENS = [
   { id: "f7b", label: "Submission view" },
   { id: "f8", label: "Accepted" },
   { id: "f10", label: "Team lobby" },
+  { id: "f10c", label: "Team lobby · rename" },
   { id: "f10b", label: "Team lobby · manage" },
   { id: "f12", label: "More" },
   { id: "f13", label: "Help · thread" },

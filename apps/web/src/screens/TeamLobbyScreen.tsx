@@ -5,7 +5,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Petal } from "../components/portal/Petal";
 import { PortalButton, PortalTextButton } from "../components/portal/PortalButton";
-import { PortalError } from "../components/portal/PortalField";
+import { PortalError, PortalInput } from "../components/portal/PortalField";
 import { PortalScene } from "../components/portal/PortalScene";
 import { TeamCluster } from "../components/portal/TeamCluster";
 import { JoinCodeBar } from "../components/portal/JoinCodeBar";
@@ -17,12 +17,13 @@ import { canLeaveCurrentTeam } from "../lib/teamLeave";
 import type { CurrentTeam, CurrentTeamMember } from "../types";
 
 type TeamOperationResult =
+  | FunctionReturnType<typeof api.teams.rename>
   | FunctionReturnType<typeof api.teams.requestLeadershipTransfer>
   | FunctionReturnType<typeof api.teams.respondToLeadershipTransfer>
   | FunctionReturnType<typeof api.teams.leave>
   | FunctionReturnType<typeof api.teams.removeMember>;
 
-type LobbyMode = "view" | "transfer" | "remove" | "leave";
+type LobbyMode = "view" | "rename" | "transfer" | "remove" | "leave";
 
 // Every decision in the lobby — hand over the lead, remove someone, leave —
 // takes the same shape in the same place: question, one full-width button,
@@ -63,6 +64,65 @@ export function ConfirmCard({
   );
 }
 
+export function RenameTeamCard({
+  currentName,
+  name,
+  onNameChange,
+  onSubmit,
+  onCancel,
+  busy,
+  locked = false,
+}: {
+  currentName: string;
+  name: string;
+  onNameChange: (name: string) => void;
+  onSubmit: () => void;
+  onCancel: () => void;
+  busy: boolean;
+  locked?: boolean;
+}) {
+  return (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSubmit();
+      }}
+      className="w-full max-w-[380px] rounded-petal-sm glass-menu px-7 pt-6 pb-4 text-center"
+    >
+      <label htmlFor="team-name" className="mb-3 block text-[15px] text-fg/90">
+        Edit team name
+      </label>
+      <PortalInput
+        id="team-name"
+        autoFocus
+        required
+        minLength={2}
+        maxLength={60}
+        disabled={busy || locked}
+        value={name}
+        onChange={(event) => onNameChange(event.target.value)}
+        className="w-full"
+      />
+      <PortalButton
+        type="submit"
+        size="sm"
+        disabled={busy || locked || name.trim().length < 2 || name.trim() === currentName}
+        className="mt-3 w-full"
+      >
+        {busy ? "Saving…" : "Save name"}
+      </PortalButton>
+      <PortalTextButton
+        type="button"
+        disabled={busy}
+        onClick={onCancel}
+        className="mx-auto mt-2 block px-4 py-2"
+      >
+        cancel
+      </PortalTextButton>
+    </form>
+  );
+}
+
 /**
  * Mockup f10: the squad lobby as a full page — big roster, the join code with
  * copy/share, and the quiet management links underneath.
@@ -82,6 +142,7 @@ export function TeamLobbyScreen({
   editable: boolean;
   onSignOut: () => void;
 }) {
+  const renameTeam = useMutation(api.teams.rename);
   const requestTransfer = useMutation(api.teams.requestLeadershipTransfer);
   const respondToTransfer = useMutation(api.teams.respondToLeadershipTransfer);
   const leaveTeam = useMutation(api.teams.leave);
@@ -90,6 +151,7 @@ export function TeamLobbyScreen({
   const [mode, setMode] = useState<LobbyMode>("view");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [name, setName] = useState(team.name);
   const [selectedMemberId, setSelectedMemberId] = useState<
     CurrentTeamMember["membershipId"] | null
   >(null);
@@ -122,6 +184,27 @@ export function TeamLobbyScreen({
           }),
       ),
     );
+
+  const rename = () => {
+    const nextName = name.trim();
+    if (nextName === team.name) {
+      setMode("view");
+      return;
+    }
+    void run(() =>
+      operations.run(
+        "team-rename",
+        (clientOperationId) => () =>
+          renameTeam({
+            eventSlug,
+            teamId: team.id,
+            name: nextName,
+            expectedTeamVersion: team.version,
+            clientOperationId,
+          }),
+      ),
+    );
+  };
 
   const removeTeamMember = (teamMemberId: CurrentTeamMember["teamMemberId"]) =>
     run(() =>
@@ -293,7 +376,20 @@ export function TeamLobbyScreen({
           </PortalTextButton>
         ) : null}
 
-        {mode === "leave" ? (
+        {mode === "rename" ? (
+          <RenameTeamCard
+            currentName={team.name}
+            name={name}
+            onNameChange={setName}
+            onSubmit={rename}
+            onCancel={() => {
+              setName(team.name);
+              setMode("view");
+            }}
+            busy={busy}
+            locked={!editable}
+          />
+        ) : mode === "leave" ? (
           <ConfirmCard
             question={
               team.activeMemberCount === 1 ? `Leave and close ${team.name}?` : `Leave ${team.name}?`
@@ -372,6 +468,25 @@ export function TeamLobbyScreen({
         <PortalError message={error} />
         {mode !== "view" ? null : editable ? (
           <div className="mt-7 flex flex-wrap items-baseline justify-center gap-x-3.5 gap-y-1 text-[13.5px] text-fg/45">
+            {team.canRename ? (
+              <>
+                <button
+                  type="button"
+                  disabled={busy}
+                  className="py-1 text-fg/65 transition-colors hover:text-rose-light"
+                  onClick={() => {
+                    setName(team.name);
+                    setError(null);
+                    setMode("rename");
+                  }}
+                >
+                  edit team name
+                </button>
+                <span aria-hidden className="text-fg/30">
+                  ·
+                </span>
+              </>
+            ) : null}
             {team.canTransferLeadership && members.length > 1 ? (
               <>
                 <button

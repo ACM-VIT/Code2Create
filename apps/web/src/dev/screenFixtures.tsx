@@ -35,7 +35,7 @@ import type { ReviewTileModel } from "../components/dashboard/ReviewTile";
 import type { UpdatesTileModel } from "../components/dashboard/UpdatesTile";
 import { DashboardScreen } from "../screens/DashboardScreen";
 import { SglangInterlude } from "../screens/SglangInterlude";
-import { ConfirmCard } from "../screens/TeamLobbyScreen";
+import { ConfirmCard, RenameTeamCard } from "../screens/TeamLobbyScreen";
 import { NoveltyPill, NoveltyReviewRow, ReviewEditRow } from "../screens/IntakeScreen";
 import { IdeaPromptsLink } from "../components/portal/IdeaPromptsSheet";
 import { JoinCodeBar } from "../components/portal/JoinCodeBar";
@@ -254,6 +254,32 @@ function HelpEmptyFixture() {
 function BloomFixture() {
   const [run, setRun] = useState(0);
   return <SubmitCelebration key={run} onDone={() => setRun((current) => current + 1)} />;
+}
+
+function RenameTeamFixture() {
+  const [savedName, setSavedName] = useState("Paper Cranes");
+  const [name, setName] = useState(savedName);
+  return (
+    <PortalScene
+      tree="right"
+      header={<p className="m-0 font-ui text-[13.5px] text-rose-light/80">4 of 4 seats</p>}
+    >
+      <div className="flex w-full max-w-[860px] flex-col items-center text-center">
+        <p className="mb-2 text-[12px] text-rose-light/70">manage team</p>
+        <h1 className="mb-11 font-display font-light tracking-[-.01em] wrap-anywhere text-4xl text-shadow-[0_6px_40px_var(--scene-text-glow)] lg:text-[54px]">
+          {savedName}
+        </h1>
+        <RenameTeamCard
+          currentName={savedName}
+          name={name}
+          onNameChange={setName}
+          onSubmit={() => setSavedName(name.trim())}
+          onCancel={() => setName(savedName)}
+          busy={false}
+        />
+      </div>
+    </PortalScene>
+  );
 }
 
 function IdeaCard({ children, footer }: { children: ReactNode; footer: ReactNode }) {
@@ -1551,6 +1577,10 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries([
             <span className="whitespace-nowrap text-[13px]">share link</span>
           </div>
           <div className="mt-7 flex flex-wrap items-baseline justify-center gap-x-3.5 gap-y-1 text-[13.5px] text-fg/45">
+            <span className="text-fg/65">edit team name</span>
+            <span aria-hidden className="text-fg/30">
+              ·
+            </span>
             <span className="text-fg/65">change leader</span>
             <span aria-hidden className="text-fg/30">
               ·
@@ -1573,6 +1603,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries([
       </PortalScene>
     ),
   ],
+  ["f10c", () => <RenameTeamFixture />],
   [
     "f10b",
     () => (
