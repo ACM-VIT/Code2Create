@@ -31,8 +31,9 @@ import {
   participantPolicyFromDocument,
 } from "./lib/participantPolicy";
 import { normalizeEmail, normalizedLongText } from "./lib/strings";
-import { isCurrentNoveltyScoringVersion, noveltyInputFingerprint } from "./lib/novelty";
+import { noveltyInputFingerprint } from "./lib/novelty";
 import { invalidateTeamNoveltyIndex } from "./lib/noveltyIndex";
+import { participantNoveltyConfig, savedNoveltySignal } from "./lib/participantNovelty";
 import {
   intakePolicyChecksum,
   intakePolicyFromDocument,
@@ -96,32 +97,6 @@ const participantNoveltySignal = v.object({
   reflectionPrompt: v.string(),
   evaluatedAt: v.number(),
 });
-
-function savedNoveltySignal(
-  draft: Doc<"projectDrafts">,
-  idea: string,
-  corpusVersionId?: Id<"noveltyCorpusVersions">,
-) {
-  if (
-    (corpusVersionId !== undefined && draft.noveltyCorpusVersionId !== corpusVersionId) ||
-    draft.noveltyEvaluatedInputFingerprint !== noveltyInputFingerprint(idea) ||
-    draft.noveltyScore === undefined ||
-    draft.noveltyBand === undefined ||
-    draft.noveltyNearestThemeLabel === undefined ||
-    draft.noveltyReflectionPrompt === undefined ||
-    draft.noveltyEvaluatedAt === undefined ||
-    !isCurrentNoveltyScoringVersion(draft.noveltyScoringVersion)
-  ) {
-    return null;
-  }
-  return {
-    score: draft.noveltyScore,
-    band: draft.noveltyBand,
-    nearestThemeLabel: draft.noveltyNearestThemeLabel,
-    reflectionPrompt: draft.noveltyReflectionPrompt,
-    evaluatedAt: draft.noveltyEvaluatedAt,
-  };
-}
 
 const currentDraftView = v.object({
   id: v.id("projectDrafts"),
@@ -245,37 +220,6 @@ const participantNoveltyConfiguration = v.object({
   minimumIdeaLength: v.number(),
   debounceMs: v.number(),
 });
-
-async function participantNoveltyConfig(
-  ctx: ReadCtx,
-  event: Doc<"events">,
-  draft?: Doc<"projectDrafts">,
-) {
-  const corpusVersionId = draft?.noveltyCorpusVersionId ?? event.publishedNoveltyCorpusVersionId;
-  if (!corpusVersionId) return null;
-  const corpus = await ctx.db.get(corpusVersionId);
-  const validStatus = draft?.noveltyCorpusVersionId
-    ? corpus?.status === "published" || corpus?.status === "superseded"
-    : corpus?.status === "published";
-  if (
-    !corpus ||
-    corpus.eventId !== event._id ||
-    !validStatus ||
-    corpus.importState !== "ready" ||
-    !corpus.checksum ||
-    corpus.entryCount < 1
-  ) {
-    return null;
-  }
-  return {
-    corpusVersionId: corpus._id,
-    corpusVersion: corpus.version,
-    corpusLabel: corpus.label,
-    comparedProjectCount: corpus.entryCount,
-    minimumIdeaLength: corpus.minimumIdeaLength,
-    debounceMs: corpus.debounceMs,
-  };
-}
 
 export async function currentReadTeamContext(ctx: QueryCtx, eventSlug: string) {
   const person = await findCurrentPerson(ctx);

@@ -26,6 +26,18 @@ describe("participant assistant phases", () => {
   it("keeps event-day topics out of idea-submission suggestions", () => {
     const suggestions = participantAssistantSuggestions("idea_submission");
     expect(suggestions.join(" ").toLowerCase()).not.toMatch(/attendance|checkpoint|schedule|venue/);
+    expect(suggestions).toContain("Can I edit my idea after submitting?");
+  });
+
+  it("explains novelty, editing, rescoring, and selection without mixing them up", () => {
+    const instructions = participantAssistantInstructions("idea_submission", "{}");
+    expect(instructions).toContain("It is not an admission result, judging score, ranking");
+    expect(instructions).toContain("can appear before submission");
+    expect(instructions).toContain("Changing the idea text triggers a fresh novelty check");
+    expect(instructions).toContain("novelty.currentCheckState");
+    expect(instructions).toContain("team.actions.canEditProposal is the authoritative answer");
+    expect(instructions).toContain("only the team lead can save proposal edits");
+    expect(instructions).toContain("application.resultsReleased and application.decision");
   });
 
   it("tells the model to describe phase limits in participant language", () => {
