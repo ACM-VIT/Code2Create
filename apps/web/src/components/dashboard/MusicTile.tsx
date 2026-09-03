@@ -588,8 +588,8 @@ export function MusicTile({
   return (
     <Tile
       area="music"
-      focused={focused}
-      onFocus={onFocus}
+      expanded={focused}
+      onToggle={onFocus}
       onRelease={onRelease}
       backdrop={backdrop}
     >

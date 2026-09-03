@@ -80,8 +80,8 @@ export function DashboardScreen({
   } as CSSProperties;
 
   const tileProps = (area: TileKey) => ({
-    focused: focus === area,
-    onFocus: () => changeFocus(area),
+    expanded: focus === area,
+    onToggle: () => changeFocus(area),
     onRelease: () => changeFocus(null),
   });
 

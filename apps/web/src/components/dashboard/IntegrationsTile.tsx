@@ -88,7 +88,7 @@ export function IntegrationsTile({
       }`;
 
   return (
-    <Tile area="integrations" focused={focused} onFocus={onFocus} onRelease={onRelease}>
+    <Tile area="integrations" expanded={focused} onToggle={onFocus} onRelease={onRelease}>
       <div className="flex flex-1 flex-col justify-between gap-3 p-[18px]">
         <div className="flex items-baseline justify-between gap-3">
           <TileEyebrow>integrations</TileEyebrow>
