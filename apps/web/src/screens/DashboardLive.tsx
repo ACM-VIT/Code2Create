@@ -15,7 +15,7 @@ import type { ClusterMember, ClusterTeam } from '../components/portal/TeamCluste
 import { eventSlug } from '../lib/config';
 import { queueWaitName } from '../lib/time';
 import { useOperationRunner } from '../lib/operations'
-import type { PublicState } from '../types'
+import type { AvailableGitHubRepository, PublicState } from '../types'
 import { DashboardScreen } from './DashboardScreen'
 
 type ParticipantCapabilities = FunctionReturnType<typeof api.access.participantCapabilities>
@@ -153,6 +153,7 @@ export function DashboardLive({
       id: repository.id,
       fullName: repository.fullName,
       url: repository.url,
+      connectionId: repository.installationConnectionId,
     }))
   const connectedRepositoryIds = new Set(
     (github?.repositories ?? []).map((repository) => repository.repositoryId),
@@ -175,17 +176,25 @@ export function DashboardLive({
       ...(activeGithubConnection
         ? {
             listRepositories: async () => {
-              const result = await listAvailableRepositories({
-                eventSlug,
-                connectionId: activeGithubConnection.id,
-                page: 1,
-              })
-              return result.repositories
+              const allRepositories: AvailableGitHubRepository[] = []
+              let page: number | undefined = 1
+              while (page !== undefined) {
+                const result = await listAvailableRepositories({
+                  eventSlug,
+                  connectionId: activeGithubConnection.id,
+                  page,
+                })
+                allRepositories.push(...result.repositories)
+                page = result.nextPage
+              }
+              return allRepositories
                 .filter((repository) => !connectedRepositoryIds.has(repository.repositoryId))
                 .map((repository) => ({
                   id: repository.repositoryId,
                   fullName: repository.fullName,
                   url: repository.url,
+                  connectionId: activeGithubConnection.id,
+                  raw: repository,
                 }))
             },
           }
@@ -200,7 +209,36 @@ export function DashboardLive({
             ? '1 file'
             : `${fileCount} files`,
     },
-    open: () => void navigate('/integrations', { viewTransition: true }),
+    open: (target, repository) => {
+      if (target === 'github' && repository) {
+        const isConnected = connectedRepositories.some((r) => r.id === repository.id)
+        const connectionId = repository.connectionId ?? activeGithubConnection?.id
+        const params = new URLSearchParams()
+        if (connectionId) params.set('connectionId', connectionId)
+        if (isConnected) {
+          params.set('archiveId', repository.id)
+        } else {
+          params.set('repositoryId', repository.id)
+        }
+        void navigate(
+          {
+            pathname: '/integrations',
+            search: `?${params.toString()}`,
+          },
+          {
+            state: {
+              connectionId,
+              repositoryId: isConnected ? undefined : repository.id,
+              archiveId: isConnected ? repository.id : undefined,
+              repository: repository.raw,
+            },
+            viewTransition: true,
+          },
+        )
+        return
+      }
+      void navigate('/integrations', { viewTransition: true })
+    },
   }
 
   const updatesModel: UpdatesTileModel = {

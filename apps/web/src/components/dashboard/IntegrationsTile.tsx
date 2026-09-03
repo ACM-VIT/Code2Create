@@ -12,6 +12,7 @@ import {
   useRole,
 } from "@floating-ui/react";
 import { useState, type ReactNode } from "react";
+import type { AvailableGitHubRepository } from "../../types";
 
 import { Reveal, Tile, TileEyebrow } from "./Tile";
 import { tileBody } from "./tileClasses";
@@ -23,6 +24,8 @@ export type IntegrationRepository = {
   id: string;
   fullName: string;
   url: string;
+  connectionId?: string;
+  raw?: AvailableGitHubRepository;
 };
 
 export type IntegrationsTileModel = {
@@ -35,7 +38,7 @@ export type IntegrationsTileModel = {
     listRepositories?: () => Promise<readonly IntegrationRepository[]>;
   };
   figma: { connected: boolean; detail: string };
-  open: (target: IntegrationTarget) => void;
+  open: (target: IntegrationTarget, repository?: IntegrationRepository) => void;
 };
 
 function GitHubMark({ className }: { className: string }) {
@@ -88,7 +91,7 @@ function GitHubRepositoryManager({
   model: IntegrationsTileModel["github"];
   addControl: ReactNode;
   onBack: () => void;
-  onManage: () => void;
+  onManage: (repository?: IntegrationRepository) => void;
 }) {
   return (
     <Reveal key="github-manager" className="flex min-h-0 flex-1 flex-col gap-1.5">
@@ -135,7 +138,7 @@ function GitHubRepositoryManager({
                 </a>
                 <button
                   type="button"
-                  onClick={onManage}
+                  onClick={() => onManage(repository)}
                   className="flex-none text-[10px] text-fg/45 hover:text-rose-light"
                 >
                   Remove
@@ -249,7 +252,7 @@ export function IntegrationsTile({ slot, model }: {
                 setPickerOpen(false);
                 setView("providers");
               }}
-              onManage={() => model.open("github")}
+              onManage={(repo) => model.open("github", repo)}
             />
           ) : (
             <Reveal key="providers" className="grid min-h-0 flex-1 grid-cols-2 gap-2">
@@ -332,7 +335,7 @@ export function IntegrationsTile({ slot, model }: {
                 ) : filteredRepositories.length === 0 ? (
                   <p className="my-2 text-[10.5px] text-fg/45">No repositories found.</p>
                 ) : (
-                  filteredRepositories.map((repository) => (
+                  filteredRepositories.slice(0, 10).map((repository) => (
                     <div
                       key={repository.id}
                       className="flex items-center gap-2 border-b border-rose/15 py-2 last:border-b-0"
@@ -347,7 +350,10 @@ export function IntegrationsTile({ slot, model }: {
                       </a>
                       <button
                         type="button"
-                        onClick={() => model.open("github")}
+                        onClick={() => {
+                          setPickerOpen(false);
+                          model.open("github", repository);
+                        }}
                         className="flex-none text-[10.5px] text-rose-light"
                       >
                         Add
