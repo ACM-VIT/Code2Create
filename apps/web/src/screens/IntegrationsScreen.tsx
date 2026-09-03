@@ -8,10 +8,10 @@ import {
 import { api } from "@code2create/backend/api";
 import { useAction, useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { FigmaIntegrationPanel } from "../components/FigmaIntegrationPanel";
 import { ErrorNotice } from "../components/Form";
-import { Link } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { PortalScene } from "../components/portal/PortalScene";
 import { TeamCluster } from "../components/portal/TeamCluster";
 import { eventSlug } from "../lib/config";
@@ -57,6 +57,56 @@ type PendingGitHubOperation = {
   action: string;
 };
 
+function parseNavigationState(state: unknown) {
+  if (typeof state !== "object" || state === null) return null;
+  const connectionId =
+    "connectionId" in state && typeof state.connectionId === "string" ? state.connectionId : undefined;
+  const repositoryId =
+    "repositoryId" in state && typeof state.repositoryId === "string" ? state.repositoryId : undefined;
+  const archiveId =
+    "archiveId" in state && typeof state.archiveId === "string" ? state.archiveId : undefined;
+  const candidate = "repository" in state ? state.repository : undefined;
+  const repository: AvailableGitHubRepository | undefined =
+    typeof candidate === "object" &&
+    candidate !== null &&
+    "repositoryId" in candidate &&
+    typeof candidate.repositoryId === "string" &&
+    "fullName" in candidate &&
+    typeof candidate.fullName === "string" &&
+    "url" in candidate &&
+    typeof candidate.url === "string" &&
+    "defaultBranch" in candidate &&
+    typeof candidate.defaultBranch === "string"
+      ? {
+          repositoryId: candidate.repositoryId,
+          repositoryNodeId:
+            "repositoryNodeId" in candidate && typeof candidate.repositoryNodeId === "string"
+              ? candidate.repositoryNodeId
+              : "",
+          owner:
+            "owner" in candidate && typeof candidate.owner === "string"
+              ? candidate.owner
+              : candidate.fullName.split("/")[0] ?? "",
+          name:
+            "name" in candidate && typeof candidate.name === "string"
+              ? candidate.name
+              : candidate.fullName.split("/")[1] ?? "",
+          fullName: candidate.fullName,
+          url: candidate.url,
+          isPrivate:
+            "isPrivate" in candidate && typeof candidate.isPrivate === "boolean"
+              ? candidate.isPrivate
+              : false,
+          isFork:
+            "isFork" in candidate && typeof candidate.isFork === "boolean"
+              ? candidate.isFork
+              : false,
+          defaultBranch: candidate.defaultBranch,
+        }
+      : undefined;
+  return { connectionId, repositoryId, archiveId, repository };
+}
+
 export function IntegrationsScreen({
   team,
   members,
@@ -85,6 +135,9 @@ export function IntegrationsScreen({
   const [archiveReason, setArchiveReason] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+  const preselectionHandled = useRef(false);
   const repositoryRequest = useRef(0);
   const commandInFlight = useRef(false);
   const operations = useOperationRunner<GitHubOperationResult>();
@@ -167,10 +220,15 @@ export function IntegrationsScreen({
     }
   };
 
-  const chooseRepository = (repository: AvailableGitHubRepository) => {
-    if (!activeConnectionId) return;
+  const chooseRepository = (
+    repository: AvailableGitHubRepository,
+    connectionId?: CurrentGitHubIntegration["connections"][number]["id"],
+  ) => {
+    const targetConnectionId = connectionId ?? activeConnectionId;
+    if (!targetConnectionId) return;
+    setActiveConnectionId(targetConnectionId);
     setDraft({
-      connectionId: activeConnectionId,
+      connectionId: targetConnectionId,
       repository,
       kind: "full_product",
       customKind: "",
@@ -179,6 +237,66 @@ export function IntegrationsScreen({
       rootPath: "",
     });
   };
+
+  useEffect(() => {
+    if (preselectionHandled.current || !integration) return;
+    const rawState: unknown = location.state;
+    const navState = parseNavigationState(rawState);
+
+    const archiveId = navState?.archiveId ?? searchParams.get("archiveId");
+    if (archiveId) {
+      const match = integration.repositories.find(
+        (repo) => repo.id === archiveId || repo.repositoryId === archiveId,
+      );
+      if (match) {
+        preselectionHandled.current = true;
+        setArchiveId(match.id);
+        return;
+      }
+    }
+
+    const repositoryId = navState?.repositoryId ?? searchParams.get("repositoryId");
+    const connectionId =
+      navState?.connectionId ?? searchParams.get("connectionId");
+
+    const targetConnection =
+      integration.connections.find((c) => c.id === connectionId) ??
+      integration.connections.find((c) => c.state === "active") ??
+      integration.connections[0];
+
+    if (!repositoryId || !targetConnection) return;
+    preselectionHandled.current = true;
+    const targetConnectionId = targetConnection.id;
+    setActiveConnectionId(targetConnectionId);
+
+    if (navState?.repository && navState.repository.defaultBranch) {
+      chooseRepository(navState.repository, targetConnectionId);
+      return;
+    }
+
+    void (async () => {
+      try {
+        let page: number | undefined = 1;
+        while (page !== undefined) {
+          const result = await listRepositories({
+            eventSlug,
+            connectionId: targetConnectionId,
+            page,
+          });
+          const found = result.repositories.find(
+            (repo) => repo.repositoryId === repositoryId,
+          );
+          if (found) {
+            chooseRepository(found, targetConnectionId);
+            break;
+          }
+          page = result.nextPage;
+        }
+      } catch {
+        // Continue if repository retrieval fails
+      }
+    })();
+  }, [integration, location.state, searchParams]);
 
   const saveRepository = async () => {
     if (!draft || commandInFlight.current) return;

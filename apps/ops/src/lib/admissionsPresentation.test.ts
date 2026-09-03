@@ -6,17 +6,22 @@ import {
   assignmentOutcomeSummary,
   busiestStage,
   cohortSummary,
+  completedReviewCountQueryArgs,
   memberContextLine,
   needsAssignment,
   nextAssignmentId,
   ownReviewLine,
   queueLeadSentence,
   remainingAssignmentsLine,
+  reviewAssignmentStatusLine,
+  reviewAssignmentSummary,
   reviewStatus,
   reviewerLeadSentence,
   reviewerWorkloadLabel,
   stageCountMap,
   teamLine,
+  teamOriginNoun,
+  teamOriginQueryArgs,
   visibleStages,
 } from "./admissionsPresentation.ts";
 
@@ -96,6 +101,15 @@ test("stage chips only show stages with something in them", () => {
 
 test("the queue opens with one sentence about where applications are", () => {
   assert.equal(queueLeadSentence(new Map()), "No team has applied yet.");
+  assert.equal(queueLeadSentence(new Map(), "all", true), "No team has exactly 1 review in.");
+  assert.equal(
+    queueLeadSentence(new Map(), "internal"),
+    "No internal team has applied yet.",
+  );
+  assert.equal(
+    queueLeadSentence(new Map(), "external"),
+    "No external team has applied yet.",
+  );
   assert.equal(
     queueLeadSentence(
       stageCountMap([
@@ -127,6 +141,24 @@ test("the queue opens with one sentence about where applications are", () => {
     reviewerLeadSentence({ active: 0, completed: 0 }),
     "Nothing is assigned to you yet. A coordinator hands out applications from the full list.",
   );
+  assert.equal(
+    reviewerLeadSentence({ active: 0, completed: 0 }, "internal"),
+    "No internal teams are assigned to you.",
+  );
+});
+
+test("the origin filter omits its query argument until internals or externals are chosen", () => {
+  assert.deepEqual(teamOriginQueryArgs("all"), {});
+  assert.deepEqual(teamOriginQueryArgs("internal"), { origin: "internal" });
+  assert.deepEqual(teamOriginQueryArgs("external"), { origin: "external" });
+  assert.equal(teamOriginNoun("all"), "teams");
+  assert.equal(teamOriginNoun("internal", false), "internal team");
+  assert.equal(teamOriginNoun("external"), "external teams");
+});
+
+test("the one-review filter only sends its exact count when selected", () => {
+  assert.deepEqual(completedReviewCountQueryArgs(false), {});
+  assert.deepEqual(completedReviewCountQueryArgs(true), { completedReviewCount: 1 });
 });
 
 test("short tags replace the AI sentences in the list", () => {
@@ -188,6 +220,39 @@ test("bulk assignment reports what landed and what did not", () => {
       "p@x",
     ),
     "Assigned 2 applications to p@x.",
+  );
+});
+
+test("review assignment copy keeps every submitted application version visible", () => {
+  const assignments = [
+    { applicationContentVersion: 1, state: "completed" as const },
+    { applicationContentVersion: 2, state: "active" as const },
+    { applicationContentVersion: 2, state: "cancelled" as const },
+  ];
+
+  assert.equal(
+    reviewAssignmentSummary(assignments, 2),
+    "1 reviewer assigned to application version 2 still owes a review.",
+  );
+  assert.equal(
+    reviewAssignmentStatusLine(assignments[0]!, 2),
+    "Review submitted on application version 1",
+  );
+  assert.equal(
+    reviewAssignmentStatusLine(assignments[1]!, 2),
+    "Review due on application version 2 (current)",
+  );
+  assert.equal(
+    reviewAssignmentStatusLine(assignments[2]!, 2),
+    "Assignment cancelled on application version 2 (current)",
+  );
+  assert.equal(
+    reviewAssignmentSummary([{ applicationContentVersion: 1, state: "completed" }], 2),
+    "No one is assigned to application version 2.",
+  );
+  assert.equal(
+    reviewAssignmentSummary([{ applicationContentVersion: 2, state: "completed" }], 2),
+    "Every review assigned on application version 2 has been submitted.",
   );
 });
 

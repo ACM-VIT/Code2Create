@@ -8,7 +8,7 @@ const now = 1_000_000;
 const quiet: DashboardModels = {
   event: { phases: [{ key: "build", name: "Build", startsAt: now - 1, endsAt: now + 10 * 60 * 60_000 }], now, timezone: "UTC" },
   music: { eligible: true, suspended: false, window: null, nowPlaying: null, queue: [], search: async () => [], request: async () => ({ created: true }), toggleVote: async () => {} },
-  integrations: { available: true, github: { connected: false, detail: "" }, figma: { connected: false, detail: "" }, open: () => {} },
+  integrations: { available: true, github: { connected: false, detail: "", repositories: [] }, figma: { connected: false, detail: "" }, open: () => {} },
   updates: { available: true, checkpoints: [], timezone: "UTC", write: () => {} },
   review: { available: true, queue: null, showCode: null },
   help: { discordUrl: null, support: null },

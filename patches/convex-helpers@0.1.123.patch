@@ -1,0 +1,136 @@
+diff --git a/server/stream.ts b/server/stream.ts
+index 2b1308a..1c99058 100644
+--- a/server/stream.ts
++++ b/server/stream.ts
+@@ -446,8 +446,10 @@ export abstract class QueryStream<
+       page,
+       isDone: !hasMore,
+       continueCursor,
+-      pageStatus,
+-      splitCursor: splitCursor ? serializeCursor(splitCursor) : undefined,
++      ...(pageStatus === undefined ? {} : { pageStatus }),
++      ...(splitCursor === undefined
++        ? {}
++        : { splitCursor: serializeCursor(splitCursor) }),
+     };
+   }
+   async collect() {
+@@ -556,4 +556,6 @@ export class StreamDatabaseReader<
+   Schema extends SchemaDefinition<any, boolean>,
+ > implements GenericDatabaseReader<DM<Schema>> {
+   // TODO: support system tables
++  public db: GenericDatabaseReader<DM<Schema>>;
++  public schema: Schema;
+   public system: GenericDatabaseReader<SystemDataModel>["system"];
+@@ -561,6 +563,5 @@ export class StreamDatabaseReader<
+-  constructor(
+-    public db: GenericDatabaseReader<DM<Schema>>,
+-    public schema: Schema,
+-  ) {
++  constructor(db: GenericDatabaseReader<DM<Schema>>, schema: Schema) {
++    this.db = db;
++    this.schema = schema;
+     this.system = db.system;
+   }
+@@ -627,11 +630,13 @@ export class StreamQueryInitializer<
+   extends StreamableQuery<Schema, T, "by_creation_time">
+   implements QueryInitializer<NamedTableInfo<DM<Schema>, T>>
+ {
+-  constructor(
+-    public parent: StreamDatabaseReader<Schema>,
+-    public table: T,
+-  ) {
++  public parent: StreamDatabaseReader<Schema>;
++  public table: T;
++
++  constructor(parent: StreamDatabaseReader<Schema>, table: T) {
+     super();
++    this.parent = parent;
++    this.table = table;
+   }
+   fullTableScan(): StreamQuery<Schema, T, "by_creation_time"> {
+     return this.withIndex("by_creation_time");
+@@ -696,11 +701,23 @@ export class StreamQuery<
+   extends StreamableQuery<Schema, T, IndexName>
+   implements Query<NamedTableInfo<DM<Schema>, T>>
+ {
++  public parent: StreamQueryInitializer<Schema, T>;
++  public index: IndexName;
++  public q: ReflectIndexRange;
++  public indexRange:
++    | ((
++        q: IndexRangeBuilder<
++          DocumentByInfo<NamedTableInfo<DM<Schema>, T>>,
++          NamedIndex<NamedTableInfo<DM<Schema>, T>, IndexName>
++        >,
++      ) => IndexRange)
++    | undefined;
++
+   constructor(
+-    public parent: StreamQueryInitializer<Schema, T>,
+-    public index: IndexName,
+-    public q: ReflectIndexRange,
+-    public indexRange:
++    parent: StreamQueryInitializer<Schema, T>,
++    index: IndexName,
++    q: ReflectIndexRange,
++    indexRange:
+       | ((
+           q: IndexRangeBuilder<
+             DocumentByInfo<NamedTableInfo<DM<Schema>, T>>,
+@@ -710,6 +727,10 @@ export class StreamQuery<
+       | undefined,
+   ) {
+     super();
++    this.parent = parent;
++    this.index = index;
++    this.q = q;
++    this.indexRange = indexRange;
+   }
+   order(order: "asc" | "desc") {
+     return new OrderedStreamQuery(this, order);
+@@ -745,11 +766,13 @@ export class OrderedStreamQuery<
+   extends StreamableQuery<Schema, T, IndexName>
+   implements OrderedQuery<NamedTableInfo<DM<Schema>, T>>
+ {
+-  constructor(
+-    public parent: StreamQuery<Schema, T, IndexName>,
+-    public order: "asc" | "desc",
+-  ) {
++  public parent: StreamQuery<Schema, T, IndexName>;
++  public order: "asc" | "desc";
++
++  constructor(parent: StreamQuery<Schema, T, IndexName>, order: "asc" | "desc") {
+     super();
++    this.parent = parent;
++    this.order = order;
+   }
+   reflect() {
+     return {
+@@ -765,7 +788,9 @@ export class OrderedStreamQuery<
+         upperBound: this.parent.q.upperBoundIndexKey ?? [],
+         upperBoundInclusive: this.parent.q.upperBoundInclusive,
+       },
+-      indexRange: this.parent.indexRange,
++      ...(this.parent.indexRange === undefined
++        ? {}
++        : { indexRange: this.parent.indexRange }),
+     };
+   }
+   /**
+@@ -897,11 +922,14 @@ export function streamIndexRange<
+ class ReflectIndexRange {
+   #hasSuffix = false;
++  public indexFields: string[];
+   public lowerBoundIndexKey: IndexKey | undefined = undefined;
+   public lowerBoundInclusive: boolean = true;
+   public upperBoundIndexKey: IndexKey | undefined = undefined;
+   public upperBoundInclusive: boolean = true;
+   public equalityIndexFilter: Value[] = [];
+-  constructor(public indexFields: string[]) {}
++  constructor(indexFields: string[]) {
++    this.indexFields = indexFields;
++  }
+   eq(field: string, value: Value) {
+     if (!this.#canLowerBound(field) || !this.#canUpperBound(field)) {
+       throw new Error(`Cannot use eq on field '${field}'`);

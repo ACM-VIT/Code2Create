@@ -3,6 +3,7 @@ import {
   applicationDecisionLabels,
   studyYearLabels,
   type AdmissionRecommendationState,
+  type AdmissionReviewAssignmentState,
   type ApplicationDecision,
   type ApplicationState,
   type ParticipantClass,
@@ -15,14 +16,36 @@ export type QueueApplication = ApplicationPage["page"][number];
 type AssignmentPage = FunctionReturnType<typeof api.admissions.myReviewAssignments>;
 export type QueueAssignment = AssignmentPage["page"][number];
 export type StageCount = FunctionReturnType<typeof api.admissions.stageCounts>[number];
-export type ReviewAssignmentCounts = FunctionReturnType<
-  typeof api.admissions.myReviewAssignmentCounts
->;
+export type ReviewAssignmentCounts = { active: number; completed: number };
 export type ReviewerWorkload = FunctionReturnType<typeof api.admissions.reviewerWorkload>[number];
 export type RosterCohortMember = { participantClass: ParticipantClass; yearOfStudy: StudyYear };
 export type ReviewStatusTone = "done" | "waiting" | "unassigned";
 export type AiStateTagTone = "accept" | "waitlist" | "decline" | "neutral";
 export type AssignmentOutcome = { teamName: string; ok: boolean; message?: string };
+export const teamOriginFilters = ["all", "internal", "external"] as const;
+export type TeamOriginFilter = (typeof teamOriginFilters)[number];
+export const teamOriginFilterLabels: Record<TeamOriginFilter, string> = {
+  all: "All",
+  internal: "Internals",
+  external: "Externals",
+};
+
+export function teamOriginQueryArgs(origin: TeamOriginFilter): {
+  origin?: "internal" | "external";
+} {
+  return origin === "all" ? {} : { origin };
+}
+
+export function teamOriginNoun(origin: TeamOriginFilter, plural = true): string {
+  if (origin === "internal") return plural ? "internal teams" : "internal team";
+  if (origin === "external") return plural ? "external teams" : "external team";
+  return plural ? "teams" : "team";
+}
+
+export type VersionedReviewAssignment = {
+  applicationContentVersion: number;
+  state: AdmissionReviewAssignmentState;
+};
 
 export const applicationStageOrder: readonly ApplicationState[] = [
   "submitted",
@@ -65,9 +88,20 @@ export function parseApplicationStage(value: string): ApplicationState {
   return applicationStageOrder.find((stage) => stage === value) ?? "submitted";
 }
 
-export function queueLeadSentence(counts: ReadonlyMap<ApplicationState, number>): string {
+export function queueLeadSentence(
+  counts: ReadonlyMap<ApplicationState, number>,
+  origin: TeamOriginFilter = "all",
+  oneReviewOnly = false,
+): string {
   const total = [...counts.values()].reduce((sum, count) => sum + count, 0);
-  if (total === 0) return "No team has applied yet.";
+  if (total === 0) {
+    if (oneReviewOnly) {
+      return `No ${teamOriginNoun(origin, false)} has exactly 1 review in.`;
+    }
+    return origin === "all"
+      ? "No team has applied yet."
+      : `No ${teamOriginNoun(origin, false)} has applied yet.`;
+  }
   const clauses: string[] = [];
   const submitted = counts.get("submitted") ?? 0;
   const underReview = counts.get("under_review") ?? 0;
@@ -84,10 +118,22 @@ export function queueLeadSentence(counts: ReadonlyMap<ApplicationState, number>)
   return `${joinClauses(clauses.slice(0, 3))}.`;
 }
 
-export function reviewerLeadSentence(counts: ReviewAssignmentCounts | undefined): string {
+export function completedReviewCountQueryArgs(oneReviewOnly: boolean): {
+  completedReviewCount?: 1;
+} {
+  return oneReviewOnly ? { completedReviewCount: 1 } : {};
+}
+
+export function reviewerLeadSentence(
+  counts: ReviewAssignmentCounts | undefined,
+  origin: TeamOriginFilter = "all",
+): string {
   if (counts === undefined) return "";
-  if (counts.active === 0 && counts.completed === 0)
-    return "Nothing is assigned to you yet. A coordinator hands out applications from the full list.";
+  if (counts.active === 0 && counts.completed === 0) {
+    return origin === "all"
+      ? "Nothing is assigned to you yet. A coordinator hands out applications from the full list."
+      : `No ${teamOriginNoun(origin)} are assigned to you.`;
+  }
   if (counts.active === 0) return `Nothing left to review. ${counts.completed} done.`;
   return `${counts.active} ${counts.active === 1 ? "application" : "applications"} to review, ${counts.completed} done.`;
 }
@@ -220,6 +266,42 @@ export function assignmentOutcomeSummary(
     );
   if (failed > 0) sentences.push(`${failed} could not be assigned.`);
   return sentences.join(" ");
+}
+
+export function reviewAssignmentSummary(
+  assignments: readonly VersionedReviewAssignment[],
+  currentContentVersion: number,
+): string {
+  const currentAssignments = assignments.filter(
+    (assignment) =>
+      assignment.applicationContentVersion === currentContentVersion &&
+      assignment.state !== "cancelled",
+  );
+  const owing = currentAssignments.filter((assignment) => assignment.state === "active").length;
+  if (currentAssignments.length === 0) {
+    return `No one is assigned to application version ${currentContentVersion}.`;
+  }
+  if (owing === 0) {
+    return `Every review assigned on application version ${currentContentVersion} has been submitted.`;
+  }
+  if (currentAssignments.length === 1) {
+    return `1 reviewer assigned to application version ${currentContentVersion} still owes a review.`;
+  }
+  return `${owing} of ${currentAssignments.length} reviewers assigned to application version ${currentContentVersion} still owe a review.`;
+}
+
+export function reviewAssignmentStatusLine(
+  assignment: VersionedReviewAssignment,
+  currentContentVersion: number,
+): string {
+  const status = {
+    active: "Review due",
+    completed: "Review submitted",
+    cancelled: "Assignment cancelled",
+  }[assignment.state];
+  const current =
+    assignment.applicationContentVersion === currentContentVersion ? " (current)" : "";
+  return `${status} on application version ${assignment.applicationContentVersion}${current}`;
 }
 
 function joinClauses(parts: readonly string[]): string {
