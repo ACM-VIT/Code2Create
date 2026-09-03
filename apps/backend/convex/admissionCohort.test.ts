@@ -882,7 +882,6 @@ async function seedCohortFixture(backend: BackendTest, options: { extraTeams?: n
       const applicationId = await ctx.db.insert("applications", {
         eventId,
         teamId,
-        teamOrigin: "external",
         submittedProjectVersionId: projectVersionId,
         admissionPolicyVersionId: chain.admissionPolicyId,
         state: "under_review",

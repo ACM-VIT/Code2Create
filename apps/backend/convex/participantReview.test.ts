@@ -118,7 +118,6 @@ describe("participant review queue projection", () => {
       return ctx.db.insert("applications", {
         eventId: fixture.eventId,
         teamId: fixture.teamId,
-        teamOrigin: "external",
         submittedProjectVersionId: project._id,
         admissionPolicyVersionId: project.admissionPolicyVersionId,
         state: "submitted",

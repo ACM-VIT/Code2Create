@@ -62,7 +62,6 @@ describe("admission review assignments", () => {
       const internalApplicationId = await ctx.db.insert("applications", {
         ...applicationFields,
         teamId: internalTeamId,
-        teamOrigin: "internal",
         submittedProjectVersionId: internalProjectId,
         submittedAt: fixture.now - 1,
       });
@@ -97,7 +96,6 @@ describe("admission review assignments", () => {
       await ctx.db.insert("admissionReviewAssignments", {
         eventId: fixture.eventId,
         applicationId: fixture.applicationId,
-        teamOrigin: "external",
         applicationContentVersion: 1,
         reviewerPersonId: fixture.reviewerPersonId,
         assignedByPersonId: fixture.managerPersonId,
@@ -108,7 +106,6 @@ describe("admission review assignments", () => {
       await ctx.db.insert("admissionReviewAssignments", {
         eventId: fixture.eventId,
         applicationId: internalApplicationId,
-        teamOrigin: "internal",
         applicationContentVersion: 1,
         reviewerPersonId: fixture.reviewerPersonId,
         assignedByPersonId: fixture.managerPersonId,
@@ -662,7 +659,6 @@ async function seedAssignmentFixture(backend: BackendTest, reviewerAuthUserId?: 
     const applicationId = await ctx.db.insert("applications", {
       eventId,
       teamId,
-      teamOrigin: "external",
       submittedProjectVersionId: projectId,
       admissionPolicyVersionId: policyId,
       state: "submitted",

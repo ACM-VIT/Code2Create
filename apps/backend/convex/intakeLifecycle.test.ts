@@ -1166,7 +1166,6 @@ describe("participant intake lifecycle", () => {
       const assignmentId = await ctx.db.insert("admissionReviewAssignments", {
         eventId: membership.eventId,
         applicationId: submitted.application.id,
-        teamOrigin: "external",
         applicationContentVersion: submitted.application.contentVersion,
         reviewerPersonId: membership.personId,
         assignedByPersonId: membership.personId,

@@ -520,7 +520,6 @@ async function insertSubmittedApplication(ctx: MutationCtx, fixture: Fixture) {
   await ctx.db.insert("applications", {
     eventId: fixture.event._id,
     teamId,
-    teamOrigin: "external",
     submittedProjectVersionId: projectId,
     admissionPolicyVersionId: policyId,
     state: "submitted",

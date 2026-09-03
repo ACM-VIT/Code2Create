@@ -459,7 +459,6 @@ describe("score governance pagination", () => {
       return ctx.db.insert("applications", {
         eventId: fixture.eventId,
         teamId: fixture.teamId,
-        teamOrigin: "external",
         submittedProjectVersionId: fixture.projectVersionId,
         admissionPolicyVersionId: fixture.admissionPolicyVersionId,
         state: "confirmed",

@@ -1777,7 +1777,6 @@ export default defineSchema({
   applications: defineTable({
     eventId: v.id("events"),
     teamId: v.id("teams"),
-    teamOrigin: v.union(v.literal("internal"), v.literal("external"), v.literal("mixed")),
     submittedProjectVersionId: v.id("projectVersions"),
     admissionPolicyVersionId: v.id("admissionPolicyVersions"),
     state: applicationState,
@@ -1801,13 +1800,7 @@ export default defineSchema({
     .index("by_team", ["teamId"])
     .index("by_event_submitted", ["eventId", "submittedAt"])
     .index("by_event_decision_stage", ["eventId", "decisionStage", "submittedAt"])
-    .index("by_event_state_submitted", ["eventId", "state", "submittedAt"])
-    .index("by_event_origin_state_submitted", [
-      "eventId",
-      "teamOrigin",
-      "state",
-      "submittedAt",
-    ]),
+    .index("by_event_state_submitted", ["eventId", "state", "submittedAt"]),
 
   participantNotificationDestinations: defineTable({
     eventId: v.id("events"),
@@ -2032,7 +2025,6 @@ export default defineSchema({
   admissionReviewAssignments: defineTable({
     eventId: v.id("events"),
     applicationId: v.id("applications"),
-    teamOrigin: v.union(v.literal("internal"), v.literal("external"), v.literal("mixed")),
     applicationContentVersion: v.number(),
     reviewerPersonId: v.id("people"),
     assignedByPersonId: v.id("people"),
@@ -2050,13 +2042,6 @@ export default defineSchema({
       "eventId",
       "reviewerPersonId",
       "state",
-      "assignedAt",
-    ])
-    .index("by_event_reviewer_state_origin_assigned", [
-      "eventId",
-      "reviewerPersonId",
-      "state",
-      "teamOrigin",
       "assignedAt",
     ]),
 

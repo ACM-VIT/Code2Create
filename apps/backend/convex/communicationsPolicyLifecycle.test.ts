@@ -584,7 +584,6 @@ async function seedFixture(backend: BackendTest, slug: string) {
     const applicationId = await ctx.db.insert("applications", {
       eventId,
       teamId,
-      teamOrigin: "external",
       submittedProjectVersionId: projectId,
       admissionPolicyVersionId: admissionPolicyId,
       state: "submitted",

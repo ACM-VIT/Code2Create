@@ -791,7 +791,6 @@ async function seedParticipantDelivery(
     const applicationId = await ctx.db.insert("applications", {
       eventId: fixture.eventId,
       teamId: fixture.teamId,
-      teamOrigin: "external",
       submittedProjectVersionId: projectVersionId,
       admissionPolicyVersionId: policyId,
       state: "accepted",

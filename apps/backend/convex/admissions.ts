@@ -34,7 +34,7 @@ import {
   enqueueApplicationNotifications,
 } from "./lib/participantNotificationDelivery";
 import { maximumApplicantTeamsPerEvent } from "./lib/reviewLimits";
-import type { ExclusiveTeamOrigin } from "./lib/teamRoster";
+import { teamMatchesOrigin, type ExclusiveTeamOrigin } from "./lib/teamRoster";
 import {
   normalizeEmail,
   normalizedLongText,
@@ -78,13 +78,35 @@ const maximumScopedApplicationsForStageCounts = 2_000;
 const maximumCountedReviewAssignments = 500;
 const maximumWorkloadAssignments = 4_000;
 const maximumApplicationSearchResults = 100;
+const maximumAdmissionPageSize = 100;
 const admissionTeamOrigin = v.union(v.literal("internal"), v.literal("external"));
 
-function applicationMatchesOrigin(
+function requireAdmissionPageSize(numItems: number) {
+  if (!Number.isSafeInteger(numItems) || numItems < 1 || numItems > maximumAdmissionPageSize) {
+    throw new ConvexError({
+      code: "INVALID_PAGINATION",
+      message: `Admission pages support 1 through ${maximumAdmissionPageSize} items.`,
+    });
+  }
+}
+
+function pageStartAfterCursor<T extends { _id: string }>(rows: readonly T[], cursor: string | null) {
+  if (cursor === null) return 0;
+  const cursorIndex = rows.findIndex((row) => row._id === cursor);
+  if (cursorIndex < 0) {
+    throw new ConvexError({ code: "INVALID_PAGINATION", message: "The page cursor is invalid." });
+  }
+  return cursorIndex + 1;
+}
+
+async function applicationMatchesOrigin(
+  ctx: QueryCtx,
   application: Doc<"applications">,
   origin: ExclusiveTeamOrigin | undefined,
 ) {
-  return origin === undefined || application.teamOrigin === origin;
+  if (origin === undefined) return true;
+  const team = await ctx.db.get(application.teamId);
+  return team !== null && teamMatchesOrigin(team, origin);
 }
 
 async function rosterCohort(ctx: QueryCtx, project: Doc<"projectVersions">) {
@@ -123,7 +145,7 @@ export const stageCounts = query({
         : await scopedApplicationsForStageCounts(ctx, event._id, subject._id);
     const counts = new Map<Doc<"applications">["state"], number>();
     for (const application of applications) {
-      if (!applicationMatchesOrigin(application, args.origin)) continue;
+      if (!(await applicationMatchesOrigin(ctx, application, args.origin))) continue;
       counts.set(application.state, (counts.get(application.state) ?? 0) + 1);
     }
     return [...counts.entries()].map(([state, count]) => ({ state, count }));
@@ -529,27 +551,27 @@ export const list = query({
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
-    const origin = args.origin;
-    const page =
-      origin === undefined
-        ? await ctx.db
-            .query("applications")
-            .withIndex("by_event_state_submitted", (index) => {
-              const eventIndex = index.eq("eventId", event._id);
-              return args.state ? eventIndex.eq("state", args.state) : eventIndex;
-            })
-            .order("asc")
-            .paginate(args.paginationOpts)
-        : await ctx.db
-            .query("applications")
-            .withIndex("by_event_origin_state_submitted", (index) => {
-              const originIndex = index.eq("eventId", event._id).eq("teamOrigin", origin);
-              return args.state ? originIndex.eq("state", args.state) : originIndex;
-            })
-            .order("asc")
-            .paginate(args.paginationOpts);
+    requireAdmissionPageSize(args.paginationOpts.numItems);
+    const rows = await ctx.db
+      .query("applications")
+      .withIndex("by_event_state_submitted", (index) => {
+        const eventIndex = index.eq("eventId", event._id);
+        return args.state ? eventIndex.eq("state", args.state) : eventIndex;
+      })
+      .order("asc")
+      .take(maximumApplicantTeamsPerEvent + 1);
+    if (rows.length > maximumApplicantTeamsPerEvent) {
+      throw new Error(
+        `Admission lists support at most ${maximumApplicantTeamsPerEvent} applicant teams.`,
+      );
+    }
     const visible = [];
-    for (const application of page.page) {
+    let scannedThrough = pageStartAfterCursor(rows, args.paginationOpts.cursor) - 1;
+    for (let index = scannedThrough + 1; index < rows.length; index += 1) {
+      const application = rows[index];
+      if (!application) throw new Error("The application page index is invalid.");
+      scannedThrough = index;
+      if (!(await applicationMatchesOrigin(ctx, application, args.origin))) continue;
       const item = await visibleApplicationListProjection(
         ctx,
         event._id,
@@ -557,8 +579,14 @@ export const list = query({
         application,
       );
       if (item) visible.push(item);
+      if (visible.length === args.paginationOpts.numItems) break;
     }
-    return { ...page, page: visible };
+    const isDone = scannedThrough >= rows.length - 1;
+    return {
+      page: visible,
+      isDone,
+      continueCursor: isDone ? "" : (rows[scannedThrough]?._id ?? ""),
+    };
   },
 });
 
@@ -623,7 +651,7 @@ export const searchApplications = query({
         if (
           !team ||
           !searchTerms.every((term) => team.name.toLowerCase().includes(term)) ||
-          (args.origin !== undefined && application.teamOrigin !== args.origin)
+          (args.origin !== undefined && !teamMatchesOrigin(team, args.origin))
         ) {
           return [];
         }
@@ -674,34 +702,28 @@ export const myReviewAssignments = query({
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
-    const origin = args.origin;
-    const page =
-      origin === undefined
-        ? await ctx.db
-            .query("admissionReviewAssignments")
-            .withIndex("by_event_reviewer_state_assigned", (index) =>
-              index
-                .eq("eventId", event._id)
-                .eq("reviewerPersonId", person._id)
-                .eq("state", args.state),
-            )
-            .order("desc")
-            .paginate(args.paginationOpts)
-        : await ctx.db
-            .query("admissionReviewAssignments")
-            .withIndex("by_event_reviewer_state_origin_assigned", (index) =>
-              index
-                .eq("eventId", event._id)
-                .eq("reviewerPersonId", person._id)
-                .eq("state", args.state)
-                .eq("teamOrigin", origin),
-            )
-            .order("desc")
-            .paginate(args.paginationOpts);
+    requireAdmissionPageSize(args.paginationOpts.numItems);
+    const rows = await ctx.db
+      .query("admissionReviewAssignments")
+      .withIndex("by_event_reviewer_state_assigned", (index) =>
+        index.eq("eventId", event._id).eq("reviewerPersonId", person._id).eq("state", args.state),
+      )
+      .order("desc")
+      .take(maximumWorkloadAssignments + 1);
+    if (rows.length > maximumWorkloadAssignments) {
+      throw new Error(
+        `Reviewer queues support at most ${maximumWorkloadAssignments} assignments.`,
+      );
+    }
     const visible = [];
-    for (const assignment of page.page) {
+    let scannedThrough = pageStartAfterCursor(rows, args.paginationOpts.cursor) - 1;
+    for (let index = scannedThrough + 1; index < rows.length; index += 1) {
+      const assignment = rows[index];
+      if (!assignment) throw new Error("The assignment page index is invalid.");
+      scannedThrough = index;
       const application = await ctx.db.get(assignment.applicationId);
       if (!application || application.eventId !== event._id) continue;
+      if (!(await applicationMatchesOrigin(ctx, application, args.origin))) continue;
       const reviewReadGrantIds = await matchingPermissionGrantIds(ctx, {
         eventId: event._id,
         eventAccessSubjectId: subject._id,
@@ -765,8 +787,14 @@ export const myReviewAssignments = query({
           ? { ownRecommendation: ownReview.recommendation }
           : {}),
       });
+      if (visible.length === args.paginationOpts.numItems) break;
     }
-    return { ...page, page: visible };
+    const isDone = scannedThrough >= rows.length - 1;
+    return {
+      page: visible,
+      isDone,
+      continueCursor: isDone ? "" : (rows[scannedThrough]?._id ?? ""),
+    };
   },
 });
 
@@ -779,29 +807,21 @@ export const myReviewAssignmentCounts = query({
     const { person } = await requireCurrentPerson(ctx);
     await requireEventSubject(ctx, event._id, person._id);
     const count = async (state: "active" | "completed") => {
-      const origin = args.origin;
-      const rows =
-        origin === undefined
-          ? await ctx.db
-              .query("admissionReviewAssignments")
-              .withIndex("by_event_reviewer_state_assigned", (index) =>
-                index
-                  .eq("eventId", event._id)
-                  .eq("reviewerPersonId", person._id)
-                  .eq("state", state),
-              )
-              .take(maximumCountedReviewAssignments)
-          : await ctx.db
-              .query("admissionReviewAssignments")
-              .withIndex("by_event_reviewer_state_origin_assigned", (index) =>
-                index
-                  .eq("eventId", event._id)
-                  .eq("reviewerPersonId", person._id)
-                  .eq("state", state)
-                  .eq("teamOrigin", origin),
-              )
-              .take(maximumCountedReviewAssignments);
-      return rows.length;
+      const rows = await ctx.db
+        .query("admissionReviewAssignments")
+        .withIndex("by_event_reviewer_state_assigned", (index) =>
+          index.eq("eventId", event._id).eq("reviewerPersonId", person._id).eq("state", state),
+        )
+        .take(maximumCountedReviewAssignments);
+      if (args.origin === undefined) return rows.length;
+      let matching = 0;
+      for (const row of rows) {
+        const application = await ctx.db.get(row.applicationId);
+        if (application && (await applicationMatchesOrigin(ctx, application, args.origin))) {
+          matching += 1;
+        }
+      }
+      return matching;
     };
     return { active: await count("active"), completed: await count("completed") };
   },
@@ -1533,7 +1553,6 @@ export async function createAdmissionReviewAssignment(
   const assignmentId = await ctx.db.insert("admissionReviewAssignments", {
     eventId: args.application.eventId,
     applicationId: args.application._id,
-    teamOrigin: args.application.teamOrigin,
     applicationContentVersion: args.application.contentVersion,
     reviewerPersonId: args.reviewerSubject.personId,
     assignedByPersonId: args.assignedByPersonId,

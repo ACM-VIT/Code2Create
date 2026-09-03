@@ -51,7 +51,7 @@ import {
 } from "./lib/intakeQuestions";
 import { reconcileWorkingFieldsAfterDraftVersionChange } from "./lib/intakeWorkingFields";
 import { ideaQuestionEndToEndDeadlineMs } from "./lib/ideaSubmissionAi";
-import { exclusiveTeamOrigin, teamClassesMeetPolicy, teamRosterCounts } from "./lib/teamRoster";
+import { teamClassesMeetPolicy, teamRosterCounts } from "./lib/teamRoster";
 import {
   admissionDecision,
   admissionOfferState,
@@ -3299,7 +3299,6 @@ export const finalizeSubmission = internalMutation({
     const applicationId = await ctx.db.insert("applications", {
       eventId: event._id,
       teamId: team._id,
-      teamOrigin: exclusiveTeamOrigin(teamRosterCounts(team)) ?? "mixed",
       submittedProjectVersionId: projectVersionId,
       admissionPolicyVersionId: admissionPolicy._id,
       state: "submitted",
