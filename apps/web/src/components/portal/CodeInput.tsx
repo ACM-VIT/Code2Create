@@ -6,14 +6,6 @@ declare global {
   }
 }
 
-/**
- * A one-time code typed into a row of cells. One real input sits invisibly
- * over the cells, so SMS autofill, paste, and assistive tech all see a single
- * field while the eye gets a digit per box. The input stays fully opaque but
- * transparent, which is what keeps iOS's "From Messages" suggestion and
- * keyboard clipboard hints working; on Android the WebOTP API is asked for
- * the code as well.
- */
 export function CodeInput({
   value,
   onChange,
@@ -27,15 +19,12 @@ export function CodeInput({
 }: {
   value: string;
   onChange: (next: string) => void;
-  /** Fires as the last digit lands, so the common path needs no extra tap. */
   onComplete?: (code: string) => void;
   length?: number;
   disabled?: boolean;
   label: string;
   autoFocus?: boolean;
-  /** Bump to replay the shake, for a code that came back wrong. */
   shakeKey?: number;
-  /** Email codes should disable the Android SMS-only WebOTP request. */
   enableSmsWebOtp?: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
