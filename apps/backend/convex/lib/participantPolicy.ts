@@ -227,12 +227,17 @@ export async function loadPublishedParticipantCapacity(ctx: ReadCtx, event: Doc<
 export async function participantPolicyPublicationIssue(
   ctx: ReadCtx,
   event: Doc<"events">,
+  published: ParticipantPolicy,
   candidate: ParticipantPolicy,
 ) {
   const participantCapacity = await loadPublishedParticipantCapacity(ctx, event);
   if (candidate.teamMaximumSize > participantCapacity) {
     return `Maximum team size cannot exceed the published participant capacity of ${participantCapacity}.`;
   }
+  const minimumTightened = candidate.teamMinimumSize > published.teamMinimumSize;
+  const maximumTightened = candidate.teamMaximumSize < published.teamMaximumSize;
+  const participantClassesRestricted = !candidate.mixedParticipantClassesAllowed;
+  if (!minimumTightened && !maximumTightened && !participantClassesRestricted) return null;
   const teams = await ctx.db
     .query("teams")
     .withIndex("by_event_status", (index) => index.eq("eventId", event._id))
@@ -255,13 +260,17 @@ export async function participantPolicyPublicationIssue(
     ) {
       throw new Error(`Team “${team.name}” has an invalid roster projection.`);
     }
-    if (team.activeMemberCount > candidate.teamMaximumSize) {
+    if (maximumTightened && team.activeMemberCount > candidate.teamMaximumSize) {
       return `Team “${team.name}” has more than ${candidate.teamMaximumSize} active members. Reduce its roster before publishing this team-size limit.`;
     }
-    if (team.activeMemberCount < candidate.teamMinimumSize) {
+    if (minimumTightened && team.activeMemberCount < candidate.teamMinimumSize) {
       return `Team “${team.name}” has fewer than ${candidate.teamMinimumSize} active members. Complete its roster before publishing this team-size limit.`;
     }
-    if (team.activeVitMemberCount > 0 && team.activeExternalMemberCount > 0) {
+    if (
+      participantClassesRestricted &&
+      team.activeVitMemberCount > 0 &&
+      team.activeExternalMemberCount > 0
+    ) {
       return `Team “${team.name}” contains both VIT and external participants. Change its roster before publishing the single-class team rule.`;
     }
   }
@@ -414,7 +423,12 @@ export async function publishParticipantPolicy(
   if (participantPolicyChecksum(previousNormalized) !== previous.checksum) {
     throw new Error("The published participant-policy checksum is invalid.");
   }
-  const publicationIssue = await participantPolicyPublicationIssue(ctx, args.event, normalized);
+  const publicationIssue = await participantPolicyPublicationIssue(
+    ctx,
+    args.event,
+    previousNormalized,
+    normalized,
+  );
   if (publicationIssue) {
     throw new ConvexError({
       code: "PARTICIPANT_POLICY_INCOMPATIBLE",
