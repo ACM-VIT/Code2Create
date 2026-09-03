@@ -16,7 +16,7 @@ export function ReleasedFeedbackPanel() {
       <div>
         <p className="eyebrow">Released feedback</p>
         <h2 id="released-feedback-heading">Your review</h2>
-        <p className="muted">Only fields approved in the published participant-feedback policy appear here.</p>
+        <p className="muted">Only the fields the organisers chose to share appear here.</p>
       </div>
       <div className="released-feedback-list">
         {releases.map((release) => (

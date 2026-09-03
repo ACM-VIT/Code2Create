@@ -6,6 +6,11 @@ import { useState } from 'react'
 import { eventSlug } from '../../lib/config'
 import { readableError } from '../../lib/errors'
 import { useOperationRunner } from '../../lib/operations'
+import {
+  recommendationCommandRows,
+  recommendationStatusLabel,
+  recommendationStatusTone,
+} from '../../lib/recommendationPresentation'
 
 type CommandRows = FunctionReturnType<typeof api.intelligenceRecommendations.copilotConversation>
 type CommandRow = CommandRows[number]
@@ -18,18 +23,9 @@ export function CopilotCommandTray() {
 
   return (
     <section aria-label="Copilot command approvals" className="flex flex-col gap-2.5">
-      <div className="flex items-center justify-between gap-3 px-0.5">
-        <div>
-          <p className="m-0 text-[10px] font-semibold tracking-[0.14em] text-ink-3 uppercase">
-            Command approvals
-          </p>
-          <p className="mt-0.5 mb-0 text-[11.5px] text-ink-3">
-            Nothing runs until an authorized operator approves it.
-          </p>
-        </div>
-        <span className="rounded-full border border-line bg-field px-2 py-0.5 text-[10.5px] text-ink-2 tabular-nums">
-          {commands.length}
-        </span>
+      <div className="flex items-baseline justify-between gap-3 px-0.5">
+        <p className="m-0 text-[12px] font-medium text-ink-2">Needs your approval</p>
+        <span className="text-[12px] text-ink-3 tabular-nums">{commands.length}</span>
       </div>
       {commands.slice(-3).map((command) => (
         <CopilotCommandCard command={command} key={command.id} operations={operations} />
@@ -120,8 +116,8 @@ function CopilotCommandCard({
           <p className="m-0 text-[12.5px] font-semibold leading-snug text-ink">{command.statement}</p>
           <p className="mt-1 mb-0 text-[11.5px] leading-normal text-ink-3">{command.reasoning}</p>
         </div>
-        <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-semibold tracking-[0.04em] uppercase ${statusTone(command.status)}`}>
-          {statusLabel(command.status)}
+        <span className={`inline-flex h-5.5 shrink-0 items-center rounded-full px-2 text-[11px] ${recommendationStatusTone(command.status)}`}>
+          {recommendationStatusLabel(command.status)}
         </span>
       </div>
 
@@ -167,7 +163,7 @@ function CopilotCommandCard({
 
           {rejecting && pendingSlot === undefined ? (
             <div className="mt-3 flex flex-col gap-2 border-l-2 border-line-strong pl-3">
-              <label className="text-[10.5px] font-semibold tracking-[0.08em] text-ink-3 uppercase" htmlFor={`ask-reject-${command.id}`}>
+              <label className="text-[12px] font-medium text-ink" htmlFor={`ask-reject-${command.id}`}>
                 Why should this not run?
               </label>
               <textarea
@@ -175,7 +171,7 @@ function CopilotCommandCard({
                 id={`ask-reject-${command.id}`}
                 maxLength={500}
                 onChange={(event) => setReason(event.target.value)}
-                placeholder="Give the agent actionable operator feedback…"
+                placeholder="Tell the agent what to do differently…"
                 value={reason}
               />
               <div>
@@ -203,67 +199,19 @@ function CopilotCommandCard({
 }
 
 function CommandDetails({ command }: { command: CommandRow }) {
-  const details = commandDetailRows(command.arguments)
   return (
-    <dl className="m-0 grid grid-cols-1 gap-px border-t border-line bg-line sm:grid-cols-2">
-      {details.map((detail) => (
-        <div className="min-w-0 bg-canvas/70 px-3.5 py-2" key={detail.label}>
-          <dt className="text-[9.5px] font-semibold tracking-[0.08em] text-ink-3 uppercase">{detail.label}</dt>
-          <dd className="mt-0.5 mb-0 truncate text-[11.5px] text-ink-2" title={String(detail.value)}>
-            {detail.value}
+    <dl className="m-0 grid border-t border-line px-3.5 py-1">
+      {recommendationCommandRows(command.arguments).map((row) => (
+        <div className="grid grid-cols-[120px_minmax(0,1fr)] gap-3 border-t border-line py-1.5 first:border-t-0" key={row.label}>
+          <dt className="text-[11.5px] leading-5 text-ink-3">{row.label}</dt>
+          <dd
+            className={`m-0 truncate text-[12px] leading-5 text-ink-2 ${row.code ? 'font-mono text-[11.5px]' : ''}`}
+            title={String(row.value)}
+          >
+            {row.value}
           </dd>
         </div>
       ))}
     </dl>
   )
-}
-
-function commandDetailRows(command: CommandRow['arguments']): Array<{ label: string; value: number | string }> {
-  if (command.kind === 'hold_review_team') return [
-    { label: 'Command', value: 'review.team.hold' },
-    { label: 'Target', value: command.teamRoundStateId },
-    { label: 'Expected version', value: command.expectedTeamRoundStateVersion },
-    { label: 'Reason', value: command.reason },
-  ]
-  if (command.kind === 'page_reserve_reviewer') return [
-    { label: 'Command', value: 'review.reserve_reviewer.page' },
-    { label: 'Vacancy', value: command.missingPanelMemberId },
-    { label: 'Expected version', value: command.expectedPanelVersion },
-    { label: 'Reason', value: command.reason },
-  ]
-  if (command.kind === 'open_support_case') return [
-    { label: 'Command', value: 'support.case.open' },
-    { label: 'Category', value: command.category.replaceAll('_', ' ') },
-    { label: 'Description', value: command.description },
-    ...(command.roundId === undefined ? [] : [{ label: 'Round', value: command.roundId }]),
-    ...(command.teamId === undefined ? [] : [{ label: 'Team', value: command.teamId }]),
-  ]
-  if (command.kind === 'dismiss_attention_item') return [
-    { label: 'Command', value: 'operations.attention.dismiss' },
-    { label: 'Attention item', value: command.itemId },
-    { label: 'Expected version', value: command.expectedItemVersion },
-    { label: 'Reason', value: command.reason },
-  ]
-  return [
-    { label: 'Command', value: 'configuration.admission.minimum_human_reviews.set' },
-    { label: 'New minimum', value: command.minimumHumanReviews },
-    { label: 'Expected event version', value: command.expectedEventVersion },
-    { label: 'Base policy', value: command.expectedBasePolicyId },
-    { label: 'Release', value: command.releaseVersion },
-    { label: 'Reason', value: command.reason },
-  ]
-}
-
-function statusLabel(status: CommandRow['status']) {
-  if (status === 'proposed') return 'Approval needed'
-  if (status === 'approved') return 'Executed'
-  if (status === 'rejected') return 'Rejected'
-  return 'Revision requested'
-}
-
-function statusTone(status: CommandRow['status']) {
-  if (status === 'proposed') return 'bg-amber/10 text-amber'
-  if (status === 'approved') return 'bg-green/10 text-green'
-  if (status === 'rejected') return 'bg-red/10 text-red'
-  return 'bg-field text-ink-2'
 }

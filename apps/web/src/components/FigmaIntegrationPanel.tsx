@@ -202,7 +202,7 @@ export function FigmaIntegrationPanel() {
         <p className="notice">Figma opens after your team is accepted.</p>
       ) : null}
       {!integration.policy ? (
-        <p className="notice">The event code and design policy has not been published.</p>
+        <p className="notice">Code and design connections aren’t open yet.</p>
       ) : null}
       {!integration.figmaConfigured ? (
         <p className="notice">Figma connections are unavailable right now.</p>

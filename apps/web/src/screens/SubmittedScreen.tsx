@@ -1,17 +1,12 @@
 import { api } from '@code2create/backend/api'
 import type { FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 
 import type { CurrentTeam, CurrentTeamMember, PublicState, SubmittedIntake } from '../types'
-import { AttendancePanel } from '../components/AttendancePanel'
-import { ReviewQueuePanel } from '../components/ReviewQueuePanel'
-import { ReleasedFeedbackPanel } from '../components/ReleasedFeedbackPanel'
 import { EditingPresence } from '../components/EditingPresence'
 import { useEditingPresence } from '../hooks/useEditingPresence'
-import { TeamLocationPanel } from '../components/TeamLocationPanel'
-import { ProjectCheckpointsPanel } from '../components/ProjectCheckpointsPanel'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 import { useMutationAttempt } from '../lib/operations'
@@ -22,6 +17,7 @@ import { TeamCluster } from '../components/portal/TeamCluster'
 import { PortalButton, PortalTextButton } from '../components/portal/PortalButton'
 import { PortalError, PortalTextarea } from '../components/portal/PortalField'
 import { normalizedIdeaLength, useNoveltyPreview } from '../hooks/useNoveltyPreview'
+import { DashboardScreen } from './DashboardScreen'
 import { NoveltyPill, ReviewEditRow } from './IntakeScreen'
 import {
   AccordionItem,
@@ -30,7 +26,6 @@ import {
   AccordionItemTrigger,
   AccordionRoot,
 } from '../components/portal/Accordion'
-import { MemberAvatarVisual } from '../components/portal/MemberAvatarVisual'
 import { SubmitCelebration } from '../components/portal/SubmitCelebration'
 import { consumeSubmissionCelebration } from '../lib/submissionCelebration'
 import {
@@ -47,7 +42,6 @@ import {
 type ParticipantDelivery = FunctionReturnType<typeof api.participantNotifications.mine>
 type ParticipantDeliveryState = NonNullable<ParticipantDelivery>['state']
 type ParticipantCapabilities = FunctionReturnType<typeof api.access.participantCapabilities>
-type ParticipantCommunications = NonNullable<FunctionReturnType<typeof api.participantCommunications.current>>
 type CurrentApplication = SubmittedIntake['application']
 type ApplicationState = CurrentApplication['state']
 type InformationRequest = NonNullable<CurrentApplication['informationRequest']>
@@ -411,19 +405,14 @@ function SubmittedWorkspace({
   }
 
 
-  // ---- f9 · event live: one reactive bento --------------------------------
+  // ---- f9 · event live: the dashboard bento ------------------------------
   if (eventIsLive) {
     return (
-      <EventLiveScene
-        capabilities={capabilities}
+      <DashboardScreen
         team={team}
         members={members}
-        communications={communications ?? null}
-        event={event}
-        currentPhase={currentPhase}
-        phaseTime={phaseTime}
+        teamEditable={teamEditable}
         onSignOut={onSignOut}
-        proposalLink={proposalLink}
       />
     )
   }
@@ -637,261 +626,6 @@ function SubmittedWorkspace({
           status <span className="text-fg">{copy.status.toLowerCase()}</span>
         </p>
         {proposalLink}
-      </div>
-    </PortalScene>
-  )
-}
-
-
-function BentoBlock({
-  title,
-  meta,
-  summary,
-  children,
-  defaultOpen = false,
-}: {
-  title: string
-  meta?: string
-  summary: ReactNode
-  children?: ReactNode
-  defaultOpen?: boolean
-}) {
-  const [open, setOpen] = useState(defaultOpen)
-  const expandable = children !== undefined
-  return (
-    <div
-      className={`rounded-petal-sm glass-tile px-[22px] py-[18px] transition-all duration-250 ${
-        expandable ? 'cursor-pointer' : ''
-      }`}
-      {...(expandable
-        ? {
-            role: 'button',
-            tabIndex: 0,
-            onClick: () => setOpen((value) => !value),
-            onKeyDown: (event: React.KeyboardEvent) => {
-              if (event.key !== 'Enter' && event.key !== ' ') return
-              event.preventDefault()
-              setOpen((value) => !value)
-            },
-          }
-        : {})}
-    >
-      <div className="flex items-baseline justify-between gap-3">
-        <span className="font-ui text-base text-rose-light">{title}</span>
-        <span className="text-[11px] text-fg/45">
-          {meta ?? (expandable ? (open ? 'tap to close' : 'tap to open') : '')}
-        </span>
-      </div>
-      <div className="mt-2 text-sm text-fg/85">{summary}</div>
-      {expandable && open ? (
-        <div className="mt-3.5 cursor-auto" onClick={(event) => event.stopPropagation()}>
-          {children}
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
-/**
- * Mockup f9: the live-event home — one reactive bento. Blocks open in place;
- * the existing tool panels render inside their blocks.
- */
-function EventLiveScene({
-  capabilities,
-  team,
-  members,
-  communications,
-  event,
-  currentPhase,
-  phaseTime,
-  onSignOut,
-  proposalLink,
-}: {
-  capabilities: ParticipantCapabilities
-  team: CurrentTeam
-  members: CurrentTeamMember[]
-  communications: ParticipantCommunications | null
-  event: NonNullable<PublicState['event']>
-  currentPhase: NonNullable<PublicState['event']>['phases'][number]
-  phaseTime: number
-  onSignOut: () => void
-  proposalLink: ReactNode
-}) {
-  const support = useQuery(api.support.mineSummary, capabilities?.supportRead ? { eventSlug } : 'skip')
-  const openRequests = support === undefined || support.openCount === 0
-    ? null
-    : `${support.countIsLowerBound ? '20+' : support.openCount} open`
-  const nextPhase = event.phases.find((phase) => phase.startsAt > phaseTime)
-  const latestStep = communications?.nextSteps[0]
-  return (
-    <PortalScene
-      onSignOut={onSignOut}
-      tree="left"
-      header={(
-        <TeamCluster
-          team={team}
-          members={members}
-          editable={phaseTime < team.membershipEditableUntil}
-          canManage={team.currentRole === 'lead' && phaseTime < team.membershipEditableUntil}
-        />
-      )}
-    >
-      <div className="w-full max-w-[1048px] pt-2 pb-10 lg:pt-6">
-        <p className="mb-2 flex items-center gap-2 font-ui text-base text-rose-light">
-          <span aria-hidden className="inline-block size-[7px] animate-dot-pulse rounded-full bg-rose-light" />
-          {currentPhase.displayName.toLowerCase()} · ends{' '}
-          {formatEventTime(currentPhase.endsAt, event.timezone)}
-        </p>
-        <h1 className="mb-7 font-display font-light tracking-[-.01em] text-4xl leading-none text-shadow-[0_8px_50px_var(--scene-text-glow)] lg:text-[46px]">
-          {nextPhase
-            ? `${nextPhase.displayName} at ${formatEventTime(nextPhase.startsAt, event.timezone)}.`
-            : currentPhase.description}
-        </h1>
-
-        <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {capabilities?.floor ? (
-            <BentoBlock title="your hall" summary="your table cluster and location QR">
-              <TeamLocationPanel />
-            </BentoBlock>
-          ) : null}
-          {capabilities?.reviewQueue ? (
-            <BentoBlock title="review queue" summary="where your team stands">
-              <ReviewQueuePanel />
-            </BentoBlock>
-          ) : null}
-          <BentoBlock
-            title="schedule"
-            {...(nextPhase
-              ? { meta: `next ${formatEventTime(nextPhase.startsAt, event.timezone)}` }
-              : {})}
-            summary={currentPhase.description}
-          >
-            <div className="flex flex-col">
-              {event.phases.map((phase) => {
-                const now = phase.startsAt <= phaseTime && phaseTime < phase.endsAt
-                const past = phase.endsAt <= phaseTime
-                return (
-                  <div
-                    key={phase.phaseKey}
-                    className="flex justify-between gap-3 border-b border-rose/20 py-2 text-xs last:border-b-0"
-                  >
-                    <span
-                      className={
-                        now
-                          ? 'text-rose-light'
-                          : past
-                            ? 'text-fg/55'
-                            : 'text-fg/75'
-                      }
-                    >
-                      {phase.displayName}
-                      {past ? ' ✓' : ''}
-                    </span>
-                    <span className={now ? 'text-rose-light' : 'text-fg/50'}>
-                      {formatEventTime(phase.startsAt, event.timezone)}
-                    </span>
-                  </div>
-                )
-              })}
-            </div>
-          </BentoBlock>
-          {capabilities?.projectCheckpoints || capabilities?.integrations ? (
-            <BentoBlock title="connect tools" summary="repos, Figma, and checkpoints">
-              {capabilities?.projectCheckpoints ? (
-                <ProjectCheckpointsPanel timezone={event.timezone} />
-              ) : null}
-              {capabilities?.integrations ? (
-                <p className="mt-3 mb-0 text-xs">
-                  <Link to="/integrations" viewTransition className="text-rose-light underline-offset-4 hover:underline">
-                    manage repos + Figma
-                  </Link>
-                </p>
-              ) : null}
-            </BentoBlock>
-          ) : null}
-          <BentoBlock
-            title="squad"
-            meta={`${team.activeMemberCount} of ${team.teamMaximumSize} · view team`}
-            summary={
-              <span className="mt-1 flex">
-                {members.slice(0, 6).map((member, index) => (
-                  <span
-                    key={member.teamMemberId}
-                    title={member.displayName}
-                    className={`relative flex size-[30px] items-center justify-center rounded-full text-[10px] font-semibold ${
-                      member.role === 'lead'
-                        ? 'border-[1.5px] border-ring-lead bg-avatar-lead'
-                        : 'border-[1.5px] border-rose/70 bg-avatar'
-                    } ${index > 0 ? '-ml-2' : ''}`}
-                  >
-                    <MemberAvatarVisual
-                      displayName={member.displayName}
-                      githubAvatarUrl={member.githubAvatarUrl}
-                      seed={member.membershipId}
-                      lead={member.role === 'lead'}
-                      flowerSize={16}
-                    />
-                  </span>
-                ))}
-              </span>
-            }
-          >
-            <div className="flex flex-col">
-              {members.map((member) => (
-                <div
-                  key={member.teamMemberId}
-                  className="flex justify-between gap-3 border-b border-rose/20 py-[7px] text-xs last:border-b-0"
-                >
-                  <span>
-                    {member.displayName}
-                    {member.role === 'lead' ? (
-                      <span className="ml-1.5 text-[11px] text-rose-light">lead</span>
-                    ) : null}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </BentoBlock>
-          {capabilities?.attendance ? (
-            <BentoBlock title="my pass" summary="check-in QR and attendance">
-              <AttendancePanel />
-            </BentoBlock>
-          ) : null}
-          {capabilities?.scoreFeedback ? (
-            <BentoBlock title="feedback" summary="released review feedback">
-              <ReleasedFeedbackPanel />
-            </BentoBlock>
-          ) : null}
-          {latestStep ? (
-            <BentoBlock title="from organizers" summary={`“${latestStep.title}” · ${latestStep.detail}`} />
-          ) : null}
-          <BentoBlock
-            title="help"
-            summary={
-              <span className="flex gap-[18px] pt-1 text-[13px]">
-                {communications?.discordUrl ? (
-                  <a
-                    href={communications.discordUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-rose-light"
-                  >
-                    Discord
-                  </a>
-                ) : null}
-                {capabilities?.supportRead ? (
-                  <Link to="/support" viewTransition className="text-rose-light">
-                    support{openRequests ? <span className="text-fg/55"> · {openRequests}</span> : null}
-                  </Link>
-                ) : null}
-                <Link to="/more" viewTransition className="text-rose-light">
-                  more
-                </Link>
-              </span>
-            }
-          />
-        </div>
-        <div className="text-center">{proposalLink}</div>
       </div>
     </PortalScene>
   )

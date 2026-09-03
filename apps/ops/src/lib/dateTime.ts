@@ -58,3 +58,17 @@ export function formatZonedTime(value: number, timeZone: string) {
     timeStyle: 'short',
   }).format(value)
 }
+
+/** "in 12 min", "2 h ago" — for schedules and freshness where a clock time reads worse. */
+export function formatRelativeTime(value: number, now = Date.now()) {
+  const deltaMs = value - now
+  const future = deltaMs > 0
+  const minutes = Math.round(Math.abs(deltaMs) / 60_000)
+  if (minutes < 1) return future ? 'in under a minute' : 'just now'
+  const amount = minutes < 60
+    ? `${minutes} min`
+    : minutes < 24 * 60
+      ? `${Math.round(minutes / 60)} h`
+      : `${Math.round(minutes / (24 * 60))} d`
+  return future ? `in ${amount}` : `${amount} ago`
+}

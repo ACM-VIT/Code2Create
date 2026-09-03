@@ -121,7 +121,7 @@ export function Rehearsal() {
       ) : list !== undefined && !list.canRead ? (
         <div className="health-empty">
           <strong>No test run is visible to you.</strong>
-          <span>Reading a run needs the rehearsal permission for that run.</span>
+          <span>You need the test-run permission to read this run.</span>
         </div>
       ) : null}
 
@@ -575,7 +575,7 @@ function OwnerAssignment({
           onChange={(event) => setReason(event.target.value)}
         />
       </label>
-      <button className="secondary" disabled={busy || !ownerPersonId || reason.trim().length < 5} type="submit">
+      <button className="secondary self-end" disabled={busy || !ownerPersonId || reason.trim().length < 5} type="submit">
         {busy ? 'Assigning…' : assignmentPending ? 'Confirm assignment' : 'Assign owner'}
       </button>
       {options.status === 'CanLoadMore' ? (
@@ -728,7 +728,7 @@ function RunControls({ detail }: { detail: RehearsalDetail }) {
           onChange={(event) => setNote(event.target.value)}
         />
       </label>
-      <div className="rehearsal-control-actions">
+      <div className="rehearsal-control-actions items-center">
         {startReady ? (
           <button className="primary" disabled={busy || note.trim().length < 5 || (pendingKind !== null && pendingKind !== 'start')} type="button" onClick={() => void run('start')}>
             {busy ? 'Working…' : pendingKind === 'start' ? 'Confirm earlier start' : 'Start test run'}
@@ -848,7 +848,7 @@ function ScenarioDetail({
               onChange={(event) => setNote(event.target.value)}
             />
           </label>
-          <div className="rehearsal-result-actions">
+          <div className="rehearsal-result-actions items-center">
             {pendingState !== null ? (
               <button className="primary" disabled={busy} type="button" onClick={() => void record(pendingState)}>
                 Confirm earlier {scenarioActionName(pendingState)}

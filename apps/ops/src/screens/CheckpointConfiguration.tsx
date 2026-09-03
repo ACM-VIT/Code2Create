@@ -249,7 +249,7 @@ export function CheckpointConfiguration({
             </div>
             {configuration.canPublish && validation?.valid && !publishArmed ? (
               <button className="secondary" type="button" onClick={() => setPublishArmed(true)}>
-                Review publication
+                Review before publishing
               </button>
             ) : null}
           </div>

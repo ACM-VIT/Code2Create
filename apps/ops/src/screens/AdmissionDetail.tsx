@@ -118,7 +118,7 @@ export function AdmissionDetail() {
       <section className="detail-section">
         <h2>Team · {detail.team.memberCount}</h2>
         {members.length > 0 && members.every((member) => member.profileContext === null) ? (
-          <p className="muted">Year and institution are not available to this account.</p>
+          <p className="muted">This account can’t see year and institution.</p>
         ) : null}
         <div className="member-list">
           {members.map((member) => (
@@ -310,7 +310,7 @@ function OfferControl({ detail }: { detail: AdmissionDetailData }) {
             <form className="command-form" onSubmit={revoke}>
               <Field
                 label="Why the offer is being withdrawn"
-                hint="Releases the reserved places and returns the application to accepted."
+                hint="Frees the reserved places and puts the application back to accepted."
               >
                 <textarea
                   required
@@ -382,7 +382,7 @@ function AiRecommendation(
         <div>
           <h2>AI recommendation</h2>
           <p className="muted">
-            Prepared automatically by the durable idea agent. Input to the human admission decision;
+            Written automatically by the idea assistant to help with the admission decision;
             never used in judging.
           </p>
         </div>
@@ -1024,7 +1024,7 @@ function DecisionForm({ detail }: { detail: AdmissionDetailData }) {
           </div>
           ) : null}
           {selectedAiDisposition ? (
-            <Field label="How you used the AI recommendation" hint="Recorded in the audit trail.">
+            <Field label="How you used the AI recommendation" hint="Kept on record.">
             <select value={selectedAiDisposition} onChange={(event) => setAiDisposition(parseAiDisposition(event.target.value))}>
               {availableAiDispositions.map((value) => <option key={value} value={value}>{admissionAiDispositionLabels[value]}</option>)}
             </select>

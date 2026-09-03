@@ -11,20 +11,25 @@ import { eventSlug } from '../../lib/config'
 import { formatCompactDateTime } from '../../lib/dateTime'
 import { readableError } from '../../lib/errors'
 import type { OperationRunner } from '../../lib/operations'
-import { PendingOperationRecovery } from '../PendingOperationRecovery'
+import {
+  type Recommendation,
+  recommendationCommandRows,
+  recommendationKindLabel,
+  recommendationSourceLabel,
+  recommendationStatusLabel,
+  recommendationStatusTone,
+} from '../../lib/recommendationPresentation'
 
-type RecommendationPage = FunctionReturnType<typeof api.intelligenceRecommendations.proposed>
-type Recommendation = RecommendationPage['page'][number]
 type Decision = 'reject' | 'suggest'
 
 export function RecommendationCard({
+  collapsed = false,
   operations,
   recommendation,
-  sourceLabel,
 }: {
+  collapsed?: boolean
   operations: OperationRunner<{ version: number }>
   recommendation: Recommendation
-  sourceLabel?: string
 }) {
   const approve = useMutation(api.intelligenceRecommendations.approve)
   const reject = useMutation(api.intelligenceRecommendations.reject)
@@ -45,11 +50,7 @@ export function RecommendationCard({
         ? suggestSlot
         : undefined
   const hasPending = pendingSlot !== undefined
-  const provenanceLabel = sourceLabel ?? (
-    recommendation.provenance.kind === 'autonomy'
-      ? 'Autonomous recommendation'
-      : 'Copilot recommendation'
-  )
+  const proposed = recommendation.status === 'proposed'
 
   const approveRecommendation = async () => {
     setConfirming(true)
@@ -94,6 +95,8 @@ export function RecommendationCard({
             clientOperationId,
             suggestion: normalizedNote,
           }))
+      setDecision(undefined)
+      setNote('')
     } catch (caught) {
       setError(readableError(caught))
     } finally {
@@ -114,79 +117,102 @@ export function RecommendationCard({
     }
   }
 
-  return (
-    <article className={`card-surface intelligence-recommendation ${recommendation.status}`}>
-      <header className="section-heading">
-        <div>
-          <p className="eyebrow">{provenanceLabel}</p>
-          <h4>{recommendation.statement}</h4>
-        </div>
-        <span className="state-label">
-          {recommendationStatusLabel(recommendation.status)}
-        </span>
-      </header>
-      <p className="muted">{kindLabel(recommendation.arguments.kind)}</p>
-      <RecommendationCommand arguments={recommendation.arguments} />
-      <p>{recommendation.reasoning}</p>
-      <dl className="review-progress intelligence-recommendation-evidence">
-        <div>
-          <dt>Proposed</dt>
-          <dd>{formatCompactDateTime(recommendation.proposedAt)}</dd>
-        </div>
-        <div>
-          <dt>Command version</dt>
-          <dd>{recommendation.version}</dd>
-        </div>
-        {recommendation.decidedAt === undefined ? null : (
-          <div>
-            <dt>Decided</dt>
-            <dd>{formatCompactDateTime(recommendation.decidedAt)}</dd>
+  const meta = [
+    recommendationKindLabel(recommendation.arguments.kind),
+    recommendationSourceLabel(recommendation.provenance),
+    `Proposed ${formatCompactDateTime(recommendation.proposedAt)}`,
+    ...(recommendation.decidedAt === undefined
+      ? []
+      : [`Decided ${formatCompactDateTime(recommendation.decidedAt)}`]),
+  ]
+
+  const header = (
+    <div className="flex items-start justify-between gap-4">
+      <div className="min-w-0">
+        <p className="m-0 text-[11.5px] leading-5 text-ink-3">{meta.join(' · ')}</p>
+        <h3 className="m-0 mt-1 text-[14px] leading-snug font-medium text-ink">
+          {recommendation.statement}
+        </h3>
+      </div>
+      <span className={`inline-flex h-5.5 shrink-0 items-center rounded-full px-2 text-[11px] ${recommendationStatusTone(recommendation.status)}`}>
+        {recommendationStatusLabel(recommendation.status)}
+      </span>
+    </div>
+  )
+
+  const body = (
+    <>
+      <p className="m-0 text-[13px] leading-6 text-ink-2">{recommendation.reasoning}</p>
+
+      <dl className="m-0 grid rounded-lg bg-canvas/60 px-3.5 py-1">
+        {recommendationCommandRows(recommendation.arguments).map((row) => (
+          <div className="grid grid-cols-[130px_minmax(0,1fr)] gap-3 border-t border-line py-2 first:border-t-0" key={row.label}>
+            <dt className="text-[12px] leading-5 text-ink-3">{row.label}</dt>
+            <dd className={`m-0 [overflow-wrap:anywhere] text-[12.5px] leading-5 text-ink-2 ${row.code ? 'font-mono text-[11.5px]' : ''}`}>
+              {row.value}
+            </dd>
           </div>
-        )}
-        <div>
-          <dt>Agent</dt>
-          <dd>{recommendation.agentVersion} · {recommendation.model}</dd>
-        </div>
-        <div>
-          <dt>{recommendation.provenance.kind === 'autonomy' ? 'Autonomous run' : 'Conversation'}</dt>
-          <dd>
-            <code>
-              {recommendation.provenance.kind === 'autonomy'
-                ? recommendation.provenance.runId
-                : recommendation.provenance.conversationId}
-            </code>
-          </dd>
-        </div>
+        ))}
       </dl>
+
       {recommendation.executedTargetType === undefined ? null : (
-        <p className="notice">
+        <p className="m-0 rounded-lg bg-green/10 px-3 py-2 text-[12px] leading-5 text-green">
           Executed {recommendation.executedTargetType.replaceAll('_', ' ')}{' '}
-          <code>{recommendation.executedTargetId}</code>
+          <code className="font-mono text-[11px]">{recommendation.executedTargetId}</code>
         </p>
       )}
-      {recommendation.provenance.kind === 'autonomy' ? (
-        <AutonomyEvidence recommendationId={recommendation.id} />
-      ) : (
-        <CitationList citations={recommendation.provenance.citations} />
+      {recommendation.operatorNote === undefined ? null : (
+        <p className="m-0 rounded-lg bg-field px-3 py-2 text-[12.5px] leading-5 text-ink-2">
+          <span className="text-ink-3">Operator note · </span>
+          {recommendation.operatorNote}
+        </p>
       )}
 
-      {recommendation.operatorNote === undefined ? null : (
-        <p className="notice">{recommendation.operatorNote}</p>
-      )}
+      <details className="group rounded-lg border border-line">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3.5 py-2.5 text-[12px] text-ink-2 hover:bg-hover [&::-webkit-details-marker]:hidden">
+          <span>Evidence and provenance</span>
+          <span aria-hidden className="font-mono text-[14px] text-ink-3 transition-transform group-open:rotate-45">+</span>
+        </summary>
+        <div className="grid gap-4 border-t border-line px-3.5 py-3.5">
+          <dl className="m-0 grid gap-x-6 gap-y-2 sm:grid-cols-2">
+            <ProvenanceDatum label="Agent release" value={recommendation.agentVersion} />
+            <ProvenanceDatum label="Model" value={recommendation.model} />
+            <ProvenanceDatum label="Command version" value={String(recommendation.version)} />
+            <ProvenanceDatum
+              label={recommendation.provenance.kind === 'autonomy' ? 'Autonomous run' : 'Conversation'}
+              value={recommendation.provenance.kind === 'autonomy'
+                ? recommendation.provenance.runId
+                : recommendation.provenance.conversationId}
+            />
+          </dl>
+          {recommendation.provenance.kind === 'autonomy' ? (
+            <AutonomyEvidence recommendationId={recommendation.id} />
+          ) : (
+            <CitationList citations={recommendation.provenance.citations} />
+          )}
+        </div>
+      </details>
 
       {pendingSlot !== undefined ? (
-        <PendingOperationRecovery
-          action={pendingSlot === approveSlot
-            ? 'Confirm approval'
-            : pendingSlot === rejectSlot
-              ? 'Confirm rejection'
-              : 'Confirm guidance'}
-          busy={confirming}
-          onConfirm={() => void confirmPendingDecision()}
-          title="Confirm the earlier decision"
-        />
-      ) : recommendation.status === 'proposed' ? (
-        <div className="button-row">
+        <div className="grid gap-2 border-t border-line pt-4">
+          <p className="m-0 text-[12.5px] text-ink-2">
+            Delivery of your earlier decision was interrupted. Confirm it once; it cannot apply twice.
+          </p>
+          <button
+            className="w-fit cursor-pointer rounded-lg border border-amber/30 bg-amber/10 px-3 py-1.5 text-[12px] font-semibold text-amber disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={confirming}
+            onClick={() => void confirmPendingDecision()}
+            type="button"
+          >
+            {pendingSlot === approveSlot
+              ? 'Confirm the earlier approval'
+              : pendingSlot === rejectSlot
+                ? 'Confirm the earlier rejection'
+                : 'Confirm the earlier guidance'}
+          </button>
+        </div>
+      ) : proposed ? (
+        <div className="flex flex-wrap items-center gap-2 border-t border-line pt-4">
           <button
             className="primary"
             disabled={confirming}
@@ -215,34 +241,36 @@ export function RecommendationCard({
             }}
             type="button"
           >
-            Suggest change
+            Suggest a change
           </button>
+          <span className="text-[11px] text-ink-3">
+            Runs with your permissions after fresh checks.
+          </span>
         </div>
       ) : null}
 
-      {recommendation.status === 'proposed' && decision !== undefined && !hasPending ? (
-        <div className="command-form intelligence-recommendation-feedback">
-          <label className="field" htmlFor={`recommendation-note-${recommendation.id}`}>
-            <span>
-              {decision === 'reject' ? 'Why should this not run?' : 'What should the agent change?'}
-            </span>
-            <textarea
-              id={`recommendation-note-${recommendation.id}`}
-              maxLength={decision === 'reject' ? 500 : 1_000}
-              onChange={(event) => setNote(event.target.value)}
-              readOnly={hasPending}
-              rows={3}
-              value={note}
-            />
+      {proposed && decision !== undefined && !hasPending ? (
+        <div className="grid gap-2">
+          <label className="text-[12px] font-medium text-ink" htmlFor={`recommendation-note-${recommendation.id}`}>
+            {decision === 'reject' ? 'Why should this not run?' : 'What should the agent change?'}
           </label>
-          <div className="button-row">
+          <textarea
+            className="min-h-20 w-full resize-y rounded-lg border border-line bg-canvas px-3 py-2 text-[13px] leading-normal text-ink outline-none transition-colors focus:border-line-strong"
+            id={`recommendation-note-${recommendation.id}`}
+            maxLength={decision === 'reject' ? 500 : 1_000}
+            onChange={(event) => setNote(event.target.value)}
+            placeholder="Tell the agent what to do differently…"
+            rows={3}
+            value={note}
+          />
+          <div className="flex flex-wrap gap-2">
             <button
               className="primary"
               disabled={confirming}
               onClick={() => void submitDecision()}
               type="button"
             >
-              {decision === 'reject' ? 'Reject' : 'Send guidance'}
+              {decision === 'reject' ? 'Reject proposal' : 'Send guidance'}
             </button>
             <button
               className="secondary"
@@ -260,7 +288,34 @@ export function RecommendationCard({
         </div>
       ) : null}
       {error === undefined ? null : <p className="notice error" role="alert">{error}</p>}
+    </>
+  )
+
+  if (collapsed) {
+    return (
+      <details className="group overflow-hidden rounded-xl bg-surface">
+        <summary className="cursor-pointer list-none p-4 hover:bg-hover sm:px-5 [&::-webkit-details-marker]:hidden">
+          {header}
+        </summary>
+        <div className="grid gap-4 border-t border-line p-4 sm:p-5">{body}</div>
+      </details>
+    )
+  }
+
+  return (
+    <article className="grid gap-4 rounded-xl bg-surface p-4 sm:p-5">
+      {header}
+      {body}
     </article>
+  )
+}
+
+function ProvenanceDatum({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-[12px] leading-5 text-ink-3">{label}</dt>
+      <dd className="m-0 [overflow-wrap:anywhere] font-mono text-[11.5px] leading-5 text-ink-2">{value}</dd>
+    </div>
   )
 }
 
@@ -272,8 +327,13 @@ function AutonomyEvidence({ recommendationId }: { recommendationId: Recommendati
     { initialNumItems: observationPageSize },
   )
   return (
-    <div className="intelligence-recommendation-citations">
-      <p className="board-section-label">Evidence used</p>
+    <div className="grid gap-3">
+      <p className="m-0 text-[12px] font-medium text-ink-2">Evidence used</p>
+      {observations.status === 'LoadingFirstPage' ? (
+        <p className="m-0 text-[12px] text-ink-3" role="status">Loading supporting observations</p>
+      ) : observations.results.length === 0 ? (
+        <p className="m-0 text-[12px] text-ink-3">No sealed observation is attached to this proposal.</p>
+      ) : null}
       {observations.results.map((observation) => (
         <AutonomyEvidenceObservation
           key={observation.id}
@@ -313,34 +373,21 @@ function AutonomyEvidenceObservation({
     { initialNumItems: evidencePageSize },
   )
   return (
-    <section>
-      <header className="section-heading">
-        <div>
-          <p className="eyebrow">Autonomous observation</p>
-          <h5>{observation.statement}</h5>
+    <section className="grid gap-3 rounded-lg bg-canvas/60 p-3.5">
+      <header className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h4 className="m-0 text-[13px] leading-snug font-medium text-ink">{observation.statement}</h4>
         </div>
-        <time dateTime={new Date(observation.observedAt).toISOString()}>
+        <time className="shrink-0 text-[11px] text-ink-3" dateTime={new Date(observation.observedAt).toISOString()}>
           {formatCompactDateTime(observation.observedAt)}
         </time>
       </header>
-      <p>{observation.reasoning}</p>
-      <dl className="review-progress intelligence-recommendation-evidence">
-        <div>
-          <dt>Agent</dt>
-          <dd>{observation.agentVersion} · {observation.model}</dd>
-        </div>
-        <div>
-          <dt>Run</dt>
-          <dd><code>{observation.runId}</code></dd>
-        </div>
-        <div>
-          <dt>Evidence</dt>
-          <dd>{observation.evidenceSet.leafCount} exact citations</dd>
-        </div>
-        <div>
-          <dt>Root</dt>
-          <dd><code>{observation.evidenceSet.rootHash}</code></dd>
-        </div>
+      <p className="m-0 text-[12.5px] leading-5 text-ink-2">{observation.reasoning}</p>
+      <dl className="m-0 grid gap-x-6 gap-y-2 sm:grid-cols-2">
+        <ProvenanceDatum label="Agent" value={`${observation.agentVersion} · ${observation.model}`} />
+        <ProvenanceDatum label="Run" value={observation.runId} />
+        <ProvenanceDatum label="Exact citations" value={String(observation.evidenceSet.leafCount)} />
+        <ProvenanceDatum label="Evidence root" value={observation.evidenceSet.rootHash} />
       </dl>
       <CitationList citations={evidence.results.map((leaf) => leaf.citation)} />
       {evidence.status === 'CanLoadMore' ? (
@@ -361,124 +408,34 @@ function CitationList({
 }: {
   citations: Array<IntelligenceRecommendationCitation | OperationsAutonomyRecommendationCitation>
 }) {
+  if (citations.length === 0) {
+    return <p className="m-0 text-[12px] text-ink-3">No citation was recorded.</p>
+  }
   return (
-    <ul className="review-list">
+    <ul className="m-0 grid list-none gap-2 p-0">
       {citations.map((citation) => (
         <li
+          className="grid gap-1 rounded-lg border border-line px-3 py-2"
           key={`${citation.read}:${citation.generatedAt}:${citation.keys.join(':')}:${
             'operationId' in citation ? citation.operationId : ''
           }`}
         >
-          <div>
-            <strong>{readLabel(citation.read)}</strong>
-            <time dateTime={new Date(citation.generatedAt).toISOString()}>
+          <div className="flex items-baseline justify-between gap-3">
+            <strong className="text-[12px] font-medium text-ink">{citation.read.replaceAll('_', ' ')}</strong>
+            <time className="text-[11px] text-ink-3" dateTime={new Date(citation.generatedAt).toISOString()}>
               {formatCompactDateTime(citation.generatedAt)}
             </time>
           </div>
-          <p><code>{citation.keys.join(' · ')}</code></p>
+          <code className="[overflow-wrap:anywhere] font-mono text-[11px] leading-4 text-ink-2">
+            {citation.keys.join(' · ')}
+          </code>
           {'operationId' in citation ? (
-            <p>
-              Receipt <code>{citation.operationId}</code> · snapshot{' '}
-              <code>{citation.snapshot}</code>
-            </p>
+            <span className="[overflow-wrap:anywhere] font-mono text-[10.5px] text-ink-3">
+              Receipt {citation.operationId} · snapshot {citation.snapshot}
+            </span>
           ) : null}
         </li>
       ))}
     </ul>
   )
-}
-
-function RecommendationCommand({
-  arguments: command,
-}: {
-  arguments: Recommendation['arguments']
-}) {
-  if (command.kind === 'hold_review_team') {
-    return (
-      <dl className="criteria-list intelligence-recommendation-command">
-        <CommandField label="Target team-round state" value={command.teamRoundStateId} code />
-        <CommandField label="Expected target version" value={command.expectedTeamRoundStateVersion} />
-        <CommandField label="Reason" value={command.reason} />
-      </dl>
-    )
-  }
-  if (command.kind === 'page_reserve_reviewer') {
-    return (
-      <dl className="criteria-list intelligence-recommendation-command">
-        <CommandField label="Vacant panel seat" value={command.missingPanelMemberId} code />
-        <CommandField label="Expected panel version" value={command.expectedPanelVersion} />
-        <CommandField label="Reason" value={command.reason} />
-      </dl>
-    )
-  }
-  if (command.kind === 'open_support_case') {
-    return (
-      <dl className="criteria-list intelligence-recommendation-command">
-        <CommandField label="Category" value={command.category.replaceAll('_', ' ')} />
-        <CommandField label="Description" value={command.description} />
-        {command.roundId === undefined ? null : (
-          <CommandField label="Linked round" value={command.roundId} code />
-        )}
-        {command.teamId === undefined ? null : (
-          <CommandField label="Linked team" value={command.teamId} code />
-        )}
-      </dl>
-    )
-  }
-  if (command.kind === 'set_admission_minimum_human_reviews') {
-    return (
-      <dl className="criteria-list intelligence-recommendation-command">
-        <CommandField label="New review minimum" value={command.minimumHumanReviews} />
-        <CommandField label="Expected event version" value={command.expectedEventVersion} />
-        <CommandField label="Base admission policy" value={command.expectedBasePolicyId} code />
-        <CommandField label="New release" value={command.releaseVersion} />
-        <CommandField label="Reason" value={command.reason} />
-      </dl>
-    )
-  }
-  return (
-    <dl className="criteria-list intelligence-recommendation-command">
-      <CommandField label="Attention item" value={command.itemId} code />
-      <CommandField label="Expected item version" value={command.expectedItemVersion} />
-      <CommandField label="Reason" value={command.reason} />
-    </dl>
-  )
-}
-
-function CommandField({
-  code = false,
-  label,
-  value,
-}: {
-  code?: boolean
-  label: string
-  value: number | string
-}) {
-  return (
-    <div>
-      <dt>{label}</dt>
-      <dd>{code ? <code>{value}</code> : value}</dd>
-    </div>
-  )
-}
-
-function kindLabel(kind: Recommendation['arguments']['kind']) {
-  if (kind === 'hold_review_team') return 'Hold a review team'
-  if (kind === 'page_reserve_reviewer') return 'Page a reserve reviewer'
-  if (kind === 'open_support_case') return 'Open a support case'
-  if (kind === 'set_admission_minimum_human_reviews') {
-    return 'Change the admission human-review minimum'
-  }
-  return 'Dismiss an attention item'
-}
-
-function recommendationStatusLabel(status: Recommendation['status']) {
-  if (status === 'proposed') return 'Needs decision'
-  if (status === 'approved') return 'Executed'
-  if (status === 'rejected') return 'Rejected'
-  return 'Revision requested'
-}
-
-function readLabel(read: string) {
-  return read.replaceAll('_', ' ')
 }

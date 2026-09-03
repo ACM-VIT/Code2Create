@@ -219,7 +219,7 @@ export function AttendanceOverview() {
         <div>
           <p className="eyebrow">Event day</p>
           <h1>Check-in</h1>
-          <p className="muted">Hacking-session presence, temporary exits, and scanner readiness.</p>
+          <p className="muted">Who is in the hacking session, who stepped out, and whether the scanners are ready.</p>
         </div>
         {overview.publishedPlan ? (
           <div className="plan-meta">
@@ -275,7 +275,7 @@ export function AttendanceOverview() {
             <div>
               <h2 id="venue-arrival-heading">Venue arrival</h2>
               <p className="muted">
-                Staffed identity check-in. Presence and hacking-session confirmation remain separate.
+                Staff check people in at the door. Being present in a hacking session is confirmed separately.
               </p>
             </div>
           </div>

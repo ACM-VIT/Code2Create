@@ -73,7 +73,7 @@ export function ScoreOverview() {
 
       {rounds.length === 0 ? (
         <div className="empty-state">
-          <h2>No visible score rounds</h2>
+          <h2>No results to show yet</h2>
           <p className="muted">Publish a review round before results can be tracked.</p>
         </div>
       ) : null}

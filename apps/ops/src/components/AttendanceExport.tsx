@@ -29,10 +29,10 @@ const defaultFields: ExportField[] = [
 ]
 
 const fieldOptions: Array<{ field: ExportField; label: string }> = [
-  { field: 'participant_reference', label: 'Participant reference' },
+  { field: 'participant_reference', label: 'Participant' },
   { field: 'full_name', label: 'Full name' },
   { field: 'email', label: 'Verified email' },
-  { field: 'participant_class', label: 'Participant class' },
+  { field: 'participant_class', label: 'Participant type' },
   { field: 'institution', label: 'Institution' },
   { field: 'year_of_study', label: 'Year of study' },
   { field: 'vit_registration_number', label: 'VIT registration number' },
@@ -40,7 +40,7 @@ const fieldOptions: Array<{ field: ExportField; label: string }> = [
   { field: 'state', label: 'Current state' },
   { field: 'result', label: 'Final result' },
   { field: 'confirmed_at', label: 'Confirmation time' },
-  { field: 'present_duration_minutes', label: 'Present duration' },
+  { field: 'present_duration_minutes', label: 'Time present' },
   { field: 'late', label: 'Late flag' },
   { field: 'session_name', label: 'Session name' },
   { field: 'session_starts_at', label: 'Session start' },
@@ -140,8 +140,8 @@ export default function AttendanceExport({ session }: { session: AttendanceSessi
     <section className="attendance-export-panel">
       <div className="section-heading">
         <div>
-          <h2>Protected export</h2>
-          <p className="muted">Create a purpose-limited CSV snapshot of this prepared cohort.</p>
+          <h2>Export</h2>
+          <p className="muted">Download a CSV of the people in this session, for one stated purpose.</p>
         </div>
         {!open ? (
           <button className="secondary" type="button" onClick={() => setOpen(true)}>
@@ -197,7 +197,7 @@ export default function AttendanceExport({ session }: { session: AttendanceSessi
             </select>
           </label>
           <p className="muted">
-            The snapshot excludes scan history, credential values, hashes, QR values, and exception reasons. Request and download both require a recent Google sign-in.
+            The file leaves out scan history, ID values, QR codes, and the reasons behind exceptions. Request and download both require a recent Google sign-in.
           </p>
           <div className="button-row">
             <button

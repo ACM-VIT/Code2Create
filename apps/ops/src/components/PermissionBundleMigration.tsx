@@ -168,7 +168,7 @@ export function PermissionBundleMigration({ bundleId }: { bundleId: BundleId }) 
       <div>
         <h2>Update existing people</h2>
         <p className="muted">
-          Move people from an older copy of this access set to the current one. Their direct exceptions stay unchanged.
+          Move people from an older copy of this access set to the current one. Any permissions given to them directly stay as they are.
         </p>
       </div>
 
@@ -240,7 +240,7 @@ export function PermissionBundleMigration({ bundleId }: { bundleId: BundleId }) 
               )
             })}
             {candidates.status === 'LoadingFirstPage' ? (
-              <p className="muted">Loading prior applications…</p>
+              <p className="muted">Loading earlier uses…</p>
             ) : null}
             {candidates.status === 'Exhausted' && candidates.results.length === 0 ? (
               <p className="empty">Everyone already has the current access.</p>

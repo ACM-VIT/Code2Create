@@ -44,12 +44,12 @@ const guidanceFields: {
 const operationDescriptors = [
   {
     slot: 'admission-policy-publish',
-    title: 'Finish publishing the admission policy',
+    title: 'Finish publishing the admission rules',
     action: 'Confirm earlier publication',
   },
   {
     slot: 'admission-policy-draft',
-    title: 'Finish saving the admission policy draft',
+    title: 'Finish saving the draft',
     action: 'Confirm earlier save',
   },
 ] satisfies readonly ConfigurationOperationDescriptor[]
@@ -94,7 +94,7 @@ export function AdmissionPolicyConfiguration({
     return (
       <section className="intake-policy-shell">
         <ConfigurationTabs visibility={tabs} />
-        <LoadingLabel>Loading the admission policy</LoadingLabel>
+        <LoadingLabel>Loading admission rules</LoadingLabel>
         <SkeletonStats columns={3} />
         <SkeletonCard lines={4} />
       </section>
@@ -158,7 +158,7 @@ export function AdmissionPolicyConfiguration({
       <ConfigurationTabs visibility={tabs} />
       <header className="page-heading configuration-heading">
         <div>
-          <h1>Admission policy</h1>
+          <h1>Admission rules</h1>
           <p className="muted">Set how applications are reviewed before submissions open.</p>
         </div>
       </header>
@@ -174,7 +174,7 @@ export function AdmissionPolicyConfiguration({
         <section className="configuration-locked">
           <header>
             <div>
-              <span>Current policy</span>
+              <span>Current rules</span>
               <h2>{publishedConfiguration.version}</h2>
             </div>
             <span className="state-label">Locked</span>
@@ -185,15 +185,15 @@ export function AdmissionPolicyConfiguration({
               <dd>{publishedConfiguration.criteria.map((criterion) => criterion.label).join(' · ')}</dd>
             </div>
             <div>
-              <dt>Experience policy</dt>
-              <dd>Five published year and study-context bands</dd>
+              <dt>Year of study</dt>
+              <dd>Five groups by year of study</dd>
             </div>
             <div>
               <dt>Decision reasons</dt>
               <dd>{publishedConfiguration.decisionReasonCodes.length} published reasons</dd>
             </div>
           </dl>
-          <p>Applications have opened, so this release cannot change during the cycle.</p>
+          <p>Applications are open, so these rules can’t change until they close.</p>
         </section>
       ) : null}
 
@@ -211,11 +211,11 @@ export function AdmissionPolicyConfiguration({
           <div className="section-heading">
             <div><p className="muted">Draft changes</p><h2>Before publishing</h2></div>
             {current.canPublish && validation?.valid && !current.publicationLocked && !publishArmed ? (
-              <button className="secondary" type="button" onClick={() => setPublishArmed(true)}>Review publication</button>
+              <button className="secondary" type="button" onClick={() => setPublishArmed(true)}>Review before publishing</button>
             ) : null}
           </div>
           {current.canValidate ? (
-            validation === undefined ? <p className="muted">Validating draft…</p> : (
+            validation === undefined ? <p className="muted">Checking the draft…</p> : (
               <>
                 <ul className="catalog-change-list">
                   {validation.changes.map((change) => <li key={change}>{change}</li>)}
@@ -224,7 +224,7 @@ export function AdmissionPolicyConfiguration({
                   <ul className="catalog-issue-list">
                     {validation.issues.map((issue) => <li key={issue}>{issue}</li>)}
                   </ul>
-                ) : <p className="notice">Ready to publish. The first application locks this policy.</p>}
+                ) : <p className="notice">Ready to publish. The first application locks these rules.</p>}
               </>
             )
           ) : <p className="notice">You do not have permission to check this draft.</p>}
@@ -233,10 +233,10 @@ export function AdmissionPolicyConfiguration({
 
       {!operationPending && current.draftRelease && current.canPublish && validation?.valid && publishArmed && !current.publicationLocked ? (
         <section className="publish-confirmation catalog-publish">
-          <h2>Publish this admission policy?</h2>
+          <h2>Publish these admission rules?</h2>
           <p className="muted">The first application will lock these rules.</p>
           <label className="field">
-            <span>Why this policy is ready</span>
+            <span>Why this is ready to publish</span>
             <textarea disabled={publishPending} required value={publishReason} onChange={(event) => setPublishReason(event.currentTarget.value)} />
           </label>
           <div className="button-row">
@@ -251,15 +251,15 @@ export function AdmissionPolicyConfiguration({
       {!operationPending && current.canDraft && !current.publicationLocked ? (
         <ConfigurationEditorDisclosure
           defaultOpen={Boolean(current.draftRelease)}
-          description="Capacity, experience-adjusted expectations, and decision reasons."
-          title={current.draftRelease ? 'Continue admission-policy draft' : 'Edit admission policy'}
+          description="Places, what to expect from each year of study, and the reasons behind decisions."
+          title={current.draftRelease ? 'Continue the admission rules draft' : 'Edit admission rules'}
         >
         <form className="configuration-editor intake-policy-editor" onSubmit={saveDraft}>
           <fieldset disabled={draftPending} style={{ display: 'contents' }}>
           <PolicySection title="Basics" description="These limits apply to the whole admissions round.">
             <div className="intake-policy-grid">
               <label className="field">
-                <span>Policy name</span>
+                <span>Version name</span>
                 <input required minLength={1} maxLength={80} value={configuration.version} onChange={(event) => update('version', event.currentTarget.value)} />
               </label>
               <label className="field">
@@ -273,7 +273,7 @@ export function AdmissionPolicyConfiguration({
             </div>
           </PolicySection>
 
-          <PolicySection title="Application expectations" description="Expect more from experienced teams. These are not judging scores.">
+          <PolicySection title="Application expectations" description="Ask more of teams further along in their studies. These are not judging scores.">
             <div className="configuration-card-stack">
               {configuration.criteria.map((criterion, index) => (
                 <section className="catalog-review" key={`${criterion.criterionKey}:${index}`}>

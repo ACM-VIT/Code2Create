@@ -17,7 +17,7 @@ export function IncidentBanner() {
     >
       <div className="incident-banner-heading">
         <strong>{incidents.length === 1 ? 'Active incident' : `${incidents.length} active incidents`}</strong>
-        <span>Only work covered by each affected service should stop.</span>
+        <span>Only the work that depends on the affected service needs to stop.</span>
       </div>
       <ul>
         {incidents.slice(0, 3).map((incident) => (

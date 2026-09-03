@@ -125,7 +125,7 @@ export function AccessDirectory({
               ) : null}
             </>
           ) : (
-            <p className="notice">Search by the email attached to your exact-person access.</p>
+            <p className="notice">Search by the person’s email address.</p>
           )}
         </>
       ) : canInvite ? (

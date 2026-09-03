@@ -27,7 +27,7 @@ type ImportShape = 'people' | 'teams'
 const maximumCsvBytes = 256 * 1024
 
 const teamRosterGroups: ReadonlyArray<{ key: EntryGroup; label: string }> = [
-  { key: 'conflict', label: 'Identity conflicts to resolve' },
+  { key: 'conflict', label: 'Account clashes to sort out' },
   { key: 'choice', label: 'Waiting for a participant to choose' },
   { key: 'waiting', label: 'Waiting for participants or team leads' },
   { key: 'joined', label: 'On their team' },
@@ -195,7 +195,7 @@ export function TeamRoster() {
         </>
       ) : (
         <section className="stage-block">
-          <p className="eyebrow">Where this list stands</p>
+          <p className="eyebrow">Status</p>
           {total === 0 ? (
             <p>No team assignments have been imported yet.</p>
           ) : (
@@ -204,7 +204,7 @@ export function TeamRoster() {
                 <div><dt>On their team</dt><dd>{joined}</dd></div>
                 <div><dt>Waiting</dt><dd>{waiting}</dd></div>
                 <div><dt>Needs a choice</dt><dd>{awaitingChoice}</dd></div>
-                <div><dt>Identity conflicts</dt><dd>{identityConflicts}</dd></div>
+                <div><dt>Account clashes</dt><dd>{identityConflicts}</dd></div>
               </dl>
               <p>
                 {waiting === 0 && awaitingChoice === 0 && identityConflicts === 0
@@ -251,7 +251,7 @@ export function TeamRoster() {
           ) : (
             <form className="roster-import-form" onSubmit={requestPreview}>
               <fieldset className="roster-bundles">
-                <legend>List shape</legend>
+                <legend>How the list is laid out</legend>
                 <label className="check-row">
                   <input
                     checked={importShape === 'people'}
@@ -368,7 +368,7 @@ function TeamRosterPreview({
     <div className="roster-preview">
       <dl className="roster-preview-counts">
         <div><dt>Will be asked to join</dt><dd>{preview.counts.pending}</dd></div>
-        <div><dt>Identity conflicts</dt><dd>{preview.counts.identityConflicts}</dd></div>
+        <div><dt>Account clashes</dt><dd>{preview.counts.identityConflicts}</dd></div>
         <div><dt>Already assigned here</dt><dd>{preview.counts.alreadyAssigned}</dd></div>
         <div><dt>Needs a choice</dt><dd>{preview.counts.choiceRequired}</dd></div>
         <div><dt>Team not formed yet</dt><dd>{preview.counts.waitingForLead}</dd></div>
@@ -386,8 +386,7 @@ function TeamRosterPreview({
       </div>
       <p className="muted">
         An import never joins anyone automatically. Each person must accept or leave the listed team.
-        People already on a different team choose which one to keep. Identity conflicts are recorded
-        without placement so Ops can resolve duplicate VIT accounts and import those people again.
+        People already on a different team choose which one to keep. Clashing accounts are noted but not placed, so you can sort out duplicate VIT accounts and import those people again.
       </p>
       <div className="button-row">
         <button className="primary" type="button" disabled={busy} onClick={onConfirm}>

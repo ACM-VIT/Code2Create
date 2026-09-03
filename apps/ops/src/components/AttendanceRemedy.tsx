@@ -65,7 +65,7 @@ export function AttendanceRemedy({
       <div className="attendance-remedy-heading">
         <div>
           <strong>Final result review</strong>
-          <span>Scanner records stay unchanged. An approval changes only the derived result.</span>
+          <span>Scan records don’t change. Approving only changes the result worked out from them.</span>
         </div>
         <button
           className="text-button"
@@ -77,7 +77,7 @@ export function AttendanceRemedy({
         </button>
       </div>
       {review === undefined ? (
-        <p className="muted">Loading frozen result and evidence…</p>
+        <p className="muted">Loading the result and evidence…</p>
       ) : (
         <RemedyReviewBody
           session={session}
@@ -322,7 +322,7 @@ function RemedyReviewBody({
               <textarea disabled={busy || decisionPending} required minLength={3} maxLength={400} value={participantNote} onChange={(event) => setParticipantNote(event.target.value)} />
             </label>
           </div>
-          <p className="muted">Requires a Google sign-in from the last 15 minutes. The decision and before/after result are audited.</p>
+          <p className="muted">Requires a Google sign-in from the last 15 minutes. The decision and the before/after result are kept on record.</p>
           <div className="button-row">
             <button
               className="primary"

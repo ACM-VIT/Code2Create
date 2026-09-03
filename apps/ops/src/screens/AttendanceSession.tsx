@@ -81,7 +81,7 @@ export function AttendanceSession() {
         <div>
           <p className="eyebrow">{session.zoneName}</p>
           <h1>{session.name}</h1>
-          <p className="muted">See who is present, resolve attendance exceptions, or account for people during an emergency.</p>
+          <p className="muted">See who is here, sort out check-in problems, or account for everyone in an emergency.</p>
         </div>
         {session.canReadRoster ? (
           <label className="filter">
@@ -102,13 +102,13 @@ export function AttendanceSession() {
       {session.canReadRollCalls ? <AttendanceRollCall session={session} /> : null}
 
       {session.canExport ? (
-        <Suspense fallback={<p className="muted">Loading protected export…</p>}>
+        <Suspense fallback={<p className="muted">Loading export…</p>}>
           <AttendanceExport session={session} />
         </Suspense>
       ) : null}
 
       {session.canReadManualSheets ? (
-        <Suspense fallback={<p className="muted">Loading paper recovery…</p>}>
+        <Suspense fallback={<p className="muted">Loading paper backup…</p>}>
           <AttendanceManualRecovery session={session} serverNow={serverNow} />
         </Suspense>
       ) : null}

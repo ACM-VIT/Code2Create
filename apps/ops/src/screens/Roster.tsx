@@ -38,7 +38,7 @@ const roleByWrittenForm = new Map<string, RosterRole>(
 const writtenRoleChoices = rosterRoles.map((role) => eventRoleLabels[role]).join(', ')
 
 const rosterGroups: ReadonlyArray<{ key: EntryGroup; label: string }> = [
-  { key: 'lapsed', label: 'Invitation ran out' },
+  { key: 'lapsed', label: 'Invitation expired' },
   { key: 'waiting', label: 'Waiting to sign in' },
   { key: 'signed_in', label: 'Signed in' },
   { key: 'ended', label: 'No longer on the team' },
@@ -238,7 +238,7 @@ export function Roster({ canReadBundles }: { canReadBundles: boolean }) {
       ) : (
         <>
           <section className="stage-block">
-            <p className="eyebrow">Where this list stands</p>
+            <p className="eyebrow">Status</p>
             {entries.length === 0 ? (
               <p>Nobody has been added yet, so no organizer or judge can sign in.</p>
             ) : (
@@ -250,7 +250,7 @@ export function Roster({ canReadBundles }: { canReadBundles: boolean }) {
             )}
             {!workspace.canReadAll ? (
               <p className="muted">
-                You see only the invitations your permissions name, so these counts are partial.
+                You only see invitations you have access to, so these counts may be incomplete.
               </p>
             ) : rosterPage.status === 'CanLoadMore' ? (
               <p className="muted">
@@ -274,7 +274,7 @@ export function Roster({ canReadBundles }: { canReadBundles: boolean }) {
                 <dd>{signedIn}</dd>
               </div>
               <div>
-                <dt>Invitation ran out</dt>
+                <dt>Invitation expired</dt>
                 <dd>{lapsed}</dd>
               </div>
             </dl>
@@ -381,7 +381,7 @@ export function Roster({ canReadBundles }: { canReadBundles: boolean }) {
                 ) : null}
               </fieldset>
               <label className="field roster-reason">
-                <span>Why this list is being added</span>
+                <span>Why these people are being added</span>
                 <textarea
                   maxLength={300}
                   value={reason}

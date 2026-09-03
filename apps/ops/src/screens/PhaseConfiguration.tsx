@@ -237,7 +237,7 @@ export function PhaseConfiguration({
           </div>
           {configuration.canValidate ? (
             validation === undefined ? (
-              <p className="muted">Validating draft…</p>
+              <p className="muted">Checking the draft…</p>
             ) : (
               <>
                 <ul className="catalog-change-list">

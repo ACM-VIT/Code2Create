@@ -136,7 +136,7 @@ export function AccessPerson() {
           <div className="section-heading">
             <div>
               <h2>Manage account</h2>
-              <p className="muted">Open the exact change you need. Every saved change is audited.</p>
+              <p className="muted">Open the change you need. Every saved change is kept on record.</p>
             </div>
           </div>
           <div className="access-management-list">
@@ -183,7 +183,7 @@ export function AccessPerson() {
           </ul>
           {ledger.status === 'CanLoadMore' ? (
             <button className="secondary" type="button" onClick={() => ledger.loadMore(30)}>
-              Load more ledger entries
+              Load more history
             </button>
           ) : null}
         </details>
@@ -352,7 +352,7 @@ function PermissionMatrixRow({
           <strong>{row.definition.label}</strong>
           <small>{row.held ? 'Has access' : scopeSummary(row.definition)}</small>
         </div>
-        <div className="permission-row-action">
+        <div className="permission-row-action items-center">
           {isOpen ? (
             <button className="text-button" type="button" onClick={() => onToggle(null)}>Close</button>
           ) : row.held || grantable ? (
@@ -414,9 +414,9 @@ function PermissionAccessPanel({
 
   return (
     <>
-      {loading ? <p className="muted">Loading exact permission sources…</p> : null}
+      {loading ? <p className="muted">Loading where this permission comes from…</p> : null}
       {!loading && current.length === 0 ? (
-        <p className="muted">No current grant row remains for this permission.</p>
+        <p className="muted">This permission is no longer granted.</p>
       ) : null}
       {!loading && current.length > 0 ? (
         <ul className="permission-source-list">
@@ -455,12 +455,12 @@ function PermissionAccessPanel({
       ) : null}
       {active.status === 'CanLoadMore' ? (
         <button className="text-button" type="button" onClick={() => active.loadMore(30)}>
-          Load more active sources
+          Load more current grants
         </button>
       ) : null}
       {scheduled.status === 'CanLoadMore' ? (
         <button className="text-button" type="button" onClick={() => scheduled.loadMore(30)}>
-          Load more scheduled sources
+          Load more scheduled grants
         </button>
       ) : null}
       {action === 'grant' ? (
@@ -475,7 +475,7 @@ function PermissionAccessPanel({
         </div>
       ) : null}
       {!loading && removable.length === 0 && !grantable ? (
-        <p className="muted">This permission follows another owner and is not yours to change.</p>
+        <p className="muted">Someone else owns this permission, so you can’t change it.</p>
       ) : null}
     </>
   )
@@ -844,7 +844,7 @@ function ScopedAuthorityControl({ detail }: { detail: AccessDetail }) {
       description={`Let ${detail.person.displayName} grant or remove one exact permission for others.`}
       onToggle={setOpen}
       open={open}
-      title="Delegate a permission"
+      title="Pass on a permission"
     >
         <form className="grant-form" onSubmit={submit}>
           <fieldset disabled={busy || delegationPending} style={{ display: 'contents' }}>

@@ -50,14 +50,14 @@ export function RoundExportControl({ roundId }: { roundId: RoundId }) {
       ) : null}
 
       {activeExport?.state === 'generating' ? (
-        <p className="notice">Judging writes are frozen while the JSON and CSV files are generated and checked.</p>
+        <p className="notice">Judging is frozen while the JSON and CSV files are built and checked.</p>
       ) : null}
 
       {activeExport?.state === 'failed' ? (
         workspace.canRetry ? (
           <RetryExport workspace={workspace} activeExport={activeExport} />
         ) : (
-          <p className="notice error">Generation failed. An exact round export retry grant is required.</p>
+          <p className="notice error">Building the export failed. You need the round-export retry permission to try again.</p>
         )
       ) : null}
 
@@ -88,7 +88,7 @@ export function RoundExportControl({ roundId }: { roundId: RoundId }) {
             <ReopenRound workspace={workspace} activeExport={activeExport} />
           ) : null}
           {workspace.hasParticipantRelease ? (
-            <p className="muted">Participant feedback is published, so this round cannot use the ordinary reopen command.</p>
+            <p className="muted">Participant feedback is already published, so this round can’t be reopened the usual way.</p>
           ) : null}
         </>
       ) : null}
@@ -156,7 +156,7 @@ function StartClose({ workspace }: { workspace: Workspace }) {
   }
   return (
     <div className="score-command destructive-command">
-      <p>This freezes judging writes and starts the private round export. It does not close the round yet.</p>
+      <p>This freezes judging and starts the round export. It does not close the round yet.</p>
       <label className="field">
         <span>Close reason</span>
         <textarea disabled={busy || operationPending} value={reason} onChange={(event) => { setReason(event.target.value); changed() }} />
@@ -381,7 +381,7 @@ function ReopenRound({
   }
   return (
     <div className="score-command destructive-command">
-      <p>The verified files remain in the audit history. Closing again creates a new export.</p>
+      <p>The verified files stay on record. Closing again creates a new export.</p>
       <label className="field">
         <span>Reopen reason</span>
         <textarea disabled={busy || operationPending} value={reason} onChange={(event) => { setReason(event.target.value); changed() }} />

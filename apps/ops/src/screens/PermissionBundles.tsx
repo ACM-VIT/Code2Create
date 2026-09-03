@@ -83,7 +83,7 @@ export function PermissionBundles() {
       </header>
 
       <section className="stage-block">
-        <p className="eyebrow">Where these sets stand</p>
+        <p className="eyebrow">Status</p>
         {total === 0 ? (
           <p>
             No access set exists yet, so every permission is granted one person at a time.
@@ -395,7 +395,7 @@ function BundleEditor({
                   disabled={saving || publishing}
                   onClick={() => setConfirmPublish(true)}
                 >
-                  Review publication
+                  Review before publishing
                 </button>
               ) : null}
             </div>
@@ -407,7 +407,7 @@ function BundleEditor({
 
       {confirmPublish && detail?.draft ? (
         <div className="publish-confirmation">
-          <h2>Make this access set available?</h2>
+          <h2>Publish this access set?</h2>
           <p>
             It will carry {detail.draft.entries.length} {permissions(detail.draft.entries.length)}.
             People who already hold it keep their current permissions until you move them across.
@@ -522,11 +522,11 @@ function BundleEntryRow({
       ) : null}
       {entry.scopeSource === 'binding' ? (
         <details className="configuration-advanced bundle-binding-name">
-          <summary>Advanced selection name</summary>
+          <summary>Internal name</summary>
           <label className="field">
             <span>{bindingName(entry.bindingKey ?? 'resource')}</span>
             <input
-              aria-label="Internal selection name"
+              aria-label="Internal name"
               disabled={!canEdit}
               value={entry.bindingKey ?? ''}
               onChange={(event) =>

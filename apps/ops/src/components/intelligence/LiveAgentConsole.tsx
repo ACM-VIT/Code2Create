@@ -3,6 +3,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
   type ReactNode,
+  useEffect,
   useId,
   useLayoutEffect,
   useMemo,
@@ -24,6 +25,7 @@ type LiveAgentCopy = Readonly<{ title: string; detail: string }>
 
 export function LiveAgentConsole({
   agentLabel = 'Copilot',
+  autoSubmitPrompt,
   composerPendingConfirmation = false,
   composerRequiresConnection = true,
   composerResetKey = 0,
@@ -41,6 +43,7 @@ export function LiveAgentConsole({
   onReconnect,
   onSubmitPrompt,
   showOperatorMessages = true,
+  suggestions = [],
   terminalState,
   terminalCopy: terminalCopyOverrides,
   timelineFooter,
@@ -50,6 +53,8 @@ export function LiveAgentConsole({
   },
 }: {
   agentLabel?: string
+  /** A prompt handed in by another view; sent once, as soon as the composer can send. */
+  autoSubmitPrompt?: string
   composerPendingConfirmation?: boolean
   composerRequiresConnection?: boolean
   composerResetKey?: number
@@ -67,6 +72,8 @@ export function LiveAgentConsole({
   onReconnect: () => void
   onSubmitPrompt?: (prompt: string) => void | Promise<void>
   showOperatorMessages?: boolean
+  /** Starting questions offered while the conversation is empty. */
+  suggestions?: readonly string[]
   terminalState: LiveAgentTerminalState
   terminalCopy?: Partial<Record<Exclude<LiveAgentTerminalState, 'none'>, LiveAgentCopy>>
   timelineFooter?: ReactNode
@@ -122,19 +129,15 @@ export function LiveAgentConsole({
     void onLoadOlder?.()
   }
 
-  const sendPrompt = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    const nextPrompt = prompt.trim()
-    if (
-      nextPrompt.length === 0
-      || onSubmitPrompt === undefined
-      || submitting
-      || composerDisabled
-      || (composerRequiresConnection && connectionState !== 'connected')
-      || isStreaming
-    ) {
-      return
-    }
+  const composerReady =
+    !submitting
+    && !composerDisabled
+    && !isStreaming
+    && onSubmitPrompt !== undefined
+    && (!composerRequiresConnection || connectionState === 'connected')
+
+  const submitPrompt = async (nextPrompt: string) => {
+    if (nextPrompt.length === 0 || onSubmitPrompt === undefined || !composerReady) return
 
     setSubmitting(true)
     setSubmitFailed(false)
@@ -148,19 +151,34 @@ export function LiveAgentConsole({
     }
   }
 
+  const sendPrompt = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    void submitPrompt(prompt.trim())
+  }
+
+  const sendSuggestion = (suggestion: string) => {
+    setPrompt(suggestion)
+    void submitPrompt(suggestion)
+  }
+
+  // A prompt handed in through router state is sent once, the first time the
+  // composer is able to send. The send itself is deferred a tick so the effect
+  // only observes readiness and does not schedule renders synchronously.
+  const autoSubmittedRef = useRef<string | undefined>(undefined)
+  useEffect(() => {
+    if (autoSubmitPrompt === undefined || autoSubmittedRef.current === autoSubmitPrompt) return
+    if (!composerReady) return
+    autoSubmittedRef.current = autoSubmitPrompt
+    void Promise.resolve().then(() => sendSuggestion(autoSubmitPrompt))
+  })
+
   const submitOnEnter = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
     event.preventDefault()
     event.currentTarget.form?.requestSubmit()
   }
 
-  const canSubmit =
-    prompt.trim().length > 0
-    && !submitting
-    && !composerDisabled
-    && !isStreaming
-    && onSubmitPrompt !== undefined
-    && (!composerRequiresConnection || connectionState === 'connected')
+  const canSubmit = prompt.trim().length > 0 && composerReady
 
   return (
     <section
@@ -204,7 +222,12 @@ export function LiveAgentConsole({
             </p>
           )}
           {timeline.length === 0 && !isStreaming ? (
-            <AgentEmptyState description={emptyDescription} title={emptyTitle} />
+            <AgentEmptyState
+              description={emptyDescription}
+              onSuggestion={onSubmitPrompt === undefined || composerDisabled ? undefined : sendSuggestion}
+              suggestions={suggestions}
+              title={emptyTitle}
+            />
           ) : null}
           {timeline.map((item) => (
             <TimelineItem agentLabel={agentLabel} item={item} key={item.id} />
@@ -301,12 +324,38 @@ export function LiveAgentConsole({
   )
 }
 
-function AgentEmptyState({ description, title }: { description: string; title: string }) {
+function AgentEmptyState({
+  description,
+  onSuggestion,
+  suggestions,
+  title,
+}: {
+  description: string
+  onSuggestion: ((suggestion: string) => void) | undefined
+  suggestions: readonly string[]
+  title: string
+}) {
   return (
-    <div className="m-auto flex flex-col items-center gap-1.5 px-6 py-10 text-center">
-      <Glyph className="text-ink-3" name="sparkle" size={20} />
-      <strong className="text-[13px] font-medium text-ink">{title}</strong>
-      <span className="max-w-90 text-[12.5px] leading-normal text-ink-3">{description}</span>
+    <div className="m-auto flex w-full max-w-[560px] flex-col items-center gap-4 px-6 py-10 text-center">
+      <div className="flex flex-col items-center gap-1.5">
+        <Glyph className="text-ink-3" name="sparkle" size={20} />
+        <strong className="text-[13px] font-medium text-ink">{title}</strong>
+        <span className="max-w-[440px] text-[12.5px] leading-normal text-ink-3">{description}</span>
+      </div>
+      {onSuggestion !== undefined && suggestions.length > 0 ? (
+        <div aria-label="Suggested questions" className="flex flex-wrap justify-center gap-2" role="group">
+          {suggestions.map((suggestion) => (
+            <button
+              className="cursor-pointer rounded-full border border-line bg-field px-3 py-1.5 text-[12px] leading-normal text-ink-2 transition-colors duration-100 hover:border-line-strong hover:text-ink"
+              key={suggestion}
+              onClick={() => onSuggestion(suggestion)}
+              type="button"
+            >
+              {suggestion}
+            </button>
+          ))}
+        </div>
+      ) : null}
     </div>
   )
 }

@@ -122,7 +122,7 @@ export function ProjectCheckpointOverview() {
           ) : null}
 
           <div className="checkpoint-toolbar">
-            <div className="configuration-tabs" role="tablist" aria-label="Submission state">
+            <div className="configuration-tabs" role="tablist" aria-label="Status">
               <CheckpointViewButton
                 active={view === 'outstanding'}
                 count={summary?.outstandingCount}

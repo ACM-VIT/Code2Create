@@ -360,7 +360,7 @@ function Operations({
     [canViewSynesthesia, '/synesthesia'],
   )
   if (!defaultPath) {
-    return <Centered>No operations tools have been assigned to this account.</Centered>
+    return <Centered>This account hasn’t been given any operations tools yet.</Centered>
   }
   return (
     <OperationsLayout
@@ -395,12 +395,12 @@ function Operations({
         ) : null}
         {canViewIntelligence ? (
           <Route
-            path="/intelligence"
+            path="/intelligence/*"
             element={(
               <IntelligenceWorkspace
+                canConfigure={canViewIntelligenceConfiguration}
                 canGenerate={canGenerateIntelligence}
                 canRead={canReadIntelligence}
-                showBrief={canGenerateIntelligence || canReadIntelligence}
               />
             )}
           />
@@ -459,7 +459,7 @@ function Operations({
           <Route
             path="/configuration/participants"
             element={(
-              <Suspense fallback={<p className="muted">Loading participant policy…</p>}>
+              <Suspense fallback={<p className="muted">Loading participant form…</p>}>
                 <ParticipantPolicyConfiguration tabs={configurationTabs} />
               </Suspense>
             )}
@@ -469,7 +469,7 @@ function Operations({
           <Route
             path="/configuration/admissions"
             element={(
-              <Suspense fallback={<p className="muted">Loading admission policy…</p>}>
+              <Suspense fallback={<p className="muted">Loading admission rules…</p>}>
                 <AdmissionPolicyConfiguration tabs={configurationTabs} />
               </Suspense>
             )}
@@ -479,7 +479,7 @@ function Operations({
           <Route
             path="/configuration/communications"
             element={(
-              <Suspense fallback={<p className="muted">Loading accepted-team communications…</p>}>
+              <Suspense fallback={<p className="muted">Loading participant communications…</p>}>
                 <CommunicationsPolicyConfiguration tabs={configurationTabs} />
               </Suspense>
             )}
@@ -489,7 +489,7 @@ function Operations({
           <Route
             path="/configuration/integrations"
             element={(
-              <Suspense fallback={<p className="muted">Loading code and design policy…</p>}>
+              <Suspense fallback={<p className="muted">Loading code and design rules…</p>}>
                 <IntegrationPolicyConfiguration tabs={configurationTabs} />
               </Suspense>
             )}
@@ -559,7 +559,7 @@ function Operations({
           <Route
             path="/emergency-pack"
             element={(
-              <Suspense fallback={<p className="muted">Loading emergency pack…</p>}>
+              <Suspense fallback={<p className="muted">Loading recovery…</p>}>
                 <EmergencyPack
                   canPrepare={canPrepareEmergencyPack}
                   canPrint={canReadEmergencyPack && canPrintEmergencyPack}
@@ -610,7 +610,7 @@ function Operations({
           <Route
             path="/access/bundles"
             element={(
-              <Suspense fallback={<p className="muted">Loading permission bundles…</p>}>
+              <Suspense fallback={<p className="muted">Loading reusable access…</p>}>
                 <PermissionBundles />
               </Suspense>
             )}
@@ -694,7 +694,7 @@ function RosterClaim({
             ))}
           </ul>
         ) : (
-          <p className="notice">You will start with a role label only. An organizer can add exact permissions after you join.</p>
+          <p className="notice">You’ll start with just a role label. An organiser can add permissions after you join.</p>
         )}
         <button className="primary" type="button" disabled={busy} onClick={() => void accept()}>
           {busy ? 'Joining…' : 'Join operations'}
@@ -762,7 +762,7 @@ function InvitationClaim({
 function NoOperationsAccess({ authClient }: { authClient: Code2CreateAuthClient }) {
   return (
     <Gate
-      subtitle="This Google account has no current invitation or active event account."
+      subtitle="This Google account hasn’t been invited and has no event account."
       title="No event access"
     >
       <GateAction label="Use another Google account" onClick={() => void authClient.signOut()} secondary />

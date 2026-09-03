@@ -54,12 +54,12 @@ export function OperationsBriefStream({
         terminalState={intelligenceTerminalState(stream.settlements)}
         terminalCopy={{
           completed: {
-            title: 'Trace complete',
-            detail: 'The published brief above is the authoritative result.',
+            title: 'Done',
+            detail: 'The brief above is the final result.',
           },
           failed: {
             title: 'Brief run did not finish',
-            detail: 'The run status above records the failure; an operator may request another brief.',
+            detail: 'The failure is recorded above. You can request another brief.',
           },
           aborted: {
             title: 'Brief run stopped',
@@ -68,7 +68,7 @@ export function OperationsBriefStream({
         }}
         workingCopy={{
           title: 'Preparing brief',
-          detail: 'The agent is reading the frozen event snapshot.',
+          detail: 'The agent is reading the event snapshot.',
         }}
       />
     </div>

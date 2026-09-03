@@ -1,3 +1,4 @@
+import { Streamdown } from 'streamdown'
 import { api } from '@code2create/backend/api'
 import {
   supportCaseCategoryLabels,
@@ -8,7 +9,7 @@ import {
 import { useVersionedState } from '@code2create/web-forms'
 import type { FunctionReturnType } from 'convex/server'
 import { useMutation, useQuery } from 'convex/react'
-import { useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
+import { useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import { Icon, type IconName } from '../components/Icon'
@@ -301,7 +302,7 @@ function CreateCase({ onCreated }: { onCreated: (supportCaseId: SupportCaseId) =
           <Link className="secondary" to="/support">Cancel</Link>
         </div>
         {createPending ? (
-          <p className="support-composer-hint">The issue did not confirm. Confirm it before writing another.</p>
+          <p className="support-composer-hint">This issue wasn’t saved. Confirm it before logging another.</p>
         ) : null}
         {error ? <p className="notice error">{error}</p> : null}
       </form>
@@ -613,15 +614,26 @@ function Stamp({ at }: { at: number }) {
   )
 }
 
+/** Links in a note stay as text: the Guide writes portal-relative paths that mean nothing on this origin. */
+const messageMarkdownComponents = {
+  a: ({ children }: { children?: ReactNode }) => <span>{children}</span>,
+}
+
 function MessageBody({ text }: { text: string }) {
   const [expanded, setExpanded] = useState(false)
-  if (expanded || text.length <= collapseNoteAfter) return <p>{text}</p>
+  const shown = expanded || text.length <= collapseNoteAfter
+    ? text
+    : `${text.slice(0, collapseNoteAfter).trimEnd()}…`
   return (
     <>
-      <p>{`${text.slice(0, collapseNoteAfter).trimEnd()}…`}</p>
-      <button className="text-button" type="button" onClick={() => setExpanded(true)}>
-        Show the whole note
-      </button>
+      <Streamdown className="support-message-body" components={messageMarkdownComponents}>
+        {shown}
+      </Streamdown>
+      {shown === text ? null : (
+        <button className="text-button" type="button" onClick={() => setExpanded(true)}>
+          Show the whole note
+        </button>
+      )}
     </>
   )
 }
