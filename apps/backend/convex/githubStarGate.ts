@@ -12,7 +12,7 @@ import {
   requireMembership,
 } from "./lib/identity";
 import {
-  isProfileCompleteForPolicy,
+  isParticipantReadyForPolicy,
   loadPublishedParticipantPolicy,
 } from "./lib/participantPolicy";
 
@@ -29,7 +29,7 @@ async function onboardingContext(ctx: MutationCtx, eventSlug: string) {
     .withIndex("by_membership", (index) => index.eq("membershipId", membership._id))
     .unique();
   const participantPolicy = await loadPublishedParticipantPolicy(ctx, event);
-  if (!isProfileCompleteForPolicy(profile, membership, participantPolicy.policy)) {
+  if (!(await isParticipantReadyForPolicy(ctx, profile, membership, participantPolicy.policy))) {
     throw new ConvexError({
       code: "PROFILE_REQUIRED",
       message: "Complete your participant details before connecting GitHub.",
@@ -48,7 +48,7 @@ export async function requireGitHubStarCompletion(
     .withIndex("by_membership", (index) => index.eq("membershipId", membership._id))
     .unique();
   const participantPolicy = await loadPublishedParticipantPolicy(ctx, event);
-  if (!isProfileCompleteForPolicy(profile, membership, participantPolicy.policy)) {
+  if (!(await isParticipantReadyForPolicy(ctx, profile, membership, participantPolicy.policy))) {
     throw new ConvexError({
       code: "PROFILE_REQUIRED",
       message: "Complete your participant details before connecting GitHub.",

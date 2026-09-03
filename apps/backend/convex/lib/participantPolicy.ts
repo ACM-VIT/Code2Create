@@ -176,6 +176,22 @@ export function participantPolicyChecksum(policy: ParticipantPolicy) {
   return fingerprintText(JSON.stringify(normalizeParticipantPolicy(policy)));
 }
 
+export function participantPolicyAcceptanceChecksum(policy: ParticipantPolicy) {
+  const normalized = normalizeParticipantPolicy(policy);
+  return fingerprintText(
+    JSON.stringify({
+      teamMinimumSize: normalized.teamMinimumSize,
+      teamMaximumSize: normalized.teamMaximumSize,
+      mixedParticipantClassesAllowed: normalized.mixedParticipantClassesAllowed,
+      profileNotice: normalized.profileNotice,
+      projectTextNotice: normalized.projectTextNotice,
+      privacyNoticeUrl: normalized.privacyNoticeUrl,
+      freshProjectAttestation: normalized.freshProjectAttestation,
+      finalSubmissionWarning: normalized.finalSubmissionWarning,
+    }),
+  );
+}
+
 export function participantPolicyFromDocument(
   policy: Doc<"participantPolicyVersions">,
 ): ParticipantPolicy {
@@ -222,6 +238,30 @@ export async function loadPublishedParticipantCapacity(ctx: ReadCtx, event: Doc<
     throw new Error("The published admission participant capacity is invalid.");
   }
   return policy.overallParticipantCapacity;
+}
+
+export async function participantPolicyAccepted(
+  ctx: ReadCtx,
+  membership: Doc<"eventMemberships">,
+  policy: Doc<"participantPolicyVersions">,
+) {
+  if (membership.acceptedParticipantPolicyVersionIds.includes(policy._id)) return true;
+  const acceptanceChecksum = participantPolicyAcceptanceChecksum(
+    participantPolicyFromDocument(policy),
+  );
+  for (const acceptedPolicyId of membership.acceptedParticipantPolicyVersionIds) {
+    const acceptedPolicy = await ctx.db.get(acceptedPolicyId);
+    if (!acceptedPolicy || acceptedPolicy.eventId !== membership.eventId) {
+      throw new Error("Participant membership references an invalid accepted policy.");
+    }
+    if (
+      participantPolicyAcceptanceChecksum(participantPolicyFromDocument(acceptedPolicy)) ===
+      acceptanceChecksum
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export async function participantPolicyPublicationIssue(
@@ -301,7 +341,6 @@ export function isProfileCompleteForPolicy(
     !profile ||
     profile.membershipId !== membership._id ||
     profile.participantClass !== membership.participantClass ||
-    !membership.acceptedParticipantPolicyVersionIds.includes(policy._id) ||
     profile.fullName.length === 0 ||
     profile.institution.length === 0 ||
     profile.phone.length === 0 ||
@@ -322,6 +361,18 @@ export function isProfileCompleteForPolicy(
     profile.yearOfStudy !== "not_applicable" &&
     profile.externalUniversity !== undefined &&
     profile.externalCollege !== undefined
+  );
+}
+
+export async function isParticipantReadyForPolicy(
+  ctx: ReadCtx,
+  profile: Doc<"participantProfiles"> | null,
+  membership: Doc<"eventMemberships">,
+  policy: Doc<"participantPolicyVersions">,
+) {
+  return (
+    (await participantPolicyAccepted(ctx, membership, policy)) &&
+    isProfileCompleteForPolicy(profile, membership, policy)
   );
 }
 

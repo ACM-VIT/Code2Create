@@ -32,7 +32,10 @@ import {
   recordOperation,
   storedOperationResult,
 } from "./lib/operations";
-import { loadPublishedParticipantPolicy } from "./lib/participantPolicy";
+import {
+  loadPublishedParticipantPolicy,
+  participantPolicyAccepted,
+} from "./lib/participantPolicy";
 import { normalizeCode, normalizedText } from "./lib/strings";
 import { refreshSubmittedApplicationRoster } from "./lib/submittedTeamRoster";
 import {
@@ -351,11 +354,12 @@ export const members = query({
   },
 });
 
-function requireCurrentPolicyAcceptance(
+async function requireCurrentPolicyAcceptance(
+  ctx: MutationCtx,
   membership: Doc<"eventMemberships">,
   participantPolicy: Doc<"participantPolicyVersions">,
 ) {
-  if (!membership.acceptedParticipantPolicyVersionIds.includes(participantPolicy._id)) {
+  if (!(await participantPolicyAccepted(ctx, membership, participantPolicy))) {
     throw new ConvexError({
       code: "POLICY_REQUIRED",
       message: "Accept the current participant policy before creating or joining a team.",
@@ -536,7 +540,7 @@ export const create = mutation({
       await requireMembership(ctx, event._id, person._id),
     );
     requireRegistrationOpen(event, membership.participantClass);
-    requireCurrentPolicyAcceptance(membership, participantPolicy.policy);
+    await requireCurrentPolicyAcceptance(ctx, membership, participantPolicy.policy);
     await requireGitHubStarCompletion(ctx, event, membership);
     const grantIds = await requirePermission(ctx, {
       eventId: event._id,
@@ -610,7 +614,7 @@ export const join = mutation({
       await requireMembership(ctx, event._id, person._id),
     );
     requireRegistrationOpen(event, membership.participantClass);
-    requireCurrentPolicyAcceptance(membership, participantPolicy.policy);
+    await requireCurrentPolicyAcceptance(ctx, membership, participantPolicy.policy);
     await requireGitHubStarCompletion(ctx, event, membership);
     const grantIds = await requirePermission(ctx, {
       eventId: event._id,
@@ -749,7 +753,7 @@ export const switchTeam = mutation({
       await requireMembership(ctx, event._id, person._id),
     );
     requireRegistrationOpen(event, membership.participantClass);
-    requireCurrentPolicyAcceptance(membership, participantPolicy.policy);
+    await requireCurrentPolicyAcceptance(ctx, membership, participantPolicy.policy);
     const joinGrantIds = await requirePermission(ctx, {
       eventId: event._id,
       eventAccessSubjectId: subject._id,
@@ -976,7 +980,7 @@ export const acceptAssignedTeam = mutation({
       await requireMembership(ctx, event._id, person._id),
     );
     requireRegistrationOpen(event, membership.participantClass);
-    requireCurrentPolicyAcceptance(membership, participantPolicy.policy);
+    await requireCurrentPolicyAcceptance(ctx, membership, participantPolicy.policy);
     await requireGitHubStarCompletion(ctx, event, membership);
     const joinGrantIds = await requirePermission(ctx, {
       eventId: event._id,

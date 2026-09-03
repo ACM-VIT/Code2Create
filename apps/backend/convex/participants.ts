@@ -39,6 +39,7 @@ import {
 import {
   isProfileCompleteForPolicy,
   loadPublishedParticipantPolicy,
+  participantPolicyAccepted,
   participantPolicyInput,
 } from "./lib/participantPolicy";
 import { normalizedText } from "./lib/strings";
@@ -292,6 +293,9 @@ export const me = query({
         })();
     if (!participantAccessAllowed) return null;
     const participantPolicy = await loadPublishedParticipantPolicy(ctx, event);
+    const currentPolicyAccepted = membership
+      ? await participantPolicyAccepted(ctx, membership, participantPolicy.policy)
+      : false;
     let canReadProfile = false;
     if (membership) {
       const subject = await requireEventSubject(ctx, event._id, person._id);
@@ -400,16 +404,16 @@ export const me = query({
               ...(profile.externalCollege !== undefined
                 ? { externalCollege: profile.externalCollege }
                 : {}),
-              isComplete: isProfileCompleteForPolicy(profile, membership, participantPolicy.policy),
+              isComplete:
+                currentPolicyAccepted &&
+                isProfileCompleteForPolicy(profile, membership, participantPolicy.policy),
               profileVersion: profile.profileVersion,
             }
           : null,
       participantPolicy: {
         id: participantPolicy.policy._id,
         version: participantPolicy.policy.version,
-        accepted: Boolean(
-          membership?.acceptedParticipantPolicyVersionIds.includes(participantPolicy.policy._id),
-        ),
+        accepted: currentPolicyAccepted,
         policy: participantPolicy.normalized,
       },
     };
@@ -809,7 +813,7 @@ export const saveProfile = mutation({
         message: "The participant policy changed. Review it before saving your profile.",
       });
     }
-    if (!membership.acceptedParticipantPolicyVersionIds.includes(participantPolicy.policy._id)) {
+    if (!(await participantPolicyAccepted(ctx, membership, participantPolicy.policy))) {
       throw new ConvexError({
         code: "POLICY_REQUIRED",
         message: "Accept the current participant policy before continuing.",

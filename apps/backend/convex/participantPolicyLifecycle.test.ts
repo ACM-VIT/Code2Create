@@ -9,6 +9,7 @@ import {
 import {
   defaultParticipantPolicy,
   isProfileCompleteForPolicy,
+  isParticipantReadyForPolicy,
   normalizeParticipantPolicy,
   participantClassesMeetPolicy,
   participantPolicyChecksum,
@@ -190,7 +191,7 @@ describe("participant policy lifecycle", () => {
     expect(drafts).toHaveLength(1);
   });
 
-  test("publication makes current-policy acceptance explicit", async () => {
+  test("material publication makes current-policy acceptance explicit", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedFixture(backend, "publication");
     const before = await backend.run(async (ctx) => {
@@ -198,7 +199,7 @@ describe("participant policy lifecycle", () => {
       const membership = await ctx.db.get(fixture.membershipId);
       const policy = await ctx.db.get(fixture.policyId);
       if (!membership || !policy) throw new Error("The fixture policy state is missing.");
-      return isProfileCompleteForPolicy(profile, membership, policy);
+      return isParticipantReadyForPolicy(ctx, profile, membership, policy);
     });
     expect(before).toBe(true);
 
@@ -229,7 +230,7 @@ describe("participant policy lifecycle", () => {
         throw new Error("The published participant policy state is missing.");
       }
       return {
-        complete: isProfileCompleteForPolicy(profile, membership, published),
+        complete: await isParticipantReadyForPolicy(ctx, profile, membership, published),
         previousStatus: previous?.status,
       };
     });
@@ -251,7 +252,7 @@ describe("participant policy lifecycle", () => {
       if (!membership || !published) {
         throw new Error("The published participant policy state is missing.");
       }
-      return isProfileCompleteForPolicy(profile, membership, published);
+      return isParticipantReadyForPolicy(ctx, profile, membership, published);
     });
     expect(afterAcceptance).toBe(true);
   });
@@ -486,12 +487,27 @@ describe("participant policy lifecycle", () => {
       }),
     );
 
-    const published = await backend.run((ctx) => ctx.db.get(draft.policyVersionId));
-    expect(published?.status).toBe("published");
-    expect(published?.vitHostelResidenceCatalog.at(-1)).toEqual({
-      stableKey: "b_annex",
-      label: "B Annex",
-      kind: "mens",
+    const state = await backend.run(async (ctx) => {
+      const published = await ctx.db.get(draft.policyVersionId);
+      const membership = await ctx.db.get(fixture.membershipId);
+      const profile = await ctx.db.get(fixture.profileId);
+      if (!published || !membership) {
+        throw new Error("The published participant policy state is missing.");
+      }
+      return {
+        status: published.status,
+        residence: published.vitHostelResidenceCatalog.at(-1),
+        ready: await isParticipantReadyForPolicy(ctx, profile, membership, published),
+      };
+    });
+    expect(state).toEqual({
+      status: "published",
+      residence: {
+        stableKey: "b_annex",
+        label: "B Annex",
+        kind: "mens",
+      },
+      ready: true,
     });
   });
 

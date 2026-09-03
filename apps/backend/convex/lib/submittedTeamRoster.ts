@@ -11,6 +11,7 @@ import {
   isProfileCompleteForPolicy,
   loadPublishedParticipantPolicy,
   normalizeParticipantPolicy,
+  participantPolicyAccepted,
   participantPolicyChecksum,
   participantPolicyFromDocument,
 } from "./participantPolicy";
@@ -85,7 +86,7 @@ async function loadRosterMembers(
         !membership ||
         membership.eventId !== args.event._id ||
         membership.eligibilityStatus !== "eligible" ||
-        !membership.acceptedParticipantPolicyVersionIds.includes(args.participantPolicy._id)
+        !(await participantPolicyAccepted(ctx, membership, args.participantPolicy))
       ) {
         throw new ConvexError({
           code: "MEMBER_NOT_READY",

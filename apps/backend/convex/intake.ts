@@ -26,6 +26,7 @@ import {
   isProfileCompleteForPolicy,
   loadPublishedParticipantPolicy,
   normalizeParticipantPolicy,
+  participantPolicyAccepted,
   participantPolicyChecksum,
   participantPolicyFromDocument,
 } from "./lib/participantPolicy";
@@ -2127,12 +2128,13 @@ export const submissionPreview = query({
         if (!eventMembership || eventMembership.eventId !== event._id) {
           throw new Error("An active team member references an invalid event membership.");
         }
-        const [memberPerson, profile] = await Promise.all([
+        const [memberPerson, profile, policyAccepted] = await Promise.all([
           ctx.db.get(eventMembership.personId),
           ctx.db
             .query("participantProfiles")
             .withIndex("by_membership", (index) => index.eq("membershipId", eventMembership._id))
             .unique(),
+          participantPolicyAccepted(ctx, eventMembership, participantPolicy.policy),
         ]);
         if (!memberPerson) {
           throw new Error("An active team member references a missing person.");
@@ -2144,6 +2146,7 @@ export const submissionPreview = query({
           submissionReady:
             eventMembership.eligibilityStatus === "eligible" &&
             memberPerson.status === "active" &&
+            policyAccepted &&
             isProfileCompleteForPolicy(profile, eventMembership, participantPolicy.policy),
         };
       }),
@@ -2534,7 +2537,7 @@ export const materializeSubmissionRoster = internalMutation({
         !membership ||
         membership.eventId !== event._id ||
         membership.eligibilityStatus !== "eligible" ||
-        !membership.acceptedParticipantPolicyVersionIds.includes(participantPolicy._id)
+        !(await participantPolicyAccepted(ctx, membership, participantPolicy))
       ) {
         await failSubmissionAttempt(
           ctx,

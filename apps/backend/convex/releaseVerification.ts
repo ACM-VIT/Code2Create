@@ -2,7 +2,7 @@ import { ConvexError, v } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalQuery, type QueryCtx } from "./_generated/server";
-import { isProfileCompleteForPolicy } from "./lib/participantPolicy";
+import { isParticipantReadyForPolicy } from "./lib/participantPolicy";
 import { matchingPermissionGrantIds } from "./lib/permissions";
 import { normalizeEmail } from "./lib/strings";
 
@@ -182,7 +182,7 @@ export async function inspectReleaseFixture(ctx: QueryCtx, args: ReleaseFixtureA
       if (
         !participantPolicy ||
         !participantPolicyReady ||
-        !isProfileCompleteForPolicy(profile, membership, participantPolicy)
+        !(await isParticipantReadyForPolicy(ctx, profile, membership, participantPolicy))
       ) {
         missing.push("participant_profile");
       }
