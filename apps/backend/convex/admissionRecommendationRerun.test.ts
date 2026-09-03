@@ -142,14 +142,14 @@ describe("manual admission analysis retry", () => {
         completedAt: Date.now(),
       }),
     );
-    await expect(
-      runner.mutation(api.admissions.rerunAiRecommendation, {
-        ...request,
-        expectedApplicationVersion: 2,
-        expectedRecommendationId: first.recommendationId,
-        clientOperationId: "retry-successful-analysis",
-      }),
-    ).rejects.toThrow("current, still running, or no longer");
+    const refreshed = await runner.mutation(api.admissions.rerunAiRecommendation, {
+      ...request,
+      expectedApplicationVersion: 2,
+      expectedRecommendationId: first.recommendationId,
+      clientOperationId: "refresh-successful-analysis",
+    });
+    expect(refreshed).toMatchObject({ applicationVersion: 3 });
+    expect(refreshed.recommendationId).not.toBe(first.recommendationId);
   });
 
   test("keeps one authorized durable-agent run idempotent across reads and callback retries", async () => {

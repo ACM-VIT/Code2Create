@@ -1365,15 +1365,126 @@ describe("participant intake lifecycle", () => {
       })),
       clientOperationId: "intake-proposal-revision",
     } as const;
-    const revision = await participant.mutation(api.intake.reviseSubmission, revisionRequest);
+    await expect(
+      participant.mutation(api.intake.reviseSubmission, revisionRequest),
+    ).rejects.toThrow("Regenerate them before saving");
+    const startedRevision = await participant.mutation(api.intake.beginSubmittedRevision, {
+      ...revisionRequest,
+      clientOperationId: "intake-proposal-revision-begin",
+    });
+    await expect(
+      participant.mutation(api.intake.beginSubmittedRevision, {
+        ...revisionRequest,
+        clientOperationId: "intake-proposal-revision-begin",
+      }),
+    ).resolves.toEqual(startedRevision);
+    await expect(
+      participant.query(api.intake.status, { eventSlug: fixture.eventSlug }),
+    ).resolves.toMatchObject({
+      applicationState: "under_review",
+      revisionInProgress: true,
+    });
+    const currentRevision = await participant.query(api.intake.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(currentRevision).toMatchObject({
+      workingFields: [],
+      application: { contentVersion: 1 },
+      draft: {
+        id: startedRevision.draftId,
+        version: startedRevision.draftVersion,
+        stage: "follow_up",
+        initialIdea: revisedIdea,
+        additionalInformation: revisedAdditionalInformation,
+        followUps: submitted.project.intakeResponses.slice(0, 2).map((response) => ({
+          id: response.questionId,
+          ordinal: response.ordinal,
+          state: "answered",
+          answer: "Students with access needs would use the updated workflow first.",
+        })),
+      },
+    });
+    await expect(
+      participant.query(api.intake.submitted, { eventSlug: fixture.eventSlug }),
+    ).resolves.toMatchObject({
+      project: {
+        id: submitted.project.id,
+        initialIdea: ideaAfterFixedAnswers,
+        version: 1,
+      },
+      application: { contentVersion: 1 },
+    });
+    await expect(
+      participant.mutation(api.intakePresence.heartbeat, {
+        eventSlug: fixture.eventSlug,
+        surface: "idea",
+        sessionId: "submitted-revision-idea-session",
+      }),
+    ).resolves.toMatchObject({ sessionToken: expect.any(String) });
+
+    await answerAdaptiveFallback(
+      3,
+      "Volunteers see the most urgent unresolved request and who currently owns the response.",
+      "submitted-revision-third-answer",
+    );
+    await answerAdaptiveFallback(
+      4,
+      "The revised prototype proves prioritization, ownership, and completion updates end to end.",
+      "submitted-revision-fourth-answer",
+    );
+    const revisionBeforeReview = await participant.query(api.intake.current, {
+      eventSlug: fixture.eventSlug,
+    });
+    if (!revisionBeforeReview?.draft) {
+      throw new Error("The submitted revision did not regenerate its questions.");
+    }
+    expect(revisionBeforeReview.draft.stage).toBe("additional_information");
+    expect(revisionBeforeReview.draft.followUps).toHaveLength(4);
+    expect(
+      revisionBeforeReview.draft.followUps
+        .slice(2)
+        .every((response) => response.source === "fallback"),
+    ).toBe(true);
+    const replacedSubmittedQuestionIds = new Set(
+      submitted.project.intakeResponses.slice(2).map((response) => response.questionId),
+    );
+    expect(
+      revisionBeforeReview.draft.followUps
+        .slice(2)
+        .some((response) => replacedSubmittedQuestionIds.has(response.id)),
+    ).toBe(false);
+    await participant.mutation(api.intake.saveAdditionalInformation, {
+      eventSlug: fixture.eventSlug,
+      value: revisedAdditionalInformation,
+      baseValue: revisedAdditionalInformation,
+      expectedDraftVersion: revisionBeforeReview.draft.version,
+      clientOperationId: "submitted-revision-additional-information",
+    });
+    const revisedPreview = await participant.query(api.intake.submissionPreview, {
+      eventSlug: fixture.eventSlug,
+    });
+    if (!revisedPreview) throw new Error("The revised submission preview is unavailable.");
+    const completeRevisionRequest = {
+      eventSlug: fixture.eventSlug,
+      expectedDraftVersion: revisedPreview.draftVersion,
+      expectedTeamVersion: revisedPreview.teamVersion,
+      clientOperationId: "intake-proposal-revision-complete",
+    } as const;
+    const revision = await participant.mutation(
+      api.intake.completeSubmittedRevision,
+      completeRevisionRequest,
+    );
     expect(revision).toMatchObject({
       projectVersion: 2,
       applicationVersion: submitted.application.version + 2,
       applicationContentVersion: 2,
     });
     await expect(
-      participant.mutation(api.intake.reviseSubmission, revisionRequest),
+      participant.mutation(api.intake.completeSubmittedRevision, completeRevisionRequest),
     ).resolves.toEqual(revision);
+    await expect(
+      participant.query(api.intake.status, { eventSlug: fixture.eventSlug }),
+    ).resolves.toMatchObject({ revisionInProgress: false });
     await expect(
       participant.query(api.intake.submitted, { eventSlug: fixture.eventSlug }),
     ).resolves.toMatchObject({
