@@ -5,11 +5,7 @@ import { ScrollTrigger } from "gsap/ScrollTrigger";
 
 import Lanterns, { Wind } from "./Lanterns.js";
 import { lanternAt } from "./lanternLayout.js";
-import Fireworks, {
-  SPONSORS,
-  SPONSORS_END,
-  type FireworksHandle,
-} from "./Fireworks.js";
+import Fireworks, { type FireworksHandle } from "./Fireworks.js";
 import Branches from "./Branches.js";
 import Rosette from "./Rosette.js";
 import { useFallingLadder } from "./fallingLadder/index.js";
@@ -747,15 +743,7 @@ export default function Journey({ petalsRef }: JourneyProps) {
       const sponsorCue = (progress: number) => {
         const api = fireworksRef.current;
         if (!api) return;
-        const at = journeyMasterTime(progress);
-        SPONSORS.forEach((sponsor, index) => {
-          const active = at >= sponsor.cue && at < SPONSORS_END;
-          const fireworkProgress = active
-            ? gsap.utils.clamp(0, 1, (at - sponsor.cue) / sponsor.duration)
-            : 0;
-          const twinklePhase = active ? (at - sponsor.cue) / sponsor.duration : 0;
-          api.setProgress(index, fireworkProgress, twinklePhase);
-        });
+        api.setTimeline(journeyMasterTime(progress));
       };
 
       const petalCue = (progress: number) => {
