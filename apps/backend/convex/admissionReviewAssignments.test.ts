@@ -28,7 +28,7 @@ describe("admission review assignments", () => {
     backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
     const { authUserId, authSessionId } = await createReviewerAuth(backend);
     const fixture = await seedAssignmentFixture(backend, authUserId);
-    await backend.run(async (ctx) => {
+    const liveRows = await backend.run(async (ctx) => {
       const externalApplication = await ctx.db.get(fixture.applicationId);
       if (!externalApplication) throw new Error("Assignment fixture is incomplete.");
       const externalProject = await ctx.db.get(externalApplication.submittedProjectVersionId);
@@ -65,6 +65,31 @@ describe("admission review assignments", () => {
         submittedProjectVersionId: internalProjectId,
         submittedAt: fixture.now - 1,
       });
+      const secondExternalTeamId = await ctx.db.insert("teams", {
+        eventId: fixture.eventId,
+        name: "Second external team",
+        publicCode: "EXTERNAL2",
+        leadMembershipId: externalProject.lockedLeadMembershipId,
+        status: "submitted",
+        activeMemberCount: 1,
+        activeVitMemberCount: 0,
+        activeExternalMemberCount: 1,
+        membershipLocked: true,
+        version: 1,
+        createdAt: fixture.now + 2,
+        updatedAt: fixture.now + 2,
+      });
+      const secondExternalProjectId = await ctx.db.insert("projectVersions", {
+        ...projectFields,
+        teamId: secondExternalTeamId,
+        submittedAt: fixture.now + 2,
+      });
+      const secondExternalApplicationId = await ctx.db.insert("applications", {
+        ...applicationFields,
+        teamId: secondExternalTeamId,
+        submittedProjectVersionId: secondExternalProjectId,
+        submittedAt: fixture.now + 2,
+      });
       await insertPermissionGrant(ctx, {
         eventId: fixture.eventId,
         personId: fixture.reviewerPersonId,
@@ -79,6 +104,7 @@ describe("admission review assignments", () => {
       for (const [applicationId, sourceId] of [
         [fixture.applicationId, "fixture-external-review"],
         [internalApplicationId, "fixture-internal-review"],
+        [secondExternalApplicationId, "fixture-second-external-review"],
       ] as const) {
         await insertPermissionGrant(ctx, {
           eventId: fixture.eventId,
@@ -93,6 +119,16 @@ describe("admission review assignments", () => {
           reason: "Read origin-filter assignment fixture",
         });
       }
+      const secondExternalAssignmentId = await ctx.db.insert("admissionReviewAssignments", {
+        eventId: fixture.eventId,
+        applicationId: secondExternalApplicationId,
+        applicationContentVersion: 1,
+        reviewerPersonId: fixture.reviewerPersonId,
+        assignedByPersonId: fixture.managerPersonId,
+        state: "active",
+        version: 1,
+        assignedAt: fixture.now + 2,
+      });
       await ctx.db.insert("admissionReviewAssignments", {
         eventId: fixture.eventId,
         applicationId: fixture.applicationId,
@@ -113,32 +149,61 @@ describe("admission review assignments", () => {
         version: 1,
         assignedAt: fixture.now + 1,
       });
+      return { secondExternalAssignmentId };
     });
     const reviewer = backend.withIdentity({ subject: authUserId, sessionId: authSessionId });
     const paginationOpts = { cursor: null, numItems: 1 };
-    const applications = await reviewer.query(api.admissions.list, {
+    const firstApplications = await reviewer.query(api.admissions.list, {
       eventSlug: fixture.eventSlug,
+      state: "submitted",
       origin: "external",
       paginationOpts,
     });
-    const assignments = await reviewer.query(api.admissions.myReviewAssignments, {
+    expect(firstApplications.page.map((application) => application.teamName)).toEqual([
+      "Assigned team",
+    ]);
+    expect(firstApplications.isDone).toBe(false);
+
+    await backend.run((ctx) => ctx.db.patch(fixture.applicationId, { state: "under_review" }));
+    const secondApplications = await reviewer.query(api.admissions.list, {
+      eventSlug: fixture.eventSlug,
+      state: "submitted",
+      origin: "external",
+      paginationOpts: { cursor: firstApplications.continueCursor, numItems: 1 },
+    });
+    expect(secondApplications.page.map((application) => application.teamName)).toEqual([
+      "Second external team",
+    ]);
+
+    const firstAssignments = await reviewer.query(api.admissions.myReviewAssignments, {
       eventSlug: fixture.eventSlug,
       state: "active",
       origin: "external",
       paginationOpts,
+    });
+    expect(firstAssignments.page.map((assignment) => assignment.teamName)).toEqual([
+      "Second external team",
+    ]);
+    expect(firstAssignments.isDone).toBe(false);
+
+    await backend.run((ctx) =>
+      ctx.db.patch(liveRows.secondExternalAssignmentId, { state: "completed" }),
+    );
+    const secondAssignments = await reviewer.query(api.admissions.myReviewAssignments, {
+      eventSlug: fixture.eventSlug,
+      state: "active",
+      origin: "external",
+      paginationOpts: { cursor: firstAssignments.continueCursor, numItems: 1 },
     });
     const assignmentCounts = await reviewer.query(api.admissions.myReviewAssignmentCounts, {
       eventSlug: fixture.eventSlug,
       origin: "external",
     });
 
-    expect(applications.page.map((application) => application.teamName)).toEqual([
+    expect(secondAssignments.page.map((assignment) => assignment.teamName)).toEqual([
       "Assigned team",
     ]);
-    expect(assignments.page.map((assignment) => assignment.teamName)).toEqual([
-      "Assigned team",
-    ]);
-    expect(assignmentCounts).toEqual({ active: 1, completed: 0 });
+    expect(assignmentCounts).toEqual({ active: 1, completed: 1 });
   });
 
   test("keeps routing, profile context, and AI analysis behind separate exact scopes", () => {

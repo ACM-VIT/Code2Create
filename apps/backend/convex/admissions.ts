@@ -1,5 +1,6 @@
 import { paginationOptsValidator, paginationResultValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
+import { paginator } from "convex-helpers/server/pagination";
 import { z } from "zod";
 
 import { internal } from "./_generated/api";
@@ -41,6 +42,7 @@ import {
   normalizedText,
   optionalNormalizedText,
 } from "./lib/strings";
+import schema from "./schema";
 import {
   admissionAiDisposition,
   admissionDecision,
@@ -88,15 +90,6 @@ function requireAdmissionPageSize(numItems: number) {
       message: `Admission pages support 1 through ${maximumAdmissionPageSize} items.`,
     });
   }
-}
-
-function pageStartAfterCursor<T extends { _id: string }>(rows: readonly T[], cursor: string | null) {
-  if (cursor === null) return 0;
-  const cursorIndex = rows.findIndex((row) => row._id === cursor);
-  if (cursorIndex < 0) {
-    throw new ConvexError({ code: "INVALID_PAGINATION", message: "The page cursor is invalid." });
-  }
-  return cursorIndex + 1;
 }
 
 async function applicationMatchesOrigin(
@@ -552,26 +545,34 @@ export const list = query({
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
     requireAdmissionPageSize(args.paginationOpts.numItems);
-    const rows = await ctx.db
+    if (args.origin !== undefined) {
+      const origin = args.origin;
+      return paginator(ctx.db, schema)
+        .query("applications")
+        .withIndex("by_event_state_submitted", (index) => {
+          const eventIndex = index.eq("eventId", event._id);
+          return args.state ? eventIndex.eq("state", args.state) : eventIndex;
+        })
+        .order("asc")
+        .map(async (application) => {
+          if (!(await applicationMatchesOrigin(ctx, application, origin))) return null;
+          return visibleApplicationListProjection(ctx, event._id, subject._id, application);
+        })
+        .paginate({
+          ...args.paginationOpts,
+          maximumRowsRead: maximumApplicantTeamsPerEvent + 1,
+        });
+    }
+    const page = await ctx.db
       .query("applications")
       .withIndex("by_event_state_submitted", (index) => {
         const eventIndex = index.eq("eventId", event._id);
         return args.state ? eventIndex.eq("state", args.state) : eventIndex;
       })
       .order("asc")
-      .take(maximumApplicantTeamsPerEvent + 1);
-    if (rows.length > maximumApplicantTeamsPerEvent) {
-      throw new Error(
-        `Admission lists support at most ${maximumApplicantTeamsPerEvent} applicant teams.`,
-      );
-    }
+      .paginate(args.paginationOpts);
     const visible = [];
-    let scannedThrough = pageStartAfterCursor(rows, args.paginationOpts.cursor) - 1;
-    for (let index = scannedThrough + 1; index < rows.length; index += 1) {
-      const application = rows[index];
-      if (!application) throw new Error("The application page index is invalid.");
-      scannedThrough = index;
-      if (!(await applicationMatchesOrigin(ctx, application, args.origin))) continue;
+    for (const application of page.page) {
       const item = await visibleApplicationListProjection(
         ctx,
         event._id,
@@ -579,14 +580,8 @@ export const list = query({
         application,
       );
       if (item) visible.push(item);
-      if (visible.length === args.paginationOpts.numItems) break;
     }
-    const isDone = scannedThrough >= rows.length - 1;
-    return {
-      page: visible,
-      isDone,
-      continueCursor: isDone ? "" : (rows[scannedThrough]?._id ?? ""),
-    };
+    return { ...page, page: visible };
   },
 });
 
@@ -690,6 +685,82 @@ const assignedReviewItem = v.object({
   ownRecommendation: v.optional(admissionDecision),
 });
 
+async function visibleReviewAssignmentProjection(
+  ctx: QueryCtx,
+  eventId: Id<"events">,
+  eventAccessSubjectId: Id<"eventAccessSubjects">,
+  reviewerPersonId: Id<"people">,
+  assignment: Doc<"admissionReviewAssignments">,
+  origin: ExclusiveTeamOrigin | undefined,
+) {
+  const application = await ctx.db.get(assignment.applicationId);
+  if (!application || application.eventId !== eventId) return null;
+  if (!(await applicationMatchesOrigin(ctx, application, origin))) return null;
+  const reviewReadGrantIds = await matchingPermissionGrantIds(ctx, {
+    eventId,
+    eventAccessSubjectId,
+    permissionKey: "application.review.read",
+    scopeType: "application",
+    scopeId: application._id,
+  });
+  if (reviewReadGrantIds.length === 0) return null;
+  const [team, project, profileGrantIds, aiGrantIds, ownReview] = await Promise.all([
+    ctx.db.get(application.teamId),
+    ctx.db.get(application.submittedProjectVersionId),
+    matchingPermissionGrantIds(ctx, {
+      eventId,
+      eventAccessSubjectId,
+      permissionKey: "application.profile_context.read",
+      scopeType: "application",
+      scopeId: application._id,
+    }),
+    matchingPermissionGrantIds(ctx, {
+      eventId,
+      eventAccessSubjectId,
+      permissionKey: "application.ai_recommendation.read",
+      scopeType: "application",
+      scopeId: application._id,
+    }),
+    ctx.db
+      .query("admissionHumanReviews")
+      .withIndex("by_application_reviewer_status", (index) =>
+        index
+          .eq("applicationId", application._id)
+          .eq("reviewerPersonId", reviewerPersonId)
+          .eq("status", "active"),
+      )
+      .unique(),
+  ]);
+  if (!team || !project) return null;
+  const recommendation =
+    aiGrantIds.length > 0 && application.aiRecommendationId
+      ? await ctx.db.get(application.aiRecommendationId)
+      : null;
+  return {
+    assignmentId: assignment._id,
+    assignmentState: assignment.state,
+    assignmentVersion: assignment.version,
+    assignedAt: assignment.assignedAt,
+    applicationId: application._id,
+    applicationState: application.state,
+    applicationVersion: application.version,
+    teamName: team.name,
+    ...(profileGrantIds.length > 0 ? { cohort: await rosterCohort(ctx, project) } : {}),
+    memberCount: project.lockedMemberCount,
+    ...(recommendation
+      ? {
+          aiState: recommendation.state,
+          ...(recommendation.state === "succeeded" && recommendation.recommendation !== undefined
+            ? { aiRecommendation: recommendation.recommendation }
+            : {}),
+        }
+      : {}),
+    ...(ownReview?.applicationContentVersion === application.contentVersion
+      ? { ownRecommendation: ownReview.recommendation }
+      : {}),
+  };
+}
+
 export const myReviewAssignments = query({
   args: {
     eventSlug: v.string(),
@@ -703,98 +774,49 @@ export const myReviewAssignments = query({
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
     requireAdmissionPageSize(args.paginationOpts.numItems);
-    const rows = await ctx.db
+    if (args.origin !== undefined) {
+      const origin = args.origin;
+      return paginator(ctx.db, schema)
+        .query("admissionReviewAssignments")
+        .withIndex("by_event_reviewer_state_assigned", (index) =>
+          index.eq("eventId", event._id).eq("reviewerPersonId", person._id).eq("state", args.state),
+        )
+        .order("desc")
+        .map((assignment) =>
+          visibleReviewAssignmentProjection(
+            ctx,
+            event._id,
+            subject._id,
+            person._id,
+            assignment,
+            origin,
+          ),
+        )
+        .paginate({
+          ...args.paginationOpts,
+          maximumRowsRead: maximumWorkloadAssignments + 1,
+        });
+    }
+    const page = await ctx.db
       .query("admissionReviewAssignments")
       .withIndex("by_event_reviewer_state_assigned", (index) =>
         index.eq("eventId", event._id).eq("reviewerPersonId", person._id).eq("state", args.state),
       )
       .order("desc")
-      .take(maximumWorkloadAssignments + 1);
-    if (rows.length > maximumWorkloadAssignments) {
-      throw new Error(
-        `Reviewer queues support at most ${maximumWorkloadAssignments} assignments.`,
-      );
-    }
+      .paginate(args.paginationOpts);
     const visible = [];
-    let scannedThrough = pageStartAfterCursor(rows, args.paginationOpts.cursor) - 1;
-    for (let index = scannedThrough + 1; index < rows.length; index += 1) {
-      const assignment = rows[index];
-      if (!assignment) throw new Error("The assignment page index is invalid.");
-      scannedThrough = index;
-      const application = await ctx.db.get(assignment.applicationId);
-      if (!application || application.eventId !== event._id) continue;
-      if (!(await applicationMatchesOrigin(ctx, application, args.origin))) continue;
-      const reviewReadGrantIds = await matchingPermissionGrantIds(ctx, {
-        eventId: event._id,
-        eventAccessSubjectId: subject._id,
-        permissionKey: "application.review.read",
-        scopeType: "application",
-        scopeId: application._id,
-      });
-      if (reviewReadGrantIds.length === 0) continue;
-      const [team, project, profileGrantIds, aiGrantIds, ownReview] = await Promise.all([
-        ctx.db.get(application.teamId),
-        ctx.db.get(application.submittedProjectVersionId),
-        matchingPermissionGrantIds(ctx, {
-          eventId: event._id,
-          eventAccessSubjectId: subject._id,
-          permissionKey: "application.profile_context.read",
-          scopeType: "application",
-          scopeId: application._id,
-        }),
-        matchingPermissionGrantIds(ctx, {
-          eventId: event._id,
-          eventAccessSubjectId: subject._id,
-          permissionKey: "application.ai_recommendation.read",
-          scopeType: "application",
-          scopeId: application._id,
-        }),
-        ctx.db
-          .query("admissionHumanReviews")
-          .withIndex("by_application_reviewer_status", (index) =>
-            index
-              .eq("applicationId", application._id)
-              .eq("reviewerPersonId", person._id)
-              .eq("status", "active"),
-          )
-          .unique(),
-      ]);
-      if (!team || !project) continue;
-      const recommendation =
-        aiGrantIds.length > 0 && application.aiRecommendationId
-          ? await ctx.db.get(application.aiRecommendationId)
-          : null;
-      visible.push({
-        assignmentId: assignment._id,
-        assignmentState: assignment.state,
-        assignmentVersion: assignment.version,
-        assignedAt: assignment.assignedAt,
-        applicationId: application._id,
-        applicationState: application.state,
-        applicationVersion: application.version,
-        teamName: team.name,
-        ...(profileGrantIds.length > 0 ? { cohort: await rosterCohort(ctx, project) } : {}),
-        memberCount: project.lockedMemberCount,
-        ...(recommendation
-          ? {
-              aiState: recommendation.state,
-              ...(recommendation.state === "succeeded" && recommendation.recommendation !== undefined
-                ? { aiRecommendation: recommendation.recommendation }
-                : {}),
-            }
-          : {}),
-        ...(ownReview?.applicationContentVersion === application.contentVersion
-          ? { ownRecommendation: ownReview.recommendation }
-          : {}),
-      });
-      if (visible.length === args.paginationOpts.numItems) break;
+    for (const assignment of page.page) {
+      const item = await visibleReviewAssignmentProjection(
+        ctx,
+        event._id,
+        subject._id,
+        person._id,
+        assignment,
+        undefined,
+      );
+      if (item) visible.push(item);
     }
-    const isDone = scannedThrough >= rows.length - 1;
-    return {
-      page: visible,
-      isDone,
-      continueCursor: isDone ? "" : (rows[scannedThrough]?._id ?? ""),
-    };
+    return { ...page, page: visible };
   },
 });
 
