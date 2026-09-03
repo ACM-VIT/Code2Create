@@ -57,6 +57,7 @@ describe("operations autonomy durable boundaries", () => {
   test("applications-open events can start and authorize autonomy work", async () => {
     const backend = seededBackend();
     const fixture = await seedRun(backend);
+    const leaseId = await claimAutonomyTickLease(backend);
     const operator = backend.withIdentity({
       subject: fixture.authUserId,
       sessionId: fixture.authSessionId,
@@ -88,6 +89,7 @@ describe("operations autonomy durable boundaries", () => {
     await expect(
       backend.mutation(internal.operationsAutonomyScheduler.enqueueDueSchedules, {
         stateId: schedulerId,
+        leaseId,
         now: fixture.now,
       }),
     ).resolves.toMatchObject({ enqueued: 1 });
@@ -114,6 +116,66 @@ describe("operations autonomy durable boundaries", () => {
         clientOperationId: "applications-open-manual-run",
       }),
     ).resolves.toMatchObject({ state: "started" });
+  });
+
+  test("a superseded tick cannot mutate or schedule with its stale lease", async () => {
+    const backend = seededBackend();
+    const fixture = await seedRun(backend);
+    const staleLeaseId = crypto.randomUUID();
+    const currentLeaseId = crypto.randomUUID();
+    expect(
+      await backend.mutation(internal.operationsBackground.claim, {
+        holder: "autonomy_tick",
+        leaseId: staleLeaseId,
+        now: fixture.now,
+        leaseDurationMs: 1,
+      }),
+    ).toBe(true);
+    expect(
+      await backend.mutation(internal.operationsBackground.claim, {
+        holder: "autonomy_tick",
+        leaseId: currentLeaseId,
+        now: fixture.now + 1,
+        leaseDurationMs: 60_000,
+      }),
+    ).toBe(true);
+    const target = await backend.run(async (ctx) => {
+      const state = await ctx.db
+        .query("operationsAutonomyStates")
+        .withIndex("by_policy", (index) => index.eq("policyVersionId", fixture.policyId))
+        .unique();
+      if (!state) throw new Error("The autonomy fixture scheduler is missing.");
+      const continuationId = await ctx.db.insert("operationsAutonomyContinuations", {
+        eventId: fixture.eventId,
+        runId: fixture.runId,
+        workItemId: "stale-tick-continuation",
+        causedByOperationId: "stale-tick-callback",
+        priorSubmissionId: "submission-a",
+        lifecycle: { kind: "pending", nextAttemptAt: fixture.now },
+        attemptCount: 0,
+        createdAt: fixture.now,
+        updatedAt: fixture.now,
+      });
+      return { state, continuationId };
+    });
+    const before = await autonomyTickEffectState(backend, target.state._id);
+
+    await expect(
+      backend.mutation(internal.operationsAutonomyScheduler.enqueueDueSchedules, {
+        stateId: target.state._id,
+        leaseId: staleLeaseId,
+        now: fixture.now + 1,
+      }),
+    ).resolves.toEqual({ leaseHeld: false, enqueued: 0, hasMore: false });
+    await expect(
+      backend.mutation(internal.operationsAutonomyScheduler.scheduleContinuation, {
+        continuationId: target.continuationId,
+        leaseId: staleLeaseId,
+        now: fixture.now + 1,
+      }),
+    ).resolves.toBe(false);
+
+    expect(await autonomyTickEffectState(backend, target.state._id)).toEqual(before);
   });
 
   test("registration status alone cannot extend autonomy past the application deadline", async () => {
@@ -862,6 +924,7 @@ describe("operations autonomy durable boundaries", () => {
   test("the 102nd deep-source episode is queued and each run reads its frozen high-watermark", async () => {
     const backend = seededBackend();
     const fixture = await seedRun(backend);
+    const leaseId = await claimAutonomyTickLease(backend);
     const episodes = await backend.run(async (ctx) => {
       const health = await ctx.db
         .query("operationsHealthSnapshots")
@@ -972,10 +1035,11 @@ describe("operations autonomy durable boundaries", () => {
     const firstEpisode = episodes.episodes[0];
     const lastEpisode = episodes.episodes.at(-1);
     if (!firstEpisode || !lastEpisode) throw new Error("The source episodes are missing.");
-    const firstRunId = await backend.mutation(
+    const firstMaterialized = await backend.mutation(
       internal.operationsAutonomyScheduler.materializeInbox,
-      { inboxId: firstEpisode.inboxId, now: fixture.now + 201 },
+      { inboxId: firstEpisode.inboxId, leaseId, now: fixture.now + 201 },
     );
+    const firstRunId = firstMaterialized.runId;
     if (!firstRunId) throw new Error("The first source episode did not materialize.");
     const firstRun = await backend.run((ctx) => ctx.db.get(firstRunId));
     if (!firstRun || firstRun.lifecycle.kind !== "active") {
@@ -1023,10 +1087,11 @@ describe("operations autonomy durable boundaries", () => {
       });
     });
 
-    const lastRunId = await backend.mutation(
+    const lastMaterialized = await backend.mutation(
       internal.operationsAutonomyScheduler.materializeInbox,
-      { inboxId: lastEpisode.inboxId, now: fixture.now + 204 },
+      { inboxId: lastEpisode.inboxId, leaseId, now: fixture.now + 204 },
     );
+    const lastRunId = lastMaterialized.runId;
     if (!lastRunId) throw new Error("The final source episode did not materialize.");
     const lastRun = await backend.run((ctx) => ctx.db.get(lastRunId));
     if (!lastRun || lastRun.lifecycle.kind !== "active") {
@@ -1283,6 +1348,7 @@ describe("operations autonomy durable boundaries", () => {
   test("a queued item is terminalized if its event leaves live before materialization", async () => {
     const backend = seededBackend();
     const fixture = await seedRun(backend);
+    const leaseId = await claimAutonomyTickLease(backend);
     const operator = backend.withIdentity({
       subject: fixture.authUserId,
       sessionId: fixture.authSessionId,
@@ -1315,10 +1381,14 @@ describe("operations autonomy durable boundaries", () => {
       await ctx.db.patch(fixture.eventId, { status: "complete" });
       return id;
     });
-    const runId = await backend.mutation(internal.operationsAutonomyScheduler.materializeInbox, {
-      inboxId,
-      now: fixture.now + 2,
-    });
+    const { runId } = await backend.mutation(
+      internal.operationsAutonomyScheduler.materializeInbox,
+      {
+        inboxId,
+        leaseId,
+        now: fixture.now + 2,
+      },
+    );
     expect(runId).not.toBeNull();
     const state = await backend.run(async (ctx) => ({
       inbox: await ctx.db.get(inboxId),
@@ -1345,6 +1415,7 @@ describe("operations autonomy durable boundaries", () => {
   test("policy revocation exhaustively cancels a queue larger than one transaction page", async () => {
     const backend = seededBackend();
     const fixture = await seedRun(backend);
+    const leaseId = await claimAutonomyTickLease(backend);
     await backend.run(async (ctx) => {
       const run = await ctx.db.get(fixture.runId);
       if (!run) throw new Error("The autonomy fixture run is missing.");
@@ -1378,10 +1449,12 @@ describe("operations autonomy durable boundaries", () => {
     });
     let hasMore = true;
     for (let page = 0; page < 3 && hasMore; page += 1) {
-      hasMore = await backend.mutation(
+      const canceled = await backend.mutation(
         internal.operationsAutonomyScheduler.cancelPendingInboxPage,
-        { policyVersionId: fixture.policyId, now: fixture.now + 101 + page },
+        { policyVersionId: fixture.policyId, leaseId, now: fixture.now + 101 + page },
       );
+      expect(canceled.leaseHeld).toBe(true);
+      hasMore = canceled.hasMore;
     }
     expect(hasMore).toBe(false);
     const result = await backend.run(async (ctx) => ({
@@ -1486,6 +1559,7 @@ describe("operations autonomy durable boundaries", () => {
   test("manual start replays its original receipt after claim and cancellation", async () => {
     const backend = seededBackend();
     const fixture = await seedRun(backend);
+    const leaseId = await claimAutonomyTickLease(backend);
     const operator = backend.withIdentity({
       subject: fixture.authUserId,
       sessionId: fixture.authSessionId,
@@ -1507,10 +1581,14 @@ describe("operations autonomy durable boundaries", () => {
       if (!supervision) throw new Error("The autonomy fixture supervision is missing.");
       await ctx.db.patch(supervision._id, { lifecycle: { kind: "terminal" } });
     });
-    const runId = await backend.mutation(internal.operationsAutonomyScheduler.materializeInbox, {
-      inboxId: first.workItemId,
-      now: fixture.now + 2,
-    });
+    const { runId } = await backend.mutation(
+      internal.operationsAutonomyScheduler.materializeInbox,
+      {
+        inboxId: first.workItemId,
+        leaseId,
+        now: fixture.now + 2,
+      },
+    );
     expect(runId).not.toBeNull();
     expect(await operator.mutation(api.operationsAutonomy.startManual, request)).toEqual(first);
     await backend.run((ctx) =>
@@ -1763,6 +1841,7 @@ describe("operations autonomy durable boundaries", () => {
   test("ambiguous dispatch failure keeps shutdown pending through the uncertainty window", async () => {
     const backend = seededBackend();
     const fixture = await seedRun(backend);
+    const leaseId = await claimAutonomyTickLease(backend);
     await backend.run((ctx) =>
       ctx.db.patch(fixture.runId, { admission: { kind: "not_accepted" } }),
     );
@@ -1807,12 +1886,13 @@ describe("operations autonomy durable boundaries", () => {
     expect(
       await backend.mutation(internal.operationsAutonomyScheduler.reconcileSupervision, {
         supervisionId: beforeExpiry._id,
+        leaseId,
         now:
           beforeExpiry.outboundAttempt.kind === "in_flight"
             ? beforeExpiry.outboundAttempt.expiresAt - 1
             : fixture.now,
       }),
-    ).toBe("unchanged");
+    ).toEqual({ leaseHeld: true, outcome: "unchanged" });
     const atExpiry = await backend.run((ctx) =>
       ctx.db
         .query("operationsAutonomyRunSupervision")
@@ -1825,14 +1905,16 @@ describe("operations autonomy durable boundaries", () => {
     expect(
       await backend.mutation(internal.operationsAutonomyScheduler.reconcileSupervision, {
         supervisionId: atExpiry._id,
+        leaseId,
         now: atExpiry.outboundAttempt.expiresAt,
       }),
-    ).toBe("abort");
+    ).toEqual({ leaseHeld: true, outcome: "abort" });
   });
 
   test("a stalled initial dispatch cannot mint fresh authority after its attempt expires", async () => {
     const backend = seededBackend();
     const fixture = await seedRun(backend);
+    const leaseId = await claimAutonomyTickLease(backend);
     await backend.run((ctx) =>
       ctx.db.patch(fixture.runId, { admission: { kind: "not_accepted" } }),
     );
@@ -1865,6 +1947,7 @@ describe("operations autonomy durable boundaries", () => {
       }
       await backend.mutation(internal.operationsAutonomyScheduler.reconcileSupervision, {
         supervisionId: supervision._id,
+        leaseId,
         now: resumedAt,
       });
       return Response.json({ error: "unauthorized" }, { status: 401 });
@@ -1898,6 +1981,7 @@ describe("operations autonomy durable boundaries", () => {
   test("a stalled continuation cannot mint fresh authority after its attempt expires", async () => {
     const backend = seededBackend();
     const fixture = await seedRun(backend);
+    const leaseId = await claimAutonomyTickLease(backend);
     const continuationId = await backend.run((ctx) =>
       ctx.db.insert("operationsAutonomyContinuations", {
         eventId: fixture.eventId,
@@ -1940,6 +2024,7 @@ describe("operations autonomy durable boundaries", () => {
       }
       await backend.mutation(internal.operationsAutonomyScheduler.reconcileSupervision, {
         supervisionId: supervision._id,
+        leaseId,
         now: resumedAt,
       });
       return Response.json({ error: "unauthorized" }, { status: 401 });
@@ -1975,6 +2060,31 @@ function seededBackend() {
   const backend = convexTest(schema, modules);
   backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
   return backend;
+}
+
+async function claimAutonomyTickLease(backend: BackendTest) {
+  const leaseId = crypto.randomUUID();
+  const claimed = await backend.mutation(internal.operationsBackground.claim, {
+    holder: "autonomy_tick",
+    leaseId,
+    now: 0,
+    leaseDurationMs: 8_000_000_000_000_000,
+  });
+  if (!claimed) throw new Error("The autonomy test lease could not be claimed.");
+  return leaseId;
+}
+
+async function autonomyTickEffectState(
+  backend: BackendTest,
+  stateId: Id<"operationsAutonomyStates">,
+) {
+  return backend.run(async (ctx) => ({
+    state: await ctx.db.get(stateId),
+    inbox: await ctx.db.query("operationsAutonomyInbox").collect(),
+    continuationJobs: (await ctx.db.system.query("_scheduled_functions").collect()).filter((job) =>
+      job.name.includes("operationsAutonomyActions:continueRun"),
+    ),
+  }));
 }
 
 type Fixture = Awaited<ReturnType<typeof seedRun>>;

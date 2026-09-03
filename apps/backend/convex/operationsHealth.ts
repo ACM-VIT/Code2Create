@@ -25,6 +25,7 @@ import {
 import { enqueueOperationsAutonomySignal } from "./lib/operationsAutonomyInbox";
 import { requirePermission } from "./lib/permissions";
 import { activeSynesthesiaWindow } from "./lib/synesthesia";
+import { operationsBackgroundLeaseIsHeld } from "./operationsBackground";
 import { reconcileOperationsEpisodes } from "./lib/operationsEpisodes";
 
 const queryLimit = 101;
@@ -990,10 +991,20 @@ export const upsertSnapshot = internalMutation({
   args: {
     eventId: v.id("events"),
     eventVersion: v.number(),
+    leaseId: v.string(),
+    leaseObservedAt: v.number(),
     snapshot: operationsHealthSnapshot,
   },
-  returns: snapshotWriteResult,
+  returns: v.union(snapshotWriteResult, v.literal("lease_lost")),
   handler: async (ctx, args) => {
+    if (
+      !(await operationsBackgroundLeaseIsHeld(ctx, {
+        holder: "health_refresh",
+        leaseId: args.leaseId,
+        now: args.leaseObservedAt,
+      }))
+    )
+      return "lease_lost";
     const event = await ctx.db.get(args.eventId);
     if (!event) throw new Error("The operations-health event no longer exists.");
     if (event.version !== args.eventVersion) return "stale";
@@ -1012,7 +1023,9 @@ export const upsertSnapshot = internalMutation({
     const staleAt = args.snapshot.generatedAt + operationsHealthMaximumAgeMs;
     if (!existing) {
       await ctx.db.insert("operationsHealthSnapshots", {
-        ...args,
+        eventId: args.eventId,
+        eventVersion: args.eventVersion,
+        snapshot: args.snapshot,
         state: "ready",
         staleAt,
       });
@@ -1080,24 +1093,46 @@ export const markSnapshotStale = internalMutation({
 
 export const refresh = internalAction({
   args: {},
-  returns: v.union(v.literal("no_event"), snapshotWriteResult),
-  handler: async (ctx): Promise<"no_event" | SnapshotWriteResult> => {
-    const target: { eventId: Id<"events"> } | null = await ctx.runQuery(
-      internal.operationsHealth.refreshTarget,
-      {},
-    );
-    if (!target) return "no_event";
-    const computed: {
-      eventVersion: number;
-      snapshot: OperationsHealthOverview;
-    } = await ctx.runQuery(internal.operationsHealth.computeSnapshot, {
-      eventId: target.eventId,
+  returns: v.union(v.literal("no_event"), v.literal("in_progress"), snapshotWriteResult),
+  handler: async (ctx): Promise<"no_event" | "in_progress" | SnapshotWriteResult> => {
+    const leaseId = crypto.randomUUID();
+    const claimed = await ctx.runMutation(internal.operationsBackground.claim, {
+      holder: "health_refresh",
+      leaseId,
+      now: Date.now(),
+      leaseDurationMs: operationsHealthMaximumAgeMs,
     });
-    return await ctx.runMutation(internal.operationsHealth.upsertSnapshot, {
-      eventId: target.eventId,
-      eventVersion: computed.eventVersion,
-      snapshot: computed.snapshot,
-    });
+    if (!claimed) return "in_progress";
+
+    try {
+      const target: { eventId: Id<"events"> } | null = await ctx.runQuery(
+        internal.operationsHealth.refreshTarget,
+        {},
+      );
+      if (!target) return "no_event";
+      const computed: {
+        eventVersion: number;
+        snapshot: OperationsHealthOverview;
+      } = await ctx.runQuery(internal.operationsHealth.computeSnapshot, {
+        eventId: target.eventId,
+      });
+      const renewed = await ctx.runMutation(internal.operationsBackground.renew, {
+        leaseId,
+        now: Date.now(),
+        leaseDurationMs: operationsHealthMaximumAgeMs,
+      });
+      if (!renewed) return "in_progress";
+      const result = await ctx.runMutation(internal.operationsHealth.upsertSnapshot, {
+        eventId: target.eventId,
+        eventVersion: computed.eventVersion,
+        leaseId,
+        leaseObservedAt: Date.now(),
+        snapshot: computed.snapshot,
+      });
+      return result === "lease_lost" ? "in_progress" : result;
+    } finally {
+      await ctx.runMutation(internal.operationsBackground.release, { leaseId });
+    }
   },
 });
 

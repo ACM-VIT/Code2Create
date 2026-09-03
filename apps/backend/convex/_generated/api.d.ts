@@ -215,6 +215,7 @@ import type * as operationsAutonomyReads from "../operationsAutonomyReads.js";
 import type * as operationsAutonomyRecommendationEvidence from "../operationsAutonomyRecommendationEvidence.js";
 import type * as operationsAutonomyRecommendations from "../operationsAutonomyRecommendations.js";
 import type * as operationsAutonomyScheduler from "../operationsAutonomyScheduler.js";
+import type * as operationsBackground from "../operationsBackground.js";
 import type * as operationsEpisodeActions from "../operationsEpisodeActions.js";
 import type * as operationsEpisodeHttp from "../operationsEpisodeHttp.js";
 import type * as operationsEpisodes from "../operationsEpisodes.js";
@@ -488,6 +489,7 @@ declare const fullApi: ApiFromModules<{
   operationsAutonomyRecommendationEvidence: typeof operationsAutonomyRecommendationEvidence;
   operationsAutonomyRecommendations: typeof operationsAutonomyRecommendations;
   operationsAutonomyScheduler: typeof operationsAutonomyScheduler;
+  operationsBackground: typeof operationsBackground;
   operationsEpisodeActions: typeof operationsEpisodeActions;
   operationsEpisodeHttp: typeof operationsEpisodeHttp;
   operationsEpisodes: typeof operationsEpisodes;

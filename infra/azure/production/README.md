@@ -44,7 +44,10 @@ ID, entity ID, and exact DLT template are approved and configured.
 - application public IP: `20.204.40.131`;
 - Key Vault: `kv-c2c-prod-b88416`;
 - Log Analytics: `log-c2c-production`, with all PostgreSQL diagnostic logs and
-  metrics retained for 30 days;
+  metrics retained for 30 days, plus VM performance, warning-level syslog, and
+  filtered container warning/error records collected by Azure Monitor Agent;
+- VM monitoring: `dce-c2c-production`, `dcr-c2c-production-vm`, managed boot
+  diagnostics, and the `C2CContainerLog_CL` Log Analytics table;
 - PostgreSQL: `pg-c2c-prod-b88416`, PostgreSQL 17, private General Purpose
   `Standard_D8ds_v5`, 128 GiB Premium storage with auto-grow, 35-day backups,
   geo-redundant backup, zone-redundant high availability, and the
@@ -65,6 +68,9 @@ The backend container has a 65,536 soft and hard `nofile` limit. Docker's
 1,024-file default leaves only about 992 descriptors for realtime clients and
 causes a hard connection cliff before the database or VM is saturated. Keep the
 limit in both the production Compose service and the isolated rehearsal runner.
+The backend and Caddy JSON logs rotate at 25 MiB and retain five files per
+container. Keep those limits in Compose so verbose application logs cannot fill
+the VM OS disk.
 
 The Convex backend stores durable database state in PostgreSQL and file/module
 state in these private R2 buckets:
@@ -125,9 +131,13 @@ Command for host maintenance. The Convex dashboard is intentionally absent from
 the production Compose file.
 
 Azure Monitor alerts the technical-director action group when the VM or
-PostgreSQL becomes unavailable, PostgreSQL CPU remains above 80%, or storage
-exceeds 80%. These alerts supplement the application-level release and
-operations-health checks; they do not replace them.
+PostgreSQL becomes unavailable, PostgreSQL CPU remains above 80%, PostgreSQL
+storage exceeds 80%, VM CPU remains above 80%, VM available memory falls below
+15%, VM OS-disk IOPS or bandwidth exceeds 80%, the VM root filesystem exceeds
+80%, containers emit repeated errors, or the VM heartbeat disappears. These
+alerts supplement the application-level release and operations-health checks;
+they do not replace them. Run `configure-observability.sh` after provisioning a
+replacement production VM.
 
 ## DNS and release order
 

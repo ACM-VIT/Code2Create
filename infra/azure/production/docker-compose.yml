@@ -6,6 +6,12 @@ services:
     restart: unless-stopped
     stop_grace_period: 30s
     stop_signal: SIGINT
+    logging:
+      driver: json-file
+      options:
+        max-size: "25m"
+        max-file: "5"
+        compress: "true"
     env_file: ${C2C_RUNTIME_ENV_FILE:-.env}
     ulimits:
       nofile:
@@ -28,6 +34,12 @@ services:
   caddy:
     image: caddy@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "25m"
+        max-file: "5"
+        compress: "true"
     ports:
       - "80:80"
       - "443:443"

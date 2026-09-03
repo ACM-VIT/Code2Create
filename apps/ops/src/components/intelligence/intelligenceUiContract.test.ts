@@ -34,22 +34,22 @@ test("the operations agent is organised by operator intent, with a deep link for
   }
   assert.match(workspaceSource, /<Navigate replace to=\{intelligencePath\} \/>/);
   for (const label of ["Overview", "Ask", "Decisions", "Situations", "Activity"]) {
-    assert.match(workspaceSource, new RegExp(`label: '${label}'`), `missing ${label} tab`);
+    assert.match(workspaceSource, new RegExp(`label: ["']${label}["']`), `missing ${label} tab`);
   }
   assert.match(workspaceSource, /usePendingRecommendations\(canRead\)/);
-  assert.match(workspaceSource, /badge: pending\.count === 0 \? undefined/);
+  assert.match(workspaceSource, /badge:\s+pending\.count === 0 \? undefined/);
   assert.match(workspaceSource, /api\.operationsAutonomy\.status/);
   assert.match(workspaceSource, /autonomyStatusSummary\(autonomy/);
   assert.match(workspaceSource, /<IntelligenceOverview/);
   assert.match(workspaceSource, /<IntelligenceDecisions \/>/);
   assert.match(workspaceSource, /<IntelligenceSituations \/>/);
-  assert.match(workspaceSource, /<IntelligenceActivity autonomy=\{autonomy\}/);
+  assert.match(workspaceSource, /<IntelligenceActivity\s+autonomy=\{autonomy\}/);
   assert.doesNotMatch(workspaceSource, /useState<IntelligenceTab>/);
   assert.doesNotMatch(workspaceSource, /showBrief/);
 });
 
 test("the overview is a dispatch surface: one sentence, then ask, decide, watch, and the brief", () => {
-  assert.match(overviewSource, /It never changes the event on its own\./);
+  assert.match(overviewSource, /It\s+never changes the event on its own\./);
   assertUsesClasses(overviewSource, [
     "attention-section",
     "section-heading",
@@ -66,7 +66,7 @@ test("the overview is a dispatch surface: one sentence, then ask, decide, watch,
   assert.match(briefSource, /id="latest-brief"/);
   assert.match(overviewSource, /to="\/intelligence\/decisions"/);
   assert.match(overviewSource, /to="\/intelligence\/situations"/);
-  assert.match(overviewSource, /navigate\('\/intelligence\/ask', \{ state: \{ prompt \} \}\)/);
+  assert.match(overviewSource, /navigate\(["']\/intelligence\/ask["'], \{ state: \{ prompt \} \}\)/);
   assert.match(overviewSource, /overviewPrompts\.map/);
   assert.match(
     overviewSource,
@@ -92,12 +92,12 @@ test("a question typed on the overview is sent once by the conversation view", (
   assert.match(liveConsoleSource, /Suggested questions/);
   assert.match(
     liveConsoleSource,
-    /onSuggestion=\{onSubmitPrompt === undefined \|\| composerDisabled \? undefined : sendSuggestion\}/,
+    /onSuggestion=\{\s*onSubmitPrompt === undefined \|\| composerDisabled \? undefined : sendSuggestion\s*\}/,
   );
 });
 
 test("intelligence surfaces compose the established operations primitives", () => {
-  assert.match(liveConsoleSource, /from 'streamdown'/);
+  assert.match(liveConsoleSource, /from ["']streamdown["']/);
   assert.match(liveConsoleSource, /<Streamdown/);
   assertUsesClasses(liveConsoleSource, [
     "justify-end",
@@ -195,19 +195,19 @@ test("intelligence keeps the legacy skins removed and ships the chat surface", (
   assert.equal(stylesheet.includes(".ic-"), false, "bespoke ic- chat CSS must stay removed");
   assert.match(
     stylesheet,
-    /\.operations-shell:has\(\.intelligence-workspace\) \{ display: flex; flex-direction: column; \}/,
+    /\.operations-shell:has\(\.intelligence-workspace\) \{\s*display: flex;\s*flex-direction: column;\s*\}/,
   );
 });
 
 test("the reusable trace does not mislabel every agent as the copilot", () => {
-  assert.match(liveConsoleSource, /agentLabel = 'Copilot'/);
+  assert.match(liveConsoleSource, /agentLabel = ["']Copilot["']/);
   assert.match(liveConsoleSource, /\{agentLabel\} said:/);
   assert.doesNotMatch(liveConsoleSource, /<strong>Copilot<\/strong>/);
   assert.match(read("../OperationsBriefStream.tsx"), /agentLabel="Brief agent"/);
   assert.match(autonomyStreamSource, /agentLabel="Autonomous agent"/);
   assert.match(autonomyStreamSource, /autonomyRunTerminalState\(run\.state\)/);
-  assert.match(autonomyStreamSource, /run\.shutdownState === 'pending'/);
-  assert.match(autonomyStreamSource, /run\.shutdownState === 'not_required'/);
+  assert.match(autonomyStreamSource, /run\.shutdownState === ["']pending["']/);
+  assert.match(autonomyStreamSource, /run\.shutdownState === ["']not_required["']/);
   assert.match(autonomyStreamSource, /stop request is still being retried/);
   assert.match(autonomyStreamSource, /never started, so no stop request was needed/);
   assert.match(
@@ -234,7 +234,7 @@ test("an uncertain copilot send presents one idempotent retry state", () => {
     liveConsoleSource,
     /Delivery was interrupted\. Retry this same message; it cannot be sent twice\./,
   );
-  assert.match(liveConsoleSource, /composerPendingConfirmation \? 'Retry same message'/);
+  assert.match(liveConsoleSource, /composerPendingConfirmation\s*\? ["']Retry same message["']/);
   assert.match(liveConsoleSource, /submitFailed && !composerPendingConfirmation/);
   assert.doesNotMatch(liveConsoleSource, /previous send may have committed/i);
 });
@@ -251,7 +251,7 @@ test("Ask keeps operator-scoped command approval inline with explicit recovery a
   assert.match(recommendationPresentationSource, /command\.expectedEventVersion/);
   assert.match(recommendationPresentationSource, /command\.expectedBasePolicyId/);
   assert.match(liveConsoleSource, /className="pt-3 pb-2"/);
-  assert.match(liveConsoleSource, /'shrink-0 px-4 pt-2 pb-8'/);
+  assert.match(liveConsoleSource, /["']shrink-0 px-4 pt-2 pb-8["']/);
   assert.doesNotMatch(commandTraySource, /style=\{/);
 });
 
@@ -260,7 +260,7 @@ test("the setup surface configures effect-bounded autonomy, not cognitive quotas
   assert.match(policySource, /api\.operationsAutonomyPolicyConfiguration/);
   assert.match(policyFieldsSource, /Authority boundary/);
   assert.match(policyFieldsSource, /investigate as deeply as needed/);
-  assert.match(policyFieldsSource, /cannot change access, identity, participant/);
+  assert.match(policyFieldsSource, /cannot\s+change access, identity, participant/);
   assert.doesNotMatch(completePolicySource, /label="Model calls"/);
   assert.doesNotMatch(
     completePolicySource,

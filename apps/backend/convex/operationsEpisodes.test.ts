@@ -81,15 +81,30 @@ async function insertEvent(backend: BackendTest, slug: string) {
   });
 }
 
+async function claimHealthRefreshLease(backend: BackendTest) {
+  const leaseId = crypto.randomUUID();
+  const claimed = await backend.mutation(internal.operationsBackground.claim, {
+    holder: "health_refresh",
+    leaseId,
+    now: 0,
+    leaseDurationMs: 8_000_000_000_000_000,
+  });
+  if (!claimed) throw new Error("The health-refresh test lease could not be claimed.");
+  return leaseId;
+}
+
 describe("operations intelligence episodes", () => {
   test("correlates related facts into one durable episode and resolves after three clear passes", async () => {
     const backend = episodeBackend();
+    const leaseId = await claimHealthRefreshLease(backend);
     const slug = `episode-${crypto.randomUUID()}`;
     const eventId = await insertEvent(backend, slug);
 
     await backend.mutation(internal.operationsHealth.upsertSnapshot, {
       eventId,
       eventVersion: 1,
+      leaseId,
+      leaseObservedAt: 0,
       snapshot: snapshot(slug, 1_000_000, true),
     });
     let episodes = await backend.run((ctx) =>
@@ -132,6 +147,8 @@ describe("operations intelligence episodes", () => {
     await backend.mutation(internal.operationsHealth.upsertSnapshot, {
       eventId,
       eventVersion: 1,
+      leaseId,
+      leaseObservedAt: 0,
       snapshot: snapshot(slug, 1_000_030, true),
     });
     episodes = await backend.run((ctx) =>
@@ -151,6 +168,8 @@ describe("operations intelligence episodes", () => {
       await backend.mutation(internal.operationsHealth.upsertSnapshot, {
         eventId,
         eventVersion: 1,
+        leaseId,
+        leaseObservedAt: 0,
         snapshot: snapshot(slug, generatedAt, false),
       });
     }
@@ -171,11 +190,14 @@ describe("operations intelligence episodes", () => {
 
   test("recovers only the exact accepted episode submission without overlapping dispatches", async () => {
     const backend = episodeBackend();
+    const leaseId = await claimHealthRefreshLease(backend);
     const slug = `episode-recovery-${crypto.randomUUID()}`;
     const eventId = await insertEvent(backend, slug);
     await backend.mutation(internal.operationsHealth.upsertSnapshot, {
       eventId,
       eventVersion: 1,
+      leaseId,
+      leaseObservedAt: 0,
       snapshot: snapshot(slug, 2_000_000, true),
     });
     const episode = await backend.run((ctx) =>
@@ -244,11 +266,14 @@ describe("operations intelligence episodes", () => {
 
   test("enforces episode evidence, causal stance, language, and forecast horizons on callback", async () => {
     const backend = episodeBackend();
+    const leaseId = await claimHealthRefreshLease(backend);
     const slug = `episode-policy-${crypto.randomUUID()}`;
     const eventId = await insertEvent(backend, slug);
     await backend.mutation(internal.operationsHealth.upsertSnapshot, {
       eventId,
       eventVersion: 1,
+      leaseId,
+      leaseObservedAt: 0,
       snapshot: snapshot(slug, 3_000_000, true),
     });
     const episode = await backend.run((ctx) =>
