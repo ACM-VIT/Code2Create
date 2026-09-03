@@ -66,6 +66,7 @@ export function DashboardLive({
   const music = useQuery(api.synesthesiaParticipant.state, { eventSlug })
   const voteCounts = useQuery(api.synesthesiaParticipant.voteCounts, { eventSlug })
   const searchYouTube = useAction(api.synesthesiaYouTube.search)
+  const listAvailableRepositories = useAction(api.githubActions.listAvailableRepositories)
   const requestVideo = useAction(api.synesthesiaYouTube.requestVideo)
   const addVote = useMutation(api.synesthesiaParticipant.vote)
   const removeVote = useMutation(api.synesthesiaParticipant.removeVote)
@@ -146,17 +147,58 @@ export function DashboardLive({
     },
   }
 
-  const repositoryCount = github?.repositories.length ?? 0
+  const connectedRepositories = (github?.repositories ?? [])
+    .filter((repository) => repository.state === 'active')
+    .map((repository) => ({
+      id: repository.id,
+      fullName: repository.fullName,
+      url: repository.url,
+    }))
+  const connectedRepositoryIds = new Set(
+    (github?.repositories ?? []).map((repository) => repository.repositoryId),
+  )
+  const activeGithubConnection = github?.connections.find(
+    (connection) => connection.state === 'active',
+  )
   const fileCount = figma?.summary?.fileCount ?? 0
   const integrationsModel: IntegrationsTileModel = {
     available: integrationsAllowed,
     github: {
-      connected: github?.connections.some((connection) => connection.state === 'active') ?? false,
-      detail: repositoryCount === 0 ? 'Link your repositories' : repositoryCount === 1 ? '1 repository' : `${repositoryCount} repositories`,
+      connected: activeGithubConnection !== undefined,
+      detail:
+        connectedRepositories.length === 0
+          ? 'Link your repositories'
+          : connectedRepositories.length === 1
+            ? '1 repository'
+            : `${connectedRepositories.length} repositories`,
+      repositories: connectedRepositories,
+      ...(activeGithubConnection
+        ? {
+            listRepositories: async () => {
+              const result = await listAvailableRepositories({
+                eventSlug,
+                connectionId: activeGithubConnection.id,
+                page: 1,
+              })
+              return result.repositories
+                .filter((repository) => !connectedRepositoryIds.has(repository.repositoryId))
+                .map((repository) => ({
+                  id: repository.repositoryId,
+                  fullName: repository.fullName,
+                  url: repository.url,
+                }))
+            },
+          }
+        : {}),
     },
     figma: {
       connected: (figma?.connections.length ?? 0) > 0,
-      detail: fileCount === 0 ? 'Link your design files' : fileCount === 1 ? '1 file' : `${fileCount} files`,
+      detail:
+        fileCount === 0
+          ? 'Link your design files'
+          : fileCount === 1
+            ? '1 file'
+            : `${fileCount} files`,
     },
     open: () => void navigate('/integrations', { viewTransition: true }),
   }

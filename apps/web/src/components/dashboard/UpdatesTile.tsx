@@ -71,7 +71,7 @@ export function UpdatesTile({ slot, model }: {
               : "Team updates open once your place is confirmed."}
           </p>
         ) : open ? (
-          <Reveal key="list" className="flex min-h-0 flex-col overflow-y-auto [scrollbar-width:thin]">
+          <Reveal key="list" className="flex min-h-0 flex-col">
             {checkpoints.map((checkpoint) => (
               <div
                 key={checkpoint.key}

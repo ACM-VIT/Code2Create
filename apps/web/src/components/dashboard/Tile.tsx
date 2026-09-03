@@ -1,4 +1,12 @@
-import { type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  type CSSProperties,
+  type KeyboardEvent,
+  type MouseEvent,
+  type ReactNode,
+  type UIEvent,
+} from "react";
 
 import { slotAreaClass, type Slot } from "./dashboardLayout";
 
@@ -26,6 +34,20 @@ export function Tile({
   className?: string;
   children: ReactNode;
 }) {
+  const scrollingTimer = useRef<number | null>(null);
+  useEffect(() => () => {
+    if (scrollingTimer.current !== null) window.clearTimeout(scrollingTimer.current);
+  }, []);
+  const onScroll = (event: UIEvent<HTMLDivElement>) => {
+    const container = event.currentTarget;
+    container.dataset.scrolling = "true";
+    if (scrollingTimer.current !== null) window.clearTimeout(scrollingTimer.current);
+    scrollingTimer.current = window.setTimeout(() => {
+      delete container.dataset.scrolling;
+      scrollingTimer.current = null;
+    }, 650);
+  };
+
   const tappable = !expanded;
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (!tappable || event.target !== event.currentTarget) return;
@@ -54,7 +76,12 @@ export function Tile({
         : { "aria-expanded": true })}
     >
       {backdrop}
-      <div className="relative flex min-h-0 flex-1 flex-col [container-type:size]">{children}</div>
+      <div
+        onScroll={onScroll}
+        className="dashboard-tile-scroll relative flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto [container-type:size]"
+      >
+        {children}
+      </div>
       {expanded && onRelease ? (
         <button
           type="button"

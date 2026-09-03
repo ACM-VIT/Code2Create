@@ -632,7 +632,63 @@ const dashboardMusic: MusicTileModel = {
 
 const dashboardIntegrations: IntegrationsTileModel = {
   available: true,
-  github: { connected: true, detail: "2 repositories" },
+  github: {
+    connected: true,
+    detail: "1 repository",
+    repositories: [
+      {
+        id: "github-repository-code2create",
+        fullName: "ACM-VIT/Code2Create",
+        url: "https://github.com/ACM-VIT/Code2Create",
+      },
+    ],
+    listRepositories: async () => {
+      await wait(250);
+      return [
+        {
+          id: "github-repository-code2create",
+          fullName: "ACM-VIT/Code2Create",
+          url: "https://github.com/ACM-VIT/Code2Create",
+        },
+        {
+          id: "github-repository-landing",
+          fullName: "ACM-VIT/landing-page",
+          url: "https://github.com/ACM-VIT/landing-page",
+        },
+      ];
+    },
+  },
+  figma: { connected: false, detail: "Link your design files" },
+  open: noop,
+};
+
+const dashboardIntegrationsEmpty: IntegrationsTileModel = {
+  available: true,
+  github: {
+    connected: true,
+    detail: "Link your repositories",
+    repositories: [],
+    listRepositories: async () => {
+      await wait(250);
+      return [
+        {
+          id: "github-repository-code2create",
+          fullName: "ACM-VIT/Code2Create",
+          url: "https://github.com/ACM-VIT/Code2Create",
+        },
+        {
+          id: "github-repository-landing",
+          fullName: "ACM-VIT/landing-page",
+          url: "https://github.com/ACM-VIT/landing-page",
+        },
+        {
+          id: "github-repository-workshops",
+          fullName: "ACM-VIT/workshops",
+          url: "https://github.com/ACM-VIT/workshops",
+        },
+      ];
+    },
+  },
   figma: { connected: false, detail: "Link your design files" },
   open: noop,
 };
@@ -717,7 +773,7 @@ function DashboardFixture({ variant = "build" }: { variant?: DashboardVariant })
       onSignOut={noop}
       event={{ ...dashboardEvent, now }}
       music={variant === "build" ? dashboardMusic : variant === "review" ? reviewMusic : quietMusic}
-      integrations={dashboardIntegrations}
+      integrations={variant === "quiet" ? dashboardIntegrationsEmpty : dashboardIntegrations}
       updates={variant === "quiet" ? { ...dashboardUpdates, checkpoints: dashboardUpdates.checkpoints.map((c) => ({ ...c, state: c.key === "ideation" ? "upcoming" : c.state })) } : dashboardUpdates}
       review={variant === "review" ? dashboardReview : variant === "quiet" ? quietReview : queuedReview}
       help={dashboardHelp}

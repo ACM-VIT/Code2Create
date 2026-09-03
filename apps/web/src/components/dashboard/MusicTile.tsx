@@ -432,7 +432,7 @@ function OpenMusic({ model }: { model: MusicTileModel }) {
             </form>
           ) : null}
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-3 [scrollbar-width:thin]">
+          <div className="min-h-0 flex-1 px-5 pb-3">
             {panel === "search" ? (
               searchFailure ? (
                 <p className="m-0 text-[13px] text-rose-light">{searchFailure}</p>

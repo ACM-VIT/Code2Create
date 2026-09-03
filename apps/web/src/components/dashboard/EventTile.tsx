@@ -48,7 +48,7 @@ export function EventTile({ slot, model }: {
           ) : null}
         </div>
         {open ? (
-          <Reveal key="schedule" className="flex min-h-0 flex-col overflow-y-auto [scrollbar-width:thin]">
+          <Reveal key="schedule" className="flex min-h-0 flex-col">
             {phases.map((phase) => {
               const running = phase === current;
               const past = phase.endsAt <= now;
