@@ -21,6 +21,7 @@ export type ReviewAssignmentCounts = FunctionReturnType<
 export type ReviewerWorkload = FunctionReturnType<typeof api.admissions.reviewerWorkload>[number];
 export type RosterCohortMember = { participantClass: ParticipantClass; yearOfStudy: StudyYear };
 export type ReviewStatusTone = "done" | "waiting" | "unassigned";
+export type AiStateTagTone = "accept" | "waitlist" | "decline" | "neutral";
 export type AssignmentOutcome = { teamName: string; ok: boolean; message?: string };
 
 export const applicationStageOrder: readonly ApplicationState[] = [
@@ -166,12 +167,23 @@ export function reviewStatus(application: {
   return { text: `${reviews} · nobody assigned`, tone: "unassigned" };
 }
 
-export function aiStateTag(state: AdmissionRecommendationState | undefined): string | null {
+export function aiStateTag(
+  state: AdmissionRecommendationState | undefined,
+  recommendation?: ApplicationDecision,
+): { text: string; tone: AiStateTagTone } | null {
   if (state === undefined || state === "disabled") return null;
-  if (state === "pending" || state === "running") return "AI preparing";
-  if (state === "succeeded") return "AI ready";
-  if (state === "stale") return "AI out of date";
-  return "AI unavailable";
+  if (state === "pending" || state === "running") {
+    return { text: "Idea agent · Preparing", tone: "neutral" };
+  }
+  if (state === "succeeded" && recommendation !== undefined) {
+    return {
+      text: `Idea agent · ${applicationDecisionLabels[recommendation]}`,
+      tone: recommendation,
+    };
+  }
+  if (state === "succeeded") return { text: "Idea agent · Ready", tone: "neutral" };
+  if (state === "stale") return { text: "Idea agent · Out of date", tone: "neutral" };
+  return { text: "Idea agent · Unavailable", tone: "neutral" };
 }
 
 export function ownReviewLine(assignment: { ownRecommendation?: ApplicationDecision }): {

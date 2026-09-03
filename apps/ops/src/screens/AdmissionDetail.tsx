@@ -405,7 +405,7 @@ function AiRecommendation({
         </span>
       </div>
       {recommendation.recommendation ? (
-        <p className="recommendation-line">
+        <p className={`recommendation-line ${recommendation.recommendation}`}>
           {applicationDecisionLabels[recommendation.recommendation]}
         </p>
       ) : null}

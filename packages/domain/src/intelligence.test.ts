@@ -204,12 +204,25 @@ test("the copilot release uses one generalized command protocol without per-requ
 test("the idea agent may iterate until it publishes a valid assessment", () => {
   const ideaAgent = intelligenceAgentDefinition("idea-submission");
   const systemPrompt = ideaAgent.prompts.find((prompt) => prompt.name === "System prompt")?.text;
+  const analysisPrompt = ideaAgent.prompts.find(
+    (prompt) => prompt.name === "Structured analysis prompt",
+  )?.text;
 
-  if (systemPrompt === undefined || systemPrompt.length === 0) {
-    throw new Error("The idea agent needs a system prompt.");
+  if (
+    systemPrompt === undefined ||
+    systemPrompt.length === 0 ||
+    analysisPrompt === undefined ||
+    analysisPrompt.length === 0
+  ) {
+    throw new Error("The idea agent needs system and analysis prompts.");
   }
   assert.match(systemPrompt, /as many reasoning and tool turns as needed/u);
   assert.match(systemPrompt, /correct it and retry/u);
   assert.doesNotMatch(systemPrompt, /exactly once|at most \d+ .*calls?/u);
+  assert.match(analysisPrompt, /Use search_public_web with focused concept terms/u);
+  assert.match(analysisPrompt, /Never classify, estimate, imply, or mention whether text was written by AI/u);
+  assert.match(analysisPrompt, /grade such evidence lower because it is underspecified/u);
+  assert.match(analysisPrompt, /do not penalize a simple or familiar idea/u);
+  assert.ok(ideaAgent.tools.includes("search_public_web"));
   assert.ok(ideaAgent.tools.includes("publish_idea_analysis"));
 });

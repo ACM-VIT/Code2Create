@@ -1990,8 +1990,16 @@ textarea {
 }
 .recommendation-line {
   margin: 24px 0 0;
-  color: var(--accent);
   font-size: 1.6rem;
+}
+.recommendation-line.accept {
+  color: var(--accent);
+}
+.recommendation-line.waitlist {
+  color: var(--warn);
+}
+.recommendation-line.decline {
+  color: var(--danger);
 }
 .compact-criteria {
   margin-top: 18px;
@@ -9214,6 +9222,18 @@ textarea:focus {
   font-size: 0.6875rem;
   background: var(--hover);
   border-radius: var(--radius-control);
+}
+.admission-tag.accept {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.admission-tag.waitlist {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+}
+.admission-tag.decline {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
 }
 .admission-assign-bar {
   display: grid;
