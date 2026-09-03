@@ -34,11 +34,11 @@ interface SponsorSpec {
   duration: number;
   x: number;
   y: number;
-  logoY: number;
+  logoBottom: number;
   from: number;
   core: Color;
   ember: Color;
-  phone: { x: number; y: number; logoY: number; from: number };
+  phone: { x: number; y: number; logoBottom: number; from: number };
 }
 
 const SPONSORS: readonly SponsorSpec[] = [
@@ -52,11 +52,11 @@ const SPONSORS: readonly SponsorSpec[] = [
     duration: 10,
     x: 24,
     y: 29,
-    logoY: 14,
+    logoBottom: 34,
     from: 35,
     core: [236, 186, 255],
     ember: [176, 112, 250],
-    phone: { x: 50, y: 23, logoY: 14, from: 20 },
+    phone: { x: 50, y: 23, logoBottom: 27, from: 20 },
   },
   {
     name: "ElevenLabs",
@@ -68,11 +68,11 @@ const SPONSORS: readonly SponsorSpec[] = [
     duration: 8,
     x: 76,
     y: 31,
-    logoY: 29,
+    logoBottom: 35,
     from: 85,
     core: [255, 255, 255],
     ember: [148, 196, 255],
-    phone: { x: 50, y: 40, logoY: 40, from: 82 },
+    phone: { x: 50, y: 40, logoBottom: 44, from: 82 },
   },
   {
     name: "Tin Computer",
@@ -84,11 +84,11 @@ const SPONSORS: readonly SponsorSpec[] = [
     duration: 3.6,
     x: 10,
     y: 64,
-    logoY: 58,
+    logoBottom: 69.5,
     from: 15,
     core: [255, 236, 198],
     ember: [255, 166, 89],
-    phone: { x: 18, y: 58, logoY: 53, from: 10 },
+    phone: { x: 18, y: 58, logoBottom: 61, from: 10 },
   },
   {
     name: "ProtoFlow",
@@ -100,11 +100,11 @@ const SPONSORS: readonly SponsorSpec[] = [
     duration: 3.6,
     x: 30,
     y: 64,
-    logoY: 58,
+    logoBottom: 69.5,
     from: 36,
     core: [205, 239, 255],
     ember: [92, 186, 255],
-    phone: { x: 50, y: 58, logoY: 53, from: 43 },
+    phone: { x: 50, y: 58, logoBottom: 61, from: 43 },
   },
   {
     name: "CodeCrafters",
@@ -116,11 +116,11 @@ const SPONSORS: readonly SponsorSpec[] = [
     duration: 3.6,
     x: 50,
     y: 64,
-    logoY: 58,
+    logoBottom: 69.5,
     from: 56,
     core: [239, 232, 255],
     ember: [188, 144, 255],
-    phone: { x: 82, y: 58, logoY: 53, from: 90 },
+    phone: { x: 82, y: 58, logoBottom: 61, from: 90 },
   },
   {
     name: "n8n",
@@ -132,11 +132,11 @@ const SPONSORS: readonly SponsorSpec[] = [
     duration: 3.6,
     x: 70,
     y: 64,
-    logoY: 58,
+    logoBottom: 69.5,
     from: 64,
     core: [255, 190, 207],
     ember: [234, 75, 113],
-    phone: { x: 30, y: 73, logoY: 69, from: 22 },
+    phone: { x: 30, y: 73, logoBottom: 76, from: 22 },
   },
   {
     name: "DevSwarm",
@@ -148,11 +148,11 @@ const SPONSORS: readonly SponsorSpec[] = [
     duration: 3.6,
     x: 90,
     y: 64,
-    logoY: 58,
+    logoBottom: 69.5,
     from: 85,
     core: [225, 216, 255],
     ember: [105, 74, 255],
-    phone: { x: 70, y: 73, logoY: 69, from: 78 },
+    phone: { x: 70, y: 73, logoBottom: 76, from: 78 },
   },
 ];
 
@@ -242,8 +242,11 @@ const gravityOffset = (height: number, progress: number) => {
 };
 const channels = (color: Color) => `${color[0]}, ${color[1]}, ${color[2]}`;
 
-const sponsorAt = (index: number, phone: boolean) =>
-  phone ? { ...SPONSORS[index], ...SPONSORS[index].phone } : SPONSORS[index];
+const usesStackedLayout = (width: number, height: number) =>
+  width <= 760 || height > width * 1.15;
+
+const sponsorAt = (index: number, stacked: boolean) =>
+  stacked ? { ...SPONSORS[index], ...SPONSORS[index].phone } : SPONSORS[index];
 
 interface TextPoint {
   x: number;
@@ -365,16 +368,17 @@ const Fireworks = forwardRef<FireworksHandle, Record<never, never>>(
     const canvasHeight = useRef(0);
     const renderer = useRef<{ request(): void } | null>(null);
 
-    const [narrow, setNarrow] = useState(
-      () => typeof window !== "undefined" && window.matchMedia("(max-width: 760px)").matches,
+    const [stacked, setStacked] = useState(
+      () =>
+        typeof window !== "undefined" &&
+        usesStackedLayout(window.innerWidth, window.innerHeight),
     );
 
     useEffect(() => {
-      const query = window.matchMedia("(max-width: 760px)");
-      const sync = () => setNarrow(query.matches);
+      const sync = () => setStacked(usesStackedLayout(window.innerWidth, window.innerHeight));
       sync();
-      query.addEventListener("change", sync);
-      return () => query.removeEventListener("change", sync);
+      window.addEventListener("resize", sync);
+      return () => window.removeEventListener("resize", sync);
     }, []);
 
     const setLogoProgress = (index: number, progress: number, falling: number) => {
@@ -389,6 +393,7 @@ const Fireworks = forwardRef<FireworksHandle, Record<never, never>>(
         autoAlpha: reveal * exitFade,
         scale: 0.9 + reveal * 0.1,
         xPercent: -50,
+        yPercent: -100,
         y: (1 - reveal) * 12 + gravityOffset(canvasHeight.current, falling),
       });
     };
@@ -439,12 +444,12 @@ const Fireworks = forwardRef<FireworksHandle, Record<never, never>>(
       let renderQueued = false;
 
       const prepareSponsor = (sponsorIndex: number): PreparedSponsor => {
-        const phone = width < 760;
-        const spec = sponsorAt(sponsorIndex, phone);
+        const useStackedLayout = usesStackedLayout(width, height);
+        const spec = sponsorAt(sponsorIndex, useStackedLayout);
         const tier = FIREWORK_TIERS[spec.tier];
-        const dimensions = phone ? tier.phone : tier.desktop;
+        const dimensions = useStackedLayout ? tier.phone : tier.desktop;
         const sample = textSamples[sponsorIndex];
-        const powerScale = phone ? 0.72 : lowPower ? 0.78 : 1;
+        const powerScale = useStackedLayout ? 0.72 : lowPower ? 0.78 : 1;
         const budget = Math.round(tier.budget * powerScale);
         const points = pickEvenly(sample.points, budget);
         const sourceWidth = Math.max(1, sample.maxX - sample.minX);
@@ -815,10 +820,10 @@ const Fireworks = forwardRef<FireworksHandle, Record<never, never>>(
         <canvas ref={canvasRef} className="fireworks" aria-hidden="true" />
         <h2 className="sponsors__title">Our Sponsors</h2>
         {SPONSORS.map((base, index) => {
-          const spec = sponsorAt(index, narrow);
+          const spec = sponsorAt(index, stacked);
           const style = {
             left: `${spec.x}%`,
-            top: `${spec.logoY}%`,
+            top: `${spec.logoBottom}%`,
           };
           return (
             <a
