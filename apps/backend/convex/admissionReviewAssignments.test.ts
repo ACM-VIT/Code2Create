@@ -177,7 +177,7 @@ describe("admission review assignments", () => {
         expectedApplicationContentVersion: 1,
         reviewerPersonId: fixture.reviewerPersonId,
         recommendation: "accept",
-        reasonCode: "clear_intent",
+        reasonCode: "The scope is clear and achievable for this team.",
         note: "The intent is clear.",
         now: fixture.now + 1,
       });
@@ -190,7 +190,7 @@ describe("admission review assignments", () => {
         expectedApplicationContentVersion: 1,
         reviewerPersonId: fixture.reviewerPersonId,
         recommendation: "waitlist",
-        reasonCode: "clear_intent",
+        reasonCode: "The direction is promising, but one implementation detail remains.",
         note: "The intent is clear, but one detail remains.",
         now: fixture.now + 2,
       });
@@ -219,11 +219,13 @@ describe("admission review assignments", () => {
         .collect(),
     );
     expect(reviews).toHaveLength(2);
-    expect(reviews.find((review) => review._id === firstReview.reviewId)?.status).toBe(
-      "superseded",
-    );
+    expect(reviews.find((review) => review._id === firstReview.reviewId)).toMatchObject({
+      status: "superseded",
+      reasonCode: "The scope is clear and achievable for this team.",
+    });
     expect(reviews.find((review) => review.status === "active")).toMatchObject({
       recommendation: "waitlist",
+      reasonCode: "The direction is promising, but one implementation detail remains.",
       applicationContentVersion: 1,
     });
   });
@@ -343,7 +345,7 @@ async function saveFixtureReview(
       expectedApplicationContentVersion: 1,
       reviewerPersonId,
       recommendation,
-      reasonCode: "clear_intent",
+      reasonCode: "The proposal has a coherent direction.",
       now: fixture.now + 1,
     });
   });
