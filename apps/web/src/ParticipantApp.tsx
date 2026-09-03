@@ -224,6 +224,7 @@ export function ParticipantApp({
         profileSeed={me.membership.id}
         canWriteProfile={canWriteProfile}
         onSignOut={signOut}
+        verificationOnly={me.profile?.requiresPhoneVerification === true}
       />
     );
   }

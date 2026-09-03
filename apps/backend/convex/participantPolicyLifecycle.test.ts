@@ -9,10 +9,12 @@ import {
 import {
   defaultParticipantPolicy,
   isProfileCompleteForPolicy,
+  isProfileDetailsCompleteForPolicy,
   isParticipantReadyForPolicy,
   normalizeParticipantPolicy,
   participantClassesMeetPolicy,
   participantPolicyChecksum,
+  participantPolicyAccepted,
   publishParticipantPolicy,
   saveParticipantPolicyDraft,
   type ParticipantPolicy,
@@ -155,6 +157,49 @@ describe("participant policy lifecycle", () => {
       if (!dayScholar) throw new Error("The day-scholar profile is missing.");
       expect(isProfileCompleteForPolicy(dayScholar, membership, policy)).toBe(true);
     });
+  });
+
+  test("enabling phone verification preserves accepted policy and saved details", async () => {
+    const backend = convexTest(schema, modules);
+    const fixture = await seedFixture(backend, "phone-verification-toggle");
+    await backend.run(async (ctx) => {
+      await ctx.db.patch(fixture.profileId, {
+        phoneVerificationId: undefined,
+        phoneVerifiedAt: undefined,
+      });
+    });
+    const draft = await backend.run((ctx) =>
+      saveParticipantPolicyDraft(ctx, {
+        event: fixture.event,
+        actorPersonId: fixture.personId,
+        policy: {
+          ...policy("Phone verification", 4),
+          phoneVerificationEnabled: true,
+        },
+        now: fixture.now + 1,
+      }),
+    );
+    await backend.run((ctx) =>
+      publishParticipantPolicy(ctx, {
+        event: fixture.event,
+        draftPolicyId: draft.policyVersionId,
+        expectedDraftChecksum: draft.checksum,
+        now: fixture.now + 2,
+      }),
+    );
+
+    const state = await backend.run(async (ctx) => {
+      const membership = await ctx.db.get(fixture.membershipId);
+      const profile = await ctx.db.get(fixture.profileId);
+      const published = await ctx.db.get(draft.policyVersionId);
+      if (!membership || !published) throw new Error("The phone policy fixture is missing.");
+      return {
+        accepted: await participantPolicyAccepted(ctx, membership, published),
+        detailsComplete: isProfileDetailsCompleteForPolicy(profile, membership, published),
+        complete: isProfileCompleteForPolicy(profile, membership, published),
+      };
+    });
+    expect(state).toEqual({ accepted: true, detailsComplete: true, complete: false });
   });
 
   test("allows one competing draft from the same observed state", async () => {

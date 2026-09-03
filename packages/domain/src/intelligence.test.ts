@@ -17,6 +17,8 @@ import {
 import { intelligenceAgentDefinition } from "./intelligenceAgents.ts";
 import {
   ideaIntelligenceAnalysisPolicyViolation,
+  ideaIntelligenceRecoveryLeaseMs,
+  ideaIntelligenceSubmissionTimeoutMs,
   type IdeaIntelligenceAnalysis,
 } from "./ideaIntelligence.ts";
 
@@ -231,4 +233,9 @@ test("the idea agent may iterate until it publishes a valid assessment", () => {
   assert.match(analysisPrompt, /do not penalize a simple or familiar idea/u);
   assert.ok(ideaAgent.tools.includes("search_public_web"));
   assert.ok(ideaAgent.tools.includes("publish_idea_analysis"));
+});
+
+test("idea analysis recovery cannot overlap a live durable submission", () => {
+  assert.equal(ideaIntelligenceSubmissionTimeoutMs, 60 * 60 * 1_000);
+  assert.ok(ideaIntelligenceRecoveryLeaseMs > ideaIntelligenceSubmissionTimeoutMs);
 });
