@@ -10,6 +10,7 @@ import { EditingPresence } from "../components/EditingPresence";
 import { useEditingPresence } from "../hooks/useEditingPresence";
 import { eventSlug } from "../lib/config";
 import { readableError } from "../lib/errors";
+import { initialIdeaMaximumLength } from "../lib/ideaSubmission";
 import { useMutationAttempt } from "../lib/operations";
 import { PortalScene } from "../components/portal/PortalScene";
 import { PetalCard } from "../components/portal/PetalCard";
@@ -760,6 +761,7 @@ function ProposalSummary({
   };
 
   const ideaLength = draft.initialIdea.trim().length;
+  const ideaMaximumLength = initialIdeaMaximumLength(intake.editRules.initialIdeaMaxLength);
   const invalidResponse = draft.responses.some(
     (response) =>
       response.answer.trim().length < intake.editRules.followUpAnswerMinLength ||
@@ -767,7 +769,7 @@ function ProposalSummary({
   );
   const invalidIdea =
     ideaLength < intake.editRules.initialIdeaMinLength ||
-    ideaLength > intake.editRules.initialIdeaMaxLength;
+    draft.initialIdea.length > ideaMaximumLength;
   const invalidAdditionalInformation =
     draft.additionalInformation.trim().length > intake.editRules.additionalInformationMaxLength;
   const hasLocalChanges =
@@ -889,7 +891,7 @@ function ProposalSummary({
                     required
                     rows={5}
                     minLength={intake.editRules.initialIdeaMinLength}
-                    maxLength={intake.editRules.initialIdeaMaxLength}
+                    maxLength={ideaMaximumLength}
                     value={draft.initialIdea}
                     disabled={locked}
                     onChange={(event) => {
@@ -899,6 +901,14 @@ function ProposalSummary({
                       markEditing("proposal_revision");
                     }}
                   />
+                  <p className="mt-1 text-right font-mono text-[11px] tracking-[.04em] text-fg/45">
+                    {draft.initialIdea.length} / {ideaMaximumLength}
+                  </p>
+                  {draft.initialIdea.length > ideaMaximumLength ? (
+                    <PortalError
+                      message={`Keep the idea within ${ideaMaximumLength} characters.`}
+                    />
+                  ) : null}
                 </>
               ) : (
                 <>

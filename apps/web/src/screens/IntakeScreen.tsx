@@ -46,6 +46,7 @@ import {
 } from "../lib/submissionCelebration";
 import { eventSlug } from "../lib/config";
 import { readableError } from "../lib/errors";
+import { initialIdeaMaximumLength } from "../lib/ideaSubmission";
 import {
   firstReviewQuestionAfterIdeaSave,
   isIntakeCollaborationConflict,
@@ -773,8 +774,9 @@ function IntakeWorkspace({
     if (draft?.stage === "review") void import("./SubmittedScreen");
   }, [draft?.stage]);
 
-  const ideaMaximumLength =
-    draft?.intakePolicy.initialIdeaMaxLength ?? opening?.initialIdeaMaxLength ?? 0;
+  const ideaMaximumLength = initialIdeaMaximumLength(
+    draft?.intakePolicy.initialIdeaMaxLength ?? opening?.initialIdeaMaxLength ?? 0,
+  );
   const { retry: retryIdeaAutosave, state: ideaAutosaveState } = useDebouncedAutosave({
     enabled:
       applicationsOpen &&
@@ -1077,6 +1079,10 @@ function IntakeWorkspace({
 
   const submitIdea = (event: SubmitEvent) => {
     event.preventDefault();
+    if (idea.length > ideaMaximumLength) {
+      setError(`Keep the idea within ${ideaMaximumLength} characters.`);
+      return;
+    }
     const submittedDraftVersion = ideaBase.current.version;
     pendingIdeaBaseVersion.current = submittedDraftVersion;
     void run(async () => {
@@ -1326,8 +1332,7 @@ function IntakeWorkspace({
     }
     const initialIdeaMinLength =
       draft?.intakePolicy.initialIdeaMinLength ?? opening.initialIdeaMinLength;
-    const initialIdeaMaxLength =
-      draft?.intakePolicy.initialIdeaMaxLength ?? opening.initialIdeaMaxLength;
+    const initialIdeaMaxLength = ideaMaximumLength;
     return (
       <IntakeStage
         team={team}
@@ -1409,7 +1414,13 @@ function IntakeWorkspace({
                   {idea.length} / {initialIdeaMaxLength}
                 </span>
               </div>
-              <PortalError message={error} />
+              <PortalError
+                message={
+                  idea.length > initialIdeaMaxLength
+                    ? `Keep the idea within ${initialIdeaMaxLength} characters.`
+                    : error
+                }
+              />
               <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-petal-line pt-3.5">
                 <NoveltyPill
                   state={noveltyState}
@@ -1425,7 +1436,12 @@ function IntakeWorkspace({
                   <PortalButton
                     type="submit"
                     size="sm"
-                    disabled={busy || ideaConflict || idea.trim().length < initialIdeaMinLength}
+                    disabled={
+                      busy ||
+                      ideaConflict ||
+                      idea.trim().length < initialIdeaMinLength ||
+                      idea.length > initialIdeaMaxLength
+                    }
                   >
                     {busy ? "Saving…" : "Next"}
                   </PortalButton>
