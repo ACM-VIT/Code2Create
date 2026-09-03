@@ -1,7 +1,6 @@
 import {
   useEffect,
   useRef,
-  type CSSProperties,
   type KeyboardEvent,
   type MouseEvent,
   type ReactNode,
