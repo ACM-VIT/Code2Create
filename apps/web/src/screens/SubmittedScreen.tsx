@@ -2,7 +2,7 @@ import { api } from "@code2create/backend/api";
 import type { FunctionReturnType } from "convex/server";
 import { useMutation, useQuery } from "convex/react";
 import { useEffect, useRef, useState, type SubmitEvent } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 import type { CurrentTeam, CurrentTeamMember, PublicState, SubmittedIntake } from "../types";
 import { DelayedBonsai } from "../components/portal/DelayedBonsai";
@@ -35,7 +35,11 @@ import {
   sessionDraftConflicts,
   writeVersionedSessionDraft,
 } from "../lib/sessionDraft";
-import { proposalRevisionBase, proposalRevisionBaseFingerprint } from "../lib/proposalRevision";
+import {
+  proposalRevisionBase,
+  proposalRevisionBaseFingerprint,
+  proposalRevisionRegeneratesQuestions,
+} from "../lib/proposalRevision";
 
 type ParticipantDelivery = FunctionReturnType<typeof api.participantNotifications.mine>;
 type ParticipantDeliveryState = NonNullable<ParticipantDelivery>["state"];
@@ -676,9 +680,13 @@ function ProposalSummary({
   intake: SubmittedIntake;
   members: CurrentTeamMember[];
 }) {
+  const navigate = useNavigate();
   const reviseSubmission = useMutation(api.intake.reviseSubmission);
-  const revisionAttempt =
-    useMutationAttempt<FunctionReturnType<typeof api.intake.reviseSubmission>>();
+  const beginSubmittedRevision = useMutation(api.intake.beginSubmittedRevision);
+  const revisionAttempt = useMutationAttempt<
+    | FunctionReturnType<typeof api.intake.reviseSubmission>
+    | FunctionReturnType<typeof api.intake.beginSubmittedRevision>
+  >();
   const pending = revisionAttempt.hasPending("proposal-revision");
   const proposalStorageKey = `c2c:${eventSlug}:${application.id}:proposal`;
   const [recoveredDraft] = useState(() => readVersionedSessionDraft(proposalStorageKey));
@@ -711,6 +719,14 @@ function ProposalSummary({
       score: intake.noveltySignal?.score ?? null,
       band: intake.noveltySignal?.band ?? null,
     },
+  });
+  const requiresQuestionRegeneration = proposalRevisionRegeneratesQuestions({
+    savedIdea: intake.project.initialIdea,
+    nextIdea: draft.initialIdea,
+    savedResponses: intake.project.intakeResponses,
+    nextResponses: draft.responses,
+    deterministicFollowUpCount: intake.editRules.deterministicFollowUpCount,
+    maximumFollowUpCount: intake.editRules.maximumFollowUpCount,
   });
 
   useEffect(() => {
@@ -748,13 +764,17 @@ function ProposalSummary({
           })),
           clientOperationId: crypto.randomUUID(),
         };
-        return () => reviseSubmission(args);
+        return () =>
+          requiresQuestionRegeneration ? beginSubmittedRevision(args) : reviseSubmission(args);
       });
       clearSessionDraft(proposalStorageKey);
       setHasRecoveredDraft(false);
       setEditConflict(false);
       stopEditing();
       setEditing(false);
+      if (requiresQuestionRegeneration) {
+        void navigate("/write", { replace: true, viewTransition: true });
+      }
     } catch (caught) {
       setError(readableError(caught));
     } finally {
@@ -1003,6 +1023,12 @@ function ProposalSummary({
 
         {editing ? (
           <>
+            {requiresQuestionRegeneration ? (
+              <p className="mt-3 rounded-petal-xs bg-wash/50 px-4 py-3 text-[12.5px] leading-relaxed text-fg/75">
+                This change affects later questions. We’ll keep the answers that still apply and ask
+                the updated questions before saving a new submission version.
+              </p>
+            ) : null}
             <PortalError message={error} />
             <div className="mt-1 flex items-center gap-4 border-t border-petal-line py-3.5">
               <PortalTextButton type="button" disabled={locked} onClick={cancelEditing}>
@@ -1024,7 +1050,13 @@ function ProposalSummary({
                   invalidAdditionalInformation
                 }
               >
-                {busy ? "Saving…" : pending ? "Confirm earlier save" : "Save submission"}
+                {busy
+                  ? "Saving…"
+                  : pending
+                    ? "Confirm earlier save"
+                    : requiresQuestionRegeneration
+                      ? "Update questions"
+                      : "Save submission"}
               </PortalButton>
             </div>
           </>

@@ -94,7 +94,19 @@ export const heartbeat = mutation({
       surface: args.surface,
       ...(args.questionId !== undefined ? { questionId: args.questionId } : {}),
     });
-    if (args.surface === "proposal_revision") {
+    const [application, draft] = await Promise.all([
+      ctx.db
+        .query("applications")
+        .withIndex("by_team", (index) => index.eq("teamId", team._id))
+        .unique(),
+      ctx.db
+        .query("projectDrafts")
+        .withIndex("by_team", (index) => index.eq("teamId", team._id))
+        .unique(),
+    ]);
+    const submittedRevisionActive =
+      application !== null && draft !== null && draft.stage !== "submitted";
+    if (args.surface === "proposal_revision" || submittedRevisionActive) {
       if (Date.now() >= applicationsCloseAtFor(event, membership.participantClass)) {
         throw new ConvexError({
           code: "APPLICATION_DEADLINE_PASSED",
@@ -114,10 +126,6 @@ export const heartbeat = mutation({
         scopeType: "team",
         scopeId: team._id,
       });
-      const application = await ctx.db
-        .query("applications")
-        .withIndex("by_team", (index) => index.eq("teamId", team._id))
-        .unique();
       if (!application || !["submitted", "under_review"].includes(application.state)) {
         throw new ConvexError({
           code: "APPLICATION_NOT_EDITABLE",
@@ -126,10 +134,6 @@ export const heartbeat = mutation({
       }
     } else {
       requireRegistrationOpen(event, membership.participantClass);
-      const application = await ctx.db
-        .query("applications")
-        .withIndex("by_team", (index) => index.eq("teamId", team._id))
-        .unique();
       if (application) {
         throw new ConvexError({
           code: "APPLICATION_ALREADY_SUBMITTED",

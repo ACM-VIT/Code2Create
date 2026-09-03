@@ -90,7 +90,8 @@ type IntakeOperationResult =
   | FunctionReturnType<typeof api.intake.reviseFollowUp>
   | FunctionReturnType<typeof api.intake.saveAdditionalInformation>
   | FunctionReturnType<typeof api.intake.setFreshnessAttestation>
-  | FunctionReturnType<typeof api.intake.submit>;
+  | FunctionReturnType<typeof api.intake.submit>
+  | FunctionReturnType<typeof api.intake.completeSubmittedRevision>;
 
 type PendingFollowUp = {
   questionId: string;
@@ -396,6 +397,7 @@ function IntakeWorkspace({
   const saveAdditionalInformation = useMutation(api.intake.saveAdditionalInformation);
   const setFreshness = useMutation(api.intake.setFreshnessAttestation);
   const submitApplication = useMutation(api.intake.submit);
+  const completeSubmittedRevision = useMutation(api.intake.completeSubmittedRevision);
   const opening = useQuery(api.intake.opening, { eventSlug });
   const preview = useQuery(
     api.intake.submissionPreview,
@@ -456,6 +458,7 @@ function IntakeWorkspace({
   const commandInFlight = useRef(false);
   const applicationsClosed = useDeadlineReached(serverNow, intake.applicationsCloseAt);
   const applicationsOpen = !applicationsClosed;
+  const submittedRevision = intake.application !== null;
   const operations = useOperationRunner<IntakeOperationResult>();
   const { capture } = useProductAnalytics();
   const ideaEditorOpen = !draft || draft.stage === "opening" || editingIdea;
@@ -1214,7 +1217,11 @@ function IntakeWorkspace({
           : freshnessPending
             ? { kind: "freshness", slot: "freshness", action: "Confirm answer" }
             : submitPending
-              ? { kind: "submit", slot: "final-submit", action: "Confirm submission" }
+              ? {
+                  kind: "submit",
+                  slot: "final-submit",
+                  action: submittedRevision ? "Confirm revision" : "Confirm submission",
+                }
               : null;
 
   const clearPendingOperation = (operation: PendingIntakeOperation) => {
@@ -1923,7 +1930,7 @@ function IntakeWorkspace({
           members={members}
           teamEditable={teamEditable}
           onSignOut={onSignOut}
-          title="Ready to submit?"
+          title={submittedRevision ? "Ready to save this revision?" : "Ready to submit?"}
           width="max-w-[600px]"
           titleClass="lg:text-[42px]"
           branch
@@ -2052,7 +2059,7 @@ function IntakeWorkspace({
                     aria-hidden
                     className="size-1.5 animate-dot-pulse rounded-full bg-rose-light"
                   />
-                  Confirming your team and answers
+                  {submittedRevision ? "Saving your revised answers" : "Confirming your team and answers"}
                 </p>
               ) : (
                 <PortalTextButton
@@ -2071,24 +2078,34 @@ function IntakeWorkspace({
                 onClick={() => {
                   if (submissionInProgress) return;
                   void run(async () => {
-                    markSubmissionCelebration();
+                    if (!submittedRevision) markSubmissionCelebration();
                     try {
                       await operations.run(
                         "final-submit",
                         (clientOperationId) => () =>
-                          submitApplication({
-                            eventSlug,
-                            expectedDraftVersion: preview.draftVersion,
-                            expectedTeamVersion: preview.teamVersion,
-                            participantPolicyVersionId: preview.participantPolicyVersionId,
-                            clientOperationId,
-                          }),
+                          submittedRevision
+                            ? completeSubmittedRevision({
+                                eventSlug,
+                                expectedDraftVersion: preview.draftVersion,
+                                expectedTeamVersion: preview.teamVersion,
+                                clientOperationId,
+                              })
+                            : submitApplication({
+                                eventSlug,
+                                expectedDraftVersion: preview.draftVersion,
+                                expectedTeamVersion: preview.teamVersion,
+                                participantPolicyVersionId: preview.participantPolicyVersionId,
+                                clientOperationId,
+                              }),
                       );
-                      capture("c2c_application_submitted", {
+                      capture(
+                        submittedRevision ? "c2c_application_revision_saved" : "c2c_application_submitted",
+                        {
                         c2c_team_size: preview.members.length,
-                      });
+                        },
+                      );
                     } catch (caught) {
-                      if (!operations.hasPending("final-submit")) {
+                      if (!submittedRevision && !operations.hasPending("final-submit")) {
                         clearSubmissionCelebration();
                       }
                       if (isIntakeCollaborationConflict(caught)) {
@@ -2101,7 +2118,13 @@ function IntakeWorkspace({
                   });
                 }}
               >
-                {busy || submissionInProgress ? "Submitting…" : "Submit"}
+                {busy || submissionInProgress
+                  ? submittedRevision
+                    ? "Saving…"
+                    : "Submitting…"
+                  : submittedRevision
+                    ? "Save revision"
+                    : "Submit"}
               </PortalButton>
             </div>
           </PetalCard>
@@ -2334,7 +2357,7 @@ function IntakeWorkspace({
               }
               onClick={() => setConfirming(true)}
             >
-              Continue to submit
+              {submittedRevision ? "Continue to save revision" : "Continue to submit"}
             </PortalButton>
           </div>
         </div>
