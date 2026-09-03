@@ -35,13 +35,6 @@ import "./journey.css";
 
 gsap.registerPlugin(useGSAP, ScrollTrigger);
 
-/* Keep the heading on the same gravity curve as the sponsor particles and
-   logos so their spacing stays intact while the whole scene drops away. */
-const sponsorFallEase = (progress: number) => {
-  const fall = progress * progress * (3 - 2 * progress);
-  return (0.12 * fall + 0.78 * fall * fall) / 0.9;
-};
-
 /* The embedded preview loads the page with the document hidden, so rAF — and
    with it the ticker, the scrub and every cue — never fires there. Handing
    the internals to the console lets a test drive time by hand, the same way
@@ -380,10 +373,9 @@ export default function Journey({ petalsRef }: JourneyProps) {
 
       gsap.set(ridges.mid, { yPercent: 120 });
       gsap.set(q(".lantern__label"), { autoAlpha: 0 });
-      /* The title begins below the stage. Because the sponsor layer sits
-         behind the near ridge, its scroll-linked rise emerges from the hills
-         instead of fading into an arbitrary point in the sky. */
-      gsap.set(q(".sponsors__title"), { autoAlpha: 0, y: "36svh" });
+      /* The title starts low, then crosses the clearing sky and settles into
+         its top marquee position before the first sponsor shell launches. */
+      gsap.set(q(".sponsors__title"), { autoAlpha: 0, y: "52svh" });
       gsap.set(panels, { autoAlpha: 0, xPercent: 8 });
       gsap.set(q(".bonsai"), { xPercent: 135, autoAlpha: 0 });
       gsap.set(q(".branches"), { autoAlpha: 1 });
@@ -551,32 +543,29 @@ export default function Journey({ petalsRef }: JourneyProps) {
 
       tl.to(q(".lantern__label"), { autoAlpha: 1, duration: 3, stagger: 0.8 }, 86);
 
-      /* H — the wind takes the lanterns away. The hills HOLD: the sponsor
-         volley fires from behind them, so they stay for one more act. */
+      /* H — the wind takes the lanterns away while every ridge drops below
+         the stage. The sponsor act begins only after the sky is fully clear. */
       tl.to(q(".lantern__label"), { autoAlpha: 0, duration: 2.5 }, 94)
         .to(q(".wind"), { autoAlpha: 0, duration: 4 }, 96)
         .to(
           lanterns,
-          { x: "86vw", y: "-52vh", autoAlpha: 0, duration: 13, stagger: 0.7, ease: "power2.in" },
+          { x: "86vw", y: "-52vh", autoAlpha: 0, duration: 7, stagger: 0.5, ease: "power2.in" },
           95,
-        );
+        )
+        .to([ridges.near, ridges.mid], { yPercent: 130, duration: 8, ease: "power2.inOut" }, 95)
+        .to(ridges.far, { yPercent: 130, duration: 7.5, ease: "power2.inOut" }, 95.5);
 
-      /* H2 — the sponsor volley. The heading climbs from below the foreground
-         ridge, and every firecracker phase is scrubbed by this same timeline.
-         Stop the wheel and the shell stops; reverse it and the shell rewinds. */
-      tl.to(q(".sponsors__title"), { autoAlpha: 1, y: 0, duration: 7, ease: "power3.out" }, 103).to(
+      /* H2 — the title takes the cleared top of the sky before the sponsor
+         volley begins. Every firecracker phase is scrubbed by this timeline:
+         stop the wheel and the shell stops; reverse it and the shell rewinds. */
+      tl.to(q(".sponsors__title"), { autoAlpha: 1, y: 0, duration: 5.5, ease: "power3.out" }, 97.5).to(
         q(".sponsors__title"),
-        { autoAlpha: 0, y: "90svh", duration: 8, ease: sponsorFallEase },
+        { autoAlpha: 0, y: "-6svh", duration: 4, ease: "power1.in" },
         142,
       );
 
-      /* H3 — only now, with the volley spent, do the hills leave the frame
-         entirely; nothing of them should be visible once the bonsai is on. */
-      tl.to([ridges.near, ridges.mid], { yPercent: 130, duration: 9, ease: "power2.inOut" }, 141)
-        .to(ridges.far, { yPercent: 130, duration: 9, ease: "power2.inOut" }, 142)
-        /* With the hills gone the rose in the sky would sit exposed at the
-           bottom of the frame and read as a section edge; wash it out. */
-        .to(q(".sky-dim"), { autoAlpha: 1, duration: 10, ease: "power1.inOut" }, 141);
+      /* H3 — wash the clear sponsor sky into the ink of the timeline act. */
+      tl.to(q(".sky-dim"), { autoAlpha: 1, duration: 10, ease: "power1.inOut" }, 141);
 
       /* I — the bonsai slides in from the right and blooms inside a swirl of
          petals that crosses the whole frame. */

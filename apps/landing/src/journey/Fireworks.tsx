@@ -51,12 +51,12 @@ const SPONSORS: readonly SponsorSpec[] = [
     cue: 104,
     duration: 10,
     x: 24,
-    y: 27,
-    logoY: 12,
+    y: 29,
+    logoY: 14,
     from: 35,
     core: [236, 186, 255],
     ember: [176, 112, 250],
-    phone: { x: 50, y: 20, logoY: 9, from: 20 },
+    phone: { x: 50, y: 23, logoY: 14, from: 20 },
   },
   {
     name: "ElevenLabs",
@@ -67,12 +67,12 @@ const SPONSORS: readonly SponsorSpec[] = [
     cue: 114,
     duration: 8,
     x: 76,
-    y: 28,
-    logoY: 20,
+    y: 31,
+    logoY: 18,
     from: 85,
     core: [255, 255, 255],
     ember: [148, 196, 255],
-    phone: { x: 50, y: 38, logoY: 34, from: 82 },
+    phone: { x: 50, y: 40, logoY: 38, from: 82 },
   },
   {
     name: "Tin Computer",
@@ -83,8 +83,8 @@ const SPONSORS: readonly SponsorSpec[] = [
     cue: 122,
     duration: 3.6,
     x: 10,
-    y: 51,
-    logoY: 47,
+    y: 54,
+    logoY: 49,
     from: 15,
     core: [255, 236, 198],
     ember: [255, 166, 89],
@@ -99,8 +99,8 @@ const SPONSORS: readonly SponsorSpec[] = [
     cue: 122,
     duration: 3.6,
     x: 30,
-    y: 51,
-    logoY: 47,
+    y: 54,
+    logoY: 49,
     from: 36,
     core: [205, 239, 255],
     ember: [92, 186, 255],
@@ -115,8 +115,8 @@ const SPONSORS: readonly SponsorSpec[] = [
     cue: 122,
     duration: 3.6,
     x: 50,
-    y: 51,
-    logoY: 47,
+    y: 54,
+    logoY: 49,
     from: 56,
     core: [239, 232, 255],
     ember: [188, 144, 255],
@@ -131,12 +131,12 @@ const SPONSORS: readonly SponsorSpec[] = [
     cue: 122,
     duration: 3.6,
     x: 70,
-    y: 51,
-    logoY: 47,
+    y: 54,
+    logoY: 49,
     from: 64,
     core: [255, 190, 207],
     ember: [234, 75, 113],
-    phone: { x: 30, y: 71, logoY: 67, from: 22 },
+    phone: { x: 30, y: 73, logoY: 69, from: 22 },
   },
   {
     name: "DevSwarm",
@@ -147,12 +147,12 @@ const SPONSORS: readonly SponsorSpec[] = [
     cue: 122,
     duration: 3.6,
     x: 90,
-    y: 51,
-    logoY: 47,
+    y: 54,
+    logoY: 49,
     from: 85,
     core: [225, 216, 255],
     ember: [105, 74, 255],
-    phone: { x: 70, y: 71, logoY: 67, from: 78 },
+    phone: { x: 70, y: 73, logoY: 69, from: 78 },
   },
 ];
 
@@ -181,14 +181,14 @@ const FIREWORK_TIERS: Record<SponsorTier, FireworkTierSpec> = {
       starScale: 1.12,
       targetWidth: 0.35,
       targetHeight: 0.1,
-      textOffset: 0.12,
+      textOffset: 0.13,
     },
     phone: {
       burstScale: 1,
       starScale: 1.08,
       targetWidth: 0.76,
       targetHeight: 0.075,
-      textOffset: 0.085,
+      textOffset: 0.095,
     },
   },
   featured: {
@@ -266,6 +266,8 @@ interface PreparedStar {
   size: number;
   arc: number;
   twinkleGroup: number;
+  fallDelay: number;
+  fallSpeed: number;
 }
 
 interface PreparedSponsor {
@@ -474,6 +476,8 @@ const Fireworks = forwardRef<FireworksHandle, Record<never, never>>(
             size: (0.72 + random() * 0.62) * dimensions.starScale,
             arc: (random() - 0.5) * height * 0.045,
             twinkleGroup: Math.floor(random() * TWINKLE_GROUPS),
+            fallDelay: random() * 0.46,
+            fallSpeed: 0.86 + random() * 0.28,
           };
         });
 
@@ -548,9 +552,16 @@ const Fireworks = forwardRef<FireworksHandle, Record<never, never>>(
         falling: number,
       ): DrawPoint => {
         const point = formedPoint(sponsor, star, formedProgress);
+        const individualFall = smoothstep(
+          clamp01((falling - star.fallDelay) / (1 - star.fallDelay)),
+        );
         return {
           x: point.x,
-          y: point.y + gravityOffset(height, falling),
+          y:
+            point.y +
+            height *
+              (0.08 * individualFall + 0.92 * individualFall * individualFall) *
+              star.fallSpeed,
         };
       };
 

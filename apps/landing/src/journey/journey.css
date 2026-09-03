@@ -590,15 +590,14 @@
 }
 
 /* ------------------------------------------------------------------ *
- * Sponsors — seven scroll-scrubbed firecracker rockets rise from behind the
- * hills. Their own burst stars form the names while the logos settle above.
+ * Sponsors — seven scroll-scrubbed firecracker rockets fill a cleared night
+ * sky. Their own burst stars form the names while the logos settle above.
  * ------------------------------------------------------------------ */
 
 .sponsors {
   position: absolute;
   inset: 0;
-  /* Above the mid ridge, below the near one, so a shell leaves the ground
-     from BEHIND the front hills — the same trick the ember lanterns use. */
+  /* The ridges have moved below the stage before this act begins. */
   z-index: 4;
   pointer-events: none;
 }
@@ -613,12 +612,13 @@
   contain: strict;
 }
 
-/* Its GSAP start is below the viewport. This layer sits behind the near ridge,
-   so the title is revealed by the hill line as the scroll lifts it upward. */
+/* Its GSAP start is low in the viewport, then it settles here before the first
+   firework launches. */
 .sponsors__title {
   position: absolute;
   left: 50%;
-  top: 66%;
+  top: 12%;
+  z-index: 1;
   transform: translateX(-50%);
   font-family: var(--font-display);
   font-weight: 500;
@@ -1188,10 +1188,10 @@
     font-size: clamp(11px, 4vw, 18px);
   }
 
-  /* The two leaders stack above two supporting rows on a phone, so the
-     heading stays beneath the lowest sponsor. */
+  /* The title owns the top band; two leaders and two supporting rows stack
+     below it without crossing into the navigation. */
   .sponsors__title {
-    top: 80%;
+    top: 10%;
     font-size: clamp(18px, 5.4vw, 26px);
   }
 
