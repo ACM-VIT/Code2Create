@@ -115,8 +115,18 @@ export const recordDispatchFailure = internalMutation({
       recommendation.agentDispatchAttemptId !== args.attemptId
     )
       return false;
+    if (recommendation.state === "running") {
+      await ctx.scheduler.runAfter(
+        ideaIntelligenceRecoveryLeaseMs,
+        internal.admissionIntelligence.recoverAgentDispatchAttempt,
+        {
+          recommendationId: recommendation._id,
+          attemptId: args.attemptId,
+        },
+      );
+      return true;
+    }
     await ctx.db.patch(recommendation._id, {
-      state: "pending",
       agentDispatchAttemptId: undefined,
     });
     return true;

@@ -377,7 +377,7 @@ describe("manual admission analysis retry", () => {
     });
   });
 
-  test("returns a started recommendation to pending when its dispatch receipt fails", async () => {
+  test("preserves a late agent completion when its dispatch receipt fails", async () => {
     const backend = seededBackend();
     const fixture = await seedFixture(backend);
     const runner = backend.withIdentity({
@@ -408,13 +408,94 @@ describe("manual admission analysis retry", () => {
         attemptId: prepared.attemptId,
       }),
     ).toBe(true);
-    expect(await backend.run((ctx) => ctx.db.get(rerun.recommendationId))).toMatchObject({
-      state: "pending",
+    const running = await backend.run((ctx) => ctx.db.get(rerun.recommendationId));
+    expect(running).toMatchObject({
+      state: "running",
+      agentDispatchAttemptId: prepared.attemptId,
     });
+
+    const projection = await backend.mutation(
+      internal.admissionIntelligence.beginRecommendation,
+      { recommendationId: rerun.recommendationId },
+    );
+    if (!projection) throw new Error("The late agent completion has no projection.");
     expect(
-      (await backend.run((ctx) => ctx.db.get(rerun.recommendationId)))
-        ?.agentDispatchAttemptId,
-    ).toBeUndefined();
+      await backend.mutation(internal.admissionIntelligence.finishRecommendation, {
+        recommendationId: rerun.recommendationId,
+        sourceInputFingerprint: projection.sourceInputFingerprint,
+        state: "succeeded",
+        recommendation: "accept",
+        criterionAssessments: projection.criteria.map((criterion) => ({
+          criterionKey: criterion.criterionKey,
+          assessment: "meets" as const,
+          sourceRefs: ["initial_idea"],
+        })),
+        strengths: ["The proposal identifies a concrete operational handoff."],
+        concerns: [],
+        proposedQuestions: [],
+        confidence: "medium",
+        limitations: ["The analysis uses only the submitted project answers."],
+        operationId: `idea-analysis:${rerun.recommendationId}`,
+        agentVersion: "idea-submission-v1",
+        agentModel: "openai/gpt-4.1-mini",
+      }),
+    ).toBe("accepted");
+  });
+
+  test("recovers only the exact running dispatch attempt after its lease", async () => {
+    const backend = seededBackend();
+    const fixture = await seedFixture(backend);
+    const runner = backend.withIdentity({
+      subject: fixture.runnerAuthUserId,
+      sessionId: fixture.runnerAuthSessionId,
+    });
+    const rerun = await runner.mutation(api.admissions.rerunAiRecommendation, {
+      eventSlug: fixture.eventSlug,
+      applicationId: fixture.applicationId,
+      expectedApplicationVersion: 1,
+      expectedRecommendationId: fixture.failedRecommendationId,
+      reason: "Recover an interrupted agent dispatch",
+      clientOperationId: "recover-agent-dispatch-attempt",
+    });
+    const prepared = await backend.mutation(internal.admissionAgentActions.prepareDispatch, {
+      recommendationId: rerun.recommendationId,
+    });
+    if (!prepared) throw new Error("The durable dispatch was not prepared.");
+    expect(
+      await backend.mutation(internal.admissionIntelligence.beginRecommendation, {
+        recommendationId: rerun.recommendationId,
+      }),
+    ).not.toBeNull();
+    expect(
+      await backend.mutation(internal.admissionAgentActions.recordDispatchFailure, {
+        recommendationId: rerun.recommendationId,
+        attemptId: prepared.attemptId,
+      }),
+    ).toBe(true);
+
+    expect(
+      await backend.mutation(internal.admissionIntelligence.recoverAgentDispatchAttempt, {
+        recommendationId: rerun.recommendationId,
+        attemptId: "another-attempt",
+      }),
+    ).toBe(false);
+    expect(
+      await backend.mutation(internal.admissionIntelligence.recoverAgentDispatchAttempt, {
+        recommendationId: rerun.recommendationId,
+        attemptId: prepared.attemptId,
+      }),
+    ).toBe(true);
+    const recovered = await backend.run((ctx) => ctx.db.get(rerun.recommendationId));
+    expect(recovered).toMatchObject({
+      state: "pending",
+      failureCategory: "agent_dispatch_recovered",
+    });
+    expect(recovered?.agentDispatchAttemptId).toBeUndefined();
+
+    const next = await backend.mutation(internal.admissionAgentActions.prepareDispatch, {
+      recommendationId: rerun.recommendationId,
+    });
+    expect(next?.attemptId).not.toBe(prepared.attemptId);
   });
 });
 
