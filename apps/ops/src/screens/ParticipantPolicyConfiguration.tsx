@@ -264,8 +264,12 @@ export function ParticipantPolicyConfiguration({ tabs }: { tabs: ConfigurationTa
 
       <dl className="catalog-summary">
         <div>
-          <dt>Status</dt>
-          <dd>Ready</dd>
+          <dt>Phone verification</dt>
+          <dd>
+            {configuration.publishedPolicy.policy.phoneVerificationEnabled
+              ? "Required"
+              : "Not required"}
+          </dd>
         </div>
         <div>
           <dt>Team size</dt>
@@ -426,13 +430,29 @@ export function ParticipantPolicyConfiguration({ tabs }: { tabs: ConfigurationTa
 
               <PolicySection
                 title="Required profile fields"
-                description="These fields are fixed so every participant record is complete."
+                description="Choose whether participants must verify the phone number they provide."
               >
-                <p className="notice">
-                  Everyone gives a phone number, gender (Male or Female), and year of study. VIT
-                  students are recognised from their Google account and choose day scholar or
-                  hosteller. External participants give their university and college.
-                </p>
+                <div className="intake-policy-grid">
+                  <label className="check-row field-wide">
+                    <input
+                      checked={policy.phoneVerificationEnabled}
+                      type="checkbox"
+                      onChange={(event) =>
+                        updatePolicy("phoneVerificationEnabled", event.currentTarget.checked)
+                      }
+                    />
+                    <span>Require participants to verify their phone number by SMS</span>
+                  </label>
+                  <p className="notice field-wide">
+                    Everyone still provides a phone number. When this is enabled, they must enter
+                    the six-digit code before their profile is complete.
+                  </p>
+                  <p className="notice field-wide">
+                    Everyone also gives gender (Male or Female) and year of study. VIT students are
+                    recognised from their Google account and choose day scholar or hosteller.
+                    External participants give their university and college.
+                  </p>
+                </div>
               </PolicySection>
 
               <PolicySection

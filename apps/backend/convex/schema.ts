@@ -271,6 +271,7 @@ export default defineSchema({
     teamMinimumSize: v.number(),
     teamMaximumSize: v.number(),
     mixedParticipantClassesAllowed: v.boolean(),
+    phoneVerificationEnabled: v.boolean(),
     vitHostelResidenceCatalog: v.array(
       v.object({
         stableKey: v.string(),

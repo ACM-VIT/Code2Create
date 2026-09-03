@@ -2,7 +2,6 @@ import { ConvexError, v } from "convex/values";
 import {
   normalizeParticipantName,
   normalizeParticipantPhone,
-  participantProfileCodeConfiguration,
   participantNameValidationError,
   participantPhoneValidationError,
 } from "@code2create/domain";
@@ -838,11 +837,11 @@ export const saveProfile = mutation({
     }
     const phone = normalizeParticipantPhone(args.phone);
     const phoneVerification =
-      participantProfileCodeConfiguration.phoneVerificationEnabled && args.phoneVerificationId
+      policy.phoneVerificationEnabled && args.phoneVerificationId
         ? await ctx.db.get(args.phoneVerificationId)
         : null;
     if (
-      participantProfileCodeConfiguration.phoneVerificationEnabled &&
+      policy.phoneVerificationEnabled &&
       (!phoneVerification ||
         phoneVerification.eventId !== event._id ||
         phoneVerification.membershipId !== membership._id ||
