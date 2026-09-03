@@ -218,9 +218,6 @@ async function placeTeamRosterEntry(
     return { outcome: "waiting_for_lead", claimedCount: 0 };
   }
 
-  if (team.membershipLocked) {
-    return { outcome: "still_pending", claimedCount: 0 };
-  }
   const rosterCounts = teamRosterCounts(team);
   if (rosterCounts.activeMemberCount >= participantPolicy.normalized.teamMaximumSize) {
     return { outcome: "still_pending", claimedCount: 0 };
