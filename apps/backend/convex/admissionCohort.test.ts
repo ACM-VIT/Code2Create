@@ -146,6 +146,57 @@ describe("admission cohort query and decisions", () => {
     });
   });
 
+  test("filters admission counts, pages, and search to teams with exactly one review", async () => {
+    const backend = seededBackend();
+    const fixture = await seedCohortFixture(backend);
+    const operator = backend.withIdentity({
+      subject: fixture.operatorAuthUserId,
+      sessionId: fixture.operatorAuthSessionId,
+    });
+
+    const [counts, applications, search, excludedSearch] = await Promise.all([
+      operator.query(api.admissions.stageCounts, {
+        eventSlug: fixture.eventSlug,
+        completedReviewCount: 1,
+      }),
+      operator.query(api.admissions.list, {
+        eventSlug: fixture.eventSlug,
+        state: "under_review",
+        completedReviewCount: 1,
+        paginationOpts: { cursor: null, numItems: 1 },
+      }),
+      operator.query(api.admissions.searchApplications, {
+        eventSlug: fixture.eventSlug,
+        state: "under_review",
+        search: "night",
+        completedReviewCount: 1,
+      }),
+      operator.query(api.admissions.searchApplications, {
+        eventSlug: fixture.eventSlug,
+        state: "under_review",
+        search: "steady",
+        completedReviewCount: 1,
+      }),
+    ]);
+
+    expect(counts).toEqual([{ state: "under_review", count: 1 }]);
+    expect(applications.page.map((application) => application.teamName)).toEqual(["Night Kiln"]);
+    expect(search).toEqual({
+      applications: [expect.objectContaining({ teamName: "Night Kiln", completedReviewCount: 1 })],
+      truncated: false,
+    });
+    expect(excludedSearch).toEqual({ applications: [], truncated: false });
+
+    const continuation = await operator.query(api.admissions.list, {
+      eventSlug: fixture.eventSlug,
+      state: "under_review",
+      completedReviewCount: 1,
+      paginationOpts: { cursor: applications.continueCursor, numItems: 1 },
+    });
+    expect(continuation.page).toEqual([]);
+    expect(continuation.isDone).toBe(true);
+  });
+
   test("ranks candidates, spends capacity in people, and marks review shortfalls", async () => {
     const backend = seededBackend();
     const fixture = await seedCohortFixture(backend);

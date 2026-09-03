@@ -14,6 +14,7 @@ import {
   aiStateTag,
   assignmentOutcomeSummary,
   busiestStage,
+  completedReviewCountQueryArgs,
   needsAssignment,
   ownReviewLine,
   queueLeadSentence,
@@ -311,7 +312,13 @@ function ApplicationList({
   origin: TeamOriginFilter;
 }) {
   const originArgs = teamOriginQueryArgs(origin);
-  const counts = useQuery(api.admissions.stageCounts, { eventSlug, ...originArgs });
+  const [oneReviewOnly, setOneReviewOnly] = useState(false);
+  const reviewCountArgs = completedReviewCountQueryArgs(oneReviewOnly);
+  const counts = useQuery(api.admissions.stageCounts, {
+    eventSlug,
+    ...originArgs,
+    ...reviewCountArgs,
+  });
   const countByState = stageCountMap(counts ?? []);
   const [chosen, setChosen] = useState<ApplicationState | null>(null);
   const stage = chosen ?? busiestStage(countByState) ?? "submitted";
@@ -320,12 +327,16 @@ function ApplicationList({
   const searching = searchQuery.length > 0;
   const applicationPage = usePaginatedQuery(
     api.admissions.list,
-    searching ? "skip" : { eventSlug, state: stage, ...originArgs },
+    searching
+      ? "skip"
+      : { eventSlug, state: stage, ...originArgs, ...reviewCountArgs },
     { initialNumItems: 30 },
   );
   const searchResult = useQuery(
     api.admissions.searchApplications,
-    searching ? { eventSlug, state: stage, search: searchQuery, ...originArgs } : "skip",
+    searching
+      ? { eventSlug, state: stage, search: searchQuery, ...originArgs, ...reviewCountArgs }
+      : "skip",
   );
   const [assigning, setAssigning] = useState(false);
   const [unassignedOnly, setUnassignedOnly] = useState(false);
@@ -358,7 +369,9 @@ function ApplicationList({
       {counts === undefined ? (
         <SkeletonLine width="48%" />
       ) : (
-        <p className="muted admissions-lead">{queueLeadSentence(countByState, origin)}</p>
+        <p className="muted admissions-lead">
+          {queueLeadSentence(countByState, origin, oneReviewOnly)}
+        </p>
       )}
       <div className="admissions-toolbar">
         <div className="stage-filter admissions-stages">
@@ -391,6 +404,18 @@ function ApplicationList({
                 setSelected(new Set());
               }}
             />
+          </label>
+          <label className="check-filter">
+            <input
+              checked={oneReviewOnly}
+              type="checkbox"
+              onChange={(event) => {
+                setOneReviewOnly(event.target.checked);
+                setChosen(null);
+                setSelected(new Set());
+              }}
+            />
+            Only 1 review in
           </label>
           {reviewable ? (
             <>
@@ -459,9 +484,11 @@ function ApplicationList({
                 ? "Every matching team already has a reviewer."
                 : `No ${teamOriginNoun(origin)} match “${searchQuery}” at ${applicationStateLabels[stage]}.`
               : countByState.size === 0
-                ? origin === "all"
-                  ? "No team has applied yet."
-                  : `No ${teamOriginNoun(origin, false)} has applied yet.`
+                ? oneReviewOnly
+                  ? `No ${teamOriginNoun(origin, false)} has exactly 1 review in.`
+                  : origin === "all"
+                    ? "No team has applied yet."
+                    : `No ${teamOriginNoun(origin, false)} has applied yet.`
                 : applications.length > 0
                   ? "Everyone shown here has a reviewer."
                   : origin === "all"

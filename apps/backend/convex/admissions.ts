@@ -116,7 +116,11 @@ async function rosterCohort(ctx: QueryCtx, project: Doc<"projectVersions">) {
 
 /** Returns stage counts only for applications covered by the caller's grants. */
 export const stageCounts = query({
-  args: { eventSlug: v.string(), origin: v.optional(admissionTeamOrigin) },
+  args: {
+    eventSlug: v.string(),
+    origin: v.optional(admissionTeamOrigin),
+    completedReviewCount: v.optional(v.literal(1)),
+  },
   returns: v.array(v.object({ state: applicationState, count: v.number() })),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
@@ -138,6 +142,12 @@ export const stageCounts = query({
     const counts = new Map<Doc<"applications">["state"], number>();
     for (const application of applications) {
       if (!(await applicationMatchesOrigin(ctx, application, args.origin))) continue;
+      if (
+        args.completedReviewCount !== undefined &&
+        application.completedReviewCount !== args.completedReviewCount
+      ) {
+        continue;
+      }
       counts.set(application.state, (counts.get(application.state) ?? 0) + 1);
     }
     return [...counts.entries()].map(([state, count]) => ({ state, count }));
@@ -536,6 +546,7 @@ export const list = query({
     eventSlug: v.string(),
     state: v.optional(applicationState),
     origin: v.optional(admissionTeamOrigin),
+    completedReviewCount: v.optional(v.literal(1)),
     paginationOpts: paginationOptsValidator,
   },
   returns: paginationResultValidator(listItem),
@@ -554,6 +565,12 @@ export const list = query({
         })
         .order("asc")
         .map(async (application) => {
+          if (
+            args.completedReviewCount !== undefined &&
+            application.completedReviewCount !== args.completedReviewCount
+          ) {
+            return null;
+          }
           if (!(await applicationMatchesOrigin(ctx, application, origin))) return null;
           return visibleApplicationListProjection(ctx, event._id, subject._id, application);
         })
@@ -562,14 +579,19 @@ export const list = query({
           maximumRowsRead: maximumApplicantTeamsPerEvent + 1,
         });
     }
-    const page = await ctx.db
+    const applicationQuery = ctx.db
       .query("applications")
       .withIndex("by_event_state_submitted", (index) => {
         const eventIndex = index.eq("eventId", event._id);
         return args.state ? eventIndex.eq("state", args.state) : eventIndex;
       })
-      .order("asc")
-      .paginate(args.paginationOpts);
+      .order("asc");
+    const page = await (args.completedReviewCount === undefined
+      ? applicationQuery
+      : applicationQuery.filter((filter) =>
+          filter.eq(filter.field("completedReviewCount"), args.completedReviewCount),
+        )
+    ).paginate(args.paginationOpts);
     const visible = [];
     for (const application of page.page) {
       const item = await visibleApplicationListProjection(
@@ -590,6 +612,7 @@ export const searchApplications = query({
     state: applicationState,
     search: v.string(),
     origin: v.optional(admissionTeamOrigin),
+    completedReviewCount: v.optional(v.literal(1)),
   },
   returns: v.object({
     applications: v.array(listItem),
@@ -633,7 +656,9 @@ export const searchApplications = query({
       applications
         .filter(
           (application) =>
-            readableScopeIds === null || readableScopeIds.has(application._id),
+            (readableScopeIds === null || readableScopeIds.has(application._id)) &&
+            (args.completedReviewCount === undefined ||
+              application.completedReviewCount === args.completedReviewCount),
         )
         .map(async (application) => ({
           application,

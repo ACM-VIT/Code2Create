@@ -6,6 +6,7 @@ import {
   assignmentOutcomeSummary,
   busiestStage,
   cohortSummary,
+  completedReviewCountQueryArgs,
   memberContextLine,
   needsAssignment,
   nextAssignmentId,
@@ -100,6 +101,7 @@ test("stage chips only show stages with something in them", () => {
 
 test("the queue opens with one sentence about where applications are", () => {
   assert.equal(queueLeadSentence(new Map()), "No team has applied yet.");
+  assert.equal(queueLeadSentence(new Map(), "all", true), "No team has exactly 1 review in.");
   assert.equal(
     queueLeadSentence(new Map(), "internal"),
     "No internal team has applied yet.",
@@ -152,6 +154,11 @@ test("the origin filter omits its query argument until internals or externals ar
   assert.equal(teamOriginNoun("all"), "teams");
   assert.equal(teamOriginNoun("internal", false), "internal team");
   assert.equal(teamOriginNoun("external"), "external teams");
+});
+
+test("the one-review filter only sends its exact count when selected", () => {
+  assert.deepEqual(completedReviewCountQueryArgs(false), {});
+  assert.deepEqual(completedReviewCountQueryArgs(true), { completedReviewCount: 1 });
 });
 
 test("short tags replace the AI sentences in the list", () => {

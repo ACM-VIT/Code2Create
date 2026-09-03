@@ -91,9 +91,13 @@ export function parseApplicationStage(value: string): ApplicationState {
 export function queueLeadSentence(
   counts: ReadonlyMap<ApplicationState, number>,
   origin: TeamOriginFilter = "all",
+  oneReviewOnly = false,
 ): string {
   const total = [...counts.values()].reduce((sum, count) => sum + count, 0);
   if (total === 0) {
+    if (oneReviewOnly) {
+      return `No ${teamOriginNoun(origin, false)} has exactly 1 review in.`;
+    }
     return origin === "all"
       ? "No team has applied yet."
       : `No ${teamOriginNoun(origin, false)} has applied yet.`;
@@ -112,6 +116,12 @@ export function queueLeadSentence(
   if (clauses.length === 0)
     return `${total} ${total === 1 ? "application" : "applications"}, all decided.`;
   return `${joinClauses(clauses.slice(0, 3))}.`;
+}
+
+export function completedReviewCountQueryArgs(oneReviewOnly: boolean): {
+  completedReviewCount?: 1;
+} {
+  return oneReviewOnly ? { completedReviewCount: 1 } : {};
 }
 
 export function reviewerLeadSentence(
