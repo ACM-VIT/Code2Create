@@ -23,6 +23,7 @@ const projection: IdeaIntelligenceProjection = {
   contentVersion: 3,
   sourceInputFingerprint: "source-fingerprint-1",
   experienceBand: "first_year",
+  overallParticipantCapacity: 825,
   sources: [{ sourceRef: "initial_idea", answer: "A bounded project idea." }],
   criteria: [
     {

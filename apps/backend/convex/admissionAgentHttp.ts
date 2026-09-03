@@ -144,6 +144,7 @@ export const ideaIntelligenceReadEndpoint = httpAction(async (ctx, request) => {
     contentVersion: recommendation.contentVersion,
     sourceInputFingerprint: projection.sourceInputFingerprint,
     experienceBand: projection.experienceBand,
+    overallParticipantCapacity: projection.overallParticipantCapacity,
     sources: [
       { sourceRef: "initial_idea", answer: redactProjectText(projection.initialIdea) },
       ...(projection.additionalInformation

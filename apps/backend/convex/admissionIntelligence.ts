@@ -24,6 +24,7 @@ const recommendationContext = v.object({
   schemaVersion: v.string(),
   evaluationSuiteVersion: v.string(),
   experienceBand: admissionExperienceBand,
+  overallParticipantCapacity: v.number(),
   initialIdea: v.string(),
   additionalInformation: v.optional(v.string()),
   intakeResponses: v.array(
@@ -158,6 +159,7 @@ export const beginRecommendation = internalMutation({
       schemaVersion: modelConfig.schemaVersion,
       evaluationSuiteVersion: modelConfig.evaluationSuiteVersion,
       experienceBand: application.experienceBand,
+      overallParticipantCapacity: policy.overallParticipantCapacity,
       initialIdea: project.initialIdea,
       ...(project.additionalInformation !== undefined
         ? { additionalInformation: project.additionalInformation }

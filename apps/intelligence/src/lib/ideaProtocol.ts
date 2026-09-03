@@ -52,6 +52,7 @@ export const ideaIntelligenceProjectionSchema = v.strictObject({
     "postgraduate_or_professional",
     "mixed_or_external",
   ]),
+  overallParticipantCapacity: v.pipe(v.number(), v.integer(), v.minValue(1)),
   sources: v.pipe(v.array(sourceSchema), v.minLength(1), v.maxLength(16)),
   criteria: v.pipe(v.array(criterionSchema), v.minLength(1), v.maxLength(12)),
 });

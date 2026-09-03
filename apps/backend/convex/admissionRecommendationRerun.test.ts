@@ -212,6 +212,7 @@ describe("manual admission analysis retry", () => {
     );
     expect(repeatedRead).toEqual(firstRead);
     if (!firstRead) throw new Error("The idea-agent fixture did not produce a projection.");
+    expect(firstRead.overallParticipantCapacity).toBe(100);
     expect(firstRead.additionalInformation).toBe("Demo notes: https://example.com/retry-petals");
     expect(firstRead.intakeResponses.map((response) => response.sourceRef)).toEqual([
       "follow_up_1",

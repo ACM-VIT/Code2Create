@@ -51,6 +51,7 @@ export type IdeaIntelligenceProjection = {
   contentVersion: number;
   sourceInputFingerprint: string;
   experienceBand: AdmissionExperienceBand;
+  overallParticipantCapacity: number;
   sources: IdeaIntelligenceSource[];
   criteria: IdeaIntelligenceCriterion[];
 };
@@ -74,6 +75,7 @@ export type IdeaIntelligenceAnalysisPolicyViolation =
   | "shape_mismatch"
   | "criterion_mismatch"
   | "evidence_mismatch"
+  | "recommendation_mismatch"
   | "prohibited_language";
 
 export function ideaIntelligenceAnalysisPolicyViolation(args: {
@@ -125,6 +127,25 @@ export function ideaIntelligenceAnalysisPolicyViolation(args: {
     )
   ) {
     return "evidence_mismatch";
+  }
+
+  const partlyMeetsCount = args.analysis.criterionAssessments.filter(
+    (assessment) => assessment.assessment === "partly_meets",
+  ).length;
+  const notYetClearCount = args.analysis.criterionAssessments.filter(
+    (assessment) => assessment.assessment === "not_yet_clear",
+  ).length;
+  const expectedRecommendation =
+    notYetClearCount > 0 || partlyMeetsCount > 1
+      ? "decline"
+      : partlyMeetsCount === 1
+        ? "waitlist"
+        : "accept";
+  if (
+    args.analysis.recommendation !== expectedRecommendation ||
+    (expectedRecommendation !== "accept" && args.analysis.concerns.length === 0)
+  ) {
+    return "recommendation_mismatch";
   }
 
   const prohibitedLanguage =
