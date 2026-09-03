@@ -203,6 +203,11 @@ const storedProposalRevisionResult = z.object({
   applicationContentVersion: z.number().int().positive(),
 });
 
+const submittedRevisionDraftResult = v.object({
+  draftId: v.id("projectDrafts"),
+  draftVersion: v.number(),
+});
+
 type ReadCtx = QueryCtx | MutationCtx;
 
 function requiredIntakeAnswerValue(answer: Doc<"intakeAnswerVersions"> | null) {
@@ -430,7 +435,7 @@ export const current = query({
       applicationsCloseAt: applicationsCloseAtFor(event, membership.participantClass),
       currentRole: member.role,
       draft: visibleDraft,
-      workingFields: participantApplication
+      workingFields: participantApplication && draft?.stage === "submitted"
         ? []
         : storedWorkingFields.map((field) => ({
             kind: field.kind,
@@ -460,6 +465,7 @@ export const submitted = query({
         intakeResponses: v.array(
           v.object({
             questionId: v.id("intakeGeneratedQuestions"),
+            ordinal: v.number(),
             question: v.string(),
             answer: v.string(),
           }),
@@ -471,6 +477,8 @@ export const submitted = query({
         initialIdeaMaxLength: v.number(),
         followUpAnswerMinLength: v.number(),
         followUpAnswerMaxLength: v.number(),
+        deterministicFollowUpCount: v.number(),
+        maximumFollowUpCount: v.number(),
         additionalInformationMaxLength: v.number(),
       }),
       applicationsCloseAt: v.number(),
@@ -529,6 +537,7 @@ export const submitted = query({
           : {}),
         intakeResponses: project.intakeResponses.map((response) => ({
           questionId: response.questionId,
+          ordinal: response.ordinal,
           question: response.question,
           answer: response.answer,
         })),
@@ -539,6 +548,8 @@ export const submitted = query({
         initialIdeaMaxLength: normalizedPolicy.initialIdeaMaxLength,
         followUpAnswerMinLength: normalizedPolicy.followUpAnswerMinLength,
         followUpAnswerMaxLength: normalizedPolicy.followUpAnswerMaxLength,
+        deterministicFollowUpCount: normalizedPolicy.deterministicFollowUpCount,
+        maximumFollowUpCount: normalizedPolicy.maximumFollowUpCount,
         additionalInformationMaxLength,
       },
       applicationsCloseAt,
@@ -555,6 +566,162 @@ export const submitted = query({
     };
   },
 });
+
+function proposalRegenerationBoundary(args: {
+  project: Doc<"projectVersions">;
+  initialIdea: string;
+  intakeResponses: Doc<"projectVersions">["intakeResponses"];
+  deterministicFollowUpCount: number;
+  maximumFollowUpCount: number;
+}) {
+  let boundary: number | null =
+    args.project.initialIdea !== args.initialIdea &&
+    args.deterministicFollowUpCount < args.maximumFollowUpCount
+      ? args.deterministicFollowUpCount
+      : null;
+  for (const [index, response] of args.intakeResponses.entries()) {
+    const previous = args.project.intakeResponses[index];
+    if (!previous || previous.answer === response.answer) continue;
+    const responseBoundary = Math.max(response.ordinal, args.deterministicFollowUpCount);
+    if (responseBoundary >= args.maximumFollowUpCount) continue;
+    boundary = boundary === null ? responseBoundary : Math.min(boundary, responseBoundary);
+  }
+  return boundary;
+}
+
+async function commitSubmittedProposalRevision(
+  ctx: MutationCtx,
+  args: {
+    event: Doc<"events">;
+    application: Doc<"applications">;
+    project: Doc<"projectVersions">;
+    team: Doc<"teams">;
+    membershipId: Id<"eventMemberships">;
+    initialIdea: string;
+    additionalInformation?: string;
+    intakeResponses: Doc<"projectVersions">["intakeResponses"];
+    sourceDraftVersion: number;
+    now: number;
+  },
+) {
+  await invalidateTeamNoveltyIndex(ctx, {
+    teamId: args.team._id,
+    sourceUpdatedAt: args.now,
+  });
+
+  const [admissionConfiguration, activeReviews, activeAssignments, priorRecommendation] =
+    await Promise.all([
+      loadPublishedAdmissionConfiguration(ctx, args.event),
+      ctx.db
+        .query("admissionHumanReviews")
+        .withIndex("by_application_status", (index) =>
+          index.eq("applicationId", args.application._id).eq("status", "active"),
+        )
+        .collect(),
+      ctx.db
+        .query("admissionReviewAssignments")
+        .withIndex("by_application_state_assigned", (index) =>
+          index.eq("applicationId", args.application._id).eq("state", "active"),
+        )
+        .collect(),
+      args.application.aiRecommendationId
+        ? ctx.db.get(args.application.aiRecommendationId)
+        : Promise.resolve(null),
+    ]);
+  if (admissionConfiguration.policy._id !== args.application.admissionPolicyVersionId) {
+    throw new Error("The application admission policy is no longer current.");
+  }
+  const projectVersionId = await ctx.db.insert("projectVersions", {
+    eventId: args.event._id,
+    teamId: args.team._id,
+    version: args.project.version + 1,
+    initialIdea: args.initialIdea,
+    ...(args.additionalInformation !== undefined
+      ? { additionalInformation: args.additionalInformation }
+      : {}),
+    intakePolicyVersionId: args.project.intakePolicyVersionId,
+    intakeResponses: args.intakeResponses,
+    lockedRosterSnapshotId: args.project.lockedRosterSnapshotId,
+    lockedMemberCount: args.project.lockedMemberCount,
+    lockedLeadMembershipId: args.project.lockedLeadMembershipId,
+    freshForEventAttestation: args.project.freshForEventAttestation,
+    finalConfirmation: args.project.finalConfirmation,
+    participantPolicyVersionId: args.project.participantPolicyVersionId,
+    admissionPolicyVersionId: args.project.admissionPolicyVersionId,
+    proposalRevision: {
+      sourceProjectVersionId: args.project._id,
+      editedByMembershipId: args.membershipId,
+      editedAt: args.now,
+    },
+    sourceDraftVersion: args.sourceDraftVersion,
+    submittedByMembershipId: args.membershipId,
+    submittedAt: args.now,
+  });
+  const nextContentVersion = args.application.contentVersion + 1;
+  await Promise.all([
+    ...activeReviews.map((review) => ctx.db.patch(review._id, { status: "superseded" })),
+    ...activeAssignments.map((assignment) =>
+      ctx.db.patch(assignment._id, {
+        applicationContentVersion: nextContentVersion,
+        version: assignment.version + 1,
+      }),
+    ),
+  ]);
+  if (
+    priorRecommendation &&
+    (priorRecommendation.state === "pending" || priorRecommendation.state === "running")
+  ) {
+    await ctx.db.patch(priorRecommendation._id, {
+      state: "stale",
+      completedAt: args.now,
+      failureCategory: "proposal_revised",
+    });
+  }
+  await Promise.all([
+    ctx.db.patch(args.team._id, {
+      lockedProjectVersionId: projectVersionId,
+      version: args.team.version + 1,
+      updatedAt: args.now,
+    }),
+    ctx.db.patch(args.application._id, {
+      submittedProjectVersionId: projectVersionId,
+      aiDisposition: undefined,
+      aiRecommendationId: undefined,
+      assignedReviewCount: activeAssignments.length,
+      completedReviewCount: 0,
+      contentVersion: nextContentVersion,
+      version: args.application.version + 1,
+    }),
+  ]);
+  await ctx.scheduler.runAfter(0, internal.novelty.indexSubmittedProjectIdea, {
+    projectVersionId,
+    inputFingerprint: noveltyInputFingerprint(args.initialIdea),
+    sourceUpdatedAt: args.now,
+  });
+  const [updatedApplication, updatedProject] = await Promise.all([
+    ctx.db.get(args.application._id),
+    ctx.db.get(projectVersionId),
+  ]);
+  if (!updatedApplication || !updatedProject) {
+    throw new Error("The revised proposal did not persist.");
+  }
+  await createAdmissionRecommendation(ctx, {
+    application: updatedApplication,
+    project: updatedProject,
+    policy: admissionConfiguration.policy,
+    modelConfig: admissionConfiguration.model,
+    now: args.now,
+  });
+  return {
+    result: {
+      projectVersionId,
+      projectVersion: updatedProject.version,
+      applicationVersion: updatedApplication.version,
+      applicationContentVersion: updatedApplication.contentVersion,
+    },
+    supersededHumanReviewCount: activeReviews.length,
+  };
+}
 
 export const reviseSubmission = mutation({
   args: {
@@ -665,6 +832,16 @@ export const reviseSubmission = mutation({
     if (latestProject?._id !== project._id) {
       throw new Error("The application does not point to the latest project version.");
     }
+    const draft = await ctx.db
+      .query("projectDrafts")
+      .withIndex("by_team", (index) => index.eq("teamId", team._id))
+      .unique();
+    if (!draft || draft.stage !== "submitted") {
+      throw new ConvexError({
+        code: "PROPOSAL_REVISION_IN_PROGRESS",
+        message: "Finish the question update already in progress before editing again.",
+      });
+    }
     const intakePolicy = await ctx.db.get(project.intakePolicyVersionId);
     if (
       !intakePolicy ||
@@ -745,117 +922,33 @@ export const reviseSubmission = mutation({
       });
       return result;
     }
-
-    await invalidateTeamNoveltyIndex(ctx, {
-      teamId: team._id,
-      sourceUpdatedAt: now,
-    });
-
-    const [admissionConfiguration, activeReviews, activeAssignments, priorRecommendation] =
-      await Promise.all([
-        loadPublishedAdmissionConfiguration(ctx, event),
-        ctx.db
-          .query("admissionHumanReviews")
-          .withIndex("by_application_status", (index) =>
-            index.eq("applicationId", application._id).eq("status", "active"),
-          )
-          .collect(),
-        ctx.db
-          .query("admissionReviewAssignments")
-          .withIndex("by_application_state_assigned", (index) =>
-            index.eq("applicationId", application._id).eq("state", "active"),
-          )
-          .collect(),
-        application.aiRecommendationId
-          ? ctx.db.get(application.aiRecommendationId)
-          : Promise.resolve(null),
-      ]);
-    if (admissionConfiguration.policy._id !== application.admissionPolicyVersionId) {
-      throw new Error("The application admission policy is no longer current.");
+    if (
+      proposalRegenerationBoundary({
+        project,
+        initialIdea,
+        intakeResponses,
+        deterministicFollowUpCount: policy.deterministicFollowUpCount,
+        maximumFollowUpCount: policy.maximumFollowUpCount,
+      }) !== null
+    ) {
+      throw new ConvexError({
+        code: "QUESTION_REGENERATION_REQUIRED",
+        message: "This change affects later questions. Regenerate them before saving the revision.",
+      });
     }
-    const projectVersionId = await ctx.db.insert("projectVersions", {
-      eventId: event._id,
-      teamId: team._id,
-      version: project.version + 1,
+
+    const { result, supersededHumanReviewCount } = await commitSubmittedProposalRevision(ctx, {
+      event,
+      application,
+      project,
+      team,
+      membershipId: membership._id,
       initialIdea,
       ...(additionalInformation !== undefined ? { additionalInformation } : {}),
-      intakePolicyVersionId: project.intakePolicyVersionId,
       intakeResponses,
-      lockedRosterSnapshotId: project.lockedRosterSnapshotId,
-      lockedMemberCount: project.lockedMemberCount,
-      lockedLeadMembershipId: project.lockedLeadMembershipId,
-      freshForEventAttestation: project.freshForEventAttestation,
-      finalConfirmation: project.finalConfirmation,
-      participantPolicyVersionId: project.participantPolicyVersionId,
-      admissionPolicyVersionId: project.admissionPolicyVersionId,
-      proposalRevision: {
-        sourceProjectVersionId: project._id,
-        editedByMembershipId: membership._id,
-        editedAt: now,
-      },
       sourceDraftVersion: project.sourceDraftVersion,
-      submittedByMembershipId: membership._id,
-      submittedAt: now,
-    });
-    const nextContentVersion = application.contentVersion + 1;
-    for (const review of activeReviews) {
-      await ctx.db.patch(review._id, { status: "superseded" });
-    }
-    for (const assignment of activeAssignments) {
-      await ctx.db.patch(assignment._id, {
-        applicationContentVersion: nextContentVersion,
-        version: assignment.version + 1,
-      });
-    }
-    if (
-      priorRecommendation &&
-      (priorRecommendation.state === "pending" || priorRecommendation.state === "running")
-    ) {
-      await ctx.db.patch(priorRecommendation._id, {
-        state: "stale",
-        completedAt: now,
-        failureCategory: "proposal_revised",
-      });
-    }
-    await ctx.db.patch(team._id, {
-      lockedProjectVersionId: projectVersionId,
-      version: team.version + 1,
-      updatedAt: now,
-    });
-    await ctx.db.patch(application._id, {
-      submittedProjectVersionId: projectVersionId,
-      aiDisposition: undefined,
-      aiRecommendationId: undefined,
-      assignedReviewCount: activeAssignments.length,
-      completedReviewCount: 0,
-      contentVersion: nextContentVersion,
-      version: application.version + 1,
-    });
-    await ctx.scheduler.runAfter(0, internal.novelty.indexSubmittedProjectIdea, {
-      projectVersionId,
-      inputFingerprint: noveltyInputFingerprint(initialIdea),
-      sourceUpdatedAt: now,
-    });
-    const [updatedApplication, updatedProject] = await Promise.all([
-      ctx.db.get(application._id),
-      ctx.db.get(projectVersionId),
-    ]);
-    if (!updatedApplication || !updatedProject) {
-      throw new Error("The revised proposal did not persist.");
-    }
-    await createAdmissionRecommendation(ctx, {
-      application: updatedApplication,
-      project: updatedProject,
-      policy: admissionConfiguration.policy,
-      modelConfig: admissionConfiguration.model,
       now,
     });
-    const result = {
-      projectVersionId,
-      projectVersion: updatedProject.version,
-      applicationVersion: updatedApplication.version,
-      applicationContentVersion: updatedApplication.contentVersion,
-    };
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -863,7 +956,7 @@ export const reviseSubmission = mutation({
       commandName: "intake.submission.revise",
       requestFingerprint,
       targetType: "project_version",
-      targetId: projectVersionId,
+      targetId: result.projectVersionId,
       resultJson: JSON.stringify(result),
       createdAt: now,
     });
@@ -883,12 +976,485 @@ export const reviseSubmission = mutation({
         applicationContentVersion: application.contentVersion,
       }),
       nextSummary: JSON.stringify({
-        projectVersionId,
-        projectVersion: updatedProject.version,
-        applicationContentVersion: updatedApplication.contentVersion,
-        supersededHumanReviewCount: activeReviews.length,
+        projectVersionId: result.projectVersionId,
+        projectVersion: result.projectVersion,
+        applicationContentVersion: result.applicationContentVersion,
+        supersededHumanReviewCount,
       }),
       reason: "Team lead revised the proposal before the application deadline",
+    });
+    return result;
+  },
+});
+
+export const beginSubmittedRevision = mutation({
+  args: {
+    eventSlug: v.string(),
+    applicationId: v.id("applications"),
+    expectedApplicationContentVersion: v.number(),
+    expectedProjectVersionId: v.id("projectVersions"),
+    expectedProjectVersion: v.number(),
+    initialIdea: v.string(),
+    additionalInformation: v.string(),
+    responses: v.array(proposalRevisionResponseInput),
+    clientOperationId: v.string(),
+  },
+  returns: submittedRevisionDraftResult,
+  handler: async (ctx, args) => {
+    const { event, person, subject, membership, member, team } = await currentTeamContext(
+      ctx,
+      args.eventSlug,
+    );
+    const requestFingerprint = operationFingerprint([
+      args.applicationId,
+      args.expectedApplicationContentVersion,
+      args.expectedProjectVersionId,
+      args.expectedProjectVersion,
+      args.initialIdea,
+      args.additionalInformation,
+      JSON.stringify(args.responses),
+    ]);
+    const replay = await replayDraftOperation(
+      ctx,
+      event._id,
+      person._id,
+      args.clientOperationId,
+      "intake.submission.revision.begin",
+      requestFingerprint,
+    );
+    if (replay) return { draftId: replay._id, draftVersion: replay.version };
+
+    const now = Date.now();
+    requireRegistrationOpen(event, membership.participantClass, now);
+    if (member.role !== "lead" || team.leadMembershipId !== membership._id) {
+      throw new ConvexError({
+        code: "TEAM_LEAD_REQUIRED",
+        message: "Only the current team lead can edit the proposal.",
+      });
+    }
+    const grantIds = await requirePermission(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey: "application.submit",
+      scopeType: "team",
+      scopeId: team._id,
+    });
+    const [application, draft] = await Promise.all([
+      ctx.db.get(args.applicationId),
+      ctx.db
+        .query("projectDrafts")
+        .withIndex("by_team", (index) => index.eq("teamId", team._id))
+        .unique(),
+    ]);
+    if (!application || application.eventId !== event._id || application.teamId !== team._id) {
+      throw new ConvexError({
+        code: "APPLICATION_NOT_FOUND",
+        message: "That application is unavailable.",
+      });
+    }
+    if (
+      application.contentVersion !== args.expectedApplicationContentVersion ||
+      (application.state !== "submitted" && application.state !== "under_review")
+    ) {
+      throw new ConvexError({
+        code: "APPLICATION_CHANGED",
+        message: "The application changed. Review the current proposal before saving.",
+      });
+    }
+    const project = await ctx.db.get(application.submittedProjectVersionId);
+    if (
+      !project ||
+      project._id !== args.expectedProjectVersionId ||
+      project.version !== args.expectedProjectVersion ||
+      project.eventId !== event._id ||
+      project.teamId !== team._id ||
+      team.lockedProjectVersionId !== project._id ||
+      !team.membershipLocked
+    ) {
+      throw new ConvexError({
+        code: "PROJECT_CHANGED",
+        message: "The proposal changed. Review the current version before saving.",
+      });
+    }
+    if (!draft || draft.stage !== "submitted" || draft.intakePolicyVersionId !== project.intakePolicyVersionId) {
+      throw new ConvexError({
+        code: "PROPOSAL_REVISION_IN_PROGRESS",
+        message: "Finish the question update already in progress before editing again.",
+      });
+    }
+    const [latestProject, intakePolicy, currentResponses, activeAnswers] = await Promise.all([
+      ctx.db
+        .query("projectVersions")
+        .withIndex("by_team_version", (index) => index.eq("teamId", team._id))
+        .order("desc")
+        .first(),
+      ctx.db.get(project.intakePolicyVersionId),
+      loadCurrentIntakeResponses(ctx, draft._id),
+      loadActiveIntakeAnswers(ctx, draft._id),
+    ]);
+    if (latestProject?._id !== project._id) {
+      throw new Error("The application does not point to the latest project version.");
+    }
+    if (
+      !intakePolicy ||
+      intakePolicy.eventId !== event._id ||
+      (intakePolicy.status !== "published" && intakePolicy.status !== "superseded")
+    ) {
+      throw new Error("The proposal references an invalid intake policy.");
+    }
+    const policy = normalizeIntakePolicy(intakePolicyFromDocument(intakePolicy));
+    if (intakePolicyChecksum(policy) !== intakePolicy.checksum) {
+      throw new Error("The proposal's intake policy checksum is invalid.");
+    }
+    const initialIdea = normalizedLongText(
+      args.initialIdea,
+      "Project idea",
+      policy.initialIdeaMinLength,
+      policy.initialIdeaMaxLength,
+    );
+    const additionalInformation = normalizedAdditionalInformation(args.additionalInformation);
+    if (
+      args.responses.length !== project.intakeResponses.length ||
+      currentResponses.length !== project.intakeResponses.length ||
+      args.responses.some(
+        (response, index) => response.questionId !== project.intakeResponses[index]?.questionId,
+      ) ||
+      currentResponses.some(
+        ({ question }, index) => question._id !== project.intakeResponses[index]?.questionId,
+      )
+    ) {
+      throw new ConvexError({
+        code: "PROJECT_RESPONSES_CHANGED",
+        message: "The proposal questions changed. Refresh before saving.",
+      });
+    }
+    const intakeResponses = project.intakeResponses.map((response, index) => {
+      const input = args.responses[index];
+      if (!input) throw new Error("A validated proposal response is missing.");
+      return {
+        ...response,
+        answer: normalizedLongText(
+          input.answer,
+          "Follow-up answer",
+          policy.followUpAnswerMinLength,
+          policy.followUpAnswerMaxLength,
+        ),
+      };
+    });
+    const regenerateAfterOrdinal = proposalRegenerationBoundary({
+      project,
+      initialIdea,
+      intakeResponses,
+      deterministicFollowUpCount: policy.deterministicFollowUpCount,
+      maximumFollowUpCount: policy.maximumFollowUpCount,
+    });
+    if (regenerateAfterOrdinal === null) {
+      throw new ConvexError({
+        code: "QUESTION_REGENERATION_NOT_REQUIRED",
+        message: "These changes can be saved directly without regenerating questions.",
+      });
+    }
+
+    const currentInitialAnswer = activeAnswers.find(
+      (answer) => answer.promptKey === "initial_idea" && answer.generatedQuestionId === undefined,
+    );
+    if (!currentInitialAnswer) {
+      throw new Error("The submitted project has no active initial-idea answer.");
+    }
+    const initialAnswer =
+      currentInitialAnswer.value === initialIdea
+        ? currentInitialAnswer
+        : await saveAnswerVersion(ctx, {
+            eventId: event._id,
+            teamId: team._id,
+            draftId: draft._id,
+            membershipId: membership._id,
+            promptKey: "initial_idea",
+            value: initialIdea,
+            clientOperationId: args.clientOperationId,
+          });
+    const retainedAnswerIds: Id<"intakeAnswerVersions">[] = [];
+    for (const [index, response] of currentResponses.entries()) {
+      if (response.question.ordinal > regenerateAfterOrdinal) break;
+      const desired = intakeResponses[index];
+      if (!desired || !response.answer) {
+        throw new Error("A retained submitted response is incomplete.");
+      }
+      const answer =
+        response.answer.value === desired.answer
+          ? response.answer
+          : await saveAnswerVersion(ctx, {
+              eventId: event._id,
+              teamId: team._id,
+              draftId: draft._id,
+              membershipId: membership._id,
+              promptKey: `introduction_follow_up_${response.question.ordinal}`,
+              value: desired.answer,
+              generatedQuestionId: response.question._id,
+              clientOperationId: args.clientOperationId,
+            });
+      await ctx.db.patch(response.question._id, {
+        sourceAnswerVersionIds: [initialAnswer._id, ...retainedAnswerIds],
+      });
+      retainedAnswerIds.push(answer._id);
+    }
+    await replaceIntakeQuestionsAfter(ctx, draft._id, regenerateAfterOrdinal);
+    const draftVersion = draft.version + 1;
+    await reconcileWorkingFieldsAfterDraftVersionChange(ctx, {
+      teamId: team._id,
+      previousDraftVersion: draft.version,
+      nextDraftVersion: draftVersion,
+      removeIdea: true,
+      removedQuestionIds: currentResponses.map(({ question }) => question._id),
+    });
+    const ideaChangedInDraft = draft.initialIdea !== initialIdea;
+    await ctx.db.patch(draft._id, {
+      initialIdea,
+      additionalInformation,
+      stage: "follow_up",
+      adaptiveQuestionDeadlineAt: undefined,
+      freshnessAttestedByMembershipId: project.freshForEventAttestation.acceptedByMembershipId,
+      freshnessAttestedAt: project.freshForEventAttestation.acceptedAt,
+      ...(ideaChangedInDraft
+        ? {
+            noveltyEvaluatedInputFingerprint: undefined,
+            noveltyScore: undefined,
+            noveltyBand: undefined,
+            noveltyNearestThemeLabel: undefined,
+            noveltyReflectionPrompt: undefined,
+            noveltyScoringVersion: undefined,
+            noveltyRefinementFailureCategory: undefined,
+            noveltyPreviewRequestId: undefined,
+            noveltyEvaluatedAt: undefined,
+          }
+        : {}),
+      version: draftVersion,
+      lastEditedByMembershipId: membership._id,
+      updatedAt: now,
+    });
+    await enqueueIntakeInterpretation(ctx, {
+      draftId: draft._id,
+      draftVersion,
+      enqueuedAt: now,
+    });
+    await recordDraftOperation(ctx, {
+      eventId: event._id,
+      personId: person._id,
+      clientOperationId: args.clientOperationId,
+      commandName: "intake.submission.revision.begin",
+      requestFingerprint,
+      draftId: draft._id,
+      createdAt: now,
+    });
+    await writeAuditEvent(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      permissionKey: "application.submit",
+      grantIds,
+      scopeType: "team",
+      scopeId: team._id,
+      action: "application.proposal_revision_started",
+      targetType: "application",
+      targetId: application._id,
+      previousSummary: JSON.stringify({
+        projectVersionId: project._id,
+        projectVersion: project.version,
+        applicationContentVersion: application.contentVersion,
+      }),
+      nextSummary: JSON.stringify({
+        draftId: draft._id,
+        draftVersion,
+        regenerateAfterOrdinal,
+      }),
+      reason: "Team lead changed proposal content that determines later questions",
+    });
+    return { draftId: draft._id, draftVersion };
+  },
+});
+
+export const completeSubmittedRevision = mutation({
+  args: {
+    eventSlug: v.string(),
+    expectedDraftVersion: v.number(),
+    expectedTeamVersion: v.number(),
+    clientOperationId: v.string(),
+  },
+  returns: proposalRevisionResult,
+  handler: async (ctx, args) => {
+    const { event, person, subject, membership, member, team } = await currentTeamContext(
+      ctx,
+      args.eventSlug,
+    );
+    const requestFingerprint = operationFingerprint([
+      args.expectedDraftVersion,
+      args.expectedTeamVersion,
+    ]);
+    const prior = await findOperation(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      clientOperationId: args.clientOperationId,
+      commandName: "intake.submission.revision.complete",
+      requestFingerprint,
+    });
+    if (prior) {
+      const stored = storedOperationResult(
+        prior.resultJson,
+        "completed proposal revision",
+        storedProposalRevisionResult,
+      );
+      const projectVersionId = ctx.db.normalizeId("projectVersions", stored.projectVersionId);
+      if (!projectVersionId || projectVersionId !== prior.targetId) {
+        throw new Error("The stored completed proposal revision is invalid.");
+      }
+      return { ...stored, projectVersionId };
+    }
+
+    const now = Date.now();
+    requireRegistrationOpen(event, membership.participantClass, now);
+    if (member.role !== "lead" || team.leadMembershipId !== membership._id) {
+      throw new ConvexError({
+        code: "TEAM_LEAD_REQUIRED",
+        message: "Only the current team lead can save the revised proposal.",
+      });
+    }
+    if (team.version !== args.expectedTeamVersion || !team.membershipLocked) {
+      throw new ConvexError({
+        code: "TEAM_CHANGED",
+        message: "The team changed. Review the revision again.",
+      });
+    }
+    const grantIds = await requirePermission(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey: "application.submit",
+      scopeType: "team",
+      scopeId: team._id,
+    });
+    const [application, draft] = await Promise.all([
+      ctx.db
+        .query("applications")
+        .withIndex("by_team", (index) => index.eq("teamId", team._id))
+        .unique(),
+      ctx.db
+        .query("projectDrafts")
+        .withIndex("by_team", (index) => index.eq("teamId", team._id))
+        .unique(),
+    ]);
+    if (
+      !application ||
+      (application.state !== "submitted" && application.state !== "under_review")
+    ) {
+      throw new ConvexError({
+        code: "APPLICATION_NOT_EDITABLE",
+        message: "This application can no longer be edited.",
+      });
+    }
+    const project = await ctx.db.get(application.submittedProjectVersionId);
+    if (
+      !project ||
+      project.eventId !== event._id ||
+      project.teamId !== team._id ||
+      team.lockedProjectVersionId !== project._id
+    ) {
+      throw new ConvexError({
+        code: "PROJECT_CHANGED",
+        message: "The submitted proposal changed. Review the revision again.",
+      });
+    }
+    if (
+      !draft ||
+      draft.version !== args.expectedDraftVersion ||
+      draft.stage !== "review" ||
+      !draft.initialIdea ||
+      !draft.freshnessAttestedAt ||
+      !draft.freshnessAttestedByMembershipId ||
+      draft.intakePolicyVersionId !== project.intakePolicyVersionId
+    ) {
+      throw new ConvexError({
+        code: "DRAFT_INCOMPLETE",
+        message: "Complete every revised project question first.",
+      });
+    }
+    const [latestProject, pinnedPolicy, intakeResponses] = await Promise.all([
+      ctx.db
+        .query("projectVersions")
+        .withIndex("by_team_version", (index) => index.eq("teamId", team._id))
+        .order("desc")
+        .first(),
+      requirePinnedIntakePolicy(ctx, draft),
+      loadCurrentIntakeResponses(ctx, draft._id),
+    ]);
+    if (latestProject?._id !== project._id) {
+      throw new Error("The application does not point to the latest project version.");
+    }
+    if (!intakeSequenceComplete(pinnedPolicy.normalized, intakeResponses)) {
+      throw new ConvexError({
+        code: "DRAFT_INCOMPLETE",
+        message: "Complete every revised project question first.",
+      });
+    }
+    const { result, supersededHumanReviewCount } = await commitSubmittedProposalRevision(ctx, {
+      event,
+      application,
+      project,
+      team,
+      membershipId: membership._id,
+      initialIdea: draft.initialIdea,
+      ...(draft.additionalInformation !== undefined
+        ? { additionalInformation: draft.additionalInformation }
+        : {}),
+      intakeResponses: intakeResponses.map(({ question, answer }) => ({
+        questionId: question._id,
+        ordinal: question.ordinal,
+        question: question.text,
+        purposeKey: question.purposeKey,
+        answerLength: question.answerLength,
+        source: question.source,
+        answer: requiredIntakeAnswerValue(answer),
+      })),
+      sourceDraftVersion: draft.version,
+      now,
+    });
+    await ctx.db.patch(draft._id, {
+      stage: "submitted",
+      adaptiveQuestionDeadlineAt: undefined,
+      version: draft.version + 1,
+      lastEditedByMembershipId: membership._id,
+      updatedAt: now,
+    });
+    await recordOperation(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      clientOperationId: args.clientOperationId,
+      commandName: "intake.submission.revision.complete",
+      requestFingerprint,
+      targetType: "project_version",
+      targetId: result.projectVersionId,
+      resultJson: JSON.stringify(result),
+      createdAt: now,
+    });
+    await writeAuditEvent(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      permissionKey: "application.submit",
+      grantIds,
+      scopeType: "team",
+      scopeId: team._id,
+      action: "application.proposal_revised",
+      targetType: "application",
+      targetId: application._id,
+      previousSummary: JSON.stringify({
+        projectVersionId: project._id,
+        projectVersion: project.version,
+        applicationContentVersion: application.contentVersion,
+      }),
+      nextSummary: JSON.stringify({
+        projectVersionId: result.projectVersionId,
+        projectVersion: result.projectVersion,
+        applicationContentVersion: result.applicationContentVersion,
+        supersededHumanReviewCount,
+      }),
+      reason: "Team lead completed regenerated questions for a revised proposal",
     });
     return result;
   },
@@ -900,6 +1466,7 @@ export const status = query({
     v.null(),
     v.object({
       applicationState: v.union(v.null(), v.string()),
+      revisionInProgress: v.boolean(),
       submissionState: v.union(v.null(), v.literal("validating"), v.literal("failed")),
       submissionFailureMessage: v.optional(v.string()),
     }),
@@ -908,10 +1475,16 @@ export const status = query({
     const context = await currentReadTeamContext(ctx, args.eventSlug);
     if (!context) return null;
     const { team } = context;
-    const application = await ctx.db
-      .query("applications")
-      .withIndex("by_team", (index) => index.eq("teamId", team._id))
-      .unique();
+    const [application, draft] = await Promise.all([
+      ctx.db
+        .query("applications")
+        .withIndex("by_team", (index) => index.eq("teamId", team._id))
+        .unique(),
+      ctx.db
+        .query("projectDrafts")
+        .withIndex("by_team", (index) => index.eq("teamId", team._id))
+        .unique(),
+    ]);
     const attempt = team.submissionAttemptId ? await ctx.db.get(team.submissionAttemptId) : null;
     const submissionState =
       !application && attempt?.state === "failed"
@@ -921,6 +1494,11 @@ export const status = query({
           : null;
     return {
       applicationState: application?.state ?? null,
+      revisionInProgress:
+        application !== null &&
+        (application.state === "submitted" || application.state === "under_review") &&
+        draft !== null &&
+        draft.stage !== "submitted",
       submissionState,
       ...(attempt?.state === "failed" && attempt.failureMessage !== undefined
         ? { submissionFailureMessage: attempt.failureMessage }
@@ -955,13 +1533,51 @@ export async function currentTeamContext(ctx: MutationCtx, eventSlug: string) {
   return { event, person, subject, membership, member, team, grantIds };
 }
 
-function requireEditableTeam(team: Doc<"teams">) {
-  if (team.membershipLocked) {
-    throw new ConvexError({
-      code: "SUBMISSION_LOCKED",
-      message: "This team has submitted and the project intake is locked.",
+async function requireEditableTeamDraft(
+  ctx: MutationCtx,
+  args: {
+    event: Doc<"events">;
+    subjectId: Id<"eventAccessSubjects">;
+    membership: Doc<"eventMemberships">;
+    member: Doc<"teamMembers">;
+    team: Doc<"teams">;
+  },
+) {
+  const [application, draft] = await Promise.all([
+    ctx.db
+      .query("applications")
+      .withIndex("by_team", (index) => index.eq("teamId", args.team._id))
+      .unique(),
+    ctx.db
+      .query("projectDrafts")
+      .withIndex("by_team", (index) => index.eq("teamId", args.team._id))
+      .unique(),
+  ]);
+  if (!application && !args.team.membershipLocked) return draft;
+  if (
+    application &&
+    args.team.membershipLocked &&
+    draft !== null &&
+    draft.stage !== "submitted" &&
+    args.member.role === "lead" &&
+    args.team.leadMembershipId === args.membership._id &&
+    (application.state === "submitted" || application.state === "under_review")
+  ) {
+    await requirePermission(ctx, {
+      eventId: args.event._id,
+      eventAccessSubjectId: args.subjectId,
+      permissionKey: "application.submit",
+      scopeType: "team",
+      scopeId: args.team._id,
     });
+    return draft;
   }
+  throw new ConvexError({
+    code: application ? "APPLICATION_ALREADY_SUBMITTED" : "SUBMISSION_LOCKED",
+    message: application
+      ? "This application has been submitted. Edit its current proposal instead."
+      : "This team has submitted and the project intake is locked.",
+  });
 }
 
 async function replayDraftOperation(
@@ -1188,25 +1804,18 @@ export const autosaveWorkingField = mutation({
   },
   returns: v.object({ revision: v.number(), updatedAt: v.number() }),
   handler: async (ctx, args) => {
-    const { event, membership, team } = await currentTeamContext(ctx, args.eventSlug);
+    const { event, subject, membership, member, team } = await currentTeamContext(
+      ctx,
+      args.eventSlug,
+    );
     requireRegistrationOpen(event, membership.participantClass);
-    requireEditableTeam(team);
-    const [application, draft] = await Promise.all([
-      ctx.db
-        .query("applications")
-        .withIndex("by_team", (index) => index.eq("teamId", team._id))
-        .unique(),
-      ctx.db
-        .query("projectDrafts")
-        .withIndex("by_team", (index) => index.eq("teamId", team._id))
-        .unique(),
-    ]);
-    if (application) {
-      throw new ConvexError({
-        code: "APPLICATION_ALREADY_SUBMITTED",
-        message: "This application has been submitted. Edit its current proposal instead.",
-      });
-    }
+    const draft = await requireEditableTeamDraft(ctx, {
+      event,
+      subjectId: subject._id,
+      membership,
+      member,
+      team,
+    });
     const draftVersion = draft?.version ?? 0;
     const pinnedPolicy = draft
       ? await requirePinnedIntakePolicy(ctx, draft)
@@ -1313,7 +1922,7 @@ export const saveInitialIdea = mutation({
   },
   returns: v.object({ draftId: v.id("projectDrafts"), draftVersion: v.number() }),
   handler: async (ctx, args) => {
-    const { event, person, membership, team, grantIds } = await currentTeamContext(
+    const { event, person, subject, membership, member, team, grantIds } = await currentTeamContext(
       ctx,
       args.eventSlug,
     );
@@ -1332,11 +1941,13 @@ export const saveInitialIdea = mutation({
     );
     if (replay) return { draftId: replay._id, draftVersion: replay.version };
     requireRegistrationOpen(event, membership.participantClass);
-    requireEditableTeam(team);
-    const existing = await ctx.db
-      .query("projectDrafts")
-      .withIndex("by_team", (index) => index.eq("teamId", team._id))
-      .unique();
+    const existing = await requireEditableTeamDraft(ctx, {
+      event,
+      subjectId: subject._id,
+      membership,
+      member,
+      team,
+    });
     requireDraftVersion(existing?.version ?? 0, args.expectedDraftVersion);
     const novelty = await participantNoveltyConfig(ctx, event, existing ?? undefined);
     const pinnedPolicy = existing
@@ -1363,10 +1974,12 @@ export const saveInitialIdea = mutation({
       return { draftId: existing._id, draftVersion: existing.version };
     }
     const draftVersion = (existing?.version ?? 0) + 1;
-    await invalidateTeamNoveltyIndex(ctx, {
-      teamId: team._id,
-      sourceUpdatedAt: now,
-    });
+    if (!team.membershipLocked) {
+      await invalidateTeamNoveltyIndex(ctx, {
+        teamId: team._id,
+        sourceUpdatedAt: now,
+      });
+    }
     const currentResponses = existing ? await loadCurrentIntakeResponses(ctx, existing._id) : [];
     const fixedResponses = currentResponses.filter(({ question }) => question.source === "fixed");
     const invalidatedResponses = currentResponses.filter(
@@ -1468,16 +2081,18 @@ export const saveInitialIdea = mutation({
       await enqueueIntakeInterpretation(ctx, { draftId, draftVersion, enqueuedAt: now });
     }
 
-    const inputFingerprint = noveltyInputFingerprint(idea);
-    await ctx.scheduler.runAfter(
-      draftNoveltyIndexDelayMs(draftId, inputFingerprint, now),
-      internal.novelty.indexDraftIdea,
-      {
-        draftId,
-        inputFingerprint,
-        sourceUpdatedAt: now,
-      },
-    );
+    if (!team.membershipLocked) {
+      const inputFingerprint = noveltyInputFingerprint(idea);
+      await ctx.scheduler.runAfter(
+        draftNoveltyIndexDelayMs(draftId, inputFingerprint, now),
+        internal.novelty.indexDraftIdea,
+        {
+          draftId,
+          inputFingerprint,
+          sourceUpdatedAt: now,
+        },
+      );
+    }
 
     await recordDraftOperation(ctx, {
       eventId: event._id,
@@ -1519,7 +2134,10 @@ export const respondToFollowUp = mutation({
   },
   returns: v.object({ draftVersion: v.number() }),
   handler: async (ctx, args) => {
-    const { event, person, membership, team } = await currentTeamContext(ctx, args.eventSlug);
+    const { event, person, subject, membership, member, team } = await currentTeamContext(
+      ctx,
+      args.eventSlug,
+    );
     const requestFingerprint = operationFingerprint([
       team._id,
       args.questionId,
@@ -1536,11 +2154,13 @@ export const respondToFollowUp = mutation({
     );
     if (replay) return { draftVersion: replay.version };
     requireRegistrationOpen(event, membership.participantClass);
-    requireEditableTeam(team);
-    const draft = await ctx.db
-      .query("projectDrafts")
-      .withIndex("by_team", (index) => index.eq("teamId", team._id))
-      .unique();
+    const draft = await requireEditableTeamDraft(ctx, {
+      event,
+      subjectId: subject._id,
+      membership,
+      member,
+      team,
+    });
     if (!draft?.initialIdea || draft.stage !== "follow_up") {
       throw new ConvexError({
         code: "FOLLOW_UP_NOT_READY",
@@ -1652,7 +2272,10 @@ export const reviseFollowUp = mutation({
   },
   returns: v.object({ draftVersion: v.number() }),
   handler: async (ctx, args) => {
-    const { event, person, membership, team } = await currentTeamContext(ctx, args.eventSlug);
+    const { event, person, subject, membership, member, team } = await currentTeamContext(
+      ctx,
+      args.eventSlug,
+    );
     const requestFingerprint = operationFingerprint([
       team._id,
       args.questionId,
@@ -1670,11 +2293,13 @@ export const reviseFollowUp = mutation({
     );
     if (replay) return { draftVersion: replay.version };
     requireRegistrationOpen(event, membership.participantClass);
-    requireEditableTeam(team);
-    const draft = await ctx.db
-      .query("projectDrafts")
-      .withIndex("by_team", (index) => index.eq("teamId", team._id))
-      .unique();
+    const draft = await requireEditableTeamDraft(ctx, {
+      event,
+      subjectId: subject._id,
+      membership,
+      member,
+      team,
+    });
     if (!draft?.initialIdea || draft.stage !== "review") {
       throw new ConvexError({
         code: "FOLLOW_UP_NOT_EDITABLE",
@@ -1800,7 +2425,10 @@ export const saveAdditionalInformation = mutation({
   },
   returns: v.object({ draftVersion: v.number() }),
   handler: async (ctx, args) => {
-    const { event, person, membership, team } = await currentTeamContext(ctx, args.eventSlug);
+    const { event, person, subject, membership, member, team } = await currentTeamContext(
+      ctx,
+      args.eventSlug,
+    );
     const requestFingerprint = operationFingerprint([
       team._id,
       args.expectedDraftVersion,
@@ -1817,11 +2445,13 @@ export const saveAdditionalInformation = mutation({
     );
     if (replay) return { draftVersion: replay.version };
     requireRegistrationOpen(event, membership.participantClass);
-    requireEditableTeam(team);
-    const draft = await ctx.db
-      .query("projectDrafts")
-      .withIndex("by_team", (index) => index.eq("teamId", team._id))
-      .unique();
+    const draft = await requireEditableTeamDraft(ctx, {
+      event,
+      subjectId: subject._id,
+      membership,
+      member,
+      team,
+    });
     if (
       !draft?.initialIdea ||
       (draft.stage !== "additional_information" && draft.stage !== "review")
@@ -1888,7 +2518,10 @@ export const setFreshnessAttestation = mutation({
   },
   returns: v.object({ draftVersion: v.number() }),
   handler: async (ctx, args) => {
-    const { event, person, membership, team } = await currentTeamContext(ctx, args.eventSlug);
+    const { event, person, subject, membership, member, team } = await currentTeamContext(
+      ctx,
+      args.eventSlug,
+    );
     const requestFingerprint = operationFingerprint([
       team._id,
       args.accepted,
@@ -1904,11 +2537,13 @@ export const setFreshnessAttestation = mutation({
     );
     if (replay) return { draftVersion: replay.version };
     requireRegistrationOpen(event, membership.participantClass);
-    requireEditableTeam(team);
-    const draft = await ctx.db
-      .query("projectDrafts")
-      .withIndex("by_team", (index) => index.eq("teamId", team._id))
-      .unique();
+    const draft = await requireEditableTeamDraft(ctx, {
+      event,
+      subjectId: subject._id,
+      membership,
+      member,
+      team,
+    });
     if (!draft)
       throw new ConvexError({ code: "DRAFT_REQUIRED", message: "Start the project intake first." });
     requireDraftVersion(draft.version, args.expectedDraftVersion);
