@@ -8,9 +8,10 @@ import {
   cohortSummary,
   completedReviewCountQueryArgs,
   memberContextLine,
-  needsAssignment,
+  needsReview,
   nextAssignmentId,
   ownReviewLine,
+  prioritizeReviewQueue,
   queueLeadSentence,
   remainingAssignmentsLine,
   reviewAssignmentStatusLine,
@@ -82,6 +83,10 @@ test("review status says how many reviews are in and whether anyone is on it", (
     reviewStatus({ completedReviewCount: 0, assignedReviewCount: 0, minimumHumanReviews: 1 }),
     { text: "0 of 1 review in · nobody assigned", tone: "unassigned" },
   );
+  assert.deepEqual(
+    reviewStatus({ completedReviewCount: 3, assignedReviewCount: 0, minimumHumanReviews: 2 }),
+    { text: "3 reviews submitted (2 required)", tone: "done" },
+  );
 });
 
 test("stage chips only show stages with something in them", () => {
@@ -131,7 +136,7 @@ test("the queue opens with one sentence about where applications are", () => {
   );
   assert.equal(
     reviewerLeadSentence({ active: 6, completed: 12 }),
-    "6 applications to review, 12 done.",
+    "6 applications to review, 12 done. Open assignments expire after 30 minutes.",
   );
   assert.equal(
     reviewerLeadSentence({ active: 0, completed: 12 }),
@@ -256,23 +261,37 @@ test("review assignment copy keeps every submitted application version visible",
   );
 });
 
-test("coordinators can pull out the rows nobody is on, and read reviewer workload at a glance", () => {
+test("unfinished reviews stay prioritized even while assigned", () => {
   assert.equal(
-    needsAssignment({ completedReviewCount: 0, assignedReviewCount: 0, minimumHumanReviews: 2 }),
+    needsReview({ completedReviewCount: 0, minimumHumanReviews: 2 }),
     true,
   );
   assert.equal(
-    needsAssignment({ completedReviewCount: 1, assignedReviewCount: 0, minimumHumanReviews: 2 }),
+    needsReview({ completedReviewCount: 1, minimumHumanReviews: 2 }),
     true,
   );
+  const claimed = {
+    assignedReviewCount: 1,
+    completedReviewCount: 0,
+    minimumHumanReviews: 2,
+  };
+  assert.equal(needsReview(claimed), true);
   assert.equal(
-    needsAssignment({ completedReviewCount: 0, assignedReviewCount: 1, minimumHumanReviews: 2 }),
+    needsReview({ completedReviewCount: 2, minimumHumanReviews: 2 }),
     false,
   );
-  assert.equal(
-    needsAssignment({ completedReviewCount: 2, assignedReviewCount: 0, minimumHumanReviews: 2 }),
-    false,
+  const prioritized = prioritizeReviewQueue([
+    { id: "done", completedReviewCount: 2, minimumHumanReviews: 2, submittedAt: 1 },
+    { id: "claimed", completedReviewCount: 0, minimumHumanReviews: 2, submittedAt: 3 },
+    { id: "partly-reviewed", completedReviewCount: 1, minimumHumanReviews: 2, submittedAt: 2 },
+  ]);
+  assert.deepEqual(
+    prioritized.map((application) => application.id),
+    ["claimed", "partly-reviewed", "done"],
   );
+});
+
+test("reviewer workload is readable at a glance", () => {
   assert.equal(reviewerWorkloadLabel({ active: 4, completed: 2 }), "4 open");
   assert.equal(reviewerWorkloadLabel({ active: 0, completed: 7 }), "7 done");
   assert.equal(

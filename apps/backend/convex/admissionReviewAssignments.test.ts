@@ -3,10 +3,11 @@ import type { FunctionReturnType } from "convex/server";
 import { convexTest, type TestConvex } from "convex-test";
 import { describe, expect, test } from "vitest";
 
-import { api, components } from "./_generated/api.js";
+import { api, components, internal } from "./_generated/api.js";
 import type { Id } from "./_generated/dataModel.js";
 import type { MutationCtx } from "./_generated/server.js";
 import {
+  admissionReviewClaimMs,
   cancelAdmissionReviewAssignment,
   createAdmissionReviewAssignment,
   saveAdmissionHumanReview,
@@ -243,6 +244,66 @@ describe("admission review assignments", () => {
 
     expect(assignments.page).toEqual([]);
     expect(assignmentCounts).toEqual({ active: 0, completed: 0 });
+  });
+
+  test("expires unfinished review claims after 30 minutes", async () => {
+    const backend = convexTest(schema, modules);
+    const fixture = await seedAssignmentFixture(backend);
+    const assigned = await assignFixtureReviewer(backend, fixture, fixture.reviewerSubjectId);
+    await backend.run((ctx) =>
+      ctx.db.patch(assigned.assignmentId, {
+        assignedAt: Date.now() - admissionReviewClaimMs,
+      }),
+    );
+
+    await backend.mutation(internal.admissions.expireReviewAssignments, {});
+
+    const state = await assignmentState(backend, fixture, assigned.assignmentId);
+    expect(state.assignment).toMatchObject({
+      state: "cancelled",
+      cancellationReason: "The 30-minute review claim expired before a review was submitted.",
+    });
+    expect(state.application?.assignedReviewCount).toBe(0);
+    expect(state.assignmentGrants).toHaveLength(2);
+    expect(state.assignmentGrants.every((grant) => grant.status === "revoked")).toBe(true);
+  });
+
+  test("does not expire a claim after its review was submitted", async () => {
+    const backend = convexTest(schema, modules);
+    const fixture = await seedAssignmentFixture(backend);
+    const assigned = await assignFixtureReviewer(backend, fixture, fixture.reviewerSubjectId);
+    await saveFixtureReview(backend, fixture, fixture.reviewerPersonId, "accept");
+    await backend.run((ctx) =>
+      ctx.db.patch(assigned.assignmentId, {
+        assignedAt: Date.now() - admissionReviewClaimMs,
+      }),
+    );
+
+    await backend.mutation(internal.admissions.expireReviewAssignments, {});
+
+    const state = await assignmentState(backend, fixture, assigned.assignmentId);
+    expect(state.assignment).toMatchObject({ state: "completed" });
+  });
+
+  test("rejects a late review before the next expiry sweep", async () => {
+    const backend = convexTest(schema, modules);
+    const fixture = await seedAssignmentFixture(backend);
+    await assignFixtureReviewer(backend, fixture, fixture.reviewerSubjectId);
+
+    await expect(
+      backend.run(async (ctx) => {
+        const application = await ctx.db.get(fixture.applicationId);
+        if (!application) throw new Error("Assignment fixture is incomplete.");
+        return saveAdmissionHumanReview(ctx, {
+          application,
+          expectedApplicationContentVersion: 1,
+          reviewerPersonId: fixture.reviewerPersonId,
+          recommendation: "accept",
+          reasonCode: "clear_intent",
+          now: fixture.now + admissionReviewClaimMs,
+        });
+      }),
+    ).rejects.toThrow("This 30-minute review assignment expired");
   });
 
   test("origin counts include matching assignments beyond 4,000 rows", async () => {
