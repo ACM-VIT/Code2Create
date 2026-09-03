@@ -106,7 +106,7 @@ export function EmergencyPack({
           <p className="eyebrow">Event fallback</p>
           <h1>Recovery</h1>
           <p className="muted">
-            Prepare a current paper backup for check-in and judging if the live system becomes unavailable.
+            A printable backup for check-in and judging if the live system goes down.
           </p>
         </div>
       </header>
@@ -125,7 +125,7 @@ export function EmergencyPack({
             usable={usable.map((entry) => entry.pack)}
           />
           <p className="emergency-pack-boundary">
-            The incident lead decides when to use a paper backup. Completed sheets must still be entered and checked.
+            The incident lead decides when to switch to paper. Completed sheets are entered afterwards.
           </p>
         </section>
       )}
@@ -232,7 +232,6 @@ export function EmergencyPack({
           }}
         >
           <h2>Prepare a backup</h2>
-          <p>Preparing takes a fresh copy of everything and builds a new printable backup.</p>
           <label className="field">
             <span>What this backup is for</span>
             <textarea

@@ -45,6 +45,8 @@ const reportView = v.object({
 
 const queueRequestView = v.object({
   id: v.id("songRequests"),
+  provider: v.string(),
+  providerTrackId: v.string(),
   title: v.string(),
   artist: v.string(),
   album: v.optional(v.string()),
@@ -214,6 +216,8 @@ export const queue = query({
         const accessState = accessByMembership.get(request.requestedByMembershipId);
         return {
           id: request._id,
+          provider: request.provider,
+          providerTrackId: request.providerTrackId,
           title: request.title,
           artist: request.artist,
           ...(request.album !== undefined ? { album: request.album } : {}),

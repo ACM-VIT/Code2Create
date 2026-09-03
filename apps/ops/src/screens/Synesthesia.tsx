@@ -6,10 +6,11 @@ import {
   synesthesiaWindowStatusLabels,
 } from '@code2create/domain'
 import type { FunctionReturnType } from 'convex/server'
-import { useMutation, useQuery } from 'convex/react'
-import { useState } from 'react'
+import { useAction, useMutation, useQuery } from 'convex/react'
+import { useEffect, useState } from 'react'
 
 import { LoadingLabel, SkeletonCard, SkeletonList } from '../components/Skeleton'
+import { SynesthesiaHostPlayer } from '../components/SynesthesiaHostPlayer'
 import { SynesthesiaRequestCard } from '../components/SynesthesiaRequestCard'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
@@ -24,6 +25,7 @@ type CatalogResult = FunctionReturnType<typeof api.synesthesiaConfiguration.cata
 type CatalogTrack = CatalogResult['tracks'][number]
 type QueueResult = FunctionReturnType<typeof api.synesthesiaOperations.queue>
 type QueueRequest = QueueResult['requests'][number] & { voteCount: number }
+type YouTubeVideo = FunctionReturnType<typeof api.synesthesiaYouTube.search>[number]
 
 const windowKinds: WindowKind[] = [
   'arrival',
@@ -279,7 +281,7 @@ export function Synesthesia() {
           <p className="eyebrow">Shared room ambience</p>
           <h1>Music desk</h1>
           <p className="muted">
-            Open song requests for a set time, moderate the queue, and mark what is playing. Audio stays in the licensed music app.
+            Open song requests, approve them, and mark what is playing. Audio stays in the music app.
           </p>
         </div>
       </div>
@@ -290,8 +292,8 @@ export function Synesthesia() {
             <p>Nothing is running at this desk yet.</p>
             <p className="muted">
               {overview.canCreateWindow
-                ? 'Create and publish the first window below. Nothing else on this desk works until one exists.'
-                : 'No music window is assigned to this account, so there is nothing to run from here.'}
+                ? 'Create and publish a window to start.'
+                : 'No music window is assigned to this account.'}
             </p>
           </>
         ) : openWindows.length === 0 ? (
@@ -302,14 +304,11 @@ export function Synesthesia() {
                 ? `, and ${draftWindows.length === 1 ? 'one window is' : `${draftWindows.length} windows are`} still a draft.`
                 : '.'}
             </p>
-            <p className="muted">
-              Nobody can request a song and no queue can build until a draft is published.
-            </p>
+            <p className="muted">Publish a draft to start taking requests.</p>
           </>
         ) : !queueIsCurrent ? (
           <>
             <p>{openWindows.length === 1 ? 'One window is open to participants.' : `${openWindows.length} windows are open to participants.`}</p>
-            <p className="muted">Requests are arriving. The queue for each window is below.</p>
           </>
         ) : (
           <>
@@ -321,9 +320,7 @@ export function Synesthesia() {
                 ? ` ${unansweredReports === 1 ? '1 song has an unanswered report' : `${unansweredReports} songs have unanswered reports`}.`
                 : ''}
             </p>
-            <p className="muted">
-              A request cannot reach the room until you approve it and add it to the queue.
-            </p>
+            <p className="muted">Approve a request to add it to the queue.</p>
           </>
         )}
       </section>
@@ -356,17 +353,16 @@ export function Synesthesia() {
         </div>
 
         <p className="section-note">
-          Each request needs a decision: approve it, add it to the queue, then mark it playing and played as it
-          goes out over the room speakers.
+          Approve a request to queue it, then mark it playing and played.
         </p>
 
         {queueWindows.length === 0 ? (
           <div className="health-empty">
-            <strong>There is no queue to work yet.</strong>
+            <strong>No queue yet.</strong>
             <span>
               {overview.windows.length === 0
-                ? 'A queue belongs to a window, so create and publish one first.'
-                : 'None of the windows visible to this account includes queue access, so requests cannot be read or moderated from here.'}
+                ? 'Publish a window first.'
+                : 'This account cannot read any window’s queue.'}
             </span>
           </div>
         ) : queue === undefined || !selectedWindow ? (
@@ -382,6 +378,7 @@ export function Synesthesia() {
               {queue.window.playbackPauseReason ? <small>{queue.window.playbackPauseReason}</small> : null}
             </div>
             {blocker ? <p className="notice">{blocker}</p> : null}
+            <SynesthesiaHostPlayer queue={queue} requests={queueRequests} serverNow={serverNow} />
             <div className="synesthesia-request-list">
               {queueRequests
                 .map((request) => {
@@ -406,15 +403,15 @@ export function Synesthesia() {
                 })}
               {queueRequests.length === 0 ? (
                 <div className="health-empty">
-                  <strong>No participant has requested a song in this window.</strong>
+                  <strong>No requests yet.</strong>
                   <span>
                     {selectedWindow.status === 'draft'
-                      ? 'The window is still a draft, so nobody can see it. Publish it and requests will start arriving here.'
+                      ? 'Publish the window to start taking requests.'
                       : selectedWindow.status === 'closed'
-                        ? 'The window is closed, so no further request can arrive.'
+                        ? 'The window is closed.'
                         : selectedWindow.requestsOpen
-                          ? 'Requests are open. Each one will appear here needing your approval before it can be queued.'
-                          : 'Requests are closed for this window, so no new song can arrive. Reopen requests on the window above.'}
+                          ? 'New requests appear here for approval.'
+                          : 'Requests are closed for this window. Reopen them on the window above.'}
                   </span>
                 </div>
               ) : null}
@@ -433,9 +430,7 @@ export function Synesthesia() {
       ) : (
         <section className="synesthesia-section">
           <h2>Available tracks</h2>
-          <p className="muted">
-            Participants can only request songs from this list. Reading it needs the event-wide track list permission, which this account doesn’t have.
-          </p>
+          <p className="muted">This account cannot read the track list.</p>
         </section>
       )}
     </section>
@@ -585,8 +580,7 @@ function WindowSection({
       </div>
 
       <p className="section-note">
-        A window is a stretch of time with its own limits, allowed tracks and queue. Saving one creates a draft
-        only this desk can see. Publishing it is what lets requests start arriving.
+        A window is a period when requests are open. Saving makes a draft; publishing opens requests.
       </p>
 
       <div className="synesthesia-window-list">
@@ -652,11 +646,11 @@ function WindowSection({
         ))}
         {overview.windows.length === 0 ? (
           <div className="health-empty">
-            <strong>No window exists, so the desk has nothing to run.</strong>
+            <strong>No window yet.</strong>
             <span>
               {overview.canCreateWindow
-                ? 'Create one for each period you want music open: arrival, the working session, late night.'
-                : 'No music window is assigned to this account. An organizer with window access has to create one before anything can run from here.'}
+                ? 'Create one for each period music is open: arrival, the working session, late night.'
+                : 'An organizer with window access has to create one.'}
             </span>
           </div>
         ) : null}
@@ -862,12 +856,12 @@ function CatalogSection({
 
       <p className="section-note">
         {catalog === undefined || catalog.tracks.length === 0
-          ? 'Participants can only request a song that is on this list, so a window whose list is empty will take no requests at all.'
+          ? 'Participants can only request songs on this list.'
           : `${countLabel(requestableCount(catalog), 'track')} can be requested${
               catalog.tracks.length > requestableCount(catalog)
                 ? `, and ${catalog.tracks.length - requestableCount(catalog)} have been withdrawn and cannot.`
                 : '.'
-            } Each window narrows this list further by length, energy tag and whether explicit tracks are allowed.`}
+            } Each window can narrow this list further.`}
       </p>
 
       {catalog === undefined ? (
@@ -924,11 +918,11 @@ function CatalogSection({
           ))}
           {catalog.tracks.length === 0 ? (
             <div className="health-empty">
-              <strong>No track has been added yet.</strong>
+              <strong>No tracks yet.</strong>
               <span>
                 {canManage
-                  ? 'Add the tracks from the event’s licensed music account. Until at least one is here, a published window will show participants nothing to request.'
-                  : 'Adding tracks needs the catalog-manage permission, which this account does not have. Until a track is added, a published window will show participants nothing to request.'}
+                  ? 'Participants can only request what is listed here.'
+                  : 'Adding tracks needs the catalog-manage permission.'}
               </span>
             </div>
           ) : null}
@@ -952,6 +946,21 @@ function CatalogSection({
             <p className="eyebrow">{editor.mode === 'create' ? 'New catalog track' : 'Edit catalog track'}</p>
             <h2>{editor.mode === 'create' ? 'Add track' : editor.values.title}</h2>
           </div>
+          {editor.mode === 'create' ? (
+            <YouTubeTrackFinder
+              disabled={savePending || busy}
+              onPick={(video) => updateValues({
+                ...editor.values,
+                provider: 'youtube',
+                providerTrackId: video.videoId,
+                title: video.title,
+                artist: video.channelTitle,
+                durationSeconds: String(video.durationSeconds),
+                isExplicit: video.ageRestricted,
+                energyTag: editor.values.energyTag || 'unclassified',
+              })}
+            />
+          ) : null}
           <fieldset disabled={savePending || busy} style={{ display: 'contents' }}>
           <div className="synesthesia-editor-grid">
             {editor.mode === 'create' ? (
@@ -1012,5 +1021,72 @@ function CatalogSection({
         </form>
       ) : null}
     </section>
+  )
+}
+
+/** Searches YouTube from the desk and hands a result to the track editor. */
+function YouTubeTrackFinder({
+  disabled,
+  onPick,
+}: {
+  disabled: boolean
+  onPick: (video: YouTubeVideo) => void
+}) {
+  const search = useAction(api.synesthesiaYouTube.search)
+  const [query, setQuery] = useState('')
+  const [outcome, setOutcome] = useState<
+    { query: string; videos: YouTubeVideo[] } | { query: string; failure: string } | null
+  >(null)
+  const trimmed = query.trim()
+  const activeQuery = trimmed.length >= 2 ? trimmed : null
+  const searching = activeQuery !== null && outcome?.query !== activeQuery
+
+  useEffect(() => {
+    if (activeQuery === null) return
+    const timer = window.setTimeout(() => {
+      search({ eventSlug, query: activeQuery })
+        .then((videos) => setOutcome({ query: activeQuery, videos }))
+        .catch((caught: unknown) => setOutcome({ query: activeQuery, failure: readableError(caught) }))
+    }, 450)
+    return () => window.clearTimeout(timer)
+  }, [activeQuery, search])
+
+  const current = activeQuery !== null && outcome?.query === activeQuery ? outcome : null
+
+  return (
+    <div className="synesthesia-finder">
+      <label className="field">
+        <span>Find on YouTube</span>
+        <input
+          type="search"
+          value={query}
+          disabled={disabled}
+          maxLength={80}
+          placeholder="Title or artist"
+          onChange={(event) => setQuery(event.target.value)}
+        />
+      </label>
+      {searching ? <p className="muted">Searching…</p> : null}
+      {current && 'failure' in current ? <p className="notice error">{current.failure}</p> : null}
+      {current && 'videos' in current ? (
+        current.videos.length === 0 ? (
+          <p className="muted">No playable videos match.</p>
+        ) : (
+          <div className="synesthesia-finder-list">
+            {current.videos.map((video) => (
+              <div className="synesthesia-catalog-track" key={video.videoId}>
+                <div>
+                  <strong>{video.title}</strong>
+                  <span>{video.channelTitle} · {video.durationSeconds}s{video.ageRestricted ? ' · age-restricted' : ''}</span>
+                </div>
+                <button type="button" className="text-button" disabled={disabled} onClick={() => onPick(video)}>
+                  Use
+                </button>
+              </div>
+            ))}
+          </div>
+        )
+      ) : null}
+    </div>
   )
 }

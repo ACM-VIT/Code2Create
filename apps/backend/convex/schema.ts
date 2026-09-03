@@ -115,6 +115,7 @@ import {
   venueCheckInStatus,
   venueIdentityCheckMethod,
   venuePresenceState,
+  youtubeVideo,
 } from "./values";
 import {
   intelligenceRecommendationArguments,
@@ -1720,6 +1721,14 @@ export default defineSchema({
   })
     .index("by_membership", ["membershipId"])
     .index("by_event_state_changed", ["eventId", "state", "changedAt"]),
+
+  /** Recent provider searches, shared by every event so quota is spent once per phrase. */
+  synesthesiaSearchCache: defineTable({
+    provider: v.literal("youtube"),
+    queryKey: v.string(),
+    results: v.array(youtubeVideo),
+    fetchedAt: v.number(),
+  }).index("by_provider_query", ["provider", "queryKey"]),
 
   projectDrafts: defineTable({
     eventId: v.id("events"),

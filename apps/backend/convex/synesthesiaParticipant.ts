@@ -1,7 +1,7 @@
 import { ConvexError, v } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
-import type { MutationCtx } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
 import { optionalNormalizedText } from "./lib/strings";
@@ -48,6 +48,8 @@ function storedCreationResult(resultJson: string | undefined, label: string) {
 
 const participantRequest = v.object({
   id: v.id("songRequests"),
+  provider: v.string(),
+  providerTrackId: v.string(),
   title: v.string(),
   artist: v.string(),
   album: v.optional(v.string()),
@@ -58,6 +60,7 @@ const participantRequest = v.object({
   queueMode: songQueueMode,
   publicReason: v.optional(v.string()),
   scheduledFor: v.optional(v.number()),
+  playbackStartedAt: v.optional(v.number()),
   isMine: v.boolean(),
   hasVoted: v.boolean(),
   hasReported: v.boolean(),
@@ -94,8 +97,9 @@ function requestAllowsVote(state: Doc<"songRequests">["state"]) {
   return state === "pending" || state === "approved" || state === "queued";
 }
 
-async function participantWindowForWrite(
-  ctx: MutationCtx,
+/** The window a request or vote targets: published, running now, in this event. */
+export async function participantWindowForWrite(
+  ctx: QueryCtx | MutationCtx,
   eventId: Id<"events">,
   windowId: Id<"synesthesiaWindows">,
 ) {
@@ -211,6 +215,8 @@ export const state = query({
         .filter((request) => isParticipantVisible(request, context.membership._id))
         .map((request) => ({
           id: request._id,
+          provider: request.provider,
+          providerTrackId: request.providerTrackId,
           title: request.title,
           artist: request.artist,
           ...(request.album !== undefined ? { album: request.album } : {}),
@@ -224,6 +230,9 @@ export const state = query({
             : {}),
           ...(request.scheduledFor !== undefined
             ? { scheduledFor: request.scheduledFor }
+            : {}),
+          ...(request.playbackStartedAt !== undefined
+            ? { playbackStartedAt: request.playbackStartedAt }
             : {}),
           isMine: request.requestedByMembershipId === context.membership._id,
           hasVoted: votedRequestIds.has(request._id),
@@ -324,6 +333,151 @@ export const searchCatalog = query({
   },
 });
 
+type SynesthesiaParticipant = Awaited<ReturnType<typeof requireSynesthesiaParticipant>>;
+
+/**
+ * Creates one request for a catalog track in a window, or returns the visible
+ * request that already covers that track. Callers verify the participant.
+ */
+export async function createSongRequest(
+  ctx: MutationCtx,
+  args: {
+    context: SynesthesiaParticipant;
+    windowId: Id<"synesthesiaWindows">;
+    track: Doc<"synesthesiaCatalogTracks">;
+    note: string | undefined;
+    clientOperationId: string;
+  },
+) {
+  const { context, track } = args;
+  const note = optionalNormalizedText(args.note, "Request note", 160);
+  const requestFingerprint = operationFingerprint([
+    args.windowId,
+    track._id,
+    note ?? null,
+  ]);
+  const prior = await findOperation(ctx, {
+    eventId: context.event._id,
+    actorPersonId: context.person._id,
+    clientOperationId: args.clientOperationId,
+    commandName: "synesthesia.request_track",
+    requestFingerprint,
+  });
+  if (prior) {
+    const requestId = ctx.db.normalizeId("songRequests", prior.targetId);
+    if (!requestId) throw new Error("The prior song request result is invalid.");
+    return {
+      requestId,
+      created: storedCreationResult(prior.resultJson, "song request"),
+    };
+  }
+  const window = await participantWindowForWrite(
+    ctx,
+    context.event._id,
+    args.windowId,
+  );
+  if (!window.requestsOpen) {
+    throw new ConvexError({
+      code: "REQUESTS_CLOSED",
+      message: "New requests are closed for this window.",
+    });
+  }
+  if (track.eventId !== context.event._id || !trackFitsWindow(track, window)) {
+    throw new ConvexError({
+      code: "TRACK_NOT_ALLOWED",
+      message: "That track is not allowed in the current ambience window.",
+    });
+  }
+  const existing = await ctx.db
+    .query("songRequests")
+    .withIndex("by_window_track", (index) =>
+      index.eq("windowId", window._id).eq("catalogTrackId", track._id),
+    )
+    .unique();
+  const now = Date.now();
+  if (existing) {
+    if (existing.state === "hidden" || existing.state === "rejected") {
+      throw new ConvexError({
+        code: "TRACK_UNAVAILABLE",
+        message: "That track cannot be requested again in this window.",
+      });
+    }
+    await recordOperation(ctx, {
+      eventId: context.event._id,
+      actorPersonId: context.person._id,
+      clientOperationId: args.clientOperationId,
+      commandName: "synesthesia.request_track",
+      requestFingerprint,
+      targetType: "song_request",
+      targetId: existing._id,
+      resultJson: "existing",
+      createdAt: now,
+    });
+    return { requestId: existing._id, created: false };
+  }
+  const [totalRequests, ownRequests] = await Promise.all([
+    ctx.db
+      .query("songRequests")
+      .withIndex("by_window_created", (index) => index.eq("windowId", window._id))
+      .take(window.maxRequestsTotal),
+    ctx.db
+      .query("songRequests")
+      .withIndex("by_window_requester_created", (index) =>
+        index
+          .eq("windowId", window._id)
+          .eq("requestedByMembershipId", context.membership._id),
+      )
+      .take(window.maxRequestsPerParticipant),
+  ]);
+  if (totalRequests.length >= window.maxRequestsTotal) {
+    throw new ConvexError({
+      code: "WINDOW_REQUEST_LIMIT",
+      message: "This request window has reached its published limit.",
+    });
+  }
+  if (ownRequests.length >= window.maxRequestsPerParticipant) {
+    throw new ConvexError({
+      code: "PARTICIPANT_REQUEST_LIMIT",
+      message: "You have used your request limit for this window.",
+    });
+  }
+  const requestId = await ctx.db.insert("songRequests", {
+    eventId: context.event._id,
+    windowId: window._id,
+    catalogTrackId: track._id,
+    requestedByMembershipId: context.membership._id,
+    requestedByPersonId: context.person._id,
+    provider: track.provider,
+    providerTrackId: track.providerTrackId,
+    title: track.title,
+    artist: track.artist,
+    ...(track.album !== undefined ? { album: track.album } : {}),
+    durationSeconds: track.durationSeconds,
+    isExplicit: track.isExplicit,
+    energyTag: track.energyTag,
+    ...(note !== undefined ? { note } : {}),
+    state: window.autoApproveRequests ? "approved" : "pending",
+    openReportCount: 0,
+    queueMode: "normal",
+    version: 1,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await appendSongRequestReadFactById(ctx, requestId, now);
+  await recordOperation(ctx, {
+    eventId: context.event._id,
+    actorPersonId: context.person._id,
+    clientOperationId: args.clientOperationId,
+    commandName: "synesthesia.request_track",
+    requestFingerprint,
+    targetType: "song_request",
+    targetId: requestId,
+    resultJson: "created",
+    createdAt: now,
+  });
+  return { requestId, created: true };
+}
+
 export const requestTrack = mutation({
   args: {
     eventSlug: v.string(),
@@ -335,133 +489,20 @@ export const requestTrack = mutation({
   returns: v.object({ requestId: v.id("songRequests"), created: v.boolean() }),
   handler: async (ctx, args) => {
     const context = await requireSynesthesiaParticipant(ctx, args.eventSlug);
-    const note = optionalNormalizedText(args.note, "Request note", 160);
-    const requestFingerprint = operationFingerprint([
-      args.windowId,
-      args.trackId,
-      note ?? null,
-    ]);
-    const prior = await findOperation(ctx, {
-      eventId: context.event._id,
-      actorPersonId: context.person._id,
-      clientOperationId: args.clientOperationId,
-      commandName: "synesthesia.request_track",
-      requestFingerprint,
-    });
-    if (prior) {
-      const requestId = ctx.db.normalizeId("songRequests", prior.targetId);
-      if (!requestId) throw new Error("The prior song request result is invalid.");
-      return {
-        requestId,
-        created: storedCreationResult(prior.resultJson, "song request"),
-      };
-    }
-    const window = await participantWindowForWrite(
-      ctx,
-      context.event._id,
-      args.windowId,
-    );
-    if (!window.requestsOpen) {
-      throw new ConvexError({
-        code: "REQUESTS_CLOSED",
-        message: "New requests are closed for this window.",
-      });
-    }
     const track = await ctx.db.get("synesthesiaCatalogTracks", args.trackId);
-    if (!track || track.eventId !== context.event._id || !trackFitsWindow(track, window)) {
+    if (!track || track.eventId !== context.event._id) {
       throw new ConvexError({
         code: "TRACK_NOT_ALLOWED",
         message: "That track is not allowed in the current ambience window.",
       });
     }
-    const existing = await ctx.db
-      .query("songRequests")
-      .withIndex("by_window_track", (index) =>
-        index.eq("windowId", window._id).eq("catalogTrackId", track._id),
-      )
-      .unique();
-    const now = Date.now();
-    if (existing) {
-      if (existing.state === "hidden" || existing.state === "rejected") {
-        throw new ConvexError({
-          code: "TRACK_UNAVAILABLE",
-          message: "That track cannot be requested again in this window.",
-        });
-      }
-      await recordOperation(ctx, {
-        eventId: context.event._id,
-        actorPersonId: context.person._id,
-        clientOperationId: args.clientOperationId,
-        commandName: "synesthesia.request_track",
-        requestFingerprint,
-        targetType: "song_request",
-        targetId: existing._id,
-        resultJson: "existing",
-        createdAt: now,
-      });
-      return { requestId: existing._id, created: false };
-    }
-    const [totalRequests, ownRequests] = await Promise.all([
-      ctx.db
-        .query("songRequests")
-        .withIndex("by_window_created", (index) => index.eq("windowId", window._id))
-        .take(window.maxRequestsTotal),
-      ctx.db
-        .query("songRequests")
-        .withIndex("by_window_requester_created", (index) =>
-          index
-            .eq("windowId", window._id)
-            .eq("requestedByMembershipId", context.membership._id),
-        )
-        .take(window.maxRequestsPerParticipant),
-    ]);
-    if (totalRequests.length >= window.maxRequestsTotal) {
-      throw new ConvexError({
-        code: "WINDOW_REQUEST_LIMIT",
-        message: "This request window has reached its published limit.",
-      });
-    }
-    if (ownRequests.length >= window.maxRequestsPerParticipant) {
-      throw new ConvexError({
-        code: "PARTICIPANT_REQUEST_LIMIT",
-        message: "You have used your request limit for this window.",
-      });
-    }
-    const requestId = await ctx.db.insert("songRequests", {
-      eventId: context.event._id,
-      windowId: window._id,
-      catalogTrackId: track._id,
-      requestedByMembershipId: context.membership._id,
-      requestedByPersonId: context.person._id,
-      provider: track.provider,
-      providerTrackId: track.providerTrackId,
-      title: track.title,
-      artist: track.artist,
-      ...(track.album !== undefined ? { album: track.album } : {}),
-      durationSeconds: track.durationSeconds,
-      isExplicit: track.isExplicit,
-      energyTag: track.energyTag,
-      ...(note !== undefined ? { note } : {}),
-      state: window.autoApproveRequests ? "approved" : "pending",
-      openReportCount: 0,
-      queueMode: "normal",
-      version: 1,
-      createdAt: now,
-      updatedAt: now,
-    });
-    await appendSongRequestReadFactById(ctx, requestId, now);
-    await recordOperation(ctx, {
-      eventId: context.event._id,
-      actorPersonId: context.person._id,
+    return createSongRequest(ctx, {
+      context,
+      windowId: args.windowId,
+      track,
+      note: args.note,
       clientOperationId: args.clientOperationId,
-      commandName: "synesthesia.request_track",
-      requestFingerprint,
-      targetType: "song_request",
-      targetId: requestId,
-      resultJson: "created",
-      createdAt: now,
     });
-    return { requestId, created: true };
   },
 });
 

@@ -1106,3 +1106,14 @@ export type AttentionDetectorKey = Infer<typeof attentionDetectorKey>;
 export type AttentionSubjectType = Infer<typeof attentionSubjectType>;
 export type AttentionItemState = Infer<typeof attentionItemState>;
 export type AttentionScopeType = Infer<typeof attentionScopeType>;
+
+export const youtubeVideo = v.object({
+  videoId: v.string(),
+  title: v.string(),
+  channelTitle: v.string(),
+  durationSeconds: v.number(),
+  thumbnailUrl: v.optional(v.string()),
+  ageRestricted: v.boolean(),
+  embeddable: v.boolean(),
+});
+export type YouTubeVideo = Infer<typeof youtubeVideo>;

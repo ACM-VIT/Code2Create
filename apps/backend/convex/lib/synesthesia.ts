@@ -21,6 +21,10 @@ export const maximumSynesthesiaWindows = 64;
 export const maximumRequestsPerWindow = 200;
 export const maximumCatalogSearchResults = 20;
 
+/** Tracks participants pull straight from YouTube; staff never classified them. */
+export const youtubeProvider = "youtube";
+export const unclassifiedEnergyTag = "unclassified";
+
 const participatingTeamStatuses = new Set<Doc<"teams">["status"]>([
   "admitted",
   "confirmed",
@@ -37,22 +41,13 @@ export async function synesthesiaParticipantContext(
   const { person } = await requireCurrentPerson(ctx);
   const subject = await requireEventSubject(ctx, event._id, person._id);
   const membership = await requireMembership(ctx, event._id, person._id);
-  const [teamMembership, eventRole, accessState] = await Promise.all([
+  const [teamMembership, accessState] = await Promise.all([
     ctx.db
       .query("teamMembers")
       .withIndex("by_event_membership_status", (index) =>
         index
           .eq("eventId", event._id)
           .eq("membershipId", membership._id)
-          .eq("status", "active"),
-      )
-      .unique(),
-    ctx.db
-      .query("eventRoles")
-      .withIndex("by_event_person_status", (index) =>
-        index
-          .eq("eventId", event._id)
-          .eq("personId", person._id)
           .eq("status", "active"),
       )
       .unique(),
@@ -64,9 +59,10 @@ export async function synesthesiaParticipantContext(
   const team = teamMembership
     ? await ctx.db.get("teams", teamMembership.teamId)
     : null;
+  // Being on a participating team is what makes someone a participant here;
+  // a staff role on the same account does not take music away.
   const eligible =
     membership.eligibilityStatus === "eligible" &&
-    eventRole === null &&
     team !== null &&
     team.eventId === event._id &&
     participatingTeamStatuses.has(team.status);
@@ -123,11 +119,13 @@ export function trackFitsWindow(
   track: Doc<"synesthesiaCatalogTracks">,
   window: Doc<"synesthesiaWindows">,
 ) {
+  // YouTube-sourced tracks arrive unclassified, so only the window's duration
+  // and explicit-content rules apply to them.
   return (
     track.status === "active" &&
     track.durationSeconds <= window.maxTrackDurationSeconds &&
     (!track.isExplicit || window.allowExplicit) &&
-    window.allowedEnergyTags.includes(track.energyTag)
+    (track.provider === youtubeProvider || window.allowedEnergyTags.includes(track.energyTag))
   );
 }
 

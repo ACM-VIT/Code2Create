@@ -143,7 +143,7 @@ function AdmissionResultsRelease() {
           <p className="muted">
             {status.releasedAt
               ? `${status.releasedByName ?? 'Supreme'} released the results. Participant portals and emails use the same decision set.`
-              : 'Review every recorded decision here. Releasing makes all final results visible together and queues the configured emails.'}
+              : 'Releasing makes every final result visible at once and sends the configured emails.'}
           </p>
         </div>
         {!status.releasedAt && !armed ? (

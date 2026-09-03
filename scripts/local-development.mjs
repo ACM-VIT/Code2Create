@@ -92,6 +92,7 @@ const privateEnvironmentKeys = [
   'SMS_AWS_SECRET_ACCESS_KEY',
   'SMS_AWS_SESSION_TOKEN',
   'SMS_AWS_TEMPLATE_ID',
+  'YOUTUBE_API_KEY',
 ]
 
 const localPrivateEnvironment = Object.fromEntries(

@@ -1,50 +1,87 @@
+import { useEffect, useState, type CSSProperties } from 'react'
+import { flushSync } from 'react-dom'
+
+import { IntegrationsTile, type IntegrationsTileModel } from '../components/dashboard/IntegrationsTile'
+import { MusicTile, type MusicTileModel } from '../components/dashboard/MusicTile'
+import { Tile, TileEyebrow } from '../components/dashboard/Tile'
+import { areasValue, gridTemplates, type TileKey } from '../components/dashboard/dashboardLayout'
+import { useReducedMotion } from '../components/dashboard/useReducedMotion'
+import { PortalScene } from '../components/portal/PortalScene'
 import {
   TeamCluster,
   type ClusterMember,
   type ClusterTeam,
 } from '../components/portal/TeamCluster'
-import { PortalScene } from '../components/portal/PortalScene'
 
-const tileAreas = {
-  hero: '[grid-area:hero]',
-  blossom: '[grid-area:blossom]',
-  rose: '[grid-area:rose]',
-  center: '[grid-area:center]',
-  garden: '[grid-area:garden]',
-  feature: '[grid-area:feature]',
-  small: '[grid-area:small]',
-} as const
-
-type TileArea = keyof typeof tileAreas
-
-function Tile({ area }: { area: TileArea }) {
-  return (
-    <div
-      className={`relative z-10 min-h-0 min-w-0 rounded-[18px] border border-petal-edge/70 bg-fg/5 shadow-[0_20px_44px_-30px_var(--shade-2),inset_0_1px_0_color-mix(in_srgb,var(--color-fg)_14%,transparent)] backdrop-blur-[22px] backdrop-saturate-[1.35] ${tileAreas[area]}`}
-    />
-  )
-}
+const plainTiles: readonly { area: TileKey; label: string; note: string }[] = [
+  { area: 'status', label: 'event', note: 'Schedule and what is next.' },
+  { area: 'team', label: 'squad', note: 'Who is on the team.' },
+  { area: 'updates', label: 'updates', note: 'Checkpoints as they open.' },
+  { area: 'queue', label: 'review', note: 'Where the team stands.' },
+  { area: 'help', label: 'help', note: 'Discord and the desk.' },
+]
 
 /**
- * The dashboard bento: seven glass tiles on one named-area grid. Every
- * breakpoint re-maps the areas instead of nesting grids, so the tiles reflow
- * with no wrapper elements. Phones stack two across; tablets stagger two
- * columns with the tall tiles offset; from `lg` up it is the mockup's
- * three-column composition. The grid takes the height the scene leaves it
- * (`flex-1`), so it fills the viewport without restating the scene's
- * padding, and only scrolls once the tiles would drop under their minimum.
+ * The dashboard bento: seven glass tiles on one named-area grid that remaps
+ * itself around whichever tile is open. Tiles take plain data and callbacks,
+ * so the live app and the gallery render the same screen.
  */
 export function DashboardScreen({
   team,
   members,
   teamEditable,
   onSignOut,
+  music,
+  integrations,
 }: {
   team: ClusterTeam
   members: readonly ClusterMember[]
   teamEditable: boolean
   onSignOut: () => void
+  music: MusicTileModel
+  integrations: IntegrationsTileModel
 }) {
+  const [focus, setFocus] = useState<TileKey | null>(null)
+  const reducedMotion = useReducedMotion()
+
+  const changeFocus = (next: TileKey | null) => {
+    if (next === focus) return
+    const update = () => flushSync(() => setFocus(next))
+    if (!reducedMotion && document.startViewTransition) {
+      document.startViewTransition(update)
+    } else {
+      update()
+    }
+  }
+
+  useEffect(() => {
+    if (focus === null) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') changeFocus(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
+
+  const templates = gridTemplates(focus)
+  const gridStyle = {
+    '--dash-cols': templates.base.columns,
+    '--dash-rows': templates.base.rows,
+    '--dash-areas': areasValue(templates.base),
+    '--dash-cols-md': templates.md.columns,
+    '--dash-rows-md': templates.md.rows,
+    '--dash-areas-md': areasValue(templates.md),
+    '--dash-cols-lg': templates.lg.columns,
+    '--dash-rows-lg': templates.lg.rows,
+    '--dash-areas-lg': areasValue(templates.lg),
+  } as CSSProperties
+
+  const tileProps = (area: TileKey) => ({
+    focused: focus === area,
+    onFocus: () => changeFocus(area),
+    onRelease: () => changeFocus(null),
+  })
+
   return (
     <PortalScene
       tree="both"
@@ -61,8 +98,8 @@ export function DashboardScreen({
       <div className="flex w-full max-w-[1200px] flex-1 flex-col justify-center lg:pt-8 lg:pb-6">
         <h1 className="sr-only">Dashboard</h1>
         <div
-          aria-hidden="true"
-          className="relative grid min-h-[720px] flex-1 grid-cols-2 grid-rows-[repeat(5,minmax(118px,1fr))] gap-4 [grid-template-areas:'hero_hero'_'blossom_rose'_'center_center'_'feature_feature'_'small_garden'] md:min-h-[640px] md:grid-rows-[1.35fr_1fr_1fr_1fr_1fr] md:[grid-template-areas:'hero_hero'_'blossom_rose'_'center_feature'_'garden_feature'_'garden_small'] lg:max-h-[880px] lg:min-h-[460px] lg:grid-cols-[322fr_365fr_395fr] lg:grid-rows-[293fr_234fr_70fr_177fr] lg:gap-[18px] lg:[grid-template-areas:'hero_hero_blossom'_'rose_center_feature'_'rose_garden_feature'_'small_garden_feature']"
+          style={gridStyle}
+          className="relative grid min-h-[720px] flex-1 grid-cols-[var(--dash-cols)] grid-rows-[var(--dash-rows)] gap-4 [grid-template-areas:var(--dash-areas)] md:min-h-[640px] md:grid-cols-[var(--dash-cols-md)] md:grid-rows-[var(--dash-rows-md)] md:[grid-template-areas:var(--dash-areas-md)] lg:max-h-[880px] lg:min-h-[460px] lg:grid-cols-[var(--dash-cols-lg)] lg:grid-rows-[var(--dash-rows-lg)] lg:gap-[18px] lg:[grid-template-areas:var(--dash-areas-lg)]"
         >
           <img
             src="/assets/branch-plate.png"
@@ -70,13 +107,19 @@ export function DashboardScreen({
             aria-hidden
             className="pointer-events-none absolute -top-13 -left-16 z-0 w-[min(680px,70%)] max-w-none opacity-90 [filter:var(--scene-branch-filter)]"
           />
-          <Tile area="hero" />
-          <Tile area="blossom" />
-          <Tile area="rose" />
-          <Tile area="center" />
-          <Tile area="garden" />
-          <Tile area="feature" />
-          <Tile area="small" />
+          <MusicTile model={music} {...tileProps('music')} />
+          <IntegrationsTile model={integrations} {...tileProps('integrations')} />
+          {plainTiles.map((tile) => (
+            <Tile key={tile.area} area={tile.area} {...tileProps(tile.area)}>
+              <div className="flex flex-1 flex-col justify-between gap-3 p-[18px]">
+                <div className="flex items-baseline justify-between gap-3">
+                  <TileEyebrow>{tile.label}</TileEyebrow>
+                  {focus !== tile.area ? <span className="text-[11px] text-fg/50">tap to open</span> : null}
+                </div>
+                <p className="m-0 text-[13px] leading-snug text-fg/60">{tile.note}</p>
+              </div>
+            </Tile>
+          ))}
         </div>
       </div>
     </PortalScene>

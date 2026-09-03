@@ -58,7 +58,7 @@
     "test:figma-evidence": "vitest run convex/figmaTeamMetrics.test.ts && node --test convex/lib/figmaEvidenceBrowser.test.ts convex/lib/figmaMetadataSchedule.test.ts",
     "test:figma-comparison": "node --test convex/lib/figmaCheckpointComparison.test.ts",
     "test:queue-estimate": "node --test convex/lib/queueEstimate.test.ts && vitest run convex/participantReview.test.ts",
-    "test:synesthesia": "vitest run convex/synesthesiaVoting.test.ts",
+    "test:synesthesia": "vitest run convex/synesthesiaVoting.test.ts convex/lib/youtubeCatalog.test.ts",
     "test:score-governance": "vitest run convex/scoreGovernance.test.ts convex/lib/scoreCorrectionPolicy.test.ts",
     "test:floor": "node --test convex/lib/floor.test.ts && vitest run convex/floorMappingSummary.test.ts convex/floorParticipantQr.test.ts",
     "test:emergency-pack": "node --test convex/lib/emergencyPack.test.ts",

@@ -17,7 +17,7 @@ import { TeamCluster } from '../components/portal/TeamCluster'
 import { PortalButton, PortalTextButton } from '../components/portal/PortalButton'
 import { PortalError, PortalTextarea } from '../components/portal/PortalField'
 import { normalizedIdeaLength, useNoveltyPreview } from '../hooks/useNoveltyPreview'
-import { DashboardScreen } from './DashboardScreen'
+import { DashboardLive } from './DashboardLive'
 import { NoveltyPill, ReviewEditRow } from './IntakeScreen'
 import {
   AccordionItem,
@@ -408,7 +408,8 @@ function SubmittedWorkspace({
   // ---- f9 · event live: the dashboard bento ------------------------------
   if (eventIsLive) {
     return (
-      <DashboardScreen
+      <DashboardLive
+        capabilities={capabilities}
         team={team}
         members={members}
         teamEditable={teamEditable}

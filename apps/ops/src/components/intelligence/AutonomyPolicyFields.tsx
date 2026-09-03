@@ -51,7 +51,7 @@ export function AutonomyPolicyFields({
     <>
       <PolicySection
         title="Operating mode"
-        description="Observe records what the agent finds. Recommend also lets it prepare actions for an operator to approve or reject."
+        description="Recommend lets it draft actions for an operator to approve."
       >
         <label className="intelligence-enable">
           <input
@@ -78,7 +78,7 @@ export function AutonomyPolicyFields({
 
       <PolicySection
         title="Signals and cadence"
-        description="Changed qualifying signals may run immediately; the schedule also checks the event continuously at the selected cadence."
+        description="A qualifying signal starts a check right away; the schedule runs on its own cadence."
       >
         <ChoiceSet
           label="Signal level"
@@ -120,7 +120,7 @@ export function AutonomyPolicyFields({
 
       <PolicySection
         title="Evidence tools"
-        description="Choose exactly which event information the agent may read. Anything not selected stays unavailable."
+        description="Anything unticked stays unavailable to the agent."
       >
         <ChoiceSet
           label="Event information the agent may read"
@@ -129,16 +129,13 @@ export function AutonomyPolicyFields({
           values={policy.allowedReadTools}
           onChange={(values) => onChange('allowedReadTools', values)}
         />
-        <p className="muted">
-          Operations health is always included so every run refreshes current event state before
-          following the rest of its authorized evidence.
-        </p>
+        <p className="muted">Operations health is always included.</p>
       </PolicySection>
 
       {policy.mode === 'recommend' ? (
         <PolicySection
           title="Recommendation scope"
-          description="Choose the kinds of action the agent may prepare for human review. The agent cannot execute them."
+          description="Actions the agent may draft for approval. The agent cannot execute them."
         >
           <ChoiceSet
             label="Allowed proposal kinds"
@@ -149,20 +146,17 @@ export function AutonomyPolicyFields({
         </PolicySection>
       ) : null}
 
-      <PolicySection
-        title="Authority boundary"
-        description="The agent may investigate as deeply as needed within the event information selected above. It cannot take consequential action."
-      >
+      <PolicySection title="Authority boundary">
         <p className="notice">
-          The agent can observe and propose. It cannot change access, identity, participant state,
-          judging, scores, notifications, money, releases, or another materially consequential
-          state. A person must confirm those actions.
+          The agent may investigate as deeply as needed within the information above.
+          It cannot change access, identity, participant state, judging, scores, notifications,
+          money, or releases; a person confirms every such action.
         </p>
       </PolicySection>
 
       <PolicySection
         title="Accountable owner"
-        description="This person is responsible for the agent. Their required event access is checked again for every run."
+        description="Responsible for the agent; their access is checked again on every run."
       >
         <label className="field">
           <span>Find an event account</span>
@@ -210,10 +204,6 @@ export function AutonomyPolicyFields({
             {ownerLoading ? 'Loading accounts…' : 'Load more accounts'}
           </button>
         ) : ownerLoading ? <p className="muted">Loading accounts…</p> : null}
-        <label className="field">
-          <span>Audience</span>
-          <input disabled value="Operations dashboard" />
-        </label>
       </PolicySection>
     </>
   )
@@ -225,12 +215,15 @@ function PolicySection({
   children,
 }: {
   title: string
-  description: string
+  description?: string
   children: ReactNode
 }) {
   return (
     <section className="intake-policy-section">
-      <header><h2>{title}</h2><p className="muted">{description}</p></header>
+      <header>
+        <h2>{title}</h2>
+        {description === undefined ? null : <p className="muted">{description}</p>}
+      </header>
       {children}
     </section>
   )

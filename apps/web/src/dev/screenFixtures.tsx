@@ -22,6 +22,8 @@ import { PortalScene } from '../components/portal/PortalScene'
 import { StackedSheet } from '../components/portal/StackedSheet'
 import { TreeLoader } from '../components/portal/TreeLoader'
 import { releaseBalloons } from '../lib/balloons'
+import type { IntegrationsTileModel } from '../components/dashboard/IntegrationsTile'
+import type { MusicTileModel } from '../components/dashboard/MusicTile'
 import { DashboardScreen } from '../screens/DashboardScreen'
 import { SglangInterlude } from '../screens/SglangInterlude'
 import { ConfirmCard } from '../screens/TeamLobbyScreen'
@@ -473,6 +475,71 @@ function EntryFixture() {
   )
 }
 
+// ---- dashboard · the live-event bento ----------------------------------------
+// Night one of the build: a track playing, a short queue, tools half linked.
+
+const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+
+const dashboardMusic: MusicTileModel = {
+  eligible: true,
+  suspended: false,
+  window: {
+    name: 'Night build',
+    endsAt: Date.now() + 5 * 60 * 60_000,
+    requestsOpen: true,
+    votingOpen: true,
+    playbackPaused: false,
+    requestsUsed: 1,
+    requestsAllowed: 5,
+    votesUsed: 2,
+    votesAllowed: 10,
+  },
+  nowPlaying: {
+    id: 'r1', videoId: 'cuAG7DBJ37s', title: 'Lofi Hip Hop Radio - Study Chill Beats', artist: 'Lofi music sk',
+    durationSeconds: 351, state: 'playing', voteCount: 6, hasVoted: true, canVote: true, isMine: false, playbackStartedAt: Date.now() - 97_000,
+  },
+  queue: [
+    { id: 'r2', videoId: 'jfKfPfyJRdk', title: 'lofi hip hop radio 📚 beats to relax/study to', artist: 'Lofi Girl', durationSeconds: 420, state: 'queued', voteCount: 4, hasVoted: true, canVote: true, isMine: true },
+    { id: 'r3', videoId: '5qap5aO4i9A', title: 'Midnight City', artist: 'M83', durationSeconds: 243, state: 'approved', voteCount: 3, hasVoted: false, canVote: true, isMine: false },
+    { id: 'r4', videoId: 'hTWKbfoikeg', title: 'Smells Like Teen Spirit', artist: 'Nirvana', durationSeconds: 301, state: 'pending', voteCount: 1, hasVoted: false, canVote: true, isMine: false },
+    { id: 'r5', videoId: null, title: 'Nightcall', artist: 'Kavinsky', durationSeconds: 258, state: 'played', voteCount: 5, hasVoted: false, canVote: false, isMine: false },
+  ],
+  search: async (query) => {
+    await wait(400)
+    return [
+      { videoId: 'ysz5S6PUM-U', title: `${query} — official audio`, channelTitle: 'Some Artist', durationSeconds: 214, thumbnailUrl: 'https://i.ytimg.com/vi/ysz5S6PUM-U/mqdefault.jpg' },
+      { videoId: 'kJQP7kiw5Fk', title: `${query} (live session)`, channelTitle: 'Another Channel', durationSeconds: 305 },
+    ]
+  },
+  request: async () => {
+    await wait(500)
+    return { created: true }
+  },
+  toggleVote: async () => {
+    await wait(300)
+  },
+}
+
+const dashboardIntegrations: IntegrationsTileModel = {
+  available: true,
+  github: { connected: true, detail: '2 repositories' },
+  figma: { connected: false, detail: 'Link your design files' },
+  open: noop,
+}
+
+function DashboardFixture() {
+  return (
+    <DashboardScreen
+      team={team}
+      members={members}
+      teamEditable
+      onSignOut={noop}
+      music={dashboardMusic}
+      integrations={dashboardIntegrations}
+    />
+  )
+}
+
 const screens: Record<string, () => ReactNode> = Object.fromEntries(
   ([
   ['f0a', () => <EntryFixture />],
@@ -654,14 +721,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries(
         </div>
       </PortalScene>
     )],
-  ['dashboard', () => (
-      <DashboardScreen
-        team={team}
-        members={members}
-        teamEditable
-        onSignOut={noop}
-      />
-    )],
+  ['dashboard', () => <DashboardFixture />],
   ['f2', () => (
       <PortalScene tree="left" onSignOut={noop} header={cluster}>
         <div className="flex w-full max-w-[820px] flex-col items-center lg:mb-[8vh]">

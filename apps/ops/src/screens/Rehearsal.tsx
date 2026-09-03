@@ -232,8 +232,7 @@ function CreateRun({
       <summary>Create a test run</summary>
       <form onSubmit={(event) => void submit(event)}>
         <p className="section-note rehearsal-wide-field">
-          Creating a run copies in a fixed list of checks, grouped into areas such as sign-in,
-          attendance and reviewing. Each area needs an owner before the run can start.
+          Each area of checks needs an owner before the run can start.
         </p>
         <label className="field">
           Name

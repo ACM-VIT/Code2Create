@@ -748,3 +748,11 @@ p {
   background-image: none;
   background-color: color-mix(in oklab, var(--color-wash) 55%, transparent);
 }
+
+.avatar-stack { --stack-size: 40px; --stack-overlap: 12px; --stack-gap: 3px; display: flex; }
+@media (min-width: 1024px) { .avatar-stack { --stack-size: 48px; --stack-overlap: 14px; } }
+.avatar-stack > * + * { margin-left: calc(-1 * var(--stack-overlap)); }
+.avatar-stack > *:not(:last-child) {
+  -webkit-mask-image: radial-gradient(circle at calc(100% - var(--stack-overlap) + var(--stack-size) / 2) 50%, transparent calc(var(--stack-size) / 2 + var(--stack-gap)), #000 calc(var(--stack-size) / 2 + var(--stack-gap) + .5px));
+  mask-image: radial-gradient(circle at calc(100% - var(--stack-overlap) + var(--stack-size) / 2) 50%, transparent calc(var(--stack-size) / 2 + var(--stack-gap)), #000 calc(var(--stack-size) / 2 + var(--stack-gap) + .5px));
+}

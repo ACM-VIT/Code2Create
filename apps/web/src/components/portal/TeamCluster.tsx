@@ -1,5 +1,6 @@
 import { safePolygon, useFloating, useHover, useInteractions } from '@floating-ui/react'
 import { useState } from 'react'
+import { useDesktop } from '../../lib/useDesktop'
 import { Link } from 'react-router-dom'
 import { Petal } from './Petal'
 import { usePortalSignOut } from './portalSceneContext'
@@ -48,9 +49,7 @@ function Avatar({
     <div
       title={displayName}
       className={`relative flex flex-none items-center justify-center rounded-full ${box} ${
-        lead
-          ? 'border-2 border-ring-lead bg-avatar-lead shadow-[0_0_18px_var(--avatar-glow)]'
-          : 'border-2 border-rose/70 bg-avatar'
+        lead ? 'border-2 border-ring-lead bg-avatar-lead' : 'border-2 border-rose/70 bg-avatar'
       } ${className}`}
     >
       <MemberAvatarVisual
@@ -106,6 +105,12 @@ export function TeamCluster({
     members.filter((member) => member.role !== 'lead').map((member) => member.membershipId),
   )
 
+  // Every face fits on a wide screen; a phone header shows three and a count
+  // once the stack would pass four.
+  const desktop = useDesktop()
+  const shown = !desktop && members.length > 4 ? members.slice(0, 3) : members
+  const hidden = members.slice(shown.length)
+
   return (
     <div
       className="relative text-right"
@@ -135,8 +140,8 @@ export function TeamCluster({
           onClick={() => setPinned((value) => !value)}
           className="block cursor-pointer rounded-lg"
         >
-          <div className="flex justify-end">
-            {members.map((member, index) => {
+          <div className="avatar-stack justify-end">
+            {shown.map((member) => {
               const variant = flowerVariants.get(member.membershipId)
               return (
                 <Avatar
@@ -146,10 +151,17 @@ export function TeamCluster({
                   seed={member.membershipId}
                   lead={member.role === 'lead'}
                   {...(variant === undefined ? {} : { variant })}
-                  className={index > 0 ? '-ml-2 lg:-ml-2.5' : ''}
                 />
               )
             })}
+            {hidden.length > 0 ? (
+              <div
+                title={hidden.map((member) => member.displayName).join(', ')}
+                className="flex size-10 flex-none items-center justify-center rounded-full bg-fg/15 font-ui text-[13px] text-fg/80 lg:size-12 lg:text-sm"
+              >
+                +{hidden.length}
+              </div>
+            ) : null}
           </div>
           <p className="mt-2 hidden font-ui font-normal text-[13.5px] text-rose-light sm:block">
             {team.name}
@@ -261,10 +273,7 @@ export function TeamRosterPanel({
         {editable ? (
           <CopyCode code={team.publicCode} />
         ) : (
-          <p className="m-0 flex items-center gap-1.5 text-[11.5px] text-fg/50">
-            <Petal size={12} />
-            changes closed
-          </p>
+          <p className="m-0 text-[11.5px] text-fg/50">changes closed</p>
         )}
         <Link
           to="/team"
