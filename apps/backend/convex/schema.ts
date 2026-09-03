@@ -3022,13 +3022,15 @@ export default defineSchema({
         stateAtCapture: v.string(),
       }),
     ),
-    reviewLinkEntries: v.array(
-      v.object({
-        linkId: v.id("teamReviewLinks"),
-        kind: reviewLinkKind,
-        url: v.string(),
-        label: v.string(),
-      }),
+    reviewLinkEntries: v.optional(
+      v.array(
+        v.object({
+          linkId: v.id("teamReviewLinks"),
+          kind: reviewLinkKind,
+          url: v.string(),
+          label: v.string(),
+        }),
+      ),
     ),
     expectedResourceCount: v.number(),
     capturedResourceCount: v.number(),

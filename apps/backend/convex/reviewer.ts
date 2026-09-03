@@ -1865,7 +1865,7 @@ export const reviewWorkspaceData = internalQuery({
         expectedResourceCount: evidence.expectedResourceCount,
         github: githubEvidence,
         figma: figmaEvidence,
-        reviewLinks: evidence.reviewLinkEntries.map((entry) => ({
+        reviewLinks: (evidence.reviewLinkEntries ?? []).map((entry) => ({
           id: entry.linkId,
           kind: entry.kind,
           url: entry.url,
