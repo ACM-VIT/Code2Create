@@ -107,6 +107,7 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
           teamMinimumSize: Number(teamMinimumSize),
           teamMaximumSize: Number(teamMaximumSize),
           mixedParticipantClassesAllowed: false,
+          phoneVerificationEnabled: false,
           vitHostelResidenceCatalog: defaultVitHostelResidenceCatalog,
           profileNotice:
             "We use these details to establish event eligibility, contact you about operations, and run Code2Create.",

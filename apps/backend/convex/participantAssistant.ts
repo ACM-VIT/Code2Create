@@ -5,7 +5,6 @@ import {
   vStreamArgs,
   createThread,
 } from "@convex-dev/agent";
-import { participantProfileCodeConfiguration } from "@code2create/domain";
 import { MINUTE, RateLimiter } from "@convex-dev/rate-limiter";
 import { paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
@@ -1056,10 +1055,10 @@ async function buildEventContext(
                           participantPolicy.policy,
                         ),
                       phoneVerificationRequired:
-                        participantProfileCodeConfiguration.phoneVerificationEnabled,
+                        participantPolicy.normalized.phoneVerificationEnabled,
                       phoneVerified:
                         profile !== null &&
-                        (!participantProfileCodeConfiguration.phoneVerificationEnabled ||
+                        (!participantPolicy.normalized.phoneVerificationEnabled ||
                           (profile.phoneVerifiedAt !== undefined && profile.phoneVerifiedAt > 0)),
                     },
               github:
