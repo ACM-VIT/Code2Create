@@ -61,7 +61,7 @@ The participant release test also proves these boundaries:
 - whole-idea retrieval stores one vector per team lifecycle and repeated rows from one team count once; and
 - synthetic density cases cover no close teams, a small cluster, a common cluster, and hundreds of teams while submission remains available.
 
-## 4. Slice 2: attendance and location
+## 4. Slice 2: attendance
 
 Deliver:
 
@@ -73,12 +73,9 @@ Deliver:
 - participant and operations realtime views;
 - manual correction and result review;
 - emergency roll call;
-- team-location QR on the team dashboard;
-- organizer scan and zone/landmark mapping;
-- location freeze and reasoned correction; and
 - scanner offline replay for approved physical credentials.
 
-Exit when VIT barcode and QR paths resolve to the same participant state. Confirm that attendance, team location, and reviewer presence use different credentials and commands.
+Exit when VIT barcode and QR paths resolve to the same participant state. Confirm that attendance and reviewer presence use different credentials and commands.
 
 ## 5. Slice 3: one complete review
 
@@ -100,7 +97,7 @@ Deliver:
 
 Exit when one panel completes one review from call through accepted scorecards. Restart one reviewer phone during the review and recover the same server and local draft state.
 
-## 6. Slice 4: floor operations
+## 6. Slice 4: review operations
 
 Deliver:
 
@@ -113,10 +110,9 @@ Deliver:
 - push-to-call escalation;
 - runner fallback;
 - round pause and resume;
-- floor map and team-location projection; and
 - scoped operational overrides.
 
-Exit when operations can route several teams, replace one absent reviewer, move one team location, pause new calls, resume, and complete active reviews without changing accepted evidence.
+Exit when operations can route several teams, replace one absent reviewer, pause new calls, resume, and complete active reviews without changing accepted evidence.
 
 ## 7. Slice 5: GitHub, Figma, and progress
 
@@ -266,7 +262,6 @@ Test:
 - GitHub multi-repository management;
 - Figma file management;
 - attendance status and QR;
-- team-location QR;
 - queue state;
 - support; and
 - responsive and keyboard use.
@@ -316,8 +311,8 @@ The stored rehearsal must include these cases:
 6. A portal QR is presented while the scanner is offline.
 7. A participant exits and returns several times.
 8. A participant disputes a finalized attendance result.
-9. Two organizers scan one team-location QR.
-10. A team moves after the location freeze.
+9. A panel scans the wrong team's review-presence QR.
+10. Two operators route the same team concurrently.
 11. Two participants join the last team place.
 12. Leadership transfer races a member exit.
 13. Final submission races a membership change.
@@ -381,7 +376,7 @@ Training covers sign-in, clock-in, pages, call consent, review-presence scan, ev
 
 ### SC and JC
 
-Training covers only the granted workspaces. Typical topics are attendance scanning, team-location mapping, queue work, runner response, support, verification, and Synesthesia operations.
+Training covers only the granted workspaces. Typical topics are attendance scanning, queue work, runner response, support, verification, and Synesthesia operations.
 
 ### Board and Supreme
 

@@ -1,7 +1,5 @@
 import type {
   ApplicationState,
-  FloorArea,
-  FloorMappingState,
   ReviewRoundStatus,
   ReviewSessionStatus,
   ScorecardStatus,
@@ -15,8 +13,6 @@ import type { Infer } from "convex/values";
 
 import type {
   applicationState,
-  floorArea,
-  floorMappingState,
   reviewRoundStatus,
   reviewSessionStatus,
   scorecardStatus,
@@ -44,6 +40,4 @@ export const labelledStateUnions: true[] = [
   true as SameUnion<Infer<typeof supportCaseState>, SupportCaseState>,
   true as SameUnion<Infer<typeof sessionPresenceState>, SessionPresenceState>,
   true as SameUnion<Infer<typeof venuePresenceState>, VenuePresenceState>,
-  true as SameUnion<Infer<typeof floorArea>, FloorArea>,
-  true as SameUnion<Infer<typeof floorMappingState>, FloorMappingState>,
 ];

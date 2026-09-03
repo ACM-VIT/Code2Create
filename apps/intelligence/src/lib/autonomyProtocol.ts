@@ -163,11 +163,6 @@ export const operationsAutonomyReadReceiptSchema = v.variant("read", [
   }),
   v.strictObject({
     ...autonomyReadReceiptBase,
-    read: v.literal("floor_mapping_progress"),
-    data: platformReadSchemas.floor_mapping_progress,
-  }),
-  v.strictObject({
-    ...autonomyReadReceiptBase,
     read: v.literal("support_load"),
     data: platformReadSchemas.support_load,
   }),

@@ -130,9 +130,6 @@ export function autonomyReadEvidenceKeys(receipt: AutonomyReadReceipt) {
     case "attendance_counts":
       for (const session of receipt.data.sessions) keys.add(session.sessionId);
       break;
-    case "floor_mapping_progress":
-      for (const zone of receipt.data.zones) keys.add(zone.zoneId);
-      break;
     case "support_load":
       for (const category of receipt.data.openByCategory) keys.add(category.category);
       for (const supportCase of receipt.data.cases) {
@@ -525,8 +522,6 @@ export function requiredAutonomyPageCitationGroups(read: AutonomyReadReceipt): s
       ];
     case "attendance_counts":
       return read.data.sessions.map((session) => [session.sessionId]);
-    case "floor_mapping_progress":
-      return read.data.zones.map((zone) => [zone.zoneId]);
     case "support_load":
       return read.data.cases.map((supportCase) => [supportCase.caseId]);
     case "intake_jobs":

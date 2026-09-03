@@ -1,7 +1,6 @@
 import { Redirect, useLocalSearchParams } from "expo-router";
 
 import { DutyScreen } from "@/components/DutyScreen";
-import { FloorMappingPanel } from "@/components/FloorMappingPanel";
 import { IncidentPanel } from "@/components/IncidentPanel";
 import { PulsePanel } from "@/components/PulsePanel";
 import { ReviewPanel } from "@/components/ReviewPanel";
@@ -21,7 +20,7 @@ export default function DutyRoute() {
   }
 
   return (
-    <DutyScreen scroll={held !== "attendance" && held !== "floor"} title={dutyMeta[held].label}>
+    <DutyScreen scroll={held !== "attendance"} title={dutyMeta[held].label}>
       {panelFor(held, runtime, canCreateSupport, canManageAttention)}
     </DutyScreen>
   );
@@ -35,7 +34,6 @@ function panelFor(
 ) {
   if (surface === "reviews") return <ReviewPanel runtime={runtime} />;
   if (surface === "attendance") return <ScannerPanel runtime={runtime} />;
-  if (surface === "floor") return <FloorMappingPanel runtime={runtime} />;
   if (surface === "operations")
     return <PulsePanel canManage={canManageAttention} runtime={runtime} />;
   if (surface === "incidents") return <IncidentPanel runtime={runtime} />;

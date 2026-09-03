@@ -47,12 +47,12 @@ test("a stage with a next step always names it", () => {
 
 test("setup keeps the operator out of event-day screens", () => {
   const setup = eventStageGuidance.draft.primaryPaths;
-  for (const eventDayPath of ["/attendance", "/floor", "/reviews", "/scores", "/synesthesia"]) {
+  for (const eventDayPath of ["/attendance", "/reviews", "/scores", "/synesthesia"]) {
     assert.ok(!setup.includes(eventDayPath), `${eventDayPath} should not lead during setup`);
   }
 });
 
-test("the live event leads with the floor, not with configuration", () => {
+test("the live event leads with event-day work, not configuration", () => {
   const live = eventStageGuidance.live.primaryPaths;
   assert.ok(live.includes("/attendance"));
   assert.ok(live.includes("/reviews"));
@@ -74,7 +74,6 @@ test("every lifecycle blocker knows which product screen resolves it", () => {
     "phase_schedule",
     "checkpoint_plan",
     "attendance_plan",
-    "floor_plan",
     "review_round",
   ];
   for (const key of blockerKeys) {

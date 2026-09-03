@@ -233,7 +233,6 @@ const publicToolNames = new Set([
   "propose_event_command",
   "read_admission_cohort",
   "read_attendance_counts",
-  "read_floor_mapping_progress",
   "read_operations_attention",
   "read_operations_health",
   "read_recommendation_history",

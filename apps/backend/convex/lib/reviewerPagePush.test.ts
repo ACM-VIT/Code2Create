@@ -9,7 +9,6 @@ test("reviewer page push carries expiry and omits participant-chosen names", () 
     ...{ teamName: participantChosenName },
     pageId: "page-42",
     roundName: "Round A",
-    tableLabel: "T12",
     expiresAt: 1_800_000_123_456,
   });
 
@@ -17,7 +16,7 @@ test("reviewer page push carries expiry and omits participant-chosen names", () 
     kind: "reviewer_substitute_page",
     pageId: "page-42",
     title: "Substitute request",
-    body: "Round A at T12. Open Code2Create Ops now.",
+    body: "Round A. Open Code2Create Ops now.",
     expiresAt: "1800000123456",
   });
   assert.equal(JSON.stringify(data).includes(participantChosenName), false);

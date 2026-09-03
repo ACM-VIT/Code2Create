@@ -27,7 +27,6 @@ export type PermissionArea =
   | "applications"
   | "attendance"
   | "event_setup"
-  | "hall"
   | "help"
   | "integrations"
   | "judging"
@@ -40,7 +39,6 @@ export const permissionAreas: ReadonlyArray<{ value: PermissionArea; label: stri
   { value: "applications", label: "Applications" },
   { value: "participants", label: "Participants and teams" },
   { value: "attendance", label: "Check-in and presence" },
-  { value: "hall", label: "Hall locations" },
   { value: "judging", label: "Judging" },
   { value: "integrations", label: "Code and design" },
   { value: "music", label: "Music desk" },
@@ -66,7 +64,6 @@ const exactPermissionNames: Readonly<Record<string, string>> = {
   "attendance.portal_qr.mint": "Show own attendance QR",
   "event.lifecycle.manage": "Change the event state",
   "event.lifecycle.read": "View the event state",
-  "floor.team_qr.mint": "Show team location QR",
   "review.substitute.page": "Use a reviewer substitute page",
   "review.team_qr.mint": "Show team judging QR",
   "reviewer.clock_in": "Check in as a reviewer",
@@ -188,9 +185,6 @@ const permissionSubjectNames: Readonly<Record<string, string>> = {
   "configuration phase": "event schedule",
   "configuration phase draft": "event schedule draft",
   "emergency pack": "paper backup",
-  "floor location": "team hall location",
-  "floor plan": "hall layout",
-  "floor team": "team hall location",
   "integration artifact": "code and design evidence",
   "integration figma": "Figma connection",
   "integration github": "GitHub connection",
@@ -238,7 +232,6 @@ export function areaForPermission(value: string): PermissionArea {
   if (value.startsWith("application.")) return "applications";
   if (value.startsWith("attendance.")) return "attendance";
   if (value.startsWith("configuration.") || value.startsWith("event.")) return "event_setup";
-  if (value.startsWith("floor.")) return "hall";
   if (value.startsWith("support.") || value.startsWith("communications.")) return "help";
   if (value.startsWith("integration.")) return "integrations";
   if (
@@ -282,8 +275,6 @@ export function scopeName(value: string, permissionKey?: string) {
     attendance_plan: "One attendance plan",
     attendance_session: "One hacking session",
     evidence_checkpoint: "One evidence checkpoint",
-    floor_plan: "One hall plan",
-    floor_zone: "One hall zone",
     incident: "One incident",
     page: "One reviewer page",
     panel: "One judging panel",

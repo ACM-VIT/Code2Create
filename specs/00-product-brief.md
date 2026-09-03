@@ -4,13 +4,13 @@
 
 Code2Create 7.0 is a 48-hour event for about 900 to 1,000 people in one venue.
 
-The product controls participant registration, proposal intake, admission, attendance, floor operations, reviews, judging records, and staff response. Convex is the authority for event state. All clients read accepted state from the realtime backend.
+The product controls participant registration, proposal intake, admission, attendance, review operations, judging records, and staff response. Convex is the authority for event state. All clients read accepted state from the realtime backend.
 
 The product must prevent these failures:
 
-- A reviewer is absent or at the wrong table.
+- A reviewer is absent or assigned to the wrong team.
 - A panel does not have the required expertise.
-- A team does not know its current review state or location.
+- A team does not know its current review state.
 - A reviewer starts without the required project and review context.
 - One reviewer replaces independent panel scores with one consensus score.
 - A score or operational decision is lost in a message or spreadsheet.
@@ -47,7 +47,6 @@ The participant portal is a Vite web application. It provides:
 - team-scoped GitHub and Figma connections;
 - venue and session attendance status;
 - a personal attendance QR when required;
-- a team-location QR for organizer scanning;
 - a separate review-presence QR;
 - staff-managed review-queue state;
 - support cases;
@@ -72,7 +71,7 @@ Reviewer paging uses a reusable outbound-calling service. The service sends push
 
 ### Operations dashboard
 
-The operations dashboard is a separate Vite web application. It provides permission-scoped workspaces for event setup, access, applications, admission, panels, reviewer paging, attendance, team-location mapping, queues, reviews, judging, integrations, support, incidents, rehearsal, and Synesthesia.
+The operations dashboard is a separate Vite web application. It provides permission-scoped workspaces for event setup, access, applications, admission, panels, reviewer paging, attendance, queues, reviews, judging, integrations, support, incidents, rehearsal, and Synesthesia.
 
 The dashboard shows accepted state and legal next actions. Each protected command rechecks the caller's exact permission, target scope, current version, and current authorization requirement in the mutation that writes the result.
 
@@ -99,14 +98,6 @@ The dashboard shows accepted state and legal next actions. Each protected comman
 4. The server records session entry, temporary exit, return, and final exit as participant-scoped facts.
 5. The participant and operations views update from the same accepted records.
 6. Attendance does not change admission, review scores, or awards.
-
-### Team location
-
-1. The team opens a short-lived team-location QR on its dashboard.
-2. An authorized organizer scans the QR while standing with the team.
-3. The organizer selects the team's zone and nearest published landmark.
-4. The server validates the organizer's zone-scoped grant and writes the mapping.
-5. The team sees the accepted location in realtime.
 
 ### Review
 
@@ -211,7 +202,6 @@ Board and the named owners must publish these values before the applicable relea
 - reviewer eligibility, panel size, and expertise coverage;
 - round schedule, rubric, correction deadline, feedback policy, and award rules;
 - attendance sessions, expected groups, grace windows, and result policy;
-- floor plan, zone grants, and location-mapping freeze;
 - reviewer page timeout, push policy, call script, consent text, provider rate limits, and retention;
 - GitHub and Figma requirements and accepted alternatives;
 - support categories, retention, and privacy periods;

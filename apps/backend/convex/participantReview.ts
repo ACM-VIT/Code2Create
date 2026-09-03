@@ -7,7 +7,6 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
-import { teamRoundTableLabel } from "./lib/floor";
 import {
   findCurrentPerson,
   requireCurrentPerson,
@@ -87,8 +86,6 @@ export const current = query({
       }),
       state: teamRoundState,
       panel: v.union(v.null(), v.object({ id: v.id("reviewPanels"), name: v.string() })),
-      // The team's own table for this round, which is where the panel comes.
-      tableLabel: v.optional(v.string()),
       teamsAhead: v.optional(v.number()),
       estimate: v.union(
         v.null(),
@@ -280,7 +277,6 @@ export const current = query({
       },
       state: selectedState?.state ?? "unassigned",
       panel: panel && panel.eventId === event._id ? { id: panel._id, name: panel.name } : null,
-      ...(selectedState?.tableLabel !== undefined ? { tableLabel: selectedState.tableLabel } : {}),
       ...(teamsAhead !== undefined ? { teamsAhead } : {}),
       estimate,
       review: session
@@ -341,7 +337,6 @@ export const mintTeamQr = mutation({
     serverNow: v.number(),
     teamName: v.string(),
     roundName: v.string(),
-    tableLabel: v.optional(v.string()),
   }),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
@@ -395,7 +390,6 @@ export const mintTeamQr = mutation({
     ) {
       throw new Error("A review team QR belongs to the wrong event or team.");
     }
-    const qrTableLabel = await teamRoundTableLabel(ctx, round._id, teamContext.team._id);
     const now = Date.now();
     if (activeToken !== null) {
       await ctx.db.patch(activeToken._id, {
@@ -439,7 +433,6 @@ export const mintTeamQr = mutation({
       serverNow: now,
       teamName: teamContext.team.name,
       roundName: round.name,
-      ...(qrTableLabel !== undefined ? { tableLabel: qrTableLabel } : {}),
     };
   },
 });

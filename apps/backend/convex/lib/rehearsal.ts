@@ -76,14 +76,14 @@ export const releaseRehearsalTemplate = [
     "reviewer_app",
     "APNs or FCM push is delayed",
     "Delivery is not treated as acknowledgement and the staffing gap remains visible in operations.",
-    "Use the in-app assignment, direct floor contact, or page another reserve after the configured timeout.",
+    "Use the in-app assignment, contact the reserve directly, or page another reserve after the configured timeout.",
   ),
   scenario(
     8,
     "review_operations",
     "A panel scans the wrong team's review code",
     "The presented team code is rejected for the wrong panel and no presence or review state changes.",
-    "Use the hall map to reach the assigned team, or complete an audited panel assignment change before scanning again.",
+    "Open the active review assignment, or complete an audited panel assignment change before scanning again.",
   ),
   scenario(
     9,
@@ -94,10 +94,10 @@ export const releaseRehearsalTemplate = [
   ),
   scenario(
     10,
-    "floor",
-    "Two operators move the same team concurrently",
-    "One versioned location change commits and the stale operator receives the current location.",
-    "Refresh the map, confirm where the team is actually sitting, and apply one reasoned correction if still needed.",
+    "review_operations",
+    "Two operators route the same team concurrently",
+    "One versioned queue change commits and the stale operator receives the current team state.",
+    "Refresh the review board and apply one reasoned queue change if it is still needed.",
   ),
   scenario(
     11,

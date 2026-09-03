@@ -11,7 +11,6 @@ import {
 import { permissionCatalog } from "./lib/permissionCatalog.ts";
 import { createTestSubmissionSnapshot } from "./lib/testSubmissionSnapshot.ts";
 import { defaultParticipantPolicy, participantPolicyChecksum } from "./lib/participantPolicy.ts";
-import { teamCanBeMapped } from "./lib/floor.ts";
 import { defaultDeterministicIntakePolicy, intakePolicyChecksum } from "./lib/intakePolicy.ts";
 import schema from "./schema.ts";
 
@@ -29,13 +28,6 @@ describe("admission offer lifecycle", () => {
       scopes: ["team"],
       eventWide: false,
     });
-  });
-
-  test("keeps hall mapping closed until the team confirms its offer", () => {
-    expect(teamCanBeMapped("admitted")).toBe(false);
-    expect(teamCanBeMapped("confirmed")).toBe(true);
-    expect(teamCanBeMapped("checked_in")).toBe(true);
-    expect(teamCanBeMapped("active")).toBe(true);
   });
 
   test("rejects admission evidence that is absent from the submitted intake", async () => {

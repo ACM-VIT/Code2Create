@@ -593,7 +593,6 @@ export type RehearsalWorkstream =
   | "intake_admissions"
   | "communications"
   | "attendance"
-  | "floor"
   | "reviewer_app"
   | "review_operations"
   | "integrations"
@@ -606,7 +605,6 @@ export const rehearsalWorkstreamLabels: Record<RehearsalWorkstream, string> = {
   intake_admissions: "Intake and admissions",
   communications: "Communications",
   attendance: "Attendance",
-  floor: "Hall operations",
   reviewer_app: "Reviewer app",
   review_operations: "Review operations",
   integrations: "GitHub and Figma",
@@ -624,61 +622,6 @@ export const emergencyPackStatusLabels: Record<EmergencyPackStatus, string> = {
   failed: "Could not be prepared",
   expired: "Too old to use",
 };
-
-export type FloorMappingState = "setup" | "open" | "frozen";
-
-export const floorMappingStateLabels: Record<FloorMappingState, string> = {
-  setup: "Not open for mapping yet",
-  open: "Open for mapping",
-  frozen: "Locations frozen",
-};
-
-/** The nine spoken areas of a zone without fixed table numbers. */
-export type FloorArea =
-  | "north_west"
-  | "north"
-  | "north_east"
-  | "west"
-  | "centre"
-  | "east"
-  | "south_west"
-  | "south"
-  | "south_east";
-
-export const floorAreaLabels: Record<FloorArea, string> = {
-  north_west: "North-west corner",
-  north: "North side",
-  north_east: "North-east corner",
-  west: "West side",
-  centre: "Middle",
-  east: "East side",
-  south_west: "South-west corner",
-  south: "South side",
-  south_east: "South-east corner",
-};
-
-/** Maps a north-up normalized zone point to one spoken area. */
-export function floorAreaAt(x: number, y: number): FloorArea {
-  const west = x < 100 / 3;
-  const east = x >= 200 / 3;
-  const north = y < 100 / 3;
-  const south = y >= 200 / 3;
-  if (north) return west ? "north_west" : east ? "north_east" : "north";
-  if (south) return west ? "south_west" : east ? "south_east" : "south";
-  return west ? "west" : east ? "east" : "centre";
-}
-
-export const floorAreas = [
-  "north_west",
-  "north",
-  "north_east",
-  "west",
-  "centre",
-  "east",
-  "south_west",
-  "south",
-  "south_east",
-] as const satisfies readonly FloorArea[];
 
 export type ReviewEvaluationState = "complete" | "void";
 
@@ -816,7 +759,6 @@ export type SupportCaseCategory =
   | "attendance_credential"
   | "missing_scan"
   | "scanner_device"
-  | "table_location"
   | "integration"
   | "queue"
   | "reviewer_device"
@@ -832,7 +774,6 @@ export const supportCaseCategoryLabels: Record<SupportCaseCategory, string> = {
   attendance_credential: "Check-in or ID",
   missing_scan: "Check-in scan",
   scanner_device: "Scanner device",
-  table_location: "Hall location",
   integration: "GitHub or Figma",
   queue: "Judging queue",
   reviewer_device: "Reviewer device",
@@ -848,7 +789,6 @@ export const supportCaseCategoryOrder: readonly SupportCaseCategory[] = [
   "attendance_credential",
   "missing_scan",
   "scanner_device",
-  "table_location",
   "integration",
   "queue",
   "reviewer_device",

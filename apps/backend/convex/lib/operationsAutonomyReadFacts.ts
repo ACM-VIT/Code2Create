@@ -87,7 +87,6 @@ function reviewTeamFact(row: Doc<"teamRoundStates">) {
     ...(row.queuedAt === undefined ? {} : { queuedAt: row.queuedAt }),
     ...(row.heldAt === undefined ? {} : { heldAt: row.heldAt }),
     ...(row.missedAt === undefined ? {} : { missedAt: row.missedAt }),
-    ...(row.tableLabel === undefined ? {} : { tableLabel: row.tableLabel }),
   };
 }
 

@@ -716,7 +716,7 @@ async function hasTeamPermission(
   eventId: Id<"events">,
   subjectId: Id<"eventAccessSubjects">,
   teamId: Id<"teams">,
-  permissionKey: "team.read" | "project.checkpoint.read" | "integration.read" | "floor.team.read",
+  permissionKey: "team.read" | "project.checkpoint.read" | "integration.read",
 ) {
   const grantIds = await matchingPermissionGrantIds(ctx, {
     eventId,
@@ -953,14 +953,12 @@ async function buildLiveEventContext(
       checkpoints: [],
       integrations: null,
       attendance: null,
-      location: null,
     };
   }
 
-  const [canReadCheckpoints, canReadIntegrations, canReadFloor] = await Promise.all([
+  const [canReadCheckpoints, canReadIntegrations] = await Promise.all([
     hasTeamPermission(ctx, event._id, subjectId, team._id, "project.checkpoint.read"),
     hasTeamPermission(ctx, event._id, subjectId, team._id, "integration.read"),
-    hasTeamPermission(ctx, event._id, subjectId, team._id, "floor.team.read"),
   ]);
   const attendanceGrantIds =
     membership === null
@@ -979,7 +977,6 @@ async function buildLiveEventContext(
     membership !== null && attendanceGrantIds.length > 0
       ? await attendanceContext(ctx, event, membership._id)
       : null;
-  const location = canReadFloor ? await floorContext(ctx, team._id) : null;
   const eventDetails =
     communications === null
       ? null
@@ -1010,7 +1007,6 @@ async function buildLiveEventContext(
     checkpoints,
     integrations,
     attendance,
-    location,
   };
 }
 
@@ -1135,20 +1131,6 @@ async function attendanceContext(
       };
     }),
   ).then((sessions) => sessions.filter((session) => session !== null));
-}
-
-async function floorContext(ctx: QueryCtx, teamId: Id<"teams">) {
-  const location = await ctx.db
-    .query("teamFloorLocations")
-    .withIndex("by_team_state", (index) => index.eq("teamId", teamId).eq("state", "active"))
-    .unique();
-  if (location === null) return null;
-  const zone = await ctx.db.get(location.zoneId);
-  return {
-    zone: zone?.name ?? null,
-    area: location.area,
-    position: { x: location.x, y: location.y },
-  };
 }
 
 function formatEventTime(timestamp: number, timezone: string) {

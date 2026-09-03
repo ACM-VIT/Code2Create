@@ -78,7 +78,6 @@ async function sendFcmNotification(claim: PushClaim): Promise<PushOutcome> {
       data: reviewerPagePushData({
         pageId: claim.pageId,
         roundName: claim.roundName,
-        ...(claim.tableLabel !== undefined ? { tableLabel: claim.tableLabel } : {}),
         expiresAt: claim.expiresAt,
       }),
       android: {
@@ -179,7 +178,6 @@ async function sendApnsNotification(claim: PushClaim): Promise<PushOutcome> {
             body: reviewerPagePushData({
               pageId: claim.pageId,
               roundName: claim.roundName,
-              ...(claim.tableLabel !== undefined ? { tableLabel: claim.tableLabel } : {}),
               expiresAt: claim.expiresAt,
             }).body,
           },
@@ -293,7 +291,6 @@ type PushClaim = {
   provider: "fcm" | "apns";
   environment: "development" | "production";
   roundName: string;
-  tableLabel?: string;
   expiresAt: number;
 };
 

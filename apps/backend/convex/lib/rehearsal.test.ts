@@ -23,7 +23,6 @@ test("release rehearsal template contains the complete ordered scenario set", ()
     "reviewer_app",
     "review_operations",
     "reliability",
-    "floor",
     "integrations",
     "intake_admissions",
     "attendance",

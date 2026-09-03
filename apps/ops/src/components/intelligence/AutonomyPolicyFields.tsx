@@ -310,7 +310,6 @@ function humanize(value: string) {
     communications: "Participant messages",
     critical: "Urgent",
     dismiss_attention_item: "Dismiss an attention item",
-    floor_mapping_progress: "Floor mapping progress",
     hold_review_team: "Hold a team in the review queue",
     intake: "Project intake",
     intake_jobs: "Intake jobs",

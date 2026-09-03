@@ -44,14 +44,6 @@ import {
   figmaFileBindingState,
   figmaFileSyncState,
   figmaWebhookState,
-  floorArea,
-  floorLocationMethod,
-  floorLocationState,
-  floorMappingClaimState,
-  floorMappingMode,
-  floorMappingState,
-  floorPlanStatus,
-  floorTeamQrTokenState,
   githubInstallationState,
   githubRepositoryBindingState,
   githubRepositoryCoverage,
@@ -210,7 +202,6 @@ const operationsAutonomyReviewExceptionFact = v.union(
     queuedAt: v.optional(v.number()),
     heldAt: v.optional(v.number()),
     missedAt: v.optional(v.number()),
-    tableLabel: v.optional(v.string()),
   }),
 );
 
@@ -250,7 +241,6 @@ export default defineSchema({
     publishedAdmissionPolicyId: v.optional(v.id("admissionPolicyVersions")),
     publishedAdmissionModelConfigId: v.optional(v.id("admissionModelConfigVersions")),
     publishedAttendancePlanVersionId: v.optional(v.id("attendancePlanVersions")),
-    publishedFloorPlanVersionId: v.optional(v.id("floorPlanVersions")),
     publishedIntegrationPolicyId: v.optional(v.id("integrationPolicyVersions")),
     publishedCommunicationsPolicyId: v.optional(v.id("communicationsPolicyVersions")),
     admissionResultsReleasedAt: v.optional(v.number()),
@@ -1117,116 +1107,6 @@ export default defineSchema({
   })
     .index("by_team_state", ["teamId", "state"])
     .index("by_to_state", ["toMembershipId", "state"]),
-
-  floorPlanVersions: defineTable({
-    eventId: v.id("events"),
-    planNumber: v.number(),
-    name: v.string(),
-    status: floorPlanStatus,
-    mappingState: floorMappingState,
-    checksum: v.string(),
-    version: v.number(),
-    createdByPersonId: v.id("people"),
-    createdAt: v.number(),
-    publishedByPersonId: v.optional(v.id("people")),
-    publishedAt: v.optional(v.number()),
-    frozenByPersonId: v.optional(v.id("people")),
-    frozenAt: v.optional(v.number()),
-    freezeReason: v.optional(v.string()),
-  })
-    .index("by_event_status", ["eventId", "status"])
-    .index("by_event_number", ["eventId", "planNumber"]),
-
-  // Preserve real room proportions when drawing a zone on a phone.
-  floorZones: defineTable({
-    eventId: v.id("events"),
-    planVersionId: v.id("floorPlanVersions"),
-    stableKey: v.string(),
-    name: v.string(),
-    widthMeters: v.number(),
-    depthMeters: v.number(),
-    displayOrder: v.number(),
-    createdAt: v.number(),
-  })
-    .index("by_plan_order", ["planVersionId", "displayOrder"])
-    .index("by_plan_key", ["planVersionId", "stableKey"]),
-
-  // Landmarks are fixed reference points; movable tables are not landmarks.
-  floorLandmarks: defineTable({
-    eventId: v.id("events"),
-    planVersionId: v.id("floorPlanVersions"),
-    zoneId: v.id("floorZones"),
-    stableKey: v.string(),
-    name: v.string(),
-    x: v.number(),
-    y: v.number(),
-    displayOrder: v.number(),
-    createdAt: v.number(),
-  })
-    .index("by_plan_order", ["planVersionId", "displayOrder"])
-    .index("by_zone_order", ["zoneId", "displayOrder"])
-    .index("by_plan_key", ["planVersionId", "stableKey"]),
-
-  // Store observed positions as percentages; nearby teams do not conflict.
-  teamFloorLocations: defineTable({
-    eventId: v.id("events"),
-    planVersionId: v.id("floorPlanVersions"),
-    teamId: v.id("teams"),
-    zoneId: v.id("floorZones"),
-    x: v.number(),
-    y: v.number(),
-    area: floorArea,
-    state: floorLocationState,
-    method: floorLocationMethod,
-    supersedesLocationId: v.optional(v.id("teamFloorLocations")),
-    version: v.number(),
-    mappedByPersonId: v.id("people"),
-    mappedAt: v.number(),
-    reason: v.optional(v.string()),
-    supersededAt: v.optional(v.number()),
-    supersededByLocationId: v.optional(v.id("teamFloorLocations")),
-  })
-    .index("by_team_state", ["teamId", "state"])
-    .index("by_plan_state", ["planVersionId", "state"])
-    .index("by_zone_state", ["zoneId", "state"]),
-
-  floorTeamQrTokens: defineTable({
-    eventId: v.id("events"),
-    planVersionId: v.id("floorPlanVersions"),
-    teamId: v.id("teams"),
-    tokenDigest: v.string(),
-    manualCodeDigest: v.string(),
-    tokenVersion: v.number(),
-    state: floorTeamQrTokenState,
-    expiresAt: v.number(),
-    issuedByMembershipId: v.id("eventMemberships"),
-    issuedAt: v.number(),
-    usedAt: v.optional(v.number()),
-  })
-    .index("by_digest", ["tokenDigest"])
-    .index("by_manual_digest", ["manualCodeDigest"])
-    .index("by_team_state", ["teamId", "state"])
-    .index("by_team_version", ["teamId", "tokenVersion"]),
-
-  floorMappingClaims: defineTable({
-    eventId: v.id("events"),
-    planVersionId: v.id("floorPlanVersions"),
-    teamId: v.id("teams"),
-    destinationZoneId: v.id("floorZones"),
-    tokenId: v.id("floorTeamQrTokens"),
-    operatorPersonId: v.id("people"),
-    mode: floorMappingMode,
-    expectedLocationId: v.optional(v.id("teamFloorLocations")),
-    expectedLocationVersion: v.optional(v.number()),
-    state: floorMappingClaimState,
-    version: v.number(),
-    expiresAt: v.number(),
-    createdAt: v.number(),
-    completedAt: v.optional(v.number()),
-    locationId: v.optional(v.id("teamFloorLocations")),
-  })
-    .index("by_operator_state", ["operatorPersonId", "state"])
-    .index("by_team_state", ["teamId", "state"]),
 
   permissionGrants: defineTable({
     eventId: v.id("events"),
@@ -3135,7 +3015,6 @@ export default defineSchema({
     teamId: v.id("teams"),
     panelId: v.optional(v.id("reviewPanels")),
     state: teamRoundState,
-    tableLabel: v.optional(v.string()),
     queuedAt: v.optional(v.number()),
     calledAt: v.optional(v.number()),
     callAttemptCount: v.number(),
@@ -3507,7 +3386,6 @@ export default defineSchema({
     reviewSessionId: v.id("reviewSessions"),
     teamId: v.id("teams"),
     panelId: v.id("reviewPanels"),
-    tableLabel: v.string(),
     evidenceCheckpointSetId: v.id("reviewEvidenceCheckpointSets"),
     rubricVersionId: v.id("reviewRubricVersions"),
     panelVersion: v.number(),

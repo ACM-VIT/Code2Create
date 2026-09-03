@@ -1250,7 +1250,6 @@ function TeamRow({ board, team }: { board: Board; team: Team }) {
       <div className="review-team-heading">
         <div>
           <strong>{team.teamName}</strong>
-          <span>{team.tableLabel ?? "Location not mapped"}</span>
         </div>
         <div className="review-team-meta">
           {team.applicationId ? (

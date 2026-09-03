@@ -11,9 +11,9 @@ It answers four different questions:
 3. **Session attendance:** Did this participant confirm presence for this scheduled hacking session?
 4. **Current availability:** Is the participant present, temporarily outside the zone, or in an unresolved state right now?
 
-The system supports emergency roll calls, session planning, and accurate floor operations. It does not score productivity, track continuous location, or disqualify a participant automatically.
+The system supports emergency roll calls and session planning. It does not score productivity, track continuous location, or disqualify a participant automatically.
 
-Reviewer presence and team hall mapping are separate workflows. A reviewer scans the review-presence team QR for one review session. A floor mapper scans the hall-location team QR and records roughly where in the hall the team is sitting. A participant presents an attendance credential for venue and hacking-session presence. Each command rejects the QR prefix from another workflow.
+Reviewer presence is a separate workflow. A reviewer scans the review-presence team QR for one review session. A participant presents an attendance credential for venue and hacking-session presence. Each command rejects the QR prefix from the other workflow.
 
 ## 2. Operating concepts
 
@@ -171,7 +171,7 @@ A normal record confirms the visible VIT ID for a VIT student. For an external p
 
 A reversal requires its separate permission, current check-in version, reason, and current authorization. Neither exception nor reversal changes venue or session presence.
 
-Repetitive VIT ID scanning is operated on provisioned phones that passed the actual-card and lighting rehearsal. VIT barcodes and attendance QR use the same Attendance camera mode, while the event app mounts separate Review and Hall map modes for their separately prefixed team credentials and server commands.
+Repetitive VIT ID scanning is operated on provisioned phones that passed the actual-card and lighting rehearsal. VIT barcodes and attendance QR use the same Attendance camera mode, while the event app mounts a separate Review mode for its separately prefixed team credential and server command.
 
 Each scanner installation is assigned to a station configuration:
 

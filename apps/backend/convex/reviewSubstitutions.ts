@@ -12,7 +12,6 @@ import {
 import { advanceAccessVersion } from "./lib/accessVersion";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
-import { teamRoundTableLabel } from "./lib/floor";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import {
   findOperation,
@@ -555,14 +554,6 @@ async function enqueueReviewerPageCall(ctx: MutationCtx, pageId: Id<"reviewerPag
   if (!chain || !round || round.eventId !== page.eventId) {
     throw new Error("A reviewer page has invalid call context.");
   }
-  let tableLabel: string | undefined;
-  if (page.reviewSessionId !== undefined) {
-    const session = await ctx.db.get(page.reviewSessionId);
-    if (!session || session.eventId !== page.eventId) {
-      throw new Error("A reviewer page has an invalid review session.");
-    }
-    tableLabel = await teamRoundTableLabel(ctx, page.roundId, session.teamId);
-  }
   const currentConsent =
     consent?.state === "granted" &&
     consent.consentPolicyVersion === reviewerCallConsentPolicyVersion &&
@@ -579,7 +570,6 @@ async function enqueueReviewerPageCall(ctx: MutationCtx, pageId: Id<"reviewerPag
     ...(currentConsent !== null ? { destinationPhone: currentConsent.destinationPhoneE164 } : {}),
     script: reviewerPageCallScript({
       roundName: round.name,
-      ...(tableLabel !== undefined ? { tableLabel } : {}),
       responseWindowSeconds: chain.responseWindowSeconds,
     }),
     locale: "en-IN",
@@ -1079,7 +1069,6 @@ export const currentPage = query({
         v.object({
           id: v.id("teams"),
           name: v.string(),
-          tableLabel: v.optional(v.string()),
         }),
       ),
       criteria: v.array(v.object({ id: v.id("reviewRubricCriteria"), label: v.string() })),
@@ -1136,7 +1125,7 @@ export const currentPage = query({
       }
       criteria.push({ id: criterion._id, label: criterion.label });
     }
-    let pageTeam: { id: Id<"teams">; name: string; tableLabel?: string } | null = null;
+    let pageTeam: { id: Id<"teams">; name: string } | null = null;
     if (page.reviewSessionId !== undefined) {
       const session = await ctx.db.get(page.reviewSessionId);
       if (!session || session.eventId !== event._id) {
@@ -1146,11 +1135,9 @@ export const currentPage = query({
       if (!team || team.eventId !== event._id) {
         throw new Error("An active substitute page has an invalid team.");
       }
-      const tableLabel = await teamRoundTableLabel(ctx, session.roundId, team._id);
       pageTeam = {
         id: team._id,
         name: team.name,
-        ...(tableLabel !== undefined ? { tableLabel } : {}),
       };
     }
     return {

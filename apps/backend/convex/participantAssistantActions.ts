@@ -20,7 +20,6 @@ const bringInEventTeam = createTool({
       "project_intake",
       "attendance_credential",
       "missing_scan",
-      "table_location",
       "integration",
       "queue",
       "accessibility",

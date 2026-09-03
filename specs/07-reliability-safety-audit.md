@@ -9,7 +9,7 @@ The event must expect:
 - delayed, dropped, or bounced reviewer/participant notifications;
 - stale dashboards opened on several staff laptops;
 - duplicate scans and lost network responses;
-- wrong table, wrong session/station, expired QR, unreadable/forgotten VIT ID, copied external badge, or late reviewer;
+- wrong team assignment, wrong session/station, expired QR, unreadable/forgotten VIT ID, copied external badge, or late reviewer;
 - missed entry/exit scans, simultaneous VIT-barcode/QR scans, and an offline replay that conflicts with newer presence;
 - OpenAI/Flue, GitHub, Figma, Google, Expo, or Convex service trouble;
 - human mistakes during a fast round transition.
@@ -22,7 +22,7 @@ Code2Create is online-first. Bluetooth and peer-to-peer relay are not part of th
 
 Before the final rehearsal, the event team must:
 
-- survey the actual review floor under expected crowd conditions;
+- survey the actual venue under expected crowd conditions;
 - provide a staff/reviewer network separate from the public participant network where possible;
 - test each panel zone, stairwell, and overflow area;
 - arrange backup cellular routers or managed hotspots;
@@ -203,7 +203,7 @@ The entrant hashes and validates the JPEG before storage. A retry checks the ope
 
 An accepted import creates append-only `manual_import` presence events with sheet and line provenance. The import uses the same session-transition and projection logic as an online scan. A paper time that is not later than current evidence creates a linked `needs_review` event. The newer projection remains unchanged. The session cannot begin closing while a linked sheet is still draft or submitted. The incident cannot resolve during that time. The transaction rejects duplicate active serials, reused source files, repeat line imports, stale sheet or session versions, and concurrent verification.
 
-Saving a paper-review draft freezes ordinary draft and submit commands for its existing scorecards. Review import is all-or-nothing. The server rechecks the incident, round, active review, panel/table, rubric, and evidence-checkpoint set. It also rechecks assignments, scorecard versions, complete criterion coverage, signatures, required shared notes, and the source checksum. In one transaction, the server creates reviewer-attributed scorecard versions that carry the manual-record ID. The server computes the ordinary evaluation and completes the existing review/team state in the same transaction. The server never creates a score for a blank paper field. Pending review records block ordinary completion, incident resolution, and round close.
+Saving a paper-review draft freezes ordinary draft and submit commands for its existing scorecards. Review import is all-or-nothing. The server rechecks the incident, round, active review, panel, rubric, and evidence-checkpoint set. It also rechecks assignments, scorecard versions, complete criterion coverage, signatures, required shared notes, and the source checksum. In one transaction, the server creates reviewer-attributed scorecard versions that carry the manual-record ID. The server computes the ordinary evaluation and completes the existing review/team state in the same transaction. The server never creates a score for a blank paper field. Pending review records block ordinary completion, incident resolution, and round close.
 
 Manual records never look like normal app submissions.
 
@@ -380,7 +380,7 @@ Scheduled and signal-triggered autonomy runs are domain history, not human audit
 - Raw provider payloads and source/design artifacts follow explicit evidence-retention periods; derived judging records keep only the approved manifest and facts.
 - Exports containing personal data use restricted storage and an expiry date.
 - Each identifiable attendance CSV is one prepared-session snapshot. It uses an allowlisted column set and neutralizes spreadsheet formulas. It excludes exact movement history, credentials, QR/bearer material, and exception reasons. Only the requester can obtain a download. The request and download each require the exact export grant and current scoped authorization. The final download check binds the record version and checksum. The check returns a signed URL that expires at the earlier of 60 seconds or the export expiry.
-- Emergency packs contain only the accepted venue cohort. They include the restricted contact/VIT references, last accepted presence, team, and hall placement required for incident work. Each pack is a private, purpose-labeled, checksum-pinned, four-hour record. The list query returns only metadata. Every short print open rechecks the separate grant and current authorization.
+- Emergency packs contain only the accepted venue cohort. They include the restricted contact/VIT references, last accepted presence, and team required for incident work. Each pack is a private, purpose-labeled, checksum-pinned, four-hour record. The list query returns only metadata. Every short print open rechecks the separate grant and current authorization.
 - Presence collection is limited to configured venue-zone boundary and session-confirmation events. GPS, Bluetooth, Wi-Fi, and background participant-phone tracking are excluded.
 - Exact attendance events use a shorter approved operational/incident window; longer-lived aggregates contain only fields approved by event policy.
 - Data-retention and deletion periods require Board approval before registration.

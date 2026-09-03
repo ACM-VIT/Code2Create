@@ -160,8 +160,6 @@ export const scopeType = v.union(
   v.literal("roster_entry"),
   v.literal("synesthesia_window"),
   v.literal("song_request"),
-  v.literal("floor_plan"),
-  v.literal("floor_zone"),
   v.literal("support_case"),
   v.literal("rehearsal_run"),
 );
@@ -186,7 +184,6 @@ export const supportCaseCategory = v.union(
   v.literal("attendance_credential"),
   v.literal("missing_scan"),
   v.literal("scanner_device"),
-  v.literal("table_location"),
   v.literal("integration"),
   v.literal("queue"),
   v.literal("reviewer_device"),
@@ -223,7 +220,6 @@ export const rehearsalWorkstream = v.union(
   v.literal("intake_admissions"),
   v.literal("communications"),
   v.literal("attendance"),
-  v.literal("floor"),
   v.literal("reviewer_app"),
   v.literal("review_operations"),
   v.literal("integrations"),
@@ -911,57 +907,6 @@ export const figmaPreviewState = v.union(
   v.literal("rate_limited"),
   v.literal("failed"),
 );
-
-export const floorPlanStatus = v.union(
-  v.literal("draft"),
-  v.literal("published"),
-  v.literal("superseded"),
-  v.literal("retired"),
-);
-
-export const floorMappingState = v.union(
-  v.literal("setup"),
-  v.literal("open"),
-  v.literal("frozen"),
-);
-
-/** The two states in which a published plan is visible to floor staff at all. */
-export const floorActiveMappingState = v.union(v.literal("open"), v.literal("frozen"));
-
-export const floorMappingMode = v.union(v.literal("map"), v.literal("override"));
-
-export const floorTeamQrTokenState = v.union(
-  v.literal("active"),
-  v.literal("used"),
-  v.literal("superseded"),
-  v.literal("expired"),
-);
-
-export const floorMappingClaimState = v.union(
-  v.literal("active"),
-  v.literal("completed"),
-  v.literal("expired"),
-);
-
-export const floorLocationState = v.union(v.literal("active"), v.literal("superseded"));
-
-export const floorLocationMethod = v.union(v.literal("team_qr_scan"), v.literal("override"));
-
-/** Nine named areas derived from a team's normalized position in a zone. */
-export const floorArea = v.union(
-  v.literal("north_west"),
-  v.literal("north"),
-  v.literal("north_east"),
-  v.literal("west"),
-  v.literal("centre"),
-  v.literal("east"),
-  v.literal("south_west"),
-  v.literal("south"),
-  v.literal("south_east"),
-);
-
-export type FloorArea = Infer<typeof floorArea>;
-export type FloorMappingState = Infer<typeof floorMappingState>;
 
 export const rosterEntryStatus = v.union(
   v.literal("pending"),

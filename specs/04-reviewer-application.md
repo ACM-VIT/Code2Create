@@ -24,7 +24,7 @@ The app talks to the same Convex backend as the participant portal and operation
 - `@better-auth/expo` for Google sign-in and secure cookie handling
 - Convex React client for live queries and writes
 - `expo-camera` for review-presence team QR scans
-- explicit camera modes for existing VIT IDs, external badges, attendance portal QR, review-presence QR, and hall-location QR
+- explicit camera modes for existing VIT IDs, external badges, attendance portal QR, and review-presence QR
 - `expo-notifications` for native APNs/FCM registration, pages, and time warnings
 - `expo-secure-store` for the auth cookie and local encryption key
 - SQLCipher-backed `expo-sqlite` for the current review draft and unsent operations
@@ -74,9 +74,9 @@ Colour identifies the kind of action rather than decorating it, and each action 
 | Complete device check, Clock in   | Setup, before judging can begin              |
 | No current assignment             | Resting. No action is required               |
 
-Small text under the action shows the team name, hall location, and round. History or Profile contains other detail.
+Small text under the action shows the team name and round. History or Profile contains other detail.
 
-What a reviewer sees follows from their grants, as everywhere else in the product. A person who holds only review grants never sees the scanner, floor mapping, or support surfaces, and the shell does not hint that they exist.
+What a reviewer sees follows from their grants, as everywhere else in the product. A person who holds only review grants never sees the attendance scanner or support surfaces, and the shell does not hint that they exist.
 
 ## 4. Sign-in and device check
 

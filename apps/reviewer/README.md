@@ -1,6 +1,6 @@
 # Code2Create Ops
 
-The native operations app for reviews, VIT ID barcode scans, event QR scans, hall mapping, and support.
+The native operations app for reviews, VIT ID barcode scans, event QR scans, and support.
 
 ## Development
 

@@ -8,7 +8,6 @@ export type ConfigurationTabsVisibility = {
   showParticipants: boolean;
   showAdmissions: boolean;
   showCommunications: boolean;
-  showFloor: boolean;
   showIntegrations: boolean;
   showIntelligence: boolean;
   showPhases: boolean;
@@ -102,7 +101,6 @@ const configurationGroups: readonly {
     label: "Event day",
     items: [
       { label: "Check-in plan", to: "/attendance-setup", visibility: "showAttendance" },
-      { label: "Hall layout", to: "/floor-setup", visibility: "showFloor" },
       {
         label: "Code and design",
         to: "/configuration/integrations",

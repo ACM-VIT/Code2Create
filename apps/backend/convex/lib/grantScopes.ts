@@ -163,43 +163,6 @@ export async function validateGrantScope(
     }
     return { scopeType: requestedScopeType, scopeId: id };
   }
-  if (requestedScopeType === "floor_plan") {
-    const id = ctx.db.normalizeId("floorPlanVersions", scopeId);
-    const plan = id ? await ctx.db.get("floorPlanVersions", id) : null;
-    const stateIsValid =
-      plan !== null &&
-      plan.eventId === eventId &&
-      plan.status !== "retired" &&
-      (permissionKey !== "floor.plan.publish" || plan.status === "draft") &&
-      (permissionKey !== "floor.plan.freeze" ||
-        (plan.status === "published" && plan.mappingState === "open"));
-    if (!id || !stateIsValid) {
-      throw new ConvexError({
-        code: "INVALID_SCOPE",
-        message: "Floor plan is outside this event or unavailable for that permission.",
-      });
-    }
-    return { scopeType: requestedScopeType, scopeId: id };
-  }
-  if (requestedScopeType === "floor_zone") {
-    const id = ctx.db.normalizeId("floorZones", scopeId);
-    const zone = id ? await ctx.db.get("floorZones", id) : null;
-    const plan = zone ? await ctx.db.get(zone.planVersionId) : null;
-    if (
-      !id ||
-      !zone ||
-      zone.eventId !== eventId ||
-      !plan ||
-      plan.eventId !== eventId ||
-      plan.status !== "published"
-    ) {
-      throw new ConvexError({
-        code: "INVALID_SCOPE",
-        message: "Floor zone is outside this event's published plan.",
-      });
-    }
-    return { scopeType: requestedScopeType, scopeId: id };
-  }
   if (requestedScopeType === "attendance_session") {
     const id = ctx.db.normalizeId("attendanceSessions", scopeId);
     const session = id ? await ctx.db.get("attendanceSessions", id) : null;

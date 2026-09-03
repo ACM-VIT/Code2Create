@@ -309,7 +309,6 @@ async function readLifecycleConfiguration(
     hasEventDates:
       event.startsAt !== undefined && event.endsAt !== undefined && event.startsAt < event.endsAt,
     hasFutureApplicationDeadline: Date.now() < event.applicationsCloseAt,
-    hasFloorPlan: event.publishedFloorPlanVersionId !== undefined,
     hasIntegrationPolicy: event.publishedIntegrationPolicyId !== undefined,
     hasIntakePolicy: event.publishedIntakePolicyId !== undefined,
     hasParticipantPolicy: event.publishedParticipantPolicyId !== undefined,

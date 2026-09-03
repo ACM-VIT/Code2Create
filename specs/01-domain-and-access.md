@@ -132,7 +132,7 @@ The event keeps five organizational labels:
 | Supreme        | Permission administration and broad event-governance defaults                                                   |
 | Board          | Policy, admissions, rubric, results, correction, export, and override defaults                                  |
 | SC             | Workflow-management defaults for selected operational scopes                                                    |
-| JC             | Frontline execution defaults for selected station, floor-zone, queue, support, verification, or playback scopes |
+| JC             | Frontline execution defaults for selected station, queue, support, verification, or playback scopes             |
 | External Judge | Assigned-panel context, presence, and own-scorecard defaults                                                    |
 
 Roles exist for roster grouping, display, sensible starting bundles, and training. A protected Convex function never authorizes from the role string. A role assignment may atomically materialize a code-owned template as ordinary source-attributed grants; the deployed Supreme template contains every event-wide catalog permission plus its own self-scoped permissions. There is no ceiling on permissions a target may hold based on their role.
@@ -185,12 +185,6 @@ Permission keys are atomic. Examples include:
 - `attendance.roll_call.start`
 - `attendance.roll_call.close`
 - `attendance.export.identifiable`
-- `floor.plan.create`
-- `floor.plan.publish`
-- `floor.plan.freeze`
-- `floor.location.read`
-- `floor.location.map`
-- `floor.location.override`
 - `support.case.create`
 - `support.case.read`
 - `support.case.reply`
@@ -236,7 +230,7 @@ The server resolves destination bindings again, suggests an old binding only whe
 
 The deployed role command accepts only Supreme, Board, SC, JC, External Judge, or no role. It requires `access.roles.assign` for the exact target person (or an explicit event-wide grant), the target's current `accessVersion`, a fresh current authorization, and a reason. Before writing, the backend expands the selected role template and validates every planned grant against the assigner's grant ceiling. Replacing or removing a templated role likewise validates every planned removal against the revoke ceiling. The transaction ends the prior role row, revokes only that row's `role_template` grants, writes a new active row when a role remains, materializes the new template grants, and advances access once. Supreme is the only deployed role with an automatic code-owned template; the other labels continue to use explicit bundles or grants.
 
-Team membership, team lead, panel assignment, scanner-station assignment, floor-zone mapping duty, incident command, and release ownership use the same model. Each assignment materializes narrowly scoped permissions. When the assignment ends, it revokes only the active or scheduled grants from that assignment. Creating one logical grant group advances the affected person’s `accessVersion` once, and only when the operation added at least one row. An exact retry that finds every row does not change the version. Source teardown follows the same rule for revocation. `floor_plan` and `floor_zone` are first-class grant scopes. Mapping one zone never implies another. A frozen correction uses a different key from ordinary mapping.
+Team membership, team lead, panel assignment, scanner-station assignment, incident command, and release ownership use the same model. Each assignment materializes narrowly scoped permissions. When the assignment ends, it revokes only the active or scheduled grants from that assignment. Creating one logical grant group advances the affected person’s `accessVersion` once, and only when the operation added at least one row. An exact retry that finds every row does not change the version. Source teardown follows the same rule for revocation.
 
 A grant whose `validFrom` is in the future is stored as `scheduled`. Creation schedules exact start and end transitions. A bounded 15-second sweep repairs missed work through lifecycle indexes and immediately continues when a batch has more rows. Every transition reloads the grant inside the mutation; a revoked or superseded row is a no-op and can never be revived by a stale job. Expiry remains enforced from server time on every protected call even before its history row is materialized.
 
@@ -264,9 +258,9 @@ Each permission definition states whether an ancestor grant can cover a child re
 
 ### Participant and team grants
 
-Participant provisioning materializes self-scoped permissions for the participant's profile, attendance status, dynamic QR, finalized-result review status and request, and event configuration. Joining a team materializes team-scoped read permissions for its roster, proposal, integrations, location, staff-managed queue, review progress, and released feedback. Team-lead assignment adds only team management, accepted transfer, exact-team `application.submit`, information response, and offer response. Final submission does not revoke ordinary join, leave, remove, or lead-transfer grants. The server state-blocks those commands at the deadline for the team's participant class. A successful post-submission team change atomically advances the immutable application snapshot and invalidates stale review and AI output. No participant or team-lead grant can place a team into a review round or panel queue.
+Participant provisioning materializes self-scoped permissions for the participant's profile, attendance status, dynamic QR, finalized-result review status and request, and event configuration. Joining a team materializes team-scoped read permissions for its roster, proposal, integrations, staff-managed queue, review progress, and released feedback. Team-lead assignment adds only team management, accepted transfer, exact-team `application.submit`, information response, and offer response. Final submission does not revoke ordinary join, leave, remove, or lead-transfer grants. The server state-blocks those commands at the deadline for the team's participant class. A successful post-submission team change atomically advances the immutable application snapshot and invalidates stale review and AI output. No participant or team-lead grant can place a team into a review round or panel queue.
 
-Those grants never include another team’s private submission, unreleased judge identity, score, panel note, conflict, staff location, or another participant’s detailed presence history. Leaving or being removed from a team revokes the grants sourced from that team membership without touching unrelated manual grants.
+Those grants never include another team’s private submission, unreleased judge identity, score, panel note, conflict, or another participant’s detailed presence history. Leaving or being removed from a team revokes the grants sourced from that team membership without touching unrelated manual grants.
 
 ### Application-review grants
 

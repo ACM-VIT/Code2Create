@@ -65,7 +65,6 @@ test("the autonomy read frontier is closed, modular, and excludes private conver
     "review_rounds",
     "review_exceptions",
     "attendance_counts",
-    "floor_mapping_progress",
     "support_load",
     "intake_jobs",
     "admission_jobs",

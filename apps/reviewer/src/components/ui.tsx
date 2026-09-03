@@ -553,7 +553,6 @@ function inkOn(fill: string) {
   const known: Record<string, string> = {
     [palette.judging]: palette.onJudging,
     [palette.door]: palette.onDoor,
-    [palette.hall]: palette.onHall,
     [palette.setup]: palette.onSetup,
     [palette.pulse]: palette.onPulse,
     [palette.urgent]: palette.onUrgent,

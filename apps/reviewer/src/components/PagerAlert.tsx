@@ -103,7 +103,7 @@ export function PagerAlert({
   const answerable =
     page.state === "opened" && !expired && busy === null && pendingResponse === null;
 
-  const destination = page.team?.tableLabel ?? page.team?.name ?? page.panel.name;
+  const destination = page.team?.name ?? page.panel.name;
   const beneath = page.team
     ? `${page.panel.name} · ${page.round.name}`
     : `A seat on ${page.panel.name} · ${page.round.name}`;
@@ -136,14 +136,6 @@ export function PagerAlert({
             </Text>
 
             <View style={styles.detail}>
-              {page.team?.tableLabel ? (
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Team</Text>
-                  <Text numberOfLines={1} style={styles.detailValue}>
-                    {page.team.name}
-                  </Text>
-                </View>
-              ) : null}
               <View style={styles.detailRow}>
                 <Text style={styles.detailLabel}>Why</Text>
                 <Text style={styles.detailValue}>{page.reason}</Text>

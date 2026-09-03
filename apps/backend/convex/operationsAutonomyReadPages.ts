@@ -85,8 +85,6 @@ function frozenRows(read: string, value: unknown) {
       return { data, rows: Array.isArray(data.rounds) ? data.rounds : [], key: "rounds" };
     case "attendance_counts":
       return { data, rows: Array.isArray(data.sessions) ? data.sessions : [], key: "sessions" };
-    case "floor_mapping_progress":
-      return { data, rows: Array.isArray(data.zones) ? data.zones : [], key: "zones" };
     default:
       throw new Error("This autonomy read does not use a frozen projection.");
   }

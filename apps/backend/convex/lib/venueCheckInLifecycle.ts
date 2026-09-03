@@ -3,7 +3,7 @@ import { ConvexError } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { attendanceCounterShardFor } from "./attendanceCounters";
-import { currentTeamForMembership } from "./floor";
+import { currentTeamForMembership } from "./teamMembership";
 
 type ReadCtx = QueryCtx | MutationCtx;
 type VenueIdentityCheckMethod = Doc<"venueCheckIns">["identityCheckMethod"];

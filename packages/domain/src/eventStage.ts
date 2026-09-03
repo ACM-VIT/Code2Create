@@ -40,7 +40,7 @@ export const eventStageGuidance: Record<EventStage, EventStageGuidance> = {
     goal: "Keep people checked in, teams routed, and reviews moving.",
     nextStep: "Finish the event",
     nextStatus: "complete",
-    primaryPaths: ["/", "/attendance", "/floor", "/reviews", "/support"],
+    primaryPaths: ["/", "/attendance", "/reviews", "/support"],
   },
   complete: {
     label: "Event finished",
@@ -65,7 +65,6 @@ export const eventBlockerPaths: Record<string, string> = {
   phase_schedule: "/configuration/phases",
   checkpoint_plan: "/configuration/checkpoints",
   attendance_plan: "/attendance-setup",
-  floor_plan: "/floor-setup",
   review_round: "/review-setup",
 };
 

@@ -27,7 +27,7 @@ import {
   requireClaimedStaffedCredentialResolution,
 } from "./lib/staffedParticipantResolution";
 import { normalizedText } from "./lib/strings";
-import { currentTeamForMembership } from "./lib/floor";
+import { currentTeamForMembership } from "./lib/teamMembership";
 import { latestVenueCheckIn } from "./lib/venueCheckInLifecycle";
 import { barcodeSymbology } from "./values";
 

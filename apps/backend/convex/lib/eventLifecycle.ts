@@ -9,7 +9,6 @@ export type EventLifecycleConfiguration = {
   hasAttendancePlan: boolean;
   hasCommunicationsPolicy: boolean;
   hasEventDates: boolean;
-  hasFloorPlan: boolean;
   hasIntegrationPolicy: boolean;
   hasIntakePolicy: boolean;
   hasParticipantPolicy: boolean;
@@ -28,7 +27,6 @@ export type EventLifecycleRequirementKey =
   | "communications_policy"
   | "event_dates"
   | "future_application_deadline"
-  | "floor_plan"
   | "intake_policy"
   | "integration_policy"
   | "participant_policy"
@@ -51,7 +49,6 @@ const configurationKeyByRequirement: Readonly<
   communications_policy: "hasCommunicationsPolicy",
   event_dates: "hasEventDates",
   future_application_deadline: "hasFutureApplicationDeadline",
-  floor_plan: "hasFloorPlan",
   intake_policy: "hasIntakePolicy",
   integration_policy: "hasIntegrationPolicy",
   participant_policy: "hasParticipantPolicy",
@@ -81,7 +78,6 @@ const liveRequirements: readonly EventLifecycleBlocker[] = [
   { key: "phase_schedule", label: "Event schedule" },
   { key: "checkpoint_plan", label: "Team updates" },
   { key: "attendance_plan", label: "Check-in plan" },
-  { key: "floor_plan", label: "Hall layout" },
   { key: "integration_policy", label: "Code and design policy" },
   { key: "review_round", label: "At least one judging round" },
 ];

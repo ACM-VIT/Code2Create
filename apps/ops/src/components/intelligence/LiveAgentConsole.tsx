@@ -29,7 +29,7 @@ export function LiveAgentConsole({
   composerDisabled = false,
   connectionState,
   embedded = false,
-  emptyDescription = "Ask about review flow, attendance, floor mapping, support load, or admissions.",
+  emptyDescription = "Ask about review flow, attendance, support load, or admissions.",
   emptyTitle = "Start with the live event.",
   historyCanLoadMore = false,
   historyLoadError,

@@ -61,7 +61,6 @@ const supportCategories = [
   "attendance_credential",
   "missing_scan",
   "scanner_device",
-  "table_location",
   "integration",
   "queue",
   "reviewer_device",
