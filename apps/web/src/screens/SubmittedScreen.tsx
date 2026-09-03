@@ -431,6 +431,7 @@ function SubmittedWorkspace({
         event={event}
         phaseTime={phaseTime}
         discordUrl={communications?.discordUrl ?? null}
+        ideaBrief={intake.project.initialIdea}
         team={team}
         members={members}
         teamEditable={teamEditable}

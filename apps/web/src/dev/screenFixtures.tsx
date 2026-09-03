@@ -635,6 +635,7 @@ const dashboardMusic: MusicTileModel = {
 
 const dashboardIntegrations: IntegrationsTileModel = {
   available: true,
+  idea: "A quiet coordination layer that helps crowded events move people, reviews, and updates without chaos.",
   github: { connected: true, detail: "2 repositories" },
   figma: { connected: false, detail: "Link your design files" },
   open: noop,

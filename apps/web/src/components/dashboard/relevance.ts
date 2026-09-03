@@ -38,11 +38,10 @@ export function tileRelevance(models: DashboardModels): Candidate[] {
     { key: "event", score: boundarySoon ? 95 : 90, prefer: ["wide", "box"] },
     { key: "music", score: musicScore, prefer: ["tall", "wide"] },
     { key: "squad", score: 45, prefer: ["box", "tall"] },
-    { key: "integrations", score: !integrations.available ? 10 : bothConnected ? 30 : 60, prefer: ["box", "wide"] },
+    { key: "integrations", score: integrations.idea ? 99 : !integrations.available ? 10 : bothConnected ? 30 : 60, prefer: ["box", "wide"] },
     { key: "updates", score: !updates.available ? 10 : openCheckpoint ? 92 : upcomingCheckpoint ? 55 : 15, prefer: ["tall", "box"] },
     { key: "review", score: !review.available ? 0 : review.queue ? (review.showCode ? 98 : 96) : 0, prefer: review.showCode ? ["box"] : ["wide", "tall"] },
     { key: "help", score: help.support && help.support.open > 0 ? 50 : 35, prefer: ["box", "wide"] },
     { key: "benefits", score: !benefits.available ? 5 : benefits.benefits.length > 0 ? 70 : 8, prefer: ["box", "tall"] },
   ];
 }
-

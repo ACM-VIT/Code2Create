@@ -20,18 +20,18 @@ export function Tile({
   slot: Slot;
   open?: boolean;
   expanded?: boolean;
-  onToggle: () => void;
+  onToggle?: () => void;
   onRelease?: () => void;
   backdrop?: ReactNode;
   className?: string;
   children: ReactNode;
 }) {
-  const tappable = !expanded;
+  const tappable = !expanded && onToggle !== undefined;
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (!tappable || event.target !== event.currentTarget) return;
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
-    onToggle();
+    onToggle?.();
   };
   const onClick = (event: MouseEvent<HTMLDivElement>) => {
     if (!tappable) return;
@@ -41,7 +41,7 @@ export function Tile({
     ) {
       return;
     }
-    onToggle();
+    onToggle?.();
   };
   const lit = open || expanded;
   return (

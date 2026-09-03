@@ -1,5 +1,3 @@
-import { useState } from "react";
-
 import { Reveal, Tile, TileEyebrow } from "./Tile";
 import { tileBody } from "./tileClasses";
 import type { Slot } from "./dashboardLayout";
@@ -9,6 +7,7 @@ export type IntegrationTarget = "github" | "figma";
 export type IntegrationsTileModel = {
   /** False until the team can connect tools at all. */
   available: boolean;
+  idea: string | null;
   github: { connected: boolean; detail: string };
   figma: { connected: boolean; detail: string };
   open: (target: IntegrationTarget) => void;
@@ -67,49 +66,26 @@ function IntegrationOrb({
 }
 
 /**
- * The integrations tile. A tap raises GitHub and Figma inside the card; each
- * is one more tap into the connection flow.
+ * The team's idea at a glance, with direct GitHub and Figma connection
+ * controls. The card itself is deliberately static.
  */
 export function IntegrationsTile({ slot, model }: {
   slot: Slot; model: IntegrationsTileModel }) {
-  const [open, setOpen] = useState(false);
-  const summary = !model.available
-    ? "Opens once your team is confirmed."
-    : `GitHub ${model.github.connected ? "connected" : "not linked"} · Figma ${
-        model.figma.connected ? "connected" : "not linked"
-      }`;
-
   return (
-    <Tile slot={slot} open={open} onToggle={() => setOpen((value) => !value)}>
-      <div className={tileBody}>
-        <TileEyebrow>integrations</TileEyebrow>
-        {open && model.available ? (
-          <Reveal key="orbs" className="flex items-end gap-6">
-            <IntegrationOrb target="github" label="GitHub" connected={model.github.connected} onOpen={() => model.open("github")} />
-            <IntegrationOrb target="figma" label="Figma" connected={model.figma.connected} onOpen={() => model.open("figma")} />
-          </Reveal>
-        ) : (
-          <Reveal key="summary" className="flex flex-col gap-2">
-            {model.available ? (
-              <span className="flex flex-wrap gap-x-4 gap-y-1 text-[13px] text-fg/80">
-                {(["github", "figma"] as const).map((target) => (
-                  <span key={target} className="flex items-center gap-2">
-                    <span
-                      aria-hidden
-                      className={`block size-2 rounded-full border ${
-                        model[target].connected ? "border-rose-light bg-rose-light shadow-[0_0_8px_var(--glow-rose)]" : "border-rose/50"
-                      }`}
-                    />
-                    {target === "github" ? "GitHub" : "Figma"}
-                    <span className="text-fg/45">{model[target].connected ? "linked" : "not yet"}</span>
-                  </span>
-                ))}
-              </span>
-            ) : (
-              <p className="m-0 text-[13px] leading-snug text-fg/70">{summary}</p>
-            )}
-          </Reveal>
-        )}
+    <Tile slot={slot}>
+      <div className={`${tileBody} !gap-1.5 !p-3.5`}>
+        <TileEyebrow>project</TileEyebrow>
+        <Reveal className="flex min-h-0 items-end justify-between gap-4">
+          <p className="m-0 line-clamp-3 max-w-[58%] font-display text-[14px] leading-[1.45] text-fg/65">
+            {model.idea ?? "Add a short brief so everyone knows what your team is making."}
+          </p>
+          {model.available ? (
+            <span className="flex shrink-0 items-end gap-5">
+              <IntegrationOrb target="github" label="GitHub" connected={model.github.connected} onOpen={() => model.open("github")} />
+              <IntegrationOrb target="figma" label="Figma" connected={model.figma.connected} onOpen={() => model.open("figma")} />
+            </span>
+          ) : null}
+        </Reveal>
       </div>
     </Tile>
   );

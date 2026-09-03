@@ -48,6 +48,7 @@ export function DashboardLive({
   event,
   phaseTime,
   discordUrl,
+  ideaBrief,
   team,
   members,
   teamEditable,
@@ -57,6 +58,7 @@ export function DashboardLive({
   event: NonNullable<PublicState['event']>
   phaseTime: number
   discordUrl: string | null
+  ideaBrief: string
   team: ClusterTeam
   members: readonly ClusterMember[]
   teamEditable: boolean
@@ -150,6 +152,7 @@ export function DashboardLive({
   const fileCount = figma?.summary?.fileCount ?? 0
   const integrationsModel: IntegrationsTileModel = {
     available: integrationsAllowed,
+    idea: ideaBrief,
     github: {
       connected: github?.connections.some((connection) => connection.state === 'active') ?? false,
       detail: repositoryCount === 0 ? 'Link your repositories' : repositoryCount === 1 ? '1 repository' : `${repositoryCount} repositories`,
