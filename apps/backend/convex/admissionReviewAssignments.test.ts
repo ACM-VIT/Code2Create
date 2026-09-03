@@ -206,6 +206,74 @@ describe("admission review assignments", () => {
     expect(assignmentCounts).toEqual({ active: 1, completed: 1 });
   });
 
+  test("origin counts include matching assignments beyond the first 500 rows", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const { authUserId, authSessionId } = await createReviewerAuth(backend);
+    const fixture = await seedAssignmentFixture(backend, authUserId);
+
+    await backend.run(async (ctx) => {
+      const externalApplication = await ctx.db.get(fixture.applicationId);
+      if (!externalApplication) throw new Error("Assignment fixture is incomplete.");
+      const externalTeam = await ctx.db.get(externalApplication.teamId);
+      if (!externalTeam) throw new Error("Assignment fixture team is missing.");
+      const internalTeamId = await ctx.db.insert("teams", {
+        eventId: fixture.eventId,
+        name: "Internal count team",
+        publicCode: "INTERNALCOUNT",
+        leadMembershipId: externalTeam.leadMembershipId,
+        status: "submitted",
+        activeMemberCount: 1,
+        activeVitMemberCount: 1,
+        activeExternalMemberCount: 0,
+        membershipLocked: true,
+        version: 1,
+        createdAt: fixture.now,
+        updatedAt: fixture.now,
+      });
+      const {
+        _id: _applicationId,
+        _creationTime: _applicationCreatedAt,
+        ...applicationFields
+      } = externalApplication;
+      const internalApplicationId = await ctx.db.insert("applications", {
+        ...applicationFields,
+        teamId: internalTeamId,
+        submittedAt: fixture.now + 501,
+      });
+      for (let index = 0; index < 500; index += 1) {
+        await ctx.db.insert("admissionReviewAssignments", {
+          eventId: fixture.eventId,
+          applicationId: fixture.applicationId,
+          applicationContentVersion: 1,
+          reviewerPersonId: fixture.reviewerPersonId,
+          assignedByPersonId: fixture.managerPersonId,
+          state: "active",
+          version: 1,
+          assignedAt: fixture.now + index,
+        });
+      }
+      await ctx.db.insert("admissionReviewAssignments", {
+        eventId: fixture.eventId,
+        applicationId: internalApplicationId,
+        applicationContentVersion: 1,
+        reviewerPersonId: fixture.reviewerPersonId,
+        assignedByPersonId: fixture.managerPersonId,
+        state: "active",
+        version: 1,
+        assignedAt: fixture.now + 500,
+      });
+    });
+
+    const reviewer = backend.withIdentity({ subject: authUserId, sessionId: authSessionId });
+    await expect(
+      reviewer.query(api.admissions.myReviewAssignmentCounts, {
+        eventSlug: fixture.eventSlug,
+        origin: "internal",
+      }),
+    ).resolves.toEqual({ active: 1, completed: 0 });
+  });
+
   test("keeps routing, profile context, and AI analysis behind separate exact scopes", () => {
     expect(permissionCatalog["application.review.read"]).toEqual({
       scopes: ["application"],

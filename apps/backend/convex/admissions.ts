@@ -77,7 +77,6 @@ const listItem = v.object({
 });
 
 const maximumScopedApplicationsForStageCounts = 2_000;
-const maximumCountedReviewAssignments = 500;
 const maximumWorkloadAssignments = 4_000;
 const maximumApplicationSearchResults = 100;
 const maximumAdmissionPageSize = 100;
@@ -834,7 +833,12 @@ export const myReviewAssignmentCounts = query({
         .withIndex("by_event_reviewer_state_assigned", (index) =>
           index.eq("eventId", event._id).eq("reviewerPersonId", person._id).eq("state", state),
         )
-        .take(maximumCountedReviewAssignments);
+        .take(maximumWorkloadAssignments + 1);
+      if (rows.length > maximumWorkloadAssignments) {
+        throw new Error(
+          `Admission workload counts support at most ${maximumWorkloadAssignments} assignments per state.`,
+        );
+      }
       if (args.origin === undefined) return rows.length;
       let matching = 0;
       for (const row of rows) {
