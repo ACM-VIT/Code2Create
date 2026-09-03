@@ -804,8 +804,8 @@ export default function Journey({ petalsRef }: JourneyProps) {
        * scroll: the page's own smooth behavior would turn the wall to rubber.
        */
       /* The scroll timeline carries a weighted playhead over the unchanged
-         choreography. This doubles the wheel distance only for About and
-         Sponsors while preserving every animation cue's authored timing. */
+         choreography. This doubles the wheel distance for About and the
+         sponsor reveals, while the sponsor exit returns to normal speed. */
       tl.pause(0);
       const playhead = { at: 0 };
       const syncMaster = () => tl.time(playhead.at);

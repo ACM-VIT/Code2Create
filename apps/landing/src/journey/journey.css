@@ -8,12 +8,12 @@
  * tablets and phones rather than just scaling it down.
  * ------------------------------------------------------------------ */
 
-/* ~2565vh of travel over the weighted 394-unit scroll track. About and
-   Sponsors receive twice the runway; every other act keeps its original
-   physical scroll pace. */
+/* ~2513vh of travel over the weighted 386-unit scroll track. About and the
+   sponsor reveals receive twice the runway; the sponsor exit and every other
+   act keep their original physical scroll pace. */
 .journey {
   position: relative;
-  height: 2665vh;
+  height: 2613vh;
 }
 
 .journey__stage {
