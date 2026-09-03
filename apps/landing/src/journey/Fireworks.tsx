@@ -56,7 +56,7 @@ const SPONSORS: readonly SponsorSpec[] = [
     from: 35,
     core: [236, 186, 255],
     ember: [176, 112, 250],
-    phone: { x: 50, y: 20, logoY: 10, from: 20 },
+    phone: { x: 50, y: 20, logoY: 9, from: 20 },
   },
   {
     name: "ElevenLabs",
@@ -88,7 +88,7 @@ const SPONSORS: readonly SponsorSpec[] = [
     from: 15,
     core: [255, 236, 198],
     ember: [255, 166, 89],
-    phone: { x: 18, y: 58, logoY: 54, from: 10 },
+    phone: { x: 18, y: 58, logoY: 53, from: 10 },
   },
   {
     name: "ProtoFlow",
@@ -104,7 +104,7 @@ const SPONSORS: readonly SponsorSpec[] = [
     from: 36,
     core: [205, 239, 255],
     ember: [92, 186, 255],
-    phone: { x: 50, y: 58, logoY: 54, from: 43 },
+    phone: { x: 50, y: 58, logoY: 53, from: 43 },
   },
   {
     name: "CodeCrafters",
@@ -120,7 +120,7 @@ const SPONSORS: readonly SponsorSpec[] = [
     from: 56,
     core: [239, 232, 255],
     ember: [188, 144, 255],
-    phone: { x: 82, y: 58, logoY: 54, from: 90 },
+    phone: { x: 82, y: 58, logoY: 53, from: 90 },
   },
   {
     name: "n8n",
@@ -360,6 +360,7 @@ const Fireworks = forwardRef<FireworksHandle, Record<never, never>>(
     const progresses = useRef(SPONSORS.map(() => 0));
     const twinklePhases = useRef(SPONSORS.map(() => 0));
     const fallProgress = useRef(0);
+    const canvasHeight = useRef(0);
     const renderer = useRef<{ request(): void } | null>(null);
 
     const [narrow, setNarrow] = useState(
@@ -386,7 +387,7 @@ const Fireworks = forwardRef<FireworksHandle, Record<never, never>>(
         autoAlpha: reveal * exitFade,
         scale: 0.9 + reveal * 0.1,
         xPercent: -50,
-        y: (1 - reveal) * 12 + gravityOffset(window.innerHeight, falling),
+        y: (1 - reveal) * 12 + gravityOffset(canvasHeight.current, falling),
       });
     };
 
@@ -494,6 +495,7 @@ const Fireworks = forwardRef<FireworksHandle, Record<never, never>>(
         const box = canvas.getBoundingClientRect();
         width = Math.max(1, box.width);
         height = Math.max(1, box.height);
+        canvasHeight.current = height;
         const pixelRatio = Math.min(window.devicePixelRatio || 1, 1.25);
         canvas.width = Math.round(width * pixelRatio);
         canvas.height = Math.round(height * pixelRatio);
@@ -734,6 +736,9 @@ const Fireworks = forwardRef<FireworksHandle, Record<never, never>>(
 
       const onResize = () => {
         resize();
+        SPONSORS.forEach((_sponsor, index) =>
+          setLogoProgress(index, progresses.current[index], fallProgress.current),
+        );
         requestRender();
       };
       window.addEventListener("resize", onResize);

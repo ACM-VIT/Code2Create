@@ -1200,7 +1200,7 @@
   }
 
   .sponsor__logo--sglang {
-    width: clamp(102px, 29vw, 122px);
+    width: clamp(96px, min(29vw, 14svh), 122px);
   }
 
   .sponsor__logo--tin {
