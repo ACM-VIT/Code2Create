@@ -635,7 +635,6 @@
 .sponsor {
   position: absolute;
   display: block;
-  translate: -50% -50%;
   text-align: center;
   text-decoration: none;
   opacity: 0;
@@ -667,7 +666,7 @@
 }
 
 .sponsor__logo--sglang {
-  width: clamp(126px, 12vw, 172px);
+  width: clamp(120px, 10vw, 140px);
 }
 
 .sponsor__logo--tin {

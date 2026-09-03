@@ -52,11 +52,11 @@ const SPONSORS: readonly SponsorSpec[] = [
     duration: 10,
     x: 24,
     y: 27,
-    logoY: 27,
+    logoY: 12,
     from: 35,
     core: [236, 186, 255],
     ember: [176, 112, 250],
-    phone: { x: 50, y: 22, logoY: 16, from: 20 },
+    phone: { x: 50, y: 22, logoY: 12, from: 20 },
   },
   {
     name: "ElevenLabs",
@@ -88,7 +88,7 @@ const SPONSORS: readonly SponsorSpec[] = [
     from: 15,
     core: [255, 236, 198],
     ember: [255, 166, 89],
-    phone: { x: 18, y: 59, logoY: 59, from: 10 },
+    phone: { x: 18, y: 59, logoY: 55, from: 10 },
   },
   {
     name: "ProtoFlow",
@@ -104,7 +104,7 @@ const SPONSORS: readonly SponsorSpec[] = [
     from: 36,
     core: [205, 239, 255],
     ember: [92, 186, 255],
-    phone: { x: 50, y: 59, logoY: 59, from: 43 },
+    phone: { x: 50, y: 59, logoY: 55, from: 43 },
   },
   {
     name: "CodeCrafters",
@@ -120,7 +120,7 @@ const SPONSORS: readonly SponsorSpec[] = [
     from: 56,
     core: [239, 232, 255],
     ember: [188, 144, 255],
-    phone: { x: 82, y: 59, logoY: 59, from: 90 },
+    phone: { x: 82, y: 59, logoY: 55, from: 90 },
   },
   {
     name: "n8n",
@@ -157,6 +157,7 @@ const SPONSORS: readonly SponsorSpec[] = [
 ];
 
 const SPONSORS_END = 142;
+const SPONSORS_FALL_END = 150;
 
 interface FireworkDimensions {
   burstScale: number;
@@ -174,13 +175,13 @@ interface FireworkTierSpec {
 
 const FIREWORK_TIERS: Record<SponsorTier, FireworkTierSpec> = {
   lead: {
-    budget: 560,
+    budget: 800,
     desktop: {
       burstScale: 1.28,
       starScale: 1.12,
       targetWidth: 0.35,
-      targetHeight: 0.095,
-      textOffset: 0.165,
+      targetHeight: 0.1,
+      textOffset: 0.12,
     },
     phone: {
       burstScale: 1,
@@ -191,37 +192,37 @@ const FIREWORK_TIERS: Record<SponsorTier, FireworkTierSpec> = {
     },
   },
   featured: {
-    budget: 450,
+    budget: 740,
     desktop: {
       burstScale: 1.08,
       starScale: 1,
       targetWidth: 0.31,
       targetHeight: 0.085,
-      textOffset: 0.15,
+      textOffset: 0.11,
     },
     phone: {
       burstScale: 0.84,
       starScale: 0.96,
       targetWidth: 0.68,
       targetHeight: 0.065,
-      textOffset: 0.105,
+      textOffset: 0.095,
     },
   },
   supporting: {
-    budget: 220,
+    budget: 400,
     desktop: {
       burstScale: 0.62,
-      starScale: 0.78,
+      starScale: 0.58,
       targetWidth: 0.17,
       targetHeight: 0.045,
-      textOffset: 0.09,
+      textOffset: 0.1,
     },
     phone: {
       burstScale: 0.48,
-      starScale: 0.74,
+      starScale: 0.54,
       targetWidth: 0.28,
       targetHeight: 0.034,
-      textOffset: 0.055,
+      textOffset: 0.065,
     },
   },
 };
@@ -235,6 +236,10 @@ const TWINKLE_GROUPS = 4;
 const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
 const easeOutCubic = (value: number) => 1 - (1 - value) ** 3;
 const smoothstep = (value: number) => value * value * (3 - 2 * value);
+const gravityOffset = (height: number, progress: number) => {
+  const fall = smoothstep(clamp01(progress));
+  return height * (0.12 * fall + 0.78 * fall * fall);
+};
 const channels = (color: Color) => `${color[0]}, ${color[1]}, ${color[2]}`;
 
 const sponsorAt = (index: number, phone: boolean) =>
@@ -284,6 +289,7 @@ interface StepCanvas extends HTMLCanvasElement {
     letters: number;
     budgets: number[];
     burstRadii: number[];
+    fallProgress: number;
   };
 }
 
@@ -309,8 +315,8 @@ const sampleText = (name: string): TextSample => {
   let minY = canvas.height;
   let maxY = 0;
 
-  for (let y = 0; y < canvas.height; y += 3) {
-    for (let x = 0; x < canvas.width; x += 3) {
+  for (let y = 0; y < canvas.height; y += 2) {
+    for (let x = 0; x < canvas.width; x += 2) {
       if (pixels[(y * canvas.width + x) * 4 + 3] <= 150) continue;
       points.push({ x, y });
       minX = Math.min(minX, x);
@@ -353,6 +359,7 @@ const Fireworks = forwardRef<FireworksHandle, Record<never, never>>(
     const logoRefs = useRef<(HTMLAnchorElement | null)[]>([]);
     const progresses = useRef(SPONSORS.map(() => 0));
     const twinklePhases = useRef(SPONSORS.map(() => 0));
+    const fallProgress = useRef(0);
     const renderer = useRef<{ request(): void } | null>(null);
 
     const [narrow, setNarrow] = useState(
@@ -367,36 +374,46 @@ const Fireworks = forwardRef<FireworksHandle, Record<never, never>>(
       return () => query.removeEventListener("change", sync);
     }, []);
 
-    const setLogoProgress = (index: number, progress: number) => {
+    const setLogoProgress = (index: number, progress: number, falling: number) => {
       const logo = logoRefs.current[index];
       if (!logo) return;
       const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       const revealFrom = reduced ? 0.08 : FORM_END - 0.04;
       const revealDuration = reduced ? 0.12 : 0.14;
       const reveal = smoothstep(clamp01((progress - revealFrom) / revealDuration));
+      const exitFade = 1 - smoothstep(clamp01((falling - 0.8) / 0.2));
       gsap.set(logo, {
-        autoAlpha: reveal,
+        autoAlpha: reveal * exitFade,
         scale: 0.9 + reveal * 0.1,
-        y: (1 - reveal) * 12,
+        xPercent: -50,
+        y: (1 - reveal) * 12 + gravityOffset(window.innerHeight, falling),
       });
     };
 
     useImperativeHandle(ref, () => ({
       setTimeline(masterTime) {
         let changed = false;
+        const nextFall =
+          masterTime >= SPONSORS_END && masterTime < SPONSORS_FALL_END
+            ? clamp01((masterTime - SPONSORS_END) / (SPONSORS_FALL_END - SPONSORS_END))
+            : 0;
+        const fallChanged = Math.abs(fallProgress.current - nextFall) >= 0.0001;
         SPONSORS.forEach((sponsor, index) => {
-          const active = masterTime >= sponsor.cue && masterTime < SPONSORS_END;
-          const next = active ? clamp01((masterTime - sponsor.cue) / sponsor.duration) : 0;
+          const active = masterTime >= sponsor.cue && masterTime < SPONSORS_FALL_END;
+          const next = active
+            ? clamp01((Math.min(masterTime, SPONSORS_END) - sponsor.cue) / sponsor.duration)
+            : 0;
           const nextTwinkle = active ? (masterTime - sponsor.cue) / sponsor.duration : 0;
           const progressChanged = Math.abs(progresses.current[index] - next) >= 0.0001;
           const twinkleChanged = Math.abs(twinklePhases.current[index] - nextTwinkle) >= 0.0001;
-          if (!progressChanged && !twinkleChanged) return;
+          if (!progressChanged && !twinkleChanged && !fallChanged) return;
 
           progresses.current[index] = next;
           twinklePhases.current[index] = nextTwinkle;
-          if (progressChanged) setLogoProgress(index, next);
+          if (progressChanged || fallChanged) setLogoProgress(index, next, nextFall);
           changed = true;
         });
+        fallProgress.current = nextFall;
         if (changed) renderer.current?.request();
       },
     }));
@@ -522,6 +539,20 @@ const Fireworks = forwardRef<FireworksHandle, Record<never, never>>(
         };
       };
 
+      const fallingPoint = (
+        sponsor: PreparedSponsor,
+        star: PreparedStar,
+        formedProgress: number,
+        falling: number,
+      ): DrawPoint => {
+        const point = formedPoint(sponsor, star, formedProgress);
+        const fall = smoothstep(clamp01(falling));
+        return {
+          x: point.x + Math.sin(star.angle * 1.7) * height * 0.04 * fall,
+          y: point.y + gravityOffset(height, falling),
+        };
+      };
+
       const drawRocket = (sponsor: PreparedSponsor, progress: number) => {
         const point = rocketPoint(sponsor, progress);
         const previous = rocketPoint(sponsor, Math.max(0, progress - 0.055));
@@ -582,6 +613,7 @@ const Fireworks = forwardRef<FireworksHandle, Record<never, never>>(
         sponsor: PreparedSponsor,
         phase: number,
         radiusScale: number,
+        opacityScale: number,
         pointAt: (star: PreparedStar) => DrawPoint,
       ) => {
         const spec = SPONSORS[sponsorIndex];
@@ -594,11 +626,11 @@ const Fireworks = forwardRef<FireworksHandle, Record<never, never>>(
           path.arc(point.x, point.y, radius, 0, TAU);
         });
 
-        context.shadowBlur = 6;
-        context.shadowColor = `rgba(${channels(spec.ember)}, 0.88)`;
+        context.shadowBlur = 4;
+        context.shadowColor = `rgba(${channels(spec.ember)}, ${0.9 * opacityScale})`;
         paths.forEach((path, group) => {
           const wave = Math.sin(phase * TAU * 2.6 + group * 1.67);
-          const twinkle = 0.62 + wave * wave * 0.38;
+          const twinkle = (0.82 + wave * wave * 0.18) * opacityScale;
           context.fillStyle = `rgba(${channels(spec.core)}, ${twinkle})`;
           context.fill(path);
         });
@@ -627,7 +659,7 @@ const Fireworks = forwardRef<FireworksHandle, Record<never, never>>(
         context.strokeStyle = `rgba(${channels(spec.core)}, 0.98)`;
         context.lineWidth = 1.05 * Math.max(0.68, sponsor.burstScale);
         context.stroke();
-        drawTwinkles(sponsorIndex, sponsor, twinklePhase, 0.9, (star) =>
+        drawTwinkles(sponsorIndex, sponsor, twinklePhase, 0.9, 1, (star) =>
           burstPoint(sponsor, star, progress),
         );
       };
@@ -637,14 +669,17 @@ const Fireworks = forwardRef<FireworksHandle, Record<never, never>>(
         sponsor: PreparedSponsor,
         progress: number,
         twinklePhase: number,
+        falling: number,
       ) => {
         const formed = smoothstep(clamp01(progress));
+        const opacity = 1 - smoothstep(clamp01((falling - 0.78) / 0.22));
         drawTwinkles(
           sponsorIndex,
           sponsor,
           twinklePhase * 1.35 + formed * 0.4,
-          0.82 + formed * 0.18,
-          (star) => formedPoint(sponsor, star, progress),
+          0.92 + formed * 0.18,
+          opacity,
+          (star) => fallingPoint(sponsor, star, progress, falling),
         );
       };
 
@@ -671,6 +706,7 @@ const Fireworks = forwardRef<FireworksHandle, Record<never, never>>(
           sponsor,
           clamp01((progress - BURST_END) / (FORM_END - BURST_END)),
           twinklePhases.current[sponsorIndex],
+          fallProgress.current,
         );
       };
 
@@ -692,7 +728,9 @@ const Fireworks = forwardRef<FireworksHandle, Record<never, never>>(
 
       renderer.current = { request: requestRender };
       resize();
-      SPONSORS.forEach((_sponsor, index) => setLogoProgress(index, progresses.current[index]));
+      SPONSORS.forEach((_sponsor, index) =>
+        setLogoProgress(index, progresses.current[index], fallProgress.current),
+      );
       requestRender();
 
       const onResize = () => {
@@ -742,6 +780,7 @@ const Fireworks = forwardRef<FireworksHandle, Record<never, never>>(
             burstRadii: prepared.map((sponsor) =>
               Math.max(...sponsor.stars.map((star) => star.radius)),
             ),
+            fallProgress: fallProgress.current,
           };
         };
       }

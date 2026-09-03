@@ -35,6 +35,13 @@ import "./journey.css";
 
 gsap.registerPlugin(useGSAP, ScrollTrigger);
 
+/* Keep the heading on the same gravity curve as the sponsor particles and
+   logos so their spacing stays intact while the whole scene drops away. */
+const sponsorFallEase = (progress: number) => {
+  const fall = progress * progress * (3 - 2 * progress);
+  return (0.12 * fall + 0.78 * fall * fall) / 0.9;
+};
+
 /* The embedded preview loads the page with the document hidden, so rAF — and
    with it the ticker, the scrub and every cue — never fires there. Handing
    the internals to the console lets a test drive time by hand, the same way
@@ -559,8 +566,8 @@ export default function Journey({ petalsRef }: JourneyProps) {
          Stop the wheel and the shell stops; reverse it and the shell rewinds. */
       tl.to(q(".sponsors__title"), { autoAlpha: 1, y: 0, duration: 7, ease: "power3.out" }, 103).to(
         q(".sponsors__title"),
-        { autoAlpha: 0, y: "-5svh", duration: 3, ease: "power2.in" },
-        139,
+        { autoAlpha: 0, y: "90svh", duration: 8, ease: sponsorFallEase },
+        142,
       );
 
       /* H3 — only now, with the volley spent, do the hills leave the frame
@@ -738,8 +745,8 @@ export default function Journey({ petalsRef }: JourneyProps) {
       };
 
       /* Firework progress comes only from scroll. Past its own span a sponsor
-         holds in its resolved state until the act exits; crossing backward
-         plays the exact same positions in reverse. */
+         holds in its resolved state, then every particle and logo falls with
+         the departing hills; crossing backward rewinds those exact positions. */
       const sponsorCue = (progress: number) => {
         const api = fireworksRef.current;
         if (!api) return;
