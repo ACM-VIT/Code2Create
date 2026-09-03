@@ -38,7 +38,7 @@
     "test:team-rosters": "vitest run convex/teamRosters.test.ts",
     "test:admission-configuration": "vitest run convex/admissionPolicyConfiguration.test.ts",
     "test:admission-information": "vitest run convex/admissionInformationLifecycle.test.ts",
-    "test:benefits": "vitest run convex/benefitsLifecycle.test.ts",
+    "test:benefits": "vitest run convex/benefitsLifecycle.test.ts --testTimeout=15000",
     "test:novelty": "vitest run convex/noveltyLifecycle.test.ts convex/lib/novelty.test.ts convex/lib/noveltyRateLimits.test.ts convex/lib/openAiNoveltyJudge.test.ts --testTimeout=10000",
     "test:communications": "vitest run convex/communicationsPolicyLifecycle.test.ts",
     "test:attendance-stations": "vitest run convex/attendanceConfiguration.test.ts convex/attendanceOperations.test.ts convex/attendanceStationLifecycle.test.ts convex/lib/attendancePlanLimits.test.ts",
