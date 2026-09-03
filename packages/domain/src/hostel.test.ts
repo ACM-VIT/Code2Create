@@ -42,6 +42,7 @@ test("the men's hostel catalog matches the current blocks", () => {
     [
       "mh_a",
       "mh_b",
+      "mh_b_annex",
       "mh_c",
       "mh_d",
       "mh_d_annex",
