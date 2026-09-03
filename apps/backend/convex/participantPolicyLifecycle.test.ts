@@ -443,6 +443,58 @@ describe("participant policy lifecycle", () => {
     expect(published?.teamMinimumSize).toBe(2);
   });
 
+  test("unchanged team bounds do not block an unrelated policy update", async () => {
+    const backend = convexTest(schema, modules);
+    const fixture = await seedFixture(backend, "unchanged-team-bounds", 5, 30, 2);
+    await backend.run((ctx) =>
+      ctx.db.insert("teams", {
+        eventId: fixture.event._id,
+        name: "Still forming",
+        publicCode: "FORMING",
+        leadMembershipId: fixture.membershipId,
+        status: "forming",
+        activeMemberCount: 1,
+        activeVitMemberCount: 0,
+        activeExternalMemberCount: 1,
+        membershipLocked: false,
+        version: 1,
+        createdAt: fixture.now,
+        updatedAt: fixture.now,
+      }),
+    );
+    const draft = await backend.run((ctx) =>
+      saveParticipantPolicyDraft(ctx, {
+        event: fixture.event,
+        actorPersonId: fixture.personId,
+        policy: {
+          ...policy("Residence catalogue", 5, 2),
+          vitHostelResidenceCatalog: [
+            ...defaultParticipantPolicy.vitHostelResidenceCatalog,
+            { stableKey: "b_annex", label: "B Annex", kind: "mens" },
+          ],
+        },
+        now: fixture.now + 1,
+      }),
+    );
+
+    await backend.run((ctx) =>
+      publishParticipantPolicy(ctx, {
+        event: fixture.event,
+        draftPolicyId: draft.policyVersionId,
+        expectedDraftChecksum: draft.checksum,
+        now: fixture.now + 2,
+      }),
+    );
+
+    const published = await backend.run((ctx) => ctx.db.get(draft.policyVersionId));
+    expect(published?.status).toBe("published");
+    expect(published?.vitHostelResidenceCatalog.at(-1)).toEqual({
+      stableKey: "b_annex",
+      label: "B Annex",
+      kind: "mens",
+    });
+  });
+
   test("a single-class policy cannot strand a current mixed team", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedFixture(backend, "mixed-team-publication", 4, 30);

@@ -334,7 +334,12 @@ export const validateDraft = query({
       participantPolicyChecksum(normalized) === draft.checksum
         ? []
         : ["The draft checksum does not match its participant policy."];
-    const publicationIssue = await participantPolicyPublicationIssue(ctx, event, normalized);
+    const publicationIssue = await participantPolicyPublicationIssue(
+      ctx,
+      event,
+      normalizeParticipantPolicy(participantPolicyFromDocument(published)),
+      normalized,
+    );
     if (publicationIssue) issues.push(publicationIssue);
     return {
       valid: issues.length === 0,
