@@ -618,12 +618,20 @@ export const submitted = query({
     ) {
       throw new Error("A participant application has an invalid submitted project.");
     }
+    const submittedIdeaFingerprint = noveltyInputFingerprint(project.initialIdea);
     const [intakePolicy, draft, novelty] = await Promise.all([
       ctx.db.get(project.intakePolicyVersionId),
       ctx.db
         .query("projectDrafts")
         .withIndex("by_team", (index) => index.eq("teamId", team._id))
-        .unique(),
+        .filter((query) =>
+          query.eq(
+            query.field("noveltyEvaluatedInputFingerprint"),
+            submittedIdeaFingerprint,
+          ),
+        )
+        .order("desc")
+        .first(),
       participantNoveltyConfig(ctx, event),
     ]);
     if (

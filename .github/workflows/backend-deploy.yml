@@ -4,10 +4,12 @@ on:
   push:
     branches:
       - dev
+      - main
     paths:
       - .github/workflows/backend-deploy.yml
       - apps/backend/**
       - infra/azure/staging/deploy-convex.sh
+      - infra/azure/production/deploy-convex.sh
       - package.json
       - packages/domain/**
       - pnpm-lock.yaml
@@ -73,7 +75,7 @@ jobs:
 
   deploy-production:
     name: Deploy production backend
-    if: github.event_name == 'workflow_dispatch' && github.ref_name == 'main'
+    if: github.ref_name == 'main'
     needs: verify
     runs-on: ubuntu-24.04
     timeout-minutes: 10
