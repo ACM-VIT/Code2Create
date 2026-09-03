@@ -62,7 +62,7 @@
     "test:synesthesia": "vitest run convex/synesthesiaVoting.test.ts convex/lib/youtubeCatalog.test.ts",
     "test:score-governance": "vitest run convex/scoreGovernance.test.ts convex/lib/scoreCorrectionPolicy.test.ts",
     "test:emergency-pack": "node --test convex/lib/emergencyPack.test.ts",
-    "test:operations-health": "node --test convex/lib/operationsHealth.test.ts && vitest run convex/operationsHealthSnapshot.test.ts",
+    "test:operations-health": "node --test convex/lib/operationsHealth.test.ts && vitest run convex/operationsBackground.test.ts convex/operationsHealthSnapshot.test.ts",
     "test:support": "vitest run convex/lib/supportCases.test.ts convex/supportLifecycle.test.ts",
     "test:participant-assistant": "vitest run convex/lib/participantAssistant.test.ts convex/participantAssistantLifecycle.test.ts",
     "test:incidents": "vitest run convex/incidentsLifecycle.test.ts",

@@ -216,61 +216,74 @@ export const tick = internalAction({
   args: {},
   returns: v.object({ evaluated: v.number(), queued: v.number(), monitored: v.number() }),
   handler: async (ctx): Promise<{ evaluated: number; queued: number; monitored: number }> => {
-    const now = Date.now();
-    const supervisionIds: Id<"operationsAutonomyRunSupervision">[] = await ctx.runQuery(
-      internal.operationsAutonomyScheduler.supervisionCandidates,
-      { now },
-    );
-    for (const supervisionId of supervisionIds) {
-      await ctx.runMutation(internal.operationsAutonomyScheduler.reconcileSupervision, {
-        supervisionId,
-        now,
-      });
+    const leaseId = crypto.randomUUID();
+    const claimed = await ctx.runMutation(internal.operationsBackground.claim, {
+      holder: "autonomy_tick",
+      leaseId,
+      now: Date.now(),
+      leaseDurationMs: 60_000,
+    });
+    if (!claimed) return { evaluated: 0, queued: 0, monitored: 0 };
+
+    try {
+      const now = Date.now();
+      const supervisionIds: Id<"operationsAutonomyRunSupervision">[] = await ctx.runQuery(
+        internal.operationsAutonomyScheduler.supervisionCandidates,
+        { now },
+      );
+      for (const supervisionId of supervisionIds) {
+        await ctx.runMutation(internal.operationsAutonomyScheduler.reconcileSupervision, {
+          supervisionId,
+          now,
+        });
+      }
+      const stateIds: Id<"operationsAutonomyStates">[] = await ctx.runQuery(
+        internal.operationsAutonomyScheduler.dueStates,
+        { now },
+      );
+      for (const stateId of stateIds) {
+        await ctx.runMutation(internal.operationsAutonomyScheduler.enqueueDueSchedules, {
+          stateId,
+          now,
+        });
+      }
+      const cancellationPolicies: Id<"operationsAutonomyPolicyVersions">[] = await ctx.runQuery(
+        internal.operationsAutonomyScheduler.pendingCancellationPolicies,
+        {},
+      );
+      for (const policyVersionId of cancellationPolicies) {
+        await ctx.runMutation(internal.operationsAutonomyScheduler.cancelPendingInboxPage, {
+          policyVersionId,
+          now,
+        });
+      }
+      const inboxIds: Id<"operationsAutonomyInbox">[] = await ctx.runQuery(
+        internal.operationsAutonomyScheduler.pendingInboxCandidates,
+        { now },
+      );
+      for (const inboxId of inboxIds) {
+        await ctx.runMutation(internal.operationsAutonomyScheduler.materializeInbox, {
+          inboxId,
+          now,
+        });
+      }
+      const continuationIds: Id<"operationsAutonomyContinuations">[] = await ctx.runQuery(
+        internal.operationsAutonomyDispatch.dueContinuations,
+        { now },
+      );
+      for (const continuationId of continuationIds) {
+        await ctx.scheduler.runAfter(0, internal.operationsAutonomyActions.continueRun, {
+          continuationId,
+        });
+      }
+      return {
+        evaluated: stateIds.length,
+        queued: inboxIds.length,
+        monitored: supervisionIds.length,
+      };
+    } finally {
+      await ctx.runMutation(internal.operationsBackground.release, { leaseId });
     }
-    const stateIds: Id<"operationsAutonomyStates">[] = await ctx.runQuery(
-      internal.operationsAutonomyScheduler.dueStates,
-      { now },
-    );
-    for (const stateId of stateIds) {
-      await ctx.runMutation(internal.operationsAutonomyScheduler.enqueueDueSchedules, {
-        stateId,
-        now,
-      });
-    }
-    const cancellationPolicies: Id<"operationsAutonomyPolicyVersions">[] = await ctx.runQuery(
-      internal.operationsAutonomyScheduler.pendingCancellationPolicies,
-      {},
-    );
-    for (const policyVersionId of cancellationPolicies) {
-      await ctx.runMutation(internal.operationsAutonomyScheduler.cancelPendingInboxPage, {
-        policyVersionId,
-        now,
-      });
-    }
-    const inboxIds: Id<"operationsAutonomyInbox">[] = await ctx.runQuery(
-      internal.operationsAutonomyScheduler.pendingInboxCandidates,
-      { now },
-    );
-    for (const inboxId of inboxIds) {
-      await ctx.runMutation(internal.operationsAutonomyScheduler.materializeInbox, {
-        inboxId,
-        now,
-      });
-    }
-    const continuationIds: Id<"operationsAutonomyContinuations">[] = await ctx.runQuery(
-      internal.operationsAutonomyDispatch.dueContinuations,
-      { now },
-    );
-    for (const continuationId of continuationIds) {
-      await ctx.scheduler.runAfter(0, internal.operationsAutonomyActions.continueRun, {
-        continuationId,
-      });
-    }
-    return {
-      evaluated: stateIds.length,
-      queued: inboxIds.length,
-      monitored: supervisionIds.length,
-    };
   },
 });
 

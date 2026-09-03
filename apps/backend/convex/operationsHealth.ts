@@ -1080,24 +1080,37 @@ export const markSnapshotStale = internalMutation({
 
 export const refresh = internalAction({
   args: {},
-  returns: v.union(v.literal("no_event"), snapshotWriteResult),
-  handler: async (ctx): Promise<"no_event" | SnapshotWriteResult> => {
-    const target: { eventId: Id<"events"> } | null = await ctx.runQuery(
-      internal.operationsHealth.refreshTarget,
-      {},
-    );
-    if (!target) return "no_event";
-    const computed: {
-      eventVersion: number;
-      snapshot: OperationsHealthOverview;
-    } = await ctx.runQuery(internal.operationsHealth.computeSnapshot, {
-      eventId: target.eventId,
+  returns: v.union(v.literal("no_event"), v.literal("in_progress"), snapshotWriteResult),
+  handler: async (ctx): Promise<"no_event" | "in_progress" | SnapshotWriteResult> => {
+    const leaseId = crypto.randomUUID();
+    const claimed = await ctx.runMutation(internal.operationsBackground.claim, {
+      holder: "health_refresh",
+      leaseId,
+      now: Date.now(),
+      leaseDurationMs: operationsHealthMaximumAgeMs,
     });
-    return await ctx.runMutation(internal.operationsHealth.upsertSnapshot, {
-      eventId: target.eventId,
-      eventVersion: computed.eventVersion,
-      snapshot: computed.snapshot,
-    });
+    if (!claimed) return "in_progress";
+
+    try {
+      const target: { eventId: Id<"events"> } | null = await ctx.runQuery(
+        internal.operationsHealth.refreshTarget,
+        {},
+      );
+      if (!target) return "no_event";
+      const computed: {
+        eventVersion: number;
+        snapshot: OperationsHealthOverview;
+      } = await ctx.runQuery(internal.operationsHealth.computeSnapshot, {
+        eventId: target.eventId,
+      });
+      return await ctx.runMutation(internal.operationsHealth.upsertSnapshot, {
+        eventId: target.eventId,
+        eventVersion: computed.eventVersion,
+        snapshot: computed.snapshot,
+      });
+    } finally {
+      await ctx.runMutation(internal.operationsBackground.release, { leaseId });
+    }
   },
 });
 

@@ -4322,6 +4322,14 @@ export default defineSchema({
     staleAt: v.number(),
   }).index("by_event", ["eventId"]),
 
+  /** One lease serializes the background jobs that update shared operations state. */
+  operationsBackgroundLeases: defineTable({
+    key: v.literal("operations_background"),
+    holder: v.union(v.literal("health_refresh"), v.literal("autonomy_tick")),
+    leaseId: v.string(),
+    leaseExpiresAt: v.number(),
+  }).index("by_key", ["key"]),
+
   /** Append-only, redacted observations that form the intelligence world model. */
   operationsIntelligenceFacts: defineTable({
     eventId: v.id("events"),
