@@ -1117,6 +1117,7 @@ export const refresh = internalAction({
         eventId: target.eventId,
       });
       const renewed = await ctx.runMutation(internal.operationsBackground.renew, {
+        holder: "health_refresh",
         leaseId,
         now: Date.now(),
         leaseDurationMs: operationsHealthMaximumAgeMs,
@@ -1131,7 +1132,10 @@ export const refresh = internalAction({
       });
       return result === "lease_lost" ? "in_progress" : result;
     } finally {
-      await ctx.runMutation(internal.operationsBackground.release, { leaseId });
+      await ctx.runMutation(internal.operationsBackground.release, {
+        holder: "health_refresh",
+        leaseId,
+      });
     }
   },
 });
