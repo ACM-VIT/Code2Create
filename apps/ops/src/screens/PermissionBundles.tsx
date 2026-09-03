@@ -348,7 +348,7 @@ function BundleEditor({
               catalog={catalog}
               entry={entry}
               index={index}
-              key={`${index}:${entry.permissionKey}:${entry.scopeType}:${entry.scopeSource}`}
+              key={index}
               onChange={(next) =>
                 setEntries((current) =>
                   current.map((candidate, candidateIndex) =>
