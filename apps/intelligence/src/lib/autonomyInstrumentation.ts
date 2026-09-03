@@ -34,7 +34,7 @@ export function createAutonomyExecutionInterceptor(
     if (context.agentName === "idea-submission") {
       if (operation.type !== "model" && operation.type !== "task") return next();
       const input = v.safeParse(ideaIntelligenceInitialDataSchema, context.initialData);
-      if (!input.success || context.instanceId !== input.output.applicationId) {
+      if (!input.success || context.instanceId !== input.output.recommendationId) {
         throw new Error("The idea model execution context is invalid.");
       }
       if (bindings.CONVEX_INTELLIGENCE_IDEA_READ_URL === undefined) {
@@ -44,6 +44,7 @@ export function createAutonomyExecutionInterceptor(
       await readIdeaProjection({
         applicationId: input.output.applicationId,
         eventId: input.output.eventId,
+        recommendationId: input.output.recommendationId,
         operationId: `authorize:${operation.type}:${executionId}`,
         bindings: {
           CONVEX_INTELLIGENCE_IDEA_READ_URL: bindings.CONVEX_INTELLIGENCE_IDEA_READ_URL,

@@ -60,11 +60,13 @@ ideaRoutes.post("/v1/idea-submissions", async (context) => {
   try {
     const receipt = await settleWithin(
       dispatch(IdeaSubmission, {
-        id: parsed.output.applicationId,
+        id: parsed.output.recommendationId,
         initialData: {
           protocolVersion: parsed.output.protocolVersion,
+          recommendationId: parsed.output.recommendationId,
           applicationId: parsed.output.applicationId,
           eventId: parsed.output.eventId,
+          modelId: parsed.output.modelId,
         },
         message: {
           kind: "signal",
@@ -82,7 +84,7 @@ ideaRoutes.post("/v1/idea-submissions", async (context) => {
       {
         state: "accepted" as const,
         applicationId: parsed.output.applicationId,
-        instanceId: parsed.output.applicationId,
+        instanceId: parsed.output.recommendationId,
         submissionId: receipt.submissionId,
         acceptedAt: receipt.acceptedAt,
       },

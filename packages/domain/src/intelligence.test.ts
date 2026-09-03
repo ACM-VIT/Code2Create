@@ -196,3 +196,14 @@ test("the copilot release uses one generalized command protocol without per-requ
   assert.ok(copilot.tools.includes("scoped event-command catalog"));
   assert.ok(copilot.tools.includes("propose_event_command"));
 });
+
+test("the idea agent may iterate until it publishes a valid assessment", () => {
+  const ideaAgent = intelligenceAgentDefinition("idea-submission");
+  const systemPrompt = ideaAgent.prompts.find((prompt) => prompt.name === "System prompt")?.text;
+
+  assert.ok(systemPrompt);
+  assert.match(systemPrompt, /as many reasoning and tool turns as needed/u);
+  assert.match(systemPrompt, /correct it and retry/u);
+  assert.doesNotMatch(systemPrompt, /exactly once|at most \d+ .*calls?/u);
+  assert.ok(ideaAgent.tools.includes("publish_idea_analysis"));
+});
