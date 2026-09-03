@@ -78,7 +78,6 @@ export function EmailAddressStep({
   return (
     <form
       className="w-full text-center"
-      data-ph-sensitive
       onSubmit={(event) => {
         event.preventDefault();
         onSend();
@@ -151,7 +150,6 @@ export function EmailCodeStep({
   return (
     <form
       className="w-full text-center"
-      data-ph-sensitive
       onSubmit={(event) => {
         event.preventDefault();
         onVerify(code);
@@ -159,7 +157,11 @@ export function EmailCodeStep({
     >
       <PortalLabel>
         <FadeText>
-          code<span className="opacity-60"> · emailed to {email}</span>
+          code
+          <span className="opacity-60">
+            {" · emailed to "}
+            <span data-ph-sensitive>{email}</span>
+          </span>
         </FadeText>
       </PortalLabel>
       <div className="flex items-center gap-2.5">

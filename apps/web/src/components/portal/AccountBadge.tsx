@@ -35,10 +35,11 @@ export function AccountBadge({
   }, [open]);
 
   return (
-    <div ref={anchor} className="relative" data-ph-sensitive>
+    <div ref={anchor} className="relative">
       <button
         type="button"
         aria-label={`Account, ${name}`}
+        data-ph-sensitive
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
         className={`flex size-10 flex-none items-center justify-center rounded-full border-2 bg-avatar transition-colors duration-250 hover:border-rose-light lg:size-12 ${
@@ -50,9 +51,14 @@ export function AccountBadge({
 
       {open ? (
         <div className="absolute top-[calc(100%+12px)] right-0 z-10 w-[240px] max-w-[calc(100vw-40px)] rounded-petal-sm glass-menu px-5 py-4 text-left">
-          <p className="m-0 truncate font-ui font-normal text-base text-rose-light">{name}</p>
+          <p
+            className="m-0 truncate font-ui font-normal text-base text-rose-light"
+            data-ph-sensitive
+          >
+            {name}
+          </p>
           {email || detail ? (
-            <p className="m-0 mt-1 truncate text-[11.5px] text-fg/55">
+            <p className="m-0 mt-1 truncate text-[11.5px] text-fg/55" data-ph-sensitive>
               {[email, detail].filter(Boolean).join(" · ")}
             </p>
           ) : null}

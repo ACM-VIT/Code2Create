@@ -290,6 +290,7 @@ describe("intake policy configuration", () => {
     vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
       expect(String(input)).toBe("https://api.openai.com/v1/responses");
       expect(String(init?.body)).toContain('"strict":true');
+      expect(String(init?.body)).not.toContain("groundingTerms");
       requestCount += 1;
       const firstRequest = requestCount === 1;
       return openAiResponse(
@@ -304,7 +305,6 @@ describe("intake policy configuration", () => {
             purposeKey: firstRequest ? "tradeoff" : "experience",
             answerLength: "medium",
             sourceAnswerVersionIds: sourceAnswerIds,
-            groundingTerms: [firstRequest ? "authority" : "report"],
           },
           matchedIdeaPatternKey: null,
           stopReason: "needs_question",
@@ -342,7 +342,7 @@ describe("intake policy configuration", () => {
     ]);
   });
 
-  test("rejects a generated question that is not grounded in its source answers", async () => {
+  test("rejects a generated question that violates the published question policy", async () => {
     const backend = createBackend();
     const fixture = await seedFixture(backend, "assisted");
     await answerFixedQuestions(backend, fixture);
@@ -353,11 +353,10 @@ describe("intake policy configuration", () => {
         JSON.stringify({
           coveragePurposeKeys: ["problem", "experience"],
           nextQuestion: {
-            text: "What would make this project successful?",
+            text: "Which API and database architecture will you use?",
             purposeKey: "experience",
             answerLength: "short",
             sourceAnswerVersionIds: sourceAnswerIds,
-            groundingTerms: ["success"],
           },
           matchedIdeaPatternKey: null,
           stopReason: "needs_question",
@@ -386,7 +385,7 @@ describe("intake policy configuration", () => {
     expect(result.draft?.stage).toBe("follow_up");
     expect(result.interpretation).toMatchObject({
       state: "invalid",
-      failureCategory: "invalid_or_disallowed_output",
+      failureCategory: "model_question_not_broad",
     });
   });
 

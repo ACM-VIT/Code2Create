@@ -48,6 +48,7 @@ function Avatar({
   return (
     <div
       title={displayName}
+      data-ph-sensitive
       className={`relative flex flex-none items-center justify-center rounded-full ${box} ${
         lead ? "border-2 border-ring-lead bg-avatar-lead" : "border-2 border-rose/70 bg-avatar"
       } ${className}`}
@@ -114,7 +115,6 @@ export function TeamCluster({
   return (
     <div
       className="relative text-right"
-      data-ph-sensitive
       onFocus={(event) => {
         const target = event.target;
         if (target instanceof HTMLElement && target.matches(":focus-visible")) {
@@ -157,6 +157,7 @@ export function TeamCluster({
             {hidden.length > 0 ? (
               <div
                 title={hidden.map((member) => member.displayName).join(", ")}
+                data-ph-sensitive
                 className="flex size-10 flex-none items-center justify-center rounded-full bg-fg/15 font-ui text-[13px] text-fg/80 lg:size-12 lg:text-sm"
               >
                 +{hidden.length}
@@ -194,6 +195,7 @@ function CopyCode({ code }: { code: string }) {
     <button
       type="button"
       title="Copy the join code"
+      data-ph-sensitive
       onClick={() => {
         void navigator.clipboard.writeText(code).then(() => {
           setCopied(true);
@@ -251,7 +253,9 @@ export function TeamRosterPanel({
                 size="sm"
               />
               <div className="min-w-0 flex-1">
-                <div className="truncate text-[12.5px] font-semibold">{member.displayName}</div>
+                <div className="truncate text-[12.5px] font-semibold" data-ph-sensitive>
+                  {member.displayName}
+                </div>
                 <div
                   className={`text-[10.5px] ${
                     member.role === "lead" || isYou

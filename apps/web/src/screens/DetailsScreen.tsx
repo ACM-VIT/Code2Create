@@ -455,7 +455,6 @@ export function DetailsScreen({
             <fieldset disabled={disabled} className="contents">
               <div
                 className="grid grid-cols-1 gap-x-4 gap-y-3.5 sm:grid-flow-row-dense sm:grid-cols-2"
-                data-ph-sensitive
               >
                 <PortalField
                   label="full name"
