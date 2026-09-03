@@ -705,7 +705,9 @@ function ProposalSummary({
     active: canEdit && editing,
     config: intake.novelty,
     saved: {
-      idea: intake.noveltySignal ? intake.project.initialIdea : undefined,
+      // The saved idea remains the restoration target even when an older
+      // submission has no durable novelty signal yet.
+      idea: intake.project.initialIdea,
       score: intake.noveltySignal?.score ?? null,
       band: intake.noveltySignal?.band ?? null,
     },
