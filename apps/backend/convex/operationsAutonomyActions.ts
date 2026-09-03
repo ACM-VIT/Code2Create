@@ -235,6 +235,7 @@ export const tick = internalAction({
       const now = Date.now();
       if (now < leaseExpiresAt - autonomyTickLeaseRenewalWindowMs) return true;
       const renewed = await ctx.runMutation(internal.operationsBackground.renew, {
+        holder: "autonomy_tick",
         leaseId,
         now,
         leaseDurationMs: autonomyTickLeaseDurationMs,
@@ -330,7 +331,10 @@ export const tick = internalAction({
       }
       return progress;
     } finally {
-      await ctx.runMutation(internal.operationsBackground.release, { leaseId });
+      await ctx.runMutation(internal.operationsBackground.release, {
+        holder: "autonomy_tick",
+        leaseId,
+      });
     }
   },
 });
