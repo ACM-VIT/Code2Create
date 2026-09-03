@@ -31,7 +31,9 @@ describe("email template ZIP packages", () => {
 
   test("accepts a package folder and keeps asset paths relative to its HTML", async () => {
     const archive = zipSync({
-      "welcome/mail.htm": strToU8('<html><body><img src="./images/banner.png"></body></html>'),
+      "welcome/mail.htm": strToU8(
+        '<html><body><img src = "  ./images/banner.png  "></body></html>',
+      ),
       "welcome/images/banner.png": png,
     });
 

@@ -29,7 +29,10 @@ export {
   participantEmailTemplateKeys,
   participantEmailTemplateLabels,
   participantEmailTemplateZipMaximumBytes,
+  normalizeParticipantEmailTemplateAssetReference,
+  rewriteParticipantEmailTemplateAssetReferences,
   type ParticipantEmailTemplate,
+  type ParticipantEmailTemplateAssetReplacement,
   type ParticipantEmailTemplateKey,
 } from "./participantEmailTemplates.ts";
 

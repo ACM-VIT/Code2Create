@@ -537,7 +537,10 @@ function Operations({
               path="/configuration/communications"
               element={
                 <Suspense fallback={<p className="muted">Loading participant communications…</p>}>
-                  <CommunicationsPolicyConfiguration tabs={configurationTabs} />
+                  <CommunicationsPolicyConfiguration
+                    authClient={authClient}
+                    tabs={configurationTabs}
+                  />
                 </Suspense>
               }
             />
