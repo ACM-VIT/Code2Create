@@ -492,6 +492,9 @@ describe("score governance pagination", () => {
         initialIdeaMaxLength: defaultDeterministicIntakePolicy.initialIdeaMaxLength,
         followUpAnswerMinLength: defaultDeterministicIntakePolicy.followUpAnswerMinLength,
         followUpAnswerMaxLength: defaultDeterministicIntakePolicy.followUpAnswerMaxLength,
+        deterministicFollowUpCount:
+          defaultDeterministicIntakePolicy.deterministicFollowUpCount,
+        maximumFollowUpCount: defaultDeterministicIntakePolicy.maximumFollowUpCount,
       },
       applicationsCloseAt: expect.any(Number),
       canEdit: false,
