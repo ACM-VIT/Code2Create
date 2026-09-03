@@ -17,6 +17,8 @@ import {
   reviewerWorkloadLabel,
   stageCountMap,
   teamLine,
+  teamOriginNoun,
+  teamOriginQueryArgs,
   visibleStages,
 } from "./admissionsPresentation.ts";
 
@@ -97,6 +99,14 @@ test("stage chips only show stages with something in them", () => {
 test("the queue opens with one sentence about where applications are", () => {
   assert.equal(queueLeadSentence(new Map()), "No team has applied yet.");
   assert.equal(
+    queueLeadSentence(new Map(), "internal"),
+    "No internal team has applied yet.",
+  );
+  assert.equal(
+    queueLeadSentence(new Map(), "external"),
+    "No external team has applied yet.",
+  );
+  assert.equal(
     queueLeadSentence(
       stageCountMap([
         { state: "submitted", count: 18 },
@@ -127,6 +137,19 @@ test("the queue opens with one sentence about where applications are", () => {
     reviewerLeadSentence({ active: 0, completed: 0 }),
     "Nothing is assigned to you yet. A coordinator hands out applications from the full list.",
   );
+  assert.equal(
+    reviewerLeadSentence({ active: 0, completed: 0 }, "internal"),
+    "No internal teams are assigned to you.",
+  );
+});
+
+test("the origin filter omits its query argument until internals or externals are chosen", () => {
+  assert.deepEqual(teamOriginQueryArgs("all"), {});
+  assert.deepEqual(teamOriginQueryArgs("internal"), { origin: "internal" });
+  assert.deepEqual(teamOriginQueryArgs("external"), { origin: "external" });
+  assert.equal(teamOriginNoun("all"), "teams");
+  assert.equal(teamOriginNoun("internal", false), "internal team");
+  assert.equal(teamOriginNoun("external"), "external teams");
 });
 
 test("short tags replace the AI sentences in the list", () => {

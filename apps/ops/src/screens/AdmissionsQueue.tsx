@@ -6,7 +6,7 @@ import {
   type ApplicationState,
 } from "@code2create/domain";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
-import { useState, type SubmitEvent } from "react";
+import { useEffect, useState, type SubmitEvent } from "react";
 import { Link } from "react-router-dom";
 
 import { LoadingLabel, SkeletonLine, SkeletonList } from "../components/Skeleton";
@@ -23,11 +23,16 @@ import {
   stageAcceptsReviews,
   stageCountMap,
   teamLine,
+  teamOriginFilterLabels,
+  teamOriginFilters,
+  teamOriginNoun,
+  teamOriginQueryArgs,
   visibleStages,
   type AssignmentOutcome,
   type QueueApplication,
   type QueueAssignment,
   type ReviewerWorkload,
+  type TeamOriginFilter,
 } from "../lib/admissionsPresentation";
 import { eventSlug } from "../lib/config";
 import { isConvexErrorCode, readableError } from "../lib/errors";
@@ -48,6 +53,7 @@ export function AdmissionsQueue({
   isSupreme: boolean;
 }) {
   const [selectedView, setSelectedView] = useState<QueueView>(canReadApplications ? "all" : "mine");
+  const [origin, setOrigin] = useState<TeamOriginFilter>("all");
   const view =
     selectedView === "all"
       ? canReadApplications
@@ -92,8 +98,27 @@ export function AdmissionsQueue({
           </button>
         </div>
       ) : null}
-      {view === "all" && canReadApplications ? <ApplicationList canAssign={canAssign} /> : null}
-      {view === "mine" && canReadAssignments ? <AssignmentList /> : null}
+      <div
+        className="stage-filter admissions-origins"
+        role="group"
+        aria-label="Team origin"
+      >
+        {teamOriginFilters.map((candidate) => (
+          <button
+            aria-pressed={candidate === origin}
+            className={candidate === origin ? "stage-chip active" : "stage-chip"}
+            key={candidate}
+            type="button"
+            onClick={() => setOrigin(candidate)}
+          >
+            {teamOriginFilterLabels[candidate]}
+          </button>
+        ))}
+      </div>
+      {view === "all" && canReadApplications ? (
+        <ApplicationList canAssign={canAssign} origin={origin} />
+      ) : null}
+      {view === "mine" && canReadAssignments ? <AssignmentList origin={origin} /> : null}
     </section>
   );
 }
@@ -277,8 +302,15 @@ function AdmissionResultsRelease() {
   );
 }
 
-function ApplicationList({ canAssign }: { canAssign: boolean }) {
-  const counts = useQuery(api.admissions.stageCounts, { eventSlug });
+function ApplicationList({
+  canAssign,
+  origin,
+}: {
+  canAssign: boolean;
+  origin: TeamOriginFilter;
+}) {
+  const originArgs = teamOriginQueryArgs(origin);
+  const counts = useQuery(api.admissions.stageCounts, { eventSlug, ...originArgs });
   const countByState = stageCountMap(counts ?? []);
   const [chosen, setChosen] = useState<ApplicationState | null>(null);
   const stage = chosen ?? busiestStage(countByState) ?? "submitted";
@@ -287,12 +319,12 @@ function ApplicationList({ canAssign }: { canAssign: boolean }) {
   const searching = searchQuery.length > 0;
   const applicationPage = usePaginatedQuery(
     api.admissions.list,
-    searching ? "skip" : { eventSlug, state: stage },
+    searching ? "skip" : { eventSlug, state: stage, ...originArgs },
     { initialNumItems: 30 },
   );
   const searchResult = useQuery(
     api.admissions.searchApplications,
-    searching ? { eventSlug, state: stage, search: searchQuery } : "skip",
+    searching ? { eventSlug, state: stage, search: searchQuery, ...originArgs } : "skip",
   );
   const [assigning, setAssigning] = useState(false);
   const [unassignedOnly, setUnassignedOnly] = useState(false);
@@ -306,6 +338,10 @@ function ApplicationList({ canAssign }: { canAssign: boolean }) {
   const loading = searching
     ? searchResult === undefined
     : applicationPage.status === "LoadingFirstPage";
+
+  useEffect(() => {
+    setSelected(new Set());
+  }, [origin]);
 
   const toggle = (applicationId: string) => {
     setSelected((current) => {
@@ -321,7 +357,7 @@ function ApplicationList({ canAssign }: { canAssign: boolean }) {
       {counts === undefined ? (
         <SkeletonLine width="48%" />
       ) : (
-        <p className="muted admissions-lead">{queueLeadSentence(countByState)}</p>
+        <p className="muted admissions-lead">{queueLeadSentence(countByState, origin)}</p>
       )}
       <div className="admissions-toolbar">
         <div className="stage-filter admissions-stages">
@@ -420,12 +456,16 @@ function ApplicationList({ canAssign }: { canAssign: boolean }) {
             {searching
               ? applications.length > 0
                 ? "Every matching team already has a reviewer."
-                : `No teams match “${searchQuery}” at ${applicationStateLabels[stage]}.`
+                : `No ${teamOriginNoun(origin)} match “${searchQuery}” at ${applicationStateLabels[stage]}.`
               : countByState.size === 0
-                ? "No team has applied yet."
+                ? origin === "all"
+                  ? "No team has applied yet."
+                  : `No ${teamOriginNoun(origin, false)} has applied yet.`
                 : applications.length > 0
                   ? "Everyone shown here has a reviewer."
-                  : `Nothing at ${applicationStateLabels[stage]} right now.`}
+                  : origin === "all"
+                    ? `Nothing at ${applicationStateLabels[stage]} right now.`
+                    : `No ${teamOriginNoun(origin)} at ${applicationStateLabels[stage]} right now.`}
           </p>
         ) : null}
       </div>
@@ -619,12 +659,13 @@ function AssignBar({
   );
 }
 
-function AssignmentList() {
-  const counts = useQuery(api.admissions.myReviewAssignmentCounts, { eventSlug });
+function AssignmentList({ origin }: { origin: TeamOriginFilter }) {
+  const originArgs = teamOriginQueryArgs(origin);
+  const counts = useQuery(api.admissions.myReviewAssignmentCounts, { eventSlug, ...originArgs });
   const [state, setState] = useState<AssignmentState>("active");
   const { results, status, loadMore } = usePaginatedQuery(
     api.admissions.myReviewAssignments,
-    { eventSlug, state },
+    { eventSlug, state, ...originArgs },
     { initialNumItems: 30 },
   );
 
@@ -633,7 +674,7 @@ function AssignmentList() {
       {counts === undefined ? (
         <SkeletonLine width="40%" />
       ) : (
-        <p className="muted admissions-lead">{reviewerLeadSentence(counts)}</p>
+        <p className="muted admissions-lead">{reviewerLeadSentence(counts, origin)}</p>
       )}
       <div className="stage-filter admissions-stages">
         <button
@@ -667,7 +708,13 @@ function AssignmentList() {
         ) : null}
         {status !== "LoadingFirstPage" && results.length === 0 ? (
           <p className="empty">
-            {state === "active" ? "Nothing to review right now." : "No completed reviews yet."}
+            {state === "active"
+              ? origin === "all"
+                ? "Nothing to review right now."
+                : `No ${teamOriginNoun(origin)} to review right now.`
+              : origin === "all"
+                ? "No completed reviews yet."
+                : `No completed reviews of ${teamOriginNoun(origin)} yet.`}
           </p>
         ) : null}
       </div>

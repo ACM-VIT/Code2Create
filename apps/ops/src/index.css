@@ -9106,6 +9106,9 @@ textarea:focus {
 .admissions-views {
   margin-top: 20px;
 }
+.admissions-origins {
+  margin: 16px 0 0;
+}
 .admissions-toolbar {
   display: flex;
   align-items: flex-start;
