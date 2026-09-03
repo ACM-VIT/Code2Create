@@ -236,10 +236,6 @@ const TWINKLE_GROUPS = 4;
 const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
 const easeOutCubic = (value: number) => 1 - (1 - value) ** 3;
 const smoothstep = (value: number) => value * value * (3 - 2 * value);
-const gravityOffset = (height: number, progress: number) => {
-  const fall = smoothstep(clamp01(progress));
-  return height * (0.12 * fall + 0.78 * fall * fall);
-};
 const channels = (color: Color) => `${color[0]}, ${color[1]}, ${color[2]}`;
 
 const usesStackedLayout = (width: number, height: number) =>
@@ -365,8 +361,10 @@ const Fireworks = forwardRef<FireworksHandle, Record<never, never>>(
     const progresses = useRef(SPONSORS.map(() => 0));
     const twinklePhases = useRef(SPONSORS.map(() => 0));
     const fallProgress = useRef(0);
-    const canvasHeight = useRef(0);
-    const renderer = useRef<{ request(): void } | null>(null);
+    const renderer = useRef<{
+      request(): void;
+      formationFallOffset(sponsorIndex: number, falling: number): number;
+    } | null>(null);
 
     const [stacked, setStacked] = useState(
       () =>
@@ -389,12 +387,13 @@ const Fireworks = forwardRef<FireworksHandle, Record<never, never>>(
       const revealDuration = reduced ? 0.12 : 0.14;
       const reveal = smoothstep(clamp01((progress - revealFrom) / revealDuration));
       const exitFade = 1 - smoothstep(clamp01((falling - 0.8) / 0.2));
+      const fallOffset = renderer.current?.formationFallOffset(index, falling) ?? 0;
       gsap.set(logo, {
         autoAlpha: reveal * exitFade,
         scale: 0.9 + reveal * 0.1,
         xPercent: -50,
         yPercent: -100,
-        y: (1 - reveal) * 12 + gravityOffset(canvasHeight.current, falling),
+        y: (1 - reveal) * 12 + fallOffset,
       });
     };
 
@@ -504,7 +503,6 @@ const Fireworks = forwardRef<FireworksHandle, Record<never, never>>(
         const box = canvas.getBoundingClientRect();
         width = Math.max(1, box.width);
         height = Math.max(1, box.height);
-        canvasHeight.current = height;
         const pixelRatio = Math.min(window.devicePixelRatio || 1, 1.25);
         canvas.width = Math.round(width * pixelRatio);
         canvas.height = Math.round(height * pixelRatio);
@@ -550,6 +548,17 @@ const Fireworks = forwardRef<FireworksHandle, Record<never, never>>(
         };
       };
 
+      const starFallOffset = (star: PreparedStar, falling: number) => {
+        const individualFall = smoothstep(
+          clamp01((falling - star.fallDelay) / (1 - star.fallDelay)),
+        );
+        return (
+          height *
+          (0.08 * individualFall + 0.92 * individualFall * individualFall) *
+          star.fallSpeed
+        );
+      };
+
       const fallingPoint = (
         sponsor: PreparedSponsor,
         star: PreparedStar,
@@ -557,17 +566,17 @@ const Fireworks = forwardRef<FireworksHandle, Record<never, never>>(
         falling: number,
       ): DrawPoint => {
         const point = formedPoint(sponsor, star, formedProgress);
-        const individualFall = smoothstep(
-          clamp01((falling - star.fallDelay) / (1 - star.fallDelay)),
-        );
-        return {
-          x: point.x,
-          y:
-            point.y +
-            height *
-              (0.08 * individualFall + 0.92 * individualFall * individualFall) *
-              star.fallSpeed,
-        };
+        return { x: point.x, y: point.y + starFallOffset(star, falling) };
+      };
+
+      /* The logo rides the exact vertical centroid of its own staggered stars.
+         Rebuilding the geometry on resize therefore changes both halves of
+         the sponsor pair by the same height-derived displacement. */
+      const formationFallOffset = (sponsorIndex: number, falling: number) => {
+        const stars = prepared[sponsorIndex].stars;
+        let total = 0;
+        for (const star of stars) total += starFallOffset(star, falling);
+        return total / stars.length;
       };
 
       const drawRocket = (sponsor: PreparedSponsor, progress: number) => {
@@ -743,7 +752,7 @@ const Fireworks = forwardRef<FireworksHandle, Record<never, never>>(
         raf = requestAnimationFrame(draw);
       };
 
-      renderer.current = { request: requestRender };
+      renderer.current = { request: requestRender, formationFallOffset };
       resize();
       SPONSORS.forEach((_sponsor, index) =>
         setLogoProgress(index, progresses.current[index], fallProgress.current),
