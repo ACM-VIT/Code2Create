@@ -1,5 +1,78 @@
-import type { Id } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import {
+  activeAdmissionIdeaComparisonScope,
+  noveltyIdeaComparisonScope,
+  noveltyInputFingerprint,
+  type NoveltyIdeaLifecycle,
+} from "./novelty";
+
+export function isActiveAdmissionIdeaState(state: Doc<"applications">["state"]) {
+  return state === "submitted" || state === "under_review";
+}
+
+async function activeSubmittedIdeaFingerprint(
+  ctx: MutationCtx,
+  args: { eventId: Id<"events">; teamId: Id<"teams"> },
+) {
+  const application = await ctx.db
+    .query("applications")
+    .withIndex("by_team", (index) => index.eq("teamId", args.teamId))
+    .unique();
+  if (
+    !application ||
+    application.eventId !== args.eventId ||
+    !isActiveAdmissionIdeaState(application.state)
+  ) {
+    return null;
+  }
+  const project = await ctx.db.get(application.submittedProjectVersionId);
+  if (
+    !project ||
+    project.eventId !== args.eventId ||
+    project.teamId !== args.teamId
+  ) {
+    throw new Error("The active application's submitted project is invalid.");
+  }
+  return noveltyInputFingerprint(project.initialIdea);
+}
+
+export async function comparisonScopeForTeamIdea(
+  ctx: MutationCtx,
+  args: {
+    eventId: Id<"events">;
+    teamId: Id<"teams">;
+    lifecycle: NoveltyIdeaLifecycle;
+    inputFingerprint: string;
+  },
+) {
+  if (args.lifecycle !== "submitted") {
+    return noveltyIdeaComparisonScope(args.eventId, args.lifecycle);
+  }
+  const submittedFingerprint = await activeSubmittedIdeaFingerprint(ctx, args);
+  return submittedFingerprint === args.inputFingerprint
+    ? activeAdmissionIdeaComparisonScope(args.eventId)
+    : noveltyIdeaComparisonScope(args.eventId, args.lifecycle);
+}
+
+export async function synchronizeTeamAdmissionIdeaComparison(
+  ctx: MutationCtx,
+  args: { eventId: Id<"events">; teamId: Id<"teams"> },
+) {
+  const ideas = await ctx.db
+    .query("noveltyTeamIdeas")
+    .withIndex("by_team", (index) => index.eq("teamId", args.teamId))
+    .collect();
+  for (const idea of ideas) {
+    if (idea.eventId !== args.eventId) {
+      throw new Error("A team idea belongs to a different event than its team.");
+    }
+    const comparisonScope = await comparisonScopeForTeamIdea(ctx, idea);
+    if (idea.comparisonScope !== comparisonScope) {
+      await ctx.db.patch(idea._id, { comparisonScope, updatedAt: Date.now() });
+    }
+  }
+}
 
 export async function invalidateTeamNoveltyIndex(
   ctx: MutationCtx,

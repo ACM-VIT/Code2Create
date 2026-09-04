@@ -19,10 +19,14 @@ import {
 import {
   noveltyEmbeddingDimensions,
   noveltyEmbeddingModel,
-  noveltyIdeaComparisonScope,
+  activeAdmissionIdeaComparisonScope,
   noveltyInputFingerprint,
   validEmbedding,
 } from "./lib/novelty";
+import {
+  comparisonScopeForTeamIdea,
+  isActiveAdmissionIdeaState,
+} from "./lib/noveltyIndex";
 import { createOpenAiEmbeddings } from "./lib/openAiEmbeddings";
 import { scheduledAiEmbeddingTelemetry } from "./lib/posthog";
 import { redactProjectText } from "./lib/projectText";
@@ -168,7 +172,11 @@ async function submittedProjectForIdea(
     .query("applications")
     .withIndex("by_team", (index) => index.eq("teamId", idea.teamId))
     .unique();
-  if (!application || application.eventId !== eventId || application.state === "withdrawn") {
+  if (
+    !application ||
+    application.eventId !== eventId ||
+    !isActiveAdmissionIdeaState(application.state)
+  ) {
     return null;
   }
   const project = await ctx.db.get(application.submittedProjectVersionId);
@@ -197,28 +205,41 @@ export const readCurrentSubmissionMatchMetadata = internalQuery({
       if (!idea || idea.eventId !== args.eventId) {
         throw new Error(`Current-event comparison ${index + 1} is outside the authorized event.`);
       }
+      if (idea.comparisonScope !== activeAdmissionIdeaComparisonScope(args.eventId)) {
+        throw new Error(`Current-event comparison ${index + 1} is outside the active scope.`);
+      }
       if (idea.teamId === args.excludedTeamId) continue;
       const project = await submittedProjectForIdea(ctx, args.eventId, idea);
-      if (!project) continue;
+      if (!project) {
+        throw new Error(`Current-event comparison ${index + 1} has stale indexed metadata.`);
+      }
       matches.push({ id: idea._id, summary: comparisonSummary(project.initialIdea) });
     }
     return matches;
   },
 });
 
-export const reconcileMissingComparisonScopes = internalMutation({
+export const reconcileLegacyComparisonScopes = internalMutation({
   args: { eventId: v.id("events") },
   returns: v.number(),
   handler: async (ctx, args) => {
-    const ideas = await ctx.db
+    const unscopedIdeas = await ctx.db
       .query("noveltyTeamIdeas")
       .withIndex("by_event_comparison_scope", (index) =>
         index.eq("eventId", args.eventId).eq("comparisonScope", undefined),
       )
-      .take(128);
+      .take(64);
+    const legacySubmittedIdeas = await ctx.db
+      .query("noveltyTeamIdeas")
+      .withIndex("by_event_comparison_scope", (index) =>
+        index.eq("eventId", args.eventId).eq("comparisonScope", `${args.eventId}:submitted`),
+      )
+      .take(64);
+    const ideas = [...unscopedIdeas, ...legacySubmittedIdeas];
     for (const idea of ideas) {
+      const comparisonScope = await comparisonScopeForTeamIdea(ctx, idea);
       await ctx.db.patch(idea._id, {
-        comparisonScope: noveltyIdeaComparisonScope(idea.eventId, idea.lifecycle),
+        comparisonScope,
       });
     }
     return ideas.length;
@@ -330,17 +351,14 @@ export async function searchSimilarIdeas(
   );
   while (
     (await ctx.runMutation(
-      internal.admissionIdeaSimilarity.reconcileMissingComparisonScopes,
+      internal.admissionIdeaSimilarity.reconcileLegacyComparisonScopes,
       { eventId: projection.eventId },
     )) > 0
   ) {
     // Vector search is fully consistent, so each bounded reconciliation batch
     // becomes eligible for this same comparison request immediately.
   }
-  const currentSubmissionScope = noveltyIdeaComparisonScope(
-    projection.eventId,
-    "submitted",
-  );
+  const currentSubmissionScope = activeAdmissionIdeaComparisonScope(projection.eventId);
   const [historicalVectorMatches, currentVectorMatches] = await Promise.all([
     configuration
       ? ctx.vectorSearch("noveltyCorpusEntries", "by_corpus_embedding", {

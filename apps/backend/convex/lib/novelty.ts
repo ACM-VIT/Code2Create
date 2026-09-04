@@ -23,7 +23,11 @@ export function noveltyIdeaComparisonScope(
   eventId: string,
   lifecycle: NoveltyIdeaLifecycle,
 ) {
-  return `${eventId}:${lifecycle}`;
+  return `${eventId}:lifecycle:${lifecycle}`;
+}
+
+export function activeAdmissionIdeaComparisonScope(eventId: string) {
+  return `${eventId}:active-admission`;
 }
 export type NoveltyRelationship = "same_core_idea" | "strong_overlap" | "adjacent" | "different";
 export type NoveltyJudgeConfidence = "high" | "medium" | "low";
