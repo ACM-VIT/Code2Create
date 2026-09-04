@@ -207,17 +207,7 @@ export function useProductAnalytics() {
     [enabled, posthog],
   );
 
-  const captureException = useCallback(
-    (error: unknown) => {
-      if (!enabled) {
-        return;
-      }
-      posthog.captureException(error);
-    },
-    [enabled, posthog],
-  );
-
-  return { capture, captureLog, captureException };
+  return { capture, captureLog };
 }
 
 export function ClientObservabilityIdentity({ distinctId }: { distinctId: string | null }) {
