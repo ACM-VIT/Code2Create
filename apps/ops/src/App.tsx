@@ -28,6 +28,7 @@ import { InitialEventSetup } from "./screens/InitialEventSetup";
 const AdmissionDetail = lazy(() =>
   import("./screens/AdmissionDetail").then((module) => ({ default: module.AdmissionDetail })),
 );
+const AdmissionShortlist = lazy(() => import("./screens/AdmissionShortlist").then(module => ({ default: module.AdmissionShortlist })));
 const AdmissionsQueue = lazy(() =>
   import("./screens/AdmissionsQueue").then((module) => ({ default: module.AdmissionsQueue })),
 );
@@ -475,6 +476,7 @@ function Operations({
                   canReadApplications={capabilities.applicationRead}
                   canReadAssignments={capabilities.applicationReviewRead}
                   isSupreme={capabilities.isSupreme}
+                  canReadShortlist={capabilities.admissionShortlistRead}
                 />
               }
             />
@@ -482,6 +484,7 @@ function Operations({
           {canViewAdmissions ? (
             <Route path="/admissions/:applicationId" element={<AdmissionDetail />} />
           ) : null}
+          {capabilities.admissionShortlistRead ? <Route path="/admissions/shortlist" element={<AdmissionShortlist canRun={capabilities.admissionShortlistRun} />} /> : null}
           {configurationPath ? (
             <Route
               path="/configuration"

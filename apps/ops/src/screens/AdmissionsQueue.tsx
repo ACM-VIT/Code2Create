@@ -48,11 +48,13 @@ export function AdmissionsQueue({
   canReadApplications,
   canReadAssignments,
   isSupreme,
+  canReadShortlist,
 }: {
   canAssign: boolean;
   canReadApplications: boolean;
   canReadAssignments: boolean;
   isSupreme: boolean;
+  canReadShortlist: boolean;
 }) {
   const [selectedView, setSelectedView] = useState<QueueView>(canReadApplications ? "all" : "mine");
   const [origin, setOrigin] = useState<TeamOriginFilter>("all");
@@ -71,6 +73,7 @@ export function AdmissionsQueue({
         <div>
           <p className="eyebrow">Before the event</p>
           <h1>Applications</h1>
+          {canReadShortlist ? <Link to="/admissions/shortlist">Open admissions shortlist</Link> : null}
         </div>
       </header>
       {isSupreme ? <AdmissionResultsRelease /> : null}

@@ -119,7 +119,9 @@ async function dispatchAttempt(
   // accepting an HTTP receipt must not fan thousands of model tasks out at once.
   const deadline = Date.now() + 7 * 60_000;
   while (Date.now() < deadline) {
-    await new Promise((resolve) => { setTimeout(resolve, 5_000); });
+    await new Promise((resolve) => {
+      setTimeout(resolve, 5_000);
+    });
     const current = await ctx.runQuery(internal.admissionShortlist.readJob, {
       jobId: args.jobId,
     });

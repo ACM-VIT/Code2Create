@@ -216,6 +216,14 @@ export const results = query({
   args: {
     runId: v.id("admissionShortlistRuns"),
     paginationOpts: paginationOptsValidator,
+    suggestion: v.optional(
+      v.union(
+        v.literal("accept"),
+        v.literal("waitlist"),
+        v.literal("reject"),
+        v.literal("unresolved"),
+      ),
+    ),
   },
   handler: async (ctx, args) => {
     const run = await requireRun(ctx, args.runId);
@@ -224,10 +232,14 @@ export const results = query({
       run.eventId,
       (await requireCurrentPerson(ctx)).person._id,
     );
-    const page = await ctx.db
-      .query("admissionShortlistCandidates")
-      .withIndex("by_runId", (q) => q.eq("runId", run._id))
-      .paginate(args.paginationOpts);
+    const candidates = ctx.db.query("admissionShortlistCandidates");
+    const page = await (
+      args.suggestion
+        ? candidates.withIndex("by_runId_and_suggestion", (q) =>
+            q.eq("runId", run._id).eq("suggestion", args.suggestion),
+          )
+        : candidates.withIndex("by_runId", (q) => q.eq("runId", run._id))
+    ).paginate(args.paginationOpts);
     const event = await ctx.db.get(run.eventId);
     const policyChanged =
       event?.publishedAdmissionPolicyId !== run.policyId ||
@@ -265,7 +277,9 @@ export const comparisons = query({
     );
     return ctx.db
       .query("admissionShortlistJobs")
-      .withIndex("by_runId", (q) => q.eq("runId", run._id))
+      .withIndex("by_runId_and_key", (q) =>
+        q.eq("runId", run._id).gte("key", "pair:").lt("key", "pair;"),
+      )
       .paginate(args.paginationOpts);
   },
 });
