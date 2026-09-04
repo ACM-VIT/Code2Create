@@ -16,7 +16,7 @@ import {
 import { defaultDeterministicIntakePolicy, intakePolicyChecksum } from "./lib/intakePolicy";
 import { defaultParticipantPolicy, participantPolicyChecksum } from "./lib/participantPolicy";
 import { createTestSubmissionSnapshot } from "./lib/testSubmissionSnapshot";
-import { withoutUnavailableWalletActions } from "./participantEmail";
+import { walletUrlOrEmpty, withoutUnavailableWalletActions } from "./participantEmail";
 import schema from "./schema";
 
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
@@ -423,6 +423,17 @@ describe("Figma provider contract", () => {
 });
 
 describe("Cloudflare participant-email contract", () => {
+  test("keeps wallet failures from rejecting event-pass email generation", async () => {
+    await expect(
+      walletUrlOrEmpty(async () => {
+        throw new Error("wallet provider unavailable");
+      }),
+    ).resolves.toBe("");
+    await expect(walletUrlOrEmpty(async () => "https://wallet.example.test/pass")).resolves.toBe(
+      "https://wallet.example.test/pass",
+    );
+  });
+
   test("keeps the external pass email usable when a wallet provider is not configured", () => {
     const template = defaultParticipantEmailTemplates().find(
       (candidate) => candidate.templateKey === "external_event_pass",

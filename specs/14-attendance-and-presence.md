@@ -113,7 +113,7 @@ The production team must test current VIT IDs before it makes barcode scanning m
 
 ### External participants and fallback
 
-Each accepted external participant receives a separate event-pass email after the team confirms its offer. The email contains one personal static QR, event and venue details, and each configured signed **Add to Google Wallet** or **Add to Apple Wallet** action. A completely unconfigured wallet provider hides its button without blocking the QR email; partially configured credentials fail delivery visibly. The pass is not issued to VIT participants. Its opaque 32-byte bearer contains no identity, stays stable for the event, and is stored only in encrypted form; the searchable database value is an event-scoped HMAC.
+Each accepted external participant receives a separate event-pass email after the team confirms its offer. The email contains one personal static QR, event and venue details, and each working signed **Add to Google Wallet** or **Add to Apple Wallet** action. Missing, partial, invalid, or unavailable wallet integration hides only its own button and never blocks the QR email. The pass is not issued to VIT participants. Its opaque 32-byte bearer contains no identity, stays stable for the event, and is stored only in encrypted form; the searchable database value is an event-scoped HMAC.
 
 At first check-in, staff:
 

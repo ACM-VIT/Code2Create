@@ -60,6 +60,14 @@ export function withoutUnavailableWalletActions(
   return rendered;
 }
 
+export async function walletUrlOrEmpty(createUrl: () => Promise<string>) {
+  try {
+    return await createUrl();
+  } catch {
+    return "";
+  }
+}
+
 function htmlEscaped(value: string) {
   return value
     .replaceAll("&", "&amp;")
@@ -182,16 +190,16 @@ export const deliver = internalAction({
           participantName: claim.participantName,
           teamName: claim.teamName,
         };
-        const [googleWalletUrl, appleWalletUrl, qr] = await Promise.all([
-          optionalGoogleWalletUrl(details),
-          optionalAppleWalletUrl(details),
-          QRCode.toBuffer(details.payload, {
-            type: "png",
-            width: 480,
-            margin: 2,
-            errorCorrectionLevel: "M",
-            color: { dark: "#19070fff", light: "#ffffffff" },
-          }),
+        const qr = await QRCode.toBuffer(details.payload, {
+          type: "png",
+          width: 480,
+          margin: 2,
+          errorCorrectionLevel: "M",
+          color: { dark: "#19070fff", light: "#ffffffff" },
+        });
+        const [googleWalletUrl, appleWalletUrl] = await Promise.all([
+          walletUrlOrEmpty(() => optionalGoogleWalletUrl(details)),
+          walletUrlOrEmpty(() => optionalAppleWalletUrl(details)),
         ]);
         variables.event_start = formattedEventStart(details);
         variables.pass_reference = externalEventPassReference(details.payload);
@@ -204,14 +212,11 @@ export const deliver = internalAction({
           disposition: "inline",
           content_id: "event-pass-qr.png",
         });
-      } catch (error) {
+      } catch {
         await ctx.runMutation(internal.participantNotificationState.recordSendFailure, {
           deliveryId: claim.deliveryId,
           attemptId,
-          errorCode:
-            error instanceof EventPassWalletConfigurationError
-              ? "event_pass_wallet_configuration_invalid"
-              : "event_pass_generation_failed",
+          errorCode: "event_pass_generation_failed",
           retryable: false,
           ambiguous: false,
         });
