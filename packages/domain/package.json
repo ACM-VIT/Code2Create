@@ -6,9 +6,12 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "node --test src/eventStage.test.ts src/hostel.test.ts src/intelligence.test.ts src/operationsAutonomy.test.ts src/participantEmailTemplates.test.ts src/participantProfile.test.ts src/synesthesia.test.ts"
+    "test": "node --test src/admissionShortlist.test.ts src/eventStage.test.ts src/hostel.test.ts src/intelligence.test.ts src/operationsAutonomy.test.ts src/participantEmailTemplates.test.ts src/participantProfile.test.ts src/synesthesia.test.ts"
   },
   "devDependencies": {
     "@types/node": "^26.4.0",
