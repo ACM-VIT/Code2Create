@@ -17,7 +17,7 @@ import {
   type BarcodeScanningResult,
   type BarcodeType,
 } from "expo-camera";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 
 import { DutyIcon } from "@/components/DutyIcon";
@@ -26,7 +26,6 @@ import {
   Dimensions,
   FlatList,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -450,8 +449,8 @@ function ScannerSurface({
   const [busy, setBusy] = useState(false);
   const [replaying, setReplaying] = useState(false);
   const requestedTask = useLocalSearchParams<{ task?: string }>().task;
-  const [chosenTask, setChosenTask] = useState<ScannerTask>("presence");
-  const task: ScannerTask =
+  const [chosenTask, setChosenTask] = useState<ScannerTask | null>(null);
+  const task: ScannerTask | null =
     requestedTask === "staffed" || requestedTask === "presence" ? requestedTask : chosenTask;
   const [credentialSetup, setCredentialSetup] = useState<CredentialSetupState>({
     step: "participant",
@@ -481,6 +480,13 @@ function ScannerSurface({
     staffedOperations.loading ||
     staffedOperations.error !== null ||
     staffedOperations.records.size > 0;
+  const presenceWorkflowBlocker = staffedOperations.loading
+    ? "Checking this phone for unfinished first check-ins…"
+    : staffedOperations.error
+      ? staffedOperations.error
+      : staffedOperations.records.size > 0
+        ? "Finish the saved first check-in before recording another movement."
+        : null;
   const deviceHistory = usePaginatedQuery(
     api.attendanceScanner.history,
     { eventSlug, installationId: deviceRecord.installationId },
@@ -1299,7 +1305,7 @@ function ScannerSurface({
       : null;
 
   const startTask = (next: ScannerTask) => {
-    if (staffedRecoveryLocked && !(task === "presence" && next === "staffed")) return;
+    if (staffedRecoveryLocked && next !== "staffed") return;
     setChosenTask(next);
     router.setParams({ task: next });
     setCredentialSetup({ step: "participant" });
@@ -1308,6 +1314,20 @@ function ScannerSurface({
     setVenueCheckInReceipt(null);
     setReceipt(null);
     setPendingConfirmation(null);
+    setScanError(null);
+  };
+
+  const chooseAnotherTask = () => {
+    if (staffedRecoveryLocked) return;
+    setChosenTask(null);
+    router.setParams({ task: "" });
+    setCredentialSetup({ step: "participant" });
+    setCredentialReason("");
+    setVenueReason("");
+    setVenueCheckInReceipt(null);
+    setReceipt(null);
+    setPendingConfirmation(null);
+    setPendingScan(null);
     setScanError(null);
   };
 
@@ -1332,6 +1352,17 @@ function ScannerSurface({
           />
         </Section>
       </SetupFrame>
+    );
+  }
+
+  if (task === null) {
+    return (
+      <AttendanceTaskChooser
+        assignment={assignment}
+        onFirstCheckIn={() => startTask("staffed")}
+        onPresence={() => startTask("presence")}
+        presenceBlocker={presenceWorkflowBlocker}
+      />
     );
   }
 
@@ -1405,21 +1436,17 @@ function ScannerSurface({
             />
           }
           controls={
-            <>
-              <DirectionControl
-                onChange={startTask}
-                options={[
-                  ["presence", "Presence"],
-                  ["staffed", "Credentials"],
-                ]}
-                selected={task}
-              />
+            <ScannerTaskContext
+              detail="For participants who have already completed their first check-in."
+              onChange={chooseAnotherTask}
+              title="Record presence"
+            >
               {staffedOperations.records.size > 0 ? (
                 <Meta>
                   Finish the earlier credential action with the exact same participant and card.
                 </Meta>
               ) : null}
-            </>
+            </ScannerTaskContext>
           }
           {...(presenceVerdict ? { verdict: presenceVerdict } : {})}
           result={
@@ -1626,20 +1653,16 @@ function ScannerSurface({
           />
         }
         controls={
-          <>
-            <DirectionControl
-              onChange={startTask}
-              options={[
-                ["presence", "Presence"],
-                ["staffed", "Credentials"],
-              ]}
-              selected={task}
-            />
+          <ScannerTaskContext
+            detail="Verify the participant once, record their arrival, then set up their ID or badge."
+            onChange={chooseAnotherTask}
+            title="First check-in"
+          >
             {staffedOperations.error ? <Problem>{staffedOperations.error}</Problem> : null}
             {staffedOperations.records.size > 0 ? (
               <Meta>Finish the earlier credential action before leaving this task.</Meta>
             ) : null}
-          </>
+          </ScannerTaskContext>
         }
         {...(staffedVerdict ? { verdict: staffedVerdict } : {})}
         {...(credentialSetup.step === "participant" &&
@@ -1691,36 +1714,72 @@ function ScannerSurface({
   );
 }
 
-function DirectionControl<Value extends string>({
-  onChange,
-  options,
-  selected,
+function AttendanceTaskChooser({
+  assignment,
+  onFirstCheckIn,
+  onPresence,
+  presenceBlocker,
 }: {
-  onChange: (value: Value) => void;
-  options: readonly (readonly [Value, string])[];
-  selected: Value;
+  assignment: ScannerAssignment;
+  onFirstCheckIn: () => void;
+  onPresence: () => void;
+  presenceBlocker: string | null;
 }) {
   return (
-    <View style={styles.direction}>
-      {options.map(([option, label]) => {
-        const on = option === selected;
-        return (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityState={{ selected: on }}
-            key={option}
-            onPress={() => onChange(option)}
-            style={[styles.directionSegment, on ? styles.directionSegmentOn : null]}
-          >
-            <Text
-              numberOfLines={1}
-              style={[styles.directionLabel, on ? styles.directionLabelOn : null]}
-            >
-              {label}
-            </Text>
-          </Pressable>
-        );
-      })}
+    <ScrollView
+      contentContainerStyle={styles.taskChooser}
+      contentInsetAdjustmentBehavior="automatic"
+    >
+      <View style={styles.stationCard}>
+        <Text style={styles.taskEyebrow}>THIS STATION</Text>
+        <Heading>{assignment.station.name}</Heading>
+        <Meta>
+          {assignment.openSession
+            ? `${assignment.station.zoneName} · ${assignment.openSession.name}`
+            : assignment.station.zoneName}
+        </Meta>
+      </View>
+      <Section
+        lead="For someone arriving for the first time. Verify their portal code and visible ID, record arrival, then enrol an ID card or issue a badge when needed."
+        title="First check-in"
+      >
+        <Action accent={palette.door} label="Start first check-in" onPress={onFirstCheckIn} />
+      </Section>
+      <Section
+        lead="For participants already checked in. Record session attendance, leaving the venue, stepping out, or returning."
+        title="Record presence"
+      >
+        <Action
+          accent={palette.door}
+          disabled={presenceBlocker !== null}
+          label="Open presence scanner"
+          onPress={onPresence}
+        />
+        {presenceBlocker ? <Problem>{presenceBlocker}</Problem> : null}
+      </Section>
+    </ScrollView>
+  );
+}
+
+function ScannerTaskContext({
+  children,
+  detail,
+  onChange,
+  title,
+}: {
+  children?: ReactNode;
+  detail: string;
+  onChange: () => void;
+  title: string;
+}) {
+  return (
+    <View style={styles.taskContext}>
+      <View style={styles.taskContextCopy}>
+        <Text style={styles.taskContextTitle}>{title}</Text>
+        <Meta>{detail}</Meta>
+      </View>
+      {children}
+      <QuietAction label="Choose another workflow" onPress={onChange} />
     </View>
   );
 }
@@ -2267,27 +2326,28 @@ const styles = StyleSheet.create({
 
   block: { gap: 10, paddingTop: 12, borderTopWidth: 1, borderTopColor: palette.strong },
 
-  // The SwiftUI host needs an explicit control height.
-  direction: {
-    alignSelf: "stretch",
-    flexDirection: "row",
-    padding: 3,
-    gap: 3,
-    borderRadius: radius.control,
-    backgroundColor: "rgba(28,28,30,0.92)",
-  },
-  directionSegment: {
-    flex: 1,
-    paddingVertical: 9,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.control,
-  },
-  directionSegmentOn: { backgroundColor: palette.door },
-  directionLabel: { color: palette.text, fontSize: 15, fontWeight: "500" },
-  directionLabelOn: { color: palette.onDoor, fontWeight: "600" },
-
   // Bound the list because the form sheet does not provide child height.
   historyList: { maxHeight: Math.round(Dimensions.get("window").height * 0.92) - 156 },
   historyContent: { gap: 8 },
+  taskChooser: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 120, gap: 32 },
+  stationCard: {
+    gap: 5,
+    padding: 18,
+    borderRadius: radius.tile,
+    backgroundColor: palette.tile,
+  },
+  taskEyebrow: {
+    color: palette.door,
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 1.2,
+  },
+  taskContext: { alignSelf: "stretch", gap: 10 },
+  taskContextCopy: { gap: 3 },
+  taskContextTitle: {
+    color: palette.text,
+    fontSize: 19,
+    fontWeight: "600",
+    letterSpacing: -0.3,
+  },
 });
