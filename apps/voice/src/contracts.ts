@@ -44,6 +44,55 @@ export const twilioErrorResponseSchema = z
   .object({ message: z.string().min(1).max(500).optional() })
   .loose();
 
+export const sarvamOutboundResponseSchema = z
+  .object({
+    attempt_id: z.string().min(1).max(128),
+  })
+  .loose();
+
+export const sarvamErrorResponseSchema = z
+  .object({
+    detail: z
+      .union([
+        z.string().min(1).max(500),
+        z.array(
+          z
+            .object({ msg: z.string().min(1).max(500) })
+            .loose(),
+        ),
+      ])
+      .optional(),
+    message: z.string().min(1).max(500).optional(),
+    error: z
+      .object({ message: z.string().min(1).max(500) })
+      .loose()
+      .optional(),
+  })
+  .loose();
+
+export const sarvamOutboundWebhookSchema = z
+  .object({
+    attempt_id: z.string().min(1).max(128),
+    status: z.enum(["connected", "no_answer", "busy", "failed"]),
+    channel_info: z
+      .object({
+        channel_type: z.literal("v2v"),
+        channel_provider: z.string().min(1).max(80),
+        agent_phone_number: e164Phone,
+      })
+      .loose(),
+    failure_reason: z.string().min(1).max(500).nullable().optional(),
+    webhook_config: z
+      .object({
+        url: callbackUrl,
+        metadata: z.record(z.string(), z.json()).nullable().optional(),
+      })
+      .loose()
+      .nullable()
+      .optional(),
+  })
+  .loose();
+
 export const callAcceptedResponseSchema = z
   .object({ accepted: z.literal(true), deliveryId })
   .strict();

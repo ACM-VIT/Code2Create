@@ -10,6 +10,7 @@ import {
   isGitHubRateLimit,
   timedGitHubFetch,
 } from "./githubClient";
+import { githubInstallationContract } from "./githubInstallationContract";
 
 describe("GitHub request boundary", () => {
   afterEach(() => {
@@ -172,5 +173,39 @@ describe("GitHub request boundary", () => {
     expect(isGitHubRateLimit(403, { "x-ratelimit-remaining": 0 })).toBe(true);
     expect(isGitHubRateLimit(403, { "retry-after": "60" })).toBe(true);
     expect(isGitHubRateLimit(403, {})).toBe(false);
+  });
+});
+
+describe("GitHub App installation contract", () => {
+  it("accepts the minimum repository permissions and push subscription", () => {
+    expect(
+      githubInstallationContract({
+        permissions: { contents: "read", metadata: "read" },
+        events: ["push"],
+      }),
+    ).toEqual({ missingPermissions: [], missingEvents: [] });
+  });
+
+  it("accepts stronger permissions and ignores unrelated capabilities", () => {
+    const permissions = { contents: "write", metadata: "read", checks: "write" };
+
+    expect(
+      githubInstallationContract({
+        permissions,
+        events: ["pull_request", "push", "push"],
+      }),
+    ).toEqual({ missingPermissions: [], missingEvents: [] });
+  });
+
+  it("reports every missing or malformed capability in deterministic order", () => {
+    expect(
+      githubInstallationContract({
+        permissions: { contents: "none", metadata: "invalid" },
+        events: ["pull_request"],
+      }),
+    ).toEqual({
+      missingPermissions: ["contents", "metadata"],
+      missingEvents: ["push"],
+    });
   });
 });

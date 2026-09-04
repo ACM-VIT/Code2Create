@@ -590,7 +590,7 @@
 }
 
 /* ------------------------------------------------------------------ *
- * Sponsors — seven scroll-scrubbed firecracker rockets fill a cleared night
+ * Sponsors — nine scroll-scrubbed firecracker rockets fill a cleared night
  * sky. Their own burst stars form the names while the logos settle above.
  * ------------------------------------------------------------------ */
 
@@ -666,7 +666,15 @@
 }
 
 .sponsor__logo--sglang {
-  width: clamp(120px, 10vw, 140px);
+  width: clamp(124px, 10.5vw, 150px);
+}
+
+.sponsor__logo--serpapi {
+  width: clamp(150px, 15vw, 210px);
+}
+
+.sponsor__logo--idfc {
+  width: clamp(150px, 15vw, 205px);
 }
 
 .sponsor__logo--tin {
@@ -1200,7 +1208,15 @@
   }
 
   .sponsor__logo--sglang {
-    width: clamp(96px, min(29vw, 14svh), 122px);
+    width: clamp(72px, min(16vw, 11svh), 108px);
+  }
+
+  .sponsor__logo--serpapi {
+    width: clamp(90px, 22vw, 170px);
+  }
+
+  .sponsor__logo--idfc {
+    width: clamp(94px, 20vw, 160px);
   }
 
   .sponsor__logo--tin {
