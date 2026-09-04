@@ -32,7 +32,7 @@ Before the final rehearsal, the event team must:
 
 The application must work through ordinary HTTPS/WebSocket access. The application cannot assume access to local routers, static device IPs, or custom ports.
 
-Attendance phones use an encrypted, plan-bounded queue only for short recovery. Each scan becomes durable locally before transmission. The scan remains **Pending** until the server returns a receipt. A replay uses the same operation ID and device sequence. The scanner refuses a known-offline portal QR because it cannot prove the one-current token state locally. VIT-ID and event-badge payloads can wait only inside SQLCipher under a device-only key. The payloads expire at the plan limit. Heartbeats expose queue pressure without a credential payload. The aggregate health view identifies phones that await replay. An older replay that conflicts with newer accepted evidence becomes an append-only review item. The older replay cannot rewind a projection.
+Attendance phones use an encrypted, plan-bounded queue only for short recovery. Each scan becomes durable locally before transmission. The scan remains **Pending** until the server returns a receipt. A replay uses the same operation ID and device sequence. VIT-ID, static external-pass, and event-badge payloads can wait only inside SQLCipher under a device-only key and expire at the plan limit. Heartbeats expose queue pressure without a credential payload. The aggregate health view identifies phones that await replay. An older replay that conflicts with newer accepted evidence becomes an append-only review item. The older replay cannot rewind a projection.
 
 ## 3. Accepted state
 
@@ -102,7 +102,7 @@ Use the QR fallback code. Presence still requires server validation.
 
 ### VIT ID barcode unreadable
 
-The station switches to portal QR or staffed lookup. This switch does not change the attendance session or participant record. Staff enable VIT ID barcode scanning only for card formats that passed the rehearsal.
+The station switches to staffed registration-number lookup for VIT participants or verified-email lookup for external participants. This switch does not change the attendance session or participant record. Staff enable ID barcode scanning only for card formats that passed the rehearsal.
 
 ### Scanner connection loss
 
@@ -110,9 +110,9 @@ The attendance scanner may collect a bounded encrypted pending queue. The scanne
 
 ### Forgotten, replaced, or misused card
 
-A VIT student without a readable VIT ID uses the authenticated portal QR or a staffed exception. Staff immediately suspend a reported lost card under independent exact-person authority. The same transaction cancels any unfinished replacement. Suspension has no resume command. If VIT replaces the card, attendance staff visually verify the participant. Staff scan a different replacement barcode twice under the separate rebind permission. A suspended prior binding remains unusable until the second scan atomically activates the replacement. Presentation of one card at different stations creates an anomaly. It does not open two intervals.
+A VIT student without a readable VIT ID uses registration-number lookup plus visible-ID verification or a separately authorized no-ID exception. Staff immediately suspend a reported lost card under independent exact-person authority. The same transaction cancels any unfinished replacement. Suspension has no resume command. If VIT replaces the card, attendance staff visually verify the participant. Staff scan a different replacement barcode twice under the separate rebind permission. A suspended prior binding remains unusable until the second scan atomically activates the replacement. Presentation of one card at different stations creates an anomaly. It does not open two intervals.
 
-Staff revoke a lost external event badge against its current credential version after a fresh portal-QR identity check. The same transaction cancels any unfinished replacement. Staff then bind a different unused preprinted badge through the normal two-scan issue flow. The old QR fails on the next online scan. Staff never reactivate the old QR.
+Staff revoke a lost external event badge against its current credential version after resolving the participant from the static event pass or verified-email fallback. The same transaction cancels any unfinished replacement. Staff then bind a different unused preprinted badge through the normal two-scan issue flow. The old badge QR fails on the next online scan. Staff never reactivate it.
 
 ### Notification permission denied
 
@@ -391,7 +391,7 @@ The release rehearsal is one stored run. It is not a checklist copied into chat 
 
 - Venue network and backup connectivity tested at every review and attendance station under session-opening load.
 - All reviewer and scanner devices pass sign-in, station assignment, push, call-consent, camera, secure-storage, minimum-build, battery, and pending-replay checks.
-- Representative current VIT IDs from applicable campuses/batches and the scanner fleet pass barcode-symbology detection, repeated-scan, duplicate, rebinding, wrong-session, conflicting-use, glare/wear, and offline-replay tests; portal QR remains a complete fallback.
+- Representative current VIT IDs, external physical IDs, and the scanner fleet pass barcode-symbology detection, repeated-scan, duplicate, binding, wrong-session, conflicting-use, glare/wear, and offline-replay tests; registration-number and verified-email lookup remain complete staffed fallbacks.
 - Two full-population hacking-session transitions are rehearsed with multiple entry, exit, and roving stations, including temporary exits and an emergency roll call whose sharded live counts converge and freeze correctly at close.
 - Duplicate-submit, stale-write, lost-response, and app-restart tests pass.
 - A current emergency pack is prepared, checksum-checked, printed, held under chain of custody, used for one attendance and one already-active review scenario, and reconciled through the two-person flows; opening or printing it alone never enables manual mode.

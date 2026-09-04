@@ -67,7 +67,7 @@ Deliver:
 - attendance-plan publication;
 - staffed one-time venue arrival;
 - VIT ID barcode enrollment and scanning from provisioned phones;
-- external event-badge and dynamic portal QR;
+- static personal external event pass and optional external event badge;
 - session entry, temporary exit, return, and final exit;
 - participant and operations realtime views;
 - manual correction and result review;
@@ -303,11 +303,11 @@ Test:
 The stored rehearsal must include these cases:
 
 1. A VIT participant scans a valid existing ID barcode.
-2. An external participant scans a valid event QR.
+2. Staff scan a valid static external event pass and then link the participant's physical photo-ID barcode during first check-in.
 3. Two phones scan the same participant at the same time.
 4. A scan arrives while a session closes.
 5. A scanner loses connection and replays approved physical-credential events.
-6. A portal QR is presented while the scanner is offline.
+6. A static external event pass is presented while the scanner is offline and exceeds the published encrypted-queue limit.
 7. A participant exits and returns several times.
 8. A participant disputes a finalized attendance result.
 9. A panel scans the wrong team's review-presence QR.

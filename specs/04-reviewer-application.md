@@ -24,7 +24,7 @@ The app talks to the same Convex backend as the participant portal and operation
 - `@better-auth/expo` for Google sign-in and secure cookie handling
 - Convex React client for live queries and writes
 - `expo-camera` for review-presence team QR scans
-- explicit camera modes for existing VIT IDs, external badges, attendance portal QR, and review-presence QR
+- explicit camera modes for VIT IDs, static external event passes plus external physical IDs, external badges, and review-presence QR
 - `expo-notifications` for native APNs/FCM registration, pages, and time warnings
 - `expo-secure-store` for the auth cookie and local encryption key
 - SQLCipher-backed `expo-sqlite` for the current review draft and unsent operations
@@ -33,6 +33,8 @@ The app talks to the same Convex backend as the participant portal and operation
 Reviewer testing uses development builds. Expo Go does not represent the production auth callback, notification, camera, or encrypted-database setup.
 
 Attendance scanner mode and its pending queue are specified in **Attendance and presence**. Reviewer team-QR presence remains a separate command and token type.
+
+The attendance surface separates **First check-in** from later **Record presence** scans. The workflow chooser explains the difference before opening the camera. First check-in presents separate VIT and external scan instructions, confirms the resolved identity, shows progress through identity verification and venue arrival, and does not label the flow complete until arrival is recorded. It accepts a VIT ID barcode directly and resolves only an eligible, accepted RSVP membership. External first check-in scans the participant's static emailed event pass and then their physical-ID barcode. A fallback sheet searches VIT participants by registration number and external participants by verified email when a barcode cannot be read.
 
 ## 3. Navigation
 

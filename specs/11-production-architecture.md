@@ -19,7 +19,7 @@
 | External job control                  | Native scheduled actions with a 20-second server fallback for participant intake; `@convex-dev/workpool` for admission analysis (16 slots), intelligence dispatch, integrations, and exports; short participant-email sends use claimed Convex scheduler actions |
 | Provider integrations                 | GitHub App installation tokens/webhooks and Figma OAuth/Webhooks V2                                                                                                                                                                                              |
 | Participant status email              | Cloudflare Email Sending REST API, lifecycle Event Subscription to Queues, a small HMAC bridge Worker, and Cloudflare Email Routing for the approved inbound support alias; generic text links back to authenticated portal state                                |
-| Mobile camera                         | `expo-camera` for VIT ID barcodes, external badges, attendance portal QR, and review-presence QR; explicit app modes keep each purpose on its own permission and server command                                                                                      |
+| Mobile camera                         | `expo-camera` for VIT ID barcodes, static external event passes, external physical-ID barcodes, optional external badges, and review-presence QR; explicit app modes keep each purpose on its own permission and server command                                      |
 | Mobile notifications                  | Native tokens through `expo-notifications`; direct Firebase Cloud Messaging and Apple Push Notification service sends                                                                                                                                            |
 | Outbound calls                        | Reusable event-owned voice service with synthesized scripts, push-first escalation, consent, scoped permissions, provider callbacks, and audit                                                                                                                   |
 | Mobile protected storage              | `expo-secure-store`; SQLCipher-backed `expo-sqlite` for one active draft                                                                                                                                                                                         |
@@ -241,7 +241,7 @@ Clients treat only Convex's `ConvexError` class as proof that an application com
 
 Attendance scans use the same mutation rules at higher write volume. `attendance.recordScan` validates the operator, device, station configuration, credential version, session, expectation, direction, and anti-passback state. One transaction records the attempt. If accepted, it opens or closes an interval, updates the individual projection, and moves the participant between counter shards. It does not call an external service.
 
-Staffed venue arrival is a separate online-only transaction at a provisioned `venue_entry` station. A fresh participant portal QR resolves the exact accepted member and team. It creates a two-minute server record that binds the operator, phone, station, and member. The operator then checks the VIT ID or approved external photo ID.
+Staffed venue arrival is a separate online-only transaction at a provisioned `venue_entry` station. A VIT ID barcode resolves its registration number directly to one eligible, accepted RSVP member. A static external event pass resolves the external member before staff scan and visually verify the physical ID. Authorized manual fallback uses VIT registration number or external verified email. Every path creates a two-minute server record bound to the operator, phone, station, member, and resolution method.
 
 `attendanceVenueCheckIns.record` requires the unused resolution and its exact-person permission. It creates at most one current arrival for each member and event. It records the active physical credential when present and updates one deterministic aggregate shard. It changes the team to `checked_in` only when each active member has arrived.
 
@@ -325,7 +325,7 @@ FCM sends through the Firebase Admin SDK. APNs sends an ES256 provider JWT over 
 
 FCM message IDs and APNs IDs record only provider acceptance. The page remains pending until the reviewer accepts or declines in Convex. The deadline still starts the operations fallback.
 
-### Participant decision email
+### Participant email and external event passes
 
 Each Convex environment sets these values:
 
@@ -334,6 +334,13 @@ Each Convex environment sets these values:
 - `CLOUDFLARE_EMAIL_FROM`;
 - optional `CLOUDFLARE_EMAIL_REPLY_TO`;
 - `EMAIL_EVENT_CALLBACK_SECRET`.
+
+External event-pass delivery additionally requires:
+
+- a deployment-specific `WALLET_DOWNLOAD_SIGNING_SECRET` of at least 32 characters;
+- `GOOGLE_WALLET_ISSUER_ID`, `GOOGLE_WALLET_SERVICE_ACCOUNT_EMAIL`, and `GOOGLE_WALLET_PRIVATE_KEY` for an issuer-authorized Google Wallet service account;
+- `APPLE_WALLET_PASS_TYPE_IDENTIFIER`, `APPLE_WALLET_TEAM_IDENTIFIER`, and base64-encoded WWDR, signer certificate, and signer private-key values for Apple Wallet;
+- the public `CONVEX_SITE_URL`, which owns the signed Apple Wallet download endpoint.
 
 `PARTICIPANT_SITE_URL` supplies the authenticated return origin. It must use HTTPS outside localhost. Cloudflare Email Service must verify and enable the sending domain.
 
@@ -344,6 +351,8 @@ The Worker validates the event schema and domain. It discards subject, raw SMTP 
 The same Worker handles only the exact normalized `EMAIL_ROUTING_ADDRESS` alias, even if a broader Cloudflare routing rule is configured accidentally. It forwards matching messages to the verified `EMAIL_ROUTING_FORWARD_TO` mailbox. It rejects every other recipient and does not convert inbound mail into application data or commands.
 
 One `admissions.decide` transaction writes the human decision, participant-facing state, and verified-email destination. It also writes one pending delivery for each member of the locked submitted roster. The delivery contains a generic text-template key and `/` portal path. It does not copy the decision, proposal text, novelty number, or Discord destination. The transaction schedules `participantEmail.deliver`. It does not call Cloudflare inside the mutation.
+
+When an external participant confirms an offer, the same transaction also queues a separate `external_event_pass` delivery. Delivery creates or reuses that membership's static encrypted pass, renders its QR inline, and signs each configured environment-specific Google Wallet or Apple Wallet action. VIT participants never receive this delivery. An entirely omitted wallet provider hides only that action and never blocks the inline QR; a partial or invalid provider configuration is a terminal delivery configuration error.
 
 The action claims a pending or due-retry delivery for 30 seconds. Before a Cloudflare call, it rechecks the application decision, active destination, recipient identity, and current Google-verified email. Each call has exactly one recipient.
 
@@ -582,7 +591,7 @@ Figma OAuth grants are encrypted once per Figma App/user and referenced by team-
 - Grant and revoke are different permissions and commands. Each enforces its own delegation ceiling, exact resource and target-person scope, validity, source provenance, current authorization, reason, idempotency, and access-version check.
 - A direct permission batch validates every selected row before writing. It changes one event access subject, cannot mix unrestricted and delegated authority, advances `accessVersion` once, and records one complete operation result and audit event. Individual grant rows remain the authorization source of truth.
 - A camera-decoded VIT ID barcode value is sent only to the authorized attendance command, converted into an event-scoped keyed fingerprint, and discarded. Raw values never become account identity, records, logs, or exports.
-- External-badge QR bearers contain no identity. A public action validates the exact 32-byte base64url shape, derives an event HMAC and short reference, and passes only those values into transactional mutations; tables, audit, logs, exports, and UI never receive the bearer. Short-lived portal QR tokens resolve the already-authenticated event member.
+- External-badge and event-pass QR bearers contain no identity. A public action validates the exact 32-byte base64url shape and derives an event HMAC. Badge bearers enter no table; the static event-pass bearer is encrypted with the event key and only its HMAC is indexed. Audit, logs, exports, and operations UI never receive either bearer.
 - Station mode, direction, zone, and attendance session are server-owned configuration. A card, badge, or participant cannot select the transition.
 - Provider callbacks use exact allowlisted URLs and validated state.
 - Participant answers are untrusted model input. Both OpenAI contracts have no tools, credentials, score data, or write capability. Admission analysis also excludes human recommendations, capacity, and judging context.
@@ -635,12 +644,12 @@ Business history stays in domain records and audit events. PostHog is not the ju
 - Role assignment, roster import, person lookup, grant inspection, bundle publication/application/migration, granting, and revoking each fail independently without their own permission.
 - Applying a bundle produces inspectable atomic grants. Migrating up to five selected prior applications is one preview-bound transaction that supersedes only their source grants, preserves explicit revocation exceptions, and cannot overwrite a concurrent manual or independently sourced grant.
 - Web and mobile see one accepted test mutation live.
-- An enrolled VIT ID barcode, external-badge QR, and dynamic portal QR reach one attendance command and produce the same participant-scoped transition.
-- At most one portal QR is active for a participant. Mint revokes its predecessors, and the first scanner receipt after successful token resolution or staffed-participant resolution consumes the selected token and revokes any sibling in the same mutation.
+- An enrolled VIT ID barcode, external-badge QR, and static external event pass reach one attendance command and produce the same participant-scoped transition.
+- At most one static external pass exists per accepted external membership. Repeated portal loads and delivery retries return the same encrypted bearer; only an explicit suspension makes it stop resolving.
 - A staffed arrival record, identity exception, and reversal each require their own exact-person permission; only the exception and reversal require current scoped authorization. One active row, its sharded count, and the team milestone change transactionally while presence, sessions, and roll calls remain unchanged.
 - A scan updates participant, scanner, operations, team-availability, zone, and roll-call views without scanning the raw event ledger.
 - A below-minimum team remains queued and a below-minimum pending review cannot start unless one freshly authenticated exact-team/review availability waiver exists; that immutable row applies to one review and changes no attendance or judging fact.
-- A scanner stores a bounded short-lived SQLCipher queue before network transmission, never claims local acceptance, and replays the same operation ID in device sequence. A known-offline portal QR is refused, and a physical-credential replay older than current accepted evidence adds a needs-review event without changing the projection.
+- A scanner stores a bounded short-lived SQLCipher queue before network transmission, never claims local acceptance, and replays the same operation ID in device sequence. VIT ID, static external-pass, and event-badge scans use this same queue. A replay older than current accepted evidence adds a needs-review event without changing the projection.
 - Simultaneous credential methods, offline replay, VIT ID barcode suspension/rebinding, external-badge replacement/revocation, and session close cannot create duplicate intervals or silently overwrite a newer presence state. VIT suspension cancels a pending successor atomically; a version-checked expiry cannot change it afterward, and only an independently authorized rebind to a different card can replace the suspended row.
 - Overlapping optional/cohort sessions keep separate attendance rows, and large-cohort expectation/finalization work is resumable after function failure.
 - Concurrent post-session review opens produce one open case; a stale or duplicate decision cannot overwrite a newer result or move counters twice.

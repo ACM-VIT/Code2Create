@@ -93,7 +93,7 @@ The dashboard shows accepted state and legal next actions. Each protected comman
 ### Venue and attendance
 
 1. Staff scan the barcode on a VIT student's existing VIT ID from a provisioned phone.
-2. Staff scan the event QR for an external participant or an approved fallback case.
+2. Staff scan the static event pass for an external participant. An authorized manual registration-number or verified-email lookup is available only as a staffed first-check-in fallback.
 3. The server records one-time venue arrival separately from session presence.
 4. The server records session entry, temporary exit, return, and final exit as participant-scoped facts.
 5. The participant and operations views update from the same accepted records.
