@@ -17,12 +17,23 @@ const posthogHost = readHttpsUrl("EXPO_PUBLIC_POSTHOG_HOST");
 const posthogCliHost = readHttpsUrl("POSTHOG_CLI_HOST");
 const posthogCliProjectId = readPositiveInteger("POSTHOG_CLI_PROJECT_ID");
 const posthogCliApiKey = readEnvironmentValue("POSTHOG_CLI_API_KEY");
+const nativePlatform = readNativePlatform();
+const posthogCliValues = [posthogCliHost, posthogCliProjectId, posthogCliApiKey];
+const posthogCliConfigured = posthogCliValues.every(Boolean);
+const posthogCliPartiallyConfigured = posthogCliValues.some(Boolean) && !posthogCliConfigured;
+const shouldConfigurePostHogPlugin =
+  process.env.C2C_NATIVE_BUILD !== "true" || posthogCliConfigured;
 
 if (process.env.C2C_NATIVE_BUILD === "true") {
   const missing: string[] = [];
   if (!updatesUrl) missing.push("C2C_UPDATES_URL");
-  if (!iosBundleIdentifier) missing.push("C2C_IOS_BUNDLE_IDENTIFIER");
-  if (!androidPackage) missing.push("C2C_ANDROID_PACKAGE");
+  if (!nativePlatform) missing.push("C2C_NATIVE_PLATFORM");
+  if (nativePlatform === "ios" && !iosBundleIdentifier) {
+    missing.push("C2C_IOS_BUNDLE_IDENTIFIER");
+  }
+  if (nativePlatform === "android" && !androidPackage) {
+    missing.push("C2C_ANDROID_PACKAGE");
+  }
   if (!appBuild) missing.push("EXPO_PUBLIC_APP_BUILD");
   if (!convexUrl) missing.push("EXPO_PUBLIC_CONVEX_URL");
   if (!convexSiteUrl) missing.push("EXPO_PUBLIC_CONVEX_SITE_URL");
@@ -32,9 +43,11 @@ if (process.env.C2C_NATIVE_BUILD === "true") {
   if (!apnsEnvironment) missing.push("EXPO_PUBLIC_APNS_ENVIRONMENT");
   if (!posthogProjectToken) missing.push("EXPO_PUBLIC_POSTHOG_PROJECT_TOKEN");
   if (!posthogHost) missing.push("EXPO_PUBLIC_POSTHOG_HOST");
-  if (!posthogCliHost) missing.push("POSTHOG_CLI_HOST");
-  if (!posthogCliProjectId) missing.push("POSTHOG_CLI_PROJECT_ID");
-  if (!posthogCliApiKey) missing.push("POSTHOG_CLI_API_KEY");
+  if (posthogCliPartiallyConfigured) {
+    if (!posthogCliHost) missing.push("POSTHOG_CLI_HOST");
+    if (!posthogCliProjectId) missing.push("POSTHOG_CLI_PROJECT_ID");
+    if (!posthogCliApiKey) missing.push("POSTHOG_CLI_API_KEY");
+  }
   if (process.env.C2C_NATIVE_PLATFORM === "android" && !androidGoogleServicesFile) {
     missing.push("C2C_ANDROID_GOOGLE_SERVICES_FILE");
   }
@@ -50,13 +63,17 @@ const reviewerAppConfig = ({ config }: ConfigContext): ExpoConfig => ({
   slug: config.slug ?? "code2create-ops",
   plugins: [
     ...(config.plugins ?? []),
-    [
-      "posthog-react-native/expo",
-      {
-        skipOnConflict: true,
-        uploadNativeSymbols: process.env.C2C_NATIVE_BUILD === "true",
-      },
-    ],
+    ...(shouldConfigurePostHogPlugin
+      ? [
+          [
+            "posthog-react-native/expo",
+            {
+              skipOnConflict: true,
+              uploadNativeSymbols: process.env.C2C_NATIVE_BUILD === "true",
+            },
+          ] as NonNullable<ExpoConfig["plugins"]>[number],
+        ]
+      : []),
   ],
   runtimeVersion: { policy: "appVersion" },
   ios: {
@@ -210,6 +227,15 @@ function readApnsEnvironment() {
   if (!value) return null;
   if (value !== "development" && value !== "production") {
     throw new Error("EXPO_PUBLIC_APNS_ENVIRONMENT is invalid.");
+  }
+  return value;
+}
+
+function readNativePlatform() {
+  const value = readEnvironmentValue("C2C_NATIVE_PLATFORM");
+  if (!value) return null;
+  if (value !== "ios" && value !== "android") {
+    throw new Error("C2C_NATIVE_PLATFORM is invalid.");
   }
   return value;
 }

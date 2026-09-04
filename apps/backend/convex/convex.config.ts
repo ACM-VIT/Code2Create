@@ -5,8 +5,14 @@ import presence from "@convex-dev/presence/convex.config.js";
 import rateLimiter from "@convex-dev/rate-limiter/convex.config.js";
 import workpool from "@convex-dev/workpool/convex.config.js";
 import { defineApp } from "convex/server";
+import { v } from "convex/values";
 
-const app = defineApp();
+const app = defineApp({
+  env: {
+    DISCORD_SUPPORT_ACTOR_EMAIL: v.optional(v.string()),
+    DISCORD_SUPPORT_BRIDGE_SECRET: v.optional(v.string()),
+  },
+});
 
 app.use(betterAuth);
 app.use(agent);

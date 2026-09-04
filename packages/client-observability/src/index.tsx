@@ -22,9 +22,9 @@ import {
   sanitizeTelemetryUrl,
   scrubPostHogEvent,
 } from "./privacy.ts";
-import { isChunkLoadFailure } from "./browserRecovery.ts";
+import { isChunkLoadFailure, suppressRecoveredChunkException } from "./browserRecovery.ts";
 
-export { installBrowserChunkRecovery } from "./browserRecovery.ts";
+export { installBrowserChunkRecovery, isChunkLoadFailure } from "./browserRecovery.ts";
 
 export type BrowserSurface = "landing-web" | "participant-web" | "operations-web";
 
@@ -165,7 +165,10 @@ export function ClientObservabilityProvider({
             captureExtensionExceptions: false,
             exception_steps: { enabled: true },
           },
-          before_send: scrubPostHogEvent,
+          before_send: (event) =>
+            event !== null && suppressRecoveredChunkException(event)
+              ? null
+              : scrubPostHogEvent(event),
           loaded: (posthog) => posthog.register(commonProperties),
         }}
       >

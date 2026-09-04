@@ -110,7 +110,10 @@ export function scrubPostHogEvent<T extends PostHogEvent>(event: T | null): T | 
   if (event.event === "$snapshot") {
     return event;
   }
-  if (event.event === "$exception" && isInjectedBrowserBridgeException(event.properties)) {
+  if (
+    event.event === "$exception" &&
+    (isInjectedBrowserBridgeException(event.properties) || isAbortException(event.properties))
+  ) {
     return null;
   }
 
@@ -165,6 +168,20 @@ function telemetryPropertyIsSensitive(key: string) {
     telemetrySensitivePropertyPattern.test(key) ||
     telemetryPersonNamePropertyPattern.test(key) ||
     telemetrySecretTokenPropertyPattern.test(key)
+  );
+}
+
+function isAbortException(properties: Record<string, unknown> | undefined) {
+  // Libraries abort their own in-flight requests during normal work, so the
+  // resulting AbortError is noise rather than a failure. Only a list made up
+  // entirely of this exact name is dropped, so a genuine failure alongside it,
+  // or under any other name, stays visible.
+  const exceptionList = properties?.$exception_list;
+  if (!Array.isArray(exceptionList) || exceptionList.length === 0) {
+    return false;
+  }
+  return exceptionList.every(
+    (exception) => isRecord(exception) && exception.type === "AbortError",
   );
 }
 

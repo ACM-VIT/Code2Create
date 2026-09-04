@@ -1192,6 +1192,16 @@ export default defineSchema({
     .index("by_threadId_and_state_and_updatedAt", ["threadId", "state", "updatedAt"])
     .index("by_threadId_and_updatedAt", ["threadId", "updatedAt"]),
 
+  participantServiceQueueEntries: defineTable({
+    eventId: v.id("events"),
+    membershipId: v.id("eventMemberships"),
+    personId: v.id("people"),
+    kind: v.literal("outing_permission"),
+    joinedAt: v.number(),
+  })
+    .index("by_membership_kind", ["membershipId", "kind"])
+    .index("by_event_kind_joined", ["eventId", "kind", "joinedAt"]),
+
   supportCases: defineTable({
     eventId: v.id("events"),
     publicCode: v.string(),
@@ -1243,10 +1253,59 @@ export default defineSchema({
     nextState: v.optional(supportCaseState),
     previousOwnerPersonId: v.optional(v.id("people")),
     nextOwnerPersonId: v.optional(v.id("people")),
+    externalActor: v.optional(
+      v.object({
+        provider: v.literal("discord"),
+        providerUserId: v.string(),
+        displayName: v.string(),
+      }),
+    ),
     createdAt: v.number(),
   })
     .index("by_case_time", ["supportCaseId", "createdAt"])
     .index("by_event_time", ["eventId", "createdAt"]),
+
+  supportDiscordChannels: defineTable({
+    eventId: v.id("events"),
+    supportCaseId: v.id("supportCases"),
+    discordGuildId: v.string(),
+    discordChannelId: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_support_case", ["supportCaseId"])
+    .index("by_discord_channel", ["discordChannelId"]),
+
+  supportDiscordOutbox: defineTable({
+    eventId: v.id("events"),
+    supportCaseId: v.id("supportCases"),
+    supportCaseActionId: v.id("supportCaseActions"),
+    state: v.union(v.literal("pending"), v.literal("claimed"), v.literal("delivered")),
+    claimId: v.optional(v.string()),
+    claimExpiresAt: v.optional(v.number()),
+    nextAttemptAt: v.number(),
+    attemptCount: v.number(),
+    lastErrorCode: v.optional(v.string()),
+    discordMessageId: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    deliveredAt: v.optional(v.number()),
+  })
+    .index("by_event_and_state_and_next_attempt", ["eventId", "state", "nextAttemptAt"])
+    .index("by_event_and_state_and_claim_expiry", ["eventId", "state", "claimExpiresAt"])
+    .index("by_support_case_action", ["supportCaseActionId"]),
+
+  supportDiscordInboundMessages: defineTable({
+    eventId: v.id("events"),
+    supportCaseId: v.id("supportCases"),
+    supportCaseActionId: v.id("supportCaseActions"),
+    discordMessageId: v.string(),
+    discordUserId: v.string(),
+    discordDisplayName: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_discord_message", ["discordMessageId"])
+    .index("by_support_case_and_created_at", ["supportCaseId", "createdAt"]),
 
   supportCaseStatShards: defineTable({
     eventId: v.id("events"),

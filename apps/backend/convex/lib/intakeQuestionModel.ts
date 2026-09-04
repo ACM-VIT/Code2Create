@@ -114,7 +114,9 @@ function validateModelOutput(output: ModelOutput, context: IntakeQuestionModelCo
   const normalized = output.nextQuestion.text.trim().replace(/\s+/gu, " ");
   const lower = normalized.toLocaleLowerCase("en");
   if (normalized.length > context.questionMaxLength) return invalid("model_question_too_long");
-  if (!isBroadIdeaQuestion(normalized)) return invalid("model_question_not_broad");
+  if (!isBroadIdeaQuestion(normalized, context.questionMaxLength)) {
+    return invalid("model_question_not_broad");
+  }
   if (
     !normalized.endsWith("?") ||
     [...normalized].filter((character) => character === "?").length !== 1

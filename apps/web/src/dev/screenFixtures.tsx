@@ -780,10 +780,7 @@ const dashboardReview: ReviewTileModel = {
   available: true,
   queue: {
     round: "Midpoint review",
-    state: "Reviewers on the way",
-    detail: "Panel C · Table 14",
-    wait: null,
-    reviewers: { present: 1, total: 3 },
+    rank: null,
   },
   showCode: {
     sessionId: "fixture-review-session",
@@ -792,6 +789,8 @@ const dashboardReview: ReviewTileModel = {
       return { payload: "c2c:review:paper-cranes:staged", manualCode: "7K2P4-Q9M3X", expiresAt: Date.now() + 120_000, serverNow: Date.now() };
     },
   },
+  services: [],
+  setServiceQueue: async () => {},
 };
 
 const dashboardHelp: HelpTileModel = {
@@ -809,10 +808,10 @@ const dashboardBenefits: BenefitsTileModel = {
 
 const quietMusic: MusicTileModel = { ...dashboardMusic, nowPlaying: null, queue: [], window: null };
 const reviewMusic: MusicTileModel = { ...dashboardMusic, nowPlaying: null, queue: dashboardMusic.queue.slice(0, 2) };
-const quietReview: ReviewTileModel = { available: true, queue: null, showCode: null };
+const quietReview: ReviewTileModel = { available: true, queue: null, showCode: null, services: [], setServiceQueue: async () => {} };
 const queuedReview: ReviewTileModel = {
   ...dashboardReview,
-  queue: { round: "Midpoint review", state: "In queue", detail: "Panel C · 2 teams ahead of you.", wait: "About within 15 min", reviewers: null },
+  queue: { round: "Midpoint review", rank: 3 },
   showCode: null,
 };
 
@@ -820,6 +819,24 @@ type DashboardVariant = "build" | "review" | "quiet";
 
 function DashboardFixture({ variant = "build" }: { variant?: DashboardVariant }) {
   const now = variant === "review" ? eventClock(10, 20, 30) : eventClock(10, 2);
+  const [services, setServices] = useState<ReviewTileModel["services"]>([
+    { kind: "outing_permission", joined: false, position: null, waitingCount: 2 },
+  ]);
+  const baseReview = variant === "review" ? dashboardReview : variant === "quiet" ? quietReview : queuedReview;
+  const review: ReviewTileModel = {
+    ...baseReview,
+    services,
+    setServiceQueue: async (kind, joined) => {
+      await wait(250);
+      setServices((current) => current.map((service) => {
+        if (service.kind !== kind) return service;
+        if (joined) {
+          return { ...service, joined: true, position: service.waitingCount + 1, waitingCount: service.waitingCount + 1 };
+        }
+        return { ...service, joined: false, position: null, waitingCount: Math.max(0, service.waitingCount - 1) };
+      }));
+    },
+  };
   return (
     <DashboardScreen
       team={team}
@@ -830,7 +847,7 @@ function DashboardFixture({ variant = "build" }: { variant?: DashboardVariant })
       music={variant === "build" ? dashboardMusic : variant === "review" ? reviewMusic : quietMusic}
       integrations={variant === "quiet" ? dashboardIntegrationsEmpty : dashboardIntegrations}
       updates={variant === "quiet" ? { ...dashboardUpdates, checkpoints: dashboardUpdates.checkpoints.map((c) => ({ ...c, state: c.key === "ideation" ? "upcoming" : c.state })) } : dashboardUpdates}
-      review={variant === "review" ? dashboardReview : variant === "quiet" ? quietReview : queuedReview}
+      review={review}
       help={dashboardHelp}
       benefits={variant === "quiet" ? { available: true, benefits: [] } : dashboardBenefits}
     />
@@ -1117,6 +1134,19 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries([
                 </>
               }
             />
+            <StackedSheet depth={1} aria-expanded label="How will your solution work in practice?">
+              <span className="mt-1 line-clamp-4 text-[13px] leading-relaxed whitespace-pre-line wrap-anywhere text-fg/85">
+                Finders post a photo and a rough location from their phone. Owners describe what they
+                lost in their own words, and a small matcher compares the two lists every few minutes,
+                weighting location and time far above wording. Likely matches are surfaced to both
+                sides, and a pickup is only marked done once the owner scans the finder’s handover
+                code at a security desk. The desk keeps a log of every handover so disputes can be
+                settled later, and unclaimed items age out after two weeks.
+              </span>
+              <span className="mt-1.5 block text-[11px] text-fg/55">
+                rewritable at review, after the last question
+              </span>
+            </StackedSheet>
             <IdeaCard
               footer={
                 <>
@@ -1127,6 +1157,9 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries([
                 </>
               }
             >
+              <p className="m-0 mb-3 text-[13px] leading-relaxed text-fg/70">
+                Who will use Foundling on day one?
+              </p>
               <PortalTextarea
                 rows={6}
                 defaultValue="Hostellers first · most losses happen in messes and reading halls. Security desks join in week two once verified pickup is proven."

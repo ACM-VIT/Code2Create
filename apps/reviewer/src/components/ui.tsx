@@ -324,10 +324,14 @@ export function Sheet({
         }}
         ref={sheet}
       >
-        <View style={styles.sheetBody}>
+        <ScrollView
+          contentContainerStyle={styles.sheetBody}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
           <Text style={styles.sheetTitle}>{title}</Text>
           {children}
-        </View>
+        </ScrollView>
       </TrueSheet>
     </View>
   );

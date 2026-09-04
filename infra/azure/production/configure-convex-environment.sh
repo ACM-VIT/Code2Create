@@ -81,6 +81,8 @@ EMAIL_EVENT_CALLBACK_SECRET=$(read_secret email-event-callback-secret)
 OUTBOUND_CALL_WORKER_URL=https://voice.c2c.sh
 OUTBOUND_CALL_REQUEST_SECRET=$(read_secret outbound-call-request-secret)
 OUTBOUND_CALL_EVENT_SECRET=$(read_secret outbound-call-event-secret)
+DISCORD_SUPPORT_ACTOR_EMAIL=technicaldirector.acmvit@gmail.com
+DISCORD_SUPPORT_BRIDGE_SECRET=$(read_secret discord-support-bridge-secret)
 EOF
 
 (

@@ -111,6 +111,15 @@ Git revision to `deploy-convex.sh`. No Azure client secret or Convex admin key i
 stored in GitHub. Environment configuration remains a separate operator action
 and is not part of an ordinary code deployment.
 
+Discord support is an additional interface over the same Convex support cases;
+it does not replace the operations dashboard. Its bot runs in the separate
+`code2create-discord.service` unit so bot releases do not restart Convex. Store
+`discord-bot-token` and `discord-support-bridge-secret` in the production vault,
+apply the matching Convex bridge secret with `configure-convex-environment.sh`,
+deploy backend functions, then run `deploy-discord.sh <full-git-sha>`. The bot
+refuses to start when either ticket category is public, an allowed role is
+missing, or required channel permissions are absent.
+
 External-participant email sign-in uses the production Cloudflare Email
 Sending identity. Before running `configure-convex-environment.sh`, store
 `cloudflare-email-account-id`, `cloudflare-email-api-token`, and

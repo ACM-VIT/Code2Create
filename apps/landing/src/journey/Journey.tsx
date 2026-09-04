@@ -375,7 +375,7 @@ export default function Journey({ petalsRef }: JourneyProps) {
       gsap.set(q(".lantern__label"), { autoAlpha: 0 });
       /* The title rides in from above with the clearing sky and settles into
          the open band at its foot before the first sponsor shell launches. */
-      gsap.set(q(".sponsors__title"), { autoAlpha: 0, y: "-100svh" });
+      gsap.set(q(".sponsors__title"), { autoAlpha: 0, y: "36svh" });
       gsap.set(panels, { autoAlpha: 0, xPercent: 8 });
       gsap.set(q(".bonsai"), { xPercent: 135, autoAlpha: 0 });
       gsap.set(q(".branches"), { autoAlpha: 1 });
@@ -552,14 +552,18 @@ export default function Journey({ petalsRef }: JourneyProps) {
           { x: "86vw", y: "-52vh", autoAlpha: 0, duration: 7, stagger: 0.5, ease: "power2.in" },
           95,
         )
-        .to([ridges.near, ridges.mid], { yPercent: 130, duration: 8, ease: "power2.inOut" }, 95)
-        .to(ridges.far, { yPercent: 130, duration: 7.5, ease: "power2.inOut" }, 95.5);
+;
+
+      /* The hills stay through the sponsor volley — every shell launches from
+         behind the front ridge — and only drop away with the last tier. */
+      tl.to([ridges.near, ridges.mid], { yPercent: 130, duration: 9, ease: "power2.inOut" }, 141)
+        .to(ridges.far, { yPercent: 130, duration: 9, ease: "power2.inOut" }, 142);
 
       /* H2 — the title travels with the descending background and reaches the
          bottom of the cleared sky before the sponsor volley begins. Every
          firecracker phase is scrubbed by this timeline: stop the wheel and
          the shell stops; reverse it and the shell rewinds. */
-      tl.to(q(".sponsors__title"), { autoAlpha: 1, y: 0, duration: 8, ease: "power2.inOut" }, 95).to(
+      tl.to(q(".sponsors__title"), { autoAlpha: 1, y: 0, duration: 7, ease: "power3.out" }, 103).to(
         q(".sponsors__title"),
         { autoAlpha: 0, y: "18svh", duration: 8, ease: "power2.in" },
         142,
