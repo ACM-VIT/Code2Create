@@ -63,11 +63,24 @@ export async function synchronizeTeamAdmissionIdeaComparison(
     .query("noveltyTeamIdeas")
     .withIndex("by_team", (index) => index.eq("teamId", args.teamId))
     .collect();
+  const activeFingerprint = await activeSubmittedIdeaFingerprint(ctx, args);
+  const activeIdea = ideas
+    .filter(
+      (idea) => idea.lifecycle === "submitted" && idea.inputFingerprint === activeFingerprint,
+    )
+    .toSorted(
+      (left, right) =>
+        right.sourceUpdatedAt - left.sourceUpdatedAt ||
+        right._creationTime - left._creationTime,
+    )[0];
   for (const idea of ideas) {
     if (idea.eventId !== args.eventId) {
       throw new Error("A team idea belongs to a different event than its team.");
     }
-    const comparisonScope = await comparisonScopeForTeamIdea(ctx, idea);
+    const comparisonScope =
+      idea._id === activeIdea?._id
+        ? activeAdmissionIdeaComparisonScope(args.eventId)
+        : noveltyIdeaComparisonScope(args.eventId, idea.lifecycle);
     if (idea.comparisonScope !== comparisonScope) {
       await ctx.db.patch(idea._id, { comparisonScope, updatedAt: Date.now() });
     }

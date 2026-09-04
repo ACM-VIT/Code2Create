@@ -24,8 +24,8 @@ import {
   validEmbedding,
 } from "./lib/novelty";
 import {
-  comparisonScopeForTeamIdea,
   isActiveAdmissionIdeaState,
+  synchronizeTeamAdmissionIdeaComparison,
 } from "./lib/noveltyIndex";
 import { createOpenAiEmbeddings } from "./lib/openAiEmbeddings";
 import { scheduledAiEmbeddingTelemetry } from "./lib/posthog";
@@ -218,6 +218,18 @@ export const readCurrentSubmissionMatchMetadata = internalQuery({
   },
 });
 
+export const reconcileTeamComparisonScope = internalMutation({
+  args: {
+    eventId: v.id("events"),
+    teamId: v.id("teams"),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await synchronizeTeamAdmissionIdeaComparison(ctx, args);
+    return null;
+  },
+});
+
 export const reconcileLegacyComparisonScopes = internalMutation({
   args: { eventId: v.id("events") },
   returns: v.number(),
@@ -235,10 +247,11 @@ export const reconcileLegacyComparisonScopes = internalMutation({
       )
       .take(64);
     const ideas = [...unscopedIdeas, ...legacySubmittedIdeas];
-    for (const idea of ideas) {
-      const comparisonScope = await comparisonScopeForTeamIdea(ctx, idea);
-      await ctx.db.patch(idea._id, {
-        comparisonScope,
+    const teamIds = new Set(ideas.map((idea) => idea.teamId));
+    for (const teamId of teamIds) {
+      await synchronizeTeamAdmissionIdeaComparison(ctx, {
+        eventId: args.eventId,
+        teamId,
       });
     }
     return ideas.length;
@@ -348,6 +361,10 @@ export async function searchSimilarIdeas(
     internal.admissionIdeaSimilarity.readSimilarityConfiguration,
     { eventId: projection.eventId },
   );
+  await ctx.runMutation(internal.admissionIdeaSimilarity.reconcileTeamComparisonScope, {
+    eventId: projection.eventId,
+    teamId: projection.teamId,
+  });
   while (
     (await ctx.runMutation(
       internal.admissionIdeaSimilarity.reconcileLegacyComparisonScopes,
