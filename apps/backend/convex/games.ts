@@ -6,16 +6,24 @@
  * single round rather than by a total, which would reward volume over skill.
  * Standings are per person and never per team.
  *
- * The browser reports its own score. That is bounded by the published maximum
- * for the game and paced by a per-person rate limit, which keeps a casually
- * tampered round off the board; it is not a claim that the score is verified.
+ * The browser reports its own score, so a round is reported against a run the
+ * server opened: the score is bounded by the published maximum, held to what
+ * the game could plausibly have scored in the time the run was actually open,
+ * spendable once, and paced by a per-person rate limit. Together those make a
+ * forged score cost the time it claims to have taken instead of being free.
+ * None of it verifies the play itself — only a server-side simulation of the
+ * round would — so this is a bar, not a proof.
  *
  * Nothing here is specific to one game: a new entry in the domain catalogue is
  * playable through these functions without a schema or query change.
  */
 
 import { MINUTE, RateLimiter } from "@convex-dev/rate-limiter";
-import { gameDefinition, gameRoundsPerMinute } from "@code2create/domain";
+import {
+  gameDefinition,
+  gameRoundsPerMinute,
+  gameRunLifetimeMs,
+} from "@code2create/domain";
 import { ConvexError, v } from "convex/values";
 
 import { components } from "./_generated/api";
@@ -75,14 +83,50 @@ async function personBest(
 }
 
 /**
- * Records one finished round.
+ * Opens a run and returns its id, to be handed back when the round ends.
  *
- * The round is kept whether or not it beats the person's previous best: the
- * board derives the best from the stored rounds, so a replay never overwrites
- * history.
+ * The stamp is taken here, on the server, so the elapsed time a reported score
+ * is judged against is one the browser cannot choose.
+ */
+export const startRound = mutation({
+  args: { eventSlug: v.string(), gameKey: v.string() },
+  returns: v.object({ runId: v.id("gameRuns") }),
+  handler: async (ctx, args) => {
+    const game = requireGame(args.gameKey);
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    requireEligibleMembership(await requireMembership(ctx, event._id, person._id));
+    const paced = await gameRateLimiter.limit(ctx, "gameRound", { key: person._id });
+    if (!paced.ok) {
+      throw new ConvexError({
+        code: "GAME_ROUNDS_TOO_FAST",
+        message: "Too many rounds started just now. Play on and try again shortly.",
+      });
+    }
+    const runId = await ctx.db.insert("gameRuns", {
+      eventId: event._id,
+      gameKey: game.key,
+      personId: person._id,
+      startedAt: Date.now(),
+    });
+    return { runId };
+  },
+});
+
+/**
+ * Records one finished round against the run it was played in.
+ *
+ * The round is kept whether or not it beats the person's previous best: a
+ * replay never overwrites history, and the person's standing row moves only
+ * when the round actually beats it.
  */
 export const recordRound = mutation({
-  args: { eventSlug: v.string(), gameKey: v.string(), score: v.number() },
+  args: {
+    eventSlug: v.string(),
+    gameKey: v.string(),
+    score: v.number(),
+    runId: v.id("gameRuns"),
+  },
   returns: v.object({ bestScore: v.number() }),
   handler: async (ctx, args) => {
     const game = requireGame(args.gameKey);
@@ -97,15 +141,49 @@ export const recordRound = mutation({
     const membership = requireEligibleMembership(
       await requireMembership(ctx, event._id, person._id),
     );
-    const paced = await gameRateLimiter.limit(ctx, "gameRound", { key: person._id });
-    if (!paced.ok) {
+    // Pacing is enforced when the run is opened, not here: a report needs an
+    // unspent run, so rationing runs already rations reports. Charging both
+    // would cost a round two of the person's allowance instead of one.
+
+    // The run is what makes the reported score cost something: it belongs to
+    // this person and this game, it is spent once, and it carries a server
+    // stamp the browser never saw.
+    const now = Date.now();
+    const run = await ctx.db.get(args.runId);
+    if (
+      !run ||
+      run.personId !== person._id ||
+      run.eventId !== event._id ||
+      run.gameKey !== game.key
+    ) {
       throw new ConvexError({
-        code: "GAME_ROUNDS_TOO_FAST",
-        message: "Too many rounds recorded just now. Play on and try again shortly.",
+        code: "GAME_RUN_NOT_FOUND",
+        message: "That round is not one of your open runs. Start a new game.",
       });
     }
+    if (run.consumedAt !== undefined) {
+      throw new ConvexError({
+        code: "GAME_RUN_ALREADY_RECORDED",
+        message: "That round has already been recorded. Start a new game.",
+      });
+    }
+    const elapsedMs = now - run.startedAt;
+    if (elapsedMs > gameRunLifetimeMs) {
+      throw new ConvexError({
+        code: "GAME_RUN_EXPIRED",
+        message: "That game sat open too long to record. Start a new one.",
+      });
+    }
+    // A score is only as good as the time there was to earn it: no run can
+    // report more than the game's fastest plausible scoring rate allows.
+    if (args.score > (elapsedMs / 1000) * game.maximumScorePerSecond) {
+      throw new ConvexError({
+        code: "IMPLAUSIBLE_GAME_SCORE",
+        message: "That score is higher than the round had time to earn.",
+      });
+    }
+    await ctx.db.patch(run._id, { consumedAt: now });
 
-    const now = Date.now();
     await ctx.db.insert("gameRounds", {
       eventId: event._id,
       gameKey: game.key,

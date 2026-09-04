@@ -5334,6 +5334,26 @@ export default defineSchema({
     .index("by_event_game_person", ["eventId", "gameKey", "personId", "score"]),
 
   /**
+   * An opened play of one game, issued before the round and spent when it is
+   * reported.
+   *
+   * The browser reports its own score, so the run is what a report is held
+   * against: it is stamped by the server when play begins, belongs to one
+   * person, and is consumed once. That gives a reported score a real elapsed
+   * time to be plausible against and stops one run being spent repeatedly.
+   */
+  gameRuns: defineTable({
+    eventId: v.id("events"),
+    gameKey: v.string(),
+    personId: v.id("people"),
+    startedAt: v.number(),
+    /** When the round was reported. Unset while the run is still open. */
+    consumedAt: v.optional(v.number()),
+  })
+    // The open runs of one person, to expire and to spend.
+    .index("by_person_game", ["personId", "gameKey", "startedAt"]),
+
+  /**
    * One person's best round of one game, kept alongside `gameRounds` so the
    * leaderboard reads people directly.
    *

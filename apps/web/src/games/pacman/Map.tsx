@@ -30,7 +30,13 @@ const GHOST_FRAME = 8;
 const FLASH = 12;
 
 /** The board: ticks the game, plays its sounds, and draws the maze, dots, fruit, ghosts and Pac-Man. */
-export default function Map({ onRoundEnd }: { onRoundEnd?: (score: number) => void }) {
+export default function Map({
+  onRoundStart,
+  onRoundEnd,
+}: {
+  onRoundStart?: () => void;
+  onRoundEnd?: (score: number) => void;
+}) {
   const { game, started, start, restart } = useGame();
   useSounds(game);
   const [quiet, setQuiet] = useState(false);
@@ -43,6 +49,12 @@ export default function Map({ onRoundEnd }: { onRoundEnd?: (score: number) => vo
   const canvas = useCallback((el: HTMLCanvasElement | null) => {
     if (el) drawMaze(el);
   }, []);
+
+  // The round opens the moment play does. `started` goes false again on PLAY
+  // AGAIN, so each fresh board opens its own run.
+  useEffect(() => {
+    if (started) onRoundStart?.();
+  }, [started, onRoundStart]);
 
   const done = cleared(game);
   const over = !game.lives || done;

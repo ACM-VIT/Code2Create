@@ -13,6 +13,11 @@ import { lazy, type ComponentType, type LazyExoticComponent } from 'react'
  * first load; nobody pays for Pac-Man on their way to writing an idea.
  */
 export type GameBoardProps = {
+  /**
+   * Called the moment a round begins, before any of it is played. The arcade
+   * opens a server-side run on it, which the round is then reported against.
+   */
+  onRoundStart: () => void
   /** Called once with the round's score the moment a round ends. */
   onRoundEnd: (score: number) => void
 }

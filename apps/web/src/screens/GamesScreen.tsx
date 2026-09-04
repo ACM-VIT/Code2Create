@@ -1,6 +1,7 @@
 import { api } from '@code2create/backend/api'
 import { useMutation, useQuery } from 'convex/react'
-import { Suspense, useCallback, useState, type ReactNode } from 'react'
+import type { FunctionReturnType } from 'convex/server'
+import { Suspense, useCallback, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 
 import { PetalCard } from '../components/portal/PetalCard'
@@ -58,20 +59,46 @@ export function GamesScreen({ header }: { header: ReactNode }) {
   )
 }
 
+/** The run id `startRound` hands back, read off the API so it stays in step. */
+type RunId = FunctionReturnType<typeof api.games.startRound>['runId']
+
 /** One game: its board, and the standings for it. */
 function GamePanel({ game }: { game: GameEntry }) {
   const board = useQuery(api.games.leaderboard, { eventSlug, gameKey: game.key })
+  const startRound = useMutation(api.games.startRound)
   const recordRound = useMutation(api.games.recordRound)
   const [error, setError] = useState<string | null>(null)
+  // The run the current round is being played in. A ref rather than state: the
+  // board must not re-render when it lands, and only the round's end reads it.
+  const runId = useRef<RunId | null>(null)
+
+  const onRoundStart = useCallback(() => {
+    setError(null)
+    runId.current = null
+    void startRound({ eventSlug, gameKey: game.key })
+      .then((opened) => {
+        runId.current = opened.runId
+      })
+      .catch((cause: unknown) => {
+        // Opening the run is what makes the round recordable, so say so now
+        // rather than letting a finished round fail with nothing to report to.
+        setError(readableError(cause))
+      })
+  }, [game.key, startRound])
 
   const onRoundEnd = useCallback(
     (score: number) => {
+      const run = runId.current
+      if (!run) return // no run opened: nothing to report this round against
+      runId.current = null // a run is spent once, and the server agrees
       setError(null)
-      void recordRound({ eventSlug, gameKey: game.key, score }).catch((cause: unknown) => {
-        // A lost round is not worth interrupting play for; the message sits
-        // under the board and the next round tries again.
-        setError(readableError(cause))
-      })
+      void recordRound({ eventSlug, gameKey: game.key, score, runId: run }).catch(
+        (cause: unknown) => {
+          // A lost round is not worth interrupting play for; the message sits
+          // under the board and the next round tries again.
+          setError(readableError(cause))
+        },
+      )
     },
     [game.key, recordRound],
   )
@@ -82,7 +109,7 @@ function GamePanel({ game }: { game: GameEntry }) {
       <div className="flex flex-col items-center">
         <div className="flex min-h-[420px] w-full items-center justify-center bg-black p-4">
           <Suspense fallback={<p className="font-arcade text-sm text-[#F1CEDF]">LOADING…</p>}>
-            <Board onRoundEnd={onRoundEnd} />
+            <Board onRoundStart={onRoundStart} onRoundEnd={onRoundEnd} />
           </Suspense>
         </div>
         <p className="mt-3 text-center text-[12.5px] text-fg/55">{game.blurb}</p>
