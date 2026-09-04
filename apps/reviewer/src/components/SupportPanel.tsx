@@ -29,6 +29,7 @@ import { useMutationAttempt } from "@/lib/mutation-attempt";
 import type { ReviewerRuntime } from "@/lib/runtime";
 import { palette } from "@/theme";
 import { CaseListSkeleton } from "@/components/skeletons";
+import { SupportStaffControls } from "@/components/SupportStaffControls";
 
 type SupportCase = FunctionReturnType<typeof api.support.mine>[number];
 type SupportCaseId = SupportCase["id"];
@@ -275,6 +276,17 @@ export function SupportCaseDetail({
           <Meta>{supportCaseCategoryLabels[detail.supportCase.category]}</Meta>
           <Text style={styles.state}>{supportCaseStateLabels[detail.supportCase.state]}</Text>
         </View>
+        {detail.viewer === "staff" ? (
+          <>
+            <Body>{detail.supportCase.reporterName}</Body>
+            <Meta>{detail.supportCase.contactEmail}</Meta>
+            {detail.supportCase.teamName ? <Meta>Team {detail.supportCase.teamName}</Meta> : null}
+            {detail.supportCase.roundName ? (
+              <Meta>Round {detail.supportCase.roundName}</Meta>
+            ) : null}
+            <Meta>Owner: {detail.supportCase.ownerName ?? "Unassigned"}</Meta>
+          </>
+        ) : null}
         <Body>{detail.supportCase.description}</Body>
       </Card>
 
@@ -289,7 +301,9 @@ export function SupportCaseDetail({
         </Card>
       ))}
 
-      {detail.supportCase.canReply ? (
+      {detail.supportCase.canManage ? (
+        <SupportStaffControls detail={detail} eventSlug={eventSlug} />
+      ) : detail.supportCase.canReply ? (
         <>
           <Field
             editable={!busy && !replyPending}
@@ -311,7 +325,11 @@ export function SupportCaseDetail({
           />
         </>
       ) : (
-        <Meta>This case is closed. Report a new one if it comes back.</Meta>
+        <Meta>
+          {detail.supportCase.state === "closed"
+            ? "This case is closed."
+            : "You have read-only access to this case."}
+        </Meta>
       )}
     </>
   );
@@ -322,7 +340,9 @@ function actionLabel(
   nextState?: SupportState,
 ) {
   if (kind === "opened") return "Case opened";
-  if (kind === "reporter_reply") return "You replied";
+  if (kind === "reporter_reply") return "Reporter replied";
+  if (kind === "internal_note") return "Internal note · staff only";
+  if (kind === "owner_changed") return "Owner changed";
   if (kind === "public_note") return "The help desk replied";
   if (kind === "state_changed") {
     return `Now ${supportCaseStateLabels[nextState ?? "open"].toLowerCase()}`;
@@ -341,7 +361,7 @@ function errorMessage(caught: unknown, fallback: string) {
 }
 
 const styles = StyleSheet.create({
-  fixedRoot: { flex: 1, paddingHorizontal: 20, paddingTop: 14, paddingBottom: 18, gap: 18 },
+  fixedRoot: { flex: 1, gap: 18 },
   quickArea: { flex: 1 },
   row: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", gap: 12 },
   code: { color: palette.text, fontSize: 17, fontWeight: "600" },

@@ -17,6 +17,7 @@ type ReviewerSession = {
   email: string;
   surfaces: Surface[];
   canCreateSupport: boolean;
+  canOpenSupportDesk: boolean;
   canManageAttention: boolean;
   judgingStatus: DutyStatus;
   reviewHeartbeatIssue: string | null;
@@ -118,6 +119,7 @@ export function ReviewerSessionProvider({
         email: session.user.email,
         surfaces,
         canCreateSupport: access.supportCreate,
+        canOpenSupportDesk: access.supportStaff,
         canManageAttention: access.attentionManage,
         judgingStatus: reviewerDuty.judgingStatus,
         reviewHeartbeatIssue: reviewerDuty.heartbeatIssue,

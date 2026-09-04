@@ -605,15 +605,129 @@ describe("support projections", () => {
   });
 });
 
+test("mobile staff access uses the web queue while personal and exact-case grants remain scoped", async () => {
+  const backend = seededBackend();
+  const fixture = await seedOperator(backend);
+  const reporter = await seedOperator(backend, fixture);
+  const staff = backend.withIdentity({
+    subject: fixture.authUserId,
+    sessionId: fixture.authSessionId,
+  });
+  const personal = backend.withIdentity({
+    subject: reporter.authUserId,
+    sessionId: reporter.authSessionId,
+  });
+  const ownCase = await staff.mutation(api.support.createStaff, {
+    eventSlug: fixture.eventSlug,
+    category: "queue",
+    description: "Operator's own walk-up issue",
+    clientOperationId: crypto.randomUUID(),
+  });
+  const otherCase = await personal.mutation(api.support.createSelf, {
+    eventSlug: fixture.eventSlug,
+    category: "safety",
+    description: "A participant needs help from the desk",
+    clientOperationId: crypto.randomUUID(),
+  });
+  const readGrantId = await backend.run(async (ctx) => {
+    const grants = await ctx.db.query("permissionGrants").collect();
+    const read = grants.find(
+      (grant) =>
+        grant.eventAccessSubjectId === reporter.subjectId &&
+        grant.permissionKey === "support.case.read",
+    );
+    if (!read) throw new Error("Missing fixture read grant");
+    await ctx.db.patch(read._id, { scopeType: "self", scopeId: reporter.subjectId });
+    for (const grant of grants) {
+      if (
+        grant.eventAccessSubjectId === reporter.subjectId &&
+        grant.scopeType === "event" &&
+        grant.permissionKey !== "support.case.read"
+      ) {
+        await ctx.db.patch(grant._id, { status: "revoked" });
+      }
+    }
+    return read._id;
+  });
+  await expect(
+    staff.query(api.access.reviewerCapabilities, { eventSlug: fixture.eventSlug }),
+  ).resolves.toMatchObject({ support: true, supportStaff: true });
+  await expect(
+    personal.query(api.access.reviewerCapabilities, { eventSlug: fixture.eventSlug }),
+  ).resolves.toMatchObject({ support: true, supportStaff: false });
+  const queue = await staff.query(api.support.staffList, {
+    eventSlug: fixture.eventSlug,
+    state: "active",
+  });
+  expect(queue.cases.map((row) => row.id)).toEqual(
+    expect.arrayContaining([ownCase.id, otherCase.id]),
+  );
+  expect(queue.cases).toHaveLength(2);
+  expect(
+    (await staff.query(api.support.mine, { eventSlug: fixture.eventSlug })).map((row) => row.id),
+  ).toEqual([ownCase.id]);
+  expect(
+    (await personal.query(api.support.mine, { eventSlug: fixture.eventSlug })).map((row) => row.id),
+  ).toEqual([otherCase.id]);
+  expect(
+    (await personal.query(api.support.staffList, { eventSlug: fixture.eventSlug, state: "all" }))
+      .cases,
+  ).toHaveLength(0);
+
+  await staff.mutation(api.support.updateStaff, {
+    eventSlug: fixture.eventSlug,
+    supportCaseId: otherCase.id,
+    expectedVersion: otherCase.version,
+    nextState: "waiting",
+    nextOwnerPersonId: fixture.personId,
+    clearOwner: false,
+    publicNote: "The event team is helping you.",
+    internalNote: "Staff follow-up context.",
+    reason: "Replied and assigned the participant case",
+    clientOperationId: crypto.randomUUID(),
+  });
+  const detail = await personal.query(api.support.detailByPublicCode, {
+    eventSlug: fixture.eventSlug,
+    publicCode: otherCase.publicCode,
+  });
+  expect(detail?.supportCase).toMatchObject({
+    state: "waiting",
+    ownerPersonId: fixture.personId,
+    canManage: false,
+  });
+  expect(detail?.actions.some((action) => action.kind === "public_note")).toBe(true);
+  expect(detail?.actions.some((action) => action.visibility === "internal")).toBe(false);
+
+  await backend.run((ctx) =>
+    ctx.db.patch(readGrantId, { scopeType: "support_case", scopeId: ownCase.id }),
+  );
+  await expect(
+    personal.query(api.access.reviewerCapabilities, { eventSlug: fixture.eventSlug }),
+  ).resolves.toMatchObject({ support: true, supportStaff: true });
+  const exactQueue = await personal.query(api.support.staffList, {
+    eventSlug: fixture.eventSlug,
+    state: "all",
+  });
+  expect(exactQueue.cases.map((row) => row.id)).toEqual([ownCase.id]);
+  expect(exactQueue.cases[0]?.canManage).toBe(false);
+  await backend.run((ctx) => ctx.db.patch(readGrantId, { status: "revoked" }));
+  await expect(
+    personal.query(api.access.reviewerCapabilities, { eventSlug: fixture.eventSlug }),
+  ).resolves.toMatchObject({ supportStaff: false });
+});
+
 function seededBackend() {
   const backend = convexTest(schema, modules);
   backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
   return backend;
 }
 
-async function seedOperator(backend: BackendTest) {
+async function seedOperator(
+  backend: BackendTest,
+  existingEvent?: { eventId: Id<"events">; eventSlug: string },
+) {
   const now = Date.now();
-  const eventSlug = `support-${crypto.randomUUID()}`;
+  const eventSlug = existingEvent?.eventSlug ?? `support-${crypto.randomUUID()}`;
   const email = `support-${crypto.randomUUID()}@example.test`;
   const authUserId = await createAuthUser(backend, now, email);
   const authSessionId = await createAuthSession(backend, authUserId, now);
@@ -627,20 +741,22 @@ async function seedOperator(backend: BackendTest) {
       createdAt: now,
       updatedAt: now,
     });
-    const eventId = await ctx.db.insert("events", {
-      slug: eventSlug,
-      name: "Support fixture",
-      timezone: "Asia/Kolkata",
-      status: "live",
-      vitEmailDomains: ["vitstudent.ac.in"],
-      applicationsCloseAt: Date.now() + 86_400_000,
-      startsAt: now - 60_000,
-      endsAt: now + 3_600_000,
-      createdByPersonId: personId,
-      version: 1,
-      createdAt: now,
-      updatedAt: now,
-    });
+    const eventId =
+      existingEvent?.eventId ??
+      (await ctx.db.insert("events", {
+        slug: eventSlug,
+        name: "Support fixture",
+        timezone: "Asia/Kolkata",
+        status: "live",
+        vitEmailDomains: ["vitstudent.ac.in"],
+        applicationsCloseAt: Date.now() + 86_400_000,
+        startsAt: now - 60_000,
+        endsAt: now + 3_600_000,
+        createdByPersonId: personId,
+        version: 1,
+        createdAt: now,
+        updatedAt: now,
+      }));
     const subjectId = await ctx.db.insert("eventAccessSubjects", {
       eventId,
       personId,

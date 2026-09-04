@@ -27,6 +27,7 @@ export default function SupportCaseRoute() {
       {supportCode && detail === null ? <Meta>This case is no longer available.</Meta> : null}
       {detail ? (
         <SupportCaseDetail
+          key={detail.supportCase.id}
           detail={detail}
           eventSlug={eventSlug}
           supportCaseId={detail.supportCase.id}

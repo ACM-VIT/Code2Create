@@ -118,6 +118,7 @@ const reviewerCapabilitiesView = v.object({
   operations: v.boolean(),
   incidents: v.boolean(),
   supportCreate: v.boolean(),
+  supportStaff: v.boolean(),
   attentionManage: v.boolean(),
 });
 
@@ -384,7 +385,7 @@ async function resolveReviewerCapabilities(
     eventAccessSubjectId: Id<"eventAccessSubjects">;
   },
 ) {
-  const { any, anyOf, selfOrEvent } = capabilityReader(ctx, args);
+  const { any, anyOf, selfOrEvent, at, event } = capabilityReader(ctx, args);
   const [
     reviews,
     attendance,
@@ -393,6 +394,8 @@ async function resolveReviewerCapabilities(
     incidents,
     supportCreate,
     attentionManage,
+    supportReadStaff,
+    supportCreateStaff,
   ] = await Promise.all([
     anyOf([
       "reviewer.device.register",
@@ -407,15 +410,18 @@ async function resolveReviewerCapabilities(
     any("incident.read"),
     selfOrEvent("support.case.create"),
     any("operations.attention.manage"),
+    at("support.case.read", ["event", "support_case"]),
+    event("support.case.create"),
   ]);
   return {
     reviews,
     attendance,
-    support,
+    support: support || supportReadStaff || supportCreateStaff,
     operations,
     incidents,
     supportCreate,
     attentionManage,
+    supportStaff: supportReadStaff || supportCreateStaff,
   };
 }
 

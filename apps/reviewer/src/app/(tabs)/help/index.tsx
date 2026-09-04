@@ -1,12 +1,10 @@
-import { SupportPanel } from "@/components/SupportPanel";
+import { SupportHome } from "@/components/SupportHome";
 import { DutyScreen } from "@/components/DutyScreen";
-import { useReviewerSession } from "@/components/ReviewerSession";
 
 export default function HelpScreen() {
-  const { canCreateSupport, runtime } = useReviewerSession();
   return (
-    <DutyScreen scroll={false} title="Help" underNativeTabs>
-      <SupportPanel canCreate={canCreateSupport} runtime={runtime} />
+    <DutyScreen title="Help" underNativeTabs>
+      <SupportHome />
     </DutyScreen>
   );
 }
