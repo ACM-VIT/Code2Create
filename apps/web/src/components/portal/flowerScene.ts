@@ -374,10 +374,28 @@ function mergeGeoms(geoms: readonly THREE.BufferGeometry[]) {
   return out;
 }
 
+/* ---------- WebGL guard ------------------------------------- */
+/**
+ * A blocked or disabled WebGL context makes three.js log two console
+ * errors and then throw when it builds the renderer. The caller already
+ * treats a throw as "skip the bloom", but the two logs still reach error
+ * tracking as separate issues. Probe on a throwaway canvas first and
+ * throw our own error, so the skip path runs before three.js logs.
+ */
+function assertWebGLAvailable() {
+  const probe = document.createElement("canvas");
+  const context = probe.getContext("webgl2") ?? probe.getContext("webgl");
+  if (!context) {
+    throw new Error("WebGL is unavailable; skipping the submission bloom.");
+  }
+}
+
 /* ============================================================
    scene
    ============================================================ */
 export function createFlowerScene(canvas: HTMLCanvasElement): FlowerScene {
+  assertWebGLAvailable();
+
   const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const small = window.matchMedia("(max-width: 820px)").matches;
 
