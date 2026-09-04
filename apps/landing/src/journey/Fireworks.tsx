@@ -74,7 +74,7 @@ const SPONSORS: readonly SponsorSpec[] = [
     name: "SerpApi",
     logo: "/assets/sponsors/serpapi.svg",
     logoClass: "sponsor__logo--serpapi",
-    href: "https://serpapi.com/media",
+    href: "https://serpapi.com/",
     tier: "lead",
     material: "silver",
     cue: 114,
