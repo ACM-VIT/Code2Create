@@ -1,16 +1,30 @@
 import type { OutboundCallEventType } from "@code2create/domain";
 
-import { twilioCreateResponseSchema, twilioErrorResponseSchema } from "./contracts.js";
+import {
+  sarvamErrorResponseSchema,
+  sarvamOutboundResponseSchema,
+  twilioCreateResponseSchema,
+  twilioErrorResponseSchema,
+} from "./contracts.js";
 
 export type TelephonyEnvironment = {
-  TWILIO_ACCOUNT_SID: string;
-  TWILIO_AUTH_TOKEN: string;
-  TWILIO_FROM_NUMBER: string;
+  TWILIO_ACCOUNT_SID?: string;
+  TWILIO_AUTH_TOKEN?: string;
+  TWILIO_FROM_NUMBER?: string;
   PUBLIC_BASE_URL: string;
-  SARVAM_API_KEY?: string;
+  SARVAM_VOICE_AGENTS_API_KEY?: string;
+  SARVAM_ORG_ID?: string;
+  SARVAM_WORKSPACE_ID?: string;
+  SARVAM_APP_ID?: string;
+  SARVAM_APP_VERSION?: string;
+  SARVAM_CONNECTION_ID?: string;
+  SARVAM_AGENT_PHONE_NUMBER?: string;
 };
 
+export type TelephonyProvider = "twilio" | "sarvam";
+
 export type QueuedCall = {
+  provider: TelephonyProvider;
   providerCallId: string;
   providerStatus: string;
 };
@@ -20,6 +34,40 @@ export class AmbiguousCallDispatchError extends Error {
     super("The telephony provider response was ambiguous.");
     this.name = "AmbiguousCallDispatchError";
   }
+}
+
+export class RejectedCallDispatchError extends Error {
+  constructor(
+    readonly provider: TelephonyProvider,
+    detail: string,
+  ) {
+    const name = provider === "twilio" ? "Twilio" : "Sarvam Voice Agents";
+    super(`${name} rejected the call: ${detail}`);
+    this.name = "RejectedCallDispatchError";
+  }
+}
+
+export class TelephonyConfigurationError extends Error {
+  constructor() {
+    super("No outbound telephony provider is fully configured.");
+    this.name = "TelephonyConfigurationError";
+  }
+}
+
+export const OUTBOUND_CALL_INTRODUCTION =
+  "hi, i'm calling on behalf of the code2create team";
+
+export function withOutboundCallIntroduction(script: string) {
+  const message = script.trim();
+  if (!message) return OUTBOUND_CALL_INTRODUCTION;
+  if (
+    message
+      .toLocaleLowerCase("en")
+      .startsWith(OUTBOUND_CALL_INTRODUCTION.toLocaleLowerCase("en"))
+  ) {
+    return message;
+  }
+  return `${OUTBOUND_CALL_INTRODUCTION}. ${message}`;
 }
 
 function escapeXml(value: string) {
@@ -39,7 +87,39 @@ export function requiredHttpsBaseUrl(value: string) {
   return base;
 }
 
-export function voiceRouteUrl(
+function sarvamAppVersion(environment: TelephonyEnvironment) {
+  const value = environment.SARVAM_APP_VERSION?.trim();
+  if (!value || !/^[1-9]\d*$/u.test(value)) return null;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : null;
+}
+
+function sarvamVoiceAgentsApiKey(environment: TelephonyEnvironment) {
+  const value = environment.SARVAM_VOICE_AGENTS_API_KEY?.trim();
+  return value || null;
+}
+
+export function twilioConfigured(environment: TelephonyEnvironment) {
+  return Boolean(
+    environment.TWILIO_ACCOUNT_SID &&
+    environment.TWILIO_AUTH_TOKEN &&
+    environment.TWILIO_FROM_NUMBER,
+  );
+}
+
+export function sarvamConfigured(environment: TelephonyEnvironment) {
+  return Boolean(
+    sarvamVoiceAgentsApiKey(environment) &&
+    environment.SARVAM_ORG_ID &&
+    environment.SARVAM_WORKSPACE_ID &&
+    environment.SARVAM_APP_ID &&
+    sarvamAppVersion(environment) !== null &&
+    environment.SARVAM_CONNECTION_ID &&
+    environment.SARVAM_AGENT_PHONE_NUMBER,
+  );
+}
+
+export function twilioRouteUrl(
   environment: Pick<TelephonyEnvironment, "PUBLIC_BASE_URL">,
   route: "voice" | "status" | "fallback",
   deliveryId: string,
@@ -48,78 +128,49 @@ export function voiceRouteUrl(
   return `${requiredHttpsBaseUrl(environment.PUBLIC_BASE_URL)}/twilio/${route}/${encodeURIComponent(deliveryId)}/${encodeURIComponent(token)}`;
 }
 
-export function audioRouteUrl(
+export function sarvamWebhookUrl(
   environment: Pick<TelephonyEnvironment, "PUBLIC_BASE_URL">,
   deliveryId: string,
   token: string,
 ) {
-  return `${requiredHttpsBaseUrl(environment.PUBLIC_BASE_URL)}/twilio/audio/${encodeURIComponent(deliveryId)}/${encodeURIComponent(token)}.mp3`;
+  return `${requiredHttpsBaseUrl(environment.PUBLIC_BASE_URL)}/sarvam/status/${encodeURIComponent(deliveryId)}/${encodeURIComponent(token)}`;
 }
 
-export function synthesizedVoiceTwiml(
-  environment: Pick<TelephonyEnvironment, "PUBLIC_BASE_URL">,
-  deliveryId: string,
-  token: string,
-) {
-  return `<?xml version="1.0" encoding="UTF-8"?><Response><Play>${escapeXml(audioRouteUrl(environment, deliveryId, token))}</Play></Response>`;
-}
-
-export function fallbackVoiceTwiml(script: string) {
-  return `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="alice" language="en-IN">${escapeXml(script)}</Say></Response>`;
-}
-
-export async function synthesizeSpeech(environment: TelephonyEnvironment, script: string) {
-  if (environment.SARVAM_API_KEY === undefined || environment.SARVAM_API_KEY.length === 0) {
-    return null;
-  }
-  const response = await fetch("https://api.sarvam.ai/text-to-speech/stream", {
-    method: "POST",
-    headers: {
-      "api-subscription-key": environment.SARVAM_API_KEY,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      text: script,
-      language_code: "en-IN",
-      speaker: "shubh",
-      pace: 1.05,
-      speech_sample_rate: 8000,
-      model: "bulbul:v3",
-      temperature: 0.55,
-      output_audio_codec: "mp3",
-      output_audio_bitrate: "32k",
-    }),
-    signal: AbortSignal.timeout(25_000),
-  });
-  if (!response.ok) {
-    return null;
-  }
-  const audio = await response.arrayBuffer();
-  if (audio.byteLength < 1000) {
-    return null;
-  }
-  const bytes = new Uint8Array(audio, 0, Math.min(3, audio.byteLength));
-  const mp3 =
-    (bytes[0] === 0x49 && bytes[1] === 0x44 && bytes[2] === 0x33) ||
-    (bytes[0] === 0xff && bytes[1] !== undefined && (bytes[1] & 0xe0) === 0xe0);
-  return mp3 ? audio : null;
+export function twilioVoiceXml(script: string) {
+  return `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="alice" language="en-US">${escapeXml(withOutboundCallIntroduction(script))}</Say><Hangup/></Response>`;
 }
 
 export async function queueTwilioCall(
   environment: TelephonyEnvironment,
   args: { deliveryId: string; token: string; destinationPhoneE164: string },
 ): Promise<QueuedCall> {
+  const accountSid = environment.TWILIO_ACCOUNT_SID;
+  const authToken = environment.TWILIO_AUTH_TOKEN;
+  const fromNumber = environment.TWILIO_FROM_NUMBER;
+  if (!accountSid || !authToken || !fromNumber) {
+    throw new TelephonyConfigurationError();
+  }
   const endpoint =
     "https://api.twilio.com/2010-04-01/Accounts/" +
-    `${encodeURIComponent(environment.TWILIO_ACCOUNT_SID)}/Calls.json`;
+    `${encodeURIComponent(accountSid)}/Calls.json`;
   const body = new URLSearchParams({
     To: args.destinationPhoneE164,
-    From: environment.TWILIO_FROM_NUMBER,
-    Url: voiceRouteUrl(environment, "voice", args.deliveryId, args.token),
+    From: fromNumber,
+    Url: twilioRouteUrl(environment, "voice", args.deliveryId, args.token),
     Method: "POST",
-    FallbackUrl: voiceRouteUrl(environment, "fallback", args.deliveryId, args.token),
+    FallbackUrl: twilioRouteUrl(
+      environment,
+      "fallback",
+      args.deliveryId,
+      args.token,
+    ),
     FallbackMethod: "POST",
-    StatusCallback: voiceRouteUrl(environment, "status", args.deliveryId, args.token),
+    StatusCallback: twilioRouteUrl(
+      environment,
+      "status",
+      args.deliveryId,
+      args.token,
+    ),
     StatusCallbackMethod: "POST",
     Timeout: "25",
   });
@@ -131,7 +182,7 @@ export async function queueTwilioCall(
     response = await fetch(endpoint, {
       method: "POST",
       headers: {
-        authorization: `Basic ${btoa(`${environment.TWILIO_ACCOUNT_SID}:${environment.TWILIO_AUTH_TOKEN}`)}`,
+        authorization: `Basic ${btoa(`${accountSid}:${authToken}`)}`,
         "content-type": "application/x-www-form-urlencoded",
       },
       body,
@@ -140,7 +191,19 @@ export async function queueTwilioCall(
   } catch {
     throw new AmbiguousCallDispatchError();
   }
-  const text = await response.text();
+  return decodeTwilioResponse(response);
+}
+
+async function decodeTwilioResponse(response: Response): Promise<QueuedCall> {
+  if (response.status === 408 || response.status >= 500) {
+    throw new AmbiguousCallDispatchError();
+  }
+  let text: string;
+  try {
+    text = await response.text();
+  } catch {
+    throw new AmbiguousCallDispatchError();
+  }
   let decoded: unknown;
   try {
     decoded = JSON.parse(text);
@@ -148,7 +211,7 @@ export async function queueTwilioCall(
     if (response.ok) {
       throw new AmbiguousCallDispatchError();
     }
-    throw new Error(`Twilio rejected the call with HTTP ${response.status}.`);
+    throw new RejectedCallDispatchError("twilio", `HTTP ${response.status}`);
   }
   if (!response.ok) {
     const error = twilioErrorResponseSchema.safeParse(decoded);
@@ -156,16 +219,154 @@ export async function queueTwilioCall(
       error.success && error.data.message !== undefined
         ? error.data.message
         : `HTTP ${response.status}`;
-    throw new Error(`Twilio rejected the call: ${detail}`);
+    throw new RejectedCallDispatchError("twilio", detail);
   }
   const accepted = twilioCreateResponseSchema.safeParse(decoded);
   if (!accepted.success) {
     throw new AmbiguousCallDispatchError();
   }
   return {
+    provider: "twilio",
     providerCallId: accepted.data.sid,
     providerStatus: accepted.data.status ?? "queued",
   };
+}
+
+export async function queueSarvamCall(
+  environment: TelephonyEnvironment,
+  args: {
+    deliveryId: string;
+    token: string;
+    destinationPhoneE164: string;
+    script: string;
+  },
+): Promise<QueuedCall> {
+  const apiKey = sarvamVoiceAgentsApiKey(environment);
+  const orgId = environment.SARVAM_ORG_ID;
+  const workspaceId = environment.SARVAM_WORKSPACE_ID;
+  const appId = environment.SARVAM_APP_ID;
+  const appVersion = sarvamAppVersion(environment);
+  const connectionId = environment.SARVAM_CONNECTION_ID;
+  const agentPhoneNumber = environment.SARVAM_AGENT_PHONE_NUMBER;
+  if (
+    !apiKey ||
+    !orgId ||
+    !workspaceId ||
+    !appId ||
+    appVersion === null ||
+    !connectionId ||
+    !agentPhoneNumber
+  ) {
+    throw new TelephonyConfigurationError();
+  }
+  const endpoint =
+    "https://apps.sarvam.ai/api/outbounds/v1/orgs/" +
+    `${encodeURIComponent(orgId)}/workspaces/${encodeURIComponent(workspaceId)}/outbounds`;
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": apiKey,
+      },
+      body: JSON.stringify({
+        app_config: {
+          app_id: appId,
+          app_version: appVersion,
+          connection_config: {
+            connection_id: connectionId,
+            agent_phone_number: agentPhoneNumber,
+          },
+          app_type: "agent",
+          app_overrides: {
+            initial_bot_message: withOutboundCallIntroduction(args.script),
+            initial_language_name: "English",
+          },
+        },
+        user_config: {
+          user_phone_number: args.destinationPhoneE164,
+        },
+        webhook_config: {
+          url: sarvamWebhookUrl(
+            environment,
+            args.deliveryId,
+            args.token,
+          ),
+          metadata: {
+            delivery_id: args.deliveryId,
+          },
+        },
+      }),
+      signal: AbortSignal.timeout(20_000),
+    });
+  } catch {
+    throw new AmbiguousCallDispatchError();
+  }
+  return decodeSarvamResponse(response);
+}
+
+async function decodeSarvamResponse(response: Response): Promise<QueuedCall> {
+  if (response.status === 408 || response.status >= 500) {
+    throw new AmbiguousCallDispatchError();
+  }
+  let text: string;
+  try {
+    text = await response.text();
+  } catch {
+    throw new AmbiguousCallDispatchError();
+  }
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(text);
+  } catch {
+    if (response.ok) throw new AmbiguousCallDispatchError();
+    throw new RejectedCallDispatchError("sarvam", `HTTP ${response.status}`);
+  }
+  if (!response.ok) {
+    const error = sarvamErrorResponseSchema.safeParse(decoded);
+    const detail = error.success
+      ? typeof error.data.detail === "string"
+        ? error.data.detail
+        : error.data.detail?.[0]?.msg ??
+          error.data.message ??
+          error.data.error?.message ??
+          `HTTP ${response.status}`
+      : `HTTP ${response.status}`;
+    throw new RejectedCallDispatchError("sarvam", detail);
+  }
+  const accepted = sarvamOutboundResponseSchema.safeParse(decoded);
+  if (!accepted.success) throw new AmbiguousCallDispatchError();
+  return {
+    provider: "sarvam",
+    providerCallId: accepted.data.attempt_id,
+    providerStatus: "queued",
+  };
+}
+
+export async function queueCallWithFallback(
+  environment: TelephonyEnvironment,
+  args: {
+    deliveryId: string;
+    token: string;
+    destinationPhoneE164: string;
+    script: string;
+  },
+) {
+  if (twilioConfigured(environment)) {
+    try {
+      return await queueTwilioCall(environment, args);
+    } catch (error) {
+      if (
+        !(error instanceof RejectedCallDispatchError) ||
+        !sarvamConfigured(environment)
+      ) {
+        throw error;
+      }
+    }
+  }
+  if (sarvamConfigured(environment)) return queueSarvamCall(environment, args);
+  throw new TelephonyConfigurationError();
 }
 
 export function twilioStatusEvent(status: string): OutboundCallEventType | null {
@@ -203,6 +404,23 @@ export function twilioStatusEvent(status: string): OutboundCallEventType | null 
   }
 }
 
+export function sarvamWebhookEvent(
+  status: string,
+): OutboundCallEventType | null {
+  switch (status.trim().toLocaleLowerCase("en")) {
+    case "connected":
+      return "call.completed";
+    case "no_answer":
+      return "call.no_answer";
+    case "busy":
+      return "call.busy";
+    case "failed":
+      return "call.failed";
+    default:
+      return null;
+  }
+}
+
 function bytesToBase64(bytes: Uint8Array) {
   let binary = "";
   for (const byte of bytes) {
@@ -211,6 +429,19 @@ function bytesToBase64(bytes: Uint8Array) {
     binary += String.fromCharCode(byte);
   }
   return btoa(binary);
+}
+
+function constantTimeEqual(left: string, right: string) {
+  if (left.length !== right.length) {
+    return false;
+  }
+  let difference = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    // These inputs are ASCII Base64 signatures, so comparing UTF-16 code units is deliberate.
+    // oxlint-disable-next-line unicorn/prefer-code-point
+    difference |= left.charCodeAt(index) ^ right.charCodeAt(index);
+  }
+  return difference === 0;
 }
 
 export async function verifyTwilioSignature(args: {
@@ -226,7 +457,7 @@ export async function verifyTwilioSignature(args: {
       signed += `${key}${value}`;
     }
   }
-  const key = await crypto.subtle.importKey(
+  const cryptoKey = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(args.authToken),
     { name: "HMAC", hash: "SHA-1" },
@@ -234,16 +465,13 @@ export async function verifyTwilioSignature(args: {
     ["sign"],
   );
   const expected = bytesToBase64(
-    new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(signed))),
+    new Uint8Array(
+      await crypto.subtle.sign(
+        "HMAC",
+        cryptoKey,
+        new TextEncoder().encode(signed),
+      ),
+    ),
   );
-  if (expected.length !== args.signature.length) {
-    return false;
-  }
-  let difference = 0;
-  for (let index = 0; index < expected.length; index += 1) {
-    // Twilio signatures are ASCII Base64; comparing UTF-16 code units is deliberate.
-    // oxlint-disable-next-line unicorn/prefer-code-point
-    difference |= expected.charCodeAt(index) ^ args.signature.charCodeAt(index);
-  }
-  return difference === 0;
+  return constantTimeEqual(expected, args.signature);
 }

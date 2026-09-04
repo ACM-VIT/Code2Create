@@ -75,5 +75,31 @@ describe("outbound call provider state", () => {
         providerErrorCode: "provider_rejected",
       }),
     ).rejects.toThrow("event ID was reused with different data");
+
+    await backend.mutation(internal.outboundCallState.recordProviderEvent, {
+      providerEventId: crypto.randomUUID(),
+      deliveryId,
+      eventType: "call.ringing",
+      providerAt: now + 3_000,
+      providerCallId: "attempt-1",
+    });
+    expect(await backend.run((ctx) => ctx.db.get(deliveryId))).toMatchObject({
+      state: "ambiguous",
+      completedAt: now,
+      providerErrorCode: "provider_dispatch_ambiguous",
+    });
+
+    await backend.mutation(internal.outboundCallState.recordProviderEvent, {
+      providerEventId: crypto.randomUUID(),
+      deliveryId,
+      eventType: "call.completed",
+      providerAt: now + 4_000,
+      providerCallId: "attempt-1",
+    });
+    expect(await backend.run((ctx) => ctx.db.get(deliveryId))).toMatchObject({
+      state: "completed",
+      completedAt: now,
+      providerCallId: "attempt-1",
+    });
   });
 });
