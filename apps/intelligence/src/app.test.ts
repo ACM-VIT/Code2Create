@@ -16,6 +16,8 @@ import {
   operationsIntelligenceStreamTicketHeaders,
   serializeOperationsIntelligenceStreamTicket,
   signServiceBody,
+  shortlistIngressContext,
+  shortlistVersion,
   type OperationsIntelligenceStreamTicket,
 } from "@code2create/domain";
 import type { DispatchReceipt } from "@flue/runtime";
@@ -417,6 +419,25 @@ describe("operations brief ingress", () => {
       uid: null,
       message: { kind: "signal", type: "operations.health.snapshot" },
     });
+  });
+});
+
+describe("admissions shortlist ingress", () => {
+  beforeEach(() => runtime.dispatchBrief.mockReset());
+  test("fences duplicate deliveries by job and attempt with create-only identity", async () => {
+    runtime.dispatchBrief.mockResolvedValueOnce({ submissionId: "shortlist-submission", acceptedAt: "2026-09-05T00:00:00Z", uid: "shortlist-uid" }).mockRejectedValueOnce(new AgentInstanceExistsError({ id: "job-1:1", uid: "shortlist-uid" }));
+    const body = JSON.stringify({ version: shortlistVersion, jobId: "job-1", runId: "run-1", attempt: 1, modelId: "test", inputJson: JSON.stringify({ kind: "audit", candidates: [] }) });
+    const timestamp = String(Date.now());
+    const signature = await signServiceBody({ context: shortlistIngressContext, secret: environment.INTELLIGENCE_INGRESS_SECRET, timestamp, body });
+    const send = () => app.request("/v1/admission-shortlist", { method: "POST", headers: { "content-type": "application/json", "x-c2c-timestamp": timestamp, "x-c2c-signature": signature }, body }, environment);
+    expect((await send()).status).toBe(202);
+    expect((await send()).status).toBe(202);
+    expect(runtime.dispatchBrief.mock.calls[0]?.[1]).toMatchObject({ id: "job-1:1", uid: null });
+  });
+  test("rejects unsigned requests before starting model work", async () => {
+    const response = await app.request("/v1/admission-shortlist", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }, environment);
+    expect(response.status).toBe(401);
+    expect(runtime.dispatchBrief).not.toHaveBeenCalled();
   });
 });
 

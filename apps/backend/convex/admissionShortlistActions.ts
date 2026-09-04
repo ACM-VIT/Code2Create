@@ -68,6 +68,42 @@ export const dispatchJob = internalAction({
   },
 });
 
+export const retryJobs = internalAction({
+  args: { runId: v.id("admissionShortlistRuns") },
+  handler: async (ctx, args): Promise<void> => {
+    try {
+      let cursor: string | null = null;
+      do {
+        const page: PaginationResult<Doc<"admissionShortlistJobs">> =
+          await ctx.runQuery(internal.admissionShortlist.jobPage, {
+            runId: args.runId,
+            paginationOpts: { cursor, numItems: 25 },
+          });
+        const failed = page.page.filter((job) => job.state === "failed");
+        if (failed.length)
+          await ctx.runMutation(internal.admissionShortlist.retryJobBatch, {
+            runId: args.runId,
+            jobs: failed.map((job) => ({
+              jobId: job._id,
+              attempt: job.attempt,
+            })),
+          });
+        if (page.isDone) break;
+        cursor = page.continueCursor;
+      } while (cursor !== null);
+      await ctx.runMutation(internal.admissionShortlist.finishRetry, args);
+    } catch {
+      await ctx.runMutation(internal.admissionShortlist.setProgress, {
+        runId: args.runId,
+        state: "failed",
+        preparationDone: false,
+        error:
+          "Retry preparation failed. Completed tasks are preserved; check access and retry.",
+      });
+    }
+  },
+});
+
 async function dispatchAttempt(
   ctx: ActionCtx,
   args: { jobId: Id<"admissionShortlistJobs">; attempt: number },
@@ -159,7 +195,7 @@ async function advanceRun(
     { runId },
   );
   if (
-    ["complete", "stale", "failed"].includes(run.state) ||
+    ["complete", "stale", "failed", "retrying"].includes(run.state) ||
     run.pendingJobs > 0
   )
     return;

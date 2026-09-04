@@ -231,7 +231,7 @@ export default defineSchema({
     policyId: v.id("admissionPolicyVersions"), modelConfigId: v.id("admissionModelConfigVersions"),
     releaseVersion: v.string(), acceptPeople: v.number(), waitlistPeople: v.number(),
     remainingCapacity: v.number(), committedPeople: v.number(),
-    state: v.union(v.literal("preparing"), v.literal("waiting"), v.literal("profiling"), v.literal("comparing"), v.literal("auditing"), v.literal("complete"), v.literal("failed"), v.literal("stale")),
+    state: v.union(v.literal("preparing"), v.literal("waiting"), v.literal("retrying"), v.literal("profiling"), v.literal("comparing"), v.literal("auditing"), v.literal("complete"), v.literal("failed"), v.literal("stale")),
     candidateCount: v.number(), pendingJobs: v.number(), failedJobs: v.number(), preparationDone: v.boolean(),
     summaryJson: v.optional(v.string()), error: v.optional(v.string()), createdAt: v.number(), updatedAt: v.number(),
   }).index("by_eventId", ["eventId"]).index("by_actorPersonId_and_operationId", ["actorPersonId", "operationId"]),

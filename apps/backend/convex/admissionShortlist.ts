@@ -297,34 +297,72 @@ export const retry = mutation({
     if (run.state === "stale")
       throw new ConvexError("Start a new snapshot for changed sources");
     if (!["waiting", "failed"].includes(run.state)) return;
-    const failed = await ctx.db
-      .query("admissionShortlistJobs")
-      .withIndex("by_runId_and_state", (q) =>
-        q.eq("runId", run._id).eq("state", "failed"),
-      )
-      .take(1000);
-    if (failed.length) {
-      for (const job of failed) {
-        await ctx.db.patch(job._id, {
-          state: "pending",
-          attempt: job.attempt + 1,
-        });
-        await admissionWorkpool.enqueueAction(
-          ctx,
-          internal.admissionShortlistActions.dispatchJob,
-          { jobId: job._id, attempt: job.attempt + 1 },
-          { retry: false },
-        );
-      }
+    if (run.failedJobs) {
       await ctx.db.patch(run._id, {
-        state: "profiling",
-        pendingJobs: run.pendingJobs + failed.length,
-        failedJobs: Math.max(0, run.failedJobs - failed.length),
+        state: "retrying",
+        preparationDone: false,
         error: undefined,
       });
-    } else
+      await intelligenceWorkpool.enqueueAction(
+        ctx,
+        internal.admissionShortlistActions.retryJobs,
+        { runId: run._id },
+        { retry: true },
+      );
+    } else {
       await ctx.db.patch(run._id, { state: "preparing", error: undefined });
-    await enqueueAdvance(ctx, run._id);
+      await enqueueAdvance(ctx, run._id);
+    }
+  },
+});
+
+export const retryJobBatch = internalMutation({
+  args: {
+    runId: v.id("admissionShortlistRuns"),
+    jobs: v.array(
+      v.object({ jobId: v.id("admissionShortlistJobs"), attempt: v.number() }),
+    ),
+  },
+  handler: async (ctx, args) => {
+    if (args.jobs.length > 25) throw new Error("Retry batch is too large");
+    const run = await requireRun(ctx, args.runId);
+    if (run.state !== "retrying") return;
+    await authorize(ctx, run.eventId, run.actorPersonId, true);
+    let count = 0;
+    for (const expected of args.jobs) {
+      const job = await ctx.db.get(expected.jobId);
+      if (!job || job.runId !== run._id)
+        throw new Error("Invalid retry job identity");
+      if (job.state !== "failed" || job.attempt !== expected.attempt) continue;
+      await ctx.db.patch(job._id, {
+        state: "pending",
+        attempt: job.attempt + 1,
+      });
+      await admissionWorkpool.enqueueAction(
+        ctx,
+        internal.admissionShortlistActions.dispatchJob,
+        { jobId: job._id, attempt: job.attempt + 1 },
+        { retry: false },
+      );
+      count++;
+    }
+    await ctx.db.patch(run._id, {
+      pendingJobs: run.pendingJobs + count,
+      failedJobs: run.failedJobs - count,
+    });
+  },
+});
+
+export const finishRetry = internalMutation({
+  args: { runId: v.id("admissionShortlistRuns") },
+  handler: async (ctx, args) => {
+    const run = await requireRun(ctx, args.runId);
+    if (run.state !== "retrying") return;
+    await ctx.db.patch(run._id, {
+      state: run.failedJobs ? "failed" : "profiling",
+      preparationDone: true,
+    });
+    if (!run.failedJobs && !run.pendingJobs) await enqueueAdvance(ctx, run._id);
   },
 });
 
@@ -370,6 +408,8 @@ export const readJob = internalQuery({
     if (!job || job.state !== "pending") return null;
     const run = await requireRun(ctx, job.runId);
     if (["stale", "complete"].includes(run.state)) return null;
+    if (run.releaseVersion !== shortlistVersion)
+      throw new Error("Shortlist release changed; create a new snapshot");
     await authorize(ctx, run.eventId, run.actorPersonId, true);
     const model = await ctx.db.get(run.modelConfigId);
     if (!model) throw new Error("Missing frozen shortlist model");
@@ -388,6 +428,7 @@ export const hydrate = internalMutation({
     const project = await ctx.db.get(item.projectVersionId);
     const event = await ctx.db.get(run.eventId);
     if (
+      run.releaseVersion !== shortlistVersion ||
       !application ||
       !project ||
       application.contentVersion !== item.contentVersion ||
@@ -495,6 +536,15 @@ export const createJob = internalMutation({
   handler: async (ctx, args) => {
     const run = await requireRun(ctx, args.runId);
     if (["complete", "stale", "failed"].includes(run.state)) return;
+    if (run.releaseVersion !== shortlistVersion) {
+      await ctx.db.patch(run._id, {
+        state: "stale",
+        error: "Shortlist release changed; create a new snapshot.",
+      });
+      return;
+    }
+    if (args.inputJson.length > 180000)
+      throw new Error("Shortlist task exceeds the bounded payload limit");
     const task = shortlistTaskSchema.parse(JSON.parse(args.inputJson));
     const prior = await ctx.db
       .query("admissionShortlistJobs")
@@ -558,6 +608,13 @@ export const setProgress = internalMutation({
   handler: async (ctx, args) => {
     const run = await requireRun(ctx, args.runId);
     if (["complete", "stale"].includes(run.state)) return;
+    if (run.releaseVersion !== shortlistVersion) {
+      await ctx.db.patch(run._id, {
+        state: "stale",
+        error: "Shortlist release changed; create a new snapshot.",
+      });
+      return;
+    }
     const { runId: _runId, ...patch } = args;
     const policy = await ctx.db.get(run.policyId);
     await ctx.db.patch(run._id, {
@@ -595,6 +652,13 @@ export const settleJob = internalMutation({
     if (!jobId || !runId) throw new Error("Invalid shortlist identity");
     const job = await ctx.db.get(jobId);
     const run = await requireRun(ctx, runId);
+    if (run.releaseVersion !== shortlistVersion) {
+      await ctx.db.patch(run._id, {
+        state: "stale",
+        error: "Shortlist release changed; create a new snapshot.",
+      });
+      return;
+    }
     if (!job || job.runId !== run._id || job.attempt !== args.attempt)
       throw new Error("Stale shortlist task");
     if (job.state === "succeeded") {
@@ -680,7 +744,7 @@ export const expireJob = internalMutation({
     if (["stale", "complete"].includes(run.state)) return;
     await ctx.db.patch(job._id, { state: "failed" });
     await ctx.db.patch(run._id, {
-      state: "failed",
+      state: run.state === "retrying" ? "retrying" : "failed",
       failedJobs: run.failedJobs + 1,
       pendingJobs: run.pendingJobs - 1,
       error:
@@ -763,6 +827,7 @@ export const complete = internalMutation({
       args.expected.map((item) => [item.applicationId, item]),
     );
     let stale =
+      run.releaseVersion !== shortlistVersion ||
       event?.publishedAdmissionPolicyId !== run.policyId ||
       event?.publishedAdmissionModelConfigId !== run.modelConfigId ||
       current.length > maximumApplicantTeamsPerEvent ||

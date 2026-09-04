@@ -471,7 +471,11 @@ describe("admission cohort query and decisions", () => {
 
 describe("frozen advisory shortlist lifecycle", () => {
   beforeEach(() => vi.useFakeTimers());
-  afterEach(() => vi.useRealTimers());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
 
   test("runs profiles, overlap comparison, selection and audit without deciding applications", async () => {
     const backend = seededBackend();
@@ -708,6 +712,13 @@ describe("frozen advisory shortlist lifecycle", () => {
     ).toBe(1);
     await operator.mutation(api.admissionShortlist.retry, { runId });
     await operator.mutation(api.admissionShortlist.retry, { runId });
+    expect(
+      (await backend.query(internal.admissionShortlist.readRun, { runId }))
+        .state,
+    ).toBe("retrying");
+    await backend.action(internal.admissionShortlistActions.retryJobs, {
+      runId,
+    });
     expect((await backend.run((ctx) => ctx.db.get(job._id)))?.attempt).toBe(2);
     await expect(
       backend.mutation(internal.admissionShortlist.settleJob, {
@@ -718,6 +729,156 @@ describe("frozen advisory shortlist lifecycle", () => {
         embedding: [],
       }),
     ).rejects.toThrow("Stale");
+  });
+
+  test("revoked dispatch permission settles the task without contacting a provider", async () => {
+    const backend = seededBackend();
+    const fixture = await seedCohortFixture(backend);
+    await primeShortlistFixture(backend, fixture);
+    const operator = backend.withIdentity({
+      subject: fixture.operatorAuthUserId,
+      sessionId: fixture.operatorAuthSessionId,
+    });
+    const runId = await operator.mutation(api.admissionShortlist.start, {
+      eventSlug: fixture.eventSlug,
+      acceptPeople: 3,
+      waitlistPeople: 2,
+      operationId: "revoke-dispatch-operation",
+    });
+    await backend.action(internal.admissionShortlistActions.advance, { runId });
+    const job = await backend.run(async (ctx) => {
+      const grants = await ctx.db.query("permissionGrants").collect();
+      for (const grant of grants)
+        if (
+          grant.personId === fixture.operatorPersonId &&
+          grant.permissionKey === "application.ai_recommendation.run"
+        )
+          await ctx.db.patch(grant._id, { status: "revoked" });
+      return ctx.db
+        .query("admissionShortlistJobs")
+        .withIndex("by_runId", (q) => q.eq("runId", runId))
+        .first();
+    });
+    if (!job) throw new Error("Missing queued task");
+    const network = vi.spyOn(globalThis, "fetch");
+    await backend.action(internal.admissionShortlistActions.dispatchJob, {
+      jobId: job._id,
+      attempt: job.attempt,
+    });
+    expect(network).not.toHaveBeenCalled();
+    expect(
+      (await backend.query(internal.admissionShortlist.readRun, { runId }))
+        .failedJobs,
+    ).toBe(1);
+  });
+
+  test("retry preparation pages more than one batch without requeuing successes", async () => {
+    const backend = seededBackend();
+    const fixture = await seedCohortFixture(backend);
+    await primeShortlistFixture(backend, fixture);
+    const operator = backend.withIdentity({
+      subject: fixture.operatorAuthUserId,
+      sessionId: fixture.operatorAuthSessionId,
+    });
+    const runId = await operator.mutation(api.admissionShortlist.start, {
+      eventSlug: fixture.eventSlug,
+      acceptPeople: 3,
+      waitlistPeople: 2,
+      operationId: "paged-retry-operation",
+    });
+    await backend.run(async (ctx) => {
+      for (let i = 0; i < 55; i++)
+        await ctx.db.insert("admissionShortlistJobs", {
+          runId,
+          key: `test:${i}`,
+          inputJson: JSON.stringify({ kind: "audit", candidates: [] }),
+          state: i < 53 ? "failed" : "succeeded",
+          attempt: 1,
+        });
+      await ctx.db.patch(runId, { state: "failed", failedJobs: 53 });
+    });
+    await operator.mutation(api.admissionShortlist.retry, { runId });
+    await backend.action(internal.admissionShortlistActions.retryJobs, {
+      runId,
+    });
+    await backend.action(internal.admissionShortlistActions.retryJobs, {
+      runId,
+    });
+    const run = await backend.query(internal.admissionShortlist.readRun, {
+      runId,
+    });
+    expect(run).toMatchObject({
+      state: "profiling",
+      failedJobs: 0,
+      pendingJobs: 53,
+    });
+    const jobs = await backend.run((ctx) =>
+      ctx.db
+        .query("admissionShortlistJobs")
+        .withIndex("by_runId", (q) => q.eq("runId", runId))
+        .collect(),
+    );
+    expect(
+      jobs.filter((j) => j.state === "pending").every((j) => j.attempt === 2),
+    ).toBe(true);
+    expect(
+      jobs.filter((j) => j.state === "succeeded").every((j) => j.attempt === 1),
+    ).toBe(true);
+  });
+
+  test("a changed shortlist release cannot reuse a frozen run", async () => {
+    const backend = seededBackend();
+    const fixture = await seedCohortFixture(backend);
+    await primeShortlistFixture(backend, fixture);
+    const operator = backend.withIdentity({
+      subject: fixture.operatorAuthUserId,
+      sessionId: fixture.operatorAuthSessionId,
+    });
+    const runId = await operator.mutation(api.admissionShortlist.start, {
+      eventSlug: fixture.eventSlug,
+      acceptPeople: 3,
+      waitlistPeople: 2,
+      operationId: "changed-release-operation",
+    });
+    await backend.run((ctx) =>
+      ctx.db.patch(runId, { releaseVersion: "obsolete" }),
+    );
+    await backend.action(internal.admissionShortlistActions.advance, { runId });
+    expect(
+      (await backend.query(internal.admissionShortlist.readRun, { runId }))
+        .state,
+    ).toBe("stale");
+  });
+
+  test("unsigned and malformed callbacks cannot mutate the shortlist", async () => {
+    vi.stubEnv(
+      "INTELLIGENCE_CALLBACK_SECRET",
+      "callback-test-secret".padEnd(64, "x"),
+    );
+    const backend = seededBackend();
+    const response = await backend.fetch(
+      "/intelligence/admission-shortlist/callback",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      },
+    );
+    expect(response.status).toBe(401);
+    expect(
+      await backend.run((ctx) =>
+        ctx.db.query("admissionShortlistJobs").collect(),
+      ),
+    ).toEqual([]);
+    await expect(
+      backend.mutation(internal.admissionShortlist.settleJob, {
+        jobId: "not-an-id",
+        runId: "not-an-id",
+        attempt: 1,
+        resultJson: "{}",
+        embedding: [],
+      }),
+    ).rejects.toThrow("Invalid shortlist identity");
   });
 });
 
