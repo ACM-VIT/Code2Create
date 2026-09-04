@@ -9271,7 +9271,7 @@ textarea:focus {
 }
 .admission-row-link {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, auto) minmax(152px, auto);
   gap: 4px 24px;
   align-items: start;
   padding: 13px 16px;
@@ -9298,6 +9298,25 @@ textarea:focus {
   color: var(--muted);
   font-size: 0.75rem;
   text-align: right;
+}
+.admission-row-score {
+  display: grid;
+  min-width: 152px;
+  justify-items: end;
+  color: var(--faint);
+  font-size: 0.6875rem;
+  text-align: right;
+}
+.admission-row-score strong {
+  margin: 3px 0 2px;
+  color: var(--text);
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.admission-row-score small {
+  color: var(--faint);
+  font-size: 0.6875rem;
 }
 .admission-reviews.done {
   color: var(--text);
@@ -9492,11 +9511,19 @@ textarea:focus {
     justify-content: flex-start;
   }
   .admission-row-link {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) minmax(132px, auto);
+    gap: 12px 18px;
   }
   .admission-row-meta {
+    grid-column: 1;
+    grid-row: 2;
     justify-items: start;
     text-align: left;
+  }
+  .admission-row-score {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    min-width: 132px;
   }
   .admission-assign-bar {
     grid-template-columns: minmax(0, 1fr);

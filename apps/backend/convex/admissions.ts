@@ -74,6 +74,11 @@ const listItem = v.object({
   aiRecommendation: v.optional(admissionDecision),
   assignedReviewCount: v.number(),
   completedReviewCount: v.number(),
+  humanReviewScore: v.object({
+    accept: v.number(),
+    waitlist: v.number(),
+    reject: v.number(),
+  }),
   version: v.number(),
 });
 
@@ -83,6 +88,25 @@ const maximumApplicationSearchResults = 100;
 const maximumAdmissionPageSize = 100;
 export const admissionReviewClaimMs = 30 * 60 * 1_000;
 const admissionTeamOrigin = v.union(v.literal("internal"), v.literal("external"));
+
+type HumanReviewScoreSource = Pick<
+  Doc<"admissionHumanReviews">,
+  "applicationContentVersion" | "recommendation"
+>;
+
+export function countHumanReviewScore(
+  reviews: readonly HumanReviewScoreSource[],
+  applicationContentVersion: number,
+) {
+  const score = { accept: 0, waitlist: 0, reject: 0 };
+  for (const review of reviews) {
+    if (review.applicationContentVersion !== applicationContentVersion) continue;
+    if (review.recommendation === "accept") score.accept += 1;
+    if (review.recommendation === "waitlist") score.waitlist += 1;
+    if (review.recommendation === "decline") score.reject += 1;
+  }
+  return score;
+}
 
 function requireAdmissionPageSize(numItems: number) {
   if (!Number.isSafeInteger(numItems) || numItems < 1 || numItems > maximumAdmissionPageSize) {
@@ -475,7 +499,7 @@ async function applicationListProjection(
   eventAccessSubjectId: Id<"eventAccessSubjects">,
   application: Doc<"applications">,
 ) {
-  const [profileGrantIds, aiGrantIds, team, project, policy] = await Promise.all([
+  const [profileGrantIds, aiGrantIds, team, project, policy, humanReviews] = await Promise.all([
     matchingPermissionGrantIds(ctx, {
       eventId,
       eventAccessSubjectId,
@@ -493,6 +517,12 @@ async function applicationListProjection(
     ctx.db.get(application.teamId),
     ctx.db.get(application.submittedProjectVersionId),
     ctx.db.get(application.admissionPolicyVersionId),
+    ctx.db
+      .query("admissionHumanReviews")
+      .withIndex("by_application_status", (index) =>
+        index.eq("applicationId", application._id).eq("status", "active"),
+      )
+      .collect(),
   ]);
   if (!team || !project || !policy) return null;
   const recommendation =
@@ -521,6 +551,7 @@ async function applicationListProjection(
       : {}),
     assignedReviewCount: application.assignedReviewCount,
     completedReviewCount: application.completedReviewCount,
+    humanReviewScore: countHumanReviewScore(humanReviews, application.contentVersion),
     version: application.version,
   };
 }
