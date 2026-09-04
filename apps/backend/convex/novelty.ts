@@ -57,6 +57,7 @@ import {
   noveltyRateLimiter,
   teamNoveltyRateLimit,
 } from "./lib/noveltyRateLimits";
+import { comparisonScopeForTeamIdea } from "./lib/noveltyIndex";
 
 const noveltyBand = v.union(v.literal("familiar"), v.literal("developing"), v.literal("distinct"));
 
@@ -171,11 +172,13 @@ async function storeTeamIdeaEmbeddings(
         (idea) => idea.lifecycle !== "editing" || idea.sourceUpdatedAt <= args.sourceUpdatedAt,
       );
   for (const idea of obsoleteIdeas) await ctx.db.delete(idea._id);
+  const comparisonScope = await comparisonScopeForTeamIdea(ctx, args);
   const ideaId = await ctx.db.insert("noveltyTeamIdeas", {
     eventId: args.eventId,
     teamId: args.teamId,
     inputFingerprint: args.inputFingerprint,
     lifecycle: args.lifecycle,
+    comparisonScope,
     embedding,
     sourceUpdatedAt: args.sourceUpdatedAt,
     updatedAt: now,
@@ -864,8 +867,16 @@ export const prepareDraftIndex = internalMutation({
     ) {
       for (const idea of existing) {
         if (idea.sourceUpdatedAt <= args.sourceUpdatedAt) {
+          const lifecycle = indexedLifecycle(draft, args.inputFingerprint);
+          const comparisonScope = await comparisonScopeForTeamIdea(ctx, {
+            eventId: draft.eventId,
+            teamId: draft.teamId,
+            lifecycle,
+            inputFingerprint: idea.inputFingerprint,
+          });
           await ctx.db.patch(idea._id, {
-            lifecycle: indexedLifecycle(draft, args.inputFingerprint),
+            lifecycle,
+            comparisonScope,
             sourceUpdatedAt: args.sourceUpdatedAt,
             updatedAt: Date.now(),
           });
@@ -1146,8 +1157,15 @@ export const prepareSubmittedProjectIndex = internalMutation({
     ) {
       for (const idea of existing) {
         if (idea.sourceUpdatedAt <= args.sourceUpdatedAt) {
+          const comparisonScope = await comparisonScopeForTeamIdea(ctx, {
+            eventId: project.eventId,
+            teamId: project.teamId,
+            lifecycle: "submitted",
+            inputFingerprint: idea.inputFingerprint,
+          });
           await ctx.db.patch(idea._id, {
             lifecycle: "submitted",
+            comparisonScope,
             sourceUpdatedAt: args.sourceUpdatedAt,
             updatedAt: Date.now(),
           });

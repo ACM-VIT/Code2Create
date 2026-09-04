@@ -8,7 +8,7 @@ There are five separate agent surfaces:
 - a subject-private operations copilot conversation;
 - the operations autopilot, which drains durable semantic work, exhaustively pages every policy-approved read, investigates and criticizes evidence, and either records observations or proposes typed recommendations for human review.
 - an event-owned episode investigator, with one durable instance per correlated operational situation and typed hypotheses and forecasts published back to Convex.
-- a continuous idea-submission agent, with one durable instance per immutable recommendation. Convex signals it after every frozen submission or proposal revision; it reauthorizes the current version and publishes a structured, non-decisional admission recommendation.
+- a continuous idea-submission agent, with one durable instance per immutable recommendation. Convex signals it after every frozen submission or proposal revision; it reauthorizes the current version, compares selected participant evidence with anonymized historical projects and other indexed submissions, and publishes a structured, non-decisional admission recommendation.
 
 Autopilot runs have no product-level limit on model turns, investigations, read pages, proposals, or total reasoning time. Each network request, model response, database transaction, and history page stays technically bounded; durable continuations and opaque cursors carry unfinished work into later Flue submissions. A run stops only after its durable work is exhausted, its authority is revoked, or it reaches an explicit terminal result. A run-scoped admission-fence Durable Object serializes initial admission, continuation, and revocation so a delayed request cannot resurrect a stopped run.
 

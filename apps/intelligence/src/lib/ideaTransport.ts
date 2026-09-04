@@ -4,14 +4,17 @@ import {
   operationsIntelligenceProtocolVersion,
   signServiceBody,
   type IdeaIntelligenceCallback,
+  type IdeaIntelligenceSimilarityRequest,
 } from "@code2create/domain";
 import * as v from "valibot";
 
 import { readBoundedJsonResponse } from "./boundedHttpBody.ts";
 import {
   ideaIntelligenceProjectionSchema,
+  ideaIntelligenceSimilarityResultSchema,
   type IdeaIntelligenceAnalysis,
   type IdeaIntelligenceProjection,
+  type IdeaIntelligenceSimilarityResult,
 } from "./ideaProtocol.ts";
 import { requireStrongServiceSecret } from "./serviceSecret.ts";
 import { serviceUrl } from "./serviceUrl.ts";
@@ -79,6 +82,81 @@ export async function readIdeaProjection(args: {
       parsed.output.recommendationId !== args.recommendationId)
   ) {
     throw new Error("Convex returned an invalid idea projection.");
+  }
+  return parsed.output;
+}
+
+function similarityServiceUrl(configuredReadUrl: string) {
+  const url = serviceUrl(configuredReadUrl, "Convex idea read");
+  const segments = url.pathname.split("/");
+  if (segments.at(-1) !== "read") {
+    throw new Error("The Convex idea read endpoint must end in /read.");
+  }
+  segments[segments.length - 1] = "similarity";
+  url.pathname = segments.join("/");
+  return url;
+}
+
+export async function readIdeaSimilarities(args: {
+  projection: IdeaIntelligenceProjection;
+  sourceRefs: string[];
+  operationId: string;
+  bindings: IdeaReadBindings;
+  request?: typeof fetch;
+}): Promise<IdeaIntelligenceSimilarityResult> {
+  const requestBody: IdeaIntelligenceSimilarityRequest = {
+    protocolVersion: operationsIntelligenceProtocolVersion,
+    operation: "find_similar_ideas",
+    recommendationId: args.projection.recommendationId,
+    applicationId: args.projection.applicationId,
+    eventId: args.projection.eventId,
+    contentVersion: args.projection.contentVersion,
+    sourceInputFingerprint: args.projection.sourceInputFingerprint,
+    sourceRefs: args.sourceRefs,
+    operationId: args.operationId,
+  };
+  const body = JSON.stringify(requestBody);
+  const timestamp = String(Date.now());
+  const signature = await signServiceBody({
+    context: ideaIntelligenceReadSignatureContext,
+    secret: requireStrongServiceSecret(
+      args.bindings.INTELLIGENCE_READ_SECRET,
+      "INTELLIGENCE_READ_SECRET",
+    ),
+    timestamp,
+    body,
+  });
+  const response = await (args.request ?? fetch)(
+    similarityServiceUrl(args.bindings.CONVEX_INTELLIGENCE_IDEA_READ_URL),
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-c2c-signature": signature,
+        "x-c2c-timestamp": timestamp,
+      },
+      body,
+      signal: AbortSignal.timeout(20_000),
+    },
+  );
+  if (response.status !== 200) {
+    throw new Error(`Convex refused the idea similarity read with HTTP ${response.status}.`);
+  }
+  const parsed = v.safeParse(
+    ideaIntelligenceSimilarityResultSchema,
+    await readBoundedJsonResponse(response, 32 * 1_024),
+  );
+  if (
+    !parsed.success ||
+    parsed.output.applicationId !== args.projection.applicationId ||
+    parsed.output.eventId !== args.projection.eventId ||
+    parsed.output.recommendationId !== args.projection.recommendationId ||
+    parsed.output.contentVersion !== args.projection.contentVersion ||
+    parsed.output.sourceInputFingerprint !== args.projection.sourceInputFingerprint ||
+    parsed.output.sourceRefs.length !== args.sourceRefs.length ||
+    parsed.output.sourceRefs.some((sourceRef, index) => sourceRef !== args.sourceRefs[index])
+  ) {
+    throw new Error("Convex returned an invalid idea similarity result.");
   }
   return parsed.output;
 }
