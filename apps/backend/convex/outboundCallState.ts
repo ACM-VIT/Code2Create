@@ -303,6 +303,7 @@ export const recordProviderEvent = internalMutation({
     });
     if (terminalState(delivery.state)) return null;
     const nextState = eventState(args.eventType, args.providerErrorCode);
+    if (delivery.state === "ambiguous" && isActiveState(nextState)) return null;
     const currentRank = isActiveState(delivery.state) ? activeStateRank[delivery.state] : -1;
     const nextRank = isActiveState(nextState)
       ? activeStateRank[nextState]

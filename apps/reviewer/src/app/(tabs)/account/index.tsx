@@ -8,7 +8,7 @@ import { palette, radius } from "@/theme";
 export default function AccountScreen() {
   const { email, runtime, signOut, surfaces, who } = useReviewerSession();
   return (
-    <DutyScreen title="You">
+    <DutyScreen title="You" underNativeTabs>
       <View style={styles.identity}>
         <Text style={styles.name}>{who}</Text>
         <Text style={styles.email}>{email}</Text>

@@ -1523,7 +1523,7 @@ function IntakeWorkspace({
               >
                 {peeked ? (
                   <>
-                    <span className="mt-1 block text-[13px] leading-relaxed whitespace-pre-line wrap-anywhere text-fg/85">
+                    <span className="mt-1 line-clamp-4 text-[13px] leading-relaxed whitespace-pre-line wrap-anywhere text-fg/85">
                       {followUp.answer}
                     </span>
                     <span className="mt-1.5 block text-[11px] text-fg/55">
@@ -1563,6 +1563,11 @@ function IntakeWorkspace({
                     );
                   }}
                 />
+              ) : null}
+              {/* The question rides with the editor too: on a short screen the
+                  pile above can push the heading out of view while typing. */}
+              {activeFollowUp ? (
+                <p className="m-0 mb-3 text-[13px] leading-relaxed text-fg/70">{activeFollowUp.question}</p>
               ) : null}
               <PortalTextarea
                 key={activeFollowUp?.id ?? "cooking"}

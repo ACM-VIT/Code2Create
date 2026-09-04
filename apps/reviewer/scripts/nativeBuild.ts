@@ -37,13 +37,14 @@ async function build(
   );
   const platformConfiguration =
     selectedPlatform === "android"
-      ? readAndroidBuildConfiguration()
+      ? readAndroidBuildConfiguration(selectedEnvironment)
       : readIosBuildConfiguration(selectedEnvironment);
   const outputDirectory = join(repositoryRoot, "outputs/native", selectedPlatform);
   await mkdir(outputDirectory, { recursive: true });
 
   const nativeEnvironment = {
     ...process.env,
+    NODE_ENV: "production" as const,
     C2C_NATIVE_BUILD: "true",
     C2C_NATIVE_PLATFORM: selectedPlatform,
     EXPO_PUBLIC_DEPLOYMENT_ENVIRONMENT: selectedEnvironment,
@@ -65,10 +66,13 @@ async function build(
     reviewerDirectory,
     nativeEnvironment,
   );
+  if (selectedPlatform === "ios") {
+    await run("pod", ["install"], join(reviewerDirectory, "ios"), nativeEnvironment);
+  }
 
   const artifact =
     platformConfiguration.platform === "android"
-      ? await buildAndroid(selectedEnvironment, nativeEnvironment)
+      ? await buildAndroid(nativeEnvironment, platformConfiguration)
       : await buildIos(nativeEnvironment, platformConfiguration);
   const extension = artifact.endsWith(".aab") ? "aab" : artifact.endsWith(".apk") ? "apk" : "ipa";
   const outputPath = join(
@@ -83,7 +87,9 @@ async function build(
   console.log(`Built signed ${selectedPlatform} release: ${outputPath}`);
 }
 
-function readAndroidBuildConfiguration(): AndroidBuildConfiguration {
+function readAndroidBuildConfiguration(
+  selectedEnvironment: "staging" | "production",
+): AndroidBuildConfiguration {
   const keystorePath = resolve(requiredEnvironmentValue("C2C_ANDROID_KEYSTORE_PATH"));
   if (!existsSync(keystorePath)) throw new Error(`Android keystore not found: ${keystorePath}`);
   requiredEnvironmentValue("C2C_ANDROID_KEYSTORE_PASSWORD");
@@ -93,28 +99,44 @@ function readAndroidBuildConfiguration(): AndroidBuildConfiguration {
   if (!existsSync(googleServicesPath)) {
     throw new Error(`Firebase Android config not found: ${googleServicesPath}`);
   }
-  return { platform: "android", keystorePath, googleServicesPath };
+  const defaultArtifact = selectedEnvironment === "production" ? "aab" : "apk";
+  const artifact = androidArtifactSchema.parse(process.argv[4] ?? defaultArtifact);
+  return { platform: "android", keystorePath, googleServicesPath, artifact };
 }
 
 async function buildAndroid(
-  selectedEnvironment: "staging" | "production",
   nativeEnvironment: NodeJS.ProcessEnv,
+  configuration: AndroidBuildConfiguration,
 ) {
   const gradlePath = join(reviewerDirectory, "android/app/build.gradle");
   const original = await readFile(gradlePath, "utf8");
   const configured = configureAndroidReleaseSigning(original);
   await writeFile(gradlePath, configured, "utf8");
+  await configureAndroidGradleMemory();
 
-  const task = selectedEnvironment === "production" ? "app:bundleRelease" : "app:assembleRelease";
+  const task = configuration.artifact === "aab" ? "app:bundleRelease" : "app:assembleRelease";
   await run(
     "./gradlew",
     [task, "--no-daemon"],
     join(reviewerDirectory, "android"),
     nativeEnvironment,
   );
-  return selectedEnvironment === "production"
+  return configuration.artifact === "aab"
     ? join(reviewerDirectory, "android/app/build/outputs/bundle/release/app-release.aab")
     : join(reviewerDirectory, "android/app/build/outputs/apk/release/app-release.apk");
+}
+
+async function configureAndroidGradleMemory() {
+  const gradlePropertiesPath = join(reviewerDirectory, "android/gradle.properties");
+  const original = await readFile(gradlePropertiesPath, "utf8");
+  const configured = original.replace(
+    /^org\.gradle\.jvmargs=.*$/mu,
+    "org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m",
+  );
+  if (configured === original) {
+    throw new Error("The generated Android project does not declare org.gradle.jvmargs.");
+  }
+  await writeFile(gradlePropertiesPath, configured, "utf8");
 }
 
 function configureAndroidReleaseSigning(buildGradle: string) {
@@ -158,7 +180,9 @@ function readIosBuildConfiguration(
 ): IosBuildConfiguration {
   const teamId = requiredEnvironmentValue("C2C_IOS_TEAM_ID").toUpperCase();
   if (!/^[A-Z0-9]{10}$/u.test(teamId)) throw new Error("C2C_IOS_TEAM_ID is invalid.");
+  const bundleIdentifier = requiredEnvironmentValue("C2C_IOS_BUNDLE_IDENTIFIER");
   const method = iosExportMethodSchema.parse(requiredEnvironmentValue("C2C_IOS_EXPORT_METHOD"));
+  const profileSpecifier = process.env.C2C_IOS_PROVISIONING_PROFILE_SPECIFIER?.trim() || null;
   const apnsEnvironment = apnsEnvironmentSchema.parse(
     requiredEnvironmentValue("EXPO_PUBLIC_APNS_ENVIRONMENT"),
   );
@@ -171,14 +195,24 @@ function readIosBuildConfiguration(
       `${method} iOS exports require EXPO_PUBLIC_APNS_ENVIRONMENT=${expectedApnsEnvironment}.`,
     );
   }
-  return { platform: "ios", teamId, method, apnsEnvironment };
+  if (selectedEnvironment === "production" && !profileSpecifier) {
+    throw new Error("Set C2C_IOS_PROVISIONING_PROFILE_SPECIFIER for production iOS builds.");
+  }
+  return {
+    platform: "ios",
+    teamId,
+    bundleIdentifier,
+    method,
+    profileSpecifier,
+    apnsEnvironment,
+  };
 }
 
 async function buildIos(
   nativeEnvironment: NodeJS.ProcessEnv,
   configuration: IosBuildConfiguration,
 ) {
-  const { teamId, method } = configuration;
+  const { teamId, bundleIdentifier, method, profileSpecifier } = configuration;
 
   const iosDirectory = join(reviewerDirectory, "ios");
   const workspace = (await readdir(iosDirectory)).find((entry) => entry.endsWith(".xcworkspace"));
@@ -189,7 +223,19 @@ async function buildIos(
   const exportPath = join(temporaryDirectory, "export");
   const exportOptionsPath = join(temporaryDirectory, "ExportOptions.plist");
   try {
-    await writeFile(exportOptionsPath, exportOptionsPlist(teamId, method), "utf8");
+    await writeFile(
+      exportOptionsPath,
+      exportOptionsPlist(teamId, bundleIdentifier, method, profileSpecifier),
+      "utf8",
+    );
+    const archiveSigningArguments = profileSpecifier
+      ? [
+          `DEVELOPMENT_TEAM=${teamId}`,
+          "CODE_SIGN_STYLE=Manual",
+          `CODE_SIGN_IDENTITY=${method === "development" ? "Apple Development" : "Apple Distribution"}`,
+          `PROVISIONING_PROFILE_SPECIFIER=${profileSpecifier}`,
+        ]
+      : ["-allowProvisioningUpdates"];
     await run(
       "xcodebuild",
       [
@@ -203,7 +249,7 @@ async function buildIos(
         "generic/platform=iOS",
         "-archivePath",
         archivePath,
-        "-allowProvisioningUpdates",
+        ...archiveSigningArguments,
         "archive",
       ],
       reviewerDirectory,
@@ -219,7 +265,7 @@ async function buildIos(
         exportPath,
         "-exportOptionsPlist",
         exportOptionsPath,
-        "-allowProvisioningUpdates",
+        ...(profileSpecifier ? [] : ["-allowProvisioningUpdates"]),
       ],
       reviewerDirectory,
       nativeEnvironment,
@@ -237,7 +283,22 @@ async function buildIos(
   }
 }
 
-function exportOptionsPlist(teamId: string, method: z.infer<typeof iosExportMethodSchema>) {
+function exportOptionsPlist(
+  teamId: string,
+  bundleIdentifier: string,
+  method: z.infer<typeof iosExportMethodSchema>,
+  profileSpecifier: string | null,
+) {
+  const manualSigning = profileSpecifier
+    ? `
+  <key>signingCertificate</key>
+  <string>${method === "development" ? "Apple Development" : "Apple Distribution"}</string>
+  <key>provisioningProfiles</key>
+  <dict>
+    <key>${bundleIdentifier}</key>
+    <string>${escapeXmlText(profileSpecifier)}</string>
+  </dict>`
+    : "";
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -247,7 +308,7 @@ function exportOptionsPlist(teamId: string, method: z.infer<typeof iosExportMeth
   <key>teamID</key>
   <string>${teamId}</string>
   <key>signingStyle</key>
-  <string>automatic</string>
+  <string>${profileSpecifier ? "manual" : "automatic"}</string>${manualSigning}
   <key>stripSwiftSymbols</key>
   <true/>
   <key>uploadSymbols</key>
@@ -255,6 +316,15 @@ function exportOptionsPlist(teamId: string, method: z.infer<typeof iosExportMeth
 </dict>
 </plist>
 `;
+}
+
+function escapeXmlText(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
 }
 
 async function withBuildLock(operation: () => Promise<void>) {
@@ -328,17 +398,21 @@ async function runAndCapture(command: string, args: string[], cwd: string) {
 
 const iosExportMethodSchema = z.enum(["app-store-connect", "ad-hoc", "development"]);
 const apnsEnvironmentSchema = z.enum(["development", "production"]);
+const androidArtifactSchema = z.enum(["apk", "aab"]);
 
 type AndroidBuildConfiguration = {
   platform: "android";
   keystorePath: string;
   googleServicesPath: string;
+  artifact: z.infer<typeof androidArtifactSchema>;
 };
 
 type IosBuildConfiguration = {
   platform: "ios";
   teamId: string;
+  bundleIdentifier: string;
   method: z.infer<typeof iosExportMethodSchema>;
+  profileSpecifier: string | null;
   apnsEnvironment: z.infer<typeof apnsEnvironmentSchema>;
 };
 

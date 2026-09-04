@@ -13,6 +13,7 @@
     "native:android:check": "expo prebuild --platform android --clean --no-install && cd android && ./gradlew app:compileDebugKotlin --no-daemon",
     "build:android:staging": "node scripts/nativeBuild.ts android staging",
     "build:android:production": "node scripts/nativeBuild.ts android production",
+    "build:android:production:apk": "node scripts/nativeBuild.ts android production apk",
     "build:ios:staging": "node scripts/nativeBuild.ts ios staging",
     "build:ios:production": "node scripts/nativeBuild.ts ios production",
     "lint": "expo lint",

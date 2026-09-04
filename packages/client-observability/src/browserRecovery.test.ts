@@ -1,7 +1,19 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { automaticChunkReloadIsAvailable, isChunkLoadFailure } from "./browserRecovery.ts";
+import {
+  automaticChunkReloadIsAvailable,
+  isChunkLoadExceptionEvent,
+  isChunkLoadFailure,
+  suppressRecoveredChunkException,
+} from "./browserRecovery.ts";
+
+function chunkException(value: string, type = "TypeError") {
+  return {
+    event: "$exception",
+    properties: { $exception_list: [{ type, value }] },
+  };
+}
 
 test("recognizes browser and Vite lazy-module failures", () => {
   const failures = [
@@ -40,4 +52,34 @@ test("allows only one automatic reload per URL inside the guard window", () => {
   assert.equal(automaticChunkReloadIsAvailable(stale, href, now), true);
   assert.equal(automaticChunkReloadIsAvailable(anotherPage, href, now), true);
   assert.equal(automaticChunkReloadIsAvailable("not-json", href, now), true);
+});
+
+test("recognizes a chunk-load failure captured as a PostHog exception", () => {
+  assert.equal(
+    isChunkLoadExceptionEvent(
+      chunkException("Failed to fetch dynamically imported module: /assets/Tree.js"),
+    ),
+    true,
+  );
+  assert.equal(
+    isChunkLoadExceptionEvent(chunkException("Cannot read properties of undefined")),
+    false,
+  );
+  assert.equal(
+    isChunkLoadExceptionEvent({
+      event: "$pageview",
+      properties: { $exception_list: [{ type: "TypeError", value: "Loading chunk 3 failed" }] },
+    }),
+    false,
+  );
+  assert.equal(isChunkLoadExceptionEvent({ event: "$exception" }), false);
+});
+
+test("keeps chunk-load exceptions visible until recovery initiates a reload", () => {
+  assert.equal(
+    suppressRecoveredChunkException(
+      chunkException("Failed to fetch dynamically imported module: /assets/Tree.js"),
+    ),
+    false,
+  );
 });
