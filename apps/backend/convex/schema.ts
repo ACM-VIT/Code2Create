@@ -1,4 +1,8 @@
 import { defineSchema, defineTable } from "convex/server";
+import {
+  reviewerVenueStatus,
+  venuePolicyFields,
+} from "./lib/reviewerVenuePolicy";
 import { v } from "convex/values";
 
 import {
@@ -2848,6 +2852,70 @@ export default defineSchema({
     .index("by_incident_state", ["incidentId", "state"])
     .index("by_event_state_paused", ["eventId", "state", "pausedAt"]),
 
+  reviewerVenuePolicies: defineTable({
+    eventId: v.id("events"),
+    ...venuePolicyFields,
+    version: v.number(),
+    updatedByPersonId: v.id("people"),
+    updatedAt: v.number(),
+  }).index("by_eventId", ["eventId"]),
+
+  reviewerVenuePresence: defineTable({
+    eventId: v.id("events"),
+    personId: v.id("people"),
+    reviewerDeviceId: v.id("reviewerDevices"),
+    policyVersion: v.number(),
+    trackingGeneration: v.number(),
+    monitoringEnabled: v.boolean(),
+    status: reviewerVenueStatus,
+    observation: v.union(
+      v.literal("inside"),
+      v.literal("outside"),
+      v.literal("uncertain"),
+    ),
+    sampledAt: v.optional(v.number()),
+    receivedAt: v.optional(v.number()),
+    outsideSince: v.optional(v.number()),
+    departureId: v.optional(v.id("reviewerVenueDepartures")),
+    nextCheckAt: v.optional(v.number()),
+    version: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_eventId_personId", ["eventId", "personId"])
+    .index("by_nextCheckAt", ["nextCheckAt"]),
+
+  reviewerVenueDepartures: defineTable({
+    eventId: v.id("events"),
+    personId: v.id("people"),
+    presenceId: v.id("reviewerVenuePresence"),
+    policyVersion: v.number(),
+    state: v.union(
+      v.literal("open"),
+      v.literal("reported"),
+      v.literal("returned"),
+      v.literal("cancelled"),
+    ),
+    leftAt: v.number(),
+    reportedAt: v.optional(v.number()),
+    reason: v.optional(v.string()),
+    resolvedAt: v.optional(v.number()),
+    notificationState: v.union(
+      v.literal("pending"),
+      v.literal("sending"),
+      v.literal("sent"),
+      v.literal("failed"),
+      v.literal("unavailable"),
+    ),
+    notificationAttempts: v.number(),
+    notificationAttemptId: v.optional(v.string()),
+    notificationClaimUntil: v.optional(v.number()),
+    notificationError: v.optional(v.string()),
+    reminderStartedAt: v.optional(v.number()),
+    notifiedAt: v.optional(v.number()),
+    callDeliveryId: v.optional(v.id("outboundCallDeliveries")),
+    updatedAt: v.number(),
+  }).index("by_eventId_personId_leftAt", ["eventId", "personId", "leftAt"]),
+
   reviewerProfiles: defineTable({
     eventId: v.id("events"),
     personId: v.id("people"),
@@ -3226,7 +3294,9 @@ export default defineSchema({
   outboundCallConsents: defineTable({
     eventId: v.id("events"),
     personId: v.id("people"),
-    purpose: v.union(v.literal("reviewer_substitute_page"), v.literal("participant_event_update")),
+    purpose: v.union(v.literal("reviewer_substitute_page"), v.literal("participant_event_update"),
+      v.literal("reviewer_venue_absence"),
+    ),
     destinationPhoneE164: v.optional(v.string()),
     state: v.union(v.literal("granted"), v.literal("revoked")),
     consentPolicyVersion: v.string(),
@@ -3241,9 +3311,13 @@ export default defineSchema({
   outboundCallDeliveries: defineTable({
     eventId: v.id("events"),
     targetPersonId: v.id("people"),
-    sourceType: v.union(v.literal("reviewer_page"), v.literal("participant_notification")),
+    sourceType: v.union(v.literal("reviewer_page"), v.literal("participant_notification"),
+      v.literal("reviewer_venue_departure"),
+    ),
     sourceId: v.string(),
-    purpose: v.union(v.literal("reviewer_substitute_page"), v.literal("participant_event_update")),
+    purpose: v.union(v.literal("reviewer_substitute_page"), v.literal("participant_event_update"),
+      v.literal("reviewer_venue_absence"),
+    ),
     destinationPhoneE164: v.optional(v.string()),
     script: v.string(),
     locale: v.string(),

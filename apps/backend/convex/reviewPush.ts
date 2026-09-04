@@ -130,6 +130,34 @@ function fcmFailure(code: string): PushFailure {
 }
 
 async function sendApnsNotification(claim: PushClaim): Promise<PushOutcome> {
+  return sendApnsAlert({
+    ...claim,
+    collapseId: `reviewer-${claim.pageId}`,
+    payload: {
+      aps: {
+        alert: {
+          title: "Substitute request",
+          body: reviewerPagePushData(claim).body,
+        },
+        "interruption-level": "time-sensitive",
+        "relevance-score": 1,
+        sound: "default",
+        "thread-id": "reviewer-pages",
+      },
+      kind: "reviewer_substitute_page",
+      pageId: claim.pageId,
+      expiresAt: claim.expiresAt,
+    },
+  });
+}
+
+async function sendApnsAlert(claim: {
+  token: string;
+  environment: "development" | "production";
+  expiresAt: number;
+  collapseId: string;
+  payload: NativeAlertPayload;
+}): Promise<PushOutcome> {
   let credentials: z.infer<typeof apnsCredentialsSchema>;
   try {
     credentials = apnsCredentialsSchema.parse({
@@ -169,28 +197,9 @@ async function sendApnsNotification(claim: PushClaim): Promise<PushOutcome> {
         "apns-priority": "10",
         "apns-push-type": "alert",
         "apns-topic": credentials.bundleId,
-        "apns-collapse-id": `reviewer-${claim.pageId}`.slice(0, 64),
+        "apns-collapse-id": claim.collapseId.slice(0, 64),
       },
-      body: JSON.stringify({
-        aps: {
-          alert: {
-            title: "Substitute request",
-            body: reviewerPagePushData({
-              pageId: claim.pageId,
-              roundName: claim.roundName,
-              expiresAt: claim.expiresAt,
-            }).body,
-          },
-          // Time-sensitive alerts can bypass Focus without critical-alert entitlement.
-          "interruption-level": "time-sensitive",
-          "relevance-score": 1,
-          sound: "default",
-          "thread-id": "reviewer-pages",
-        },
-        kind: "reviewer_substitute_page",
-        pageId: claim.pageId,
-        expiresAt: claim.expiresAt,
-      }),
+      body: JSON.stringify(claim.payload),
     });
     if (response.status === 200) {
       return { ok: true, messageId: response.apnsId ?? requestId };
@@ -293,6 +302,87 @@ type PushClaim = {
   roundName: string;
   expiresAt: number;
 };
+
+type NativeAlertPayload = {
+  aps: {
+    alert: { title: string; body: string };
+    sound: string;
+    "thread-id": string;
+    "interruption-level": "time-sensitive";
+    "relevance-score"?: number;
+  };
+  kind: "reviewer_substitute_page" | "reviewer_venue_absence";
+  expiresAt: number;
+  pageId?: string;
+  departureId?: string;
+  url?: string;
+};
+
+export const deliverVenueReminder = internalAction({
+  args: { departureId: v.id("reviewerVenueDepartures") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const attemptId = randomUUID();
+    const claim = await ctx.runMutation(
+      internal.reviewerVenueEscalation.claimNotification,
+      { ...args, attemptId },
+    );
+    if (!claim) return null;
+    let outcome: PushOutcome;
+    try {
+      if (claim.provider === "fcm") {
+        const messageId = await getMessaging(firebaseApp()).send({
+          token: claim.token,
+          notification: { title: claim.title, body: claim.body },
+          data: {
+            kind: "reviewer_venue_absence",
+            departureId: args.departureId,
+            url: "/venue",
+            expiresAt: String(claim.expiresAt),
+          },
+          android: {
+            priority: "high",
+            ttl: Math.max(1_000, claim.expiresAt - Date.now()),
+            collapseKey: `venue-${args.departureId}`,
+            notification: { channelId: "reviewer-venue", sound: "default" },
+          },
+        });
+        outcome = { ok: true, messageId };
+      } else {
+        outcome = await sendApnsAlert({
+          ...claim,
+          collapseId: `venue-${args.departureId}`,
+          payload: {
+            aps: {
+              alert: { title: claim.title, body: claim.body },
+              sound: "default",
+              "thread-id": "reviewer-venue",
+              "interruption-level": "time-sensitive",
+            },
+            kind: "reviewer_venue_absence",
+            departureId: args.departureId,
+            url: "/venue",
+            expiresAt: claim.expiresAt,
+          },
+        });
+      }
+    } catch {
+      outcome = {
+        ok: false,
+        errorCode: "venue_push_failed",
+        retryable: true,
+        invalidateToken: false,
+      };
+    }
+    await ctx.runMutation(internal.reviewerVenueEscalation.recordNotification, {
+      ...args,
+      attemptId,
+      sent: outcome.ok,
+      ...(!outcome.ok ? { errorCode: outcome.errorCode } : {}),
+    });
+    return null;
+  },
+});
 
 type PushOutcome = { ok: true; messageId: string } | PushFailure;
 

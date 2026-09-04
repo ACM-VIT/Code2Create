@@ -5,6 +5,13 @@ import { internal } from "./_generated/api";
 const crons = cronJobs();
 
 crons.interval(
+  "check reviewer venue absences",
+  { seconds: 30 },
+  internal.reviewerVenueEscalation.sweep,
+  {},
+);
+
+crons.interval(
   "recover Figma webhook setup",
   { seconds: 15 },
   internal.figmaIntegrations.dispatchWebhookSetups,

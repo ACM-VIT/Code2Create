@@ -25,9 +25,15 @@ export async function enqueueOutboundCall(
   args: {
     eventId: Id<"events">;
     targetPersonId: Id<"people">;
-    sourceType: "reviewer_page" | "participant_notification";
+    sourceType:
+      | "reviewer_page"
+      | "participant_notification"
+      | "reviewer_venue_departure";
     sourceId: string;
-    purpose: "reviewer_substitute_page" | "participant_event_update";
+    purpose:
+      | "reviewer_substitute_page"
+      | "participant_event_update"
+      | "reviewer_venue_absence";
     destinationPhone?: string;
     script: string;
     locale: string;

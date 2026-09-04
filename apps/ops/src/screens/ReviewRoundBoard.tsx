@@ -12,7 +12,7 @@ import {
 } from "@code2create/domain";
 import type { FunctionReturnType } from "convex/server";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
-import { useState, type SubmitEvent } from "react";
+import { useEffect, useState, type SubmitEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { Icon } from "../components/Icon";
@@ -21,6 +21,7 @@ import { LoadingLabel, SkeletonCard, SkeletonList, SkeletonStats } from "../comp
 import { eventSlug } from "../lib/config";
 import { readableError } from "../lib/errors";
 import { useMutationAttempt } from "../lib/operations";
+import { venuePresenceLabel } from "../lib/venue-presence";
 
 type Board = FunctionReturnType<typeof api.reviewOperations.roundBoard>;
 type Staffing = FunctionReturnType<typeof api.reviewOperations.roundStaffing>;
@@ -52,6 +53,11 @@ type TeamExceptionResult =
   | FunctionReturnType<typeof api.reviewExceptions.markMissed>;
 
 export function ReviewRoundBoard() {
+  const [venueNow, setVenueNow] = useState(Date.now);
+  useEffect(() => {
+    const timer = setInterval(() => setVenueNow(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
   const { roundId } = useParams<{ roundId: string }>();
   const [teamView, setTeamView] = useState<TeamView>("desk");
   const overview = useQuery(api.reviewOperations.overview, { eventSlug });
@@ -174,6 +180,7 @@ export function ReviewRoundBoard() {
             overviewPanel={visibleRound.panels.find((candidate) => candidate.id === panel.id)}
             panel={panel}
             serverNow={staffing.serverNow}
+            venueNow={venueNow}
             substitutions={substitutions}
             teams={boardTeams}
           />
@@ -196,6 +203,10 @@ export function ReviewRoundBoard() {
                     ]
                   }{" "}
                   · {reserve.pageCount} pages
+                  {(() => {
+                    const venue = staffing.reserves.find((candidate) => candidate.personId === reserve.personId)?.venue;
+                    return ` · ${venuePresenceLabel(venue?.status ?? "unknown", venue?.sampledAt, venueNow)}`;
+                  })()}
                 </span>
               </div>
             ))}
@@ -319,12 +330,14 @@ function PanelRow({
   overviewPanel,
   panel,
   serverNow,
+  venueNow,
   substitutions,
   teams,
 }: {
   overviewPanel: OverviewPanel | undefined;
   panel: Panel;
   serverNow: number;
+  venueNow: number;
   substitutions: Substitutions;
   teams: Team[];
 }) {
@@ -387,6 +400,13 @@ function PanelRow({
                   {reviewer.clockInStatus === "present" ? null : (
                     <small>{reviewerState(reviewer, serverNow)}</small>
                   )}
+                  <small>
+                    {venuePresenceLabel(
+                      reviewer.venue.status,
+                      reviewer.venue.sampledAt,
+                      venueNow,
+                    )}
+                  </small>
                   {reviewer.clockInStatus !== "present" && substitutionPanel ? (
                     <ReviewerNoShow
                       member={substitutionPanel.activeMembers.find(

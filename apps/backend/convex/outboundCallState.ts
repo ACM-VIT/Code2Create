@@ -3,6 +3,8 @@ import { v } from "convex/values";
 
 import type { Doc } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
+import { openVenueDeparture } from "./lib/reviewerVenue";
+import { venueCallPurpose } from "./lib/reviewerVenuePolicy";
 
 const claimLifetimeMs = 30 * 1_000;
 const maximumDispatchAttempts = 3;
@@ -105,7 +107,9 @@ async function undispatchableReason(
     return "call_consent_changed";
   }
   const requiredPermissionKey =
-    delivery.purpose === "reviewer_substitute_page"
+    delivery.purpose === venueCallPurpose
+      ? "reviewer.device.register"
+      : delivery.purpose === "reviewer_substitute_page"
       ? "review.substitute.page"
       : "communications.delivery.manage";
   const grants = await Promise.all(
@@ -121,6 +125,25 @@ async function undispatchableReason(
       (grant.validUntil === undefined || grant.validUntil > now),
   );
   if (!authorized) return "call_authority_expired";
+  if (delivery.sourceType === "reviewer_venue_departure") {
+    const departureId = ctx.db.normalizeId(
+      "reviewerVenueDepartures",
+      delivery.sourceId,
+    );
+    const active = departureId
+      ? await openVenueDeparture(ctx, departureId, now)
+      : null;
+    if (
+      !active ||
+      active.presence.eventId !== delivery.eventId ||
+      active.presence.personId !== delivery.targetPersonId ||
+      active.departure.reminderStartedAt === undefined ||
+      now <
+        active.departure.reminderStartedAt +
+          active.policy.callDelayMinutes * 60_000
+    )
+      return "venue_absence_resolved";
+  }
   if (delivery.sourceType === "reviewer_page") {
     const pageId = ctx.db.normalizeId("reviewerPages", delivery.sourceId);
     const page = pageId ? await ctx.db.get(pageId) : null;

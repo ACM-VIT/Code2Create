@@ -4,6 +4,7 @@ import type { FunctionReturnType } from "convex/server";
 import { useMutation, useQuery } from "convex/react";
 import { useRef, useState, type SubmitEvent } from "react";
 import { Link } from "react-router-dom";
+import { ReviewerVenuePanel } from "../components/ReviewerVenuePanel";
 
 import { eventSlug } from "../lib/config";
 import { readableError } from "../lib/errors";
@@ -227,6 +228,11 @@ export function ReviewSetup({
       ) : null}
 
       {canReadProfiles ? <ReviewerProfiles candidates={reviewerCandidates} /> : null}
+      <ReviewerVenuePanel
+        canReadConfiguration={canReadConfiguration}
+        canReadProfiles={canReadProfiles}
+        canPublish={canPublish}
+      />
 
       {canReadConfiguration && canReadProfiles ? (
         <details className="workspace-disclosure review-round-builder">

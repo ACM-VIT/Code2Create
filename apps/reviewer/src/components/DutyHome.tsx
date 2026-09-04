@@ -26,10 +26,12 @@ export function DutyHome({
   headline,
   notice,
   tiles,
+  venueAction,
 }: {
   headline: DutyHeadline;
   notice?: string;
   tiles: DutyTile[];
+  venueAction?: React.ReactNode;
 }) {
   const insets = useSafeAreaInsets();
   // Enable scrolling only when content extends behind the Android tab bar.
@@ -83,6 +85,12 @@ export function DutyHome({
           {notice ? (
             <View style={styles.notice}>
               <Text style={styles.noticeText}>{notice}</Text>
+            </View>
+          ) : null}
+
+          {venueAction ? (
+            <View style={{ marginHorizontal: space.text, marginBottom: 18 }}>
+              {venueAction}
             </View>
           ) : null}
 

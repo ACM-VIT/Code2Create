@@ -95,6 +95,8 @@ minimumReleaseAgeExclude:
   - "@ai-sdk/provider-utils@5.0.35"
   - "@ai-sdk/provider@4.0.10"
   - ai@7.0.89
+  - expo-location@57.0.16
+  - expo-task-manager@57.0.16
 patchedDependencies:
   "@flue/runtime@2.0.3": patches/@flue__runtime@2.0.3.patch
   balloons-js@0.0.3: patches/balloons-js@0.0.3.patch

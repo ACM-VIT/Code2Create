@@ -22,6 +22,7 @@ import {
 } from "./lib/operations";
 import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
 import { grantReviewAssignmentAccess } from "./lib/reviewAccess";
+import { readVenuePresenceView, reviewerVenueView } from "./lib/reviewerVenue";
 import { insertTeamRoundState, patchTeamRoundState } from "./lib/reviewQueueProjection";
 import {
   maximumActiveReviewGrantsPerPermission,
@@ -799,6 +800,7 @@ export const roundStaffing = query({
             appBuild: v.optional(v.number()),
             encryptedDraftReady: v.optional(v.boolean()),
             deviceLastSeenAt: v.optional(v.number()),
+            venue: reviewerVenueView,
           }),
         ),
       }),
@@ -808,6 +810,7 @@ export const roundStaffing = query({
         personId: v.id("people"),
         clockInStatus: reviewerClockInViewStatus,
         clockInVersion: v.number(),
+        venue: reviewerVenueView,
       }),
     ),
   }),
@@ -873,7 +876,7 @@ export const roundStaffing = query({
         }
         const reviewers = await Promise.all(
           members.map(async (member) => {
-            const [reviewer, clockIn, device] = await Promise.all([
+            const [reviewer, clockIn, device, venue] = await Promise.all([
               ctx.db.get(member.personId),
               ctx.db
                 .query("reviewerClockIns")
@@ -891,12 +894,14 @@ export const roundStaffing = query({
                 )
                 .order("desc")
                 .first(),
+              readVenuePresenceView(ctx, event._id, member.personId),
             ]);
             if (!reviewer) throw new Error("A review panel member no longer resolves to a person.");
             return {
               personId: reviewer._id,
               displayName: reviewer.displayName,
               isCoordinator: member.isCoordinator,
+              venue,
               clockInStatus: clockIn?.status ?? notClockedInStatus,
               clockInVersion: clockIn?.version ?? 0,
               ...(clockIn?.unavailableReason !== undefined
@@ -933,6 +938,7 @@ export const roundStaffing = query({
           personId: reserve.personId,
           clockInStatus: clockIn?.status ?? notClockedInStatus,
           clockInVersion: clockIn?.version ?? 0,
+          venue: await readVenuePresenceView(ctx, event._id, reserve.personId),
         };
       }),
     );
