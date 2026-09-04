@@ -187,9 +187,11 @@ describe("GitHub App installation contract", () => {
   });
 
   it("accepts stronger permissions and ignores unrelated capabilities", () => {
+    const permissions = { contents: "write", metadata: "read", checks: "write" };
+
     expect(
       githubInstallationContract({
-        permissions: { contents: "write", metadata: "read", checks: "write" },
+        permissions,
         events: ["pull_request", "push", "push"],
       }),
     ).toEqual({ missingPermissions: [], missingEvents: [] });
@@ -198,7 +200,7 @@ describe("GitHub App installation contract", () => {
   it("reports every missing or malformed capability in deterministic order", () => {
     expect(
       githubInstallationContract({
-        permissions: { contents: "none", metadata: 1 },
+        permissions: { contents: "none", metadata: "invalid" },
         events: ["pull_request"],
       }),
     ).toEqual({
