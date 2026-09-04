@@ -21,7 +21,7 @@ export default function SupportCaseRoute() {
   );
 
   return (
-    <DutyScreen title={detail?.supportCase.publicCode ?? "Case"}>
+    <DutyScreen title={detail?.supportCase.publicCode ?? "Case"} underNativeTabs>
       {supportCode && detail === undefined ? <Meta>Opening the case…</Meta> : null}
       {!supportCode ? <Meta>That case link is invalid.</Meta> : null}
       {supportCode && detail === null ? <Meta>This case is no longer available.</Meta> : null}
