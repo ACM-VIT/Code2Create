@@ -271,6 +271,7 @@ export default defineSchema({
     teamMinimumSize: v.number(),
     teamMaximumSize: v.number(),
     mixedParticipantClassesAllowed: v.boolean(),
+    phoneVerificationEnabled: v.boolean(),
     vitHostelResidenceCatalog: v.array(
       v.object({
         stableKey: v.string(),
@@ -529,15 +530,17 @@ export default defineSchema({
     teamId: v.id("teams"),
     inputFingerprint: v.string(),
     lifecycle: v.union(v.literal("editing"), v.literal("saved"), v.literal("submitted")),
+    comparisonScope: v.optional(v.string()),
     embedding: v.array(v.float64()),
     sourceUpdatedAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_team", ["teamId"])
+    .index("by_event_comparison_scope", ["eventId", "comparisonScope"])
     .vectorIndex("by_event_embedding", {
       vectorField: "embedding",
       dimensions: 1536,
-      filterFields: ["eventId"],
+      filterFields: ["eventId", "comparisonScope"],
     }),
 
   noveltyPreviewRequests: defineTable({
@@ -1926,6 +1929,12 @@ export default defineSchema({
     experienceBand: admissionExperienceBand,
     state: admissionRecommendationState,
     recommendation: v.optional(admissionDecision),
+    centralProposalConsistency: v.optional(
+      v.object({
+        assessment: v.union(v.literal("consistent"), v.literal("contradictory")),
+        sourceRefs: v.array(v.string()),
+      }),
+    ),
     criterionAssessments: v.array(
       v.object({
         criterionKey: v.string(),
@@ -2029,7 +2038,12 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_application_status", ["applicationId", "status"])
-    .index("by_application_reviewer_status", ["applicationId", "reviewerPersonId", "status"]),
+    .index("by_application_reviewer_status", ["applicationId", "reviewerPersonId", "status"])
+    .index("by_application_reviewer_content_version", [
+      "applicationId",
+      "reviewerPersonId",
+      "applicationContentVersion",
+    ]),
 
   admissionReviewAssignments: defineTable({
     eventId: v.id("events"),
@@ -2045,6 +2059,7 @@ export default defineSchema({
     cancelledByPersonId: v.optional(v.id("people")),
     cancellationReason: v.optional(v.string()),
   })
+    .index("by_state_assigned", ["state", "assignedAt"])
     .index("by_application_state_assigned", ["applicationId", "state", "assignedAt"])
     .index("by_application_reviewer_state", ["applicationId", "reviewerPersonId", "state"])
     .index("by_event_reviewer_state_assigned", [
@@ -4278,13 +4293,13 @@ export default defineSchema({
     staleAt: v.number(),
   }).index("by_event", ["eventId"]),
 
-  /** One lease serializes the background jobs that update shared operations state. */
+  /** Each background job is single-owner without making unrelated jobs contend on one row. */
   operationsBackgroundLeases: defineTable({
     key: v.literal("operations_background"),
     holder: v.union(v.literal("health_refresh"), v.literal("autonomy_tick")),
     leaseId: v.string(),
     leaseExpiresAt: v.number(),
-  }).index("by_key", ["key"]),
+  }).index("by_key_and_holder", ["key", "holder"]),
 
   /** Append-only, redacted observations that form the intelligence world model. */
   operationsIntelligenceFacts: defineTable({

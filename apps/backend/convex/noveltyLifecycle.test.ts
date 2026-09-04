@@ -187,6 +187,7 @@ describe("live novelty", () => {
   test("keeps the live score available while the lead revises a submitted proposal", async () => {
     const backend = noveltyBackend();
     const fixture = await seedFixture(backend);
+    const revisedIdea = `${fixture.idea} The lead is clarifying the workflow before the deadline.`;
     const applicationId = await backend.run(async (ctx) => {
       const projectVersionId = await ctx.db.insert("projectVersions", {
         eventId: fixture.eventId,
@@ -234,20 +235,40 @@ describe("live novelty", () => {
         membershipLocked: true,
         lockedProjectVersionId: projectVersionId,
       });
-      await ctx.db.patch(fixture.projectDraftId, { stage: "submitted" });
+      await ctx.db.patch(fixture.projectDraftId, {
+        stage: "review",
+        initialIdea: revisedIdea,
+      });
       return applicationId;
     });
 
+    const begun = await backend.mutation(
+      internal.novelty.beginPreview,
+      previewArgs(fixture, "novelty-submitted-revision", revisedIdea),
+    );
+    if (begun.kind !== "run") throw new Error("The revised novelty request did not start.");
+    await backend.mutation(internal.novelty.finishPreview, {
+      requestId: begun.requestId,
+      inputFingerprint: begun.inputFingerprint,
+      state: "succeeded",
+      scoringVersion: noveltyEmbeddingScoringVersion,
+      score: 82,
+      band: "distinct",
+      effectiveSimilarTeams: 0.7,
+      comparedTeamCount: 2,
+      nearestSimilarity: 0.58,
+      nearestThemeLabel: "Campus service routing",
+      reflectionPrompt: "What makes this revised workflow different?",
+      latencyMs: 80,
+    });
     await expect(
-      backend.mutation(
-        internal.novelty.beginPreview,
-        previewArgs(
-          fixture,
-          "novelty-submitted-revision",
-          `${fixture.idea} The lead is clarifying the workflow before the deadline.`,
-        ),
-      ),
-    ).resolves.toMatchObject({ kind: "run" });
+      backend.run((ctx) => ctx.db.get(fixture.projectDraftId)),
+    ).resolves.toMatchObject({
+      noveltyEvaluatedInputFingerprint: noveltyInputFingerprint(revisedIdea),
+      noveltyScore: 82,
+      noveltyBand: "distinct",
+      noveltyPreviewRequestId: begun.requestId,
+    });
 
     await backend.run((ctx) => ctx.db.patch(applicationId, { state: "accepted" }));
     await expect(

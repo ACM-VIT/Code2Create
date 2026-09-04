@@ -9,8 +9,7 @@ import { useMutation, useQuery } from "convex/react";
 import { randomUUID } from "expo-crypto";
 import { useRef, useState } from "react";
 import { useRouter } from "expo-router";
-import { Platform, StyleSheet, Text, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { StyleSheet, Text, View } from "react-native";
 
 import {
   Action,
@@ -68,7 +67,6 @@ export function SupportPanel({
   const cases = useQuery(api.support.mine, { eventSlug });
   const createCase = useMutation(api.support.createSelf);
   const router = useRouter();
-  const insets = useSafeAreaInsets();
   const [quickAreaHeight, setQuickAreaHeight] = useState(0);
   const [reporting, setReporting] = useState(false);
   const [category, setCategory] = useState<SupportCategory>("reviewer_device");
@@ -118,12 +116,7 @@ export function SupportPanel({
       : Math.max(2, Math.min(quickReports.length, Math.floor((quickAreaHeight - 34) / 66)));
 
   return (
-    <View
-      style={[
-        styles.fixedRoot,
-        Platform.OS === "android" ? { paddingBottom: 18 + insets.bottom } : { paddingBottom: 18 },
-      ]}
-    >
+    <View style={styles.fixedRoot}>
       <Lead
         accent={palette.setup}
         detail={
@@ -348,7 +341,7 @@ function errorMessage(caught: unknown, fallback: string) {
 }
 
 const styles = StyleSheet.create({
-  fixedRoot: { flex: 1, paddingHorizontal: 20, paddingTop: 14, gap: 18 },
+  fixedRoot: { flex: 1, paddingHorizontal: 20, paddingTop: 14, paddingBottom: 18, gap: 18 },
   quickArea: { flex: 1 },
   row: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", gap: 12 },
   code: { color: palette.text, fontSize: 17, fontWeight: "600" },

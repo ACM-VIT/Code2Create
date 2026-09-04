@@ -13,11 +13,12 @@ export async function operationsBackgroundLeaseIsHeld(
 ) {
   const existing = await ctx.db
     .query("operationsBackgroundLeases")
-    .withIndex("by_key", (index) => index.eq("key", backgroundLeaseKey))
+    .withIndex("by_key_and_holder", (index) =>
+      index.eq("key", backgroundLeaseKey).eq("holder", args.holder),
+    )
     .unique();
   return (
-    existing?.holder === args.holder &&
-    existing.leaseId === args.leaseId &&
+    existing?.leaseId === args.leaseId &&
     existing.leaseExpiresAt > args.now
   );
 }
@@ -33,7 +34,9 @@ export const claim = internalMutation({
   handler: async (ctx, args) => {
     const existing = await ctx.db
       .query("operationsBackgroundLeases")
-      .withIndex("by_key", (index) => index.eq("key", backgroundLeaseKey))
+      .withIndex("by_key_and_holder", (index) =>
+        index.eq("key", backgroundLeaseKey).eq("holder", args.holder),
+      )
       .unique();
     if (existing && existing.leaseExpiresAt > args.now) return false;
 
@@ -50,6 +53,7 @@ export const claim = internalMutation({
 
 export const renew = internalMutation({
   args: {
+    holder: backgroundHolder,
     leaseId: v.string(),
     now: v.number(),
     leaseDurationMs: v.number(),
@@ -58,7 +62,9 @@ export const renew = internalMutation({
   handler: async (ctx, args) => {
     const existing = await ctx.db
       .query("operationsBackgroundLeases")
-      .withIndex("by_key", (index) => index.eq("key", backgroundLeaseKey))
+      .withIndex("by_key_and_holder", (index) =>
+        index.eq("key", backgroundLeaseKey).eq("holder", args.holder),
+      )
       .unique();
     if (
       !existing ||
@@ -75,12 +81,14 @@ export const renew = internalMutation({
 });
 
 export const release = internalMutation({
-  args: { leaseId: v.string() },
+  args: { holder: backgroundHolder, leaseId: v.string() },
   returns: v.boolean(),
   handler: async (ctx, args) => {
     const existing = await ctx.db
       .query("operationsBackgroundLeases")
-      .withIndex("by_key", (index) => index.eq("key", backgroundLeaseKey))
+      .withIndex("by_key_and_holder", (index) =>
+        index.eq("key", backgroundLeaseKey).eq("holder", args.holder),
+      )
       .unique();
     if (!existing || existing.leaseId !== args.leaseId) return false;
     await ctx.db.delete(existing._id);

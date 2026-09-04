@@ -17,6 +17,8 @@ import {
 import { intelligenceAgentDefinition } from "./intelligenceAgents.ts";
 import {
   ideaIntelligenceAnalysisPolicyViolation,
+  ideaIntelligenceRecoveryLeaseMs,
+  ideaIntelligenceSubmissionTimeoutMs,
   type IdeaIntelligenceAnalysis,
 } from "./ideaIntelligence.ts";
 
@@ -24,6 +26,10 @@ const signingSecret = "s".repeat(32);
 
 const validIdeaAnalysis: IdeaIntelligenceAnalysis = {
   recommendation: "waitlist",
+  centralProposalConsistency: {
+    assessment: "consistent",
+    sourceRefs: ["initial_idea"],
+  },
   criterionAssessments: [
     {
       criterionKey: "problem_clarity",
@@ -74,6 +80,117 @@ test("idea analysis policy accepts only exact, grounded, non-scoring output", ()
       ...context,
     }),
     "prohibited_language",
+  );
+  assert.equal(
+    ideaIntelligenceAnalysisPolicyViolation({
+      analysis: { ...validIdeaAnalysis, recommendation: "accept" },
+      ...context,
+    }),
+    "recommendation_mismatch",
+  );
+  assert.equal(
+    ideaIntelligenceAnalysisPolicyViolation({
+      analysis: {
+        ...validIdeaAnalysis,
+        recommendation: "decline",
+        concerns: [],
+        criterionAssessments: [
+          { ...firstAssessment, assessment: "not_yet_clear" },
+        ],
+      },
+      ...context,
+    }),
+    "recommendation_mismatch",
+  );
+});
+
+test("idea analysis policy enforces the strict recommendation ladder", () => {
+  const context = {
+    criterionKeys: ["problem_clarity", "feasibility"],
+    sourceRefs: ["initial_idea"],
+  };
+  const analysis = (
+    recommendation: IdeaIntelligenceAnalysis["recommendation"],
+    first: IdeaIntelligenceAnalysis["criterionAssessments"][number]["assessment"],
+    second: IdeaIntelligenceAnalysis["criterionAssessments"][number]["assessment"],
+  ): IdeaIntelligenceAnalysis => ({
+    recommendation,
+    centralProposalConsistency: {
+      assessment: "consistent",
+      sourceRefs: ["initial_idea"],
+    },
+    criterionAssessments: [
+      { criterionKey: "problem_clarity", assessment: first, sourceRefs: ["initial_idea"] },
+      { criterionKey: "feasibility", assessment: second, sourceRefs: ["initial_idea"] },
+    ],
+    strengths: ["The submission identifies one supported project claim."],
+    concerns: recommendation === "accept" ? [] : ["A material evidence gap remains."],
+    confidence: "medium",
+    limitations: ["Only the submitted answers were available."],
+  });
+
+  assert.equal(
+    ideaIntelligenceAnalysisPolicyViolation({
+      analysis: analysis("accept", "meets", "meets"),
+      ...context,
+    }),
+    null,
+  );
+  assert.equal(
+    ideaIntelligenceAnalysisPolicyViolation({
+      analysis: analysis("waitlist", "meets", "partly_meets"),
+      ...context,
+    }),
+    null,
+  );
+  assert.equal(
+    ideaIntelligenceAnalysisPolicyViolation({
+      analysis: analysis("decline", "partly_meets", "partly_meets"),
+      ...context,
+    }),
+    null,
+  );
+  assert.equal(
+    ideaIntelligenceAnalysisPolicyViolation({
+      analysis: analysis("decline", "meets", "not_yet_clear"),
+      ...context,
+    }),
+    null,
+  );
+  assert.equal(
+    ideaIntelligenceAnalysisPolicyViolation({
+      analysis: analysis("waitlist", "partly_meets", "partly_meets"),
+      ...context,
+    }),
+    "recommendation_mismatch",
+  );
+  assert.equal(
+    ideaIntelligenceAnalysisPolicyViolation({
+      analysis: {
+        ...analysis("decline", "meets", "meets"),
+        centralProposalConsistency: {
+          assessment: "contradictory",
+          sourceRefs: ["initial_idea", "follow_up_1"],
+        },
+      },
+      criterionKeys: context.criterionKeys,
+      sourceRefs: ["initial_idea", "follow_up_1"],
+    }),
+    null,
+  );
+  assert.equal(
+    ideaIntelligenceAnalysisPolicyViolation({
+      analysis: {
+        ...analysis("accept", "meets", "meets"),
+        centralProposalConsistency: {
+          assessment: "contradictory",
+          sourceRefs: ["initial_idea", "follow_up_1"],
+        },
+      },
+      criterionKeys: context.criterionKeys,
+      sourceRefs: ["initial_idea", "follow_up_1"],
+    }),
+    "recommendation_mismatch",
   );
 });
 
@@ -182,7 +299,7 @@ test("brief tickets cannot carry copilot conversation coordinates", () => {
 test("the copilot release uses one generalized command protocol without per-request skills", () => {
   const copilot = intelligenceAgentDefinition("operations-copilot");
   const systemPrompt = copilot.prompts.find((prompt) => prompt.name === "System prompt")?.text;
-  assert.equal(copilot.version, "operations-copilot-v1");
+  assert.equal(copilot.version, "operations-copilot-v2");
   if (systemPrompt === undefined || systemPrompt.length === 0) {
     throw new Error("The copilot agent needs a system prompt.");
   }
@@ -197,6 +314,12 @@ test("the copilot release uses one generalized command protocol without per-requ
     systemPrompt,
     /do not impose an artificial response, token, turn, or tool-call ceiling/u,
   );
+  assert.match(systemPrompt, /calm, experienced teammate/u);
+  assert.match(systemPrompt, /quick question usually needs two or three sentences/u);
+  assert.match(systemPrompt, /do not print read names/u);
+  assert.match(systemPrompt, /provenance only when the operator asks/u);
+  assert.match(systemPrompt, /recite every area that is empty or healthy/u);
+  assert.doesNotMatch(systemPrompt, /Cite each material claim by naming the read/u);
   assert.ok(copilot.tools.includes("scoped event-command catalog"));
   assert.ok(copilot.tools.includes("propose_event_command"));
 });
@@ -204,12 +327,38 @@ test("the copilot release uses one generalized command protocol without per-requ
 test("the idea agent may iterate until it publishes a valid assessment", () => {
   const ideaAgent = intelligenceAgentDefinition("idea-submission");
   const systemPrompt = ideaAgent.prompts.find((prompt) => prompt.name === "System prompt")?.text;
+  const analysisPrompt = ideaAgent.prompts.find(
+    (prompt) => prompt.name === "Structured analysis prompt",
+  )?.text;
 
-  if (systemPrompt === undefined || systemPrompt.length === 0) {
-    throw new Error("The idea agent needs a system prompt.");
+  if (
+    systemPrompt === undefined ||
+    systemPrompt.length === 0 ||
+    analysisPrompt === undefined ||
+    analysisPrompt.length === 0
+  ) {
+    throw new Error("The idea agent needs system and analysis prompts.");
   }
   assert.match(systemPrompt, /as many reasoning and tool turns as needed/u);
   assert.match(systemPrompt, /correct it and retry/u);
   assert.doesNotMatch(systemPrompt, /exactly once|at most \d+ .*calls?/u);
+  assert.match(analysisPrompt, /Before publishing, call find_similar_ideas/u);
+  assert.match(analysisPrompt, /other currently submitted ideas/u);
+  assert.match(analysisPrompt, /Similarity bands are retrieval hints, not proof/u);
+  assert.match(analysisPrompt, /Use search_public_web with focused concept terms/u);
+  assert.match(analysisPrompt, /Formulaic-language stress test/u);
+  assert.match(analysisPrompt, /Overused em dashes or semicolons/u);
+  assert.match(analysisPrompt, /Never accuse a participant of using AI/u);
+  assert.match(analysisPrompt, /grade such evidence lower because it is underspecified/u);
+  assert.match(analysisPrompt, /overallParticipantCapacity is the event-wide number/u);
+  assert.match(analysisPrompt, /Waitlist only when exactly one criterion partly meets/u);
+  assert.match(analysisPrompt, /Do not use waitlist as a safe default/u);
+  assert.ok(ideaAgent.tools.includes("search_public_web"));
+  assert.ok(ideaAgent.tools.includes("find_similar_ideas"));
   assert.ok(ideaAgent.tools.includes("publish_idea_analysis"));
+});
+
+test("idea analysis recovery cannot overlap a live durable submission", () => {
+  assert.equal(ideaIntelligenceSubmissionTimeoutMs, 60 * 60 * 1_000);
+  assert.ok(ideaIntelligenceRecoveryLeaseMs > ideaIntelligenceSubmissionTimeoutMs);
 });

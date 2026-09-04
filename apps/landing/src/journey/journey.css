@@ -8,12 +8,12 @@
  * tablets and phones rather than just scaling it down.
  * ------------------------------------------------------------------ */
 
-/* ~2565vh of travel over the weighted 394-unit scroll track. About and
-   Sponsors receive twice the runway; every other act keeps its original
-   physical scroll pace. */
+/* ~2513vh of travel over the weighted 386-unit scroll track. About and the
+   sponsor reveals receive twice the runway; the sponsor exit and every other
+   act keep their original physical scroll pace. */
 .journey {
   position: relative;
-  height: 2665vh;
+  height: 2613vh;
 }
 
 .journey__stage {
@@ -590,15 +590,14 @@
 }
 
 /* ------------------------------------------------------------------ *
- * Sponsors — seven scroll-scrubbed firecracker rockets rise from behind the
- * hills. Their own burst stars form the names while the logos settle above.
+ * Sponsors — nine scroll-scrubbed firecracker rockets fill a cleared night
+ * sky. Their own burst stars form the names while the logos settle above.
  * ------------------------------------------------------------------ */
 
 .sponsors {
   position: absolute;
   inset: 0;
-  /* Above the mid ridge, below the near one, so a shell leaves the ground
-     from BEHIND the front hills — the same trick the ember lanterns use. */
+  /* The ridges have moved below the stage before this act begins. */
   z-index: 4;
   pointer-events: none;
 }
@@ -613,12 +612,13 @@
   contain: strict;
 }
 
-/* Its GSAP start is below the viewport. This layer sits behind the near ridge,
-   so the title is revealed by the hill line as the scroll lifts it upward. */
+/* Its GSAP start is above the viewport. It descends with the clearing sky and
+   settles into this lower band before the first firework launches. */
 .sponsors__title {
   position: absolute;
   left: 50%;
-  top: 66%;
+  top: 86%;
+  z-index: 1;
   transform: translateX(-50%);
   font-family: var(--font-display);
   font-weight: 500;
@@ -635,7 +635,6 @@
 .sponsor {
   position: absolute;
   display: block;
-  translate: -50% -50%;
   text-align: center;
   text-decoration: none;
   opacity: 0;
@@ -667,7 +666,15 @@
 }
 
 .sponsor__logo--sglang {
-  width: clamp(126px, 12vw, 172px);
+  width: clamp(124px, 10.5vw, 150px);
+}
+
+.sponsor__logo--serpapi {
+  width: clamp(150px, 15vw, 210px);
+}
+
+.sponsor__logo--idfc {
+  width: clamp(150px, 15vw, 205px);
 }
 
 .sponsor__logo--tin {
@@ -1189,10 +1196,10 @@
     font-size: clamp(11px, 4vw, 18px);
   }
 
-  /* The bursts cascade down the middle of a phone frame, so the heading
-     drops beneath the lowest of them. */
+  /* The title closes the composition beneath two leaders and two supporting
+     rows, with a clear gap above the viewport edge. */
   .sponsors__title {
-    top: 80%;
+    top: 88%;
     font-size: clamp(18px, 5.4vw, 26px);
   }
 
@@ -1201,7 +1208,15 @@
   }
 
   .sponsor__logo--sglang {
-    width: clamp(102px, 29vw, 122px);
+    width: clamp(72px, min(16vw, 11svh), 108px);
+  }
+
+  .sponsor__logo--serpapi {
+    width: clamp(90px, 22vw, 170px);
+  }
+
+  .sponsor__logo--idfc {
+    width: clamp(94px, 20vw, 160px);
   }
 
   .sponsor__logo--tin {

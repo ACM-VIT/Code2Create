@@ -35,6 +35,7 @@ export const current = query({
   returns: v.array(serviceQueueView),
   handler: async (ctx, args) => {
     const { event, membership } = await participantContext(ctx, args.eventSlug);
+    if (event.status !== "live") return [];
     const entries = await ctx.db
       .query("participantServiceQueueEntries")
       .withIndex("by_event_kind_joined", (index) =>
@@ -48,7 +49,7 @@ export const current = query({
       joined: ownIndex >= 0,
       position: ownIndex >= 0 ? ownIndex + 1 : null,
       waitingCount: entries.length,
-      joinedAt: ownIndex >= 0 ? entries[ownIndex]!.joinedAt : null,
+      joinedAt: ownIndex >= 0 ? (entries[ownIndex]?.joinedAt ?? null) : null,
     }];
   },
 });

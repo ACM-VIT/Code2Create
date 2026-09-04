@@ -18,6 +18,17 @@ export const noveltyDensitySimilarityPolicy = {
 } as const;
 
 export type NoveltyIdeaLifecycle = "editing" | "saved" | "submitted";
+
+export function noveltyIdeaComparisonScope(
+  eventId: string,
+  lifecycle: NoveltyIdeaLifecycle,
+) {
+  return `${eventId}:lifecycle:${lifecycle}`;
+}
+
+export function activeAdmissionIdeaComparisonScope(eventId: string, teamId: string) {
+  return `${eventId}:active-admission:${teamId}`;
+}
 export type NoveltyRelationship = "same_core_idea" | "strong_overlap" | "adjacent" | "different";
 export type NoveltyJudgeConfidence = "high" | "medium" | "low";
 

@@ -19,6 +19,23 @@ const assetInput = v.object({
   sha256: v.string(),
 });
 
+export const authorizeBundleUpload = internalQuery({
+  args: { eventSlug: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    await requirePermission(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey: "configuration.communications.draft.create",
+      scopeType: "event",
+    });
+    return null;
+  },
+});
+
 export const uploadContext = internalQuery({
   args: {
     eventSlug: v.string(),

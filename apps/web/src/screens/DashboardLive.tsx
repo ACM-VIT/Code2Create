@@ -1,5 +1,5 @@
 import { api } from '@code2create/backend/api'
-import { mergeSynesthesiaVoteCounts, teamRoundStateParticipantLabels } from '@code2create/domain';
+import { mergeSynesthesiaVoteCounts } from '@code2create/domain';
 import type { FunctionReturnType } from 'convex/server'
 import { useAction, useMutation, useQuery } from 'convex/react'
 import { useNavigate } from 'react-router-dom'
@@ -9,13 +9,12 @@ import type { EventTileModel } from '../components/dashboard/EventTile'
 import type { HelpTileModel } from '../components/dashboard/HelpTile'
 import type { IntegrationsTileModel } from '../components/dashboard/IntegrationsTile'
 import type { MusicRequestView, MusicTileModel } from '../components/dashboard/MusicTile'
-import type { ReviewTileModel } from '../components/dashboard/ReviewTile'
-import type { ServiceQueueKind } from '../components/dashboard/ReviewTile'
+import type { ReviewTileModel, ServiceQueueKind } from '../components/dashboard/ReviewTile'
 import type { CheckpointState, UpdatesTileModel } from '../components/dashboard/UpdatesTile'
 import type { ClusterMember, ClusterTeam } from '../components/portal/TeamCluster'
 import { eventSlug } from '../lib/config';
 import { useOperationRunner } from '../lib/operations'
-import type { PublicState } from '../types'
+import type { AvailableGitHubRepository, PublicState } from '../types'
 import { DashboardScreen } from './DashboardScreen'
 
 type ParticipantCapabilities = FunctionReturnType<typeof api.access.participantCapabilities>
@@ -60,6 +59,7 @@ export function DashboardLive({
   const music = useQuery(api.synesthesiaParticipant.state, { eventSlug })
   const voteCounts = useQuery(api.synesthesiaParticipant.voteCounts, { eventSlug })
   const searchYouTube = useAction(api.synesthesiaYouTube.search)
+  const listAvailableRepositories = useAction(api.githubActions.listAvailableRepositories)
   const requestVideo = useAction(api.synesthesiaYouTube.requestVideo)
   const addVote = useMutation(api.synesthesiaParticipant.vote)
   const removeVote = useMutation(api.synesthesiaParticipant.removeVote)
@@ -143,19 +143,98 @@ export function DashboardLive({
     },
   }
 
-  const repositoryCount = github?.repositories.length ?? 0
+  const connectedRepositories = (github?.repositories ?? [])
+    .filter((repository) => repository.state === 'active')
+    .map((repository) => ({
+      id: repository.id,
+      fullName: repository.fullName,
+      url: repository.url,
+      connectionId: repository.installationConnectionId,
+    }))
+  const connectedRepositoryIds = new Set(
+    (github?.repositories ?? []).map((repository) => repository.repositoryId),
+  )
+  const activeGithubConnection = github?.connections.find(
+    (connection) => connection.state === 'active',
+  )
   const fileCount = figma?.summary?.fileCount ?? 0
   const integrationsModel: IntegrationsTileModel = {
     available: integrationsAllowed,
     github: {
-      connected: github?.connections.some((connection) => connection.state === 'active') ?? false,
-      detail: repositoryCount === 0 ? 'Link your repositories' : repositoryCount === 1 ? '1 repository' : `${repositoryCount} repositories`,
+      connected: activeGithubConnection !== undefined,
+      detail:
+        connectedRepositories.length === 0
+          ? 'Link your repositories'
+          : connectedRepositories.length === 1
+            ? '1 repository'
+            : `${connectedRepositories.length} repositories`,
+      repositories: connectedRepositories,
+      ...(activeGithubConnection
+        ? {
+            listRepositories: async () => {
+              const allRepositories: AvailableGitHubRepository[] = []
+              let page: number | undefined = 1
+              while (page !== undefined) {
+                const result = await listAvailableRepositories({
+                  eventSlug,
+                  connectionId: activeGithubConnection.id,
+                  page,
+                })
+                allRepositories.push(...result.repositories)
+                page = result.nextPage
+              }
+              return allRepositories
+                .filter((repository) => !connectedRepositoryIds.has(repository.repositoryId))
+                .map((repository) => ({
+                  id: repository.repositoryId,
+                  fullName: repository.fullName,
+                  url: repository.url,
+                  connectionId: activeGithubConnection.id,
+                  raw: repository,
+                }))
+            },
+          }
+        : {}),
     },
     figma: {
       connected: (figma?.connections.length ?? 0) > 0,
-      detail: fileCount === 0 ? 'Link your design files' : fileCount === 1 ? '1 file' : `${fileCount} files`,
+      detail:
+        fileCount === 0
+          ? 'Link your design files'
+          : fileCount === 1
+            ? '1 file'
+            : `${fileCount} files`,
     },
-    open: () => void navigate('/integrations', { viewTransition: true }),
+    open: (target, repository) => {
+      if (target === 'github' && repository) {
+        const isConnected = connectedRepositories.some((r) => r.id === repository.id)
+        const connectionId = repository.connectionId ?? activeGithubConnection?.id
+        const params = new URLSearchParams()
+        if (connectionId) params.set('connectionId', connectionId)
+        if (isConnected) {
+          params.set('archiveId', repository.id)
+        } else {
+          params.set('repositoryId', repository.id)
+        }
+        void navigate(
+          {
+            pathname: '/integrations',
+            search: `?${params.toString()}`,
+          },
+          {
+            state: {
+              connectionId,
+              repositoryId: isConnected ? undefined : repository.id,
+              archiveId: isConnected ? repository.id : undefined,
+              repository: repository.raw,
+            },
+            viewTransition: true,
+          },
+        )
+        return
+      }
+      void navigate('/integrations', { viewTransition: true })
+    },
   }
 
   const updatesModel: UpdatesTileModel = {
@@ -179,7 +258,6 @@ export function DashboardLive({
     queue: queue
       ? {
           round: queue.round.name,
-          state: teamRoundStateParticipantLabels[queue.state],
           rank: queue.teamsAhead === undefined ? null : queue.teamsAhead + 1,
         }
       : null,

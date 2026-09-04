@@ -2,10 +2,8 @@ import { useState } from "react";
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { androidNativeTabBarHeight } from "@/lib/navigation-layout";
 import { duty, palette, radius, space, tileAspectRatio, type, type DutyKey } from "@/theme";
-
-// Android overlays the tab bar, so content needs an explicit bottom inset.
-const androidTabBarHeight = 80;
 
 export type DutyTile = {
   key: DutyKey;
@@ -37,7 +35,7 @@ export function DutyHome({
   // Enable scrolling only when content extends behind the Android tab bar.
   const [viewportHeight, setViewportHeight] = useState(0);
   const [contentHeight, setContentHeight] = useState(0);
-  const barHeight = Platform.OS === "android" ? androidTabBarHeight + insets.bottom : 0;
+  const barHeight = Platform.OS === "android" ? androidNativeTabBarHeight + insets.bottom : 0;
   const overflows = viewportHeight > 0 && contentHeight + barHeight > viewportHeight + 1;
   const rows: DutyTile[][] = [];
   for (let index = 0; index < tiles.length; index += 2) {
@@ -51,7 +49,7 @@ export function DutyHome({
           contentContainerStyle={[
             styles.scroll,
             Platform.OS === "android" && overflows
-              ? { paddingBottom: 18 + androidTabBarHeight + insets.bottom }
+              ? { paddingBottom: 18 + androidNativeTabBarHeight + insets.bottom }
               : null,
           ]}
           contentInsetAdjustmentBehavior="automatic"

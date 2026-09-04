@@ -93,8 +93,8 @@ const GRAVITY = 0.055;
 const DRAG = 0.986;
 const BUCKETS = 190;
 
-/* Roughly how long a hollow takes to fill back in. */
-const REFILL_SECONDS = 6;
+/* Roughly how long a cursor-made hollow takes to fill back in. */
+const REFILL_SECONDS = 10;
 const REFILL_PER_FRAME = 7;
 
 /* How fast the pile slumps sideways. Higher settles quicker; too high and the
@@ -752,16 +752,11 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
       const floor = readFloor();
 
       if (floor) {
-        /* Lay the drift down in one go the first time its floor can be
-           measured — the ground should be there when you arrive, not build
-           itself while you watch. */
+        /* Start on bare ground. The original falling-petal refill system
+           builds the drift instead of raising a synthetic height profile. */
         if (!bedSeeded) {
-          for (let i = 0; i < BUCKETS; i += 1) {
-            /* Low-frequency undulation plus per-column jitter, so the crest
-               has dunes in it rather than a ruled edge. */
-            const dune = Math.sin(i * 0.07) * 0.06 + Math.sin(i * 0.021 + 1.7) * 0.05;
-            bank[i] = floor.target * (0.86 + dune + crest[i] * 0.07);
-          }
+          bank.fill(0);
+          slumped.fill(0);
           bedSeeded = true;
         }
 

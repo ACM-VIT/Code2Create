@@ -1,10 +1,13 @@
 export {
+  ideaQuestionAbsoluteMaximumCharacters,
   ideaQuestionEndToEndDeadlineMs,
+  ideaQuestionMaximumOutputTokens,
   ideaQuestionModelId,
   ideaQuestionProviderTimeoutMs,
   ideaQuestionRelease,
   ideaQuestionSettlementDeadlineMs,
   ideaQuestionSystemInstruction,
+  ideaQuestionTargetMaximumCharacters,
 } from "@code2create/domain";
 
 export const admissionRecommendationModel = {
@@ -33,12 +36,12 @@ const overlySpecificQuestionTerms = [
   "what metric",
 ] as const;
 
-export function isBroadIdeaQuestion(value: string) {
+export function isBroadIdeaQuestion(value: string, maximumLength: number) {
   const normalized = value.trim().replace(/\s+/gu, " ");
   const lower = normalized.toLocaleLowerCase("en");
   const wordCount = normalized.split(" ").length;
   return (
-    normalized.length <= 120 &&
+    normalized.length <= maximumLength &&
     wordCount <= 20 &&
     !/[():;/]/u.test(normalized) &&
     !/\b(?:and|also)\s+(?:what|who|how|where|when|why|which|does|do|is|are|would|will|can)\b/iu.test(

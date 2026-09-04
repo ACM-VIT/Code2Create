@@ -6,7 +6,7 @@ import {
   type ApplicationState,
 } from "@code2create/domain";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
-import { useState, type SubmitEvent } from "react";
+import { useEffect, useState, type SubmitEvent } from "react";
 import { Link } from "react-router-dom";
 
 import { LoadingLabel, SkeletonLine, SkeletonList } from "../components/Skeleton";
@@ -14,8 +14,9 @@ import {
   aiStateTag,
   assignmentOutcomeSummary,
   busiestStage,
-  needsAssignment,
+  completedReviewCountQueryArgs,
   ownReviewLine,
+  prioritizeReviewQueue,
   queueLeadSentence,
   reviewStatus,
   reviewerLeadSentence,
@@ -23,15 +24,21 @@ import {
   stageAcceptsReviews,
   stageCountMap,
   teamLine,
+  teamOriginFilterLabels,
+  teamOriginFilters,
+  teamOriginNoun,
+  teamOriginQueryArgs,
   visibleStages,
   type AssignmentOutcome,
   type QueueApplication,
   type QueueAssignment,
   type ReviewerWorkload,
+  type TeamOriginFilter,
 } from "../lib/admissionsPresentation";
 import { eventSlug } from "../lib/config";
 import { isConvexErrorCode, readableError } from "../lib/errors";
 import { useOperationRunner } from "../lib/operations";
+import { useReviewAssignmentCounts } from "../lib/useReviewAssignmentCounts";
 
 type AssignmentState = "active" | "completed";
 type QueueView = "all" | "mine";
@@ -48,6 +55,7 @@ export function AdmissionsQueue({
   isSupreme: boolean;
 }) {
   const [selectedView, setSelectedView] = useState<QueueView>(canReadApplications ? "all" : "mine");
+  const [origin, setOrigin] = useState<TeamOriginFilter>("all");
   const view =
     selectedView === "all"
       ? canReadApplications
@@ -92,8 +100,30 @@ export function AdmissionsQueue({
           </button>
         </div>
       ) : null}
-      {view === "all" && canReadApplications ? <ApplicationList canAssign={canAssign} /> : null}
-      {view === "mine" && canReadAssignments ? <AssignmentList /> : null}
+      <div className="admissions-scope">
+        <span className="admissions-control-label">Team type</span>
+        <div
+          className="stage-filter admissions-origins"
+          role="group"
+          aria-label="Team type"
+        >
+          {teamOriginFilters.map((candidate) => (
+            <button
+              aria-pressed={candidate === origin}
+              className={candidate === origin ? "stage-chip active" : "stage-chip"}
+              key={candidate}
+              type="button"
+              onClick={() => setOrigin(candidate)}
+            >
+              {teamOriginFilterLabels[candidate]}
+            </button>
+          ))}
+        </div>
+      </div>
+      {view === "all" && canReadApplications ? (
+        <ApplicationList canAssign={canAssign} origin={origin} />
+      ) : null}
+      {view === "mine" && canReadAssignments ? <AssignmentList origin={origin} /> : null}
     </section>
   );
 }
@@ -277,35 +307,64 @@ function AdmissionResultsRelease() {
   );
 }
 
-function ApplicationList({ canAssign }: { canAssign: boolean }) {
-  const counts = useQuery(api.admissions.stageCounts, { eventSlug });
+function ApplicationList({
+  canAssign,
+  origin,
+}: {
+  canAssign: boolean;
+  origin: TeamOriginFilter;
+}) {
+  const originArgs = teamOriginQueryArgs(origin);
+  const [oneReviewOnly, setOneReviewOnly] = useState(false);
+  const reviewCountArgs = completedReviewCountQueryArgs(oneReviewOnly);
+  const counts = useQuery(api.admissions.stageCounts, {
+    eventSlug,
+    ...originArgs,
+    ...reviewCountArgs,
+  });
   const countByState = stageCountMap(counts ?? []);
   const [chosen, setChosen] = useState<ApplicationState | null>(null);
   const stage = chosen ?? busiestStage(countByState) ?? "submitted";
+  const reviewable = stageAcceptsReviews(stage);
+  const [needsReviewOnly, setNeedsReviewOnly] = useState(true);
+  const reviewNeededArgs = needsReviewOnly && reviewable ? { needsReview: true as const } : {};
   const [search, setSearch] = useState("");
   const searchQuery = search.trim().replace(/\s+/g, " ");
   const searching = searchQuery.length > 0;
   const applicationPage = usePaginatedQuery(
     api.admissions.list,
-    searching ? "skip" : { eventSlug, state: stage },
+    searching
+      ? "skip"
+      : { eventSlug, state: stage, ...originArgs, ...reviewCountArgs, ...reviewNeededArgs },
     { initialNumItems: 30 },
   );
   const searchResult = useQuery(
     api.admissions.searchApplications,
-    searching ? { eventSlug, state: stage, search: searchQuery } : "skip",
+    searching
+      ? {
+          eventSlug,
+          state: stage,
+          search: searchQuery,
+          ...originArgs,
+          ...reviewCountArgs,
+          ...reviewNeededArgs,
+        }
+      : "skip",
   );
   const [assigning, setAssigning] = useState(false);
-  const [unassignedOnly, setUnassignedOnly] = useState(false);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
-  const reviewable = stageAcceptsReviews(stage);
   const selecting = canAssign && assigning && reviewable;
   const applications = searching ? (searchResult?.applications ?? []) : applicationPage.results;
-  const shown =
-    unassignedOnly && reviewable ? applications.filter(needsAssignment) : applications;
+  const shown = prioritizeReviewQueue(applications);
   const chosenApplications = shown.filter((application) => selected.has(application.id));
   const loading = searching
     ? searchResult === undefined
     : applicationPage.status === "LoadingFirstPage";
+  const filtersActive = searching || oneReviewOnly || (reviewable && !needsReviewOnly);
+
+  useEffect(() => {
+    setSelected(new Set());
+  }, [origin]);
 
   const toggle = (applicationId: string) => {
     setSelected((current) => {
@@ -316,37 +375,60 @@ function ApplicationList({ canAssign }: { canAssign: boolean }) {
     });
   };
 
+  const clearFilters = () => {
+    setSearch("");
+    setOneReviewOnly(false);
+    setNeedsReviewOnly(true);
+    setSelected(new Set());
+  };
+
   return (
     <>
-      {counts === undefined ? (
-        <SkeletonLine width="48%" />
-      ) : (
-        <p className="muted admissions-lead">{queueLeadSentence(countByState)}</p>
-      )}
-      <div className="admissions-toolbar">
-        <div className="stage-filter admissions-stages">
-          {visibleStages(countByState, stage).map((candidate) => (
-            <button
-              aria-pressed={candidate === stage}
-              className={candidate === stage ? "stage-chip active" : "stage-chip"}
-              key={candidate}
-              type="button"
-              onClick={() => {
-                setChosen(candidate);
-                setSelected(new Set());
-              }}
-            >
-              {applicationStateLabels[candidate]}
-              <span>{countByState.get(candidate) ?? 0}</span>
-            </button>
-          ))}
+      <div className="admissions-overview">
+        <div>
+          <span className="admissions-control-label">Queue summary</span>
+          {counts === undefined ? (
+            <SkeletonLine width="48%" />
+          ) : (
+            <p className="muted admissions-lead">
+              {queueLeadSentence(countByState, origin, oneReviewOnly)}
+            </p>
+          )}
         </div>
-        <div className="admissions-toolbar-actions">
-          <label className="compact-search admissions-search">
-            <span className="visually-hidden">Find a team</span>
+        {reviewable ? (
+          <p className="admissions-lease-note">
+            <strong>30-minute review window</strong>
+            <span>Unfinished assignments release automatically.</span>
+          </p>
+        ) : null}
+      </div>
+      <div className="admissions-controls">
+        <div className="admissions-stage-control">
+          <span className="admissions-control-label">Application status</span>
+          <div className="stage-filter admissions-stages">
+            {visibleStages(countByState, stage).map((candidate) => (
+              <button
+                aria-pressed={candidate === stage}
+                className={candidate === stage ? "stage-chip active" : "stage-chip"}
+                key={candidate}
+                type="button"
+                onClick={() => {
+                  setChosen(candidate);
+                  setSelected(new Set());
+                }}
+              >
+                {applicationStateLabels[candidate]}
+                <span>{countByState.get(candidate) ?? 0}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="admissions-toolbar">
+          <label className="field compact-search admissions-search">
+            <span>Search teams</span>
             <input
               maxLength={80}
-              placeholder="Find a team"
+              placeholder="Enter a team name"
               type="search"
               value={search}
               onChange={(event) => {
@@ -355,39 +437,60 @@ function ApplicationList({ canAssign }: { canAssign: boolean }) {
               }}
             />
           </label>
-          {reviewable ? (
-            <>
+          <fieldset className="admissions-filter-set">
+            <legend>Filter this status</legend>
+            <div>
               <label className="check-filter">
                 <input
-                  checked={unassignedOnly}
+                  checked={oneReviewOnly}
                   type="checkbox"
                   onChange={(event) => {
-                    setUnassignedOnly(event.target.checked);
+                    setOneReviewOnly(event.target.checked);
+                    setChosen(null);
                     setSelected(new Set());
                   }}
                 />
-                Only nobody assigned
+                Exactly one review completed
               </label>
-              {canAssign ? (
-                <button
-                  className={selecting ? "secondary active" : "secondary"}
-                  type="button"
-                  onClick={() => {
-                    setAssigning(!assigning);
-                    setSelected(new Set());
-                  }}
-                >
-                  {selecting ? "Done assigning" : "Assign reviewers"}
-                </button>
+              {reviewable ? (
+                <label className="check-filter">
+                  <input
+                    checked={needsReviewOnly}
+                    type="checkbox"
+                    onChange={(event) => {
+                      setNeedsReviewOnly(event.target.checked);
+                      setSelected(new Set());
+                    }}
+                  />
+                  Reviews still needed
+                </label>
               ) : null}
-            </>
-          ) : null}
+            </div>
+          </fieldset>
+          <div className="admissions-toolbar-buttons">
+            {filtersActive ? (
+              <button className="text-button" type="button" onClick={clearFilters}>
+                Clear filters
+              </button>
+            ) : null}
+            {reviewable && canAssign ? (
+              <button
+                className={selecting ? "secondary active" : "secondary"}
+                type="button"
+                onClick={() => {
+                  setAssigning(!assigning);
+                  setSelected(new Set());
+                }}
+              >
+                {selecting ? "Finish assigning" : "Assign review work"}
+              </button>
+            ) : null}
+          </div>
         </div>
       </div>
       {selecting ? (
         <AssignBar
           applications={chosenApplications}
-          pageSize={shown.length}
           onAssigned={(applicationIds) =>
             setSelected((current) => {
               const next = new Set(current);
@@ -396,7 +499,6 @@ function ApplicationList({ canAssign }: { canAssign: boolean }) {
             })
           }
           onClear={() => setSelected(new Set())}
-          onSelectAll={() => setSelected(new Set(shown.map((application) => application.id)))}
         />
       ) : null}
       <div className="queue-list admissions-list">
@@ -418,14 +520,20 @@ function ApplicationList({ canAssign }: { canAssign: boolean }) {
         {!loading && shown.length === 0 ? (
           <p className="empty">
             {searching
-              ? applications.length > 0
-                ? "Every matching team already has a reviewer."
-                : `No teams match “${searchQuery}” at ${applicationStateLabels[stage]}.`
+              ? needsReviewOnly && reviewable
+                ? `No matching ${teamOriginNoun(origin)} at ${applicationStateLabels[stage]} still need reviews.`
+                : `No ${teamOriginNoun(origin)} match “${searchQuery}” at ${applicationStateLabels[stage]}.`
               : countByState.size === 0
-                ? "No team has applied yet."
-                : applications.length > 0
-                  ? "Everyone shown here has a reviewer."
-                  : `Nothing at ${applicationStateLabels[stage]} right now.`}
+                ? oneReviewOnly
+                  ? `No ${teamOriginNoun(origin, false)} has exactly 1 review in.`
+                  : origin === "all"
+                    ? "No team has applied yet."
+                    : `No ${teamOriginNoun(origin, false)} has applied yet.`
+                : needsReviewOnly && reviewable
+                  ? `No ${teamOriginNoun(origin)} at ${applicationStateLabels[stage]} still need reviews.`
+                  : origin === "all"
+                    ? `Nothing at ${applicationStateLabels[stage]} right now.`
+                    : `No ${teamOriginNoun(origin)} at ${applicationStateLabels[stage]} right now.`}
           </p>
         ) : null}
       </div>
@@ -453,7 +561,7 @@ function ApplicationRow({
   onToggle: () => void;
 }) {
   const reviews = reviewStatus(application);
-  const ai = aiStateTag(application.aiState);
+  const ai = aiStateTag(application.aiState, application.aiRecommendation);
   const content = (
     <>
       <span className="admission-row-main">
@@ -465,7 +573,7 @@ function ApplicationRow({
         {application.decisionStage === "recorded" && application.humanDecision ? (
           <span>Recorded · {applicationDecisionLabels[application.humanDecision]}</span>
         ) : null}
-        {ai ? <span className="admission-tag">{ai}</span> : null}
+        {ai ? <span className={`admission-tag ${ai.tone}`}>{ai.text}</span> : null}
       </span>
     </>
   );
@@ -497,30 +605,34 @@ function ApplicationRow({
 
 function AssignBar({
   applications,
-  pageSize,
   onAssigned,
   onClear,
-  onSelectAll,
 }: {
   applications: QueueApplication[];
-  pageSize: number;
   onAssigned: (applicationIds: string[]) => void;
   onClear: () => void;
-  onSelectAll: () => void;
 }) {
   const assignReview = useMutation(api.admissions.assignReview);
   const workload = useQuery(api.admissions.reviewerWorkload, { eventSlug });
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
+  const [confirmedBulkAssignmentKey, setConfirmedBulkAssignmentKey] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<{ email: string; results: AssignmentOutcome[] } | null>(
     null,
   );
   const reviewerEmail = email.trim().toLowerCase();
   const ready = reviewerEmail.length > 0 && applications.length > 0;
+  const selectionKey = applications.map((application) => application.id).join(":");
+  const bulkAssignmentKey = `${reviewerEmail}:${selectionKey}`;
+  const confirmingBulkAssignment = confirmedBulkAssignmentKey === bulkAssignmentKey;
 
   const submit = async (event: SubmitEvent) => {
     event.preventDefault();
     if (busy || !ready) return;
+    if (applications.length > 1 && !confirmingBulkAssignment) {
+      setConfirmedBulkAssignmentKey(bulkAssignmentKey);
+      return;
+    }
     setBusy(true);
     const results: AssignmentOutcome[] = [];
     const assignedIds: string[] = [];
@@ -543,6 +655,7 @@ function AssignBar({
     }
     setOutcome({ email: reviewerEmail, results });
     onAssigned(assignedIds);
+    setConfirmedBulkAssignmentKey(null);
     setBusy(false);
   };
 
@@ -552,9 +665,6 @@ function AssignBar({
     <form className="admission-assign-bar" onSubmit={(event) => void submit(event)}>
       <div className="admission-assign-selection">
         <strong>{applications.length} selected</strong>
-        <button className="text-button" disabled={busy} type="button" onClick={onSelectAll}>
-          Select all {pageSize} shown
-        </button>
         <button
           className="text-button"
           disabled={busy || applications.length === 0}
@@ -575,13 +685,42 @@ function AssignBar({
           onChange={(event) => setEmail(event.target.value)}
         />
       </label>
-      <button className="primary" disabled={busy || !ready} type="submit">
-        {busy
-          ? "Assigning…"
-          : applications.length === 0
-            ? "Assign"
-            : `Assign ${applications.length === 1 ? "1 application" : `${applications.length} applications`}`}
-      </button>
+      {confirmingBulkAssignment ? (
+        <div className="admission-assign-confirmation" role="alert">
+          <div>
+            <strong>Assign {applications.length} applications to one reviewer?</strong>
+            <p>
+              Confirm the count and email. Every assignment remains open for up to 30 minutes.
+            </p>
+          </div>
+          <div className="button-row">
+            <button className="primary" disabled={busy} type="submit">
+              {busy ? "Assigning…" : `Confirm ${applications.length} assignments`}
+            </button>
+            <button
+              className="secondary"
+              disabled={busy}
+              type="button"
+              onClick={() => setConfirmedBulkAssignmentKey(null)}
+            >
+              Go back
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button className="primary" disabled={busy || !ready} type="submit">
+          {busy
+            ? "Assigning…"
+            : applications.length === 0
+              ? "Choose a team"
+              : applications.length === 1
+                ? "Assign 1 application"
+                : `Review ${applications.length} assignments`}
+        </button>
+      )}
+      <p className="admission-assign-rule">
+        Select teams individually. Unfinished assignments expire after 30 minutes.
+      </p>
       {workload !== undefined && workload.length > 0 ? (
         <div className="admission-assign-reviewers">
           <span>Reviewers so far</span>
@@ -619,12 +758,13 @@ function AssignBar({
   );
 }
 
-function AssignmentList() {
-  const counts = useQuery(api.admissions.myReviewAssignmentCounts, { eventSlug });
+function AssignmentList({ origin }: { origin: TeamOriginFilter }) {
+  const originArgs = teamOriginQueryArgs(origin);
+  const counts = useReviewAssignmentCounts(origin);
   const [state, setState] = useState<AssignmentState>("active");
   const { results, status, loadMore } = usePaginatedQuery(
     api.admissions.myReviewAssignments,
-    { eventSlug, state },
+    { eventSlug, state, ...originArgs },
     { initialNumItems: 30 },
   );
 
@@ -633,7 +773,7 @@ function AssignmentList() {
       {counts === undefined ? (
         <SkeletonLine width="40%" />
       ) : (
-        <p className="muted admissions-lead">{reviewerLeadSentence(counts)}</p>
+        <p className="muted admissions-lead">{reviewerLeadSentence(counts, origin)}</p>
       )}
       <div className="stage-filter admissions-stages">
         <button
@@ -667,7 +807,13 @@ function AssignmentList() {
         ) : null}
         {status !== "LoadingFirstPage" && results.length === 0 ? (
           <p className="empty">
-            {state === "active" ? "Nothing to review right now." : "No completed reviews yet."}
+            {state === "active"
+              ? origin === "all"
+                ? "Nothing to review right now."
+                : `No ${teamOriginNoun(origin)} to review right now.`
+              : origin === "all"
+                ? "No completed reviews yet."
+                : `No completed reviews of ${teamOriginNoun(origin)} yet.`}
           </p>
         ) : null}
       </div>
@@ -682,7 +828,7 @@ function AssignmentList() {
 
 function AssignmentRow({ assignment }: { assignment: QueueAssignment }) {
   const own = ownReviewLine(assignment);
-  const ai = aiStateTag(assignment.aiState);
+  const ai = aiStateTag(assignment.aiState, assignment.aiRecommendation);
   return (
     <div className="admission-row">
       <Link className="admission-row-link" to={`/admissions/${assignment.applicationId}`}>
@@ -695,7 +841,18 @@ function AssignmentRow({ assignment }: { assignment: QueueAssignment }) {
             {own.text}
           </span>
           <span>{applicationStateLabels[assignment.applicationState]}</span>
-          {ai ? <span className="admission-tag">{ai}</span> : null}
+          {assignment.claimExpiresAt === undefined ? null : (
+            <span className="admission-claim-deadline">
+              Review by{" "}
+              <time dateTime={new Date(assignment.claimExpiresAt).toISOString()}>
+                {new Date(assignment.claimExpiresAt).toLocaleTimeString([], {
+                  hour: "numeric",
+                  minute: "2-digit",
+                })}
+              </time>
+            </span>
+          )}
+          {ai ? <span className={`admission-tag ${ai.tone}`}>{ai.text}</span> : null}
         </span>
       </Link>
     </div>

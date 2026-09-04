@@ -142,14 +142,14 @@ describe("manual admission analysis retry", () => {
         completedAt: Date.now(),
       }),
     );
-    await expect(
-      runner.mutation(api.admissions.rerunAiRecommendation, {
-        ...request,
-        expectedApplicationVersion: 2,
-        expectedRecommendationId: first.recommendationId,
-        clientOperationId: "retry-successful-analysis",
-      }),
-    ).rejects.toThrow("current, still running, or no longer");
+    const refreshed = await runner.mutation(api.admissions.rerunAiRecommendation, {
+      ...request,
+      expectedApplicationVersion: 2,
+      expectedRecommendationId: first.recommendationId,
+      clientOperationId: "refresh-successful-analysis",
+    });
+    expect(refreshed).toMatchObject({ applicationVersion: 3 });
+    expect(refreshed.recommendationId).not.toBe(first.recommendationId);
   });
 
   test("keeps one authorized durable-agent run idempotent across reads and callback retries", async () => {
@@ -212,6 +212,7 @@ describe("manual admission analysis retry", () => {
     );
     expect(repeatedRead).toEqual(firstRead);
     if (!firstRead) throw new Error("The idea-agent fixture did not produce a projection.");
+    expect(firstRead.overallParticipantCapacity).toBe(100);
     expect(firstRead.additionalInformation).toBe("Demo notes: https://example.com/retry-petals");
     expect(firstRead.intakeResponses.map((response) => response.sourceRef)).toEqual([
       "follow_up_1",
@@ -229,6 +230,10 @@ describe("manual admission analysis retry", () => {
       sourceInputFingerprint: firstRead.sourceInputFingerprint,
       state: "succeeded" as const,
       recommendation: "accept" as const,
+      centralProposalConsistency: {
+        assessment: "consistent" as const,
+        sourceRefs: ["initial_idea"],
+      },
       criterionAssessments,
       strengths: ["The proposal identifies a concrete operational handoff."],
       concerns: [],
@@ -353,6 +358,10 @@ describe("manual admission analysis retry", () => {
         sourceInputFingerprint: projection.sourceInputFingerprint,
         state: "succeeded",
         recommendation: "accept",
+        centralProposalConsistency: {
+          assessment: "consistent",
+          sourceRefs: ["initial_idea"],
+        },
         criterionAssessments: projection.criteria.map((criterion) => ({
           criterionKey: criterion.criterionKey,
           assessment: "meets" as const,
@@ -424,6 +433,10 @@ describe("manual admission analysis retry", () => {
         sourceInputFingerprint: projection.sourceInputFingerprint,
         state: "succeeded",
         recommendation: "accept",
+        centralProposalConsistency: {
+          assessment: "consistent",
+          sourceRefs: ["initial_idea"],
+        },
         criterionAssessments: projection.criteria.map((criterion) => ({
           criterionKey: criterion.criterionKey,
           assessment: "meets" as const,
@@ -501,6 +514,10 @@ describe("manual admission analysis retry", () => {
         sourceInputFingerprint: projection.sourceInputFingerprint,
         state: "succeeded",
         recommendation: "accept",
+        centralProposalConsistency: {
+          assessment: "consistent",
+          sourceRefs: ["initial_idea"],
+        },
         criterionAssessments: projection.criteria.map((criterion) => ({
           criterionKey: criterion.criterionKey,
           assessment: "meets" as const,

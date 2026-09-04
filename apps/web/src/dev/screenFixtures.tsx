@@ -35,7 +35,7 @@ import type { ReviewTileModel } from "../components/dashboard/ReviewTile";
 import type { UpdatesTileModel } from "../components/dashboard/UpdatesTile";
 import { DashboardScreen } from "../screens/DashboardScreen";
 import { SglangInterlude } from "../screens/SglangInterlude";
-import { ConfirmCard } from "../screens/TeamLobbyScreen";
+import { ConfirmCard, RenameTeamCard } from "../screens/TeamLobbyScreen";
 import { NoveltyPill, NoveltyReviewRow, ReviewEditRow } from "../screens/IntakeScreen";
 import { IdeaPromptsLink } from "../components/portal/IdeaPromptsSheet";
 import { JoinCodeBar } from "../components/portal/JoinCodeBar";
@@ -44,6 +44,7 @@ import {
   GuideComposer,
   type ComposerConfirm,
 } from "../components/guide/GuideComposer";
+import type { AvailableGitHubRepository } from "../types";
 import { GuideReasoning } from "../components/guide/GuideReasoning";
 import { GuideStage } from "../components/guide/GuideStage";
 import {
@@ -254,6 +255,32 @@ function HelpEmptyFixture() {
 function BloomFixture() {
   const [run, setRun] = useState(0);
   return <SubmitCelebration key={run} onDone={() => setRun((current) => current + 1)} />;
+}
+
+function RenameTeamFixture() {
+  const [savedName, setSavedName] = useState("Paper Cranes");
+  const [name, setName] = useState(savedName);
+  return (
+    <PortalScene
+      tree="right"
+      header={<p className="m-0 font-ui text-[13.5px] text-rose-light/80">4 of 4 seats</p>}
+    >
+      <div className="flex w-full max-w-[860px] flex-col items-center text-center">
+        <p className="mb-2 text-[12px] text-rose-light/70">manage team</p>
+        <h1 className="mb-11 font-display font-light tracking-[-.01em] wrap-anywhere text-4xl text-shadow-[0_6px_40px_var(--scene-text-glow)] lg:text-[54px]">
+          {savedName}
+        </h1>
+        <RenameTeamCard
+          currentName={savedName}
+          name={name}
+          onNameChange={setName}
+          onSubmit={() => setSavedName(name.trim())}
+          onCancel={() => setName(savedName)}
+          busy={false}
+        />
+      </div>
+    </PortalScene>
+  );
 }
 
 function IdeaCard({ children, footer }: { children: ReactNode; footer: ReactNode }) {
@@ -633,9 +660,90 @@ const dashboardMusic: MusicTileModel = {
   },
 };
 
+function mockAvailableRepo(id: string, fullName: string, url: string): AvailableGitHubRepository {
+  const [owner = "", name = ""] = fullName.split("/");
+  return {
+    repositoryId: id,
+    repositoryNodeId: `node-${id}`,
+    owner,
+    name,
+    fullName,
+    url,
+    isPrivate: false,
+    isFork: false,
+    defaultBranch: "main",
+  };
+}
+
 const dashboardIntegrations: IntegrationsTileModel = {
   available: true,
-  github: { connected: true, detail: "2 repositories" },
+  github: {
+    connected: true,
+    detail: "1 repository",
+    repositories: [
+      {
+        id: "github-repository-code2create",
+        fullName: "ACM-VIT/Code2Create",
+        url: "https://github.com/ACM-VIT/Code2Create",
+      },
+    ],
+    listRepositories: async () => {
+      await wait(250);
+      return [
+        {
+          id: "github-repository-code2create",
+          fullName: "ACM-VIT/Code2Create",
+          url: "https://github.com/ACM-VIT/Code2Create",
+          connectionId: "conn-1",
+          raw: mockAvailableRepo("github-repository-code2create", "ACM-VIT/Code2Create", "https://github.com/ACM-VIT/Code2Create"),
+        },
+        {
+          id: "github-repository-landing",
+          fullName: "ACM-VIT/landing-page",
+          url: "https://github.com/ACM-VIT/landing-page",
+          connectionId: "conn-1",
+          raw: mockAvailableRepo("github-repository-landing", "ACM-VIT/landing-page", "https://github.com/ACM-VIT/landing-page"),
+        },
+      ];
+    },
+  },
+  figma: { connected: false, detail: "Link your design files" },
+  open: noop,
+};
+
+const dashboardIntegrationsEmpty: IntegrationsTileModel = {
+  available: true,
+  github: {
+    connected: true,
+    detail: "Link your repositories",
+    repositories: [],
+    listRepositories: async () => {
+      await wait(250);
+      return [
+        {
+          id: "github-repository-code2create",
+          fullName: "ACM-VIT/Code2Create",
+          url: "https://github.com/ACM-VIT/Code2Create",
+          connectionId: "conn-1",
+          raw: mockAvailableRepo("github-repository-code2create", "ACM-VIT/Code2Create", "https://github.com/ACM-VIT/Code2Create"),
+        },
+        {
+          id: "github-repository-landing",
+          fullName: "ACM-VIT/landing-page",
+          url: "https://github.com/ACM-VIT/landing-page",
+          connectionId: "conn-1",
+          raw: mockAvailableRepo("github-repository-landing", "ACM-VIT/landing-page", "https://github.com/ACM-VIT/landing-page"),
+        },
+        {
+          id: "github-repository-workshops",
+          fullName: "ACM-VIT/workshops",
+          url: "https://github.com/ACM-VIT/workshops",
+          connectionId: "conn-1",
+          raw: mockAvailableRepo("github-repository-workshops", "ACM-VIT/workshops", "https://github.com/ACM-VIT/workshops"),
+        },
+      ];
+    },
+  },
   figma: { connected: false, detail: "Link your design files" },
   open: noop,
 };
@@ -672,7 +780,6 @@ const dashboardReview: ReviewTileModel = {
   available: true,
   queue: {
     round: "Midpoint review",
-    state: "Reviewers on the way",
     rank: null,
   },
   showCode: {
@@ -704,7 +811,7 @@ const reviewMusic: MusicTileModel = { ...dashboardMusic, nowPlaying: null, queue
 const quietReview: ReviewTileModel = { available: true, queue: null, showCode: null, services: [], setServiceQueue: async () => {} };
 const queuedReview: ReviewTileModel = {
   ...dashboardReview,
-  queue: { round: "Midpoint review", state: "In queue", rank: 3 },
+  queue: { round: "Midpoint review", rank: 3 },
   showCode: null,
 };
 
@@ -738,7 +845,7 @@ function DashboardFixture({ variant = "build" }: { variant?: DashboardVariant })
       onSignOut={noop}
       event={{ ...dashboardEvent, now }}
       music={variant === "build" ? dashboardMusic : variant === "review" ? reviewMusic : quietMusic}
-      integrations={dashboardIntegrations}
+      integrations={variant === "quiet" ? dashboardIntegrationsEmpty : dashboardIntegrations}
       updates={variant === "quiet" ? { ...dashboardUpdates, checkpoints: dashboardUpdates.checkpoints.map((c) => ({ ...c, state: c.key === "ideation" ? "upcoming" : c.state })) } : dashboardUpdates}
       review={review}
       help={dashboardHelp}
@@ -990,10 +1097,16 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries([
           >
             <PortalTextarea
               rows={7}
+              maxLength={300}
               defaultValue="A campus lost-and-found where finders post a photo and owners describe what they lost. On-device image matching pairs the two; pickup at verified hostel desks."
               className="bare-field min-h-[180px] border-0 bg-transparent px-0 py-0 text-[17px] leading-[1.7]"
             />
-            <IdeaPromptsLink className="mt-1" />
+            <div className="mt-1 flex items-center justify-between gap-4">
+              <IdeaPromptsLink />
+              <span className="font-mono text-[11px] tracking-[.04em] text-fg/45">
+                159 / 300
+              </span>
+            </div>
           </IdeaCard>
         </div>
       </PortalScene>
@@ -1021,6 +1134,19 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries([
                 </>
               }
             />
+            <StackedSheet depth={1} aria-expanded label="How will your solution work in practice?">
+              <span className="mt-1 line-clamp-4 text-[13px] leading-relaxed whitespace-pre-line wrap-anywhere text-fg/85">
+                Finders post a photo and a rough location from their phone. Owners describe what they
+                lost in their own words, and a small matcher compares the two lists every few minutes,
+                weighting location and time far above wording. Likely matches are surfaced to both
+                sides, and a pickup is only marked done once the owner scans the finder’s handover
+                code at a security desk. The desk keeps a log of every handover so disputes can be
+                settled later, and unclaimed items age out after two weeks.
+              </span>
+              <span className="mt-1.5 block text-[11px] text-fg/55">
+                rewritable at review, after the last question
+              </span>
+            </StackedSheet>
             <IdeaCard
               footer={
                 <>
@@ -1031,6 +1157,9 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries([
                 </>
               }
             >
+              <p className="m-0 mb-3 text-[13px] leading-relaxed text-fg/70">
+                Who will use Foundling on day one?
+              </p>
               <PortalTextarea
                 rows={6}
                 defaultValue="Hostellers first · most losses happen in messes and reading halls. Security desks join in week two once verified pickup is proven."
@@ -1104,7 +1233,9 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries([
             Paper Cranes
           </h1>
           <PetalCard className="px-6 py-2 sm:px-8">
-            <NoveltyReviewRow score={87} band="distinct" />
+            <NoveltyReviewRow
+              state={{ status: "ready", signal: { score: 87, band: "distinct" } }}
+            />
             <AccordionRoot allowMultiple defaultValue={["idea", "q1", "q2"]}>
               {(
                 [
@@ -1563,6 +1694,10 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries([
             <span className="whitespace-nowrap text-[13px]">share link</span>
           </div>
           <div className="mt-7 flex flex-wrap items-baseline justify-center gap-x-3.5 gap-y-1 text-[13.5px] text-fg/45">
+            <span className="text-fg/65">edit team name</span>
+            <span aria-hidden className="text-fg/30">
+              ·
+            </span>
             <span className="text-fg/65">change leader</span>
             <span aria-hidden className="text-fg/30">
               ·
@@ -1585,6 +1720,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries([
       </PortalScene>
     ),
   ],
+  ["f10c", () => <RenameTeamFixture />],
   [
     "f10b",
     () => (

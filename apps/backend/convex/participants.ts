@@ -2,7 +2,6 @@ import { ConvexError, v } from "convex/values";
 import {
   normalizeParticipantName,
   normalizeParticipantPhone,
-  participantProfileCodeConfiguration,
   participantNameValidationError,
   participantPhoneValidationError,
 } from "@code2create/domain";
@@ -38,6 +37,7 @@ import {
 } from "./lib/operations";
 import {
   isProfileCompleteForPolicy,
+  isProfileDetailsCompleteForPolicy,
   loadPublishedParticipantPolicy,
   participantPolicyAccepted,
   participantPolicyInput,
@@ -84,6 +84,7 @@ const profileView = v.object({
   externalUniversity: v.optional(v.string()),
   externalCollege: v.optional(v.string()),
   isComplete: v.boolean(),
+  requiresPhoneVerification: v.boolean(),
   profileVersion: v.number(),
 });
 
@@ -407,6 +408,15 @@ export const me = query({
               isComplete:
                 currentPolicyAccepted &&
                 isProfileCompleteForPolicy(profile, membership, participantPolicy.policy),
+              requiresPhoneVerification:
+                currentPolicyAccepted &&
+                participantPolicy.policy.phoneVerificationEnabled &&
+                isProfileDetailsCompleteForPolicy(
+                  profile,
+                  membership,
+                  participantPolicy.policy,
+                ) &&
+                (profile.phoneVerifiedAt === undefined || profile.phoneVerifiedAt <= 0),
               profileVersion: profile.profileVersion,
             }
           : null,
@@ -838,11 +848,11 @@ export const saveProfile = mutation({
     }
     const phone = normalizeParticipantPhone(args.phone);
     const phoneVerification =
-      participantProfileCodeConfiguration.phoneVerificationEnabled && args.phoneVerificationId
+      policy.phoneVerificationEnabled && args.phoneVerificationId
         ? await ctx.db.get(args.phoneVerificationId)
         : null;
     if (
-      participantProfileCodeConfiguration.phoneVerificationEnabled &&
+      policy.phoneVerificationEnabled &&
       (!phoneVerification ||
         phoneVerification.eventId !== event._id ||
         phoneVerification.membershipId !== membership._id ||

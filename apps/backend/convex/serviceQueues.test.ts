@@ -66,6 +66,7 @@ describe("participant outing permission queue", () => {
     ]);
 
     await backend.run((ctx) => ctx.db.patch(eventId, { status: "complete", updatedAt: now + 2 }));
+    await expect(first.query(api.serviceQueues.current, { eventSlug })).resolves.toEqual([]);
     await expect(first.mutation(api.serviceQueues.join, {
       eventSlug,
       kind: "outing_permission",

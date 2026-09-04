@@ -10,6 +10,52 @@ export const participantEmailTemplateKeys = [
 
 export type ParticipantEmailTemplateKey = (typeof participantEmailTemplateKeys)[number];
 
+export const participantEmailTemplateZipMaximumBytes = 3_500_000;
+
+export type ParticipantEmailTemplateAssetReplacement = {
+  fileName: string;
+  replacement: string;
+};
+
+export function normalizeParticipantEmailTemplateAssetReference(value: string) {
+  const trimmed = value.trim();
+  const withoutContentId = trimmed.startsWith("cid:") ? trimmed.slice(4) : trimmed;
+  return withoutContentId.replace(/^\.\//u, "");
+}
+
+export function rewriteParticipantEmailTemplateAssetReferences(
+  html: string,
+  replacements: readonly ParticipantEmailTemplateAssetReplacement[],
+) {
+  const byFileName = new Map(
+    replacements.map(({ fileName, replacement }) => [fileName, replacement] as const),
+  );
+  const replacementFor = (reference: string) =>
+    byFileName.get(normalizeParticipantEmailTemplateAssetReference(reference));
+
+  return html
+    .replace(/\bsrc(\s*=\s*)"([^"]*)"/giu, (attribute, spacing: string, reference: string) => {
+      const replacement = replacementFor(reference);
+      return replacement === undefined ? attribute : `src${spacing}"${replacement}"`;
+    })
+    .replace(/\bsrc(\s*=\s*)'([^']*)'/giu, (attribute, spacing: string, reference: string) => {
+      const replacement = replacementFor(reference);
+      return replacement === undefined ? attribute : `src${spacing}'${replacement}'`;
+    })
+    .replace(/\burl\(\s*"([^"]*)"\s*\)/giu, (value, reference: string) => {
+      const replacement = replacementFor(reference);
+      return replacement === undefined ? value : `url("${replacement}")`;
+    })
+    .replace(/\burl\(\s*'([^']*)'\s*\)/giu, (value, reference: string) => {
+      const replacement = replacementFor(reference);
+      return replacement === undefined ? value : `url('${replacement}')`;
+    })
+    .replace(/\burl\(\s*([^"'()]*)\s*\)/giu, (value, reference: string) => {
+      const replacement = replacementFor(reference);
+      return replacement === undefined ? value : `url(${replacement})`;
+    });
+}
+
 export type ParticipantEmailTemplate = {
   templateKey: ParticipantEmailTemplateKey;
   subject: string;

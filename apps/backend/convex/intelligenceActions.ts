@@ -6,7 +6,12 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalAction, type ActionCtx } from "./_generated/server";
 import type { IntakeContext } from "./intelligence";
-import { ideaQuestionProviderTimeoutMs } from "./lib/ideaSubmissionAi";
+import {
+  ideaQuestionAbsoluteMaximumCharacters,
+  ideaQuestionMaximumOutputTokens,
+  ideaQuestionProviderTimeoutMs,
+  ideaQuestionTargetMaximumCharacters,
+} from "./lib/ideaSubmissionAi";
 import { validateIntakeQuestionModelOutput } from "./lib/intakeQuestionModel";
 import {
   captureAiEmbedding,
@@ -26,11 +31,19 @@ type ProviderResult =
       cachedInputTokens?: number;
       reasoningTokens?: number;
       totalTokens?: number;
+      finishReason: string;
     }
   | {
       kind: "failure";
       state: "timed_out" | "rate_limited" | "failed";
       failureCategory: string;
+      finishReason?: string;
+      providerRequestId?: string;
+      inputTokens?: number;
+      outputTokens?: number;
+      cachedInputTokens?: number;
+      reasoningTokens?: number;
+      totalTokens?: number;
     };
 
 type ProviderRequest = {
@@ -112,9 +125,12 @@ async function requestIdeaQuestionFromProvider(
     const response = await client.responses.create({
       model: args.modelId,
       store: false,
+      reasoning: { effort: "low" },
+      max_output_tokens: ideaQuestionMaximumOutputTokens,
       instructions: args.systemInstruction,
       input: args.input,
       text: {
+        verbosity: "low",
         format: {
           type: "json_schema",
           name: "code2create_intake_interpretation",
@@ -133,7 +149,12 @@ async function requestIdeaQuestionFromProvider(
               nextQuestion: {
                 type: "object",
                 properties: {
-                  text: { type: "string", minLength: 8, maxLength: 120 },
+                  text: {
+                    type: "string",
+                    minLength: 8,
+                    maxLength: ideaQuestionAbsoluteMaximumCharacters,
+                    description: `One complete English question of at most ${ideaQuestionTargetMaximumCharacters} characters, ending in exactly one question mark. Rewrite to fit; never truncate.`,
+                  },
                   purposeKey: {
                     type: "string",
                     enum: ["user", "problem", "experience", "event_goal", "tradeoff", "risk"],
@@ -171,9 +192,7 @@ async function requestIdeaQuestionFromProvider(
         },
       },
     });
-    return {
-      kind: "success",
-      outputText: response.output_text || null,
+    const usage = {
       ...(response._request_id ? { providerRequestId: response._request_id } : {}),
       ...(response.usage?.input_tokens !== undefined
         ? { inputTokens: response.usage.input_tokens }
@@ -190,6 +209,26 @@ async function requestIdeaQuestionFromProvider(
       ...(response.usage?.total_tokens !== undefined
         ? { totalTokens: response.usage.total_tokens }
         : {}),
+    };
+    if (response.status !== "completed") {
+      const incompleteReason = response.incomplete_details?.reason;
+      const responseStatus = response.status ?? "unknown";
+      return {
+        kind: "failure",
+        state: "failed",
+        failureCategory:
+          responseStatus === "incomplete"
+            ? `provider_response_incomplete${incompleteReason ? `_${incompleteReason}` : ""}`
+            : `provider_response_${responseStatus}`,
+        finishReason: incompleteReason ?? responseStatus,
+        ...usage,
+      };
+    }
+    return {
+      kind: "success",
+      outputText: response.output_text || null,
+      finishReason: "stop",
+      ...usage,
     };
   } catch (error) {
     const providerStatus: unknown = error instanceof APIError ? error.status : undefined;
@@ -246,6 +285,7 @@ export const interpretIdea = internalAction({
           inputFingerprint: context.inputFingerprint,
           state: provider.state,
           ...emptyCompletion(),
+          ...(provider.providerRequestId ? { providerRequestId: provider.providerRequestId } : {}),
           latencyMs: Date.now() - startedAt,
           failureCategory: provider.failureCategory,
         });
@@ -258,6 +298,13 @@ export const interpretIdea = internalAction({
           durationMs: Date.now() - startedAt,
           isError: true,
           errorCategory: provider.failureCategory,
+          inputTokens: provider.inputTokens,
+          outputTokens: provider.outputTokens,
+          cacheReadTokens: provider.cachedInputTokens,
+          reasoningTokens: provider.reasoningTokens,
+          totalTokens: provider.totalTokens,
+          finishReason: provider.finishReason,
+          providerRequestId: provider.providerRequestId,
         });
         return null;
       }
@@ -339,7 +386,7 @@ export const interpretIdea = internalAction({
         cacheReadTokens: provider.cachedInputTokens,
         reasoningTokens: provider.reasoningTokens,
         totalTokens: provider.totalTokens,
-        finishReason: "stop",
+        finishReason: provider.finishReason,
         providerRequestId: provider.providerRequestId,
       });
     } catch {

@@ -1,7 +1,9 @@
 import { Stack } from "expo-router";
 import { useState, type ReactNode } from "react";
-import { RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import { Platform, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { androidNativeTabBarHeight } from "@/lib/navigation-layout";
 import { screenHeader } from "@/lib/screen-header";
 import { palette } from "@/theme";
 
@@ -11,15 +13,24 @@ export function DutyScreen({
   refreshing = false,
   scroll = true,
   title,
+  underNativeTabs = false,
 }: {
   children: ReactNode;
   onRefresh?: () => void;
   refreshing?: boolean;
   scroll?: boolean;
   title: string;
+  underNativeTabs?: boolean;
 }) {
+  const insets = useSafeAreaInsets();
   const [viewportHeight, setViewportHeight] = useState(0);
   const [contentHeight, setContentHeight] = useState(0);
+  const navigationInset =
+    Platform.OS === "android"
+      ? insets.bottom + (underNativeTabs ? androidNativeTabBarHeight : 0)
+      : 0;
+  const bottomPadding =
+    styles.content.paddingBottom + navigationInset;
   return (
     <View style={styles.root}>
       <Stack.Screen
@@ -31,7 +42,7 @@ export function DutyScreen({
       />
       {scroll ? (
         <ScrollView
-          contentContainerStyle={styles.content}
+          contentContainerStyle={[styles.content, { paddingBottom: bottomPadding }]}
           contentInsetAdjustmentBehavior="automatic"
           keyboardDismissMode="interactive"
           onContentSizeChange={(_, height) => setContentHeight(height)}
@@ -53,7 +64,7 @@ export function DutyScreen({
           {children}
         </ScrollView>
       ) : (
-        children
+        <View style={[styles.fixedContent, { paddingBottom: navigationInset }]}>{children}</View>
       )}
     </View>
   );
@@ -62,5 +73,6 @@ export function DutyScreen({
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: palette.background },
   scroll: { flex: 1 },
+  fixedContent: { flex: 1 },
   content: { flexGrow: 1, paddingHorizontal: 20, paddingTop: 14, paddingBottom: 28, gap: 18 },
 });

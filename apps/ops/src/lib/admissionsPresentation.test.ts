@@ -6,17 +6,23 @@ import {
   assignmentOutcomeSummary,
   busiestStage,
   cohortSummary,
+  completedReviewCountQueryArgs,
   memberContextLine,
-  needsAssignment,
+  needsReview,
   nextAssignmentId,
   ownReviewLine,
+  prioritizeReviewQueue,
   queueLeadSentence,
   remainingAssignmentsLine,
+  reviewAssignmentStatusLine,
+  reviewAssignmentSummary,
   reviewStatus,
   reviewerLeadSentence,
   reviewerWorkloadLabel,
   stageCountMap,
   teamLine,
+  teamOriginNoun,
+  teamOriginQueryArgs,
   visibleStages,
 } from "./admissionsPresentation.ts";
 
@@ -77,6 +83,10 @@ test("review status says how many reviews are in and whether anyone is on it", (
     reviewStatus({ completedReviewCount: 0, assignedReviewCount: 0, minimumHumanReviews: 1 }),
     { text: "0 of 1 review in · nobody assigned", tone: "unassigned" },
   );
+  assert.deepEqual(
+    reviewStatus({ completedReviewCount: 3, assignedReviewCount: 0, minimumHumanReviews: 2 }),
+    { text: "3 reviews submitted (2 required)", tone: "done" },
+  );
 });
 
 test("stage chips only show stages with something in them", () => {
@@ -96,6 +106,15 @@ test("stage chips only show stages with something in them", () => {
 
 test("the queue opens with one sentence about where applications are", () => {
   assert.equal(queueLeadSentence(new Map()), "No team has applied yet.");
+  assert.equal(queueLeadSentence(new Map(), "all", true), "No team has exactly 1 review in.");
+  assert.equal(
+    queueLeadSentence(new Map(), "internal"),
+    "No internal team has applied yet.",
+  );
+  assert.equal(
+    queueLeadSentence(new Map(), "external"),
+    "No external team has applied yet.",
+  );
   assert.equal(
     queueLeadSentence(
       stageCountMap([
@@ -117,7 +136,7 @@ test("the queue opens with one sentence about where applications are", () => {
   );
   assert.equal(
     reviewerLeadSentence({ active: 6, completed: 12 }),
-    "6 applications to review, 12 done.",
+    "6 applications to review, 12 done. Open assignments expire after 30 minutes.",
   );
   assert.equal(
     reviewerLeadSentence({ active: 0, completed: 12 }),
@@ -127,15 +146,53 @@ test("the queue opens with one sentence about where applications are", () => {
     reviewerLeadSentence({ active: 0, completed: 0 }),
     "Nothing is assigned to you yet. A coordinator hands out applications from the full list.",
   );
+  assert.equal(
+    reviewerLeadSentence({ active: 0, completed: 0 }, "internal"),
+    "No internal teams are assigned to you.",
+  );
+});
+
+test("the origin filter omits its query argument until internals or externals are chosen", () => {
+  assert.deepEqual(teamOriginQueryArgs("all"), {});
+  assert.deepEqual(teamOriginQueryArgs("internal"), { origin: "internal" });
+  assert.deepEqual(teamOriginQueryArgs("external"), { origin: "external" });
+  assert.equal(teamOriginNoun("all"), "teams");
+  assert.equal(teamOriginNoun("internal", false), "internal team");
+  assert.equal(teamOriginNoun("external"), "external teams");
+});
+
+test("the one-review filter only sends its exact count when selected", () => {
+  assert.deepEqual(completedReviewCountQueryArgs(false), {});
+  assert.deepEqual(completedReviewCountQueryArgs(true), { completedReviewCount: 1 });
 });
 
 test("short tags replace the AI sentences in the list", () => {
   assert.equal(aiStateTag(undefined), null);
   assert.equal(aiStateTag("disabled"), null);
-  assert.equal(aiStateTag("running"), "AI preparing");
-  assert.equal(aiStateTag("succeeded"), "AI ready");
-  assert.equal(aiStateTag("stale"), "AI out of date");
-  assert.equal(aiStateTag("failed"), "AI unavailable");
+  assert.deepEqual(aiStateTag("running"), {
+    text: "Idea agent · Preparing",
+    tone: "neutral",
+  });
+  assert.deepEqual(aiStateTag("succeeded", "accept"), {
+    text: "Idea agent · Accept",
+    tone: "accept",
+  });
+  assert.deepEqual(aiStateTag("succeeded", "waitlist"), {
+    text: "Idea agent · Waitlist",
+    tone: "waitlist",
+  });
+  assert.deepEqual(aiStateTag("succeeded", "decline"), {
+    text: "Idea agent · Do not select",
+    tone: "decline",
+  });
+  assert.deepEqual(aiStateTag("stale"), {
+    text: "Idea agent · Out of date",
+    tone: "neutral",
+  });
+  assert.deepEqual(aiStateTag("failed"), {
+    text: "Idea agent · Unavailable",
+    tone: "neutral",
+  });
 });
 
 test("a reviewer sees what they said and where to go next", () => {
@@ -171,23 +228,70 @@ test("bulk assignment reports what landed and what did not", () => {
   );
 });
 
-test("coordinators can pull out the rows nobody is on, and read reviewer workload at a glance", () => {
+test("review assignment copy keeps every submitted application version visible", () => {
+  const assignments = [
+    { applicationContentVersion: 1, state: "completed" as const },
+    { applicationContentVersion: 2, state: "active" as const },
+    { applicationContentVersion: 2, state: "cancelled" as const },
+  ];
+
   assert.equal(
-    needsAssignment({ completedReviewCount: 0, assignedReviewCount: 0, minimumHumanReviews: 2 }),
+    reviewAssignmentSummary(assignments, 2),
+    "1 reviewer assigned to application version 2 still owes a review.",
+  );
+  assert.equal(
+    reviewAssignmentStatusLine(assignments[0]!, 2),
+    "Review submitted on application version 1",
+  );
+  assert.equal(
+    reviewAssignmentStatusLine(assignments[1]!, 2),
+    "Review due on application version 2 (current)",
+  );
+  assert.equal(
+    reviewAssignmentStatusLine(assignments[2]!, 2),
+    "Assignment cancelled on application version 2 (current)",
+  );
+  assert.equal(
+    reviewAssignmentSummary([{ applicationContentVersion: 1, state: "completed" }], 2),
+    "No one is assigned to application version 2.",
+  );
+  assert.equal(
+    reviewAssignmentSummary([{ applicationContentVersion: 2, state: "completed" }], 2),
+    "Every review assigned on application version 2 has been submitted.",
+  );
+});
+
+test("unfinished reviews stay prioritized even while assigned", () => {
+  assert.equal(
+    needsReview({ completedReviewCount: 0, minimumHumanReviews: 2 }),
     true,
   );
   assert.equal(
-    needsAssignment({ completedReviewCount: 1, assignedReviewCount: 0, minimumHumanReviews: 2 }),
+    needsReview({ completedReviewCount: 1, minimumHumanReviews: 2 }),
     true,
   );
+  const claimed = {
+    assignedReviewCount: 1,
+    completedReviewCount: 0,
+    minimumHumanReviews: 2,
+  };
+  assert.equal(needsReview(claimed), true);
   assert.equal(
-    needsAssignment({ completedReviewCount: 0, assignedReviewCount: 1, minimumHumanReviews: 2 }),
+    needsReview({ completedReviewCount: 2, minimumHumanReviews: 2 }),
     false,
   );
-  assert.equal(
-    needsAssignment({ completedReviewCount: 2, assignedReviewCount: 0, minimumHumanReviews: 2 }),
-    false,
+  const prioritized = prioritizeReviewQueue([
+    { id: "done", completedReviewCount: 2, minimumHumanReviews: 2, submittedAt: 1 },
+    { id: "claimed", completedReviewCount: 0, minimumHumanReviews: 2, submittedAt: 3 },
+    { id: "partly-reviewed", completedReviewCount: 1, minimumHumanReviews: 2, submittedAt: 2 },
+  ]);
+  assert.deepEqual(
+    prioritized.map((application) => application.id),
+    ["claimed", "partly-reviewed", "done"],
   );
+});
+
+test("reviewer workload is readable at a glance", () => {
   assert.equal(reviewerWorkloadLabel({ active: 4, completed: 2 }), "4 open");
   assert.equal(reviewerWorkloadLabel({ active: 0, completed: 7 }), "7 done");
   assert.equal(

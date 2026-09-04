@@ -76,6 +76,7 @@ const teamView = v.object({
   currentMembershipId: v.id("eventMemberships"),
   currentRole: memberRole,
   canLeave: v.boolean(),
+  canRename: v.boolean(),
   canManageMembers: v.boolean(),
   canTransferLeadership: v.boolean(),
   canRespondToLeadershipTransfer: v.boolean(),
@@ -194,6 +195,9 @@ export const current = query({
       }),
     ]);
     const rosterCounts = teamRosterCounts(team);
+    const membershipEditableUntil = applicationsCloseAtFor(event, membership.participantClass);
+    const membershipEditable =
+      event.status === "registration_open" && Date.now() < membershipEditableUntil;
     if (rosterCounts.activeMemberCount > participantPolicy.normalized.teamMaximumSize) {
       throw new Error("A team exceeds the published participant-policy maximum size.");
     }
@@ -213,7 +217,7 @@ export const current = query({
       publicCode: team.publicCode,
       status: team.status,
       membershipLocked: team.membershipLocked,
-      membershipEditableUntil: applicationsCloseAtFor(event, membership.participantClass),
+      membershipEditableUntil,
       teamMinimumSize: participantPolicy.normalized.teamMinimumSize,
       teamMaximumSize: participantPolicy.normalized.teamMaximumSize,
       mixedParticipantClassesAllowed: participantPolicy.normalized.mixedParticipantClassesAllowed,
@@ -222,6 +226,7 @@ export const current = query({
       currentMembershipId: membership._id,
       currentRole: currentMember.role,
       canLeave: leaveGrantIds.length > 0,
+      canRename: membershipEditable && manageMemberGrantIds.length > 0,
       canManageMembers: manageMemberGrantIds.length > 0,
       canTransferLeadership: transferLeadershipGrantIds.length > 0,
       canRespondToLeadershipTransfer: acceptLeadershipGrantIds.length > 0,
@@ -1186,6 +1191,117 @@ export const acceptAssignedTeam = mutation({
         : "Participant accepted their imported team assignment",
     });
     return result;
+  },
+});
+
+export const rename = mutation({
+  args: {
+    eventSlug: v.string(),
+    teamId: v.id("teams"),
+    name: v.string(),
+    expectedTeamVersion: v.number(),
+    clientOperationId: v.string(),
+  },
+  returns: v.object({ teamId: v.id("teams") }),
+  handler: async (ctx, args) => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const name = normalizedText(args.name, "Team name", 2, 60);
+    const requestFingerprint = operationFingerprint([
+      args.teamId,
+      name,
+      args.expectedTeamVersion,
+    ]);
+    const replayTeamId = await existingOperationTeam(
+      ctx,
+      event._id,
+      person._id,
+      args.clientOperationId,
+      "team.rename",
+      requestFingerprint,
+    );
+    if (replayTeamId) return { teamId: replayTeamId };
+
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    const membership = await requireMembership(ctx, event._id, person._id);
+    requireRegistrationOpen(event, membership.participantClass);
+    const team = await ctx.db.get(args.teamId);
+    if (!team || team.eventId !== event._id) {
+      throw new ConvexError({ code: "TEAM_NOT_FOUND", message: "That team is not available." });
+    }
+    if (team.version !== args.expectedTeamVersion) {
+      throw new ConvexError({
+        code: "TEAM_CHANGED",
+        message: "The team changed. Review it and try again.",
+      });
+    }
+    const grantIds = await requirePermission(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey: "team.members.manage",
+      scopeType: "team",
+      scopeId: team._id,
+    });
+    if (name === team.name) {
+      await recordOperation(ctx, {
+        eventId: event._id,
+        actorPersonId: person._id,
+        clientOperationId: args.clientOperationId,
+        commandName: "team.rename",
+        requestFingerprint,
+        targetType: "team",
+        targetId: team._id,
+        createdAt: Date.now(),
+      });
+      return { teamId: team._id };
+    }
+
+    const now = Date.now();
+    await ctx.db.patch(team._id, {
+      name,
+      version: team.version + 1,
+      updatedAt: now,
+    });
+    await cancelPendingLeadershipTransfers(ctx, {
+      teamId: team._id,
+      decidedByPersonId: person._id,
+      decidedAt: now,
+    });
+    await refreshSubmittedApplicationRoster(ctx, {
+      event,
+      teamId: team._id,
+      actorPersonId: person._id,
+      actorMembershipId: membership._id,
+      authorizingGrantIds: grantIds,
+      clientOperationId: args.clientOperationId,
+      requestFingerprint,
+      now,
+    });
+    await recordOperation(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      clientOperationId: args.clientOperationId,
+      commandName: "team.rename",
+      requestFingerprint,
+      targetType: "team",
+      targetId: team._id,
+      createdAt: now,
+    });
+    await writeAuditEvent(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      permissionKey: "team.members.manage",
+      grantIds,
+      scopeType: "team",
+      scopeId: team._id,
+      action: "team.renamed",
+      targetType: "team",
+      targetId: team._id,
+      previousSummary: JSON.stringify({ name: team.name }),
+      nextSummary: JSON.stringify({ name }),
+      reason: "Authorised team manager renamed the team",
+    });
+    return { teamId: team._id };
   },
 });
 

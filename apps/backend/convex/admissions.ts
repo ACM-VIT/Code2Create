@@ -1,5 +1,6 @@
 import { paginationOptsValidator, paginationResultValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
+import { paginator } from "convex-helpers/server/pagination";
 import { z } from "zod";
 
 import { internal } from "./_generated/api";
@@ -34,12 +35,15 @@ import {
   enqueueApplicationNotifications,
 } from "./lib/participantNotificationDelivery";
 import { maximumApplicantTeamsPerEvent } from "./lib/reviewLimits";
+import { synchronizeTeamAdmissionIdeaComparison } from "./lib/noveltyIndex";
+import { teamMatchesOrigin, type ExclusiveTeamOrigin } from "./lib/teamRoster";
 import {
   normalizeEmail,
   normalizedLongText,
   normalizedText,
   optionalNormalizedText,
 } from "./lib/strings";
+import schema from "./schema";
 import {
   admissionAiDisposition,
   admissionDecision,
@@ -67,15 +71,37 @@ const listItem = v.object({
   minimumHumanReviews: v.number(),
   submittedAt: v.number(),
   aiState: v.optional(admissionRecommendationState),
+  aiRecommendation: v.optional(admissionDecision),
   assignedReviewCount: v.number(),
   completedReviewCount: v.number(),
   version: v.number(),
 });
 
 const maximumScopedApplicationsForStageCounts = 2_000;
-const maximumCountedReviewAssignments = 500;
 const maximumWorkloadAssignments = 4_000;
 const maximumApplicationSearchResults = 100;
+const maximumAdmissionPageSize = 100;
+export const admissionReviewClaimMs = 30 * 60 * 1_000;
+const admissionTeamOrigin = v.union(v.literal("internal"), v.literal("external"));
+
+function requireAdmissionPageSize(numItems: number) {
+  if (!Number.isSafeInteger(numItems) || numItems < 1 || numItems > maximumAdmissionPageSize) {
+    throw new ConvexError({
+      code: "INVALID_PAGINATION",
+      message: `Admission pages support 1 through ${maximumAdmissionPageSize} items.`,
+    });
+  }
+}
+
+async function applicationMatchesOrigin(
+  ctx: QueryCtx,
+  application: Doc<"applications">,
+  origin: ExclusiveTeamOrigin | undefined,
+) {
+  if (origin === undefined) return true;
+  const team = await ctx.db.get(application.teamId);
+  return team !== null && teamMatchesOrigin(team, origin);
+}
 
 async function rosterCohort(ctx: QueryCtx, project: Doc<"projectVersions">) {
   const members = await ctx.db
@@ -92,7 +118,11 @@ async function rosterCohort(ctx: QueryCtx, project: Doc<"projectVersions">) {
 
 /** Returns stage counts only for applications covered by the caller's grants. */
 export const stageCounts = query({
-  args: { eventSlug: v.string() },
+  args: {
+    eventSlug: v.string(),
+    origin: v.optional(admissionTeamOrigin),
+    completedReviewCount: v.optional(v.literal(1)),
+  },
   returns: v.array(v.object({ state: applicationState, count: v.number() })),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
@@ -113,6 +143,13 @@ export const stageCounts = query({
         : await scopedApplicationsForStageCounts(ctx, event._id, subject._id);
     const counts = new Map<Doc<"applications">["state"], number>();
     for (const application of applications) {
+      if (!(await applicationMatchesOrigin(ctx, application, args.origin))) continue;
+      if (
+        args.completedReviewCount !== undefined &&
+        application.completedReviewCount !== args.completedReviewCount
+      ) {
+        continue;
+      }
       counts.set(application.state, (counts.get(application.state) ?? 0) + 1);
     }
     return [...counts.entries()].map(([state, count]) => ({ state, count }));
@@ -474,7 +511,14 @@ async function applicationListProjection(
     memberCount: project.lockedMemberCount,
     minimumHumanReviews: policy.minimumHumanReviews,
     submittedAt: application.submittedAt,
-    ...(recommendation ? { aiState: recommendation.state } : {}),
+    ...(recommendation
+      ? {
+          aiState: recommendation.state,
+          ...(recommendation.state === "succeeded" && recommendation.recommendation !== undefined
+            ? { aiRecommendation: recommendation.recommendation }
+            : {}),
+        }
+      : {}),
     assignedReviewCount: application.assignedReviewCount,
     completedReviewCount: application.completedReviewCount,
     version: application.version,
@@ -503,6 +547,9 @@ export const list = query({
   args: {
     eventSlug: v.string(),
     state: v.optional(applicationState),
+    origin: v.optional(admissionTeamOrigin),
+    completedReviewCount: v.optional(v.literal(1)),
+    needsReview: v.optional(v.literal(true)),
     paginationOpts: paginationOptsValidator,
   },
   returns: paginationResultValidator(listItem),
@@ -510,14 +557,56 @@ export const list = query({
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
-    const page = await ctx.db
+    requireAdmissionPageSize(args.paginationOpts.numItems);
+    if (args.origin !== undefined || args.needsReview) {
+      return paginator(ctx.db, schema)
+        .query("applications")
+        .withIndex("by_event_state_submitted", (index) => {
+          const eventIndex = index.eq("eventId", event._id);
+          return args.state ? eventIndex.eq("state", args.state) : eventIndex;
+        })
+        .order("asc")
+        .map(async (application) => {
+          if (
+            args.completedReviewCount !== undefined &&
+            application.completedReviewCount !== args.completedReviewCount
+          ) {
+            return null;
+          }
+          if (!(await applicationMatchesOrigin(ctx, application, args.origin))) return null;
+          const projected = await visibleApplicationListProjection(
+            ctx,
+            event._id,
+            subject._id,
+            application,
+          );
+          if (
+            args.needsReview &&
+            projected &&
+            projected.completedReviewCount >= projected.minimumHumanReviews
+          ) {
+            return null;
+          }
+          return projected;
+        })
+        .paginate({
+          ...args.paginationOpts,
+          maximumRowsRead: maximumApplicantTeamsPerEvent + 1,
+        });
+    }
+    const applicationQuery = ctx.db
       .query("applications")
       .withIndex("by_event_state_submitted", (index) => {
         const eventIndex = index.eq("eventId", event._id);
         return args.state ? eventIndex.eq("state", args.state) : eventIndex;
       })
-      .order("asc")
-      .paginate(args.paginationOpts);
+      .order("asc");
+    const page = await (args.completedReviewCount === undefined
+      ? applicationQuery
+      : applicationQuery.filter((filter) =>
+          filter.eq(filter.field("completedReviewCount"), args.completedReviewCount),
+        )
+    ).paginate(args.paginationOpts);
     const visible = [];
     for (const application of page.page) {
       const item = await visibleApplicationListProjection(
@@ -537,6 +626,9 @@ export const searchApplications = query({
     eventSlug: v.string(),
     state: applicationState,
     search: v.string(),
+    origin: v.optional(admissionTeamOrigin),
+    completedReviewCount: v.optional(v.literal(1)),
+    needsReview: v.optional(v.literal(true)),
   },
   returns: v.object({
     applications: v.array(listItem),
@@ -580,16 +672,29 @@ export const searchApplications = query({
       applications
         .filter(
           (application) =>
-            readableScopeIds === null || readableScopeIds.has(application._id),
+            (readableScopeIds === null || readableScopeIds.has(application._id)) &&
+            (args.completedReviewCount === undefined ||
+              application.completedReviewCount === args.completedReviewCount),
         )
-        .map(async (application) => ({
-          application,
-          team: await ctx.db.get(application.teamId),
-        })),
+        .map(async (application) => {
+          const [team, policy] = await Promise.all([
+            ctx.db.get(application.teamId),
+            args.needsReview
+              ? ctx.db.get(application.admissionPolicyVersionId)
+              : Promise.resolve(null),
+          ]);
+          return { application, team, policy };
+        }),
     );
     const matches = candidates
-      .flatMap(({ application, team }) => {
-        if (!team || !searchTerms.every((term) => team.name.toLowerCase().includes(term))) {
+      .flatMap(({ application, team, policy }) => {
+        if (
+          !team ||
+          !searchTerms.every((term) => team.name.toLowerCase().includes(term)) ||
+          (args.origin !== undefined && !teamMatchesOrigin(team, args.origin)) ||
+          (args.needsReview &&
+            (!policy || application.completedReviewCount >= policy.minimumHumanReviews))
+        ) {
           return [];
         }
         return [{ application, teamName: team.name }];
@@ -602,7 +707,12 @@ export const searchApplications = query({
     const projected = [];
     for (const { application } of applicationsToProject) {
       const item = await applicationListProjection(ctx, event._id, subject._id, application);
-      if (item) projected.push(item);
+      if (
+        item &&
+        (!args.needsReview || item.completedReviewCount < item.minimumHumanReviews)
+      ) {
+        projected.push(item);
+      }
     }
     return {
       applications: projected,
@@ -616,6 +726,7 @@ const assignedReviewItem = v.object({
   assignmentState: admissionReviewAssignmentState,
   assignmentVersion: v.number(),
   assignedAt: v.number(),
+  claimExpiresAt: v.optional(v.number()),
   applicationId: v.id("applications"),
   applicationState,
   applicationVersion: v.number(),
@@ -623,13 +734,121 @@ const assignedReviewItem = v.object({
   cohort: v.optional(rosterCohortView),
   memberCount: v.number(),
   aiState: v.optional(admissionRecommendationState),
+  aiRecommendation: v.optional(admissionDecision),
   ownRecommendation: v.optional(admissionDecision),
 });
+
+const reviewAssignmentCountRow = v.object({
+  state: v.union(v.literal("active"), v.literal("completed")),
+});
+
+async function visibleReviewAssignmentApplication(
+  ctx: QueryCtx,
+  eventId: Id<"events">,
+  eventAccessSubjectId: Id<"eventAccessSubjects">,
+  assignment: Doc<"admissionReviewAssignments">,
+  origin: ExclusiveTeamOrigin | undefined,
+) {
+  const application = await ctx.db.get(assignment.applicationId);
+  if (!application || application.eventId !== eventId) return null;
+  if (
+    assignment.state === "active" &&
+    assignment.assignedAt + admissionReviewClaimMs <= Date.now()
+  ) {
+    return null;
+  }
+  if (!(await applicationMatchesOrigin(ctx, application, origin))) return null;
+  const reviewReadGrantIds = await matchingPermissionGrantIds(ctx, {
+    eventId,
+    eventAccessSubjectId,
+    permissionKey: "application.review.read",
+    scopeType: "application",
+    scopeId: application._id,
+  });
+  return reviewReadGrantIds.length > 0 ? application : null;
+}
+
+async function visibleReviewAssignmentProjection(
+  ctx: QueryCtx,
+  eventId: Id<"events">,
+  eventAccessSubjectId: Id<"eventAccessSubjects">,
+  reviewerPersonId: Id<"people">,
+  assignment: Doc<"admissionReviewAssignments">,
+  origin: ExclusiveTeamOrigin | undefined,
+) {
+  const application = await visibleReviewAssignmentApplication(
+    ctx,
+    eventId,
+    eventAccessSubjectId,
+    assignment,
+    origin,
+  );
+  if (!application) return null;
+  const [team, project, profileGrantIds, aiGrantIds, ownReview] = await Promise.all([
+    ctx.db.get(application.teamId),
+    ctx.db.get(application.submittedProjectVersionId),
+    matchingPermissionGrantIds(ctx, {
+      eventId,
+      eventAccessSubjectId,
+      permissionKey: "application.profile_context.read",
+      scopeType: "application",
+      scopeId: application._id,
+    }),
+    matchingPermissionGrantIds(ctx, {
+      eventId,
+      eventAccessSubjectId,
+      permissionKey: "application.ai_recommendation.read",
+      scopeType: "application",
+      scopeId: application._id,
+    }),
+    ctx.db
+      .query("admissionHumanReviews")
+      .withIndex("by_application_reviewer_status", (index) =>
+        index
+          .eq("applicationId", application._id)
+          .eq("reviewerPersonId", reviewerPersonId)
+          .eq("status", "active"),
+      )
+      .unique(),
+  ]);
+  if (!team || !project) return null;
+  const recommendation =
+    aiGrantIds.length > 0 && application.aiRecommendationId
+      ? await ctx.db.get(application.aiRecommendationId)
+      : null;
+  return {
+    assignmentId: assignment._id,
+    assignmentState: assignment.state,
+    assignmentVersion: assignment.version,
+    assignedAt: assignment.assignedAt,
+    ...(assignment.state === "active"
+      ? { claimExpiresAt: assignment.assignedAt + admissionReviewClaimMs }
+      : {}),
+    applicationId: application._id,
+    applicationState: application.state,
+    applicationVersion: application.version,
+    teamName: team.name,
+    ...(profileGrantIds.length > 0 ? { cohort: await rosterCohort(ctx, project) } : {}),
+    memberCount: project.lockedMemberCount,
+    ...(recommendation
+      ? {
+          aiState: recommendation.state,
+          ...(recommendation.state === "succeeded" && recommendation.recommendation !== undefined
+            ? { aiRecommendation: recommendation.recommendation }
+            : {}),
+        }
+      : {}),
+    ...(ownReview?.applicationContentVersion === application.contentVersion
+      ? { ownRecommendation: ownReview.recommendation }
+      : {}),
+  };
+}
 
 export const myReviewAssignments = query({
   args: {
     eventSlug: v.string(),
     state: admissionReviewAssignmentState,
+    origin: v.optional(admissionTeamOrigin),
     paginationOpts: paginationOptsValidator,
   },
   returns: paginationResultValidator(assignedReviewItem),
@@ -637,6 +856,30 @@ export const myReviewAssignments = query({
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
+    requireAdmissionPageSize(args.paginationOpts.numItems);
+    if (args.origin !== undefined) {
+      const origin = args.origin;
+      return paginator(ctx.db, schema)
+        .query("admissionReviewAssignments")
+        .withIndex("by_event_reviewer_state_assigned", (index) =>
+          index.eq("eventId", event._id).eq("reviewerPersonId", person._id).eq("state", args.state),
+        )
+        .order("desc")
+        .map((assignment) =>
+          visibleReviewAssignmentProjection(
+            ctx,
+            event._id,
+            subject._id,
+            person._id,
+            assignment,
+            origin,
+          ),
+        )
+        .paginate({
+          ...args.paginationOpts,
+          maximumRowsRead: maximumWorkloadAssignments + 1,
+        });
+    }
     const page = await ctx.db
       .query("admissionReviewAssignments")
       .withIndex("by_event_reviewer_state_assigned", (index) =>
@@ -646,87 +889,53 @@ export const myReviewAssignments = query({
       .paginate(args.paginationOpts);
     const visible = [];
     for (const assignment of page.page) {
-      const application = await ctx.db.get(assignment.applicationId);
-      if (!application || application.eventId !== event._id) continue;
-      const reviewReadGrantIds = await matchingPermissionGrantIds(ctx, {
-        eventId: event._id,
-        eventAccessSubjectId: subject._id,
-        permissionKey: "application.review.read",
-        scopeType: "application",
-        scopeId: application._id,
-      });
-      if (reviewReadGrantIds.length === 0) continue;
-      const [team, project, profileGrantIds, aiGrantIds, ownReview] = await Promise.all([
-        ctx.db.get(application.teamId),
-        ctx.db.get(application.submittedProjectVersionId),
-        matchingPermissionGrantIds(ctx, {
-          eventId: event._id,
-          eventAccessSubjectId: subject._id,
-          permissionKey: "application.profile_context.read",
-          scopeType: "application",
-          scopeId: application._id,
-        }),
-        matchingPermissionGrantIds(ctx, {
-          eventId: event._id,
-          eventAccessSubjectId: subject._id,
-          permissionKey: "application.ai_recommendation.read",
-          scopeType: "application",
-          scopeId: application._id,
-        }),
-        ctx.db
-          .query("admissionHumanReviews")
-          .withIndex("by_application_reviewer_status", (index) =>
-            index
-              .eq("applicationId", application._id)
-              .eq("reviewerPersonId", person._id)
-              .eq("status", "active"),
-          )
-          .unique(),
-      ]);
-      if (!team || !project) continue;
-      const recommendation =
-        aiGrantIds.length > 0 && application.aiRecommendationId
-          ? await ctx.db.get(application.aiRecommendationId)
-          : null;
-      visible.push({
-        assignmentId: assignment._id,
-        assignmentState: assignment.state,
-        assignmentVersion: assignment.version,
-        assignedAt: assignment.assignedAt,
-        applicationId: application._id,
-        applicationState: application.state,
-        applicationVersion: application.version,
-        teamName: team.name,
-        ...(profileGrantIds.length > 0 ? { cohort: await rosterCohort(ctx, project) } : {}),
-        memberCount: project.lockedMemberCount,
-        ...(recommendation ? { aiState: recommendation.state } : {}),
-        ...(ownReview?.applicationContentVersion === application.contentVersion
-          ? { ownRecommendation: ownReview.recommendation }
-          : {}),
-      });
+      const item = await visibleReviewAssignmentProjection(
+        ctx,
+        event._id,
+        subject._id,
+        person._id,
+        assignment,
+        undefined,
+      );
+      if (item) visible.push(item);
     }
     return { ...page, page: visible };
   },
 });
 
-/** How much review work the caller has, so the queue can say it before the page loads. */
-export const myReviewAssignmentCounts = query({
-  args: { eventSlug: v.string() },
-  returns: v.object({ active: v.number(), completed: v.number() }),
+/** Pages the caller's workload so the client can derive exact totals without a read ceiling. */
+export const myReviewAssignmentCountRows = query({
+  args: {
+    eventSlug: v.string(),
+    origin: v.optional(admissionTeamOrigin),
+    paginationOpts: paginationOptsValidator,
+  },
+  returns: paginationResultValidator(reviewAssignmentCountRow),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
-    await requireEventSubject(ctx, event._id, person._id);
-    const count = async (state: "active" | "completed") => {
-      const rows = await ctx.db
-        .query("admissionReviewAssignments")
-        .withIndex("by_event_reviewer_state_assigned", (index) =>
-          index.eq("eventId", event._id).eq("reviewerPersonId", person._id).eq("state", state),
-        )
-        .take(maximumCountedReviewAssignments);
-      return rows.length;
-    };
-    return { active: await count("active"), completed: await count("completed") };
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    requireAdmissionPageSize(args.paginationOpts.numItems);
+    const page = await ctx.db
+      .query("admissionReviewAssignments")
+      .withIndex("by_event_reviewer_state_assigned", (index) =>
+        index.eq("eventId", event._id).eq("reviewerPersonId", person._id),
+      )
+      .paginate(args.paginationOpts);
+    const visible = [];
+    for (const assignment of page.page) {
+      if (assignment.state === "cancelled") continue;
+      const application = await visibleReviewAssignmentApplication(
+        ctx,
+        event._id,
+        subject._id,
+        assignment,
+        args.origin,
+      );
+      if (!application) continue;
+      visible.push({ state: assignment.state });
+    }
+    return { ...page, page: visible };
   },
 });
 
@@ -809,6 +1018,8 @@ const reviewAssignmentView = v.object({
   id: v.id("admissionReviewAssignments"),
   reviewerName: v.string(),
   reviewerEmail: v.string(),
+  applicationContentVersion: v.number(),
+  evidenceAvailable: v.boolean(),
   state: admissionReviewAssignmentState,
   version: v.number(),
   assignedAt: v.number(),
@@ -1171,6 +1382,9 @@ export const detail = query({
         id: assignment._id,
         reviewerName: reviewer.displayName,
         reviewerEmail: reviewerSubject.emailNormalized,
+        applicationContentVersion: assignment.applicationContentVersion,
+        evidenceAvailable:
+          canReadApplication || assignment.reviewerPersonId === person._id,
         state: assignment.state,
         version: assignment.version,
         assignedAt: assignment.assignedAt,
@@ -1295,6 +1509,150 @@ export const detail = query({
         offerManage: offerGrantIds.length > 0,
         participantDeliveryRead,
       },
+    };
+  },
+});
+
+const reviewAssignmentEvidenceView = v.object({
+  applicationContentVersion: v.number(),
+  project: v.object({
+    id: v.id("projectVersions"),
+    version: v.number(),
+    initialIdea: v.string(),
+    additionalInformation: v.optional(v.string()),
+    intakeResponses: v.array(
+      v.object({
+        ordinal: v.number(),
+        question: v.string(),
+        answer: v.string(),
+      }),
+    ),
+  }),
+  review: v.union(
+    v.null(),
+    v.object({
+      id: v.id("admissionHumanReviews"),
+      recommendation: admissionDecision,
+      reasonCode: v.string(),
+      note: v.optional(v.string()),
+      createdAt: v.number(),
+    }),
+  ),
+});
+
+export const reviewAssignmentEvidence = query({
+  args: {
+    eventSlug: v.string(),
+    applicationId: v.id("applications"),
+    assignmentId: v.id("admissionReviewAssignments"),
+  },
+  returns: reviewAssignmentEvidenceView,
+  handler: async (ctx, args) => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    const [application, assignment] = await Promise.all([
+      ctx.db.get(args.applicationId),
+      ctx.db.get(args.assignmentId),
+    ]);
+    if (
+      !application ||
+      application.eventId !== event._id ||
+      !assignment ||
+      assignment.eventId !== event._id ||
+      assignment.applicationId !== application._id
+    ) {
+      throw new ConvexError({
+        code: "APPLICATION_REVIEW_ASSIGNMENT_NOT_FOUND",
+        message: "That review assignment is unavailable.",
+      });
+    }
+    const [fullReadGrantIds, reviewReadGrantIds] = await Promise.all([
+      matchingPermissionGrantIds(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: subject._id,
+        permissionKey: "application.read",
+        scopeType: "application",
+        scopeId: application._id,
+      }),
+      matchingPermissionGrantIds(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: subject._id,
+        permissionKey: "application.review.read",
+        scopeType: "application",
+        scopeId: application._id,
+      }),
+    ]);
+    const canReadEvidence =
+      fullReadGrantIds.length > 0 ||
+      (reviewReadGrantIds.length > 0 && assignment.reviewerPersonId === person._id);
+    if (!canReadEvidence) {
+      throw new ConvexError({
+        code: "ACCESS_DENIED",
+        message: "This account cannot read that historical review.",
+      });
+    }
+
+    const currentProject = await ctx.db.get(application.submittedProjectVersionId);
+    if (
+      !currentProject ||
+      currentProject.eventId !== event._id ||
+      currentProject.teamId !== application.teamId
+    ) {
+      throw new Error("The current submitted project snapshot is missing.");
+    }
+    const projectVersion =
+      currentProject.version -
+      (application.contentVersion - assignment.applicationContentVersion);
+    if (projectVersion < 1 || assignment.applicationContentVersion > application.contentVersion) {
+      throw new Error("The assignment references an invalid application-content version.");
+    }
+    const [project, review] = await Promise.all([
+      ctx.db
+        .query("projectVersions")
+        .withIndex("by_team_version", (index) =>
+          index.eq("teamId", application.teamId).eq("version", projectVersion),
+        )
+        .unique(),
+      ctx.db
+        .query("admissionHumanReviews")
+        .withIndex("by_application_reviewer_content_version", (index) =>
+          index
+            .eq("applicationId", application._id)
+            .eq("reviewerPersonId", assignment.reviewerPersonId)
+            .eq("applicationContentVersion", assignment.applicationContentVersion),
+        )
+        .order("desc")
+        .first(),
+    ]);
+    if (!project || project.eventId !== event._id) {
+      throw new Error("The historical submitted project snapshot is missing.");
+    }
+
+    return {
+      applicationContentVersion: assignment.applicationContentVersion,
+      project: {
+        id: project._id,
+        version: project.version,
+        initialIdea: project.initialIdea,
+        ...(project.additionalInformation !== undefined
+          ? { additionalInformation: project.additionalInformation }
+          : {}),
+        intakeResponses: project.intakeResponses.map((response) => ({
+          ordinal: response.ordinal,
+          question: response.question,
+          answer: response.answer,
+        })),
+      },
+      review: review
+        ? {
+            id: review._id,
+            recommendation: review.recommendation,
+            reasonCode: review.reasonCode,
+            ...(review.note !== undefined ? { note: review.note } : {}),
+            createdAt: review.createdAt,
+          }
+        : null,
     };
   },
 });
@@ -1554,6 +1912,67 @@ export async function cancelAdmissionReviewAssignment(
     applicationVersion,
   };
 }
+
+const expiredReviewAssignmentBatchSize = 50;
+const expiredReviewAssignmentReason =
+  "The 30-minute review claim expired before a review was submitted.";
+
+export const expireReviewAssignments = internalMutation({
+  args: {},
+  returns: v.null(),
+  handler: async (ctx): Promise<null> => {
+    const now = Date.now();
+    const assignments = await ctx.db
+      .query("admissionReviewAssignments")
+      .withIndex("by_state_assigned", (index) =>
+        index.eq("state", "active").lte("assignedAt", now - admissionReviewClaimMs),
+      )
+      .take(expiredReviewAssignmentBatchSize);
+    for (const assignment of assignments) {
+      const application = await ctx.db.get(assignment.applicationId);
+      if (!application || application.eventId !== assignment.eventId) {
+        throw new Error("The expiring review assignment context is missing.");
+      }
+      const result = await cancelAdmissionReviewAssignment(ctx, {
+        application,
+        expectedApplicationVersion: application.version,
+        assignment,
+        expectedAssignmentVersion: assignment.version,
+        cancelledByPersonId: assignment.assignedByPersonId,
+        reason: expiredReviewAssignmentReason,
+        now,
+      });
+      await writeAuditEvent(ctx, {
+        eventId: assignment.eventId,
+        actorPersonId: assignment.assignedByPersonId,
+        permissionKey: "application.assign",
+        grantIds: [],
+        scopeType: "application",
+        scopeId: application._id,
+        action: "admission.review_assignment_expired",
+        targetType: "application",
+        targetId: application._id,
+        previousSummary: JSON.stringify({
+          assignmentId: assignment._id,
+          reviewerPersonId: assignment.reviewerPersonId,
+          state: assignment.state,
+          assignmentVersion: assignment.version,
+        }),
+        nextSummary: JSON.stringify({
+          assignmentId: assignment._id,
+          state: "cancelled",
+          assignmentVersion: result.assignmentVersion,
+          applicationVersion: result.applicationVersion,
+        }),
+        reason: expiredReviewAssignmentReason,
+      });
+    }
+    if (assignments.length === expiredReviewAssignmentBatchSize) {
+      await ctx.scheduler.runAfter(0, internal.admissions.expireReviewAssignments, {});
+    }
+    return null;
+  },
+});
 
 export async function completeAdmissionReviewAssignment(
   ctx: MutationCtx,
@@ -1852,6 +2271,15 @@ export async function saveAdmissionHumanReview(
   ]);
   const replacesCurrentReview =
     activeReview?.applicationContentVersion === args.application.contentVersion;
+  if (
+    activeAssignment &&
+    activeAssignment.assignedAt + admissionReviewClaimMs <= args.now
+  ) {
+    throw new ConvexError({
+      code: "REVIEW_ASSIGNMENT_EXPIRED",
+      message: "This 30-minute review assignment expired. Ask a coordinator to assign it again.",
+    });
+  }
   if (activeReview) await ctx.db.patch(activeReview._id, { status: "superseded" });
   const note = optionalNormalizedText(args.note, "Review note", 600);
   const reviewReasonCode = await requirePolicyReason(
@@ -1985,7 +2413,16 @@ export const saveReview = mutation({
 });
 
 const rerunnableAdmissionRecommendationStates = new Set<Doc<"admissionAIRecommendations">["state"]>(
-  ["refused", "invalid", "timed_out", "rate_limited", "failed", "stale", "disabled"],
+  [
+    "succeeded",
+    "refused",
+    "invalid",
+    "timed_out",
+    "rate_limited",
+    "failed",
+    "stale",
+    "disabled",
+  ],
 );
 
 export function admissionRecommendationCanRerun(
@@ -2825,6 +3262,10 @@ export const finalizeReleasedAdmissionResults = internalMutation({
           releasedAt: args.releasedAt,
           version: application.version + 1,
         });
+        await synchronizeTeamAdmissionIdeaComparison(ctx, {
+          eventId: application.eventId,
+          teamId: application.teamId,
+        });
         continue;
       }
       const decision = application.humanDecision;
@@ -2851,6 +3292,10 @@ export const finalizeReleasedAdmissionResults = internalMutation({
         releasedByPersonId: args.releasedByPersonId,
         releasedAt: args.releasedAt,
         version: applicationVersion,
+      });
+      await synchronizeTeamAdmissionIdeaComparison(ctx, {
+        eventId: application.eventId,
+        teamId: application.teamId,
       });
       if (decision === "accept") {
         await ctx.db.patch(team._id, {

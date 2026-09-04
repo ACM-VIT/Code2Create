@@ -26,8 +26,6 @@ export type ReviewTileModel = {
   available: boolean;
   queue: {
     round: string;
-    /** The participant-facing state label. */
-    state: string;
     /** The team's one-based position while queued. */
     rank: number | null;
   } | null;

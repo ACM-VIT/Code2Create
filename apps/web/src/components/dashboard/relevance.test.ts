@@ -8,7 +8,7 @@ const now = 1_000_000;
 const quiet: DashboardModels = {
   event: { phases: [{ key: "build", name: "Build", startsAt: now - 1, endsAt: now + 10 * 60 * 60_000 }], now, timezone: "UTC" },
   music: { eligible: true, suspended: false, window: null, nowPlaying: null, queue: [], search: async () => [], request: async () => ({ created: true }), toggleVote: async () => {} },
-  integrations: { available: true, github: { connected: false, detail: "" }, figma: { connected: false, detail: "" }, open: () => {} },
+  integrations: { available: true, github: { connected: false, detail: "", repositories: [] }, figma: { connected: false, detail: "" }, open: () => {} },
   updates: { available: true, checkpoints: [], timezone: "UTC", write: () => {} },
   review: {
     available: true,
@@ -33,7 +33,7 @@ test("an open review round outranks everything and an empty perk list makes way"
     ...quiet,
     review: {
       ...quiet.review,
-      queue: { round: "R1", state: "In queue", rank: 3 },
+      queue: { round: "R1", rank: 3 },
       showCode: { sessionId: "review-session", mint: async () => ({ payload: "", manualCode: "", expiresAt: 0, serverNow: 0 }) },
     },
     music: { ...quiet.music, window: { name: "w", endsAt: now + 1, requestsOpen: true, votingOpen: true, playbackPaused: false, requestsUsed: 0, requestsAllowed: 5, votesUsed: 0, votesAllowed: 10 } },

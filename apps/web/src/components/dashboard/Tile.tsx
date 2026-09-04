@@ -1,11 +1,18 @@
-import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  type KeyboardEvent,
+  type MouseEvent,
+  type ReactNode,
+  type UIEvent,
+} from "react";
 
 import { slotAreaClass, type Slot } from "./dashboardLayout";
 
 /**
- * One glass tile on the bento. Tapping the card (anywhere that is not a
- * control) toggles it; most tiles answer in place, and `expanded` is the one
- * case where the card has taken the big slot and a corner control releases it.
+ * One glass tile on the bento. Tiles with `onToggle` respond when the card is
+ * activated anywhere outside a nested control. `expanded` is the one case
+ * where the card has taken the big slot and a corner control releases it.
  */
 export function Tile({
   slot,
@@ -20,18 +27,32 @@ export function Tile({
   slot: Slot;
   open?: boolean;
   expanded?: boolean;
-  onToggle: () => void;
+  onToggle?: () => void;
   onRelease?: () => void;
   backdrop?: ReactNode;
   className?: string;
   children: ReactNode;
 }) {
-  const tappable = !expanded;
+  const scrollingTimer = useRef<number | null>(null);
+  useEffect(() => () => {
+    if (scrollingTimer.current !== null) window.clearTimeout(scrollingTimer.current);
+  }, []);
+  const onScroll = (event: UIEvent<HTMLDivElement>) => {
+    const container = event.currentTarget;
+    container.dataset.scrolling = "true";
+    if (scrollingTimer.current !== null) window.clearTimeout(scrollingTimer.current);
+    scrollingTimer.current = window.setTimeout(() => {
+      delete container.dataset.scrolling;
+      scrollingTimer.current = null;
+    }, 650);
+  };
+
+  const tappable = !expanded && onToggle !== undefined;
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (!tappable || event.target !== event.currentTarget) return;
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
-    onToggle();
+    onToggle?.();
   };
   const onClick = (event: MouseEvent<HTMLDivElement>) => {
     if (!tappable) return;
@@ -41,7 +62,7 @@ export function Tile({
     ) {
       return;
     }
-    onToggle();
+    onToggle?.();
   };
   const lit = open || expanded;
   return (
@@ -56,10 +77,17 @@ export function Tile({
       style={{ viewTransitionName: `dash-${slot}` }}
       {...(tappable
         ? { role: "button", tabIndex: 0, onClick, onKeyDown, "aria-expanded": lit }
-        : { "aria-expanded": true })}
+        : expanded
+          ? { "aria-expanded": true }
+          : {})}
     >
       {backdrop}
-      <div className="relative flex min-h-0 flex-1 flex-col [container-type:size]">{children}</div>
+      <div
+        onScroll={onScroll}
+        className="dashboard-tile-scroll relative flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto [container-type:size]"
+      >
+        {children}
+      </div>
       {expanded && onRelease ? (
         <button
           type="button"

@@ -15,6 +15,7 @@ import type * as accessSubjects from "../accessSubjects.js";
 import type * as admissionAgentActions from "../admissionAgentActions.js";
 import type * as admissionAgentHttp from "../admissionAgentHttp.js";
 import type * as admissionCohort from "../admissionCohort.js";
+import type * as admissionIdeaSimilarity from "../admissionIdeaSimilarity.js";
 import type * as admissionIntelligence from "../admissionIntelligence.js";
 import type * as admissionPolicyConfiguration from "../admissionPolicyConfiguration.js";
 import type * as admissions from "../admissions.js";
@@ -94,6 +95,7 @@ import type * as lib_cloudflareEmailSending from "../lib/cloudflareEmailSending.
 import type * as lib_communicationsPolicy from "../lib/communicationsPolicy.js";
 import type * as lib_configurationOperationResult from "../lib/configurationOperationResult.js";
 import type * as lib_csv from "../lib/csv.js";
+import type * as lib_emailTemplateBundle from "../lib/emailTemplateBundle.js";
 import type * as lib_emergencyPack from "../lib/emergencyPack.js";
 import type * as lib_eventLifecycle from "../lib/eventLifecycle.js";
 import type * as lib_events from "../lib/events.js";
@@ -291,6 +293,7 @@ declare const fullApi: ApiFromModules<{
   admissionAgentActions: typeof admissionAgentActions;
   admissionAgentHttp: typeof admissionAgentHttp;
   admissionCohort: typeof admissionCohort;
+  admissionIdeaSimilarity: typeof admissionIdeaSimilarity;
   admissionIntelligence: typeof admissionIntelligence;
   admissionPolicyConfiguration: typeof admissionPolicyConfiguration;
   admissions: typeof admissions;
@@ -370,6 +373,7 @@ declare const fullApi: ApiFromModules<{
   "lib/communicationsPolicy": typeof lib_communicationsPolicy;
   "lib/configurationOperationResult": typeof lib_configurationOperationResult;
   "lib/csv": typeof lib_csv;
+  "lib/emailTemplateBundle": typeof lib_emailTemplateBundle;
   "lib/emergencyPack": typeof lib_emergencyPack;
   "lib/eventLifecycle": typeof lib_eventLifecycle;
   "lib/events": typeof lib_events;

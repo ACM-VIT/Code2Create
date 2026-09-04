@@ -1,7 +1,6 @@
 import {
   defaultVitHostelResidenceCatalog,
   findVitHostelResidenceCatalogEntry,
-  participantProfileCodeConfiguration,
   type VitHostelResidenceCatalogEntry,
   type VitHostelResidenceKind,
 } from "@code2create/domain";
@@ -27,6 +26,7 @@ export const participantPolicyInput = v.object({
   teamMinimumSize: v.number(),
   teamMaximumSize: v.number(),
   mixedParticipantClassesAllowed: v.boolean(),
+  phoneVerificationEnabled: v.boolean(),
   vitHostelResidenceCatalog: v.array(vitHostelResidenceCatalogEntry),
   profileNotice: v.string(),
   projectTextNotice: v.string(),
@@ -40,6 +40,7 @@ export type ParticipantPolicy = {
   teamMinimumSize: number;
   teamMaximumSize: number;
   mixedParticipantClassesAllowed: boolean;
+  phoneVerificationEnabled: boolean;
   vitHostelResidenceCatalog: VitHostelResidenceCatalogEntry[];
   profileNotice: string;
   projectTextNotice: string;
@@ -56,6 +57,7 @@ export const defaultParticipantPolicy: ParticipantPolicy = {
   teamMinimumSize: 2,
   teamMaximumSize: 5,
   mixedParticipantClassesAllowed: false,
+  phoneVerificationEnabled: false,
   vitHostelResidenceCatalog: defaultVitHostelResidenceCatalog,
   profileNotice: "We use these details to run Code2Create.",
   projectTextNotice: "We may process submissions with AI tools to help us review.",
@@ -163,6 +165,7 @@ export function normalizeParticipantPolicy(input: ParticipantPolicy): Participan
     teamMinimumSize,
     teamMaximumSize,
     mixedParticipantClassesAllowed: false,
+    phoneVerificationEnabled: input.phoneVerificationEnabled,
     vitHostelResidenceCatalog: normalizeVitHostelResidenceCatalog(input.vitHostelResidenceCatalog),
     profileNotice: normalizedLongText(input.profileNotice, "Profile notice", 20, 600),
     projectTextNotice: normalizedLongText(input.projectTextNotice, "Project-text notice", 20, 800),
@@ -200,6 +203,7 @@ export function participantPolicyFromDocument(
     teamMinimumSize: policy.teamMinimumSize,
     teamMaximumSize: policy.teamMaximumSize,
     mixedParticipantClassesAllowed: policy.mixedParticipantClassesAllowed,
+    phoneVerificationEnabled: policy.phoneVerificationEnabled,
     vitHostelResidenceCatalog: policy.vitHostelResidenceCatalog,
     profileNotice: policy.profileNotice,
     projectTextNotice: policy.projectTextNotice,
@@ -332,7 +336,7 @@ function hostelDetailsComplete(
   return residence.kind === expectedKind && profile.vitHostelRoomNumber !== undefined;
 }
 
-export function isProfileCompleteForPolicy(
+export function isProfileDetailsCompleteForPolicy(
   profile: Doc<"participantProfiles"> | null,
   membership: Doc<"eventMemberships">,
   policy: Doc<"participantPolicyVersions">,
@@ -343,9 +347,7 @@ export function isProfileCompleteForPolicy(
     profile.participantClass !== membership.participantClass ||
     profile.fullName.length === 0 ||
     profile.institution.length === 0 ||
-    profile.phone.length === 0 ||
-    (participantProfileCodeConfiguration.phoneVerificationEnabled &&
-      (profile.phoneVerifiedAt === undefined || profile.phoneVerifiedAt <= 0))
+    profile.phone.length === 0
   ) {
     return false;
   }
@@ -361,6 +363,18 @@ export function isProfileCompleteForPolicy(
     profile.yearOfStudy !== "not_applicable" &&
     profile.externalUniversity !== undefined &&
     profile.externalCollege !== undefined
+  );
+}
+
+export function isProfileCompleteForPolicy(
+  profile: Doc<"participantProfiles"> | null,
+  membership: Doc<"eventMemberships">,
+  policy: Doc<"participantPolicyVersions">,
+) {
+  return (
+    isProfileDetailsCompleteForPolicy(profile, membership, policy) &&
+    (!policy.phoneVerificationEnabled ||
+      (profile?.phoneVerifiedAt !== undefined && profile.phoneVerifiedAt > 0))
   );
 }
 

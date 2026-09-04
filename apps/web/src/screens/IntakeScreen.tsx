@@ -69,9 +69,12 @@ import { useDeadlineReached } from "../lib/useDeadlineReached";
 import {
   normalizedIdeaLength,
   useNoveltyPreview,
+} from "../hooks/useNoveltyPreview";
+import {
   type NoveltyBand,
   type NoveltyState,
-} from "../hooks/useNoveltyPreview";
+  visibleNoveltySignal,
+} from "../lib/noveltyPreview";
 import type { CurrentIntake, CurrentTeam, CurrentTeamMember, SubmissionPreview } from "../types";
 
 const additionalInformationLabel = "Additional information or links (optional, please no PPTs)";
@@ -90,7 +93,8 @@ type IntakeOperationResult =
   | FunctionReturnType<typeof api.intake.reviseFollowUp>
   | FunctionReturnType<typeof api.intake.saveAdditionalInformation>
   | FunctionReturnType<typeof api.intake.setFreshnessAttestation>
-  | FunctionReturnType<typeof api.intake.submit>;
+  | FunctionReturnType<typeof api.intake.submit>
+  | FunctionReturnType<typeof api.intake.completeSubmittedRevision>;
 
 type PendingFollowUp = {
   questionId: string;
@@ -396,6 +400,7 @@ function IntakeWorkspace({
   const saveAdditionalInformation = useMutation(api.intake.saveAdditionalInformation);
   const setFreshness = useMutation(api.intake.setFreshnessAttestation);
   const submitApplication = useMutation(api.intake.submit);
+  const completeSubmittedRevision = useMutation(api.intake.completeSubmittedRevision);
   const opening = useQuery(api.intake.opening, { eventSlug });
   const preview = useQuery(
     api.intake.submissionPreview,
@@ -456,6 +461,7 @@ function IntakeWorkspace({
   const commandInFlight = useRef(false);
   const applicationsClosed = useDeadlineReached(serverNow, intake.applicationsCloseAt);
   const applicationsOpen = !applicationsClosed;
+  const submittedRevision = intake.application !== null;
   const operations = useOperationRunner<IntakeOperationResult>();
   const { capture } = useProductAnalytics();
   const ideaEditorOpen = !draft || draft.stage === "opening" || editingIdea;
@@ -1214,7 +1220,11 @@ function IntakeWorkspace({
           : freshnessPending
             ? { kind: "freshness", slot: "freshness", action: "Confirm answer" }
             : submitPending
-              ? { kind: "submit", slot: "final-submit", action: "Confirm submission" }
+              ? {
+                  kind: "submit",
+                  slot: "final-submit",
+                  action: submittedRevision ? "Confirm revision" : "Confirm submission",
+                }
               : null;
 
   const clearPendingOperation = (operation: PendingIntakeOperation) => {
@@ -1513,7 +1523,7 @@ function IntakeWorkspace({
               >
                 {peeked ? (
                   <>
-                    <span className="mt-1 block text-[13px] leading-relaxed whitespace-pre-line wrap-anywhere text-fg/85">
+                    <span className="mt-1 line-clamp-4 text-[13px] leading-relaxed whitespace-pre-line wrap-anywhere text-fg/85">
                       {followUp.answer}
                     </span>
                     <span className="mt-1.5 block text-[11px] text-fg/55">
@@ -1553,6 +1563,11 @@ function IntakeWorkspace({
                     );
                   }}
                 />
+              ) : null}
+              {/* The question rides with the editor too: on a short screen the
+                  pile above can push the heading out of view while typing. */}
+              {activeFollowUp ? (
+                <p className="m-0 mb-3 text-[13px] leading-relaxed text-fg/70">{activeFollowUp.question}</p>
               ) : null}
               <PortalTextarea
                 key={activeFollowUp?.id ?? "cooking"}
@@ -1923,7 +1938,7 @@ function IntakeWorkspace({
           members={members}
           teamEditable={teamEditable}
           onSignOut={onSignOut}
-          title="Ready to submit?"
+          title={submittedRevision ? "Ready to save this revision?" : "Ready to submit?"}
           width="max-w-[600px]"
           titleClass="lg:text-[42px]"
           branch
@@ -2052,7 +2067,7 @@ function IntakeWorkspace({
                     aria-hidden
                     className="size-1.5 animate-dot-pulse rounded-full bg-rose-light"
                   />
-                  Confirming your team and answers
+                  {submittedRevision ? "Saving your revised answers" : "Confirming your team and answers"}
                 </p>
               ) : (
                 <PortalTextButton
@@ -2071,24 +2086,34 @@ function IntakeWorkspace({
                 onClick={() => {
                   if (submissionInProgress) return;
                   void run(async () => {
-                    markSubmissionCelebration();
+                    if (!submittedRevision) markSubmissionCelebration();
                     try {
                       await operations.run(
                         "final-submit",
                         (clientOperationId) => () =>
-                          submitApplication({
-                            eventSlug,
-                            expectedDraftVersion: preview.draftVersion,
-                            expectedTeamVersion: preview.teamVersion,
-                            participantPolicyVersionId: preview.participantPolicyVersionId,
-                            clientOperationId,
-                          }),
+                          submittedRevision
+                            ? completeSubmittedRevision({
+                                eventSlug,
+                                expectedDraftVersion: preview.draftVersion,
+                                expectedTeamVersion: preview.teamVersion,
+                                clientOperationId,
+                              })
+                            : submitApplication({
+                                eventSlug,
+                                expectedDraftVersion: preview.draftVersion,
+                                expectedTeamVersion: preview.teamVersion,
+                                participantPolicyVersionId: preview.participantPolicyVersionId,
+                                clientOperationId,
+                              }),
                       );
-                      capture("c2c_application_submitted", {
+                      capture(
+                        submittedRevision ? "c2c_application_revision_saved" : "c2c_application_submitted",
+                        {
                         c2c_team_size: preview.members.length,
-                      });
+                        },
+                      );
                     } catch (caught) {
-                      if (!operations.hasPending("final-submit")) {
+                      if (!submittedRevision && !operations.hasPending("final-submit")) {
                         clearSubmissionCelebration();
                       }
                       if (isIntakeCollaborationConflict(caught)) {
@@ -2101,7 +2126,13 @@ function IntakeWorkspace({
                   });
                 }}
               >
-                {busy || submissionInProgress ? "Submitting…" : "Submit"}
+                {busy || submissionInProgress
+                  ? submittedRevision
+                    ? "Saving…"
+                    : "Submitting…"
+                  : submittedRevision
+                    ? "Save revision"
+                    : "Submit"}
               </PortalButton>
             </div>
           </PetalCard>
@@ -2136,11 +2167,7 @@ function IntakeWorkspace({
 
           <PetalCard className="px-6 py-2 sm:px-8">
             {novelty !== null ? (
-              <NoveltyReviewRow
-                score={savedNoveltyScore}
-                band={savedNoveltyBand}
-                checking={savedNoveltyScore === null && noveltyState.status === "checking"}
-              />
+              <NoveltyReviewRow state={noveltyState} />
             ) : null}
             <AccordionRoot allowMultiple value={openSections} onValueChange={setOpenSections}>
               <AccordionItem value={ideaSectionId}>
@@ -2334,7 +2361,7 @@ function IntakeWorkspace({
               }
               onClick={() => setConfirming(true)}
             >
-              Continue to submit
+              {submittedRevision ? "Continue to save revision" : "Continue to submit"}
             </PortalButton>
           </div>
         </div>
@@ -2465,14 +2492,13 @@ function NoveltyHelp({
 }
 
 export function NoveltyReviewRow({
-  score,
-  band,
-  checking = false,
+  state,
 }: {
-  score: number | null;
-  band: NoveltyBand | null;
-  checking?: boolean;
+  state: NoveltyState;
 }) {
+  const signal = visibleNoveltySignal(state);
+  const score = signal?.score ?? null;
+  const band = signal?.band ?? null;
   return (
     <div className="border-b border-petal-line pt-4 pb-4">
       <div className="flex items-center justify-between gap-3">
@@ -2482,7 +2508,7 @@ export function NoveltyReviewRow({
           aria-live="polite"
         >
           {score === null
-            ? checking
+            ? state.status === "checking"
               ? "Checking"
               : "Preparing score"
             : `${score} / 100${band === null ? "" : ` · ${noveltyBandLabels[band]}`}`}

@@ -255,7 +255,7 @@ az monitor scheduled-query create \
   --name "c2c-production-container-errors" \
   --scopes "${C2C_WORKSPACE_ID}" \
   --condition "count 'errors' > 5" \
-  --condition-query errors='C2CContainerLog_CL | where Log has_any ("ERROR", "FATAL", "PANIC")' \
+  --condition-query errors='C2CContainerLog_CL | where (Log contains "ERROR" and Log !contains "Caught occ error") or Log contains "FATAL" or Log contains "PANIC"' \
   --window-size 5m \
   --evaluation-frequency 5m \
   --severity 2 \
