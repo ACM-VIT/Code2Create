@@ -43,7 +43,7 @@ type ReviewAssignmentEvidenceData = FunctionReturnType<
 >;
 type AiDisposition = AdmissionAiDisposition;
 
-export function AdmissionDetail() {
+export function AdmissionDetail({ accountEmail }: { accountEmail: string }) {
   const { applicationId } = useParams();
   const detail = useQuery(
     api.admissions.detail,
@@ -234,7 +234,11 @@ export function AdmissionDetail() {
             {canReview && reviewOpen ? <ReviewForm detail={detail} /> : null}
             {offerActionable ? <OfferControl detail={detail} /> : null}
             {canManageAssignments ? (
-              <ReviewAssignmentControl key={detail.application.id} detail={detail} />
+              <ReviewAssignmentControl
+                key={detail.application.id}
+                detail={detail}
+                accountEmail={accountEmail}
+              />
             ) : null}
             {canReadDelivery ? (
               <ParticipantDeliveryStatus
@@ -569,7 +573,13 @@ function HumanReviews({
   );
 }
 
-function ReviewAssignmentControl({ detail }: { detail: AdmissionDetailData }) {
+function ReviewAssignmentControl({
+  detail,
+  accountEmail,
+}: {
+  detail: AdmissionDetailData;
+  accountEmail: string;
+}) {
   const assignReview = useMutation(api.admissions.assignReview);
   const cancelAssignment = useMutation(api.admissions.cancelReviewAssignment);
   const operations = useOperationRunner();
@@ -577,7 +587,7 @@ function ReviewAssignmentControl({ detail }: { detail: AdmissionDetailData }) {
   const [cancelTargetId, setCancelTargetId] = useState<string | null>(null);
   const [evidenceTargetId, setEvidenceTargetId] = useState<ReviewAssignment["id"] | null>(null);
   const [cancelReason, setCancelReason] = useState("");
-  const [busy, setBusy] = useState<"assign" | "cancel" | null>(null);
+  const [busy, setBusy] = useState<"assign" | "self-assign" | "cancel" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const assignments = detail.reviewAssignments ?? [];
   const cancelTarget = assignments.find((assignment) => assignment.id === cancelTargetId);
@@ -592,14 +602,13 @@ function ReviewAssignmentControl({ detail }: { detail: AdmissionDetailData }) {
       : "skip",
   );
 
-  const assign = async (event: SubmitEvent) => {
-    event.preventDefault();
-    const normalizedEmail = reviewerEmail.trim().toLowerCase();
-    if (!operations.hasPending("assign") && !normalizedEmail) return;
-    setBusy("assign");
+  const assign = async (email: string, slot: "assign" | "self-assign") => {
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!operations.hasPending(slot) && !normalizedEmail) return;
+    setBusy(slot);
     setError(null);
     try {
-      await operations.run("assign", (clientOperationId) => {
+      await operations.run(slot, (clientOperationId) => {
         const command = {
           eventSlug,
           applicationId: detail.application.id,
@@ -609,7 +618,7 @@ function ReviewAssignmentControl({ detail }: { detail: AdmissionDetailData }) {
         };
         return () => assignReview(command);
       });
-      setReviewerEmail("");
+      if (slot === "assign") setReviewerEmail("");
     } catch (caught) {
       setError(readableError(caught));
     } finally {
@@ -658,13 +667,28 @@ function ReviewAssignmentControl({ detail }: { detail: AdmissionDetailData }) {
   });
   const assignPending = operations.hasPending("assign");
   const cancelPending = operations.hasPending("cancel");
-  const operationPending = assignPending || cancelPending;
+  const selfAssignPending = operations.hasPending("self-assign");
+  const operationPending = assignPending || selfAssignPending || cancelPending;
+  const ownEmail = accountEmail.trim().toLowerCase();
+  const alreadyAssigned = assignments.some(
+    (assignment) =>
+      assignment.reviewerEmail === ownEmail &&
+      assignment.applicationContentVersion === currentContentVersion &&
+      assignment.state !== "cancelled",
+  );
 
   return (
     <section className="detail-section command-section">
       <h2>Review assignments</h2>
       <p className="muted">{reviewAssignmentSummary(assignments, currentContentVersion)}</p>
-      <form className="command-form compact-command" onSubmit={assign}>
+      <form
+        className="command-form"
+        noValidate={assignPending}
+        onSubmit={(event) => {
+          event.preventDefault();
+          void assign(reviewerEmail, "assign");
+        }}
+      >
         <Field label={`Reviewer Google email for application version ${currentContentVersion}`}>
           <input
             required
@@ -674,17 +698,43 @@ function ReviewAssignmentControl({ detail }: { detail: AdmissionDetailData }) {
             onChange={(event) => setReviewerEmail(event.target.value)}
           />
         </Field>
-        <button
-          className="secondary"
-          type="submit"
-          disabled={busy !== null || cancelPending || (!assignPending && !reviewerEmail.trim())}
-        >
-          {busy === "assign"
-            ? "Assigning…"
-            : assignPending
-              ? "Confirm earlier assignment"
-              : "Assign review"}
-        </button>
+        <div className="button-row">
+          <button
+            className="secondary"
+            type="submit"
+            disabled={
+              busy !== null ||
+              selfAssignPending ||
+              cancelPending ||
+              (!assignPending && !reviewerEmail.trim())
+            }
+          >
+            {busy === "assign"
+              ? "Assigning…"
+              : assignPending
+                ? "Confirm earlier assignment"
+                : "Assign review"}
+          </button>
+          <button
+            className="secondary"
+            type="button"
+            disabled={
+              busy !== null ||
+              assignPending ||
+              cancelPending ||
+              (!selfAssignPending && (!ownEmail || alreadyAssigned))
+            }
+            onClick={() => void assign(ownEmail, "self-assign")}
+          >
+            {busy === "self-assign"
+              ? "Assigning…"
+              : selfAssignPending
+                ? "Confirm self-assignment"
+                : alreadyAssigned
+                  ? "Assigned to you"
+                  : "Assign to me"}
+          </button>
+        </div>
       </form>
       {ordered.length > 0 ? (
         <ul className="review-list assignment-list">
@@ -744,6 +794,7 @@ function ReviewAssignmentControl({ detail }: { detail: AdmissionDetailData }) {
                     disabled={
                       busy !== null ||
                       assignPending ||
+                      selfAssignPending ||
                       (!cancelPending && cancelReason.trim().length < 3)
                     }
                   >

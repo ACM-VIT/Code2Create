@@ -480,7 +480,10 @@ function Operations({
             />
           ) : null}
           {canViewAdmissions ? (
-            <Route path="/admissions/:applicationId" element={<AdmissionDetail />} />
+            <Route
+              path="/admissions/:applicationId"
+              element={<AdmissionDetail accountEmail={session?.user.email ?? ""} />}
+            />
           ) : null}
           {configurationPath ? (
             <Route
