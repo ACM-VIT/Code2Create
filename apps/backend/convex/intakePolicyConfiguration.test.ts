@@ -13,7 +13,12 @@ import {
   saveIntakePolicyDraft,
   type IntakePolicy,
 } from "./lib/intakePolicy.ts";
-import { ideaQuestionEndToEndDeadlineMs } from "./lib/ideaSubmissionAi.ts";
+import {
+  ideaQuestionAbsoluteMaximumCharacters,
+  ideaQuestionEndToEndDeadlineMs,
+  ideaQuestionMaximumOutputTokens,
+  ideaQuestionTargetMaximumCharacters,
+} from "./lib/ideaSubmissionAi.ts";
 import { replaceCurrentIntakeQuestions } from "./lib/intakeQuestions.ts";
 import schema from "./schema.ts";
 
@@ -289,7 +294,31 @@ describe("intake policy configuration", () => {
     let requestCount = 0;
     vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
       expect(String(input)).toBe("https://api.openai.com/v1/responses");
-      expect(String(init?.body)).toContain('"strict":true');
+      const body = JSON.parse(String(init?.body));
+      expect(body).toMatchObject({
+        reasoning: { effort: "low" },
+        max_output_tokens: ideaQuestionMaximumOutputTokens,
+        text: {
+          verbosity: "low",
+          format: {
+            strict: true,
+            schema: {
+              properties: {
+                nextQuestion: {
+                  properties: {
+                    text: {
+                      maxLength: ideaQuestionAbsoluteMaximumCharacters,
+                      description: expect.stringContaining(
+                        `${ideaQuestionTargetMaximumCharacters} characters`,
+                      ),
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
       expect(String(init?.body)).not.toContain("groundingTerms");
       requestCount += 1;
       const firstRequest = requestCount === 1;
@@ -420,6 +449,39 @@ describe("intake policy configuration", () => {
     expect(interpretation).toMatchObject({
       state: "failed",
       failureCategory: "provider_request_failed",
+    });
+  });
+
+  test("an incomplete provider response is never published as a generated question", async () => {
+    const backend = createBackend();
+    const fixture = await seedFixture(backend, "assisted");
+    await answerFixedQuestions(backend, fixture);
+    vi.stubEnv("OPENAI_API_KEY", "intake-provider-test-key");
+    vi.stubGlobal("fetch", async () =>
+      openAiResponse('{"nextQuestion":{"text":"What happens when', "incomplete"),
+    );
+
+    await backend.action(internal.intelligenceActions.interpretIdea, {
+      draftId: fixture.projectDraftId,
+    });
+
+    const result = await backend.run(async (ctx) => ({
+      questions: await ctx.db
+        .query("intakeGeneratedQuestions")
+        .withIndex("by_draft_ordinal", (index) => index.eq("draftId", fixture.projectDraftId))
+        .collect(),
+      interpretation: await ctx.db
+        .query("intakeInterpretations")
+        .withIndex("by_draft_created", (index) => index.eq("draftId", fixture.projectDraftId))
+        .order("desc")
+        .first(),
+    }));
+
+    expect(result.questions).toHaveLength(3);
+    expect(result.questions.at(-1)).toMatchObject({ ordinal: 3, source: "fallback" });
+    expect(result.interpretation).toMatchObject({
+      state: "failed",
+      failureCategory: "provider_response_incomplete_max_output_tokens",
     });
   });
 
@@ -739,15 +801,15 @@ function policyWithHelp(initialHelpText: string): IntakePolicy {
   return { ...defaultDeterministicIntakePolicy, initialHelpText };
 }
 
-function openAiResponse(outputText: string) {
+function openAiResponse(outputText: string, status: "completed" | "incomplete" = "completed") {
   return new Response(
     JSON.stringify({
       id: "resp_intake_test",
       object: "response",
       created_at: 1,
-      status: "completed",
+      status,
       error: null,
-      incomplete_details: null,
+      incomplete_details: status === "incomplete" ? { reason: "max_output_tokens" } : null,
       instructions: null,
       max_output_tokens: 500,
       model: "intake-test-model",

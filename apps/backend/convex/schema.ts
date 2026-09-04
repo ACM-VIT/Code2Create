@@ -1192,6 +1192,16 @@ export default defineSchema({
     .index("by_threadId_and_state_and_updatedAt", ["threadId", "state", "updatedAt"])
     .index("by_threadId_and_updatedAt", ["threadId", "updatedAt"]),
 
+  participantServiceQueueEntries: defineTable({
+    eventId: v.id("events"),
+    membershipId: v.id("eventMemberships"),
+    personId: v.id("people"),
+    kind: v.literal("outing_permission"),
+    joinedAt: v.number(),
+  })
+    .index("by_membership_kind", ["membershipId", "kind"])
+    .index("by_event_kind_joined", ["eventId", "kind", "joinedAt"]),
+
   supportCases: defineTable({
     eventId: v.id("events"),
     publicCode: v.string(),
