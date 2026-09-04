@@ -17,6 +17,7 @@ import {
   repositoryOctokit,
   safeGitHubId,
 } from "./lib/githubClient";
+import { githubInstallationContract } from "./lib/githubInstallationContract";
 import { repositoryKind } from "./values";
 
 type SetupClaim =
@@ -190,6 +191,22 @@ export const completeConnection = action({
         throw new ConvexError({
           code: "GITHUB_INSTALLER_MISMATCH",
           message: "The selected installation does not belong to this GitHub App.",
+        });
+      }
+      const contract = githubInstallationContract({
+        permissions: verifiedInstallation.data.permissions,
+        events: verifiedInstallation.data.events,
+      });
+      if (contract.missingPermissions.length > 0) {
+        throw new ConvexError({
+          code: "GITHUB_INSTALLATION_UNDERSCOPED",
+          message: `The GitHub App installation is missing required read access: ${contract.missingPermissions.join(", ")}. Approve the updated app permissions, then connect again.`,
+        });
+      }
+      if (contract.missingEvents.length > 0) {
+        throw new ConvexError({
+          code: "GITHUB_APP_MISCONFIGURED",
+          message: `The Code2Create GitHub App is missing required webhook subscriptions: ${contract.missingEvents.join(", ")}. Ask an organizer to update the app, then connect again.`,
         });
       }
       const account = verifiedInstallation.data.account;
