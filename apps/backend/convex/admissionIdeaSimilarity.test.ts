@@ -408,44 +408,26 @@ describe("admission idea similarity boundaries", () => {
         summary: "A queue planner. Contact [email removed] and see [link removed]",
       },
     ]);
-
-    await backend.run(async (ctx) => {
-      await Promise.all(
-        fixture.duplicateOtherIdeaIds.map((ideaId) =>
-          ctx.db.patch(ideaId, {
-            comparisonScope: activeAdmissionIdeaComparisonScope(fixture.eventId),
-          }),
-        ),
-      );
-    });
-    await backend.mutation(
-      internal.admissionIdeaSimilarity.reconcileTeamComparisonScope,
-      {
-        eventId: fixture.eventId,
-        teamId: fixture.otherTeamId,
-      },
-    );
-    await backend.mutation(
-      internal.admissionIdeaSimilarity.reconcileTeamComparisonScope,
-      {
-        eventId: fixture.eventId,
-        teamId: fixture.otherTeamId,
-      },
-    );
     await expect(
-      backend.run(async (ctx) =>
-        ctx.db
-          .query("noveltyTeamIdeas")
-          .withIndex("by_event_comparison_scope", (index) =>
-            index
-              .eq("eventId", fixture.eventId)
-              .eq("comparisonScope", activeAdmissionIdeaComparisonScope(fixture.eventId)),
-          )
-          .collect(),
-      ),
-    ).resolves.toMatchObject([{ _id: fixture.otherIdeaId }]);
+      backend.query(internal.admissionIdeaSimilarity.readActiveComparisonTeamIds, {
+        eventId: fixture.eventId,
+        excludedTeamId: fixture.currentTeamId,
+      }),
+    ).resolves.toEqual([fixture.otherTeamId]);
+    await expect(
+      backend.query(internal.admissionIdeaSimilarity.readActiveComparisonTeamIds, {
+        eventId: fixture.eventId,
+        excludedTeamId: fixture.otherTeamId,
+      }),
+    ).resolves.toEqual([]);
 
     await backend.run(async (ctx) => ctx.db.patch(fixture.applicationId, { state: "declined" }));
+    await expect(
+      backend.query(internal.admissionIdeaSimilarity.readActiveComparisonTeamIds, {
+        eventId: fixture.eventId,
+        excludedTeamId: fixture.currentTeamId,
+      }),
+    ).resolves.toEqual([]);
     await expect(
       backend.query(internal.admissionIdeaSimilarity.readCurrentSubmissionMatchMetadata, {
         eventId: fixture.eventId,

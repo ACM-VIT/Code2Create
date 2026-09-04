@@ -33,6 +33,7 @@ import { redactProjectText } from "./lib/projectText";
 
 const historicalVectorLimit = 16;
 const currentSubmissionVectorLimit = 256;
+const currentSubmissionTeamBatchSize = 64;
 const maximumMatchesPerCollection = 6;
 const minimumMeaningfulSimilarity = 0.54;
 const maximumComparisonSummaryCharacters = 800;
@@ -135,6 +136,36 @@ export const readSimilarityConfiguration = internalQuery({
   },
 });
 
+export const readActiveComparisonTeamIds = internalQuery({
+  args: {
+    eventId: v.id("events"),
+    excludedTeamId: v.id("teams"),
+  },
+  returns: v.array(v.id("teams")),
+  handler: async (ctx, args) => {
+    const applications = (
+      await Promise.all(
+        (["submitted", "under_review"] as const).map((state) =>
+          ctx.db
+            .query("applications")
+            .withIndex("by_event_state_submitted", (index) =>
+              index.eq("eventId", args.eventId).eq("state", state),
+            )
+            .collect(),
+        ),
+      )
+    ).flat();
+    const teamIds: Id<"teams">[] = [];
+    const seen = new Set<Id<"teams">>();
+    for (const application of applications) {
+      if (application.teamId === args.excludedTeamId || seen.has(application.teamId)) continue;
+      seen.add(application.teamId);
+      teamIds.push(application.teamId);
+    }
+    return teamIds;
+  },
+});
+
 export const readHistoricalMatchMetadata = internalQuery({
   args: {
     eventId: v.id("events"),
@@ -218,18 +249,6 @@ export const readCurrentSubmissionMatchMetadata = internalQuery({
   },
 });
 
-export const reconcileTeamComparisonScope = internalMutation({
-  args: {
-    eventId: v.id("events"),
-    teamId: v.id("teams"),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    await synchronizeTeamAdmissionIdeaComparison(ctx, args);
-    return null;
-  },
-});
-
 export const reconcileLegacyComparisonScopes = internalMutation({
   args: { eventId: v.id("events") },
   returns: v.number(),
@@ -305,6 +324,14 @@ function orderedCurrentSubmissionMatches(
   return matches;
 }
 
+function batchesOf<T>(values: readonly T[], size: number) {
+  const batches: T[][] = [];
+  for (let index = 0; index < values.length; index += size) {
+    batches.push(values.slice(index, index + size));
+  }
+  return batches;
+}
+
 export async function searchSimilarIdeas(
   ctx: ActionCtx,
   args: { request: IdeaIntelligenceSimilarityRequest; apiKey: string },
@@ -357,14 +384,15 @@ export async function searchSimilarIdeas(
   if (!embedding || !validEmbedding(embedding)) {
     throw new Error("The similarity embedding response was invalid.");
   }
-  const configuration = await ctx.runQuery(
-    internal.admissionIdeaSimilarity.readSimilarityConfiguration,
-    { eventId: projection.eventId },
-  );
-  await ctx.runMutation(internal.admissionIdeaSimilarity.reconcileTeamComparisonScope, {
-    eventId: projection.eventId,
-    teamId: projection.teamId,
-  });
+  const [configuration, currentSubmissionTeamIds] = await Promise.all([
+    ctx.runQuery(internal.admissionIdeaSimilarity.readSimilarityConfiguration, {
+      eventId: projection.eventId,
+    }),
+    ctx.runQuery(internal.admissionIdeaSimilarity.readActiveComparisonTeamIds, {
+      eventId: projection.eventId,
+      excludedTeamId: projection.teamId,
+    }),
+  ]);
   while (
     (await ctx.runMutation(
       internal.admissionIdeaSimilarity.reconcileLegacyComparisonScopes,
@@ -374,8 +402,11 @@ export async function searchSimilarIdeas(
     // Vector search is fully consistent, so each bounded reconciliation batch
     // becomes eligible for this same comparison request immediately.
   }
-  const currentSubmissionScope = activeAdmissionIdeaComparisonScope(projection.eventId);
-  const [historicalVectorMatches, currentVectorMatches] = await Promise.all([
+  const teamIdBatches = batchesOf(
+    currentSubmissionTeamIds,
+    currentSubmissionTeamBatchSize,
+  );
+  const [historicalVectorMatches, currentVectorMatchPages] = await Promise.all([
     configuration
       ? ctx.vectorSearch("noveltyCorpusEntries", "by_corpus_embedding", {
           vector: embedding,
@@ -383,13 +414,18 @@ export async function searchSimilarIdeas(
           filter: (filter) => filter.eq("corpusVersionId", configuration.corpusVersionId),
         })
       : Promise.resolve([]),
-    ctx.vectorSearch("noveltyTeamIdeas", "by_event_embedding", {
-      vector: embedding,
-      limit: currentSubmissionVectorLimit,
-      filter: (filter) => filter.eq("comparisonScope", currentSubmissionScope),
-    }),
+    Promise.all(
+      teamIdBatches.map((teamIds) =>
+        ctx.vectorSearch("noveltyTeamIdeas", "by_event_embedding", {
+          vector: embedding,
+          limit: currentSubmissionVectorLimit,
+          filter: (filter) =>
+            filter.or(...teamIds.map((teamId) => filter.eq("teamId", teamId))),
+        }),
+      ),
+    ),
   ]);
-  const [historicalMetadataRows, currentMetadataRows] = await Promise.all([
+  const [historicalMetadataRows, currentMetadataPages] = await Promise.all([
     configuration
       ? ctx.runQuery(internal.admissionIdeaSimilarity.readHistoricalMatchMetadata, {
           eventId: projection.eventId,
@@ -397,12 +433,23 @@ export async function searchSimilarIdeas(
           entryIds: historicalVectorMatches.map((match) => match._id),
         })
       : Promise.resolve([]),
-    ctx.runQuery(internal.admissionIdeaSimilarity.readCurrentSubmissionMatchMetadata, {
-      eventId: projection.eventId,
-      excludedTeamId: projection.teamId,
-      ideaIds: currentVectorMatches.map((match) => match._id),
-    }),
+    Promise.all(
+      currentVectorMatchPages.map((matches) =>
+        ctx.runQuery(internal.admissionIdeaSimilarity.readCurrentSubmissionMatchMetadata, {
+          eventId: projection.eventId,
+          excludedTeamId: projection.teamId,
+          ideaIds: matches.map((match) => match._id),
+        }),
+      ),
+    ),
   ]);
+  const currentVectorMatches = currentVectorMatchPages
+    .flat()
+    .toSorted(
+      (left, right) =>
+        right._score - left._score || String(left._id).localeCompare(String(right._id)),
+    );
+  const currentMetadataRows = currentMetadataPages.flat();
   return {
     protocolVersion: operationsIntelligenceProtocolVersion,
     recommendationId: projection.recommendationId,
