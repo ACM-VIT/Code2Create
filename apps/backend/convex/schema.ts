@@ -5330,8 +5330,27 @@ export default defineSchema({
     score: v.number(),
     playedAt: v.number(),
   })
-    // The leaderboard: the highest rounds of one game, best first.
-    .index("by_event_game_score", ["eventId", "gameKey", "score"])
-    // One person's own rounds for that game, newest read by the same index.
+    // One person's own rounds for that game, best read from the end.
     .index("by_event_game_person", ["eventId", "gameKey", "personId", "score"]),
+
+  /**
+   * One person's best round of one game, kept alongside `gameRounds` so the
+   * leaderboard reads people directly.
+   *
+   * Ranking straight from `gameRounds` would have to walk the score index and
+   * skip repeat rows, and one person with enough high replays would crowd
+   * everyone else out of any bounded scan. A row per person per game makes the
+   * board an exact read of the first `n` rows instead.
+   */
+  gamePersonBests: defineTable({
+    eventId: v.id("events"),
+    gameKey: v.string(),
+    personId: v.id("people"),
+    bestScore: v.number(),
+    achievedAt: v.number(),
+  })
+    // The leaderboard: the best of each person, highest first.
+    .index("by_event_game_score", ["eventId", "gameKey", "bestScore"])
+    // The row to compare against when a person finishes another round.
+    .index("by_event_game_person", ["eventId", "gameKey", "personId"]),
 });

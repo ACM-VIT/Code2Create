@@ -39,13 +39,6 @@ const gameRateLimiter = new RateLimiter(components.gameRateLimiter, {
 /** How many people the board shows. */
 const leaderboardSize = 20;
 
-/**
- * How many rounds one board read walks. The scan is by descending score and
- * stops as soon as `leaderboardSize` distinct people are seen, so this only
- * binds the pathological case where a handful of people hold every top round.
- */
-const leaderboardScanLimit = 500;
-
 const leaderboardEntry = v.object({
   personId: v.id("people"),
   displayName: v.string(),
@@ -66,21 +59,19 @@ function requireGame(key: string) {
   return game;
 }
 
-/** The highest score `personId` has recorded for `gameKey`, or 0 when none. */
-async function bestScoreFor(
+/** One person's standing row for `gameKey`, or null before their first round. */
+async function personBest(
   ctx: ReadCtx,
   eventId: Id<"events">,
   gameKey: string,
   personId: Id<"people">,
 ) {
-  const best = await ctx.db
-    .query("gameRounds")
+  return await ctx.db
+    .query("gamePersonBests")
     .withIndex("by_event_game_person", (index) =>
       index.eq("eventId", eventId).eq("gameKey", gameKey).eq("personId", personId),
     )
-    .order("desc")
-    .first();
-  return best?.score ?? 0;
+    .unique();
 }
 
 /**
@@ -114,15 +105,34 @@ export const recordRound = mutation({
       });
     }
 
+    const now = Date.now();
     await ctx.db.insert("gameRounds", {
       eventId: event._id,
       gameKey: game.key,
       personId: person._id,
       membershipId: membership._id,
       score: args.score,
-      playedAt: Date.now(),
+      playedAt: now,
     });
-    return { bestScore: await bestScoreFor(ctx, event._id, game.key, person._id) };
+
+    // The standing row carries the person's best round, so the board never has
+    // to skip repeats. A round that does not beat it leaves it untouched.
+    const standing = await personBest(ctx, event._id, game.key, person._id);
+    if (!standing) {
+      await ctx.db.insert("gamePersonBests", {
+        eventId: event._id,
+        gameKey: game.key,
+        personId: person._id,
+        bestScore: args.score,
+        achievedAt: now,
+      });
+      return { bestScore: args.score };
+    }
+    if (args.score > standing.bestScore) {
+      await ctx.db.patch(standing._id, { bestScore: args.score, achievedAt: now });
+      return { bestScore: args.score };
+    }
+    return { bestScore: standing.bestScore };
   },
 });
 
@@ -144,6 +154,17 @@ export const leaderboard = query({
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const person = await findCurrentPerson(ctx);
 
+    // One row per person, so the top `leaderboardSize` rows are the top
+    // `leaderboardSize` people. No repeat rows to skip and nothing to truncate:
+    // however often one person replays, they occupy exactly one row.
+    const standings = await ctx.db
+      .query("gamePersonBests")
+      .withIndex("by_event_game_score", (index) =>
+        index.eq("eventId", event._id).eq("gameKey", game.key),
+      )
+      .order("desc")
+      .take(leaderboardSize);
+
     const entries: {
       personId: Id<"people">;
       displayName: string;
@@ -151,34 +172,22 @@ export const leaderboard = query({
       playedAt: number;
       isYou: boolean;
     }[] = [];
-    const seen = new Set<string>();
-    let scanned = 0;
-    for await (const round of ctx.db
-      .query("gameRounds")
-      .withIndex("by_event_game_score", (index) =>
-        index.eq("eventId", event._id).eq("gameKey", game.key),
-      )
-      .order("desc")) {
-      scanned += 1;
-      if (scanned > leaderboardScanLimit) break;
-      if (seen.has(round.personId)) continue;
-      seen.add(round.personId);
-      const player = await ctx.db.get(round.personId);
+    for (const standing of standings) {
+      const player = await ctx.db.get(standing.personId);
       if (!player) continue;
       entries.push({
-        personId: round.personId,
+        personId: standing.personId,
         displayName: player.displayName,
-        bestScore: round.score,
-        playedAt: round.playedAt,
-        isYou: person !== null && person._id === round.personId,
+        bestScore: standing.bestScore,
+        playedAt: standing.achievedAt,
+        isYou: person !== null && person._id === standing.personId,
       });
-      if (entries.length >= leaderboardSize) break;
     }
 
     return {
       entries,
       yourBestScore: person
-        ? await bestScoreFor(ctx, event._id, game.key, person._id)
+        ? ((await personBest(ctx, event._id, game.key, person._id))?.bestScore ?? 0)
         : 0,
     };
   },

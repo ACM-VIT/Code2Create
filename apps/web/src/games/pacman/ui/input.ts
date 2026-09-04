@@ -42,6 +42,10 @@ export function useGame() {
   const want = useRef(STOP);
   const pressed = useRef(-Infinity); // performance.now() of the last press, for TURN_BUFFER
   const go = useRef(false);
+  // Movement keys still down, oldest first: the newest is what is being asked
+  // for. A ref rather than an effect-local array so `restart` can clear it — a
+  // key still held through PLAY AGAIN would otherwise steer the fresh board.
+  const held = useRef<string[]>([]);
 
   /** Play the opening jingle; ticking starts when it ends. */
   const open = useCallback(() => {
@@ -71,26 +75,26 @@ export function useGame() {
     setStarted(false);
     want.current = STOP;
     pressed.current = -Infinity;
+    held.current.length = 0;
     go.current = false; // nothing ticks again until the play button opens the next game
   }, []);
 
   useEffect(() => {
-    const held: string[] = []; // movement keys still down, oldest first: the newest is what's being asked for
     const onKey = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement | null)?.tagName === "INPUT") return; // the volume slider owns its own arrow keys
       const k = e.key.toLowerCase();
       const d = KEYS[k];
       if (!d) return;
-      if (!held.includes(k)) held.push(k); // key repeat fires keydown over and over while held
+      if (!held.current.includes(k)) held.current.push(k); // key repeat fires keydown over and over while held
       want.current = d;
       pressed.current = performance.now();
       e.preventDefault();
     };
     const onUp = (e: KeyboardEvent) => {
-      const i = held.indexOf(e.key.toLowerCase());
-      if (i >= 0) held.splice(i, 1);
+      const i = held.current.indexOf(e.key.toLowerCase());
+      if (i >= 0) held.current.splice(i, 1);
     };
-    const onBlur = () => (held.length = 0); // a key held while the tab loses focus never fires keyup
+    const onBlur = () => (held.current.length = 0); // a key held while the tab loses focus never fires keyup
     window.addEventListener("keydown", onKey);
     window.addEventListener("keyup", onUp);
     window.addEventListener("blur", onBlur);
@@ -105,7 +109,7 @@ export function useGame() {
       // The newest press wins for TURN_BUFFER ticks — long enough to reach the corner it was meant for —
       // then whatever key is still down takes over (a held key asks for its turn at every corner).
       const asked = now - pressed.current < TURN_BUFFER * TICK_MS ? want.current
-        : held.length ? KEYS[held[held.length - 1]!]!
+        : held.current.length ? KEYS[held.current[held.current.length - 1]!]!
         : STOP;
       setGame((g) => { for (let i = 0; i < n; i++) g = tick(g, asked); return g; });
     };
