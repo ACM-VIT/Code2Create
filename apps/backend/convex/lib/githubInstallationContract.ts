@@ -3,8 +3,13 @@ const readablePermissionLevels = new Set(["read", "write", "admin"]);
 export const requiredGitHubInstallationPermissions = ["contents", "metadata"] as const;
 export const requiredGitHubInstallationEvents = ["push"] as const;
 
+type GitHubInstallationPermissions = {
+  contents?: string;
+  metadata?: string;
+};
+
 type GitHubInstallationContractInput = {
-  permissions: object;
+  permissions: GitHubInstallationPermissions;
   events: readonly string[];
 };
 
@@ -13,25 +18,25 @@ export type GitHubInstallationContractResult = {
   missingEvents: string[];
 };
 
-function grantsReadAccess(permissions: object, permission: string) {
-  const granted = Reflect.get(permissions, permission);
-  return typeof granted === "string" && readablePermissionLevels.has(granted);
+function grantsReadAccess(level: string | undefined) {
+  return level !== undefined && readablePermissionLevels.has(level);
 }
 
 export function githubInstallationContract({
   permissions,
   events,
 }: GitHubInstallationContractInput): GitHubInstallationContractResult {
-  const missingPermissions = requiredGitHubInstallationPermissions.filter(
-    (permission) => !grantsReadAccess(permissions, permission),
-  );
+  const missingPermissions = [
+    ...(grantsReadAccess(permissions.contents) ? [] : ["contents"]),
+    ...(grantsReadAccess(permissions.metadata) ? [] : ["metadata"]),
+  ];
   const grantedEvents = new Set(events);
   const missingEvents = requiredGitHubInstallationEvents.filter(
     (event) => !grantedEvents.has(event),
   );
 
   return {
-    missingPermissions: [...missingPermissions],
+    missingPermissions,
     missingEvents: [...missingEvents],
   };
 }
