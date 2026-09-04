@@ -11,17 +11,29 @@ import type {
   OutboundCallRequest,
 } from "@code2create/domain";
 
-import { outboundCallRequestSchema } from "./contracts.js";
+import {
+  outboundCallRequestSchema,
+  sarvamOutboundWebhookSchema,
+} from "./contracts.js";
 import {
   AmbiguousCallDispatchError,
-  fallbackVoiceTwiml,
-  queueTwilioCall,
-  synthesizedVoiceTwiml,
-  synthesizeSpeech,
+  outboundCallProviderOrder,
+  RejectedCallDispatchError,
+  TelephonyConfigurationError,
+  queueOutboundCall,
+  sarvamConfigured,
+  sarvamWebhookUrl,
+  sarvamWebhookEvent,
+  twilioConfigured,
   twilioStatusEvent,
+  twilioVoiceXml,
   verifyTwilioSignature,
 } from "./telephony.js";
-import type { QueuedCall, TelephonyEnvironment } from "./telephony.js";
+import type {
+  QueuedCall,
+  TelephonyEnvironment,
+  TelephonyProvider,
+} from "./telephony.js";
 
 export interface VoiceEnvironment extends TelephonyEnvironment {
   OUTBOUND_CALLS: DurableObjectNamespace;
@@ -29,13 +41,18 @@ export interface VoiceEnvironment extends TelephonyEnvironment {
   OUTBOUND_CALL_EVENT_SECRET: string;
 }
 
-type SessionPhase = "accepted" | "dispatching" | "queued" | "terminal";
+type SessionPhase =
+  | "accepted"
+  | "dispatching"
+  | "queued"
+  | "ambiguous"
+  | "terminal";
 
 type CallSession = {
   request: OutboundCallRequest;
   token: string;
   phase: SessionPhase;
-  speech: "pending" | "synthesized" | "fallback";
+  provider: TelephonyProvider | undefined;
   providerCallId: string | undefined;
   dispatchDeadlineAt: number | undefined;
   pendingEvents: OutboundCallEvent[];
@@ -45,8 +62,8 @@ type CallSession = {
 };
 
 const sessionStorageKey = "call-session";
-const audioStorageKey = "call-audio";
 const maximumRequestBytes = 16 * 1024;
+const maximumSarvamWebhookBytes = 256 * 1024;
 const signatureMaximumAgeMs = 5 * 60 * 1000;
 const callbackRetryMs = 30 * 1000;
 const providerDispatchResolutionMs = 60 * 1000;
@@ -60,13 +77,16 @@ function noStoreJson(value: NoStoreJsonBody, status = 200) {
   });
 }
 
-async function boundedBody(request: Request) {
+async function boundedBody(
+  request: Request,
+  maximumBytes = maximumRequestBytes,
+) {
   const declared = request.headers.get("content-length");
-  if (declared !== null && Number(declared) > maximumRequestBytes) {
+  if (declared !== null && Number(declared) > maximumBytes) {
     return null;
   }
   const body = await request.text();
-  return new TextEncoder().encode(body).byteLength <= maximumRequestBytes ? body : null;
+  return new TextEncoder().encode(body).byteLength <= maximumBytes ? body : null;
 }
 
 function randomToken() {
@@ -148,6 +168,10 @@ function terminalEvent(eventType: OutboundCallEventType) {
   );
 }
 
+function samePhoneNumber(left: string, right: string) {
+  return left.replaceAll(/\D/gu, "") === right.replaceAll(/\D/gu, "");
+}
+
 export class OutboundCallSession {
   private readonly state: DurableObjectState;
   private readonly environment: VoiceEnvironment;
@@ -163,16 +187,16 @@ export class OutboundCallSession {
       return this.create(request);
     }
     if (request.method === "POST" && url.pathname === "/status") {
-      return this.status(request);
+      return this.twilioStatus(request);
     }
     if (request.method === "POST" && url.pathname === "/voice") {
-      return this.voice(request, false);
+      return this.voice(request);
     }
     if (request.method === "POST" && url.pathname === "/fallback") {
-      return this.voice(request, true);
+      return this.voice(request);
     }
-    if (request.method === "GET" && url.pathname === "/audio") {
-      return this.audio(request);
+    if (request.method === "POST" && url.pathname === "/sarvam-status") {
+      return this.sarvamStatus(request);
     }
     return new Response("Not found.", { status: 404 });
   }
@@ -196,7 +220,7 @@ export class OutboundCallSession {
       }
       session = {
         ...session,
-        phase: "terminal",
+        phase: "ambiguous",
         dispatchDeadlineAt: undefined,
         pendingEvents: [
           ...session.pendingEvents,
@@ -204,6 +228,7 @@ export class OutboundCallSession {
             providerErrorCode: "provider_dispatch_ambiguous",
           }),
         ],
+        reportedEventTypes: [...session.reportedEventTypes, "call.failed"],
         updatedAt: Date.now(),
       };
       await this.state.storage.put(sessionStorageKey, session);
@@ -214,18 +239,13 @@ export class OutboundCallSession {
       return;
     }
 
-    const audio = await synthesizeSpeech(this.environment, session.request.script);
     const current = await this.state.storage.get<CallSession>(sessionStorageKey);
     if (current === undefined || current.phase !== "accepted") {
       return;
     }
-    if (audio !== null) {
-      await this.state.storage.put(audioStorageKey, audio);
-    }
     const dispatchDeadlineAt = Date.now() + providerDispatchResolutionMs;
     session = {
       ...current,
-      speech: audio ? "synthesized" : "fallback",
       phase: "dispatching",
       dispatchDeadlineAt,
       updatedAt: Date.now(),
@@ -237,10 +257,11 @@ export class OutboundCallSession {
     try {
       dispatchResult = {
         ok: true,
-        queued: await queueTwilioCall(this.environment, {
+        queued: await queueOutboundCall(this.environment, {
           deliveryId: session.request.deliveryId,
           token: session.token,
           destinationPhoneE164: session.request.destinationPhoneE164,
+          script: session.request.script,
         }),
       };
     } catch (error) {
@@ -259,6 +280,11 @@ export class OutboundCallSession {
         await this.state.storage.setAlarm(dispatchDeadlineAt);
         return;
       }
+      const providerErrorCode = dispatchResult.error instanceof RejectedCallDispatchError
+        ? `${dispatchResult.error.provider}_rejected`
+        : dispatchResult.error instanceof TelephonyConfigurationError
+          ? "telephony_not_configured"
+          : "provider_rejected";
       session = {
         ...latest,
         phase: "terminal",
@@ -266,7 +292,7 @@ export class OutboundCallSession {
         pendingEvents: [
           ...latest.pendingEvents,
           eventFor(latest, "call.failed", {
-            providerErrorCode: "provider_rejected",
+            providerErrorCode,
           }),
         ],
         reportedEventTypes: [...latest.reportedEventTypes, "call.failed"],
@@ -281,13 +307,23 @@ export class OutboundCallSession {
     if (latest === undefined) {
       return;
     }
-    if (latest.providerCallId !== undefined && latest.providerCallId !== queued.providerCallId) {
+    if (
+      latest.provider !== undefined &&
+      latest.provider !== queued.provider
+    ) {
+      throw new Error("The telephony provider changed during dispatch.");
+    }
+    if (
+      latest.providerCallId !== undefined &&
+      latest.providerCallId !== queued.providerCallId
+    ) {
       throw new Error("The telephony provider returned conflicting call IDs.");
     }
     const queuedReported = latest.reportedEventTypes.includes("call.queued");
     session = {
       ...latest,
       phase: latest.phase === "terminal" ? "terminal" : "queued",
+      provider: queued.provider,
       providerCallId: queued.providerCallId,
       dispatchDeadlineAt: undefined,
       pendingEvents: queuedReported
@@ -359,7 +395,7 @@ export class OutboundCallSession {
       request: parsed.data,
       token: randomToken(),
       phase: "accepted",
-      speech: "pending",
+      provider: undefined,
       providerCallId: undefined,
       dispatchDeadlineAt: undefined,
       pendingEvents: [],
@@ -372,16 +408,12 @@ export class OutboundCallSession {
     return noStoreJson({ accepted: true, deliveryId: session.request.deliveryId }, 202);
   }
 
-  private async voice(request: Request, forceFallback: boolean) {
+  private async voice(request: Request) {
     const session = await this.authorizedSession(request);
     if (session === null) {
       return new Response("Not found.", { status: 404 });
     }
-    const twiml =
-      !forceFallback && session.speech === "synthesized"
-        ? synthesizedVoiceTwiml(this.environment, session.request.deliveryId, session.token)
-        : fallbackVoiceTwiml(session.request.script);
-    return new Response(twiml, {
+    return new Response(twilioVoiceXml(session.request.script), {
       headers: {
         "content-type": "text/xml; charset=utf-8",
         "cache-control": "no-store",
@@ -389,24 +421,7 @@ export class OutboundCallSession {
     });
   }
 
-  private async audio(request: Request) {
-    const session = await this.authorizedSession(request);
-    if (!session || session.speech !== "synthesized") {
-      return new Response("Not found.", { status: 404 });
-    }
-    const audio = await this.state.storage.get<ArrayBuffer>(audioStorageKey);
-    if (audio === undefined) {
-      return new Response("Not found.", { status: 404 });
-    }
-    return new Response(audio, {
-      headers: {
-        "content-type": "audio/mpeg",
-        "cache-control": "private, max-age=300",
-      },
-    });
-  }
-
-  private async status(request: Request) {
+  private async twilioStatus(request: Request) {
     const session = await this.authorizedSession(request);
     if (session === null) {
       return new Response("Not found.", { status: 404 });
@@ -418,10 +433,13 @@ export class OutboundCallSession {
     const form = new URLSearchParams(body);
     const originalUrl = request.headers.get("x-c2c-original-url") ?? "";
     const signature = request.headers.get("x-twilio-signature") ?? "";
+    const authToken = this.environment.TWILIO_AUTH_TOKEN?.trim();
     if (
+      authToken === undefined ||
+      authToken.length === 0 ||
       originalUrl.length === 0 ||
       !(await verifyTwilioSignature({
-        authToken: this.environment.TWILIO_AUTH_TOKEN,
+        authToken,
         requestUrl: originalUrl,
         form,
         signature,
@@ -435,32 +453,120 @@ export class OutboundCallSession {
       providerCallId.length === 0 ||
       providerCallId.length > 128 ||
       eventType === null ||
+      (session.provider !== undefined && session.provider !== "twilio") ||
       (session.providerCallId !== undefined && session.providerCallId !== providerCallId)
     ) {
       return new Response("Invalid status.", { status: 422 });
     }
+    return this.recordProviderEvent(
+      request,
+      "twilio",
+      providerCallId,
+      eventType,
+      204,
+    );
+  }
+
+  private async sarvamStatus(request: Request) {
+    const session = await this.authorizedSession(request);
+    if (!session) return new Response("Not found.", { status: 404 });
+    const body = await boundedBody(request, maximumSarvamWebhookBytes);
+    if (body === null) return new Response("Request too large.", { status: 413 });
+    let decoded: unknown;
+    try {
+      decoded = JSON.parse(body);
+    } catch {
+      return new Response("Invalid JSON.", { status: 422 });
+    }
+    const parsed = sarvamOutboundWebhookSchema.safeParse(decoded);
+    if (!parsed.success) {
+      return new Response("Invalid callback.", { status: 422 });
+    }
+    const providerCallId = parsed.data.attempt_id;
+    const eventType = sarvamWebhookEvent(parsed.data.status);
+    const agentPhoneNumber = this.environment.SARVAM_AGENT_PHONE_NUMBER;
+    const webhookConfig = parsed.data.webhook_config;
+    const expectedWebhookUrl = sarvamWebhookUrl(
+      this.environment,
+      session.request.deliveryId,
+      session.token,
+    );
+    if (
+      !eventType ||
+      !agentPhoneNumber ||
+      parsed.data.channel_info.channel_provider.trim().toLocaleLowerCase("en") !==
+        "vobiz" ||
+      !samePhoneNumber(
+        parsed.data.channel_info.agent_phone_number,
+        agentPhoneNumber,
+      ) ||
+      (webhookConfig !== null &&
+        webhookConfig !== undefined &&
+        (webhookConfig.url !== expectedWebhookUrl ||
+          webhookConfig.metadata?.delivery_id !== session.request.deliveryId)) ||
+      (session.provider !== undefined && session.provider !== "sarvam") ||
+      (session.providerCallId !== undefined && session.providerCallId !== providerCallId)
+    ) {
+      return new Response("Invalid callback.", { status: 422 });
+    }
+    return this.recordProviderEvent(
+      request,
+      "sarvam",
+      providerCallId,
+      eventType,
+      204,
+      parsed.data.status === "failed" ? "sarvam_failed" : undefined,
+    );
+  }
+
+  private async recordProviderEvent(
+    request: Request,
+    provider: TelephonyProvider,
+    providerCallId: string,
+    eventType: OutboundCallEventType,
+    successStatus: 200 | 204,
+    providerErrorCode?: string,
+  ) {
     const current = await this.authorizedSession(request);
-    if (current === null) {
-      return new Response("Not found.", { status: 404 });
-    }
-    if (current.reportedEventTypes.includes(eventType) || current.phase === "terminal") {
-      return new Response(null, { status: 204 });
-    }
-    if (current.providerCallId !== undefined && current.providerCallId !== providerCallId) {
+    if (!current) return new Response("Not found.", { status: 404 });
+    if (
+      (current.provider !== undefined && current.provider !== provider) ||
+      current.providerCallId !== undefined &&
+      current.providerCallId !== providerCallId
+    ) {
       return new Response("Invalid status.", { status: 422 });
+    }
+    // Convex treats ambiguity as completed; only a definitive provider outcome
+    // may resolve it without reopening the delivery as active.
+    if (current.phase === "ambiguous" && !terminalEvent(eventType)) {
+      return new Response(null, { status: successStatus });
+    }
+    if (
+      (current.reportedEventTypes.includes(eventType) &&
+        current.phase !== "ambiguous") ||
+      current.phase === "terminal"
+    ) {
+      return new Response(null, { status: successStatus });
     }
     const updated: CallSession = {
       ...current,
       phase: terminalEvent(eventType) ? "terminal" : "queued",
+      provider,
       providerCallId,
       dispatchDeadlineAt: undefined,
-      pendingEvents: [...current.pendingEvents, eventFor(current, eventType, { providerCallId })],
+      pendingEvents: [
+        ...current.pendingEvents,
+        eventFor(current, eventType, {
+          providerCallId,
+          ...(providerErrorCode === undefined ? {} : { providerErrorCode }),
+        }),
+      ],
       reportedEventTypes: [...current.reportedEventTypes, eventType],
       updatedAt: Date.now(),
     };
     await this.state.storage.put(sessionStorageKey, updated);
     await this.state.storage.setAlarm(Date.now());
-    return new Response(null, { status: 204 });
+    return new Response(null, { status: successStatus });
   }
 
   private async authorizedSession(request: Request) {
@@ -487,7 +593,12 @@ async function callStub(
   args: {
     deliveryId: string;
     token?: string;
-    route: "create" | "voice" | "fallback" | "audio" | "status";
+    route:
+      | "create"
+      | "voice"
+      | "fallback"
+      | "status"
+      | "sarvam-status";
     request: Request;
     body?: string;
   },
@@ -506,7 +617,10 @@ async function callStub(
     }
   }
   if (args.body !== undefined) {
-    headers.set("content-type", "application/json");
+    headers.set(
+      "content-type",
+      args.request.headers.get("content-type") ?? "application/octet-stream",
+    );
   }
   return stub.fetch(`https://voice.internal/${args.route}`, {
     method: args.request.method,
@@ -519,19 +633,30 @@ export default {
   async fetch(request, environment) {
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/health") {
+      let primaryProvider: TelephonyProvider;
+      let fallbackProvider: TelephonyProvider;
+      try {
+        [primaryProvider, fallbackProvider] = outboundCallProviderOrder(environment);
+      } catch (error) {
+        if (!(error instanceof TelephonyConfigurationError)) throw error;
+        return noStoreJson({
+          service: "code2create-voice",
+          ok: false,
+          telephonyConfigured: false,
+          configurationError: error.message,
+        }, 503);
+      }
+      const twilioIsConfigured = twilioConfigured(environment);
+      const sarvamIsConfigured = sarvamConfigured(environment);
       return noStoreJson({
         service: "code2create-voice",
         ok: true,
-        telephonyConfigured: [
-          environment.TWILIO_ACCOUNT_SID,
-          environment.TWILIO_AUTH_TOKEN,
-          environment.TWILIO_FROM_NUMBER,
-          environment.PUBLIC_BASE_URL,
-        ].every((value) => value.length > 0),
-        speechProvider:
-          environment.SARVAM_API_KEY !== undefined && environment.SARVAM_API_KEY.length > 0
-            ? "sarvam-bulbul-v3"
-            : "twilio-say",
+        telephonyConfigured:
+          twilioIsConfigured || sarvamIsConfigured,
+        primaryProvider,
+        fallbackProvider,
+        twilioConfigured: twilioIsConfigured,
+        sarvamConfigured: sarvamIsConfigured,
       });
     }
     if (request.method === "POST" && url.pathname === "/v1/calls") {
@@ -570,27 +695,28 @@ export default {
     }
 
     const parts = url.pathname.split("/").filter(Boolean);
-    if (parts[0] !== "twilio") {
-      return new Response("Not found.", { status: 404 });
-    }
+    const provider = parts[0];
     const route = parts[1];
     const deliveryId = decodedPathPart(parts[2]);
-    const rawToken = route === "audio" ? parts[3]?.replace(/\.mp3$/u, "") : parts[3];
-    const token = decodedPathPart(rawToken);
-    if (
-      deliveryId === null ||
-      token === null ||
-      !["voice", "fallback", "audio", "status"].includes(route ?? "")
-    ) {
+    const token = decodedPathPart(parts[3]);
+    if (deliveryId === null || token === null) {
       return new Response("Not found.", { status: 404 });
     }
-    const body = request.method === "POST" ? await boundedBody(request) : undefined;
+    const maximumBytes = provider === "sarvam" && route === "status"
+      ? maximumSarvamWebhookBytes
+      : maximumRequestBytes;
+    const body = request.method === "POST"
+      ? await boundedBody(request, maximumBytes)
+      : undefined;
     if (body === null) {
       return new Response("Request too large.", { status: 413 });
     }
-    const internalRoute =
-      route === "voice" || route === "fallback" || route === "audio" || route === "status"
-        ? route
+
+    const internalRoute = provider === "twilio" &&
+        (route === "voice" || route === "fallback" || route === "status")
+      ? route
+      : provider === "sarvam" && route === "status"
+        ? "sarvam-status"
         : null;
     if (internalRoute === null) {
       return new Response("Not found.", { status: 404 });
