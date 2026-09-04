@@ -4,7 +4,8 @@ import {
   AmbiguousCallDispatchError,
   RejectedCallDispatchError,
   TelephonyConfigurationError,
-  queueCallWithFallback,
+  outboundCallProviderOrder,
+  queueOutboundCall,
   queueSarvamCall,
   queueTwilioCall,
   sarvamConfigured,
@@ -181,7 +182,7 @@ describe("outbound voice transport", () => {
         ),
       )
       .mockResolvedValueOnce(Response.json({ attempt_id: "attempt-1" }));
-    await expect(queueCallWithFallback({
+    await expect(queueOutboundCall({
       ...sarvamEnvironment,
       TWILIO_ACCOUNT_SID: "AC123",
       TWILIO_AUTH_TOKEN: "twilio-secret",
@@ -198,11 +199,73 @@ describe("outbound voice transport", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  test("uses the configured primary provider before the fallback", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json({ attempt_id: "attempt-1" }),
+    );
+    await expect(queueOutboundCall({
+      ...sarvamEnvironment,
+      OUTBOUND_CALL_PRIMARY_PROVIDER: "sarvam",
+      TWILIO_ACCOUNT_SID: "AC123",
+      TWILIO_AUTH_TOKEN: "twilio-secret",
+      TWILIO_FROM_NUMBER: "+12025550123",
+    }, {
+      deliveryId: "delivery-1",
+      token: "token-1",
+      destinationPhoneE164: "+919876543210",
+      script: "Code2Create needs you now.",
+    })).resolves.toMatchObject({ provider: "sarvam" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("apps.sarvam.ai");
+  });
+
+  test("falls back to Twilio after a definite Sarvam rejection", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        Response.json({ detail: "The Sarvam route is unavailable." }, { status: 429 }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({ sid: "CA123", status: "queued" }),
+      );
+    await expect(queueOutboundCall({
+      ...sarvamEnvironment,
+      OUTBOUND_CALL_PRIMARY_PROVIDER: "sarvam",
+      TWILIO_ACCOUNT_SID: "AC123",
+      TWILIO_AUTH_TOKEN: "twilio-secret",
+      TWILIO_FROM_NUMBER: "+12025550123",
+    }, {
+      deliveryId: "delivery-1",
+      token: "token-1",
+      destinationPhoneE164: "+919876543210",
+      script: "Code2Create needs you now.",
+    })).resolves.toMatchObject({ provider: "twilio", providerCallId: "CA123" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  test("does not double-dial after an ambiguous Sarvam response", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json({ message: "temporary" }, { status: 503 }),
+    );
+    await expect(queueOutboundCall({
+      ...sarvamEnvironment,
+      OUTBOUND_CALL_PRIMARY_PROVIDER: "sarvam",
+      TWILIO_ACCOUNT_SID: "AC123",
+      TWILIO_AUTH_TOKEN: "twilio-secret",
+      TWILIO_FROM_NUMBER: "+12025550123",
+    }, {
+      deliveryId: "delivery-1",
+      token: "token-1",
+      destinationPhoneE164: "+919876543210",
+      script: "Code2Create needs you now.",
+    })).rejects.toBeInstanceOf(AmbiguousCallDispatchError);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   test("does not double-dial after an ambiguous Twilio response", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       Response.json({ message: "temporary" }, { status: 503 }),
     );
-    await expect(queueCallWithFallback({
+    await expect(queueOutboundCall({
       ...sarvamEnvironment,
       TWILIO_ACCOUNT_SID: "AC123",
       TWILIO_AUTH_TOKEN: "twilio-secret",
@@ -224,7 +287,7 @@ describe("outbound voice transport", () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       interruptedResponse,
     );
-    await expect(queueCallWithFallback({
+    await expect(queueOutboundCall({
       ...sarvamEnvironment,
       TWILIO_ACCOUNT_SID: "AC123",
       TWILIO_AUTH_TOKEN: "twilio-secret",
@@ -279,7 +342,7 @@ describe("outbound voice transport", () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       Response.json({ attempt_id: "attempt-1" }),
     );
-    await expect(queueCallWithFallback(sarvamEnvironment, {
+    await expect(queueOutboundCall(sarvamEnvironment, {
       deliveryId: "delivery-1",
       token: "token-1",
       destinationPhoneE164: "+919876543210",
@@ -295,6 +358,35 @@ describe("outbound voice transport", () => {
     })).toBe(false);
   });
 
+  test("validates the configured primary provider", () => {
+    expect(outboundCallProviderOrder(environment)).toEqual(["twilio", "sarvam"]);
+    expect(outboundCallProviderOrder({
+      ...environment,
+      OUTBOUND_CALL_PRIMARY_PROVIDER: " Sarvam ",
+    })).toEqual(["sarvam", "twilio"]);
+    expect(() => outboundCallProviderOrder({
+      ...environment,
+      OUTBOUND_CALL_PRIMARY_PROVIDER: "other",
+    })).toThrow("must be either twilio or sarvam");
+  });
+
+  test("preserves a configured provider rejection when no fallback is available", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json({ message: "rejected" }, { status: 400 }),
+    );
+    await expect(queueOutboundCall({
+      ...environment,
+      TWILIO_ACCOUNT_SID: "AC123",
+      TWILIO_AUTH_TOKEN: "secret",
+      TWILIO_FROM_NUMBER: "+12025550123",
+    }, {
+      deliveryId: "delivery-1",
+      token: "token-1",
+      destinationPhoneE164: "+919876543210",
+      script: "Code2Create needs you now.",
+    })).rejects.toEqual(new RejectedCallDispatchError("twilio", "rejected"));
+  });
+
   test("accepts a non-prefixed Voice Agents key and rejects whitespace-only keys", () => {
     expect(sarvamConfigured({
       ...sarvamEnvironment,
@@ -307,7 +399,7 @@ describe("outbound voice transport", () => {
   });
 
   test("fails clearly when neither provider is configured", async () => {
-    await expect(queueCallWithFallback(environment, {
+    await expect(queueOutboundCall(environment, {
       deliveryId: "delivery-1",
       token: "token-1",
       destinationPhoneE164: "+919876543210",

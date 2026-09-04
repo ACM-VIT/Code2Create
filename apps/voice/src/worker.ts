@@ -17,9 +17,10 @@ import {
 } from "./contracts.js";
 import {
   AmbiguousCallDispatchError,
+  outboundCallProviderOrder,
   RejectedCallDispatchError,
   TelephonyConfigurationError,
-  queueCallWithFallback,
+  queueOutboundCall,
   sarvamConfigured,
   sarvamWebhookUrl,
   sarvamWebhookEvent,
@@ -256,7 +257,7 @@ export class OutboundCallSession {
     try {
       dispatchResult = {
         ok: true,
-        queued: await queueCallWithFallback(this.environment, {
+        queued: await queueOutboundCall(this.environment, {
           deliveryId: session.request.deliveryId,
           token: session.token,
           destinationPhoneE164: session.request.destinationPhoneE164,
@@ -432,7 +433,7 @@ export class OutboundCallSession {
     const form = new URLSearchParams(body);
     const originalUrl = request.headers.get("x-c2c-original-url") ?? "";
     const signature = request.headers.get("x-twilio-signature") ?? "";
-    const authToken = this.environment.TWILIO_AUTH_TOKEN;
+    const authToken = this.environment.TWILIO_AUTH_TOKEN?.trim();
     if (
       authToken === undefined ||
       authToken.length === 0 ||
@@ -632,15 +633,30 @@ export default {
   async fetch(request, environment) {
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/health") {
-      const twilioPrimaryConfigured = twilioConfigured(environment);
-      const sarvamVoiceAgentsFallbackConfigured = sarvamConfigured(environment);
+      let primaryProvider: TelephonyProvider;
+      let fallbackProvider: TelephonyProvider;
+      try {
+        [primaryProvider, fallbackProvider] = outboundCallProviderOrder(environment);
+      } catch (error) {
+        if (!(error instanceof TelephonyConfigurationError)) throw error;
+        return noStoreJson({
+          service: "code2create-voice",
+          ok: false,
+          telephonyConfigured: false,
+          configurationError: error.message,
+        }, 503);
+      }
+      const twilioIsConfigured = twilioConfigured(environment);
+      const sarvamIsConfigured = sarvamConfigured(environment);
       return noStoreJson({
         service: "code2create-voice",
         ok: true,
         telephonyConfigured:
-          twilioPrimaryConfigured || sarvamVoiceAgentsFallbackConfigured,
-        twilioPrimaryConfigured,
-        sarvamVoiceAgentsFallbackConfigured,
+          twilioIsConfigured || sarvamIsConfigured,
+        primaryProvider,
+        fallbackProvider,
+        twilioConfigured: twilioIsConfigured,
+        sarvamConfigured: sarvamIsConfigured,
       });
     }
     if (request.method === "POST" && url.pathname === "/v1/calls") {

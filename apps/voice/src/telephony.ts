@@ -8,6 +8,7 @@ import {
 } from "./contracts.js";
 
 export type TelephonyEnvironment = {
+  OUTBOUND_CALL_PRIMARY_PROVIDER?: string;
   TWILIO_ACCOUNT_SID?: string;
   TWILIO_AUTH_TOKEN?: string;
   TWILIO_FROM_NUMBER?: string;
@@ -48,8 +49,8 @@ export class RejectedCallDispatchError extends Error {
 }
 
 export class TelephonyConfigurationError extends Error {
-  constructor() {
-    super("No outbound telephony provider is fully configured.");
+  constructor(message = "No outbound telephony provider is fully configured.") {
+    super(message);
     this.name = "TelephonyConfigurationError";
   }
 }
@@ -99,23 +100,46 @@ function sarvamVoiceAgentsApiKey(environment: TelephonyEnvironment) {
   return value || null;
 }
 
+function configuredValue(value: string | undefined) {
+  const normalized = value?.trim();
+  return normalized ? normalized : null;
+}
+
+export function outboundCallProviderOrder(
+  environment: TelephonyEnvironment,
+): readonly [TelephonyProvider, TelephonyProvider] {
+  const primaryProvider = configuredValue(
+    environment.OUTBOUND_CALL_PRIMARY_PROVIDER,
+  );
+  const configured = primaryProvider?.toLocaleLowerCase("en") ?? null;
+  if (configured === null || configured === "twilio") {
+    return ["twilio", "sarvam"];
+  }
+  if (configured === "sarvam") {
+    return ["sarvam", "twilio"];
+  }
+  throw new TelephonyConfigurationError(
+    "OUTBOUND_CALL_PRIMARY_PROVIDER must be either twilio or sarvam.",
+  );
+}
+
 export function twilioConfigured(environment: TelephonyEnvironment) {
   return Boolean(
-    environment.TWILIO_ACCOUNT_SID &&
-    environment.TWILIO_AUTH_TOKEN &&
-    environment.TWILIO_FROM_NUMBER,
+    configuredValue(environment.TWILIO_ACCOUNT_SID) &&
+    configuredValue(environment.TWILIO_AUTH_TOKEN) &&
+    configuredValue(environment.TWILIO_FROM_NUMBER),
   );
 }
 
 export function sarvamConfigured(environment: TelephonyEnvironment) {
   return Boolean(
     sarvamVoiceAgentsApiKey(environment) &&
-    environment.SARVAM_ORG_ID &&
-    environment.SARVAM_WORKSPACE_ID &&
-    environment.SARVAM_APP_ID &&
+    configuredValue(environment.SARVAM_ORG_ID) &&
+    configuredValue(environment.SARVAM_WORKSPACE_ID) &&
+    configuredValue(environment.SARVAM_APP_ID) &&
     sarvamAppVersion(environment) !== null &&
-    environment.SARVAM_CONNECTION_ID &&
-    environment.SARVAM_AGENT_PHONE_NUMBER,
+    configuredValue(environment.SARVAM_CONNECTION_ID) &&
+    configuredValue(environment.SARVAM_AGENT_PHONE_NUMBER),
   );
 }
 
@@ -144,9 +168,9 @@ export async function queueTwilioCall(
   environment: TelephonyEnvironment,
   args: { deliveryId: string; token: string; destinationPhoneE164: string },
 ): Promise<QueuedCall> {
-  const accountSid = environment.TWILIO_ACCOUNT_SID;
-  const authToken = environment.TWILIO_AUTH_TOKEN;
-  const fromNumber = environment.TWILIO_FROM_NUMBER;
+  const accountSid = configuredValue(environment.TWILIO_ACCOUNT_SID);
+  const authToken = configuredValue(environment.TWILIO_AUTH_TOKEN);
+  const fromNumber = configuredValue(environment.TWILIO_FROM_NUMBER);
   if (!accountSid || !authToken || !fromNumber) {
     throw new TelephonyConfigurationError();
   }
@@ -242,12 +266,12 @@ export async function queueSarvamCall(
   },
 ): Promise<QueuedCall> {
   const apiKey = sarvamVoiceAgentsApiKey(environment);
-  const orgId = environment.SARVAM_ORG_ID;
-  const workspaceId = environment.SARVAM_WORKSPACE_ID;
-  const appId = environment.SARVAM_APP_ID;
+  const orgId = configuredValue(environment.SARVAM_ORG_ID);
+  const workspaceId = configuredValue(environment.SARVAM_WORKSPACE_ID);
+  const appId = configuredValue(environment.SARVAM_APP_ID);
   const appVersion = sarvamAppVersion(environment);
-  const connectionId = environment.SARVAM_CONNECTION_ID;
-  const agentPhoneNumber = environment.SARVAM_AGENT_PHONE_NUMBER;
+  const connectionId = configuredValue(environment.SARVAM_CONNECTION_ID);
+  const agentPhoneNumber = configuredValue(environment.SARVAM_AGENT_PHONE_NUMBER);
   if (
     !apiKey ||
     !orgId ||
@@ -344,7 +368,17 @@ async function decodeSarvamResponse(response: Response): Promise<QueuedCall> {
   };
 }
 
-export async function queueCallWithFallback(
+function providerConfigured(
+  environment: TelephonyEnvironment,
+  provider: TelephonyProvider,
+) {
+  return provider === "twilio"
+    ? twilioConfigured(environment)
+    : sarvamConfigured(environment);
+}
+
+function queueProviderCall(
+  provider: TelephonyProvider,
   environment: TelephonyEnvironment,
   args: {
     deliveryId: string;
@@ -353,19 +387,34 @@ export async function queueCallWithFallback(
     script: string;
   },
 ) {
-  if (twilioConfigured(environment)) {
+  return provider === "twilio"
+    ? queueTwilioCall(environment, args)
+    : queueSarvamCall(environment, args);
+}
+
+export async function queueOutboundCall(
+  environment: TelephonyEnvironment,
+  args: {
+    deliveryId: string;
+    token: string;
+    destinationPhoneE164: string;
+    script: string;
+  },
+) {
+  const providerOrder = outboundCallProviderOrder(environment);
+  let lastRejection: RejectedCallDispatchError | null = null;
+  for (const provider of providerOrder) {
+    if (!providerConfigured(environment, provider)) continue;
     try {
-      return await queueTwilioCall(environment, args);
+      return await queueProviderCall(provider, environment, args);
     } catch (error) {
-      if (
-        !(error instanceof RejectedCallDispatchError) ||
-        !sarvamConfigured(environment)
-      ) {
+      if (!(error instanceof RejectedCallDispatchError)) {
         throw error;
       }
+      lastRejection = error;
     }
   }
-  if (sarvamConfigured(environment)) return queueSarvamCall(environment, args);
+  if (lastRejection !== null) throw lastRejection;
   throw new TelephonyConfigurationError();
 }
 
