@@ -677,58 +677,6 @@
   width: clamp(150px, 15vw, 205px);
 }
 
-.sponsor__material {
-  position: absolute;
-  left: 50%;
-  z-index: 2;
-  display: block;
-  transform: translate(-50%, -50%);
-  font-family: var(--font-display);
-  font-size: clamp(24px, 2.7vw, 40px);
-  font-weight: 700;
-  line-height: 1;
-  letter-spacing: 0.14em;
-  text-transform: lowercase;
-  white-space: nowrap;
-  color: transparent;
-  background-size: 260% 100%;
-  background-position: 20% 50%;
-  background-clip: text;
-  -webkit-background-clip: text;
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-  will-change: transform, opacity, filter, background-position;
-}
-
-.sponsor__material--gold {
-  background-image: linear-gradient(
-    108deg,
-    #6f3d05 0%,
-    #d38b14 20%,
-    #fff5b5 42%,
-    #b86d08 57%,
-    #ffe896 76%,
-    #754005 100%
-  );
-  filter: drop-shadow(0 0 7px rgba(255, 199, 65, 0.72));
-  -webkit-text-stroke: 0.45px rgba(255, 239, 154, 0.82);
-}
-
-.sponsor__material--silver {
-  background-image: linear-gradient(
-    108deg,
-    #56616e 0%,
-    #c7d0d9 20%,
-    #fff 42%,
-    #8d9baa 57%,
-    #f4f8fb 76%,
-    #4f5965 100%
-  );
-  filter: drop-shadow(0 0 7px rgba(216, 232, 247, 0.68));
-  -webkit-text-stroke: 0.45px rgba(248, 252, 255, 0.86);
-}
-
 .sponsor__logo--tin {
   width: clamp(72px, 7vw, 100px);
 }
@@ -1260,20 +1208,15 @@
   }
 
   .sponsor__logo--sglang {
-    width: clamp(82px, min(16vw, 11svh), 108px);
+    width: clamp(72px, min(16vw, 11svh), 108px);
   }
 
   .sponsor__logo--serpapi {
-    width: clamp(120px, 22vw, 170px);
+    width: clamp(90px, 22vw, 170px);
   }
 
   .sponsor__logo--idfc {
-    width: clamp(122px, 20vw, 160px);
-  }
-
-  .sponsor__material {
-    font-size: clamp(16px, 4vw, 26px);
-    letter-spacing: 0.1em;
+    width: clamp(94px, 20vw, 160px);
   }
 
   .sponsor__logo--tin {
