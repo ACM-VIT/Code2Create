@@ -161,7 +161,9 @@ function readIosBuildConfiguration(
 ): IosBuildConfiguration {
   const teamId = requiredEnvironmentValue("C2C_IOS_TEAM_ID").toUpperCase();
   if (!/^[A-Z0-9]{10}$/u.test(teamId)) throw new Error("C2C_IOS_TEAM_ID is invalid.");
+  const bundleIdentifier = requiredEnvironmentValue("C2C_IOS_BUNDLE_IDENTIFIER");
   const method = iosExportMethodSchema.parse(requiredEnvironmentValue("C2C_IOS_EXPORT_METHOD"));
+  const profileSpecifier = process.env.C2C_IOS_PROVISIONING_PROFILE_SPECIFIER?.trim() || null;
   const apnsEnvironment = apnsEnvironmentSchema.parse(
     requiredEnvironmentValue("EXPO_PUBLIC_APNS_ENVIRONMENT"),
   );
@@ -174,14 +176,24 @@ function readIosBuildConfiguration(
       `${method} iOS exports require EXPO_PUBLIC_APNS_ENVIRONMENT=${expectedApnsEnvironment}.`,
     );
   }
-  return { platform: "ios", teamId, method, apnsEnvironment };
+  if (selectedEnvironment === "production" && !profileSpecifier) {
+    throw new Error("Set C2C_IOS_PROVISIONING_PROFILE_SPECIFIER for production iOS builds.");
+  }
+  return {
+    platform: "ios",
+    teamId,
+    bundleIdentifier,
+    method,
+    profileSpecifier,
+    apnsEnvironment,
+  };
 }
 
 async function buildIos(
   nativeEnvironment: NodeJS.ProcessEnv,
   configuration: IosBuildConfiguration,
 ) {
-  const { teamId, method } = configuration;
+  const { teamId, bundleIdentifier, method, profileSpecifier } = configuration;
 
   const iosDirectory = join(reviewerDirectory, "ios");
   const workspace = (await readdir(iosDirectory)).find((entry) => entry.endsWith(".xcworkspace"));
@@ -192,7 +204,19 @@ async function buildIos(
   const exportPath = join(temporaryDirectory, "export");
   const exportOptionsPath = join(temporaryDirectory, "ExportOptions.plist");
   try {
-    await writeFile(exportOptionsPath, exportOptionsPlist(teamId, method), "utf8");
+    await writeFile(
+      exportOptionsPath,
+      exportOptionsPlist(teamId, bundleIdentifier, method, profileSpecifier),
+      "utf8",
+    );
+    const archiveSigningArguments = profileSpecifier
+      ? [
+          `DEVELOPMENT_TEAM=${teamId}`,
+          "CODE_SIGN_STYLE=Manual",
+          `CODE_SIGN_IDENTITY=${method === "development" ? "Apple Development" : "Apple Distribution"}`,
+          `PROVISIONING_PROFILE_SPECIFIER=${profileSpecifier}`,
+        ]
+      : ["-allowProvisioningUpdates"];
     await run(
       "xcodebuild",
       [
@@ -206,7 +230,7 @@ async function buildIos(
         "generic/platform=iOS",
         "-archivePath",
         archivePath,
-        "-allowProvisioningUpdates",
+        ...archiveSigningArguments,
         "archive",
       ],
       reviewerDirectory,
@@ -222,7 +246,7 @@ async function buildIos(
         exportPath,
         "-exportOptionsPlist",
         exportOptionsPath,
-        "-allowProvisioningUpdates",
+        ...(profileSpecifier ? [] : ["-allowProvisioningUpdates"]),
       ],
       reviewerDirectory,
       nativeEnvironment,
@@ -240,7 +264,22 @@ async function buildIos(
   }
 }
 
-function exportOptionsPlist(teamId: string, method: z.infer<typeof iosExportMethodSchema>) {
+function exportOptionsPlist(
+  teamId: string,
+  bundleIdentifier: string,
+  method: z.infer<typeof iosExportMethodSchema>,
+  profileSpecifier: string | null,
+) {
+  const manualSigning = profileSpecifier
+    ? `
+  <key>signingCertificate</key>
+  <string>${method === "development" ? "Apple Development" : "Apple Distribution"}</string>
+  <key>provisioningProfiles</key>
+  <dict>
+    <key>${bundleIdentifier}</key>
+    <string>${profileSpecifier}</string>
+  </dict>`
+    : "";
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -250,7 +289,7 @@ function exportOptionsPlist(teamId: string, method: z.infer<typeof iosExportMeth
   <key>teamID</key>
   <string>${teamId}</string>
   <key>signingStyle</key>
-  <string>automatic</string>
+  <string>${profileSpecifier ? "manual" : "automatic"}</string>${manualSigning}
   <key>stripSwiftSymbols</key>
   <true/>
   <key>uploadSymbols</key>
@@ -341,7 +380,9 @@ type AndroidBuildConfiguration = {
 type IosBuildConfiguration = {
   platform: "ios";
   teamId: string;
+  bundleIdentifier: string;
   method: z.infer<typeof iosExportMethodSchema>;
+  profileSpecifier: string | null;
   apnsEnvironment: z.infer<typeof apnsEnvironmentSchema>;
 };
 
