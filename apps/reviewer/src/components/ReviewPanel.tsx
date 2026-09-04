@@ -1359,11 +1359,71 @@ function ReviewWorkspace({
       {review.assignment.isCoordinator && review.scorecard.status !== "correction_open" ? (
         <CoordinatorNotes eventSlug={eventSlug} review={review} />
       ) : null}
+      {review.scorecard.status === "submitted" && review.assignment.completionReady ? (
+        <ReviewCompletion eventSlug={eventSlug} review={review} />
+      ) : null}
       <Sheet onClose={() => setEvidenceOpen(false)} title="Project details" visible={evidenceOpen}>
         <ScrollView showsVerticalScrollIndicator={false} style={styles.evidenceSheet}>
           <ProjectEvidence eventSlug={eventSlug} review={review} />
         </ScrollView>
       </Sheet>
+    </View>
+  );
+}
+
+function ReviewCompletion({ eventSlug, review }: { eventSlug: string; review: WorkspaceReview }) {
+  const completeReview = useMutation(api.reviewOperations.completeReview);
+  const completeAttempt =
+    useMutationAttempt<FunctionReturnType<typeof api.reviewOperations.completeReview>>();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const complete = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await completeAttempt.run("review-complete", () => {
+        const args = {
+          eventSlug,
+          reviewSessionId: review.id,
+          expectedVersion: review.version,
+          reason: "Completed in the reviewer app after every panel scorecard was submitted",
+          clientOperationId: randomUUID(),
+        };
+        return () => completeReview(args);
+      });
+    } catch (caught) {
+      setError(errorMessage(caught, "The review could not be completed."));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const confirm = () => {
+    Alert.alert(
+      "Complete review?",
+      "Every panel scorecard is submitted. This ends the review for the whole panel and makes everyone ready for the next team.",
+      [
+        { text: "Not yet", style: "cancel" },
+        { text: "Complete review", style: "destructive", onPress: () => void complete() },
+      ],
+    );
+  };
+
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>Panel finished</Text>
+      <Text style={styles.body}>
+        All {review.assignment.reviewerCount} panel scorecards are submitted. Any reviewer can
+        close this review.
+      </Text>
+      <Action
+        disabled={busy || completeAttempt.hasPending("review-complete")}
+        label={busy ? "Completing…" : "Complete review"}
+        onPress={confirm}
+      />
+      {error ? <Text style={styles.error}>{error}</Text> : null}
     </View>
   );
 }

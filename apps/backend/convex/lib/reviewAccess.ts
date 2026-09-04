@@ -99,6 +99,7 @@ export async function grantReviewAssignmentAccess(
     "review.presence.confirm",
     "review.conflict.report",
     "review.evidence.read",
+    "review.complete",
   ] as const) {
     const result = await insertPermissionGrant(ctx, {
       ...common,
@@ -126,7 +127,6 @@ export async function grantReviewAssignmentAccess(
       "review.start",
       "review.timer.extend",
       "review.shared_notes.write",
-      "review.complete",
     ] as const) {
       const result = await insertPermissionGrant(ctx, {
         ...common,

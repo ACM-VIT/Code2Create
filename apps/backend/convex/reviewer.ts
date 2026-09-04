@@ -29,6 +29,7 @@ import { reviewerClockInIsOpenAt, reviewerCoversStaffingWindow } from "./lib/rev
 import {
   maximumReviewerAssignmentsPerEvent,
   maximumReviewRoundsPerEvent,
+  maximumReviewersPerPanel,
 } from "./lib/reviewLimits";
 import {
   cleanAssignedRatings,
@@ -1531,6 +1532,8 @@ export const now = query({
           reviewerPresenceConfirmed: v.boolean(),
           reviewerPresenceCount: v.number(),
           reviewerCount: v.number(),
+          submittedScorecardCount: v.number(),
+          completionReady: v.boolean(),
         }),
       }),
     ),
@@ -1774,23 +1777,36 @@ export const now = query({
         review: null,
       };
     }
-    const [team, round, panel, assignmentRows, presences] = await Promise.all([
+    const [team, round, panel, assignmentRows, presences, scorecards] = await Promise.all([
       ctx.db.get(active.session.teamId),
       ctx.db.get(active.session.roundId),
       ctx.db.get(active.session.panelId),
       ctx.db
         .query("reviewAssignments")
         .withIndex("by_session_person", (index) => index.eq("reviewSessionId", active.session._id))
-        .collect(),
+        .take(maximumReviewersPerPanel + 1),
       ctx.db
         .query("reviewPresence")
         .withIndex("by_session_reviewer", (index) =>
           index.eq("reviewSessionId", active.session._id),
         )
-        .collect(),
+        .take(maximumReviewersPerPanel + 1),
+      ctx.db
+        .query("scorecards")
+        .withIndex("by_session_status", (index) =>
+          index.eq("reviewSessionId", active.session._id),
+        )
+        .take(maximumReviewersPerPanel + 1),
     ]);
     if (!team || !round || !panel) {
       throw new Error("The active review context is incomplete.");
+    }
+    if (
+      assignmentRows.length > maximumReviewersPerPanel ||
+      presences.length > maximumReviewersPerPanel ||
+      scorecards.length > maximumReviewersPerPanel
+    ) {
+      throw new Error("The active review exceeds the published panel-size limit.");
     }
     const assignedRows = assignmentRows.filter((assignment) => assignment.status === "assigned");
     const assignedReviewerIds = new Set(
@@ -1799,6 +1815,22 @@ export const now = query({
     const currentPresences = presences.filter((presence) =>
       assignedReviewerIds.has(presence.reviewerPersonId),
     );
+    const submittedReviewerIds = new Set(
+      scorecards
+        .filter(
+          (scorecard) =>
+            scorecard.status === "submitted" &&
+            scorecard.submittedVersionId !== undefined &&
+            assignedReviewerIds.has(scorecard.reviewerPersonId),
+        )
+        .map((scorecard) => scorecard.reviewerPersonId),
+    );
+    const submittedScorecardCount = submittedReviewerIds.size;
+    const completionReady =
+      assignedRows.length > 0 &&
+      submittedScorecardCount === assignedRows.length &&
+      (!round.requiresSharedCommitments ||
+        Boolean(active.session.sharedFindings?.trim() && active.session.sharedCommitments?.trim()));
     return {
       serverNow: Date.now(),
       device: deviceView,
@@ -1836,6 +1868,8 @@ export const now = query({
             currentPresences.map((presence) => presence.reviewerPersonId),
           ).size,
           reviewerCount: assignedRows.length,
+          submittedScorecardCount,
+          completionReady,
         },
       },
     };

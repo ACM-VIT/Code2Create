@@ -9,6 +9,7 @@ import { afterAll, describe, expect, test, vi } from "vitest";
 import { api, components } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { insertPermissionGrant, type GrantSource } from "./lib/permissions.ts";
+import { grantReviewAssignmentAccess } from "./lib/reviewAccess.ts";
 import { defaultParticipantPolicy, participantPolicyChecksum } from "./lib/participantPolicy.ts";
 import { maximumReviewTeamsPerEvent } from "./lib/reviewLimits.ts";
 import { insertTeamRoundState } from "./lib/reviewQueueProjection.ts";
@@ -335,6 +336,195 @@ describe("live panel membership", () => {
           )
           .collect(),
       ).toHaveLength(0);
+    });
+  });
+
+  test("lets any assigned reviewer complete only after every scorecard is submitted", async () => {
+    const backend = seededBackend();
+    const fixture = await seedPanel(backend);
+    const reviewer = await prepareReviewerClockIn(backend, fixture);
+    const reviewSessionId = await seedLiveReview(backend, fixture);
+    const seeded = await backend.run(async (ctx) => {
+      const now = Date.now();
+      const [session, round, panelMembers, criteria] = await Promise.all([
+        ctx.db.get(reviewSessionId),
+        ctx.db.get(fixture.roundId),
+        ctx.db
+          .query("reviewPanelMembers")
+          .withIndex("by_panel_status", (index) =>
+            index.eq("panelId", fixture.panelId).eq("status", "active"),
+          )
+          .collect(),
+        ctx.db
+          .query("reviewRubricCriteria")
+          .withIndex("by_rubric_order", (index) =>
+            index.eq("rubricVersionId", fixture.rubricVersionId),
+          )
+          .collect(),
+      ]);
+      if (!session || !round) throw new Error("The completion test review is missing.");
+      await ctx.db.patch(round._id, { requiresSharedCommitments: false });
+      await insertTeamRoundState(ctx, {
+        eventId: fixture.eventId,
+        roundId: fixture.roundId,
+        teamId: session.teamId,
+        panelId: fixture.panelId,
+        state: "in_review",
+        queuedAt: now - 60_000,
+        calledAt: now - 30_000,
+        callAttemptCount: 1,
+        lastCallAttemptAt: now - 30_000,
+        priority: 0,
+        version: 1,
+        updatedByPersonId: fixture.operatorPersonId,
+        updatedAt: now,
+      });
+
+      let pendingScorecardId: Id<"scorecards"> | null = null;
+      for (const [index, member] of panelMembers.entries()) {
+        const assignmentId = await ctx.db.insert("reviewAssignments", {
+          eventId: fixture.eventId,
+          roundId: fixture.roundId,
+          panelId: fixture.panelId,
+          reviewSessionId,
+          reviewerPersonId: member.personId,
+          eventAccessSubjectId: member.eventAccessSubjectId,
+          assignedCriterionIds: member.assignedCriterionIds,
+          isCoordinator: member.isCoordinator,
+          status: "assigned",
+          assignedAt: now,
+        });
+        const isPending = index === panelMembers.length - 1;
+        const ratings = criteria.map((criterion) => ({ criterionId: criterion._id, score: 2 }));
+        const scorecardId = await ctx.db.insert("scorecards", {
+          eventId: fixture.eventId,
+          roundId: fixture.roundId,
+          reviewSessionId,
+          reviewerPersonId: member.personId,
+          assignmentId,
+          rubricVersionId: fixture.rubricVersionId,
+          status: isPending ? "draft" : "submitted",
+          ratings,
+          draftVersion: 1,
+          version: 1,
+          createdAt: now,
+          updatedAt: now,
+          ...(isPending ? {} : { submittedAt: now }),
+        });
+        if (isPending) {
+          pendingScorecardId = scorecardId;
+        } else {
+          const submittedVersionId = await ctx.db.insert("scorecardVersions", {
+            eventId: fixture.eventId,
+            roundId: fixture.roundId,
+            reviewSessionId,
+            scorecardId,
+            reviewerPersonId: member.personId,
+            version: 1,
+            rubricVersionId: fixture.rubricVersionId,
+            ratings,
+            checksum: `submitted-${scorecardId}`,
+            clientOperationId: `submit-${scorecardId}`,
+            submittedAt: now,
+          });
+          await ctx.db.patch(scorecardId, { submittedVersionId });
+        }
+        await grantReviewAssignmentAccess(ctx, {
+          eventId: fixture.eventId,
+          reviewSessionId,
+          scorecardId,
+          assignmentId,
+          reviewerPersonId: member.personId,
+          eventAccessSubjectId: member.eventAccessSubjectId,
+          grantedByPersonId: fixture.operatorPersonId,
+          isCoordinator: member.isCoordinator,
+        });
+      }
+      if (!pendingScorecardId) throw new Error("The pending scorecard was not created.");
+      return { pendingScorecardId, expectedVersion: session.version };
+    });
+
+    const beforeEverySubmission = await reviewer.identity.query(api.reviewer.now, {
+      eventSlug: fixture.eventSlug,
+      installationId: reviewer.installationId,
+    });
+    expect(beforeEverySubmission.review?.assignment).toMatchObject({
+      reviewerCount: 3,
+      submittedScorecardCount: 2,
+      completionReady: false,
+    });
+
+    await expect(
+      reviewer.identity.mutation(api.reviewOperations.completeReview, {
+        eventSlug: fixture.eventSlug,
+        reviewSessionId,
+        expectedVersion: seeded.expectedVersion,
+        reason: "Panel finished scoring",
+        clientOperationId: "complete-before-all-scorecards",
+      }),
+    ).rejects.toThrow("Every assigned reviewer must submit a valid scorecard first");
+
+    await backend.run(async (ctx) => {
+      const scorecard = await ctx.db.get(seeded.pendingScorecardId);
+      if (!scorecard) throw new Error("The pending scorecard is missing.");
+      const submittedAt = Date.now();
+      const submittedVersionId = await ctx.db.insert("scorecardVersions", {
+        eventId: scorecard.eventId,
+        roundId: scorecard.roundId,
+        reviewSessionId,
+        scorecardId: scorecard._id,
+        reviewerPersonId: scorecard.reviewerPersonId,
+        version: 1,
+        rubricVersionId: scorecard.rubricVersionId,
+        ratings: scorecard.ratings,
+        checksum: `submitted-${scorecard._id}`,
+        clientOperationId: `submit-${scorecard._id}`,
+        submittedAt,
+      });
+      await ctx.db.patch(scorecard._id, {
+        status: "submitted",
+        submittedVersionId,
+        submittedAt,
+        updatedAt: submittedAt,
+      });
+    });
+
+    const afterEverySubmission = await reviewer.identity.query(api.reviewer.now, {
+      eventSlug: fixture.eventSlug,
+      installationId: reviewer.installationId,
+    });
+    expect(afterEverySubmission.review?.assignment).toMatchObject({
+      reviewerCount: 3,
+      submittedScorecardCount: 3,
+      completionReady: true,
+    });
+
+    const result = await reviewer.identity.mutation(api.reviewOperations.completeReview, {
+      eventSlug: fixture.eventSlug,
+      reviewSessionId,
+      expectedVersion: seeded.expectedVersion,
+      reason: "Panel finished scoring",
+      clientOperationId: "complete-after-all-scorecards",
+    });
+    expect(result.reviewSessionId).toBe(reviewSessionId);
+    await backend.run(async (ctx) => {
+      const session = await ctx.db.get(reviewSessionId);
+      if (!session) throw new Error("The completed review session is missing.");
+      const [state, evaluation] = await Promise.all([
+        ctx.db
+          .query("teamRoundStates")
+          .withIndex("by_round_team", (index) =>
+            index.eq("roundId", fixture.roundId).eq("teamId", session.teamId),
+          )
+          .unique(),
+        ctx.db
+          .query("reviewEvaluations")
+          .withIndex("by_session", (index) => index.eq("reviewSessionId", reviewSessionId))
+          .unique(),
+      ]);
+      expect(session.status).toBe("completed");
+      expect(state?.state).toBe("completed");
+      expect(evaluation?.state).toBe("complete");
     });
   });
 
