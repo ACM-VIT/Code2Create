@@ -13,7 +13,7 @@ const betterAuthModules = import.meta.glob(
 type BackendTest = TestConvex<typeof schema>;
 
 describe("participant outing permission queue", () => {
-  test("keeps participants ordered and makes joining idempotent", async () => {
+  test("keeps only eligible participants ordered and makes joining idempotent", async () => {
     const backend = convexTest({ schema, modules });
     backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
     const now = Date.now();
@@ -31,8 +31,10 @@ describe("participant outing permission queue", () => {
       createdAt: now,
       updatedAt: now,
     }));
-    const first = backend.withIdentity(await createParticipant(backend, eventId, "first", now));
-    const second = backend.withIdentity(await createParticipant(backend, eventId, "second", now + 1));
+    const firstParticipant = await createParticipant(backend, eventId, "first", now);
+    const secondParticipant = await createParticipant(backend, eventId, "second", now + 1);
+    const first = backend.withIdentity(firstParticipant.identity);
+    const second = backend.withIdentity(secondParticipant.identity);
 
     await expect(first.mutation(api.serviceQueues.join, {
       eventSlug,
@@ -54,7 +56,12 @@ describe("participant outing permission queue", () => {
       },
     ]);
 
-    await first.mutation(api.serviceQueues.leave, { eventSlug, kind: "outing_permission" });
+    await backend.run((ctx) =>
+      ctx.db.patch(firstParticipant.membershipId, {
+        eligibilityStatus: "rejected",
+        updatedAt: now + 2,
+      }),
+    );
     await expect(second.query(api.serviceQueues.current, { eventSlug })).resolves.toEqual([
       {
         kind: "outing_permission",
@@ -65,9 +72,20 @@ describe("participant outing permission queue", () => {
       },
     ]);
 
-    await backend.run((ctx) => ctx.db.patch(eventId, { status: "complete", updatedAt: now + 2 }));
-    await expect(first.query(api.serviceQueues.current, { eventSlug })).resolves.toEqual([]);
-    await expect(first.mutation(api.serviceQueues.join, {
+    await second.mutation(api.serviceQueues.leave, { eventSlug, kind: "outing_permission" });
+    await expect(second.query(api.serviceQueues.current, { eventSlug })).resolves.toEqual([
+      {
+        kind: "outing_permission",
+        joined: false,
+        position: null,
+        waitingCount: 0,
+        joinedAt: null,
+      },
+    ]);
+
+    await backend.run((ctx) => ctx.db.patch(eventId, { status: "complete", updatedAt: now + 3 }));
+    await expect(second.query(api.serviceQueues.current, { eventSlug })).resolves.toEqual([]);
+    await expect(second.mutation(api.serviceQueues.join, {
       eventSlug,
       kind: "outing_permission",
     })).rejects.toThrow("The outing permission queue is available while the event is live");
@@ -107,7 +125,7 @@ async function createParticipant(
     },
   });
   const authSessionId = documentId(session, "Better Auth session");
-  await backend.run(async (ctx) => {
+  const membershipId = await backend.run(async (ctx) => {
     const personId = await ctx.db.insert("people", {
       authUserId,
       googleSubject: `google:${authUserId}`,
@@ -128,7 +146,7 @@ async function createParticipant(
       createdAt: now,
       updatedAt: now,
     });
-    await ctx.db.insert("eventMemberships", {
+    return ctx.db.insert("eventMemberships", {
       eventId,
       personId,
       eventAccessSubjectId: subjectId,
@@ -140,7 +158,10 @@ async function createParticipant(
       updatedAt: now,
     });
   });
-  return { subject: authUserId, sessionId: authSessionId };
+  return {
+    identity: { subject: authUserId, sessionId: authSessionId },
+    membershipId,
+  };
 }
 
 function documentId(value: unknown, label: string) {

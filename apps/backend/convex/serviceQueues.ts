@@ -36,13 +36,23 @@ export const current = query({
   handler: async (ctx, args) => {
     const { event, membership } = await participantContext(ctx, args.eventSlug);
     if (event.status !== "live") return [];
-    const entries = await ctx.db
+    const persistedEntries = await ctx.db
       .query("participantServiceQueueEntries")
       .withIndex("by_event_kind_joined", (index) =>
         index.eq("eventId", event._id).eq("kind", "outing_permission"),
       )
       .order("asc")
       .collect();
+    const queuedMemberships = await Promise.all(
+      persistedEntries.map((entry) => ctx.db.get(entry.membershipId)),
+    );
+    const entries = persistedEntries.filter((_, index) => {
+      const queuedMembership = queuedMemberships[index];
+      return (
+        queuedMembership?.eventId === event._id &&
+        queuedMembership.eligibilityStatus === "eligible"
+      );
+    });
     const ownIndex = entries.findIndex((entry) => entry.membershipId === membership._id);
     return [{
       kind: "outing_permission" as const,
