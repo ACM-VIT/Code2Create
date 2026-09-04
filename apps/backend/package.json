@@ -55,7 +55,7 @@
     "test:push": "node --test convex/lib/pushTokens.test.ts convex/lib/reviewerPagePush.test.ts",
     "test:voice": "vitest run convex/lib/outboundCalls.test.ts convex/outboundCallConsents.test.ts convex/outboundCallState.test.ts convex/reviewerRepage.test.ts",
     "test:github-repositories": "vitest run convex/lib/githubClient.test.ts convex/githubRepositoryOrder.test.ts convex/githubTeamMetrics.test.ts convex/integrationOperations.test.ts",
-    "test:figma-evidence": "vitest run convex/figmaTeamMetrics.test.ts && node --test convex/lib/figmaEvidenceBrowser.test.ts convex/lib/figmaMetadataSchedule.test.ts",
+    "test:figma-evidence": "vitest run convex/figmaTeamMetrics.test.ts && node --test convex/lib/figmaEvidenceBrowser.test.ts convex/lib/figmaMetadataSchedule.test.ts convex/lib/figmaOAuthAccount.test.ts",
     "test:figma-comparison": "node --test convex/lib/figmaCheckpointComparison.test.ts",
     "test:queue-estimate": "node --test convex/lib/queueEstimate.test.ts && vitest run convex/participantReview.test.ts",
     "test:service-queues": "vitest run convex/serviceQueues.test.ts",

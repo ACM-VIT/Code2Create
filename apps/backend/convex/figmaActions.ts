@@ -28,6 +28,10 @@ import {
   providerSecretKeyVersion,
   reencryptProviderSecret,
 } from "./lib/providerSecrets";
+import {
+  figmaAccountIdentityMatches,
+  figmaOAuthScopes,
+} from "./lib/figmaOAuthAccount";
 import { downloadFigmaPreview, FigmaPreviewDownloadError } from "./lib/figmaPreviewDownload";
 
 const figmaApiOrigin = "https://api.figma.com";
@@ -48,13 +52,6 @@ const previewableNodeTypes = new Set([
   "SECTION",
   "INSTANCE",
 ]);
-const figmaScopes = [
-  "file_metadata:read",
-  "file_content:read",
-  "file_versions:read",
-  "file_comments:read",
-  "webhooks:write",
-] as const;
 
 export const rotateProviderSecrets = internalAction({
   args: {
@@ -414,6 +411,13 @@ const initialTokenResponse = z.object({
     .int()
     .positive()
     .max(366 * 24 * 60 * 60),
+});
+
+const currentUserResponse = z.object({
+  id: z.string().min(1).max(256),
+  handle: z.string().min(1).max(4_096),
+  img_url: z.url(),
+  email: z.string().min(3).max(320),
 });
 
 const refreshTokenResponse = z.object({
@@ -857,7 +861,7 @@ export const beginConnection = action({
     authorizeUrl.search = new URLSearchParams({
       client_id: configuration.clientId,
       redirect_uri: callback,
-      scope: figmaScopes.join(","),
+      scope: figmaOAuthScopes.join(","),
       state,
       response_type: "code",
       code_challenge: challenge,
@@ -906,17 +910,31 @@ export const completeConnection = action({
         }),
         initialTokenResponse,
       );
+      const account = await figmaRequest(
+        token.access_token,
+        "/v1/me",
+        currentUserResponse,
+        {},
+        64 * 1_024,
+      );
+      if (!figmaAccountIdentityMatches(token.user_id_string, account.id)) {
+        throw new ConvexError({
+          code: "FIGMA_IDENTITY_MISMATCH",
+          message: "Figma returned inconsistent account identity. Start the connection again.",
+        });
+      }
       const receivedAt = Date.now();
       return await ctx.runMutation(internal.figmaIntegrations.finishSetupIntent, {
         eventSlug: args.eventSlug,
         intentId: claim.intentId,
         attemptId,
-        figmaUserId: token.user_id_string,
+        figmaUserId: account.id,
+        figmaUserHandle: account.handle,
         accessTokenCiphertext: encryptProviderSecret(token.access_token),
         refreshTokenCiphertext: encryptProviderSecret(token.refresh_token),
         tokenExpiresAt: tokenExpiresAt(token.expires_in, receivedAt),
         tokenReceivedAt: receivedAt,
-        scopes: [...figmaScopes],
+        scopes: [...figmaOAuthScopes],
       });
     } catch (error) {
       await ctx.runMutation(internal.figmaIntegrations.failSetupIntent, {
