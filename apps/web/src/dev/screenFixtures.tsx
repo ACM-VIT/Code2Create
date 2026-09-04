@@ -1117,6 +1117,19 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries([
                 </>
               }
             />
+            <StackedSheet depth={1} aria-expanded label="How will your solution work in practice?">
+              <span className="mt-1 line-clamp-4 text-[13px] leading-relaxed whitespace-pre-line wrap-anywhere text-fg/85">
+                Finders post a photo and a rough location from their phone. Owners describe what they
+                lost in their own words, and a small matcher compares the two lists every few minutes,
+                weighting location and time far above wording. Likely matches are surfaced to both
+                sides, and a pickup is only marked done once the owner scans the finder’s handover
+                code at a security desk. The desk keeps a log of every handover so disputes can be
+                settled later, and unclaimed items age out after two weeks.
+              </span>
+              <span className="mt-1.5 block text-[11px] text-fg/55">
+                rewritable at review, after the last question
+              </span>
+            </StackedSheet>
             <IdeaCard
               footer={
                 <>
@@ -1127,6 +1140,9 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries([
                 </>
               }
             >
+              <p className="m-0 mb-3 text-[13px] leading-relaxed text-fg/70">
+                Who will use Foundling on day one?
+              </p>
               <PortalTextarea
                 rows={6}
                 defaultValue="Hostellers first · most losses happen in messes and reading halls. Security desks join in week two once verified pickup is proven."
