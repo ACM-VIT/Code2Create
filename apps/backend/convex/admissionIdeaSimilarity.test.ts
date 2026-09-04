@@ -384,8 +384,16 @@ describe("admission idea similarity boundaries", () => {
       },
     ]);
 
+    await backend.run(async (ctx) => ctx.db.patch(fixture.applicationId, { state: "declined" }));
+    await expect(
+      backend.query(internal.admissionIdeaSimilarity.readCurrentSubmissionMatchMetadata, {
+        eventId: fixture.eventId,
+        excludedTeamId: fixture.currentTeamId,
+        ideaIds: [fixture.otherIdeaId],
+      }),
+    ).resolves.toEqual([]);
+
     await backend.run(async (ctx) => {
-      await ctx.db.patch(fixture.applicationId, { state: "declined" });
       await synchronizeTeamAdmissionIdeaComparison(ctx, {
         eventId: fixture.eventId,
         teamId: fixture.otherTeamId,
@@ -405,6 +413,13 @@ describe("admission idea similarity boundaries", () => {
           )
           .collect(),
       ),
+    ).resolves.toEqual([]);
+    await expect(
+      backend.query(internal.admissionIdeaSimilarity.readCurrentSubmissionMatchMetadata, {
+        eventId: fixture.eventId,
+        excludedTeamId: fixture.currentTeamId,
+        ideaIds: [fixture.otherIdeaId],
+      }),
     ).resolves.toEqual([]);
   });
 });

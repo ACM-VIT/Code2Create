@@ -202,17 +202,16 @@ export const readCurrentSubmissionMatchMetadata = internalQuery({
     const ideas = await Promise.all(args.ideaIds.map((ideaId) => ctx.db.get(ideaId)));
     const matches: Array<{ id: Id<"noveltyTeamIdeas">; summary: string }> = [];
     for (const [index, idea] of ideas.entries()) {
-      if (!idea || idea.eventId !== args.eventId) {
+      // Vector search and hydration are separate transactions. A candidate can
+      // legitimately disappear or leave the active scope between them.
+      if (!idea) continue;
+      if (idea.eventId !== args.eventId) {
         throw new Error(`Current-event comparison ${index + 1} is outside the authorized event.`);
       }
-      if (idea.comparisonScope !== activeAdmissionIdeaComparisonScope(args.eventId)) {
-        throw new Error(`Current-event comparison ${index + 1} is outside the active scope.`);
-      }
+      if (idea.comparisonScope !== activeAdmissionIdeaComparisonScope(args.eventId)) continue;
       if (idea.teamId === args.excludedTeamId) continue;
       const project = await submittedProjectForIdea(ctx, args.eventId, idea);
-      if (!project) {
-        throw new Error(`Current-event comparison ${index + 1} has stale indexed metadata.`);
-      }
+      if (!project) continue;
       matches.push({ id: idea._id, summary: comparisonSummary(project.initialIdea) });
     }
     return matches;
