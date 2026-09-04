@@ -58,22 +58,17 @@ function exceptionEntryIsChunkLoadFailure(entry: unknown): boolean {
   return isChunkLoadFailure(`${type}: ${value}`);
 }
 
+let reloadInitiatedInThisContext = false;
+
 /**
- * A chunk-load exception should not be captured once recovery has claimed the
- * reload for this URL: the reload is the fix, so filing a new error tracking
- * issue per content-hashed chunk name is only noise.
+ * Drop the chunk-load exception that recovery is about to reload past: the
+ * reload is the fix, so filing a new error tracking issue for the content-hashed
+ * chunk name is only noise. The flag lives in this page context and resets on
+ * reload, so a different missing chunk, or the same chunk failing again after an
+ * unsuccessful reload, stays visible to error tracking.
  */
 export function suppressRecoveredChunkException(event: CapturedEvent): boolean {
-  if (typeof window === "undefined" || !isChunkLoadExceptionEvent(event)) {
-    return false;
-  }
-  let storedAttempt: string | null;
-  try {
-    storedAttempt = window.sessionStorage.getItem(automaticReloadGuardKey);
-  } catch {
-    return false;
-  }
-  return !automaticChunkReloadIsAvailable(storedAttempt, window.location.href, Date.now());
+  return reloadInitiatedInThisContext && isChunkLoadExceptionEvent(event);
 }
 
 /**
@@ -101,6 +96,7 @@ export function installBrowserChunkRecovery(): void {
         return;
       }
       event.preventDefault();
+      reloadInitiatedInThisContext = true;
       window.location.reload();
       return;
     }
@@ -117,6 +113,7 @@ export function installBrowserChunkRecovery(): void {
         const connectedAt = Date.now();
         const connectedHref = window.location.href;
         if (claimAutomaticReload(connectedHref, connectedAt)) {
+          reloadInitiatedInThisContext = true;
           window.location.reload();
         }
       },

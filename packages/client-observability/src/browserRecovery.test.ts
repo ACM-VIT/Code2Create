@@ -5,6 +5,7 @@ import {
   automaticChunkReloadIsAvailable,
   isChunkLoadExceptionEvent,
   isChunkLoadFailure,
+  suppressRecoveredChunkException,
 } from "./browserRecovery.ts";
 
 function chunkException(value: string, type = "TypeError") {
@@ -72,4 +73,13 @@ test("recognizes a chunk-load failure captured as a PostHog exception", () => {
     false,
   );
   assert.equal(isChunkLoadExceptionEvent({ event: "$exception" }), false);
+});
+
+test("keeps chunk-load exceptions visible until recovery initiates a reload", () => {
+  assert.equal(
+    suppressRecoveredChunkException(
+      chunkException("Failed to fetch dynamically imported module: /assets/Tree.js"),
+    ),
+    false,
+  );
 });

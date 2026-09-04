@@ -1,3 +1,4 @@
+import { isChunkLoadFailure, useProductAnalytics } from "@code2create/client-observability";
 import { Component, Suspense, lazy, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
@@ -7,14 +8,24 @@ const TreeLoader = lazy(() =>
 
 const revealDelay = 300;
 
-/* The loader is decoration. When its chunk fails to load, render nothing so a
-   missing animation degrades silently instead of climbing to the app-wide
-   error boundary and replacing the whole screen. */
-class SilentDecoration extends Component<{ children: ReactNode }, { failed: boolean }> {
+/* The loader is decoration, so a failure never takes down the screen: render
+   nothing instead of climbing to the app-wide error boundary. A missing chunk
+   degrades silently, but a genuine render bug in the loader is still reported so
+   the regression stays visible in error tracking. */
+class SilentDecoration extends Component<
+  { children: ReactNode; onError: (error: unknown) => void },
+  { failed: boolean }
+> {
   override state = { failed: false };
 
   static getDerivedStateFromError() {
     return { failed: true };
+  }
+
+  override componentDidCatch(error: unknown) {
+    if (!isChunkLoadFailure(error)) {
+      this.props.onError(error);
+    }
   }
 
   override render() {
@@ -30,6 +41,7 @@ export function DelayedBonsai({
   label?: string;
 }) {
   const [visible, setVisible] = useState(false);
+  const { captureException } = useProductAnalytics();
 
   useEffect(() => {
     const timer = window.setTimeout(() => setVisible(true), revealDelay);
@@ -40,7 +52,7 @@ export function DelayedBonsai({
 
   return (
     <div className={`delayed-bonsai${compact ? " delayed-bonsai-compact" : ""}`}>
-      <SilentDecoration>
+      <SilentDecoration onError={captureException}>
         <Suspense fallback={null}>
           <TreeLoader label={label} variant={compact ? "shell" : "scene"} />
         </Suspense>
