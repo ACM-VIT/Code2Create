@@ -540,7 +540,7 @@ export default defineSchema({
     .vectorIndex("by_event_embedding", {
       vectorField: "embedding",
       dimensions: 1536,
-      filterFields: ["eventId", "teamId", "comparisonScope"],
+      filterFields: ["eventId", "comparisonScope"],
     }),
 
   noveltyPreviewRequests: defineTable({

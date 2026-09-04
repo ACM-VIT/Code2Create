@@ -51,7 +51,7 @@ export async function comparisonScopeForTeamIdea(
   }
   const submittedFingerprint = await activeSubmittedIdeaFingerprint(ctx, args);
   return submittedFingerprint === args.inputFingerprint
-    ? activeAdmissionIdeaComparisonScope(args.eventId)
+    ? activeAdmissionIdeaComparisonScope(args.eventId, args.teamId)
     : noveltyIdeaComparisonScope(args.eventId, args.lifecycle);
 }
 
@@ -79,7 +79,7 @@ export async function synchronizeTeamAdmissionIdeaComparison(
     }
     const comparisonScope =
       idea._id === activeIdea?._id
-        ? activeAdmissionIdeaComparisonScope(args.eventId)
+        ? activeAdmissionIdeaComparisonScope(args.eventId, args.teamId)
         : noveltyIdeaComparisonScope(args.eventId, idea.lifecycle);
     if (idea.comparisonScope !== comparisonScope) {
       await ctx.db.patch(idea._id, { comparisonScope, updatedAt: Date.now() });

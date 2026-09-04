@@ -26,8 +26,8 @@ export function noveltyIdeaComparisonScope(
   return `${eventId}:lifecycle:${lifecycle}`;
 }
 
-export function activeAdmissionIdeaComparisonScope(eventId: string) {
-  return `${eventId}:active-admission`;
+export function activeAdmissionIdeaComparisonScope(eventId: string, teamId: string) {
+  return `${eventId}:active-admission:${teamId}`;
 }
 export type NoveltyRelationship = "same_core_idea" | "strong_overlap" | "adjacent" | "different";
 export type NoveltyJudgeConfidence = "high" | "medium" | "low";

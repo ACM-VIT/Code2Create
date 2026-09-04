@@ -300,7 +300,7 @@ describe("admission idea similarity boundaries", () => {
         updatedAt: now,
       });
       const duplicateOtherIdeaIds = await Promise.all(
-        Array.from({ length: 8 }, () =>
+        Array.from({ length: 256 }, () =>
           ctx.db.insert("noveltyTeamIdeas", {
             eventId,
             teamId: otherTeamId,
@@ -350,7 +350,10 @@ describe("admission idea similarity boundaries", () => {
           .withIndex("by_event_comparison_scope", (index) =>
             index
               .eq("eventId", fixture.eventId)
-              .eq("comparisonScope", activeAdmissionIdeaComparisonScope(fixture.eventId)),
+              .eq(
+                "comparisonScope",
+                activeAdmissionIdeaComparisonScope(fixture.eventId, fixture.otherTeamId),
+              ),
           )
           .collect(),
       ),
@@ -375,7 +378,7 @@ describe("admission idea similarity boundaries", () => {
         ),
       ),
     ).resolves.toEqual(
-      Array.from({ length: 8 }, () => noveltyIdeaComparisonScope(fixture.eventId, "submitted")),
+      Array.from({ length: 256 }, () => noveltyIdeaComparisonScope(fixture.eventId, "submitted")),
     );
     await expect(
       backend.mutation(internal.admissionIdeaSimilarity.reconcileLegacyComparisonScopes, {
@@ -392,7 +395,7 @@ describe("admission idea similarity boundaries", () => {
       ),
     ).resolves.toEqual([
       noveltyIdeaComparisonScope(fixture.eventId, "submitted"),
-      activeAdmissionIdeaComparisonScope(fixture.eventId),
+      activeAdmissionIdeaComparisonScope(fixture.eventId, fixture.otherTeamId),
       noveltyIdeaComparisonScope(fixture.eventId, "saved"),
     ]);
 
@@ -409,13 +412,15 @@ describe("admission idea similarity boundaries", () => {
       },
     ]);
     await expect(
-      backend.query(internal.admissionIdeaSimilarity.readActiveComparisonTeamIds, {
+      backend.query(internal.admissionIdeaSimilarity.readActiveComparisonScopes, {
         eventId: fixture.eventId,
         excludedTeamId: fixture.currentTeamId,
       }),
-    ).resolves.toEqual([fixture.otherTeamId]);
+    ).resolves.toEqual([
+      activeAdmissionIdeaComparisonScope(fixture.eventId, fixture.otherTeamId),
+    ]);
     await expect(
-      backend.query(internal.admissionIdeaSimilarity.readActiveComparisonTeamIds, {
+      backend.query(internal.admissionIdeaSimilarity.readActiveComparisonScopes, {
         eventId: fixture.eventId,
         excludedTeamId: fixture.otherTeamId,
       }),
@@ -423,7 +428,7 @@ describe("admission idea similarity boundaries", () => {
 
     await backend.run(async (ctx) => ctx.db.patch(fixture.applicationId, { state: "declined" }));
     await expect(
-      backend.query(internal.admissionIdeaSimilarity.readActiveComparisonTeamIds, {
+      backend.query(internal.admissionIdeaSimilarity.readActiveComparisonScopes, {
         eventId: fixture.eventId,
         excludedTeamId: fixture.currentTeamId,
       }),
@@ -452,7 +457,10 @@ describe("admission idea similarity boundaries", () => {
           .withIndex("by_event_comparison_scope", (index) =>
             index
               .eq("eventId", fixture.eventId)
-              .eq("comparisonScope", activeAdmissionIdeaComparisonScope(fixture.eventId)),
+              .eq(
+                "comparisonScope",
+                activeAdmissionIdeaComparisonScope(fixture.eventId, fixture.otherTeamId),
+              ),
           )
           .collect(),
       ),

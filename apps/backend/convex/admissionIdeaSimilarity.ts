@@ -33,7 +33,7 @@ import { redactProjectText } from "./lib/projectText";
 
 const historicalVectorLimit = 16;
 const currentSubmissionVectorLimit = 256;
-const currentSubmissionTeamBatchSize = 64;
+const currentSubmissionScopeBatchSize = 64;
 const maximumMatchesPerCollection = 6;
 const minimumMeaningfulSimilarity = 0.54;
 const maximumComparisonSummaryCharacters = 800;
@@ -136,12 +136,12 @@ export const readSimilarityConfiguration = internalQuery({
   },
 });
 
-export const readActiveComparisonTeamIds = internalQuery({
+export const readActiveComparisonScopes = internalQuery({
   args: {
     eventId: v.id("events"),
     excludedTeamId: v.id("teams"),
   },
-  returns: v.array(v.id("teams")),
+  returns: v.array(v.string()),
   handler: async (ctx, args) => {
     const applications = (
       await Promise.all(
@@ -162,7 +162,7 @@ export const readActiveComparisonTeamIds = internalQuery({
       seen.add(application.teamId);
       teamIds.push(application.teamId);
     }
-    return teamIds;
+    return teamIds.map((teamId) => activeAdmissionIdeaComparisonScope(args.eventId, teamId));
   },
 });
 
@@ -239,7 +239,12 @@ export const readCurrentSubmissionMatchMetadata = internalQuery({
       if (idea.eventId !== args.eventId) {
         throw new Error(`Current-event comparison ${index + 1} is outside the authorized event.`);
       }
-      if (idea.comparisonScope !== activeAdmissionIdeaComparisonScope(args.eventId)) continue;
+      if (
+        idea.comparisonScope !==
+        activeAdmissionIdeaComparisonScope(args.eventId, idea.teamId)
+      ) {
+        continue;
+      }
       if (idea.teamId === args.excludedTeamId) continue;
       const project = await submittedProjectForIdea(ctx, args.eventId, idea);
       if (!project) continue;
@@ -265,7 +270,15 @@ export const reconcileLegacyComparisonScopes = internalMutation({
         index.eq("eventId", args.eventId).eq("comparisonScope", `${args.eventId}:submitted`),
       )
       .take(64);
-    const ideas = [...unscopedIdeas, ...legacySubmittedIdeas];
+    const legacyActiveIdeas = await ctx.db
+      .query("noveltyTeamIdeas")
+      .withIndex("by_event_comparison_scope", (index) =>
+        index
+          .eq("eventId", args.eventId)
+          .eq("comparisonScope", `${args.eventId}:active-admission`),
+      )
+      .take(64);
+    const ideas = [...unscopedIdeas, ...legacySubmittedIdeas, ...legacyActiveIdeas];
     const teamIds = new Set(ideas.map((idea) => idea.teamId));
     for (const teamId of teamIds) {
       await synchronizeTeamAdmissionIdeaComparison(ctx, {
@@ -384,11 +397,11 @@ export async function searchSimilarIdeas(
   if (!embedding || !validEmbedding(embedding)) {
     throw new Error("The similarity embedding response was invalid.");
   }
-  const [configuration, currentSubmissionTeamIds] = await Promise.all([
+  const [configuration, currentSubmissionScopes] = await Promise.all([
     ctx.runQuery(internal.admissionIdeaSimilarity.readSimilarityConfiguration, {
       eventId: projection.eventId,
     }),
-    ctx.runQuery(internal.admissionIdeaSimilarity.readActiveComparisonTeamIds, {
+    ctx.runQuery(internal.admissionIdeaSimilarity.readActiveComparisonScopes, {
       eventId: projection.eventId,
       excludedTeamId: projection.teamId,
     }),
@@ -402,9 +415,9 @@ export async function searchSimilarIdeas(
     // Vector search is fully consistent, so each bounded reconciliation batch
     // becomes eligible for this same comparison request immediately.
   }
-  const teamIdBatches = batchesOf(
-    currentSubmissionTeamIds,
-    currentSubmissionTeamBatchSize,
+  const comparisonScopeBatches = batchesOf(
+    currentSubmissionScopes,
+    currentSubmissionScopeBatchSize,
   );
   const [historicalVectorMatches, currentVectorMatchPages] = await Promise.all([
     configuration
@@ -415,12 +428,16 @@ export async function searchSimilarIdeas(
         })
       : Promise.resolve([]),
     Promise.all(
-      teamIdBatches.map((teamIds) =>
+      comparisonScopeBatches.map((comparisonScopes) =>
         ctx.vectorSearch("noveltyTeamIdeas", "by_event_embedding", {
           vector: embedding,
           limit: currentSubmissionVectorLimit,
           filter: (filter) =>
-            filter.or(...teamIds.map((teamId) => filter.eq("teamId", teamId))),
+            filter.or(
+              ...comparisonScopes.map((comparisonScope) =>
+                filter.eq("comparisonScope", comparisonScope),
+              ),
+            ),
         }),
       ),
     ),
