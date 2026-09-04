@@ -353,6 +353,8 @@ test("the idea agent may iterate until it publishes a valid assessment", () => {
   assert.match(analysisPrompt, /overallParticipantCapacity is the event-wide number/u);
   assert.match(analysisPrompt, /Waitlist only when exactly one criterion partly meets/u);
   assert.match(analysisPrompt, /Do not use waitlist as a safe default/u);
+  assert.match(analysisPrompt, /Do not require an autobiographical motivation story/u);
+  assert.match(analysisPrompt, /Future-growth answers are not promises/u);
   assert.ok(ideaAgent.tools.includes("search_public_web"));
   assert.ok(ideaAgent.tools.includes("find_similar_ideas"));
   assert.ok(ideaAgent.tools.includes("publish_idea_analysis"));
