@@ -381,6 +381,10 @@ function mergeGeoms(geoms: readonly THREE.BufferGeometry[]) {
  * treats a throw as "skip the bloom", but the two logs still reach error
  * tracking as separate issues. Probe on a throwaway canvas first and
  * throw our own error, so the skip path runs before three.js logs.
+ *
+ * Release the probe context right after the check: browsers cap the
+ * number of live WebGL contexts, so a retained probe could starve the
+ * renderer of the context it needs and trigger the same error.
  */
 function assertWebGLAvailable() {
   const probe = document.createElement("canvas");
@@ -388,6 +392,7 @@ function assertWebGLAvailable() {
   if (!context) {
     throw new Error("WebGL is unavailable; skipping the submission bloom.");
   }
+  context.getExtension("WEBGL_lose_context")?.loseContext();
 }
 
 /* ============================================================
