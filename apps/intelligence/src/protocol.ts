@@ -26,8 +26,6 @@ const maximumAttendanceSessions = 64;
 const maximumAutonomySupportRows = 4;
 const maximumRecommendationHistoryRows = 50;
 const maximumAdmissionSearchRows = 25;
-const maximumAdmissionPolicyCriteria = 20;
-const maximumAdmissionCohortCandidates = 48;
 
 const healthSignal = v.strictObject({
   key: v.picklist(operationsHealthSignalKeys),
@@ -378,130 +376,16 @@ const admissionNoveltySignal = v.nullable(
   }),
 );
 
-const admissionCohortCandidate = v.strictObject({
-  applicationId: convexId,
-  teamId: convexId,
-  teamName: boundedText(1, 160),
-  state: v.picklist([
-    "submitted",
-    "under_review",
-    "accepted",
-    "waitlisted",
-    "declined",
-    "offer_sent",
-    "confirmed",
-    "offer_expired",
-    "withdrawn",
-  ]),
-  submittedAt: nonNegativeInteger,
-  experienceBand: v.picklist([
-    "first_year",
-    "early_year",
-    "later_year",
-    "postgraduate_or_professional",
-    "mixed_or_external",
-  ]),
-  teamSize: positiveInteger,
-  reviewCoverage: admissionReviewCoverage,
-  reviewSignal: v.strictObject({
-    accept: nonNegativeInteger,
-    waitlist: nonNegativeInteger,
-    decline: nonNegativeInteger,
-  }),
-  aiRecommendation: v.optional(
-    v.strictObject({
-      state: v.picklist([
-        "pending",
-        "running",
-        "succeeded",
-        "refused",
-        "invalid",
-        "timed_out",
-        "rate_limited",
-        "failed",
-        "stale",
-        "disabled",
-      ]),
-      current: v.boolean(),
-      recommendation: v.optional(v.picklist(["accept", "waitlist", "decline"])),
-      confidence: v.optional(v.picklist(["low", "medium", "high"])),
-      criterionAssessments: v.pipe(
-        v.array(
-          v.strictObject({
-            criterionKey: boundedText(1, 80),
-            assessment: v.picklist(["meets", "partly_meets", "not_yet_clear"]),
-          }),
-        ),
-        v.maxLength(maximumAdmissionPolicyCriteria),
-      ),
-    }),
-  ),
-  novelty: admissionNoveltySignal,
-  rank: positiveInteger,
-  cumulativePeople: positiveInteger,
-  entryCapacityPeople: positiveInteger,
-  suggestedIn: v.boolean(),
-});
-
 export const admissionReadSchemas = {
   admission_cohort: v.strictObject({
+    state: boundedText(1, 40),
+    snapshotOnly: v.literal(true),
     generatedAt: nonNegativeInteger,
-    capacityPeople: nonNegativeInteger,
-    policy: v.strictObject({
-      version: boundedText(1, 80),
-      minimumHumanReviews: nonNegativeInteger,
-      overallParticipantCapacity: nonNegativeInteger,
-      criteria: v.pipe(
-        v.array(
-          v.strictObject({
-            criterionKey: boundedText(1, 80),
-            label: boundedText(1, 160),
-          }),
-        ),
-        v.maxLength(maximumAdmissionPolicyCriteria),
-      ),
-    }),
-    summary: v.strictObject({
-      capacityPeople: nonNegativeInteger,
-      committedPeople: nonNegativeInteger,
-      suggestedPeople: nonNegativeInteger,
-      remainingPeople: v.pipe(v.number(), v.integer()),
-      suggestedInTeamCount: nonNegativeInteger,
-      suggestedInNotYetDecidableCount: nonNegativeInteger,
-      bandMix: v.pipe(
-        v.array(
-          v.strictObject({
-            band: v.picklist([
-              "first_year",
-              "early_year",
-              "later_year",
-              "postgraduate_or_professional",
-              "mixed_or_external",
-            ]),
-            teamsIn: nonNegativeInteger,
-            peopleIn: nonNegativeInteger,
-            teamsOut: nonNegativeInteger,
-            peopleOut: nonNegativeInteger,
-          }),
-        ),
-        v.maxLength(5),
-      ),
-    }),
-    counts: v.strictObject({
-      committedTeams: nonNegativeInteger,
-      decidedOutTeams: nonNegativeInteger,
-      candidateTeams: nonNegativeInteger,
-    }),
-    window: v.strictObject({
-      startRank: nonNegativeInteger,
-      endRank: nonNegativeInteger,
-      hasEarlier: v.boolean(),
-      hasLater: v.boolean(),
-    }),
-    candidates: v.pipe(
-      v.array(admissionCohortCandidate),
-      v.maxLength(maximumAdmissionCohortCandidates),
-    ),
+    runId: v.nullable(convexId),
+    acceptPeople: nonNegativeInteger,
+    waitlistPeople: nonNegativeInteger,
+    summaryJson: v.nullable(boundedText(1, 200_000)),
+    requestedCapacityMatches: v.boolean(),
   }),
   admission_submission_search: v.strictObject({
     generatedAt: nonNegativeInteger,

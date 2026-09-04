@@ -34,6 +34,12 @@ const http = httpRouter();
 
 authComponent.registerRoutes(http, createAuth, { cors: true });
 http.route({
+  path: "/intelligence/admission-shortlist/callback",
+  method: "POST",
+  handler: shortlistCallbackEndpoint,
+});
+
+http.route({
   path: "/configuration/communications/email-template",
   method: "POST",
   handler: importBundleEndpoint,
@@ -135,3 +141,4 @@ http.route({
 });
 
 export default http;
+import { endpoint as shortlistCallbackEndpoint } from "./admissionShortlistHttp";

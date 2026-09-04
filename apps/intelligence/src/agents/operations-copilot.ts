@@ -198,21 +198,17 @@ const stalledQueueSkill = defineSkill({
 
 const admissionCohortSkill = defineSkill({
   name: "preselect-admission-cohort",
-  description:
-    "Activate when asked to preselect the idea-submission cohort, fit admissions to an auditorium capacity, explain who moves in or out as the capacity changes, or search the submitted ideas.",
+  description: "Report the frozen, evidence-based admissions shortlist or search submitted ideas.",
   allowedTools: "read_admission_cohort search_submissions",
   instructions: [
-    "# Preselect an admission cohort at a capacity",
-    "",
-    "0. Activation gate: this procedure is only for an explicit cohort, cutoff, admission-selection, or venue-capacity request. “Set up idea submissions,” “initial setup,” questions, forms, and policy configuration are not cohort requests. For those, do not ask for capacity; use the relevant configuration procedure or explain the exact surface that owns the setting.",
-    "1. Capacity is PEOPLE, not teams: the auditorium seats a number of people, and each team costs its whole roster size. Read `read_admission_cohort` at the capacity the operator names; if none is named, read it once without a capacity to use the published one, and say which you used.",
-    "2. This is a decision-boundary window, not the full roster. `counts` is exact; `window.hasEarlier` and `window.hasLater` mean candidate rows were deliberately omitted. Never claim an omitted team or row is absent.",
-    "3. `suggestedIn` marks each returned candidate's side of the line and `entryCapacityPeople` is the smallest capacity that admits it. For a materially different capacity, re-read at that capacity. For a named team outside the window, use `search_submissions` instead of guessing.",
-    "4. Lead with the teams near the line: the last few in and the first few out, each with its team size, review signals, and what one seat more or fewer does to it.",
-    "5. A `suggestedIn` team with `reviewCoverage.decidable: false` cannot be decided yet — it is short of the published `minimumHumanReviews`. Say so, name the shortfall, and never present it as ready to accept. Getting it reviewed is the next action, not deciding it.",
-    "6. The `bandMix` is an observation, never a target: report how the year-band mix shifts as capacity moves, and do not propose rebalancing toward any mix — year bands shape review guidance in the published policy, not quotas. If an operator wants band quotas, that is a policy change for them to publish, not a selection you make.",
-    "7. Every in/out is a suggestion. Operators approve or reject the decision per application in the admissions workspace, under their own grants and reason codes; you cannot decide, and you should say the suggestion only becomes real through those per-application decisions.",
-    '8. Use `search_submissions` to answer "do we have anything like X" questions; relay only the recorded novelty and similarity signals, never a judgement of quality you computed yourself.',
+    "Activate only for explicit admissions selection, shortlist, cohort or applicant-search requests.",
+    "Read read_admission_cohort. It reports the same frozen run as the Ops shortlist workspace, not a ranking you can recompute. All targets count PEOPLE, not teams.",
+    "If not_generated, waiting, failed, stale or incomplete, say what is missing. Do not invent Accept, Waitlist or Reject counts or use human review counts as a replacement ranking.",
+    "For a complete run, relay summaryJson counts, targets, domain mix and audit warnings faithfully. snapshotOnly means this is an as-of snapshot, not proof that every application is still current.",
+    "If requestedCapacityMatches is false, ask the operator to generate a new run with those targets at /admissions/shortlist. Do not move the cutoff yourself.",
+    "Individual quality and shortlist suggestion are different. A qualifying proposal can be excluded for overlap or capacity. Do not invent quality deficiencies to explain that exclusion.",
+    "No final decisions are made by this read. Existing human-review requirements and per-application decision permissions still apply.",
+    "Use search_submissions for named proposals; full profiles, direct overlap comparisons and citations are in /admissions/shortlist. Do not infer uniqueness from bounded retrieval or claim the audit covers every possible pair.",
   ].join("\n"),
 });
 

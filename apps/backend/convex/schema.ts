@@ -226,6 +226,29 @@ const operationsAutonomyDeepReadSource = v.union(
 );
 
 export default defineSchema({
+  admissionShortlistRuns: defineTable({
+    eventId: v.id("events"), actorPersonId: v.id("people"), operationId: v.string(),
+    policyId: v.id("admissionPolicyVersions"), modelConfigId: v.id("admissionModelConfigVersions"),
+    releaseVersion: v.string(), acceptPeople: v.number(), waitlistPeople: v.number(),
+    remainingCapacity: v.number(), committedPeople: v.number(),
+    state: v.union(v.literal("preparing"), v.literal("waiting"), v.literal("profiling"), v.literal("comparing"), v.literal("auditing"), v.literal("complete"), v.literal("failed"), v.literal("stale")),
+    candidateCount: v.number(), pendingJobs: v.number(), failedJobs: v.number(), preparationDone: v.boolean(),
+    summaryJson: v.optional(v.string()), error: v.optional(v.string()), createdAt: v.number(), updatedAt: v.number(),
+  }).index("by_eventId", ["eventId"]).index("by_actorPersonId_and_operationId", ["actorPersonId", "operationId"]),
+  admissionShortlistCandidates: defineTable({
+    runId: v.id("admissionShortlistRuns"), applicationId: v.id("applications"),
+    applicationVersion: v.number(), contentVersion: v.number(), projectVersionId: v.id("projectVersions"),
+    recommendationId: v.optional(v.id("admissionAIRecommendations")),
+    committed: v.boolean(), teamName: v.string(), teamSize: v.number(),
+    inputJson: v.optional(v.string()), profileJson: v.optional(v.string()), embedding: v.optional(v.array(v.number())),
+    suggestion: v.optional(v.union(v.literal("accept"), v.literal("waitlist"), v.literal("reject"), v.literal("unresolved"))),
+    resultJson: v.optional(v.string()),
+  }).index("by_runId", ["runId"]).index("by_runId_and_applicationId", ["runId", "applicationId"]).index("by_runId_and_suggestion", ["runId", "suggestion"]),
+  admissionShortlistJobs: defineTable({
+    runId: v.id("admissionShortlistRuns"), key: v.string(), inputJson: v.string(),
+    state: v.union(v.literal("pending"), v.literal("succeeded"), v.literal("failed")),
+    attempt: v.number(), resultJson: v.optional(v.string()),
+  }).index("by_runId", ["runId"]).index("by_runId_and_key", ["runId", "key"]).index("by_runId_and_state", ["runId", "state"]),
   events: defineTable({
     slug: v.string(),
     name: v.string(),

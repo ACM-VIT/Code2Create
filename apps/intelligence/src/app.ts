@@ -15,6 +15,7 @@ import { copilotRoutes } from "./routes/copilotRoutes.ts";
 import { episodeRoutes } from "./routes/episodeRoutes.ts";
 import { healthRoutes } from "./routes/healthRoutes.ts";
 import { ideaRoutes } from "./routes/ideaRoutes.ts";
+import { shortlistRoutes } from "./routes/shortlistRoutes.ts";
 import { streamRoutes } from "./routes/streamRoutes.ts";
 
 instrument(createCloudflareTracing({ content: false }));
@@ -45,6 +46,7 @@ app.route("/", briefRoutes);
 app.route("/", copilotRoutes);
 app.route("/", episodeRoutes);
 app.route("/", ideaRoutes);
+app.route("/", shortlistRoutes);
 
 app.onError((_error, context) => {
   if (postHogIntelligenceObservabilityConfigured(context.env)) {
