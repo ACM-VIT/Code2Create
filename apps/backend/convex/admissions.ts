@@ -3125,6 +3125,20 @@ export async function transitionOffer(
       applicationVersion,
       now: args.now,
     });
+    if (args.transition === "confirmed") {
+      await enqueueApplicationNotifications(ctx, {
+        eventId: args.offer.eventId,
+        applicationId: args.application._id,
+        teamId: args.team._id,
+        lockedRosterSnapshotId: args.project.lockedRosterSnapshotId,
+        lockedMemberCount: args.project.lockedMemberCount,
+        communicationsPolicyVersionId,
+        templateKey: "external_event_pass",
+        applicationVersion,
+        now: args.now,
+        participantClass: "external_participant",
+      });
+    }
   }
 
   const updatedOffer = await ctx.db.get(args.offer._id);

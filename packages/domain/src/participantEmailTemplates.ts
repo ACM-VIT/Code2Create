@@ -6,6 +6,7 @@ export const participantEmailTemplateKeys = [
   "offer_confirmed",
   "offer_declined",
   "offer_expired",
+  "external_event_pass",
 ] as const;
 
 export type ParticipantEmailTemplateKey = (typeof participantEmailTemplateKeys)[number];
@@ -71,6 +72,7 @@ export const participantEmailTemplateLabels: Record<ParticipantEmailTemplateKey,
   offer_confirmed: "Offer confirmed",
   offer_declined: "Offer declined",
   offer_expired: "Offer expired",
+  external_event_pass: "External event pass",
 };
 
 const portalAction = `<a href="{{portal_url}}" style="display:inline-block;margin-top:20px;padding:12px 18px;border-radius:8px;background:#7f2848;color:#ffffff;text-decoration:none;font-weight:700">Open Code2Create</a>`;
@@ -86,6 +88,41 @@ function emailHtml(heading: string, message: string) {
       <p style="font-size:16px;line-height:1.6">${message}</p>
       ${portalAction}
       <p style="margin-top:32px;color:#725d65;font-size:13px">This update applies to {{team_name}}.</p>
+    </main>
+  </body>
+</html>`;
+}
+
+function externalEventPassHtml() {
+  return `<!doctype html>
+<html lang="en">
+  <body style="margin:0;background:#ffffff;color:#19070f;font-family:Inter,Arial,sans-serif">
+    <main style="max-width:600px;margin:0 auto;padding:32px 20px;text-align:center">
+      <p style="margin:0 0 8px;color:#b44f76;font-size:13px;font-weight:700;letter-spacing:1.6px;text-transform:uppercase">ACM-VIT presents</p>
+      <h1 style="margin:0 0 28px;font-size:34px;line-height:1.1">{{event_name}}</h1>
+      <section style="overflow:hidden;border:2px solid #b44f76;border-radius:22px;background:#fff8fb;box-shadow:0 12px 32px rgba(94,25,52,.12)">
+        <div style="padding:24px;background:#b44f76;color:#ffffff;text-align:left">
+          <p style="margin:0 0 6px;font-size:12px;font-weight:700;letter-spacing:1.3px;text-transform:uppercase">External participant pass</p>
+          <h2 style="margin:0;font-size:26px">{{participant_name}}</h2>
+          <p style="margin:7px 0 0;opacity:.9">{{team_name}}</p>
+        </div>
+        <div style="padding:28px 24px">
+          <img src="cid:event-pass-qr.png" alt="Personal Code2Create event pass QR" width="240" height="240" style="display:block;width:240px;max-width:100%;height:auto;margin:0 auto 18px;border:12px solid #ffffff;border-radius:16px" />
+          <p style="margin:0 0 8px;font-size:16px;font-weight:700">Present this pass before your photo ID</p>
+          <p style="margin:0;color:#725d65;font-size:13px;line-height:1.55">This QR is personal, static for the event, and must not be shared. Staff will verify your physical ID at first check-in.</p>
+          <div style="margin-top:22px;padding-top:20px;border-top:1px solid #e9cbd7;text-align:left;font-size:14px;line-height:1.6">
+            <p style="margin:0"><strong>When:</strong> {{event_start}}</p>
+            <p style="margin:4px 0 0"><strong>Where:</strong> {{venue_name}}</p>
+            <p style="margin:4px 0 0"><strong>Pass:</strong> {{pass_reference}}</p>
+          </div>
+        </div>
+      </section>
+      <div style="margin:24px 0 0">
+        <a href="{{google_wallet_url}}" style="display:inline-block;margin:4px;padding:12px 18px;border-radius:12px;background:#111111;color:#ffffff;text-decoration:none;font-weight:700">Add to Google Wallet</a>
+        <a href="{{apple_wallet_url}}" style="display:inline-block;margin:4px;padding:12px 18px;border-radius:12px;background:#111111;color:#ffffff;text-decoration:none;font-weight:700">Add to Apple Wallet</a>
+      </div>
+      <p style="margin:28px 0 0;color:#725d65;font-size:13px;line-height:1.6">Need help? Open the <a href="{{portal_url}}" style="color:#b44f76;font-weight:700">participant portal</a> or contact event support.</p>
+      <p style="margin:28px 0 0;font-size:14px">Best regards,<br /><strong>ACM-VIT Student Chapter</strong></p>
     </main>
   </body>
 </html>`;
@@ -155,6 +192,12 @@ export function defaultParticipantEmailTemplates(): ParticipantEmailTemplate[] {
         "The offer has expired.",
         "The response deadline for {{team_name}} passed, so the team's reserved places were released.",
       ),
+    },
+    {
+      templateKey: "external_event_pass",
+      subject: "Your {{event_name}} event pass",
+      text: "Hi {{participant_name}},\n\nYour personal external participant pass for {{event_name}} is included in this email. Present its QR before your physical photo ID at first check-in.\n\nWhen: {{event_start}}\nWhere: {{venue_name}}\nPass: {{pass_reference}}\n\nGoogle Wallet: {{google_wallet_url}}\nApple Wallet: {{apple_wallet_url}}\n\nDo not share this pass.",
+      html: externalEventPassHtml(),
     },
   ];
 }
