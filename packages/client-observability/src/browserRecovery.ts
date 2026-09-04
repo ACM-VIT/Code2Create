@@ -33,6 +33,44 @@ export function automaticChunkReloadIsAvailable(
   );
 }
 
+type CapturedEvent = {
+  event: string;
+  properties?: { $exception_list?: unknown };
+};
+
+export function isChunkLoadExceptionEvent(event: CapturedEvent): boolean {
+  if (event.event !== "$exception") {
+    return false;
+  }
+  const exceptionList = event.properties?.$exception_list;
+  if (!Array.isArray(exceptionList)) {
+    return false;
+  }
+  return exceptionList.some(exceptionEntryIsChunkLoadFailure);
+}
+
+function exceptionEntryIsChunkLoadFailure(entry: unknown): boolean {
+  if (typeof entry !== "object" || entry === null) {
+    return false;
+  }
+  const type = "type" in entry && typeof entry.type === "string" ? entry.type : "";
+  const value = "value" in entry && typeof entry.value === "string" ? entry.value : "";
+  return isChunkLoadFailure(`${type}: ${value}`);
+}
+
+let reloadInitiatedInThisContext = false;
+
+/**
+ * Drop the chunk-load exception that recovery is about to reload past: the
+ * reload is the fix, so filing a new error tracking issue for the content-hashed
+ * chunk name is only noise. The flag lives in this page context and resets on
+ * reload, so a different missing chunk, or the same chunk failing again after an
+ * unsuccessful reload, stays visible to error tracking.
+ */
+export function suppressRecoveredChunkException(event: CapturedEvent): boolean {
+  return reloadInitiatedInThisContext && isChunkLoadExceptionEvent(event);
+}
+
 /**
  * Vite emits `vite:preloadError` when a lazy route asset cannot be fetched. A
  * page reload is required because React.lazy and the browser module loader keep
@@ -58,6 +96,7 @@ export function installBrowserChunkRecovery(): void {
         return;
       }
       event.preventDefault();
+      reloadInitiatedInThisContext = true;
       window.location.reload();
       return;
     }
@@ -74,6 +113,7 @@ export function installBrowserChunkRecovery(): void {
         const connectedAt = Date.now();
         const connectedHref = window.location.href;
         if (claimAutomaticReload(connectedHref, connectedAt)) {
+          reloadInitiatedInThisContext = true;
           window.location.reload();
         }
       },

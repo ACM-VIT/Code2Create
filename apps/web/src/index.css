@@ -427,6 +427,10 @@
   animation: c2c-bonsai-arrive 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+.delayed-bonsai[data-continuing="true"] {
+  animation: none;
+}
+
 @keyframes c2c-bonsai-arrive {
   from {
     opacity: 0;
