@@ -32,7 +32,7 @@ const keySetResult = v.object({
   barcodeNormalizationVersion: v.string(),
 });
 
-const portalKeySetResult = v.object({
+const attendanceKeySetResult = v.object({
   keySetId: v.id("attendanceBarcodeKeySets"),
   eventId: v.id("events"),
   eventSlug: v.string(),
@@ -49,7 +49,7 @@ const encryptedKeyFields = v.object({
   wrappingKeyVersion: v.string(),
 });
 
-export const ensurePortalKeySet = internalMutation({
+export const ensureExternalPassKeySet = internalMutation({
   args: {
     eventSlug: v.string(),
     candidate: v.object({
@@ -59,7 +59,7 @@ export const ensurePortalKeySet = internalMutation({
       wrappingKeyVersion: v.string(),
     }),
   },
-  returns: portalKeySetResult,
+  returns: attendanceKeySetResult,
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
@@ -68,7 +68,7 @@ export const ensurePortalKeySet = internalMutation({
     await requirePermission(ctx, {
       eventId: event._id,
       eventAccessSubjectId: subject._id,
-      permissionKey: "attendance.portal_qr.mint",
+      permissionKey: "attendance.external_pass.read",
       scopeType: "self",
       scopeId: membership._id,
     });
@@ -113,6 +113,74 @@ export const ensurePortalKeySet = internalMutation({
       wrappingKeyVersion: args.candidate.wrappingKeyVersion,
       status: "active",
       createdByPersonId: person._id,
+      createdAt: Date.now(),
+    });
+    return {
+      keySetId,
+      eventId: event._id,
+      eventSlug: event.slug,
+      encryptedKey: args.candidate.encryptedKey,
+      iv: args.candidate.iv,
+      authTag: args.candidate.authTag,
+      wrappingKeyVersion: args.candidate.wrappingKeyVersion,
+    };
+  },
+});
+
+export const ensureExternalPassDeliveryKeySet = internalMutation({
+  args: {
+    eventSlug: v.string(),
+    membershipId: v.id("eventMemberships"),
+    candidate: v.object({
+      encryptedKey: v.string(),
+      iv: v.string(),
+      authTag: v.string(),
+      wrappingKeyVersion: v.string(),
+    }),
+  },
+  returns: attendanceKeySetResult,
+  handler: async (ctx, args) => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const membership = await ctx.db.get(args.membershipId);
+    if (
+      !membership ||
+      membership.eventId !== event._id ||
+      membership.participantClass !== "external_participant" ||
+      membership.eligibilityStatus !== "eligible" ||
+      membership.onboardingStatus !== "accepted"
+    ) {
+      throw new ConvexError({
+        code: "EXTERNAL_PASS_NOT_AVAILABLE",
+        message: "Event passes are available only to accepted external participants.",
+      });
+    }
+    const active = await ctx.db
+      .query("attendanceBarcodeKeySets")
+      .withIndex("by_event_status_version", (index) =>
+        index.eq("eventId", event._id).eq("status", "active"),
+      )
+      .order("desc")
+      .first();
+    if (active) {
+      return {
+        keySetId: active._id,
+        eventId: event._id,
+        eventSlug: event.slug,
+        encryptedKey: active.encryptedKey,
+        iv: active.iv,
+        authTag: active.authTag,
+        wrappingKeyVersion: active.wrappingKeyVersion,
+      };
+    }
+    const keySetId = await ctx.db.insert("attendanceBarcodeKeySets", {
+      eventId: event._id,
+      version: 1,
+      encryptedKey: args.candidate.encryptedKey,
+      iv: args.candidate.iv,
+      authTag: args.candidate.authTag,
+      wrappingKeyVersion: args.candidate.wrappingKeyVersion,
+      status: "active",
+      createdByPersonId: membership.personId,
       createdAt: Date.now(),
     });
     return {
@@ -212,7 +280,7 @@ export const ensureBarcodeKeySet = internalMutation({
 
 export const keySetForRotation = internalQuery({
   args: { eventSlug: v.string() },
-  returns: portalKeySetResult,
+  returns: attendanceKeySetResult,
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const active = await ctx.db

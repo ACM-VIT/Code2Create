@@ -15,7 +15,6 @@ import {
   revokeActiveExternalBadge,
   suspendActiveVitBarcode,
 } from "./lib/attendanceCredentialLifecycle";
-import { consumePortalQrToken } from "./lib/attendancePortalQrLifecycle";
 import { requireEventBySlug } from "./lib/events";
 import { requireCurrentPerson } from "./lib/identity";
 import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
@@ -26,8 +25,9 @@ import {
   requireAvailableStaffedCredentialResolution,
   requireClaimedStaffedCredentialResolution,
 } from "./lib/staffedParticipantResolution";
-import { normalizedText } from "./lib/strings";
+import { normalizeEmail, normalizedText } from "./lib/strings";
 import { currentTeamForMembership } from "./lib/teamMembership";
+import { parseVitRegistrationNumber, vitIdentityReferenceYear } from "./lib/vitStudentIdentity";
 import { latestVenueCheckIn } from "./lib/venueCheckInLifecycle";
 import { barcodeSymbology } from "./values";
 
@@ -67,6 +67,11 @@ type SuspendVitResult = {
   suspended: true;
 };
 
+type ExternalIdentityLinkResult = {
+  bindingId: Id<"attendanceExternalIdentityBindings">;
+  verified: true;
+};
+
 type CurrentVitCredential = Doc<"attendanceCredentials"> & {
   kind: "vit_id_barcode";
   state: "active" | "suspended";
@@ -80,6 +85,7 @@ type StaffedParticipantResult = {
   institution: string;
   teamName: string;
   vitRegistrationNumber?: string;
+  vitScanRelationship?: "unbound" | "current_active" | "current_suspended" | "replacement";
   credential:
     | {
         kind: "vit_id_barcode";
@@ -93,6 +99,10 @@ type StaffedParticipantResult = {
         expectedCredentialVersion: number;
         canRebind: boolean;
         canSuspend: boolean;
+      }
+    | {
+        kind: "external_pass";
+        state: "active";
       }
     | {
         kind: "badge_qr";
@@ -174,6 +184,14 @@ const credentialParticipantResult = v.object({
   institution: v.string(),
   teamName: v.string(),
   vitRegistrationNumber: v.optional(v.string()),
+  vitScanRelationship: v.optional(
+    v.union(
+      v.literal("unbound"),
+      v.literal("current_active"),
+      v.literal("current_suspended"),
+      v.literal("replacement"),
+    ),
+  ),
   credential: v.union(
     v.object({
       kind: v.literal("vit_id_barcode"),
@@ -187,6 +205,10 @@ const credentialParticipantResult = v.object({
       expectedCredentialVersion: v.number(),
       canRebind: v.boolean(),
       canSuspend: v.boolean(),
+    }),
+    v.object({
+      kind: v.literal("external_pass"),
+      state: v.literal("active"),
     }),
     v.object({
       kind: v.literal("badge_qr"),
@@ -271,63 +293,6 @@ async function resolveVitCredential(
   };
 }
 
-async function resolveBadgeCredential(
-  ctx: MutationCtx,
-  args: {
-    eventId: Id<"events">;
-    eventAccessSubjectId: Id<"eventAccessSubjects">;
-    personId: Id<"people">;
-    activeCredential: Doc<"attendanceCredentials"> | undefined;
-  },
-): Promise<StaffedParticipantResult["credential"]> {
-  if (!args.activeCredential) {
-    const grantIds = await matchingPermissionGrantIds(ctx, {
-      eventId: args.eventId,
-      eventAccessSubjectId: args.eventAccessSubjectId,
-      permissionKey: "attendance.badge.issue",
-      scopeType: "person",
-      scopeId: args.personId,
-    });
-    return {
-      kind: "badge_qr",
-      state: "not_issued",
-      canIssue: grantIds.length > 0,
-    };
-  }
-  if (!args.activeCredential.badgeReference) {
-    throw new ConvexError({
-      code: "BADGE_RECORD_INCOMPLETE",
-      message:
-        "This badge record is missing its printed reference. Revoke it and issue a fresh badge.",
-    });
-  }
-  const [replaceGrantIds, revokeGrantIds] = await Promise.all([
-    matchingPermissionGrantIds(ctx, {
-      eventId: args.eventId,
-      eventAccessSubjectId: args.eventAccessSubjectId,
-      permissionKey: "attendance.badge.replace",
-      scopeType: "person",
-      scopeId: args.personId,
-    }),
-    matchingPermissionGrantIds(ctx, {
-      eventId: args.eventId,
-      eventAccessSubjectId: args.eventAccessSubjectId,
-      permissionKey: "attendance.badge.revoke",
-      scopeType: "person",
-      scopeId: args.personId,
-    }),
-  ]);
-  return {
-    kind: "badge_qr",
-    state: "active",
-    credentialId: args.activeCredential._id,
-    expectedCredentialVersion: args.activeCredential.version,
-    badgeReference: args.activeCredential.badgeReference,
-    canReplace: replaceGrantIds.length > 0,
-    canRevoke: revokeGrantIds.length > 0,
-  };
-}
-
 type ExternalBadgePermission =
   | "attendance.badge.issue"
   | "attendance.badge.replace"
@@ -380,22 +345,389 @@ async function requireExternalBadgeCommand(
   return { event, person, station, membership, grantIds };
 }
 
-export const resolveStaffedParticipant = internalMutation({
+type StaffedResolutionMethod =
+  | { kind: "vit_id_barcode"; lookupHash: string; symbology: Doc<"attendanceCredentials">["barcodeSymbology"] }
+  | { kind: "external_pass" }
+  | { kind: "manual_lookup" };
+
+export function classifyVitScan(args: {
+  current: { lookupHash: string; state: "active" | "suspended" } | undefined;
+  scannedLookupHash: string;
+}): NonNullable<StaffedParticipantResult["vitScanRelationship"]> {
+  if (!args.current) return "unbound";
+  if (args.current.lookupHash !== args.scannedLookupHash) return "replacement";
+  return args.current.state === "active" ? "current_active" : "current_suspended";
+}
+
+async function staffedParticipantForMembership(
+  ctx: MutationCtx,
+  args: {
+    eventSlug: string;
+    stationId: Id<"attendanceStations">;
+    expectedConfigurationVersion: number;
+    deviceInstallationId: Id<"attendanceDeviceInstallations">;
+    deviceSecretHash: string;
+    membership: Doc<"eventMemberships">;
+    method: StaffedResolutionMethod;
+  },
+): Promise<StaffedParticipantResult> {
+  const { event, person, subject, station, grantIds } = await requireStationPermission(ctx, {
+    eventSlug: args.eventSlug,
+    stationId: args.stationId,
+    expectedConfigurationVersion: args.expectedConfigurationVersion,
+    permissionKey: "attendance.station.read",
+  });
+  await requireAssignedDevice(ctx, {
+    eventId: event._id,
+    stationId: station._id,
+    deviceInstallationId: args.deviceInstallationId,
+    deviceSecretHash: args.deviceSecretHash,
+  });
+  const membership = args.membership;
+  if (
+    membership.eventId !== event._id ||
+    membership.eligibilityStatus !== "eligible" ||
+    membership.onboardingStatus !== "accepted"
+  ) {
+    throw new ConvexError({
+      code: "PARTICIPANT_NOT_ACCEPTED",
+      message: "This person is not an accepted RSVP participant for this event.",
+    });
+  }
+  if (
+    (args.method.kind === "vit_id_barcode" && membership.participantClass !== "vit_student") ||
+    (args.method.kind === "external_pass" &&
+      membership.participantClass !== "external_participant")
+  ) {
+    throw new ConvexError({
+      code: "PARTICIPANT_CLASS_MISMATCH",
+      message: "This credential does not match the participant class.",
+    });
+  }
+  const [
+    participantPerson,
+    profile,
+    memberCredentials,
+    teamContext,
+    latestCheckIn,
+    recordCheckInGrantIds,
+    overrideIdentityGrantIds,
+    reverseCheckInGrantIds,
+  ] = await Promise.all([
+    ctx.db.get(membership.personId),
+    ctx.db
+      .query("participantProfiles")
+      .withIndex("by_membership", (index) => index.eq("membershipId", membership._id))
+      .unique(),
+    ctx.db
+      .query("attendanceCredentials")
+      .withIndex("by_membership_state", (index) => index.eq("membershipId", membership._id))
+      .collect(),
+    currentTeamForMembership(ctx, event._id, membership._id),
+    latestVenueCheckIn(ctx, membership._id),
+    matchingPermissionGrantIds(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey: "attendance.venue_check_in.record",
+      scopeType: "person",
+      scopeId: membership.personId,
+    }),
+    matchingPermissionGrantIds(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey: "attendance.venue_check_in.override_identity",
+      scopeType: "person",
+      scopeId: membership.personId,
+    }),
+    matchingPermissionGrantIds(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey: "attendance.venue_check_in.reverse",
+      scopeType: "person",
+      scopeId: membership.personId,
+    }),
+  ]);
+  if (!participantPerson || !profile || !teamContext) {
+    throw new ConvexError({
+      code: "PARTICIPANT_INCOMPLETE",
+      message: "This participant's profile or team is incomplete. Send them to the help desk.",
+    });
+  }
+  const currentVitCredential = memberCredentials.find(
+    (credential): credential is CurrentVitCredential =>
+      credential.kind === "vit_id_barcode" &&
+      (credential.state === "active" || credential.state === "suspended"),
+  );
+  const credential: StaffedParticipantResult["credential"] =
+    membership.participantClass === "vit_student"
+      ? await resolveVitCredential(ctx, {
+          eventId: event._id,
+          eventAccessSubjectId: subject._id,
+          personId: membership.personId,
+          stationId: station._id,
+          currentCredential: currentVitCredential,
+        })
+      : { kind: "external_pass", state: "active" };
+  const vitScanRelationship: StaffedParticipantResult["vitScanRelationship"] =
+    args.method.kind !== "vit_id_barcode"
+      ? undefined
+      : classifyVitScan({
+          current: currentVitCredential,
+          scannedLookupHash: args.method.lookupHash,
+        });
+  const checkInStation = latestCheckIn ? await ctx.db.get(latestCheckIn.stationId) : null;
+  if (latestCheckIn && (!checkInStation || checkInStation.eventId !== event._id)) {
+    throw new ConvexError({
+      code: "CHECK_IN_STATION_MISSING",
+      message: "The station that recorded this check-in no longer exists.",
+    });
+  }
+  const now = Date.now();
+  const resolutionId = await createStaffedParticipantResolution(ctx, {
+    eventId: event._id,
+    membershipId: membership._id,
+    resolutionMethod: args.method.kind,
+    ...(args.method.kind === "vit_id_barcode"
+      ? {
+          barcodeLookupHash: args.method.lookupHash,
+          ...(args.method.symbology !== undefined
+            ? { barcodeSymbology: args.method.symbology }
+            : {}),
+        }
+      : {}),
+    stationId: station._id,
+    deviceInstallationId: args.deviceInstallationId,
+    resolvedByPersonId: person._id,
+    now,
+  });
+  await writeAuditEvent(ctx, {
+    eventId: event._id,
+    actorPersonId: person._id,
+    permissionKey: "attendance.station.read",
+    grantIds,
+    scopeType: "station",
+    scopeId: station._id,
+    action: "attendance.staffed_participant_resolved",
+    targetType: "event_membership",
+    targetId: membership._id,
+    nextSummary: JSON.stringify({
+      source: args.method.kind,
+      participantClass: membership.participantClass,
+      credentialKind: credential.kind,
+      credentialState: credential.state,
+      venueCheckInStatus: latestCheckIn?.status ?? "not_checked_in",
+    }),
+    reason: `Participant resolved by ${args.method.kind.replaceAll("_", " ")}`,
+  });
+  return {
+    resolutionId,
+    membershipId: membership._id,
+    participantClass: membership.participantClass,
+    displayName: profile.fullName ?? participantPerson.displayName,
+    institution: profile.institution,
+    teamName: teamContext.team.name,
+    ...(profile.vitRegistrationNumber !== undefined
+      ? { vitRegistrationNumber: profile.vitRegistrationNumber }
+      : {}),
+    ...(vitScanRelationship !== undefined ? { vitScanRelationship } : {}),
+    credential,
+    venueCheckIn:
+      latestCheckIn && checkInStation
+        ? {
+            id: latestCheckIn._id,
+            status: latestCheckIn.status,
+            version: latestCheckIn.version,
+            checkedInAt: latestCheckIn.checkedInAt,
+            stationName: checkInStation.name,
+            ...(latestCheckIn.reversedAt !== undefined
+              ? { reversedAt: latestCheckIn.reversedAt }
+              : {}),
+          }
+        : null,
+    canRecordVenueCheckIn: recordCheckInGrantIds.length > 0,
+    canOverrideVenueIdentity: overrideIdentityGrantIds.length > 0,
+    canReverseVenueCheckIn: reverseCheckInGrantIds.length > 0,
+  };
+}
+
+const staffedResolutionArgs = {
+  eventSlug: v.string(),
+  stationId: v.id("attendanceStations"),
+  expectedConfigurationVersion: v.number(),
+  deviceInstallationId: v.id("attendanceDeviceInstallations"),
+  deviceSecretHash: v.string(),
+};
+
+export const resolveExternalPass = internalMutation({
+  args: { ...staffedResolutionArgs, lookupHash: v.string() },
+  returns: credentialParticipantResult,
+  handler: async (ctx, args): Promise<StaffedParticipantResult> => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const pass = await ctx.db
+      .query("attendanceExternalPasses")
+      .withIndex("by_event_lookup", (index) =>
+        index.eq("eventId", event._id).eq("lookupHash", args.lookupHash),
+      )
+      .unique();
+    if (!pass || pass.state !== "active") {
+      throw new ConvexError({
+        code: "EXTERNAL_PASS_INVALID",
+        message: "This external event pass is invalid or suspended.",
+      });
+    }
+    const membership = await ctx.db.get(pass.membershipId);
+    if (!membership) throw new Error("External pass membership is missing.");
+    return staffedParticipantForMembership(ctx, {
+      ...args,
+      membership,
+      method: { kind: "external_pass" },
+    });
+  },
+});
+
+export const resolveVitBarcode = internalMutation({
+  args: {
+    ...staffedResolutionArgs,
+    rawRegistrationNumber: v.string(),
+    lookupHash: v.string(),
+    symbology: barcodeSymbology,
+  },
+  returns: credentialParticipantResult,
+  handler: async (ctx, args): Promise<StaffedParticipantResult> => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const parsed = parseVitRegistrationNumber(
+      args.rawRegistrationNumber,
+      vitIdentityReferenceYear(event),
+    );
+    if (!parsed) {
+      throw new ConvexError({
+        code: "VIT_ID_BARCODE_INVALID",
+        message: "The VIT ID barcode does not contain a valid registration number.",
+      });
+    }
+    const membership = await ctx.db
+      .query("eventMemberships")
+      .withIndex("by_event_vit_registration", (index) =>
+        index.eq("eventId", event._id).eq("vitStudentIdentity.registrationNumber", parsed.registrationNumber),
+      )
+      .unique();
+    if (!membership) {
+      throw new ConvexError({
+        code: "VIT_PARTICIPANT_NOT_FOUND",
+        message: "No accepted RSVP participant matches this VIT registration number.",
+      });
+    }
+    return staffedParticipantForMembership(ctx, {
+      ...args,
+      membership,
+      method: { kind: "vit_id_barcode", lookupHash: args.lookupHash, symbology: args.symbology },
+    });
+  },
+});
+
+export const resolveManualParticipant = internalMutation({
+  args: {
+    ...staffedResolutionArgs,
+    lookup: v.union(
+      v.object({ kind: v.literal("vit_registration"), value: v.string() }),
+      v.object({ kind: v.literal("external_email"), value: v.string() }),
+    ),
+  },
+  returns: credentialParticipantResult,
+  handler: async (ctx, args): Promise<StaffedParticipantResult> => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    let membership: Doc<"eventMemberships"> | null = null;
+    if (args.lookup.kind === "vit_registration") {
+      const parsed = parseVitRegistrationNumber(args.lookup.value, vitIdentityReferenceYear(event));
+      if (parsed) {
+        membership = await ctx.db
+          .query("eventMemberships")
+          .withIndex("by_event_vit_registration", (index) =>
+            index.eq("eventId", event._id).eq("vitStudentIdentity.registrationNumber", parsed.registrationNumber),
+          )
+          .unique();
+      }
+    } else {
+      const subject = await ctx.db
+        .query("eventAccessSubjects")
+        .withIndex("by_event_email", (index) =>
+          index.eq("eventId", event._id).eq("emailNormalized", normalizeEmail(args.lookup.value)),
+        )
+        .unique();
+      membership = subject
+        ? await ctx.db
+            .query("eventMemberships")
+            .withIndex("by_event_person", (index) =>
+              index.eq("eventId", event._id).eq("personId", subject.personId),
+            )
+            .unique()
+        : null;
+    }
+    const expectedClass =
+      args.lookup.kind === "vit_registration" ? "vit_student" : "external_participant";
+    if (!membership || membership.participantClass !== expectedClass) {
+      throw new ConvexError({
+        code: "PARTICIPANT_NOT_FOUND",
+        message:
+          args.lookup.kind === "vit_registration"
+            ? "No VIT participant matches that registration number."
+            : "No external participant matches that email address.",
+      });
+    }
+    return staffedParticipantForMembership(ctx, {
+      ...args,
+      membership,
+      method: { kind: "manual_lookup" },
+    });
+  },
+});
+
+export const enrolResolvedVitBarcode = internalMutation({
   args: {
     eventSlug: v.string(),
     stationId: v.id("attendanceStations"),
     expectedConfigurationVersion: v.number(),
     deviceInstallationId: v.id("attendanceDeviceInstallations"),
     deviceSecretHash: v.string(),
-    tokenHash: v.string(),
+    resolutionId: v.id("staffedParticipantResolutions"),
+    visibleIdentityConfirmed: v.boolean(),
+    clientOperationId: v.string(),
   },
-  returns: credentialParticipantResult,
-  handler: async (ctx, args): Promise<StaffedParticipantResult> => {
-    const { event, person, subject, station, grantIds } = await requireStationPermission(ctx, {
+  returns: verifyResult,
+  handler: async (ctx, args): Promise<VerifyResult> => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const requestFingerprint = operationFingerprint([
+      args.stationId,
+      args.expectedConfigurationVersion,
+      args.deviceInstallationId,
+      args.deviceSecretHash,
+      args.resolutionId,
+      args.visibleIdentityConfirmed,
+    ]);
+    const prior = await findOperation(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      clientOperationId: args.clientOperationId,
+      commandName: "attendance.credential.enrol_resolved_vit_barcode",
+      requestFingerprint,
+    });
+    if (prior) {
+      const credentialId = ctx.db.normalizeId("attendanceCredentials", prior.targetId);
+      if (!credentialId) throw new Error("Stored VIT barcode enrolment is invalid.");
+      return { credentialId, verified: true };
+    }
+    if (!args.visibleIdentityConfirmed) {
+      throw new ConvexError({
+        code: "IDENTITY_CHECK_REQUIRED",
+        message: "Confirm the visible VIT ID before linking its barcode.",
+      });
+    }
+    const { station, grantIds } = await requireStationPermission(ctx, {
       eventSlug: args.eventSlug,
       stationId: args.stationId,
       expectedConfigurationVersion: args.expectedConfigurationVersion,
-      permissionKey: "attendance.station.read",
+      permissionKey: "attendance.credential.enrol",
     });
     await requireAssignedDevice(ctx, {
       eventId: event._id,
@@ -403,182 +735,294 @@ export const resolveStaffedParticipant = internalMutation({
       deviceInstallationId: args.deviceInstallationId,
       deviceSecretHash: args.deviceSecretHash,
     });
-    const token = await ctx.db
-      .query("attendancePortalQrTokens")
-      .withIndex("by_event_token", (index) =>
-        index.eq("eventId", event._id).eq("tokenHash", args.tokenHash),
-      )
-      .unique();
-    const now = Date.now();
-    if (!token || token.state !== "active" || token.expiresAt <= now) {
+    const resolutionCandidate = await ctx.db.get(args.resolutionId);
+    if (!resolutionCandidate) {
       throw new ConvexError({
-        code: "PORTAL_QR_INVALID",
-        message: "Ask the participant to show a fresh portal attendance code.",
+        code: "STAFFED_RESOLUTION_REQUIRED",
+        message: "Scan the participant's VIT ID barcode before linking it.",
       });
     }
-    const [membership, portalCredential] = await Promise.all([
-      ctx.db.get(token.membershipId),
-      ctx.db.get(token.portalCredentialId),
-    ]);
+    const resolution = await requireAvailableStaffedCredentialResolution(ctx, {
+      resolutionId: args.resolutionId,
+      eventId: event._id,
+      membershipId: resolutionCandidate.membershipId,
+      stationId: station._id,
+      deviceInstallationId: args.deviceInstallationId,
+      actorPersonId: person._id,
+      now: Date.now(),
+    });
+    if (
+      resolution.resolutionMethod !== "vit_id_barcode" ||
+      resolution.barcodeLookupHash === undefined ||
+      resolution.barcodeSymbology === undefined
+    ) {
+      throw new ConvexError({
+        code: "VIT_BARCODE_RESOLUTION_REQUIRED",
+        message: "Scan the participant's VIT ID barcode before linking it.",
+      });
+    }
+    const barcodeLookupHash = resolution.barcodeLookupHash;
+    const barcodeSymbology = resolution.barcodeSymbology;
+    const membership = await ctx.db.get(resolution.membershipId);
     if (
       !membership ||
       membership.eventId !== event._id ||
+      membership.participantClass !== "vit_student" ||
       membership.eligibilityStatus !== "eligible" ||
-      membership.onboardingStatus !== "accepted" ||
-      !portalCredential ||
-      portalCredential.eventId !== event._id ||
-      portalCredential.membershipId !== membership._id ||
-      portalCredential.state !== "active" ||
-      portalCredential.version !== token.credentialVersion
+      membership.onboardingStatus !== "accepted"
     ) {
       throw new ConvexError({
-        code: "PARTICIPANT_REQUIRED",
-        message: "This code does not belong to an accepted participant.",
+        code: "VIT_PARTICIPANT_REQUIRED",
+        message: "Choose an accepted VIT participant.",
       });
     }
-    const [
-      participantPerson,
-      profile,
-      memberCredentials,
-      teamContext,
-      latestCheckIn,
-      recordCheckInGrantIds,
-      overrideIdentityGrantIds,
-      reverseCheckInGrantIds,
-    ] = await Promise.all([
-      ctx.db.get(membership.personId),
-      ctx.db
-        .query("participantProfiles")
-        .withIndex("by_membership", (index) => index.eq("membershipId", membership._id))
-        .unique(),
-      ctx.db
-        .query("attendanceCredentials")
-        .withIndex("by_membership_state", (index) => index.eq("membershipId", membership._id))
-        .collect(),
-      currentTeamForMembership(ctx, event._id, membership._id),
-      latestVenueCheckIn(ctx, membership._id),
-      matchingPermissionGrantIds(ctx, {
-        eventId: event._id,
-        eventAccessSubjectId: subject._id,
-        permissionKey: "attendance.venue_check_in.record",
-        scopeType: "person",
-        scopeId: membership.personId,
-      }),
-      matchingPermissionGrantIds(ctx, {
-        eventId: event._id,
-        eventAccessSubjectId: subject._id,
-        permissionKey: "attendance.venue_check_in.override_identity",
-        scopeType: "person",
-        scopeId: membership.personId,
-      }),
-      matchingPermissionGrantIds(ctx, {
-        eventId: event._id,
-        eventAccessSubjectId: subject._id,
-        permissionKey: "attendance.venue_check_in.reverse",
-        scopeType: "person",
-        scopeId: membership.personId,
-      }),
-    ]);
-    if (!participantPerson || !profile || !teamContext) {
+    const existingForMember = await ctx.db
+      .query("attendanceCredentials")
+      .withIndex("by_membership_state", (index) => index.eq("membershipId", membership._id))
+      .collect();
+    if (
+      existingForMember.some(
+        (credential) =>
+          credential.kind === "vit_id_barcode" &&
+          (credential.state === "active" || credential.state === "suspended"),
+      )
+    ) {
       throw new ConvexError({
-        code: "PARTICIPANT_INCOMPLETE",
-        message: "This participant's profile or team is incomplete. Send them to the help desk.",
+        code: "REBIND_REQUIRED",
+        message: "This participant already has a VIT ID binding. Use the replacement workflow.",
       });
     }
-    const currentVitCredential = memberCredentials.find(
-      (credential): credential is CurrentVitCredential =>
-        credential.kind === "vit_id_barcode" &&
-        (credential.state === "active" || credential.state === "suspended"),
-    );
-    const activeBadgeCredential = memberCredentials.find(
-      (credential) => credential.kind === "badge_qr" && credential.state === "active",
-    );
-    const credential =
-      membership.participantClass === "vit_student"
-        ? await resolveVitCredential(ctx, {
-            eventId: event._id,
-            eventAccessSubjectId: subject._id,
-            personId: membership.personId,
-            stationId: station._id,
-            currentCredential: currentVitCredential,
-          })
-        : await resolveBadgeCredential(ctx, {
-            eventId: event._id,
-            eventAccessSubjectId: subject._id,
-            personId: membership.personId,
-            activeCredential: activeBadgeCredential,
-          });
-    const checkInStation = latestCheckIn ? await ctx.db.get(latestCheckIn.stationId) : null;
-    if (latestCheckIn && (!checkInStation || checkInStation.eventId !== event._id)) {
+    const hashMatches = await ctx.db
+      .query("attendanceCredentials")
+      .withIndex("by_event_lookup", (index) =>
+        index.eq("eventId", event._id).eq("lookupHash", barcodeLookupHash),
+      )
+      .collect();
+    if (
+      hashMatches.some(
+        (credential) =>
+          credential.membershipId !== membership._id &&
+          (credential.state === "active" || credential.state === "suspended"),
+      )
+    ) {
       throw new ConvexError({
-        code: "CHECK_IN_STATION_MISSING",
-        message:
-          "The station that recorded this check-in no longer exists. Ask operations to review the check-in.",
+        code: "BARCODE_ALREADY_BOUND",
+        message: "This VIT ID barcode is already bound to another participant.",
       });
     }
+    const now = Date.now();
+    const credentialId = await ctx.db.insert("attendanceCredentials", {
+      eventId: event._id,
+      membershipId: membership._id,
+      kind: "vit_id_barcode",
+      lookupHash: barcodeLookupHash,
+      barcodeSymbology,
+      normalizationVersion: "trim-v1",
+      version: 1,
+      state: "active",
+      enrolledByPersonId: person._id,
+      enrolledAt: now,
+      verifiedAt: now,
+    });
+    await claimStaffedCredentialResolution(ctx, {
+      resolutionId: resolution._id,
+      credentialAction: "begin_vit_enrolment",
+      attendanceCredentialId: credentialId,
+      now,
+    });
+    await recordOperation(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      clientOperationId: args.clientOperationId,
+      commandName: "attendance.credential.enrol_resolved_vit_barcode",
+      requestFingerprint,
+      targetType: "attendance_credential",
+      targetId: credentialId,
+      createdAt: now,
+    });
     await writeAuditEvent(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
-      permissionKey: "attendance.station.read",
+      permissionKey: "attendance.credential.enrol",
       grantIds,
       scopeType: "station",
       scopeId: station._id,
-      action: "attendance.staffed_participant_resolved",
-      targetType: "event_membership",
-      targetId: membership._id,
-      nextSummary: JSON.stringify({
-        source: "short_lived_portal_qr",
-        participantClass: membership.participantClass,
-        credentialKind: credential.kind,
-        credentialState: credential.state,
-        venueCheckInStatus: latestCheckIn?.status ?? "not_checked_in",
-      }),
-      reason:
-        "Participant presented a short-lived portal QR at a staffed arrival or credential desk",
+      action: "attendance.vit_barcode_enrolled",
+      targetType: "attendance_credential",
+      targetId: credentialId,
+      nextSummary: JSON.stringify({ membershipId: membership._id, state: "active" }),
+      reason: "The scanned VIT registration number and visible ID matched the accepted participant",
     });
-    await consumePortalQrToken(ctx, {
-      tokenId: token._id,
-      membershipId: membership._id,
-      usedAt: now,
-      purpose: "staffed_participant_resolution",
-    });
-    const resolutionId = await createStaffedParticipantResolution(ctx, {
+    return { credentialId, verified: true };
+  },
+});
+
+export const linkResolvedExternalIdBarcode = internalMutation({
+  args: {
+    eventSlug: v.string(),
+    stationId: v.id("attendanceStations"),
+    expectedConfigurationVersion: v.number(),
+    deviceInstallationId: v.id("attendanceDeviceInstallations"),
+    deviceSecretHash: v.string(),
+    resolutionId: v.id("staffedParticipantResolutions"),
+    lookupHash: v.string(),
+    symbology: barcodeSymbology,
+    visibleIdentityConfirmed: v.boolean(),
+    clientOperationId: v.string(),
+  },
+  returns: v.object({
+    bindingId: v.id("attendanceExternalIdentityBindings"),
+    verified: v.literal(true),
+  }),
+  handler: async (ctx, args): Promise<ExternalIdentityLinkResult> => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const requestFingerprint = operationFingerprint([
+      args.stationId,
+      args.expectedConfigurationVersion,
+      args.deviceInstallationId,
+      args.deviceSecretHash,
+      args.resolutionId,
+      args.lookupHash,
+      args.symbology,
+      args.visibleIdentityConfirmed,
+    ]);
+    const prior = await findOperation(ctx, {
       eventId: event._id,
-      membershipId: membership._id,
-      portalQrTokenId: token._id,
+      actorPersonId: person._id,
+      clientOperationId: args.clientOperationId,
+      commandName: "attendance.external_identity.link",
+      requestFingerprint,
+    });
+    if (prior) {
+      const bindingId = ctx.db.normalizeId("attendanceExternalIdentityBindings", prior.targetId);
+      if (!bindingId) throw new Error("Stored external identity binding is invalid.");
+      return { bindingId, verified: true };
+    }
+    if (!args.visibleIdentityConfirmed) {
+      throw new ConvexError({
+        code: "IDENTITY_CHECK_REQUIRED",
+        message: "Confirm the visible external photo ID before linking its barcode.",
+      });
+    }
+    const { station, grantIds } = await requireStationPermission(ctx, {
+      eventSlug: args.eventSlug,
+      stationId: args.stationId,
+      expectedConfigurationVersion: args.expectedConfigurationVersion,
+      permissionKey: "attendance.credential.enrol",
+    });
+    await requireAssignedDevice(ctx, {
+      eventId: event._id,
       stationId: station._id,
       deviceInstallationId: args.deviceInstallationId,
-      resolvedByPersonId: person._id,
+      deviceSecretHash: args.deviceSecretHash,
+    });
+    const resolutionCandidate = await ctx.db.get(args.resolutionId);
+    if (!resolutionCandidate) {
+      throw new ConvexError({
+        code: "STAFFED_RESOLUTION_REQUIRED",
+        message: "Scan the participant's external event pass before their physical ID.",
+      });
+    }
+    const now = Date.now();
+    const resolution = await requireAvailableStaffedCredentialResolution(ctx, {
+      resolutionId: resolutionCandidate._id,
+      eventId: event._id,
+      membershipId: resolutionCandidate.membershipId,
+      stationId: station._id,
+      deviceInstallationId: args.deviceInstallationId,
+      actorPersonId: person._id,
       now,
     });
-    return {
-      resolutionId,
-      membershipId: membership._id,
-      participantClass: membership.participantClass,
-      displayName: profile.fullName ?? participantPerson.displayName,
-      institution: profile.institution,
-      teamName: teamContext.team.name,
-      ...(profile.vitRegistrationNumber !== undefined
-        ? { vitRegistrationNumber: profile.vitRegistrationNumber }
-        : {}),
-      credential,
-      venueCheckIn:
-        latestCheckIn && checkInStation
-          ? {
-              id: latestCheckIn._id,
-              status: latestCheckIn.status,
-              version: latestCheckIn.version,
-              checkedInAt: latestCheckIn.checkedInAt,
-              stationName: checkInStation.name,
-              ...(latestCheckIn.reversedAt !== undefined
-                ? { reversedAt: latestCheckIn.reversedAt }
-                : {}),
-            }
-          : null,
-      canRecordVenueCheckIn: recordCheckInGrantIds.length > 0,
-      canOverrideVenueIdentity: overrideIdentityGrantIds.length > 0,
-      canReverseVenueCheckIn: reverseCheckInGrantIds.length > 0,
-    };
+    if (
+      resolution.resolutionMethod !== "external_pass" &&
+      resolution.resolutionMethod !== "manual_lookup"
+    ) {
+      throw new ConvexError({
+        code: "EXTERNAL_PASS_RESOLUTION_REQUIRED",
+        message: "Scan the participant's external event pass before their physical ID.",
+      });
+    }
+    const membership = await ctx.db.get(resolution.membershipId);
+    if (
+      !membership ||
+      membership.eventId !== event._id ||
+      membership.participantClass !== "external_participant" ||
+      membership.eligibilityStatus !== "eligible" ||
+      membership.onboardingStatus !== "accepted"
+    ) {
+      throw new ConvexError({
+        code: "EXTERNAL_PARTICIPANT_REQUIRED",
+        message: "Choose an accepted external participant.",
+      });
+    }
+    const existing = await ctx.db
+      .query("attendanceExternalIdentityBindings")
+      .withIndex("by_membership", (index) => index.eq("membershipId", membership._id))
+      .unique();
+    if (existing && (existing.state !== "active" || existing.lookupHash !== args.lookupHash)) {
+      throw new ConvexError({
+        code: "EXTERNAL_ID_CHANGED",
+        message: "This participant already has a different external ID. Ask a coordinator for help.",
+      });
+    }
+    const collision = await ctx.db
+      .query("attendanceExternalIdentityBindings")
+      .withIndex("by_event_lookup", (index) =>
+        index.eq("eventId", event._id).eq("lookupHash", args.lookupHash),
+      )
+      .unique();
+    if (collision && collision.membershipId !== membership._id) {
+      throw new ConvexError({
+        code: "EXTERNAL_ID_ALREADY_BOUND",
+        message: "This external ID is already linked to another participant.",
+      });
+    }
+    const bindingId =
+      existing?._id ??
+      (await ctx.db.insert("attendanceExternalIdentityBindings", {
+        eventId: event._id,
+        membershipId: membership._id,
+        lookupHash: args.lookupHash,
+        barcodeSymbology: args.symbology,
+        version: 1,
+        state: "active",
+        linkedByPersonId: person._id,
+        linkedAt: now,
+        updatedAt: now,
+      }));
+    await ctx.db.patch(resolution._id, {
+      credentialAction: "link_external_id",
+      credentialActionAt: now,
+    });
+    await recordOperation(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      clientOperationId: args.clientOperationId,
+      commandName: "attendance.external_identity.link",
+      requestFingerprint,
+      targetType: "attendance_external_identity_binding",
+      targetId: bindingId,
+      createdAt: now,
+    });
+    await writeAuditEvent(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      permissionKey: "attendance.credential.enrol",
+      grantIds,
+      scopeType: "station",
+      scopeId: station._id,
+      action: "attendance.external_identity_linked",
+      targetType: "attendance_external_identity_binding",
+      targetId: bindingId,
+      nextSummary: JSON.stringify({
+        membershipId: membership._id,
+        barcodeSymbology: args.symbology,
+        state: "active",
+      }),
+      reason: "The external event pass and visible physical ID matched the accepted participant",
+    });
+    return { bindingId, verified: true };
   },
 });
 

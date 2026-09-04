@@ -29,10 +29,16 @@ import {
   autonomyWorkEndpoint,
 } from "./operationsAutonomyHttp";
 import { participantEmailEvent } from "./participantEmailEvent";
+import { applePassEndpoint } from "./attendanceWalletHttp";
 
 const http = httpRouter();
 
 authComponent.registerRoutes(http, createAuth, { cors: true });
+http.route({
+  path: "/attendance/external-pass/apple",
+  method: "GET",
+  handler: applePassEndpoint,
+});
 http.route({
   path: "/configuration/communications/email-template",
   method: "POST",

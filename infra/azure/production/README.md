@@ -119,6 +119,23 @@ limited to Email Sending, and the from address must belong to the verified
 production sending domain. The portal advertises email sign-in only when all
 three values are present.
 
+External-participant event-pass delivery also requires these production Key
+Vault secrets before `configure-convex-environment.sh` runs:
+
+- `wallet-download-signing-secret`;
+- `google-wallet-issuer-id`, `google-wallet-service-account-email`, and
+  `google-wallet-private-key`;
+- `apple-wallet-pass-type-identifier`, `apple-wallet-team-identifier`,
+  `apple-wallet-wwdr-certificate-base64`,
+  `apple-wallet-signer-certificate-base64`, and
+  `apple-wallet-signer-key-base64`, plus
+  `apple-wallet-signer-key-passphrase` for the encrypted private key.
+
+Authorize the Google service account for the production Wallet issuer. The
+Apple signer certificate must belong to the configured Pass Type ID. Keep all
+wallet keys environment-specific and verify both wallet installs before
+confirming real external-participant offers.
+
 The D32 backend admits 512 concurrent queries, 256 mutations, and 100 Node or V8
 actions. The intake workpool uses at most 32 Node actions at a time. Draft
 embedding uses the separate V8 action pool, so background novelty indexing

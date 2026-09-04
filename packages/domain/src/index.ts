@@ -77,26 +77,26 @@ export const barcodeSymbologies = [
 ] as const;
 export type BarcodeSymbology = (typeof barcodeSymbologies)[number];
 
-const portalQrPrefix = "c2c:attendance:portal:v1:";
+const externalPassQrPrefix = "c2c:attendance:external-pass:v1:";
 const badgeQrPrefix = "c2c:attendance:badge:v1:";
 const attendanceBearerPattern = /^[A-Za-z0-9_-]{43}$/u;
 
 export type AttendanceQr =
-  | { kind: "portal_qr"; bearer: string }
+  | { kind: "external_pass"; bearer: string }
   | { kind: "badge_qr"; bearer: string };
 
 export function attendanceQrPayload(credential: AttendanceQr) {
   if (!attendanceBearerPattern.test(credential.bearer)) {
     throw new Error("An attendance bearer must be 32-byte base64url without padding.");
   }
-  const prefix = credential.kind === "portal_qr" ? portalQrPrefix : badgeQrPrefix;
+  const prefix = credential.kind === "external_pass" ? externalPassQrPrefix : badgeQrPrefix;
   return `${prefix}${credential.bearer}`;
 }
 
 export function parseAttendanceQrPayload(payload: string): AttendanceQr | null {
-  if (payload.startsWith(portalQrPrefix)) {
-    const bearer = payload.slice(portalQrPrefix.length);
-    return attendanceBearerPattern.test(bearer) ? { kind: "portal_qr", bearer } : null;
+  if (payload.startsWith(externalPassQrPrefix)) {
+    const bearer = payload.slice(externalPassQrPrefix.length);
+    return attendanceBearerPattern.test(bearer) ? { kind: "external_pass", bearer } : null;
   }
   if (payload.startsWith(badgeQrPrefix)) {
     const bearer = payload.slice(badgeQrPrefix.length);

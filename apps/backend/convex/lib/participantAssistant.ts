@@ -67,7 +67,7 @@ SUPPORT
   return `${ideaSubmissionHandbook}
 
 EVENT DAY
-- An accepted team confirms its offer before venue and review workflows. VIT students normally use their VIT ID barcode for staffed attendance scans. External participants use an event badge or current portal QR. A current portal QR is also the staffed fallback when a VIT ID is forgotten or unreadable.
+- An accepted team confirms its offer before venue and review workflows. VIT students use their VIT ID barcode and can be found manually by registration number when it cannot be read. External participants receive one static personal event pass by email, then show and link their physical ID at first check-in; staff can fall back to their verified email.
 - Venue arrival, session confirmation, temporary exit, return, and departure are separate facts. A late scan records the actual time; it does not automatically penalize the participant. Attendance never changes admission, judging, or awards.
 - The review-presence QR is separate from attendance. Assigned reviewers scan it to prove reviewer presence; it cannot check in a participant.
 - Staff control review placement and queue priority. Participants cannot put themselves in a queue. Queue estimates are ranges, not appointments, and may change after a hold, move, pause, or another review finishing.

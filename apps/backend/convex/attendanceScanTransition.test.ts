@@ -345,17 +345,17 @@ describe("attendance scan direction", () => {
     expect(counters.zoneB).toMatchObject({ inside: 1, unknown: 0 });
   });
 
-  test("a fresh offline portal QR is rejected but an uncertain retry returns its prior receipt", async () => {
+  test("a static external pass supports offline replay and idempotent retries", async () => {
     const backend = seededBackend();
     const fixture = await seedScannerFixture(backend);
     const operator = asOperator(backend, fixture);
-    const portalLookupHash = await insertPortalToken(backend, fixture);
+    const externalPassLookupHash = await insertExternalPass(backend, fixture);
     await backend.run((ctx) => ctx.db.patch(fixture.stationId, { mode: "venue_entry" }));
     const onlineArgs = {
       ...scanArguments(fixture),
-      credentialKind: "portal_qr" as const,
-      lookupHash: portalLookupHash,
-      clientOperationId: "portal-online",
+      credentialKind: "external_pass" as const,
+      lookupHash: externalPassLookupHash,
+      clientOperationId: "external-pass-online",
       deviceSequence: 1,
     };
 
@@ -366,21 +366,19 @@ describe("attendance scan direction", () => {
     });
     expect(uncertainRetry).toEqual(online);
 
-    await expect(
-      operator.mutation(internal.attendanceScan.recordScan, {
-        ...onlineArgs,
-        clientOperationId: "portal-fresh-offline",
-        deviceSequence: 2,
-        isOfflineReplay: true,
-      }),
-    ).rejects.toThrow("portal QR must begin at an online scanner");
+    await operator.mutation(internal.attendanceScan.recordScan, {
+      ...onlineArgs,
+      clientOperationId: "external-pass-offline",
+      deviceSequence: 2,
+      isOfflineReplay: true,
+    });
     const saved = await backend.run((ctx) =>
       ctx.db
         .query("attendancePresenceEvents")
         .withIndex("by_station_time", (index) => index.eq("stationId", fixture.stationId))
         .collect(),
     );
-    expect(saved).toHaveLength(1);
+    expect(saved).toHaveLength(2);
   });
 
   test("keeps scan duty visible while revoked station read hides the phone assignment", async () => {
@@ -533,28 +531,23 @@ async function insertZone(backend: BackendTest, fixture: Fixture, stableKey: str
   );
 }
 
-async function insertPortalToken(backend: BackendTest, fixture: Fixture) {
-  const tokenHash = `portal-${crypto.randomUUID()}`;
-  await backend.run(async (ctx) => {
-    const portalCredentialId = await ctx.db.insert("attendancePortalCredentials", {
+async function insertExternalPass(backend: BackendTest, fixture: Fixture) {
+  const lookupHash = `external-${crypto.randomUUID()}`;
+  await backend.run((ctx) =>
+    ctx.db.insert("attendanceExternalPasses", {
       eventId: fixture.eventId,
       membershipId: fixture.membershipId,
+      encryptedBearer: "fixture-encrypted-bearer",
+      bearerIv: "fixture-bearer-iv",
+      bearerAuthTag: "fixture-bearer-auth-tag",
+      lookupHash,
       version: 1,
       state: "active",
-      updatedAt: fixture.now,
-    });
-    await ctx.db.insert("attendancePortalQrTokens", {
-      eventId: fixture.eventId,
-      membershipId: fixture.membershipId,
-      portalCredentialId,
-      credentialVersion: 1,
-      tokenHash,
-      state: "active",
       issuedAt: fixture.now,
-      expiresAt: fixture.now + 60_000,
-    });
-  });
-  return tokenHash;
+      updatedAt: fixture.now,
+    }),
+  );
+  return lookupHash;
 }
 
 async function seedScannerFixture(backend: BackendTest) {
@@ -623,7 +616,7 @@ async function seedScannerFixture(backend: BackendTest) {
       stableKey: "fixture_station",
       name: "Fixture station",
       mode: "roving",
-      allowedCredentialKinds: ["vit_id_barcode", "badge_qr", "portal_qr"],
+      allowedCredentialKinds: ["vit_id_barcode", "badge_qr", "external_pass"],
       status: "active",
       configurationVersion: 1,
       createdAt: now,

@@ -24,7 +24,7 @@ type CredentialKeyResult = {
   barcodeSymbologies: BarcodeSymbology[];
   barcodeNormalizationVersion: string;
 };
-type PortalKeySetResult = {
+type AttendanceKeySetResult = {
   keySetId: Id<"attendanceBarcodeKeySets">;
   eventId: Id<"events">;
   eventSlug: string;
@@ -34,7 +34,7 @@ type PortalKeySetResult = {
   wrappingKeyVersion: string;
 };
 type WrappedEventKey = Pick<
-  PortalKeySetResult,
+  AttendanceKeySetResult,
   "encryptedKey" | "iv" | "authTag" | "wrappingKeyVersion"
 >;
 type RegisterDeviceResult = {
@@ -58,6 +58,10 @@ type VerifyBadgeResult = VerifyEnrollmentResult & { badgeReference: string };
 type VerifyBadgeReplacementResult = VerifyReplacementResult & { badgeReference: string };
 type RevokeBadgeResult = { credentialId: Id<"attendanceCredentials">; revoked: true };
 type SuspendVitResult = { credentialId: Id<"attendanceCredentials">; suspended: true };
+type ExternalIdentityLinkResult = {
+  bindingId: Id<"attendanceExternalIdentityBindings">;
+  verified: true;
+};
 type StaffedParticipantResult = {
   resolutionId: Id<"staffedParticipantResolutions">;
   membershipId: Id<"eventMemberships">;
@@ -66,6 +70,7 @@ type StaffedParticipantResult = {
   institution: string;
   teamName: string;
   vitRegistrationNumber?: string;
+  vitScanRelationship?: "unbound" | "current_active" | "current_suspended" | "replacement";
   credential:
     | {
         kind: "vit_id_barcode";
@@ -79,6 +84,10 @@ type StaffedParticipantResult = {
         expectedCredentialVersion: number;
         canRebind: boolean;
         canSuspend: boolean;
+      }
+    | {
+        kind: "external_pass";
+        state: "active";
       }
     | {
         kind: "badge_qr";
@@ -137,11 +146,36 @@ type ScanReceipt = {
     vitRegistrationNumber?: string;
   };
 };
-type MintPortalQrResult = {
-  tokenId: Id<"attendancePortalQrTokens">;
+type ExternalPassResult = {
+  passId: Id<"attendanceExternalPasses">;
   payload: string;
-  expiresAt: number;
-  serverNow: number;
+};
+type EncryptedExternalPassBearer = {
+  encryptedBearer: string;
+  bearerIv: string;
+  bearerAuthTag: string;
+};
+type ExternalPassWalletDetails = EncryptedExternalPassBearer & {
+  passId: Id<"attendanceExternalPasses">;
+  eventSlug: string;
+  eventName: string;
+  eventStartsAt: number;
+  eventEndsAt: number;
+  eventTimezone: string;
+  venueName: string;
+  participantName: string;
+  teamName: string;
+};
+type ExternalPassWalletResult = {
+  passId: Id<"attendanceExternalPasses">;
+  payload: string;
+  eventName: string;
+  eventStartsAt: number;
+  eventEndsAt: number;
+  eventTimezone: string;
+  venueName: string;
+  participantName: string;
+  teamName: string;
 };
 
 const textEncoder = new TextEncoder();
@@ -381,13 +415,13 @@ async function credentialKey(
   };
 }
 
-async function participantCredentialKey(
+async function externalPassCredentialKey(
   ctx: ActionCtx,
   eventSlug: string,
 ): Promise<Uint8Array<ArrayBuffer>> {
   const candidate = await encryptedKeyCandidate(eventSlug);
-  const keySet: PortalKeySetResult = await ctx.runMutation(
-    internal.attendanceSecurity.ensurePortalKeySet,
+  const keySet: AttendanceKeySetResult = await ctx.runMutation(
+    internal.attendanceSecurity.ensureExternalPassKeySet,
     { eventSlug, candidate },
   );
   const key = await decryptEventKey(keySet);
@@ -401,6 +435,86 @@ async function participantCredentialKey(
     });
   }
   return key;
+}
+
+async function deliveryCredentialKey(
+  ctx: ActionCtx,
+  eventSlug: string,
+  membershipId: Id<"eventMemberships">,
+): Promise<Uint8Array<ArrayBuffer>> {
+  const candidate = await encryptedKeyCandidate(eventSlug);
+  const keySet: AttendanceKeySetResult = await ctx.runMutation(
+    internal.attendanceSecurity.ensureExternalPassDeliveryKeySet,
+    { eventSlug, membershipId, candidate },
+  );
+  return decryptEventKey(keySet);
+}
+
+async function existingAttendanceCredentialKey(
+  ctx: ActionCtx,
+  eventSlug: string,
+): Promise<Uint8Array<ArrayBuffer>> {
+  const keySet: AttendanceKeySetResult = await ctx.runQuery(
+    internal.attendanceSecurity.keySetForRotation,
+    { eventSlug },
+  );
+  return decryptEventKey(keySet);
+}
+
+function externalPassAad(eventSlug: string) {
+  return textEncoder.encode(`code2create:attendance:${eventSlug}:external-pass:v1`);
+}
+
+async function encryptExternalPassBearer(
+  eventSlug: string,
+  eventKey: Uint8Array,
+  bearer: string,
+): Promise<EncryptedExternalPassBearer> {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await crypto.subtle.importKey("raw", ownedBytes(eventKey), "AES-GCM", false, [
+    "encrypt",
+  ]);
+  const encryptedWithTag = new Uint8Array(
+    await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv, additionalData: externalPassAad(eventSlug), tagLength: 128 },
+      key,
+      textEncoder.encode(bearer),
+    ),
+  );
+  const tagOffset = encryptedWithTag.length - 16;
+  return {
+    encryptedBearer: bytesToBase64Url(encryptedWithTag.slice(0, tagOffset)),
+    bearerIv: bytesToBase64Url(iv),
+    bearerAuthTag: bytesToBase64Url(encryptedWithTag.slice(tagOffset)),
+  };
+}
+
+async function decryptExternalPassBearer(
+  eventSlug: string,
+  eventKey: Uint8Array,
+  encrypted: EncryptedExternalPassBearer,
+) {
+  const key = await crypto.subtle.importKey("raw", ownedBytes(eventKey), "AES-GCM", false, [
+    "decrypt",
+  ]);
+  const ciphertext = base64UrlToBytes(encrypted.encryptedBearer);
+  const authTag = base64UrlToBytes(encrypted.bearerAuthTag);
+  const encryptedWithTag = new Uint8Array(ciphertext.length + authTag.length);
+  encryptedWithTag.set(ciphertext);
+  encryptedWithTag.set(authTag, ciphertext.length);
+  const decrypted = await crypto.subtle.decrypt(
+    {
+      name: "AES-GCM",
+      iv: base64UrlToBytes(encrypted.bearerIv),
+      additionalData: externalPassAad(eventSlug),
+      tagLength: 128,
+    },
+    key,
+    encryptedWithTag,
+  );
+  const bearer = new TextDecoder().decode(decrypted);
+  if (!encodedKeyPattern.test(bearer)) throw new Error("The external event pass is corrupted.");
+  return bearer;
 }
 
 export const rewrapEventKey = internalAction({
@@ -420,7 +534,7 @@ export const rewrapEventKey = internalAction({
     toVersion: string;
     rewrapped: boolean;
   }> => {
-    const keySet: PortalKeySetResult = await ctx.runQuery(
+    const keySet: AttendanceKeySetResult = await ctx.runQuery(
       internal.attendanceSecurity.keySetForRotation,
       { eventSlug: args.eventSlug },
     );
@@ -455,6 +569,7 @@ export const rewrapEventKey = internalAction({
 
 async function barcodeLookupHash(args: {
   eventKey: Uint8Array;
+  kind: "vit_id_barcode" | "external_id_barcode";
   rawValue: string;
   symbology: BarcodeSymbology;
   allowedSymbologies: BarcodeSymbology[];
@@ -490,14 +605,14 @@ async function barcodeLookupHash(args: {
   const signature = await crypto.subtle.sign(
     "HMAC",
     key,
-    textEncoder.encode(`vit_id_barcode\0${args.symbology}\0${normalized}`),
+    textEncoder.encode(`${args.kind}\0${args.symbology}\0${normalized}`),
   );
   return bytesToHex(new Uint8Array(signature));
 }
 
 export async function bearerLookupHash(args: {
   eventKey: Uint8Array;
-  kind: "badge_qr" | "portal_qr";
+  kind: "badge_qr" | "external_pass";
   bearer: string;
 }) {
   if (!/^[A-Za-z0-9_-]{43}$/u.test(args.bearer)) {
@@ -586,39 +701,105 @@ export const scannerHeartbeat = action({
     }),
 });
 
-export const mintPortalQr = action({
-  args: {
-    eventSlug: v.string(),
-    sessionId: v.optional(v.id("attendanceSessions")),
-  },
+export const myExternalPass = action({
+  args: { eventSlug: v.string() },
   returns: v.object({
-    tokenId: v.id("attendancePortalQrTokens"),
+    passId: v.id("attendanceExternalPasses"),
     payload: v.string(),
-    expiresAt: v.number(),
-    serverNow: v.number(),
   }),
-  handler: async (ctx, args): Promise<MintPortalQrResult> => {
+  handler: async (ctx, args): Promise<ExternalPassResult> => {
     const bearer = bytesToBase64Url(crypto.getRandomValues(new Uint8Array(32)));
-    const eventKey = await participantCredentialKey(ctx, args.eventSlug);
-    const tokenHash = await bearerLookupHash({
+    const eventKey = await externalPassCredentialKey(ctx, args.eventSlug);
+    const lookupHash = await bearerLookupHash({
       eventKey,
-      kind: "portal_qr",
+      kind: "external_pass",
       bearer,
     });
+    const encrypted = await encryptExternalPassBearer(args.eventSlug, eventKey, bearer);
     const result: {
-      tokenId: Id<"attendancePortalQrTokens">;
-      expiresAt: number;
-      serverNow: number;
-    } = await ctx.runMutation(internal.attendancePortalQr.mint, {
+      passId: Id<"attendanceExternalPasses">;
+      encryptedBearer: string;
+      bearerIv: string;
+      bearerAuthTag: string;
+      version: number;
+    } = await ctx.runMutation(internal.attendanceExternalPasses.ensureMine, {
       eventSlug: args.eventSlug,
-      ...(args.sessionId !== undefined ? { sessionId: args.sessionId } : {}),
-      tokenHash,
+      ...encrypted,
+      lookupHash,
     });
+    const persistedBearer = await decryptExternalPassBearer(args.eventSlug, eventKey, result);
     return {
-      tokenId: result.tokenId,
-      payload: attendanceQrPayload({ kind: "portal_qr", bearer }),
-      expiresAt: result.expiresAt,
-      serverNow: result.serverNow,
+      passId: result.passId,
+      payload: attendanceQrPayload({ kind: "external_pass", bearer: persistedBearer }),
+    };
+  },
+});
+
+export const externalPassForDelivery = internalAction({
+  args: {
+    eventSlug: v.string(),
+    eventId: v.id("events"),
+    membershipId: v.id("eventMemberships"),
+  },
+  returns: v.object({
+    passId: v.id("attendanceExternalPasses"),
+    payload: v.string(),
+  }),
+  handler: async (ctx, args): Promise<ExternalPassResult> => {
+    const bearer = bytesToBase64Url(crypto.getRandomValues(new Uint8Array(32)));
+    const eventKey = await deliveryCredentialKey(ctx, args.eventSlug, args.membershipId);
+    const lookupHash = await bearerLookupHash({ eventKey, kind: "external_pass", bearer });
+    const encrypted = await encryptExternalPassBearer(args.eventSlug, eventKey, bearer);
+    const result: {
+      passId: Id<"attendanceExternalPasses">;
+      encryptedBearer: string;
+      bearerIv: string;
+      bearerAuthTag: string;
+      version: number;
+    } = await ctx.runMutation(internal.attendanceExternalPasses.ensureForDelivery, {
+      eventId: args.eventId,
+      membershipId: args.membershipId,
+      ...encrypted,
+      lookupHash,
+    });
+    const persistedBearer = await decryptExternalPassBearer(args.eventSlug, eventKey, result);
+    return {
+      passId: result.passId,
+      payload: attendanceQrPayload({ kind: "external_pass", bearer: persistedBearer }),
+    };
+  },
+});
+
+export const externalPassForWallet = internalAction({
+  args: { passId: v.string() },
+  returns: v.object({
+    passId: v.id("attendanceExternalPasses"),
+    payload: v.string(),
+    eventName: v.string(),
+    eventStartsAt: v.number(),
+    eventEndsAt: v.number(),
+    eventTimezone: v.string(),
+    venueName: v.string(),
+    participantName: v.string(),
+    teamName: v.string(),
+  }),
+  handler: async (ctx, args): Promise<ExternalPassWalletResult> => {
+    const details: ExternalPassWalletDetails = await ctx.runQuery(
+      internal.attendanceExternalPasses.detailsForWallet,
+      args,
+    );
+    const eventKey = await existingAttendanceCredentialKey(ctx, details.eventSlug);
+    const bearer = await decryptExternalPassBearer(details.eventSlug, eventKey, details);
+    return {
+      passId: details.passId,
+      payload: attendanceQrPayload({ kind: "external_pass", bearer }),
+      eventName: details.eventName,
+      eventStartsAt: details.eventStartsAt,
+      eventEndsAt: details.eventEndsAt,
+      eventTimezone: details.eventTimezone,
+      venueName: details.venueName,
+      participantName: details.participantName,
+      teamName: details.teamName,
     };
   },
 });
@@ -653,6 +834,7 @@ export const beginVitBarcodeEnrollment = action({
     });
     const lookupHash = await barcodeLookupHash({
       eventKey: credential.key,
+      kind: "vit_id_barcode",
       rawValue: args.rawBarcodeValue,
       symbology: args.symbology,
       allowedSymbologies: credential.barcodeSymbologies,
@@ -675,67 +857,82 @@ export const beginVitBarcodeEnrollment = action({
   },
 });
 
-export const resolveStaffedParticipant = action({
+const staffedParticipantResultValidator = v.object({
+  resolutionId: v.id("staffedParticipantResolutions"),
+  membershipId: v.id("eventMemberships"),
+  participantClass: v.union(v.literal("vit_student"), v.literal("external_participant")),
+  displayName: v.string(),
+  institution: v.string(),
+  teamName: v.string(),
+  vitRegistrationNumber: v.optional(v.string()),
+  vitScanRelationship: v.optional(
+    v.union(
+      v.literal("unbound"),
+      v.literal("current_active"),
+      v.literal("current_suspended"),
+      v.literal("replacement"),
+    ),
+  ),
+  credential: v.union(
+    v.object({
+      kind: v.literal("vit_id_barcode"),
+      state: v.literal("not_enrolled"),
+      canEnrol: v.boolean(),
+    }),
+    v.object({
+      kind: v.literal("vit_id_barcode"),
+      state: v.union(v.literal("active"), v.literal("suspended")),
+      credentialId: v.id("attendanceCredentials"),
+      expectedCredentialVersion: v.number(),
+      canRebind: v.boolean(),
+      canSuspend: v.boolean(),
+    }),
+    v.object({ kind: v.literal("external_pass"), state: v.literal("active") }),
+    v.object({
+      kind: v.literal("badge_qr"),
+      state: v.literal("not_issued"),
+      canIssue: v.boolean(),
+    }),
+    v.object({
+      kind: v.literal("badge_qr"),
+      state: v.literal("active"),
+      credentialId: v.id("attendanceCredentials"),
+      expectedCredentialVersion: v.number(),
+      badgeReference: v.string(),
+      canReplace: v.boolean(),
+      canRevoke: v.boolean(),
+    }),
+  ),
+  venueCheckIn: v.union(
+    v.null(),
+    v.object({
+      id: v.id("venueCheckIns"),
+      status: v.union(v.literal("checked_in"), v.literal("reversed")),
+      version: v.number(),
+      checkedInAt: v.number(),
+      stationName: v.string(),
+      reversedAt: v.optional(v.number()),
+    }),
+  ),
+  canRecordVenueCheckIn: v.boolean(),
+  canOverrideVenueIdentity: v.boolean(),
+  canReverseVenueCheckIn: v.boolean(),
+});
+
+const staffedParticipantActionArgs = {
+  eventSlug: v.string(),
+  stationId: v.id("attendanceStations"),
+  expectedConfigurationVersion: v.number(),
+  deviceInstallationId: v.id("attendanceDeviceInstallations"),
+  deviceSecret: v.string(),
+};
+
+export const resolveExternalPass = action({
   args: {
-    eventSlug: v.string(),
-    stationId: v.id("attendanceStations"),
-    expectedConfigurationVersion: v.number(),
-    deviceInstallationId: v.id("attendanceDeviceInstallations"),
-    deviceSecret: v.string(),
-    portalBearer: v.string(),
+    ...staffedParticipantActionArgs,
+    passBearer: v.string(),
   },
-  returns: v.object({
-    resolutionId: v.id("staffedParticipantResolutions"),
-    membershipId: v.id("eventMemberships"),
-    participantClass: v.union(v.literal("vit_student"), v.literal("external_participant")),
-    displayName: v.string(),
-    institution: v.string(),
-    teamName: v.string(),
-    vitRegistrationNumber: v.optional(v.string()),
-    credential: v.union(
-      v.object({
-        kind: v.literal("vit_id_barcode"),
-        state: v.literal("not_enrolled"),
-        canEnrol: v.boolean(),
-      }),
-      v.object({
-        kind: v.literal("vit_id_barcode"),
-        state: v.union(v.literal("active"), v.literal("suspended")),
-        credentialId: v.id("attendanceCredentials"),
-        expectedCredentialVersion: v.number(),
-        canRebind: v.boolean(),
-        canSuspend: v.boolean(),
-      }),
-      v.object({
-        kind: v.literal("badge_qr"),
-        state: v.literal("not_issued"),
-        canIssue: v.boolean(),
-      }),
-      v.object({
-        kind: v.literal("badge_qr"),
-        state: v.literal("active"),
-        credentialId: v.id("attendanceCredentials"),
-        expectedCredentialVersion: v.number(),
-        badgeReference: v.string(),
-        canReplace: v.boolean(),
-        canRevoke: v.boolean(),
-      }),
-    ),
-    venueCheckIn: v.union(
-      v.null(),
-      v.object({
-        id: v.id("venueCheckIns"),
-        status: v.union(v.literal("checked_in"), v.literal("reversed")),
-        version: v.number(),
-        checkedInAt: v.number(),
-        stationName: v.string(),
-        reversedAt: v.optional(v.number()),
-      }),
-    ),
-    canRecordVenueCheckIn: v.boolean(),
-    canOverrideVenueIdentity: v.boolean(),
-    canReverseVenueCheckIn: v.boolean(),
-  }),
+  returns: staffedParticipantResultValidator,
   handler: async (ctx, args): Promise<StaffedParticipantResult> => {
     const secretHash = await deviceSecretHash(args.deviceSecret);
     const credential = await credentialKey(ctx, {
@@ -746,18 +943,146 @@ export const resolveStaffedParticipant = action({
       deviceSecretHash: secretHash,
       purpose: "setup",
     });
-    const tokenHash = await bearerLookupHash({
+    const lookupHash = await bearerLookupHash({
       eventKey: credential.key,
-      kind: "portal_qr",
-      bearer: args.portalBearer,
+      kind: "external_pass",
+      bearer: args.passBearer,
     });
-    return ctx.runMutation(internal.attendanceCredentials.resolveStaffedParticipant, {
+    return ctx.runMutation(internal.attendanceCredentials.resolveExternalPass, {
       eventSlug: args.eventSlug,
       stationId: args.stationId,
       expectedConfigurationVersion: args.expectedConfigurationVersion,
       deviceInstallationId: args.deviceInstallationId,
       deviceSecretHash: secretHash,
-      tokenHash,
+      lookupHash,
+    });
+  },
+});
+
+export const resolveVitBarcode = action({
+  args: {
+    ...staffedParticipantActionArgs,
+    rawBarcodeValue: v.string(),
+    symbology: barcodeSymbology,
+  },
+  returns: staffedParticipantResultValidator,
+  handler: async (ctx, args): Promise<StaffedParticipantResult> => {
+    const deviceSecret = await deviceSecretHash(args.deviceSecret);
+    const credential = await credentialKey(ctx, {
+      eventSlug: args.eventSlug,
+      stationId: args.stationId,
+      expectedConfigurationVersion: args.expectedConfigurationVersion,
+      deviceInstallationId: args.deviceInstallationId,
+      deviceSecretHash: deviceSecret,
+      purpose: "setup",
+    });
+    const lookupHash = await barcodeLookupHash({
+      eventKey: credential.key,
+      kind: "vit_id_barcode",
+      rawValue: args.rawBarcodeValue,
+      symbology: args.symbology,
+      allowedSymbologies: credential.barcodeSymbologies,
+      normalizationVersion: credential.barcodeNormalizationVersion,
+    });
+    return ctx.runMutation(internal.attendanceCredentials.resolveVitBarcode, {
+      eventSlug: args.eventSlug,
+      stationId: args.stationId,
+      expectedConfigurationVersion: args.expectedConfigurationVersion,
+      deviceInstallationId: args.deviceInstallationId,
+      deviceSecretHash: deviceSecret,
+      rawRegistrationNumber: args.rawBarcodeValue,
+      lookupHash,
+      symbology: args.symbology,
+    });
+  },
+});
+
+export const resolveManualParticipant = action({
+  args: {
+    ...staffedParticipantActionArgs,
+    lookup: v.union(
+      v.object({ kind: v.literal("vit_registration"), value: v.string() }),
+      v.object({ kind: v.literal("external_email"), value: v.string() }),
+    ),
+  },
+  returns: staffedParticipantResultValidator,
+  handler: async (ctx, args): Promise<StaffedParticipantResult> =>
+    ctx.runMutation(internal.attendanceCredentials.resolveManualParticipant, {
+      eventSlug: args.eventSlug,
+      stationId: args.stationId,
+      expectedConfigurationVersion: args.expectedConfigurationVersion,
+      deviceInstallationId: args.deviceInstallationId,
+      deviceSecretHash: await deviceSecretHash(args.deviceSecret),
+      lookup: args.lookup,
+    }),
+});
+
+export const enrolResolvedVitBarcode = action({
+  args: {
+    ...staffedParticipantActionArgs,
+    resolutionId: v.id("staffedParticipantResolutions"),
+    visibleIdentityConfirmed: v.boolean(),
+    clientOperationId: v.string(),
+  },
+  returns: v.object({
+    credentialId: v.id("attendanceCredentials"),
+    verified: v.literal(true),
+  }),
+  handler: async (ctx, args): Promise<VerifyEnrollmentResult> =>
+    ctx.runMutation(internal.attendanceCredentials.enrolResolvedVitBarcode, {
+      eventSlug: args.eventSlug,
+      stationId: args.stationId,
+      expectedConfigurationVersion: args.expectedConfigurationVersion,
+      deviceInstallationId: args.deviceInstallationId,
+      deviceSecretHash: await deviceSecretHash(args.deviceSecret),
+      resolutionId: args.resolutionId,
+      visibleIdentityConfirmed: args.visibleIdentityConfirmed,
+      clientOperationId: args.clientOperationId,
+    }),
+});
+
+export const linkResolvedExternalIdBarcode = action({
+  args: {
+    ...staffedParticipantActionArgs,
+    resolutionId: v.id("staffedParticipantResolutions"),
+    rawBarcodeValue: v.string(),
+    symbology: barcodeSymbology,
+    visibleIdentityConfirmed: v.boolean(),
+    clientOperationId: v.string(),
+  },
+  returns: v.object({
+    bindingId: v.id("attendanceExternalIdentityBindings"),
+    verified: v.literal(true),
+  }),
+  handler: async (ctx, args): Promise<ExternalIdentityLinkResult> => {
+    const secretHash = await deviceSecretHash(args.deviceSecret);
+    const credential = await credentialKey(ctx, {
+      eventSlug: args.eventSlug,
+      stationId: args.stationId,
+      expectedConfigurationVersion: args.expectedConfigurationVersion,
+      deviceInstallationId: args.deviceInstallationId,
+      deviceSecretHash: secretHash,
+      purpose: "setup",
+    });
+    const lookupHash = await barcodeLookupHash({
+      eventKey: credential.key,
+      kind: "external_id_barcode",
+      rawValue: args.rawBarcodeValue,
+      symbology: args.symbology,
+      allowedSymbologies: credential.barcodeSymbologies,
+      normalizationVersion: credential.barcodeNormalizationVersion,
+    });
+    return ctx.runMutation(internal.attendanceCredentials.linkResolvedExternalIdBarcode, {
+      eventSlug: args.eventSlug,
+      stationId: args.stationId,
+      expectedConfigurationVersion: args.expectedConfigurationVersion,
+      deviceInstallationId: args.deviceInstallationId,
+      deviceSecretHash: secretHash,
+      resolutionId: args.resolutionId,
+      lookupHash,
+      symbology: args.symbology,
+      visibleIdentityConfirmed: args.visibleIdentityConfirmed,
+      clientOperationId: args.clientOperationId,
     });
   },
 });
@@ -866,6 +1191,7 @@ export const verifyVitBarcodeEnrollment = action({
     });
     const lookupHash = await barcodeLookupHash({
       eventKey: credential.key,
+      kind: "vit_id_barcode",
       rawValue: args.rawBarcodeValue,
       symbology: args.symbology,
       allowedSymbologies: credential.barcodeSymbologies,
@@ -919,6 +1245,7 @@ export const beginVitBarcodeRebind = action({
     });
     const lookupHash = await barcodeLookupHash({
       eventKey: credential.key,
+      kind: "vit_id_barcode",
       rawValue: args.rawBarcodeValue,
       symbology: args.symbology,
       allowedSymbologies: credential.barcodeSymbologies,
@@ -978,6 +1305,7 @@ export const verifyVitBarcodeRebind = action({
     });
     const lookupHash = await barcodeLookupHash({
       eventKey: credential.key,
+      kind: "vit_id_barcode",
       rawValue: args.rawBarcodeValue,
       symbology: args.symbology,
       allowedSymbologies: credential.barcodeSymbologies,
@@ -1281,7 +1609,7 @@ export const recordScan = action({
         symbology: barcodeSymbology,
       }),
       v.object({ kind: v.literal("badge_qr"), bearer: v.string() }),
-      v.object({ kind: v.literal("portal_qr"), bearer: v.string() }),
+      v.object({ kind: v.literal("external_pass"), bearer: v.string() }),
     ),
     rovingTransition: v.optional(attendanceScanTransition),
     clientOperationId: v.string(),
@@ -1326,6 +1654,7 @@ export const recordScan = action({
       args.credential.kind === "vit_id_barcode"
         ? await barcodeLookupHash({
             eventKey: key.key,
+            kind: "vit_id_barcode",
             rawValue: args.credential.rawBarcodeValue,
             symbology: args.credential.symbology,
             allowedSymbologies: key.barcodeSymbologies,
