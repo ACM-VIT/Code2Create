@@ -22,81 +22,91 @@ export interface FireworksHandle {
 
 type Color = readonly [number, number, number];
 
-type SponsorTier = "lead" | "featured" | "supporting";
+type SponsorTier = "title" | "lead" | "featured" | "supporting";
 
 interface SponsorSpec {
   name: string;
-  particleLines?: readonly string[];
   logo: string;
   logoClass: string;
   href: string;
   tier: SponsorTier;
-  distinction?: "gold" | "silver";
-  distinctionY?: number;
+  material?: "gold" | "silver" | "bronze";
   cue: number;
   duration: number;
+  /** When this beat starts to fall, and how long the fall takes. */
+  until: number;
+  exit: number;
   x: number;
   y: number;
   logoBottom: number;
   from: number;
   core: Color;
   ember: Color;
-  phone: { x: number; y: number; logoBottom: number; from: number; distinctionY?: number };
+  phone: { x: number; y: number; logoBottom: number; from: number };
 }
 
+/*
+ * The volley is staged, not simultaneous: the title sponsor has the sky to
+ * itself first, then each smaller tier arrives on its own row as the scroll
+ * carries on, and everything that has landed stays up until the fall.
+ */
 const SPONSORS: readonly SponsorSpec[] = [
-  {
-    name: "SerpApi",
-    logo: "/assets/sponsors/serpapi.svg",
-    logoClass: "sponsor__logo--serpapi",
-    href: "https://serpapi.com",
-    tier: "lead",
-    distinction: "silver",
-    distinctionY: 15,
-    cue: 104,
-    duration: 16,
-    x: 18,
-    y: 28,
-    logoBottom: 34,
-    from: 8,
-    core: [246, 250, 255],
-    ember: [153, 174, 204],
-    phone: { x: 18, y: 20, logoBottom: 25, from: 8, distinctionY: 13 },
-  },
   {
     name: "SGLang",
     logo: "/assets/sponsors/sglang.png",
     logoClass: "sponsor__logo--sglang",
     href: "https://sglang.io/",
-    tier: "lead",
-    distinction: "gold",
-    distinctionY: 15,
+    tier: "title",
+    material: "gold",
     cue: 104,
-    duration: 16,
+    duration: 8,
+    exit: 3,
+    until: 112,
     x: 50,
-    y: 28,
-    logoBottom: 34,
+    y: 36,
+    logoBottom: 44,
     from: 50,
     core: [255, 231, 150],
     ember: [226, 158, 42],
-    phone: { x: 50, y: 20, logoBottom: 25, from: 50, distinctionY: 13 },
+    phone: { x: 50, y: 34, logoBottom: 42, from: 50 },
   },
   {
-    name: "IDFC Financial Services Partner",
-    particleLines: ["IDFC Financial", "Services Partner"],
-    logo: "/assets/sponsors/idfc-first-bank.svg",
+    name: "SerpApi",
+    logo: "/assets/sponsors/serpapi.svg",
+    logoClass: "sponsor__logo--serpapi",
+    href: "https://serpapi.com/media",
+    tier: "lead",
+    material: "silver",
+    cue: 114,
+    duration: 8,
+    exit: 3,
+    until: 122,
+    x: 32,
+    y: 38,
+    logoBottom: 42,
+    from: 22,
+    core: [246, 250, 255],
+    ember: [153, 174, 204],
+    phone: { x: 50, y: 22, logoBottom: 26, from: 30 },
+  },
+  {
+    name: "IDFC FIRST",
+    logo: "/assets/sponsors/idfc-first-bank.png",
     logoClass: "sponsor__logo--idfc",
     href: "https://www.idfcfirst.bank.in/",
     tier: "lead",
-    cue: 104,
-    duration: 16,
-    x: 82,
-    y: 28,
-    logoBottom: 34,
-    from: 92,
+    material: "bronze",
+    cue: 114,
+    duration: 8,
+    exit: 3,
+    until: 122,
+    x: 68,
+    y: 38,
+    logoBottom: 42,
+    from: 78,
     core: [255, 213, 218],
     ember: [157, 29, 39],
-    phone: { x: 82, y: 20, logoBottom: 25, from: 92 },
+    phone: { x: 50, y: 46, logoBottom: 50, from: 70 },
   },
   {
     name: "ElevenLabs",
@@ -104,15 +114,17 @@ const SPONSORS: readonly SponsorSpec[] = [
     logoClass: "sponsor__logo--elevenlabs",
     href: "https://elevenlabs.io/",
     tier: "featured",
-    cue: 120,
-    duration: 8,
+    cue: 124,
+    duration: 7,
+    exit: 3,
+    until: 131,
     x: 50,
-    y: 46,
-    logoBottom: 50,
-    from: 74,
+    y: 40,
+    logoBottom: 43,
+    from: 62,
     core: [255, 255, 255],
     ember: [148, 196, 255],
-    phone: { x: 50, y: 42, logoBottom: 46, from: 74 },
+    phone: { x: 50, y: 40, logoBottom: 43, from: 62 },
   },
   {
     name: "Tin Computer",
@@ -120,15 +132,17 @@ const SPONSORS: readonly SponsorSpec[] = [
     logoClass: "sponsor__logo--tin",
     href: "https://tin.computer/",
     tier: "supporting",
-    cue: 128,
-    duration: 4,
+    cue: 133,
+    duration: 5,
+    exit: 8,
+    until: 142,
     x: 10,
-    y: 68,
-    logoBottom: 74,
+    y: 44,
+    logoBottom: 49,
     from: 15,
     core: [255, 236, 198],
     ember: [255, 166, 89],
-    phone: { x: 15, y: 62, logoBottom: 66, from: 10 },
+    phone: { x: 15, y: 26, logoBottom: 30, from: 10 },
   },
   {
     name: "ProtoFlow",
@@ -136,15 +150,17 @@ const SPONSORS: readonly SponsorSpec[] = [
     logoClass: "sponsor__logo--protoflow",
     href: "https://www.protoflow.ai/",
     tier: "supporting",
-    cue: 128,
-    duration: 4,
+    cue: 133,
+    duration: 5,
+    exit: 8,
+    until: 142,
     x: 30,
-    y: 68,
-    logoBottom: 74,
+    y: 44,
+    logoBottom: 49,
     from: 36,
     core: [205, 239, 255],
     ember: [92, 186, 255],
-    phone: { x: 50, y: 62, logoBottom: 66, from: 43 },
+    phone: { x: 50, y: 26, logoBottom: 30, from: 43 },
   },
   {
     name: "CodeCrafters",
@@ -152,15 +168,17 @@ const SPONSORS: readonly SponsorSpec[] = [
     logoClass: "sponsor__logo--codecrafters",
     href: "https://codecrafters.io/",
     tier: "supporting",
-    cue: 128,
-    duration: 4,
+    cue: 133,
+    duration: 5,
+    exit: 8,
+    until: 142,
     x: 50,
-    y: 68,
-    logoBottom: 74,
+    y: 44,
+    logoBottom: 49,
     from: 56,
     core: [239, 232, 255],
     ember: [188, 144, 255],
-    phone: { x: 85, y: 62, logoBottom: 66, from: 90 },
+    phone: { x: 85, y: 26, logoBottom: 30, from: 90 },
   },
   {
     name: "n8n",
@@ -168,15 +186,17 @@ const SPONSORS: readonly SponsorSpec[] = [
     logoClass: "sponsor__logo--n8n",
     href: "https://n8n.io/",
     tier: "supporting",
-    cue: 128,
-    duration: 4,
+    cue: 133,
+    duration: 5,
+    exit: 8,
+    until: 142,
     x: 70,
-    y: 68,
-    logoBottom: 74,
+    y: 44,
+    logoBottom: 49,
     from: 64,
     core: [255, 190, 207],
     ember: [234, 75, 113],
-    phone: { x: 25, y: 76, logoBottom: 80, from: 22 },
+    phone: { x: 25, y: 48, logoBottom: 52, from: 22 },
   },
   {
     name: "DevSwarm",
@@ -184,20 +204,20 @@ const SPONSORS: readonly SponsorSpec[] = [
     logoClass: "sponsor__logo--devswarm",
     href: "https://devswarm.ai/",
     tier: "supporting",
-    cue: 128,
-    duration: 4,
+    cue: 133,
+    duration: 5,
+    exit: 8,
+    until: 142,
     x: 90,
-    y: 68,
-    logoBottom: 74,
+    y: 44,
+    logoBottom: 49,
     from: 85,
     core: [225, 216, 255],
     ember: [105, 74, 255],
-    phone: { x: 75, y: 76, logoBottom: 80, from: 78 },
+    phone: { x: 75, y: 48, logoBottom: 52, from: 78 },
   },
 ];
 
-const SPONSORS_END = 142;
-const SPONSORS_FALL_END = 150;
 
 interface FireworkDimensions {
   burstScale: number;
@@ -214,8 +234,25 @@ interface FireworkTierSpec {
 }
 
 const FIREWORK_TIERS: Record<SponsorTier, FireworkTierSpec> = {
+  title: {
+    budget: 900,
+    desktop: {
+      burstScale: 1.34,
+      starScale: 1.2,
+      targetWidth: 0.3,
+      targetHeight: 0.09,
+      textOffset: 0.115,
+    },
+    phone: {
+      burstScale: 0.8,
+      starScale: 0.96,
+      targetWidth: 0.42,
+      targetHeight: 0.06,
+      textOffset: 0.085,
+    },
+  },
   lead: {
-    budget: 1320,
+    budget: 840,
     desktop: {
       burstScale: 1.2,
       starScale: 1.12,
@@ -226,13 +263,13 @@ const FIREWORK_TIERS: Record<SponsorTier, FireworkTierSpec> = {
     phone: {
       burstScale: 0.74,
       starScale: 0.92,
-      targetWidth: 0.27,
-      targetHeight: 0.06,
+      targetWidth: 0.3,
+      targetHeight: 0.055,
       textOffset: 0.08,
     },
   },
   featured: {
-    budget: 820,
+    budget: 740,
     desktop: {
       burstScale: 1.08,
       starScale: 1,
@@ -249,7 +286,7 @@ const FIREWORK_TIERS: Record<SponsorTier, FireworkTierSpec> = {
     },
   },
   supporting: {
-    budget: 720,
+    budget: 680,
     desktop: {
       burstScale: 0.62,
       starScale: 0.58,
@@ -271,8 +308,8 @@ const TAU = Math.PI * 2;
 const LAUNCH_END = 0.34;
 const BURST_END = 0.6;
 const FORM_END = 0.82;
-const DISTINCTION_START = 0.8;
-const DISTINCTION_END = 0.98;
+const MATERIAL_START = 0.84;
+const MATERIAL_END = 0.98;
 const TWINKLE_GROUPS = 4;
 
 const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
@@ -309,7 +346,8 @@ interface PreparedStar {
   twinkleGroup: number;
   fallDelay: number;
   fallSpeed: number;
-  distinction: boolean;
+  materialTargetX: number | null;
+  materialTargetY: number | null;
 }
 
 interface PreparedSponsor {
@@ -334,26 +372,24 @@ interface StepCanvas extends HTMLCanvasElement {
     budgets: number[];
     burstRadii: number[];
     fallProgress: number;
+    fallProgresses: number[];
   };
 }
 
-const sampleText = (text: string | readonly string[]): TextSample => {
+const sampleText = (name: string): TextSample => {
   const canvas = document.createElement("canvas");
   const context = canvas.getContext("2d", { willReadFrequently: true });
   if (!context) throw new Error("The browser could not create the firework text sampler.");
 
   const font = "700 72px Arial, sans-serif";
-  const lines = typeof text === "string" ? [text] : [...text];
   context.font = font;
-  canvas.width = Math.ceil(Math.max(...lines.map((line) => context.measureText(line).width)) + 32);
-  canvas.height = Math.max(112, lines.length * 76 + 24);
+  canvas.width = Math.ceil(context.measureText(name).width + 32);
+  canvas.height = 112;
   context.font = font;
   context.fillStyle = "#fff";
   context.textAlign = "center";
   context.textBaseline = "middle";
-  lines.forEach((line, index) => {
-    context.fillText(line, canvas.width / 2, canvas.height / 2 + (index - (lines.length - 1) / 2) * 76);
-  });
+  context.fillText(name, canvas.width / 2, canvas.height / 2);
 
   const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
   const points: TextPoint[] = [];
@@ -374,7 +410,7 @@ const sampleText = (text: string | readonly string[]): TextSample => {
   }
 
   if (points.length === 0) {
-    throw new Error(`The firework text sampler returned no points for ${lines.join(" ")}.`);
+    throw new Error(`The firework text sampler returned no points for ${name}.`);
   }
   return { points, minX, maxX, minY, maxY };
 };
@@ -406,7 +442,7 @@ const Fireworks = forwardRef<FireworksHandle, Record<never, never>>(
     const logoRefs = useRef<(HTMLAnchorElement | null)[]>([]);
     const progresses = useRef(SPONSORS.map(() => 0));
     const twinklePhases = useRef(SPONSORS.map(() => 0));
-    const fallProgress = useRef(0);
+    const fallProgresses = useRef(SPONSORS.map(() => 0));
     const renderer = useRef<{
       request(): void;
       formationFallOffset(sponsorIndex: number, falling: number): number;
@@ -434,6 +470,7 @@ const Fireworks = forwardRef<FireworksHandle, Record<never, never>>(
       const reveal = smoothstep(clamp01((progress - revealFrom) / revealDuration));
       const exitFade = 1 - smoothstep(clamp01((falling - 0.8) / 0.2));
       const fallOffset = renderer.current?.formationFallOffset(index, falling) ?? 0;
+      const material = logo.querySelector<HTMLElement>(".sponsor__material");
       gsap.set(logo, {
         autoAlpha: reveal * exitFade,
         scale: 0.9 + reveal * 0.1,
@@ -441,32 +478,51 @@ const Fireworks = forwardRef<FireworksHandle, Record<never, never>>(
         yPercent: -100,
         y: (1 - reveal) * 12 + fallOffset,
       });
+      if (material) {
+        const materialFrom = reduced ? 0.12 : MATERIAL_START;
+        const materialReveal = smoothstep(
+          clamp01((progress - materialFrom) / (MATERIAL_END - MATERIAL_START)),
+        );
+        const materialGlow =
+          SPONSORS[index].material === "gold"
+            ? "drop-shadow(0 0 7px rgba(255, 199, 65, 0.72))"
+            : SPONSORS[index].material === "bronze"
+              ? "drop-shadow(0 0 7px rgba(232, 150, 96, 0.7))"
+              : "drop-shadow(0 0 7px rgba(216, 232, 247, 0.68))";
+        gsap.set(material, {
+          autoAlpha: materialReveal * exitFade,
+          backgroundPosition: `${20 + materialReveal * 70}% 50%`,
+          filter: `blur(${(1 - materialReveal) * 4}px) ${materialGlow}`,
+          scale: 0.82 + materialReveal * 0.18,
+        });
+      }
     };
 
     useImperativeHandle(ref, () => ({
       setTimeline(masterTime) {
         let changed = false;
-        const nextFall =
-          masterTime >= SPONSORS_END && masterTime < SPONSORS_FALL_END
-            ? clamp01((masterTime - SPONSORS_END) / (SPONSORS_FALL_END - SPONSORS_END))
-            : 0;
-        const fallChanged = Math.abs(fallProgress.current - nextFall) >= 0.0001;
         SPONSORS.forEach((sponsor, index) => {
-          const active = masterTime >= sponsor.cue && masterTime < SPONSORS_FALL_END;
+          const gone = sponsor.until + sponsor.exit;
+          const active = masterTime >= sponsor.cue && masterTime < gone;
           const next = active
-            ? clamp01((Math.min(masterTime, SPONSORS_END) - sponsor.cue) / sponsor.duration)
+            ? clamp01((Math.min(masterTime, sponsor.until) - sponsor.cue) / sponsor.duration)
             : 0;
+          const nextFall =
+            masterTime >= sponsor.until && masterTime < gone
+              ? clamp01((masterTime - sponsor.until) / sponsor.exit)
+              : 0;
           const nextTwinkle = active ? (masterTime - sponsor.cue) / sponsor.duration : 0;
           const progressChanged = Math.abs(progresses.current[index] - next) >= 0.0001;
+          const fallChanged = Math.abs(fallProgresses.current[index] - nextFall) >= 0.0001;
           const twinkleChanged = Math.abs(twinklePhases.current[index] - nextTwinkle) >= 0.0001;
           if (!progressChanged && !twinkleChanged && !fallChanged) return;
 
           progresses.current[index] = next;
+          fallProgresses.current[index] = nextFall;
           twinklePhases.current[index] = nextTwinkle;
           if (progressChanged || fallChanged) setLogoProgress(index, next, nextFall);
           changed = true;
         });
-        fallProgress.current = nextFall;
         if (changed) renderer.current?.request();
       },
     }));
@@ -479,11 +535,9 @@ const Fireworks = forwardRef<FireworksHandle, Record<never, never>>(
 
       const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       const lowPower = navigator.hardwareConcurrency > 0 && navigator.hardwareConcurrency <= 4;
-      const textSamples = SPONSORS.map((sponsor) =>
-        sampleText(sponsor.particleLines ?? sponsor.name),
-      );
-      const distinctionSamples = SPONSORS.map((sponsor) =>
-        sponsor.distinction ? sampleText(sponsor.distinction.toUpperCase()) : null,
+      const textSamples = SPONSORS.map((sponsor) => sampleText(sponsor.name));
+      const materialSamples = SPONSORS.map((sponsor) =>
+        sponsor.material ? sampleText(sponsor.material) : null,
       );
 
       let width = 1;
@@ -499,18 +553,13 @@ const Fireworks = forwardRef<FireworksHandle, Record<never, never>>(
         const tier = FIREWORK_TIERS[spec.tier];
         const dimensions = useStackedLayout ? tier.phone : tier.desktop;
         const sample = textSamples[sponsorIndex];
-        const distinctionSample = distinctionSamples[sponsorIndex];
-        const powerScale = useStackedLayout ? 0.76 : lowPower ? 0.78 : 1;
+        const materialSample = materialSamples[sponsorIndex];
+        const powerScale = useStackedLayout ? 0.72 : lowPower ? 0.78 : 1;
         const budget = Math.round(tier.budget * powerScale);
-        const distinctionBudget = distinctionSample ? Math.round(budget * 0.3) : 0;
-        const namePoints = pickEvenly(sample.points, budget - distinctionBudget);
-        const distinctionPoints = distinctionSample
-          ? pickEvenly(distinctionSample.points, distinctionBudget)
+        const points = pickEvenly(sample.points, budget);
+        const materialPoints = materialSample
+          ? pickEvenly(materialSample.points, points.length)
           : [];
-        const points = [
-          ...namePoints.map((point) => ({ point, distinction: false })),
-          ...distinctionPoints.map((point) => ({ point, distinction: true })),
-        ];
         const sourceWidth = Math.max(1, sample.maxX - sample.minX);
         const sourceHeight = Math.max(1, sample.maxY - sample.minY);
         const targetWidth = width * dimensions.targetWidth;
@@ -518,30 +567,30 @@ const Fireworks = forwardRef<FireworksHandle, Record<never, never>>(
         const textScale = Math.min(targetWidth / sourceWidth, targetHeight / sourceHeight);
         const sourceCenterX = (sample.minX + sample.maxX) / 2;
         const sourceCenterY = (sample.minY + sample.maxY) / 2;
-        const distinctionSourceWidth = distinctionSample
-          ? Math.max(1, distinctionSample.maxX - distinctionSample.minX)
+        const materialSourceWidth = materialSample
+          ? Math.max(1, materialSample.maxX - materialSample.minX)
           : 1;
-        const distinctionSourceHeight = distinctionSample
-          ? Math.max(1, distinctionSample.maxY - distinctionSample.minY)
+        const materialSourceHeight = materialSample
+          ? Math.max(1, materialSample.maxY - materialSample.minY)
           : 1;
-        const distinctionScale = distinctionSample
+        const materialScale = materialSample
           ? Math.min(
-              (targetWidth * 0.74) / distinctionSourceWidth,
-              (targetHeight * 0.88) / distinctionSourceHeight,
+              (targetWidth * 0.58) / materialSourceWidth,
+              (targetHeight * 0.78) / materialSourceHeight,
             )
           : 1;
-        const distinctionCenterX = distinctionSample
-          ? (distinctionSample.minX + distinctionSample.maxX) / 2
+        const materialCenterX = materialSample
+          ? (materialSample.minX + materialSample.maxX) / 2
           : 0;
-        const distinctionCenterY = distinctionSample
-          ? (distinctionSample.minY + distinctionSample.maxY) / 2
+        const materialCenterY = materialSample
+          ? (materialSample.minY + materialSample.maxY) / 2
           : 0;
         const burstX = (spec.x / 100) * width;
         const burstY = (spec.y / 100) * height;
         const textCenterY = burstY + height * dimensions.textOffset;
         const random = randomSequence(0x9e3779b9 + sponsorIndex * 104729);
 
-        const stars = points.map(({ point, distinction }, index) => {
+        const stars = points.map((point, index) => {
           const angle = (index / points.length) * TAU + (random() - 0.5) * 0.16;
           /* Most stars ride the outside of the bloom; a smaller inner group
            keeps the crack dense without introducing secondary particles. */
@@ -550,24 +599,27 @@ const Fireworks = forwardRef<FireworksHandle, Record<never, never>>(
             height *
             (rim ? 0.14 + random() * 0.075 : 0.07 + random() * 0.075) *
             dimensions.burstScale;
-          const targetX = distinction
-            ? burstX + (point.x - distinctionCenterX) * distinctionScale
-            : burstX + (point.x - sourceCenterX) * textScale;
-          const targetY = distinction
-            ? height * ((spec.distinctionY ?? 13) / 100) +
-              (point.y - distinctionCenterY) * distinctionScale
-            : textCenterY + (point.y - sourceCenterY) * textScale;
+          const materialPoint = materialSample
+            ? materialPoints[index % materialPoints.length]
+            : undefined;
           return {
             angle,
             radius,
-            targetX,
-            targetY,
+            targetX: burstX + (point.x - sourceCenterX) * textScale,
+            targetY: textCenterY + (point.y - sourceCenterY) * textScale,
             size: (0.72 + random() * 0.62) * dimensions.starScale,
             arc: (random() - 0.5) * height * 0.045,
             twinkleGroup: Math.floor(random() * TWINKLE_GROUPS),
             fallDelay: random() * 0.46,
             fallSpeed: 0.86 + random() * 0.28,
-            distinction,
+            materialTargetX:
+              materialSample && materialPoint
+                ? burstX + (materialPoint.x - materialCenterX) * materialScale
+                : null,
+            materialTargetY:
+              materialSample && materialPoint
+                ? textCenterY + (materialPoint.y - materialCenterY) * materialScale
+                : null,
           };
         });
 
@@ -625,15 +677,19 @@ const Fireworks = forwardRef<FireworksHandle, Record<never, never>>(
         sponsor: PreparedSponsor,
         star: PreparedStar,
         progress: number,
-        distinctionProgress: number,
+        materialProgress: number,
       ): DrawPoint => {
         const start = burstPoint(sponsor, star, 1);
-        const travel = smoothstep(
-          clamp01(star.distinction ? distinctionProgress : progress),
-        );
-        return {
+        const travel = smoothstep(clamp01(progress));
+        const point = {
           x: start.x + (star.targetX - start.x) * travel,
           y: start.y + (star.targetY - start.y) * travel + Math.sin(travel * Math.PI) * star.arc,
+        };
+        if (star.materialTargetX === null || star.materialTargetY === null) return point;
+        const materialTravel = smoothstep(clamp01(materialProgress));
+        return {
+          x: point.x + (star.materialTargetX - point.x) * materialTravel,
+          y: point.y + (star.materialTargetY - point.y) * materialTravel,
         };
       };
 
@@ -652,10 +708,10 @@ const Fireworks = forwardRef<FireworksHandle, Record<never, never>>(
         sponsor: PreparedSponsor,
         star: PreparedStar,
         formedProgress: number,
-        distinctionProgress: number,
+        materialProgress: number,
         falling: number,
       ): DrawPoint => {
-        const point = formedPoint(sponsor, star, formedProgress, distinctionProgress);
+        const point = formedPoint(sponsor, star, formedProgress, materialProgress);
         return { x: point.x, y: point.y + starFallOffset(star, falling) };
       };
 
@@ -677,8 +733,8 @@ const Fireworks = forwardRef<FireworksHandle, Record<never, never>>(
         const spec = SPONSORS[sponsorIndex];
         const point = rocketPoint(sponsor, progress);
         const previous = rocketPoint(sponsor, Math.max(0, progress - 0.055));
-        const trail = spec.distinction ? channels(spec.ember) : "255, 132, 52";
-        const core = spec.distinction ? channels(spec.core) : "255, 242, 210";
+        const trail = spec.material ? channels(spec.ember) : "255, 132, 52";
+        const core = spec.material ? channels(spec.core) : "255, 242, 210";
 
         context.strokeStyle = `rgba(${trail}, 0.38)`;
         context.lineWidth = 7 * sponsor.burstScale;
@@ -810,18 +866,21 @@ const Fireworks = forwardRef<FireworksHandle, Record<never, never>>(
         sponsor: PreparedSponsor,
         progress: number,
         twinklePhase: number,
-        distinctionProgress: number,
+        materialProgress: number,
         falling: number,
       ) => {
         const formed = smoothstep(clamp01(progress));
         const opacity = 1 - smoothstep(clamp01((falling - 0.78) / 0.22));
+        const materialOpacity = SPONSORS[sponsorIndex].material
+          ? 1 - materialProgress * 0.72
+          : 1;
         drawTwinkles(
           sponsorIndex,
           sponsor,
           twinklePhase * 1.35 + formed * 0.4,
           0.92 + formed * 0.18,
-          opacity,
-          (star) => fallingPoint(sponsor, star, progress, distinctionProgress, falling),
+          opacity * materialOpacity,
+          (star) => fallingPoint(sponsor, star, progress, materialProgress, falling),
         );
       };
 
@@ -848,12 +907,8 @@ const Fireworks = forwardRef<FireworksHandle, Record<never, never>>(
           sponsor,
           clamp01((progress - BURST_END) / (FORM_END - BURST_END)),
           twinklePhases.current[sponsorIndex],
-          smoothstep(
-            clamp01(
-              (progress - DISTINCTION_START) / (DISTINCTION_END - DISTINCTION_START),
-            ),
-          ),
-          fallProgress.current,
+          smoothstep(clamp01((progress - MATERIAL_START) / (MATERIAL_END - MATERIAL_START))),
+          fallProgresses.current[sponsorIndex],
         );
       };
 
@@ -876,14 +931,14 @@ const Fireworks = forwardRef<FireworksHandle, Record<never, never>>(
       renderer.current = { request: requestRender, formationFallOffset };
       resize();
       SPONSORS.forEach((_sponsor, index) =>
-        setLogoProgress(index, progresses.current[index], fallProgress.current),
+        setLogoProgress(index, progresses.current[index], fallProgresses.current[index]),
       );
       requestRender();
 
       const onResize = () => {
         resize();
         SPONSORS.forEach((_sponsor, index) =>
-          setLogoProgress(index, progresses.current[index], fallProgress.current),
+          setLogoProgress(index, progresses.current[index], fallProgresses.current[index]),
         );
         requestRender();
       };
@@ -930,7 +985,8 @@ const Fireworks = forwardRef<FireworksHandle, Record<never, never>>(
             burstRadii: prepared.map((sponsor) =>
               Math.max(...sponsor.stars.map((star) => star.radius)),
             ),
-            fallProgress: fallProgress.current,
+            fallProgress: Math.max(...fallProgresses.current),
+            fallProgresses: [...fallProgresses.current],
           };
         };
       }
@@ -951,6 +1007,8 @@ const Fireworks = forwardRef<FireworksHandle, Record<never, never>>(
         <h2 className="sponsors__title">Our Sponsors</h2>
         {SPONSORS.map((base, index) => {
           const spec = sponsorAt(index, stacked);
+          const tier = FIREWORK_TIERS[base.tier];
+          const dimensions = stacked ? tier.phone : tier.desktop;
           const style = {
             left: `${spec.x}%`,
             top: `${spec.logoBottom}%`,
@@ -970,6 +1028,17 @@ const Fireworks = forwardRef<FireworksHandle, Record<never, never>>(
               }}
             >
               <img className={`sponsor__logo ${base.logoClass}`} src={base.logo} alt={base.name} />
+              {base.material ? (
+                <span
+                  aria-hidden="true"
+                  className={`sponsor__material sponsor__material--${base.material}`}
+                  style={{
+                    top: `calc(100% + ${spec.y + dimensions.textOffset * 100 - spec.logoBottom}svh)`,
+                  }}
+                >
+                  {base.material}
+                </span>
+              ) : null}
             </a>
           );
         })}
