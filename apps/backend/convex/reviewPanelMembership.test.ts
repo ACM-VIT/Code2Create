@@ -440,6 +440,33 @@ describe("live panel membership", () => {
           isCoordinator: member.isCoordinator,
         });
       }
+      const removedAssignmentId = await ctx.db.insert("reviewAssignments", {
+        eventId: fixture.eventId,
+        roundId: fixture.roundId,
+        panelId: fixture.panelId,
+        reviewSessionId,
+        reviewerPersonId: fixture.reservePersonId,
+        eventAccessSubjectId: fixture.reserveSubjectId,
+        assignedCriterionIds: criteria.map((criterion) => criterion._id),
+        isCoordinator: false,
+        status: "removed",
+        assignedAt: now - 120_000,
+        endedAt: now - 90_000,
+      });
+      await ctx.db.insert("scorecards", {
+        eventId: fixture.eventId,
+        roundId: fixture.roundId,
+        reviewSessionId,
+        reviewerPersonId: fixture.reservePersonId,
+        assignmentId: removedAssignmentId,
+        rubricVersionId: fixture.rubricVersionId,
+        status: "void",
+        ratings: [],
+        draftVersion: 0,
+        version: 2,
+        createdAt: now - 120_000,
+        updatedAt: now - 90_000,
+      });
       if (!pendingScorecardId) throw new Error("The pending scorecard was not created.");
       return { pendingScorecardId, expectedVersion: session.version };
     });
@@ -525,6 +552,9 @@ describe("live panel membership", () => {
       expect(session.status).toBe("completed");
       expect(state?.state).toBe("completed");
       expect(evaluation?.state).toBe("complete");
+      expect(evaluation?.criterionResults.every((criterion) => criterion.scoreCount === 3)).toBe(
+        true,
+      );
     });
   });
 
@@ -1731,6 +1761,7 @@ async function seedPanel(backend: BackendTest) {
       memberPersonId: member.personId,
       secondMemberPersonId: secondMember.personId,
       reservePersonId: reserve.personId,
+      reserveSubjectId: reserve.subjectId,
       reserveId,
       authUserId,
       authSessionId,

@@ -29,9 +29,9 @@ import { reviewerClockInIsOpenAt, reviewerCoversStaffingWindow } from "./lib/rev
 import {
   maximumReviewerAssignmentsPerEvent,
   maximumReviewRoundsPerEvent,
-  maximumReviewersPerPanel,
 } from "./lib/reviewLimits";
 import {
+  activeAssignmentScorecards,
   cleanAssignedRatings,
   recomputeReviewEvaluation,
   requireCompleteAssignedRatings,
@@ -1784,31 +1784,32 @@ export const now = query({
       ctx.db
         .query("reviewAssignments")
         .withIndex("by_session_person", (index) => index.eq("reviewSessionId", active.session._id))
-        .take(maximumReviewersPerPanel + 1),
+        .take(maximumReviewerAssignmentsPerEvent + 1),
       ctx.db
         .query("reviewPresence")
         .withIndex("by_session_reviewer", (index) =>
           index.eq("reviewSessionId", active.session._id),
         )
-        .take(maximumReviewersPerPanel + 1),
+        .take(maximumReviewerAssignmentsPerEvent + 1),
       ctx.db
         .query("scorecards")
         .withIndex("by_session_status", (index) =>
           index.eq("reviewSessionId", active.session._id),
         )
-        .take(maximumReviewersPerPanel + 1),
+        .take(maximumReviewerAssignmentsPerEvent + 1),
     ]);
     if (!team || !round || !panel) {
       throw new Error("The active review context is incomplete.");
     }
     if (
-      assignmentRows.length > maximumReviewersPerPanel ||
-      presences.length > maximumReviewersPerPanel ||
-      scorecards.length > maximumReviewersPerPanel
+      assignmentRows.length > maximumReviewerAssignmentsPerEvent ||
+      presences.length > maximumReviewerAssignmentsPerEvent ||
+      scorecards.length > maximumReviewerAssignmentsPerEvent
     ) {
-      throw new Error("The active review exceeds the published panel-size limit.");
+      throw new Error("The active review exceeds the event assignment limit.");
     }
-    const assignedRows = assignmentRows.filter((assignment) => assignment.status === "assigned");
+    const activeScorecards = activeAssignmentScorecards(assignmentRows, scorecards);
+    const assignedRows = activeScorecards.assignments;
     const assignedReviewerIds = new Set(
       assignedRows.map((assignment) => assignment.reviewerPersonId),
     );
@@ -1816,12 +1817,11 @@ export const now = query({
       assignedReviewerIds.has(presence.reviewerPersonId),
     );
     const submittedReviewerIds = new Set(
-      scorecards
+      activeScorecards.scorecards
         .filter(
           (scorecard) =>
             scorecard.status === "submitted" &&
-            scorecard.submittedVersionId !== undefined &&
-            assignedReviewerIds.has(scorecard.reviewerPersonId),
+            scorecard.submittedVersionId !== undefined,
         )
         .map((scorecard) => scorecard.reviewerPersonId),
     );
