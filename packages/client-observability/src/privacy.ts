@@ -173,13 +173,14 @@ function telemetryPropertyIsSensitive(key: string) {
 
 function isAbortException(properties: Record<string, unknown> | undefined) {
   // Libraries abort their own in-flight requests during normal work, so the
-  // resulting AbortError is noise rather than a failure. Only this exact name
-  // is dropped, so a genuine failure with any other name stays visible.
+  // resulting AbortError is noise rather than a failure. Only a list made up
+  // entirely of this exact name is dropped, so a genuine failure alongside it,
+  // or under any other name, stays visible.
   const exceptionList = properties?.$exception_list;
-  if (!Array.isArray(exceptionList)) {
+  if (!Array.isArray(exceptionList) || exceptionList.length === 0) {
     return false;
   }
-  return exceptionList.some(
+  return exceptionList.every(
     (exception) => isRecord(exception) && exception.type === "AbortError",
   );
 }

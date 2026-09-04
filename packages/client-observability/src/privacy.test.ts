@@ -163,6 +163,19 @@ test("exceptions with a real name stay visible", () => {
   assert.notEqual(event, null);
 });
 
+test("a real error alongside an abort stays visible", () => {
+  const event = scrubPostHogEvent({
+    event: "$exception",
+    properties: {
+      $exception_list: [
+        { type: "AbortError", value: "The operation was aborted." },
+        { type: "TypeError", value: "Failed to fetch" },
+      ],
+    },
+  });
+  assert.notEqual(event, null);
+});
+
 test("session replay payloads remain decodable after recorder masking", () => {
   const event = {
     event: "$snapshot",
