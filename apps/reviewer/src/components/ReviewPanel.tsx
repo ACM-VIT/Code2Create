@@ -863,14 +863,18 @@ function AvailabilityControl({
   assignment: NonNullable<ReviewerNow["panel"]> | NonNullable<ReviewerNow["reserve"]>;
 }) {
   const setAvailability = useMutation(api.reviewer.setAvailability);
-  const [open, setOpen] = useState(false);
+  const clockOut = useMutation(api.reviewer.clockOut);
+  const [steppingAway, setSteppingAway] = useState(false);
+  const [confirmingClockOut, setConfirmingClockOut] = useState(false);
   const [reason, setReason] = useState("");
   const [returnMinutes, setReturnMinutes] = useState<number>(10);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const availabilityAttempt =
     useMutationAttempt<FunctionReturnType<typeof api.reviewer.setAvailability>>();
+  const clockOutAttempt = useMutationAttempt<FunctionReturnType<typeof api.reviewer.clockOut>>();
   const availabilityPending = availabilityAttempt.hasPending("reviewer-availability");
+  const clockOutPending = clockOutAttempt.hasPending("reviewer-clock-out");
 
   const clockIn = assignment.clockIn;
   if (!clockIn) return null;
@@ -904,10 +908,62 @@ function AvailabilityControl({
     }
   };
 
+  const finishDuty = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await clockOutAttempt.run("reviewer-clock-out", () => {
+        const args = {
+          eventSlug,
+          roundId: assignment.round.id,
+          installationId,
+          expectedVersion: clockIn.version,
+          clientOperationId: randomUUID(),
+        };
+        return () => clockOut(args);
+      });
+      setConfirmingClockOut(false);
+    } catch (caught) {
+      setError(errorMessage(caught, "Clock-out could not be completed."));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
-    <>
-      <QuietAction label="Step away briefly" onPress={() => setOpen(true)} />
-      <Sheet onClose={() => setOpen(false)} title="Step away" visible={open}>
+    <View style={styles.availabilityCard}>
+      <Text style={styles.eyebrow}>ON DUTY</Text>
+      <Text style={styles.availabilityTitle}>Ready for the next team</Text>
+      <Text style={styles.body}>
+        Stay available for {assignment.round.name}, or update your status before leaving the
+        panel.
+      </Text>
+      <View style={styles.availabilityActions}>
+        <QuietAction
+          label="Step away briefly"
+          onPress={() => {
+            setError(null);
+            setSteppingAway(true);
+          }}
+        />
+        <QuietAction
+          label="Clock out"
+          onPress={() => {
+            setError(null);
+            setConfirmingClockOut(true);
+          }}
+        />
+      </View>
+      <Sheet
+        onClose={() => setSteppingAway(false)}
+        title="Step away briefly"
+        visible={steppingAway}
+      >
+        <Text style={styles.body}>
+          Use this when you are returning during the same review round. Operations will see when
+          you expect to be back.
+        </Text>
         <Text style={styles.label}>Short operational reason</Text>
         <TextInput
           editable={!busy && !availabilityPending}
@@ -944,7 +1000,30 @@ function AvailabilityControl({
         />
         {error ? <Text style={styles.error}>{error}</Text> : null}
       </Sheet>
-    </>
+      <Sheet
+        onClose={() => setConfirmingClockOut(false)}
+        title={`Clock out of ${assignment.round.name}?`}
+        visible={confirmingClockOut}
+      >
+        <Text style={styles.value}>This ends your duty for this review round.</Text>
+        <Text style={styles.body}>
+          You will stop receiving new team assignments. Operations must put you back on duty if
+          you need to return later.
+        </Text>
+        {error ? <Text style={styles.error}>{error}</Text> : null}
+        <Action
+          destructive
+          disabled={busy}
+          label={busy ? "Clocking out…" : clockOutPending ? "Confirm earlier clock-out" : "Clock out"}
+          onPress={finishDuty}
+        />
+        <QuietAction
+          disabled={busy || clockOutPending}
+          label="Keep working"
+          onPress={() => setConfirmingClockOut(false)}
+        />
+      </Sheet>
+    </View>
   );
 }
 
@@ -1153,6 +1232,20 @@ function ClockInControl({
   onPress: () => Promise<void>;
 }) {
   const estimatedServerNow = useEstimatedServerNow(current.serverNow);
+  const terminalStatus = assignment.clockIn?.status;
+  if (terminalStatus === "clocked_out" || terminalStatus === "no_show") {
+    return (
+      <View style={styles.availabilityCard}>
+        <Text style={styles.eyebrow}>OFF DUTY</Text>
+        <Text style={styles.availabilityTitle}>
+          {terminalStatus === "clocked_out" ? "Clocked out" : "Marked as a no-show"}
+        </Text>
+        <Text style={styles.body}>
+          Operations must restore this round assignment before this phone can return to duty.
+        </Text>
+      </View>
+    );
+  }
   const clockInOpen =
     estimatedServerNow >= assignment.round.clockInOpensAt &&
     estimatedServerNow < assignment.round.endsAt;
@@ -2110,6 +2203,27 @@ const styles = StyleSheet.create({
   detailValue: { color: palette.muted, fontSize: 14, textAlign: "right" },
   disabled: { opacity: 0.5 },
   waiting: { gap: 10, paddingVertical: 8 },
+  availabilityCard: {
+    gap: 10,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: palette.strong,
+    borderRadius: radius.tile,
+    backgroundColor: palette.tile,
+  },
+  availabilityTitle: {
+    color: palette.text,
+    fontSize: 20,
+    fontWeight: "600",
+    letterSpacing: -0.35,
+  },
+  availabilityActions: {
+    marginTop: 4,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 16,
+  },
   pauseNotice: {
     gap: 7,
     padding: 13,

@@ -58,6 +58,15 @@ const reviewPresenceOperationResult = z
   })
   .strict();
 
+const reviewerClockOutOperationResult = z
+  .object({
+    clockInId: z.string().min(1),
+    status: z.literal("clocked_out"),
+    clockedOutAt: z.number().int().nonnegative(),
+    version: z.number().int().positive(),
+  })
+  .strict();
+
 const scorecardSubmissionOperationResult = z
   .object({
     scorecardId: z.string().min(1),
@@ -894,6 +903,194 @@ export const setAvailability = mutation({
       reason: reason ?? "Reviewer returned to the assigned panel",
     });
     return { clockInId: current._id, status: args.status, version: current.version + 1 };
+  },
+});
+
+export const clockOut = mutation({
+  args: {
+    eventSlug: v.string(),
+    roundId: v.id("reviewRounds"),
+    installationId: v.string(),
+    expectedVersion: v.number(),
+    clientOperationId: v.string(),
+  },
+  returns: v.object({
+    clockInId: v.id("reviewerClockIns"),
+    status: v.literal("clocked_out"),
+    clockedOutAt: v.number(),
+    version: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    const requestFingerprint = operationFingerprint([
+      args.roundId,
+      args.installationId,
+      args.expectedVersion,
+    ]);
+    const prior = await findOperation(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      clientOperationId: args.clientOperationId,
+      commandName: "reviewer.clock_out",
+      requestFingerprint,
+    });
+    if (prior) {
+      const stored = storedOperationResult(
+        prior.resultJson,
+        "reviewer clock-out",
+        reviewerClockOutOperationResult,
+      );
+      const clockInId = ctx.db.normalizeId("reviewerClockIns", stored.clockInId);
+      if (!clockInId || clockInId !== prior.targetId) {
+        throw new Error("The stored reviewer clock-out is invalid.");
+      }
+      return { ...stored, clockInId };
+    }
+
+    const round = await ctx.db.get(args.roundId);
+    if (
+      !round ||
+      round.eventId !== event._id ||
+      !["published", "open", "closing"].includes(round.status)
+    ) {
+      throw new ConvexError({
+        code: "ROUND_NOT_AVAILABLE",
+        message: "This review round is unavailable.",
+      });
+    }
+    const grantIds = await requirePermission(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey: "reviewer.clock_in",
+      scopeType: "round",
+      scopeId: round._id,
+    });
+    const now = Date.now();
+    const [device, current, assignments, sentPage, openedPage] = await Promise.all([
+      requireReviewerDevice(ctx, {
+        eventId: event._id,
+        personId: person._id,
+        installationId: args.installationId,
+      }),
+      ctx.db
+        .query("reviewerClockIns")
+        .withIndex("by_round_person", (index) =>
+          index.eq("roundId", round._id).eq("reviewerPersonId", person._id),
+        )
+        .unique(),
+      ctx.db
+        .query("reviewAssignments")
+        .withIndex("by_event_person_status", (index) =>
+          index
+            .eq("eventId", event._id)
+            .eq("reviewerPersonId", person._id)
+            .eq("status", "assigned"),
+        )
+        .take(maximumReviewerAssignmentsPerEvent + 1),
+      ctx.db
+        .query("reviewerPages")
+        .withIndex("by_event_person_state_expiry", (index) =>
+          index
+            .eq("eventId", event._id)
+            .eq("targetPersonId", person._id)
+            .eq("state", "sent")
+            .gt("expiresAt", now),
+        )
+        .first(),
+      ctx.db
+        .query("reviewerPages")
+        .withIndex("by_event_person_state_expiry", (index) =>
+          index
+            .eq("eventId", event._id)
+            .eq("targetPersonId", person._id)
+            .eq("state", "opened")
+            .gt("expiresAt", now),
+        )
+        .first(),
+    ]);
+    if (assignments.length > maximumReviewerAssignmentsPerEvent) {
+      throw new Error("A reviewer exceeds the event assignment limit.");
+    }
+    if (!current || current.version !== args.expectedVersion) {
+      throw new ConvexError({
+        code: "CLOCK_IN_CHANGED",
+        message: "Reviewer availability changed. Refresh before continuing.",
+      });
+    }
+    if (!["present", "temporarily_unavailable"].includes(current.status)) {
+      throw new ConvexError({
+        code: "CLOCK_OUT_NOT_AVAILABLE",
+        message: "This reviewer is no longer clocked in.",
+      });
+    }
+    if (sentPage || openedPage) {
+      throw new ConvexError({
+        code: "PAGE_RESPONSE_REQUIRED",
+        message: "Answer the current page before clocking out.",
+      });
+    }
+    for (const assignment of assignments) {
+      const session = await ctx.db.get(assignment.reviewSessionId);
+      if (
+        session &&
+        session.eventId === event._id &&
+        session.roundId === round._id &&
+        liveReview(session.status)
+      ) {
+        throw new ConvexError({
+          code: "ACTIVE_REVIEW_ASSIGNED",
+          message: "Finish or reroute the current review before clocking out.",
+        });
+      }
+    }
+
+    const result = {
+      clockInId: current._id,
+      status: "clocked_out" as const,
+      clockedOutAt: now,
+      version: current.version + 1,
+    };
+    await ctx.db.patch(current._id, {
+      status: result.status,
+      unavailableReason: undefined,
+      expectedReturnAt: undefined,
+      clockedOutAt: now,
+      lastHeartbeatAt: now,
+      version: result.version,
+    });
+    await ctx.db.patch(device._id, { lastSeenAt: now });
+    await recordOperation(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      clientOperationId: args.clientOperationId,
+      commandName: "reviewer.clock_out",
+      requestFingerprint,
+      targetType: "reviewer_clock_in",
+      targetId: current._id,
+      resultJson: JSON.stringify(result),
+      createdAt: now,
+    });
+    await writeAuditEvent(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      permissionKey: "reviewer.clock_in",
+      grantIds,
+      scopeType: "round",
+      scopeId: round._id,
+      action: "reviewer.clocked_out",
+      targetType: "reviewer_clock_in",
+      targetId: current._id,
+      previousSummary: JSON.stringify({ status: current.status, version: current.version }),
+      nextSummary: JSON.stringify({
+        status: result.status,
+        clockedOutAt: now,
+        version: result.version,
+      }),
+      reason: "Reviewer confirmed the end of their review duty",
+    });
+    return result;
   },
 });
 

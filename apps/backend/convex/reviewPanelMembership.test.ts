@@ -760,6 +760,103 @@ describe("live panel membership", () => {
     }
   });
 
+  test("a reviewer can clock out once with an idempotent audited command", async () => {
+    const backend = seededBackend();
+    const fixture = await seedPanel(backend);
+    const reviewer = await prepareReviewerClockIn(backend, fixture);
+
+    await reviewer.identity.mutation(api.reviewer.clockIn, {
+      eventSlug: fixture.eventSlug,
+      roundId: fixture.roundId,
+      installationId: reviewer.installationId,
+      expectedVersion: 0,
+      clientOperationId: "clock-in-before-clock-out",
+    });
+    const request = {
+      eventSlug: fixture.eventSlug,
+      roundId: fixture.roundId,
+      installationId: reviewer.installationId,
+      expectedVersion: 1,
+      clientOperationId: "reviewer-clock-out",
+    };
+    const first = await reviewer.identity.mutation(api.reviewer.clockOut, request);
+    const retry = await reviewer.identity.mutation(api.reviewer.clockOut, request);
+
+    expect(retry).toEqual(first);
+    expect(first).toMatchObject({ status: "clocked_out", version: 2 });
+    await backend.run(async (ctx) => {
+      const [clockIn, operations, audits] = await Promise.all([
+        ctx.db
+          .query("reviewerClockIns")
+          .withIndex("by_round_person", (index) =>
+            index.eq("roundId", fixture.roundId).eq("reviewerPersonId", fixture.memberPersonId),
+          )
+          .unique(),
+        ctx.db
+          .query("operationResults")
+          .collect()
+          .then((rows) => rows.filter((row) => row.commandName === "reviewer.clock_out")),
+        ctx.db
+          .query("auditEvents")
+          .withIndex("by_event_time", (index) => index.eq("eventId", fixture.eventId))
+          .collect()
+          .then((rows) => rows.filter((row) => row.action === "reviewer.clocked_out")),
+      ]);
+      expect(clockIn).toMatchObject({
+        status: "clocked_out",
+        version: 2,
+        clockedOutAt: first.clockedOutAt,
+      });
+      expect(operations).toHaveLength(1);
+      expect(audits).toHaveLength(1);
+    });
+  });
+
+  test("clock-out is rejected while the reviewer has a live review", async () => {
+    const backend = seededBackend();
+    const fixture = await seedPanel(backend);
+    const reviewer = await prepareReviewerClockIn(backend, fixture);
+    await reviewer.identity.mutation(api.reviewer.clockIn, {
+      eventSlug: fixture.eventSlug,
+      roundId: fixture.roundId,
+      installationId: reviewer.installationId,
+      expectedVersion: 0,
+      clientOperationId: "clock-in-before-active-review",
+    });
+    const reviewSessionId = await seedLiveReview(backend, fixture);
+    await backend.run(async (ctx) => {
+      const member = await ctx.db.get(fixture.memberId);
+      if (!member) throw new Error("The reviewer panel member is missing.");
+      await ctx.db.insert("reviewAssignments", {
+        eventId: fixture.eventId,
+        roundId: fixture.roundId,
+        panelId: fixture.panelId,
+        reviewSessionId,
+        reviewerPersonId: fixture.memberPersonId,
+        eventAccessSubjectId: member.eventAccessSubjectId,
+        assignedCriterionIds: member.assignedCriterionIds,
+        isCoordinator: member.isCoordinator,
+        status: "assigned",
+        assignedAt: Date.now(),
+      });
+    });
+
+    await expect(
+      reviewer.identity.mutation(api.reviewer.clockOut, {
+        eventSlug: fixture.eventSlug,
+        roundId: fixture.roundId,
+        installationId: reviewer.installationId,
+        expectedVersion: 1,
+        clientOperationId: "clock-out-with-active-review",
+      }),
+    ).rejects.toThrow("Finish or reroute the current review before clocking out");
+
+    const snapshot = await reviewerPolicySnapshot(backend, fixture, reviewer.installationId);
+    expect(snapshot.clockIns).toEqual([
+      expect.objectContaining({ status: "present", version: 1 }),
+    ]);
+  });
+
   test("no-show is rejected before and accepted at the exact grace boundary", async () => {
     const backend = seededBackend();
     const fixture = await seedPanel(backend);
