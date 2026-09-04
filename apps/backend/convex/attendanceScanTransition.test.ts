@@ -345,11 +345,33 @@ describe("attendance scan direction", () => {
     expect(counters.zoneB).toMatchObject({ inside: 1, unknown: 0 });
   });
 
-  test("a static external pass supports offline replay and idempotent retries", async () => {
+  test("rejects an external pass until staffed photo-ID verification is complete", async () => {
     const backend = seededBackend();
     const fixture = await seedScannerFixture(backend);
     const operator = asOperator(backend, fixture);
     const externalPassLookupHash = await insertExternalPass(backend, fixture);
+    await backend.run((ctx) => ctx.db.patch(fixture.stationId, { mode: "venue_entry" }));
+
+    await expect(
+      operator.mutation(internal.attendanceScan.recordScan, {
+        ...scanArguments(fixture),
+        credentialKind: "external_pass",
+        lookupHash: externalPassLookupHash,
+        clientOperationId: "unverified-external-pass",
+        deviceSequence: 1,
+      }),
+    ).resolves.toMatchObject({
+      outcome: "rejected",
+      reasonCode: "external_identity_not_verified",
+    });
+  });
+
+  test("a verified static external pass supports offline replay and idempotent retries", async () => {
+    const backend = seededBackend();
+    const fixture = await seedScannerFixture(backend);
+    const operator = asOperator(backend, fixture);
+    const externalPassLookupHash = await insertExternalPass(backend, fixture);
+    await insertExternalIdentityBinding(backend, fixture);
     await backend.run((ctx) => ctx.db.patch(fixture.stationId, { mode: "venue_entry" }));
     const onlineArgs = {
       ...scanArguments(fixture),
@@ -548,6 +570,22 @@ async function insertExternalPass(backend: BackendTest, fixture: Fixture) {
     }),
   );
   return lookupHash;
+}
+
+async function insertExternalIdentityBinding(backend: BackendTest, fixture: Fixture) {
+  await backend.run((ctx) =>
+    ctx.db.insert("attendanceExternalIdentityBindings", {
+      eventId: fixture.eventId,
+      membershipId: fixture.membershipId,
+      lookupHash: `external-id-${crypto.randomUUID()}`,
+      barcodeSymbology: "code128",
+      version: 1,
+      state: "active",
+      linkedByPersonId: fixture.operatorPersonId,
+      linkedAt: fixture.now,
+      updatedAt: fixture.now,
+    }),
+  );
 }
 
 async function seedScannerFixture(backend: BackendTest) {

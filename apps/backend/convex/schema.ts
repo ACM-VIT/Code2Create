@@ -2430,10 +2430,13 @@ export default defineSchema({
         v.literal("begin_badge_replacement"),
         v.literal("revoke_badge"),
         v.literal("link_external_id"),
+        v.literal("suspend_external_pass"),
+        v.literal("reissue_external_pass"),
       ),
     ),
     credentialActionAt: v.optional(v.number()),
     attendanceCredentialId: v.optional(v.id("attendanceCredentials")),
+    attendanceExternalPassId: v.optional(v.id("attendanceExternalPasses")),
   }).index("by_event_membership_time", ["eventId", "membershipId", "resolvedAt"]),
 
   attendanceVenueStates: defineTable({

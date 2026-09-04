@@ -102,7 +102,15 @@ type StaffedParticipantResult = {
       }
     | {
         kind: "external_pass";
-        state: "active";
+        state: "not_issued";
+      }
+    | {
+        kind: "external_pass";
+        state: "active" | "suspended";
+        passId: Id<"attendanceExternalPasses">;
+        expectedPassVersion: number;
+        canSuspend: boolean;
+        canReissue: boolean;
       }
     | {
         kind: "badge_qr";
@@ -208,7 +216,15 @@ const credentialParticipantResult = v.object({
     }),
     v.object({
       kind: v.literal("external_pass"),
-      state: v.literal("active"),
+      state: v.literal("not_issued"),
+    }),
+    v.object({
+      kind: v.literal("external_pass"),
+      state: v.union(v.literal("active"), v.literal("suspended")),
+      passId: v.id("attendanceExternalPasses"),
+      expectedPassVersion: v.number(),
+      canSuspend: v.boolean(),
+      canReissue: v.boolean(),
     }),
     v.object({
       kind: v.literal("badge_qr"),
@@ -290,6 +306,49 @@ async function resolveVitCredential(
     kind: "vit_id_barcode",
     state: "not_enrolled",
     canEnrol: grantIds.length > 0,
+  };
+}
+
+async function resolveExternalPassCredential(
+  ctx: MutationCtx,
+  args: {
+    eventId: Id<"events">;
+    eventAccessSubjectId: Id<"eventAccessSubjects">;
+    membershipId: Id<"eventMemberships">;
+    personId: Id<"people">;
+  },
+): Promise<StaffedParticipantResult["credential"]> {
+  const [pass, suspendGrantIds, reissueGrantIds] = await Promise.all([
+    ctx.db
+      .query("attendanceExternalPasses")
+      .withIndex("by_membership", (index) => index.eq("membershipId", args.membershipId))
+      .unique(),
+    matchingPermissionGrantIds(ctx, {
+      eventId: args.eventId,
+      eventAccessSubjectId: args.eventAccessSubjectId,
+      permissionKey: "attendance.credential.suspend",
+      scopeType: "person",
+      scopeId: args.personId,
+    }),
+    matchingPermissionGrantIds(ctx, {
+      eventId: args.eventId,
+      eventAccessSubjectId: args.eventAccessSubjectId,
+      permissionKey: "attendance.credential.rebind",
+      scopeType: "person",
+      scopeId: args.personId,
+    }),
+  ]);
+  if (!pass) return { kind: "external_pass", state: "not_issued" };
+  if (pass.eventId !== args.eventId) {
+    throw new Error("The external event pass belongs to another event.");
+  }
+  return {
+    kind: "external_pass",
+    state: pass.state,
+    passId: pass._id,
+    expectedPassVersion: pass.version,
+    canSuspend: pass.state === "active" && suspendGrantIds.length > 0,
+    canReissue: reissueGrantIds.length > 0,
   };
 }
 
@@ -467,7 +526,12 @@ async function staffedParticipantForMembership(
           stationId: station._id,
           currentCredential: currentVitCredential,
         })
-      : { kind: "external_pass", state: "active" };
+      : await resolveExternalPassCredential(ctx, {
+          eventId: event._id,
+          eventAccessSubjectId: subject._id,
+          membershipId: membership._id,
+          personId: membership.personId,
+        });
   const vitScanRelationship: StaffedParticipantResult["vitScanRelationship"] =
     args.method.kind !== "vit_id_barcode"
       ? undefined

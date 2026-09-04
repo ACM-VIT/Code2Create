@@ -58,6 +58,11 @@ type VerifyBadgeResult = VerifyEnrollmentResult & { badgeReference: string };
 type VerifyBadgeReplacementResult = VerifyReplacementResult & { badgeReference: string };
 type RevokeBadgeResult = { credentialId: Id<"attendanceCredentials">; revoked: true };
 type SuspendVitResult = { credentialId: Id<"attendanceCredentials">; suspended: true };
+type ExternalPassStateResult = {
+  passId: Id<"attendanceExternalPasses">;
+  state: "active" | "suspended";
+  version: number;
+};
 type ExternalIdentityLinkResult = {
   bindingId: Id<"attendanceExternalIdentityBindings">;
   verified: true;
@@ -87,7 +92,15 @@ type StaffedParticipantResult = {
       }
     | {
         kind: "external_pass";
-        state: "active";
+        state: "not_issued";
+      }
+    | {
+        kind: "external_pass";
+        state: "active" | "suspended";
+        passId: Id<"attendanceExternalPasses">;
+        expectedPassVersion: number;
+        canSuspend: boolean;
+        canReissue: boolean;
       }
     | {
         kind: "badge_qr";
@@ -887,7 +900,15 @@ const staffedParticipantResultValidator = v.object({
       canRebind: v.boolean(),
       canSuspend: v.boolean(),
     }),
-    v.object({ kind: v.literal("external_pass"), state: v.literal("active") }),
+    v.object({ kind: v.literal("external_pass"), state: v.literal("not_issued") }),
+    v.object({
+      kind: v.literal("external_pass"),
+      state: v.union(v.literal("active"), v.literal("suspended")),
+      passId: v.id("attendanceExternalPasses"),
+      expectedPassVersion: v.number(),
+      canSuspend: v.boolean(),
+      canReissue: v.boolean(),
+    }),
     v.object({
       kind: v.literal("badge_qr"),
       state: v.literal("not_issued"),
@@ -1364,6 +1385,69 @@ export const suspendVitBarcode = action({
       reason: args.reason,
       clientOperationId: args.clientOperationId,
     }),
+});
+
+const externalPassCommandArgs = {
+  eventSlug: v.string(),
+  stationId: v.id("attendanceStations"),
+  expectedConfigurationVersion: v.number(),
+  deviceInstallationId: v.id("attendanceDeviceInstallations"),
+  deviceSecret: v.string(),
+  resolutionId: v.id("staffedParticipantResolutions"),
+  membershipId: v.id("eventMemberships"),
+  passId: v.id("attendanceExternalPasses"),
+  expectedPassVersion: v.number(),
+  visibleIdentityConfirmed: v.boolean(),
+  reason: v.string(),
+  clientOperationId: v.string(),
+};
+
+const externalPassStateResult = v.object({
+  passId: v.id("attendanceExternalPasses"),
+  state: v.union(v.literal("active"), v.literal("suspended")),
+  version: v.number(),
+});
+
+export const suspendExternalPass = action({
+  args: externalPassCommandArgs,
+  returns: externalPassStateResult,
+  handler: async (ctx, args): Promise<ExternalPassStateResult> => {
+    const { deviceSecret, ...command } = args;
+    return ctx.runMutation(internal.attendanceExternalPasses.suspend, {
+      ...command,
+      deviceSecretHash: await deviceSecretHash(deviceSecret),
+    });
+  },
+});
+
+export const reissueExternalPass = action({
+  args: externalPassCommandArgs,
+  returns: externalPassStateResult,
+  handler: async (ctx, args): Promise<ExternalPassStateResult> => {
+    const { deviceSecret, ...command } = args;
+    const deviceSecretHashValue = await deviceSecretHash(deviceSecret);
+    const credential = await credentialKey(ctx, {
+      eventSlug: args.eventSlug,
+      stationId: args.stationId,
+      expectedConfigurationVersion: args.expectedConfigurationVersion,
+      deviceInstallationId: args.deviceInstallationId,
+      deviceSecretHash: deviceSecretHashValue,
+      purpose: "setup",
+    });
+    const bearer = bytesToBase64Url(crypto.getRandomValues(new Uint8Array(32)));
+    const lookupHash = await bearerLookupHash({
+      eventKey: credential.key,
+      kind: "external_pass",
+      bearer,
+    });
+    const encrypted = await encryptExternalPassBearer(args.eventSlug, credential.key, bearer);
+    return ctx.runMutation(internal.attendanceExternalPasses.reissue, {
+      ...command,
+      deviceSecretHash: deviceSecretHashValue,
+      ...encrypted,
+      lookupHash,
+    });
+  },
 });
 
 export const beginExternalBadgeIssue = action({

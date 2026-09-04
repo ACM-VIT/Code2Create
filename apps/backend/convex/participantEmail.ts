@@ -217,7 +217,7 @@ export const deliver = internalAction({
           deliveryId: claim.deliveryId,
           attemptId,
           errorCode: "event_pass_generation_failed",
-          retryable: false,
+          retryable: true,
           ambiguous: false,
         });
         return null;

@@ -1032,6 +1032,77 @@ describe("live panel membership", () => {
     });
   });
 
+  test("operations can return a clocked-out reviewer to duty", async () => {
+    const backend = seededBackend();
+    const fixture = await seedPanel(backend);
+    const reviewer = await prepareReviewerClockIn(backend, fixture);
+    const operator = asOperator(backend, fixture);
+    await backend.run((ctx) =>
+      insertPermissionGrant(ctx, {
+        eventId: fixture.eventId,
+        personId: fixture.operatorPersonId,
+        eventAccessSubjectId: fixture.operatorSubjectId,
+        permissionKey: "round.manage",
+        scopeType: "round",
+        scopeId: fixture.roundId,
+        sourceType: "manual",
+        sourceId: `restore-clock-in:${fixture.roundId}`,
+        grantedByPersonId: fixture.operatorPersonId,
+        reason: "Reviewer clock-in recovery test",
+      }),
+    );
+
+    await reviewer.identity.mutation(api.reviewer.clockIn, {
+      eventSlug: fixture.eventSlug,
+      roundId: fixture.roundId,
+      installationId: reviewer.installationId,
+      expectedVersion: 0,
+      clientOperationId: "clock-in-before-restore-test",
+    });
+    await reviewer.identity.mutation(api.reviewer.clockOut, {
+      eventSlug: fixture.eventSlug,
+      roundId: fixture.roundId,
+      installationId: reviewer.installationId,
+      expectedVersion: 1,
+      clientOperationId: "clock-out-before-restore-test",
+    });
+    const request = {
+      eventSlug: fixture.eventSlug,
+      panelMemberId: fixture.memberId,
+      expectedClockInVersion: 2,
+      reason: "Reviewer returned for the remaining duty window.",
+      clientOperationId: "restore-reviewer-clock-in",
+    };
+    const restored = await operator.mutation(
+      api.reviewSubstitutions.restoreReviewerClockIn,
+      request,
+    );
+    const retry = await operator.mutation(
+      api.reviewSubstitutions.restoreReviewerClockIn,
+      request,
+    );
+    expect(retry).toEqual(restored);
+    expect(restored).toMatchObject({ status: "present", version: 3 });
+
+    const state = await backend.run(async (ctx) => ({
+      clockIn: await ctx.db
+        .query("reviewerClockIns")
+        .withIndex("by_round_person", (index) =>
+          index.eq("roundId", fixture.roundId).eq("reviewerPersonId", fixture.memberPersonId),
+        )
+        .unique(),
+      restoreAudits: await ctx.db
+        .query("auditEvents")
+        .withIndex("by_event_time", (index) => index.eq("eventId", fixture.eventId))
+        .collect()
+        .then((rows) =>
+          rows.filter((row) => row.action === "review.reviewer_clock_in_restored"),
+        ),
+    }));
+    expect(state.clockIn).toMatchObject({ status: "present", version: 3 });
+    expect(state.restoreAudits).toHaveLength(1);
+  });
+
   test("clock-out is rejected while the reviewer has a live review", async () => {
     const backend = seededBackend();
     const fixture = await seedPanel(backend);

@@ -153,7 +153,9 @@ function credentialInstruction(credential: PhysicalCredential) {
   if (credential.state === "active") {
     return "Show the static event pass from your email when staff record attendance.";
   }
-  if (credential.state === "suspended") return "Ask event staff to restore your event pass.";
+  if (credential.state === "suspended") {
+    return "Ask event staff to reissue your event pass. The replacement will appear here.";
+  }
   return "Your personal event pass will be sent to your verified email.";
 }
 

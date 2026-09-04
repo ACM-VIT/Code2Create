@@ -83,6 +83,13 @@ const reviewerNoShowOperationResult = z
   })
   .strict();
 
+const reviewerClockInRestoreOperationResult = z
+  .object({
+    clockInId: z.string().min(1),
+    version: z.number().int().positive(),
+  })
+  .strict();
+
 const pageChainOperationResult = z
   .object({
     pageChainId: z.string().min(1),
@@ -616,6 +623,127 @@ async function expireActivePage(
   await ctx.db.patch(chain._id, { version: chain.version + 1 });
   return sendNextPage(ctx, chain._id, now);
 }
+
+export const restoreReviewerClockIn = mutation({
+  args: {
+    eventSlug: v.string(),
+    panelMemberId: v.id("reviewPanelMembers"),
+    expectedClockInVersion: v.number(),
+    reason: v.string(),
+    clientOperationId: v.string(),
+  },
+  returns: v.object({
+    clockInId: v.id("reviewerClockIns"),
+    status: v.literal("present"),
+    version: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    const reason = normalizedText(args.reason, "Restore reason", 5, 500);
+    const requestFingerprint = operationFingerprint([
+      args.panelMemberId,
+      args.expectedClockInVersion,
+      reason,
+    ]);
+    const prior = await findOperation(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      clientOperationId: args.clientOperationId,
+      commandName: "review.reviewer.restore_clock_in",
+      requestFingerprint,
+    });
+    if (prior) {
+      const stored = storedOperationResult(
+        prior.resultJson,
+        "reviewer clock-in restore",
+        reviewerClockInRestoreOperationResult,
+      );
+      const clockInId = ctx.db.normalizeId("reviewerClockIns", stored.clockInId);
+      if (!clockInId || prior.targetId !== clockInId) {
+        throw new Error("The stored reviewer clock-in restore result is invalid.");
+      }
+      return { clockInId, status: "present" as const, version: stored.version };
+    }
+    const member = await ctx.db.get(args.panelMemberId);
+    if (!member || member.eventId !== event._id || member.status !== "active") {
+      throw new ConvexError({
+        code: "PANEL_MEMBER_CHANGED",
+        message: "That reviewer is no longer assigned to this panel.",
+      });
+    }
+    const [round, clockIn] = await Promise.all([
+      ctx.db.get(member.roundId),
+      ctx.db
+        .query("reviewerClockIns")
+        .withIndex("by_round_person", (index) =>
+          index.eq("roundId", member.roundId).eq("reviewerPersonId", member.personId),
+        )
+        .unique(),
+    ]);
+    if (!round || round.eventId !== event._id || !["published", "open"].includes(round.status)) {
+      throw new ConvexError({
+        code: "ROUND_NOT_AVAILABLE",
+        message: "This review round is no longer available.",
+      });
+    }
+    if (
+      !clockIn ||
+      clockIn.status !== "clocked_out" ||
+      clockIn.version !== args.expectedClockInVersion
+    ) {
+      throw new ConvexError({
+        code: "CLOCK_IN_CHANGED",
+        message: "The reviewer clock-in changed. Refresh before restoring it.",
+      });
+    }
+    const grantIds = await requirePermission(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey: "round.manage",
+      scopeType: "round",
+      scopeId: round._id,
+    });
+    const now = Date.now();
+    const version = clockIn.version + 1;
+    await ctx.db.patch(clockIn._id, {
+      status: "present",
+      unavailableReason: undefined,
+      expectedReturnAt: undefined,
+      clockedOutAt: undefined,
+      lastHeartbeatAt: now,
+      version,
+    });
+    const result = { clockInId: clockIn._id, version };
+    await recordOperation(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      clientOperationId: args.clientOperationId,
+      commandName: "review.reviewer.restore_clock_in",
+      requestFingerprint,
+      targetType: "reviewer_clock_in",
+      targetId: clockIn._id,
+      resultJson: JSON.stringify(result),
+      createdAt: now,
+    });
+    await writeAuditEvent(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      permissionKey: "round.manage",
+      grantIds,
+      scopeType: "round",
+      scopeId: round._id,
+      action: "review.reviewer_clock_in_restored",
+      targetType: "reviewer_clock_in",
+      targetId: clockIn._id,
+      previousSummary: JSON.stringify({ status: clockIn.status, version: clockIn.version }),
+      nextSummary: JSON.stringify({ status: "present", version }),
+      reason,
+    });
+    return { ...result, status: "present" as const };
+  },
+});
 
 export const markNoShow = mutation({
   args: {
@@ -1817,6 +1945,7 @@ export const roundStatus = query({
             displayName: v.string(),
             isCoordinator: v.boolean(),
             canMarkNoShow: v.boolean(),
+            canRestoreClockIn: v.boolean(),
           }),
         ),
         vacancy: v.union(
@@ -1881,6 +2010,13 @@ export const roundStatus = query({
       eventId: event._id,
       eventAccessSubjectId: subject._id,
       permissionKey: "round.read",
+      scopeType: "round",
+      scopeId: round._id,
+    });
+    const restoreClockInGrantIds = await matchingPermissionGrantIds(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey: "round.manage",
       scopeType: "round",
       scopeId: round._id,
     });
@@ -1980,7 +2116,7 @@ export const roundStatus = query({
         const reviewIsRunning = activeSessions.length > 0 || overdueSessions.length > 0;
         const activeMembers = await Promise.all(
           members.map(async (member) => {
-            const [reviewer, permission] = await Promise.all([
+            const [reviewer, permission, clockIn] = await Promise.all([
               ctx.db.get(member.personId),
               noShowScope(ctx, {
                 eventId: event._id,
@@ -1988,6 +2124,12 @@ export const roundStatus = query({
                 roundId: round._id,
                 reviewerPersonId: member.personId,
               }),
+              ctx.db
+                .query("reviewerClockIns")
+                .withIndex("by_round_person", (index) =>
+                  index.eq("roundId", round._id).eq("reviewerPersonId", member.personId),
+                )
+                .unique(),
             ]);
             if (!reviewer) throw new Error("A panel member no longer resolves to a person.");
             return {
@@ -1996,6 +2138,9 @@ export const roundStatus = query({
               displayName: reviewer.displayName,
               isCoordinator: member.isCoordinator,
               canMarkNoShow: permission !== null && panel.status === "ready" && !reviewIsRunning,
+              canRestoreClockIn:
+                restoreClockInGrantIds.length > 0 &&
+                clockIn?.status === "clocked_out",
             };
           }),
         );

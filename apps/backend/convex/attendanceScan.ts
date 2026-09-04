@@ -244,6 +244,17 @@ async function resolveCredential(
     if (!pass || pass.state !== "active") {
       return { resolved: false, reasonCode: "external_pass_invalid" };
     }
+    const identityBinding = await ctx.db
+      .query("attendanceExternalIdentityBindings")
+      .withIndex("by_membership", (index) => index.eq("membershipId", pass.membershipId))
+      .unique();
+    if (
+      !identityBinding ||
+      identityBinding.eventId !== args.eventId ||
+      identityBinding.state !== "active"
+    ) {
+      return { resolved: false, reasonCode: "external_identity_not_verified" };
+    }
     return {
       resolved: true,
       membershipId: pass.membershipId,

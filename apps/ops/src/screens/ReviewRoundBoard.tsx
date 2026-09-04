@@ -375,29 +375,38 @@ function PanelRow({
           <div className="panel-detail-block">
             <p className="board-section-label">Reviewers</p>
             <ul className="panel-reviewers">
-              {panel.reviewers.map((reviewer) => (
-                <li
-                  className={reviewer.clockInStatus === "present" ? "" : "away"}
-                  key={reviewer.personId}
-                >
-                  <span>
-                    {reviewer.displayName}
-                    {reviewer.isCoordinator ? " · runs this panel" : ""}
-                  </span>
-                  {reviewer.clockInStatus === "present" ? null : (
-                    <small>{reviewerState(reviewer, serverNow)}</small>
-                  )}
-                  {reviewer.clockInStatus !== "present" && substitutionPanel ? (
-                    <ReviewerNoShow
-                      member={substitutionPanel.activeMembers.find(
-                        (member) => member.personId === reviewer.personId,
-                      )}
-                      clockInVersion={reviewer.clockInVersion}
-                      panelVersion={substitutionPanel.panelVersion}
-                    />
-                  ) : null}
-                </li>
-              ))}
+              {panel.reviewers.map((reviewer) => {
+                const member = substitutionPanel?.activeMembers.find(
+                  (candidate) => candidate.personId === reviewer.personId,
+                );
+                return (
+                  <li
+                    className={reviewer.clockInStatus === "present" ? "" : "away"}
+                    key={reviewer.personId}
+                  >
+                    <span>
+                      {reviewer.displayName}
+                      {reviewer.isCoordinator ? " · runs this panel" : ""}
+                    </span>
+                    {reviewer.clockInStatus === "present" ? null : (
+                      <small>{reviewerState(reviewer, serverNow)}</small>
+                    )}
+                    {reviewer.clockInStatus === "clocked_out" ? (
+                      <ReviewerClockInRestore
+                        clockInVersion={reviewer.clockInVersion}
+                        member={member}
+                      />
+                    ) : null}
+                    {reviewer.clockInStatus !== "present" && substitutionPanel ? (
+                      <ReviewerNoShow
+                        member={member}
+                        clockInVersion={reviewer.clockInVersion}
+                        panelVersion={substitutionPanel.panelVersion}
+                      />
+                    ) : null}
+                  </li>
+                );
+              })}
             </ul>
           </div>
 
@@ -805,6 +814,93 @@ function ReviewerNoShow({
           onClick={() => void submit()}
         >
           {busy ? "Saving…" : operationPending ? "Confirm earlier vacancy" : "Create vacancy"}
+        </button>
+        <button
+          className="secondary compact-link"
+          disabled={busy || operationPending}
+          type="button"
+          onClick={() => setOpen(false)}
+        >
+          Cancel
+        </button>
+      </div>
+      {error ? <small className="notice error">{error}</small> : null}
+    </div>
+  );
+}
+
+function ReviewerClockInRestore({
+  member,
+  clockInVersion,
+}: {
+  member: SubstituteMember | undefined;
+  clockInVersion: number;
+}) {
+  const restoreClockIn = useMutation(api.reviewSubstitutions.restoreReviewerClockIn);
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const operationAttempt =
+    useMutationAttempt<FunctionReturnType<typeof api.reviewSubstitutions.restoreReviewerClockIn>>();
+  const operationSlot = `reviewer-clock-in-restore:${member?.panelMemberId ?? "missing"}`;
+  const operationPending = operationAttempt.hasPending(operationSlot);
+
+  if (!member?.canRestoreClockIn) return null;
+
+  const submit = async () => {
+    if (busy || reason.trim().length < 5) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await operationAttempt.run(operationSlot, () => {
+        const args = {
+          eventSlug,
+          panelMemberId: member.panelMemberId,
+          expectedClockInVersion: clockInVersion,
+          reason,
+          clientOperationId: crypto.randomUUID(),
+        };
+        return () => restoreClockIn(args);
+      });
+      setOpen(false);
+      setReason("");
+    } catch (caught) {
+      setError(readableError(caught));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <button className="inline-text-button" type="button" onClick={() => setOpen(true)}>
+        Return to duty
+      </button>
+    );
+  }
+  return (
+    <div className="inline-command">
+      <label className="field">
+        <span>Restore reason</span>
+        <input
+          disabled={operationPending}
+          value={reason}
+          onChange={(event) => {
+            setReason(event.target.value);
+            setError(null);
+          }}
+        />
+      </label>
+      <p className="muted">This returns the reviewer to active duty immediately.</p>
+      <div className="button-row">
+        <button
+          className="primary"
+          disabled={busy || reason.trim().length < 5}
+          type="button"
+          onClick={() => void submit()}
+        >
+          {busy ? "Saving…" : operationPending ? "Confirm earlier restore" : "Return to duty"}
         </button>
         <button
           className="secondary compact-link"

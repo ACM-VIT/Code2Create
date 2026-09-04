@@ -114,6 +114,8 @@ const staffedOperationSlots = [
   "attendance.badge.revoke",
   "attendance.badge.verify",
   "attendance.external-id.link",
+  "attendance.external-pass.reissue",
+  "attendance.external-pass.suspend",
   "attendance.venue.check-in",
   "attendance.venue.reverse",
   "attendance.vit.begin",
@@ -155,7 +157,9 @@ type CredentialSetupState =
         | "vit_suspended"
         | "badge_issued"
         | "badge_replaced"
-        | "badge_revoked";
+        | "badge_revoked"
+        | "external_pass_reissued"
+        | "external_pass_suspended";
     };
 
 function currentServerNow(clock: ServerClock) {
@@ -442,6 +446,8 @@ function ScannerSurface({
   const beginVitBarcodeRebind = useAction(api.attendanceActions.beginVitBarcodeRebind);
   const verifyVitBarcodeRebind = useAction(api.attendanceActions.verifyVitBarcodeRebind);
   const suspendVitBarcode = useAction(api.attendanceActions.suspendVitBarcode);
+  const suspendExternalPass = useAction(api.attendanceActions.suspendExternalPass);
+  const reissueExternalPass = useAction(api.attendanceActions.reissueExternalPass);
   const beginExternalBadgeIssue = useAction(api.attendanceActions.beginExternalBadgeIssue);
   const verifyExternalBadgeIssue = useAction(api.attendanceActions.verifyExternalBadgeIssue);
   const beginExternalBadgeReplacement = useAction(
@@ -1303,6 +1309,67 @@ function ScannerSurface({
     }
   };
 
+  const handleExternalPassChange = async (operation: "suspend" | "reissue") => {
+    if (busyRef.current || credentialSetup.step !== "identity") return;
+    const participant = credentialSetup.participant;
+    const pass = participant.credential;
+    if (
+      pass.kind !== "external_pass" ||
+      pass.state === "not_issued" ||
+      (operation === "suspend" ? !pass.canSuspend : !pass.canReissue) ||
+      credentialReason.trim().length < 5
+    ) {
+      return;
+    }
+    busyRef.current = true;
+    setBusy(true);
+    setScanError(null);
+    try {
+      const request = {
+        eventSlug,
+        stationId: assignment.station.id,
+        expectedConfigurationVersion: assignment.station.configurationVersion,
+        deviceInstallationId: assignment.device.id,
+        deviceSecret: deviceRecord.deviceSecret,
+        resolutionId: participant.resolutionId,
+        membershipId: participant.membershipId,
+        passId: pass.passId,
+        expectedPassVersion: pass.expectedPassVersion,
+        visibleIdentityConfirmed: true,
+        reason: credentialReason,
+      };
+      const slot = `attendance.external-pass.${operation}` as const;
+      await runPersistentClientOperation({
+        eventSlug,
+        slot,
+        fingerprint: operationFingerprint(request),
+        execute: (clientOperationId) =>
+          operation === "suspend"
+            ? suspendExternalPass({ ...request, clientOperationId })
+            : reissueExternalPass({ ...request, clientOperationId }),
+      });
+      setCredentialSetup({
+        step: "complete",
+        participant,
+        outcome:
+          operation === "suspend" ? "external_pass_suspended" : "external_pass_reissued",
+      });
+      setCredentialReason("");
+    } catch (error) {
+      setScanError(
+        errorMessage(
+          error,
+          operation === "suspend"
+            ? "The event pass could not be suspended."
+            : "The event pass could not be reissued.",
+        ),
+      );
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  };
+
   const handleInitialVitLink = async () => {
     if (busyRef.current || credentialSetup.step !== "identity") return;
     const { participant, resolutionSource } = credentialSetup;
@@ -1754,6 +1821,8 @@ function ScannerSurface({
               setScanError(null);
             }
           }}
+          onExternalPassReissue={() => handleExternalPassChange("reissue")}
+          onExternalPassSuspend={() => handleExternalPassChange("suspend")}
           onRevoke={handleBadgeRevoke}
           onSuspend={handleVitSuspend}
           onSecondScan={() => {
@@ -1857,6 +1926,8 @@ function ScannerSurface({
                 onVenueIdentityException={() => handleVenueCheckIn("approved_exception")}
                 onVenueCheckInReversal={handleVenueCheckInReversal}
                 onConfirmIdentity={() => void handleInitialVitLink()}
+                onExternalPassReissue={() => handleExternalPassChange("reissue")}
+                onExternalPassSuspend={() => handleExternalPassChange("suspend")}
                 onRevoke={handleBadgeRevoke}
                 onSuspend={handleVitSuspend}
                 onSecondScan={() => {}}
@@ -2197,6 +2268,8 @@ function CredentialSetupInstructions({
   onVenueIdentityException,
   onVenueCheckInReversal,
   onConfirmIdentity,
+  onExternalPassReissue,
+  onExternalPassSuspend,
   onRevoke,
   onSuspend,
   onSecondScan,
@@ -2213,6 +2286,8 @@ function CredentialSetupInstructions({
   onVenueIdentityException: () => void | Promise<void>;
   onVenueCheckInReversal: () => void | Promise<void>;
   onConfirmIdentity: () => void;
+  onExternalPassReissue: () => void | Promise<void>;
+  onExternalPassSuspend: () => void | Promise<void>;
   onRevoke: () => void | Promise<void>;
   onSuspend: () => void | Promise<void>;
   onSecondScan: () => void;
@@ -2233,6 +2308,10 @@ function CredentialSetupInstructions({
       !currentVitIdRecognized &&
       credential.kind !== "external_pass" &&
       (credential.state === "active" || credential.state === "suspended");
+    const canManageExternalPass =
+      credential.kind === "external_pass" &&
+      credential.state !== "not_issued" &&
+      (credential.canSuspend || credential.canReissue);
     const canChangeCredential =
       credential.kind === "external_pass"
         ? true
@@ -2286,6 +2365,16 @@ function CredentialSetupInstructions({
             value={reason}
           />
         ) : null}
+        {canManageExternalPass ? (
+          <Field
+            label="Why this event pass is changing"
+            maxLength={300}
+            multiline
+            onChangeText={onReason}
+            placeholder="Reason for operations"
+            value={reason}
+          />
+        ) : null}
         {canChangeCredential ? (
           <Action
             accent={palette.door}
@@ -2309,6 +2398,24 @@ function CredentialSetupInstructions({
             disabled={reason.trim().length < 5}
             label="Suspend current VIT ID"
             onPress={onSuspend}
+          />
+        ) : null}
+        {credential.kind === "external_pass" &&
+        credential.state !== "not_issued" &&
+        credential.canReissue ? (
+          <QuietAction
+            disabled={reason.trim().length < 5}
+            label="Reissue event pass"
+            onPress={onExternalPassReissue}
+          />
+        ) : null}
+        {credential.kind === "external_pass" &&
+        credential.state === "active" &&
+        credential.canSuspend ? (
+          <QuietAction
+            disabled={reason.trim().length < 5}
+            label="Suspend event pass"
+            onPress={onExternalPassSuspend}
           />
         ) : null}
         <Action
@@ -2362,6 +2469,30 @@ function CredentialSetupInstructions({
             : "Scan the same VIT ID barcode again."}
         </Body>
         <Action destructive disabled={resetDisabled} label="Cancel" onPress={onReset} />
+      </>
+    );
+  }
+  if (
+    credentialSetup.outcome === "external_pass_reissued" ||
+    credentialSetup.outcome === "external_pass_suspended"
+  ) {
+    return (
+      <>
+        <ParticipantIdentityCard participant={credentialSetup.participant} />
+        <View style={styles.identityReady}>
+          <DutyIcon color={palette.judging} name="badge" size={22} />
+          <View style={styles.identityReadyCopy}>
+            <Text style={styles.identityReadyTitle}>
+              {credentialSetupOutcomeLabel(credentialSetup.outcome)}
+            </Text>
+            <Text style={styles.identityReadyDetail}>
+              {credentialSetup.outcome === "external_pass_reissued"
+                ? "The old QR is blocked. The replacement is available in the participant portal."
+                : "The event-pass QR is blocked until staff reissue it."}
+            </Text>
+          </View>
+        </View>
+        <Action disabled={resetDisabled} label="Next participant" onPress={onReset} />
       </>
     );
   }
@@ -2605,7 +2736,9 @@ function credentialSetupOutcomeLabel(
   if (outcome === "vit_suspended") return "VIT ID suspended";
   if (outcome === "badge_issued") return "Badge issued";
   if (outcome === "badge_replaced") return "Badge replaced";
-  return "Badge revoked";
+  if (outcome === "badge_revoked") return "Badge revoked";
+  if (outcome === "external_pass_reissued") return "Event pass reissued";
+  return "Event pass suspended";
 }
 
 function scannerReady(task: ScannerTask, credentialSetup: CredentialSetupState) {
@@ -2728,6 +2861,8 @@ function reasonName(reason: string) {
     credential_not_found:
       "This card is not registered yet. Send them to the help desk to get set up.",
     external_pass_invalid: "This external event pass is invalid or suspended.",
+    external_identity_not_verified:
+      "First check-in is incomplete. Verify and link the participant's physical photo ID first.",
     participant_not_active: "They are not signed up for the event. Send them to the help desk.",
     participant_not_expected:
       "They are not on the list for this session. Check with a coordinator.",
