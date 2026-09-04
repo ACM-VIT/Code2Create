@@ -137,6 +137,32 @@ test("known injected Android browser bridge exceptions are ignored", () => {
   assert.equal(event, null);
 });
 
+test("aborted in-flight request exceptions are ignored", () => {
+  const event = scrubPostHogEvent({
+    event: "$exception",
+    properties: {
+      $exception_list: [
+        {
+          type: "AbortError",
+          value: "The operation was aborted.",
+          mechanism: { type: "onunhandledrejection", handled: false },
+        },
+      ],
+    },
+  });
+  assert.equal(event, null);
+});
+
+test("exceptions with a real name stay visible", () => {
+  const event = scrubPostHogEvent({
+    event: "$exception",
+    properties: {
+      $exception_list: [{ type: "TypeError", value: "Failed to fetch" }],
+    },
+  });
+  assert.notEqual(event, null);
+});
+
 test("session replay payloads remain decodable after recorder masking", () => {
   const event = {
     event: "$snapshot",
