@@ -28,11 +28,12 @@ The development client uses Metro, so it does not prove an over-the-air install 
 
 No EAS account, project, build, or update service is used. Copy `.env.example` to both `.env.staging.local` and `.env.production.local`, then put only that environment's backend, identifiers, build number, APNs mode, Firebase file, signing values, and update URL in each file. Release commands never load the development `.env.local` or the other environment's file.
 
-Android builds require the release keystore values and the Firebase `google-services.json` path in the selected `.env.staging.local` or `.env.production.local`. Staging produces a signed APK for the phone fleet; production produces the Play Store AAB.
+Android builds require the release keystore values and the Firebase `google-services.json` path in the selected `.env.staging.local` or `.env.production.local`. Staging produces a signed APK for the phone fleet; production produces the Play Store AAB. Use the production APK command when a directly installable artifact must target production services.
 
 ```sh
 pnpm --filter @code2create/reviewer build:android:staging
 pnpm --filter @code2create/reviewer build:android:production
+pnpm --filter @code2create/reviewer build:android:production:apk
 ```
 
 iOS builds use the Apple team already available to local Xcode. Set `C2C_IOS_EXPORT_METHOD` to `development` with `EXPO_PUBLIC_APNS_ENVIRONMENT=development`, or use `ad-hoc` with the production APNs environment for a staging fleet. Production uses `app-store-connect` and the production APNs environment. The build refuses a provisioning/push environment mismatch.

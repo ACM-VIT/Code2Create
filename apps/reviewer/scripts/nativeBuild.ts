@@ -37,13 +37,14 @@ async function build(
   );
   const platformConfiguration =
     selectedPlatform === "android"
-      ? readAndroidBuildConfiguration()
+      ? readAndroidBuildConfiguration(selectedEnvironment)
       : readIosBuildConfiguration(selectedEnvironment);
   const outputDirectory = join(repositoryRoot, "outputs/native", selectedPlatform);
   await mkdir(outputDirectory, { recursive: true });
 
   const nativeEnvironment = {
     ...process.env,
+    NODE_ENV: "production" as const,
     C2C_NATIVE_BUILD: "true",
     C2C_NATIVE_PLATFORM: selectedPlatform,
     EXPO_PUBLIC_DEPLOYMENT_ENVIRONMENT: selectedEnvironment,
@@ -71,7 +72,7 @@ async function build(
 
   const artifact =
     platformConfiguration.platform === "android"
-      ? await buildAndroid(selectedEnvironment, nativeEnvironment)
+      ? await buildAndroid(nativeEnvironment, platformConfiguration)
       : await buildIos(nativeEnvironment, platformConfiguration);
   const extension = artifact.endsWith(".aab") ? "aab" : artifact.endsWith(".apk") ? "apk" : "ipa";
   const outputPath = join(
@@ -86,7 +87,9 @@ async function build(
   console.log(`Built signed ${selectedPlatform} release: ${outputPath}`);
 }
 
-function readAndroidBuildConfiguration(): AndroidBuildConfiguration {
+function readAndroidBuildConfiguration(
+  selectedEnvironment: "staging" | "production",
+): AndroidBuildConfiguration {
   const keystorePath = resolve(requiredEnvironmentValue("C2C_ANDROID_KEYSTORE_PATH"));
   if (!existsSync(keystorePath)) throw new Error(`Android keystore not found: ${keystorePath}`);
   requiredEnvironmentValue("C2C_ANDROID_KEYSTORE_PASSWORD");
@@ -96,28 +99,44 @@ function readAndroidBuildConfiguration(): AndroidBuildConfiguration {
   if (!existsSync(googleServicesPath)) {
     throw new Error(`Firebase Android config not found: ${googleServicesPath}`);
   }
-  return { platform: "android", keystorePath, googleServicesPath };
+  const defaultArtifact = selectedEnvironment === "production" ? "aab" : "apk";
+  const artifact = androidArtifactSchema.parse(process.argv[4] ?? defaultArtifact);
+  return { platform: "android", keystorePath, googleServicesPath, artifact };
 }
 
 async function buildAndroid(
-  selectedEnvironment: "staging" | "production",
   nativeEnvironment: NodeJS.ProcessEnv,
+  configuration: AndroidBuildConfiguration,
 ) {
   const gradlePath = join(reviewerDirectory, "android/app/build.gradle");
   const original = await readFile(gradlePath, "utf8");
   const configured = configureAndroidReleaseSigning(original);
   await writeFile(gradlePath, configured, "utf8");
+  await configureAndroidGradleMemory();
 
-  const task = selectedEnvironment === "production" ? "app:bundleRelease" : "app:assembleRelease";
+  const task = configuration.artifact === "aab" ? "app:bundleRelease" : "app:assembleRelease";
   await run(
     "./gradlew",
     [task, "--no-daemon"],
     join(reviewerDirectory, "android"),
     nativeEnvironment,
   );
-  return selectedEnvironment === "production"
+  return configuration.artifact === "aab"
     ? join(reviewerDirectory, "android/app/build/outputs/bundle/release/app-release.aab")
     : join(reviewerDirectory, "android/app/build/outputs/apk/release/app-release.apk");
+}
+
+async function configureAndroidGradleMemory() {
+  const gradlePropertiesPath = join(reviewerDirectory, "android/gradle.properties");
+  const original = await readFile(gradlePropertiesPath, "utf8");
+  const configured = original.replace(
+    /^org\.gradle\.jvmargs=.*$/mu,
+    "org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m",
+  );
+  if (configured === original) {
+    throw new Error("The generated Android project does not declare org.gradle.jvmargs.");
+  }
+  await writeFile(gradlePropertiesPath, configured, "utf8");
 }
 
 function configureAndroidReleaseSigning(buildGradle: string) {
@@ -277,7 +296,7 @@ function exportOptionsPlist(
   <key>provisioningProfiles</key>
   <dict>
     <key>${bundleIdentifier}</key>
-    <string>${profileSpecifier}</string>
+    <string>${escapeXmlText(profileSpecifier)}</string>
   </dict>`
     : "";
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -297,6 +316,15 @@ function exportOptionsPlist(
 </dict>
 </plist>
 `;
+}
+
+function escapeXmlText(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
 }
 
 async function withBuildLock(operation: () => Promise<void>) {
@@ -370,11 +398,13 @@ async function runAndCapture(command: string, args: string[], cwd: string) {
 
 const iosExportMethodSchema = z.enum(["app-store-connect", "ad-hoc", "development"]);
 const apnsEnvironmentSchema = z.enum(["development", "production"]);
+const androidArtifactSchema = z.enum(["apk", "aab"]);
 
 type AndroidBuildConfiguration = {
   platform: "android";
   keystorePath: string;
   googleServicesPath: string;
+  artifact: z.infer<typeof androidArtifactSchema>;
 };
 
 type IosBuildConfiguration = {
