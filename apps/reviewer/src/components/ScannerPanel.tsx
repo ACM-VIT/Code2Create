@@ -26,6 +26,7 @@ import {
   Dimensions,
   FlatList,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -36,6 +37,7 @@ import {
   Action,
   Body,
   Card,
+  ChipRow,
   Field,
   Heading,
   HeaderButton,
@@ -83,7 +85,7 @@ type StationOption = FunctionReturnType<typeof api.attendanceScanner.availableSt
 type ScannerAssignment = NonNullable<FunctionReturnType<typeof api.attendanceScanner.current>>;
 type ScanReceipt = FunctionReturnType<typeof api.attendanceActions.recordScan>;
 type StaffedParticipant = FunctionReturnType<
-  typeof api.attendanceActions.resolveStaffedParticipant
+  typeof api.attendanceActions.resolveExternalPass
 >;
 type CredentialId = FunctionReturnType<
   typeof api.attendanceActions.beginVitBarcodeEnrollment
@@ -106,10 +108,12 @@ type DeviceState =
   | { status: "ready"; record: ScannerDeviceRecord | null }
   | { status: "error"; message: string };
 type ScannerTask = "presence" | "staffed";
+type ManualLookupKind = "vit_registration" | "external_email";
 const staffedOperationSlots = [
   "attendance.badge.begin",
   "attendance.badge.revoke",
   "attendance.badge.verify",
+  "attendance.external-id.link",
   "attendance.venue.check-in",
   "attendance.venue.reverse",
   "attendance.vit.begin",
@@ -123,7 +127,11 @@ type HeartbeatState =
 type ServerClock = { serverNow: number; observedAt: number | null };
 type CredentialSetupState =
   | { step: "participant" }
-  | { step: "identity"; participant: StaffedParticipant }
+  | {
+      step: "identity";
+      participant: StaffedParticipant;
+      resolutionSource: "vit_barcode" | "external_pass" | "manual";
+    }
   | { step: "first_scan"; participant: StaffedParticipant }
   | {
       step: "second_scan_ready";
@@ -142,6 +150,7 @@ type CredentialSetupState =
       participant: StaffedParticipant;
       outcome:
         | "vit_enrolled"
+        | "external_id_linked"
         | "vit_replaced"
         | "vit_suspended"
         | "badge_issued"
@@ -421,8 +430,14 @@ function ScannerSurface({
   const [permission, requestPermission] = useCameraPermissions();
   const recordScan = useAction(api.attendanceActions.recordScan);
   const scannerHeartbeat = useAction(api.attendanceActions.scannerHeartbeat);
-  const resolveStaffedParticipant = useAction(api.attendanceActions.resolveStaffedParticipant);
+  const resolveExternalPass = useAction(api.attendanceActions.resolveExternalPass);
+  const resolveVitBarcode = useAction(api.attendanceActions.resolveVitBarcode);
+  const resolveManualParticipant = useAction(api.attendanceActions.resolveManualParticipant);
+  const linkResolvedExternalIdBarcode = useAction(
+    api.attendanceActions.linkResolvedExternalIdBarcode,
+  );
   const beginVitBarcodeEnrollment = useAction(api.attendanceActions.beginVitBarcodeEnrollment);
+  const enrolResolvedVitBarcode = useAction(api.attendanceActions.enrolResolvedVitBarcode);
   const verifyVitBarcodeEnrollment = useAction(api.attendanceActions.verifyVitBarcodeEnrollment);
   const beginVitBarcodeRebind = useAction(api.attendanceActions.beginVitBarcodeRebind);
   const verifyVitBarcodeRebind = useAction(api.attendanceActions.verifyVitBarcodeRebind);
@@ -476,6 +491,10 @@ function ScannerSurface({
   const [appIsActive, setAppIsActive] = useState(AppState.currentState === "active");
   const [pendingScan, setPendingScan] = useState<ScanCredential | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [manualLookupOpen, setManualLookupOpen] = useState(false);
+  const [manualLookupKind, setManualLookupKind] =
+    useState<ManualLookupKind>("vit_registration");
+  const [manualLookupValue, setManualLookupValue] = useState("");
   const staffedRecoveryLocked =
     staffedOperations.loading ||
     staffedOperations.error !== null ||
@@ -715,6 +734,33 @@ function ScannerSurface({
     }
   };
 
+  const handleManualLookup = async () => {
+    if (busyRef.current || manualLookupValue.trim().length === 0) return;
+    busyRef.current = true;
+    setBusy(true);
+    setScanError(null);
+    try {
+      const participant = await resolveManualParticipant({
+        eventSlug,
+        stationId: assignment.station.id,
+        expectedConfigurationVersion: assignment.station.configurationVersion,
+        deviceInstallationId: assignment.device.id,
+        deviceSecret: deviceRecord.deviceSecret,
+        lookup: { kind: manualLookupKind, value: manualLookupValue },
+      });
+      setVenueReason("");
+      setVenueCheckInReceipt(null);
+      setCredentialSetup({ step: "identity", participant, resolutionSource: "manual" });
+      setManualLookupOpen(false);
+      setManualLookupValue("");
+    } catch (error) {
+      setScanError(errorMessage(error, "The participant could not be found."));
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  };
+
   const handlePresenceBarcode = async (scan: BarcodeScanningResult) => {
     const parsedAttendanceQr = parseAttendanceQrPayload(scan.data);
     const symbology = findBarcodeSymbology(scan.type);
@@ -730,11 +776,6 @@ function ScannerSurface({
     if (!stationAcceptsCredential(assignment.station.allowedCredentialKinds, credential.kind)) {
       throw new OperatorError(
         `${credentialName(credential.kind)} cannot be used at ${assignment.station.name}. Use a credential type assigned to this station.`,
-      );
-    }
-    if (definitelyOffline && credential.kind === "portal_qr") {
-      throw new OperatorError(
-        "This phone is offline and cannot check a portal code. Use their ID card or badge instead.",
       );
     }
     setPendingScan(credential);
@@ -841,25 +882,77 @@ function ScannerSurface({
   const handleCredentialBarcode = async (scan: BarcodeScanningResult) => {
     if (credentialSetup.step === "participant") {
       const participantQr = parseAttendanceQrPayload(scan.data);
-      if (!participantQr || participantQr.kind !== "portal_qr") {
-        throw new OperatorError("Scan their portal QR first, then come back to this card.");
+      let participant: StaffedParticipant;
+      let resolutionSource: "vit_barcode" | "external_pass";
+      if (participantQr?.kind === "external_pass") {
+        resolutionSource = "external_pass";
+        participant = await resolveExternalPass({
+          eventSlug,
+          stationId: assignment.station.id,
+          expectedConfigurationVersion: assignment.station.configurationVersion,
+          deviceInstallationId: assignment.device.id,
+          deviceSecret: deviceRecord.deviceSecret,
+          passBearer: participantQr.bearer,
+        });
+      } else {
+        resolutionSource = "vit_barcode";
+        if (participantQr) {
+          throw new OperatorError("Use the personal external event pass, not a badge QR.");
+        }
+        const read = findBarcodeSymbology(scan.type);
+        const symbology = allowedVitBarcode(read, assignment);
+        if (!symbology) throw new OperatorError(unreadableCredential(read, assignment));
+        participant = await resolveVitBarcode({
+          eventSlug,
+          stationId: assignment.station.id,
+          expectedConfigurationVersion: assignment.station.configurationVersion,
+          deviceInstallationId: assignment.device.id,
+          deviceSecret: deviceRecord.deviceSecret,
+          rawBarcodeValue: scan.data,
+          symbology,
+        });
       }
-      const participant = await resolveStaffedParticipant({
-        eventSlug,
-        stationId: assignment.station.id,
-        expectedConfigurationVersion: assignment.station.configurationVersion,
-        deviceInstallationId: assignment.device.id,
-        deviceSecret: deviceRecord.deviceSecret,
-        portalBearer: participantQr.bearer,
-      });
       setVenueReason("");
       setVenueCheckInReceipt(null);
-      setCredentialSetup({ step: "identity", participant });
+      setCredentialSetup({ step: "identity", participant, resolutionSource });
       return;
     }
     if (credentialSetup.step !== "first_scan" && credentialSetup.step !== "second_scan") return;
     const participant = credentialSetup.participant;
     const credential = participant.credential;
+    if (credential.kind === "external_pass") {
+      const participantQr = parseAttendanceQrPayload(scan.data);
+      if (participantQr) {
+        throw new OperatorError("Now scan the barcode on the participant's physical ID, not an event QR.");
+      }
+      const read = findBarcodeSymbology(scan.type);
+      const symbology = allowedVitBarcode(read, assignment);
+      if (!symbology) {
+        throw new OperatorError(
+          "This physical ID barcode format is not enabled for the event. Use email lookup and visually verify the ID instead.",
+        );
+      }
+      const request = {
+        eventSlug,
+        stationId: assignment.station.id,
+        expectedConfigurationVersion: assignment.station.configurationVersion,
+        deviceInstallationId: assignment.device.id,
+        deviceSecret: deviceRecord.deviceSecret,
+        resolutionId: participant.resolutionId,
+        rawBarcodeValue: scan.data,
+        symbology,
+        visibleIdentityConfirmed: true,
+      };
+      await runPersistentClientOperation({
+        eventSlug,
+        slot: "attendance.external-id.link",
+        fingerprint: operationFingerprint(request),
+        execute: (clientOperationId) =>
+          linkResolvedExternalIdBarcode({ ...request, clientOperationId }),
+      });
+      setCredentialSetup({ step: "complete", participant, outcome: "external_id_linked" });
+      return;
+    }
     if (credential.kind === "badge_qr") {
       const badgeQr = parseAttendanceQrPayload(scan.data);
       if (!badgeQr || badgeQr.kind !== "badge_qr") {
@@ -1210,6 +1303,46 @@ function ScannerSurface({
     }
   };
 
+  const handleInitialVitLink = async () => {
+    if (busyRef.current || credentialSetup.step !== "identity") return;
+    const { participant, resolutionSource } = credentialSetup;
+    if (
+      resolutionSource !== "vit_barcode" ||
+      participant.credential.kind !== "vit_id_barcode" ||
+      participant.credential.state !== "not_enrolled" ||
+      !participant.credential.canEnrol
+    ) {
+      return;
+    }
+    busyRef.current = true;
+    setBusy(true);
+    setScanError(null);
+    try {
+      const request = {
+        eventSlug,
+        stationId: assignment.station.id,
+        expectedConfigurationVersion: assignment.station.configurationVersion,
+        deviceInstallationId: assignment.device.id,
+        deviceSecret: deviceRecord.deviceSecret,
+        resolutionId: participant.resolutionId,
+        visibleIdentityConfirmed: true,
+      };
+      await runPersistentClientOperation({
+        eventSlug,
+        slot: "attendance.vit.verify",
+        fingerprint: operationFingerprint(request),
+        execute: (clientOperationId) =>
+          enrolResolvedVitBarcode({ ...request, clientOperationId }),
+      });
+      setCredentialSetup({ step: "complete", participant, outcome: "vit_enrolled" });
+    } catch (error) {
+      setScanError(errorMessage(error, "The VIT ID barcode could not be linked."));
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  };
+
   const handleVenueCheckIn = async (identityCheckKind: "class_id" | "approved_exception") => {
     if (
       busyRef.current ||
@@ -1338,22 +1471,6 @@ function ScannerSurface({
       </SetupFrame>
     );
   }
-  if (!permission.granted) {
-    return (
-      <SetupFrame>
-        <Section title="Camera access">
-          <Body>The camera is used only to decode VIT ID barcodes and event QR codes.</Body>
-          <Action
-            accent={palette.door}
-            label="Allow the camera"
-            onPress={async () => {
-              await requestPermission();
-            }}
-          />
-        </Section>
-      </SetupFrame>
-    );
-  }
 
   if (task === null) {
     return (
@@ -1363,6 +1480,46 @@ function ScannerSurface({
         onPresence={() => startTask("presence")}
         presenceBlocker={presenceWorkflowBlocker}
       />
+    );
+  }
+
+  if (!permission.granted && scannerReady(task, credentialSetup)) {
+    return (
+      <>
+        <SetupFrame>
+          <Section title="Camera access">
+            <Body>The camera is used only to decode ID barcodes and event QR codes.</Body>
+            <Action
+              accent={palette.door}
+              label="Allow the camera"
+              onPress={async () => {
+                await requestPermission();
+              }}
+            />
+            {task === "staffed" && credentialSetup.step === "participant" ? (
+              <QuietAction
+                label="Continue with manual lookup"
+                onPress={() => setManualLookupOpen(true)}
+              />
+            ) : null}
+            <QuietAction label="Choose another workflow" onPress={chooseAnotherTask} />
+          </Section>
+        </SetupFrame>
+        <ManualLookupSheet
+          busy={busy}
+          error={scanError}
+          kind={manualLookupKind}
+          onClose={() => setManualLookupOpen(false)}
+          onKind={(kind) => {
+            setManualLookupKind(kind);
+            setManualLookupValue("");
+          }}
+          onSubmit={() => void handleManualLookup()}
+          onValue={setManualLookupValue}
+          value={manualLookupValue}
+          visible={manualLookupOpen}
+        />
+      </>
     );
   }
 
@@ -1437,7 +1594,7 @@ function ScannerSurface({
           }
           controls={
             <ScannerTaskContext
-              detail="For participants who have already completed their first check-in."
+              detail="Scan a linked VIT ID, event badge, or external event pass."
               onChange={chooseAnotherTask}
               title="Record presence"
             >
@@ -1582,6 +1739,14 @@ function ScannerSurface({
               credentialSetup.step === "identity" &&
               credentialCanStartScan(credentialSetup.participant, credentialReason)
             ) {
+              if (
+                credentialSetup.resolutionSource === "vit_barcode" &&
+                credentialSetup.participant.credential.kind === "vit_id_barcode" &&
+                credentialSetup.participant.credential.state === "not_enrolled"
+              ) {
+                void handleInitialVitLink();
+                return;
+              }
               setCredentialSetup({
                 step: "first_scan",
                 participant: credentialSetup.participant,
@@ -1617,6 +1782,8 @@ function ScannerSurface({
       </ScrollView>
     );
   }
+
+  const staffedPrompt = staffedScannerPrompt(credentialSetup);
 
   return (
     <>
@@ -1654,9 +1821,9 @@ function ScannerSurface({
         }
         controls={
           <ScannerTaskContext
-            detail="Verify the participant once, record their arrival, then set up their ID or badge."
+            detail={staffedPrompt.detail}
             onChange={chooseAnotherTask}
-            title="First check-in"
+            title={staffedPrompt.title}
           >
             {staffedOperations.error ? <Problem>{staffedOperations.error}</Problem> : null}
             {staffedOperations.records.size > 0 ? (
@@ -1665,52 +1832,121 @@ function ScannerSurface({
           </ScannerTaskContext>
         }
         {...(staffedVerdict ? { verdict: staffedVerdict } : {})}
-        {...(credentialSetup.step === "participant" &&
-        !scanError &&
-        displayedHeartbeatState.status !== "error"
-          ? {}
-          : {
-              result: (
-                <ScrollView
-                  contentContainerStyle={styles.credentialDockContent}
-                  showsVerticalScrollIndicator={false}
-                  style={styles.credentialDock}
-                >
-                  {displayedHeartbeatState.status === "error" ? (
-                    <Problem>{displayedHeartbeatState.message}</Problem>
-                  ) : null}
-                  <CredentialSetupInstructions
-                    credentialSetup={credentialSetup}
-                    reason={credentialReason}
-                    onReason={setCredentialReason}
-                    venueReason={venueReason}
-                    onVenueReason={setVenueReason}
-                    venueCheckInReceipt={venueCheckInReceipt}
-                    onVenueCheckIn={() => handleVenueCheckIn("class_id")}
-                    onVenueIdentityException={() => handleVenueCheckIn("approved_exception")}
-                    onVenueCheckInReversal={handleVenueCheckInReversal}
-                    onConfirmIdentity={() => {}}
-                    onRevoke={handleBadgeRevoke}
-                    onSuspend={handleVitSuspend}
-                    onSecondScan={() => {}}
-                    onReset={() => {
-                      if (staffedRecoveryLocked) return;
-                      setCredentialSetup({ step: "participant" });
-                      setCredentialReason("");
-                      setVenueReason("");
-                      setVenueCheckInReceipt(null);
-                      setScanError(null);
-                    }}
-                    resetDisabled={staffedRecoveryLocked}
-                  />
-                  {scanError ? (
-                    <QuietAction label="Try again" onPress={() => setScanError(null)} />
-                  ) : null}
-                </ScrollView>
-              ),
-            })}
+        result={
+          credentialSetup.step === "participant" &&
+          !scanError &&
+          displayedHeartbeatState.status !== "error" ? (
+            <FirstCheckInPrompt onManualLookup={() => setManualLookupOpen(true)} />
+          ) : (
+            <ScrollView
+              contentContainerStyle={styles.credentialDockContent}
+              showsVerticalScrollIndicator={false}
+              style={styles.credentialDock}
+            >
+              {displayedHeartbeatState.status === "error" ? (
+                <Problem>{displayedHeartbeatState.message}</Problem>
+              ) : null}
+              <CredentialSetupInstructions
+                credentialSetup={credentialSetup}
+                reason={credentialReason}
+                onReason={setCredentialReason}
+                venueReason={venueReason}
+                onVenueReason={setVenueReason}
+                venueCheckInReceipt={venueCheckInReceipt}
+                onVenueCheckIn={() => handleVenueCheckIn("class_id")}
+                onVenueIdentityException={() => handleVenueCheckIn("approved_exception")}
+                onVenueCheckInReversal={handleVenueCheckInReversal}
+                onConfirmIdentity={() => void handleInitialVitLink()}
+                onRevoke={handleBadgeRevoke}
+                onSuspend={handleVitSuspend}
+                onSecondScan={() => {}}
+                onReset={() => {
+                  if (staffedRecoveryLocked) return;
+                  setCredentialSetup({ step: "participant" });
+                  setCredentialReason("");
+                  setVenueReason("");
+                  setVenueCheckInReceipt(null);
+                  setScanError(null);
+                }}
+                resetDisabled={staffedRecoveryLocked}
+              />
+              {scanError ? (
+                <QuietAction label="Try again" onPress={() => setScanError(null)} />
+              ) : null}
+            </ScrollView>
+          )
+        }
+      />
+      <ManualLookupSheet
+        busy={busy}
+        error={scanError}
+        kind={manualLookupKind}
+        onClose={() => setManualLookupOpen(false)}
+        onKind={(kind) => {
+          setManualLookupKind(kind);
+          setManualLookupValue("");
+        }}
+        onSubmit={() => void handleManualLookup()}
+        onValue={setManualLookupValue}
+        value={manualLookupValue}
+        visible={manualLookupOpen}
       />
     </>
+  );
+}
+
+function ManualLookupSheet({
+  busy,
+  error,
+  kind,
+  onClose,
+  onKind,
+  onSubmit,
+  onValue,
+  value,
+  visible,
+}: {
+  busy: boolean;
+  error: string | null;
+  kind: ManualLookupKind;
+  onClose: () => void;
+  onKind: (kind: ManualLookupKind) => void;
+  onSubmit: () => void;
+  onValue: (value: string) => void;
+  value: string;
+  visible: boolean;
+}) {
+  return (
+    <Sheet detents={[0.72]} onClose={onClose} title="Find participant" visible={visible}>
+      <Body>
+        Use this only when the participant’s VIT barcode or external event pass cannot be read.
+      </Body>
+      <ChipRow
+        accent={palette.door}
+        onSelect={onKind}
+        options={[
+          ["vit_registration", "VIT registration"],
+          ["external_email", "External email"],
+        ]}
+        selected={kind}
+      />
+      <Field
+        autoCapitalize={kind === "vit_registration" ? "characters" : "none"}
+        keyboardType={kind === "external_email" ? "email-address" : "default"}
+        label={kind === "vit_registration" ? "Registration number" : "Email"}
+        maxLength={kind === "vit_registration" ? 9 : 254}
+        onChangeText={onValue}
+        placeholder={kind === "vit_registration" ? "24BCI0150" : "name@example.com"}
+        value={value}
+      />
+      <Action
+        accent={palette.door}
+        disabled={busy || value.trim().length === 0}
+        label={busy ? "Searching…" : "Find participant"}
+        onPress={onSubmit}
+      />
+      {error ? <Problem>{error}</Problem> : null}
+    </Sheet>
   );
 }
 
@@ -1731,34 +1967,140 @@ function AttendanceTaskChooser({
       contentInsetAdjustmentBehavior="automatic"
     >
       <View style={styles.stationCard}>
-        <Text style={styles.taskEyebrow}>THIS STATION</Text>
-        <Heading>{assignment.station.name}</Heading>
-        <Meta>
-          {assignment.openSession
-            ? `${assignment.station.zoneName} · ${assignment.openSession.name}`
-            : assignment.station.zoneName}
-        </Meta>
+        <View style={styles.stationIcon}>
+          <DutyIcon color={palette.onDoor} name="door" size={24} />
+        </View>
+        <View style={styles.stationCopy}>
+          <Text style={styles.taskEyebrow}>ACTIVE STATION</Text>
+          <Text style={styles.stationName}>{assignment.station.name}</Text>
+          <Text style={styles.stationDetail}>
+            {assignment.openSession
+              ? `${assignment.station.zoneName} · ${assignment.openSession.name}`
+              : assignment.station.zoneName}
+          </Text>
+        </View>
       </View>
-      <Section
-        lead="For someone arriving for the first time. Verify their portal code and visible ID, record arrival, then enrol an ID card or issue a badge when needed."
+      <View style={styles.chooserHeading}>
+        <Text style={styles.chooserTitle}>What are you recording?</Text>
+        <Text style={styles.chooserLead}>Choose before opening the camera.</Text>
+      </View>
+      <WorkflowCard
+        badge="ARRIVAL"
+        detail="Identify an accepted participant and record their first arrival at the venue."
+        onPress={onFirstCheckIn}
         title="First check-in"
-      >
-        <Action accent={palette.door} label="Start first check-in" onPress={onFirstCheckIn} />
-      </Section>
-      <Section
-        lead="For participants already checked in. Record session attendance, leaving the venue, stepping out, or returning."
+      />
+      <WorkflowCard
+        badge="MOVEMENT"
+        detail="For someone already checked in: sessions, exits, returns, and zone movement."
+        disabled={presenceBlocker !== null}
+        onPress={onPresence}
         title="Record presence"
-      >
-        <Action
-          accent={palette.door}
-          disabled={presenceBlocker !== null}
-          label="Open presence scanner"
-          onPress={onPresence}
-        />
-        {presenceBlocker ? <Problem>{presenceBlocker}</Problem> : null}
-      </Section>
+      />
+      {presenceBlocker ? <Problem>{presenceBlocker}</Problem> : null}
     </ScrollView>
   );
+}
+
+function WorkflowCard({
+  badge,
+  detail,
+  disabled = false,
+  onPress,
+  title,
+}: {
+  badge: string;
+  detail: string;
+  disabled?: boolean;
+  onPress: () => void;
+  title: string;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.workflowCard,
+        disabled ? styles.workflowCardDisabled : null,
+        pressed ? styles.workflowCardPressed : null,
+      ]}
+    >
+      <View style={styles.workflowCardTop}>
+        <Text style={styles.workflowBadge}>{badge}</Text>
+        <Text style={styles.workflowArrow}>→</Text>
+      </View>
+      <Text style={styles.workflowTitle}>{title}</Text>
+      <Text style={styles.workflowDetail}>{detail}</Text>
+    </Pressable>
+  );
+}
+
+function FirstCheckInPrompt({ onManualLookup }: { onManualLookup: () => void }) {
+  return (
+    <View style={styles.firstCheckInPrompt}>
+      <Text style={styles.promptEyebrow}>READY TO SCAN</Text>
+      <View style={styles.scanPaths}>
+        <View style={styles.scanPath}>
+          <View style={styles.scanPathNumber}>
+            <Text style={styles.scanPathNumberText}>VIT</Text>
+          </View>
+          <View style={styles.scanPathCopy}>
+            <Text style={styles.scanPathTitle}>Internal participant</Text>
+            <Text style={styles.scanPathDetail}>Scan the barcode on their VIT ID.</Text>
+          </View>
+        </View>
+        <View style={styles.scanPathDivider} />
+        <View style={styles.scanPath}>
+          <View style={styles.scanPathNumber}>
+            <Text style={styles.scanPathNumberText}>EXT</Text>
+          </View>
+          <View style={styles.scanPathCopy}>
+            <Text style={styles.scanPathTitle}>External participant</Text>
+            <Text style={styles.scanPathDetail}>Scan their emailed event pass first.</Text>
+          </View>
+        </View>
+      </View>
+      <QuietAction label="Barcode not scanning? Find participant" onPress={onManualLookup} />
+    </View>
+  );
+}
+
+function staffedScannerPrompt(credentialSetup: CredentialSetupState) {
+  if (credentialSetup.step === "participant") {
+    return {
+      title: "First check-in",
+      detail: "Place a VIT ID barcode or external event-pass QR inside the frame.",
+    };
+  }
+  if (credentialSetup.step === "first_scan") {
+    if (credentialSetup.participant.credential.kind === "external_pass") {
+      return {
+        title: "Scan physical photo ID",
+        detail: "The external pass matched. Now scan the barcode on the ID you verified.",
+      };
+    }
+    if (credentialSetup.participant.credential.kind === "badge_qr") {
+      return {
+        title: "Scan printed badge",
+        detail: "Place the unused badge QR inside the frame.",
+      };
+    }
+    return {
+      title: "Scan replacement VIT ID",
+      detail: "Place the barcode on the replacement card inside the frame.",
+    };
+  }
+  if (credentialSetup.step === "second_scan") {
+    return {
+      title: "Verify the same card",
+      detail: credentialSetup.badgeReference
+        ? `Scan badge ${credentialSetup.badgeReference} once more.`
+        : "Move the VIT ID away, then scan the same barcode once more.",
+    };
+  }
+  return { title: "First check-in", detail: "Complete the participant check below." };
 }
 
 function ScannerTaskContext({
@@ -1774,12 +2116,72 @@ function ScannerTaskContext({
 }) {
   return (
     <View style={styles.taskContext}>
-      <View style={styles.taskContextCopy}>
-        <Text style={styles.taskContextTitle}>{title}</Text>
-        <Meta>{detail}</Meta>
+      <View style={styles.taskContextHeader}>
+        <View style={styles.taskContextCopy}>
+          <Text style={styles.taskContextTitle}>{title}</Text>
+          <Text numberOfLines={2} style={styles.taskContextDetail}>
+            {detail}
+          </Text>
+        </View>
+        <Pressable
+          accessibilityLabel="Choose another workflow"
+          accessibilityRole="button"
+          hitSlop={10}
+          onPress={onChange}
+          style={({ pressed }) => [
+            styles.changeWorkflow,
+            pressed ? styles.changeWorkflowPressed : null,
+          ]}
+        >
+          <Text style={styles.changeWorkflowText}>Change</Text>
+        </Pressable>
       </View>
       {children}
-      <QuietAction label="Choose another workflow" onPress={onChange} />
+    </View>
+  );
+}
+
+function CheckInProgress({ current }: { current: 1 | 2 | 3 }) {
+  const steps = ["Identify", "Verify ID", "Check in"] as const;
+  return (
+    <View accessibilityLabel={`First check-in step ${current} of 3`} style={styles.checkInProgress}>
+      {steps.map((step, index) => {
+        const stepNumber = index + 1;
+        const active = stepNumber <= current;
+        return (
+          <View key={step} style={styles.checkInProgressStep}>
+            <View style={[styles.checkInProgressLine, active ? styles.checkInProgressLineActive : null]} />
+            <Text style={[styles.checkInProgressLabel, active ? styles.checkInProgressLabelActive : null]}>
+              {step}
+            </Text>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+function ParticipantIdentityCard({ participant }: { participant: StaffedParticipant }) {
+  return (
+    <View style={styles.participantCard}>
+      <View style={styles.participantAvatar}>
+        <Text style={styles.participantAvatarText}>
+          {participant.displayName.trim().slice(0, 1).toLocaleUpperCase("en")}
+        </Text>
+      </View>
+      <View style={styles.participantCopy}>
+        <Text numberOfLines={2} style={styles.participantName}>
+          {participant.displayName}
+        </Text>
+        {participant.vitRegistrationNumber ? (
+          <Text style={styles.credentialRegistration}>{participant.vitRegistrationNumber}</Text>
+        ) : (
+          <Text style={styles.participantClass}>EXTERNAL PARTICIPANT</Text>
+        )}
+        <Text numberOfLines={2} style={styles.participantDetail}>
+          {participant.teamName} · {participant.institution}
+        </Text>
+      </View>
     </View>
   );
 }
@@ -1824,29 +2226,52 @@ function CredentialSetupInstructions({
   if (credentialSetup.step === "identity") {
     const participant = credentialSetup.participant;
     const credential = participant.credential;
-    const needsReason = credential.state === "active" || credential.state === "suspended";
+    const checkedIn = currentVenueCheckIn(participant, venueCheckInReceipt) !== null;
+    const manualResolution = credentialSetup.resolutionSource === "manual";
+    const currentVitIdRecognized = participant.vitScanRelationship === "current_active";
+    const needsReason =
+      !currentVitIdRecognized &&
+      credential.kind !== "external_pass" &&
+      (credential.state === "active" || credential.state === "suspended");
     const canChangeCredential =
-      credential.kind === "vit_id_barcode" && credential.state === "not_enrolled"
-        ? credential.canEnrol
+      credential.kind === "external_pass"
+        ? true
+        : credential.kind === "vit_id_barcode" && credential.state === "not_enrolled"
+        ? credential.canEnrol && credentialSetup.resolutionSource === "vit_barcode"
         : credential.kind === "vit_id_barcode"
-          ? credential.canRebind
+          ? !currentVitIdRecognized && credential.canRebind
           : credential.state === "not_issued"
             ? credential.canIssue
             : credential.canReplace;
+    const suspendedVitIdRecognized = participant.vitScanRelationship === "current_suspended";
+    const venueCheckInReady =
+      manualResolution || currentVitIdRecognized || suspendedVitIdRecognized;
     return (
       <>
-        <Meta>Step 1 of 3 · Confirm who this is</Meta>
-        <Heading>{participant.displayName}</Heading>
-        {participant.vitRegistrationNumber ? (
-          <Text style={styles.credentialRegistration}>{participant.vitRegistrationNumber}</Text>
-        ) : null}
-        <Meta>
-          {participant.teamName} · {participant.institution}
-        </Meta>
+        <CheckInProgress current={1} />
+        <ParticipantIdentityCard participant={participant} />
         {credential.kind === "badge_qr" && credential.state === "active" ? (
           <Meta>Active badge {credential.badgeReference}</Meta>
         ) : null}
-        <Body>{identityInstruction(credential)}</Body>
+        <Body>{identityInstruction(participant, credentialSetup.resolutionSource)}</Body>
+        {participant.vitScanRelationship === "current_suspended" ? (
+          <Problem>
+            This exact VIT ID is suspended. Replace it with a different card, or use an approved
+            identity exception.
+          </Problem>
+        ) : null}
+        {venueCheckInReady ? (
+          <VenueCheckInControls
+            classIdReady={manualResolution || currentVitIdRecognized}
+            participant={participant}
+            receipt={venueCheckInReceipt}
+            reason={venueReason}
+            onReason={onVenueReason}
+            onRecord={onVenueCheckIn}
+            onException={onVenueIdentityException}
+            onReverse={onVenueCheckInReversal}
+          />
+        ) : null}
         {needsReason ? (
           <Field
             label={
@@ -1878,6 +2303,7 @@ function CredentialSetupInstructions({
         ) : null}
         {credential.kind === "vit_id_barcode" &&
         credential.state === "active" &&
+        !currentVitIdRecognized &&
         credential.canSuspend ? (
           <QuietAction
             disabled={reason.trim().length < 5}
@@ -1885,16 +2311,12 @@ function CredentialSetupInstructions({
             onPress={onSuspend}
           />
         ) : null}
-        <VenueCheckInControls
-          participant={participant}
-          receipt={venueCheckInReceipt}
-          reason={venueReason}
-          onReason={onVenueReason}
-          onRecord={onVenueCheckIn}
-          onException={onVenueIdentityException}
-          onReverse={onVenueCheckInReversal}
+        <Action
+          destructive={!checkedIn}
+          disabled={resetDisabled}
+          label={checkedIn ? "Next participant" : "Cancel"}
+          onPress={onReset}
         />
-        <Action destructive disabled={resetDisabled} label="Cancel" onPress={onReset} />
       </>
     );
   }
@@ -1905,7 +2327,9 @@ function CredentialSetupInstructions({
         <Body>
           {credentialSetup.participant.credential.kind === "badge_qr"
             ? "Aim at the QR on the unused printed badge."
-            : "Aim at the barcode printed on the VIT ID."}
+            : credentialSetup.participant.credential.kind === "external_pass"
+              ? "Aim at the barcode on the participant's physical photo ID. Check the visible name and photo first."
+              : "Aim at the barcode printed on the VIT ID."}
         </Body>
         <Action destructive disabled={resetDisabled} label="Cancel" onPress={onReset} />
       </>
@@ -1941,11 +2365,29 @@ function CredentialSetupInstructions({
       </>
     );
   }
+  const checkedIn = currentVenueCheckIn(
+    credentialSetup.participant,
+    venueCheckInReceipt,
+  ) !== null;
   return (
     <>
-      <Meta>Done</Meta>
-      <Heading>{credentialSetupOutcomeLabel(credentialSetup.outcome)}</Heading>
-      <Body>{credentialSetup.participant.displayName}</Body>
+      <CheckInProgress current={checkedIn ? 3 : 2} />
+      <ParticipantIdentityCard participant={credentialSetup.participant} />
+      <View style={styles.identityReady}>
+        <DutyIcon color={palette.judging} name="badge" size={22} />
+        <View style={styles.identityReadyCopy}>
+          <Text style={styles.identityReadyTitle}>
+            {credentialSetupOutcomeLabel(credentialSetup.outcome)}
+          </Text>
+          <Text style={styles.identityReadyDetail}>Identity credential is ready.</Text>
+        </View>
+      </View>
+      <Heading>{checkedIn ? "First check-in complete" : "Record their arrival"}</Heading>
+      <Body>
+        {checkedIn
+          ? "They are checked in and can enter the venue."
+          : "Identity is ready, but first check-in is not complete until their venue arrival is recorded."}
+      </Body>
       <VenueCheckInControls
         participant={credentialSetup.participant}
         receipt={venueCheckInReceipt}
@@ -1957,16 +2399,31 @@ function CredentialSetupInstructions({
       />
       <Action
         accent={palette.door}
-        disabled={resetDisabled}
-        label="Set up next participant"
+        disabled={resetDisabled || !checkedIn}
+        label={checkedIn ? "Next participant" : "Record check-in to continue"}
         onPress={onReset}
       />
     </>
   );
 }
 
-function identityInstruction(credential: StaffedParticipant["credential"]) {
+function identityInstruction(
+  participant: StaffedParticipant,
+  resolutionSource: Extract<CredentialSetupState, { step: "identity" }>["resolutionSource"],
+) {
+  const credential = participant.credential;
+  if (resolutionSource === "manual") {
+    return participant.participantClass === "vit_student"
+      ? "Fallback lookup found this participant. Compare the physical VIT ID with these details before recording arrival."
+      : "Fallback lookup found this participant. Compare their physical photo ID with these details. You can record arrival manually or scan the ID barcode to link it.";
+  }
+  if (credential.kind === "external_pass") {
+    return "Check the participant's physical photo ID matches these event-pass details, then scan its barcode to link both.";
+  }
   if (credential.kind === "vit_id_barcode") {
+    if (participant.vitScanRelationship === "current_active") {
+      return "This is the participant's current linked VIT ID. Compare the card with these details, then record arrival.";
+    }
     if (credential.state === "suspended") {
       return "This VIT ID is suspended. Bind a different card with two matching scans.";
     }
@@ -1982,6 +2439,7 @@ function identityInstruction(credential: StaffedParticipant["credential"]) {
 }
 
 function VenueCheckInControls({
+  classIdReady = true,
   participant,
   receipt,
   reason,
@@ -1990,6 +2448,7 @@ function VenueCheckInControls({
   onException,
   onReverse,
 }: {
+  classIdReady?: boolean;
   participant: StaffedParticipant;
   receipt: VenueCheckInReceipt | null;
   reason: string;
@@ -2027,7 +2486,7 @@ function VenueCheckInControls({
             />
           </>
         ) : receipt?.status === "checked_in" ? (
-          <Meta>Scan a fresh portal QR to reverse this check-in.</Meta>
+          <Meta>Resolve the participant again to reverse this check-in.</Meta>
         ) : null}
       </View>
     );
@@ -2036,7 +2495,7 @@ function VenueCheckInControls({
     return (
       <View style={styles.block}>
         <Body>Venue check-in reversed</Body>
-        <Meta>Scan a fresh portal QR before recording another arrival.</Meta>
+        <Meta>Resolve the participant again before recording another arrival.</Meta>
       </View>
     );
   }
@@ -2060,7 +2519,7 @@ function VenueCheckInControls({
         Confirm the visible {participant.participantClass === "vit_student" ? "VIT ID" : "photo ID"}{" "}
         matches these details.
       </Meta>
-      {participant.canRecordVenueCheckIn ? (
+      {participant.canRecordVenueCheckIn && classIdReady ? (
         <Action
           accent={palette.door}
           label={
@@ -2115,6 +2574,7 @@ function currentVenueCheckIn(
 
 function credentialCanStartScan(participant: StaffedParticipant, reason: string) {
   const credential = participant.credential;
+  if (credential.kind === "external_pass") return true;
   if (credential.kind === "vit_id_barcode" && credential.state === "not_enrolled") {
     return credential.canEnrol;
   }
@@ -2127,8 +2587,9 @@ function credentialCanStartScan(participant: StaffedParticipant, reason: string)
 }
 
 function credentialSetupActionLabel(credential: StaffedParticipant["credential"]) {
+  if (credential.kind === "external_pass") return "Identity matches; scan physical ID";
   if (credential.kind === "vit_id_barcode" && credential.state === "not_enrolled") {
-    return "Enrol VIT ID barcode";
+    return "Identity matches; link VIT ID";
   }
   if (credential.kind === "vit_id_barcode") return "Replace VIT ID barcode";
   if (credential.state === "not_issued") return "Issue event badge";
@@ -2139,6 +2600,7 @@ function credentialSetupOutcomeLabel(
   outcome: Extract<CredentialSetupState, { step: "complete" }>["outcome"],
 ) {
   if (outcome === "vit_enrolled") return "VIT ID enrolled";
+  if (outcome === "external_id_linked") return "External ID linked";
   if (outcome === "vit_replaced") return "VIT ID replaced";
   if (outcome === "vit_suspended") return "VIT ID suspended";
   if (outcome === "badge_issued") return "Badge issued";
@@ -2187,16 +2649,20 @@ function symbologyName(symbology: BarcodeSymbology) {
 }
 
 function unreadableCredential(symbology: BarcodeSymbology | null, assignment: ScannerAssignment) {
-  if (symbology === null) return "The scanner cannot read this kind of code. Try their event QR.";
-  if (symbology === "qr") return "That QR code is not an event pass. Try their ID card instead.";
+  if (symbology === null) {
+    return "This code format is not supported. For first check-in, use manual lookup; otherwise ask a coordinator.";
+  }
+  if (symbology === "qr") {
+    return "That QR is not a valid external event pass or event badge.";
+  }
   const accepted = assignment.station.barcodeSymbologies
     .filter((allowed) => allowed !== "qr")
     .map(symbologyName);
   const wanted =
     accepted.length === 0
-      ? "this door only takes event QR codes"
+      ? "this station only accepts event passes and badges"
       : `this door reads ${listPhrase(accepted)}`;
-  return `That card is a ${symbologyName(symbology)} barcode, and ${wanted}. Check them in by hand and tell a coordinator.`;
+  return `That card is a ${symbologyName(symbology)} barcode, and ${wanted}. Use manual lookup for first check-in; otherwise ask a coordinator.`;
 }
 
 function listPhrase(items: string[]) {
@@ -2214,7 +2680,7 @@ function allowedVitBarcode(
 }
 
 function credentialName(kind: ScanCredential["kind"]) {
-  if (kind === "portal_qr") return "A portal QR code";
+  if (kind === "external_pass") return "An external event pass";
   if (kind === "badge_qr") return "An event badge";
   return "A VIT ID barcode";
 }
@@ -2261,8 +2727,7 @@ function reasonName(reason: string) {
     already_temporarily_out: "Already marked as stepped out.",
     credential_not_found:
       "This card is not registered yet. Send them to the help desk to get set up.",
-    portal_qr_invalid: "This code has expired. Ask them to refresh it in the portal.",
-    portal_qr_used: "This code has already been used. Ask them for a fresh one.",
+    external_pass_invalid: "This external event pass is invalid or suspended.",
     participant_not_active: "They are not signed up for the event. Send them to the help desk.",
     participant_not_expected:
       "They are not on the list for this session. Check with a coordinator.",
@@ -2303,10 +2768,10 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     textAlign: "center",
   },
-  credentialDock: { maxHeight: 400 },
+  credentialDock: { maxHeight: 440 },
   setupFrame: { paddingHorizontal: 20, paddingTop: 14, paddingBottom: 120, gap: 18 },
   credentialPage: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 120, gap: 12 },
-  credentialDockContent: { gap: 12 },
+  credentialDockContent: { gap: 14 },
   credentialRegistration: {
     color: palette.text,
     fontSize: 17,
@@ -2324,30 +2789,189 @@ const styles = StyleSheet.create({
     borderColor: palette.door,
   },
 
-  block: { gap: 10, paddingTop: 12, borderTopWidth: 1, borderTopColor: palette.strong },
+  block: {
+    gap: 10,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: palette.strong,
+    borderRadius: radius.tile,
+    backgroundColor: palette.tile,
+  },
 
   // Bound the list because the form sheet does not provide child height.
   historyList: { maxHeight: Math.round(Dimensions.get("window").height * 0.92) - 156 },
   historyContent: { gap: 8 },
-  taskChooser: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 120, gap: 32 },
+  taskChooser: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 120, gap: 14 },
   stationCard: {
-    gap: 5,
-    padding: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    padding: 16,
     borderRadius: radius.tile,
     backgroundColor: palette.tile,
   },
-  taskEyebrow: {
-    color: palette.door,
-    fontSize: 12,
-    fontWeight: "700",
-    letterSpacing: 1.2,
+  stationIcon: {
+    width: 46,
+    height: 46,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 23,
+    backgroundColor: palette.door,
   },
-  taskContext: { alignSelf: "stretch", gap: 10 },
-  taskContextCopy: { gap: 3 },
-  taskContextTitle: {
+  stationCopy: { flex: 1, gap: 2 },
+  stationName: {
     color: palette.text,
-    fontSize: 19,
+    fontSize: 18,
     fontWeight: "600",
     letterSpacing: -0.3,
   },
+  stationDetail: { color: palette.muted, fontSize: 14, lineHeight: 19 },
+  taskEyebrow: {
+    color: palette.door,
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 1.1,
+  },
+  chooserHeading: { gap: 4, marginTop: 16, marginBottom: 2 },
+  chooserTitle: {
+    color: palette.text,
+    fontSize: 28,
+    fontWeight: "600",
+    letterSpacing: -0.7,
+  },
+  chooserLead: { color: palette.muted, fontSize: 15, lineHeight: 21 },
+  workflowCard: {
+    minHeight: 156,
+    justifyContent: "space-between",
+    gap: 10,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: palette.strong,
+    borderRadius: 16,
+    backgroundColor: palette.tile,
+  },
+  workflowCardDisabled: { opacity: 0.42 },
+  workflowCardPressed: { borderColor: palette.door, backgroundColor: "#20262C" },
+  workflowCardTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  workflowBadge: {
+    color: palette.door,
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 1.2,
+  },
+  workflowArrow: { color: palette.door, fontSize: 24, lineHeight: 26 },
+  workflowTitle: {
+    color: palette.text,
+    fontSize: 23,
+    fontWeight: "600",
+    letterSpacing: -0.5,
+  },
+  workflowDetail: { color: palette.muted, fontSize: 15, lineHeight: 21 },
+  taskContext: {
+    alignSelf: "stretch",
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.2)",
+    borderRadius: 14,
+    backgroundColor: "rgba(10,10,11,0.88)",
+  },
+  taskContextHeader: { flexDirection: "row", alignItems: "center", gap: 12 },
+  taskContextCopy: { flex: 1, gap: 3 },
+  taskContextTitle: {
+    color: palette.text,
+    fontSize: 17,
+    fontWeight: "600",
+    letterSpacing: -0.3,
+  },
+  taskContextDetail: { color: palette.muted, fontSize: 13, lineHeight: 18 },
+  changeWorkflow: {
+    minWidth: 66,
+    height: 36,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 12,
+    borderRadius: radius.pill,
+    backgroundColor: palette.strong,
+  },
+  changeWorkflowPressed: { opacity: 0.7 },
+  changeWorkflowText: { color: palette.text, fontSize: 13, fontWeight: "600" },
+  firstCheckInPrompt: { gap: 13 },
+  promptEyebrow: {
+    color: palette.door,
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 1.2,
+  },
+  scanPaths: {
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: palette.strong,
+    borderRadius: radius.tile,
+    backgroundColor: palette.tile,
+  },
+  scanPath: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12 },
+  scanPathDivider: { height: 1, marginLeft: 48, backgroundColor: palette.strong },
+  scanPathNumber: {
+    width: 36,
+    height: 36,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 18,
+    backgroundColor: "#27323C",
+  },
+  scanPathNumberText: { color: palette.door, fontSize: 10, fontWeight: "800", letterSpacing: 0.5 },
+  scanPathCopy: { flex: 1, gap: 2 },
+  scanPathTitle: { color: palette.text, fontSize: 15, fontWeight: "600" },
+  scanPathDetail: { color: palette.muted, fontSize: 13, lineHeight: 18 },
+  checkInProgress: { flexDirection: "row", gap: 7, marginBottom: 2 },
+  checkInProgressStep: { flex: 1, gap: 6 },
+  checkInProgressLine: { height: 3, borderRadius: 2, backgroundColor: palette.strong },
+  checkInProgressLineActive: { backgroundColor: palette.door },
+  checkInProgressLabel: { color: palette.faint, fontSize: 11, fontWeight: "600" },
+  checkInProgressLabelActive: { color: palette.text },
+  participantCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: palette.strong,
+    borderRadius: 14,
+    backgroundColor: palette.tile,
+  },
+  participantAvatar: {
+    width: 52,
+    height: 52,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 26,
+    backgroundColor: palette.door,
+  },
+  participantAvatarText: { color: palette.onDoor, fontSize: 21, fontWeight: "700" },
+  participantCopy: { flex: 1, gap: 3 },
+  participantName: {
+    color: palette.text,
+    fontSize: 20,
+    fontWeight: "600",
+    letterSpacing: -0.4,
+  },
+  participantClass: { color: palette.door, fontSize: 11, fontWeight: "700", letterSpacing: 1 },
+  participantDetail: { color: palette.muted, fontSize: 13, lineHeight: 18 },
+  identityReady: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    padding: 14,
+    borderRadius: radius.tile,
+    backgroundColor: "#15231B",
+  },
+  identityReadyCopy: { flex: 1, gap: 2 },
+  identityReadyTitle: { color: palette.judging, fontSize: 15, fontWeight: "700" },
+  identityReadyDetail: { color: palette.muted, fontSize: 13 },
 });

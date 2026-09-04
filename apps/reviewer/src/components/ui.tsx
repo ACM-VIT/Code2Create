@@ -117,7 +117,9 @@ export function Field({
   value,
   ...rest
 }: {
+  autoCapitalize?: "none" | "sentences" | "words" | "characters";
   editable?: boolean;
+  keyboardType?: "default" | "email-address";
   label: string;
   maxLength?: number;
   multiline?: boolean;

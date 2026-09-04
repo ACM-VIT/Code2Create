@@ -28,6 +28,6 @@ describe("attendance station policy", () => {
   test("refuses credential kinds outside the published assignment", () => {
     const allowed = ["badge_qr", "vit_id_barcode"] as const;
     expect(stationAcceptsCredential(allowed, "badge_qr")).toBe(true);
-    expect(stationAcceptsCredential(allowed, "portal_qr")).toBe(false);
+    expect(stationAcceptsCredential(allowed, "external_pass")).toBe(false);
   });
 });
