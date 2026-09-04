@@ -29,6 +29,12 @@ import {
   autonomyWorkEndpoint,
 } from "./operationsAutonomyHttp";
 import { participantEmailEvent } from "./participantEmailEvent";
+import {
+  acknowledgeEndpoint as discordSupportAcknowledgeEndpoint,
+  pullEndpoint as discordSupportPullEndpoint,
+  rejectEndpoint as discordSupportRejectEndpoint,
+  replyEndpoint as discordSupportReplyEndpoint,
+} from "./supportDiscordBridge";
 
 const http = httpRouter();
 
@@ -132,6 +138,26 @@ http.route({
   path: "/intelligence/idea-submissions/callback",
   method: "POST",
   handler: ideaIntelligenceCallbackEndpoint,
+});
+http.route({
+  path: "/integrations/discord/support/pull",
+  method: "POST",
+  handler: discordSupportPullEndpoint,
+});
+http.route({
+  path: "/integrations/discord/support/acknowledge",
+  method: "POST",
+  handler: discordSupportAcknowledgeEndpoint,
+});
+http.route({
+  path: "/integrations/discord/support/reject",
+  method: "POST",
+  handler: discordSupportRejectEndpoint,
+});
+http.route({
+  path: "/integrations/discord/support/reply",
+  method: "POST",
+  handler: discordSupportReplyEndpoint,
 });
 
 export default http;
