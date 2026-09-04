@@ -33,6 +33,49 @@ export function automaticChunkReloadIsAvailable(
   );
 }
 
+type CapturedEvent = {
+  event: string;
+  properties?: { $exception_list?: unknown };
+};
+
+export function isChunkLoadExceptionEvent(event: CapturedEvent): boolean {
+  if (event.event !== "$exception") {
+    return false;
+  }
+  const exceptionList = event.properties?.$exception_list;
+  if (!Array.isArray(exceptionList)) {
+    return false;
+  }
+  return exceptionList.some(exceptionEntryIsChunkLoadFailure);
+}
+
+function exceptionEntryIsChunkLoadFailure(entry: unknown): boolean {
+  if (typeof entry !== "object" || entry === null) {
+    return false;
+  }
+  const type = "type" in entry && typeof entry.type === "string" ? entry.type : "";
+  const value = "value" in entry && typeof entry.value === "string" ? entry.value : "";
+  return isChunkLoadFailure(`${type}: ${value}`);
+}
+
+/**
+ * A chunk-load exception should not be captured once recovery has claimed the
+ * reload for this URL: the reload is the fix, so filing a new error tracking
+ * issue per content-hashed chunk name is only noise.
+ */
+export function suppressRecoveredChunkException(event: CapturedEvent): boolean {
+  if (typeof window === "undefined" || !isChunkLoadExceptionEvent(event)) {
+    return false;
+  }
+  let storedAttempt: string | null;
+  try {
+    storedAttempt = window.sessionStorage.getItem(automaticReloadGuardKey);
+  } catch {
+    return false;
+  }
+  return !automaticChunkReloadIsAvailable(storedAttempt, window.location.href, Date.now());
+}
+
 /**
  * Vite emits `vite:preloadError` when a lazy route asset cannot be fetched. A
  * page reload is required because React.lazy and the browser module loader keep

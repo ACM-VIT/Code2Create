@@ -1,10 +1,26 @@
-import { Suspense, lazy, useEffect, useState } from "react";
+import { Component, Suspense, lazy, useEffect, useState } from "react";
+import type { ReactNode } from "react";
 
 const TreeLoader = lazy(() =>
   import("./TreeLoader").then((module) => ({ default: module.TreeLoader })),
 );
 
 const revealDelay = 300;
+
+/* The loader is decoration. When its chunk fails to load, render nothing so a
+   missing animation degrades silently instead of climbing to the app-wide
+   error boundary and replacing the whole screen. */
+class SilentDecoration extends Component<{ children: ReactNode }, { failed: boolean }> {
+  override state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  override render() {
+    return this.state.failed ? null : this.props.children;
+  }
+}
 
 export function DelayedBonsai({
   compact = false,
@@ -24,9 +40,11 @@ export function DelayedBonsai({
 
   return (
     <div className={`delayed-bonsai${compact ? " delayed-bonsai-compact" : ""}`}>
-      <Suspense fallback={null}>
-        <TreeLoader label={label} variant={compact ? "shell" : "scene"} />
-      </Suspense>
+      <SilentDecoration>
+        <Suspense fallback={null}>
+          <TreeLoader label={label} variant={compact ? "shell" : "scene"} />
+        </Suspense>
+      </SilentDecoration>
     </div>
   );
 }
