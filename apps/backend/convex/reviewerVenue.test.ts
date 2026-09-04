@@ -291,6 +291,28 @@ async function fixture() {
 }
 
 describe("reviewer venue lifecycle", () => {
+  test("a report after venue settings change stays visible without renewing old tracking", async () => {
+    const f = await fixture();
+    await f.backend.run((ctx) => ctx.db.patch(f.ids.policyId, { version: 2 }));
+    await f.reviewer.mutation(api.reviewerVenue.declareDeparture, {
+      ...f.base,
+      reason: "Leaving after setup changed",
+      clientOperationId: "report-new-policy",
+    });
+    expect((await f.mine()).presence).toMatchObject({
+      policyVersion: 2,
+      trackingGeneration: 2,
+      status: "reported_left",
+      monitoringEnabled: false,
+    });
+    expect(await f.sample()).toMatchObject({ active: false });
+    const roster = await f.reviewer.query(api.reviewerVenueOperations.roster, {
+      eventSlug: f.base.eventSlug,
+      paginationOpts: { numItems: 40, cursor: null },
+    });
+    expect(roster.page[0]?.status).toBe("reported_left");
+  });
+
   test("departure reporting works with tracking disabled and return requires the current venue policy", async () => {
     const f = await fixture();
     await f.reviewer.mutation(api.reviewerVenue.setMonitoring, {

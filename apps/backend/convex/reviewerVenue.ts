@@ -372,7 +372,10 @@ export const declareDeparture = mutation({
         version: 1,
         updatedAt: now,
       }));
-    let departureId = current?.departureId;
+    const policyChanged = current && current.policyVersion !== policy.version;
+    if (policyChanged)
+      await resolveVenueDeparture(ctx, current, "cancelled", now);
+    let departureId = policyChanged ? undefined : current?.departureId;
     if (departureId) {
       await ctx.db.patch(departureId, {
         state: "reported",
@@ -396,6 +399,17 @@ export const declareDeparture = mutation({
       });
     }
     await ctx.db.patch(presenceId, {
+      ...(policyChanged
+        ? {
+            policyVersion: policy.version,
+            trackingGeneration: current.trackingGeneration + 1,
+            monitoringEnabled: false,
+            observation: "uncertain" as const,
+            sampledAt: undefined,
+            receivedAt: undefined,
+            nextCheckAt: undefined,
+          }
+        : {}),
       status: "reported_left",
       departureId,
       outsideSince: undefined,
