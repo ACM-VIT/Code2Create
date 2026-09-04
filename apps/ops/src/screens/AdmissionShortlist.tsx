@@ -7,6 +7,7 @@ import {
   shortlistSuggestionSchema,
   shortlistSummarySchema,
   shortlistTaskSchema,
+  shortlistVersion,
 } from "@code2create/domain";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import { useState } from "react";
@@ -89,8 +90,8 @@ export function AdmissionShortlist({ canRun }: { canRun: boolean }) {
         </label>
         <p className="muted">
           Targets allow ±5 people. Existing commitments consume venue capacity.
-          Missing evidence never becomes an automatic rejection. Dating /
-          romantic-matchmaking products are excluded under shortlist policy v1.
+          Failed or missing analysis stays unresolved. Dating /
+          romantic-matchmaking products are excluded under {shortlistVersion}.
         </p>
         <button
           type="submit"

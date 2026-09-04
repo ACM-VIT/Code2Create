@@ -7,6 +7,7 @@ import { defaultAdmissionCriteria } from "../../backend/convex/lib/admissionPoli
 import { redactProjectText } from "../../backend/convex/lib/projectText.ts";
 import {
   selectAdmissionShortlist,
+  ideaIntelligenceAnalysisPolicyViolation,
   shortlistCandidateInputSchema,
   shortlistLocalQualitySchema,
   shortlistNeighbourPairs,
@@ -37,6 +38,7 @@ const { values } = parseArgs({
     "waitlist-people": { type: "string", default: "300" },
     "assumed-team-size": { type: "string", default: "4" },
     limit: { type: "string" },
+    "quality-from": { type: "string" },
   },
 });
 const apiKey = process.env.OPENAI_API_KEY;
@@ -156,8 +158,55 @@ const release = createHash("sha256")
     ),
   )
   .digest("hex");
+let qualitySource: {
+  directory: string;
+  fingerprint: string;
+  release: string;
+} | null = null;
+if (values["quality-from"]) {
+  const sourceDirectory = resolve(values["quality-from"]);
+  const prior: unknown = JSON.parse(
+    await readFile(resolve(sourceDirectory, "manifest.json"), "utf8"),
+  );
+  if (
+    typeof prior !== "object" ||
+    prior === null ||
+    !("fingerprint" in prior) ||
+    typeof prior.fingerprint !== "string" ||
+    !("release" in prior) ||
+    typeof prior.release !== "string"
+  )
+    throw new Error("Invalid original quality-run manifest");
+  const expected = createHash("sha256")
+    .update(
+      JSON.stringify({
+        inputs,
+        settings,
+        model: values.model,
+        release: prior.release,
+      }),
+    )
+    .digest("hex");
+  if (prior.fingerprint !== expected)
+    throw new Error(
+      "Frozen quality requires the identical seed, model, criteria, assumptions and targets from an original assessment run",
+    );
+  qualitySource = {
+    directory: sourceDirectory,
+    fingerprint: prior.fingerprint,
+    release: prior.release,
+  };
+}
 const fingerprint = createHash("sha256")
-  .update(JSON.stringify({ inputs, settings, model: values.model, release }))
+  .update(
+    JSON.stringify({
+      inputs,
+      settings,
+      model: values.model,
+      release,
+      ...(qualitySource ? { qualitySource: qualitySource.fingerprint } : {}),
+    }),
+  )
   .digest("hex");
 const directory = resolve(values.output, fingerprint.slice(0, 16));
 await mkdir(directory, { recursive: true });
@@ -165,7 +214,9 @@ const assumptions = [
   "Local calibration only: no Convex access or production decisions.",
   "Published event policy, experience bands, locked rosters and existing AI results are absent from the seed.",
   `Uses repository-default first-year criteria for everyone and ${assumedSize}-person simulated teams. People totals are NOT actual participant counts.`,
-  `Individual quality is freshly evaluated with the existing rubric and recommendation ladder; historical similarity tools are unavailable and limitations must be recorded.`,
+  qualitySource
+    ? `Individual quality is frozen from local run ${qualitySource.fingerprint}; it is preserved, not re-evaluated under this run's prompts. Historical similarity was unavailable during that original calibration.`
+    : `Individual quality is freshly evaluated with the existing rubric and recommendation ladder; historical similarity tools are unavailable and limitations must be recorded.`,
 ];
 await writeFile(
   resolve(directory, "manifest.json"),
@@ -177,6 +228,7 @@ await writeFile(
       model: values.model,
       settings,
       assumptions,
+      qualitySource,
       teams: inputs.map((c) => ({
         applicationId: c.applicationId,
         teamName: labels.get(c.applicationId),
@@ -240,18 +292,37 @@ async function parallel<T, R>(
 const failures: Array<{ stage: string; applicationId: string }> = [];
 const qualityResults = await parallel("quality", inputs, async (c) => {
   try {
-    return shortlistLocalQualitySchema(c).parse(
+    const result = shortlistLocalQualitySchema(c).parse(
       await cache(
         `quality-${c.applicationId}`,
         () =>
-          evaluateLocalShortlistQuality({
-            candidate: c,
-            modelId: values.model,
-            apiKey,
-          }),
+          qualitySource
+            ? readFile(
+                resolve(
+                  qualitySource.directory,
+                  `quality-${c.applicationId}.json`,
+                ),
+                "utf8",
+              ).then((text) =>
+                shortlistLocalQualitySchema(c).parse(JSON.parse(text)),
+              )
+            : evaluateLocalShortlistQuality({
+                candidate: c,
+                modelId: values.model,
+                apiKey,
+              }),
         shortlistLocalQualitySchema(c).parse,
       ),
     );
+    if (
+      ideaIntelligenceAnalysisPolicyViolation({
+        analysis: result,
+        criterionKeys: c.criteria.map((criterion) => criterion.criterionKey),
+        sourceRefs: c.sources.map((source) => source.sourceRef),
+      })
+    )
+      throw new Error("Invalid frozen individual assessment");
+    return result;
   } catch {
     failures.push({ stage: "quality", applicationId: c.applicationId });
     return null;
@@ -375,6 +446,7 @@ const report = {
   release,
   model: values.model,
   assumptions,
+  qualitySource,
   settings,
   totals,
   failures,

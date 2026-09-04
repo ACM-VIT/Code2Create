@@ -34,6 +34,8 @@ The runner reads `outputs/data/admissions-review-seed-source.json`, uses the sam
 
 `manifest.json` records the source/code fingerprint and assumptions. Successful model tasks are cached and parsed again on restart with the same fingerprint. `report.json` contains every team's suggestion, original quality, profile, direct comparisons and audit warnings; `review.md` groups teams for inspection. Reports and raw seed data are ignored by Git.
 
+For an iteration that deliberately preserves the individual assessments while changing shortlist logic, add `--quality-from ../../outputs/shortlist-seed/<original-quality-run>`. This verifies the original run's seed, model, criteria, simulated headcounts and targets, revalidates every assessment against the existing ladder, and records its provenance. It does **not** claim those assessments were regenerated under the new run's prompts. Profile, comparison and audit stages are evaluated afresh. Supply the original individual-assessment run, not an intermediate imported run.
+
 **This export lacks locked rosters, experience bands, the published event policy and previous AI assessments.** The local runner uses repository-default first-year guidance, freshly evaluates individual quality, and assumes four people per team. Its people totals are simulations, not actual admission totals. Historical similarity tools are unavailable during local individual-quality calibration; current-pool overlap is evaluated in the later comparison stage.
 
 For synthetic premise/category/overlap regression fixtures and the exported cough example:

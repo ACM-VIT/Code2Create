@@ -4,6 +4,7 @@ import {
   selectAdmissionShortlist,
   shortlistNeighbourPairs,
   shortlistProfileSchema,
+  shortlistProfilePrompt,
   validateShortlistPair,
   validateShortlistProfile,
   type ShortlistCandidate,
@@ -94,6 +95,15 @@ const settings = {
 };
 const selectedIds = (rows: ReturnType<typeof selectAdmissionShortlist>) =>
   rows.filter((r) => r.suggestion === "accept").map((r) => r.applicationId);
+
+test("premise calibration separates central inference from integration and benefit claims", () => {
+  assert.match(shortlistProfilePrompt, /Missing production integrations/u);
+  assert.match(shortlistProfilePrompt, /Judge the central mechanism/u);
+  assert.match(
+    shortlistProfilePrompt,
+    /A disclaimer or attractive downstream interface cannot replace that evidence/u,
+  );
+});
 
 test("stronger overlapping proposal is preferred regardless of arrival order", () => {
   const rows = [candidate("a"), candidate("b"), candidate("c")];
