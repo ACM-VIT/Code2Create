@@ -296,7 +296,7 @@ function exportOptionsPlist(
   <key>provisioningProfiles</key>
   <dict>
     <key>${bundleIdentifier}</key>
-    <string>${profileSpecifier}</string>
+    <string>${escapeXmlText(profileSpecifier)}</string>
   </dict>`
     : "";
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -316,6 +316,15 @@ function exportOptionsPlist(
 </dict>
 </plist>
 `;
+}
+
+function escapeXmlText(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
 }
 
 async function withBuildLock(operation: () => Promise<void>) {
