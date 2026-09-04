@@ -24,7 +24,7 @@ import {
 } from "./privacy.ts";
 import { isChunkLoadFailure, suppressRecoveredChunkException } from "./browserRecovery.ts";
 
-export { installBrowserChunkRecovery } from "./browserRecovery.ts";
+export { installBrowserChunkRecovery, isChunkLoadFailure } from "./browserRecovery.ts";
 
 export type BrowserSurface = "landing-web" | "participant-web" | "operations-web";
 
@@ -207,7 +207,17 @@ export function useProductAnalytics() {
     [enabled, posthog],
   );
 
-  return { capture, captureLog };
+  const captureException = useCallback(
+    (error: unknown) => {
+      if (!enabled) {
+        return;
+      }
+      posthog.captureException(error);
+    },
+    [enabled, posthog],
+  );
+
+  return { capture, captureLog, captureException };
 }
 
 export function ClientObservabilityIdentity({ distinctId }: { distinctId: string | null }) {
