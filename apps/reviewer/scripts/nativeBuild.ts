@@ -65,6 +65,9 @@ async function build(
     reviewerDirectory,
     nativeEnvironment,
   );
+  if (selectedPlatform === "ios") {
+    await run("pod", ["install"], join(reviewerDirectory, "ios"), nativeEnvironment);
+  }
 
   const artifact =
     platformConfiguration.platform === "android"
