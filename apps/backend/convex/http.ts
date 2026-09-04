@@ -4,6 +4,7 @@ import { admissionIntelligenceReadEndpoint } from "./admissionCohort";
 import {
   ideaIntelligenceCallbackEndpoint,
   ideaIntelligenceReadEndpoint,
+  ideaIntelligenceSimilarityEndpoint,
 } from "./admissionAgentHttp";
 import { authComponent, createAuth } from "./auth";
 import {
@@ -121,6 +122,11 @@ http.route({
   path: "/intelligence/idea-submissions/read",
   method: "POST",
   handler: ideaIntelligenceReadEndpoint,
+});
+http.route({
+  path: "/intelligence/idea-submissions/similarity",
+  method: "POST",
+  handler: ideaIntelligenceSimilarityEndpoint,
 });
 http.route({
   path: "/intelligence/idea-submissions/callback",

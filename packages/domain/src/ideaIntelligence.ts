@@ -7,6 +7,9 @@ export const ideaIntelligenceCallbackSignatureContext = "code2create.idea-intell
 export const ideaIntelligenceSubmissionTimeoutMs = 60 * 60 * 1_000;
 export const ideaIntelligenceRecoveryLeaseMs = ideaIntelligenceSubmissionTimeoutMs + 5 * 60 * 1_000;
 
+export const ideaIntelligenceSimilarityBands = ["moderate", "high", "very_high"] as const;
+export type IdeaIntelligenceSimilarityBand = (typeof ideaIntelligenceSimilarityBands)[number];
+
 export type IdeaIntelligenceDispatchRequest = {
   protocolVersion: typeof operationsIntelligenceProtocolVersion;
   recommendationId: string;
@@ -51,8 +54,45 @@ export type IdeaIntelligenceProjection = {
   contentVersion: number;
   sourceInputFingerprint: string;
   experienceBand: AdmissionExperienceBand;
+  overallParticipantCapacity: number;
   sources: IdeaIntelligenceSource[];
   criteria: IdeaIntelligenceCriterion[];
+};
+
+export type IdeaIntelligenceSimilarityRequest = {
+  protocolVersion: typeof operationsIntelligenceProtocolVersion;
+  operation: "find_similar_ideas";
+  recommendationId: string;
+  applicationId: string;
+  eventId: string;
+  contentVersion: number;
+  sourceInputFingerprint: string;
+  sourceRefs: string[];
+  operationId: string;
+};
+
+export type IdeaIntelligenceSimilarityMatch = {
+  comparisonRef: string;
+  similarity: IdeaIntelligenceSimilarityBand;
+  summary: string;
+};
+
+export type IdeaIntelligenceHistoricalSimilarityMatch = IdeaIntelligenceSimilarityMatch & {
+  themeLabel: string;
+  sourceYear: number;
+};
+
+export type IdeaIntelligenceSimilarityResult = {
+  protocolVersion: typeof operationsIntelligenceProtocolVersion;
+  recommendationId: string;
+  applicationId: string;
+  eventId: string;
+  contentVersion: number;
+  sourceInputFingerprint: string;
+  sourceRefs: string[];
+  historicalProjectCount: number;
+  historicalMatches: IdeaIntelligenceHistoricalSimilarityMatch[];
+  currentSubmissionMatches: IdeaIntelligenceSimilarityMatch[];
 };
 
 export type IdeaIntelligenceCriterionAssessment = {
@@ -61,8 +101,14 @@ export type IdeaIntelligenceCriterionAssessment = {
   sourceRefs: string[];
 };
 
+export type IdeaIntelligenceCentralProposalConsistency = {
+  assessment: "consistent" | "contradictory";
+  sourceRefs: string[];
+};
+
 export type IdeaIntelligenceAnalysis = {
   recommendation: "accept" | "waitlist" | "decline";
+  centralProposalConsistency: IdeaIntelligenceCentralProposalConsistency;
   criterionAssessments: IdeaIntelligenceCriterionAssessment[];
   strengths: string[];
   concerns: string[];
@@ -74,6 +120,7 @@ export type IdeaIntelligenceAnalysisPolicyViolation =
   | "shape_mismatch"
   | "criterion_mismatch"
   | "evidence_mismatch"
+  | "recommendation_mismatch"
   | "prohibited_language";
 
 export function ideaIntelligenceAnalysisPolicyViolation(args: {
@@ -116,6 +163,15 @@ export function ideaIntelligenceAnalysisPolicyViolation(args: {
 
   const availableSources = new Set(args.sourceRefs);
   if (
+    args.analysis.centralProposalConsistency.sourceRefs.length < 1 ||
+    args.analysis.centralProposalConsistency.sourceRefs.length > 2 ||
+    new Set(args.analysis.centralProposalConsistency.sourceRefs).size !==
+      args.analysis.centralProposalConsistency.sourceRefs.length ||
+    args.analysis.centralProposalConsistency.sourceRefs.some(
+      (sourceRef) => !availableSources.has(sourceRef),
+    ) ||
+    (args.analysis.centralProposalConsistency.assessment === "contradictory" &&
+      args.analysis.centralProposalConsistency.sourceRefs.length !== 2) ||
     args.analysis.criterionAssessments.some(
       (assessment) =>
         assessment.sourceRefs.length < 1 ||
@@ -125,6 +181,27 @@ export function ideaIntelligenceAnalysisPolicyViolation(args: {
     )
   ) {
     return "evidence_mismatch";
+  }
+
+  const partlyMeetsCount = args.analysis.criterionAssessments.filter(
+    (assessment) => assessment.assessment === "partly_meets",
+  ).length;
+  const notYetClearCount = args.analysis.criterionAssessments.filter(
+    (assessment) => assessment.assessment === "not_yet_clear",
+  ).length;
+  const expectedRecommendation =
+    args.analysis.centralProposalConsistency.assessment === "contradictory" ||
+    notYetClearCount > 0 ||
+    partlyMeetsCount > 1
+      ? "decline"
+      : partlyMeetsCount === 1
+        ? "waitlist"
+        : "accept";
+  if (
+    args.analysis.recommendation !== expectedRecommendation ||
+    (expectedRecommendation !== "accept" && args.analysis.concerns.length === 0)
+  ) {
+    return "recommendation_mismatch";
   }
 
   const prohibitedLanguage =

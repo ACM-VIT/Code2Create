@@ -35,6 +35,7 @@ import {
   enqueueApplicationNotifications,
 } from "./lib/participantNotificationDelivery";
 import { maximumApplicantTeamsPerEvent } from "./lib/reviewLimits";
+import { synchronizeTeamAdmissionIdeaComparison } from "./lib/noveltyIndex";
 import { teamMatchesOrigin, type ExclusiveTeamOrigin } from "./lib/teamRoster";
 import {
   normalizeEmail,
@@ -3261,6 +3262,10 @@ export const finalizeReleasedAdmissionResults = internalMutation({
           releasedAt: args.releasedAt,
           version: application.version + 1,
         });
+        await synchronizeTeamAdmissionIdeaComparison(ctx, {
+          eventId: application.eventId,
+          teamId: application.teamId,
+        });
         continue;
       }
       const decision = application.humanDecision;
@@ -3287,6 +3292,10 @@ export const finalizeReleasedAdmissionResults = internalMutation({
         releasedByPersonId: args.releasedByPersonId,
         releasedAt: args.releasedAt,
         version: applicationVersion,
+      });
+      await synchronizeTeamAdmissionIdeaComparison(ctx, {
+        eventId: application.eventId,
+        teamId: application.teamId,
       });
       if (decision === "accept") {
         await ctx.db.patch(team._id, {

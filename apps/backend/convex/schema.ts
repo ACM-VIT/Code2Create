@@ -530,15 +530,17 @@ export default defineSchema({
     teamId: v.id("teams"),
     inputFingerprint: v.string(),
     lifecycle: v.union(v.literal("editing"), v.literal("saved"), v.literal("submitted")),
+    comparisonScope: v.optional(v.string()),
     embedding: v.array(v.float64()),
     sourceUpdatedAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_team", ["teamId"])
+    .index("by_event_comparison_scope", ["eventId", "comparisonScope"])
     .vectorIndex("by_event_embedding", {
       vectorField: "embedding",
       dimensions: 1536,
-      filterFields: ["eventId"],
+      filterFields: ["eventId", "comparisonScope"],
     }),
 
   noveltyPreviewRequests: defineTable({
@@ -1917,6 +1919,12 @@ export default defineSchema({
     experienceBand: admissionExperienceBand,
     state: admissionRecommendationState,
     recommendation: v.optional(admissionDecision),
+    centralProposalConsistency: v.optional(
+      v.object({
+        assessment: v.union(v.literal("consistent"), v.literal("contradictory")),
+        sourceRefs: v.array(v.string()),
+      }),
+    ),
     criterionAssessments: v.array(
       v.object({
         criterionKey: v.string(),

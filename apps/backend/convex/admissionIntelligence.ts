@@ -18,12 +18,16 @@ type SourceRef = Infer<typeof sourceRef>;
 const recommendationContext = v.object({
   recommendationId: v.id("admissionAIRecommendations"),
   applicationId: v.id("applications"),
+  eventId: v.id("events"),
+  teamId: v.id("teams"),
+  contentVersion: v.number(),
   sourceInputFingerprint: v.string(),
   modelId: v.string(),
   promptVersion: v.string(),
   schemaVersion: v.string(),
   evaluationSuiteVersion: v.string(),
   experienceBand: admissionExperienceBand,
+  overallParticipantCapacity: v.number(),
   initialIdea: v.string(),
   additionalInformation: v.optional(v.string()),
   intakeResponses: v.array(
@@ -152,12 +156,16 @@ export const beginRecommendation = internalMutation({
     return {
       recommendationId: recommendation._id,
       applicationId: application._id,
+      eventId: application.eventId,
+      teamId: application.teamId,
+      contentVersion: application.contentVersion,
       sourceInputFingerprint: fingerprint,
       modelId: modelConfig.modelId,
       promptVersion: modelConfig.promptVersion,
       schemaVersion: modelConfig.schemaVersion,
       evaluationSuiteVersion: modelConfig.evaluationSuiteVersion,
       experienceBand: application.experienceBand,
+      overallParticipantCapacity: policy.overallParticipantCapacity,
       initialIdea: project.initialIdea,
       ...(project.additionalInformation !== undefined
         ? { additionalInformation: project.additionalInformation }
@@ -320,6 +328,12 @@ export const finishRecommendation = internalMutation({
     sourceInputFingerprint: v.string(),
     state: completionState,
     recommendation: v.optional(admissionDecision),
+    centralProposalConsistency: v.optional(
+      v.object({
+        assessment: v.union(v.literal("consistent"), v.literal("contradictory")),
+        sourceRefs: v.array(sourceRef),
+      }),
+    ),
     criterionAssessments: v.array(
       v.object({
         criterionKey: v.string(),
@@ -346,6 +360,9 @@ export const finishRecommendation = internalMutation({
           args.sourceInputFingerprint,
           args.state,
           args.recommendation ?? null,
+          args.centralProposalConsistency
+            ? JSON.stringify(args.centralProposalConsistency)
+            : null,
           JSON.stringify(args.criterionAssessments),
           JSON.stringify(args.strengths),
           JSON.stringify(args.concerns),
@@ -412,10 +429,11 @@ export const finishRecommendation = internalMutation({
         }
       }
       const policyViolation =
-        args.recommendation && args.confidence
+        args.recommendation && args.centralProposalConsistency && args.confidence
           ? ideaIntelligenceAnalysisPolicyViolation({
               analysis: {
                 recommendation: args.recommendation,
+                centralProposalConsistency: args.centralProposalConsistency,
                 criterionAssessments: args.criterionAssessments,
                 strengths: args.strengths,
                 concerns: args.concerns,
@@ -437,6 +455,9 @@ export const finishRecommendation = internalMutation({
     await ctx.db.patch(recommendation._id, {
       state,
       recommendation: succeeded ? args.recommendation : undefined,
+      centralProposalConsistency: succeeded
+        ? args.centralProposalConsistency
+        : undefined,
       criterionAssessments: succeeded ? args.criterionAssessments : [],
       strengths: succeeded ? args.strengths : [],
       concerns: succeeded ? args.concerns : [],

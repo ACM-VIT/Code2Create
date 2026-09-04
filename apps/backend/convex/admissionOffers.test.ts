@@ -59,6 +59,10 @@ describe("admission offer lifecycle", () => {
       sourceInputFingerprint: "admission-source-v1",
       state: "succeeded",
       recommendation: "accept",
+      centralProposalConsistency: {
+        assessment: "consistent",
+        sourceRefs: ["follow_up_2"],
+      },
       criterionAssessments: [
         {
           criterionKey: "intent",
