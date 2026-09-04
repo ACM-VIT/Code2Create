@@ -19,5 +19,6 @@ app.use(workpool, { name: "intelligenceWorkpool" });
 app.use(presence, { name: "intakePresence" });
 app.use(rateLimiter, { name: "noveltyRateLimiter" });
 app.use(rateLimiter, { name: "participantAssistantRateLimiter" });
+app.use(rateLimiter, { name: "gameRateLimiter" });
 
 export default app;

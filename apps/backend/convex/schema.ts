@@ -5315,4 +5315,23 @@ export default defineSchema({
   })
     .index("by_event_time", ["eventId", "serverTime"])
     .index("by_target_time", ["targetType", "targetId", "serverTime"]),
+
+  /**
+   * One finished round of one arcade game, by one person. A person may replay a
+   * game as often as they like, so this table keeps every round and the
+   * leaderboard reads the best of them. Scores are per person, never per team.
+   */
+  gameRounds: defineTable({
+    eventId: v.id("events"),
+    /** A `gameKeys` value from the domain catalogue. */
+    gameKey: v.string(),
+    personId: v.id("people"),
+    membershipId: v.id("eventMemberships"),
+    score: v.number(),
+    playedAt: v.number(),
+  })
+    // The leaderboard: the highest rounds of one game, best first.
+    .index("by_event_game_score", ["eventId", "gameKey", "score"])
+    // One person's own rounds for that game, newest read by the same index.
+    .index("by_event_game_person", ["eventId", "gameKey", "personId", "score"]),
 });

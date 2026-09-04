@@ -71,6 +71,7 @@ import {
 } from "../components/portal/TeamCluster";
 import { SubmitCelebration } from "../components/portal/SubmitCelebration";
 import { ImportedTeamChoiceView } from "../components/portal/ImportedTeamChoiceView";
+import PacmanBoard from "../games/pacman/Map.tsx";
 
 const team: ClusterTeam = {
   name: "Paper Cranes",
@@ -1822,6 +1823,16 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries([
   ],
   ["f13", () => <HelpThreadFixture />],
   ["f13b", () => <HelpEmptyFixture />],
+  // The board on its own, with no round recorded: the arcade screen around it
+  // needs the leaderboard query, and the gallery is meant to run offline.
+  [
+    "arcade",
+    () => (
+      <div className="flex min-h-full flex-1 items-center justify-center bg-black p-4">
+        <PacmanBoard onRoundEnd={noop} />
+      </div>
+    ),
+  ],
 ] as const);
 
 /** Renders one gallery screen's fixture content. */

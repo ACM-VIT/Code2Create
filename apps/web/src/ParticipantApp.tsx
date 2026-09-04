@@ -56,6 +56,9 @@ const SupportScreen = lazy(() =>
 const UpdatesScreen = lazy(() =>
   loadUpdatesScreen().then((module) => ({ default: module.UpdatesScreen })),
 );
+const GamesScreen = lazy(() =>
+  import("./screens/GamesScreen").then((module) => ({ default: module.GamesScreen })),
+);
 
 export function ParticipantApp({
   publicState,
@@ -161,6 +164,18 @@ export function ParticipantApp({
       onSignOut={signOut}
     />
   );
+  // ---- the arcade ---------------------------------------------------------
+  // Ahead of the onboarding gates on purpose: the games are a diversion for
+  // anyone signed in, and the leaderboard is per person, so neither a team nor
+  // the SGLang step is a prerequisite for playing.
+  if (location.pathname === "/games") {
+    return (
+      <Suspense fallback={<PortalLoading />}>
+        <GamesScreen header={accountHeader} />
+      </Suspense>
+    );
+  }
+
   // ---- one participant conversation with the Guide and event team ---------
   if (location.pathname === "/support") {
     if (!canReadSupport) return <Navigate replace to="/" />;

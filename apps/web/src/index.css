@@ -81,6 +81,8 @@
   --font-display: Poppins, ui-sans-serif, system-ui, sans-serif;
   --font-ui: Poppins, ui-sans-serif, system-ui, sans-serif;
   --font-mono: ui-monospace, Menlo, monospace;
+  /* The arcade cabinet face, used only by the games at /games. */
+  --font-arcade: "Press Start 2P", ui-monospace, Menlo, monospace;
 
   /* The updated mockup rounds every corner symmetrically: cards 18/16,
      fields 10, buttons 12/10. */

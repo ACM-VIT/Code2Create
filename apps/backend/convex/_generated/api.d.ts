@@ -50,6 +50,7 @@ import type * as eventLifecycle from "../eventLifecycle.js";
 import type * as figmaActions from "../figmaActions.js";
 import type * as figmaIntegrations from "../figmaIntegrations.js";
 import type * as figmaWebhook from "../figmaWebhook.js";
+import type * as games from "../games.js";
 import type * as githubActions from "../githubActions.js";
 import type * as githubIntegrations from "../githubIntegrations.js";
 import type * as githubStarActions from "../githubStarActions.js";
@@ -327,6 +328,7 @@ declare const fullApi: ApiFromModules<{
   figmaActions: typeof figmaActions;
   figmaIntegrations: typeof figmaIntegrations;
   figmaWebhook: typeof figmaWebhook;
+  games: typeof games;
   githubActions: typeof githubActions;
   githubIntegrations: typeof githubIntegrations;
   githubStarActions: typeof githubStarActions;
@@ -594,4 +596,5 @@ export declare const components: {
   intakePresence: import("@convex-dev/presence/_generated/component.js").ComponentApi<"intakePresence">;
   noveltyRateLimiter: import("@convex-dev/rate-limiter/_generated/component.js").ComponentApi<"noveltyRateLimiter">;
   participantAssistantRateLimiter: import("@convex-dev/rate-limiter/_generated/component.js").ComponentApi<"participantAssistantRateLimiter">;
+  gameRateLimiter: import("@convex-dev/rate-limiter/_generated/component.js").ComponentApi<"gameRateLimiter">;
 };
