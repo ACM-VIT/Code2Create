@@ -128,7 +128,7 @@ Judging uses the published judging rubric, reviewer assignments, independent sco
 - Each GitHub repository keeps its own tracked branch, purpose, baseline, snapshots, and health.
 - A team can connect one or more Figma files through scoped OAuth.
 - Cloudflare Workers handle approved external service boundaries.
-- Cloudflare Email Routing and the event-owned mail service deliver participant email.
+- The event-owned mail service sends participant email through the provider pinned in the published policy: Amazon SES or Cloudflare Email Sending. Cloudflare Email Routing retains the inbound support alias.
 - Protected exports and previews use approved private S3 storage. Expo Update manifests and assets use the event-owned R2 service.
 - Expo Update manifests and assets come from the event-owned Cloudflare Worker and R2 service.
 - The product does not use EAS Build, EAS Update, or Expo Push Service.

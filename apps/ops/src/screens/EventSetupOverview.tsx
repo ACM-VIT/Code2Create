@@ -1,4 +1,5 @@
 import { api } from "@code2create/backend/api";
+import { participantEmailProviderLabels } from "@code2create/domain";
 import { useQuery } from "convex/react";
 import { Link } from "react-router-dom";
 
@@ -142,7 +143,7 @@ export function EventSetupOverview({ tabs }: { tabs: ConfigurationTabsVisibility
             <SetupRow
               detail={
                 communications
-                  ? `${communications.publishedPolicy.policy.venueName} · ${communications.publishedPolicy.policy.emailTemplates.length} email templates`
+                  ? `${communications.publishedPolicy.policy.venueName} · ${participantEmailProviderLabels[communications.publishedPolicy.policy.notificationProvider]} · ${communications.publishedPolicy.policy.emailTemplates.length} email templates`
                   : "Loading participant communications…"
               }
               label="Accepted teams"

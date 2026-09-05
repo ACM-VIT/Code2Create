@@ -43,9 +43,9 @@ describe("event bootstrap", () => {
   });
 
   test("advertises external email sign-in only with complete delivery configuration", async () => {
-    vi.stubEnv("CLOUDFLARE_EMAIL_ACCOUNT_ID", "test-account");
-    vi.stubEnv("CLOUDFLARE_EMAIL_API_TOKEN", "test-token");
-    vi.stubEnv("CLOUDFLARE_EMAIL_FROM", "");
+    vi.stubEnv("EMAIL_SERVICE_URL", "https://email.example.test");
+    vi.stubEnv("EMAIL_SEND_INGRESS_SECRET", "participant-email-secret-with-32-characters");
+    vi.stubEnv("AUTHENTICATION_EMAIL_PROVIDER", "");
     const backend = convexTest(schema, modules);
     backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
 
@@ -57,7 +57,7 @@ describe("event bootstrap", () => {
       auth: { emailOtpConfigured: false },
     });
 
-    vi.stubEnv("CLOUDFLARE_EMAIL_FROM", "Code2Create <updates@example.test>");
+    vi.stubEnv("AUTHENTICATION_EMAIL_PROVIDER", "aws_ses");
     await expect(
       backend.query(api.system.getPublicShellState, {
         eventSlug: "code2create-7",

@@ -1,27 +1,16 @@
-import { readBoundedJsonResponse } from "./boundedHttpBody";
-import { interpretCloudflareEmailSendResponse } from "./cloudflareEmailSending";
+import {
+  configuredParticipantEmailProvider,
+  emailServiceConfigured,
+  sendEmailThroughService,
+} from "./emailServiceSending";
 import { vitStudentEmailDomain } from "./vitStudentIdentity";
 
-const cloudflareApiBase = "https://api.cloudflare.com/client/v4/accounts";
-
-type AuthenticationEmailConfiguration = {
-  accountId: string;
-  apiToken: string;
-  from: string;
-  replyTo?: string;
-};
-
-function authenticationEmailConfiguration(): AuthenticationEmailConfiguration | null {
-  const accountId = process.env.CLOUDFLARE_EMAIL_ACCOUNT_ID?.trim();
-  const apiToken = process.env.CLOUDFLARE_EMAIL_API_TOKEN?.trim();
-  const from = process.env.CLOUDFLARE_EMAIL_FROM?.trim();
-  const replyTo = process.env.CLOUDFLARE_EMAIL_REPLY_TO?.trim();
-  if (!accountId || !apiToken || !from) return null;
-  return { accountId, apiToken, from, ...(replyTo ? { replyTo } : {}) };
+function authenticationEmailProvider() {
+  return configuredParticipantEmailProvider(process.env.AUTHENTICATION_EMAIL_PROVIDER);
 }
 
 export function authenticationEmailConfigured() {
-  return authenticationEmailConfiguration() !== null;
+  return authenticationEmailProvider() !== null && emailServiceConfigured();
 }
 
 function htmlEscaped(value: string) {
@@ -112,56 +101,22 @@ export async function sendAuthenticationOtp(input: {
   if (input.email.trim().toLowerCase().endsWith(`@${vitStudentEmailDomain}`)) {
     throw new Error("VIT email addresses must continue with Google Workspace.");
   }
-  const configuration = authenticationEmailConfiguration();
-  if (!configuration) throw new Error("Authentication email is not configured.");
+  const provider = authenticationEmailProvider();
+  if (!provider || !emailServiceConfigured()) {
+    throw new Error("Authentication email is not configured.");
+  }
   const message = authenticationOtpEmail(input.otp, participantSiteOrigin());
-  let response: Response;
-  const timeoutSignal = AbortSignal.timeout(10_000);
-  try {
-    response = await fetch(
-      `${cloudflareApiBase}/${encodeURIComponent(configuration.accountId)}/email/sending/send`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${configuration.apiToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          from: configuration.from,
-          to: input.email,
-          ...message,
-          headers: { "X-Code2Create-Message-Type": "authentication-otp" },
-          ...(configuration.replyTo ? { reply_to: configuration.replyTo } : {}),
-        }),
-        signal: timeoutSignal,
-      },
-    );
-  } catch {
-    if (timeoutSignal.aborted) {
-      // Our ten-second deadline can expire after Cloudflare has accepted the
-      // request. Preserve that issued code because its outcome is unknowable.
-      return;
-    }
-    throw new Error("Authentication email could not be sent.");
-  }
-
-  let decoded: unknown;
-  try {
-    decoded = await readBoundedJsonResponse(response, 64 * 1_024);
-  } catch {
-    // As above, an unreadable response does not prove that Cloudflare rejected
-    // the message, so avoid rotating away from a code that may be in flight.
-    return;
-  }
-  const interpretation = interpretCloudflareEmailSendResponse({
-    status: response.status,
-    ok: response.ok,
-    body: decoded,
-    destinationEmail: input.email,
+  const result = await sendEmailThroughService({
+    provider,
+    requestId: crypto.randomUUID(),
+    to: input.email,
+    ...message,
+    headers: [{ name: "X-Code2Create-Message-Type", value: "authentication-otp" }],
+    attachments: [],
   });
-  if (interpretation.kind === "accepted" && interpretation.initialOutcome !== "permanent_bounce") {
+  if (result.status === "accepted" && result.initialOutcome !== "permanent_bounce") {
     return;
   }
-  if (interpretation.kind === "ambiguous") return;
+  if (result.status === "ambiguous") return;
   throw new Error("Authentication email was rejected by the delivery provider.");
 }

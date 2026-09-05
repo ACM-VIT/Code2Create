@@ -17,6 +17,7 @@ import { PortalScene } from "../components/portal/PortalScene";
 import { TeamCluster } from "../components/portal/TeamCluster";
 import { eventSlug } from "../lib/config";
 import { readableError } from "../lib/errors";
+import { githubRepositorySelectionConnection } from "../lib/githubRepositorySelection";
 import { useOperationRunner } from "../lib/operations";
 import type {
   AvailableGitHubRepository,
@@ -118,6 +119,38 @@ export function IntegrationsScreen({
   onSignOut: () => void;
 }) {
   const integration = useQuery(api.githubIntegrations.current, { eventSlug });
+  if (!integration) {
+    return (
+      <IntegrationsScene team={team} members={members} onSignOut={onSignOut}>
+        <p className="text-[13px] text-[rgb(248_248_248/.6)]" role="status">
+          {integration === undefined
+            ? "Loading integrations…"
+            : "A team is required before connecting project tools."}
+        </p>
+      </IntegrationsScene>
+    );
+  }
+  return (
+    <ConnectedIntegrations
+      integration={integration}
+      team={team}
+      members={members}
+      onSignOut={onSignOut}
+    />
+  );
+}
+
+function ConnectedIntegrations({
+  integration,
+  team,
+  members,
+  onSignOut,
+}: {
+  integration: CurrentGitHubIntegration;
+  team: CurrentTeam;
+  members: readonly CurrentTeamMember[];
+  onSignOut: () => void;
+}) {
   const beginConnection = useAction(api.githubActions.beginConnection);
   const listRepositories = useAction(api.githubActions.listAvailableRepositories);
   const addRepository = useAction(api.githubActions.addRepository);
@@ -140,31 +173,17 @@ export function IntegrationsScreen({
   const [searchParams] = useSearchParams();
   const preselectionHandled = useRef(false);
   const repositoryRequest = useRef(0);
+  const repositoryPickerHeading = useRef<HTMLHeadingElement>(null);
   const commandInFlight = useRef(false);
   const operations = useOperationRunner<GitHubOperationResult>();
   const connectedRepositoryIds = useMemo(
-    () => new Set(integration?.repositories.map((repository) => repository.repositoryId) ?? []),
-    [integration?.repositories],
+    () => new Set(integration.repositories.map((repository) => repository.repositoryId)),
+    [integration.repositories],
   );
 
-  if (integration === undefined) {
-    return (
-      <IntegrationsScene team={team} members={members} onSignOut={onSignOut}>
-        <p className="text-[13px] text-[rgb(248_248_248/.6)]" role="status">
-          Loading integrations…
-        </p>
-      </IntegrationsScene>
-    );
-  }
-  if (!integration) {
-    return (
-      <IntegrationsScene team={team} members={members} onSignOut={onSignOut}>
-        <p className="text-[13px] text-[rgb(248_248_248/.6)]">
-          A team is required before connecting project tools.
-        </p>
-      </IntegrationsScene>
-    );
-  }
+  useEffect(() => {
+    if (availableRepositories) repositoryPickerHeading.current?.focus();
+  }, [availableRepositories?.connectionId]);
 
   const connect = async () => {
     if (commandInFlight.current) return;
@@ -240,7 +259,7 @@ export function IntegrationsScreen({
   };
 
   useEffect(() => {
-    if (preselectionHandled.current || !integration) return;
+    if (preselectionHandled.current) return;
     const rawState: unknown = location.state;
     const navState = parseNavigationState(rawState);
 
@@ -260,15 +279,21 @@ export function IntegrationsScreen({
     const connectionId =
       navState?.connectionId ?? searchParams.get("connectionId");
 
-    const targetConnection =
-      integration.connections.find((c) => c.id === connectionId) ??
-      integration.connections.find((c) => c.state === "active") ??
-      integration.connections[0];
+    const targetConnection = githubRepositorySelectionConnection(
+      integration.connections,
+      connectionId,
+      repositoryId,
+    );
 
-    if (!repositoryId || !targetConnection) return;
+    if (!targetConnection || !integration.canManage) return;
     preselectionHandled.current = true;
     const targetConnectionId = targetConnection.id;
     setActiveConnectionId(targetConnectionId);
+
+    if (!repositoryId) {
+      void loadRepositories(targetConnectionId);
+      return;
+    }
 
     if (navState?.repository && navState.repository.defaultBranch) {
       chooseRepository(navState.repository, targetConnectionId);
@@ -293,8 +318,8 @@ export function IntegrationsScreen({
           }
           page = result.nextPage;
         }
-      } catch {
-        // Continue if repository retrieval fails
+      } catch (caught) {
+        setError(readableError(caught));
       }
     })();
   }, [integration, location.state, searchParams]);
@@ -617,7 +642,9 @@ export function IntegrationsScreen({
                     <div>
                       <span>{connection.accountLogin}</span>
                       <small>
-                        {connection.targetType} · {connection.repositorySelection} repositories
+                        {connection.targetType} · {connection.repositorySelection === "all"
+                          ? "All repositories authorized"
+                          : "Selected repositories authorized"}
                       </small>
                     </div>
                     {integration.canManage ? (
@@ -638,13 +665,23 @@ export function IntegrationsScreen({
             {availableRepositories ? (
               <div className="repository-picker">
                 <div className="subheading-row">
-                  <h2>Available repositories</h2>
+                  <h2 ref={repositoryPickerHeading} tabIndex={-1}>
+                    Choose your team’s repositories
+                  </h2>
                   <span>
                     <LiveNumber value={availableRepositories.repositories.length} /> / <LiveNumber value={availableRepositories.totalCount} />
                   </span>
                 </div>
+                <p className="muted">
+                  GitHub authorization makes repositories available here. Only repositories you
+                  add are submitted to your team. Add each project repository with its role and
+                  purpose; public and private repositories are supported.
+                </p>
                 {availableRepositories.repositories.length === 0 ? (
-                  <p className="muted">No repositories are available to this installation.</p>
+                  <p className="muted">
+                    No repositories are available. Check this app’s repository access in GitHub,
+                    including organization approval for private repositories, then try again.
+                  </p>
                 ) : (
                   <div className="repository-options">
                     {availableRepositories.repositories.map((repository) => {

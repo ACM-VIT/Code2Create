@@ -1,5 +1,20 @@
 CONVEX_EMAIL_EVENT_CALLBACK_URL=https://example.convex.site/communications/cloudflare-email/events
 EMAIL_EVENT_CALLBACK_SECRET=replace-with-the-same-32-character-secret-as-convex
+EMAIL_SEND_INGRESS_SECRET=code2create-local-email-send-secret-2026-v1
 EMAIL_ROUTING_ADDRESS=support@example.org
 EMAIL_ROUTING_FORWARD_TO=verified-operations-inbox@example.org
 EMAIL_SENDING_DOMAIN=example.org
+
+# Configure Amazon SES, Cloudflare Email Sending, or both.
+AWS_SES_REGION=ap-south-1
+AWS_SES_ACCESS_KEY_ID=
+AWS_SES_SECRET_ACCESS_KEY=
+AWS_SES_SESSION_TOKEN=
+AWS_SES_FROM=Code2Create <updates@example.org>
+AWS_SES_REPLY_TO=
+AWS_SES_CONFIGURATION_SET=
+
+CLOUDFLARE_EMAIL_ACCOUNT_ID=
+CLOUDFLARE_EMAIL_API_TOKEN=
+CLOUDFLARE_EMAIL_FROM=Code2Create <updates@example.org>
+CLOUDFLARE_EMAIL_REPLY_TO=

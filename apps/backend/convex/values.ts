@@ -401,6 +401,11 @@ export const participantEmailTemplateKey = v.union(
   v.literal("external_event_pass"),
 );
 
+export const participantEmailProvider = v.union(
+  v.literal("cloudflare_email"),
+  v.literal("aws_ses"),
+);
+
 export const admissionReviewAssignmentState = v.union(
   v.literal("active"),
   v.literal("completed"),

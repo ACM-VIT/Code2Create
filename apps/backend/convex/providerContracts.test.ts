@@ -484,6 +484,7 @@ describe("Cloudflare participant-email contract", () => {
     await backend.mutation(internal.participantNotificationState.recordSent, {
       deliveryId: fixture.deliveryId,
       attemptId: "send-attempt-1",
+      provider: "cloudflare_email",
       providerMessageId: fixture.providerMessageId,
       initialOutcome: "queued",
     });

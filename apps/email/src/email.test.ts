@@ -21,6 +21,7 @@ const environment: EmailBridgeEnvironment = {
   CONVEX_EMAIL_EVENT_CALLBACK_URL:
     "https://backend.example.test/communications/cloudflare-email/events",
   EMAIL_EVENT_CALLBACK_SECRET: callbackSecret,
+  EMAIL_SEND_INGRESS_SECRET: "participant-email-send-secret-with-32-characters",
   EMAIL_ROUTING_ADDRESS: "support@mail.code2create.example",
   EMAIL_ROUTING_FORWARD_TO: "operations@example.test",
   EMAIL_SENDING_DOMAIN: domain,

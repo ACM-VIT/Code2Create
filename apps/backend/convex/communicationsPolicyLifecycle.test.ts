@@ -78,6 +78,15 @@ describe("communications policy lifecycle", () => {
     expect(() => normalizeCommunicationsPolicy(input)).not.toThrow();
   });
 
+  test("preserves Amazon SES as the published outbound provider", () => {
+    const startsAt = Date.UTC(2027, 7, 8, 3, 30);
+    const endsAt = startsAt + 48 * 60 * 60 * 1_000;
+    const input = policy(startsAt, endsAt, "ses");
+    input.notificationProvider = "aws_ses";
+
+    expect(normalizeCommunicationsPolicy(input).notificationProvider).toBe("aws_ses");
+  });
+
   test("allows one competing draft from the same observed state", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedFixture(backend, "draft-race");
@@ -147,11 +156,13 @@ describe("communications policy lifecycle", () => {
     );
     const deliveryId = await runQueuedNotificationBatch(backend, fixture);
 
+    const nextPolicy = policy(fixture.startsAt, fixture.endsAt, "new");
+    nextPolicy.notificationProvider = "aws_ses";
     const draft = await backend.run((ctx) =>
       saveCommunicationsPolicyDraft(ctx, {
         event: fixture.event,
         actorPersonId: fixture.personId,
-        policy: policy(fixture.startsAt, fixture.endsAt, "new"),
+        policy: nextPolicy,
         now: fixture.now + 2,
       }),
     );
@@ -185,7 +196,9 @@ describe("communications policy lifecycle", () => {
     });
     expect(result.oldPolicy?.status).toBe("superseded");
     expect(result.delivery?.communicationsPolicyVersionId).toBe(fixture.communicationsPolicyId);
+    expect(result.delivery?.provider).toBe("cloudflare_email");
     expect(claim).toMatchObject({
+      notificationProvider: "cloudflare_email",
       subjectTemplate: "Code2Create initial accept update",
       textTemplate: "The initial accept update for {{team_name}} is ready: {{portal_url}}",
       participantName: "Communications fixture",
@@ -364,7 +377,7 @@ describe("communications policy lifecycle", () => {
     expect(delivery).toMatchObject({
       state: "unknown",
       attemptCount: 1,
-      providerErrorCode: "cloudflare_email_send_outcome_unknown",
+      providerErrorCode: "email_send_outcome_unknown",
     });
     expect(delivery?.attemptId).toBeUndefined();
   });

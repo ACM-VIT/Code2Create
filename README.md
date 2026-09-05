@@ -94,7 +94,7 @@ Run `pnpm dev:prepare` after changing local backend or worker environment while 
 | `apps/backend`                  | Convex data, authorization, transactions, jobs, and provider orchestration |
 | `apps/intelligence`             | Flue-based operations intelligence worker                                  |
 | `apps/updates`                  | Event-owned Expo Updates Worker and R2 delivery                            |
-| `apps/email`                    | Cloudflare Email Routing delivery worker                                   |
+| `apps/email`                    | SES/Cloudflare outbound email and Cloudflare routing worker                 |
 | `apps/voice`                    | Outbound call and synthesized-audio worker                                 |
 | `apps/discord`                  | Discord support bridge                                                    |
 | `apps/e2e`                      | Browser verification                                                      |

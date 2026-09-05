@@ -180,6 +180,9 @@ function describeChanges(
   if (published.discordUrl !== draft.discordUrl || published.discordLabel !== draft.discordLabel) {
     changes.push("Update the accepted-team Discord destination.");
   }
+  if (published.notificationProvider !== draft.notificationProvider) {
+    changes.push("Update the outbound participant email provider.");
+  }
   if (JSON.stringify(published.emailTemplates) !== JSON.stringify(draft.emailTemplates)) {
     changes.push("Update participant email templates.");
   }

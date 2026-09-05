@@ -38,9 +38,9 @@ OPERATIONS_SITE_URL=https://ops.c2c.sh
 BETTER_AUTH_SECRET=$(read_secret better-auth-secret)
 GOOGLE_CLIENT_ID=$(read_secret google-client-id)
 GOOGLE_CLIENT_SECRET=$(read_secret google-client-secret)
-CLOUDFLARE_EMAIL_ACCOUNT_ID=$(read_secret cloudflare-email-account-id)
-CLOUDFLARE_EMAIL_API_TOKEN=$(read_secret cloudflare-email-api-token)
-CLOUDFLARE_EMAIL_FROM=$(read_secret cloudflare-email-from)
+EMAIL_SERVICE_URL=https://email.c2c.sh
+EMAIL_SEND_INGRESS_SECRET=$(read_secret email-send-ingress-secret)
+AUTHENTICATION_EMAIL_PROVIDER=aws_ses
 WALLET_DOWNLOAD_SIGNING_SECRET=$(read_secret wallet-download-signing-secret)
 GOOGLE_WALLET_ISSUER_ID=$(read_secret google-wallet-issuer-id)
 GOOGLE_WALLET_SERVICE_ACCOUNT_EMAIL=$(read_secret google-wallet-service-account-email)
@@ -88,6 +88,7 @@ EOF
 (
   cd "${C2C_REPOSITORY_ROOT}/apps/backend"
   pnpm exec convex env set --from-file "${C2C_ENV_FILE}" --force
+  read_secret github-app-private-key | pnpm exec convex env set GITHUB_APP_PRIVATE_KEY
   printf '%s' "${C2C_PHONE_VERIFICATION_MESSAGE_TEMPLATE}" \
     | pnpm exec convex env set PHONE_VERIFICATION_MESSAGE_TEMPLATE
 )
