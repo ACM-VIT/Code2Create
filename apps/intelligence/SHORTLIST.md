@@ -12,6 +12,8 @@ The Ops workspace is `/admissions/shortlist`. It never applies admission decisio
 6. Consider displaced qualifying teams for Waitlist before original Waitlist teams. Preserve reasons, preferred overlapping alternatives, ties and cycles. Missing analysis is unresolved, not a rejection.
 7. Independently audit bounded overlapping slices and recheck source/decision freshness before publishing the advisory snapshot. These checks are not proof of exhaustive duplicate detection.
 
+Premise checking uses a dependency test: removing an exaggerated benefit or secondary feature must not invalidate a substantive, explained core the team actually described. A vaccination reminder remains useful without guaranteeing perfect adherence; a bounded memory queue remains useful without being universally crash-proof. Conversely, a generic results screen or disclaimer does not rescue an unsupported central disease, authorship or payment-funding inference. The explanation retains these limitations for the human reviewer.
+
 The existing copilot cohort read returns this same completed snapshot summary, not a second vote/time-based ranking. The existing human decision and release workflows are unchanged.
 
 ## Work boundaries
@@ -32,7 +34,7 @@ pnpm --filter @code2create/backend shortlist:seed --concurrency 16
 
 The runner reads `outputs/data/admissions-review-seed-source.json`, uses the same structured model/profile/comparison functions as the Worker, and writes private local artifacts under `outputs/shortlist-seed/<fingerprint>/`. It has no Convex client, callback or deployment step. OpenAI calls incur usage charges. Raw participant identifiers, contact details and team names are removed from model projections; participant-supplied links are not fetched.
 
-`manifest.json` records the source/code fingerprint and assumptions. Successful model tasks are cached and parsed again on restart with the same fingerprint. `report.json` contains every team's suggestion, original quality, profile, direct comparisons and audit warnings; `review.md` groups teams for inspection. Reports and raw seed data are ignored by Git.
+`manifest.json` records the source/code fingerprint and assumptions. Successful model tasks are cached and parsed again on restart with the same fingerprint. `report.json` contains every team's suggestion, original quality, profile, direct comparisons and audit warnings; `review.md` groups teams for inspection, while `boundary-review.md` isolates original Accept-quality teams outside Accept and the independent warnings. Reports and raw seed data are ignored by Git.
 
 For an iteration that deliberately preserves the individual assessments while changing shortlist logic, add `--quality-from ../../outputs/shortlist-seed/<original-quality-run>`. This verifies the original run's seed, model, criteria, simulated headcounts and targets, revalidates every assessment against the existing ladder, and records its provenance. It does **not** claim those assessments were regenerated under the new run's prompts. Profile, comparison and audit stages are evaluated afresh. Supply the original individual-assessment run, not an intermediate imported run.
 
@@ -43,5 +45,7 @@ For synthetic premise/category/overlap regression fixtures and the exported coug
 ```sh
 pnpm --filter @code2create/intelligence shortlist:local --sample-seed ../../outputs/data/admissions-review-seed-source.json
 ```
+
+The built-in live regression checks assert supported premises for bounded reminder, memory-queue and accessible-route workflows, rejection for the excluded category and unsupported name-to-blood-group inference, preservation of an original quality decline, and preference for the concretely stronger overlapping surplus-food proposal. They do not require these fixtures to receive identical cohort allocations under arbitrary capacity settings.
 
 Never start `convex dev`, deploy, push seed data, or apply human decisions as part of this local evaluation workflow.

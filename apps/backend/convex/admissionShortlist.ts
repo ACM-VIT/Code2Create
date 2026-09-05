@@ -205,17 +205,39 @@ export const start = mutation({
   },
 });
 
+async function latestVisibleRun(
+  ctx: QueryCtx,
+  eventId: Id<"events">,
+): Promise<Doc<"admissionShortlistRuns"> | null> {
+  const run = await ctx.db
+    .query("admissionShortlistRuns")
+    .withIndex("by_eventId", (q) => q.eq("eventId", eventId))
+    .order("desc")
+    .first();
+  if (!run) return null;
+  const event = await ctx.db.get(eventId);
+  if (
+    run.releaseVersion !== shortlistVersion ||
+    event?.publishedAdmissionPolicyId !== run.policyId ||
+    event.publishedAdmissionModelConfigId !== run.modelConfigId
+  ) {
+    const { summaryJson: _summary, ...snapshot } = run;
+    return {
+      ...snapshot,
+      state: "stale" as const,
+      error: "Policy, model or shortlist release changed. Start a new snapshot.",
+    };
+  }
+  return run;
+}
+
 export const latest = query({
   args: { eventSlug: v.string() },
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     await authorize(ctx, event._id, person._id);
-    return ctx.db
-      .query("admissionShortlistRuns")
-      .withIndex("by_eventId", (q) => q.eq("eventId", event._id))
-      .order("desc")
-      .first();
+    return latestVisibleRun(ctx, event._id);
   },
 });
 export const results = query({
@@ -248,6 +270,7 @@ export const results = query({
     ).paginate(args.paginationOpts);
     const event = await ctx.db.get(run.eventId);
     const policyChanged =
+      run.releaseVersion !== shortlistVersion ||
       event?.publishedAdmissionPolicyId !== run.policyId ||
       event?.publishedAdmissionModelConfigId !== run.modelConfigId;
     return {
@@ -378,12 +401,7 @@ export const readRun = internalQuery({
 });
 export const latestForEvent = internalQuery({
   args: { eventId: v.id("events") },
-  handler: async (ctx, args) =>
-    ctx.db
-      .query("admissionShortlistRuns")
-      .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
-      .order("desc")
-      .first(),
+  handler: async (ctx, args) => latestVisibleRun(ctx, args.eventId),
 });
 export const candidatePage = internalQuery({
   args: {

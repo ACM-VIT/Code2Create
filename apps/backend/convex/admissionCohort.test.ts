@@ -890,6 +890,16 @@ describe("frozen advisory shortlist lifecycle", () => {
     await backend.run((ctx) =>
       ctx.db.patch(runId, { releaseVersion: "obsolete" }),
     );
+    expect(
+      await operator.query(api.admissionShortlist.latest, {
+        eventSlug: fixture.eventSlug,
+      }),
+    ).toMatchObject({ state: "stale" });
+    expect(
+      await backend.action(internal.admissionCohort.cohortRead, {
+        eventId: fixture.eventId,
+      }),
+    ).toMatchObject({ state: "stale", summaryJson: null });
     await backend.action(internal.admissionShortlistActions.advance, { runId });
     expect(
       (await backend.query(internal.admissionShortlist.readRun, { runId }))
