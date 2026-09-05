@@ -1,4 +1,5 @@
 import { defaultParticipantEmailTemplates } from "@code2create/domain";
+import { participantPolicyChecksum, participantPolicyFromDocument } from "./lib/participantPolicy";
 import { ConvexError, v } from "convex/values";
 import { components, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -596,3 +597,5 @@ export const openScheduledRound = internalMutation({
     return null;
   },
 });
+
+export const completeFixtureProfiles = internalMutation({args:{eventId:v.id("events")},returns:v.number(),handler:async(ctx,args)=>{requireStaging();const event=await ctx.db.get(args.eventId);if(!event?.publishedParticipantPolicyId)throw new Error("Policy missing.");const policy=await ctx.db.get(event.publishedParticipantPolicyId);if(!policy)throw new Error("Policy missing.");const normalized={...participantPolicyFromDocument(policy),phoneVerificationEnabled:false};await ctx.db.patch(policy._id,{...normalized,checksum:participantPolicyChecksum(normalized)});const profiles=await ctx.db.query("participantProfiles").collect();for(const profile of profiles){if(profile.eventId!==event._id)continue;await ctx.db.patch(profile.membershipId,{vitStudentIdentity:{fullName:profile.fullName,registrationNumber:profile.vitRegistrationNumber??"STAGING",programmeCode:profile.vitProgramme??"Internal fixture",yearOfStudy:profile.yearOfStudy}});}return profiles.length;}});
