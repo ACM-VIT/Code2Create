@@ -648,11 +648,6 @@ html:has(.intelligence-workspace) {
   margin-top: 4px;
   font-size: 0.84rem;
 }
-.phase-field-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 0.8fr) repeat(2, minmax(0, 1fr));
-  gap: 14px;
-}
 .phase-card textarea {
   min-height: 72px;
 }
@@ -2726,13 +2721,15 @@ button:disabled {
   gap: 14px;
 }
 .roll-call-title strong,
-.roll-call-title span {
+.roll-call-title > span,
+.roll-call-title > div > span {
   display: block;
 }
 .roll-call-title strong {
   margin-bottom: 4px;
 }
-.roll-call-title span {
+.roll-call-title > span,
+.roll-call-title > div > span {
   color: var(--muted);
   font-size: 0.72rem;
 }
@@ -3926,11 +3923,8 @@ button:disabled {
   color: var(--muted);
   font-size: 0.72rem;
 }
-.panel-strip span {
-  padding: 5px 7px;
-  background: var(--surface);
-  border: 0;
-  border-radius: var(--radius-card);
+.panel-strip > span {
+  @apply rounded-xl border-0 bg-surface px-[7px] py-[5px];
 }
 .review-panel-list {
   display: grid;
@@ -4287,13 +4281,8 @@ button:disabled {
   flex-wrap: wrap;
   gap: 7px;
 }
-.coverage-strip span {
-  padding: 5px 7px;
-  color: var(--muted);
-  font-size: 0.7rem;
-  background: var(--surface);
-  border: 0;
-  border-radius: var(--radius-card);
+.coverage-strip > span {
+  @apply rounded-xl border-0 bg-surface px-[7px] py-[5px] text-[0.7rem] text-ink-2;
 }
 .coverage-strip .needs-attention {
   color: var(--danger);
@@ -5093,7 +5082,6 @@ button:disabled {
   .novelty-corpus-file-row .file-button {
     justify-self: start;
   }
-  .phase-field-grid,
   .published-phase-list li {
     grid-template-columns: 1fr;
   }
@@ -5484,7 +5472,7 @@ button:disabled {
 .synesthesia-window-heading strong,
 .synesthesia-window-heading span,
 .synesthesia-request-heading strong,
-.synesthesia-request-heading span,
+.synesthesia-request-heading > div > span,
 .synesthesia-catalog-track strong,
 .synesthesia-catalog-track span {
   display: block;
@@ -5497,7 +5485,7 @@ button:disabled {
 }
 .synesthesia-window-heading span,
 .synesthesia-window-heading small,
-.synesthesia-request-heading span,
+.synesthesia-request-heading > div > span,
 .synesthesia-request-state,
 .synesthesia-catalog-track span,
 .synesthesia-catalog-track small {
@@ -5605,7 +5593,7 @@ button:disabled {
   gap: 3px;
   text-align: right;
 }
-.synesthesia-request-state span {
+.synesthesia-request-state > span {
   color: var(--text);
 }
 .synesthesia-request-note {
@@ -6186,7 +6174,6 @@ button.row-action {
 }
 
 .form-grid,
-.phase-field-grid,
 .configuration-field-grid,
 .intake-policy-grid {
   gap: 14px;

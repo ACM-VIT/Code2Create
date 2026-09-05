@@ -373,7 +373,7 @@ export function CheckpointConfiguration({ tabs }: { tabs: ConfigurationTabsVisib
                         <strong>{definition.displayName}</strong>
                       </div>
                     </header>
-                    <div className="phase-field-grid">
+                    <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,220px),1fr))] gap-3.5">
                       <label className="field">
                         <span>Name teams see</span>
                         <input
