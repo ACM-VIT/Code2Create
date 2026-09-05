@@ -58,14 +58,16 @@ const stateRank: Record<SupportState, number> = {
 };
 
 export function SupportPanel({
+  canRead,
   canCreate,
   runtime,
 }: {
+  canRead: boolean;
   canCreate: boolean;
   runtime: ReviewerRuntime;
 }) {
   const eventSlug = runtime.configuration.eventSlug;
-  const cases = useQuery(api.support.mine, { eventSlug });
+  const cases = useQuery(api.support.mine, canRead ? { eventSlug } : "skip");
   const createCase = useMutation(api.support.createSelf);
   const router = useRouter();
   const [quickAreaHeight, setQuickAreaHeight] = useState(0);
@@ -74,6 +76,7 @@ export function SupportPanel({
   const [description, setDescription] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [createdCode, setCreatedCode] = useState<string | null>(null);
   const busyRef = useRef(false);
   const createAttempt = useMutationAttempt<CreateSelfResult>();
   const createPending = createAttempt.hasPending("create-support-case");
@@ -100,7 +103,11 @@ export function SupportPanel({
       });
       setDescription("");
       setReporting(false);
-      router.push(`/help/${result.publicCode}`);
+      if (canRead) {
+        router.push(`/help/${result.publicCode}`);
+      } else {
+        setCreatedCode(result.publicCode);
+      }
     } catch (caught) {
       setError(errorMessage(caught, "The case could not be created."));
     } finally {
@@ -109,7 +116,7 @@ export function SupportPanel({
     }
   };
 
-  if (sorted === undefined) return <CaseListSkeleton />;
+  if (canRead && sorted === undefined) return <CaseListSkeleton />;
 
   const quickCount =
     quickAreaHeight === 0
@@ -118,18 +125,25 @@ export function SupportPanel({
 
   return (
     <View style={styles.fixedRoot}>
-      <Lead
-        accent={palette.setup}
-        detail={
-          open.length > 0
-            ? "The help desk replies here."
-            : "Nothing of yours is waiting on the help desk."
-        }
-        unit={open.length === 1 ? "open case" : "open cases"}
-        value={String(open.length)}
-      />
+      {createdCode ? (
+        <Section title={`Report sent · ${createdCode}`}>
+          <Body>The help desk has received your report. Keep this code for follow-up.</Body>
+        </Section>
+      ) : null}
+      {canRead ? (
+        <Lead
+          accent={palette.setup}
+          detail={
+            open.length > 0
+              ? "The help desk replies here."
+              : "Nothing of yours is waiting on the help desk."
+          }
+          unit={open.length === 1 ? "open case" : "open cases"}
+          value={String(open.length)}
+        />
+      ) : null}
 
-      {sorted.length > 0 ? (
+      {sorted && sorted.length > 0 ? (
         <Section
           title="Your cases"
           {...(open.length > 0

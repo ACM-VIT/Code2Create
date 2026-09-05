@@ -28,19 +28,36 @@ import { useMutationAttempt } from "@/lib/mutation-attempt";
 import { orderStaffCases, supportFilters, type StaffCase } from "@/lib/support-desk";
 import { palette } from "@/theme";
 
-export function SupportDeskPanel({ eventSlug }: { eventSlug: string }) {
+export function SupportDeskPanel({
+  eventSlug,
+  canRead,
+  canCreate,
+  canReadOwnCases,
+}: {
+  eventSlug: string;
+  canRead: boolean;
+  canCreate: boolean;
+  canReadOwnCases: boolean;
+}) {
   const [filter, setFilter] = useState<(typeof supportFilters)[number][0]>("active");
-  const list = useQuery(api.support.staffList, { eventSlug, state: filter });
+  const list = useQuery(api.support.staffList, canRead ? { eventSlug, state: filter } : "skip");
   const router = useRouter();
   return (
     <>
-      <ChipRow
-        options={supportFilters}
-        selected={filter}
-        onSelect={setFilter}
-        accent={palette.setup}
-      />
-      {list === undefined ? (
+      {canCreate ? (
+        <CreateStaffCase eventSlug={eventSlug} canReadCase={canReadOwnCases} />
+      ) : null}
+      {canRead ? (
+        <ChipRow
+          options={supportFilters}
+          selected={filter}
+          onSelect={setFilter}
+          accent={palette.setup}
+        />
+      ) : null}
+      {!canRead ? (
+        <Meta>Log walk-up issues here. The help desk will handle them.</Meta>
+      ) : list === undefined ? (
         <CaseListSkeleton />
       ) : (
         <>
@@ -50,7 +67,6 @@ export function SupportDeskPanel({ eventSlug }: { eventSlug: string }) {
             unit="open cases"
             detail={`${list.totals.awaitingStaffReply} owed a reply · ${list.totals.unowned} unassigned`}
           />
-          {list.canCreate ? <CreateStaffCase eventSlug={eventSlug} /> : null}
           <Section title="Help desk">
             {list.cases.length === 0 ? <Meta>No cases in this view.</Meta> : null}
             {orderStaffCases(list.cases).map((row) => (
@@ -84,12 +100,13 @@ export function SupportDeskPanel({ eventSlug }: { eventSlug: string }) {
   );
 }
 
-function CreateStaffCase({ eventSlug }: { eventSlug: string }) {
+function CreateStaffCase({ eventSlug, canReadCase }: { eventSlug: string; canReadCase: boolean }) {
   const [open, setOpen] = useState(false);
   const [category, setCategory] = useState<StaffCase["category"]>("queue");
   const [description, setDescription] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [createdCode, setCreatedCode] = useState<string | null>(null);
   const busyRef = useRef(false);
   const create = useMutation(api.support.createStaff);
   const attempt = useMutationAttempt<FunctionReturnType<typeof api.support.createStaff>>();
@@ -112,7 +129,11 @@ function CreateStaffCase({ eventSlug }: { eventSlug: string }) {
       });
       setDescription("");
       setOpen(false);
-      router.push(`/help/${result.publicCode}`);
+      if (canReadCase) {
+        router.push(`/help/${result.publicCode}`);
+      } else {
+        setCreatedCode(result.publicCode);
+      }
     } catch (caught) {
       setError(describeError(caught, "The case could not be created."));
     } finally {
@@ -122,6 +143,11 @@ function CreateStaffCase({ eventSlug }: { eventSlug: string }) {
   };
   return (
     <>
+      {createdCode ? (
+        <Section title={`Issue logged · ${createdCode}`}>
+          <Body>The help desk has received this issue. Keep this code for follow-up.</Body>
+        </Section>
+      ) : null}
       <Action accent={palette.setup} label="Log a walk-up issue" onPress={() => setOpen(true)} />
       <Sheet title="Log a walk-up issue" visible={open} onClose={() => setOpen(false)}>
         <ChipRow

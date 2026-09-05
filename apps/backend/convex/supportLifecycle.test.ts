@@ -716,6 +716,132 @@ test("mobile staff access uses the web queue while personal and exact-case grant
   ).resolves.toMatchObject({ supportStaff: false });
 });
 
+test.each(["none", "self", "support_case", "event"] as const)(
+  "mobile creation and reading stay separate with %s read access",
+  async (readScope) => {
+    const backend = seededBackend();
+    const fixture = await seedOperator(backend);
+    const staff = backend.withIdentity({
+      subject: fixture.authUserId,
+      sessionId: fixture.authSessionId,
+    });
+    const existingCase = await staff.mutation(api.support.createStaff, {
+      eventSlug: fixture.eventSlug,
+      category: "queue",
+      description: "The one case this account may be assigned to read",
+      clientOperationId: crypto.randomUUID(),
+    });
+    await backend.run(async (ctx) => {
+      const grants = await ctx.db.query("permissionGrants").collect();
+      for (const grant of grants) {
+        if (grant.permissionKey === "support.case.create" && grant.scopeType === "event") {
+          continue;
+        }
+        if (grant.permissionKey === "support.case.read" && readScope !== "none") {
+          await ctx.db.patch(grant._id, {
+            scopeType: readScope,
+            scopeId:
+              readScope === "self"
+                ? fixture.subjectId
+                : readScope === "support_case"
+                  ? existingCase.id
+                  : undefined,
+          });
+        } else {
+          await ctx.db.patch(grant._id, { status: "revoked" });
+        }
+      }
+    });
+
+    const canReadOwnCases = readScope === "self" || readScope === "event";
+    const canReadDesk = readScope === "support_case" || readScope === "event";
+    await expect(
+      staff.query(api.access.reviewerCapabilities, { eventSlug: fixture.eventSlug }),
+    ).resolves.toMatchObject({
+      support: true,
+      supportCreate: true,
+      supportCreateStaff: true,
+      supportStaff: canReadDesk,
+      supportRead: canReadOwnCases,
+    });
+    const args = {
+      eventSlug: fixture.eventSlug,
+      category: "queue" as const,
+      description: "A new walk-up issue received by the help desk",
+      clientOperationId: crypto.randomUUID(),
+    };
+    const created = await staff.mutation(api.support.createStaff, args);
+    expect(created.publicCode).toBeTruthy();
+    await expect(staff.mutation(api.support.createStaff, args)).resolves.toEqual(created);
+    const personal = await staff.mutation(api.support.createSelf, {
+      ...args,
+      clientOperationId: crypto.randomUUID(),
+    });
+    for (const result of [created, personal]) {
+      const detail = await staff.query(api.support.detailByPublicCode, {
+        eventSlug: fixture.eventSlug,
+        publicCode: result.publicCode,
+      });
+      if (canReadOwnCases) {
+        expect(detail?.supportCase.id).toBe(result.id);
+        expect(detail?.supportCase.canManage).toBe(false);
+      } else {
+        expect(detail).toBeNull();
+      }
+    }
+    const desk = await staff.query(api.support.staffList, {
+      eventSlug: fixture.eventSlug,
+      state: "all",
+    });
+    expect(desk.cases.map((row) => row.id).sort()).toEqual(
+      (readScope === "event"
+        ? [existingCase.id, created.id, personal.id]
+        : readScope === "support_case"
+          ? [existingCase.id]
+          : []
+      ).sort(),
+    );
+    const mine = await staff.query(api.support.mine, { eventSlug: fixture.eventSlug });
+    expect(mine.map((row) => row.id).sort()).toEqual(
+      (canReadOwnCases ? [existingCase.id, created.id, personal.id] : []).sort(),
+    );
+  },
+);
+
+test("personal create-only access opens Help without advertising staff or case reads", async () => {
+  const backend = seededBackend();
+  const fixture = await seedOperator(backend);
+  await backend.run(async (ctx) => {
+    const grants = await ctx.db.query("permissionGrants").collect();
+    for (const grant of grants) {
+      if (grant.permissionKey !== "support.case.create" || grant.scopeType !== "self") {
+        await ctx.db.patch(grant._id, { status: "revoked" });
+      }
+    }
+  });
+  const reporter = backend.withIdentity({
+    subject: fixture.authUserId,
+    sessionId: fixture.authSessionId,
+  });
+  await expect(
+    reporter.query(api.access.reviewerCapabilities, { eventSlug: fixture.eventSlug }),
+  ).resolves.toMatchObject({
+    support: true,
+    supportCreate: true,
+    supportCreateStaff: false,
+    supportStaff: false,
+    supportRead: false,
+  });
+  await expect(
+    reporter.mutation(api.support.createStaff, {
+      eventSlug: fixture.eventSlug,
+      category: "queue",
+      description: "Personal permission cannot create staff cases",
+      clientOperationId: crypto.randomUUID(),
+    }),
+  ).rejects.toThrow();
+});
+
 function seededBackend() {
   const backend = convexTest(schema, modules);
   backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);

@@ -117,8 +117,10 @@ const reviewerCapabilitiesView = v.object({
   support: v.boolean(),
   operations: v.boolean(),
   incidents: v.boolean(),
+  supportRead: v.boolean(),
   supportCreate: v.boolean(),
   supportStaff: v.boolean(),
+  supportCreateStaff: v.boolean(),
   attentionManage: v.boolean(),
 });
 
@@ -416,12 +418,14 @@ async function resolveReviewerCapabilities(
   return {
     reviews,
     attendance,
-    support: support || supportReadStaff || supportCreateStaff,
+    support: support || supportReadStaff || supportCreate,
     operations,
     incidents,
+    supportRead: support,
     supportCreate,
     attentionManage,
-    supportStaff: supportReadStaff || supportCreateStaff,
+    supportStaff: supportReadStaff,
+    supportCreateStaff,
   };
 }
 

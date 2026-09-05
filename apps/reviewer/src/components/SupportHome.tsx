@@ -5,25 +5,38 @@ import { SupportPanel } from "@/components/SupportPanel";
 import { ChipRow } from "@/components/ui";
 
 export function SupportHome() {
-  const { canCreateSupport, canOpenSupportDesk, eventSlug, runtime } = useReviewerSession();
+  const {
+    canReadSupport,
+    canCreateSupport,
+    canOpenSupportDesk,
+    canCreateStaffSupport,
+    eventSlug,
+    runtime,
+  } = useReviewerSession();
   const [view, setView] = useState<"staff" | "mine">("staff");
-  const staffView = canOpenSupportDesk && view === "staff";
+  const staffAccess = canOpenSupportDesk || canCreateStaffSupport;
+  const staffView = staffAccess && view === "staff";
   return (
     <>
-      {canOpenSupportDesk ? (
+      {staffAccess && (canReadSupport || canCreateSupport) ? (
         <ChipRow
           options={[
             ["staff", "Help desk"],
-            ["mine", "Your cases"],
+            ["mine", canReadSupport ? "Your cases" : "Report a problem"],
           ]}
           selected={view}
           onSelect={setView}
         />
       ) : null}
       {staffView ? (
-        <SupportDeskPanel eventSlug={eventSlug} />
+        <SupportDeskPanel
+          eventSlug={eventSlug}
+          canRead={canOpenSupportDesk}
+          canCreate={canCreateStaffSupport}
+          canReadOwnCases={canReadSupport}
+        />
       ) : (
-        <SupportPanel canCreate={canCreateSupport} runtime={runtime} />
+        <SupportPanel canRead={canReadSupport} canCreate={canCreateSupport} runtime={runtime} />
       )}
     </>
   );
