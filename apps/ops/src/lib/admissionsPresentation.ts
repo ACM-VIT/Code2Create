@@ -9,7 +9,20 @@ import {
   type ParticipantClass,
   type StudyYear,
 } from "@code2create/domain";
-import type { FunctionReturnType } from "convex/server";
+import type { FunctionArgs, FunctionReturnType } from "convex/server";
+
+export type RecommendationFilter = NonNullable<FunctionArgs<typeof api.admissions.list>["recommendationFilter"]>;
+export const recommendationOutcomeLabels: Record<RecommendationFilter["outcome"], string> = {
+  accepted: "Accepted",
+  waitlisted: "Waitlisted",
+  rejected: "Rejected",
+  unavailable: "No current recommendation",
+  split: "Split reviews",
+  needed: "Reviews needed",
+};
+export function recommendationFilterLabel(filter: RecommendationFilter) {
+  return `${filter.source === "idea" ? "Idea agent" : "Human reviews"} · ${recommendationOutcomeLabels[filter.outcome]}`;
+}
 
 type ApplicationPage = FunctionReturnType<typeof api.admissions.list>;
 export type QueueApplication = ApplicationPage["page"][number];

@@ -1,6 +1,6 @@
 import { getAll } from "convex-helpers/server/relationships";
 import { paginationOptsValidator, paginationResultValidator } from "convex/server";
-import { ConvexError, v } from "convex/values";
+import { ConvexError, v, type Infer } from "convex/values";
 import { paginator } from "convex-helpers/server/pagination";
 import { z } from "zod";
 
@@ -90,6 +90,11 @@ const maximumAdmissionPageSize = 100;
 export const admissionReviewClaimMs = 30 * 60 * 1_000;
 const admissionTeamOrigin = v.union(v.literal("internal"), v.literal("external"));
 const admissionQueueStage = v.union(applicationState, v.literal("recorded"));
+const recommendationOutcome = v.union(v.literal("accepted"), v.literal("waitlisted"), v.literal("rejected"));
+const recommendationFilter = v.union(
+  v.object({ source: v.literal("idea"), outcome: v.union(recommendationOutcome, v.literal("unavailable")) }),
+  v.object({ source: v.literal("human"), outcome: v.union(recommendationOutcome, v.literal("split"), v.literal("needed")) }),
+);
 
 function applicationQueueStage(application: Doc<"applications">): Doc<"applications">["state"] | "recorded" {
   return application.decisionStage === "recorded" && application.state !== "withdrawn"
@@ -114,6 +119,53 @@ export function countHumanReviewScore(
     if (review.recommendation === "decline") score.reject += 1;
   }
   return score;
+}
+
+function humanReviewOutcome(score: ReturnType<typeof countHumanReviewScore>, minimumReviews: number) {
+  const completed = score.accept + score.waitlist + score.reject;
+  if (completed < minimumReviews) return "needed";
+  if (score.accept === completed) return "accepted";
+  if (score.waitlist === completed) return "waitlisted";
+  if (score.reject === completed) return "rejected";
+  return "split";
+}
+
+function currentIdeaRecommendation(
+  application: Doc<"applications">,
+  recommendation: Doc<"admissionAIRecommendations"> | null | undefined,
+) {
+  return recommendation?.state === "succeeded" &&
+    recommendation.eventId === application.eventId &&
+    recommendation.applicationId === application._id &&
+    recommendation.projectVersionId === application.submittedProjectVersionId &&
+    recommendation.admissionPolicyVersionId === application.admissionPolicyVersionId &&
+    recommendation.applicationContentVersion === application.contentVersion
+    ? recommendation.recommendation : undefined;
+}
+
+async function applicationMatchesRecommendation(
+  ctx: QueryCtx,
+  application: Doc<"applications">,
+  filter: Infer<typeof recommendationFilter>,
+) {
+  if (application.state === "withdrawn" && application.decisionStage !== "released") return false;
+  if (filter.source === "idea") {
+    const recommendation = application.aiRecommendationId
+      ? await ctx.db.get(application.aiRecommendationId) : null;
+    const decision = currentIdeaRecommendation(application, recommendation);
+    const outcome = decision === "accept" ? "accepted" : decision === "waitlist" ? "waitlisted"
+      : decision === "decline" ? "rejected" : "unavailable";
+    return outcome === filter.outcome;
+  }
+  const [policy, reviews] = await Promise.all([
+    ctx.db.get(application.admissionPolicyVersionId),
+    ctx.db.query("admissionHumanReviews")
+      .withIndex("by_application_status", (index) =>
+        index.eq("applicationId", application._id).eq("status", "active"),
+      ).collect(),
+  ]);
+  if (!policy) throw new Error("An application admission policy is missing.");
+  return humanReviewOutcome(countHumanReviewScore(reviews, application.contentVersion), policy.minimumHumanReviews) === filter.outcome;
 }
 
 function requireAdmissionPageSize(numItems: number) {
@@ -222,6 +274,13 @@ const ideaAgentSummaryCounts = v.object({
   rejected: v.number(),
   unavailable: v.number(),
 });
+const humanReviewSummaryCounts = v.object({
+  accepted: v.number(),
+  waitlisted: v.number(),
+  rejected: v.number(),
+  split: v.number(),
+  needed: v.number(),
+});
 
 export const admissionResultsReleaseStatus = query({
   args: { eventSlug: v.string() },
@@ -234,6 +293,10 @@ export const admissionResultsReleaseStatus = query({
     releasedByName: v.optional(v.string()),
     ...admissionSummaryCounts.fields,
     people: admissionSummaryCounts,
+    humanReviews: v.object({
+      ...humanReviewSummaryCounts.fields,
+      people: humanReviewSummaryCounts,
+    }),
     ideaAgent: v.union(v.null(), v.object({
       ...ideaAgentSummaryCounts.fields,
       people: ideaAgentSummaryCounts,
@@ -250,6 +313,10 @@ export const admissionResultsReleaseStatus = query({
       accepted: 0, waitlisted: 0, declined: 0,
     };
     const people = { ...counts };
+    const humanReviews = {
+      accepted: 0, waitlisted: 0, rejected: 0, split: 0, needed: 0,
+      people: { accepted: 0, waitlisted: 0, rejected: 0, split: 0, needed: 0 },
+    };
     if (!supremeRole) {
       return {
         isSupreme: false,
@@ -261,6 +328,7 @@ export const admissionResultsReleaseStatus = query({
           : {}),
         ...counts,
         people,
+        humanReviews,
         ideaAgent: null,
       };
     }
@@ -291,11 +359,21 @@ export const admissionResultsReleaseStatus = query({
           application.aiRecommendationId ? [application.aiRecommendationId] : [],
         ))]
       : [];
-    // Read each current policy, submitted roster size, and recommendation once, concurrently.
-    const [policies, projects, recommendations] = await Promise.all([
+    // Batch indexed review reads alongside the current policies, rosters, and AI recommendations.
+    const [policies, projects, recommendations, humanScores] = await Promise.all([
       getAll(ctx.db, "admissionPolicyVersions", policyIds),
       getAll(ctx.db, "projectVersions", projectIds),
       getAll(ctx.db, "admissionAIRecommendations", recommendationIds),
+      Promise.all(active.map(async (application) => {
+        const reviews = application.completedReviewCount > 0
+          ? await ctx.db.query("admissionHumanReviews")
+              .withIndex("by_application_status", (index) =>
+                index.eq("applicationId", application._id).eq("status", "active"),
+              )
+              .collect()
+          : [];
+        return { application, score: countHumanReviewScore(reviews, application.contentVersion) };
+      })),
     ]);
     const policiesById = new Map(policies.filter((policy) => policy !== null).map((policy) => [policy._id, policy]));
     const projectsById = new Map(projects.filter((project) => project !== null).map((project) => [project._id, project]));
@@ -304,32 +382,31 @@ export const admissionResultsReleaseStatus = query({
         .filter((recommendation) => recommendation !== null)
         .map((recommendation) => [recommendation._id, recommendation]),
     );
-    for (const application of active) {
+    for (const { application, score } of humanScores) {
       const policy = policiesById.get(application.admissionPolicyVersionId);
       const project = projectsById.get(application.submittedProjectVersionId);
       if (!policy || policy.eventId !== event._id || !project || project.eventId !== event._id) {
         throw new Error("An application admission policy or submitted project is missing.");
       }
       const memberCount = project.lockedMemberCount;
-      const reviewStage = application.completedReviewCount >= policy.minimumHumanReviews
+      const completedReviews = score.accept + score.waitlist + score.reject;
+      const reviewStage = completedReviews >= policy.minimumHumanReviews
         ? "reviewsComplete" : "reviewsNeeded";
       for (const metric of ["total", reviewStage, application.decisionStage] as const) {
         counts[metric] += 1;
         people[metric] += memberCount;
       }
+      // Outcomes describe unanimous, complete reviews; they do not record a final decision.
+      const humanOutcome = humanReviewOutcome(score, policy.minimumHumanReviews);
+      humanReviews[humanOutcome] += 1;
+      humanReviews.people[humanOutcome] += memberCount;
       if (ideaAgent) {
         const recommendation = application.aiRecommendationId
           ? recommendationsById.get(application.aiRecommendationId)
           : null;
-        const current = recommendation?.state === "succeeded" &&
-          recommendation.eventId === event._id &&
-          recommendation.applicationId === application._id &&
-          recommendation.projectVersionId === application.submittedProjectVersionId &&
-          recommendation.admissionPolicyVersionId === application.admissionPolicyVersionId &&
-          recommendation.applicationContentVersion === application.contentVersion;
-        const outcome = current && recommendation.recommendation === "accept" ? "accepted"
-          : current && recommendation.recommendation === "waitlist" ? "waitlisted"
-          : current && recommendation.recommendation === "decline" ? "rejected" : "unavailable";
+        const decision = currentIdeaRecommendation(application, recommendation);
+        const outcome = decision === "accept" ? "accepted" : decision === "waitlist" ? "waitlisted"
+          : decision === "decline" ? "rejected" : "unavailable";
         ideaAgent[outcome] += 1;
         ideaAgent.people[outcome] += memberCount;
       }
@@ -353,6 +430,7 @@ export const admissionResultsReleaseStatus = query({
       ...(releaser ? { releasedByName: releaser.displayName } : {}),
       ...counts,
       people,
+      humanReviews,
       ideaAgent,
     };
   },
@@ -560,6 +638,7 @@ async function applicationListProjection(
     aiGrantIds.length > 0 && application.aiRecommendationId
       ? await ctx.db.get(application.aiRecommendationId)
       : null;
+  const aiRecommendation = currentIdeaRecommendation(application, recommendation);
   return {
     id: application._id,
     teamName: team.name,
@@ -574,9 +653,10 @@ async function applicationListProjection(
     submittedAt: application.submittedAt,
     ...(recommendation
       ? {
-          aiState: recommendation.state,
-          ...(recommendation.state === "succeeded" && recommendation.recommendation !== undefined
-            ? { aiRecommendation: recommendation.recommendation }
+          aiState: recommendation.state === "succeeded" && aiRecommendation === undefined
+            ? "stale" as const : recommendation.state,
+          ...(aiRecommendation !== undefined
+            ? { aiRecommendation }
             : {}),
         }
       : {}),
@@ -612,6 +692,7 @@ export const list = query({
     origin: v.optional(admissionTeamOrigin),
     completedReviewCount: v.optional(v.literal(1)),
     needsReview: v.optional(v.literal(true)),
+    recommendationFilter: v.optional(recommendationFilter),
     paginationOpts: paginationOptsValidator,
   },
   returns: paginationResultValidator(listItem),
@@ -620,8 +701,14 @@ export const list = query({
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
     requireAdmissionPageSize(args.paginationOpts.numItems);
+    if (args.recommendationFilter?.source === "idea") {
+      await requirePermission(ctx, {
+        eventId: event._id, eventAccessSubjectId: subject._id,
+        permissionKey: "application.ai_recommendation.read", scopeType: "event",
+      });
+    }
     const state = args.state;
-    if (args.origin !== undefined || args.needsReview) {
+    if (args.origin !== undefined || args.needsReview || args.recommendationFilter) {
       const applications = paginator(ctx.db, schema).query("applications");
       const applicationQuery = state === "recorded"
         ? applications.withIndex("by_event_decision_stage", (index) =>
@@ -642,6 +729,8 @@ export const list = query({
             return null;
           }
           if (!(await applicationMatchesOrigin(ctx, application, args.origin))) return null;
+          if (args.recommendationFilter &&
+            !(await applicationMatchesRecommendation(ctx, application, args.recommendationFilter))) return null;
           const projected = await visibleApplicationListProjection(
             ctx,
             event._id,
@@ -659,7 +748,7 @@ export const list = query({
         })
         .paginate({
           ...args.paginationOpts,
-          maximumRowsRead: maximumApplicantTeamsPerEvent + 1,
+          maximumRowsRead: args.recommendationFilter ? maximumAdmissionPageSize : maximumApplicantTeamsPerEvent + 1,
         });
     }
     const applications = ctx.db.query("applications");
@@ -700,11 +789,12 @@ export const list = query({
 export const searchApplications = query({
   args: {
     eventSlug: v.string(),
-    state: admissionQueueStage,
+    state: v.optional(admissionQueueStage),
     search: v.string(),
     origin: v.optional(admissionTeamOrigin),
     completedReviewCount: v.optional(v.literal(1)),
     needsReview: v.optional(v.literal(true)),
+    recommendationFilter: v.optional(recommendationFilter),
   },
   returns: v.object({
     applications: v.array(listItem),
@@ -717,15 +807,22 @@ export const searchApplications = query({
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
+    if (args.recommendationFilter?.source === "idea") {
+      await requirePermission(ctx, {
+        eventId: event._id, eventAccessSubjectId: subject._id,
+        permissionKey: "application.ai_recommendation.read", scopeType: "event",
+      });
+    }
     const state = args.state;
     const applicationQuery = ctx.db.query("applications");
     const applications = await (state === "recorded"
       ? applicationQuery.withIndex("by_event_decision_stage", (index) =>
           index.eq("eventId", event._id).eq("decisionStage", "recorded"),
         )
-      : applicationQuery.withIndex("by_event_state_submitted", (index) =>
-          index.eq("eventId", event._id).eq("state", state),
-        )
+      : applicationQuery.withIndex("by_event_state_submitted", (index) => {
+          const eventIndex = index.eq("eventId", event._id);
+          return state ? eventIndex.eq("state", state) : eventIndex;
+        })
     ).take(maximumApplicantTeamsPerEvent + 1);
     if (applications.length > maximumApplicantTeamsPerEvent) {
       throw new Error(
@@ -752,7 +849,7 @@ export const searchApplications = query({
       applications
         .filter(
           (application) =>
-            applicationQueueStage(application) === state &&
+            (state === undefined || applicationQueueStage(application) === state) &&
             (readableScopeIds === null || readableScopeIds.has(application._id)) &&
             (args.completedReviewCount === undefined ||
               application.completedReviewCount === args.completedReviewCount),
@@ -784,20 +881,22 @@ export const searchApplications = query({
         const byName = left.teamName.localeCompare(right.teamName);
         return byName || left.application.submittedAt - right.application.submittedAt;
       });
-    const applicationsToProject = matches.slice(0, maximumApplicationSearchResults);
     const projected = [];
-    for (const { application } of applicationsToProject) {
+    for (const { application } of matches) {
+      if (args.recommendationFilter &&
+        !(await applicationMatchesRecommendation(ctx, application, args.recommendationFilter))) continue;
       const item = await applicationListProjection(ctx, event._id, subject._id, application);
       if (
         item &&
         (!args.needsReview || item.completedReviewCount < item.minimumHumanReviews)
       ) {
         projected.push(item);
+        if (projected.length > maximumApplicationSearchResults) break;
       }
     }
     return {
-      applications: projected,
-      truncated: matches.length > maximumApplicationSearchResults,
+      applications: projected.slice(0, maximumApplicationSearchResults),
+      truncated: projected.length > maximumApplicationSearchResults,
     };
   },
 });
