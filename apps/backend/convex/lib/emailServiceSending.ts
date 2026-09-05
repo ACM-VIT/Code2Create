@@ -103,6 +103,16 @@ export async function sendEmailThroughService(
       errorCode: "email_service_request_ambiguous",
     };
   }
+  // This route is owned by the email Worker. A missing route cannot have
+  // forwarded the request to a provider; keep it eligible for an ops retry.
+  if (response.status === 404) {
+    return {
+      status: "rejected",
+      provider: input.provider,
+      errorCode: "email_service_route_not_found",
+      retryable: false,
+    };
+  }
   let decoded: unknown;
   try {
     decoded = await readBoundedJsonResponse(response, 64 * 1_024);
