@@ -41,4 +41,3 @@ export const venueResponseEffect = v.union(
   v.literal("needs_ops"),
   v.literal("stale"),
 );
-
