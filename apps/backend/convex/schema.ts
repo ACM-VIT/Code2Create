@@ -1199,8 +1199,7 @@ export default defineSchema({
     kind: v.literal("outing_permission"),
     joinedAt: v.number(),
   })
-    .index("by_membership_kind", ["membershipId", "kind"])
-    .index("by_event_kind_joined", ["eventId", "kind", "joinedAt"]),
+    .index("by_membership_kind", ["membershipId", "kind"]),
 
   supportCases: defineTable({
     eventId: v.id("events"),

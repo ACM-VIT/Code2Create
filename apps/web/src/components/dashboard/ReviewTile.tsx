@@ -26,6 +26,8 @@ export type ReviewTileModel = {
   available: boolean;
   queue: {
     round: string;
+    status: string;
+    active: boolean;
     /** The team's one-based position while queued. */
     rank: number | null;
   } | null;
@@ -70,16 +72,18 @@ function ServiceQueueRow({
   );
 }
 
-function ReviewQueueRow({ rank }: { rank: number }) {
+function ReviewQueueRow({ rank, status }: { rank: number | null; status: string }) {
+  const detail = rank === null ? status : `${status} · Position ${rank}`;
+  const title = rank === null ? "Project review" : "Review queue";
   return (
     <div className="service-queue-row flex min-w-0 items-center border-t border-fg/10 pt-2 first:border-t-0 first:pt-0">
       <span className="min-w-0">
-        <span className="block truncate text-[12.5px] text-fg/90">Review queue</span>
+        <span className="block truncate text-[12.5px] text-fg/90">{title}</span>
         <span
-          aria-label={`Review queue rank ${rank}`}
+          aria-label={rank === null ? `Review status ${status}` : `Review status ${status}, rank ${rank}`}
           className="block truncate text-[10.5px] text-fg/45"
         >
-          Position {rank}
+          {detail}
         </span>
       </span>
     </div>
@@ -203,8 +207,7 @@ export function ReviewTile({ slot, model }: { slot: Slot; model: ReviewTileModel
       />
     );
   }
-  const reviewRank = queue?.rank ?? null;
-  const hasQueueRows = model.services.length > 0 || reviewRank !== null;
+  const hasQueueRows = model.services.length > 0 || queue !== null;
   const changeServiceQueue = async (kind: ServiceQueueKind, joined: boolean) => {
     setBusyKind(kind);
     setServiceError(null);
@@ -222,7 +225,7 @@ export function ReviewTile({ slot, model }: { slot: Slot; model: ReviewTileModel
       <div className={`${tileBody} !gap-2`}>
         <div className="flex shrink-0 items-baseline justify-between gap-3">
           <TileEyebrow>queues</TileEyebrow>
-          {reviewRank !== null && queue ? <span className="truncate text-[11px] text-fg/50">{queue.round}</span> : null}
+          {queue ? <span className="truncate text-[11px] text-fg/50">{queue.round}</span> : null}
         </div>
         {hasQueueRows ? (
           <div className="service-queue-list grid min-h-0 shrink-0 gap-2">
@@ -234,7 +237,7 @@ export function ReviewTile({ slot, model }: { slot: Slot; model: ReviewTileModel
                 onChange={(joined) => void changeServiceQueue(service.kind, joined)}
               />
             ))}
-            {reviewRank !== null ? <ReviewQueueRow rank={reviewRank} /> : null}
+            {queue ? <ReviewQueueRow rank={queue.rank} status={queue.status} /> : null}
           </div>
         ) : !model.available ? (
           <p className="m-0 text-[13px] leading-snug text-fg/65">Queues open once your place is confirmed.</p>

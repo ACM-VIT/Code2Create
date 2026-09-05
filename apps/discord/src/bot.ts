@@ -6,11 +6,20 @@ import {
   PermissionFlagsBits,
   type CategoryChannel,
   type Guild,
+  type GuildMember,
   type Message,
+  type Role,
   type TextChannel,
 } from "discord.js";
 
 import { BridgeRequestError, SupportBackend } from "./backend.ts";
+import {
+  nextSupportCategoryRolloverIndex,
+  supportCategoryHasSpace,
+  supportCategoryRolloverIndex,
+  supportCategoryRolloverName,
+  type SupportCategoryKind,
+} from "./categories.ts";
 import type { DiscordSupportConfig } from "./config.ts";
 import type { DiscordSupportDelivery, DiscordSupportState } from "./contracts.ts";
 import {
@@ -48,6 +57,40 @@ function channelTopic(supportCaseId: string) {
   return `Code2Create support case:${supportCaseId}`;
 }
 
+function validateSupportCategory(
+  guild: Guild,
+  botMember: GuildMember,
+  allowedRoles: readonly Role[],
+  category: CategoryChannel,
+) {
+  if (category.permissionsFor(guild.roles.everyone)?.has(PermissionFlagsBits.ViewChannel)) {
+    throw new Error("Discord support categories must not be visible to @everyone.");
+  }
+  const permissions = category.permissionsFor(botMember);
+  for (const permission of [
+    PermissionFlagsBits.ViewChannel,
+    PermissionFlagsBits.SendMessages,
+    PermissionFlagsBits.ReadMessageHistory,
+    PermissionFlagsBits.ManageChannels,
+    PermissionFlagsBits.AddReactions,
+  ]) {
+    if (!permissions?.has(permission)) {
+      throw new Error("The Discord bot lacks a required support-category permission.");
+    }
+  }
+  for (const role of allowedRoles) {
+    if (
+      !category.permissionsFor(role)?.has([
+        PermissionFlagsBits.ViewChannel,
+        PermissionFlagsBits.SendMessages,
+        PermissionFlagsBits.ReadMessageHistory,
+      ])
+    ) {
+      throw new Error("A configured Discord support role cannot use a ticket category.");
+    }
+  }
+}
+
 export class DiscordSupportBot {
   readonly client = new Client({
     intents: [
@@ -60,8 +103,9 @@ export class DiscordSupportBot {
   private readonly backend: SupportBackend;
   private readonly config: DiscordSupportConfig;
   private guild: Guild | null = null;
-  private openCategory: CategoryChannel | null = null;
-  private closedCategory: CategoryChannel | null = null;
+  private openCategories: CategoryChannel[] = [];
+  private closedCategories: CategoryChannel[] = [];
+  private allowedRoles: Role[] = [];
   private syncTimer: NodeJS.Timeout | null = null;
   private draining = false;
   private lastBackendSuccessAt = 0;
@@ -94,8 +138,8 @@ export class DiscordSupportBot {
   healthy(now = Date.now()) {
     return (
       this.client.isReady() &&
-      this.openCategory !== null &&
-      this.closedCategory !== null &&
+      this.openCategories.length > 0 &&
+      this.closedCategories.length > 0 &&
       now - this.lastBackendSuccessAt < 30_000
     );
   }
@@ -114,51 +158,127 @@ export class DiscordSupportBot {
     }
     const botMember = guild.members.me;
     if (botMember === null) throw new Error("The Discord bot guild member is unavailable.");
+    if (!botMember.permissions.has(PermissionFlagsBits.ManageChannels)) {
+      throw new Error("The Discord bot needs the guild-level Manage Channels permission.");
+    }
     const allowedRoles = await Promise.all(
       this.config.DISCORD_ALLOWED_ROLE_IDS.map((roleId) => guild.roles.fetch(roleId)),
     );
     if (allowedRoles.some((role) => role === null)) {
       throw new Error("A configured Discord support role is unavailable.");
     }
-    for (const category of [openCategory, closedCategory]) {
-      if (category.permissionsFor(guild.roles.everyone)?.has(PermissionFlagsBits.ViewChannel)) {
-        throw new Error("Discord support categories must not be visible to @everyone.");
-      }
-      const permissions = category.permissionsFor(botMember);
-      for (const permission of [
-        PermissionFlagsBits.ViewChannel,
-        PermissionFlagsBits.SendMessages,
-        PermissionFlagsBits.ReadMessageHistory,
-        PermissionFlagsBits.ManageChannels,
-        PermissionFlagsBits.AddReactions,
-      ]) {
-        if (!permissions?.has(permission)) {
-          throw new Error("The Discord bot lacks a required support-category permission.");
-        }
-      }
-      for (const role of allowedRoles) {
-        const permissions = role === null ? null : category.permissionsFor(role);
-        if (
-          !permissions?.has([
-            PermissionFlagsBits.ViewChannel,
-            PermissionFlagsBits.SendMessages,
-            PermissionFlagsBits.ReadMessageHistory,
-          ])
-        ) {
-          throw new Error("A configured Discord support role cannot use a ticket category.");
-        }
-      }
-    }
+    const resolvedAllowedRoles = allowedRoles.filter((role): role is Role => role !== null);
     this.guild = guild;
-    this.openCategory = openCategory;
-    this.closedCategory = closedCategory;
+    this.allowedRoles = resolvedAllowedRoles;
+    await guild.channels.fetch();
+    this.refreshCategoryPools(openCategory, closedCategory);
+    for (const category of [...this.openCategories, ...this.closedCategories]) {
+      validateSupportCategory(guild, botMember, resolvedAllowedRoles, category);
+    }
     await this.drain();
     this.syncTimer = setInterval(() => void this.drain(), syncIntervalMs);
     console.info("discord_support_ready", {
       guildId: guild.id,
-      openCategoryId: openCategory.id,
-      closedCategoryId: closedCategory.id,
+      openCategoryIds: this.openCategories.map((category) => category.id),
+      closedCategoryIds: this.closedCategories.map((category) => category.id),
     });
+  }
+
+  private refreshCategoryPools(
+    openBase: CategoryChannel = this.requireBaseCategory("open"),
+    closedBase: CategoryChannel = this.requireBaseCategory("closed"),
+  ) {
+    if (this.guild === null) throw new Error("Discord support guild is unavailable.");
+    const categories = [...this.guild.channels.cache.values()].filter(
+      (channel): channel is CategoryChannel => channel.type === ChannelType.GuildCategory,
+    );
+    this.openCategories = this.discoverCategoryPool("open", openBase, categories);
+    this.closedCategories = this.discoverCategoryPool("closed", closedBase, categories);
+  }
+
+  private requireBaseCategory(kind: SupportCategoryKind) {
+    if (this.guild === null) throw new Error("Discord support guild is unavailable.");
+    const categoryId = kind === "open"
+      ? this.config.DISCORD_OPEN_CATEGORY_ID
+      : this.config.DISCORD_CLOSED_CATEGORY_ID;
+    const category = this.guild.channels.cache.get(categoryId);
+    if (category?.type !== ChannelType.GuildCategory) {
+      throw new Error(`The Discord ${kind} support category is unavailable.`);
+    }
+    return category;
+  }
+
+  private discoverCategoryPool(
+    kind: SupportCategoryKind,
+    base: CategoryChannel,
+    categories: readonly CategoryChannel[],
+  ) {
+    const rollovers = categories
+      .flatMap((category) => {
+        if (category.id === base.id) return [];
+        const index = supportCategoryRolloverIndex(kind, category.name);
+        return index === null ? [] : [{ category, index }];
+      })
+      .sort((left, right) => left.index - right.index);
+    const indexes = new Set<number>();
+    for (const rollover of rollovers) {
+      if (indexes.has(rollover.index)) {
+        throw new Error(`Discord has duplicate ${kind} support rollover categories.`);
+      }
+      indexes.add(rollover.index);
+    }
+    return [base, ...rollovers.map((rollover) => rollover.category)];
+  }
+
+  private categoriesForState(state: DiscordSupportState) {
+    return isClosedState(state) ? this.closedCategories : this.openCategories;
+  }
+
+  private isManagedCategory(categoryId: string | null) {
+    return categoryId !== null && [...this.openCategories, ...this.closedCategories]
+      .some((category) => category.id === categoryId);
+  }
+
+  private async categoryWithSpace(state: DiscordSupportState) {
+    if (this.guild === null) throw new Error("Discord support guild is unavailable.");
+    let categories = this.categoriesForState(state);
+    const available = categories.find(
+      (category) => supportCategoryHasSpace(category.children.cache.size),
+    );
+    if (available) return available;
+
+    await this.guild.channels.fetch();
+    this.refreshCategoryPools();
+    categories = this.categoriesForState(state);
+    const refreshedAvailable = categories.find(
+      (category) => supportCategoryHasSpace(category.children.cache.size),
+    );
+    if (refreshedAvailable) return refreshedAvailable;
+
+    const kind: SupportCategoryKind = isClosedState(state) ? "closed" : "open";
+    const base = categories[0];
+    const botMember = this.guild.members.me;
+    if (!base || botMember === null) {
+      throw new Error("Discord support categories are unavailable.");
+    }
+    const index = nextSupportCategoryRolloverIndex(
+      kind,
+      categories.map((category) => category.name),
+    );
+    const category = await this.guild.channels.create({
+      name: supportCategoryRolloverName(kind, index),
+      type: ChannelType.GuildCategory,
+      permissionOverwrites: base.permissionOverwrites.cache,
+      reason: `Code2Create ${kind} support category rollover`,
+    });
+    validateSupportCategory(this.guild, botMember, this.allowedRoles, category);
+    categories.push(category);
+    console.info("discord_support_category_created", {
+      kind,
+      index,
+      categoryId: category.id,
+    });
+    return category;
   }
 
   private async drain() {
@@ -217,14 +337,13 @@ export class DiscordSupportBot {
         (channel): channel is TextChannel =>
           channel?.type === ChannelType.GuildText &&
           channel.topic === topic &&
-          (channel.parentId === this.config.DISCORD_OPEN_CATEGORY_ID ||
-            channel.parentId === this.config.DISCORD_CLOSED_CATEGORY_ID),
+          this.isManagedCategory(channel.parentId),
       ) ?? null
     );
   }
 
   private async openChannel(delivery: DiscordSupportDelivery) {
-    if (this.guild === null || this.openCategory === null || this.closedCategory === null) {
+    if (this.guild === null || this.openCategories.length === 0 || this.closedCategories.length === 0) {
       throw new Error("Discord support categories are unavailable.");
     }
     const existing =
@@ -235,9 +354,7 @@ export class DiscordSupportBot {
       await this.placeForState(existing, delivery.supportCase.state);
       return await this.sendDelivery(existing, delivery);
     }
-    const parent = isClosedState(delivery.supportCase.state)
-      ? this.closedCategory
-      : this.openCategory;
+    const parent = await this.categoryWithSpace(delivery.supportCase.state);
     const channel = await this.guild.channels.create({
       name: supportChannelName(delivery),
       type: ChannelType.GuildText,
@@ -284,11 +401,11 @@ export class DiscordSupportBot {
   }
 
   private async placeForState(channel: TextChannel, state: DiscordSupportState) {
-    if (this.openCategory === null || this.closedCategory === null) {
+    if (this.openCategories.length === 0 || this.closedCategories.length === 0) {
       throw new Error("Discord support categories are unavailable.");
     }
-    const parent = isClosedState(state) ? this.closedCategory : this.openCategory;
-    if (channel.parentId !== parent.id) {
+    if (!this.categoriesForState(state).some((category) => category.id === channel.parentId)) {
+      const parent = await this.categoryWithSpace(state);
       await channel.setParent(parent.id, {
         lockPermissions: true,
         reason: `Code2Create support case moved to ${state}`,
@@ -310,8 +427,7 @@ export class DiscordSupportBot {
       message.webhookId !== null ||
       message.guildId !== this.config.DISCORD_GUILD_ID ||
       message.channel.type !== ChannelType.GuildText ||
-      (message.channel.parentId !== this.config.DISCORD_OPEN_CATEGORY_ID &&
-        message.channel.parentId !== this.config.DISCORD_CLOSED_CATEGORY_ID)
+      !this.isManagedCategory(message.channel.parentId)
     ) {
       return;
     }

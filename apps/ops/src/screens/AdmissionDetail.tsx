@@ -115,6 +115,8 @@ export function AdmissionDetail({ accountEmail }: { accountEmail: string }) {
         <span className="state-label">{applicationStateLabels[detail.application.state]}</span>
       </header>
 
+      <AdmissionReviewOverview detail={detail} />
+
       <section className="application-next-step">
         <p className="eyebrow">What happens next</p>
         <h2>{step.title}</h2>
@@ -251,6 +253,116 @@ export function AdmissionDetail({ accountEmail }: { accountEmail: string }) {
       </div>
     </article>
   );
+}
+
+function AdmissionReviewOverview({ detail }: { detail: AdmissionDetailData }) {
+  const completed = detail.application.completedReviewCount;
+  const required = detail.policy.minimumHumanReviews;
+  const remaining = Math.max(0, required - completed);
+  const ai = detail.aiRecommendationVisible ? detail.aiRecommendation : null;
+  const aiHeadline = !detail.aiRecommendationVisible
+    ? "Restricted"
+    : ai?.recommendation
+      ? applicationDecisionLabels[ai.recommendation]
+      : ai
+        ? "No recommendation"
+        : "No analysis";
+  const aiState = !detail.aiRecommendationVisible
+    ? "Not visible"
+    : ai
+      ? admissionRecommendationStateLabels[ai.state]
+      : "Unavailable";
+  const humanState = detail.application.humanDecision
+    ? applicationDecisionLabels[detail.application.humanDecision]
+    : remaining === 0
+      ? "Ready"
+      : `${remaining} remaining`;
+
+  return (
+    <section className="mt-5 grid gap-3 md:grid-cols-2" aria-label="Review summary">
+      <article className="rounded-xl border-l-2 border-green/70 bg-surface p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="m-0 text-[11px] font-medium tracking-[0.12em] text-ink-3 uppercase">
+              Human review
+            </p>
+            <p className="mt-2 mb-0 flex items-baseline gap-2">
+              <strong className="text-[30px] leading-none font-medium tabular-nums text-ink">
+                {completed}
+              </strong>
+              <span className="text-[13px] text-ink-3">of {required} complete</span>
+            </p>
+          </div>
+          <span className="rounded-md bg-field px-2 py-1 text-[11px] text-ink-2">
+            {humanState}
+          </span>
+        </div>
+        <dl className="mt-5 mb-0 grid grid-cols-3 gap-3 border-t border-line pt-4">
+          <ReviewStat label="Completed" value={completed} />
+          <ReviewStat label="Required" value={required} />
+          <ReviewStat label="Remaining" value={remaining} />
+        </dl>
+      </article>
+
+      <article className="rounded-xl border-l-2 border-amber/70 bg-surface p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <p className="m-0 text-[11px] font-medium tracking-[0.12em] text-ink-3 uppercase">
+              AI review
+            </p>
+            <p
+              className={`mt-2 mb-0 truncate text-[24px] leading-none font-medium ${aiDecisionTone(ai?.recommendation)}`}
+            >
+              {aiHeadline}
+            </p>
+          </div>
+          <span className="shrink-0 rounded-md bg-field px-2 py-1 text-[11px] text-ink-2">
+            {aiState}
+          </span>
+        </div>
+        <dl className="mt-5 mb-0 grid grid-cols-2 gap-3 border-t border-line pt-4 sm:grid-cols-4">
+          <ReviewStat
+            label="Criteria"
+            value={
+              detail.aiRecommendationVisible
+                ? `${ai?.criterionAssessments.length ?? 0}/${detail.policy.criteria.length}`
+                : "—"
+            }
+          />
+          <ReviewStat
+            label="Confidence"
+            value={detail.aiRecommendationVisible ? (ai?.confidence ?? "—") : "—"}
+          />
+          <ReviewStat
+            label="Strengths"
+            value={detail.aiRecommendationVisible ? (ai?.strengths.length ?? 0) : "—"}
+          />
+          <ReviewStat
+            label="Concerns"
+            value={detail.aiRecommendationVisible ? (ai?.concerns.length ?? 0) : "—"}
+          />
+        </dl>
+      </article>
+    </section>
+  );
+}
+
+function ReviewStat({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div>
+      <dt className="text-[11px] text-ink-3">{label}</dt>
+      <dd className="mt-1 mb-0 [overflow-wrap:anywhere] text-[15px] font-medium tabular-nums text-ink capitalize">
+        {value}
+      </dd>
+    </div>
+  );
+}
+
+function aiDecisionTone(decision: ApplicationDecision | undefined) {
+  if (decision === "accept") return "text-green";
+  if (decision === "waitlist") return "text-amber";
+  if (decision === "decline") return "text-red";
+  return "text-ink";
 }
 
 function OfferControl({ detail }: { detail: AdmissionDetailData }) {

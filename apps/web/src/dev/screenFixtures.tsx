@@ -780,6 +780,8 @@ const dashboardReview: ReviewTileModel = {
   available: true,
   queue: {
     round: "Midpoint review",
+    status: "Review in progress",
+    active: true,
     rank: null,
   },
   showCode: {
@@ -811,7 +813,7 @@ const reviewMusic: MusicTileModel = { ...dashboardMusic, nowPlaying: null, queue
 const quietReview: ReviewTileModel = { available: true, queue: null, showCode: null, services: [], setServiceQueue: async () => {} };
 const queuedReview: ReviewTileModel = {
   ...dashboardReview,
-  queue: { round: "Midpoint review", rank: 3 },
+  queue: { round: "Midpoint review", status: "In queue", active: true, rank: 3 },
   showCode: null,
 };
 

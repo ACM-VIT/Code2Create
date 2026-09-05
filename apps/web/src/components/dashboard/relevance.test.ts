@@ -33,7 +33,7 @@ test("an open review round outranks everything and an empty perk list makes way"
     ...quiet,
     review: {
       ...quiet.review,
-      queue: { round: "R1", rank: 3 },
+      queue: { round: "R1", status: "In queue", active: true, rank: 3 },
       showCode: { sessionId: "review-session", mint: async () => ({ payload: "", manualCode: "", expiresAt: 0, serverNow: 0 }) },
     },
     music: { ...quiet.music, window: { name: "w", endsAt: now + 1, requestsOpen: true, votingOpen: true, playbackPaused: false, requestsUsed: 0, requestsAllowed: 5, votesUsed: 0, votesAllowed: 10 } },
@@ -42,6 +42,18 @@ test("an open review round outranks everything and an empty perk list makes way"
   assert.equal(seating.review, "blossom");
   assert.equal(seating.benefits, undefined);
   assert.notEqual(seating.music, undefined);
+});
+
+test("an active review without a queue rank remains a top dashboard item", () => {
+  const called: DashboardModels = {
+    ...quiet,
+    review: {
+      ...quiet.review,
+      queue: { round: "R1", status: "Reviewers on the way", active: true, rank: null },
+    },
+  };
+  const scores = Object.fromEntries(tileRelevance(called).map((entry) => [entry.key, entry.score]));
+  assert.equal(scores.review, 96);
 });
 
 test("a phase boundary within the hour lifts the event tile, an open checkpoint lifts updates", () => {

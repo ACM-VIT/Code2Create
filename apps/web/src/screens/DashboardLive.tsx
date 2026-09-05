@@ -1,5 +1,5 @@
 import { api } from '@code2create/backend/api'
-import { mergeSynesthesiaVoteCounts } from '@code2create/domain';
+import { mergeSynesthesiaVoteCounts, teamRoundStateParticipantLabels } from '@code2create/domain';
 import type { FunctionReturnType } from 'convex/server'
 import { useAction, useMutation, useQuery } from 'convex/react'
 import { useNavigate } from 'react-router-dom'
@@ -258,6 +258,8 @@ export function DashboardLive({
     queue: queue
       ? {
           round: queue.round.name,
+          status: teamRoundStateParticipantLabels[queue.state],
+          active: queue.state !== 'unassigned',
           rank: queue.teamsAhead === undefined ? null : queue.teamsAhead + 1,
         }
       : null,

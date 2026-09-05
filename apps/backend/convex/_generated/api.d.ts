@@ -162,6 +162,7 @@ import type * as lib_participantEligibility from "../lib/participantEligibility.
 import type * as lib_participantNotificationDelivery from "../lib/participantNotificationDelivery.js";
 import type * as lib_participantNovelty from "../lib/participantNovelty.js";
 import type * as lib_participantPolicy from "../lib/participantPolicy.js";
+import type * as lib_participantServiceQueue from "../lib/participantServiceQueue.js";
 import type * as lib_permissionBundleEntries from "../lib/permissionBundleEntries.js";
 import type * as lib_permissionCatalog from "../lib/permissionCatalog.js";
 import type * as lib_permissionDelegation from "../lib/permissionDelegation.js";
@@ -443,6 +444,7 @@ declare const fullApi: ApiFromModules<{
   "lib/participantNotificationDelivery": typeof lib_participantNotificationDelivery;
   "lib/participantNovelty": typeof lib_participantNovelty;
   "lib/participantPolicy": typeof lib_participantPolicy;
+  "lib/participantServiceQueue": typeof lib_participantServiceQueue;
   "lib/permissionBundleEntries": typeof lib_permissionBundleEntries;
   "lib/permissionCatalog": typeof lib_permissionCatalog;
   "lib/permissionDelegation": typeof lib_permissionDelegation;
@@ -594,6 +596,7 @@ export declare const components: {
   betterAuth: import("@convex-dev/better-auth/_generated/component.js").ComponentApi<"betterAuth">;
   agent: import("@convex-dev/agent/_generated/component.js").ComponentApi<"agent">;
   reviewQueue: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"reviewQueue">;
+  participantServiceQueues: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"participantServiceQueues">;
   synesthesiaVotes: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"synesthesiaVotes">;
   admissionWorkpool: import("@convex-dev/workpool/_generated/component.js").ComponentApi<"admissionWorkpool">;
   integrationWorkpool: import("@convex-dev/workpool/_generated/component.js").ComponentApi<"integrationWorkpool">;

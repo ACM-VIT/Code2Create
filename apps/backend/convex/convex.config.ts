@@ -17,6 +17,7 @@ const app = defineApp({
 app.use(betterAuth);
 app.use(agent);
 app.use(aggregate, { name: "reviewQueue" });
+app.use(aggregate, { name: "participantServiceQueues" });
 app.use(aggregate, { name: "synesthesiaVotes" });
 app.use(workpool, { name: "admissionWorkpool" });
 app.use(workpool, { name: "integrationWorkpool" });

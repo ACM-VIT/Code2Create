@@ -2,8 +2,11 @@
 
 This service mirrors Convex support cases into the Code2Create Discord server. The operations
 dashboard remains the source of truth and keeps its existing workflows. Each case receives one
-private text channel in the configured open category. Resolving or closing a case moves that
-channel to the configured closed category; reopening it moves the channel back.
+private text channel in an open support category. Resolving or closing a case moves that channel
+to a closed support category; reopening it moves the channel back. The configured categories are
+the first category and permission template for each state. When one reaches Discord's 50-channel
+limit, the bot creates and reuses numbered categories such as `c2c-support-open-02` and
+`c2c-support-closed-02`.
 
 Messages written in a ticket channel by a member with an allowed role become public support notes
 on the website. Bot and webhook messages are ignored. Discord message IDs and backend delivery
@@ -18,9 +21,11 @@ claims make both directions idempotent.
 - Allowed roles: `1411787267244032010`, `1412173230717800538`
 
 Enable the bot's **Message Content Intent** in the Discord developer portal. The bot needs View
-Channels, Manage Channels, Send Messages, Read Message History, and Add Reactions in both
-categories. Neither category may be visible to `@everyone`; startup fails closed if the category,
-role, or permission contract is invalid.
+Channels, Manage Channels, Send Messages, Read Message History, and Add Reactions in both base
+categories, plus guild-level Manage Channels so it can create rollover categories. Neither base or
+rollover category may be visible to `@everyone`; startup fails closed if the category, role, or
+permission contract is invalid. Rollover categories copy the base category's permission
+overwrites and are rediscovered after restarts.
 
 ## Production operation
 
