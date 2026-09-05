@@ -62,13 +62,15 @@ Six panels with SC leads need 18 SC and 12 JC, leaving 5 SC and 45 JC outside th
 
 [Track reviewer venue presence and escalate unreported departures](https://github.com/ACM-VIT/Code2Create/pull/122) was reviewed at `0c03ff6fadd90c6d3f4c1000e8ad85f214f5252d`. It adds venue configuration, opt-in foreground/background location checks, explicit departure reporting, ops visibility, native reminders and consented calls. It fits the availability portion of this flow, but it is separate from panel duty in that PR.
 
-The PR's changes are integrated into the local working tree. Declared departures share the active/scoring review lock and end duty between reviews. Native and backend checks reject location samples captured before the current tracking generation. GPS is advisory and never changes staffing by itself. The separate confirm-return mutation and duty-home venue shortcut were removed: the reviewer returns through normal clock-in, which also cancels an older unresolved call check.
+The PR's feature work was integrated into staging in `761d839`. Declared departures share the active/scoring review lock and end duty between reviews. Native and backend checks reject location samples captured before the current tracking generation. GPS is advisory and never changes staffing by itself. The separate confirm-return mutation and duty-home venue shortcut were removed: the reviewer returns through normal clock-in, which also cancels an older unresolved call check.
 
 A sustained outside reading triggers an app reminder, then an opt-in conversational call using the agent/version selected in ops. The agent asks about current presence, availability and return time, clarifies, and requests agreement to a read-back. Ops sees the recorded answer, timestamp, transcript, call delivery status and resulting staffing action. A current, explicit unavailable response ends duty and requests substitution between reviews. Available, unclear, help requested and no answer remain distinct. Active/scoring review never permits automatic departure or replacement. Expired calls, revoked consent, changed tracking/policy and resolved departures cannot apply a late answer.
 
 The concrete [voice-agent setup](../apps/voice/agents/venue-confirmation.md) is ready for publication and rehearsal. The implementation stores answers/transcripts and does not enable or download audio recordings. Selecting an agent is optional; without it, GPS/app/ops checks continue and no conversational calls dispatch.
 
-The detailed PR review is in `outputs/event-flow/pr-122-review.md`. No remote PR merge, comment, push or production deployment was performed.
+The follow-up preserves a departure without creating a terminal call record while venue-call consent is missing, so consent granted later can still trigger one call if the departure remains current. Native opt-out stops local uploads immediately and persists an owner-scoped, idempotent server-disable request for foreground retry. Obsolete requests cannot disable a replacement tracking generation. Venue reminders use the shared native push sender and retire invalid tokens only when the failed token still matches the device registration.
+
+The detailed initial PR review is in `outputs/event-flow/pr-122-review.md`. These changes do not replace physical GPS, notification and voice rehearsal.
 
 ## Validation boundary
 

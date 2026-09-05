@@ -93,6 +93,7 @@ export const setMonitoring = mutation({
     eventSlug: v.string(),
     installationId: v.string(),
     enabled: v.boolean(),
+    ownerId: v.string(),
     expectedGeneration: v.optional(v.number()),
     clientOperationId: v.string(),
   },
@@ -102,6 +103,12 @@ export const setMonitoring = mutation({
       ctx,
       args.eventSlug,
     );
+    if (person.authUserId !== args.ownerId) {
+      throw new ConvexError({
+        code: "VENUE_OWNER_CHANGED",
+        message: "Sign in with the account that requested this venue check change.",
+      });
+    }
     const device = await venueDevice(
       ctx,
       event._id,

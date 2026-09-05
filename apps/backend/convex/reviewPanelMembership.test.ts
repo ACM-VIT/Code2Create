@@ -2360,6 +2360,7 @@ describe("round availability confirmation", () => {
         (await backend.run((ctx) => ctx.db.get(clockIn.clockInId)))?.status,
       ).toBe("present");
       await reviewer.identity.mutation(api.reviewerVenue.setMonitoring, {
+        ownerId: reviewer.authUserId,
         eventSlug: fixture.eventSlug,
         installationId: reviewer.installationId,
         enabled: true,
@@ -2829,6 +2830,7 @@ async function prepareReviewerClockIn(backend: BackendTest, fixture: Fixture) {
   });
   return {
     installationId,
+    authUserId,
     identity: backend.withIdentity({ subject: authUserId, sessionId: authSessionId,
     }),
   };
