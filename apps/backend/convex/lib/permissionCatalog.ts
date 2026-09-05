@@ -310,8 +310,6 @@ export const permissionCatalog = {
   "score.values.read": { scopes: ["round"], eventWide: true },
   "scorecard.correction.open": { scopes: ["scorecard", "review"], eventWide: true },
   "scorecard.void": { scopes: ["scorecard", "review"], eventWide: true },
-  "score.release": { scopes: ["round"], eventWide: true },
-  "score.feedback.read": { scopes: ["team"], eventWide: false },
 } as const satisfies Record<string, PermissionDefinition>;
 
 export type PermissionKey = keyof typeof permissionCatalog;

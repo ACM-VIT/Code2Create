@@ -105,5 +105,6 @@ minimumReleaseAgeExclude:
   - '@kitlangton/rolling-number@0.3.0'
 patchedDependencies:
   "@flue/runtime@2.0.3": patches/@flue__runtime@2.0.3.patch
+  '@kitlangton/rolling-number@0.3.0': patches/@kitlangton__rolling-number@0.3.0.patch
   balloons-js@0.0.3: patches/balloons-js@0.0.3.patch
   "convex-helpers@0.1.123": patches/convex-helpers@0.1.123.patch

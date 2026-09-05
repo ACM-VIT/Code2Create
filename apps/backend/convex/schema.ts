@@ -4024,43 +4024,6 @@ export default defineSchema({
     .index("by_snapshot", ["closeSnapshotId"])
     .index("by_event_state_updated", ["eventId", "state", "updatedAt"]),
 
-  scoreReleaseVersions: defineTable({
-    eventId: v.id("events"),
-    roundId: v.id("reviewRounds"),
-    closeSnapshotId: v.id("roundCloseSnapshots"),
-    roundExportId: v.id("roundExports"),
-    policyVersion: v.string(),
-    includeCriterionScores: v.boolean(),
-    includeTotalScore: v.boolean(),
-    includeSharedFindings: v.boolean(),
-    includeSharedCommitments: v.boolean(),
-    checksum: v.string(),
-    publishedByPersonId: v.id("people"),
-    publishedAt: v.number(),
-    reason: v.string(),
-  }).index("by_round", ["roundId"]),
-
-  scoreReleaseEntries: defineTable({
-    eventId: v.id("events"),
-    roundId: v.id("reviewRounds"),
-    releaseId: v.id("scoreReleaseVersions"),
-    teamId: v.id("teams"),
-    reviewSessionId: v.id("reviewSessions"),
-    criterionResults: v.array(
-      v.object({
-        criterionId: v.id("reviewRubricCriteria"),
-        meanScore: v.number(),
-        weightedPoints: v.number(),
-      }),
-    ),
-    totalPoints: v.number(),
-    sharedFindings: v.optional(v.string()),
-    sharedCommitments: v.optional(v.string()),
-    createdAt: v.number(),
-  })
-    .index("by_release_team", ["releaseId", "teamId"])
-    .index("by_team_time", ["teamId", "createdAt"]),
-
   integrationPolicyVersions: defineTable({
     eventId: v.id("events"),
     version: v.number(),

@@ -188,7 +188,7 @@ The bounded export worker reproduces every selected result from the immutable su
 
 A different person must hold both `round.export.read` and `round.export.verify` for that exact round, use a current scoped authorization, download/open both files, compare the displayed counts, and give a reason. Verification reads the exact S3 object versions again and checks both hashes before one version-checked mutation changes the export to `verified` and the round to `closed`. There is no other ordinary path to `closed`.
 
-`round.reopen` is independent authority for that exact round. A reopen must occur before participant feedback is released and before a later round moves beyond draft. The caller must have current authorization and give a reason. The reopen marks the verified export `superseded` without deleting its files or audit history. It clears the active close pointers and returns the round to `open`. A later close produces a new revision. A released round or a round with downstream activity needs an incident-specific remedy instead of this ordinary command. The caller’s role is irrelevant throughout.
+`round.reopen` is independent authority for that exact round. A reopen must occur before a later round moves beyond draft. The caller must have current authorization and give a reason. The reopen marks the verified export `superseded` without deleting its files or audit history. It clears the active close pointers and returns the round to `open`. A later close produces a new revision. A round with downstream activity needs an incident-specific remedy instead of this ordinary command. The caller’s role is irrelevant throughout.
 
 ## 11. Paper review recovery
 
@@ -232,19 +232,7 @@ A participant may report a process problem such as a missing panel member, incor
 
 Operations publishes the correction-request deadline with the round. The complaint window and complaint remedies remain board decisions.
 
-## 14. Participant feedback
-
-The release policy decides whether participants receive:
-
-- commitments;
-- criterion-level scores;
-- written feedback;
-- total score;
-- finalist decision reason.
-
-Private reviewer notes, conflict reports, other teams’ results, and staff audit details are never participant feedback.
-
-## 15. Exports
+## 14. Exports
 
 Each round export contains:
 
@@ -259,7 +247,7 @@ Each round export contains:
 
 JSON preserves the relationship and version history needed to audit or reproduce the adjudicated result. CSV contains one row per active result rating plus explicit excluded/withdrawn markers for practical analysis. Neither file is a database backup: unrelated canceled review attempts, attendance/presence, provider credentials, and other event domains remain in Convex backups. Both downloads are protected and audited.
 
-## 16. Acceptance checks
+## 15. Acceptance checks
 
 - A reviewer cannot score an unassigned criterion.
 - Peer values remain hidden during independent scoring.
@@ -280,4 +268,4 @@ JSON preserves the relationship and version history needed to audit or reproduce
 - Starting close cannot jump directly from `open` to `closed`; it freezes one outcome per team and immediately blocks score, correction, paper-import, and review-completion writes through the round state.
 - Export generation fails if a selected total, input checksum, criterion input-version list, rubric formula, rating bound, or displayed count cannot be reproduced from the frozen records.
 - Only a different person with independently granted read and verify authority can close the round, after both exact S3 object versions pass byte-count and SHA-256 verification.
-- Reopen preserves and supersedes the verified export, cannot run after participant feedback or downstream round activity, and forces a later close to create a higher revision.
+- Reopen preserves and supersedes the verified export, cannot run after downstream round activity, and forces a later close to create a higher revision.

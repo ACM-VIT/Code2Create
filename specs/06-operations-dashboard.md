@@ -391,7 +391,7 @@ Round publication also validates every assigned and reserve reviewer against tha
 
 `closing` freezes judging writes and generates the round export. The page shows the frozen team dispositions, selected-review counts, generation state, revision, failure, file sizes, and short checksums. A failed export leaves a visible blocker and an independently permissioned retry action.
 
-The starter and verifier must be different people. The verifier needs both file-read and verify authority, opens the two protected downloads, attests that the displayed counts match, and gives a reason. The backend checks the exact stored object versions again before closing. The direct `open → closed` control does not exist. Reopen stays hidden unless its independent exact-round grant is effective and is blocked after participant feedback or downstream round activity.
+The starter and verifier must be different people. The verifier needs both file-read and verify authority, opens the two protected downloads, attests that the displayed counts match, and gives a reason. The backend checks the exact stored object versions again before closing. The direct `open → closed` control does not exist. Reopen stays hidden unless its independent exact-round grant is effective and is blocked after downstream round activity.
 
 Review-round check-in is not a participant hacking-session check-in. The attendance schedule and the judging round schedule may overlap but keep separate records and policy.
 
@@ -598,13 +598,13 @@ A separate scoring-governance view requires `score.completeness.read`; opening n
 
 The default view shows completeness, not a winner leaderboard during active reviews.
 
-The round list reads only round metadata, export state, release state, and capability flags. Opening
+The round list reads only round metadata, export state, and capability flags. Opening
 one round subscribes to a compact exact blocker summary plus bounded pages of review sessions. The
 operator explicitly loads later pages; the summary never mistakes the loaded page for round-wide
 truth. Numeric values are a separate, explicit view whose criteria and completed-review rows load in
 bounded pages only after the operator opens them.
 
-`scorecard.correction.open`, `scorecard.void`, and `score.release` are independent grants. None permits typing over a submitted score.
+`scorecard.correction.open` and `scorecard.void` are independent grants. Neither permits typing over a submitted score.
 
 ## 15. Support desk
 
@@ -875,7 +875,7 @@ Manual incident records are reconciled after recovery under the reliability proc
 - Round close lists exact blocking sessions, criteria, and corrections.
 - Starting close freezes writes and shows export progress; it cannot display the round as closed before a different authorized person verifies both protected files.
 - File read, retry, verify, and reopen controls each disappear and fail server-side when their own exact-round grant is absent.
-- Reopen keeps the prior verified revision visible as superseded and cannot run after feedback release or a later round starts.
+- Reopen keeps the prior verified revision visible as superseded and cannot run after a later round starts.
 - An override permission fails outside its exact scope or without its required current authorization and reason.
 - Synesthesia catalog read, window read/manage/publish, queue read, moderation, scheduling, playback, report read/resolve, and requester-access commands fail independently when their own grant is absent.
 - Two operators cannot start different requests in the same window; a stale request/window/report/access version changes nothing.

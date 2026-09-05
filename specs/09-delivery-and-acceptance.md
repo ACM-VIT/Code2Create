@@ -141,8 +141,7 @@ Deliver:
 - round close snapshot;
 - JSON and CSV exports;
 - independent export verification;
-- round close and reopen; and
-- participant feedback release.
+- round close and reopen.
 
 Exit when the export reproduces every selected result from immutable inputs. A different authorized person must verify the files before close.
 
