@@ -1,5 +1,5 @@
 import { api } from '@code2create/backend/api'
-import type { GameKey } from '@code2create/domain'
+import { gameDefinition, type GameKey } from '@code2create/domain'
 import { useMutation, useQuery } from 'convex/react'
 import type { FunctionReturnType } from 'convex/server'
 import {
@@ -366,7 +366,18 @@ function GameDialog({ game, onClose }: { game: GameEntry; onClose: () => void })
     setError(null)
     recorder.start()
   }, [recorder])
-  const onRoundEnd = useCallback((score: number) => recorder.end(score), [recorder])
+  const onRoundEnd = useCallback(
+    (score: number) => {
+      // The server refuses a score above the game's published maximum, which is
+      // right for Pac-Man — its ceiling is the board's own and anything above it
+      // was never played. The endless games carry a bound rather than a ceiling,
+      // so an exceptional round is recorded at the cap instead of being thrown
+      // away with an error.
+      const maximum = gameDefinition(gameKey)?.maximumScore
+      recorder.end(maximum === undefined ? score : Math.min(score, maximum))
+    },
+    [gameKey, recorder],
+  )
 
   const { Board } = game
   const modes: readonly GameMode[] | undefined = game.modes

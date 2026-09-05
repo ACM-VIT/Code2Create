@@ -197,7 +197,10 @@ export default function Map({
         </button>
       )}
     </div>
-    <ul aria-label="Lives" className="flex gap-2 p-2">
+    {/* `list-none` is deliberate: the portal loads Tailwind's utilities without
+        its preflight, so a list keeps the browser's own bullets and each heart
+        would wear a white dot. */}
+    <ul aria-label="Lives" className="flex list-none gap-2 p-2">
       {Array.from({ length: game.lives }, (_, i) => (
         <li key={i} className="size-(--maze-cell) bg-[url(/games/pacman/heart.svg)] bg-contain bg-no-repeat" />
       ))}
