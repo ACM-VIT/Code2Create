@@ -2289,6 +2289,18 @@ export async function createAdmissionReviewAssignment(
       message: "That person already reviewed the current application version.",
     });
   }
+  const reserved = await liveApplicationAssignments(
+    ctx,
+    args.application,
+    args.now,
+    policy.minimumHumanReviews - args.application.completedReviewCount,
+  );
+  if (args.application.completedReviewCount + reserved.length >= policy.minimumHumanReviews) {
+    throw new ConvexError({
+      code: "REVIEW_SLOTS_CLAIMED",
+      message: "The remaining reviews were just claimed. Choose another submission.",
+    });
+  }
   const assignmentId = await ctx.db.insert("admissionReviewAssignments", {
     eventId: args.application.eventId,
     applicationId: args.application._id,
@@ -2535,10 +2547,6 @@ export const claimReview = mutation({
         existing.applicationContentVersion === application.contentVersion) {
       assignmentId = existing._id;
     } else {
-      const reserved = await liveApplicationAssignments(ctx, application, now, policy.minimumHumanReviews);
-      if (application.completedReviewCount + reserved.length >= policy.minimumHumanReviews) {
-        throw new ConvexError({ code: "REVIEW_SLOTS_CLAIMED", message: "The remaining reviews were just claimed. Choose another submission." });
-      }
       let currentApplication = application;
       if (existing) {
         const cancelled = await cancelAdmissionReviewAssignment(ctx, {
