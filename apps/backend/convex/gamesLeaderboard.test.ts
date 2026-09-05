@@ -14,7 +14,7 @@ const betterAuthModules = import.meta.glob(
 type BackendTest = TestConvex<typeof schema>;
 
 /** Pac-Man's published bound, and the rate a round is held to. */
-const maximumScore = 25_000;
+const maximumScore = 20_830;
 const maximumScorePerSecond = 750;
 
 describe("games leaderboard", () => {

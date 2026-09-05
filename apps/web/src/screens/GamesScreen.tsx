@@ -1,7 +1,7 @@
 import { api } from '@code2create/backend/api'
 import { useMutation, useQuery } from 'convex/react'
 import type { FunctionReturnType } from 'convex/server'
-import { Suspense, useCallback, useRef, useState, type ReactNode } from 'react'
+import { Suspense, useCallback, useMemo, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 
 import { PetalCard } from '../components/portal/PetalCard'
@@ -9,6 +9,7 @@ import { PortalScene } from '../components/portal/PortalScene'
 import { games, type GameEntry } from '../games/catalog'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
+import { createRoundRecorder } from '../lib/gameRounds'
 
 /**
  * The arcade: one game at a time, with the board above and its leaderboard
@@ -68,40 +69,30 @@ function GamePanel({ game }: { game: GameEntry }) {
   const startRound = useMutation(api.games.startRound)
   const recordRound = useMutation(api.games.recordRound)
   const [error, setError] = useState<string | null>(null)
-  // The run the current round is being played in. A ref rather than state: the
-  // board must not re-render when it lands, and only the round's end reads it.
-  const runId = useRef<RunId | null>(null)
+  // Pairing the round with its run is the same waiting problem on every game,
+  // so it lives in `createRoundRecorder` where it can be tested without a
+  // browser. One recorder per game, kept across renders so a round in progress
+  // keeps the run it was opened with.
+  const recorder = useMemo(
+    () =>
+      createRoundRecorder<RunId>({
+        openRun: () =>
+          startRound({ eventSlug, gameKey: game.key }).then((opened) => opened.runId),
+        recordRound: (round) =>
+          recordRound({ eventSlug, gameKey: game.key, score: round.score, runId: round.runId }),
+        // A lost round is not worth interrupting play for; the message sits
+        // under the board and the next round tries again.
+        onError: (cause) => setError(readableError(cause)),
+      }),
+    [game.key, recordRound, startRound],
+  )
 
   const onRoundStart = useCallback(() => {
     setError(null)
-    runId.current = null
-    void startRound({ eventSlug, gameKey: game.key })
-      .then((opened) => {
-        runId.current = opened.runId
-      })
-      .catch((cause: unknown) => {
-        // Opening the run is what makes the round recordable, so say so now
-        // rather than letting a finished round fail with nothing to report to.
-        setError(readableError(cause))
-      })
-  }, [game.key, startRound])
+    recorder.start()
+  }, [recorder])
 
-  const onRoundEnd = useCallback(
-    (score: number) => {
-      const run = runId.current
-      if (!run) return // no run opened: nothing to report this round against
-      runId.current = null // a run is spent once, and the server agrees
-      setError(null)
-      void recordRound({ eventSlug, gameKey: game.key, score, runId: run }).catch(
-        (cause: unknown) => {
-          // A lost round is not worth interrupting play for; the message sits
-          // under the board and the next round tries again.
-          setError(readableError(cause))
-        },
-      )
-    },
-    [game.key, recordRound],
-  )
+  const onRoundEnd = useCallback((score: number) => recorder.end(score), [recorder])
 
   const { Board } = game
   return (

@@ -33,10 +33,13 @@ export const gameCatalog = [
   {
     key: "pacman",
     title: "Pac-Man",
-    // One level: 233 pellets and 6 power pellets (2,630), two cherries (200),
-    // and every ghost eaten on every power pellet (6 x 1,600+800+400+200 =
-    // 18,000) come to 20,830. 25,000 leaves room for a maze edit.
-    maximumScore: 25_000,
+    // Exactly what the shipped maze can produce: 233 pellets and 6 power
+    // pellets (2,630), two cherries (200), and every ghost eaten on every power
+    // pellet (6 x 200+400+800+1,600 = 18,000). No headroom above it — a round
+    // that scores more than the board holds did not come from playing, and
+    // slack here is slack a forged score can sit in. Editing the maze means
+    // editing this number.
+    maximumScore: 20_830,
     // The richest seconds in the game are a power-pellet chain: four ghosts for
     // 3,000 in roughly four seconds, so a real run peaks near 750/s and holds
     // nowhere near it for long. A maximum round therefore cannot be claimed in
