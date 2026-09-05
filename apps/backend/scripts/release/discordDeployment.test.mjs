@@ -32,6 +32,12 @@ for (const outcome of ["healthy", "failed", "wrong_release"]) {
         'while [ "$1" != --output ]; do shift; done',
         'cp "$C2C_TEST_ARCHIVE" "$2"',
       ].join("\n"), { mode: 0o755 });
+      writeFileSync(join(bin, "gh"), '#!/bin/sh\necho fake-github-credential\n', { mode: 0o755 });
+      writeFileSync(join(bin, "pnpm"), [
+        "#!/bin/sh",
+        'cat >/dev/null',
+        'echo "https://codeload.github.com/ACM-VIT/Code2Create/legacy.tar.gz/release?token=temporary&archive=tar"',
+      ].join("\n"), { mode: 0o755 });
       writeFileSync(join(bin, "az"), [
         "#!/bin/sh",
         "set -eu",
