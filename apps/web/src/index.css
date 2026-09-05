@@ -2,6 +2,7 @@
    utilities stay unlayered so they beat those element/class selectors). */
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/utilities.css";
+@source "../node_modules/streamdown/dist/*.js";
 
 /* The landing navbar's glass, for every card. The tint comes from the
    surface tokens below; what makes it read as a sheet laid on the scene,
