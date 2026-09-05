@@ -744,3 +744,30 @@ export async function readStoredArtifactText(args: {
   }
   return uncompressed.toString("utf8");
 }
+
+/** Read only a captured private PNG whose bytes match its immutable manifest. */
+export async function readStoredFigmaPreview(args: {
+  objectKey: string;
+  storageRegion: string;
+  storageBucket: string;
+  byteCount: number;
+  sha256: string;
+}) {
+  const config = configuration();
+  if (args.storageRegion !== config.region || args.storageBucket !== config.bucket)
+    throw new Error("Figma preview belongs to another artifact store.");
+  if (!Number.isSafeInteger(args.byteCount) || args.byteCount < 8 ||
+      args.byteCount > maximumFigmaPreviewBytes || !/^[a-f0-9]{64}$/u.test(args.sha256))
+    throw new Error("Invalid Figma preview manifest.");
+  const response = await client(config).send(
+    new GetObjectCommand({ Bucket: config.bucket, Key: args.objectKey }),
+    { abortSignal: AbortSignal.timeout(20_000) },
+  );
+  if (!response.Body || response.ContentLength !== args.byteCount)
+    throw new Error("Figma preview does not match its manifest size.");
+  const bytes = await response.Body.transformToByteArray();
+  if (bytes.byteLength !== args.byteCount || digest(bytes, "hex") !== args.sha256 ||
+      Buffer.from(bytes.subarray(0, 8)).toString("hex") !== "89504e470d0a1a0a")
+    throw new Error("Figma preview does not match its captured PNG checksum.");
+  return Buffer.from(bytes).toString("base64");
+}

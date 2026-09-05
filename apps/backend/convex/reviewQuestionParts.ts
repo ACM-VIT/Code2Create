@@ -83,7 +83,7 @@ async function addPart(
   if (references.length > 150)
     throw new Error("Too many references in one analysis batch.");
   const cacheKey = operationFingerprint([
-    "comprehensive-review-v1",
+    "comprehensive-review-v2",
     job.snapshot.projectVersionId,
     job.roundId,
     job.snapshot.teamCheckpointSubmissionId ?? null,
@@ -92,7 +92,7 @@ async function addPart(
     job.policy.instructions,
     args.level,
     JSON.stringify(
-      args.sources.map((s) => [s.id, s.title, s.text, s.coverage]),
+      args.sources.map((s) => [s.id, s.title, s.text, s.coverage, s.image ?? null]),
     ),
   ]);
   const matches = await Promise.all(

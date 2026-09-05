@@ -107,6 +107,14 @@ export function reviewSourceBatches(
       size = 0;
       bytes = 0;
     }
+    if (source.image) {
+      if (batch.length) batches.push(batch);
+      batches.push([source]);
+      batch = [];
+      size = 0;
+      bytes = 0;
+      continue;
+    }
     batch.push(source);
     size += source.text.length;
     bytes += sourceBytes;

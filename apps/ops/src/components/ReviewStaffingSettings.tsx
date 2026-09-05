@@ -60,7 +60,8 @@ function JuniorParticipation({ roundId }: { roundId: RoundId }) {
     <details className="workspace-disclosure">
       <summary>
         <strong>
-          JC participation · <LiveNumber value={reviewed} /> of <LiveNumber value={people.length} /> have reviewed
+          JC participation · <LiveNumber value={reviewed} /> of{" "}
+          <LiveNumber value={people.length} /> have reviewed
         </strong>
       </summary>
       <p className="muted">
@@ -74,7 +75,8 @@ function JuniorParticipation({ roundId }: { roundId: RoundId }) {
           <div className="published-round-row" key={person.personId}>
             <strong>{person.displayName}</strong>
             <span>
-              <LiveNumber value={person.completedReviews} /> completed · {labels[person.status]}
+              <LiveNumber value={person.completedReviews} /> completed ·{" "}
+              {labels[person.status]}
             </span>
           </div>
         ))}
@@ -221,7 +223,7 @@ function StaffingForm({
             />
           </label>
           <label>
-            Assignment reminder before a shift (seconds, 0 disables)
+            Remind before shift (seconds, 0 disables)
             <input
               type="number"
               min={0}
@@ -236,6 +238,23 @@ function StaffingForm({
               }
             />
           </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={policy.assignmentReminderCalls}
+              onChange={(event) =>
+                setPolicy((current) => ({
+                  ...current,
+                  assignmentReminderCalls: event.target.checked,
+                }))
+              }
+            />
+            Also call reviewers who allow review calls
+          </label>
+          <p className="muted">
+            Push and calls use the same lead time. Changes reschedule upcoming
+            reminders; reviewers already clocked in are not reminded.
+          </p>
           {settings.canConfigure ? (
             <label>
               Reason

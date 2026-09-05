@@ -40,6 +40,7 @@ import { maximumReviewTeamsPerEvent } from "./lib/reviewLimits";
 
 const defaultPolicy = {
   enabled: false,
+  visualAnalysis: true,
   refreshSeconds: 120,
   maximumQuestions: 3,
   parallelAnalyses: 3,
@@ -905,6 +906,11 @@ export const sourceContext = internalQuery({
           url: v.string(),
           metadata: v.string(),
           artifact: v.optional(artifactAccess),
+          previews: v.array(v.object({
+            factId: v.id("figmaNodeFacts"), nodeId: v.string(), nodeName: v.string(),
+            objectKey: v.string(), storageRegion: v.string(), storageBucket: v.string(),
+            byteCount: v.number(), sha256: v.string(),
+          })),
         }),
       ),
     }),
@@ -1049,7 +1055,22 @@ export const sourceContext = internalQuery({
             artifact.teamId === job.teamId &&
             artifact.figmaFileBindingId === binding._id &&
             artifact.providerVersionId === snapshot.providerVersionId;
+          const previews = readable && job.policy.visualAnalysis
+            ? (await Promise.all((entry.preview?.renders ?? []).map(async (captured) => {
+                const fact = await ctx.db.get(captured.factId);
+                return fact && fact.eventId === job.eventId && fact.teamId === job.teamId &&
+                  fact.snapshotId === snapshot._id && fact.figmaFileBindingId === binding._id &&
+                  fact.providerVersionId === snapshot.providerVersionId &&
+                  fact.render.state === "available" && fact.render.sha256 === captured.sha256
+                  ? { factId: fact._id, nodeId: fact.nodeId, nodeName: fact.nodeName,
+                      objectKey: fact.render.objectKey, storageRegion: fact.render.storageRegion,
+                      storageBucket: fact.render.storageBucket, byteCount: fact.render.byteCount,
+                      sha256: fact.render.sha256 }
+                  : null;
+              }))).filter((fact) => fact !== null)
+            : [];
           return {
+            previews,
             id: `figma:${entry.bindingId}`,
             title: entry.fileName,
             url: entry.fileUrl,
@@ -1062,6 +1083,12 @@ export const sourceContext = internalQuery({
                 snapshot?.prototypeInteractionCount ?? null,
               coverage: snapshot?.completeness ?? "missing",
               capturedAt: snapshot?.capturedAt ?? null,
+              visualAnalysis: job.policy.visualAnalysis,
+              previewCoverage: entry.preview ? {
+                state: entry.preview.state, discoveredNodes: entry.preview.discoveredNodes,
+                selectedNodes: entry.preview.selectedNodes, truncated: entry.preview.truncated,
+                capturedRenders: entry.preview.renders.length, accessibleRenders: previews.length,
+              } : "No captured renders available",
             }),
             ...(readable
               ? {

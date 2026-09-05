@@ -627,6 +627,7 @@ function RoundPublisher({
   const [reviewerArrivalSeconds, setReviewerArrivalSeconds] = useState("90");
   const [assignmentReminderSeconds, setAssignmentReminderSeconds] =
     useState("300");
+  const [assignmentReminderCalls, setAssignmentReminderCalls] = useState(true);
   const [composition, setComposition] = useState<PanelComposition>({
     seniorSeats: 2,
     juniorSeats: 2,
@@ -930,6 +931,7 @@ function RoundPublisher({
               juniorRotationReviews: Number(juniorRotationReviews),
               reviewerArrivalSeconds: Number(reviewerArrivalSeconds),
               assignmentReminderSeconds: Number(assignmentReminderSeconds),
+              assignmentReminderCalls,
             },
             requiredPanelSize,
             minimumScorersPerCriterion: positiveInteger(
@@ -971,8 +973,8 @@ function RoundPublisher({
         <span className="step-number">1</span>Round timing and rules
       </h2>
       <p className="muted">
-        Publishing locks the staffing times, no-show grace, rubric, panels, coordinators, and
-        reviewer coverage.
+        Publishing creates the round, rubric and initial panels. Manage staffing,
+        replacements and reminders from the round's controls.
       </p>
       <form className="review-publisher" onSubmit={publish}>
         <fieldset disabled={publishPending} style={{ display: "contents" }}>
@@ -1607,7 +1609,7 @@ function RoundPublisher({
                 />
               </label>
               <label className="field">
-                <span>Assignment reminder before shift (seconds)</span>
+                <span>Remind before shift (seconds, 0 disables)</span>
                 <input
                   type="number"
                   min={0}
@@ -1619,6 +1621,17 @@ function RoundPublisher({
                     changed();
                   }}
                 />
+              </label>
+              <label className="field">
+                <input
+                  type="checkbox"
+                  checked={assignmentReminderCalls}
+                  onChange={(event) => {
+                    setAssignmentReminderCalls(event.target.checked);
+                    changed();
+                  }}
+                />
+                Also call reviewers who allow review calls
               </label>
             </div>
             <div className="panel-editors">

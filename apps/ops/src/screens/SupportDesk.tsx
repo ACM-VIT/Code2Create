@@ -701,7 +701,7 @@ function MessageBody({ text }: { text: string }) {
       : `${text.slice(0, collapseNoteAfter).trimEnd()}…`;
   return (
     <>
-      <Streamdown className="support-message-body" components={messageMarkdownComponents}>
+      <Streamdown mode="static" className="support-message-body" components={messageMarkdownComponents}>
         {shown}
       </Streamdown>
       {shown === text ? null : (

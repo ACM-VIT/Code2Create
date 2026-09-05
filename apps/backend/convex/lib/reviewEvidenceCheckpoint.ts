@@ -119,7 +119,40 @@ export async function buildEvidenceCheckpoint(
   const figmaEntries = await Promise.all(
     activeFigma.map(async (binding) => {
       const snapshot = await latestFigmaSnapshot(ctx, binding._id);
+      const preview = snapshot
+        ? await ctx.db
+            .query("figmaPreviewSets")
+            .withIndex("by_snapshot", (q) => q.eq("snapshotId", snapshot._id))
+            .unique()
+        : null;
+      const facts = preview
+        ? await ctx.db
+            .query("figmaNodeFacts")
+            .withIndex("by_preview_page_order", (q) =>
+              q.eq("previewSetId", preview._id),
+            )
+            .take(preview.selectedNodeCount + 1)
+        : [];
+      if (preview && facts.length !== preview.selectedNodeCount)
+        throw new Error(
+          "Figma preview inventory does not match its capture plan.",
+        );
       return {
+        ...(preview
+          ? {
+              preview: {
+                state: preview.state,
+                discoveredNodes: preview.discoveredNodeCount,
+                selectedNodes: preview.selectedNodeCount,
+                truncated: preview.truncated,
+                renders: facts.flatMap((fact) =>
+                  fact.render.state === "available"
+                    ? [{ factId: fact._id, sha256: fact.render.sha256 }]
+                    : [],
+                ),
+              },
+            }
+          : {}),
         bindingId: binding._id,
         ...(snapshot ? { snapshotId: snapshot._id } : {}),
         fileName: binding.name,

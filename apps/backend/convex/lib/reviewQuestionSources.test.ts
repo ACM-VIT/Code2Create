@@ -1,3 +1,4 @@
+import type { ReviewQuestionSource } from "@code2create/domain";
 import { describe, expect, test } from "vitest";
 import {
   figmaQuestionNodes,
@@ -8,6 +9,18 @@ import {
 import { reviewQuestionCallbackSchema } from "./reviewQuestionProtocol";
 
 describe("review question source preparation", () => {
+  test("processes every captured image separately without dropping surrounding text", () => {
+    const sources: ReviewQuestionSource[] = Array.from({ length: 48 }, (_, i) => ({
+      id: `frame-${i}`, kind: "figma", title: `Frame ${i}`, text: "Captured screen",
+      coverage: "captured", image: { factId: `fact-${i}`, sha256: "a".repeat(64) },
+    }));
+    sources.splice(20, 0, { id: "structure", kind: "figma", title: "Structure", text: "Complete node data", coverage: "captured" });
+    const batches = reviewSourceBatches(sources, 80000);
+    expect(batches.flat()).toEqual(sources);
+    expect(batches.filter((batch) => batch.some((source) => source.image))).toHaveLength(48);
+    expect(batches.every((batch) => !batch.some((source) => source.image) || batch.length === 1)).toBe(true);
+  });
+
   test("omits credential, generated and dependency files", () => {
     for (const path of [
       ".env",
@@ -120,8 +133,8 @@ describe("review question source preparation", () => {
   });
   test("callback contract has no grading fields", () => {
     const payload = {
-      protocolVersion: "review-questions-v1",
-      agentVersion: "review-questions-v1",
+      protocolVersion: "review-questions-v2",
+      agentVersion: "review-questions-v2",
       jobId: "job",
       attempt: 1,
       sourceChecksum: "a".repeat(64),

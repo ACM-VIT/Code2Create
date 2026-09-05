@@ -1,3 +1,4 @@
+import { reviewerCallConsentPolicyVersion } from "@code2create/domain";
 import { api } from "@code2create/backend/api";
 import { useMutation, useQuery } from "convex/react";
 import { randomUUID } from "expo-crypto";
@@ -59,6 +60,7 @@ export function PagingSetup({
       await saveCallConsent({
         eventSlug,
         state,
+        consentPolicyVersion: reviewerCallConsentPolicyVersion,
         ...(state === "granted" ? { destinationPhone: phone } : {}),
         expectedVersion: callConsent.version,
         clientOperationId: randomUUID(),
@@ -127,15 +129,15 @@ export function PagingSetup({
               : callsEnabled
                 ? `Calls go to ${callConsent.destinationPhoneE164}`
                 : callConsent.state === "needs_confirmation"
-                  ? "Review the current call notice to keep phone fallback on"
-                  : "Optional fallback after push; it does not accept a page for you"
+                  ? "Confirm the updated notice to allow shift reminders and substitute calls"
+                  : "Optional reminders and substitute calls; respond in the app"
           }
           met={callsEnabled}
-          title="Phone fallback"
+          title="Review calls"
         />
         <Text style={styles.callNotice}>
-          If push does not reach you, Code2Create may call this number with a short synthesized
-          page. The call only asks you to open the app.
+          Code2Create may call before your confirmed shift and when you are needed
+          as a substitute. Calls ask you to open the app to clock in or respond.
         </Text>
         <TextInput
           autoComplete="tel"
@@ -167,7 +169,7 @@ export function PagingSetup({
           <Action
             accent={palette.judging}
             disabled={callBusy || callConsent === undefined}
-            label={callBusy ? "Saving…" : "Allow phone fallback"}
+            label={callBusy ? "Saving…" : "Allow review calls"}
             onPress={() => void changeCallConsent("granted")}
           />
         )}

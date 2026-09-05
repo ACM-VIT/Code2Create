@@ -1,3 +1,6 @@
+import { internal } from "./_generated/api";
+import { currentShiftReminder } from "./lib/reviewShiftReminders";
+import { reviewerCallConsentPolicyVersion } from "@code2create/domain";
 import { normalizedE164Phone } from "./lib/outboundCalls";
 import {
   venueConfirmationCall,
@@ -111,7 +114,10 @@ async function undispatchableReason(
     !consent ||
     consent.eventId !== delivery.eventId ||
     consent.personId !== delivery.targetPersonId ||
-    consent.purpose !== delivery.purpose ||
+    consent.purpose !== (delivery.purpose === "reviewer_shift_reminder"
+      ? "reviewer_substitute_page" : delivery.purpose) ||
+    (delivery.purpose === "reviewer_shift_reminder" &&
+      consent.consentPolicyVersion !== reviewerCallConsentPolicyVersion) ||
     consent.state !== "granted" ||
     consent.version !== delivery.consentVersion ||
     consent.destinationPhoneE164 !== delivery.destinationPhoneE164 ||
@@ -120,7 +126,9 @@ async function undispatchableReason(
     return "call_consent_changed";
   }
   const requiredPermissionKey =
-    delivery.purpose === venueCallPurpose
+    delivery.sourceType === "reviewer_shift_reminder"
+      ? "reviewer.clock_in"
+      : delivery.purpose === venueCallPurpose
       ? "reviewer.device.register"
       : delivery.purpose === "reviewer_substitute_page"
       ? "review.substitute.page"
@@ -257,6 +265,37 @@ export const claimDelivery = internalMutation({
         completedAt: now,
       });
       return null;
+    }
+    if (delivery.sourceType === "reviewer_shift_reminder") {
+      const notificationId = ctx.db.normalizeId("reviewConfirmationNotifications", delivery.sourceId);
+      const notification = notificationId ? await ctx.db.get(notificationId) : null;
+      const confirmation = notification ? await ctx.db.get(notification.confirmationId) : null;
+      const round = confirmation ? await ctx.db.get(confirmation.roundId) : null;
+      const current = confirmation && round && delivery.shiftReminder &&
+        round.staffing.assignmentReminderCalls &&
+        confirmation.personId === delivery.targetPersonId &&
+        round.eventId === delivery.eventId
+        ? await currentShiftReminder(ctx, confirmation, round,
+          delivery.shiftReminder.confirmationVersion, delivery.shiftReminder.shiftStartsAt, now)
+        : null;
+      if (!current) {
+        await ctx.db.patch(delivery._id, {
+          state: "cancelled", providerErrorCode: "shift_reminder_no_longer_current",
+          claimExpiresAt: undefined, nextAttemptAt: undefined,
+          version: delivery.version + 1, updatedAt: now, completedAt: now,
+        });
+        return null;
+      }
+      if (now < current.remindAt) {
+        await ctx.db.patch(delivery._id, {
+          state: "retry_wait", nextAttemptAt: current.remindAt,
+          claimExpiresAt: undefined, version: delivery.version + 1, updatedAt: now,
+        });
+        await ctx.scheduler.runAt(current.remindAt, internal.outboundCalls.deliver, {
+          deliveryId: delivery._id,
+        });
+        return null;
+      }
     }
     await ctx.db.patch(delivery._id, {
       state: "sending",

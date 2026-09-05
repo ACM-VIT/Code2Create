@@ -29,7 +29,6 @@ export const reviewerVenueStatus = v.union(
 
 export const locationFreshnessMs = 180_000;
 export const venueCallPurpose = "reviewer_venue_absence" as const;
-export const venueCallConsentVersion = "reviewer-venue-confirmation-consent-v2";
 export const venueCallScriptVersion = "reviewer-venue-confirmation-v2";
 
 type VenuePolicy = {

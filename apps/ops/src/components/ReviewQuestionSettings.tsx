@@ -23,9 +23,14 @@ export function ReviewQuestionSettings({ roundId }: { roundId: RoundId }) {
       <summary>
         <strong>Suggested review questions</strong>
         <span>
-          {settings.policy.enabled
-            ? <><LiveNumber value={ready} /> of <LiveNumber value={settings.teams.length} /> prepared</>
-            : "Off"}
+          {settings.policy.enabled ? (
+            <>
+              <LiveNumber value={ready} /> of{" "}
+              <LiveNumber value={settings.teams.length} /> prepared
+            </>
+          ) : (
+            "Off"
+          )}
         </span>
       </summary>
       <QuestionForm
@@ -119,9 +124,9 @@ function QuestionForm({
         evidence creates a fresh set; each review keeps the evidence captured
         when it starts. All readable repository files and stored Figma nodes are
         processed in batches. Large inputs are split, never silently truncated.
-        Rendered appearance and runtime behavior need human verification. Ops
-        can see collection and analysis coverage; reviewers receive a short
-        brief with useful follow-ups.
+        Captured Figma renders can also be inspected; runtime behavior still
+        needs a live demonstration. Ops can see collection and analysis
+        coverage; reviewers receive a short brief with useful follow-ups.
       </p>
       <fieldset disabled={!settings.canConfigure || busy || pending}>
         <label className="checkbox-field">
@@ -133,6 +138,16 @@ function QuestionForm({
             }
           />
           Continuously prepare suggested questions
+        </label>
+        <label className="checkbox-field">
+          <input
+            type="checkbox"
+            checked={policy.visualAnalysis}
+            onChange={(e) =>
+              setPolicy({ ...policy, visualAnalysis: e.target.checked })
+            }
+          />
+          Inspect captured Figma screens
         </label>
         <label>
           Model

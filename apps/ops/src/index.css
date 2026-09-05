@@ -977,9 +977,48 @@ html:has(.intelligence-workspace) {
 .admissions-release-panel .catalog-summary {
   margin: 0;
 }
-.admissions-release-panel .table-wrap {
-  max-height: 360px;
-  overflow: auto;
+.admissions-release-panel > section {
+  display: grid;
+  gap: 20px;
+}
+.admission-stat-value {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+.admission-stat-value small {
+  color: var(--faint);
+  font-size: 0.6875rem;
+  font-weight: 400;
+  white-space: nowrap;
+}
+.catalog-summary > .admission-stat-filter {
+  position: relative;
+}
+.admission-stat-filter button {
+  cursor: pointer;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.admission-stat-filter button::after {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  content: "";
+}
+.catalog-summary > .admission-stat-filter:is(:hover, :focus-within, :has([aria-pressed="true"])) {
+  background: var(--hover);
+}
+.admission-stat-filter button[aria-pressed="true"]::after,
+.admission-stat-filter button:focus-visible::after {
+  outline: 1px solid var(--muted);
+  outline-offset: -1px;
 }
 .intake-policy-note {
   margin: 0;
@@ -6053,7 +6092,6 @@ button.row-action {
 .station-list,
 .synesthesia-window-list {
   overflow: hidden;
-  margin-top: 0;
   background: var(--surface);
   border: 0;
   border-top: 0;
@@ -6327,8 +6365,8 @@ label > span {
 .stage-filter {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin: 18px 0 14px;
+  gap: 8px;
+  margin: 20px 0;
 }
 .stage-chip {
   display: inline-flex;
@@ -6375,7 +6413,7 @@ label > span {
   grid-auto-flow: column;
   grid-auto-columns: minmax(0, 1fr);
   gap: 0;
-  margin: 0 0 20px;
+  margin-bottom: 20px;
 }
 .catalog-summary > div,
 .score-summary-grid > div,
@@ -7979,7 +8017,7 @@ textarea:focus {
   align-items: end;
   justify-content: space-between;
   gap: 16px;
-  margin: 18px 0 8px;
+  margin: 20px 0;
 }
 .checkpoint-toolbar .configuration-tabs,
 .integration-toolbar .configuration-tabs {
@@ -9242,11 +9280,31 @@ textarea:focus {
   margin: 8px 0 0;
   font-size: 0.75rem;
 }
-.admissions-stages {
+.admissions-stage-control > .admissions-stages {
   margin: 0;
 }
-.admissions-list {
+.admissions-controls + .admissions-list {
   margin-top: 0;
+}
+
+.queue-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  padding-block: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.queue-pagination p {
+  margin: 0;
+}
+
+.queue-page-number {
+  min-width: 64px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 .admission-row {
   display: grid;
@@ -9749,7 +9807,7 @@ textarea:focus {
   flex-shrink: 0;
 }
 .application-review-summary .catalog-summary {
-  margin-bottom: 0;
+  margin: 0;
 }
 .application-review-summary .catalog-summary dd {
   text-transform: capitalize;

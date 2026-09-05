@@ -17,7 +17,7 @@ import { env } from "cloudflare:workers";
 import * as v from "valibot";
 import {
   evidenceAnalysisSchema,
-  reviewQuestionRequestSchema,
+  reviewQuestionInputSchema,
   suggestedReviewQuestionsSchema,
   type ReviewQuestionInput,
 } from "../lib/reviewQuestionProtocol.ts";
@@ -143,5 +143,5 @@ export function ReviewQuestions() {
 Stage: ${input.stage}.\n\nMaximum questions: ${input.maximumQuestions}.\nAdditional event guidance: ${input.instructions}\n\nFixed rubric (reference only): ${JSON.stringify(input.criteria)}\n\nFrozen evidence: ${JSON.stringify(input.sources)}\nOriginal evidence references: ${JSON.stringify(input.references)}`;
 }
 ReviewQuestions.agentName = "review-questions";
-ReviewQuestions.initialData = reviewQuestionRequestSchema;
+ReviewQuestions.initialData = reviewQuestionInputSchema;
 ReviewQuestions.durability = { maxAttempts: 2 };

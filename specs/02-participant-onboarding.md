@@ -2,9 +2,9 @@
 
 ## 1. Entry and event deadline
 
-The participant selects **VIT Student** or **External Participant**. The next action is **Authenticate with Google**. The server verifies the account class. The client does not authorize the selected class.
+The participant selects **VIT Student** or **External Participant**. Google sign-in is available to both; external participants can also use emailed one-time codes when the provider is enabled. VIT participants must use their verified Google Workspace identity. The server verifies the account class. The client does not authorize the selected class.
 
-Production also requires an active participant eligibility import for the event. An external participant must use the exact Google email in the external registration list. A VIT student must use a verified VIT Google Workspace account whose display name contains an exact registration number in the VIT registration list. The import contains only normalized emails or registration numbers. It does not import names, team assignments, or profile data. Staging uses its separate tester list and does not use the production registration list.
+Production also requires an active participant eligibility import for the event. An external participant must use the exact verified email in the external registration list. A VIT student must use a verified VIT Google Workspace account whose display name contains an exact registration number in the VIT registration list. The import contains only normalized emails or registration numbers. It does not import names, team assignments, or profile data. Staging uses its separate tester list and does not use the production registration list.
 
 An operator can replace the production eligibility import only while the event is closed. The server checks the expected VIT and external counts before it activates the import. Activation changes one event pointer in the same transaction, so participants never see a partial list.
 

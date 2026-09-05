@@ -1,3 +1,4 @@
+import { venueCallConsentVersion } from "@code2create/domain";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalMutation } from "./_generated/server";
@@ -10,7 +11,6 @@ import {
 } from "./lib/reviewerVenue";
 import {
   locationFreshnessMs,
-  venueCallConsentVersion,
   venueCallPurpose,
   venueCallScriptVersion,
 } from "./lib/reviewerVenuePolicy";

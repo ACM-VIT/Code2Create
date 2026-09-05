@@ -2077,6 +2077,7 @@ export default defineSchema({
   })
     .index("by_application_created", ["applicationId", "createdAt"])
     .index("by_event_created", ["eventId", "createdAt"])
+    .index("by_state_and_createdAt", ["state", "createdAt"])
     .index("by_event_state_created", ["eventId", "state", "createdAt"]),
 
   admissionPolicyVersions: defineTable({
@@ -3656,10 +3657,12 @@ export default defineSchema({
     targetPersonId: v.id("people"),
     sourceType: v.union(v.literal("reviewer_page"), v.literal("participant_notification"),
       v.literal("review_team_notice"),
+      v.literal("reviewer_shift_reminder"),
       v.literal("reviewer_venue_departure"),
     ),
     sourceId: v.string(),
-    purpose: v.union(v.literal("reviewer_substitute_page"), v.literal("participant_event_update"),
+    shiftReminder: v.optional(v.object({ confirmationVersion: v.number(), shiftStartsAt: v.number() })),
+    purpose: v.union(v.literal("reviewer_shift_reminder"), v.literal("reviewer_substitute_page"), v.literal("participant_event_update"),
       v.literal("reviewer_venue_absence"),
     ),
     destinationPhoneE164: v.optional(v.string()),

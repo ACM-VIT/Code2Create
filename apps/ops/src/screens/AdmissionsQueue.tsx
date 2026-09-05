@@ -4,21 +4,25 @@ import { useProductAnalytics } from "@code2create/client-observability";
 import {
   applicationDecisionLabels,
   applicationStateLabels,
-  type ApplicationState,
 } from "@code2create/domain";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
-import { useEffect, useState, type SubmitEvent } from "react";
+import { useEffect, useRef, useState, type SubmitEvent } from "react";
 import { Link } from "react-router-dom";
 
 import { LoadingLabel, SkeletonLine, SkeletonList } from "../components/Skeleton";
+import { QueuePagination } from "../components/QueuePagination";
+import { AdmissionStat } from "../components/AdmissionStat";
 import {
   aiStateTag,
+  applicationQueueStageLabels,
   assignmentOutcomeSummary,
   busiestStage,
   completedReviewCountQueryArgs,
   ownReviewLine,
   prioritizeReviewQueue,
   queueLeadSentence,
+  recommendationFilterLabel,
+  recommendationOutcomeLabels,
   reviewStatus,
   reviewerLeadSentence,
   reviewerWorkloadLabel,
@@ -31,15 +35,18 @@ import {
   teamOriginQueryArgs,
   visibleStages,
   type AssignmentOutcome,
+  type ApplicationQueueStage,
   type QueueApplication,
   type QueueAssignment,
   type ReviewerWorkload,
+  type RecommendationFilter,
   type TeamOriginFilter,
 } from "../lib/admissionsPresentation";
 import { eventSlug } from "../lib/config";
 import { isConvexErrorCode, readableError } from "../lib/errors";
 import { useOperationRunner } from "../lib/operations";
 import { useReviewAssignmentCounts } from "../lib/useReviewAssignmentCounts";
+import { admissionPageSize, useQueuePagination } from "../lib/useQueuePagination";
 
 type AssignmentState = "active" | "completed";
 type QueueView = "all" | "mine";
@@ -57,6 +64,7 @@ export function AdmissionsQueue({
 }) {
   const [selectedView, setSelectedView] = useState<QueueView>(canReadApplications ? "all" : "mine");
   const [origin, setOrigin] = useState<TeamOriginFilter>("all");
+  const [recommendationFilter, setRecommendationFilter] = useState<RecommendationFilter | null>(null);
   const view =
     selectedView === "all"
       ? canReadApplications
@@ -74,7 +82,16 @@ export function AdmissionsQueue({
           <h1>Applications</h1>
         </div>
       </header>
-      {isSupreme ? <AdmissionResultsRelease /> : null}
+      {isSupreme ? (
+        <AdmissionResultsRelease
+          recommendationFilter={recommendationFilter}
+          onFilter={canReadApplications ? (filter) => {
+            setSelectedView("all");
+            setOrigin("all");
+            setRecommendationFilter((current) => current?.source === filter.source && current.outcome === filter.outcome ? null : filter);
+          } : undefined}
+        />
+      ) : null}
       {canReadApplications && canReadAssignments ? (
         <div
           className="configuration-tabs admissions-views"
@@ -95,7 +112,10 @@ export function AdmissionsQueue({
             className={view === "mine" ? "active" : ""}
             role="tab"
             type="button"
-            onClick={() => setSelectedView("mine")}
+            onClick={() => {
+              setSelectedView("mine");
+              setRecommendationFilter(null);
+            }}
           >
             Assigned to me
           </button>
@@ -122,14 +142,23 @@ export function AdmissionsQueue({
         </div>
       </div>
       {view === "all" && canReadApplications ? (
-        <ApplicationList canAssign={canAssign} origin={origin} />
+        <ApplicationList
+          key={recommendationFilter ? recommendationFilterLabel(recommendationFilter) : "queue"}
+          canAssign={canAssign}
+          origin={origin}
+          recommendationFilter={recommendationFilter}
+          onClearRecommendationFilter={() => setRecommendationFilter(null)}
+        />
       ) : null}
       {view === "mine" && canReadAssignments ? <AssignmentList origin={origin} /> : null}
     </section>
   );
 }
 
-function AdmissionResultsRelease() {
+function AdmissionResultsRelease({ recommendationFilter, onFilter }: {
+  recommendationFilter: RecommendationFilter | null;
+  onFilter: ((filter: RecommendationFilter) => void) | undefined;
+}) {
   const status = useQuery(api.admissions.admissionResultsReleaseStatus, { eventSlug });
   const release = useMutation(api.admissions.releaseAdmissionResults);
   const operations = useOperationRunner();
@@ -147,6 +176,7 @@ function AdmissionResultsRelease() {
     );
   }
   if (!status.isSupreme) return null;
+  const ideaAgent = status.ideaAgent;
   const ready =
     status.serverNow >= status.applicationsCloseAt &&
     status.releasedAt === undefined &&
@@ -207,83 +237,57 @@ function AdmissionResultsRelease() {
         ) : null}
       </div>
       <dl className="catalog-summary" aria-label="Human review progress">
-        <div>
-          <dt>Applications</dt>
-          <dd><LiveNumber value={status.total} /></dd>
-        </div>
-        <div>
-          <dt>Reviews complete</dt>
-          <dd><LiveNumber value={status.reviewsComplete} /></dd>
-        </div>
-        <div>
-          <dt>Reviews needed</dt>
-          <dd><LiveNumber value={status.reviewsNeeded} /></dd>
-        </div>
+        <AdmissionStat label="Applications" value={status.total} people={status.people.total} />
+        <AdmissionStat label="Reviews complete" value={status.reviewsComplete} people={status.people.reviewsComplete} />
+        <AdmissionStat label="Reviews needed" value={status.reviewsNeeded} people={status.people.reviewsNeeded} />
       </dl>
       <dl className="catalog-summary" aria-label="Final admission decisions">
-        <div>
-          <dt>Final decisions ready</dt>
-          <dd><LiveNumber value={status.recorded + status.released} /></dd>
-        </div>
-        <div>
-          <dt>Final decisions needed</dt>
-          <dd><LiveNumber value={status.unrecorded} /></dd>
-        </div>
-        <div>
-          <dt>Selected</dt>
-          <dd><LiveNumber value={status.accepted} /></dd>
-        </div>
-        <div>
-          <dt>Waitlisted</dt>
-          <dd><LiveNumber value={status.waitlisted} /></dd>
-        </div>
-        <div>
-          <dt>Not selected</dt>
-          <dd><LiveNumber value={status.declined} /></dd>
-        </div>
+        <AdmissionStat label="Final decisions ready" value={status.recorded + status.released} people={status.people.recorded + status.people.released} />
+        <AdmissionStat label="Final decisions needed" value={status.unrecorded} people={status.people.unrecorded} />
+        <AdmissionStat label="Selected" value={status.accepted} people={status.people.accepted} />
+        <AdmissionStat label="Waitlisted" value={status.waitlisted} people={status.people.waitlisted} />
+        <AdmissionStat label="Not selected" value={status.declined} people={status.people.declined} />
       </dl>
-      {status.ideaAgent ? (
+      {ideaAgent ? (
         <section aria-labelledby="idea-agent-breakdown">
           <div className="section-heading">
             <div>
               <h3 id="idea-agent-breakdown">Idea agent</h3>
-              <p className="muted">Current recommendations across all applications. Final admission decisions are recorded separately.</p>
             </div>
           </div>
-          <dl className="catalog-summary">
-            <div><dt>Accepted</dt><dd><LiveNumber value={status.ideaAgent.accepted} /></dd></div>
-            <div><dt>Waitlisted</dt><dd><LiveNumber value={status.ideaAgent.waitlisted} /></dd></div>
-            <div><dt>Rejected</dt><dd><LiveNumber value={status.ideaAgent.rejected} /></dd></div>
-            <div><dt>No current recommendation</dt><dd><LiveNumber value={status.ideaAgent.unavailable} /></dd></div>
+          <dl className="catalog-summary" aria-label="Idea agent recommendations">
+            {(["accepted", "waitlisted", "rejected", "unavailable"] as const).map((outcome) => (
+              <AdmissionStat
+                key={outcome}
+                label={recommendationOutcomeLabels[outcome]}
+                value={ideaAgent[outcome]}
+                people={ideaAgent.people[outcome]}
+                selected={recommendationFilter?.source === "idea" && recommendationFilter.outcome === outcome}
+                onSelect={onFilter ? () => onFilter({ source: "idea", outcome }) : undefined}
+              />
+            ))}
           </dl>
         </section>
       ) : null}
-      {status.decisions.length > 0 ? (
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Team</th>
-                <th>Decision</th>
-                <th>Reason</th>
-                <th>Recorded by</th>
-              </tr>
-            </thead>
-            <tbody>
-              {status.decisions.map((row) => (
-                <tr key={row.applicationId}>
-                  <td>
-                    <Link to={`/admissions/${row.applicationId}`}>{row.teamName}</Link>
-                  </td>
-                  <td>{applicationDecisionLabels[row.decision]}</td>
-                  <td>{row.reasonLabel}</td>
-                  <td>{row.decidedByName}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      <section aria-labelledby="human-review-breakdown">
+        <div className="section-heading">
+          <div>
+            <h3 id="human-review-breakdown">Human reviews</h3>
+          </div>
         </div>
-      ) : null}
+        <dl className="catalog-summary" aria-label="Human recommendations">
+          {(["accepted", "waitlisted", "rejected", "split", "needed"] as const).map((outcome) => (
+            <AdmissionStat
+              key={outcome}
+              label={recommendationOutcomeLabels[outcome]}
+              value={status.humanReviews[outcome]}
+              people={status.humanReviews.people[outcome]}
+              selected={recommendationFilter?.source === "human" && recommendationFilter.outcome === outcome}
+              onSelect={onFilter ? () => onFilter({ source: "human", outcome }) : undefined}
+            />
+          ))}
+        </dl>
+      </section>
       {!status.releasedAt && status.unrecorded > 0 ? (
         <p className="notice">
           Record a final decision for all <LiveNumber value={status.unrecorded} /> remaining applications before release.
@@ -337,9 +341,13 @@ function AdmissionResultsRelease() {
 function ApplicationList({
   canAssign,
   origin,
+  recommendationFilter,
+  onClearRecommendationFilter,
 }: {
   canAssign: boolean;
   origin: TeamOriginFilter;
+  recommendationFilter: RecommendationFilter | null;
+  onClearRecommendationFilter: () => void;
 }) {
   const originArgs = teamOriginQueryArgs(origin);
   const [oneReviewOnly, setOneReviewOnly] = useState(false);
@@ -350,27 +358,28 @@ function ApplicationList({
     ...reviewCountArgs,
   });
   const countByState = stageCountMap(counts ?? []);
-  const [chosen, setChosen] = useState<ApplicationState | null>(null);
+  const [chosen, setChosen] = useState<ApplicationQueueStage | null>(null);
   const stage = chosen ?? busiestStage(countByState) ?? "submitted";
-  const reviewable = stageAcceptsReviews(stage);
+  const reviewable = recommendationFilter === null && stageAcceptsReviews(stage);
   const [needsReviewOnly, setNeedsReviewOnly] = useState(true);
   const reviewNeededArgs = needsReviewOnly && reviewable ? { needsReview: true as const } : {};
   const [search, setSearch] = useState("");
   const searchQuery = search.trim().replace(/\s+/g, " ");
   const searching = searchQuery.length > 0;
+  const scopeArgs = recommendationFilter ? { recommendationFilter } : { state: stage };
   const applicationPage = usePaginatedQuery(
     api.admissions.list,
     searching
       ? "skip"
-      : { eventSlug, state: stage, ...originArgs, ...reviewCountArgs, ...reviewNeededArgs },
-    { initialNumItems: 30 },
+      : { eventSlug, ...scopeArgs, ...originArgs, ...reviewCountArgs, ...reviewNeededArgs },
+    { initialNumItems: admissionPageSize },
   );
   const searchResult = useQuery(
     api.admissions.searchApplications,
     searching
       ? {
           eventSlug,
-          state: stage,
+          ...scopeArgs,
           search: searchQuery,
           ...originArgs,
           ...reviewCountArgs,
@@ -379,19 +388,24 @@ function ApplicationList({
       : "skip",
   );
   const [assigning, setAssigning] = useState(false);
+  const listRef = useRef<HTMLDivElement>(null);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const selecting = canAssign && assigning && reviewable;
   const applications = searching ? (searchResult?.applications ?? []) : applicationPage.results;
-  const shown = prioritizeReviewQueue(applications);
+  const pagination = useQueuePagination(
+    applications,
+    searching ? searchResult === undefined ? "LoadingFirstPage" : "Exhausted" : applicationPage.status,
+    applicationPage.loadMore,
+    JSON.stringify([stage, origin, oneReviewOnly, needsReviewOnly, searchQuery, recommendationFilter]),
+  );
+  const shown = reviewable ? prioritizeReviewQueue(pagination.items) : pagination.items;
   const chosenApplications = shown.filter((application) => selected.has(application.id));
-  const loading = searching
-    ? searchResult === undefined
-    : applicationPage.status === "LoadingFirstPage";
-  const filtersActive = searching || oneReviewOnly || (reviewable && !needsReviewOnly);
+  const loading = pagination.loading;
+  const filtersActive = searching || oneReviewOnly || (reviewable && !needsReviewOnly) || recommendationFilter !== null;
 
   useEffect(() => {
     setSelected(new Set());
-  }, [origin]);
+  }, [origin, pagination.page]);
 
   const toggle = (applicationId: string) => {
     setSelected((current) => {
@@ -407,6 +421,7 @@ function ApplicationList({
     setOneReviewOnly(false);
     setNeedsReviewOnly(true);
     setSelected(new Set());
+    onClearRecommendationFilter();
   };
 
   return (
@@ -430,7 +445,11 @@ function ApplicationList({
         ) : null}
       </div>
       <div className="admissions-controls">
-        <div className="admissions-stage-control">
+        {recommendationFilter ? (
+          <div className="admissions-stage-control">
+            <p>{recommendationFilterLabel(recommendationFilter)}</p>
+          </div>
+        ) : <div className="admissions-stage-control">
           <span className="admissions-control-label">Application status</span>
           <div className="stage-filter admissions-stages">
             {visibleStages(countByState, stage).map((candidate) => (
@@ -444,12 +463,12 @@ function ApplicationList({
                   setSelected(new Set());
                 }}
               >
-                {applicationStateLabels[candidate]}
+                {applicationQueueStageLabels[candidate]}
                 <span><LiveNumber value={countByState.get(candidate) ?? 0} /></span>
               </button>
             ))}
           </div>
-        </div>
+        </div>}
         <div className="admissions-toolbar">
           <label className="field compact-search admissions-search">
             <span>Search teams</span>
@@ -465,7 +484,7 @@ function ApplicationList({
             />
           </label>
           <fieldset className="admissions-filter-set">
-            <legend>Filter this status</legend>
+            <legend>{recommendationFilter ? "Filters" : "Filter this status"}</legend>
             <div>
               <label className="check-filter">
                 <input
@@ -528,7 +547,7 @@ function ApplicationList({
           onClear={() => setSelected(new Set())}
         />
       ) : null}
-      <div className="queue-list admissions-list">
+      <div className="queue-list admissions-list" ref={listRef} tabIndex={-1} aria-busy={loading}>
         {shown.map((application) => (
           <ApplicationRow
             application={application}
@@ -546,10 +565,12 @@ function ApplicationList({
         ) : null}
         {!loading && shown.length === 0 ? (
           <p className="empty">
-            {searching
+            {recommendationFilter
+              ? "No matching teams."
+              : searching
               ? needsReviewOnly && reviewable
-                ? `No matching ${teamOriginNoun(origin)} at ${applicationStateLabels[stage]} still need reviews.`
-                : `No ${teamOriginNoun(origin)} match “${searchQuery}” at ${applicationStateLabels[stage]}.`
+                ? `No matching ${teamOriginNoun(origin)} at ${applicationQueueStageLabels[stage]} still need reviews.`
+                : `No ${teamOriginNoun(origin)} match “${searchQuery}” at ${applicationQueueStageLabels[stage]}.`
               : countByState.size === 0
                 ? oneReviewOnly
                   ? `No ${teamOriginNoun(origin, false)} has exactly 1 review in.`
@@ -557,21 +578,17 @@ function ApplicationList({
                     ? "No team has applied yet."
                     : `No ${teamOriginNoun(origin, false)} has applied yet.`
                 : needsReviewOnly && reviewable
-                  ? `No ${teamOriginNoun(origin)} at ${applicationStateLabels[stage]} still need reviews.`
+                  ? `No ${teamOriginNoun(origin)} at ${applicationQueueStageLabels[stage]} still need reviews.`
                   : origin === "all"
-                    ? `Nothing at ${applicationStateLabels[stage]} right now.`
-                    : `No ${teamOriginNoun(origin)} at ${applicationStateLabels[stage]} right now.`}
+                    ? `Nothing at ${applicationQueueStageLabels[stage]} right now.`
+                    : `No ${teamOriginNoun(origin)} at ${applicationQueueStageLabels[stage]} right now.`}
           </p>
         ) : null}
       </div>
       {searchResult?.truncated ? (
         <p className="muted admissions-search-limit">More teams match. Refine your search.</p>
       ) : null}
-      {!searching && applicationPage.status === "CanLoadMore" ? (
-        <button className="secondary" type="button" onClick={() => applicationPage.loadMore(30)}>
-          Load more
-        </button>
-      ) : null}
+      <QueuePagination {...pagination} listRef={listRef} total={searchResult?.truncated ? undefined : pagination.total} />
     </>
   );
 }
@@ -799,13 +816,15 @@ function AssignBar({
 
 function AssignmentList({ origin }: { origin: TeamOriginFilter }) {
   const originArgs = teamOriginQueryArgs(origin);
+  const listRef = useRef<HTMLDivElement>(null);
   const counts = useReviewAssignmentCounts(origin);
   const [state, setState] = useState<AssignmentState>("active");
   const { results, status, loadMore } = usePaginatedQuery(
     api.admissions.myReviewAssignments,
     { eventSlug, state, ...originArgs },
-    { initialNumItems: 30 },
+    { initialNumItems: admissionPageSize },
   );
+  const pagination = useQueuePagination(results, status, loadMore, JSON.stringify([state, origin]));
 
   return (
     <>
@@ -834,17 +853,17 @@ function AssignmentList({ origin }: { origin: TeamOriginFilter }) {
           {counts === undefined ? null : <span><LiveNumber value={counts.completed} /></span>}
         </button>
       </div>
-      <div className="queue-list admissions-list">
-        {results.map((assignment) => (
+      <div className="queue-list admissions-list" ref={listRef} tabIndex={-1} aria-busy={pagination.loading}>
+        {pagination.items.map((assignment) => (
           <AssignmentRow assignment={assignment} key={assignment.assignmentId} />
         ))}
-        {status === "LoadingFirstPage" ? (
+        {pagination.loading ? (
           <>
             <LoadingLabel>Loading your review work</LoadingLabel>
             <SkeletonList rows={5} />
           </>
         ) : null}
-        {status !== "LoadingFirstPage" && results.length === 0 ? (
+        {!pagination.loading && pagination.items.length === 0 ? (
           <p className="empty">
             {state === "active"
               ? origin === "all"
@@ -856,11 +875,7 @@ function AssignmentList({ origin }: { origin: TeamOriginFilter }) {
           </p>
         ) : null}
       </div>
-      {status === "CanLoadMore" ? (
-        <button className="secondary" type="button" onClick={() => loadMore(30)}>
-          Load more
-        </button>
-      ) : null}
+      <QueuePagination {...pagination} listRef={listRef} />
     </>
   );
 }

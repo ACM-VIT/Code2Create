@@ -2642,7 +2642,7 @@ Human reviews may commit before the deadline, but an admission decision may not.
 
 ### Push acknowledgement versus phone escalation
 
-The first 30-second repage creates at most one call delivery. Its claim reads the current page, consent version, destination, script policy, and page-chain grants. The claim reads the page while acknowledgement writes it, so Convex serializes the race. If acknowledgement commits first, the retried claim cancels the delivery. If claim commits first, the later acknowledgement remains authoritative even if the call proceeds. Neither order changes the in-app response.
+The first unanswered reminder creates at most one call delivery. Its delay is half the response window, capped at 30 seconds. Its claim reads the current page, consent version, destination, script policy, and page-chain grants. The claim reads the page while acknowledgement writes it, so Convex serializes the race. If acknowledgement commits first, the retried claim cancels the delivery. If claim commits first, the later acknowledgement remains authoritative even if the call proceeds. Neither order changes the in-app response.
 
 ### Call callback versus retry
 

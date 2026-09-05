@@ -354,7 +354,8 @@ export const configure = mutation({
     });
     if (
       args.staffing.assignmentReminderSeconds !==
-      round.staffing.assignmentReminderSeconds
+      round.staffing.assignmentReminderSeconds ||
+      args.staffing.assignmentReminderCalls !== round.staffing.assignmentReminderCalls
     ) {
       const confirmations = await ctx.db
         .query("reviewerRoundConfirmations")

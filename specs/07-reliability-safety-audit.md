@@ -86,7 +86,7 @@ For each critical page, the system records:
 - expiry;
 - fallback owner.
 
-If the reviewer does not acknowledge by the first 30-second repage, the reusable outbound-calling service can place one synthesized call. It can call at once when push has no usable address. The service requires current consent and the page chain's exact `review.substitute.page` grant. It uses the published reviewer-page script. It does not disclose project, score, or participant data. An in-app acknowledgement prevents any later claim. A call already claimed may still proceed, but provider acceptance never becomes reviewer acknowledgement.
+If the reviewer does not acknowledge by the first reminder, the reusable outbound-calling service can place one synthesized call. The reminder delay is half the page response window, capped at 30 seconds, so a 30-second page can escalate at 15 seconds. It can call at once when push has no usable address. The service requires current consent and the page chain's exact `review.substitute.page` grant. It uses the published reviewer-page script. It does not disclose project, score, or participant data. An in-app acknowledgement prevents any later claim. A call already claimed may still proceed, but provider acceptance never becomes reviewer acknowledgement.
 
 If the reviewer does not acknowledge before the page deadline, the dashboard pages the next candidate and tells operations to send a runner. A push or call provider acceptance never suppresses this fallback.
 

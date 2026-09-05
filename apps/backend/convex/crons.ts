@@ -75,6 +75,13 @@ crons.interval(
   {},
 );
 
+crons.interval(
+  "recover orphaned admission analyses",
+  { minutes: 1 },
+  internal.admissionIntelligence.recoverOrphanedAgentRecommendations,
+  { cursor: null },
+);
+
 /** Thirty-second sweeps surface empty seats promptly and require three clear passes. */
 crons.interval(
   "sweep review operations attention",

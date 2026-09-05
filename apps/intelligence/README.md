@@ -2,13 +2,14 @@
 
 This Cloudflare Worker hosts the Flue agents used by the operations dashboard. Convex remains the authority for event state, permissions, autonomous-run scheduling, typed recommendation proposals, and every operator-approved effect. Every agent can access only its closed, redacted, signed projection routes; the autopilot is further restricted to the read set frozen into its run policy. The Worker cannot invoke event commands or make consequential changes directly.
 
-There are five separate agent surfaces:
+There are six separate agent surfaces:
 
 - an operator-requested operations brief with a grounded, Convex-published result;
 - a subject-private operations copilot conversation;
 - the operations autopilot, which drains durable semantic work, exhaustively pages every policy-approved read, investigates and criticizes evidence, and either records observations or proposes typed recommendations for human review.
 - an event-owned episode investigator, with one durable instance per correlated operational situation and typed hypotheses and forecasts published back to Convex.
 - a continuous idea-submission agent, with one durable instance per immutable recommendation. Convex signals it after every frozen submission or proposal revision; it reauthorizes the current version, compares selected participant evidence with anonymized historical projects and other indexed submissions, and publishes a structured, non-decisional admission recommendation.
+- a review-preparation agent that analyses every eligible repository text file and stored Figma node in resumable batches, then publishes optional source-linked verbal questions. It cannot grade or change event state. Reviewer resume assessment is prepared with the event owner outside this Worker; see the [event follow-up plan](../../specs/16-event-follow-up-plan.md).
 
 Autopilot runs have no product-level limit on model turns, investigations, read pages, proposals, or total reasoning time. Each network request, model response, database transaction, and history page stays technically bounded; durable continuations and opaque cursors carry unfinished work into later Flue submissions. A run stops only after its durable work is exhausted, its authority is revoked, or it reaches an explicit terminal result. A run-scoped admission-fence Durable Object serializes initial admission, continuation, and revocation so a delayed request cannot resurrect a stopped run.
 
@@ -40,6 +41,7 @@ The HTTP shell stays separate from autonomy semantics: `src/routes/autonomyRoute
 - `POST /v1/operations-autonomy-runs`, authenticated with the autonomy-ingress HMAC context;
 - `POST /v1/operations-episodes`, authenticated with the episode-ingress HMAC context;
 - `POST /v1/idea-submissions`, authenticated with the idea-ingress HMAC context;
+- `POST /v1/review-questions`, authenticated with the review-question ingress HMAC context;
 - `POST /v1/operations-autonomy-runs/:runId/continue`, for a backend-owned durable work item;
 - `POST /v1/operations-autonomy-runs/:runId/abort`, which durably revokes admission before aborting agent work;
 - `GET|HEAD /v1/operations-brief-runs/:instanceId`, with a short-lived route-bound read ticket;
@@ -124,3 +126,7 @@ Do not deploy production from an unreviewed working tree. Configure the correspo
 - [Agent API](https://flueframework.com/docs/reference/agent-api/)
 - [Routing](https://flueframework.com/docs/guide/routing/)
 - [Tools](https://flueframework.com/docs/guide/tools/)
+
+### Review evidence images
+
+The signed review-question protocol v2 carries captured Figma PNGs for inspection batches when ops enables visual analysis. Convex pins the frame ID and checksum, verifies the private stored bytes, and sends one captured image per batch. The Worker validates the image against its source and the selected model's image support, then uses a native image attachment; image bytes are not copied into agent initial data. Reduction and final question stages use the stored findings and original references. Images and visible text are untrusted evidence, and the model cannot grade projects or prove runtime behavior from a static render.

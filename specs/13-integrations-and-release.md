@@ -474,11 +474,11 @@ Do not include team project text, score, phone number, or private reason.
 - Retry transient provider/network failures at two and five seconds, at most three total claims and never beyond the page deadline.
 - Keep reviewer acknowledgment separate from provider delivery.
 
-The 90-second page deadline is based on the page record, not a provider outcome. Provider acceptance does not prove the device displayed the message.
+The page deadline uses the published response window, which defaults to 30 seconds, and is stored on the page record. Provider acceptance does not prove the device displayed the message. The separate arrival window applies after page acceptance.
 
 ### Reviewer phone escalation
 
-The reviewer-page flow sends push first. If push has no usable device address, the backend can call immediately. Otherwise, the first unanswered repage after 30 seconds can ask the event-owned voice service to place one synthesized phone call.
+The reviewer-page flow sends push first. If push has no usable device address, the backend can call immediately. Otherwise, the first unanswered reminder can ask the event-owned voice service to place one synthesized phone call. Its delay is half the response window, capped at 30 seconds, so the default page can escalate after 15 seconds before its 30-second deadline.
 
 The call claim requires:
 
@@ -495,7 +495,7 @@ The backend resolves purpose, consent, locale, script policy, source state, and 
 
 The backend stores call dispatch, claim, provider acceptance, queue, ring, answer, completion, definite failure, cancellation, and ambiguous state. It deduplicates signed provider events and rejects an event ID reused with different content. A push or call provider acceptance does not acknowledge the page. An in-app acknowledgement prevents a later claim. A claim that already committed can still produce a call, but it never changes the in-app response.
 
-The voice service is reusable. Its contract includes a closed purpose key, consent policy, script version, audience type, permission rule, retention rule, and callback schema. A later participant operational-call release must add a separate purpose and policy. Reviewer consent does not authorize participant calls.
+The voice service is reusable. Its contract includes a closed purpose key, consent policy, script version, audience type, permission rule, retention rule, and callback schema. Participant review call-ups use their separate purpose and consent policy and the team lead's current saved profile phone. Reviewer consent does not authorize participant calls. Scheduled reviewer shift reminders currently use push; voice for those reminders remains a tracked implementation task.
 
 ## 8. VIT ID barcode and QR scanner release
 

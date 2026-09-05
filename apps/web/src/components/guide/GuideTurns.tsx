@@ -33,7 +33,7 @@ export function GuideTurn({
     <article className={`min-w-0 ${turnIn}`}>
       {thinking}
       <div className={streaming ? "guide-streaming" : undefined}>
-        <GuideMarkdown text={text} officialLinks={officialLinks} />
+        <GuideMarkdown text={text} officialLinks={officialLinks} streaming={streaming} />
       </div>
       {actions ? <div className="mt-3 flex flex-wrap items-center gap-2">{actions}</div> : null}
     </article>

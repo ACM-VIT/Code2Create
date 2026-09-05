@@ -1,3 +1,4 @@
+import { reviewerCallConsentPolicyVersion } from "@code2create/domain";
 import betterAuthSchema from "../node_modules/@convex-dev/better-auth/src/component/schema.ts";
 import { convexTest, type TestConvex } from "convex-test";
 import { describe, expect, test } from "vitest";
@@ -96,13 +97,27 @@ describe("reviewer outbound-call consent", () => {
       suggestedPhoneE164: "+919111111111",
       version: 0,
     });
-    const grantRequest = {
+    const requestWithoutNotice = {
       eventSlug,
       state: "granted" as const,
       destinationPhone: "+91 98765 43210",
       expectedVersion: 0,
       clientOperationId: "grant-call-consent",
     };
+    const grantRequest = {
+      ...requestWithoutNotice,
+      consentPolicyVersion: reviewerCallConsentPolicyVersion,
+    };
+    for (const notice of [{}, { consentPolicyVersion: "reviewer-page-call-consent-v1" }]) {
+      await expect(
+        reviewer.mutation(api.outboundCallConsents.saveReviewerConsent, {
+          ...requestWithoutNotice,
+          ...notice,
+        }),
+      ).rejects.toMatchObject({
+        data: expect.objectContaining({ code: "CALL_NOTICE_CHANGED" }),
+      });
+    }
     const granted = await reviewer.mutation(
       api.outboundCallConsents.saveReviewerConsent,
       grantRequest,

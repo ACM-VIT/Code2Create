@@ -103,15 +103,15 @@ function canRequestIn(model: MusicTileModel) {
 }
 
 /** Seconds into the current track, ticking once a second while it plays. */
-function useElapsed(playing: MusicRequestView | null) {
-  const startedAt = playing?.playbackStartedAt;
+function useElapsed(playing: MusicRequestView) {
+  const startedAt = playing.playbackStartedAt;
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (startedAt === undefined) return;
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(timer);
   }, [startedAt]);
-  if (!playing || startedAt === undefined) return null;
+  if (startedAt === undefined) return null;
   return Math.min(playing.durationSeconds, Math.max(0, (now - startedAt) / 1_000));
 }
 
@@ -165,6 +165,21 @@ function ProgressBar({
         className={`h-full bg-rose-light shadow-[0_0_12px_var(--glow-rose)] transition-[width] duration-1000 ease-linear ${thin ? "" : "rounded-full"}`}
         style={{ width: `${ratio * 100}%` }}
       />
+    </div>
+  );
+}
+
+/** Keep the playback clock local so ticking does not rerender the queue or search. */
+function PlaybackProgress({ playing, thin = false }: { playing: MusicRequestView; thin?: boolean }) {
+  const elapsed = useElapsed(playing);
+  if (thin) return <ProgressBar elapsed={elapsed} duration={playing.durationSeconds} thin />;
+  return (
+    <div className="flex flex-col gap-1.5">
+      <ProgressBar elapsed={elapsed} duration={playing.durationSeconds} />
+      <div className="flex justify-between text-[11px] text-fg/55">
+        <span>{elapsed === null ? "–:––" : <LiveDuration seconds={elapsed} />}</span>
+        <span>{durationLabel(playing.durationSeconds)}</span>
+      </div>
     </div>
   );
 }
@@ -255,7 +270,6 @@ function OpenMusic({ model }: { model: MusicTileModel }) {
     searchRef.current = model.search;
   }, [model.search]);
   const { window: musicWindow, nowPlaying } = model;
-  const elapsed = useElapsed(nowPlaying);
   const canRequest = canRequestIn(model);
   const trimmed = query.trim();
   const activeQuery = canRequest && trimmed.length >= 2 ? trimmed : null;
@@ -343,13 +357,7 @@ function OpenMusic({ model }: { model: MusicTileModel }) {
           )}
 
           {nowPlaying ? (
-            <div className="flex flex-col gap-1.5">
-              <ProgressBar elapsed={elapsed} duration={nowPlaying.durationSeconds} />
-              <div className="flex justify-between text-[11px] text-fg/55">
-                <span>{elapsed === null ? "–:––" : <LiveDuration seconds={elapsed} />}</span>
-                <span>{durationLabel(nowPlaying.durationSeconds)}</span>
-              </div>
-            </div>
+            <PlaybackProgress playing={nowPlaying} />
           ) : null}
 
           <div className="flex flex-wrap items-center gap-2">
@@ -535,7 +543,7 @@ function OpenMusic({ model }: { model: MusicTileModel }) {
             className="group flex flex-col border-t border-rose/25 text-left transition-colors hover:bg-fg/5"
           >
             {nowPlaying ? (
-              <ProgressBar elapsed={elapsed} duration={nowPlaying.durationSeconds} thin />
+              <PlaybackProgress playing={nowPlaying} thin />
             ) : null}
             <span className="flex items-center gap-3 px-5 py-3">
               <span className="min-w-0 flex-1 truncate text-[13px] text-fg/85">
@@ -582,7 +590,6 @@ export function MusicTile({
 }) {
   const reducedMotion = useReducedMotion();
   const { nowPlaying } = model;
-  const elapsed = useElapsed(nowPlaying);
   const status = statusLine(model);
   const waiting = model.queue.filter(
     (request) =>
@@ -621,7 +628,7 @@ export function MusicTile({
           </div>
           {nowPlaying ? (
             <div className="absolute inset-x-0 bottom-0">
-              <ProgressBar elapsed={elapsed} duration={nowPlaying.durationSeconds} thin />
+              <PlaybackProgress playing={nowPlaying} thin />
             </div>
           ) : null}
         </div>

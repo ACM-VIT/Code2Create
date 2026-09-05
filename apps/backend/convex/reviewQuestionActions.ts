@@ -13,7 +13,10 @@ import {
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { internalAction, type ActionCtx } from "./_generated/server";
-import { readStoredArtifactText } from "./lib/artifactStorage";
+import {
+  readStoredArtifactText,
+  readStoredFigmaPreview,
+} from "./lib/artifactStorage";
 import {
   figmaQuestionNodes,
   excludedSourceReason,
@@ -196,15 +199,38 @@ export const collect = internalAction({
         else if (figma?.artifact)
           manifest = {
             kind: "figma",
-            sources: figmaQuestionNodes(
-              await readStoredArtifactText(figma.artifact),
-              {
-                id: figma.id,
-                kind: "figma",
-                title: figma.title,
-                url: figma.url,
-              },
-            ),
+            sources: [
+              ...figmaQuestionNodes(
+                await readStoredArtifactText(figma.artifact),
+                {
+                  id: figma.id,
+                  kind: "figma",
+                  title: figma.title,
+                  url: figma.url,
+                },
+              ),
+              ...figma.previews.map(
+                (preview): ReviewQuestionSource => ({
+                  id: `${figma.id}:render:${preview.factId}`,
+                  kind: "figma",
+                  title: reviewSourceText(
+                    `${figma.title} · captured screen ${preview.nodeName}`,
+                  ).slice(0, 500),
+                  url: `${figma.url}${figma.url.includes("?") ? "&" : "?"}node-id=${encodeURIComponent(preview.nodeId)}`,
+                  text: reviewSourceText(
+                    JSON.stringify({
+                      nodeId: preview.nodeId,
+                      nodeName: preview.nodeName,
+                      capturedSha256: preview.sha256,
+                      scope:
+                        "Inspect the attached captured PNG. Static visual evidence only; no runtime or interaction verification.",
+                    }),
+                  ),
+                  image: { factId: preview.factId, sha256: preview.sha256 },
+                  coverage: "captured",
+                }),
+              ),
+            ],
           };
         else throw new Error("No readable source.");
         const manifestId = await ctx.storage.store(
@@ -297,7 +323,11 @@ export const collect = internalAction({
       } else {
         const nodes = manifest.sources
           .slice(collection.offset, collection.offset + 80)
-          .map(({ url, ...node }) => ({ ...node, ...(url ? { url } : {}) }));
+          .map(({ url, image, ...node }) => ({
+            ...node,
+            ...(url ? { url } : {}),
+            ...(image ? { image } : {}),
+          }));
         captured = nodes.length;
         await append(nodes);
         nextOffset = collection.offset + nodes.length;
@@ -344,6 +374,7 @@ function requestBody(
   stage: ReviewQuestionRequest["stage"],
   sources: ReviewQuestionSource[],
   references: ReviewQuestionRequest["references"],
+  images: ReviewQuestionRequest["images"] = [],
 ) {
   const body: Omit<ReviewQuestionRequest, "payloadChecksum"> = {
     protocolVersion: reviewQuestionProtocolVersion,
@@ -356,6 +387,7 @@ function requestBody(
     criteria: context.criteria,
     sources,
     references,
+    images,
   };
   return reviewQuestionRequestSchema.parse({
     ...body,
@@ -376,12 +408,34 @@ export const analyse = internalAction({
       attempt: state.job.attempt,
     });
     if (!context) return null;
+    const images: ReviewQuestionRequest["images"] = [];
+    for (const source of state.part.sources) {
+      if (!source.image) continue;
+      if (state.part.level !== 0 || source.kind !== "figma")
+        throw new Error(
+          "Images are only allowed in captured Figma inspection batches.",
+        );
+      const preview = context.figma
+        .flatMap((file) => file.previews)
+        .find(
+          (candidate) =>
+            candidate.factId === source.image?.factId &&
+            candidate.sha256 === source.image.sha256,
+        );
+      if (!preview) throw new Error("Captured Figma image access ended.");
+      images.push({
+        sourceId: source.id,
+        sha256: preview.sha256,
+        data: await readStoredFigmaPreview(preview),
+      });
+    }
     const body = requestBody(
       context,
       { jobId: state.job._id, attempt: state.job.attempt, ...args },
       state.part.level === 0 ? "inspect" : "reduce",
       state.part.sources,
       state.part.references,
+      images,
     );
     if (
       await ctx.runMutation(internal.reviewQuestionParts.saveRequest, {

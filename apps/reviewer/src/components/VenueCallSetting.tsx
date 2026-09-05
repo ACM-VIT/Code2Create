@@ -1,3 +1,4 @@
+import { venueCallConsentVersion } from "@code2create/domain";
 import { api } from "@code2create/backend/api";
 import { useMutation, useQuery } from "convex/react";
 import { randomUUID } from "expo-crypto";
@@ -47,6 +48,7 @@ export function VenueCallSetting({ eventSlug }: { eventSlug: string }) {
         eventSlug,
         purpose,
         state,
+        consentPolicyVersion: venueCallConsentVersion,
         destinationPhone: value,
         expectedVersion: consent.version,
         clientOperationId: pending.current.id,

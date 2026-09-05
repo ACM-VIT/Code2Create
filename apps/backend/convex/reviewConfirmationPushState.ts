@@ -1,3 +1,4 @@
+import { currentShiftReminder } from "./lib/reviewShiftReminders";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalMutation } from "./_generated/server";
@@ -58,19 +59,14 @@ export const claim = internalMutation({
       });
       return null;
     }
-    if (
-      notification.purpose === "shift_reminder" &&
-      (round.staffing.assignmentReminderSeconds === 0 ||
-        notification.shiftStartsAt === undefined ||
-        now <
-          notification.shiftStartsAt -
-            round.staffing.assignmentReminderSeconds * 1000)
-    ) {
-      await ctx.db.patch(notification._id, {
-        state: "cancelled",
-        updatedAt: now,
-      });
-      return null;
+    if (notification.purpose === "shift_reminder") {
+      const current = notification.shiftStartsAt === undefined ? null :
+        await currentShiftReminder(ctx, confirmation, round,
+          notification.confirmationVersion, notification.shiftStartsAt, now);
+      if (!current || now < current.remindAt) {
+        await ctx.db.patch(notification._id, { state: "cancelled", updatedAt: now });
+        return null;
+      }
     }
     const subject = await ctx.db
       .query("eventAccessSubjects")

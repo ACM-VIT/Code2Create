@@ -48,6 +48,106 @@ afterAll(() => {
 });
 
 describe("participant review queue projection", () => {
+  test("new Figma renders refresh future preparation while keeping earlier captured evidence fixed", async () => {
+    const backend = seededBackend();
+    const fixture = await seedQueueFixture(backend);
+    await seedAwaitingReview(backend, fixture);
+    await prepareAutomaticQueue(backend, fixture);
+    const figma = await seedQuestionFigma(backend, fixture);
+    const prepared = await prepareQuestionFixture(backend, fixture, false);
+    expect(prepared.context.figma[0]?.previews).toEqual([]);
+    await backend.run(async (ctx) => {
+      await ctx.db.patch(figma.factId, {
+        render: {
+          state: "available",
+          objectKey: "captured/figma.png",
+          storageRegion: "ap-south-1",
+          storageBucket: "test-evidence",
+          contentType: "image/png",
+          byteCount: 68,
+          sha256: "a".repeat(64),
+          width: 1,
+          height: 1,
+        },
+      });
+      await ctx.db.patch(figma.previewSetId, {
+        state: "ready",
+        availableCount: 1,
+      });
+    });
+    // The in-progress job continues to use exactly what it captured.
+    expect(
+      (
+        await backend.query(internal.reviewQuestions.sourceContext, {
+          jobId: prepared.jobId,
+          attempt: 1,
+        })
+      )?.figma[0]?.previews,
+    ).toEqual([]);
+    const nextId = await backend.run(async (ctx) => {
+      const round = await ctx.db.get(fixture.roundId);
+      const team = await ctx.db.get(fixture.teamId);
+      if (!round || !team) throw new Error("Review fixture missing");
+      return prepareQuestionSet(ctx, round, team);
+    });
+    if (!nextId) throw new Error("Updated question set missing");
+    expect(nextId).not.toBe(prepared.jobId);
+    await backend.mutation(internal.reviewQuestions.claim, { jobId: nextId });
+    const context = await backend.query(
+      internal.reviewQuestions.sourceContext,
+      { jobId: nextId, attempt: 1 },
+    );
+    expect(context?.sourceChecksum).not.toBe(prepared.context.sourceChecksum);
+    expect(context?.figma[0]?.previews).toEqual([
+      expect.objectContaining({ factId: figma.factId, sha256: "a".repeat(64) }),
+    ]);
+    // Changed storage contents cannot silently replace a captured image.
+    await backend.run(async (ctx) => {
+      const fact = await ctx.db.get(figma.factId);
+      if (!fact || fact.render.state !== "available")
+        throw new Error("Render missing");
+      await ctx.db.patch(fact._id, {
+        render: { ...fact.render, sha256: "b".repeat(64) },
+      });
+    });
+    expect(
+      (
+        await backend.query(internal.reviewQuestions.sourceContext, {
+          jobId: nextId,
+          attempt: 1,
+        })
+      )?.figma[0]?.previews,
+    ).toEqual([]);
+    // Ops can keep structural Figma analysis while disabling image inspection.
+    await backend.run(async (ctx) => {
+      const policy = await ctx.db
+        .query("reviewQuestionPolicies")
+        .withIndex("by_round", (q) => q.eq("roundId", fixture.roundId))
+        .unique();
+      if (!policy) throw new Error("Policy missing");
+      await ctx.db.patch(policy._id, {
+        policy: { ...policy.policy, visualAnalysis: false },
+        version: 2,
+      });
+    });
+    const textOnlyId = await backend.run(async (ctx) => {
+      const round = await ctx.db.get(fixture.roundId);
+      const team = await ctx.db.get(fixture.teamId);
+      if (!round || !team) throw new Error("Review fixture missing");
+      return prepareQuestionSet(ctx, round, team);
+    });
+    if (!textOnlyId) throw new Error("Text-only set missing");
+    await backend.mutation(internal.reviewQuestions.claim, {
+      jobId: textOnlyId,
+    });
+    const textOnly = await backend.query(
+      internal.reviewQuestions.sourceContext,
+      { jobId: textOnlyId, attempt: 1 },
+    );
+    expect(textOnly?.figma[0]?.previews).toEqual([]);
+    expect(textOnly?.figma[0]?.artifact).toBeDefined();
+  });
+
   test("synthesizes all batches across odd reduction levels and permits no extra questions", async () => {
     const backend = seededBackend();
     const fixture = await seedQueueFixture(backend);
@@ -1261,6 +1361,7 @@ async function seedQueueFixture(
         juniorRotationReviews: 0,
         reviewerArrivalSeconds: 90,
         assignmentReminderSeconds: 300,
+        assignmentReminderCalls: true,
       },
       minimumScorersPerCriterion: 1,
       minimumPresentParticipants: 1,
@@ -1711,6 +1812,7 @@ async function prepareQuestionFixture(
       enabled: true,
       refreshSeconds: 120,
       maximumQuestions: 6,
+      visualAnalysis: true,
       parallelAnalyses: 3,
       batchCharacters: 80000,
       maximumAttempts: 3,
@@ -1747,6 +1849,7 @@ async function prepareQuestionFixture(
     protocolVersion: reviewQuestionProtocolVersion,
     jobId,
     attempt: 1,
+    images: [],
     stage: "questions",
     partId: "final",
     partAttempt: 1,
@@ -1841,4 +1944,137 @@ async function prepareQuestionFixture(
       ],
     },
   };
+}
+
+async function seedQuestionFigma(backend: BackendTest, fixture: Fixture) {
+  return backend.run(async (ctx) => {
+    const now = Date.now();
+    const credentialId = await ctx.db.insert("figmaOAuthCredentials", {
+      figmaUserId: "test-designer",
+      accessTokenCiphertext: "unused-test-ciphertext",
+      refreshTokenCiphertext: "unused-test-ciphertext",
+      tokenExpiresAt: now + 3600000,
+      tokenReceivedAt: now,
+      scopes: [],
+      status: "active",
+      authorizedByPersonId: fixture.personId,
+      version: 1,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const credentialConnectionId = await ctx.db.insert(
+      "figmaCredentialConnections",
+      {
+        eventId: fixture.eventId,
+        teamId: fixture.teamId,
+        credentialId,
+        state: "active",
+        connectedByPersonId: fixture.personId,
+        connectedAt: now,
+        lastVerifiedAt: now,
+        version: 1,
+      },
+    );
+    const bindingId = await ctx.db.insert("figmaFileBindings", {
+      eventId: fixture.eventId,
+      teamId: fixture.teamId,
+      credentialId,
+      credentialConnectionId,
+      fileKey: "test-file",
+      url: "https://www.figma.com/design/test-file/Project",
+      name: "Project screens",
+      role: "UI",
+      linkAccess: "view",
+      editorType: "figma",
+      versionId: "captured-v1",
+      lastTouchedAt: now,
+      state: "active",
+      webhookState: "active",
+      lastMetadataCheckAt: now,
+      lastFullCaptureAt: now,
+      contentDirty: false,
+      syncRevision: 1,
+      syncedRevision: 1,
+      syncState: "ready",
+      version: 1,
+      connectedAt: now,
+      updatedAt: now,
+    });
+    const artifactId = await ctx.db.insert("integrationArtifacts", {
+      eventId: fixture.eventId,
+      teamId: fixture.teamId,
+      provider: "figma",
+      figmaFileBindingId: bindingId,
+      resourceKey: "test-file",
+      providerVersionId: "captured-v1",
+      objectKey: "captured/structure.json.gz",
+      storageRegion: "ap-south-1",
+      storageBucket: "test-evidence",
+      contentType: "application/json",
+      contentEncoding: "gzip",
+      uncompressedBytes: 100,
+      storedBytes: 80,
+      sha256: "c".repeat(64),
+      state: "available",
+      createdAt: now,
+    });
+    const snapshotId = await ctx.db.insert("figmaFileSnapshots", {
+      eventId: fixture.eventId,
+      teamId: fixture.teamId,
+      figmaFileBindingId: bindingId,
+      reason: "baseline",
+      providerVersionId: "captured-v1",
+      providerLastTouchedAt: now,
+      pageCount: 1,
+      frameCount: 1,
+      componentCount: 0,
+      componentSetCount: 0,
+      styleCount: 0,
+      nodeCount: 3,
+      prototypeInteractionCount: 0,
+      commentCount: 0,
+      unresolvedCommentCount: 0,
+      versionCount: 1,
+      completeness: "complete",
+      artifactId,
+      capturedAt: now,
+    });
+    const previewSetId = await ctx.db.insert("figmaPreviewSets", {
+      eventId: fixture.eventId,
+      teamId: fixture.teamId,
+      figmaFileBindingId: bindingId,
+      snapshotId,
+      providerVersionId: "captured-v1",
+      state: "pending",
+      discoveredNodeCount: 1,
+      selectedNodeCount: 1,
+      availableCount: 0,
+      failedCount: 0,
+      truncated: false,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const factId = await ctx.db.insert("figmaNodeFacts", {
+      eventId: fixture.eventId,
+      teamId: fixture.teamId,
+      figmaFileBindingId: bindingId,
+      snapshotId,
+      previewSetId,
+      providerVersionId: "captured-v1",
+      pageId: "0:1",
+      pageName: "Page",
+      pageOrder: 0,
+      nodeId: "1:1",
+      nodeName: "Dashboard",
+      nodeType: "FRAME",
+      nodeOrder: 0,
+      descendantCount: 0,
+      semanticHash: "d".repeat(64),
+      changeState: "new",
+      render: { state: "pending" },
+      createdAt: now,
+      updatedAt: now,
+    });
+    return { factId, previewSetId };
+  });
 }
