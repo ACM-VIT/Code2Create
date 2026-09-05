@@ -1,3 +1,4 @@
+import { defaultParticipantEmailTemplates } from "@code2create/domain";
 import { ConvexError, v } from "convex/values";
 import { components, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -328,7 +329,7 @@ export const prepare = internalMutation({
       ...communicationsPolicyFromDocument(policy),
       startsAt: args.startsAt,
       endsAt: args.endsAt,
-      emailTemplates: policy.emailTemplates.map((template) =>
+      emailTemplates: defaultParticipantEmailTemplates().map((template) =>
         template.templateKey === "offer"
           ? {
               ...template,
