@@ -834,24 +834,28 @@ export const list = query({
           }
           if (args.recommendationFilter &&
             !(await applicationMatchesRecommendation(ctx, application, args.recommendationFilter))) return null;
-          const projected = await visibleApplicationListProjection(
+          // Check review shortfalls before loading permissions, project details, and reviews.
+          if (args.needsReview) {
+            const policy = await ctx.db.get(application.admissionPolicyVersionId);
+            if (!policy || application.completedReviewCount >= policy.minimumHumanReviews) {
+              return null;
+            }
+          }
+          return visibleApplicationListProjection(
             ctx,
             event._id,
             subject._id,
             application,
           );
-          if (
-            args.needsReview &&
-            projected &&
-            projected.completedReviewCount >= projected.minimumHumanReviews
-          ) {
-            return null;
-          }
-          return projected;
         })
         .paginate({
           ...args.paginationOpts,
-          maximumRowsRead: args.recommendationFilter ? maximumAdmissionPageSize : maximumApplicantTeamsPerEvent + 1,
+          // Filtered-out rows still consume reads; return a continuation before
+          // scanning an entire cohort and exhausting the transaction budget.
+          maximumRowsRead: Math.min(
+            args.paginationOpts.maximumRowsRead ?? maximumAdmissionPageSize,
+            maximumAdmissionPageSize,
+          ),
         });
     }
     const applications = ctx.db.query("applications");
