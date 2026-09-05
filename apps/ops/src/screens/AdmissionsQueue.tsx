@@ -21,6 +21,8 @@ import {
   ownReviewLine,
   prioritizeReviewQueue,
   queueLeadSentence,
+  recommendationFilterLabel,
+  recommendationOutcomeLabels,
   reviewStatus,
   reviewerLeadSentence,
   reviewerWorkloadLabel,
@@ -37,6 +39,7 @@ import {
   type QueueApplication,
   type QueueAssignment,
   type ReviewerWorkload,
+  type RecommendationFilter,
   type TeamOriginFilter,
 } from "../lib/admissionsPresentation";
 import { eventSlug } from "../lib/config";
@@ -61,6 +64,7 @@ export function AdmissionsQueue({
 }) {
   const [selectedView, setSelectedView] = useState<QueueView>(canReadApplications ? "all" : "mine");
   const [origin, setOrigin] = useState<TeamOriginFilter>("all");
+  const [recommendationFilter, setRecommendationFilter] = useState<RecommendationFilter | null>(null);
   const view =
     selectedView === "all"
       ? canReadApplications
@@ -78,7 +82,16 @@ export function AdmissionsQueue({
           <h1>Applications</h1>
         </div>
       </header>
-      {isSupreme ? <AdmissionResultsRelease /> : null}
+      {isSupreme ? (
+        <AdmissionResultsRelease
+          recommendationFilter={recommendationFilter}
+          onFilter={canReadApplications ? (filter) => {
+            setSelectedView("all");
+            setOrigin("all");
+            setRecommendationFilter((current) => current?.source === filter.source && current.outcome === filter.outcome ? null : filter);
+          } : undefined}
+        />
+      ) : null}
       {canReadApplications && canReadAssignments ? (
         <div
           className="configuration-tabs admissions-views"
@@ -99,7 +112,10 @@ export function AdmissionsQueue({
             className={view === "mine" ? "active" : ""}
             role="tab"
             type="button"
-            onClick={() => setSelectedView("mine")}
+            onClick={() => {
+              setSelectedView("mine");
+              setRecommendationFilter(null);
+            }}
           >
             Assigned to me
           </button>
@@ -126,14 +142,23 @@ export function AdmissionsQueue({
         </div>
       </div>
       {view === "all" && canReadApplications ? (
-        <ApplicationList canAssign={canAssign} origin={origin} />
+        <ApplicationList
+          key={recommendationFilter ? recommendationFilterLabel(recommendationFilter) : "queue"}
+          canAssign={canAssign}
+          origin={origin}
+          recommendationFilter={recommendationFilter}
+          onClearRecommendationFilter={() => setRecommendationFilter(null)}
+        />
       ) : null}
       {view === "mine" && canReadAssignments ? <AssignmentList origin={origin} /> : null}
     </section>
   );
 }
 
-function AdmissionResultsRelease() {
+function AdmissionResultsRelease({ recommendationFilter, onFilter }: {
+  recommendationFilter: RecommendationFilter | null;
+  onFilter: ((filter: RecommendationFilter) => void) | undefined;
+}) {
   const status = useQuery(api.admissions.admissionResultsReleaseStatus, { eventSlug });
   const release = useMutation(api.admissions.releaseAdmissionResults);
   const operations = useOperationRunner();
@@ -151,6 +176,7 @@ function AdmissionResultsRelease() {
     );
   }
   if (!status.isSupreme) return null;
+  const ideaAgent = status.ideaAgent;
   const ready =
     status.serverNow >= status.applicationsCloseAt &&
     status.releasedAt === undefined &&
@@ -222,21 +248,46 @@ function AdmissionResultsRelease() {
         <AdmissionStat label="Waitlisted" value={status.waitlisted} people={status.people.waitlisted} />
         <AdmissionStat label="Not selected" value={status.declined} people={status.people.declined} />
       </dl>
-      {status.ideaAgent ? (
+      {ideaAgent ? (
         <section aria-labelledby="idea-agent-breakdown">
           <div className="section-heading">
             <div>
               <h3 id="idea-agent-breakdown">Idea agent</h3>
             </div>
           </div>
-          <dl className="catalog-summary">
-            <AdmissionStat label="Accepted" value={status.ideaAgent.accepted} people={status.ideaAgent.people.accepted} />
-            <AdmissionStat label="Waitlisted" value={status.ideaAgent.waitlisted} people={status.ideaAgent.people.waitlisted} />
-            <AdmissionStat label="Rejected" value={status.ideaAgent.rejected} people={status.ideaAgent.people.rejected} />
-            <AdmissionStat label="No current recommendation" value={status.ideaAgent.unavailable} people={status.ideaAgent.people.unavailable} />
+          <dl className="catalog-summary" aria-label="Idea agent recommendations">
+            {(["accepted", "waitlisted", "rejected", "unavailable"] as const).map((outcome) => (
+              <AdmissionStat
+                key={outcome}
+                label={recommendationOutcomeLabels[outcome]}
+                value={ideaAgent[outcome]}
+                people={ideaAgent.people[outcome]}
+                selected={recommendationFilter?.source === "idea" && recommendationFilter.outcome === outcome}
+                onSelect={onFilter ? () => onFilter({ source: "idea", outcome }) : undefined}
+              />
+            ))}
           </dl>
         </section>
       ) : null}
+      <section aria-labelledby="human-review-breakdown">
+        <div className="section-heading">
+          <div>
+            <h3 id="human-review-breakdown">Human reviews</h3>
+          </div>
+        </div>
+        <dl className="catalog-summary" aria-label="Human recommendations">
+          {(["accepted", "waitlisted", "rejected", "split", "needed"] as const).map((outcome) => (
+            <AdmissionStat
+              key={outcome}
+              label={recommendationOutcomeLabels[outcome]}
+              value={status.humanReviews[outcome]}
+              people={status.humanReviews.people[outcome]}
+              selected={recommendationFilter?.source === "human" && recommendationFilter.outcome === outcome}
+              onSelect={onFilter ? () => onFilter({ source: "human", outcome }) : undefined}
+            />
+          ))}
+        </dl>
+      </section>
       {!status.releasedAt && status.unrecorded > 0 ? (
         <p className="notice">
           Record a final decision for all <LiveNumber value={status.unrecorded} /> remaining applications before release.
@@ -290,9 +341,13 @@ function AdmissionResultsRelease() {
 function ApplicationList({
   canAssign,
   origin,
+  recommendationFilter,
+  onClearRecommendationFilter,
 }: {
   canAssign: boolean;
   origin: TeamOriginFilter;
+  recommendationFilter: RecommendationFilter | null;
+  onClearRecommendationFilter: () => void;
 }) {
   const originArgs = teamOriginQueryArgs(origin);
   const [oneReviewOnly, setOneReviewOnly] = useState(false);
@@ -305,17 +360,18 @@ function ApplicationList({
   const countByState = stageCountMap(counts ?? []);
   const [chosen, setChosen] = useState<ApplicationQueueStage | null>(null);
   const stage = chosen ?? busiestStage(countByState) ?? "submitted";
-  const reviewable = stageAcceptsReviews(stage);
+  const reviewable = recommendationFilter === null && stageAcceptsReviews(stage);
   const [needsReviewOnly, setNeedsReviewOnly] = useState(true);
   const reviewNeededArgs = needsReviewOnly && reviewable ? { needsReview: true as const } : {};
   const [search, setSearch] = useState("");
   const searchQuery = search.trim().replace(/\s+/g, " ");
   const searching = searchQuery.length > 0;
+  const scopeArgs = recommendationFilter ? { recommendationFilter } : { state: stage };
   const applicationPage = usePaginatedQuery(
     api.admissions.list,
     searching
       ? "skip"
-      : { eventSlug, state: stage, ...originArgs, ...reviewCountArgs, ...reviewNeededArgs },
+      : { eventSlug, ...scopeArgs, ...originArgs, ...reviewCountArgs, ...reviewNeededArgs },
     { initialNumItems: admissionPageSize },
   );
   const searchResult = useQuery(
@@ -323,7 +379,7 @@ function ApplicationList({
     searching
       ? {
           eventSlug,
-          state: stage,
+          ...scopeArgs,
           search: searchQuery,
           ...originArgs,
           ...reviewCountArgs,
@@ -340,12 +396,12 @@ function ApplicationList({
     applications,
     searching ? searchResult === undefined ? "LoadingFirstPage" : "Exhausted" : applicationPage.status,
     applicationPage.loadMore,
-    JSON.stringify([stage, origin, oneReviewOnly, needsReviewOnly, searchQuery]),
+    JSON.stringify([stage, origin, oneReviewOnly, needsReviewOnly, searchQuery, recommendationFilter]),
   );
   const shown = reviewable ? prioritizeReviewQueue(pagination.items) : pagination.items;
   const chosenApplications = shown.filter((application) => selected.has(application.id));
   const loading = pagination.loading;
-  const filtersActive = searching || oneReviewOnly || (reviewable && !needsReviewOnly);
+  const filtersActive = searching || oneReviewOnly || (reviewable && !needsReviewOnly) || recommendationFilter !== null;
 
   useEffect(() => {
     setSelected(new Set());
@@ -365,6 +421,7 @@ function ApplicationList({
     setOneReviewOnly(false);
     setNeedsReviewOnly(true);
     setSelected(new Set());
+    onClearRecommendationFilter();
   };
 
   return (
@@ -388,7 +445,11 @@ function ApplicationList({
         ) : null}
       </div>
       <div className="admissions-controls">
-        <div className="admissions-stage-control">
+        {recommendationFilter ? (
+          <div className="admissions-stage-control">
+            <p>{recommendationFilterLabel(recommendationFilter)}</p>
+          </div>
+        ) : <div className="admissions-stage-control">
           <span className="admissions-control-label">Application status</span>
           <div className="stage-filter admissions-stages">
             {visibleStages(countByState, stage).map((candidate) => (
@@ -407,7 +468,7 @@ function ApplicationList({
               </button>
             ))}
           </div>
-        </div>
+        </div>}
         <div className="admissions-toolbar">
           <label className="field compact-search admissions-search">
             <span>Search teams</span>
@@ -423,7 +484,7 @@ function ApplicationList({
             />
           </label>
           <fieldset className="admissions-filter-set">
-            <legend>Filter this status</legend>
+            <legend>{recommendationFilter ? "Filters" : "Filter this status"}</legend>
             <div>
               <label className="check-filter">
                 <input
@@ -504,7 +565,9 @@ function ApplicationList({
         ) : null}
         {!loading && shown.length === 0 ? (
           <p className="empty">
-            {searching
+            {recommendationFilter
+              ? "No matching teams."
+              : searching
               ? needsReviewOnly && reviewable
                 ? `No matching ${teamOriginNoun(origin)} at ${applicationQueueStageLabels[stage]} still need reviews.`
                 : `No ${teamOriginNoun(origin)} match “${searchQuery}” at ${applicationQueueStageLabels[stage]}.`

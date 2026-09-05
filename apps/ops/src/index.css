@@ -993,6 +993,33 @@ html:has(.intelligence-workspace) {
   font-weight: 400;
   white-space: nowrap;
 }
+.catalog-summary > .admission-stat-filter {
+  position: relative;
+}
+.admission-stat-filter button {
+  cursor: pointer;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.admission-stat-filter button::after {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  content: "";
+}
+.catalog-summary > .admission-stat-filter:is(:hover, :focus-within, :has([aria-pressed="true"])) {
+  background: var(--hover);
+}
+.admission-stat-filter button[aria-pressed="true"]::after,
+.admission-stat-filter button:focus-visible::after {
+  outline: 1px solid var(--muted);
+  outline-offset: -1px;
+}
 .intake-policy-note {
   margin: 0;
   font-size: 0.72rem;
