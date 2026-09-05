@@ -2,7 +2,7 @@ import { internal } from "./_generated/api";
 import { currentShiftReminder } from "./lib/reviewShiftReminders";
 import { reviewerCallConsentPolicyVersion } from "@code2create/domain";
 import { normalizedE164Phone } from "./lib/outboundCalls";
-import { currentAdmissionRsvpReminder } from "./lib/admissionOfferCalls";
+import { admissionRsvpCallScript, currentAdmissionRsvpReminder } from "./lib/admissionOfferCalls";
 import {
   venueConfirmationCall,
   venueCallResponseValue,
@@ -268,6 +268,7 @@ export const claimDelivery = internalMutation({
     ) {
       return null;
     }
+    let script = delivery.script;
     const blockedReason = await undispatchableReason(ctx, delivery, now);
     if (blockedReason !== null) {
       await ctx.db.patch(delivery._id, {
@@ -280,6 +281,20 @@ export const claimDelivery = internalMutation({
         completedAt: now,
       });
       return null;
+    }
+    if (delivery.sourceType === "admission_offer_reminder") {
+      const offerId = ctx.db.normalizeId("admissionOffers", delivery.sourceId);
+      const current = offerId ? await currentAdmissionRsvpReminder(ctx, offerId, now) : null;
+      if (!current || current.offer.reminderAt === undefined) throw new Error("The validated RSVP reminder is missing.");
+      if (now < current.offer.reminderAt) {
+        await ctx.db.patch(delivery._id, {
+          state: "retry_wait", nextAttemptAt: current.offer.reminderAt, claimExpiresAt: undefined,
+          version: delivery.version + 1, updatedAt: now,
+        });
+        await ctx.scheduler.runAt(current.offer.reminderAt, internal.outboundCalls.deliver, { deliveryId: delivery._id });
+        return null;
+      }
+      script = admissionRsvpCallScript(current.team.name, current.offer.expiresAt, current.event.timezone);
     }
     if (delivery.sourceType === "reviewer_shift_reminder") {
       const notificationId = ctx.db.normalizeId("reviewConfirmationNotifications", delivery.sourceId);
@@ -314,6 +329,7 @@ export const claimDelivery = internalMutation({
     }
     await ctx.db.patch(delivery._id, {
       state: "sending",
+      script,
       attemptId: args.attemptId,
       claimExpiresAt: now + claimLifetimeMs,
       nextAttemptAt: undefined,
@@ -324,7 +340,7 @@ export const claimDelivery = internalMutation({
     return {
       deliveryId: delivery._id,
       destinationPhoneE164: delivery.destinationPhoneE164,
-      script: delivery.script,
+      script,
       ...(delivery.venueConfirmation
         ? { venueConfirmation: delivery.venueConfirmation }
         : {}),

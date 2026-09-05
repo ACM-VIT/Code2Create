@@ -1,3 +1,4 @@
+import { zonedTimestamp, zonedInputValue } from "../lib/zonedTimestamp";
 import { LiveNumber } from "../components/LiveNumber";
 import { api } from "@code2create/backend/api";
 import { useProductAnalytics } from "@code2create/client-observability";
@@ -183,7 +184,7 @@ function AdmissionStats({ recommendationFilter, onFilter }: {
   const ideaAgent = status.ideaAgent;
   return (
     <section className="catalog-review admissions-release-panel" aria-label="Admission summary">
-      {status.canReleaseResults ? <AdmissionResultsRelease status={status} /> : null}
+      {status.canReleaseResults || status.canManageRsvp ? <AdmissionResultsRelease status={status} /> : null}
       <dl className="catalog-summary" aria-label="Human review progress">
         <AdmissionStat label="Applications" value={status.total} people={status.people.total} />
         <AdmissionStat label="Reviews complete" value={status.reviewsComplete} people={status.people.reviewsComplete} />
@@ -244,13 +245,17 @@ function AdmissionResultsRelease({ status }: {
   status: FunctionReturnType<typeof api.admissions.admissionSummary>;
 }) {
   const release = useMutation(api.admissions.releaseAdmissionResults);
+  const configureRsvp = useMutation(api.admissionRsvp.configure);
+  const [closesAt, setClosesAt] = useState(() => zonedInputValue(status.rsvpClosesAt, status.timezone));
+  const [reminderAt, setReminderAt] = useState(() => zonedInputValue(status.rsvpReminderAt, status.timezone));
   const operations = useOperationRunner();
   const { capture } = useProductAnalytics();
   const [armed, setArmed] = useState(false);
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const pending = operations.hasPending("admission-results-release");
+  const operationKey = status.releasedAt ? "admission-rsvp-configure" : "admission-results-release";
+  const pending = operations.hasPending(operationKey);
   const ready =
     status.serverNow >= status.applicationsCloseAt &&
     status.releasedAt === undefined &&
@@ -262,12 +267,19 @@ function AdmissionResultsRelease({ status }: {
     setBusy(true);
     try {
       if (pending) {
-        await operations.retryPending("admission-results-release");
+        await operations.retryPending(operationKey);
       } else {
         await operations.run(
-          "admission-results-release",
+          operationKey,
           (clientOperationId) => () =>
-            release({
+            status.releasedAt ? configureRsvp({
+              eventSlug, expectedEventVersion: status.eventVersion,
+              closesAt: zonedTimestamp(closesAt, status.timezone, "RSVP deadline"),
+              ...(reminderAt ? { reminderAt: zonedTimestamp(reminderAt, status.timezone, "Call start") } : {}),
+              reason, clientOperationId,
+            }) : release({
+              rsvpClosesAt: zonedTimestamp(closesAt, status.timezone, "RSVP deadline"),
+              ...(reminderAt ? { rsvpReminderAt: zonedTimestamp(reminderAt, status.timezone, "Call start") } : {}),
               eventSlug,
               expectedEventVersion: status.eventVersion,
               reason,
@@ -275,7 +287,7 @@ function AdmissionResultsRelease({ status }: {
             }),
         );
       }
-      capture("c2c_admission_results_released", {
+      capture(status.releasedAt ? "c2c_admission_rsvp_configured" : "c2c_admission_results_released", {
         c2c_application_count: status.total,
       });
       setArmed(false);
@@ -292,37 +304,46 @@ function AdmissionResultsRelease({ status }: {
       <div className="section-heading">
         <div>
           <p className="eyebrow">Supreme review</p>
-          <h2>{status.releasedAt ? "Admission results released" : "Release admission results"}</h2>
+          <h2>{status.releasedAt ? "Attendance RSVP" : "Release admission results"}</h2>
           <p className="muted">
             {status.releasedAt
-              ? `${status.releasedByName ?? "Supreme"} released the results. Participant portals and emails use the same decision set.`
-              : "Releasing makes every final result visible at once and sends the configured emails."}
+              ? `${status.rsvp.confirmed} confirmed · ${status.rsvp.pending} awaiting response · ${status.rsvp.notInvited} awaiting invitation · ${status.rsvp.declined} declined · ${status.rsvp.expired} expired`
+              : "Release results and invite selected team leads to confirm attendance by the RSVP deadline."}
           </p>
         </div>
-        {!status.releasedAt && !armed ? (
+        {!armed && (status.releasedAt ? status.canManageRsvp : status.canReleaseResults && status.canManageRsvp) ? (
           <button
             className="primary"
             type="button"
-            disabled={!ready}
-            onClick={() => setArmed(true)}
+            disabled={!status.releasedAt && !ready}
+            onClick={() => {
+              setClosesAt(zonedInputValue(status.rsvpClosesAt, status.timezone));
+              setReminderAt(zonedInputValue(status.rsvpReminderAt, status.timezone));
+              setArmed(true);
+            }}
           >
-            Review release
+            {status.releasedAt ? "Configure RSVP" : "Review release"}
           </button>
         ) : null}
       </div>
+      {status.rsvpClosesAt !== undefined ? <p className="muted">Confirm by {new Intl.DateTimeFormat("en-IN", { timeZone: status.timezone, dateStyle: "medium", timeStyle: "short" }).format(status.rsvpClosesAt)} · {status.rsvpReminderAt !== undefined ? `Calls start ${new Intl.DateTimeFormat("en-IN", { timeZone: status.timezone, dateStyle: "medium", timeStyle: "short" }).format(status.rsvpReminderAt)}` : "Calls disabled"} · {status.timezone}</p> : null}
       {!status.releasedAt && status.unrecorded > 0 ? (
         <p className="notice">
           Record a final decision for all <LiveNumber value={status.unrecorded} /> remaining applications before release.
         </p>
       ) : null}
-      {!status.releasedAt && armed ? (
+      {armed ? (
         <div className="publish-confirmation">
-          <h3>Release all <LiveNumber value={status.total} /> results?</h3>
+          <h3>{status.releasedAt ? "Open or update pending RSVPs" : <>Release all <LiveNumber value={status.total} /> results?</>}</h3>
           <p className="muted">
-            This is the participant-visible boundary. It cannot be rolled back.
+            {status.releasedAt ? "Applies to selected teams awaiting a response. Confirmed and declined teams stay unchanged." : "Results become visible and selected teams receive an RSVP invitation."}
           </p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="field"><span>RSVP deadline · {status.timezone}</span><input type="datetime-local" required value={closesAt} onChange={e => setClosesAt(e.currentTarget.value)} /></label>
+            <label className="field"><span>Start reminder calls · {status.timezone}</span><input type="datetime-local" value={reminderAt} onChange={e => setReminderAt(e.currentTarget.value)} /><small>Leave empty to disable calls. Only unanswered VIT team leads are called.</small></label>
+          </div>
           <label className="field">
-            <span>Release note</span>
+            <span>Note</span>
             <textarea
               required
               minLength={5}
@@ -335,10 +356,10 @@ function AdmissionResultsRelease({ status }: {
             <button
               className="primary"
               type="button"
-              disabled={busy || reason.trim().length < 5}
+              disabled={busy || !closesAt || reason.trim().length < 5}
               onClick={() => void releaseResults()}
             >
-              {busy ? "Releasing…" : pending ? "Confirm earlier release" : "Release all results"}
+              {busy ? "Saving…" : pending ? "Retry earlier request" : status.releasedAt ? "Save RSVP schedule" : "Release results and open RSVP"}
             </button>
             <button
               className="secondary"

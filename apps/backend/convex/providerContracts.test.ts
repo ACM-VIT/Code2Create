@@ -456,6 +456,58 @@ describe("Cloudflare participant-email contract", () => {
     expect(withWallets).toContain("Add to Apple Wallet");
   });
 
+  test.each([
+    ["email.delivered", false, "delivered"],
+    ["email.bounced", true, "bounced"],
+    ["email.complained", true, "suppressed"],
+    ["email.suppressed", true, "suppressed"],
+  ] as const)("applies %s using saved policy provenance when the provider pin is absent", async (eventType, disableDestination, expectedState) => {
+    const backend = convexTest(schema, modules);
+    const fixture = await seedParticipantDelivery(backend, { state: "sending", attemptId: "unpinned" });
+    await backend.run((ctx) => ctx.db.patch(fixture.deliveryId, {
+      state: "sent", attemptId: undefined, providerMessageId: fixture.providerMessageId,
+    }));
+    const event = {
+      eventId: "unpinned-callback", providerMessageId: fixture.providerMessageId,
+      recipientEmailNormalized: "fixture@example.test", eventType,
+      providerAt: fixture.now + 1_000, disableDestination, payloadHash: "fixture-event-hash",
+    };
+    expect(await backend.mutation(internal.participantNotificationState.recordProviderEvent, event))
+      .toEqual({ duplicate: false, matched: true });
+    const state = await participantDeliveryState(backend, fixture.deliveryId, fixture.destinationId);
+    expect(state.delivery).toMatchObject({ state: expectedState, provider: "cloudflare_email" });
+    expect(state.destination?.status).toBe(disableDestination ? "disabled" : "active");
+    expect(await backend.mutation(internal.participantNotificationState.recordProviderEvent, event))
+      .toEqual({ duplicate: true, matched: true });
+    expect((await participantDeliveryState(backend, fixture.deliveryId, fixture.destinationId)).delivery?.version)
+      .toBe(state.delivery?.version);
+  });
+
+  test("reconciles a previously unmatched callback, but never applies Cloudflare events to SES", async () => {
+    const backend = convexTest(schema, modules);
+    const fixture = await seedParticipantDelivery(backend, { state: "sending", attemptId: "unmatched" });
+    const event = {
+      eventId: "unmatched-callback", providerMessageId: fixture.providerMessageId,
+      recipientEmailNormalized: "fixture@example.test", eventType: "email.bounced" as const,
+      providerAt: fixture.now + 1_000, disableDestination: true, payloadHash: "fixture-event-hash",
+    };
+    expect(await backend.mutation(internal.participantNotificationState.recordProviderEvent, event))
+      .toEqual({ duplicate: false, matched: false });
+    await backend.run((ctx) => ctx.db.patch(fixture.deliveryId, {
+      state: "sent", attemptId: undefined, providerMessageId: fixture.providerMessageId,
+    }));
+    expect(await backend.mutation(internal.participantNotificationState.recordProviderEvent, event))
+      .toEqual({ duplicate: true, matched: true });
+
+    await backend.run(async (ctx) => {
+      await ctx.db.patch(fixture.deliveryId, { provider: undefined });
+      await ctx.db.patch(fixture.communicationsPolicyVersionId, { notificationProvider: "aws_ses" });
+    });
+    expect(await backend.mutation(internal.participantNotificationState.recordProviderEvent, {
+      ...event, eventId: "ses-mismatch", providerAt: event.providerAt + 1,
+    })).toEqual({ duplicate: false, matched: false });
+  });
+
   test("converges event-before-response, duplicate, out-of-order, and bounce events", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedParticipantDelivery(backend, {

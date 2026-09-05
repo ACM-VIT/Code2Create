@@ -324,6 +324,7 @@ export const retry = mutation({
     eventSlug: v.string(),
     deliveryId: v.id("participantNotificationDeliveries"),
     expectedDeliveryVersion: v.number(),
+    confirmedNotAcceptedEvidence: v.optional(v.string()),
     reason: v.string(),
     clientOperationId: v.string(),
   },
@@ -336,10 +337,14 @@ export const retry = mutation({
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const reason = normalizedText(args.reason, "Reason", 3, 300);
+    const confirmedNotAcceptedEvidence = args.confirmedNotAcceptedEvidence === undefined
+      ? undefined
+      : normalizedText(args.confirmedNotAcceptedEvidence, "Non-acceptance evidence", 20, 1_000);
     const requestFingerprint = operationFingerprint([
       args.deliveryId,
       args.expectedDeliveryVersion,
       reason,
+      confirmedNotAcceptedEvidence ?? "",
     ]);
     const prior = await findOperation(ctx, {
       eventId: event._id,
@@ -381,7 +386,10 @@ export const retry = mutation({
         message: "The notification delivery changed. Review its current state before retrying.",
       });
     }
-    if (source.state !== "failed") {
+    const reconciledUnknown = source.state === "unknown" &&
+      confirmedNotAcceptedEvidence !== undefined &&
+      source.providerMessageId === undefined && source.providerAcceptedAt === undefined;
+    if (source.state !== "failed" && !reconciledUnknown) {
       throw new ConvexError({
         code: "DELIVERY_NOT_RETRYABLE",
         message:
@@ -497,6 +505,7 @@ export const retry = mutation({
         state: source.state,
         retryNumber: source.retryNumber,
         version: source.version,
+        ...(reconciledUnknown ? { confirmedNotAcceptedEvidence } : {}),
       }),
       nextSummary: JSON.stringify({
         deliveryId,

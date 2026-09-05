@@ -83,6 +83,7 @@ const allowedPlaceholders = new Set([
   "event_name",
   "portal_url",
   "event_start",
+  "rsvp_deadline",
   "venue_name",
   "pass_reference",
   "google_wallet_url",

@@ -122,6 +122,13 @@ export async function ensureApplicationNotification(
   ) {
     throw new Error("Participant membership is missing for participant notification.");
   }
+  // External admissions are communicated by the registration team, outside this release.
+  if (
+    membership.participantClass === "external_participant" &&
+    args.templateKey !== "external_event_pass"
+  ) {
+    return null;
+  }
   const person = await ctx.db.get(snapshotMember.personId);
   if (!person || person.status !== "active") {
     throw new Error("Participant identity is missing for participant notification.");

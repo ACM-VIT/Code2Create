@@ -2,7 +2,6 @@ import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { matchingPermissionGrantIds } from "./permissions";
 
-export const admissionRsvpCallDelayMs = 6 * 60 * 60 * 1_000;
 export const admissionRsvpCallScriptPolicyVersion = "admission-rsvp-reminder-v1";
 
 /** The source of a reminder must still be the lead's current, unanswered offer. */
@@ -15,7 +14,7 @@ export async function currentAdmissionRsvpReminder(
   if (
     !offer ||
     offer.state !== "offered" ||
-    now < offer.sentAt + admissionRsvpCallDelayMs ||
+    offer.reminderAt === undefined ||
     now >= offer.expiresAt
   ) {
     return null;
@@ -58,7 +57,7 @@ export async function currentAdmissionRsvpReminder(
     return null;
   }
   const leader = await ctx.db.get(project.lockedLeadMembershipId);
-  if (!leader || leader.eventId !== offer.eventId || leader.eligibilityStatus !== "eligible") {
+  if (!leader || leader.eventId !== offer.eventId || leader.eligibilityStatus !== "eligible" || leader.participantClass !== "vit_student") {
     return null;
   }
   const [person, subject, activeGrants] = await Promise.all([

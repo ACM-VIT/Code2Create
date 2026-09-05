@@ -28,6 +28,7 @@ type TemplateVariables = {
   event_name: string;
   portal_url: string;
   event_start: string;
+  rsvp_deadline: string;
   venue_name: string;
   pass_reference: string;
   google_wallet_url: string;
@@ -36,7 +37,7 @@ type TemplateVariables = {
 
 function renderTemplate(template: string, variables: TemplateVariables) {
   return template.replace(
-    /\{\{\s*(participant_name|team_name|event_name|portal_url|event_start|venue_name|pass_reference|google_wallet_url|apple_wallet_url)\s*\}\}/gu,
+    /\{\{\s*(participant_name|team_name|event_name|portal_url|rsvp_deadline|event_start|venue_name|pass_reference|google_wallet_url|apple_wallet_url)\s*\}\}/gu,
     (_match, key: keyof TemplateVariables) => variables[key],
   );
 }
@@ -142,6 +143,7 @@ export const deliver = internalAction({
       event_name: claim.eventName,
       portal_url: portalUrl,
       event_start: "",
+      rsvp_deadline: claim.rsvpDeadline === undefined ? "" : new Intl.DateTimeFormat("en-IN", { timeZone: claim.eventTimezone, day: "numeric", month: "long", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(claim.rsvpDeadline),
       venue_name: claim.venueName,
       pass_reference: "",
       google_wallet_url: "",
@@ -215,6 +217,7 @@ export const deliver = internalAction({
       event_name: htmlEscaped(variables.event_name),
       portal_url: htmlEscaped(variables.portal_url),
       event_start: htmlEscaped(variables.event_start),
+      rsvp_deadline: htmlEscaped(variables.rsvp_deadline),
       venue_name: htmlEscaped(variables.venue_name),
       pass_reference: htmlEscaped(variables.pass_reference),
       google_wallet_url: htmlEscaped(variables.google_wallet_url),
