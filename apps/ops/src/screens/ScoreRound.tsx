@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+import { LiveNumber } from "../components/LiveNumber";
 import { api } from "@code2create/backend/api";
 import {
   reviewEvaluationStateLabels,
@@ -19,7 +21,8 @@ import { formatMonthDayTime as formatTime } from "../lib/dateTime";
 import { readableError } from "../lib/errors";
 import { useMutationAttempt } from "../lib/operations";
 import { useEstimatedServerNow } from "../lib/useEstimatedServerNow";
-import { LoadingLabel, SkeletonList, SkeletonStats } from "../components/Skeleton";
+import { LoadingLabel, SkeletonList, SkeletonStats,
+} from "../components/Skeleton";
 import { RoundExportControl } from "../components/RoundExportControl";
 
 type Completeness = FunctionReturnType<typeof api.scoreGovernance.completeness>;
@@ -76,7 +79,9 @@ export function ScoreRound() {
     );
   }
   if (!visibleRound) {
-    return <p className="notice error">This results round is not visible to you.</p>;
+    return (
+      <p className="notice error">This results round is not visible to you.</p>
+    );
   }
   if (!completeness) {
     return (
@@ -116,7 +121,8 @@ export function ScoreRound() {
             {completeness.unresolvedTeamCount === 0
               ? "Every team in this round has a countable result."
               : `${completeness.unresolvedTeamCount} ${completeness.unresolvedTeamCount === 1 ? "team has" : "teams have"} no countable result, so this round cannot close.`}{" "}
-            Correction requests close {formatTime(completeness.round.correctionRequestsCloseAt)}.
+            Correction requests close{" "}
+            {formatTime(completeness.round.correctionRequestsCloseAt)}.
           </p>
         </div>
         {completeness.canReadValues ? (
@@ -133,7 +139,7 @@ export function ScoreRound() {
       <dl className="score-summary-grid governance-summary">
         <Summary
           label="Sessions loaded"
-          value={`${reviews.results.length}${reviews.status === "CanLoadMore" ? "+" : ""}`}
+          value={<><LiveNumber value={reviews.results.length} />{reviews.status === "CanLoadMore" ? "+" : ""}</>}
         />
         <Summary label="Teams with no result" value={completeness.unresolvedTeamCount} />
         <Summary label="Paper sheets to enter" value={completeness.pendingManualReviewCount} />
@@ -190,7 +196,7 @@ export function ScoreRound() {
               type="button"
               onClick={() => setReviewView("needs_action")}
             >
-              Needs action · {needsActionCount}
+              Needs action · <LiveNumber value={needsActionCount} />
             </button>
             <button
               aria-pressed={reviewView === "settled"}
@@ -198,7 +204,7 @@ export function ScoreRound() {
               type="button"
               onClick={() => setReviewView("settled")}
             >
-              Settled · {settledCount}
+              Settled · <LiveNumber value={settledCount} />
             </button>
             <button
               aria-pressed={reviewView === "all"}
@@ -206,7 +212,7 @@ export function ScoreRound() {
               type="button"
               onClick={() => setReviewView("all")}
             >
-              All · {ordered.length}
+              All · <LiveNumber value={ordered.length} />
             </button>
           </div>
         </div>
@@ -242,16 +248,6 @@ export function ScoreRound() {
       ) : null}
 
       <RoundExportControl roundId={completeness.round.id} />
-      {completeness.canRelease &&
-      completeness.round.status === "closed" &&
-      !completeness.releasedAt ? (
-        <ReleaseRound completeness={completeness} />
-      ) : null}
-      {completeness.releasedAt ? (
-        <p className="notice">
-          Participant feedback was released {formatTime(completeness.releasedAt)}.
-        </p>
-      ) : null}
     </section>
   );
 }
@@ -298,7 +294,8 @@ function ReviewCompleteness({
         <span className="score-review-summary-copy">
           <strong>{review.teamName}</strong>
           <small>
-            {review.panelName} · {reviewSessionStatusLabels[review.status]} · {resultLabel}
+            {review.panelName} · {reviewSessionStatusLabels[review.status]} · {" "}
+            {resultLabel}
             {review.manualReviewRecordId ? " · entered from paper" : ""}
           </small>
           <span className={reviewNeedsAction(review) ? "needs-attention" : ""}>{shortfall}</span>
@@ -318,8 +315,8 @@ function ReviewCompleteness({
                 }
                 key={coverage.criterionId}
               >
-                {criterionLabel(criteria, coverage.criterionId)} · {coverage.submittedCount} of{" "}
-                {coverage.requiredCount}
+                {criterionLabel(criteria, coverage.criterionId)} · {" "}
+                <LiveNumber value={coverage.submittedCount} /> of <LiveNumber value={coverage.requiredCount} />
                 {coverage.spreadFlag ? " · far apart" : ""}
               </span>
             ))}
@@ -370,7 +367,8 @@ function ReviewCompleteness({
                       {scorecardCorrectionStateLabels[entry.state]}
                     </strong>
                     <span>
-                      {scorecardCorrectionCategoryLabels[entry.category]} · {entry.reason}
+                      {scorecardCorrectionCategoryLabels[entry.category]} ·{" "}
+                      {entry.reason}
                     </span>
                   </li>
                 ))}
@@ -453,7 +451,9 @@ function CorrectionDecision({
             setError(null);
           }}
         >
-          {openDecisionAvailable ? <option value="open">Open correction</option> : null}
+          {openDecisionAvailable ? (
+            <option value="open">Open correction</option>
+          ) : null}
           <option value="reject">Decline request</option>
         </select>
       </label>
@@ -509,8 +509,7 @@ function VoidScorecard({ scorecard }: { scorecard: Scorecard }) {
     | "other"
   >("technical_error");
   const [disposition, setDisposition] = useState<"exclude" | "replacement_review">(
-    "replacement_review",
-  );
+    "replacement_review");
   const [evidenceReference, setEvidenceReference] = useState("");
   const [reason, setReason] = useState("");
   const [confirmed, setConfirmed] = useState(false);
@@ -593,7 +592,8 @@ function VoidScorecard({ scorecard }: { scorecard: Scorecard }) {
             disabled={busy || operationPending}
             value={disposition}
             onChange={(event) => {
-              setDisposition(event.target.value === "exclude" ? "exclude" : "replacement_review");
+              setDisposition(event.target.value === "exclude" ? "exclude" : "replacement_review",
+              );
               changed();
             }}
           >
@@ -661,158 +661,11 @@ function VoidScorecard({ scorecard }: { scorecard: Scorecard }) {
   );
 }
 
-function ReleaseRound({ completeness }: { completeness: Completeness }) {
-  const publishRelease = useMutation(api.scoreGovernance.publishRelease);
-  const [policyVersion, setPolicyVersion] = useState("");
-  const [criterionScores, setCriterionScores] = useState(false);
-  const [totalScore, setTotalScore] = useState(false);
-  const [sharedFindings, setSharedFindings] = useState(false);
-  const [sharedCommitments, setSharedCommitments] = useState(false);
-  const [reason, setReason] = useState("");
-  const [confirmed, setConfirmed] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const operationAttempt =
-    useMutationAttempt<FunctionReturnType<typeof api.scoreGovernance.publishRelease>>();
-  const operationSlot = `score-release:${completeness.round.id}`;
-  const operationPending = operationAttempt.hasPending(operationSlot);
-  const hasContent = criterionScores || totalScore || sharedFindings || sharedCommitments;
-
-  const changed = () => {
-    setError(null);
-  };
-
-  const submit = async () => {
-    if (
-      busy ||
-      !confirmed ||
-      !hasContent ||
-      policyVersion.trim().length < 3 ||
-      reason.trim().length < 5
-    )
-      return;
-    setBusy(true);
-    setError(null);
-    try {
-      await operationAttempt.run(operationSlot, () => {
-        const args = {
-          eventSlug,
-          roundId: completeness.round.id,
-          expectedRoundVersion: completeness.round.version,
-          policyVersion,
-          includeCriterionScores: criterionScores,
-          includeTotalScore: totalScore,
-          includeSharedFindings: sharedFindings,
-          includeSharedCommitments: sharedCommitments,
-          reason,
-          clientOperationId: crypto.randomUUID(),
-        };
-        return () => publishRelease(args);
-      });
-    } catch (caught) {
-      setError(readableError(caught));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <section className="score-final-command score-command release-command">
-      <h2>Release participant feedback</h2>
-      <p>The release cannot be undone.</p>
-      <label className="field">
-        <span>Feedback rules name</span>
-        <input
-          disabled={busy || operationPending}
-          value={policyVersion}
-          onChange={(event) => {
-            setPolicyVersion(event.target.value);
-            changed();
-          }}
-        />
-      </label>
-      <div className="release-fields">
-        <Check
-          label="Criterion scores"
-          checked={criterionScores}
-          disabled={busy || operationPending}
-          onChange={(value) => {
-            setCriterionScores(value);
-            changed();
-          }}
-        />
-        <Check
-          label="Total score"
-          checked={totalScore}
-          disabled={busy || operationPending}
-          onChange={(value) => {
-            setTotalScore(value);
-            changed();
-          }}
-        />
-        <Check
-          label="Shared findings"
-          checked={sharedFindings}
-          disabled={busy || operationPending}
-          onChange={(value) => {
-            setSharedFindings(value);
-            changed();
-          }}
-        />
-        <Check
-          label="What the team committed to next"
-          checked={sharedCommitments}
-          disabled={busy || operationPending}
-          onChange={(value) => {
-            setSharedCommitments(value);
-            changed();
-          }}
-        />
-      </div>
-      <label className="field">
-        <span>Why it’s being released</span>
-        <textarea
-          disabled={busy || operationPending}
-          value={reason}
-          onChange={(event) => {
-            setReason(event.target.value);
-            changed();
-          }}
-        />
-      </label>
-      <label className="check-filter">
-        <input
-          checked={confirmed}
-          disabled={busy || operationPending}
-          type="checkbox"
-          onChange={(event) => {
-            setConfirmed(event.target.checked);
-            changed();
-          }}
-        />
-        I confirm these are the fields the published feedback rules allow.
-      </label>
-      <button
-        className="primary"
-        disabled={
-          busy ||
-          !confirmed ||
-          !hasContent ||
-          policyVersion.trim().length < 3 ||
-          reason.trim().length < 5
-        }
-        type="button"
-        onClick={() => void submit()}
-      >
-        {busy ? "Publishing…" : operationPending ? "Confirm earlier release" : "Publish feedback"}
-      </button>
-      {error ? <p className="notice error">{error}</p> : null}
-    </section>
+function NumericValues({ criteria, reviews,
+}: { criteria: ValueCriteria; reviews: ValueReview[];
+}) {
+  const ordered = [...reviews].sort((left, right) => left.teamName.localeCompare(right.teamName),
   );
-}
-
-function NumericValues({ criteria, reviews }: { criteria: ValueCriteria; reviews: ValueReview[] }) {
-  const ordered = [...reviews].sort((left, right) => left.teamName.localeCompare(right.teamName));
   return (
     <section className="numeric-values">
       <div className="section-heading">
@@ -827,7 +680,7 @@ function NumericValues({ criteria, reviews }: { criteria: ValueCriteria; reviews
             <span>{review.teamName}</span>
             <strong>
               {review.evaluation?.state === "complete"
-                ? formatScore(review.evaluation.totalPoints)
+                ? <LiveNumber value={review.evaluation.totalPoints} format={{ maximumFractionDigits: 2 }} />
                 : review.evaluation
                   ? reviewEvaluationStateLabels[review.evaluation.state]
                   : "No result"}
@@ -836,7 +689,8 @@ function NumericValues({ criteria, reviews }: { criteria: ValueCriteria; reviews
           {review.evaluation?.state === "complete" ? (
             <dl className="numeric-criteria">
               {review.evaluation.criterionResults.map((result) => {
-                const criterion = criteria.find((candidate) => candidate.id === result.criterionId);
+                const criterion = criteria.find((candidate) => candidate.id === result.criterionId,
+                );
                 return (
                   <div key={result.criterionId}>
                     <dt>
@@ -844,7 +698,8 @@ function NumericValues({ criteria, reviews }: { criteria: ValueCriteria; reviews
                       {result.spreadFlag ? " · reviewers far apart" : ""}
                     </dt>
                     <dd>
-                      {formatScore(result.meanScore)} average · {formatScore(result.weightedPoints)}{" "}
+                      {<LiveNumber value={result.meanScore} format={{ maximumFractionDigits: 2 }} />} average · {" "}
+                      {<LiveNumber value={result.weightedPoints} format={{ maximumFractionDigits: 2 }} />}
                       weighted
                     </dd>
                   </div>
@@ -859,6 +714,9 @@ function NumericValues({ criteria, reviews }: { criteria: ValueCriteria; reviews
                   {scorecard.reviewerName} · submission {scorecard.version}
                   {scorecard.manualReviewRecordId ? " · entered from paper" : ""}
                 </strong>
+                {scorecard.finalComment ? (
+                  <p>{scorecard.finalComment}</p>
+                ) : null}
                 {scorecard.ratings.map((rating) => {
                   const criterion = criteria.find(
                     (candidate) => candidate.id === rating.criterionId,
@@ -875,47 +733,26 @@ function NumericValues({ criteria, reviews }: { criteria: ValueCriteria; reviews
           </div>
         </details>
       ))}
-      {reviews.length === 0 ? <p className="empty">No completed review has scores yet.</p> : null}
+      {reviews.length === 0 ? (
+        <p className="empty">No completed review has scores yet.</p>
+      ) : null}
     </section>
   );
 }
 
-function Check({
-  label,
-  checked,
-  disabled,
-  onChange,
-}: {
-  label: string;
-  checked: boolean;
-  disabled: boolean;
-  onChange: (checked: boolean) => void;
-}) {
-  return (
-    <label className="check-filter">
-      <input
-        checked={checked}
-        disabled={disabled}
-        type="checkbox"
-        onChange={(event) => onChange(event.target.checked)}
-      />
-      {label}
-    </label>
-  );
-}
-
-function Summary({ label, value }: { label: string; value: number | string }) {
+function Summary({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div>
       <dt>{label}</dt>
-      <dd>{value}</dd>
+      <dd>{typeof value === "number" ? <LiveNumber value={value} /> : value}</dd>
     </div>
   );
 }
 
 function reviewRank(review: Review) {
   if (review.evaluationState !== "complete") return 0;
-  if (review.cases.some((entry) => entry.state === "requested" || entry.state === "open")) return 1;
+  if (review.cases.some((entry) => entry.state === "requested" || entry.state === "open",
+    )) return 1;
   return 2;
 }
 
@@ -925,19 +762,19 @@ function reviewNeedsAction(review: Review) {
     review.coverage.some(
       (coverage) => coverage.submittedCount < coverage.requiredCount || coverage.spreadFlag,
     ) ||
-    review.cases.some((entry) => entry.state === "requested" || entry.state === "open")
+    review.cases.some((entry) => entry.state === "requested" || entry.state === "open",
+    )
   );
 }
 
-function criterionLabel(criteria: Completeness["criteria"], criterionId: string) {
-  return criteria.find((candidate) => candidate.id === criterionId)?.label ?? "A criterion";
+function criterionLabel(criteria: Completeness["criteria"], criterionId: string,
+) {
+  return (
+    criteria.find((candidate) => candidate.id === criterionId)?.label ?? "A criterion"
+  );
 }
 
 function listNames(values: string[]) {
   if (values.length <= 1) return values[0] ?? "Nothing";
   return `${values.slice(0, -1).join(", ")} and ${values[values.length - 1]}`;
-}
-
-function formatScore(value: number) {
-  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(value);
 }

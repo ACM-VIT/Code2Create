@@ -2,6 +2,7 @@ import { convexTest, type TestConvex } from "convex-test";
 import { describe, expect, test } from "vitest";
 
 import type { Id } from "./_generated/dataModel.js";
+import { classifyVitScan } from "./attendanceCredentials.ts";
 import {
   completeVitBarcodeReplacement,
   expirePendingAttendanceCredential,
@@ -13,6 +14,28 @@ const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
 type BackendTest = TestConvex<typeof schema>;
 
 describe("attendance credential lifecycle", () => {
+  test("distinguishes a current VIT ID from enrollment and replacement scans", () => {
+    expect(classifyVitScan({ current: undefined, scannedLookupHash: "new" })).toBe("unbound");
+    expect(
+      classifyVitScan({
+        current: { lookupHash: "current", state: "active" },
+        scannedLookupHash: "current",
+      }),
+    ).toBe("current_active");
+    expect(
+      classifyVitScan({
+        current: { lookupHash: "current", state: "suspended" },
+        scannedLookupHash: "current",
+      }),
+    ).toBe("current_suspended");
+    expect(
+      classifyVitScan({
+        current: { lookupHash: "current", state: "active" },
+        scannedLookupHash: "replacement",
+      }),
+    ).toBe("replacement");
+  });
+
   test("a verified replacement atomically retires the old VIT ID binding", async () => {
     const now = Date.UTC(2027, 7, 8, 10, 0, 0);
     const backend = convexTest(schema, modules);

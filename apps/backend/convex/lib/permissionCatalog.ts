@@ -188,7 +188,7 @@ export const permissionCatalog = {
   "attendance.self.read": { scopes: ["self"], eventWide: false },
   "attendance.remedy.self.read": { scopes: ["self"], eventWide: false },
   "attendance.remedy.self.open": { scopes: ["self"], eventWide: false },
-  "attendance.portal_qr.mint": { scopes: ["self"], eventWide: false },
+  "attendance.external_pass.read": { scopes: ["self"], eventWide: false },
   "attendance.venue_check_in.read": { scopes: ["person"], eventWide: true },
   "attendance.venue_check_in.record": { scopes: ["person"], eventWide: true },
   "attendance.venue_check_in.override_identity": {
@@ -310,8 +310,6 @@ export const permissionCatalog = {
   "score.values.read": { scopes: ["round"], eventWide: true },
   "scorecard.correction.open": { scopes: ["scorecard", "review"], eventWide: true },
   "scorecard.void": { scopes: ["scorecard", "review"], eventWide: true },
-  "score.release": { scopes: ["round"], eventWide: true },
-  "score.feedback.read": { scopes: ["team"], eventWide: false },
 } as const satisfies Record<string, PermissionDefinition>;
 
 export type PermissionKey = keyof typeof permissionCatalog;

@@ -1,9 +1,12 @@
 import betterAuthSchema from "../node_modules/@convex-dev/better-auth/src/component/schema.ts";
 import workpoolTest from "@convex-dev/workpool/test";
+import { makeFunctionReference } from "convex/server";
 import { convexTest, type TestConvex } from "convex-test";
 import { describe, expect, test } from "vitest";
+import { z } from "zod";
 
 import { api, components, internal } from "./_generated/api";
+import crons from "./crons";
 import {
   admissionModelConfigurationChecksum,
   admissionPolicyChecksum,
@@ -276,7 +279,7 @@ describe("manual admission analysis retry", () => {
     expect(detail?.aiRecommendationRerun).toBeNull();
   });
 
-  test("recovers only the exact accepted agent submission and permits one new dispatch", async () => {
+  test("retires an expired accepted analysis and creates one replacement", async () => {
     const backend = seededBackend();
     const fixture = await seedFixture(backend);
     const runner = backend.withIdentity({
@@ -317,20 +320,42 @@ describe("manual admission analysis retry", () => {
     ).toBe(true);
     const recovered = await backend.run((ctx) => ctx.db.get(rerun.recommendationId));
     expect(recovered).toMatchObject({
-      state: "pending",
-      failureCategory: "agent_analysis_recovered",
+      state: "timed_out",
+      failureCategory: "agent_analysis_lease_expired",
     });
-    expect(recovered?.agentSubmissionId).toBeUndefined();
+    expect(recovered?.agentSubmissionId).toBe("accepted-submission-1");
 
-    const second = await backend.mutation(internal.admissionAgentActions.prepareDispatch, {
-      recommendationId: rerun.recommendationId,
+    const application = await backend.run((ctx) => ctx.db.get(fixture.applicationId));
+    const replacementId = application?.aiRecommendationId;
+    if (!replacementId) throw new Error("The replacement recommendation was not created.");
+    expect(replacementId).not.toBe(rerun.recommendationId);
+    expect(application?.version).toBe(3);
+    expect(await backend.run((ctx) => ctx.db.get(replacementId))).toMatchObject({
+      state: "pending",
+      applicationId: fixture.applicationId,
     });
-    expect(second?.attemptId).not.toBe(first.attemptId);
+
+    expect(
+      await backend.mutation(internal.admissionIntelligence.recoverAgentRecommendation, {
+        recommendationId: rerun.recommendationId,
+        submissionId: "accepted-submission-1",
+      }),
+    ).toBe(false);
+    expect(
+      await backend.mutation(internal.admissionIntelligence.beginRecommendation, {
+        recommendationId: rerun.recommendationId,
+      }),
+    ).toBeNull();
     expect(
       await backend.mutation(internal.admissionAgentActions.prepareDispatch, {
         recommendationId: rerun.recommendationId,
       }),
     ).toBeNull();
+    const replacementDispatch = await backend.mutation(
+      internal.admissionAgentActions.prepareDispatch,
+      { recommendationId: replacementId },
+    );
+    expect(replacementDispatch?.attemptId).not.toBe(first.attemptId);
   });
 
   test("rejects prohibited scoring language at the authoritative callback seam", async () => {
@@ -453,7 +478,7 @@ describe("manual admission analysis retry", () => {
     ).toBe("accepted");
   });
 
-  test("recovers only the exact running dispatch attempt after its lease", async () => {
+  test("retires an expired dispatch attempt and revokes its late completion", async () => {
     const backend = seededBackend();
     const fixture = await seedFixture(backend);
     const runner = backend.withIdentity({
@@ -503,10 +528,20 @@ describe("manual admission analysis retry", () => {
     ).toBe(true);
     const recovered = await backend.run((ctx) => ctx.db.get(rerun.recommendationId));
     expect(recovered).toMatchObject({
-      state: "pending",
-      failureCategory: "agent_dispatch_recovered",
+      state: "timed_out",
+      failureCategory: "agent_dispatch_lease_expired",
     });
-    expect(recovered?.agentDispatchAttemptId).toBeUndefined();
+    expect(recovered?.agentDispatchAttemptId).toBe(prepared.attemptId);
+
+    const application = await backend.run((ctx) => ctx.db.get(fixture.applicationId));
+    const replacementId = application?.aiRecommendationId;
+    if (!replacementId) throw new Error("The replacement recommendation was not created.");
+    expect(replacementId).not.toBe(rerun.recommendationId);
+    expect(application?.version).toBe(3);
+    expect(await backend.run((ctx) => ctx.db.get(replacementId))).toMatchObject({
+      state: "pending",
+      applicationId: fixture.applicationId,
+    });
 
     expect(
       await backend.mutation(internal.admissionIntelligence.finishRecommendation, {
@@ -531,13 +566,143 @@ describe("manual admission analysis retry", () => {
         agentVersion: "idea-submission-v1",
         agentModel: "openai/gpt-4.1-mini",
       }),
-    ).toBe("accepted");
+    ).toBe("stale");
 
     expect(
       await backend.mutation(internal.admissionAgentActions.prepareDispatch, {
         recommendationId: rerun.recommendationId,
       }),
     ).toBeNull();
+    expect(
+      await backend.mutation(internal.admissionAgentActions.prepareDispatch, {
+        recommendationId: replacementId,
+      }),
+    ).not.toBeNull();
+  });
+
+  test.each(["agent_analysis_recovered", "agent_dispatch_recovered"])(
+    "repairs %s through the production cron idempotently",
+    async (failureCategory) => {
+      const backend = seededBackend();
+      const fixture = await seedFixture(backend);
+      const runner = backend.withIdentity({
+        subject: fixture.runnerAuthUserId,
+        sessionId: fixture.runnerAuthSessionId,
+      });
+      const rerun = await runner.mutation(api.admissions.rerunAiRecommendation, {
+        eventSlug: fixture.eventSlug,
+        applicationId: fixture.applicationId,
+        expectedApplicationVersion: 1,
+        expectedRecommendationId: fixture.failedRecommendationId,
+        reason: "Repair an orphaned recovered analysis",
+        clientOperationId: "repair-orphaned-agent-analysis",
+      });
+      expect(
+        await backend.mutation(internal.admissionIntelligence.beginRecommendation, {
+          recommendationId: rerun.recommendationId,
+        }),
+      ).not.toBeNull();
+      await backend.run(async (ctx) => {
+        await ctx.db.patch(rerun.recommendationId, {
+          failureCategory,
+          limitations: ["The durable idea agent is recovering an interrupted analysis."],
+        });
+      });
+
+      await runOrphanRecoveryCron(backend);
+      expect(await backend.run((ctx) => ctx.db.get(rerun.recommendationId))).toMatchObject({
+        state: "timed_out",
+        failureCategory: "agent_recovery_orphaned",
+      });
+
+      const application = await backend.run((ctx) => ctx.db.get(fixture.applicationId));
+      const replacementId = application?.aiRecommendationId;
+      if (!replacementId) throw new Error("The orphan replacement was not created.");
+      expect(replacementId).not.toBe(rerun.recommendationId);
+      expect(application?.version).toBe(3);
+      expect(await backend.run((ctx) => ctx.db.get(replacementId))).toMatchObject({
+        state: "pending",
+        applicationId: fixture.applicationId,
+      });
+      await runOrphanRecoveryCron(backend);
+      expect(await backend.run((ctx) => ctx.db.get(fixture.applicationId))).toMatchObject({
+        aiRecommendationId: replacementId,
+        version: 3,
+      });
+      expect(
+        await backend.mutation(internal.admissionIntelligence.beginRecommendation, {
+          recommendationId: rerun.recommendationId,
+        }),
+      ).toBeNull();
+      expect(
+        await backend.mutation(internal.admissionAgentActions.prepareDispatch, {
+          recommendationId: replacementId,
+        }),
+      ).not.toBeNull();
+    },
+  );
+
+  test.each([
+    { name: "a normal analysis", failureCategory: undefined, agentDispatchAttemptId: undefined, agentSubmissionId: undefined },
+    { name: "a claimed dispatch", failureCategory: "agent_dispatch_recovered", agentDispatchAttemptId: "active-dispatch", agentSubmissionId: undefined },
+    { name: "an accepted analysis", failureCategory: "agent_analysis_recovered", agentDispatchAttemptId: undefined, agentSubmissionId: "active-submission" },
+  ])("leaves $name untouched during orphan recovery", async ({ name: _name, ...authority }) => {
+    const backend = seededBackend();
+    const fixture = await seedFixture(backend);
+    await backend.run(async (ctx) => {
+      await ctx.db.patch(fixture.failedRecommendationId, {
+        state: "running",
+        ...authority,
+      });
+    });
+    const before = await backend.run((ctx) => ctx.db.get(fixture.failedRecommendationId));
+    await runOrphanRecoveryCron(backend);
+    expect(await backend.run((ctx) => ctx.db.get(fixture.failedRecommendationId))).toEqual(before);
+    expect(await backend.run((ctx) => ctx.db.get(fixture.applicationId))).toMatchObject({
+      aiRecommendationId: fixture.failedRecommendationId,
+      version: 1,
+    });
+  });
+
+  test("continues past a full page of healthy analyses to recover a later orphan", async () => {
+    const backend = seededBackend();
+    const fixture = await seedFixture(backend);
+    await backend.run(async (ctx) => {
+      const source = await ctx.db.get(fixture.failedRecommendationId);
+      if (!source) throw new Error("The fixture recommendation is missing.");
+      const { _id, _creationTime, failureCategory: _failureCategory, completedAt: _completedAt, ...recommendation } = source;
+      for (let index = 0; index < 50; index += 1) {
+        await ctx.db.insert("admissionAIRecommendations", {
+          ...recommendation,
+          state: "running",
+          agentSubmissionId: `healthy-submission-${index}`,
+          createdAt: recommendation.createdAt - index - 1,
+        });
+      }
+      await ctx.db.patch(source._id, {
+        state: "running",
+        failureCategory: "agent_analysis_recovered",
+      });
+    });
+    await runOrphanRecoveryCron(backend);
+    expect(await backend.run((ctx) => ctx.db.get(fixture.failedRecommendationId))).toMatchObject({
+      state: "running",
+    });
+    const continuations = await backend.run(async (ctx) => {
+      const scheduled = await ctx.db.system.query("_scheduled_functions").collect();
+      return scheduled.filter((job) => job.name === "admissionIntelligence:recoverOrphanedAgentRecommendations");
+    });
+    expect(continuations).toHaveLength(1);
+    const continuation = continuations[0];
+    if (!continuation) throw new Error("The next recovery page was not scheduled.");
+    await runScheduledRecovery(backend, continuation);
+    expect(await backend.run((ctx) => ctx.db.get(fixture.failedRecommendationId))).toMatchObject({
+      state: "timed_out",
+      failureCategory: "agent_recovery_orphaned",
+    });
+    const application = await backend.run((ctx) => ctx.db.get(fixture.applicationId));
+    expect(application?.aiRecommendationId).not.toBe(fixture.failedRecommendationId);
+    expect(application?.version).toBe(2);
   });
 
   test("releases a dispatch attempt that failed before reaching the worker", async () => {
@@ -572,6 +737,20 @@ describe("manual admission analysis retry", () => {
     expect(released?.agentDispatchAttemptId).toBeUndefined();
   });
 });
+
+function runOrphanRecoveryCron(backend: BackendTest) {
+  const recovery = crons.crons["recover orphaned admission analyses"];
+  if (!recovery) throw new Error("Orphan recovery is not registered in the production cron schedule.");
+  return runScheduledRecovery(backend, recovery);
+}
+
+function runScheduledRecovery(backend: BackendTest, job: { name: string; args: unknown }) {
+  const [args] = z.tuple([z.object({ cursor: z.string().nullable() })]).parse(job.args);
+  return backend.mutation(
+    makeFunctionReference<"mutation", { cursor: string | null }, null>(job.name),
+    args,
+  );
+}
 
 function seededBackend() {
   const backend = convexTest(schema, modules);

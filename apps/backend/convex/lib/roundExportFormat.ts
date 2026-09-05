@@ -28,6 +28,7 @@ export type RoundExportCsvRecord = {
   rating: string;
   evidenceNote: string;
   privateNote: string;
+  finalComment: string;
   evaluationScoreCount: string;
   evaluationMean: string;
   evaluationWeightedPoints: string;
@@ -62,6 +63,7 @@ export const roundExportCsvHeader = [
   "Rating",
   "Evidence note",
   "Private note",
+  "Final comment",
   "Evaluation score count",
   "Evaluation mean",
   "Evaluation weighted points",
@@ -97,6 +99,7 @@ export function roundExportCsvRow(record: RoundExportCsvRecord) {
     record.rating,
     record.evidenceNote,
     record.privateNote,
+    record.finalComment,
     record.evaluationScoreCount,
     record.evaluationMean,
     record.evaluationWeightedPoints,
@@ -116,6 +119,7 @@ export type RoundExportPageResult = {
   counts: Doc<"roundExports">["counts"];
 };
 
-export function roundExportPageOptions(cursor: string | null): PaginationOptions {
+export function roundExportPageOptions(cursor: string | null,
+): PaginationOptions {
   return { cursor, numItems: exportPageSize };
 }

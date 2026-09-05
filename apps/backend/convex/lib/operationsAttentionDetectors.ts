@@ -6,7 +6,8 @@ import {
   joinNames,
   type DetectedAttentionItem,
 } from "./operationsAttention.ts";
-import { proposeCommand, type AttentionProposal } from "./operationsAttentionProposals.ts";
+import { proposeCommand, type AttentionProposal,
+} from "./operationsAttentionProposals.ts";
 import { observedPace } from "./queueEstimate.ts";
 import type { AttentionSeverity } from "../values.ts";
 
@@ -84,7 +85,7 @@ export type PanelProjection = {
 export type ReviewProjection = {
   reviewSessionId: string;
   version: number;
-  status: "awaiting_presence" | "active" | "overdue" | "completed" | "cancelled";
+  status: "awaiting_presence" | "active" | "scoring" | "completed" | "cancelled";
   createdAt: number;
   plannedEndAt?: number;
   reviewerPresenceCount: number;
@@ -128,6 +129,7 @@ export type ReviewFloorProjection = Clock & {
   reviewerNoShowGraceSeconds: number;
   requiredPanelSize: number;
   reviewDurationSeconds: number;
+  scoringBufferSeconds: number;
   /** A round paused under an incident is expected to run behind. */
   isPaused: boolean;
   panels: readonly PanelProjection[];
@@ -152,14 +154,16 @@ export type ScorecardChaseProjection = Clock & {
   sessions: readonly OutstandingScorecardProjection[];
 };
 
-export function reviewFloorItems(input: ReviewFloorProjection): DetectedAttentionItem[] {
+export function reviewFloorItems(input: ReviewFloorProjection,
+): DetectedAttentionItem[] {
   return [...reviewPanelItems(input), ...reviewTeamItems(input)];
 }
 
 type PanelDetectorProjection = Omit<ReviewFloorProjection, "teams">;
 
 /** Detects panel-owned conditions without requiring team attendance reads. */
-export function reviewPanelItems(input: PanelDetectorProjection): DetectedAttentionItem[] {
+export function reviewPanelItems(input: PanelDetectorProjection,
+): DetectedAttentionItem[] {
   const route = `/reviews/${input.roundId}`;
   const visibility = {
     permissionKey: "round.read",
@@ -171,7 +175,8 @@ export function reviewPanelItems(input: PanelDetectorProjection): DetectedAttent
   for (const panel of input.panels) {
     if (panel.status === "draft" || panel.status === "closed") continue;
     const queuedCount = panel.queuedTeams.length;
-    const seated = panel.members.filter((member) => member.clockInStatus === "present").length;
+    const seated = panel.members.filter((member) => member.clockInStatus === "present",
+    ).length;
     const missing = input.requiredPanelSize - seated;
 
     if (
@@ -223,7 +228,8 @@ export function reviewPanelItems(input: PanelDetectorProjection): DetectedAttent
 
     if (queuedCount > 0) {
       for (const member of panel.members) {
-        const risk = seatRisk(member, input.now, input.reviewerNoShowGraceSeconds);
+        const risk = seatRisk(member, input.now, input.reviewerNoShowGraceSeconds,
+        );
         if (!risk) continue;
         const noShowEligibleAt =
           member.clockInStatus === "temporarily_unavailable"
@@ -287,7 +293,8 @@ export function reviewPanelItems(input: PanelDetectorProjection): DetectedAttent
 type TeamDetectorProjection = Omit<ReviewFloorProjection, "panels">;
 
 /** Detects team-owned conditions without requiring panel membership reads. */
-export function reviewTeamItems(input: TeamDetectorProjection): DetectedAttentionItem[] {
+export function reviewTeamItems(input: TeamDetectorProjection,
+): DetectedAttentionItem[] {
   const route = `/reviews/${input.roundId}`;
   const visibility = {
     permissionKey: "round.read",
@@ -302,30 +309,21 @@ export function reviewTeamItems(input: TeamDetectorProjection): DetectedAttentio
       ? [`team:${team.teamId}`, `panel:${team.panelId}`]
       : [`team:${team.teamId}`];
 
-    if (!input.isPaused && team.review?.status === "overdue") {
+    if (!input.isPaused && team.review?.status === "scoring" &&
+      team.review.plannedEndAt !== undefined &&
+      input.now >= team.review.plannedEndAt + input.scoringBufferSeconds * 1000
+    ) {
       const review = team.review;
       const overdueBy = review.plannedEndAt === undefined ? 0 : input.now - review.plannedEndAt;
-      const proposal: AttentionProposal | undefined = review.canExtend
-        ? proposeCommand(
-            {
-              name: "reviewOperations.extendReview",
-              reviewSessionId: review.reviewSessionId,
-              expectedVersion: review.version,
-              reason: `${team.teamName} ran past the end of its review window in ${roundName}.`,
-            },
-            { scopeType: "review", scopeId: review.reviewSessionId },
-            input.now,
-          )
-        : undefined;
       items.push({
         detectorKey: "review_overdue",
         dedupeKey: `review_overdue:${review.reviewSessionId}`,
         subjectType: "review",
         subjectId: review.reviewSessionId,
-        severity: "critical",
-        statement: `${team.teamName} in ${roundName} is ${durationPhrase(overdueBy)} past the time this review was meant to finish.`,
+        severity: "attention",
+        statement: `${team.teamName} in ${roundName} has been finishing scores and comments for ${durationPhrase(overdueBy)}.`,
         route,
-        actionLabel: proposal ? "Extend the timer" : "Close it out",
+        actionLabel: "Finish scorecards",
         visibility,
         evidenceJson: JSON.stringify({
           teamId: team.teamId,
@@ -333,7 +331,6 @@ export function reviewTeamItems(input: TeamDetectorProjection): DetectedAttentio
           canExtend: review.canExtend,
         }),
         scopes: teamScopes,
-        ...(proposal ? { proposal } : {}),
       });
     }
 
@@ -540,7 +537,8 @@ function seatRisk(
 }
 
 /** Forecasts from the shared bounded pace and suppresses thin samples. */
-export function roundForecastItems(input: ReviewFloorProjection): DetectedAttentionItem[] {
+export function roundForecastItems(input: ReviewFloorProjection,
+): DetectedAttentionItem[] {
   if (input.isPaused) return [];
   const route = `/reviews/${input.roundId}`;
   const visibility = {
@@ -554,11 +552,16 @@ export function roundForecastItems(input: ReviewFloorProjection): DetectedAttent
   if (working.length === 0) return [];
 
   const forecasts = working.map((panel) => {
-    const pace = observedPace(input.reviewDurationSeconds, panel.completedDurationsSeconds);
+    const pace = observedPace(input.reviewDurationSeconds + input.scoringBufferSeconds,
+      panel.completedDurationsSeconds,
+    );
     const activeRemainingMs =
       panel.activeReviewPlannedEndAt === undefined
         ? 0
-        : Math.max(0, panel.activeReviewPlannedEndAt - input.now);
+        : Math.max(0, panel.activeReviewPlannedEndAt +
+              input.scoringBufferSeconds * 1000 -
+              input.now,
+          );
     return {
       panel,
       pace,
@@ -610,7 +613,8 @@ export function roundForecastItems(input: ReviewFloorProjection): DetectedAttent
     });
   }
 
-  const sorted = [...forecasts].sort((left, right) => left.finishAt - right.finishAt);
+  const sorted = [...forecasts].sort((left, right) => left.finishAt - right.finishAt,
+  );
   const slowest = sorted[sorted.length - 1];
   const earliest = sorted[0];
   const middle = sorted[Math.floor(sorted.length / 2)];
@@ -677,7 +681,8 @@ function overrunSeverity(overrunMs: number): AttentionSeverity {
  * Reviewer attendance is unknown, so scorecard alerts report only elapsed time
  * and the last app status.
  */
-export function scorecardChaseItems(input: ScorecardChaseProjection): DetectedAttentionItem[] {
+export function scorecardChaseItems(input: ScorecardChaseProjection,
+): DetectedAttentionItem[] {
   const route = `/reviews/${input.roundId}`;
   const visibility = {
     permissionKey: "round.read",

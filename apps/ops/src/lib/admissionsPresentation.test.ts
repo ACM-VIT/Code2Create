@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   aiStateTag,
+  applicationQueueStageLabels,
   assignmentOutcomeSummary,
   busiestStage,
   cohortSummary,
@@ -20,11 +21,13 @@ import {
   reviewerLeadSentence,
   reviewerWorkloadLabel,
   stageCountMap,
+  stageAcceptsReviews,
   teamLine,
   teamOriginNoun,
   teamOriginQueryArgs,
   visibleStages,
 } from "./admissionsPresentation.ts";
+import { queuePageBounds } from "./useQueuePagination.ts";
 
 const vit = (
   yearOfStudy:
@@ -89,19 +92,33 @@ test("review status says how many reviews are in and whether anyone is on it", (
   );
 });
 
-test("stage chips only show stages with something in them", () => {
+test("stage chips keep recorded decisions discoverable beside the review stages", () => {
   const counts = stageCountMap([
     { state: "submitted", count: 18 },
     { state: "waitlisted", count: 2 },
   ]);
   assert.equal(busiestStage(counts), "submitted");
-  assert.deepEqual(visibleStages(counts, "submitted"), ["submitted", "waitlisted"]);
+  assert.deepEqual(visibleStages(counts, "submitted"), ["submitted", "recorded", "waitlisted"]);
   assert.deepEqual(visibleStages(counts, "confirmed"), [
     "submitted",
+    "recorded",
     "confirmed",
     "waitlisted",
   ]);
   assert.equal(busiestStage(new Map()), null);
+  assert.equal(busiestStage(stageCountMap([{ state: "recorded", count: 2 }])), "recorded");
+  assert.equal(applicationQueueStageLabels.recorded, "Recorded decisions");
+  assert.equal(stageAcceptsReviews("recorded"), false);
+});
+
+test("queue pages stay bounded and return to the last page when live results shrink", () => {
+  assert.deepEqual(queuePageBounds(0, 65, true), { page: 0, start: 0, end: 30 });
+  assert.deepEqual(queuePageBounds(1, 65, true), { page: 1, start: 30, end: 60 });
+  assert.deepEqual(queuePageBounds(2, 65, true), { page: 2, start: 60, end: 65 });
+  assert.deepEqual(queuePageBounds(2, 60, true), { page: 1, start: 30, end: 60 });
+  assert.deepEqual(queuePageBounds(1, 30, false), { page: 1, start: 30, end: 30 });
+  assert.deepEqual(queuePageBounds(1, 30, true), { page: 0, start: 0, end: 30 });
+  assert.deepEqual(queuePageBounds(2, 0, true), { page: 0, start: 0, end: 0 });
 });
 
 test("the queue opens with one sentence about where applications are", () => {

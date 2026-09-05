@@ -1,3 +1,4 @@
+import { venueCallResponseSchema } from "./lib/venueCallValidators";
 import {
   outboundCallEventSignatureContext,
   outboundCallEventTypes,
@@ -9,7 +10,7 @@ import { z } from "zod";
 import { internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
 
-const maximumBodyBytes = 16 * 1_024;
+const maximumBodyBytes = 512 * 1_024;
 const signatureMaximumAgeMs = 5 * 60 * 1_000;
 
 const eventSchema = z
@@ -21,6 +22,7 @@ const eventSchema = z
     providerAt: z.number().int().nonnegative(),
     providerCallId: z.string().min(1).max(128).optional(),
     providerErrorCode: z.string().min(1).max(120).optional(),
+    venueResponse: venueCallResponseSchema.optional(),
   })
   .strict();
 
@@ -59,6 +61,9 @@ export const outboundCallEvent = httpAction(async (ctx, request) => {
     deliveryId: parsed.data.deliveryId,
     eventType: parsed.data.eventType,
     providerAt: parsed.data.providerAt,
+    ...(parsed.data.venueResponse
+      ? { venueResponse: parsed.data.venueResponse }
+      : {}),
     ...(parsed.data.providerCallId !== undefined
       ? { providerCallId: parsed.data.providerCallId }
       : {}),

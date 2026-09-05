@@ -597,7 +597,8 @@
 .sponsors {
   position: absolute;
   inset: 0;
-  /* The ridges have moved below the stage before this act begins. */
+  /* Above the mid ridge, below the near one, so a shell leaves the ground
+     from BEHIND the front hills — the same trick the ember lanterns use. */
   z-index: 4;
   pointer-events: none;
 }
@@ -612,12 +613,12 @@
   contain: strict;
 }
 
-/* Its GSAP start is above the viewport. It descends with the clearing sky and
-   settles into this lower band before the first firework launches. */
+/* Its GSAP start is down behind the near ridge; it rises out of the hills
+   just before the first firework launches. */
 .sponsors__title {
   position: absolute;
   left: 50%;
-  top: 86%;
+  top: 66%;
   z-index: 1;
   transform: translateX(-50%);
   font-family: var(--font-display);
@@ -662,19 +663,86 @@
 }
 
 .sponsor__logo--elevenlabs {
-  width: clamp(210px, 21vw, 310px);
+  width: clamp(240px, 26vw, 380px);
 }
 
 .sponsor__logo--sglang {
-  width: clamp(124px, 10.5vw, 150px);
+  width: clamp(190px, 17vw, 260px);
 }
 
 .sponsor__logo--serpapi {
-  width: clamp(150px, 15vw, 210px);
+  width: clamp(180px, 17vw, 240px);
 }
 
 .sponsor__logo--idfc {
-  width: clamp(150px, 15vw, 205px);
+  width: clamp(180px, 17vw, 240px);
+  border-radius: 6px;
+}
+
+.sponsor__material {
+  position: absolute;
+  left: 50%;
+  z-index: 2;
+  display: block;
+  transform: translate(-50%, -50%);
+  font-family: var(--font-display);
+  font-size: clamp(24px, 2.7vw, 40px);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.14em;
+  text-transform: lowercase;
+  white-space: nowrap;
+  color: transparent;
+  background-size: 260% 100%;
+  background-position: 20% 50%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  will-change: transform, opacity, filter, background-position;
+}
+
+.sponsor__material--gold {
+  background-image: linear-gradient(
+    108deg,
+    #6f3d05 0%,
+    #d38b14 20%,
+    #fff5b5 42%,
+    #b86d08 57%,
+    #ffe896 76%,
+    #754005 100%
+  );
+  filter: drop-shadow(0 0 7px rgba(255, 199, 65, 0.72));
+  -webkit-text-stroke: 0.45px rgba(255, 239, 154, 0.82);
+}
+
+.sponsor__material--silver {
+  background-image: linear-gradient(
+    108deg,
+    #56616e 0%,
+    #c7d0d9 20%,
+    #fff 42%,
+    #8d9baa 57%,
+    #f4f8fb 76%,
+    #4f5965 100%
+  );
+  filter: drop-shadow(0 0 7px rgba(216, 232, 247, 0.68));
+  -webkit-text-stroke: 0.45px rgba(248, 252, 255, 0.86);
+}
+
+.sponsor__material--bronze {
+  background-image: linear-gradient(
+    108deg,
+    #5a2a12 0%,
+    #b3652f 20%,
+    #ffd9b8 42%,
+    #9c4f1f 57%,
+    #f4b98a 76%,
+    #5f2d12 100%
+  );
+  filter: drop-shadow(0 0 7px rgba(232, 150, 96, 0.7));
+  -webkit-text-stroke: 0.45px rgba(255, 214, 184, 0.84);
 }
 
 .sponsor__logo--tin {
@@ -1199,7 +1267,7 @@
   /* The title closes the composition beneath two leaders and two supporting
      rows, with a clear gap above the viewport edge. */
   .sponsors__title {
-    top: 88%;
+    top: 66%;
     font-size: clamp(18px, 5.4vw, 26px);
   }
 
@@ -1208,15 +1276,20 @@
   }
 
   .sponsor__logo--sglang {
-    width: clamp(72px, min(16vw, 11svh), 108px);
+    width: clamp(130px, min(34vw, 15svh), 170px);
   }
 
   .sponsor__logo--serpapi {
-    width: clamp(90px, 22vw, 170px);
+    width: clamp(120px, 22vw, 170px);
   }
 
   .sponsor__logo--idfc {
-    width: clamp(94px, 20vw, 160px);
+    width: clamp(122px, 20vw, 160px);
+  }
+
+  .sponsor__material {
+    font-size: clamp(16px, 4vw, 26px);
+    letter-spacing: 0.1em;
   }
 
   .sponsor__logo--tin {

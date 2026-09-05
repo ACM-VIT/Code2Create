@@ -34,6 +34,11 @@ overrides:
   sharp: 0.35.2
   undici: 7.29.0
   uuid: 11.1.1
+packageExtensions:
+  "posthog-react-native@4.67.0":
+    dependencies:
+      "@expo/config-plugins": 57.0.9
+      metro: 0.84.5
 minimumReleaseAgeExclude:
   - "@expo/cli@57.0.13 || 57.0.20"
   - "@expo/config-plugins@57.0.7"
@@ -95,7 +100,11 @@ minimumReleaseAgeExclude:
   - "@ai-sdk/provider-utils@5.0.35"
   - "@ai-sdk/provider@4.0.10"
   - ai@7.0.89
+  - expo-location@57.0.16
+  - expo-task-manager@57.0.16
+  - '@kitlangton/rolling-number@0.3.0'
 patchedDependencies:
   "@flue/runtime@2.0.3": patches/@flue__runtime@2.0.3.patch
+  '@kitlangton/rolling-number@0.3.0': patches/@kitlangton__rolling-number@0.3.0.patch
   balloons-js@0.0.3: patches/balloons-js@0.0.3.patch
   "convex-helpers@0.1.123": patches/convex-helpers@0.1.123.patch

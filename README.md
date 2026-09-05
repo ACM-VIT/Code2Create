@@ -4,6 +4,8 @@ Code2Create is the event platform for participant intake, team management, atten
 
 The product specification lives in [`specs/`](./specs). The canonical private reader is [code2create-specs.theg1239.chatgpt.site](https://code2create-specs.theg1239.chatgpt.site). The repository does not deploy a second handbook application.
 
+The current event work list is [Event follow-up plan](./specs/16-event-follow-up-plan.md). It separates implementation work, reviewer preparation, event-day setup, and rehearsal.
+
 ## Prerequisites
 
 - Node.js `22.22.0`
@@ -94,9 +96,13 @@ Run `pnpm dev:prepare` after changing local backend or worker environment while 
 | `apps/updates`                  | Event-owned Expo Updates Worker and R2 delivery                            |
 | `apps/email`                    | Cloudflare Email Routing delivery worker                                   |
 | `apps/voice`                    | Outbound call and synthesized-audio worker                                 |
+| `apps/discord`                  | Discord support bridge                                                    |
+| `apps/e2e`                      | Browser verification                                                      |
+| `apps/trailer`                  | Event promotional video composition                                       |
 | `packages/domain`               | Shared domain contracts and presentation vocabulary                        |
 | `packages/web-auth`             | Shared Better Auth browser integration                                     |
 | `packages/client-observability` | Shared client analytics and error tracking                                 |
+| `packages/web-forms`            | Shared product form validation                                            |
 
 All product surfaces use the same Google identity and Convex deployment. Permissions are exact grants scoped to an event or resource. Role labels provide default permission bundles; they are not authorization shortcuts.
 
@@ -135,11 +141,11 @@ pnpm --filter @code2create/backend keys:check
 - [Product brief](./specs/00-product-brief.md)
 - [Domain and access](./specs/01-domain-and-access.md)
 - [Participant onboarding](./specs/02-participant-onboarding.md)
-- [Panels and queues](./specs/03-panels-and-queues.md)
+- [Panels and queues](./specs/03-panel-and-queue-operations.md)
 - [Reviewer application](./specs/04-reviewer-application.md)
 - [Evaluation system](./specs/05-evaluation-system.md)
 - [Operations dashboard](./specs/06-operations-dashboard.md)
-- [Reliability and audit](./specs/07-reliability-and-audit.md)
+- [Reliability and audit](./specs/07-reliability-safety-audit.md)
 - [Synesthesia](./specs/08-synesthesia.md)
 - [Delivery and acceptance](./specs/09-delivery-and-acceptance.md)
 - [Decision register](./specs/10-decision-register.md)
@@ -147,5 +153,7 @@ pnpm --filter @code2create/backend keys:check
 - [Data model and realtime](./specs/12-data-model-and-realtime.md)
 - [Integrations and release](./specs/13-integrations-and-release.md)
 - [Attendance and presence](./specs/14-attendance-and-presence.md)
+- [Event review readiness](./specs/15-event-review-readiness.md)
+- [Event follow-up plan](./specs/16-event-follow-up-plan.md)
 
 The specifications define product behavior and invariants. Code and generated API types define implementation detail; do not manually duplicate the full schema or endpoint inventory in this file.

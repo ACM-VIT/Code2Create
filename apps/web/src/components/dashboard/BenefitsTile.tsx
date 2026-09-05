@@ -1,3 +1,4 @@
+import { LiveNumber } from "../LiveNumber";
 import { useState } from "react";
 
 import { Reveal, Tile, TileEyebrow } from "./Tile";
@@ -53,7 +54,7 @@ export function BenefitsTile({ slot, model }: {
       <div className={tileBody}>
         <div className="flex items-baseline justify-between gap-3">
           <TileEyebrow>benefits</TileEyebrow>
-          {count > 0 ? <span className="text-[11px] text-fg/50">{count === 1 ? "1 perk" : `${count} perks`}</span> : null}
+          {count > 0 ? <span className="text-[11px] text-fg/50"><LiveNumber value={count} /> {count === 1 ? "perk" : "perks"}</span> : null}
         </div>
         {!model.available ? (
           <p className="m-0 text-[13px] leading-snug text-fg/65">Perks arrive once your place is confirmed.</p>

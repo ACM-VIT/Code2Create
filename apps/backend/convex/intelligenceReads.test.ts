@@ -82,22 +82,26 @@ describe("intelligence read endpoint", () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedEvent(backend);
 
-    const accepted = await signedRead(backend, fixture.eventSlug, "review_rounds");
+    const accepted = await signedRead(backend, fixture.eventSlug, "review_rounds",
+    );
     expect(accepted.status).toBe(200);
 
     const wrongContext = await signedRead(backend, fixture.eventSlug, "review_rounds", {
       context: operationsIntelligenceCallbackSignatureContext,
-    });
+    },
+    );
     expect(wrongContext.status).toBe(401);
 
     const stale = await signedRead(backend, fixture.eventSlug, "review_rounds", {
       timestamp: (Date.now() - 6 * 60 * 1_000).toString(),
-    });
+    },
+    );
     expect(stale.status).toBe(401);
 
     const tampered = await signedRead(backend, fixture.eventSlug, "review_rounds", {
       mutateBody: (body) => `${body} `,
-    });
+    },
+    );
     expect(tampered.status).toBe(401);
   });
 
@@ -105,15 +109,18 @@ describe("intelligence read endpoint", () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedEvent(backend);
 
-    const unknownRead = await signedRead(backend, fixture.eventSlug, "raw_table_scan");
+    const unknownRead = await signedRead(backend, fixture.eventSlug, "raw_table_scan",
+    );
     expect(unknownRead.status).toBe(422);
 
     const misplacedConversation = await signedRead(backend, fixture.eventSlug, "review_rounds", {
       conversationId: privateConversationId,
-    });
+    },
+    );
     expect(misplacedConversation.status).toBe(422);
 
-    const unknownEvent = await signedRead(backend, "no-such-event", "review_rounds");
+    const unknownEvent = await signedRead(backend, "no-such-event", "review_rounds",
+    );
     expect(unknownEvent.status).toBe(404);
   });
 
@@ -156,9 +163,14 @@ describe("intelligence read endpoint", () => {
     );
     expect(missingConversation.status).toBe(422);
 
-    const response = await signedRead(backend, fixture.eventSlug, "recommendation_history", {
-      conversationId: privateConversationId,
-    });
+    const response = await signedRead(
+      backend,
+      fixture.eventSlug,
+      "recommendation_history",
+      {
+        conversationId: privateConversationId,
+      },
+    );
     expect(response.status).toBe(200);
     const text = await response.text();
     expect(text).toContain("private-proposal");
@@ -170,12 +182,20 @@ describe("intelligence read endpoint", () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedEvent(backend);
 
-    const response = await signedRead(backend, fixture.eventSlug, "review_exceptions");
+    const response = await signedRead(
+      backend,
+      fixture.eventSlug,
+      "review_exceptions",
+    );
     const payload = (await response.json()) as {
       read: string;
       data: {
         vacancies: Array<{ missingPanelMemberId: string; panelName: string }>;
-        teams: Array<{ teamRoundStateId: string; state: string; callAttemptCount: number }>;
+        teams: Array<{
+          teamRoundStateId: string;
+          state: string;
+          callAttemptCount: number;
+        }>;
       };
     };
     expect(payload.read).toBe("review_exceptions");
@@ -265,9 +285,20 @@ async function seedEvent(backend: BackendTest) {
       substituteResponseSeconds: 60,
       missedReentryPolicy: "preserve_queue_time",
       requiredPanelSize: 3,
+      staffing: {
+        seniorSeats: 2,
+        juniorSeats: 0,
+        allowSeniorLeadFallback: true,
+        automaticReplacement: false,
+        juniorRotationReviews: 0,
+        reviewerArrivalSeconds: 90,
+        assignmentReminderSeconds: 300,
+        assignmentReminderCalls: true,
+      },
       minimumScorersPerCriterion: 1,
       minimumPresentParticipants: 1,
       requiresSharedCommitments: true,
+      requiresFinalComment: false,
       minimumReviewerBuild: 1,
       requiresCamera: false,
       requiresNotifications: false,
@@ -300,6 +331,7 @@ async function seedEvent(backend: BackendTest) {
       status: "removed",
       assignedAt: now,
       endedAt: now,
+      seatSeniority: "sc",
     });
     const removedPanelMemberId = await ctx.db.insert("reviewPanelMembers", {
       eventId,
@@ -312,6 +344,7 @@ async function seedEvent(backend: BackendTest) {
       status: "removed",
       assignedAt: now + 1,
       endedAt: now + 2,
+      seatSeniority: "sc",
     });
     const membershipId = await ctx.db.insert("eventMemberships", {
       eventId,
@@ -379,7 +412,11 @@ async function seedEvent(backend: BackendTest) {
       statement: `${canaryPersonName} is unavailable. ${canarySupportText}`,
       route: "/reviews",
       actionLabel: "Page a substitute",
-      visibility: { permissionKey: "round.read", scopeType: "round", scopeId: roundId },
+      visibility: {
+        permissionKey: "round.read",
+        scopeType: "round",
+        scopeId: roundId,
+      },
       evidenceJson: JSON.stringify({ panelId }),
       state: "open",
       recurrenceCount: 1,
@@ -423,7 +460,9 @@ async function seedEvent(backend: BackendTest) {
         provenance: {
           kind: "copilot",
           conversationId,
-          citations: [{ read: "support_load" as const, generatedAt: now, keys: ["open"] }],
+          citations: [
+            { read: "support_load" as const, generatedAt: now, keys: ["open"] },
+          ],
         },
         arguments: {
           kind: "open_support_case" as const,

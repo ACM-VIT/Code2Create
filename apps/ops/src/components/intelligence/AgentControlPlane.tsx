@@ -1,3 +1,4 @@
+import { LiveNumber } from "../LiveNumber";
 import { api } from "@code2create/backend/api";
 import {
   intelligenceAgentDefinitions,
@@ -32,6 +33,7 @@ type AgentHistory = {
 type AgentView = "runs" | "about" | "prompts";
 
 const agentIcons: Record<IntelligenceAgentId, IconName> = {
+  "review-questions": "notes",
   "idea-submission": "notes",
   "operations-episode": "pulse",
   "operations-brief": "inbox",
@@ -49,7 +51,8 @@ const agentViews: ReadonlyArray<{ id: AgentView; label: string }> = [
 export function AgentControlPlane() {
   const [selectedAgentId, setSelectedAgentId] = useState<IntelligenceAgentId>("idea-submission");
   const [view, setView] = useState<AgentView>("runs");
-  const fleet = useQuery(api.intelligenceObservability.agentFleetStatus, { eventSlug });
+  const fleet = useQuery(api.intelligenceObservability.agentFleetStatus, { eventSlug,
+  });
   const history = usePaginatedQuery(
     api.intelligenceObservability.agentRunHistory,
     { eventSlug, agent: selectedAgentId },
@@ -135,9 +138,9 @@ function FleetSummary({ fleet }: { fleet: FleetStatus[] | undefined }) {
   const attention = fleet.filter((agent) => agent.state === "attention").length;
   return (
     <span>
-      {intelligenceAgentDefinitions.length} deployed · {active}
+      {intelligenceAgentDefinitions.length} deployed · <LiveNumber value={active} />
       {activeAtLeast ? "+" : ""} active
-      {attention > 0 ? ` · ${attention} ${attention === 1 ? "needs" : "need"} attention` : ""}
+      {attention > 0 ? <> · <LiveNumber value={attention} /> {attention === 1 ? "needs" : "need"} attention</> : ""}
     </span>
   );
 }
@@ -157,7 +160,9 @@ function AgentRailButton({
     <button
       aria-current={selected ? "true" : undefined}
       className={`group grid w-full cursor-pointer grid-cols-[28px_minmax(0,1fr)_auto] items-center gap-3 border-0 border-b border-line px-4 py-3 text-left transition-colors last:border-b-0 ${
-        selected ? "bg-field text-ink" : "bg-surface text-ink-2 hover:bg-hover hover:text-ink"
+        selected
+          ? "bg-field text-ink"
+          : "bg-surface text-ink-2 hover:bg-hover hover:text-ink"
       }`}
       onClick={() => onSelect(agent.id)}
       type="button"
@@ -280,7 +285,9 @@ function AgentAbout({ agent }: { agent: IntelligenceAgentDefinition }) {
   );
 }
 
-function FactList({ items, title }: { items: readonly string[]; title: string }) {
+function FactList({ items, title,
+}: { items: readonly string[]; title: string;
+}) {
   return (
     <div>
       <p className="m-0 mb-2 text-[12px] font-medium text-ink">{title}</p>
@@ -396,7 +403,9 @@ function AgentRunLedger({
           Load older runs
         </button>
       ) : null}
-      {history.status === "LoadingMore" ? <LoadingLabel>Loading older runs</LoadingLabel> : null}
+      {history.status === "LoadingMore" ? (
+        <LoadingLabel>Loading older runs</LoadingLabel>
+      ) : null}
     </div>
   );
 }
@@ -432,7 +441,9 @@ function AgentRunRow({ run }: { run: AgentRun }) {
           {run.agentVersion === undefined ? null : (
             <RunDatum label="Agent version" value={run.agentVersion} />
           )}
-          {run.model === undefined ? null : <RunDatum label="Model" value={run.model} />}
+          {run.model === undefined ? null : (
+            <RunDatum label="Model" value={run.model} />
+          )}
           {run.startedAt === undefined ? null : (
             <RunDatum label="Started" value={formatCompactDateTime(run.startedAt)} />
           )}
@@ -472,7 +483,9 @@ function RunTone({ tone }: { tone: AgentRun["tone"] }) {
           : tone === "failure"
             ? "bg-red"
             : "bg-ink-3";
-  return <span aria-hidden className={`mt-1.5 size-1.5 rounded-full ${color}`} />;
+  return (
+    <span aria-hidden className={`mt-1.5 size-1.5 rounded-full ${color}`} />
+  );
 }
 
 function RunDatum({ label, value }: { label: string; value: string }) {

@@ -1,3 +1,4 @@
+import { LiveNumber } from "./LiveNumber";
 import { api } from "@code2create/backend/api";
 import type { FunctionReturnType } from "convex/server";
 import { useAction, useMutation, useQuery } from "convex/react";
@@ -94,14 +95,8 @@ export function RoundExportControl({ roundId }: { roundId: RoundId }) {
             Verified {activeExport.verifiedAt ? formatTime(activeExport.verifiedAt) : ""}
             {activeExport.verifiedByName ? ` by ${activeExport.verifiedByName}` : ""}.
           </p>
-          {workspace.canReopen && !workspace.hasParticipantRelease ? (
+          {workspace.canReopen ? (
             <ReopenRound workspace={workspace} activeExport={activeExport} />
-          ) : null}
-          {workspace.hasParticipantRelease ? (
-            <p className="muted">
-              Participant feedback is already published, so this round can’t be reopened the usual
-              way.
-            </p>
           ) : null}
         </>
       ) : null}
@@ -551,7 +546,7 @@ function Summary({ label, value }: { label: string; value: number }) {
   return (
     <div>
       <dt>{label}</dt>
-      <dd>{value}</dd>
+      <dd><LiveNumber value={value} /></dd>
     </div>
   );
 }

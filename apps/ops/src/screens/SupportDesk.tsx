@@ -1,3 +1,4 @@
+import { LiveNumber } from "../components/LiveNumber";
 import { Streamdown } from "streamdown";
 import { api } from "@code2create/backend/api";
 import {
@@ -109,7 +110,7 @@ export function SupportDesk({ composing = false }: { composing?: boolean }) {
                 onClick={() => setFilter(value)}
               >
                 {label}
-                {list === undefined ? null : <span>{supportFilterCount(value, list.totals)}</span>}
+                {list === undefined ? null : <span><LiveNumber value={supportFilterCount(value, list.totals)} /></span>}
               </button>
             ))}
           </div>
@@ -127,7 +128,7 @@ export function SupportDesk({ composing = false }: { composing?: boolean }) {
                   {groups.length > 1 ? (
                     <h2 className="support-group-label">
                       {group.label}
-                      <span>{group.cases.length}</span>
+                      <span><LiveNumber value={group.cases.length} /></span>
                     </h2>
                   ) : null}
                   {group.cases.map((supportCase) => (
@@ -700,7 +701,7 @@ function MessageBody({ text }: { text: string }) {
       : `${text.slice(0, collapseNoteAfter).trimEnd()}…`;
   return (
     <>
-      <Streamdown className="support-message-body" components={messageMarkdownComponents}>
+      <Streamdown mode="static" className="support-message-body" components={messageMarkdownComponents}>
         {shown}
       </Streamdown>
       {shown === text ? null : (

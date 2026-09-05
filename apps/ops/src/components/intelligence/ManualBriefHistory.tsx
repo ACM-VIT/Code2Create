@@ -1,3 +1,4 @@
+import { LiveNumber } from "../LiveNumber";
 import { api } from "@code2create/backend/api";
 import { usePaginatedQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
@@ -24,7 +25,7 @@ export function ManualBriefHistory() {
       <div className="section-heading">
         <h2 id="brief-runs-heading">Brief runs</h2>
         {history.status === "LoadingFirstPage" || history.results.length === 0 ? null : (
-          <span>{history.results.length} loaded · newest first</span>
+          <span><LiveNumber value={history.results.length} /> loaded · newest first</span>
         )}
       </div>
       {history.status === "LoadingFirstPage" ? (

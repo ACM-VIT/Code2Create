@@ -1,5 +1,6 @@
+import { LiveElapsed } from "../LiveNumber";
 import type { ReactNode } from "react";
-import { elapsedName, useElapsed } from "./guideTime";
+import { useElapsed } from "./guideTime";
 
 const cycleMs = 650;
 
@@ -60,7 +61,7 @@ export function LoadingLine({
     <span role="status" className={`inline-flex w-fit items-center gap-2.5 ${className}`}>
       <PixelLoader />
       <ShimmerLabel className="text-[13px] font-medium">{label}</ShimmerLabel>
-      <span className="font-mono text-[12px] text-fg/45 tabular-nums">{elapsedName(elapsed)}</span>
+      <span className="font-mono text-[12px] text-fg/45 tabular-nums"><LiveElapsed milliseconds={elapsed} /></span>
     </span>
   );
 }

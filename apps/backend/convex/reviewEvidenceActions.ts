@@ -235,7 +235,8 @@ const githubContentEntry = z.object({
     .optional(),
 });
 
-const githubContentResponse = z.union([z.array(githubContentEntry).max(1_000), githubContentEntry]);
+const githubContentResponse = z.union([z.array(githubContentEntry).max(1_000), githubContentEntry,
+]);
 
 const githubBrowseResult = v.union(
   v.object({
@@ -272,7 +273,8 @@ const githubBrowseResult = v.union(
     type: v.string(),
     sha: v.string(),
     size: v.number(),
-    reason: v.union(v.literal("binary"), v.literal("too_large"), v.literal("content_unavailable")),
+    reason: v.union(v.literal("binary"), v.literal("too_large"), v.literal("content_unavailable"),
+    ),
   }),
 );
 
@@ -310,7 +312,8 @@ const figmaPreviewListResult = v.object({
         v.literal("unchanged"),
         v.literal("unknown"),
       ),
-      renderState: v.union(v.literal("pending"), v.literal("available"), v.literal("failed")),
+      renderState: v.union(v.literal("pending"), v.literal("available"), v.literal("failed"),
+      ),
       width: v.optional(v.number()),
       height: v.optional(v.number()),
     }),
@@ -354,7 +357,8 @@ const figmaActivityResult = v.object({
   ),
 });
 
-const previewState = v.union(v.literal("pending"), v.literal("available"), v.literal("failed"));
+const previewState = v.union(v.literal("pending"), v.literal("available"), v.literal("failed"),
+);
 
 const figmaComparisonResult = v.object({
   current: v.object({
@@ -524,7 +528,8 @@ function relativePath(value: string) {
     });
   }
   const segments = path.split("/");
-  if (segments.some((segment) => segment === "" || segment === "." || segment === "..")) {
+  if (segments.some((segment) => segment === "" || segment === "." || segment === "..",
+    )) {
     throw new ConvexError({
       code: "GITHUB_PATH_INVALID",
       message: "Choose a repository path from the pinned file browser.",
@@ -547,7 +552,8 @@ function checkpointPath(rootPath: string | undefined, path: string) {
   if (path === root) return "";
   const prefix = `${root}/`;
   if (!path.startsWith(prefix)) {
-    throw new Error("GitHub returned a path outside the fixed repository root.");
+    throw new Error("GitHub returned a path outside the fixed repository root.",
+    );
   }
   return path.slice(prefix.length);
 }
@@ -596,40 +602,22 @@ function decodeTextFile(content: string) {
   }
 }
 
-export const browseGithub = action({
-  args: {
-    eventSlug: v.string(),
-    reviewSessionId: v.id("reviewSessions"),
-    bindingId: v.id("githubRepositoryBindings"),
-    path: v.string(),
-  },
-  returns: githubBrowseResult,
-  handler: async (
-    ctx: ActionCtx,
-    args: {
-      eventSlug: string;
-      reviewSessionId: Id<"reviewSessions">;
-      bindingId: Id<"githubRepositoryBindings">;
-      path: string;
-    },
-  ): Promise<GithubBrowseResult> => {
-    const context: GitHubAccessContext = await ctx.runQuery(
-      internal.reviewEvidence.githubAccessContext,
-      {
-        eventSlug: args.eventSlug,
-        reviewSessionId: args.reviewSessionId,
-        bindingId: args.bindingId,
-      },
-    );
-    const requestedPath = providerPath(context.rootPath, args.path);
+export async function readPinnedGithubPath(
+  context: GitHubAccessContext,
+  requestedRelativePath: string,
+  signal?: AbortSignal,
+): Promise<GithubBrowseResult> {
+  const requestedPath = providerPath(context.rootPath, requestedRelativePath);
     let decoded: unknown;
     try {
-      const octokit = await repositoryOctokit(context.installationId, context.repositoryId);
+      const octokit = await repositoryOctokit(context.installationId, context.repositoryId,
+    );
       const response = await octokit.rest.repos.getContent({
         owner: context.owner,
         repo: context.name,
         path: requestedPath,
         ref: context.headSha,
+      ...(signal ? { request: { signal } } : {}),
       });
       decoded = response.data;
     } catch (error) {
@@ -650,7 +638,7 @@ export const browseGithub = action({
       );
       return {
         kind: "directory",
-        path: relativePath(args.path),
+        path: relativePath(requestedRelativePath),
         entries: sorted.slice(0, maximumDirectoryEntries).map((entry) => ({
           name: entry.name,
           path: checkpointPath(context.rootPath, entry.path),
@@ -705,6 +693,34 @@ export const browseGithub = action({
       size: entry.size,
       text,
     };
+}
+
+export const browseGithub = action({
+  args: {
+    eventSlug: v.string(),
+    reviewSessionId: v.id("reviewSessions"),
+    bindingId: v.id("githubRepositoryBindings"),
+    path: v.string(),
+  },
+  returns: githubBrowseResult,
+  handler: async (
+    ctx: ActionCtx,
+    args: {
+      eventSlug: string;
+      reviewSessionId: Id<"reviewSessions">;
+      bindingId: Id<"githubRepositoryBindings">;
+      path: string;
+    },
+  ): Promise<GithubBrowseResult> => {
+    const context: GitHubAccessContext = await ctx.runQuery(
+      internal.reviewEvidence.githubAccessContext,
+      {
+        eventSlug: args.eventSlug,
+        reviewSessionId: args.reviewSessionId,
+        bindingId: args.bindingId,
+      },
+    );
+    return readPinnedGithubPath(context, args.path);
   },
 });
 
@@ -761,7 +777,8 @@ export const figmaComparison = action({
       bindingId: Id<"figmaFileBindings">;
     },
   ): Promise<FigmaComparisonResult | null> => {
-    return ctx.runQuery(internal.reviewEvidence.figmaComparisonListContext, args);
+    return ctx.runQuery(internal.reviewEvidence.figmaComparisonListContext, args,
+    );
   },
 });
 
@@ -797,7 +814,8 @@ export const browseFigma = action({
       return {
         capturedAt: context.capturedAt,
         providerVersionId: context.providerVersionId,
-        ...browseFigmaEvidence(rawJson, context.providerVersionId, args.nodeId, args.childOffset),
+        ...browseFigmaEvidence(rawJson, context.providerVersionId, args.nodeId, args.childOffset,
+        ),
       };
     } catch (error) {
       if (error instanceof FigmaEvidenceBrowseError) {
@@ -852,7 +870,8 @@ export const openFigmaArtifact = action({
       expectedCapturedAt: context.capturedAt,
       expectedProviderVersionId: context.providerVersionId,
       signedUrlExpiresAt: expiresAt,
-    });
+    },
+    );
     return {
       url,
       expiresAt,
@@ -901,7 +920,8 @@ export const openFigmaPreview = action({
       ...args,
       expected: context,
       signedUrlExpiresAt: expiresAt,
-    });
+    },
+    );
     return {
       url,
       expiresAt,
@@ -941,7 +961,8 @@ export const openFigmaComparison = action({
     const context: {
       current?: FigmaPreviewAccessContext;
       previous?: FigmaPreviewAccessContext;
-    } = await ctx.runQuery(internal.reviewEvidence.figmaComparisonPreviewAccessContext, args);
+    } = await ctx.runQuery(internal.reviewEvidence.figmaComparisonPreviewAccessContext, args,
+    );
     const expiresAt = Date.now() + 60_000;
     const [currentUrl, previousUrl] = await Promise.all([
       context.current ? signFigmaPreview(context.current) : Promise.resolve(null),

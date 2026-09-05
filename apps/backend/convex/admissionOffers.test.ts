@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import { defaultParticipantEmailTemplates } from "@code2create/domain";
 
 import { internal } from "./_generated/api.js";
+import type { Id } from "./_generated/dataModel.js";
 import { createAdmissionOffer, transitionOffer } from "./admissions.ts";
 import {
   communicationsPolicyChecksum,
@@ -149,7 +150,9 @@ describe("admission offer lifecycle", () => {
       expectedOfferVersion: 1,
     });
     await enqueueRosterNotification(backend, fixture, "offer_confirmed", 4);
-    await updateRosterStatus(backend, fixture, "accepted");
+    const externalPassJobsBefore = await scheduledRosterNotificationCount(backend);
+    await updateRosterStatus(backend, fixture, "accepted", fixture.communicationsPolicyId);
+    expect(await scheduledRosterNotificationCount(backend)).toBe(externalPassJobsBefore + 1);
 
     const state = await readOfferState(backend, fixture);
     expect(state.application).toMatchObject({ state: "confirmed", version: 4 });
@@ -612,6 +615,7 @@ async function updateRosterStatus(
   backend: BackendTest,
   fixture: Awaited<ReturnType<typeof seedOfferedApplication>>,
   onboardingStatus: "submitted" | "offer_pending" | "accepted",
+  externalPassCommunicationsPolicyVersionId?: Id<"communicationsPolicyVersions">,
 ) {
   const application = await backend.run((ctx) => ctx.db.get(fixture.applicationId));
   if (!application) throw new Error("The offer fixture application is missing.");
@@ -621,7 +625,24 @@ async function updateRosterStatus(
     lockedRosterSnapshotId: fixture.lockedRosterSnapshotId,
     onboardingStatus,
     cursor: null,
+    ...(externalPassCommunicationsPolicyVersionId !== undefined
+      ? { externalPassCommunicationsPolicyVersionId }
+      : {}),
   });
+}
+
+async function scheduledRosterNotificationCount(backend: BackendTest) {
+  return backend.run(async (ctx) =>
+    ctx.db.system
+      .query("_scheduled_functions")
+      .collect()
+      .then(
+        (jobs) =>
+          jobs.filter((job) =>
+            job.name.includes("participantNotifications:enqueueRosterBatch"),
+          ).length,
+      ),
+  );
 }
 
 async function enqueueRosterNotification(

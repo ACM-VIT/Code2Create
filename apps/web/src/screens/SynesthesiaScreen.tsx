@@ -1,3 +1,4 @@
+import { LiveNumber } from "../components/LiveNumber";
 import { api } from "@code2create/backend/api";
 import { mergeSynesthesiaVoteCounts } from "@code2create/domain";
 import type { FunctionReturnType } from "convex/server";
@@ -229,10 +230,10 @@ export function SynesthesiaScreen() {
             </div>
             <div className="music-usage" role="group" aria-label="Your music activity">
               <span>
-                {state.usage.requests}/{state.window.maxRequestsPerParticipant} requests
+                <LiveNumber value={state.usage.requests} />/{state.window.maxRequestsPerParticipant} requests
               </span>
               <span>
-                {state.usage.votes}/{state.window.maxVotesPerParticipant} votes
+                <LiveNumber value={state.usage.votes} />/{state.window.maxVotesPerParticipant} votes
               </span>
             </div>
           </section>
@@ -359,7 +360,7 @@ export function SynesthesiaScreen() {
                         </span>
                       </div>
                       <small>
-                        {requestStateLabel(request.state)} · {request.voteCount} votes
+                        {requestStateLabel(request.state)} · <LiveNumber value={request.voteCount} /> votes
                         {request.isMine ? " · Your request" : ""}
                       </small>
                       {request.publicReason ? <p>{request.publicReason}</p> : null}

@@ -27,6 +27,7 @@ export const communicationsEmailTemplateInput = v.object({
     v.literal("offer_confirmed"),
     v.literal("offer_declined"),
     v.literal("offer_expired"),
+    v.literal("external_event_pass"),
   ),
   subject: v.string(),
   text: v.string(),
@@ -74,7 +75,17 @@ export type CommunicationsPolicy = {
   }>;
 };
 
-const allowedPlaceholders = new Set(["participant_name", "team_name", "event_name", "portal_url"]);
+const allowedPlaceholders = new Set([
+  "participant_name",
+  "team_name",
+  "event_name",
+  "portal_url",
+  "event_start",
+  "venue_name",
+  "pass_reference",
+  "google_wallet_url",
+  "apple_wallet_url",
+]);
 
 function invalidPolicy(message: string): never {
   throw new ConvexError({ code: "INVALID_COMMUNICATIONS_POLICY", message });

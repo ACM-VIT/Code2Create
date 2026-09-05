@@ -1,3 +1,4 @@
+import { LiveNumber } from "./LiveNumber";
 import { api } from "@code2create/backend/api";
 import type { FunctionReturnType } from "convex/server";
 import { useMutation, useQuery } from "convex/react";
@@ -20,7 +21,7 @@ const groupRowLimit = 3;
 const attentionGroupLabels: Record<AttentionRow["detectorKey"], string> = {
   panel_seat_empty: "Empty panel seats",
   seat_at_risk: "Reviewers about to drop off",
-  review_overdue: "Overdue reviews",
+  review_overdue: "Scorecards in progress",
   review_presence_incomplete: "Reviewers not fully checked in",
   team_below_minimum: "Teams below minimum size",
   team_held: "Teams on hold",
@@ -102,7 +103,8 @@ export function OperationsAttention({
           >
             {pending === row.id
               ? "Picking up"
-              : acknowledgeOperations.hasPending(attentionAcknowledgeSlot(row.id))
+              : acknowledgeOperations.hasPending(attentionAcknowledgeSlot(row.id),
+                  )
                 ? "Confirm pickup"
                 : "Pick up"}
           </button>
@@ -126,10 +128,10 @@ export function OperationsAttention({
         </h2>
         {attention && rows.length > 0 ? (
           <span>
-            {rows.length}
+            <LiveNumber value={rows.length} />
             {attention.summary.hasMore ? "+" : ""} open
             {attention.summary.acknowledgedCount > 0
-              ? ` · ${attention.summary.acknowledgedCount} picked up`
+              ? <> · <LiveNumber value={attention.summary.acknowledgedCount} /> picked up</>
               : ""}
           </span>
         ) : null}
@@ -148,7 +150,7 @@ export function OperationsAttention({
         <div className="health-empty">
           <strong>Nothing needs action.</strong>
           {compact ? null : (
-            <span>No panel is short, no review is overdue, and no team is stuck.</span>
+            <span>No panel is short, no review is waiting for scorecards, and no team is stuck.</span>
           )}
         </div>
       ) : (
@@ -165,7 +167,7 @@ export function OperationsAttention({
                   <section className="attention-group" key={group.detectorKey}>
                     <div className="attention-group-heading">
                       <h3>{attentionGroupLabels[group.detectorKey]}</h3>
-                      <span>{group.rows.length}</span>
+                      <span><LiveNumber value={group.rows.length} /></span>
                     </div>
                     <div className="health-list">{groupRows.map(rowView)}</div>
                     {group.rows.length > groupRowLimit ? (
@@ -175,12 +177,13 @@ export function OperationsAttention({
                         onClick={() =>
                           setExpandedGroups((current) =>
                             expanded
-                              ? current.filter((key) => key !== group.detectorKey)
+                              ? current.filter((key) => key !== group.detectorKey,
+                                )
                               : [...current, group.detectorKey],
                           )
                         }
                       >
-                        {expanded ? "Show fewer" : `Show ${hidden} more`}
+                        {expanded ? "Show fewer" : <>Show <LiveNumber value={hidden} /> more</>}
                       </button>
                     ) : null}
                   </section>
@@ -193,7 +196,7 @@ export function OperationsAttention({
               View event monitor
               <span>
                 {hiddenRowCount > 0
-                  ? `${hiddenRowCount}${attention.summary.hasMore ? "+" : ""} more`
+                  ? <><LiveNumber value={hiddenRowCount} />{attention.summary.hasMore ? "+" : ""} more</>
                   : "More open work"}
               </span>
             </Link>
@@ -216,14 +219,16 @@ function groupAttentionRows(rows: AttentionRow[]) {
     if (current) current.push(row);
     else grouped.set(row.detectorKey, [row]);
   }
-  return [...grouped].map(([detectorKey, groupRows]) => ({ detectorKey, rows: groupRows }));
+  return [...grouped].map(([detectorKey, groupRows]) => ({ detectorKey, rows: groupRows,
+  }));
 }
 
 function attentionAcknowledgeSlot(itemId: string) {
   return `attention-acknowledge:${itemId}`;
 }
 
-function rowMeta(row: { firstObservedAt: number; recurrenceCount: number; acknowledged: boolean }) {
+function rowMeta(row: { firstObservedAt: number; recurrenceCount: number; acknowledged: boolean;
+}) {
   const parts = [`Open since ${formatClockTime(row.firstObservedAt)}`];
   if (row.recurrenceCount > 1) parts.push(`${ordinal(row.recurrenceCount)} time today`);
   if (row.acknowledged) parts.push("Picked up");

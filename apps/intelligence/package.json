@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@code2create/domain": "workspace:*",
+    "@earendil-works/pi-ai": "0.83.0",
     "@flue/runtime": "2.0.3",
     "hono": "^4.7.0",
     "posthog-node": "^5.51.6",
@@ -29,7 +30,6 @@
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.51.1",
     "@cloudflare/workers-types": "^5.20260804.1",
-    "@earendil-works/pi-ai": "0.83.0",
     "@flue/cli": "2.0.3",
     "@flue/sdk": "2.0.3",
     "@flue/vite": "2.0.3",

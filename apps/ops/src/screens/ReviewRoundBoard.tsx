@@ -1,3 +1,4 @@
+import { LiveNumber } from "../components/LiveNumber";
 import { api } from "@code2create/backend/api";
 import {
   reviewRoundStatusLabels,
@@ -12,20 +13,31 @@ import {
 } from "@code2create/domain";
 import type { FunctionReturnType } from "convex/server";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
-import { useState, type SubmitEvent } from "react";
+import { useEffect, useState, type SubmitEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { Icon } from "../components/Icon";
 import { ReviewManualRecovery } from "../components/ReviewManualRecovery";
-import { LoadingLabel, SkeletonCard, SkeletonList, SkeletonStats } from "../components/Skeleton";
+import { ReviewConfirmations } from "../components/ReviewConfirmations";
+import { ReviewQuestionSettings } from "../components/ReviewQuestionSettings";
+import { ReviewQueueSettings } from "../components/ReviewQueueSettings";
+import { ReviewStaffingSettings } from "../components/ReviewStaffingSettings";
+import {
+  LoadingLabel,
+  SkeletonCard,
+  SkeletonList,
+  SkeletonStats,
+} from "../components/Skeleton";
 import { eventSlug } from "../lib/config";
 import { readableError } from "../lib/errors";
 import { useMutationAttempt } from "../lib/operations";
+import { venuePresenceLabel } from "../lib/venue-presence";
 
 type Board = FunctionReturnType<typeof api.reviewOperations.roundBoard>;
 type Staffing = FunctionReturnType<typeof api.reviewOperations.roundStaffing>;
 type Team = FunctionReturnType<typeof api.reviewOperations.roundTeams>["page"][number];
-type Panel = Board["panels"][number] & { reviewers: Staffing["panels"][number]["reviewers"] };
+type Panel = Board["panels"][number] & { reviewers: Staffing["panels"][number]["reviewers"];
+};
 type OverviewPanel = NonNullable<
   FunctionReturnType<typeof api.reviewOperations.overview>
 >["rounds"][number]["panels"][number];
@@ -52,6 +64,11 @@ type TeamExceptionResult =
   | FunctionReturnType<typeof api.reviewExceptions.markMissed>;
 
 export function ReviewRoundBoard() {
+  const [venueNow, setVenueNow] = useState(Date.now);
+  useEffect(() => {
+    const timer = setInterval(() => setVenueNow(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
   const { roundId } = useParams<{ roundId: string }>();
   const [teamView, setTeamView] = useState<TeamView>("desk");
   const overview = useQuery(api.reviewOperations.overview, { eventSlug });
@@ -73,7 +90,8 @@ export function ReviewRoundBoard() {
     api.reviewSubstitutions.roundStatus,
     visibleRound ? { eventSlug, roundId: visibleRound.id } : "skip",
   );
-  const incidents = useQuery(api.incidents.active, visibleRound ? { eventSlug } : "skip");
+  const incidents = useQuery(api.incidents.active, visibleRound ? { eventSlug } : "skip",
+  );
 
   if (!roundId) return <p className="notice error">Round ID is missing.</p>;
   if (
@@ -95,13 +113,16 @@ export function ReviewRoundBoard() {
     );
   }
   if (!visibleRound) {
-    return <p className="notice error">You do not have access to this review round.</p>;
+    return (
+      <p className="notice error">You do not have access to this review round.</p>
+    );
   }
   if (!board || !staffing || !substitutions || !incidents)
     return <p className="muted">Loading round board…</p>;
   const boardTeams = teams.results;
   const panels: Panel[] = board.panels.map((panel) => {
-    const panelStaffing = staffing.panels.find((candidate) => candidate.panelId === panel.id);
+    const panelStaffing = staffing.panels.find((candidate) => candidate.panelId === panel.id,
+    );
     if (!panelStaffing) throw new Error("The round staffing view is missing a published panel.");
     return { ...panel, reviewers: panelStaffing.reviewers };
   });
@@ -109,9 +130,12 @@ export function ReviewRoundBoard() {
   const reviewIncidents = incidents.filter(
     (incident) => incident.affectedService === "review_backend",
   );
-  const deskTeams = boardTeams.filter((team) => teamViewForState(team.state) === "desk");
-  const movingTeams = boardTeams.filter((team) => teamViewForState(team.state) === "in_motion");
-  const doneTeams = boardTeams.filter((team) => teamViewForState(team.state) === "done");
+  const deskTeams = boardTeams.filter((team) => teamViewForState(team.state) === "desk",
+  );
+  const movingTeams = boardTeams.filter((team) => teamViewForState(team.state) === "in_motion",
+  );
+  const doneTeams = boardTeams.filter((team) => teamViewForState(team.state) === "done",
+  );
   const visibleTeams =
     teamView === "desk"
       ? deskTeams
@@ -140,40 +164,47 @@ export function ReviewRoundBoard() {
       <dl className="catalog-summary">
         <div>
           <dt>Waiting for the desk</dt>
-          <dd>{visibleRound.stateCounts.unassigned}</dd>
+          <dd><LiveNumber value={visibleRound.stateCounts.unassigned} /></dd>
         </div>
         <div>
           <dt>Queued</dt>
-          <dd>{visibleRound.stateCounts.queued}</dd>
+          <dd><LiveNumber value={visibleRound.stateCounts.queued} /></dd>
         </div>
         <div>
           <dt>Called</dt>
-          <dd>{visibleRound.stateCounts.called}</dd>
+          <dd><LiveNumber value={visibleRound.stateCounts.called} /></dd>
         </div>
         <div>
           <dt>In review</dt>
-          <dd>{visibleRound.stateCounts.inReview}</dd>
+          <dd><LiveNumber value={visibleRound.stateCounts.inReview} /></dd>
         </div>
         <div>
           <dt>Complete</dt>
-          <dd>{visibleRound.stateCounts.completed}</dd>
+          <dd><LiveNumber value={visibleRound.stateCounts.completed} /></dd>
         </div>
         <div>
           <dt>Held</dt>
-          <dd>{visibleRound.stateCounts.held}</dd>
+          <dd><LiveNumber value={visibleRound.stateCounts.held} /></dd>
         </div>
       </dl>
 
       <RoundPauseControl key={board.round.id} incidents={reviewIncidents} round={board.round} />
+
+      <ReviewConfirmations roundId={board.round.id} />
+      <ReviewStaffingSettings roundId={board.round.id} />
+      <ReviewQueueSettings roundId={board.round.id} />
+      <ReviewQuestionSettings roundId={board.round.id} />
 
       <p className="board-section-label">Panels</p>
       <div className="panel-list">
         {[...panels].sort(byPanelUrgency).map((panel) => (
           <PanelRow
             key={panel.id}
-            overviewPanel={visibleRound.panels.find((candidate) => candidate.id === panel.id)}
+            overviewPanel={visibleRound.panels.find((candidate) => candidate.id === panel.id,
+            )}
             panel={panel}
             serverNow={staffing.serverNow}
+            venueNow={venueNow}
             substitutions={substitutions}
             teams={boardTeams}
           />
@@ -191,11 +222,18 @@ export function ReviewRoundBoard() {
                   {reviewRoundReserveStatusLabels[reserve.status]} ·{" "}
                   {
                     reviewerClockInStatusLabels[
-                      staffing.reserves.find((candidate) => candidate.personId === reserve.personId)
+                      staffing.reserves.find((candidate) => candidate.personId === reserve.personId,
+                      )
                         ?.clockInStatus ?? "not_clocked_in"
                     ]
                   }{" "}
                   · {reserve.pageCount} pages
+                  {(() => {
+                    const venue = staffing.reserves.find(
+                      (candidate) => candidate.personId === reserve.personId,
+                    )?.venue;
+                    return ` · ${venuePresenceLabel(venue?.status ?? "unknown", venue?.sampledAt, venueNow)}${venue?.followUp ? ` · ${venue.followUp}` : ""}`;
+                  })()}
                 </span>
               </div>
             ))}
@@ -220,7 +258,7 @@ export function ReviewRoundBoard() {
               type="button"
               onClick={() => setTeamView("desk")}
             >
-              Desk · {deskTeams.length}
+              Desk · <LiveNumber value={deskTeams.length} />
             </button>
             <button
               aria-pressed={teamView === "in_motion"}
@@ -228,7 +266,7 @@ export function ReviewRoundBoard() {
               type="button"
               onClick={() => setTeamView("in_motion")}
             >
-              In motion · {movingTeams.length}
+              In motion · <LiveNumber value={movingTeams.length} />
             </button>
             <button
               aria-pressed={teamView === "done"}
@@ -236,7 +274,7 @@ export function ReviewRoundBoard() {
               type="button"
               onClick={() => setTeamView("done")}
             >
-              Done · {doneTeams.length}
+              Done · <LiveNumber value={doneTeams.length} />
             </button>
             <button
               aria-pressed={teamView === "all"}
@@ -244,7 +282,7 @@ export function ReviewRoundBoard() {
               type="button"
               onClick={() => setTeamView("all")}
             >
-              All · {boardTeams.length}
+              All · <LiveNumber value={boardTeams.length} />
             </button>
           </div>
         </div>
@@ -312,19 +350,23 @@ function panelShortfall(panel: Panel) {
 }
 
 function byPanelUrgency(left: Panel, right: Panel) {
-  return panelShortfall(right) - panelShortfall(left) || left.name.localeCompare(right.name);
+  return (
+    panelShortfall(right) - panelShortfall(left) || left.name.localeCompare(right.name)
+  );
 }
 
 function PanelRow({
   overviewPanel,
   panel,
   serverNow,
+  venueNow,
   substitutions,
   teams,
 }: {
   overviewPanel: OverviewPanel | undefined;
   panel: Panel;
   serverNow: number;
+  venueNow: number;
   substitutions: Substitutions;
   teams: Team[];
 }) {
@@ -354,7 +396,9 @@ function PanelRow({
         <span className="panel-row-text">
           <strong>
             {panel.name}
-            {live[0] ? <span className="row-context"> · at {live[0].teamName}</span> : null}
+            {live[0] ? (
+              <span className="row-context"> · at {live[0].teamName}</span>
+            ) : null}
           </strong>
           <small>
             {panelSummary({
@@ -387,6 +431,14 @@ function PanelRow({
                   {reviewer.clockInStatus === "present" ? null : (
                     <small>{reviewerState(reviewer, serverNow)}</small>
                   )}
+                  <small>
+                    {venuePresenceLabel(
+                      reviewer.venue.status,
+                      reviewer.venue.sampledAt,
+                      venueNow,
+                    )}
+                  </small>
+                  {reviewer.venue.followUp ? <small className={reviewer.venue.needsAttention ? "error-note" : "muted"}>{reviewer.venue.followUp}</small> : null}
                   {reviewer.clockInStatus !== "present" && substitutionPanel ? (
                     <ReviewerNoShow
                       member={substitutionPanel.activeMembers.find(
@@ -506,7 +558,8 @@ function RoundPauseControl({
     setError(null);
     try {
       if (mode === "pause") {
-        const incident = incidents.find((candidate) => candidate.id === incidentId);
+        const incident = incidents.find((candidate) => candidate.id === incidentId,
+        );
         if (!incident) {
           setError("Choose an active review incident.");
           return;
@@ -943,8 +996,11 @@ function SubstitutionControl({
   );
 }
 
-function PanelMembership({ panel, reserves }: { panel: SubstitutionPanel; reserves: Reserve[] }) {
-  const swapPanelMember = useMutation(api.reviewPanelMembership.swapPanelMember);
+function PanelMembership({ panel, reserves,
+}: { panel: SubstitutionPanel; reserves: Reserve[];
+}) {
+  const swapPanelMember = useMutation(api.reviewPanelMembership.swapPanelMember,
+  );
   const [open, setOpen] = useState(false);
   const [leavingPersonId, setLeavingPersonId] = useState("");
   const [joiningPersonId, setJoiningPersonId] = useState("");
@@ -959,9 +1015,12 @@ function PanelMembership({ panel, reserves }: { panel: SubstitutionPanel; reserv
 
   if (!panel.canSwapMembers) return null;
 
-  const candidates = reserves.filter((reserve) => reserve.status === "available");
-  const leaving = panel.activeMembers.find((member) => member.personId === leavingPersonId);
-  const joining = candidates.find((reserve) => reserve.personId === joiningPersonId);
+  const candidates = reserves.filter((reserve) => reserve.status === "available",
+  );
+  const leaving = panel.activeMembers.find((member) => member.personId === leavingPersonId,
+  );
+  const joining = candidates.find((reserve) => reserve.personId === joiningPersonId,
+  );
 
   const changed = () => {
     setConfirmed(false);
@@ -1106,7 +1165,7 @@ function TeamRow({ board, team }: { board: Board; team: Team }) {
   const manageablePanels = board.panels.filter(
     (panel) => panel.status === "ready" && panel.canManageQueue,
   );
-  const [selectedPanelId, setSelectedPanelId] = useState(manageablePanels[0]?.id ?? "");
+  const [selectedPanelId, setSelectedPanelId] = useState("");
   const [busy, setBusy] = useState<Command | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [availabilityOverrideReason, setAvailabilityOverrideReason] = useState("");
@@ -1121,13 +1180,14 @@ function TeamRow({ board, team }: { board: Board; team: Team }) {
   const startPending = operationAttempt.hasPending(startSlot);
   const completePending = operationAttempt.hasPending(completeSlot);
   const selectedPanel =
-    manageablePanels.find((panel) => panel.id === selectedPanelId) ?? manageablePanels[0];
+    manageablePanels.find((panel) => panel.id === selectedPanelId,
+  );
   const assignedPanel = team.panelId
     ? board.panels.find((panel) => panel.id === team.panelId)
     : undefined;
 
   const runQueue = async () => {
-    if (!selectedPanel || busy) return;
+    if (busy || (selectedPanelId && !selectedPanel)) return;
     setBusy("queue");
     setError(null);
     try {
@@ -1135,7 +1195,7 @@ function TeamRow({ board, team }: { board: Board; team: Team }) {
         const args = {
           eventSlug,
           roundId: board.round.id,
-          panelId: selectedPanel.id,
+          ...(selectedPanel ? { panelId: selectedPanel.id } : {}),
           teamId: team.teamId,
           expectedTeamRoundVersion: team.version,
           reason: "Placed by the live review board",
@@ -1235,12 +1295,12 @@ function TeamRow({ board, team }: { board: Board; team: Team }) {
     team.participantAvailability.isMet || team.participantAvailability.isWaived;
   const blocker =
     review?.status === "awaiting_presence" && !allReviewersPresent
-      ? `Waiting for reviewers to scan in · ${review.reviewerPresenceCount} of ${review.reviewerCount} done`
+      ? <>Waiting for reviewers to scan in · <LiveNumber value={review.reviewerPresenceCount} /> of <LiveNumber value={review.reviewerCount} /> done</>
       : review?.status === "awaiting_presence" && !participantAvailabilityReady
         ? "Waiting for the team to regroup"
-        : (review?.status === "active" || review?.status === "overdue") && !allScorecardsSubmitted
-          ? `Waiting for scorecards · ${review.submittedScorecardCount} of ${review.reviewerCount} submitted`
-          : (review?.status === "active" || review?.status === "overdue") &&
+        : (review?.status === "active" || review?.status === "scoring") && !allScorecardsSubmitted
+          ? <>Waiting for scorecards · <LiveNumber value={review.submittedScorecardCount} /> of <LiveNumber value={review.reviewerCount} /> submitted</>
+          : (review?.status === "active" || review?.status === "scoring") &&
               !review.sharedNotesComplete
             ? "Waiting for the panel to agree shared notes"
             : null;
@@ -1276,13 +1336,13 @@ function TeamRow({ board, team }: { board: Board; team: Team }) {
           <div>
             <dt>Reviewer presence</dt>
             <dd>
-              {review.reviewerPresenceCount}/{review.reviewerCount}
+              <LiveNumber value={review.reviewerPresenceCount} />/<LiveNumber value={review.reviewerCount} />
             </dd>
           </div>
           <div>
             <dt>Scorecards</dt>
             <dd>
-              {review.submittedScorecardCount}/{review.reviewerCount}
+              <LiveNumber value={review.submittedScorecardCount} />/<LiveNumber value={review.reviewerCount} />
             </dd>
           </div>
           {review.requiresSharedCommitments ? (
@@ -1307,6 +1367,7 @@ function TeamRow({ board, team }: { board: Board; team: Team }) {
               value={selectedPanel?.id ?? ""}
               onChange={(event) => setSelectedPanelId(event.target.value)}
             >
+              <option value="">Automatic panel selection</option>
               {manageablePanels.map((panel) => (
                 <option key={panel.id} value={panel.id}>
                   {panel.name}
@@ -1317,7 +1378,8 @@ function TeamRow({ board, team }: { board: Board; team: Team }) {
           <button
             className="primary"
             type="button"
-            disabled={busy !== null || !selectedPanel}
+            disabled={busy !== null || Boolean(selectedPanelId && !selectedPanel)
+            }
             onClick={() => void runQueue()}
           >
             {busy === "queue"
@@ -1406,7 +1468,7 @@ function TeamRow({ board, team }: { board: Board; team: Team }) {
           {busy === "start" ? "Starting…" : startPending ? "Confirm earlier start" : "Start review"}
         </button>
       ) : null}
-      {(review?.status === "active" || review?.status === "overdue") &&
+      {(review?.status === "active" || review?.status === "scoring") &&
       review.canComplete &&
       !blocker ? (
         <button
@@ -1421,6 +1483,9 @@ function TeamRow({ board, team }: { board: Board; team: Team }) {
               ? "Confirm earlier completion"
               : "Complete review"}
         </button>
+      ) : null}
+      {review?.status === "active" && review.canComplete ? (
+        <EndDiscussion review={review} />
       ) : null}
       {blocker ? <p className="review-blocked">{blocker}</p> : null}
       {review?.status === "awaiting_presence" && review.canWaivePresence ? (
@@ -1443,7 +1508,8 @@ function TeamRow({ board, team }: { board: Board; team: Team }) {
 }
 
 function PanelAvailability({ panel }: { panel: Panel }) {
-  const setPanelAvailability = useMutation(api.reviewExceptions.setPanelAvailability);
+  const setPanelAvailability = useMutation(api.reviewExceptions.setPanelAvailability,
+  );
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1604,7 +1670,8 @@ function TeamExceptions({ board, team }: { board: Board; team: Team }) {
           return () => resumeTeam(args);
         });
       } else if (command === "move") {
-        const panel = moveTargets.find((candidate) => candidate.id === targetPanelId);
+        const panel = moveTargets.find((candidate) => candidate.id === targetPanelId,
+        );
         if (!panel) throw new Error("Choose a current target panel.");
         await operationAttempt.run(operationSlot, () => {
           const args = {
@@ -1706,7 +1773,7 @@ function TeamExceptions({ board, team }: { board: Board; team: Team }) {
       </div>
       {canCall ? (
         <p className="muted exception-policy">
-          {team.callAttemptCount}/{board.round.requiredCallAttempts} calls · missed eligible{" "}
+          <LiveNumber value={team.callAttemptCount} />/{board.round.requiredCallAttempts} calls · missed eligible{" "}
           {team.missedEligibleAt
             ? formatMoment(team.missedEligibleAt)
             : "after the next recorded call"}
@@ -1787,7 +1854,8 @@ function TeamExceptions({ board, team }: { board: Board; team: Team }) {
 
 function PresenceWaiver({ review }: { review: NonNullable<Team["review"]> }) {
   const waivePresence = useMutation(api.reviewExceptions.waivePresence);
-  const missing = review.reviewers.filter((reviewer) => reviewer.presenceMethod === undefined);
+  const missing = review.reviewers.filter((reviewer) => reviewer.presenceMethod === undefined,
+  );
   const [selected, setSelected] = useState<string[]>([]);
   const [reason, setReason] = useState("");
   const [confirmed, setConfirmed] = useState(false);
@@ -1806,7 +1874,8 @@ function PresenceWaiver({ review }: { review: NonNullable<Team["review"]> }) {
   };
 
   const submit = async () => {
-    const selectedReviewers = missing.filter((reviewer) => selected.includes(reviewer.personId));
+    const selectedReviewers = missing.filter((reviewer) => selected.includes(reviewer.personId),
+    );
     if (busy || !confirmed || selectedReviewers.length === 0 || reason.trim().length < 5) return;
     setBusy(true);
     setError(null);
@@ -1815,7 +1884,8 @@ function PresenceWaiver({ review }: { review: NonNullable<Team["review"]> }) {
         const args = {
           eventSlug,
           reviewSessionId: review.id,
-          reviewerPersonIds: selectedReviewers.map((reviewer) => reviewer.personId),
+          reviewerPersonIds: selectedReviewers.map((reviewer) => reviewer.personId,
+          ),
           expectedVersion: review.version,
           reason,
           clientOperationId: crypto.randomUUID(),
@@ -1848,7 +1918,8 @@ function PresenceWaiver({ review }: { review: NonNullable<Team["review"]> }) {
                 setSelected((current) =>
                   event.target.checked
                     ? [...current, reviewer.personId]
-                    : current.filter((personId) => personId !== reviewer.personId),
+                    : current.filter((personId) => personId !== reviewer.personId,
+                      ),
                 );
                 changed();
               }}
@@ -1890,7 +1961,9 @@ function PresenceWaiver({ review }: { review: NonNullable<Team["review"]> }) {
   );
 }
 
-function ParticipantAvailabilityWaiver({ review }: { review: NonNullable<Team["review"]> }) {
+function ParticipantAvailabilityWaiver({ review,
+}: { review: NonNullable<Team["review"]>;
+}) {
   const waiveParticipantAvailability = useMutation(
     api.reviewExceptions.waiveParticipantAvailability,
   );
@@ -1999,11 +2072,13 @@ function formatMoment(value: number) {
 }
 
 function formatWindow(startsAt: number, endsAt: number) {
-  const formatter = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
+  const formatter = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit",
+  });
   return `${formatter.format(startsAt)} – ${formatter.format(endsAt)}`;
 }
 
-function reviewerState(reviewer: Panel["reviewers"][number], serverNow: number) {
+function reviewerState(reviewer: Panel["reviewers"][number], serverNow: number,
+) {
   if (reviewer.clockInStatus === "temporarily_unavailable") {
     const returnCopy = reviewer.expectedReturnAt
       ? ` · expected ${new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(reviewer.expectedReturnAt)}`
@@ -2016,4 +2091,51 @@ function reviewerState(reviewer: Panel["reviewers"][number], serverNow: number) 
     return "Present · connection stale";
   }
   return `Present · build ${reviewer.appBuild ?? "unknown"}`;
+}
+
+function EndDiscussion({ review }: { review: NonNullable<Team["review"]> }) {
+  const end = useMutation(api.reviewOperations.endDiscussion);
+  const attempt =
+    useMutationAttempt<
+      FunctionReturnType<typeof api.reviewOperations.endDiscussion>
+    >();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const run = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await attempt.run("discussion-end", () => {
+        const args = {
+          eventSlug,
+          reviewSessionId: review.id,
+          expectedVersion: review.version,
+          clientOperationId: crypto.randomUUID(),
+        };
+        return () => end(args);
+      });
+    } catch (caught) {
+      setError(readableError(caught));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div>
+      <button
+        type="button"
+        className="secondary"
+        disabled={busy}
+        onClick={() => void run()}
+      >
+        {busy ? "Ending…" : "End discussion and enter scores"}
+      </button>
+      {error ? (
+        <p role="alert" className="error">
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
 }

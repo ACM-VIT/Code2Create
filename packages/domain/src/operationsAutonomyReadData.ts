@@ -55,6 +55,7 @@ export const operationsAutonomyParticipantDeliveryTemplateKeys = [
   "offer_confirmed",
   "offer_declined",
   "offer_expired",
+  "external_event_pass",
 ] as const;
 export const operationsAutonomyIntegrationProviders = ["github", "figma"] as const;
 export const operationsAutonomyIntegrationStates = [

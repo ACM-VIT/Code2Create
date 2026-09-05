@@ -95,7 +95,7 @@ export function GuideReasoning({
                 </ol>
               ) : null}
               {reasoning.trim().length > 0 ? (
-                <GuideMarkdown text={reasoning.trim()} officialLinks={[]} tone="thinking" />
+                <GuideMarkdown text={reasoning.trim()} tone="thinking" streaming={streaming} />
               ) : null}
             </div>
           </div>

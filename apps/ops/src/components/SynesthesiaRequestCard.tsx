@@ -1,3 +1,4 @@
+import { LiveNumber } from "./LiveNumber";
 import { api } from "@code2create/backend/api";
 import { songRequestStateLabels } from "@code2create/domain";
 import type { FunctionReturnType } from "convex/server";
@@ -248,7 +249,7 @@ export function SynesthesiaRequestCard({
         <div className="synesthesia-request-state">
           <span>{songRequestStateLabels[request.state]}</span>
           <small>
-            {request.voteCount} votes · {request.openReportCount} open reports
+            <LiveNumber value={request.voteCount} /> votes · <LiveNumber value={request.openReportCount} /> open reports
           </small>
         </div>
       </div>
@@ -473,7 +474,7 @@ export function SynesthesiaRequestCard({
               >
                 {reportsOpen
                   ? "Hide reports"
-                  : `View ${request.openReportCount} open ${request.openReportCount === 1 ? "report" : "reports"}`}
+                  : <>View <LiveNumber value={request.openReportCount} /> open {request.openReportCount === 1 ? "report" : "reports"}</>}
               </button>
               {reportsOpen ? (
                 <OpenReportList

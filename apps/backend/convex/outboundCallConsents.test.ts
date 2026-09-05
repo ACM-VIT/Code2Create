@@ -1,3 +1,4 @@
+import { reviewerCallConsentPolicyVersion } from "@code2create/domain";
 import betterAuthSchema from "../node_modules/@convex-dev/better-auth/src/component/schema.ts";
 import { convexTest, type TestConvex } from "convex-test";
 import { describe, expect, test } from "vitest";
@@ -14,7 +15,8 @@ type BackendTest = TestConvex<typeof schema>;
 describe("reviewer outbound-call consent", () => {
   test("grants, replays, and revokes one self-scoped consent", async () => {
     const backend = convexTest({ schema, modules });
-    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules,
+    );
     const now = Date.now();
     const identity = await createIdentity(backend, now);
     const eventSlug = `call-consent-${crypto.randomUUID()}`;
@@ -56,11 +58,12 @@ describe("reviewer outbound-call consent", () => {
         eventId,
         personId,
         contactPhone: "+919111111111",
+        seniority: "sc",
+        strength: 2,
         technicalDomains: [],
         productDomains: [],
         languages: ["english"],
         criterionKeys: [],
-        availabilityWindows: [],
         trainingStatus: "pending",
         status: "active",
         version: 1,
@@ -94,19 +97,34 @@ describe("reviewer outbound-call consent", () => {
       suggestedPhoneE164: "+919111111111",
       version: 0,
     });
-    const grantRequest = {
+    const requestWithoutNotice = {
       eventSlug,
       state: "granted" as const,
       destinationPhone: "+91 98765 43210",
       expectedVersion: 0,
       clientOperationId: "grant-call-consent",
     };
+    const grantRequest = {
+      ...requestWithoutNotice,
+      consentPolicyVersion: reviewerCallConsentPolicyVersion,
+    };
+    for (const notice of [{}, { consentPolicyVersion: "reviewer-page-call-consent-v1" }]) {
+      await expect(
+        reviewer.mutation(api.outboundCallConsents.saveReviewerConsent, {
+          ...requestWithoutNotice,
+          ...notice,
+        }),
+      ).rejects.toMatchObject({
+        data: expect.objectContaining({ code: "CALL_NOTICE_CHANGED" }),
+      });
+    }
     const granted = await reviewer.mutation(
       api.outboundCallConsents.saveReviewerConsent,
       grantRequest,
     );
     await expect(
-      reviewer.mutation(api.outboundCallConsents.saveReviewerConsent, grantRequest),
+      reviewer.mutation(api.outboundCallConsents.saveReviewerConsent, grantRequest,
+      ),
     ).resolves.toEqual(granted);
     await expect(
       reviewer.query(api.outboundCallConsents.mine, { eventSlug }),
@@ -124,7 +142,8 @@ describe("reviewer outbound-call consent", () => {
     await expect(
       reviewer.query(api.outboundCallConsents.mine, { eventSlug }),
     ).resolves.toMatchObject({ state: "revoked", version: 2 });
-    const rows = await backend.run((ctx) => ctx.db.query("outboundCallConsents").collect());
+    const rows = await backend.run((ctx) => ctx.db.query("outboundCallConsents").collect(),
+    );
     expect(rows).toHaveLength(1);
   });
 });
@@ -141,7 +160,8 @@ async function createIdentity(backend: BackendTest, now: number) {
         updatedAt: now,
       },
     },
-  });
+  },
+  );
   const authUserId = documentId(user, "Better Auth user");
   const session: unknown = await backend.mutation(components.betterAuth.adapter.create, {
     input: {
@@ -154,8 +174,10 @@ async function createIdentity(backend: BackendTest, now: number) {
         userId: authUserId,
       },
     },
-  });
-  return { authUserId, authSessionId: documentId(session, "Better Auth session") };
+  },
+  );
+  return { authUserId, authSessionId: documentId(session, "Better Auth session"),
+  };
 }
 
 function documentId(value: unknown, label: string) {

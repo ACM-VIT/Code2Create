@@ -32,7 +32,7 @@ type IdeaCallbackBindings = Pick<
 export async function readIdeaProjection(args: {
   applicationId: string;
   eventId: string;
-  recommendationId?: string;
+  recommendationId: string;
   operationId: string;
   bindings: IdeaReadBindings;
   request?: typeof fetch;
@@ -41,7 +41,7 @@ export async function readIdeaProjection(args: {
     protocolVersion: operationsIntelligenceProtocolVersion,
     applicationId: args.applicationId,
     eventId: args.eventId,
-    ...(args.recommendationId === undefined ? {} : { recommendationId: args.recommendationId }),
+    recommendationId: args.recommendationId,
     operationId: args.operationId,
   });
   const timestamp = String(Date.now());
@@ -78,8 +78,7 @@ export async function readIdeaProjection(args: {
     !parsed.success ||
     parsed.output.applicationId !== args.applicationId ||
     parsed.output.eventId !== args.eventId ||
-    (args.recommendationId !== undefined &&
-      parsed.output.recommendationId !== args.recommendationId)
+    parsed.output.recommendationId !== args.recommendationId
   ) {
     throw new Error("Convex returned an invalid idea projection.");
   }

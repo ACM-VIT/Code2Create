@@ -1,3 +1,7 @@
+export const reviewerCallConsentPolicyVersion = "reviewer-duty-call-consent-v2";
+export const reviewerCallScriptPolicyVersion = "reviewer-duty-call-v2";
+export const venueCallConsentVersion = "reviewer-venue-confirmation-consent-v2";
+
 export const outboundCallProtocolVersion = "outbound-call-v1" as const;
 
 export const outboundCallRequestSignatureContext = "code2create.outbound-call.request.v1";
@@ -24,6 +28,23 @@ export type OutboundCallRequest = {
   destinationPhoneE164: string;
   script: string;
   callbackUrl: string;
+  venueConfirmation?: VenueConfirmationCall | undefined;
+};
+
+export type VenueConfirmationCall = {
+  appId: string;
+  appVersion: number;
+  reviewerName: string;
+  venueName: string;
+  expiresAt: number;
+};
+
+export type VenueCallResponse = {
+  outcome: "available" | "away" | "needs_help" | "unclear";
+  confirmed: boolean;
+  summary: string;
+  returnInMinutes: number | null;
+  transcript: { role: "agent" | "user"; text: string }[];
 };
 
 export type OutboundCallEvent = {
@@ -34,4 +55,5 @@ export type OutboundCallEvent = {
   providerAt: number;
   providerCallId?: string;
   providerErrorCode?: string;
+  venueResponse?: VenueCallResponse | undefined;
 };

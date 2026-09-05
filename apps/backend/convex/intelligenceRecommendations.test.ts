@@ -73,7 +73,8 @@ describe("intelligence recommendations", () => {
       method: "POST",
       headers: { "content-type": "application/json" },
       body,
-    });
+    },
+    );
     expect(unsigned.status).toBe(401);
 
     const first = await signedPropose(backend, body);
@@ -82,7 +83,8 @@ describe("intelligence recommendations", () => {
     expect(await first.json()).toEqual({ state: "accepted" });
     expect(await second.json()).toEqual({ state: "already_exists" });
 
-    const rows = await backend.run((ctx) => ctx.db.query("intelligenceRecommendations").collect());
+    const rows = await backend.run((ctx) => ctx.db.query("intelligenceRecommendations").collect(),
+    );
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
       status: "proposed",
@@ -95,10 +97,12 @@ describe("intelligence recommendations", () => {
     const fixture = await seedFloor(backend);
     const result = await backend.mutation(internal.intelligenceRecommendations.proposeFromWorker, {
       proposal: { ...proposalBody(fixture), citations: [] },
-    });
+    },
+    );
     expect(result).toBe("missing_citation");
     expect(
-      await backend.run((ctx) => ctx.db.query("intelligenceRecommendations").collect()),
+      await backend.run((ctx) => ctx.db.query("intelligenceRecommendations").collect(),
+      ),
     ).toHaveLength(0);
   });
 
@@ -121,9 +125,11 @@ describe("intelligence recommendations", () => {
       proposal: {
         ...source,
         proposalKey: `${source.proposalKey}:stale`,
-        citations: [{ ...citation, generatedAt: Date.now() - 16 * 60 * 1_000 }],
+        citations: [{ ...citation, generatedAt: Date.now() - 16 * 60 * 1_000 },
+          ],
+        },
       },
-    });
+    );
 
     expect(wrongTarget).toBe("invalid_citation");
     expect(stale).toBe("invalid_citation");
@@ -134,7 +140,8 @@ describe("intelligence recommendations", () => {
     const fixture = await seedFloor(backend);
     const original = proposalBody(fixture);
 
-    expect((await signedPropose(backend, JSON.stringify(original))).status).toBe(202);
+    expect((await signedPropose(backend, JSON.stringify(original))).status,
+    ).toBe(202);
     const conflict = await signedPropose(
       backend,
       JSON.stringify({
@@ -145,7 +152,8 @@ describe("intelligence recommendations", () => {
 
     expect(conflict.status).toBe(409);
     expect(await conflict.json()).toEqual({ error: "proposal_conflict" });
-    const rows = await backend.run((ctx) => ctx.db.query("intelligenceRecommendations").collect());
+    const rows = await backend.run((ctx) => ctx.db.query("intelligenceRecommendations").collect(),
+    );
     expect(rows).toHaveLength(1);
     expect(rows[0]?.statement).toBe(original.statement);
   });
@@ -199,10 +207,12 @@ describe("intelligence recommendations", () => {
           policyVersionId: policyId,
           policyVersion: 1,
           policyChecksum: "a".repeat(64),
-          trigger: { kind: "schedule" as const, scheduledFor: snapshot.generatedAt },
+          trigger: { kind: "schedule" as const, scheduledFor: snapshot.generatedAt,
+          },
           mode: "recommend" as const,
           escalationSeverity: "critical" as const,
-          allowedReadTools: ["operations_health" as const, "review_exceptions" as const],
+          allowedReadTools: ["operations_health" as const, "review_exceptions" as const,
+          ],
           allowedRecommendationKinds: ["hold_review_team" as const],
           sourceSnapshot: snapshot,
           sourceFactHighWatermarks: [],
@@ -216,7 +226,8 @@ describe("intelligence recommendations", () => {
           createdAt: snapshot.generatedAt,
           updatedAt: snapshot.generatedAt,
         });
-      const [runA, runB] = await Promise.all([insertRun("run-a"), insertRun("run-b")]);
+      const [runA, runB] = await Promise.all([insertRun("run-a"), insertRun("run-b"),
+      ]);
       const proposal = {
         proposalKey: source.proposalKey,
         agentVersion: source.agentVersion,
@@ -254,7 +265,8 @@ describe("intelligence recommendations", () => {
             sealedSequence: 1,
           },
         },
-        proposal: { ...proposal, statement: `${proposal.statement} Rechecked by a later run.` },
+        proposal: { ...proposal, statement: `${proposal.statement} Rechecked by a later run.`,
+        },
         now: snapshot.generatedAt + 1,
       });
       return { first, second, runA, runB };
@@ -270,7 +282,8 @@ describe("intelligence recommendations", () => {
     }
     const recommendationId = result.first.recommendationId;
     expect(
-      await backend.run((ctx) => ctx.db.query("intelligenceRecommendations").collect()),
+      await backend.run((ctx) => ctx.db.query("intelligenceRecommendations").collect(),
+      ),
     ).toHaveLength(1);
     const observations = await backend.run((ctx) =>
       ctx.db
@@ -327,7 +340,8 @@ describe("intelligence recommendations", () => {
           model: original.model,
           proposedAt: now + index,
           ...(status === "rejected"
-            ? { decidedAt: now + 1_000 + index, operatorNote: "Rejected fixture" }
+            ? { decidedAt: now + 1_000 + index, operatorNote: "Rejected fixture",
+              }
             : {}),
           version: status === "rejected" ? 2 : 1,
           createdAt: now + index,
@@ -342,11 +356,13 @@ describe("intelligence recommendations", () => {
     const firstPending = await operator.query(api.intelligenceRecommendations.proposed, {
       eventSlug: fixture.eventSlug,
       paginationOpts: { numItems: 20, cursor: null },
-    });
+    },
+    );
     const secondPending = await operator.query(api.intelligenceRecommendations.proposed, {
       eventSlug: fixture.eventSlug,
       paginationOpts: { numItems: 20, cursor: firstPending.continueCursor },
-    });
+    },
+    );
     expect([...firstPending.page, ...secondPending.page]).toHaveLength(24);
     expect(firstPending.page[0]?.statement).toBe(`${original.statement} 0`);
     expect(secondPending.isDone).toBe(true);
@@ -354,7 +370,8 @@ describe("intelligence recommendations", () => {
     const settled = await operator.query(api.intelligenceRecommendations.settled, {
       eventSlug: fixture.eventSlug,
       paginationOpts: { numItems: 20, cursor: null },
-    });
+    },
+    );
     expect(settled.page).toHaveLength(5);
     expect(settled.page.map((entry) => entry.statement)).toEqual(
       [28, 27, 26, 25, 24].map((index) => `${original.statement} ${index}`),
@@ -407,7 +424,8 @@ describe("intelligence recommendations", () => {
       recommendationId,
       expectedVersion: 1,
       clientOperationId: "triage-approve-1",
-    });
+    },
+    );
     expect(result.version).toBe(2);
 
     const [state, recommendation, audits] = await backend.run(
@@ -431,7 +449,8 @@ describe("intelligence recommendations", () => {
     });
     const actions = audits.map((event) => event.action);
     expect(actions).toContain("review.queue_team_held");
-    expect(actions).toContain("operations.intelligence_recommendation_approved");
+    expect(actions).toContain("operations.intelligence_recommendation_approved",
+    );
     for (const event of audits) {
       expect(event.actorPersonId).toBe(fixture.operatorPersonId);
     }
@@ -441,7 +460,8 @@ describe("intelligence recommendations", () => {
       recommendationId,
       expectedVersion: 1,
       clientOperationId: "triage-approve-1",
-    });
+    },
+    );
     expect(retried.version).toBe(2);
   });
 
@@ -450,7 +470,8 @@ describe("intelligence recommendations", () => {
     const fixture = await seedFloor(backend);
     const recommendationId = await propose(backend, fixture);
     await backend.run(async (ctx) => {
-      await ctx.db.patch(fixture.teamRoundStateId, { version: 2, updatedAt: Date.now() });
+      await ctx.db.patch(fixture.teamRoundStateId, { version: 2, updatedAt: Date.now(),
+      });
     });
     const operator = backend.withIdentity({
       subject: fixture.operatorAuthUserId,
@@ -468,7 +489,8 @@ describe("intelligence recommendations", () => {
 
     const [state, recommendation] = await backend.run(
       async (ctx) =>
-        [await ctx.db.get(fixture.teamRoundStateId), await ctx.db.get(recommendationId)] as const,
+        [await ctx.db.get(fixture.teamRoundStateId), await ctx.db.get(recommendationId),
+        ] as const,
     );
     expect(state).toMatchObject({ state: "called", version: 2 });
     expect(recommendation).toMatchObject({ status: "proposed", version: 1 });
@@ -486,7 +508,8 @@ describe("intelligence recommendations", () => {
     const detail = await operator.query(api.intelligenceRecommendations.detail, {
       eventSlug: fixture.eventSlug,
       recommendationId,
-    });
+    },
+    );
 
     expect(detail).toMatchObject({
       id: recommendationId,
@@ -534,10 +557,12 @@ describe("intelligence recommendations", () => {
           status: "removed" as const,
           assignedAt: endedAt - 1,
           endedAt,
+          seatSeniority: "sc",
         });
       const historicalMemberId = await member(Date.now());
       await member(Date.now() + 1);
-      for (const permissionKey of ["review.substitute.page", "review.substitute.assign"] as const) {
+      for (const permissionKey of ["review.substitute.page", "review.substitute.assign",
+      ] as const) {
         await insertPermissionGrant(ctx, {
           eventId: fixture.eventId,
           personId: fixture.operatorPersonId,
@@ -581,7 +606,8 @@ describe("intelligence recommendations", () => {
             reason: "Replace the current missing reviewer.",
           },
         },
-      }),
+      },
+      ),
     ).toBe("invalid_target");
 
     await expect(
@@ -626,7 +652,8 @@ describe("intelligence recommendations", () => {
       eventId: fixture.eventId,
       conversationId: testConversationId,
       now: Date.now(),
-    });
+    },
+    );
     expect(history.recommendations).toEqual([
       expect.objectContaining({
         kind: "hold_review_team",
@@ -635,7 +662,8 @@ describe("intelligence recommendations", () => {
       }),
     ]);
 
-    const state = await backend.run((ctx) => ctx.db.get(fixture.teamRoundStateId));
+    const state = await backend.run((ctx) => ctx.db.get(fixture.teamRoundStateId),
+    );
     expect(state?.state).toBe("called");
   });
 
@@ -658,7 +686,9 @@ describe("intelligence recommendations", () => {
         proposal: {
           ...source,
           proposalKey: `${source.proposalKey}:stale`,
-          citations: [{ ...source.citations[0]!, generatedAt: Date.now() - 16 * 60 * 1_000 }],
+          citations: [{ ...source.citations[0]!, generatedAt: Date.now() - 16 * 60 * 1_000,
+            },
+          ],
         },
       },
     );
@@ -730,7 +760,8 @@ describe("intelligence recommendations", () => {
         )
         .collect(),
     }));
-    expect(result.recommendation).toMatchObject({ status: "proposed", version: 1 });
+    expect(result.recommendation).toMatchObject({ status: "proposed", version: 1,
+    });
     expect(result.drafts).toHaveLength(0);
   });
 
@@ -748,10 +779,14 @@ describe("intelligence recommendations", () => {
       expectedVersion: 1,
       clientOperationId: "admission-approve-idempotent",
     } as const;
-    expect(await operator.mutation(api.intelligenceRecommendations.approve, operation)).toEqual({
+    expect(await operator.mutation(api.intelligenceRecommendations.approve, operation,
+      ),
+    ).toEqual({
       version: 2,
     });
-    expect(await operator.mutation(api.intelligenceRecommendations.approve, operation)).toEqual({
+    expect(await operator.mutation(api.intelligenceRecommendations.approve, operation,
+      ),
+    ).toEqual({
       version: 2,
     });
 
@@ -759,7 +794,8 @@ describe("intelligence recommendations", () => {
       const event = await ctx.db.get(fixture.eventId);
       const policies = await ctx.db
         .query("admissionPolicyVersions")
-        .withIndex("by_event_status", (index) => index.eq("eventId", fixture.eventId))
+        .withIndex("by_event_status", (index) => index.eq("eventId", fixture.eventId),
+        )
         .collect();
       const published = event?.publishedAdmissionPolicyId
         ? await ctx.db.get(event.publishedAdmissionPolicyId)
@@ -792,15 +828,16 @@ describe("intelligence recommendations", () => {
         "operations.intelligence_recommendation_approved",
       ]),
     );
-    expect(result.audits.every((audit) => audit.actorPersonId === fixture.operatorPersonId)).toBe(
-      true,
-    );
+    expect(result.audits.every((audit) => audit.actorPersonId === fixture.operatorPersonId,
+      ),
+    ).toBe(true);
   });
 
   test("admission approval refuses stale event state and an active submission lock atomically", async () => {
     const staleBackend = seededBackend();
     const staleFixture = await seedFloor(staleBackend);
-    const staleRecommendationId = await proposeAdmission(staleBackend, staleFixture);
+    const staleRecommendationId = await proposeAdmission(staleBackend, staleFixture,
+    );
     await staleBackend.run((ctx) =>
       ctx.db.patch(staleFixture.eventId, {
         version: 2,
@@ -819,14 +856,16 @@ describe("intelligence recommendations", () => {
         clientOperationId: "admission-stale-event",
       }),
     ).rejects.toThrow("Event configuration changed");
-    expect(await staleBackend.run((ctx) => ctx.db.get(staleRecommendationId))).toMatchObject({
+    expect(await staleBackend.run((ctx) => ctx.db.get(staleRecommendationId)),
+    ).toMatchObject({
       status: "proposed",
       version: 1,
     });
 
     const lockedBackend = seededBackend();
     const lockedFixture = await seedFloor(lockedBackend);
-    const lockedRecommendationId = await proposeAdmission(lockedBackend, lockedFixture);
+    const lockedRecommendationId = await proposeAdmission(lockedBackend, lockedFixture,
+    );
     await insertSubmissionLock(lockedBackend, lockedFixture);
     const lockedOperator = lockedBackend.withIdentity({
       subject: lockedFixture.operatorAuthUserId,
@@ -849,7 +888,8 @@ describe("intelligence recommendations", () => {
         )
         .collect(),
     }));
-    expect(lockedResult.recommendation).toMatchObject({ status: "proposed", version: 1 });
+    expect(lockedResult.recommendation).toMatchObject({ status: "proposed", version: 1,
+    });
     expect(lockedResult.drafts).toHaveLength(0);
   });
 
@@ -909,14 +949,16 @@ describe("intelligence recommendations", () => {
       (
         await operator.query(api.intelligenceRecommendations.copilotConversation, {
           eventSlug: fixture.eventSlug,
-        })
+        },
+        )
       ).map((entry) => entry.statement),
     ).toEqual(["Private command 0", "Private command 2"]);
     expect(
       (
         await onlooker.query(api.intelligenceRecommendations.copilotConversation, {
           eventSlug: fixture.eventSlug,
-        })
+        },
+        )
       ).map((entry) => entry.statement),
     ).toEqual(["Private command 1"]);
 
@@ -1019,9 +1061,11 @@ async function signedPropose(backend: BackendTest, body: string) {
 async function propose(backend: BackendTest, fixture: Fixture) {
   const result = await backend.mutation(internal.intelligenceRecommendations.proposeFromWorker, {
     proposal: proposalBody(fixture),
-  });
+  },
+  );
   expect(result).toBe("accepted");
-  const rows = await backend.run((ctx) => ctx.db.query("intelligenceRecommendations").collect());
+  const rows = await backend.run((ctx) => ctx.db.query("intelligenceRecommendations").collect(),
+  );
   const row = rows[0];
   if (!row) throw new Error("The proposal was not recorded.");
   return row._id;
@@ -1030,7 +1074,8 @@ async function propose(backend: BackendTest, fixture: Fixture) {
 async function proposeAdmission(backend: BackendTest, fixture: Fixture) {
   const result = await backend.mutation(internal.intelligenceRecommendations.proposeFromWorker, {
     proposal: admissionProposalBody(fixture),
-  });
+  },
+  );
   expect(result).toBe("accepted");
   const row = await backend.run((ctx) =>
     ctx.db
@@ -1102,9 +1147,11 @@ async function seedFloor(backend: BackendTest) {
   const now = Date.now();
   const eventSlug = `recommendation-${crypto.randomUUID()}`;
   const operatorAuthUserId = await createAuthUser(backend, now, "operator");
-  const operatorAuthSessionId = await createAuthSession(backend, operatorAuthUserId, now);
+  const operatorAuthSessionId = await createAuthSession(backend, operatorAuthUserId, now,
+  );
   const onlookerAuthUserId = await createAuthUser(backend, now, "onlooker");
-  const onlookerAuthSessionId = await createAuthSession(backend, onlookerAuthUserId, now);
+  const onlookerAuthSessionId = await createAuthSession(backend, onlookerAuthUserId, now,
+  );
 
   return backend.run(async (ctx) => {
     const eventId = await ctx.db.insert("events", {
@@ -1118,9 +1165,12 @@ async function seedFloor(backend: BackendTest) {
       createdAt: now,
       updatedAt: now,
     });
-    const operator = await insertAccount(ctx, eventId, "operator", now, operatorAuthUserId);
-    const onlooker = await insertAccount(ctx, eventId, "onlooker", now, onlookerAuthUserId);
-    const participantPolicy = normalizeParticipantPolicy(defaultParticipantPolicy);
+    const operator = await insertAccount(ctx, eventId, "operator", now, operatorAuthUserId,
+    );
+    const onlooker = await insertAccount(ctx, eventId, "onlooker", now, onlookerAuthUserId,
+    );
+    const participantPolicy = normalizeParticipantPolicy(defaultParticipantPolicy,
+    );
     const participantPolicyId = await ctx.db.insert("participantPolicyVersions", {
       eventId,
       version: 1,
@@ -1130,7 +1180,8 @@ async function seedFloor(backend: BackendTest) {
       createdByPersonId: operator.personId,
       createdAt: now,
       publishedAt: now,
-    });
+    },
+    );
     const admissionConfiguration = normalizeAdmissionConfiguration({
       version: "admission-v1",
       minimumHumanReviews: 2,
@@ -1139,7 +1190,8 @@ async function seedFloor(backend: BackendTest) {
       decisionReasonCodes: defaultAdmissionReasonCodes,
       model: null,
     });
-    const admissionPolicy = admissionPolicyForConfiguration(admissionConfiguration);
+    const admissionPolicy = admissionPolicyForConfiguration(admissionConfiguration,
+    );
     const admissionPolicyId = await ctx.db.insert("admissionPolicyVersions", {
       eventId,
       ...admissionPolicy,
@@ -1196,9 +1248,20 @@ async function seedFloor(backend: BackendTest) {
       substituteResponseSeconds: 60,
       missedReentryPolicy: "preserve_queue_time",
       requiredPanelSize: 3,
+      staffing: {
+        seniorSeats: 2,
+        juniorSeats: 0,
+        allowSeniorLeadFallback: true,
+        automaticReplacement: false,
+        juniorRotationReviews: 0,
+        reviewerArrivalSeconds: 90,
+        assignmentReminderSeconds: 300,
+        assignmentReminderCalls: true,
+      },
       minimumScorersPerCriterion: 1,
       minimumPresentParticipants: 1,
       requiresSharedCommitments: true,
+      requiresFinalComment: false,
       minimumReviewerBuild: 1,
       requiresCamera: false,
       requiresNotifications: false,
@@ -1353,11 +1416,13 @@ async function createAuthUser(backend: BackendTest, now: number, key: string) {
         updatedAt: now,
       },
     },
-  });
+  },
+  );
   return documentId(result, "Better Auth user");
 }
 
-async function createAuthSession(backend: BackendTest, userId: string, now: number) {
+async function createAuthSession(backend: BackendTest, userId: string, now: number,
+) {
   const result: unknown = await backend.mutation(components.betterAuth.adapter.create, {
     input: {
       model: "session",
@@ -1369,7 +1434,8 @@ async function createAuthSession(backend: BackendTest, userId: string, now: numb
         userId,
       },
     },
-  });
+  },
+  );
   return documentId(result, "Better Auth session");
 }
 

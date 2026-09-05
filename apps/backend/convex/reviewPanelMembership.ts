@@ -1,4 +1,5 @@
 import { ConvexError, v } from "convex/values";
+import { reviewerFitsSeat } from "@code2create/domain";
 import { z } from "zod";
 
 import type { Doc, Id } from "./_generated/dataModel";
@@ -16,11 +17,12 @@ import {
 import { appendReviewPanelVacancyReadFactById } from "./lib/operationsAutonomyReadFacts";
 import { requirePermission, revokeSourceGrants } from "./lib/permissions";
 import { grantPanelMemberAccess } from "./lib/reviewAccess";
-import { reviewerCoversStaffingWindow } from "./lib/reviewerAvailability";
+import { requireConfirmedReviewer } from "./lib/reviewConfirmation";
+import { reviewerHasOverlappingPanel } from "./lib/reviewerParticipation";
 import { normalizedText } from "./lib/strings";
 import { reviewPanelStatus } from "./values";
 
-const liveReviewStatuses = ["awaiting_presence", "active", "overdue"] as const;
+const liveReviewStatuses = ["awaiting_presence", "active", "scoring"] as const;
 
 const panelMembershipOperationResult = z
   .object({
@@ -61,16 +63,10 @@ async function resolveJoiningReviewer(
       message: "This panel has no empty seat. Take a reviewer off it in the same change.",
     });
   }
-  const seated = await ctx.db
-    .query("reviewPanelMembers")
-    .withIndex("by_round_person_status", (index) =>
-      index.eq("roundId", args.round._id).eq("personId", args.personId).eq("status", "active"),
-    )
-    .unique();
-  if (seated) {
+  if (await reviewerHasOverlappingPanel(ctx, args.round.eventId, args.personId, args.round)) {
     throw new ConvexError({
       code: "REVIEWER_ALREADY_SEATED",
-      message: "That reviewer already sits on a panel in this round.",
+      message: "That reviewer already sits on a panel whose round overlaps these review hours.",
     });
   }
   const reserve = await ctx.db
@@ -110,10 +106,16 @@ async function resolveJoiningReviewer(
       message: "That reviewer is not an active, trained reviewer in this event.",
     });
   }
-  if (!reviewerCoversStaffingWindow(profile.availabilityWindows, args.round)) {
+  await requireConfirmedReviewer(ctx, args.round, args.personId, Date.now());
+  if (
+    !reviewerFitsSeat(
+      profile.seniority,
+      seat.seatSeniority,
+      args.round.staffing.allowSeniorLeadFallback,
+    )) {
     throw new ConvexError({
-      code: "REVIEWER_UNAVAILABLE_FOR_ROUND",
-      message: "That reviewer's declared availability does not cover this round.",
+      code: "REVIEWER_COMPOSITION_MISMATCH",
+      message: "Choose a replacement with the seniority required by this seat.",
     });
   }
   const qualifiedKeys = new Set(profile.criterionKeys);
@@ -149,7 +151,8 @@ export const swapPanelMember = mutation({
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
-    const reason = normalizedText(args.reason, "Panel membership reason", 5, 500);
+    const reason = normalizedText(args.reason, "Panel membership reason", 5, 500,
+    );
     if (args.leavingPersonId === undefined && args.joiningPersonId === undefined) {
       throw new ConvexError({
         code: "INVALID_PANEL_CHANGE",
@@ -231,7 +234,8 @@ export const swapPanelMember = mutation({
         .collect(),
     ]);
     if (
-      sessions.some((session) => liveReviewStatuses.some((status) => status === session.status))
+      sessions.some((session) => liveReviewStatuses.some((status) => status === session.status),
+      )
     ) {
       throw new ConvexError({
         code: "REVIEW_IN_PROGRESS",
@@ -246,7 +250,8 @@ export const swapPanelMember = mutation({
           "A substitute page is out for this panel. Wait for it before changing the panel by hand.",
       });
     }
-    const activeMembers = panelMembers.filter((member) => member.status === "active");
+    const activeMembers = panelMembers.filter((member) => member.status === "active",
+    );
     const leavingPersonId = args.leavingPersonId;
     const leaving =
       leavingPersonId === undefined
@@ -286,6 +291,7 @@ export const swapPanelMember = mutation({
         isCoordinator: joining.seat.isCoordinator,
         status: "active",
         assignedAt: now,
+        seatSeniority: joining.seat.seatSeniority,
       });
       await grantPanelMemberAccess(ctx, {
         eventId: event._id,

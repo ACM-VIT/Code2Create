@@ -977,9 +977,48 @@ html:has(.intelligence-workspace) {
 .admissions-release-panel .catalog-summary {
   margin: 0;
 }
-.admissions-release-panel .table-wrap {
-  max-height: 360px;
-  overflow: auto;
+.admissions-release-panel > section {
+  display: grid;
+  gap: 20px;
+}
+.admission-stat-value {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+.admission-stat-value small {
+  color: var(--faint);
+  font-size: 0.6875rem;
+  font-weight: 400;
+  white-space: nowrap;
+}
+.catalog-summary > .admission-stat-filter {
+  position: relative;
+}
+.admission-stat-filter button {
+  cursor: pointer;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.admission-stat-filter button::after {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  content: "";
+}
+.catalog-summary > .admission-stat-filter:is(:hover, :focus-within, :has([aria-pressed="true"])) {
+  background: var(--hover);
+}
+.admission-stat-filter button[aria-pressed="true"]::after,
+.admission-stat-filter button:focus-visible::after {
+  outline: 1px solid var(--muted);
+  outline-offset: -1px;
 }
 .intake-policy-note {
   margin: 0;
@@ -2970,7 +3009,10 @@ button:disabled {
 }
 .manual-entry-row {
   display: grid;
-  grid-template-columns: 64px minmax(150px, 1.25fr) minmax(170px, 1fr) 80px minmax(150px, 1fr) auto;
+  grid-template-columns: 64px minmax(150px, 1.25fr) minmax(
+      170px,
+      1fr
+    ) 80px minmax(150px, 1fr) auto;
   gap: 9px;
   align-items: end;
   padding-top: 9px;
@@ -3308,7 +3350,10 @@ button:disabled {
 .permission-grid-head,
 .permission-row {
   display: grid;
-  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1.1fr) minmax(0, 0.9fr) 118px;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1.1fr) minmax(
+      0,
+      0.9fr
+    ) 118px;
   gap: 16px;
   align-items: center;
   padding: 10px 16px;
@@ -3774,7 +3819,10 @@ button:disabled {
 }
 .checkpoint-operations-row {
   display: grid;
-  grid-template-columns: minmax(150px, 0.7fr) auto minmax(260px, 1.6fr) minmax(140px, 0.6fr);
+  grid-template-columns: minmax(150px, 0.7fr) auto minmax(260px, 1.6fr) minmax(
+      140px,
+      0.6fr
+    );
   gap: 18px;
   align-items: start;
   padding: 16px 2px;
@@ -4378,14 +4426,6 @@ button:disabled {
 .file-manifest-list dt {
   color: var(--muted);
 }
-.release-command {
-  margin-top: 38px;
-}
-.release-fields {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
 .numeric-values {
   display: grid;
   gap: 0;
@@ -4513,10 +4553,9 @@ button:disabled {
 }
 .bundle-entry-row {
   display: grid;
-  grid-template-columns: 28px minmax(190px, 1.5fr) minmax(140px, 0.75fr) minmax(
-      140px,
-      0.8fr
-    ) minmax(140px, 0.8fr) auto;
+  grid-template-columns:
+    28px minmax(190px, 1.5fr) minmax(140px, 0.75fr) minmax(140px, 0.8fr)
+    minmax(140px, 0.8fr) auto;
   gap: 10px;
   align-items: end;
   padding: 14px 2px;
@@ -5293,8 +5332,7 @@ button:disabled {
     grid-template-columns: 1fr;
   }
   .score-summary-grid,
-  .numeric-criteria,
-  .release-fields {
+  .numeric-criteria {
     grid-template-columns: 1fr;
   }
   .score-summary-grid div {
@@ -6054,7 +6092,6 @@ button.row-action {
 .station-list,
 .synesthesia-window-list {
   overflow: hidden;
-  margin-top: 0;
   background: var(--surface);
   border: 0;
   border-top: 0;
@@ -6328,8 +6365,8 @@ label > span {
 .stage-filter {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin: 18px 0 14px;
+  gap: 8px;
+  margin: 20px 0;
 }
 .stage-chip {
   display: inline-flex;
@@ -6376,7 +6413,7 @@ label > span {
   grid-auto-flow: column;
   grid-auto-columns: minmax(0, 1fr);
   gap: 0;
-  margin: 0 0 20px;
+  margin-bottom: 20px;
 }
 .catalog-summary > div,
 .score-summary-grid > div,
@@ -7410,7 +7447,8 @@ label > span {
 .configuration-editor-body {
   padding: 28px 0;
 }
-.configuration-editor-disclosure :is(.configuration-editor, .phase-editor, .setup-form) {
+.configuration-editor-disclosure
+  :is(.configuration-editor, .phase-editor, .setup-form) {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 260px;
   gap: 28px 32px;
@@ -7420,7 +7458,9 @@ label > span {
   padding: 0;
   border: 0;
 }
-.configuration-editor-disclosure :is(.configuration-editor, .phase-editor, .setup-form) > fieldset {
+.configuration-editor-disclosure
+  :is(.configuration-editor, .phase-editor, .setup-form)
+  > fieldset {
   display: grid !important;
   grid-column: 1;
   gap: 28px;
@@ -7754,7 +7794,8 @@ textarea:focus {
     padding-left: 0;
     border-left: 0;
   }
-  .configuration-editor-disclosure :is(.configuration-editor, .phase-editor, .setup-form) {
+  .configuration-editor-disclosure
+    :is(.configuration-editor, .phase-editor, .setup-form) {
     grid-template-columns: minmax(0, 1fr);
   }
   .configuration-editor-disclosure .configuration-save {
@@ -7976,7 +8017,7 @@ textarea:focus {
   align-items: end;
   justify-content: space-between;
   gap: 16px;
-  margin: 18px 0 8px;
+  margin: 20px 0;
 }
 .checkpoint-toolbar .configuration-tabs,
 .integration-toolbar .configuration-tabs {
@@ -8352,7 +8393,12 @@ textarea:focus {
   padding: 6px 16px 20px;
 }
 .access-management-content
-  :is(.role-form, .grant-form, .bundle-application-form, .permission-batch-form) {
+  :is(
+    .role-form,
+    .grant-form,
+    .bundle-application-form,
+    .permission-batch-form
+  ) {
   margin-top: 0;
 }
 .access-management-content .permission-batch-actions {
@@ -8418,7 +8464,8 @@ textarea:focus {
   .access-management-content {
     padding-inline: 14px;
   }
-  .access-management-content :is(.grant-form, .bundle-application-form, .permission-panel-form) {
+  .access-management-content
+    :is(.grant-form, .bundle-application-form, .permission-panel-form) {
     grid-template-columns: minmax(0, 1fr);
   }
 }
@@ -9233,11 +9280,31 @@ textarea:focus {
   margin: 8px 0 0;
   font-size: 0.75rem;
 }
-.admissions-stages {
+.admissions-stage-control > .admissions-stages {
   margin: 0;
 }
-.admissions-list {
+.admissions-controls + .admissions-list {
   margin-top: 0;
+}
+
+.queue-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  padding-block: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.queue-pagination p {
+  margin: 0;
+}
+
+.queue-page-number {
+  min-width: 64px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 .admission-row {
   display: grid;
@@ -9271,7 +9338,7 @@ textarea:focus {
 }
 .admission-row-link {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, auto) minmax(152px, auto);
   gap: 4px 24px;
   align-items: start;
   padding: 13px 16px;
@@ -9298,6 +9365,25 @@ textarea:focus {
   color: var(--muted);
   font-size: 0.75rem;
   text-align: right;
+}
+.admission-row-score {
+  display: grid;
+  min-width: 152px;
+  justify-items: end;
+  color: var(--faint);
+  font-size: 0.6875rem;
+  text-align: right;
+}
+.admission-row-score strong {
+  margin: 3px 0 2px;
+  color: var(--text);
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.admission-row-score small {
+  color: var(--faint);
+  font-size: 0.6875rem;
 }
 .admission-reviews.done {
   color: var(--text);
@@ -9498,6 +9584,9 @@ textarea:focus {
     justify-items: start;
     text-align: left;
   }
+  .admission-row-score {
+    display: none;
+  }
   .admission-assign-bar {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -9591,11 +9680,141 @@ textarea:focus {
 }
 
 /* The benefits desk. */
-.benefits-shell { width: min(100%, 1120px); margin: 0 auto; }
-.benefits-list { display: grid; margin-top: 22px; border-top: 1px solid var(--border); }
-.benefit { display: grid; gap: 10px; padding: 18px 2px; border-bottom: 1px solid var(--border); }
-.benefit-heading { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px 24px; }
-.benefit-heading strong { display: block; margin-bottom: 4px; font-size: .86rem; }
-.benefit-heading span { display: block; color: var(--muted); font-size: .7rem; }
-.benefit-heading p { margin: 6px 0 0; max-width: 60ch; color: var(--muted); font-size: .74rem; }
-.benefit-heading a { display: inline-block; margin-top: 4px; font-size: .72rem; word-break: break-all; }
+.benefits-shell {
+  width: min(100%, 1120px);
+  margin: 0 auto;
+}
+.benefits-list {
+  display: grid;
+  margin-top: 22px;
+  border-top: 1px solid var(--border);
+}
+.benefit {
+  display: grid;
+  gap: 10px;
+  padding: 18px 2px;
+  border-bottom: 1px solid var(--border);
+}
+.benefit-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px 24px;
+}
+.benefit-heading strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 0.86rem;
+}
+.benefit-heading span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+.benefit-heading p {
+  margin: 6px 0 0;
+  max-width: 60ch;
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+.benefit-heading a {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 0.72rem;
+  word-break: break-all;
+}
+/* Venue presence uses the same compact setup surface as judging configuration. */
+.venue-configuration fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+.venue-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin: 20px 0;
+}
+.venue-fields label {
+  display: grid;
+  gap: 6px;
+}
+.venue-fields input {
+  width: 100%;
+}
+.venue-table-scroll {
+  overflow-x: auto;
+  margin-top: 20px;
+}
+.venue-roster table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+.venue-roster caption {
+  text-align: left;
+  padding-bottom: 12px;
+}
+.venue-roster th,
+.venue-roster td {
+  padding: 12px;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+}
+.venue-roster small {
+  display: block;
+  margin-top: 4px;
+}
+
+/* Review summaries reuse the same stat cards as the admissions release panel. */
+.application-review-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+  margin: 20px 0;
+}
+.application-review-summary-group {
+  min-width: 0;
+}
+.application-review-summary-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.application-review-summary-label {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+.application-review-summary-value {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 0;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  line-height: 1.5;
+}
+.application-review-summary-count {
+  font-size: inherit;
+  font-weight: inherit;
+}
+.application-review-summary-heading .state-label {
+  flex-shrink: 0;
+}
+.application-review-summary .catalog-summary {
+  margin: 0;
+}
+.application-review-summary .catalog-summary dd {
+  text-transform: capitalize;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 760px) {
+  .application-review-summary {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

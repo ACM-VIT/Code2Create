@@ -1,8 +1,10 @@
+import { LiveNumber } from "../components/LiveNumber";
 import { api } from "@code2create/backend/api";
 import type { FunctionReturnType } from "convex/server";
 import { useQuery } from "convex/react";
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
+import { ReviewCallSetting } from "../components/ReviewCallSetting";
 import { Flower } from "../components/portal/FlowerAvatar";
 import { PetalCard } from "../components/portal/PetalCard";
 import { PortalScene } from "../components/portal/PortalScene";
@@ -15,7 +17,7 @@ type SupportSummary = FunctionReturnType<typeof api.support.mineSummary>;
 function supportRowValue(summary: SupportSummary | undefined) {
   if (summary === undefined) return "…";
   if (summary.openCount === 0) return "Help desk";
-  return `${summary.countIsLowerBound ? "20+" : summary.openCount} open`;
+  return <><LiveNumber value={summary.countIsLowerBound ? 20 : summary.openCount} />{summary.countIsLowerBound ? "+" : ""} open</>;
 }
 
 function Row({
@@ -133,6 +135,7 @@ export function MoreScreen({
               }
             />
           ) : null}
+          {capabilities?.reviewQueue ? <ReviewCallSetting /> : null}
           {showIntegrations ? (
             <Row label="Integrations" value="Repos and Figma" to="/integrations" />
           ) : null}
@@ -143,7 +146,9 @@ export function MoreScreen({
               href={communications.discordUrl}
             />
           ) : null}
-          {showMusic ? <Row label="Music" value="Synesthesia" to="/music" /> : null}
+          {showMusic ? (
+            <Row label="Music" value="Synesthesia" to="/music" />
+          ) : null}
           {capabilities?.supportRead ? (
             <Row label="Support" value={supportRowValue(support)} to="/support" />
           ) : null}

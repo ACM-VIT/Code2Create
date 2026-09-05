@@ -6,10 +6,12 @@ export const participantClass = v.union(
 );
 export type ParticipantClass = Infer<typeof participantClass>;
 
-export const participantGender = v.union(v.literal("male"), v.literal("female"));
+export const participantGender = v.union(v.literal("male"), v.literal("female"),
+);
 export type ParticipantGender = Infer<typeof participantGender>;
 
-export const vitResidenceType = v.union(v.literal("day_scholar"), v.literal("hosteller"));
+export const vitResidenceType = v.union(v.literal("day_scholar"), v.literal("hosteller"),
+);
 export type VitResidenceType = Infer<typeof vitResidenceType>;
 
 export const participantEligibilityStatus = v.union(
@@ -108,7 +110,8 @@ export const intakeQuestionPurpose = v.union(
 
 export type IntakeQuestionPurpose = Infer<typeof intakeQuestionPurpose>;
 
-export const intakeAnswerLength = v.union(v.literal("short"), v.literal("medium"));
+export const intakeAnswerLength = v.union(v.literal("short"), v.literal("medium"),
+);
 
 export type IntakeAnswerLength = Infer<typeof intakeAnswerLength>;
 
@@ -326,7 +329,8 @@ export const projectDraftStage = v.union(
   v.literal("submitted"),
 );
 
-export const reviewEvaluationState = v.union(v.literal("complete"), v.literal("void"));
+export const reviewEvaluationState = v.union(v.literal("complete"), v.literal("void"),
+);
 
 export const roundExportState = v.union(
   v.literal("generating"),
@@ -336,7 +340,8 @@ export const roundExportState = v.union(
   v.literal("superseded"),
 );
 
-export const scorecardCorrectionKind = v.union(v.literal("correction"), v.literal("void"));
+export const scorecardCorrectionKind = v.union(v.literal("correction"), v.literal("void"),
+);
 
 export const scorecardCorrectionCategory = v.union(
   v.literal("reviewer_error"),
@@ -393,6 +398,7 @@ export const participantEmailTemplateKey = v.union(
   v.literal("offer_confirmed"),
   v.literal("offer_declined"),
   v.literal("offer_expired"),
+  v.literal("external_event_pass"),
 );
 
 export const admissionReviewAssignmentState = v.union(
@@ -462,7 +468,7 @@ export const repositoryKind = v.union(
 export const attendanceCredentialKind = v.union(
   v.literal("vit_id_barcode"),
   v.literal("badge_qr"),
-  v.literal("portal_qr"),
+  v.literal("external_pass"),
   v.literal("manual"),
 );
 
@@ -609,12 +615,13 @@ export type AttendanceStationMode = Infer<typeof attendanceStationMode>;
 export const attendanceScannerCredentialKind = v.union(
   v.literal("vit_id_barcode"),
   v.literal("badge_qr"),
-  v.literal("portal_qr"),
+  v.literal("external_pass"),
 );
 
 export type AttendanceScannerCredentialKind = Infer<typeof attendanceScannerCredentialKind>;
 
-export const venueCheckInStatus = v.union(v.literal("checked_in"), v.literal("reversed"));
+export const venueCheckInStatus = v.union(v.literal("checked_in"), v.literal("reversed"),
+);
 
 export const venueIdentityCheckMethod = v.union(
   v.literal("vit_id"),
@@ -798,10 +805,21 @@ export const teamRoundState = v.union(
   v.literal("withdrawn"),
 );
 
+export const reviewStaffingPolicy = v.object({
+  seniorSeats: v.number(),
+  juniorSeats: v.number(),
+  allowSeniorLeadFallback: v.boolean(),
+  automaticReplacement: v.boolean(),
+  juniorRotationReviews: v.number(),
+  reviewerArrivalSeconds: v.number(),
+  assignmentReminderSeconds: v.number(),
+  assignmentReminderCalls: v.boolean(),
+});
+
 export const reviewSessionStatus = v.union(
   v.literal("awaiting_presence"),
   v.literal("active"),
-  v.literal("overdue"),
+  v.literal("scoring"),
   v.literal("completed"),
   v.literal("cancelled"),
 );
@@ -874,7 +892,8 @@ export const figmaCredentialState = v.union(
   v.literal("error"),
 );
 
-export const figmaCredentialConnectionState = v.union(v.literal("active"), v.literal("revoked"));
+export const figmaCredentialConnectionState = v.union(v.literal("active"), v.literal("revoked"),
+);
 
 export const figmaFileBindingState = v.union(
   v.literal("active"),
@@ -1031,3 +1050,124 @@ export const youtubeVideo = v.object({
   embeddable: v.boolean(),
 });
 export type YouTubeVideo = Infer<typeof youtubeVideo>;
+
+export const reviewEvidenceCheckpointFields = {
+  eventId: v.id("events"),
+  roundId: v.id("reviewRounds"),
+  roundSequence: v.number(),
+  teamId: v.id("teams"),
+  projectVersionId: v.id("projectVersions"),
+  teamCheckpointSubmissionId: v.optional(v.id("teamCheckpointSubmissions")),
+  previousCheckpointSetId: v.optional(v.id("reviewEvidenceCheckpointSets")),
+  githubEntries: v.array(
+    v.object({
+      bindingId: v.id("githubRepositoryBindings"),
+      snapshotId: v.optional(v.id("githubRepositorySnapshots")),
+      repositoryName: v.string(),
+      repositoryUrl: v.string(),
+      kind: repositoryKind,
+      purpose: v.string(),
+      trackedBranch: v.string(),
+      rootPath: v.optional(v.string()),
+      requiredTopic: v.string(),
+      stateAtCapture: v.string(),
+    }),
+  ),
+  figmaEntries: v.array(
+    v.object({
+      bindingId: v.id("figmaFileBindings"),
+      snapshotId: v.optional(v.id("figmaFileSnapshots")),
+      preview: v.optional(v.object({
+        state: v.string(), discoveredNodes: v.number(), selectedNodes: v.number(), truncated: v.boolean(),
+        renders: v.array(v.object({ factId: v.id("figmaNodeFacts"), sha256: v.string() })),
+      })),
+      fileName: v.string(),
+      fileUrl: v.string(),
+      role: v.string(),
+      editorType: v.string(),
+      stateAtCapture: v.string(),
+    }),
+  ),
+  expectedResourceCount: v.number(),
+  capturedResourceCount: v.number(),
+  completeness: v.union(
+    v.literal("complete"),
+    v.literal("partial"),
+    v.literal("missing"),
+  ),
+  checksum: v.string(),
+  createdByPersonId: v.id("people"),
+  createdAt: v.number(),
+};
+
+export const reviewQuestionPolicy = v.object({
+  enabled: v.boolean(),
+  visualAnalysis: v.boolean(),
+  refreshSeconds: v.number(),
+  maximumQuestions: v.number(),
+  parallelAnalyses: v.number(),
+  batchCharacters: v.number(),
+  maximumAttempts: v.number(),
+  preparationTimeoutSeconds: v.number(),
+  model: v.string(),
+  instructions: v.string(),
+});
+export const reviewQuestionImage = v.object({ factId: v.string(), sha256: v.string() });
+export const reviewQuestionSource = v.object({
+  image: v.optional(reviewQuestionImage),
+  id: v.string(),
+  kind: v.union(
+    v.literal("project"),
+    v.literal("checkpoint"),
+    v.literal("github"),
+    v.literal("figma"),
+  ),
+  title: v.string(),
+  url: v.optional(v.string()),
+  text: v.string(),
+  coverage: v.union(
+    v.literal("captured"),
+    v.literal("partial"),
+    v.literal("unavailable"),
+  ),
+});
+export const reviewSuggestedQuestion = v.object({
+  question: v.string(),
+  reason: v.string(),
+  criterionKey: v.string(),
+  sourceIds: v.array(v.string()),
+});
+
+export const reviewEvidenceFinding = v.object({
+  category: v.union(
+    ...(
+      [
+        "research",
+        "architecture",
+        "implementation",
+        "testing",
+        "design",
+        "reproducibility",
+        "progress",
+        "uncertainty",
+      ] as const
+    ).map((value) => v.literal(value)),
+  ),
+  observation: v.string(),
+  followUp: v.string(),
+  sourceIds: v.array(v.string()),
+});
+export const reviewEvidenceAnalysis = v.object({
+  examinedSourceIds: v.array(v.string()),
+  summary: v.string(),
+  findings: v.array(reviewEvidenceFinding),
+});
+export const reviewEvidenceCoverage = v.object({
+  discovered: v.number(),
+  captured: v.number(),
+  excluded: v.number(),
+  unavailable: v.number(),
+  chunks: v.number(),
+  analysedChunks: v.number(),
+  cachedBatches: v.number(),
+});

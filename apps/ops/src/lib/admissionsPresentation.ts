@@ -1,21 +1,39 @@
 import type { api } from "@code2create/backend/api";
 import {
   applicationDecisionLabels,
+  applicationStateLabels,
   studyYearLabels,
   type AdmissionRecommendationState,
   type AdmissionReviewAssignmentState,
   type ApplicationDecision,
-  type ApplicationState,
   type ParticipantClass,
   type StudyYear,
 } from "@code2create/domain";
-import type { FunctionReturnType } from "convex/server";
+import type { FunctionArgs, FunctionReturnType } from "convex/server";
+
+export type RecommendationFilter = NonNullable<FunctionArgs<typeof api.admissions.list>["recommendationFilter"]>;
+export const recommendationOutcomeLabels: Record<RecommendationFilter["outcome"], string> = {
+  accepted: "Accepted",
+  waitlisted: "Waitlisted",
+  rejected: "Rejected",
+  unavailable: "No current recommendation",
+  split: "Split reviews",
+  needed: "Reviews needed",
+};
+export function recommendationFilterLabel(filter: RecommendationFilter) {
+  return `${filter.source === "idea" ? "Idea agent" : "Human reviews"} · ${recommendationOutcomeLabels[filter.outcome]}`;
+}
 
 type ApplicationPage = FunctionReturnType<typeof api.admissions.list>;
 export type QueueApplication = ApplicationPage["page"][number];
 type AssignmentPage = FunctionReturnType<typeof api.admissions.myReviewAssignments>;
 export type QueueAssignment = AssignmentPage["page"][number];
 export type StageCount = FunctionReturnType<typeof api.admissions.stageCounts>[number];
+export type ApplicationQueueStage = StageCount["state"];
+export const applicationQueueStageLabels: Record<ApplicationQueueStage, string> = {
+  ...applicationStateLabels,
+  recorded: "Recorded decisions",
+};
 export type ReviewAssignmentCounts = { active: number; completed: number };
 export type ReviewerWorkload = FunctionReturnType<typeof api.admissions.reviewerWorkload>[number];
 export type RosterCohortMember = { participantClass: ParticipantClass; yearOfStudy: StudyYear };
@@ -47,9 +65,10 @@ export type VersionedReviewAssignment = {
   state: AdmissionReviewAssignmentState;
 };
 
-export const applicationStageOrder: readonly ApplicationState[] = [
+export const applicationStageOrder: readonly ApplicationQueueStage[] = [
   "submitted",
   "under_review",
+  "recorded",
   "accepted",
   "offer_sent",
   "confirmed",
@@ -60,36 +79,36 @@ export const applicationStageOrder: readonly ApplicationState[] = [
 ];
 
 /** The stages that still take ordinary reviews and assignments. */
-export function stageAcceptsReviews(state: ApplicationState) {
+export function stageAcceptsReviews(state: ApplicationQueueStage) {
   return state === "submitted" || state === "under_review";
 }
 
 export function stageCountMap(counts: readonly StageCount[]) {
-  return new Map<ApplicationState, number>(counts.map((row) => [row.state, row.count]));
+  return new Map<ApplicationQueueStage, number>(counts.map((row) => [row.state, row.count]));
 }
 
 export function busiestStage(
-  counts: ReadonlyMap<ApplicationState, number>,
-): ApplicationState | null {
+  counts: ReadonlyMap<ApplicationQueueStage, number>,
+): ApplicationQueueStage | null {
   return applicationStageOrder.find((stage) => (counts.get(stage) ?? 0) > 0) ?? null;
 }
 
-/** Only stages with something in them earn a chip; the chosen one always stays. */
+/** Keep recorded decisions discoverable even before the first decision is saved. */
 export function visibleStages(
-  counts: ReadonlyMap<ApplicationState, number>,
-  selected: ApplicationState,
-): ApplicationState[] {
+  counts: ReadonlyMap<ApplicationQueueStage, number>,
+  selected: ApplicationQueueStage,
+): ApplicationQueueStage[] {
   return applicationStageOrder.filter(
-    (stage) => stage === selected || (counts.get(stage) ?? 0) > 0,
+    (stage) => stage === "recorded" || stage === selected || (counts.get(stage) ?? 0) > 0,
   );
 }
 
-export function parseApplicationStage(value: string): ApplicationState {
+export function parseApplicationStage(value: string): ApplicationQueueStage {
   return applicationStageOrder.find((stage) => stage === value) ?? "submitted";
 }
 
 export function queueLeadSentence(
-  counts: ReadonlyMap<ApplicationState, number>,
+  counts: ReadonlyMap<ApplicationQueueStage, number>,
   origin: TeamOriginFilter = "all",
   oneReviewOnly = false,
 ): string {

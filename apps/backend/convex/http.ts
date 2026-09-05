@@ -1,11 +1,14 @@
+import { callback as reviewQuestionCallback } from "./reviewQuestionHttp";
 import { httpRouter } from "convex/server";
 
 import { admissionIntelligenceReadEndpoint } from "./admissionCohort";
+import { endpoint as shortlistCallbackEndpoint } from "./admissionShortlistHttp";
 import {
   ideaIntelligenceCallbackEndpoint,
   ideaIntelligenceReadEndpoint,
   ideaIntelligenceSimilarityEndpoint,
 } from "./admissionAgentHttp";
+import { applePassEndpoint } from "./attendanceWalletHttp";
 import { authComponent, createAuth } from "./auth";
 import {
   importBundleEndpoint,
@@ -29,8 +32,19 @@ import {
   autonomyWorkEndpoint,
 } from "./operationsAutonomyHttp";
 import { participantEmailEvent } from "./participantEmailEvent";
+import {
+  acknowledgeEndpoint as discordSupportAcknowledgeEndpoint,
+  pullEndpoint as discordSupportPullEndpoint,
+  rejectEndpoint as discordSupportRejectEndpoint,
+  replyEndpoint as discordSupportReplyEndpoint,
+} from "./supportDiscordBridge";
 
 const http = httpRouter();
+http.route({
+  path: "/intelligence/review-questions",
+  method: "POST",
+  handler: reviewQuestionCallback,
+});
 
 authComponent.registerRoutes(http, createAuth, { cors: true });
 http.route({
@@ -39,6 +53,11 @@ http.route({
   handler: shortlistCallbackEndpoint,
 });
 
+http.route({
+  path: "/attendance/external-pass/apple",
+  method: "GET",
+  handler: applePassEndpoint,
+});
 http.route({
   path: "/configuration/communications/email-template",
   method: "POST",
@@ -139,6 +158,25 @@ http.route({
   method: "POST",
   handler: ideaIntelligenceCallbackEndpoint,
 });
+http.route({
+  path: "/integrations/discord/support/pull",
+  method: "POST",
+  handler: discordSupportPullEndpoint,
+});
+http.route({
+  path: "/integrations/discord/support/acknowledge",
+  method: "POST",
+  handler: discordSupportAcknowledgeEndpoint,
+});
+http.route({
+  path: "/integrations/discord/support/reject",
+  method: "POST",
+  handler: discordSupportRejectEndpoint,
+});
+http.route({
+  path: "/integrations/discord/support/reply",
+  method: "POST",
+  handler: discordSupportReplyEndpoint,
+});
 
 export default http;
-import { endpoint as shortlistCallbackEndpoint } from "./admissionShortlistHttp";

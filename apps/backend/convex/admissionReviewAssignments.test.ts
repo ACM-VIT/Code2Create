@@ -9,6 +9,7 @@ import type { MutationCtx } from "./_generated/server.js";
 import {
   admissionReviewClaimMs,
   cancelAdmissionReviewAssignment,
+  countHumanReviewScore,
   createAdmissionReviewAssignment,
   saveAdmissionHumanReview,
 } from "./admissions.ts";
@@ -809,6 +810,22 @@ describe("admission review assignments", () => {
     });
     expect(state.assignments).toHaveLength(2);
     expect(state.reviews).toHaveLength(2);
+  });
+
+  test("counts current human recommendations as accept, waitlist, and reject totals", () => {
+    expect(
+      countHumanReviewScore(
+        [
+          { applicationContentVersion: 1, recommendation: "accept" },
+          { applicationContentVersion: 1, recommendation: "accept" },
+          { applicationContentVersion: 1, recommendation: "accept" },
+          { applicationContentVersion: 1, recommendation: "waitlist" },
+          { applicationContentVersion: 1, recommendation: "decline" },
+          { applicationContentVersion: 0, recommendation: "accept" },
+        ],
+        1,
+      ),
+    ).toEqual({ accept: 3, waitlist: 1, reject: 1 });
   });
 });
 

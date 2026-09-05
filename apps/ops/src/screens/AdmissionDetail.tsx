@@ -1,3 +1,4 @@
+import { LiveNumber } from "../components/LiveNumber";
 import { api } from "@code2create/backend/api";
 import { useProductAnalytics } from "@code2create/client-observability";
 import {
@@ -43,7 +44,7 @@ type ReviewAssignmentEvidenceData = FunctionReturnType<
 >;
 type AiDisposition = AdmissionAiDisposition;
 
-export function AdmissionDetail() {
+export function AdmissionDetail({ accountEmail }: { accountEmail: string }) {
   const { applicationId } = useParams();
   const detail = useQuery(
     api.admissions.detail,
@@ -115,6 +116,8 @@ export function AdmissionDetail() {
         <span className="state-label">{applicationStateLabels[detail.application.state]}</span>
       </header>
 
+      <AdmissionReviewOverview detail={detail} />
+
       <section className="application-next-step">
         <p className="eyebrow">What happens next</p>
         <h2>{step.title}</h2>
@@ -129,7 +132,7 @@ export function AdmissionDetail() {
       >
         <div className="application-evidence">
           <section className="detail-section">
-            <h2>Team · {detail.team.memberCount}</h2>
+            <h2>Team · <LiveNumber value={detail.team.memberCount} /></h2>
             {members.length > 0 && members.every((member) => member.profileContext === null) ? (
               <p className="muted">This account can’t see year and institution.</p>
             ) : null}
@@ -234,7 +237,11 @@ export function AdmissionDetail() {
             {canReview && reviewOpen ? <ReviewForm detail={detail} /> : null}
             {offerActionable ? <OfferControl detail={detail} /> : null}
             {canManageAssignments ? (
-              <ReviewAssignmentControl key={detail.application.id} detail={detail} />
+              <ReviewAssignmentControl
+                key={detail.application.id}
+                detail={detail}
+                accountEmail={accountEmail}
+              />
             ) : null}
             {canReadDelivery ? (
               <ParticipantDeliveryStatus
@@ -247,6 +254,116 @@ export function AdmissionDetail() {
       </div>
     </article>
   );
+}
+
+function AdmissionReviewOverview({ detail }: { detail: AdmissionDetailData }) {
+  const completed = detail.application.completedReviewCount;
+  const required = detail.policy.minimumHumanReviews;
+  const remaining = Math.max(0, required - completed);
+  const ai = detail.aiRecommendationVisible ? detail.aiRecommendation : null;
+  const aiHeadline = !detail.aiRecommendationVisible
+    ? "Restricted"
+    : ai?.recommendation
+      ? applicationDecisionLabels[ai.recommendation]
+      : ai
+        ? "No recommendation"
+        : "No analysis";
+  const aiState = !detail.aiRecommendationVisible
+    ? "Not visible"
+    : ai
+      ? admissionRecommendationStateLabels[ai.state]
+      : "Unavailable";
+  const humanState = detail.application.humanDecision
+    ? applicationDecisionLabels[detail.application.humanDecision]
+    : remaining === 0
+      ? "Ready"
+      : <><LiveNumber value={remaining} /> remaining</>;
+
+  return (
+    <section className="application-review-summary" aria-label="Review summary">
+      <article className="application-review-summary-group">
+        <div className="application-review-summary-heading">
+          <div>
+            <p className="application-review-summary-label">
+              Human review
+            </p>
+            <p className="application-review-summary-value">
+              <strong className="application-review-summary-count">
+                <LiveNumber value={completed} />
+              </strong>
+              <span className="muted">of <LiveNumber value={required} /> complete</span>
+            </p>
+          </div>
+          <span className="state-label">
+            {humanState}
+          </span>
+        </div>
+        <dl className="catalog-summary">
+          <ReviewStat label="Completed" value={completed} />
+          <ReviewStat label="Required" value={required} />
+          <ReviewStat label="Remaining" value={remaining} />
+        </dl>
+      </article>
+
+      <article className="application-review-summary-group">
+        <div className="application-review-summary-heading">
+          <div className="min-w-0">
+            <p className="application-review-summary-label">
+              AI review
+            </p>
+            <p
+              className={`application-review-summary-value ${aiDecisionTone(ai?.recommendation)}`}
+            >
+              {aiHeadline}
+            </p>
+          </div>
+          <span className="state-label">
+            {aiState}
+          </span>
+        </div>
+        <dl className="catalog-summary">
+          <ReviewStat
+            label="Criteria"
+            value={
+              detail.aiRecommendationVisible
+                ? <><LiveNumber value={ai?.criterionAssessments.length ?? 0} />/{detail.policy.criteria.length}</>
+                : "—"
+            }
+          />
+          <ReviewStat
+            label="Confidence"
+            value={detail.aiRecommendationVisible ? (ai?.confidence ?? "—") : "—"}
+          />
+          <ReviewStat
+            label="Strengths"
+            value={detail.aiRecommendationVisible ? (ai?.strengths.length ?? 0) : "—"}
+          />
+          <ReviewStat
+            label="Concerns"
+            value={detail.aiRecommendationVisible ? (ai?.concerns.length ?? 0) : "—"}
+          />
+        </dl>
+      </article>
+    </section>
+  );
+}
+
+function ReviewStat({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div>
+      <dt>{label}</dt>
+      <dd>
+        {typeof value === "number" ? <LiveNumber value={value} /> : value}
+      </dd>
+    </div>
+  );
+}
+
+function aiDecisionTone(decision: ApplicationDecision | undefined) {
+  if (decision === "accept") return "text-green";
+  if (decision === "waitlist") return "text-amber";
+  if (decision === "decline") return "text-red";
+  return "text-ink";
 }
 
 function OfferControl({ detail }: { detail: AdmissionDetailData }) {
@@ -569,7 +686,13 @@ function HumanReviews({
   );
 }
 
-function ReviewAssignmentControl({ detail }: { detail: AdmissionDetailData }) {
+function ReviewAssignmentControl({
+  detail,
+  accountEmail,
+}: {
+  detail: AdmissionDetailData;
+  accountEmail: string;
+}) {
   const assignReview = useMutation(api.admissions.assignReview);
   const cancelAssignment = useMutation(api.admissions.cancelReviewAssignment);
   const operations = useOperationRunner();
@@ -577,7 +700,7 @@ function ReviewAssignmentControl({ detail }: { detail: AdmissionDetailData }) {
   const [cancelTargetId, setCancelTargetId] = useState<string | null>(null);
   const [evidenceTargetId, setEvidenceTargetId] = useState<ReviewAssignment["id"] | null>(null);
   const [cancelReason, setCancelReason] = useState("");
-  const [busy, setBusy] = useState<"assign" | "cancel" | null>(null);
+  const [busy, setBusy] = useState<"assign" | "self-assign" | "cancel" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const assignments = detail.reviewAssignments ?? [];
   const cancelTarget = assignments.find((assignment) => assignment.id === cancelTargetId);
@@ -592,14 +715,13 @@ function ReviewAssignmentControl({ detail }: { detail: AdmissionDetailData }) {
       : "skip",
   );
 
-  const assign = async (event: SubmitEvent) => {
-    event.preventDefault();
-    const normalizedEmail = reviewerEmail.trim().toLowerCase();
-    if (!operations.hasPending("assign") && !normalizedEmail) return;
-    setBusy("assign");
+  const assign = async (email: string, slot: "assign" | "self-assign") => {
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!operations.hasPending(slot) && !normalizedEmail) return;
+    setBusy(slot);
     setError(null);
     try {
-      await operations.run("assign", (clientOperationId) => {
+      await operations.run(slot, (clientOperationId) => {
         const command = {
           eventSlug,
           applicationId: detail.application.id,
@@ -609,7 +731,7 @@ function ReviewAssignmentControl({ detail }: { detail: AdmissionDetailData }) {
         };
         return () => assignReview(command);
       });
-      setReviewerEmail("");
+      if (slot === "assign") setReviewerEmail("");
     } catch (caught) {
       setError(readableError(caught));
     } finally {
@@ -658,13 +780,28 @@ function ReviewAssignmentControl({ detail }: { detail: AdmissionDetailData }) {
   });
   const assignPending = operations.hasPending("assign");
   const cancelPending = operations.hasPending("cancel");
-  const operationPending = assignPending || cancelPending;
+  const selfAssignPending = operations.hasPending("self-assign");
+  const operationPending = assignPending || selfAssignPending || cancelPending;
+  const ownEmail = accountEmail.trim().toLowerCase();
+  const alreadyAssigned = assignments.some(
+    (assignment) =>
+      assignment.reviewerEmail === ownEmail &&
+      assignment.applicationContentVersion === currentContentVersion &&
+      assignment.state !== "cancelled",
+  );
 
   return (
     <section className="detail-section command-section">
       <h2>Review assignments</h2>
       <p className="muted">{reviewAssignmentSummary(assignments, currentContentVersion)}</p>
-      <form className="command-form compact-command" onSubmit={assign}>
+      <form
+        className="command-form"
+        noValidate={assignPending}
+        onSubmit={(event) => {
+          event.preventDefault();
+          void assign(reviewerEmail, "assign");
+        }}
+      >
         <Field label={`Reviewer Google email for application version ${currentContentVersion}`}>
           <input
             required
@@ -674,17 +811,43 @@ function ReviewAssignmentControl({ detail }: { detail: AdmissionDetailData }) {
             onChange={(event) => setReviewerEmail(event.target.value)}
           />
         </Field>
-        <button
-          className="secondary"
-          type="submit"
-          disabled={busy !== null || cancelPending || (!assignPending && !reviewerEmail.trim())}
-        >
-          {busy === "assign"
-            ? "Assigning…"
-            : assignPending
-              ? "Confirm earlier assignment"
-              : "Assign review"}
-        </button>
+        <div className="button-row">
+          <button
+            className="secondary"
+            type="submit"
+            disabled={
+              busy !== null ||
+              selfAssignPending ||
+              cancelPending ||
+              (!assignPending && !reviewerEmail.trim())
+            }
+          >
+            {busy === "assign"
+              ? "Assigning…"
+              : assignPending
+                ? "Confirm earlier assignment"
+                : "Assign review"}
+          </button>
+          <button
+            className="secondary"
+            type="button"
+            disabled={
+              busy !== null ||
+              assignPending ||
+              cancelPending ||
+              (!selfAssignPending && (!ownEmail || alreadyAssigned))
+            }
+            onClick={() => void assign(ownEmail, "self-assign")}
+          >
+            {busy === "self-assign"
+              ? "Assigning…"
+              : selfAssignPending
+                ? "Confirm self-assignment"
+                : alreadyAssigned
+                  ? "Assigned to you"
+                  : "Assign to me"}
+          </button>
+        </div>
       </form>
       {ordered.length > 0 ? (
         <ul className="review-list assignment-list">
@@ -744,6 +907,7 @@ function ReviewAssignmentControl({ detail }: { detail: AdmissionDetailData }) {
                     disabled={
                       busy !== null ||
                       assignPending ||
+                      selfAssignPending ||
                       (!cancelPending && cancelReason.trim().length < 3)
                     }
                   >

@@ -16,6 +16,7 @@ import {
 import { defaultDeterministicIntakePolicy, intakePolicyChecksum } from "./lib/intakePolicy";
 import { defaultParticipantPolicy, participantPolicyChecksum } from "./lib/participantPolicy";
 import { createTestSubmissionSnapshot } from "./lib/testSubmissionSnapshot";
+import { walletUrlOrEmpty, withoutUnavailableWalletActions } from "./participantEmail";
 import schema from "./schema";
 
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
@@ -422,6 +423,39 @@ describe("Figma provider contract", () => {
 });
 
 describe("Cloudflare participant-email contract", () => {
+  test("keeps wallet failures from rejecting event-pass email generation", async () => {
+    await expect(
+      walletUrlOrEmpty(async () => {
+        throw new Error("wallet provider unavailable");
+      }),
+    ).resolves.toBe("");
+    await expect(walletUrlOrEmpty(async () => "https://wallet.example.test/pass")).resolves.toBe(
+      "https://wallet.example.test/pass",
+    );
+  });
+
+  test("keeps the external pass email usable when a wallet provider is not configured", () => {
+    const template = defaultParticipantEmailTemplates().find(
+      (candidate) => candidate.templateKey === "external_event_pass",
+    );
+    if (!template) throw new Error("The external event-pass template is missing.");
+
+    const withoutWallets = withoutUnavailableWalletActions(template.html, {
+      google_wallet_url: "",
+      apple_wallet_url: "",
+    });
+    expect(withoutWallets).toContain("event-pass-qr.png");
+    expect(withoutWallets).not.toContain("Add to Google Wallet");
+    expect(withoutWallets).not.toContain("Add to Apple Wallet");
+
+    const withWallets = withoutUnavailableWalletActions(template.html, {
+      google_wallet_url: "https://pay.google.com/example",
+      apple_wallet_url: "https://example.test/apple-pass",
+    });
+    expect(withWallets).toContain("Add to Google Wallet");
+    expect(withWallets).toContain("Add to Apple Wallet");
+  });
+
   test("converges event-before-response, duplicate, out-of-order, and bounce events", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedParticipantDelivery(backend, {

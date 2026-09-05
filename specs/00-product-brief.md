@@ -20,7 +20,7 @@ The product must prevent these failures:
 
 | Actor          | Main work                                                                                                       |
 | -------------- | --------------------------------------------------------------------------------------------------------------- |
-| Participant    | Maintain a profile, join a team, submit a proposal, attend sessions, follow review state, and receive feedback  |
+| Participant    | Maintain a profile, join a team, submit a proposal, attend sessions, follow review state  |
 | Team lead      | Manage membership, transfer leadership, revise the proposal, answer admission questions, and connect team tools |
 | Supreme        | Hold suggested event-governance grants                                                                          |
 | Board          | Hold suggested policy, admission, rubric, result, correction, export, and override grants                       |
@@ -67,7 +67,7 @@ The reviewer app is a dedicated Expo application. The project builds and signs n
 
 The app provides Google sign-in, device registration, clock-in, pages, notification registration, consented phone-call escalation, review-presence scanning, attendance scanning on provisioned devices, review context, independent scorecards, support, and short connection-loss recovery.
 
-Reviewer paging uses a reusable outbound-calling service. The service sends push first. If push is unavailable, it can call immediately. Otherwise, the first unanswered 30-second repage can add one synthesized call. The reviewer must give active consent. The platform records consent, dispatch, provider results, page responses, cancellation before claim, and the page chain's authorizing grants. A future release can use the same service for participant operational calls. That release must define its own consent, message, audience, source check, and permission policy.
+Reviewer paging uses a reusable outbound-calling service. The service sends push first. If push is unavailable, it can call immediately. Otherwise, the first unanswered reminder can add one synthesized call; its delay is half the response window, capped at 30 seconds. The reviewer must give active consent. The platform records consent, dispatch, provider results, page responses, cancellation before claim, and the page chain's authorizing grants. Team leads can separately opt into next-team and ready-for-review calls using their saved profile phone. Reviewer shift reminders use an ops-configured lead time (default 300 seconds, 0 disables), with an optional call at the same time for reviewers who confirm the updated review-call notice. Clock-in and changed availability prevent obsolete reminders.
 
 ### Operations dashboard
 
@@ -93,7 +93,7 @@ The dashboard shows accepted state and legal next actions. Each protected comman
 ### Venue and attendance
 
 1. Staff scan the barcode on a VIT student's existing VIT ID from a provisioned phone.
-2. Staff scan the event QR for an external participant or an approved fallback case.
+2. Staff scan the static event pass for an external participant. An authorized manual registration-number or verified-email lookup is available only as a staffed first-check-in fallback.
 3. The server records one-time venue arrival separately from session presence.
 4. The server records session entry, temporary exit, return, and final exit as participant-scoped facts.
 5. The participant and operations views update from the same accepted records.
@@ -121,7 +121,7 @@ Judging uses the published judging rubric, reviewer assignments, independent sco
 ## 6. Integrations and hosting
 
 - Convex is the realtime backend and event authority.
-- The participant portal, operations dashboard, and handbook use Vite.
+- The participant portal and operations dashboard use Vite. Repository Markdown is the handbook source, with a separate private reader.
 - The backend is a separate application.
 - Google and Better Auth provide sign-in.
 - A team can connect multiple GitHub repositories across installations and organizations.
@@ -200,7 +200,7 @@ Board and the named owners must publish these values before the applicable relea
 - fresh-project and pre-start-work rules;
 - admission criteria, human-review minimum, model policy, capacity, waitlist order, and offer deadline;
 - reviewer eligibility, panel size, and expertise coverage;
-- round schedule, rubric, correction deadline, feedback policy, and award rules;
+- round schedule, rubric, correction deadline and award rules;
 - attendance sessions, expected groups, grace windows, and result policy;
 - reviewer page timeout, push policy, call script, consent text, provider rate limits, and retention;
 - GitHub and Figma requirements and accepted alternatives;

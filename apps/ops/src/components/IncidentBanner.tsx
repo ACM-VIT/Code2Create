@@ -1,3 +1,4 @@
+import { LiveNumber } from "./LiveNumber";
 import { api } from "@code2create/backend/api";
 import { useQuery } from "convex/react";
 
@@ -17,7 +18,7 @@ export function IncidentBanner() {
     >
       <div className="incident-banner-heading">
         <strong>
-          {incidents.length === 1 ? "Active incident" : `${incidents.length} active incidents`}
+          {incidents.length === 1 ? "Active incident" : <><LiveNumber value={incidents.length} /> active incidents</>}
         </strong>
         <span>Only the work that depends on the affected service needs to stop.</span>
       </div>

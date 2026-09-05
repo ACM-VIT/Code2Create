@@ -1,4 +1,4 @@
-import type { Id } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import {
   eventOwnerPermissionKeys,
@@ -45,7 +45,7 @@ export async function grantSupremeRolePermissions(
     grantedByPersonId: Id<"people">;
   },
 ) {
-  const missingGrants = await missingSupremeRolePermissionPlans(ctx, args);
+  const { missingGrants } = await supremeRolePermissionChanges(ctx, args);
   if (missingGrants.length === 0) return 0;
   const result = await insertPermissionGrantGroup(ctx, {
     eventId: args.eventId,
@@ -60,7 +60,7 @@ export async function grantSupremeRolePermissions(
   return result.createdCount;
 }
 
-export async function missingSupremeRolePermissionPlans(
+export async function supremeRolePermissionChanges(
   ctx: MutationCtx,
   args: {
     eventId: Id<"events">;
@@ -76,15 +76,17 @@ export async function missingSupremeRolePermissionPlans(
     sourceId: args.roleId,
   });
   const currentGrantKeys = new Set<string>();
+  const obsoleteGrants: Doc<"permissionGrants">[] = [];
   for (const grant of currentGrants) {
-    if (!isPermissionKey(grant.permissionKey)) {
-      throw new Error("A Supreme role template contains an unknown permission.");
-    }
     if (
       grant.personId !== args.personId ||
       grant.eventAccessSubjectId !== args.eventAccessSubjectId
     ) {
       throw new Error("A Supreme role template targets the wrong event account.");
+    }
+    if (!isPermissionKey(grant.permissionKey)) {
+      obsoleteGrants.push(grant);
+      continue;
     }
     const key = permissionGrantKey({
       permissionKey: grant.permissionKey,
@@ -99,7 +101,7 @@ export async function missingSupremeRolePermissionPlans(
   const missingGrants = plannedGrants.filter(
     (grant) => !currentGrantKeys.has(permissionGrantKey(grant)),
   );
-  return missingGrants;
+  return { missingGrants, obsoleteGrants };
 }
 
 function permissionGrantKey(grant: {

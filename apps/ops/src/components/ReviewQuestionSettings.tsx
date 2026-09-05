@@ -1,0 +1,203 @@
+import { LiveNumber } from "./LiveNumber";
+import { api } from "@code2create/backend/api";
+import type { FunctionArgs, FunctionReturnType } from "convex/server";
+import { useMutation, useQuery } from "convex/react";
+import { useState, type SubmitEvent } from "react";
+import { eventSlug } from "../lib/config";
+import { readableError } from "../lib/errors";
+import { useMutationAttempt } from "../lib/operations";
+
+type Settings = NonNullable<
+  FunctionReturnType<typeof api.reviewQuestions.settings>
+>;
+type RoundId = FunctionArgs<typeof api.reviewQuestions.settings>["roundId"];
+export function ReviewQuestionSettings({ roundId }: { roundId: RoundId }) {
+  const settings = useQuery(api.reviewQuestions.settings, {
+    eventSlug,
+    roundId,
+  });
+  if (!settings) return null;
+  const ready = settings.teams.filter((team) => team.state === "ready").length;
+  return (
+    <details className="workspace-disclosure">
+      <summary>
+        <strong>Suggested review questions</strong>
+        <span>
+          {settings.policy.enabled ? (
+            <>
+              <LiveNumber value={ready} /> of{" "}
+              <LiveNumber value={settings.teams.length} /> prepared
+            </>
+          ) : (
+            "Off"
+          )}
+        </span>
+      </summary>
+      <QuestionForm
+        key={settings.version}
+        roundId={roundId}
+        settings={settings}
+      />
+      {settings.policy.enabled ? (
+        <div className="published-rounds">
+          {settings.teams.map((team) => (
+            <div className="published-round-row" key={team.teamId}>
+              <strong>{team.name}</strong>
+              <span>
+                {team.state.replaceAll("_", " ")}
+                {team.coverage
+                  ? ` · ${team.coverage.analysedChunks}/${team.coverage.chunks} source sections inspected · ${team.coverage.captured} evidence items read · ${team.coverage.excluded} excluded · ${team.coverage.unavailable} unavailable · ${team.coverage.cachedBatches} reused analyses`
+                  : ""}
+                {team.failureCode
+                  ? ` · ${team.failureCode.replaceAll("_", " ")}`
+                  : ""}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </details>
+  );
+}
+function QuestionForm({
+  roundId,
+  settings,
+}: {
+  roundId: RoundId;
+  settings: Settings;
+}) {
+  const configure = useMutation(api.reviewQuestions.configure);
+  const attempt =
+    useMutationAttempt<
+      FunctionReturnType<typeof api.reviewQuestions.configure>
+    >();
+  const [policy, setPolicy] = useState(settings.policy);
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const pending = attempt.hasPending("review-question-policy");
+  const submit = async (event: SubmitEvent) => {
+    event.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await attempt.run("review-question-policy", () => {
+        const args = {
+          eventSlug,
+          roundId,
+          expectedVersion: settings.version,
+          policy,
+          reason,
+          clientOperationId: crypto.randomUUID(),
+        };
+        return () => configure(args);
+      });
+    } catch (caught) {
+      setError(readableError(caught));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const numericFields = [
+    ["refreshSeconds", "Refresh interval, seconds", 30, 3600],
+    ["maximumQuestions", "Questions per team", 1, 12],
+    ["parallelAnalyses", "Concurrent analysis batches", 1, 8],
+    [
+      "batchCharacters",
+      "Characters per batch (all batches are analysed)",
+      64000,
+      160000,
+    ],
+    ["maximumAttempts", "Preparation attempts per evidence version", 1, 10],
+    [
+      "preparationTimeoutSeconds",
+      "Timeout per analysis step, seconds",
+      60,
+      600,
+    ],
+  ] as const;
+  return (
+    <form onSubmit={submit}>
+      <p className="muted">
+        Prepare ungraded verbal prompts for every reviewable team. Updated
+        evidence creates a fresh set; each review keeps the evidence captured
+        when it starts. All readable repository files and stored Figma nodes are
+        processed in batches. Large inputs are split, never silently truncated.
+        Captured Figma renders can also be inspected; runtime behavior still
+        needs a live demonstration. Ops can see collection and analysis
+        coverage; reviewers receive a short brief with useful follow-ups.
+      </p>
+      <fieldset disabled={!settings.canConfigure || busy || pending}>
+        <label className="checkbox-field">
+          <input
+            type="checkbox"
+            checked={policy.enabled}
+            onChange={(e) =>
+              setPolicy({ ...policy, enabled: e.target.checked })
+            }
+          />
+          Continuously prepare suggested questions
+        </label>
+        <label className="checkbox-field">
+          <input
+            type="checkbox"
+            checked={policy.visualAnalysis}
+            onChange={(e) =>
+              setPolicy({ ...policy, visualAnalysis: e.target.checked })
+            }
+          />
+          Inspect captured Figma screens
+        </label>
+        <label>
+          Model
+          <input
+            value={policy.model}
+            onChange={(e) => setPolicy({ ...policy, model: e.target.value })}
+          />
+        </label>
+        {numericFields.map(([key, label, min, max]) => (
+          <label key={key}>
+            {label}
+            <input
+              type="number"
+              min={min}
+              max={max}
+              value={policy[key]}
+              onChange={(e) =>
+                setPolicy({ ...policy, [key]: Number(e.target.value) })
+              }
+            />
+          </label>
+        ))}
+        <label>
+          Additional review guidance
+          <textarea
+            maxLength={2000}
+            value={policy.instructions}
+            onChange={(e) =>
+              setPolicy({ ...policy, instructions: e.target.value })
+            }
+          />
+        </label>
+        <label>
+          Reason
+          <input value={reason} onChange={(e) => setReason(e.target.value)} />
+        </label>
+      </fieldset>
+      {settings.canConfigure ? (
+        <button
+          type="submit"
+          disabled={busy || (!pending && reason.trim().length < 3)}
+        >
+          {busy
+            ? "Saving…"
+            : pending
+              ? "Confirm earlier update"
+              : "Save question settings"}
+        </button>
+      ) : null}
+      {error ? <p role="alert">{error}</p> : null}
+    </form>
+  );
+}

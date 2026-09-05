@@ -1,0 +1,24 @@
+name: code2create-discord-production
+
+services:
+  support:
+    image: code2create-discord:current
+    restart: unless-stopped
+    stop_grace_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "25m"
+        max-file: "5"
+        compress: "true"
+    env_file: .discord.env
+    healthcheck:
+      test:
+        - "CMD"
+        - "node"
+        - "-e"
+        - "fetch('http://127.0.0.1:8080/health').then(r=>{if(!r.ok)process.exit(1)})"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s

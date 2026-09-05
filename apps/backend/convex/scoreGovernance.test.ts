@@ -10,7 +10,6 @@ import type { MutationCtx } from "./_generated/server";
 import { insertPermissionGrant } from "./lib/permissions";
 import {
   maximumReviewerAssignmentsPerEvent,
-  maximumReviewRoundsPerEvent,
 } from "./lib/reviewLimits";
 import { requireScoreGovernancePageSize } from "./scoreGovernance";
 import { createTestSubmissionSnapshot } from "./lib/testSubmissionSnapshot";
@@ -27,13 +26,277 @@ const betterAuthModules = import.meta.glob(
 );
 type BackendTest = TestConvex<typeof schema>;
 
+describe("combined review results", () => {
+  test("weights are versioned, retryable, permission scoped, and never turn missing reviews into zero", async () => {
+    const backend = seededBackend();
+    const fixture = await seedCorrectionFixture(backend);
+    await prepareCorrectionSubmission(backend, fixture);
+    const secondRoundId = await backend.run(async (ctx) => {
+      const original = await ctx.db.get(fixture.roundId);
+      if (!original) throw new Error("Fixture round missing");
+      const { _id, _creationTime, ...fields } = original;
+      const second = await ctx.db.insert("reviewRounds", {
+        ...fields,
+        stableKey: "round-two",
+        name: "Round 2",
+        sequence: 2,
+      });
+      for (const permissionKey of [
+        "review.configuration.read",
+        "review.configuration.publish",
+      ] as const) {
+        await insertPermissionGrant(ctx, {
+          eventId: fixture.eventId,
+          personId: fixture.personId,
+          eventAccessSubjectId: fixture.subjectId,
+          permissionKey,
+          scopeType: "event",
+          sourceType: "manual",
+          sourceId: "aggregation-test",
+          grantedByPersonId: fixture.personId,
+          reason: "Configure round weights",
+        });
+      }
+      return second;
+    });
+    const actor = reviewerClient(backend, fixture);
+    const publication = {
+      eventSlug: fixture.eventSlug,
+      expectedVersion: 0,
+      reason: "Use the event round weights",
+      rounds: [
+        { roundId: fixture.roundId, weight: 30 },
+        { roundId: secondRoundId, weight: 70 },
+      ],
+      clientOperationId: "publish-weights",
+    };
+    await expect(
+      actor.mutation(api.reviewAggregation.publish, {
+        ...publication,
+        rounds: [{ roundId: fixture.roundId, weight: 30 }],
+        clientOperationId: "invalid-weights",
+      }),
+    ).rejects.toThrow("totaling 100%");
+    expect(
+      await actor.mutation(api.reviewAggregation.publish, publication),
+    ).toEqual({
+      version: 1,
+    });
+    expect(
+      await actor.mutation(api.reviewAggregation.publish, publication),
+    ).toEqual({
+      version: 1,
+    });
+    await expect(
+      actor.mutation(api.reviewAggregation.publish, {
+        ...publication,
+        clientOperationId: "stale-weights",
+      }),
+    ).rejects.toThrow("Round weights changed");
+    const read = () =>
+      actor.query(api.reviewAggregation.results, {
+        eventSlug: fixture.eventSlug,
+      });
+    expect((await read()).state).toBe("hidden");
+    await backend.run(async (ctx) => {
+      for (const roundId of [fixture.roundId, secondRoundId]) {
+        await insertPermissionGrant(ctx, {
+          eventId: fixture.eventId,
+          personId: fixture.personId,
+          eventAccessSubjectId: fixture.subjectId,
+          permissionKey: "score.values.read",
+          scopeType: "round",
+          scopeId: roundId,
+          sourceType: "manual",
+          sourceId: `aggregation-${roundId}`,
+          grantedByPersonId: fixture.personId,
+          reason: "Read combined results",
+        });
+      }
+    });
+    expect((await read()).state).toBe("awaiting_rounds");
+    const secondEntryId = await backend.run(async (ctx) => {
+      const evaluation = await ctx.db
+        .query("reviewEvaluations")
+        .withIndex("by_session", (q) =>
+          q.eq("reviewSessionId", fixture.reviewSessionId),
+        )
+        .unique();
+      if (!evaluation) throw new Error("Evaluation fixture missing");
+      const entryIds = [];
+      for (const [roundId, totalPoints] of [
+        [fixture.roundId, 80],
+        [secondRoundId, 60],
+      ] as const) {
+        const snapshotId = await ctx.db.insert("roundCloseSnapshots", {
+          eventId: fixture.eventId,
+          roundId,
+          rubricVersionId: fixture.rubricVersionId,
+          revision: 1,
+          roundConfigurationChecksum: "round-checksum",
+          resultCount: 1,
+          exclusionCount: 0,
+          withdrawnCount: 0,
+          checksum: `snapshot-${roundId}`,
+          createdByPersonId: fixture.personId,
+          createdAt: fixture.now,
+        });
+        await ctx.db.patch(roundId, {
+          status: "closed",
+          activeCloseSnapshotId: snapshotId,
+        });
+        entryIds.push(
+          await ctx.db.insert("roundCloseEntries", {
+            eventId: fixture.eventId,
+            roundId,
+            closeSnapshotId: snapshotId,
+            teamId: fixture.teamId,
+            payload: {
+              kind: "result",
+              reviewSessionId: fixture.reviewSessionId,
+              evaluationId: evaluation._id,
+              evaluationInputChecksum: evaluation.inputChecksum,
+              criterionResults: [],
+              totalPoints,
+            },
+            createdAt: fixture.now,
+          }),
+        );
+      }
+      return entryIds[1];
+    });
+    const result = await read();
+    expect(result.state).toBe("ready");
+    expect(result.teams[0]?.totalPoints).toBe(66);
+    expect(
+      await actor.mutation(api.reviewAggregation.publish, {
+        ...publication,
+        expectedVersion: 1,
+        rounds: [
+          { roundId: fixture.roundId, weight: 50 },
+          { roundId: secondRoundId, weight: 50 },
+        ],
+        clientOperationId: "change-weights",
+      }),
+    ).toEqual({ version: 2 });
+    expect((await read()).teams[0]?.totalPoints).toBe(70);
+    const policies = await backend.run((ctx) =>
+      ctx.db.query("reviewAggregationPolicies").collect(),
+    );
+    expect(policies.map((policy) => [policy.version, policy.status])).toEqual([
+      [1, "superseded"],
+      [2, "published"],
+    ]);
+    if (!secondEntryId) throw new Error("Second outcome fixture missing");
+    await backend.run((ctx) => ctx.db.delete(secondEntryId));
+    const incomplete = await read();
+    expect(incomplete.teams[0]?.totalPoints).toBeNull();
+    expect(incomplete.teams[0]?.rounds[1]?.state).toBe("missing");
+  });
+});
+
 describe("score governance pagination", () => {
+  test.each([true, false])(
+    "final comments follow the published requirement (%s) and survive correction",
+    async (required) => {
+      const backend = seededBackend();
+      const fixture = await seedCorrectionFixture(backend);
+      await grantCorrectionDecision(backend, fixture);
+      await prepareCorrectionSubmission(backend, fixture);
+      await backend.run(async (ctx) => {
+        await ctx.db.patch(fixture.roundId, { requiresFinalComment: required });
+        await insertPermissionGrant(ctx, {
+          eventId: fixture.eventId,
+          personId: fixture.personId,
+          eventAccessSubjectId: fixture.subjectId,
+          permissionKey: "scorecard.draft.write",
+          scopeType: "scorecard",
+          scopeId: fixture.scorecardId,
+          sourceType: "panel_assignment",
+          sourceId: fixture.assignmentId,
+          grantedByPersonId: fixture.personId,
+          reason: "Reviewer comment correction test",
+        });
+      });
+      const reviewer = reviewerClient(backend, fixture);
+      const request = await reviewer.mutation(
+        api.scoreGovernance.requestCorrection,
+        correctionRequestArgs(fixture, "request-comment-correction"),
+      );
+      await reviewer.mutation(api.scoreGovernance.decideCorrection, {
+        eventSlug: fixture.eventSlug,
+        correctionCaseId: request.correctionCaseId,
+        expectedCaseVersion: request.version,
+        expectedScorecardVersion: 1,
+        decision: "open",
+        reason: "Correct the reviewer feedback.",
+        clientOperationId: "open-comment-correction",
+      });
+      const draftArgs = {
+        eventSlug: fixture.eventSlug,
+        installationId: "correction-boundary-device",
+        scorecardId: fixture.scorecardId,
+        ratings: [],
+        privateNote: "This note must stay separate from final feedback.",
+        finalComment: "   ",
+        expectedDraftVersion: 1,
+        clientOperationId: "save-private-only",
+      };
+      const saved = await reviewer.mutation(api.reviewer.saveDraft, draftArgs);
+      let draftVersion = saved.draftVersion;
+      if (required) {
+        await expect(
+          reviewer.mutation(api.reviewer.submitScorecard, {
+            eventSlug: fixture.eventSlug,
+            installationId: draftArgs.installationId,
+            scorecardId: fixture.scorecardId,
+            expectedDraftVersion: draftVersion,
+            clientOperationId: "missing-final-comment",
+          }),
+        ).rejects.toThrow("Leave a final comment");
+        const updated = await reviewer.mutation(api.reviewer.saveDraft, {
+          ...draftArgs,
+          finalComment:
+            "  Clear architecture; improve the error recovery flow.  ",
+          expectedDraftVersion: draftVersion,
+          clientOperationId: "save-final-comment",
+        });
+        draftVersion = updated.draftVersion;
+      }
+      const submitArgs = {
+        eventSlug: fixture.eventSlug,
+        installationId: draftArgs.installationId,
+        scorecardId: fixture.scorecardId,
+        expectedDraftVersion: draftVersion,
+        clientOperationId: "submit-final-comment",
+      };
+      const submitted = await reviewer.mutation(
+        api.reviewer.submitScorecard,
+        submitArgs,
+      );
+      expect(
+        await reviewer.mutation(api.reviewer.submitScorecard, submitArgs),
+      ).toEqual(submitted);
+      const version = await backend.run((ctx) =>
+        ctx.db.get(submitted.scorecardVersionId),
+      );
+      expect(version?.finalComment).toBe(
+        required
+          ? "Clear architecture; improve the error recovery flow."
+          : undefined,
+      );
+      expect(version?.privateNote).toBe(draftArgs.privateNote);
+      expect(version?.supersedesVersionId).toBe(fixture.scorecardVersionId);
+    },
+  );
+
   test("accepts only bounded integer page sizes", () => {
     expect(() => requireScoreGovernancePageSize(1)).not.toThrow();
     expect(() => requireScoreGovernancePageSize(30)).not.toThrow();
 
     for (const pageSize of [0, 31, 1.5, Number.NaN]) {
-      expect(() => requireScoreGovernancePageSize(pageSize)).toThrow(ConvexError);
+      expect(() => requireScoreGovernancePageSize(pageSize)).toThrow(ConvexError,
+      );
     }
   });
 
@@ -177,13 +440,16 @@ describe("score governance pagination", () => {
           correctionRequestArgs(fixture, "request-after-deadline"),
         ),
       ).rejects.toThrow("no longer accepts");
-      await expect(correctionWriteSnapshot(backend, fixture)).resolves.toEqual(before);
+      await expect(correctionWriteSnapshot(backend, fixture)).resolves.toEqual(before,
+      );
       await expect(
         reviewerClient(backend, fixture).query(api.scoreGovernance.myCorrectionOptions, {
           eventSlug: fixture.eventSlug,
-        }),
+        },
+        ),
       ).resolves.toEqual([
-        expect.objectContaining({ scorecardId: fixture.scorecardId, canRequest: false }),
+        expect.objectContaining({ scorecardId: fixture.scorecardId, canRequest: false,
+        }),
       ]);
     } finally {
       clock.mockRestore();
@@ -211,7 +477,8 @@ describe("score governance pagination", () => {
           decision: "open",
           reason: "Approve at the published deadline",
           clientOperationId: "open-at-deadline",
-        }),
+        },
+        ),
       ).resolves.toMatchObject({ state: "open", version: 2 });
     } finally {
       clock.mockRestore();
@@ -244,15 +511,18 @@ describe("score governance pagination", () => {
           ...decisionArgs,
           decision: "open",
           clientOperationId: "late-open",
-        }),
+        },
+        ),
       ).rejects.toThrow("no longer accepts");
-      await expect(correctionWriteSnapshot(backend, fixture)).resolves.toEqual(before);
+      await expect(correctionWriteSnapshot(backend, fixture)).resolves.toEqual(before,
+      );
       await expect(
         reviewerClient(backend, fixture).mutation(api.scoreGovernance.decideCorrection, {
           ...decisionArgs,
           decision: "reject",
           clientOperationId: "late-reject",
-        }),
+        },
+        ),
       ).resolves.toMatchObject({ state: "rejected", version: 2 });
     } finally {
       clock.mockRestore();
@@ -280,7 +550,8 @@ describe("score governance pagination", () => {
         decision: "open",
         reason: "Open the correction before the deadline",
         clientOperationId: "open-before-late-submit",
-      });
+      },
+      );
       clock.mockReturnValue(deadline + 1);
       const submission = await reviewerClient(backend, fixture).mutation(
         api.reviewer.submitScorecard,
@@ -302,130 +573,6 @@ describe("score governance pagination", () => {
     } finally {
       clock.mockRestore();
     }
-  });
-
-  test("participant feedback fails within a bounded read when its owner limit is broken", async () => {
-    const backend = seededBackend({ documentsRead: 50 });
-    const fixture = await seedCorrectionFixture(backend);
-    const releaseId = await backend.run(async (ctx) => {
-      await insertPermissionGrant(ctx, {
-        eventId: fixture.eventId,
-        personId: fixture.personId,
-        eventAccessSubjectId: fixture.subjectId,
-        permissionKey: "score.feedback.read",
-        scopeType: "team",
-        scopeId: fixture.teamId,
-        sourceType: "manual",
-        sourceId: `${fixture.eventSlug}:participant-feedback`,
-        grantedByPersonId: fixture.personId,
-        reason: "Participant feedback test",
-      });
-      const closeSnapshotId = await ctx.db.insert("roundCloseSnapshots", {
-        eventId: fixture.eventId,
-        roundId: fixture.roundId,
-        rubricVersionId: fixture.rubricVersionId,
-        revision: 1,
-        roundConfigurationChecksum: "participant-feedback-round",
-        resultCount: 0,
-        exclusionCount: 0,
-        withdrawnCount: 0,
-        checksum: "participant-feedback-snapshot",
-        createdByPersonId: fixture.personId,
-        createdAt: fixture.now,
-      });
-      const roundExportId = await ctx.db.insert("roundExports", {
-        eventId: fixture.eventId,
-        roundId: fixture.roundId,
-        closeSnapshotId,
-        revision: 1,
-        exportFormatVersion: 1,
-        state: "verified",
-        closingRoundVersion: 1,
-        counts: {
-          team: 0,
-          result: 0,
-          excluded: 0,
-          withdrawn: 0,
-          reviewSession: 0,
-          scorecard: 0,
-          scorecardVersion: 0,
-          correctionCase: 0,
-          manualReviewRecord: 0,
-        },
-        checksum: "participant-feedback-export",
-        requestedByPersonId: fixture.personId,
-        requestedAt: fixture.now,
-        verifiedByPersonId: fixture.personId,
-        verifiedAt: fixture.now,
-        verificationReason: "Participant feedback test",
-        version: 1,
-        updatedAt: fixture.now,
-      });
-      const releaseId = await ctx.db.insert("scoreReleaseVersions", {
-        eventId: fixture.eventId,
-        roundId: fixture.roundId,
-        closeSnapshotId,
-        roundExportId,
-        policyVersion: "participant-feedback-v1",
-        includeCriterionScores: false,
-        includeTotalScore: true,
-        includeSharedFindings: false,
-        includeSharedCommitments: false,
-        checksum: "participant-feedback-release",
-        publishedByPersonId: fixture.personId,
-        publishedAt: fixture.now,
-        reason: "Participant feedback test",
-      });
-      await ctx.db.insert("scoreReleaseEntries", {
-        eventId: fixture.eventId,
-        roundId: fixture.roundId,
-        releaseId,
-        teamId: fixture.teamId,
-        reviewSessionId: fixture.reviewSessionId,
-        criterionResults: [],
-        totalPoints: 0,
-        createdAt: fixture.now,
-      });
-      return releaseId;
-    });
-    const participant = backend.withIdentity({
-      subject: fixture.authUserId,
-      sessionId: fixture.authSessionId,
-    });
-    await expect(
-      participant.query(api.scoreGovernance.participantFeedback, {
-        eventSlug: fixture.eventSlug,
-      }),
-    ).resolves.toEqual([
-      {
-        roundId: fixture.roundId,
-        roundName: "Correction round",
-        roundSequence: 1,
-        policyVersion: "participant-feedback-v1",
-        publishedAt: fixture.now,
-        totalScore: 0,
-        criteria: [],
-      },
-    ]);
-    await backend.run(async (ctx) => {
-      for (let index = 1; index <= maximumReviewRoundsPerEvent; index += 1) {
-        await ctx.db.insert("scoreReleaseEntries", {
-          eventId: fixture.eventId,
-          roundId: fixture.roundId,
-          releaseId,
-          teamId: fixture.teamId,
-          reviewSessionId: fixture.reviewSessionId,
-          criterionResults: [],
-          totalPoints: index,
-          createdAt: fixture.now + index,
-        });
-      }
-    });
-    await expect(
-      participant.query(api.scoreGovernance.participantFeedback, {
-        eventSlug: fixture.eventSlug,
-      }),
-    ).rejects.toThrow("participant feedback release limit");
   });
 
   test("submitted participant view reads the immutable project instead of a mutable draft", async () => {
@@ -531,7 +678,8 @@ function reviewerClient(backend: BackendTest, fixture: CorrectionFixture) {
   });
 }
 
-function correctionRequestArgs(fixture: CorrectionFixture, clientOperationId: string) {
+function correctionRequestArgs(fixture: CorrectionFixture, clientOperationId: string,
+) {
   return {
     eventSlug: fixture.eventSlug,
     scorecardId: fixture.scorecardId,
@@ -547,10 +695,12 @@ async function setCorrectionDeadline(
   fixture: CorrectionFixture,
   correctionRequestsCloseAt: number,
 ) {
-  await backend.run((ctx) => ctx.db.patch(fixture.roundId, { correctionRequestsCloseAt }));
+  await backend.run((ctx) => ctx.db.patch(fixture.roundId, { correctionRequestsCloseAt }),
+  );
 }
 
-async function grantCorrectionDecision(backend: BackendTest, fixture: CorrectionFixture) {
+async function grantCorrectionDecision(backend: BackendTest, fixture: CorrectionFixture,
+) {
   await backend.run((ctx) =>
     insertPermissionGrant(ctx, {
       eventId: fixture.eventId,
@@ -567,7 +717,8 @@ async function grantCorrectionDecision(backend: BackendTest, fixture: Correction
   );
 }
 
-async function prepareCorrectionSubmission(backend: BackendTest, fixture: CorrectionFixture) {
+async function prepareCorrectionSubmission(backend: BackendTest, fixture: CorrectionFixture,
+) {
   await backend.run(async (ctx) => {
     await ctx.db.insert("reviewerDevices", {
       eventId: fixture.eventId,
@@ -613,7 +764,8 @@ async function prepareCorrectionSubmission(backend: BackendTest, fixture: Correc
   });
 }
 
-async function correctionWriteSnapshot(backend: BackendTest, fixture: CorrectionFixture) {
+async function correctionWriteSnapshot(backend: BackendTest, fixture: CorrectionFixture,
+) {
   return backend.run(async (ctx) => {
     const [correctionCases, operationResults, auditEvents, scorecard] = await Promise.all([
       ctx.db.query("scorecardCorrectionCases").collect(),
@@ -715,8 +867,10 @@ async function seedCorrectionFixture(backend: BackendTest) {
       createdByPersonId: personId,
       createdAt: now,
       publishedAt: now,
-    });
-    const intakePolicy = normalizeIntakePolicy(defaultDeterministicIntakePolicy);
+    },
+    );
+    const intakePolicy = normalizeIntakePolicy(defaultDeterministicIntakePolicy,
+    );
     const intakePolicyVersionId = await ctx.db.insert("intakePolicyVersions", {
       eventId,
       version: 1,
@@ -740,7 +894,8 @@ async function seedCorrectionFixture(backend: BackendTest) {
       createdByPersonId: personId,
       createdAt: now,
       publishedAt: now,
-    });
+    },
+    );
     const teamMemberId = await ctx.db.insert("teamMembers", {
       eventId,
       teamId,
@@ -822,9 +977,20 @@ async function seedCorrectionFixture(backend: BackendTest) {
       substituteResponseSeconds: 60,
       missedReentryPolicy: "queue_end",
       requiredPanelSize: 1,
+      staffing: {
+        seniorSeats: 0,
+        juniorSeats: 0,
+        allowSeniorLeadFallback: true,
+        automaticReplacement: false,
+        juniorRotationReviews: 0,
+        reviewerArrivalSeconds: 90,
+        assignmentReminderSeconds: 300,
+        assignmentReminderCalls: true,
+      },
       minimumScorersPerCriterion: 1,
       minimumPresentParticipants: 1,
       requiresSharedCommitments: false,
+      requiresFinalComment: false,
       minimumReviewerBuild: 1,
       requiresCamera: false,
       requiresNotifications: false,
@@ -860,7 +1026,8 @@ async function seedCorrectionFixture(backend: BackendTest) {
       checksum: crypto.randomUUID(),
       createdByPersonId: personId,
       createdAt: now,
-    });
+    },
+    );
     const reviewSessionId = await ctx.db.insert("reviewSessions", {
       eventId,
       roundId,
@@ -988,7 +1155,8 @@ async function insertCorrectionCase(
   });
 }
 
-async function createAuthUser(backend: BackendTest, now: number, email: string) {
+async function createAuthUser(backend: BackendTest, now: number, email: string,
+) {
   const result: unknown = await backend.mutation(components.betterAuth.adapter.create, {
     input: {
       model: "user",
@@ -1000,11 +1168,13 @@ async function createAuthUser(backend: BackendTest, now: number, email: string) 
         updatedAt: now,
       },
     },
-  });
+  },
+  );
   return documentId(result, "Better Auth user");
 }
 
-async function createAuthSession(backend: BackendTest, userId: string, now: number) {
+async function createAuthSession(backend: BackendTest, userId: string, now: number,
+) {
   const result: unknown = await backend.mutation(components.betterAuth.adapter.create, {
     input: {
       model: "session",
@@ -1016,7 +1186,8 @@ async function createAuthSession(backend: BackendTest, userId: string, now: numb
         userId,
       },
     },
-  });
+  },
+  );
   return documentId(result, "Better Auth session");
 }
 

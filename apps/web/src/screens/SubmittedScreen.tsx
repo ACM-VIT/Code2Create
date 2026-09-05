@@ -1,3 +1,4 @@
+import { LiveNumber } from "../components/LiveNumber";
 import { api } from "@code2create/backend/api";
 import type { FunctionReturnType } from "convex/server";
 import { useMutation, useQuery } from "convex/react";
@@ -19,7 +20,7 @@ import { PortalButton, PortalTextButton } from "../components/portal/PortalButto
 import { PortalError, PortalTextarea } from "../components/portal/PortalField";
 import { normalizedIdeaLength, useNoveltyPreview } from "../hooks/useNoveltyPreview";
 import { DashboardLive } from "./DashboardLive";
-import { NoveltyPill, ReviewEditRow } from "./IntakeScreen";
+import { NoveltyPill, ReviewEditRow } from "../components/ProposalReview";
 import {
   AccordionItem,
   AccordionItemContent,
@@ -924,7 +925,7 @@ function ProposalSummary({
                     }}
                   />
                   <p className="mt-1 text-right font-mono text-[11px] tracking-[.04em] text-fg/45">
-                    {draft.initialIdea.length} / {ideaMaximumLength}
+                    <LiveNumber value={draft.initialIdea.length} /> / {ideaMaximumLength}
                   </p>
                   {draft.initialIdea.length > ideaMaximumLength ? (
                     <PortalError

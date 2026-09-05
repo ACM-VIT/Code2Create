@@ -41,13 +41,22 @@ export const deliverPage = internalAction({
     const claim = await ctx.runMutation(internal.reviewPushState.claimDelivery, {
       deliveryId: args.deliveryId,
       attemptId,
-    });
+    },
+    );
     if (!claim) return null;
 
-    const outcome =
-      claim.provider === "fcm"
-        ? await sendFcmNotification(claim)
-        : await sendApnsNotification(claim);
+    const data = reviewerPagePushData({
+      pageId: claim.pageId,
+      roundName: claim.roundName,
+      expiresAt: claim.expiresAt,
+    });
+    const outcome = await sendReviewerPush({
+      ...claim,
+      title: "Substitute request",
+      body: data.body,
+      collapseKey: `reviewer-page-${claim.pageId}`,
+      data,
+    });
     if (outcome.ok) {
       await ctx.runMutation(internal.reviewPushState.recordProviderAcceptance, {
         deliveryId: args.deliveryId,
@@ -68,6 +77,12 @@ export const deliverPage = internalAction({
   },
 });
 
+export async function sendReviewerPush(claim: PushClaim): Promise<PushOutcome> {
+  return claim.provider === "fcm"
+    ? sendFcmNotification(claim)
+    : sendApnsNotification(claim);
+}
+
 async function sendFcmNotification(claim: PushClaim): Promise<PushOutcome> {
   try {
     const app = firebaseApp();
@@ -75,15 +90,17 @@ async function sendFcmNotification(claim: PushClaim): Promise<PushOutcome> {
     // Data-only FCM reaches PagerMessagingService for full-screen handling.
     const messageId = await getMessaging(app).send({
       token: claim.token,
-      data: reviewerPagePushData({
-        pageId: claim.pageId,
-        roundName: claim.roundName,
-        expiresAt: claim.expiresAt,
-      }),
+      ...(claim.data.kind === "reviewer_substitute_page"
+        ? {}
+        : { notification: { title: claim.title, body: claim.body } }),
+      data: claim.data,
       android: {
         priority: "high",
         ttl,
-        collapseKey: `reviewer-page-${claim.pageId}`,
+        collapseKey: claim.collapseKey,
+        ...(claim.notificationChannel
+          ? { notification: { channelId: claim.notificationChannel, sound: "default" } }
+          : {}),
       },
     });
     return { ok: true, messageId };
@@ -104,7 +121,8 @@ function firebaseApp() {
   const credentials = firebaseCredentialsSchema.parse({
     projectId: process.env.FIREBASE_PROJECT_ID?.trim(),
     clientEmail: process.env.FIREBASE_CLIENT_EMAIL?.trim(),
-    privateKey: process.env.FIREBASE_PRIVATE_KEY?.replaceAll("\\n", "\n").trim(),
+    privateKey: process.env.FIREBASE_PRIVATE_KEY?.replaceAll("\\n", "\n",
+    ).trim(),
   });
   return initializeApp({ credential: cert(credentials) }, firebaseAppName);
 }
@@ -130,6 +148,29 @@ function fcmFailure(code: string): PushFailure {
 }
 
 async function sendApnsNotification(claim: PushClaim): Promise<PushOutcome> {
+  return sendApnsAlert({
+    ...claim,
+    collapseId: claim.collapseKey,
+    payload: {
+      aps: {
+        alert: { title: claim.title, body: claim.body },
+        "interruption-level": "time-sensitive",
+        "relevance-score": 1,
+        sound: "default",
+        "thread-id": claim.notificationChannel ?? "reviewer-pages",
+      },
+      ...claim.data,
+    },
+  });
+}
+
+async function sendApnsAlert(claim: {
+  token: string;
+  environment: "development" | "production";
+  expiresAt: number;
+  collapseId: string;
+  payload: NativeAlertPayload;
+}): Promise<PushOutcome> {
   let credentials: z.infer<typeof apnsCredentialsSchema>;
   try {
     credentials = apnsCredentialsSchema.parse({
@@ -169,28 +210,9 @@ async function sendApnsNotification(claim: PushClaim): Promise<PushOutcome> {
         "apns-priority": "10",
         "apns-push-type": "alert",
         "apns-topic": credentials.bundleId,
-        "apns-collapse-id": `reviewer-${claim.pageId}`.slice(0, 64),
+        "apns-collapse-id": claim.collapseId.slice(0, 64),
       },
-      body: JSON.stringify({
-        aps: {
-          alert: {
-            title: "Substitute request",
-            body: reviewerPagePushData({
-              pageId: claim.pageId,
-              roundName: claim.roundName,
-              expiresAt: claim.expiresAt,
-            }).body,
-          },
-          // Time-sensitive alerts can bypass Focus without critical-alert entitlement.
-          "interruption-level": "time-sensitive",
-          "relevance-score": 1,
-          sound: "default",
-          "thread-id": "reviewer-pages",
-        },
-        kind: "reviewer_substitute_page",
-        pageId: claim.pageId,
-        expiresAt: claim.expiresAt,
-      }),
+      body: JSON.stringify(claim.payload),
     });
     if (response.status === 200) {
       return { ok: true, messageId: response.apnsId ?? requestId };
@@ -206,9 +228,8 @@ async function sendApnsNotification(claim: PushClaim): Promise<PushOutcome> {
     const retryable =
       response.status === 429 ||
       response.status >= 500 ||
-      new Set(["TooManyRequests", "InternalServerError", "ServiceUnavailable", "Shutdown"]).has(
-        reason,
-      );
+      new Set(["TooManyRequests", "InternalServerError", "ServiceUnavailable", "Shutdown",
+      ]).has(reason);
     return {
       ok: false,
       errorCode: normalizedProviderCode(`apns_${response.status}_${reason}`),
@@ -266,7 +287,8 @@ async function apnsRequest(args: {
     stream.once("error", (error) => finish(() => rejectPromise(error)));
     stream.once("end", () => {
       const body = Buffer.concat(chunks).toString("utf8");
-      finish(() => resolvePromise({ status, body, ...(apnsId ? { apnsId } : {}) }));
+      finish(() => resolvePromise({ status, body, ...(apnsId ? { apnsId } : {}) }),
+      );
     });
     stream.end(args.body);
   });
@@ -286,13 +308,63 @@ function normalizedProviderCode(value: string) {
 }
 
 type PushClaim = {
-  pageId: string;
+  title: string;
+  body: string;
+  collapseKey: string;
+  notificationChannel?: string;
+  data: Record<string, string>;
   token: string;
   provider: "fcm" | "apns";
   environment: "development" | "production";
-  roundName: string;
   expiresAt: number;
 };
+
+type NativeAlertAps = {
+  alert: { title: string; body: string };
+  sound: string;
+  "thread-id": string;
+  "interruption-level": "time-sensitive";
+  "relevance-score"?: number;
+};
+type NativeAlertPayload = { aps: NativeAlertAps } & Record<
+  string,
+  string | number | NativeAlertAps
+>;
+
+export const deliverVenueReminder = internalAction({
+  args: { departureId: v.id("reviewerVenueDepartures") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const attemptId = randomUUID();
+    const claim = await ctx.runMutation(
+      internal.reviewerVenueEscalation.claimNotification,
+      { ...args, attemptId },
+    );
+    if (!claim) return null;
+    const outcome = await sendReviewerPush({
+      ...claim,
+      collapseKey: `venue-${args.departureId}`,
+      notificationChannel: "reviewer-venue",
+      data: {
+        kind: "reviewer_venue_absence",
+        departureId: args.departureId,
+        url: "/venue",
+        expiresAt: String(claim.expiresAt),
+      },
+    });
+    await ctx.runMutation(internal.reviewerVenueEscalation.recordNotification, {
+      ...args,
+      attemptId,
+      sent: outcome.ok,
+      reviewerDeviceId: claim.reviewerDeviceId,
+      tokenFingerprint: claim.tokenFingerprint,
+      invalidateToken: !outcome.ok && outcome.invalidateToken,
+      retryable: !outcome.ok && outcome.retryable,
+      ...(!outcome.ok ? { errorCode: outcome.errorCode } : {}),
+    });
+    return null;
+  },
+});
 
 type PushOutcome = { ok: true; messageId: string } | PushFailure;
 

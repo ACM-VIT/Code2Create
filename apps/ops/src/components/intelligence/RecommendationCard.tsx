@@ -1,3 +1,4 @@
+import { LiveNumber } from "../LiveNumber";
 import { api } from "@code2create/backend/api";
 import type {
   IntelligenceRecommendationCitation,
@@ -164,7 +165,7 @@ export function RecommendationCard({
             <dd
               className={`m-0 [overflow-wrap:anywhere] text-[12.5px] leading-5 text-ink-2 ${row.code ? "font-mono text-[11.5px]" : ""}`}
             >
-              {row.value}
+              {typeof row.value === "number" ? <LiveNumber value={row.value} /> : row.value}
             </dd>
           </div>
         ))}

@@ -328,7 +328,7 @@ async function seedCancellationFixture(
       sessionId,
       operatorPersonId: personId,
       membershipId,
-      credentialKind: "portal_qr",
+      credentialKind: "external_pass",
       clientOperationId: `fixture-scan-${timing.now}`,
       requestFingerprint: "fixture-scan",
       capturedAt: timing.openedAt,

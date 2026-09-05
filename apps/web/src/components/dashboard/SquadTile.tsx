@@ -1,3 +1,4 @@
+import { LiveNumber } from "../LiveNumber";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 
@@ -22,7 +23,7 @@ export function SquadTile({ slot, team,
         <div className={`flex items-baseline justify-between gap-3 ${hiddenWhenShort}`}>
           <TileEyebrow>squad</TileEyebrow>
           <span className="text-[11px] text-fg/50">
-            {team.activeMemberCount} of {team.teamMaximumSize}
+            <LiveNumber value={team.activeMemberCount} /> of {team.teamMaximumSize}
           </span>
         </div>
         {open ? (
