@@ -126,6 +126,100 @@ describe("admission cohort arithmetic", () => {
 });
 
 describe("admission cohort query and decisions", () => {
+  test("recorded decisions have their own counts, pages and team search", async () => {
+    const backend = seededBackend();
+    const fixture = await seedCohortFixture(backend);
+    const operator = backend.withIdentity({
+      subject: fixture.operatorAuthUserId,
+      sessionId: fixture.operatorAuthSessionId,
+    });
+    await operator.mutation(api.admissions.decide, {
+      eventSlug: fixture.eventSlug,
+      applicationId: fixture.decidableApplicationId,
+      expectedApplicationVersion: 1,
+      decision: "accept",
+      reasonCode: "strong_fit",
+      aiDisposition: "unavailable",
+      clientOperationId: "record-for-queue",
+    });
+    await backend.run(async (ctx) => {
+      await ctx.db.patch(fixture.splitApplicationId, {
+        decisionStage: "recorded",
+        humanDecision: "decline",
+        humanReasonCode: "out_of_scope",
+        decidedByPersonId: fixture.operatorPersonId,
+        decidedAt: fixture.now,
+      });
+      const split = await ctx.db.get(fixture.splitApplicationId);
+      if (!split) throw new Error("Missing fixture application");
+      await ctx.db.patch(split.teamId, { activeVitMemberCount: 0, activeExternalMemberCount: 1 });
+    });
+    const list = (state: "recorded" | "under_review", origin?: "internal" | "external") =>
+      operator.query(api.admissions.list, {
+        eventSlug: fixture.eventSlug,
+        state,
+        ...(origin ? { origin } : {}),
+        paginationOpts: { cursor: null, numItems: 10 },
+      });
+    expect(await operator.query(api.admissions.stageCounts, { eventSlug: fixture.eventSlug }))
+      .toEqual(expect.arrayContaining([
+        { state: "recorded", count: 2 }, { state: "under_review", count: 1 },
+      ]));
+    expect((await list("under_review")).page.map((row) => row.teamName)).toEqual(["Night Kiln"]);
+    expect((await list("under_review", "internal")).page.map((row) => row.teamName)).toEqual(["Night Kiln"]);
+    expect((await list("recorded", "internal")).page.map((row) => row.teamName)).toEqual(["Steady Loom"]);
+    expect((await list("recorded", "external")).page.map((row) => row.teamName)).toEqual(["Split Signal"]);
+    expect(await operator.query(api.admissions.stageCounts, {
+      eventSlug: fixture.eventSlug, origin: "external",
+    })).toEqual([{ state: "recorded", count: 1 }]);
+    const first = await operator.query(api.admissions.list, {
+      eventSlug: fixture.eventSlug, state: "recorded", paginationOpts: { cursor: null, numItems: 1 },
+    });
+    const second = await operator.query(api.admissions.list, {
+      eventSlug: fixture.eventSlug, state: "recorded",
+      paginationOpts: { cursor: first.continueCursor, numItems: 1 },
+    });
+    expect(first.page.map((row) => [row.teamName, row.humanDecision, row.state]))
+      .toEqual([["Steady Loom", "accept", "under_review"]]);
+    expect(second.page.map((row) => row.teamName)).toEqual(["Split Signal"]);
+    for (const [state, expectedNames] of [
+      ["recorded", ["Steady Loom"]], ["under_review", []],
+    ] as const) {
+      const result = await operator.query(api.admissions.searchApplications, {
+        eventSlug: fixture.eventSlug, state, search: "steady",
+      });
+      expect(result.applications.map((row) => row.teamName)).toEqual(expectedNames);
+    }
+    expect((await operator.query(api.admissions.searchApplications, {
+      eventSlug: fixture.eventSlug, state: "recorded", search: "split", origin: "internal",
+    })).applications).toEqual([]);
+
+    // An application-scoped reader sees only its own recorded decision in every view.
+    await backend.run(async (ctx) => {
+      const subject = await ctx.db.query("eventAccessSubjects")
+        .withIndex("by_event_person", (index) =>
+          index.eq("eventId", fixture.eventId).eq("personId", fixture.operatorPersonId),
+        ).unique();
+      if (!subject) throw new Error("Missing fixture subject");
+      for (const grant of await ctx.db.query("permissionGrants").collect()) {
+        if (grant.permissionKey === "application.read") await ctx.db.delete(grant._id);
+      }
+      await insertPermissionGrant(ctx, {
+        eventId: fixture.eventId, personId: fixture.operatorPersonId,
+        eventAccessSubjectId: subject._id, permissionKey: "application.read",
+        scopeType: "application", scopeId: fixture.decidableApplicationId,
+        sourceType: "manual", sourceId: "recorded-scope-test",
+        grantedByPersonId: fixture.operatorPersonId, reason: "Test scoped queue access",
+      });
+    });
+    expect(await operator.query(api.admissions.stageCounts, { eventSlug: fixture.eventSlug }))
+      .toEqual([{ state: "recorded", count: 1 }]);
+    expect((await list("recorded")).page.map((row) => row.teamName)).toEqual(["Steady Loom"]);
+    expect((await operator.query(api.admissions.searchApplications, {
+      eventSlug: fixture.eventSlug, state: "recorded", search: "split",
+    })).applications).toEqual([]);
+  });
+
   test("searches every application in a stage by team name", async () => {
     const backend = seededBackend();
     const fixture = await seedCohortFixture(backend, { extraTeams: 31 });
@@ -635,6 +729,13 @@ describe("admission cohort query and decisions", () => {
       ["waitlisted", "released"],
       ["declined", "released"],
     ]);
+    expect(await operator.query(api.admissions.stageCounts, { eventSlug: fixture.eventSlug }))
+      .toEqual(expect.arrayContaining([
+        { state: "accepted", count: 1 }, { state: "waitlisted", count: 1 }, { state: "declined", count: 1 },
+      ]));
+    expect((await operator.query(api.admissions.list, {
+      eventSlug: fixture.eventSlug, state: "recorded", paginationOpts: { cursor: null, numItems: 30 },
+    })).page).toEqual([]);
   });
 
   test("keeps decisions unavailable while teams can still revise proposals", async () => {

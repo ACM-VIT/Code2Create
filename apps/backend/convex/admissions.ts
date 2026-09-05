@@ -89,6 +89,13 @@ const maximumApplicationSearchResults = 100;
 const maximumAdmissionPageSize = 100;
 export const admissionReviewClaimMs = 30 * 60 * 1_000;
 const admissionTeamOrigin = v.union(v.literal("internal"), v.literal("external"));
+const admissionQueueStage = v.union(applicationState, v.literal("recorded"));
+
+function applicationQueueStage(application: Doc<"applications">): Doc<"applications">["state"] | "recorded" {
+  return application.decisionStage === "recorded" && application.state !== "withdrawn"
+    ? "recorded"
+    : application.state;
+}
 
 type HumanReviewScoreSource = Pick<
   Doc<"admissionHumanReviews">,
@@ -148,7 +155,7 @@ export const stageCounts = query({
     origin: v.optional(admissionTeamOrigin),
     completedReviewCount: v.optional(v.literal(1)),
   },
-  returns: v.array(v.object({ state: applicationState, count: v.number() })),
+  returns: v.array(v.object({ state: admissionQueueStage, count: v.number() })),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
@@ -166,7 +173,7 @@ export const stageCounts = query({
             .withIndex("by_event_state_submitted", (index) => index.eq("eventId", event._id))
             .collect()
         : await scopedApplicationsForStageCounts(ctx, event._id, subject._id);
-    const counts = new Map<Doc<"applications">["state"], number>();
+    const counts = new Map<ReturnType<typeof applicationQueueStage>, number>();
     for (const application of applications) {
       if (!(await applicationMatchesOrigin(ctx, application, args.origin))) continue;
       if (
@@ -175,17 +182,12 @@ export const stageCounts = query({
       ) {
         continue;
       }
-      counts.set(application.state, (counts.get(application.state) ?? 0) + 1);
+      const stage = applicationQueueStage(application);
+      counts.set(stage, (counts.get(stage) ?? 0) + 1);
     }
     return [...counts.entries()].map(([state, count]) => ({ state, count }));
   },
 });
-
-const terminalAdmissionDecision = v.union(
-  v.literal("accept"),
-  v.literal("waitlist"),
-  v.literal("decline"),
-);
 
 async function activeSupremeRole(
   ctx: QueryCtx | MutationCtx,
@@ -203,6 +205,24 @@ async function activeSupremeRole(
     : null;
 }
 
+const admissionSummaryCounts = v.object({
+  total: v.number(),
+  reviewsComplete: v.number(),
+  reviewsNeeded: v.number(),
+  unrecorded: v.number(),
+  recorded: v.number(),
+  released: v.number(),
+  accepted: v.number(),
+  waitlisted: v.number(),
+  declined: v.number(),
+});
+const ideaAgentSummaryCounts = v.object({
+  accepted: v.number(),
+  waitlisted: v.number(),
+  rejected: v.number(),
+  unavailable: v.number(),
+});
+
 export const admissionResultsReleaseStatus = query({
   args: { eventSlug: v.string() },
   returns: v.object({
@@ -212,39 +232,24 @@ export const admissionResultsReleaseStatus = query({
     applicationsCloseAt: v.number(),
     releasedAt: v.optional(v.number()),
     releasedByName: v.optional(v.string()),
-    total: v.number(),
-    reviewsComplete: v.number(),
-    reviewsNeeded: v.number(),
+    ...admissionSummaryCounts.fields,
+    people: admissionSummaryCounts,
     ideaAgent: v.union(v.null(), v.object({
-      accepted: v.number(),
-      waitlisted: v.number(),
-      rejected: v.number(),
-      unavailable: v.number(),
+      ...ideaAgentSummaryCounts.fields,
+      people: ideaAgentSummaryCounts,
     })),
-    unrecorded: v.number(),
-    recorded: v.number(),
-    released: v.number(),
-    accepted: v.number(),
-    waitlisted: v.number(),
-    declined: v.number(),
-    decisions: v.array(
-      v.object({
-        applicationId: v.id("applications"),
-        teamName: v.string(),
-        decision: terminalAdmissionDecision,
-        reasonCode: v.string(),
-        reasonLabel: v.string(),
-        decidedByName: v.string(),
-        decidedAt: v.number(),
-        stage: admissionDecisionStage,
-      }),
-    ),
   }),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const supremeRole = await activeSupremeRole(ctx, event._id, person._id);
+    const counts = {
+      total: 0, reviewsComplete: 0, reviewsNeeded: 0,
+      unrecorded: 0, recorded: 0, released: 0,
+      accepted: 0, waitlisted: 0, declined: 0,
+    };
+    const people = { ...counts };
     if (!supremeRole) {
       return {
         isSupreme: false,
@@ -254,17 +259,9 @@ export const admissionResultsReleaseStatus = query({
         ...(event.admissionResultsReleasedAt !== undefined
           ? { releasedAt: event.admissionResultsReleasedAt }
           : {}),
-        total: 0,
-        reviewsComplete: 0,
-        reviewsNeeded: 0,
+        ...counts,
+        people,
         ideaAgent: null,
-        unrecorded: 0,
-        recorded: 0,
-        released: 0,
-        accepted: 0,
-        waitlisted: 0,
-        declined: 0,
-        decisions: [],
       };
     }
     const applications = await ctx.db
@@ -282,35 +279,44 @@ export const admissionResultsReleaseStatus = query({
       scopeType: "event",
     });
     const ideaAgent = aiGrantIds.length > 0
-      ? { accepted: 0, waitlisted: 0, rejected: 0, unavailable: 0 }
+      ? {
+          accepted: 0, waitlisted: 0, rejected: 0, unavailable: 0,
+          people: { accepted: 0, waitlisted: 0, rejected: 0, unavailable: 0 },
+        }
       : null;
     const policyIds = [...new Set(active.map((application) => application.admissionPolicyVersionId))];
-    const applicationsWithPolicies = (await Promise.all(policyIds.map(async (id) => {
-      const policy = await ctx.db.get(id);
-      if (!policy || policy.eventId !== event._id) throw new Error("An application admission policy is missing.");
-      return active
-        .filter((application) => application.admissionPolicyVersionId === id)
-        .map((application) => ({ application, policy }));
-    }))).flat();
-    // Fetch only the current recommendation pointers, concurrently and once per ID.
+    const projectIds = [...new Set(active.map((application) => application.submittedProjectVersionId))];
     const recommendationIds = ideaAgent
       ? [...new Set(active.flatMap((application) =>
           application.aiRecommendationId ? [application.aiRecommendationId] : [],
         ))]
       : [];
-    const recommendations = await getAll(ctx.db, "admissionAIRecommendations", recommendationIds);
+    // Read each current policy, submitted roster size, and recommendation once, concurrently.
+    const [policies, projects, recommendations] = await Promise.all([
+      getAll(ctx.db, "admissionPolicyVersions", policyIds),
+      getAll(ctx.db, "projectVersions", projectIds),
+      getAll(ctx.db, "admissionAIRecommendations", recommendationIds),
+    ]);
+    const policiesById = new Map(policies.filter((policy) => policy !== null).map((policy) => [policy._id, policy]));
+    const projectsById = new Map(projects.filter((project) => project !== null).map((project) => [project._id, project]));
     const recommendationsById = new Map(
       recommendations
         .filter((recommendation) => recommendation !== null)
         .map((recommendation) => [recommendation._id, recommendation]),
     );
-    let reviewsComplete = 0;
-    const decisions = [];
-    let accepted = 0;
-    let waitlisted = 0;
-    let declined = 0;
-    for (const { application, policy } of applicationsWithPolicies) {
-      if (application.completedReviewCount >= policy.minimumHumanReviews) reviewsComplete += 1;
+    for (const application of active) {
+      const policy = policiesById.get(application.admissionPolicyVersionId);
+      const project = projectsById.get(application.submittedProjectVersionId);
+      if (!policy || policy.eventId !== event._id || !project || project.eventId !== event._id) {
+        throw new Error("An application admission policy or submitted project is missing.");
+      }
+      const memberCount = project.lockedMemberCount;
+      const reviewStage = application.completedReviewCount >= policy.minimumHumanReviews
+        ? "reviewsComplete" : "reviewsNeeded";
+      for (const metric of ["total", reviewStage, application.decisionStage] as const) {
+        counts[metric] += 1;
+        people[metric] += memberCount;
+      }
       if (ideaAgent) {
         const recommendation = application.aiRecommendationId
           ? recommendationsById.get(application.aiRecommendationId)
@@ -321,46 +327,18 @@ export const admissionResultsReleaseStatus = query({
           recommendation.projectVersionId === application.submittedProjectVersionId &&
           recommendation.admissionPolicyVersionId === application.admissionPolicyVersionId &&
           recommendation.applicationContentVersion === application.contentVersion;
-        if (current && recommendation.recommendation === "accept") ideaAgent.accepted += 1;
-        else if (current && recommendation.recommendation === "waitlist") ideaAgent.waitlisted += 1;
-        else if (current && recommendation.recommendation === "decline") ideaAgent.rejected += 1;
-        else ideaAgent.unavailable += 1;
+        const outcome = current && recommendation.recommendation === "accept" ? "accepted"
+          : current && recommendation.recommendation === "waitlist" ? "waitlisted"
+          : current && recommendation.recommendation === "decline" ? "rejected" : "unavailable";
+        ideaAgent[outcome] += 1;
+        ideaAgent.people[outcome] += memberCount;
       }
-
-      if (
-        application.decisionStage === "unrecorded" ||
-        application.humanDecision === undefined ||
-        application.humanReasonCode === undefined ||
-        application.decidedByPersonId === undefined ||
-        application.decidedAt === undefined
-      ) {
-        continue;
-      }
-      const [team, decider] = await Promise.all([
-        ctx.db.get(application.teamId),
-        ctx.db.get(application.decidedByPersonId),
-      ]);
-      const reason = policy?.decisionReasonCodes.find(
-        (candidate) => candidate.key === application.humanReasonCode,
-      );
-      if (!team || !decider || !policy || policy.eventId !== event._id || !reason) {
-        throw new Error("A recorded admission decision is incomplete.");
-      }
-      if (application.humanDecision === "accept") accepted += 1;
-      if (application.humanDecision === "waitlist") waitlisted += 1;
-      if (application.humanDecision === "decline") declined += 1;
-      decisions.push({
-        applicationId: application._id,
-        teamName: team.name,
-        decision: application.humanDecision,
-        reasonCode: application.humanReasonCode,
-        reasonLabel: reason.label,
-        decidedByName: decider.displayName,
-        decidedAt: application.decidedAt,
-        stage: application.decisionStage,
-      });
+      if (application.decisionStage === "unrecorded" || application.humanDecision === undefined) continue;
+      const outcome = application.humanDecision === "accept" ? "accepted"
+        : application.humanDecision === "waitlist" ? "waitlisted" : "declined";
+      counts[outcome] += 1;
+      people[outcome] += memberCount;
     }
-    decisions.sort((left, right) => left.teamName.localeCompare(right.teamName));
     const releaser = event.admissionResultsReleasedByPersonId
       ? await ctx.db.get(event.admissionResultsReleasedByPersonId)
       : null;
@@ -373,17 +351,9 @@ export const admissionResultsReleaseStatus = query({
         ? { releasedAt: event.admissionResultsReleasedAt }
         : {}),
       ...(releaser ? { releasedByName: releaser.displayName } : {}),
-      total: active.length,
-      reviewsComplete,
-      reviewsNeeded: active.length - reviewsComplete,
+      ...counts,
+      people,
       ideaAgent,
-      unrecorded: active.filter((application) => application.decisionStage === "unrecorded").length,
-      recorded: active.filter((application) => application.decisionStage === "recorded").length,
-      released: active.filter((application) => application.decisionStage === "released").length,
-      accepted,
-      waitlisted,
-      declined,
-      decisions,
     };
   },
 });
@@ -638,7 +608,7 @@ async function visibleApplicationListProjection(
 export const list = query({
   args: {
     eventSlug: v.string(),
-    state: v.optional(applicationState),
+    state: v.optional(admissionQueueStage),
     origin: v.optional(admissionTeamOrigin),
     completedReviewCount: v.optional(v.literal(1)),
     needsReview: v.optional(v.literal(true)),
@@ -650,15 +620,21 @@ export const list = query({
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
     requireAdmissionPageSize(args.paginationOpts.numItems);
+    const state = args.state;
     if (args.origin !== undefined || args.needsReview) {
-      return paginator(ctx.db, schema)
-        .query("applications")
-        .withIndex("by_event_state_submitted", (index) => {
-          const eventIndex = index.eq("eventId", event._id);
-          return args.state ? eventIndex.eq("state", args.state) : eventIndex;
-        })
+      const applications = paginator(ctx.db, schema).query("applications");
+      const applicationQuery = state === "recorded"
+        ? applications.withIndex("by_event_decision_stage", (index) =>
+            index.eq("eventId", event._id).eq("decisionStage", "recorded"),
+          )
+        : applications.withIndex("by_event_state_submitted", (index) => {
+            const eventIndex = index.eq("eventId", event._id);
+            return state ? eventIndex.eq("state", state) : eventIndex;
+          });
+      return applicationQuery
         .order("asc")
         .map(async (application) => {
+          if (state !== undefined && applicationQueueStage(application) !== state) return null;
           if (
             args.completedReviewCount !== undefined &&
             application.completedReviewCount !== args.completedReviewCount
@@ -686,13 +662,21 @@ export const list = query({
           maximumRowsRead: maximumApplicantTeamsPerEvent + 1,
         });
     }
-    const applicationQuery = ctx.db
-      .query("applications")
-      .withIndex("by_event_state_submitted", (index) => {
-        const eventIndex = index.eq("eventId", event._id);
-        return args.state ? eventIndex.eq("state", args.state) : eventIndex;
-      })
-      .order("asc");
+    const applications = ctx.db.query("applications");
+    let applicationQuery = (state === "recorded"
+      ? applications.withIndex("by_event_decision_stage", (index) =>
+          index.eq("eventId", event._id).eq("decisionStage", "recorded"),
+        ).filter((filter) => filter.neq(filter.field("state"), "withdrawn"))
+      : applications.withIndex("by_event_state_submitted", (index) => {
+          const eventIndex = index.eq("eventId", event._id);
+          return state ? eventIndex.eq("state", state) : eventIndex;
+        })
+    ).order("asc");
+    if (state !== undefined && state !== "recorded" && state !== "withdrawn") {
+      applicationQuery = applicationQuery.filter((filter) =>
+        filter.neq(filter.field("decisionStage"), "recorded"),
+      );
+    }
     const page = await (args.completedReviewCount === undefined
       ? applicationQuery
       : applicationQuery.filter((filter) =>
@@ -716,7 +700,7 @@ export const list = query({
 export const searchApplications = query({
   args: {
     eventSlug: v.string(),
-    state: applicationState,
+    state: admissionQueueStage,
     search: v.string(),
     origin: v.optional(admissionTeamOrigin),
     completedReviewCount: v.optional(v.literal(1)),
@@ -733,12 +717,16 @@ export const searchApplications = query({
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
-    const applications = await ctx.db
-      .query("applications")
-      .withIndex("by_event_state_submitted", (index) =>
-        index.eq("eventId", event._id).eq("state", args.state),
-      )
-      .take(maximumApplicantTeamsPerEvent + 1);
+    const state = args.state;
+    const applicationQuery = ctx.db.query("applications");
+    const applications = await (state === "recorded"
+      ? applicationQuery.withIndex("by_event_decision_stage", (index) =>
+          index.eq("eventId", event._id).eq("decisionStage", "recorded"),
+        )
+      : applicationQuery.withIndex("by_event_state_submitted", (index) =>
+          index.eq("eventId", event._id).eq("state", state),
+        )
+    ).take(maximumApplicantTeamsPerEvent + 1);
     if (applications.length > maximumApplicantTeamsPerEvent) {
       throw new Error(
         `Admission searches support at most ${maximumApplicantTeamsPerEvent} applicant teams.`,
@@ -764,6 +752,7 @@ export const searchApplications = query({
       applications
         .filter(
           (application) =>
+            applicationQueueStage(application) === state &&
             (readableScopeIds === null || readableScopeIds.has(application._id)) &&
             (args.completedReviewCount === undefined ||
               application.completedReviewCount === args.completedReviewCount),

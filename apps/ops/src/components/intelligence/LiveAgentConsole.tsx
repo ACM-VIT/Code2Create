@@ -389,7 +389,7 @@ const TimelineItem = memo(function TimelineItem({
     return (
       <article className="w-full animate-fade-up" data-timeline-id={item.id}>
         <span className="visually-hidden">{agentLabel} said:</span>
-        <Streamdown className="text-[13px] leading-normal text-ink">{item.text}</Streamdown>
+        <Streamdown className="text-[13px] leading-normal text-ink" isAnimating={item.state === "streaming"}>{item.text}</Streamdown>
       </article>
     );
   }
