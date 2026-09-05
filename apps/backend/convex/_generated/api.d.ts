@@ -330,7 +330,10 @@ import type {
   FunctionReference,
 } from "convex/server";
 
+import type * as emailedAdmission from "../emailedAdmission.js";
+
 declare const fullApi: ApiFromModules<{
+  emailedAdmission: typeof emailedAdmission;
   access: typeof access;
   accessInvitations: typeof accessInvitations;
   accessRoles: typeof accessRoles;

@@ -242,6 +242,61 @@ const operationsAutonomyDeepReadSource = v.union(
   v.literal("attendance_operations"),
 );
 
+const projectVersionFields = {
+    eventId: v.id("events"),
+    teamId: v.id("teams"),
+    version: v.number(),
+    initialIdea: v.string(),
+    additionalInformation: v.optional(v.string()),
+    intakePolicyVersionId: v.id("intakePolicyVersions"),
+    intakeResponses: v.array(
+      v.object({
+        questionId: v.id("intakeGeneratedQuestions"),
+        ordinal: v.number(),
+        question: v.string(),
+        purposeKey: intakeQuestionPurpose,
+        answerLength: intakeAnswerLength,
+        source: v.union(v.literal("fixed"), v.literal("model"), v.literal("fallback"),
+        ),
+        answer: v.string(),
+      }),
+    ),
+    lockedRosterSnapshotId: v.id("teamSubmissionAttempts"),
+    lockedMemberCount: v.number(),
+    lockedLeadMembershipId: v.id("eventMemberships"),
+    freshForEventAttestation: v.object({
+      participantPolicyVersionId: v.id("participantPolicyVersions"),
+      acceptedByMembershipId: v.id("eventMemberships"),
+      acceptedAt: v.number(),
+    }),
+    finalConfirmation: v.object({
+      participantPolicyVersionId: v.id("participantPolicyVersions"),
+      previewedDraftVersion: v.number(),
+      previewedTeamVersion: v.number(),
+      confirmedByMembershipId: v.id("eventMemberships"),
+      confirmedAt: v.number(),
+    }),
+    participantPolicyVersionId: v.id("participantPolicyVersions"),
+    admissionPolicyVersionId: v.id("admissionPolicyVersions"),
+    proposalRevision: v.optional(
+      v.object({
+        sourceProjectVersionId: v.id("projectVersions"),
+        editedByMembershipId: v.id("eventMemberships"),
+        editedAt: v.number(),
+      }),
+    ),
+    rosterRevision: v.optional(
+      v.object({
+        sourceProjectVersionId: v.id("projectVersions"),
+        changedByMembershipId: v.id("eventMemberships"),
+        changedAt: v.number(),
+      }),
+    ),
+    sourceDraftVersion: v.number(),
+    submittedByMembershipId: v.id("eventMemberships"),
+    submittedAt: v.number(),
+  };
+
 export default defineSchema({
   events: defineTable({
     slug: v.string(),
@@ -1814,60 +1869,17 @@ export default defineSchema({
     .index("by_draft_input", ["draftId", "inputFingerprint"])
     .index("by_event_state_created", ["eventId", "state", "createdAt"]),
 
-  projectVersions: defineTable({
-    eventId: v.id("events"),
-    teamId: v.id("teams"),
-    version: v.number(),
-    initialIdea: v.string(),
-    additionalInformation: v.optional(v.string()),
-    intakePolicyVersionId: v.id("intakePolicyVersions"),
-    intakeResponses: v.array(
-      v.object({
-        questionId: v.id("intakeGeneratedQuestions"),
-        ordinal: v.number(),
-        question: v.string(),
-        purposeKey: intakeQuestionPurpose,
-        answerLength: intakeAnswerLength,
-        source: v.union(v.literal("fixed"), v.literal("model"), v.literal("fallback"),
-        ),
-        answer: v.string(),
+  projectVersions: defineTable(v.union(
+    v.object(projectVersionFields),
+    v.object({
+      ...projectVersionFields,
+      freshForEventAttestation: v.null(),
+      finalConfirmation: v.null(),
+      organizerImport: v.object({
+        importedByPersonId: v.id("people"), importedAt: v.number(), evidence: v.string(),
       }),
-    ),
-    lockedRosterSnapshotId: v.id("teamSubmissionAttempts"),
-    lockedMemberCount: v.number(),
-    lockedLeadMembershipId: v.id("eventMemberships"),
-    freshForEventAttestation: v.object({
-      participantPolicyVersionId: v.id("participantPolicyVersions"),
-      acceptedByMembershipId: v.id("eventMemberships"),
-      acceptedAt: v.number(),
     }),
-    finalConfirmation: v.object({
-      participantPolicyVersionId: v.id("participantPolicyVersions"),
-      previewedDraftVersion: v.number(),
-      previewedTeamVersion: v.number(),
-      confirmedByMembershipId: v.id("eventMemberships"),
-      confirmedAt: v.number(),
-    }),
-    participantPolicyVersionId: v.id("participantPolicyVersions"),
-    admissionPolicyVersionId: v.id("admissionPolicyVersions"),
-    proposalRevision: v.optional(
-      v.object({
-        sourceProjectVersionId: v.id("projectVersions"),
-        editedByMembershipId: v.id("eventMemberships"),
-        editedAt: v.number(),
-      }),
-    ),
-    rosterRevision: v.optional(
-      v.object({
-        sourceProjectVersionId: v.id("projectVersions"),
-        changedByMembershipId: v.id("eventMemberships"),
-        changedAt: v.number(),
-      }),
-    ),
-    sourceDraftVersion: v.number(),
-    submittedByMembershipId: v.id("eventMemberships"),
-    submittedAt: v.number(),
-  })
+  ))
     .index("by_team_version", ["teamId", "version"])
     .index("by_event_submitted", ["eventId", "submittedAt"]),
 

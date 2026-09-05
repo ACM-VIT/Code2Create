@@ -50,7 +50,7 @@
     "test:idea-round-ai": "vitest run convex/intakePolicyConfiguration.test.ts convex/lib/ideaSubmissionAi.test.ts convex/noveltyLifecycle.test.ts convex/lib/novelty.test.ts convex/lib/noveltyRateLimits.test.ts convex/lib/openAiNoveltyJudge.test.ts convex/admissionRecommendationRerun.test.ts convex/lib/operationsAutonomyPolicy.test.ts convex/operationsAutonomy.test.ts convex/operationsIntelligence.test.ts convex/intelligenceReads.test.ts convex/intelligenceRecommendations.test.ts convex/intelligenceObservability.test.ts --maxWorkers=4 --testTimeout=30000",
     "test:idea-round-release": "pnpm test:idea-round-ai",
     "test:admission-cohort": "vitest run convex/admissionCohort.test.ts",
-    "test:offers": "vitest run convex/admissionOffers.test.ts",
+    "test:offers": "vitest run convex/admissionOffers.test.ts convex/emailedAdmission.test.ts",
     "test:intelligence": "vitest run convex/lib/operationsAutonomyPolicy.test.ts convex/operationsAutonomy.test.ts convex/operationsIntelligence.test.ts convex/operationsEpisodes.test.ts convex/intelligenceReads.test.ts convex/intelligenceRecommendations.test.ts convex/intelligenceObservability.test.ts",
     "test:push": "node --test convex/lib/pushTokens.test.ts convex/lib/reviewerPagePush.test.ts",
     "test:voice": "vitest run convex/lib/outboundCalls.test.ts convex/outboundCallConsents.test.ts convex/outboundCallState.test.ts convex/reviewerRepage.test.ts convex/reviewerVenue.test.ts",
