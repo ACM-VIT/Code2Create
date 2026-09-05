@@ -292,6 +292,8 @@ export function Sheet({
 }) {
   const sheet = useRef<TrueSheet>(null);
   const insets = useSafeAreaInsets();
+  const [footerHeight, setFooterHeight] = useState(0);
+  const footerSpace = footer ? footerHeight : 0;
   // Mount the native sheet only while it is needed: an idle mounted sheet
   // sits invisibly over the screen and swallows every touch beneath it.
   const [mounted, setMounted] = useState(visible);
@@ -316,7 +318,10 @@ export function Sheet({
         detents={detents}
         {...(footer ? {
           footer: (
-            <View style={[styles.sheetFooter, { paddingBottom: 16 + insets.bottom }]}>
+            <View
+              onLayout={({ nativeEvent }) => setFooterHeight(nativeEvent.layout.height)}
+              style={[styles.sheetFooter, { paddingBottom: 16 + insets.bottom }]}
+            >
               {footer}
             </View>
           ),
@@ -332,10 +337,12 @@ export function Sheet({
         // Native fitting keeps the ScrollView and focused input above the
         // keyboard. TrueSheet cannot fit scrollable content with auto detents.
         scrollable
-        scrollableOptions={{ keyboardScrollOffset: 32 }}
+        scrollableOptions={{ keyboardScrollOffset: 32 + footerSpace }}
       >
         <ScrollView
-          contentContainerStyle={styles.sheetBody}
+          // The native footer floats over content rather than consuming layout
+          // space. Reserve its measured height for both scrolling and the caret.
+          contentContainerStyle={[styles.sheetBody, { paddingBottom: 40 + footerSpace }]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >

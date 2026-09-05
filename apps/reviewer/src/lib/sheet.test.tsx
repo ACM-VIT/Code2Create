@@ -77,6 +77,21 @@ test("dismissal removes the native overlay and reopening mounts a fresh sheet", 
   expect(renderer.root.findByType(TrueSheet).props.initialDetentIndex).toBe(0);
 });
 
+test("inline actions stay inside the keyboard-aware scroll area", async () => {
+  await act(async () => {
+    renderer = create(
+      <Sheet onClose={vi.fn()} title="Getting paged" visible>
+        <TextInput testID="phone-number" />
+        <Action label="Done" onPress={vi.fn()} />
+      </Sheet>,
+    );
+  });
+  const scroll = renderer.root.findByType(TrueSheet).findByType(ScrollView);
+  expect(scroll.findByType(Action).props.label).toBe("Done");
+  expect(scroll.props.keyboardShouldPersistTaps).toBe("handled");
+  expect(scroll.props.contentContainerStyle).toContainEqual({ paddingBottom: 40 });
+});
+
 test("a fixed action uses the native keyboard-following footer outside scrolling fields", async () => {
   await act(async () => {
     renderer = create(
@@ -94,4 +109,12 @@ test("a fixed action uses the native keyboard-following footer outside scrolling
   expect(nativeSheet.props.footer).toBeDefined();
   expect(nativeSheet.props.footerOptions.keyboardOffset).toBe(-24);
   expect(nativeSheet.findByType(ScrollView).findAllByType(Action)).toHaveLength(0);
+  await act(async () => {
+    nativeSheet.props.footer.props.onLayout({ nativeEvent: { layout: { height: 98 } } });
+  });
+  const updatedSheet = renderer.root.findByType(TrueSheet);
+  expect(updatedSheet.props.scrollableOptions.keyboardScrollOffset).toBe(130);
+  expect(updatedSheet.findByType(ScrollView).props.contentContainerStyle).toContainEqual({
+    paddingBottom: 138,
+  });
 });
