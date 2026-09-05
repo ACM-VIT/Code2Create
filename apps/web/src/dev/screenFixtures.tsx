@@ -22,6 +22,7 @@ import {
 } from "../components/portal/PortalField";
 import { GpuSky } from "../components/portal/GpuSky";
 import { Flower } from "../components/portal/FlowerAvatar";
+import { ArcadeLink } from "../components/portal/ArcadeLink";
 import { PortalScene } from "../components/portal/PortalScene";
 import { StackedSheet } from "../components/portal/StackedSheet";
 import { TreeLoader } from "../components/portal/TreeLoader";
@@ -34,6 +35,7 @@ import type { MusicTileModel } from "../components/dashboard/MusicTile";
 import type { ReviewTileModel } from "../components/dashboard/ReviewTile";
 import type { UpdatesTileModel } from "../components/dashboard/UpdatesTile";
 import { DashboardScreen } from "../screens/DashboardScreen";
+import { GamesScreen } from "../screens/GamesScreen";
 import { SglangInterlude } from "../screens/SglangInterlude";
 import { ConfirmCard, RenameTeamCard } from "../screens/TeamLobbyScreen";
 import { NoveltyPill, NoveltyReviewRow, ReviewEditRow } from "../components/ProposalReview";
@@ -94,14 +96,19 @@ const members: ClusterMember[] = [
 const noop = () => {};
 
 const cluster = <TeamCluster team={team} members={members} />;
+// The corner as the signed-in app assembles it: the way into the arcade, then
+// the account badge.
 const account = (
-  <AccountBadge
-    name="Ananya Iyer"
-    seed="m1"
-    email="ananya@vitstudent.ac.in"
-    detail="VIT student"
-    onSignOut={() => {}}
-  />
+  <>
+    <ArcadeLink />
+    <AccountBadge
+      name="Ananya Iyer"
+      seed="m1"
+      email="ananya@vitstudent.ac.in"
+      detail="VIT student"
+      onSignOut={() => {}}
+    />
+  </>
 );
 
 /** The star moment: the interlude as it stands the instant the star lands, balloons and all. */
@@ -1865,6 +1872,9 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries([
       </div>
     ),
   ],
+  // The arcade itself: the games on the left, every board's standings on the
+  // right. The leaderboards need the backend, so offline they sit on Loading.
+  ["arcade-screen", () => <GamesScreen header={account} />],
   // One screen with the mode switch on it, the way the arcade shows it.
   ["arcade-memory", () => <MemoryFixture />],
 ] as const);

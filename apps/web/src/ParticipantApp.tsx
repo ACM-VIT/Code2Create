@@ -4,6 +4,7 @@ import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import { AccountBadge } from "./components/portal/AccountBadge";
+import { ArcadeLink } from "./components/portal/ArcadeLink";
 import { TeamCluster } from "./components/portal/TeamCluster";
 import { ClassCard } from "./components/portal/ClassCard";
 import { DelayedBonsai } from "./components/portal/DelayedBonsai";
@@ -165,12 +166,15 @@ export function ParticipantApp({
   }
 
   const accountHeader = (
-    <AccountBadge
-      name={me.person.displayName}
-      seed={me.membership.id}
-      email={me.person.verifiedEmail}
-      onSignOut={signOut}
-    />
+    <>
+      <ArcadeLink />
+      <AccountBadge
+        name={me.person.displayName}
+        seed={me.membership.id}
+        email={me.person.verifiedEmail}
+        onSignOut={signOut}
+      />
+    </>
   );
   // ---- the arcade ---------------------------------------------------------
   // Ahead of the onboarding gates on purpose: the games are a diversion for
