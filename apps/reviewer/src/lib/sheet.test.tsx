@@ -4,9 +4,14 @@ import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { Sheet } from "../components/ui";
+import { DutyScreen } from "../components/DutyScreen";
 
 vi.mock("@lodev09/react-native-true-sheet", () => ({ TrueSheet: "TrueSheet" }));
 vi.mock("react-native-svg", () => ({ default: "Svg", Path: "Path" }));
+vi.mock("expo-router", () => ({ Stack: { Screen: "Screen" } }));
+vi.mock("react-native-safe-area-context", () => ({
+  useSafeAreaInsets: () => ({ top: 0, left: 0, right: 0, bottom: 24 }),
+}));
 vi.mock("react-native", () => ({
   ActivityIndicator: "ActivityIndicator",
   Pressable: "Pressable",
@@ -15,6 +20,8 @@ vi.mock("react-native", () => ({
   Text: "Text",
   TextInput: "TextInput",
   View: "View",
+  RefreshControl: "RefreshControl",
+  Platform: { OS: "android" },
 }));
 
 let renderer: ReactTestRenderer;
@@ -28,19 +35,26 @@ test.each([{ detents: undefined }, { detents: [0.45, 0.92] }, { detents: [0.72] 
   async ({ detents }) => {
     await act(async () => {
       renderer = create(
-        <Sheet {...(detents ? { detents } : {})} onClose={vi.fn()} title="Report a problem" visible>
-          <TextInput testID="last-field" />
-        </Sheet>,
+        <DutyScreen title="Help">
+          <Sheet {...(detents ? { detents } : {})} onClose={vi.fn()} title="Report a problem" visible>
+            <TextInput testID="last-field" />
+          </Sheet>
+        </DutyScreen>,
       );
     });
     const nativeSheet = renderer.root.findByType(TrueSheet);
     expect(nativeSheet.props.scrollable).toBe(true);
+    expect(nativeSheet.props.scrollableOptions.keyboardScrollOffset).toBeGreaterThan(0);
     expect(nativeSheet.props.detents).toEqual(detents ?? [0.85]);
     expect(nativeSheet.props.detents.every((height: number) =>
       typeof height === "number" && height > 0 && height < 1,
     )).toBe(true);
     const scroll = nativeSheet.findByType(ScrollView);
-    expect(scroll.props.keyboardShouldPersistTaps).toBe("handled");
+    // Every ancestor must let the button handle the first tap. An outer
+    // ScrollView with the default policy captures it just to hide the IME.
+    const scrollViews = renderer.root.findAllByType(ScrollView);
+    expect(scrollViews).toHaveLength(2);
+    for (const view of scrollViews) expect(view.props.keyboardShouldPersistTaps).toBe("handled");
     expect(scroll.findByProps({ testID: "last-field" })).toBeDefined();
   },
 );

@@ -320,6 +320,7 @@ export function Sheet({
         // Native fitting keeps the ScrollView and focused input above the
         // keyboard. TrueSheet cannot fit scrollable content with auto detents.
         scrollable
+        scrollableOptions={{ keyboardScrollOffset: 32 }}
       >
         <ScrollView
           contentContainerStyle={styles.sheetBody}

@@ -488,11 +488,31 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
     }
   };
 
+  const pagingSettings = (
+    <>
+      {panelMode !== "setup" || notificationsReady ? (
+        <QuietAction label="Paging settings" onPress={() => setPagingOpen(true)} />
+      ) : null}
+      <Sheet onClose={() => setPagingOpen(false)} title="Getting paged" visible={pagingOpen}>
+        <PagingSetup
+          eventSlug={eventSlug}
+          onDone={() => setPagingOpen(false)}
+          requestPermission={requestNotifications}
+          tokenMissing={
+            notificationState.status !== "ready" && notificationState.status !== "loading"
+          }
+          tokenRejected={current.device?.pushTokenStatus === "invalid"}
+        />
+      </Sheet>
+    </>
+  );
+
   if (panelMode === "empty") {
     return (
       <Panel>
         <ReviewAvailability eventSlug={eventSlug} />
         <Nothing>No current review duty</Nothing>
+        {pagingSettings}
         {visibleError ? <Problem>{visibleError}</Problem> : null}
       </Panel>
     );
@@ -594,20 +614,7 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
         />
       ) : null}
 
-      {deviceIsCurrent && (!notificationsReady || current.device?.pushTokenStatus === "invalid") ? (
-        <QuietAction label="Getting paged" onPress={() => setPagingOpen(true)} />
-      ) : null}
-      <Sheet onClose={() => setPagingOpen(false)} title="Getting paged" visible={pagingOpen}>
-        <PagingSetup
-          eventSlug={eventSlug}
-          onDone={() => setPagingOpen(false)}
-          requestPermission={requestNotifications}
-          tokenMissing={
-            notificationState.status !== "ready" && notificationState.status !== "loading"
-          }
-          tokenRejected={current.device?.pushTokenStatus === "invalid"}
-        />
-      </Sheet>
+      {pagingSettings}
 
       {cameraError ? <Problem>{cameraError}</Problem> : null}
       {notificationState.status === "unavailable" ? (
