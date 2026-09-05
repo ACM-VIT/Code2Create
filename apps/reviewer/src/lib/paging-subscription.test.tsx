@@ -1,6 +1,6 @@
 import { ConvexProvider, ConvexReactClient } from "convex/react";
 import { ConvexError } from "convex/values";
-import { act, create, type ReactTestRenderer } from "react-test-renderer";
+import { act, create } from "react-test-renderer";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { PagingSetup } from "../components/PagingSetup";
@@ -24,7 +24,7 @@ vi.mock("@/lib/push-notifications", () => ({ pagingReadiness: async () => [
   { key: "permission", title: "Notifications", met: true },
 ] }));
 
-let renderer: ReactTestRenderer;
+let renderer: ReturnType<typeof create>;
 let client: ConvexReactClient;
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
