@@ -1869,7 +1869,15 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries([
     "arcade-memory",
     () => (
       <div className="flex min-h-full flex-1 items-center justify-center bg-black p-4">
-        <MemoryBoard onRoundStart={noop} onRoundEnd={noop} />
+        <MemoryBoard mode="memory" onRoundStart={noop} onRoundEnd={noop} />
+      </div>
+    ),
+  ],
+  [
+    "arcade-memory-grid",
+    () => (
+      <div className="flex min-h-full flex-1 items-center justify-center bg-black p-4">
+        <MemoryBoard mode="memory-grid" onRoundStart={noop} onRoundEnd={noop} />
       </div>
     ),
   ],

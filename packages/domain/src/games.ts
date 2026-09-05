@@ -8,7 +8,7 @@
  * replay a game as often as they like — the leaderboard keeps their best round.
  */
 
-export const gameKeys = ["pacman", "stack", "memory"] as const;
+export const gameKeys = ["pacman", "stack", "memory", "memory-grid"] as const;
 export type GameKey = (typeof gameKeys)[number];
 
 export type GameDefinition = {
@@ -70,6 +70,18 @@ export const gameCatalog = [
     // falls as the clock runs. 400/s puts the ceiling out of reach until about
     // 12 seconds in, which no real board is finished inside.
     maximumScorePerSecond: 400,
+  },
+  {
+    key: "memory-grid",
+    title: "Memory Grid",
+    // The pattern mode scores the levels survived. The board stops growing at
+    // 10x10 and the pattern keeps thickening, so nobody is finishing anywhere
+    // near this; it is a bound, not a target.
+    maximumScore: 200,
+    // A level cannot be cleared faster than the pattern is shown plus the taps
+    // to answer it — call it two seconds at the very best. 2/s is several times
+    // that and still refuses a round that claims levels it had no time to play.
+    maximumScorePerSecond: 2,
   },
 ] as const satisfies readonly GameDefinition[];
 

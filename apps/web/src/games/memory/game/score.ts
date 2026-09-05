@@ -17,8 +17,23 @@ export const MOVE_COST = 40;
 export const SECOND_COST = 5;
 export const MINIMUM_FINISHED_SCORE = 100;
 
-export function roundScore({ moves, seconds }: { moves: number; seconds: number }): number {
+/**
+ * The clock is spent in milliseconds, not whole seconds.
+ *
+ * Two boards finished a fraction apart should not tie just because the second
+ * hand had not moved between them, so the time cost is taken from the real
+ * elapsed milliseconds and only the final score is rounded to the integer the
+ * leaderboard stores.
+ */
+export function roundScore({
+  moves,
+  milliseconds,
+}: {
+  moves: number;
+  milliseconds: number;
+}): number {
   const extraMoves = Math.max(0, Math.floor(moves) - PERFECT_MOVES);
-  const spent = extraMoves * MOVE_COST + Math.max(0, Math.floor(seconds)) * SECOND_COST;
-  return Math.max(MINIMUM_FINISHED_SCORE, PERFECT_SCORE - spent);
+  const timeCost = (Math.max(0, milliseconds) / 1_000) * SECOND_COST;
+  const spent = extraMoves * MOVE_COST + timeCost;
+  return Math.max(MINIMUM_FINISHED_SCORE, Math.round(PERFECT_SCORE - spent));
 }

@@ -122,18 +122,37 @@ test("a finished board is ignored", () => {
   assert.equal(selectCard(game, shark).event.type, "ignored");
 });
 
+test("the clock is spent to the millisecond, not the second", () => {
+  // Two boards a fraction apart must not tie because the second hand had not
+  // moved between them.
+  assert.notEqual(
+    roundScore({ moves: 14, milliseconds: 40_100 }),
+    roundScore({ moves: 14, milliseconds: 40_900 }),
+  );
+  assert.ok(
+    roundScore({ moves: 14, milliseconds: 40_100 }) >
+      roundScore({ moves: 14, milliseconds: 40_900 }),
+  );
+});
+
+test("the score is always the whole number the leaderboard stores", () => {
+  for (const milliseconds of [1, 333, 12_345, 98_765]) {
+    assert.ok(Number.isSafeInteger(roundScore({ moves: 17, milliseconds })));
+  }
+});
+
 test("the score rewards fewer moves and a faster clock", () => {
   // The perfect board, scored the instant it is finished, is the ceiling.
-  assert.equal(roundScore({ moves: PAIR_COUNT, seconds: 0 }), PERFECT_SCORE);
-  assert.ok(roundScore({ moves: 14, seconds: 40 }) > roundScore({ moves: 20, seconds: 40 }));
-  assert.ok(roundScore({ moves: 14, seconds: 40 }) > roundScore({ moves: 14, seconds: 90 }));
+  assert.equal(roundScore({ moves: PAIR_COUNT, milliseconds: 0 }), PERFECT_SCORE);
+  assert.ok(roundScore({ moves: 14, milliseconds: 40000 }) > roundScore({ moves: 20, milliseconds: 40000 }));
+  assert.ok(roundScore({ moves: 14, milliseconds: 40000 }) > roundScore({ moves: 14, milliseconds: 90000 }));
 });
 
 test("a slow board still records as a finish", () => {
-  assert.equal(roundScore({ moves: 400, seconds: 4_000 }), MINIMUM_FINISHED_SCORE);
+  assert.equal(roundScore({ moves: 400, milliseconds: 4_000_000 }), MINIMUM_FINISHED_SCORE);
 });
 
 test("no board scores above the published maximum", () => {
   // The catalogue's ceiling is this exact number, so nothing may exceed it.
-  assert.equal(roundScore({ moves: 0, seconds: 0 }), PERFECT_SCORE);
+  assert.equal(roundScore({ moves: 0, milliseconds: 0 }), PERFECT_SCORE);
 });

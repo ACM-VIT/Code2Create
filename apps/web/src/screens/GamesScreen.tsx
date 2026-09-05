@@ -7,6 +7,7 @@ import { Link } from 'react-router-dom'
 import { PetalCard } from '../components/portal/PetalCard'
 import { PortalScene } from '../components/portal/PortalScene'
 import { games, type GameEntry } from '../games/catalog'
+import type { GameKey } from '@code2create/domain'
 import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 import { createRoundRecorder } from '../lib/gameRounds'
@@ -65,7 +66,12 @@ type RunId = FunctionReturnType<typeof api.games.startRound>['runId']
 
 /** One game: its board, and the standings for it. */
 function GamePanel({ game }: { game: GameEntry }) {
-  const board = useQuery(api.games.leaderboard, { eventSlug, gameKey: game.key })
+  // A game played more than one way keeps a board per mode: the modes measure
+  // different things, so one ranking over both would say nothing. The switch
+  // below moves the leaderboard with it.
+  const [mode, setMode] = useState<GameKey>(game.modes?.[0]?.key ?? game.key)
+  const gameKey = game.modes ? mode : game.key
+  const board = useQuery(api.games.leaderboard, { eventSlug, gameKey })
   const startRound = useMutation(api.games.startRound)
   const recordRound = useMutation(api.games.recordRound)
   const [error, setError] = useState<string | null>(null)
@@ -76,15 +82,14 @@ function GamePanel({ game }: { game: GameEntry }) {
   const recorder = useMemo(
     () =>
       createRoundRecorder<RunId>({
-        openRun: () =>
-          startRound({ eventSlug, gameKey: game.key }).then((opened) => opened.runId),
+        openRun: () => startRound({ eventSlug, gameKey }).then((opened) => opened.runId),
         recordRound: (round) =>
-          recordRound({ eventSlug, gameKey: game.key, score: round.score, runId: round.runId }),
+          recordRound({ eventSlug, gameKey, score: round.score, runId: round.runId }),
         // A lost round is not worth interrupting play for; the message sits
         // under the board and the next round tries again.
         onError: (cause) => setError(readableError(cause)),
       }),
-    [game.key, recordRound, startRound],
+    [gameKey, recordRound, startRound],
   )
 
   const onRoundStart = useCallback(() => {
@@ -98,9 +103,29 @@ function GamePanel({ game }: { game: GameEntry }) {
   return (
     <div className="grid w-full gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
       <div className="flex flex-col items-center">
+        {game.modes ? (
+          <div className="mb-3 flex gap-2">
+            {game.modes.map((option) => (
+              <button
+                key={option.key}
+                type="button"
+                onClick={() => setMode(option.key)}
+                className={`rounded-petal-sm border-2 bg-transparent px-3 py-1 font-ui text-[12.5px] transition-colors ${
+                  option.key === gameKey
+                    ? 'border-petal-edge bg-rose-light/15 text-fg'
+                    : 'border-petal-line text-fg/60 hover:text-fg'
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
         <div className="flex min-h-[420px] w-full items-center justify-center bg-black p-4">
           <Suspense fallback={<p className="font-arcade text-sm text-[#F1CEDF]">LOADING…</p>}>
-            <Board onRoundStart={onRoundStart} onRoundEnd={onRoundEnd} />
+            {/* Keyed by mode so switching deals a fresh board rather than
+                carrying one game's state into the other. */}
+            <Board key={gameKey} mode={gameKey} onRoundStart={onRoundStart} onRoundEnd={onRoundEnd} />
           </Suspense>
         </div>
         <p className="mt-3 text-center text-[12.5px] text-fg/55">{game.blurb}</p>

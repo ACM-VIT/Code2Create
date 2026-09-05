@@ -20,6 +20,22 @@ export type GameBoardProps = {
   onRoundStart: () => void
   /** Called once with the round's score the moment a round ends. */
   onRoundEnd: (score: number) => void
+  /** The mode being played, for a board that has more than one. */
+  mode?: GameKey
+}
+
+/**
+ * One way of playing a game.
+ *
+ * A mode is its own game as far as the server is concerned — it has its own key,
+ * its own score bound and its own leaderboard — because two modes measure
+ * different things and ranking one against the other would say nothing. The
+ * arcade still presents them as a single game with a switch, which is how they
+ * are played.
+ */
+export type GameMode = {
+  readonly key: GameKey
+  readonly label: string
 }
 
 export type GameEntry = {
@@ -27,6 +43,8 @@ export type GameEntry = {
   readonly title: string
   readonly blurb: string
   readonly Board: LazyExoticComponent<ComponentType<GameBoardProps>>
+  /** Present when the game is played more than one way. */
+  readonly modes?: readonly GameMode[]
 }
 
 const boards: Record<GameKey, LazyExoticComponent<ComponentType<GameBoardProps>>> = {
@@ -39,20 +57,42 @@ const boards: Record<GameKey, LazyExoticComponent<ComponentType<GameBoardProps>>
   memory: lazy(() =>
     import('./memory/Board.tsx').then((module) => ({ default: module.default })),
   ),
+  // Reached through Memory's mode switch rather than as an entry of its own.
+  'memory-grid': lazy(() =>
+    import('./memory/Board.tsx').then((module) => ({ default: module.default })),
+  ),
 }
 
 const blurbs: Record<GameKey, string> = {
   pacman: 'Clear the maze, dodge the ghosts, and eat them while the power pellet lasts.',
   stack: 'Drop each piece onto the tower and keep it standing. Three lives, one running total.',
-  memory: 'Twelve pairs, face down. Fewer moves and a faster clock score higher.',
+  memory: 'Two ways to remember: find the pairs, or hold the pattern as it grows.',
+  'memory-grid': 'Hold the pattern as it grows.',
 }
 
-export const games: readonly GameEntry[] = gameCatalog.map((game) => ({
-  key: game.key,
-  title: game.title,
-  blurb: blurbs[game.key],
-  Board: boards[game.key],
-}))
+const modes: Partial<Record<GameKey, readonly GameMode[]>> = {
+  memory: [
+    { key: 'memory', label: 'Pairs' },
+    { key: 'memory-grid', label: 'Pattern' },
+  ],
+}
+
+/** Modes appear under the game that owns them, never as a game of their own. */
+const ownedByAnotherGame = new Set<GameKey>(
+  Object.entries(modes).flatMap(([owner, list]) =>
+    (list ?? []).map((mode) => mode.key).filter((key) => key !== owner),
+  ),
+)
+
+export const games: readonly GameEntry[] = gameCatalog
+  .filter((game) => !ownedByAnotherGame.has(game.key))
+  .map((game) => ({
+    key: game.key,
+    title: game.title,
+    blurb: blurbs[game.key],
+    Board: boards[game.key],
+    ...(modes[game.key] ? { modes: modes[game.key] } : {}),
+  }))
 
 /** The catalogue entry for `key`, or null when the key is not a published game. */
 export function gameEntry(key: string): GameEntry | null {
