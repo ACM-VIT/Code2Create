@@ -1,4 +1,8 @@
-import { venueCallConsentVersion } from "@code2create/domain";
+import {
+  reviewerCallConsentPolicyVersion,
+  reviewerCallScriptPolicyVersion,
+  venueCallConsentVersion,
+} from "@code2create/domain";
 import { scheduleShiftReminders } from "./reviewConfirmations";
 import { ConvexError, v } from "convex/values";
 
@@ -20,7 +24,6 @@ import {
   venueCallScriptVersion,
 } from "./lib/reviewerVenuePolicy";
 
-import { reviewerCallConsentPolicyVersion, reviewerCallScriptPolicyVersion } from "@code2create/domain";
 import { maximumReviewRoundsPerEvent } from "./lib/reviewLimits";
 
 const reviewerPurpose = v.optional(

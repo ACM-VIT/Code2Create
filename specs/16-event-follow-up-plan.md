@@ -1,6 +1,6 @@
 # Event follow-up plan
 
-Updated 5 September 2026 after reviewing `main` at `1e3f0a32`. This is the current work list. [Event review readiness](15-event-review-readiness.md) describes implemented behavior; this file records what remains and the evidence needed to close it.
+Updated 5 September 2026 after reviewing `main` at `1e3f0a32`, then integrating `main` at `261d2d9b` and `staging` at `058ff764`. This is the current work list. [Event review readiness](15-event-review-readiness.md) describes implemented behavior; this file records what remains and the evidence needed to close it.
 
 The event is tomorrow. Roster import, policy publication, device registration, and opening reviews are planned operational tasks. An empty live event configuration today is not a missing software feature. This review did not change live configuration or send notifications/calls.
 
@@ -24,8 +24,8 @@ The mistaken form hours remain discarded. The app owns availability confirmation
 
 | ID | Status | Behavior | Completion evidence |
 | --- | --- | --- | --- |
-| E-01 | Implemented locally | Ops configures the reminder lead time from 0–3600 seconds (default 300; 0 disables) and whether to also call. Push and calls share that lead time. The reviewer app has one consent setting for shift reminders and substitute calls. | Lifecycle tests cover timing changes, one call per shift, late consent after push delivery, clock-in, changed hours, revoked consent/access, disabled calls, closed rounds and expired reminders. A queued call moved to a later reminder time does not consume an attempt early. |
-| E-02 | Implemented locally | Ops can enable visual inspection of captured Figma screens. All captured accessible renders enter the existing resumable pipeline, one image per inspection batch, with exact frame/checksum references. | Lifecycle tests cover newly ready renders, preserved earlier snapshots, changed-byte rejection and disabling visual analysis. The signed service attaches actual PNGs and rejects missing/mismatched images and models without image support. Model questions remain ungraded. |
+| E-01 | Implemented | Ops configures the reminder lead time from 0–3600 seconds (default 300; 0 disables) and whether to also call. Push and calls share that lead time. The reviewer app has one consent setting for shift reminders and substitute calls. | Lifecycle tests cover timing changes, one call per shift, late consent after push delivery, clock-in, changed hours, revoked consent/access, disabled calls, closed rounds and expired reminders. A queued call moved later does not consume an attempt early; bringing it forward again immediately reschedules the same unsent call. |
+| E-02 | Implemented | Ops can enable visual inspection of captured Figma screens. All captured accessible renders enter the existing resumable pipeline, one image per inspection batch, with exact frame/checksum references. | Lifecycle tests cover newly ready renders, preserved earlier snapshots, changed-byte rejection and disabling visual analysis. The signed service attaches actual PNGs and rejects missing/mismatched images and models without image support. Model questions remain ungraded. |
 
 Project preparation covers submitted ideas, answers and progress updates, connected GitHub repositories, and Figma files. Teams will not be asked for project documents, PDFs or slide decks; no ingestion pipeline for those materials is planned. Reviewer resumes remain part of the separate one-time assessment above.
 
@@ -81,7 +81,7 @@ This review covered the workspace manifests, mounted participant/reviewer/ops pa
 
 ## Follow-up implementation
 
-The reviewer call notice now explicitly includes shift reminders. Existing substitute-only consent does not authorize the expanded notice; reviewers confirm the updated notice once in the app. GPS confirmation consent remains separate.
+The reviewer call notice now explicitly includes shift reminders. Existing substitute-only consent does not authorize the expanded notice; reviewers confirm the updated notice once in the app. The app submits the version of the notice compiled into its UI, and the backend rejects outdated approvals. Turning calls off remains available from older apps. GPS confirmation consent remains separate.
 
 No new resume service, document ingestion, agent-controlled scores, or participant controls were added. The backend and intelligence service use review-question protocol v2 for image attachments and must be released together. These follow-up changes have not been deployed during this work.
 
@@ -97,7 +97,9 @@ No new resume service, document ingestion, agent-controlled scores, or participa
 
 ## Check record
 
-After the follow-up implementation, the full `pnpm test` run passed 1,373 tests across all 13 packages with ordinary test targets. Root lint and all 16 package typechecks passed. Ops and intelligence production builds passed, and the reviewer app exported both iOS and Android bundles. pnpm regenerated the lockfile from the manifests when the existing model-provider dependency moved into runtime dependencies; no lockfile was edited by hand.
+After integrating the incoming admission recovery and dashboard changes, the full `pnpm test` run passed 1,386 tests across all 13 packages with ordinary test targets. Root lint and all 16 package typechecks passed. Participant web, ops and intelligence production builds passed, and the reviewer app exported both iOS and Android bundles. pnpm regenerated the lockfile from the merged manifests; no lockfile was edited by hand. A subsequent timing regression check passed with all 65 tests in the reminder and consent files, covering an unsent call moved later and then brought forward again.
+
+The first combined build/test run hit a five-second lifecycle test timeout under concurrent load and a follow-on authentication assertion. The complete rerun after builds finished passed without relaxing test timeouts or changing those lifecycle tests.
 
 New checks cover reminder timing, rescheduling and stale dispatch; Figma snapshot refresh and pinned images; every captured render entering its own analysis batch; private PNG size/checksum validation; native image attachment dispatch; and rejection of mismatched images or unsupported models. Existing staffing, active-review locks, late score entry, required comments, queue progression, exports and offline behavior remain covered by the regression suite.
 

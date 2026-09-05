@@ -1,6 +1,10 @@
 import betterAuthSchema from "../node_modules/@convex-dev/better-auth/src/component/schema.ts";
 import aggregateTest from "@convex-dev/aggregate/test";
-import { defaultVitHostelResidenceCatalog } from "@code2create/domain";
+import {
+  defaultVitHostelResidenceCatalog,
+  reviewerCallConsentPolicyVersion,
+  reviewerCallScriptPolicyVersion,
+} from "@code2create/domain";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
 import { convexTest, type TestConvex } from "convex-test";
@@ -16,7 +20,6 @@ import { maximumReviewTeamsPerEvent } from "./lib/reviewLimits.ts";
 import { insertTeamRoundState } from "./lib/reviewQueueProjection.ts";
 import { createTestSubmissionSnapshot } from "./lib/testSubmissionSnapshot.ts";
 import schema from "./schema.ts";
-import { reviewerCallConsentPolicyVersion, reviewerCallScriptPolicyVersion } from "@code2create/domain";
 
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
 const betterAuthModules = import.meta.glob(
@@ -173,6 +176,37 @@ describe("reviewer shift reminders", () => {
     } finally {
       clock.mockRestore();
     }
+  });
+
+  test("bringing a deferred reminder forward schedules the same unsent call immediately", async () => {
+    const f = await shiftReminderFixture();
+    await f.prepare();
+    const [call] = await f.calls();
+    if (!call) throw new Error("Reminder missing");
+    await f.configure(60, true);
+    await f.backend.mutation(internal.outboundCallState.claimDelivery, {
+      deliveryId: call._id,
+      attemptId: "defer",
+    });
+    const scheduledCalls = () => f.backend.run(async (ctx) =>
+      (await ctx.db.system.query("_scheduled_functions").collect()).filter(
+        (job) => job.name === "outboundCalls:deliver",
+      ),
+    );
+    const before = await scheduledCalls();
+    await f.configure(300, true);
+    await f.prepare();
+    expect(await f.calls()).toEqual([
+      expect.objectContaining({ _id: call._id, state: "pending", attemptCount: 0 }),
+    ]);
+    expect((await f.calls())[0]?.nextAttemptAt).toBeUndefined();
+    const after = await scheduledCalls();
+    expect(after).toHaveLength(before.length + 1);
+    expect(after.at(-1)?.scheduledTime).toBeLessThan(f.shiftStartsAt - 60_000);
+    expect(await f.backend.mutation(internal.outboundCallState.claimDelivery, {
+      deliveryId: call._id,
+      attemptId: "latest-time",
+    })).not.toBeNull();
   });
 
   test("late consent and enabling calls work even after the push was sent", async () => {

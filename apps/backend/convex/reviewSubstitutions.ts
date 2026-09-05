@@ -1,5 +1,9 @@
 import { ConvexError, v } from "convex/values";
-import { reviewerFitsSeat } from "@code2create/domain";
+import {
+  reviewerCallConsentPolicyVersion,
+  reviewerCallScriptPolicyVersion,
+  reviewerFitsSeat,
+} from "@code2create/domain";
 import { reviewerHasOverlappingPanel, reviewerParticipation } from "./lib/reviewerParticipation";
 import { z } from "zod";
 
@@ -7,10 +11,6 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation, mutation, query } from "./_generated/server";
-import {
-  reviewerCallConsentPolicyVersion,
-  reviewerCallScriptPolicyVersion,
-} from "@code2create/domain";
 import { advanceAccessVersion } from "./lib/accessVersion";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";

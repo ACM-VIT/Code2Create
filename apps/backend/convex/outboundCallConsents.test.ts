@@ -97,18 +97,26 @@ describe("reviewer outbound-call consent", () => {
       suggestedPhoneE164: "+919111111111",
       version: 0,
     });
-    const grantRequest = {
+    const requestWithoutNotice = {
       eventSlug,
       state: "granted" as const,
-      consentPolicyVersion: reviewerCallConsentPolicyVersion,
       destinationPhone: "+91 98765 43210",
       expectedVersion: 0,
       clientOperationId: "grant-call-consent",
     };
-    for (const version of [undefined, "reviewer-page-call-consent-v1"]) {
-      await expect(reviewer.mutation(api.outboundCallConsents.saveReviewerConsent, {
-        ...grantRequest, consentPolicyVersion: version,
-      })).rejects.toMatchObject({ data: expect.objectContaining({ code: "CALL_NOTICE_CHANGED" }) });
+    const grantRequest = {
+      ...requestWithoutNotice,
+      consentPolicyVersion: reviewerCallConsentPolicyVersion,
+    };
+    for (const notice of [{}, { consentPolicyVersion: "reviewer-page-call-consent-v1" }]) {
+      await expect(
+        reviewer.mutation(api.outboundCallConsents.saveReviewerConsent, {
+          ...requestWithoutNotice,
+          ...notice,
+        }),
+      ).rejects.toMatchObject({
+        data: expect.objectContaining({ code: "CALL_NOTICE_CHANGED" }),
+      });
     }
     const granted = await reviewer.mutation(
       api.outboundCallConsents.saveReviewerConsent,

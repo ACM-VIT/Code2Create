@@ -119,7 +119,7 @@ export async function enqueueShiftReminderCall(
   // attempt reached dispatch, its identity and snapshot must remain unchanged.
   if (
     delivery?.attemptCount === 0 &&
-    ["pending", "cancelled"].includes(delivery.state)
+    ["pending", "cancelled", "retry_wait"].includes(delivery.state)
   ) {
     await ctx.db.patch(deliveryId, {
       state: "pending",
@@ -134,11 +134,12 @@ export async function enqueueShiftReminderCall(
       scriptPolicyVersion: reviewerCallScriptPolicyVersion,
       script,
       providerErrorCode: undefined,
+      nextAttemptAt: undefined,
       completedAt: undefined,
       version: delivery.version + 1,
       updatedAt: args.now,
     });
-    if (delivery.state === "cancelled")
+    if (delivery.state !== "pending")
       await ctx.scheduler.runAfter(0, internal.outboundCalls.deliver, {
         deliveryId,
       });

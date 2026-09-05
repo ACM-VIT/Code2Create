@@ -973,8 +973,8 @@ function RoundPublisher({
         <span className="step-number">1</span>Round timing and rules
       </h2>
       <p className="muted">
-        Publishing locks the staffing times, no-show grace, rubric, panels, coordinators, and
-        reviewer coverage.
+        Publishing creates the round, rubric and initial panels. Manage staffing,
+        replacements and reminders from the round's controls.
       </p>
       <form className="review-publisher" onSubmit={publish}>
         <fieldset disabled={publishPending} style={{ display: "contents" }}>
