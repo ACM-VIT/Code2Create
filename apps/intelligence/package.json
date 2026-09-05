@@ -16,7 +16,7 @@
     "eval": "vitest run --config vitest.eval.config.ts",
     "shortlist:local": "node scripts/run-shortlist-local.ts",
     "lint": "oxlint src",
-    "test": "vitest run --config vitest.config.ts && node --test tests/local-development.test.mjs",
+    "test": "vitest run --config vitest.config.ts && node --test tests/local-development.test.mjs scripts/shortlistAuditCache.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

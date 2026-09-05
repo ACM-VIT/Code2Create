@@ -3,7 +3,9 @@ import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { URL } from "node:url";
+import { shortlistAuditCacheKey } from "./shortlistAuditCache.ts";
 import { defaultAdmissionCriteria } from "../../backend/convex/lib/admissionPolicy.ts";
+import { admissionGuidanceForBand } from "../../backend/convex/lib/admission.ts";
 import { redactProjectText } from "../../backend/convex/lib/projectText.ts";
 import {
   selectAdmissionShortlist,
@@ -29,14 +31,13 @@ const { values } = parseArgs({
   options: {
     seed: {
       type: "string",
-      default: "../../outputs/data/admissions-review-seed-source.json",
+      default: "../../outputs/data/admissions-review-seed-current.json",
     },
     output: { type: "string", default: "../../outputs/shortlist-seed" },
     model: { type: "string", default: "gpt-5.6-terra" },
     concurrency: { type: "string", default: "12" },
     "accept-people": { type: "string", default: "700" },
     "waitlist-people": { type: "string", default: "300" },
-    "assumed-team-size": { type: "string", default: "4" },
     limit: { type: "string" },
     "quality-from": { type: "string" },
   },
@@ -47,18 +48,8 @@ if (!apiKey)
     "OPENAI_API_KEY is required. This runner never contacts Convex.",
   );
 const concurrency = Number(values.concurrency);
-const assumedSize = Number(values["assumed-team-size"]);
-if (
-  !Number.isInteger(concurrency) ||
-  concurrency < 1 ||
-  concurrency > 32 ||
-  !Number.isInteger(assumedSize) ||
-  assumedSize < 2 ||
-  assumedSize > 5
-)
-  throw new Error(
-    "Use concurrency 1–32 and a labelled simulated team size 2–5",
-  );
+if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 32)
+  throw new Error("Use concurrency 1–32");
 const settings = {
   acceptPeople: Number(values["accept-people"]),
   waitlistPeople: Number(values["waitlist-people"]),
@@ -86,6 +77,19 @@ for (const [index, row] of seedRows.entries()) {
     throw new Error("Malformed seed entry");
   const id = `seed-${String(index + 1).padStart(4, "0")}`;
   const teamName = row.teamName;
+  const teamSize = shortlistCandidateInputSchema.shape.teamSize.parse(
+    "teamSize" in row ? row.teamSize : undefined,
+  );
+  const experienceBand =
+    "experienceBand" in row ? row.experienceBand : undefined;
+  if (
+    experienceBand !== "first_year" &&
+    experienceBand !== "early_year" &&
+    experienceBand !== "later_year" &&
+    experienceBand !== "postgraduate_or_professional" &&
+    experienceBand !== "mixed_or_external"
+  )
+    throw new Error("Seed entry requires its declared experience band");
   labels.set(id, teamName);
   const sources: ShortlistCandidateInput["sources"] = [];
   const answers: unknown[] = row.answers;
@@ -129,14 +133,14 @@ for (const [index, row] of seedRows.entries()) {
   inputs.push(
     shortlistCandidateInputSchema.parse({
       applicationId: id,
-      teamSize: assumedSize,
-      experienceBand: "first_year",
+      teamSize,
+      experienceBand,
       quality: "accept",
       sources,
       criteria: defaultAdmissionCriteria.map((c) => ({
         criterionKey: c.criterionKey,
         label: c.label,
-        guidance: c.guidanceByBand.firstYear,
+        guidance: admissionGuidanceForBand(c.guidanceByBand, experienceBand),
       })),
     }),
   );
@@ -147,6 +151,7 @@ if (values.limit !== undefined) {
   inputs.splice(limit);
 }
 const codeFiles = [
+  "./shortlistAuditCache.ts",
   "../src/lib/shortlistModel.ts",
   "../../../packages/domain/src/admissionShortlist.ts",
   "../../../packages/domain/src/intelligenceAgents.ts",
@@ -212,8 +217,8 @@ const directory = resolve(values.output, fingerprint.slice(0, 16));
 await mkdir(directory, { recursive: true });
 const assumptions = [
   "Local calibration only: no Convex access or production decisions.",
-  "Published event policy, experience bands, locked rosters and existing AI results are absent from the seed.",
-  `Uses repository-default first-year criteria for everyone and ${assumedSize}-person simulated teams. People totals are NOT actual participant counts.`,
+  "Uses current dashboard roster sizes and declared study-year groups, mapped with the repository's experience-band rules.",
+  "Uses repository-default experience-adjusted criteria; the published production policy and existing AI results are not imported. Targets cover this pending pool only.",
   qualitySource
     ? `Individual quality is frozen from local run ${qualitySource.fingerprint}; it is preserved, not re-evaluated under this run's prompts. Historical similarity was unavailable during that original calibration.`
     : `Individual quality is freshly evaluated with the existing rubric and recommendation ladder; historical similarity tools are unavailable and limitations must be recorded.`,
@@ -419,9 +424,9 @@ const chunks = Array.from(
   { length: Math.ceil(auditInputs.length / 8) },
   (_, i) => auditInputs.slice(i * 8, i * 8 + 10),
 );
-const audits = await parallel("audit", chunks, (rows, i) =>
+const audits = await parallel("audit", chunks, (rows) =>
   cache(
-    `audit-${i}`,
+    shortlistAuditCacheKey({ kind: "audit", candidates: rows }),
     () =>
       analyzeShortlistTask({
         task: { kind: "audit", candidates: rows },
@@ -436,7 +441,7 @@ const totals = Object.fromEntries(
     kind,
     {
       teams: suggestions.filter((r) => r.suggestion === kind).length,
-      simulatedPeople: suggestions
+      people: suggestions
         .filter((r) => r.suggestion === kind)
         .reduce((n, r) => n + r.teamSize, 0),
     },
@@ -495,13 +500,10 @@ await writeFile(
 );
 await writeFile(
   resolve(directory, "review.md"),
-  `# Local seed shortlist calibration\n\n${assumptions.map((a) => `- ${a}`).join("\n")}\n\n## Totals\n\n| Suggestion | Teams | Simulated people |\n| --- | ---: | ---: |\n${Object.entries(
+  `# Local seed shortlist calibration\n\n${assumptions.map((a) => `- ${a}`).join("\n")}\n\n## Totals\n\n| Suggestion | Teams | People |\n| --- | ---: | ---: |\n${Object.entries(
     totals,
   )
-    .map(
-      ([kind, counts]) =>
-        `| ${kind} | ${counts.teams} | ${counts.simulatedPeople} |`,
-    )
+    .map(([kind, counts]) => `| ${kind} | ${counts.teams} | ${counts.people} |`)
     .join(
       "\n",
     )}\n\nAccepted domains (teams): ${JSON.stringify(domainMix)}\n\nAccepted AI roles (teams): ${JSON.stringify(aiMix)}\n\n${[
