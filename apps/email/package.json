@@ -29,6 +29,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@aws-sdk/client-sesv2": "^3.1126.0",
     "@code2create/domain": "workspace:*",
     "zod": "^4.4.3"
   },

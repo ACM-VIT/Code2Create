@@ -7,7 +7,7 @@ import { internalMutation } from "./_generated/server";
 import { applicationMatchesNotification } from "./lib/participantNotificationDelivery";
 import { normalizeEmail } from "./lib/strings";
 import { appendParticipantDeliveryReadFactById } from "./lib/operationsAutonomyReadFacts/participantDeliveries";
-import { participantEmailTemplateKey } from "./values";
+import { participantEmailProvider, participantEmailTemplateKey } from "./values";
 
 const maxAutomaticAttempts = 3;
 const sendClaimMs = 30_000;
@@ -32,6 +32,7 @@ const deliveryClaim = v.union(
   v.object({
     deliveryId: v.id("participantNotificationDeliveries"),
     templateKey: participantEmailTemplateKey,
+    notificationProvider: participantEmailProvider,
     eventId: v.id("events"),
     eventSlug: v.string(),
     membershipId: v.id("eventMemberships"),
@@ -97,7 +98,7 @@ export const claimDelivery = internalMutation({
         ctx,
         delivery,
         "unknown",
-        "cloudflare_email_send_outcome_unknown",
+        "email_send_outcome_unknown",
         now,
       );
       return null;
@@ -135,6 +136,13 @@ export const claimDelivery = internalMutation({
       (communicationsPolicy.status !== "published" && communicationsPolicy.status !== "superseded")
     ) {
       await finishWithoutSend(ctx, delivery, "failed", "communications_policy_invalid", now);
+      return null;
+    }
+    if (
+      delivery.provider !== undefined &&
+      delivery.provider !== communicationsPolicy.notificationProvider
+    ) {
+      await finishWithoutSend(ctx, delivery, "failed", "email_provider_pin_invalid", now);
       return null;
     }
     if (
@@ -187,6 +195,7 @@ export const claimDelivery = internalMutation({
     const claimExpiresAt = now + sendClaimMs;
     await ctx.db.patch(delivery._id, {
       state: "sending",
+      provider: communicationsPolicy.notificationProvider,
       attemptCount: delivery.attemptCount + 1,
       attemptId: args.attemptId,
       claimExpiresAt,
@@ -202,6 +211,7 @@ export const claimDelivery = internalMutation({
     return {
       deliveryId: delivery._id,
       templateKey: delivery.templateKey,
+      notificationProvider: communicationsPolicy.notificationProvider,
       eventId: event._id,
       eventSlug: event.slug,
       membershipId: membership._id,
@@ -263,6 +273,9 @@ async function applyProviderEvent(
 ) {
   if (providerEvent.appliedAt !== undefined) return;
   const now = Date.now();
+  if (delivery.provider !== providerEvent.provider) {
+    throw new Error("Participant email event does not match the delivery provider.");
+  }
   if (delivery.providerMessageId !== providerEvent.providerMessageId) {
     throw new Error("Participant email event does not match the delivery message ID.");
   }
@@ -329,6 +342,7 @@ export const recordSent = internalMutation({
   args: {
     deliveryId: v.id("participantNotificationDeliveries"),
     attemptId: v.string(),
+    provider: participantEmailProvider,
     providerMessageId: v.string(),
     initialOutcome: initialProviderOutcome,
   },
@@ -337,6 +351,9 @@ export const recordSent = internalMutation({
     const delivery = await ctx.db.get(args.deliveryId);
     if (!delivery || delivery.state !== "sending" || delivery.attemptId !== args.attemptId) {
       return null;
+    }
+    if (delivery.provider !== undefined && delivery.provider !== args.provider) {
+      throw new Error("Participant email provider changed during delivery.");
     }
     const now = Date.now();
     const state =
@@ -350,11 +367,12 @@ export const recordSent = internalMutation({
       attemptId: undefined,
       claimExpiresAt: undefined,
       nextAttemptAt: undefined,
+      provider: args.provider,
       providerMessageId: args.providerMessageId,
       providerAcceptedAt: now,
       providerErrorCode:
         args.initialOutcome === "permanent_bounce"
-          ? "cloudflare_email_permanent_bounce"
+          ? `${args.provider}_permanent_bounce`
           : undefined,
       sentAt: now,
       deliveredAt: args.initialOutcome === "delivered" ? now : undefined,
@@ -367,16 +385,18 @@ export const recordSent = internalMutation({
       await disableDestinationForProviderFailure(
         ctx,
         delivery,
-        "cloudflare_email_permanent_bounce",
+        `${args.provider}_permanent_bounce`,
         now,
       );
     }
-    const providerEvents = await ctx.db
-      .query("participantNotificationProviderEvents")
-      .withIndex("by_provider_message_time", (index) =>
-        index.eq("providerMessageId", args.providerMessageId),
-      )
-      .collect();
+    const providerEvents = args.provider === "cloudflare_email"
+      ? await ctx.db
+          .query("participantNotificationProviderEvents")
+          .withIndex("by_provider_message_time", (index) =>
+            index.eq("providerMessageId", args.providerMessageId),
+          )
+          .collect()
+      : [];
     providerEvents.sort(
       (left, right) =>
         left.providerAt - right.providerAt || left.eventId.localeCompare(right.eventId),
@@ -486,7 +506,12 @@ export const recordProviderEvent = internalMutation({
         index.eq("providerMessageId", args.providerMessageId),
       )
       .unique();
-    if (!delivery) return { duplicate: false, matched: false };
+    if (!delivery || delivery.provider === undefined) {
+      return { duplicate: false, matched: false };
+    }
+    if (delivery.provider !== "cloudflare_email") {
+      return { duplicate: false, matched: false };
+    }
     const providerEvent = await ctx.db.get(providerEventId);
     if (!providerEvent) throw new Error("Participant email event did not persist.");
     await applyProviderEvent(ctx, providerEvent, delivery);
