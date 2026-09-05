@@ -543,7 +543,7 @@ describe("participant review queue projection", () => {
       await backend.run((ctx) => ctx.db.query("reviewAssignments").collect()),
     ).toHaveLength(1);
   });
-  test("team leads can opt in and revoke calls without changing another person's consent", async () => {
+  test("team leads opt into calls using their saved profile phone and can retry or revoke without it", async () => {
     const backend = seededBackend();
     const fixture = await seedQueueFixture(backend);
     await backend.run((ctx) =>
@@ -563,15 +563,39 @@ describe("participant review queue projection", () => {
     const command = {
       eventSlug: fixture.eventSlug,
       enabled: true,
-      phone: "+919876543210",
       expectedVersion: 0,
       clientOperationId: "enable-team-calls",
     };
+    await expect(
+      participant.mutation(api.participantReviewCalls.save, command),
+    ).rejects.toThrow("Update the phone number in your profile");
+    const profileId = await backend.run((ctx) =>
+      ctx.db.insert("participantProfiles", {
+        eventId: fixture.eventId,
+        membershipId: fixture.membershipId,
+        participantClass: "vit_student",
+        fullName: "Queue participant",
+        phone: "+919876543210",
+        gender: "male",
+        institution: "VIT",
+        yearOfStudy: "third",
+        profileVersion: 1,
+        updatedAt: fixture.now,
+      }),
+    );
     expect(
       await participant.mutation(api.participantReviewCalls.save, command),
     ).toEqual({
       version: 1,
     });
+    expect(
+      await backend.run((ctx) => ctx.db.query("outboundCallConsents").unique()),
+    ).toMatchObject({
+      personId: fixture.personId,
+      state: "granted",
+      destinationPhoneE164: "+919876543210",
+    });
+    await backend.run((ctx) => ctx.db.delete(profileId));
     expect(
       await participant.mutation(api.participantReviewCalls.save, command),
     ).toEqual({

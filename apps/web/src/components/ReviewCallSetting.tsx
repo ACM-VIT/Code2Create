@@ -30,7 +30,6 @@ function CallForm({ setting }: { setting: Setting }) {
     useOperationRunner<
       FunctionReturnType<typeof api.participantReviewCalls.save>
     >();
-  const [phone, setPhone] = useState(setting.phone ?? "");
   const [enabled, setEnabled] = useState(setting.enabled);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -45,7 +44,6 @@ function CallForm({ setting }: { setting: Setting }) {
         const args = {
           eventSlug,
           enabled,
-          ...(enabled ? { phone } : {}),
           expectedVersion: setting.version,
           clientOperationId,
         };
@@ -63,8 +61,8 @@ function CallForm({ setting }: { setting: Setting }) {
       className="mt-3 flex flex-col gap-3 text-[13px] text-fg/75"
     >
       <p className="m-0">
-        Allow automated calls when your team is next or ready for review. You
-        can turn them off here.
+        Allow automated calls to your saved profile number when your team is
+        next or ready for review. You can turn them off here.
       </p>
       <label className="flex items-center gap-2">
         <input
@@ -75,20 +73,6 @@ function CallForm({ setting }: { setting: Setting }) {
         />
         Call me about my team’s review
       </label>
-      {enabled ? (
-        <label>
-          Phone number
-          <input
-            type="tel"
-            autoComplete="tel"
-            value={phone}
-            disabled={busy || pending}
-            placeholder="+91…"
-            onChange={(e) => setPhone(e.target.value)}
-            className="mt-1 w-full rounded-md border border-petal-line bg-transparent p-2 text-fg"
-          />
-        </label>
-      ) : null}
       <button
         type="submit"
         disabled={busy}
