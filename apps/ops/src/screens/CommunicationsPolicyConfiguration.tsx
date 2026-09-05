@@ -1,5 +1,7 @@
 import { api } from "@code2create/backend/api";
 import {
+  participantEmailProviderLabels,
+  participantEmailProviders,
   participantEmailTemplateKeys,
   participantEmailTemplateLabels,
   participantEmailTemplateZipMaximumBytes,
@@ -664,8 +666,28 @@ export function CommunicationsPolicyConfiguration({
 
               <PolicySection
                 title="Participant emails"
-                description="Edit and preview every email sent during admissions. Once published, queued emails keep the wording they were queued with."
+                description="Choose the outbound provider, then edit and preview every email sent during admissions. Queued emails keep the provider and wording from their published policy."
               >
+                <label className="field">
+                  <span>Outbound provider</span>
+                  <select
+                    value={policy.notificationProvider}
+                    onChange={(event) =>
+                      updatePolicy(
+                        "notificationProvider",
+                        event.currentTarget.value === "aws_ses"
+                          ? "aws_ses"
+                          : "cloudflare_email",
+                      )
+                    }
+                  >
+                    {participantEmailProviders.map((provider) => (
+                      <option key={provider} value={provider}>
+                        {participantEmailProviderLabels[provider]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
                 <div className="email-template-workspace">
                   <nav className="email-template-rail" aria-label="Email">
                     {participantEmailTemplateKeys.map((templateKey) => (
@@ -693,7 +715,9 @@ export function CommunicationsPolicyConfiguration({
                   <div className="email-template-editor">
                     <div className="section-heading email-template-heading">
                       <h3>{participantEmailTemplateLabels[selectedEmail]}</h3>
-                      <span className="tag">Cloudflare Email Service</span>
+                      <span className="tag">
+                        {participantEmailProviderLabels[policy.notificationProvider]}
+                      </span>
                     </div>
                     <p className="muted email-placeholder-help">
                       Fields you can use:{" "}

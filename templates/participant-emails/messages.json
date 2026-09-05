@@ -1,0 +1,42 @@
+[
+  {
+    "templateKey": "accept",
+    "subject": "{{team_name}} has been selected for {{event_name}}",
+    "text": "Dear {{participant_name}},\n\nCongratulations from ACM-VIT!\n\nYour team, {{team_name}}, has been selected for {{event_name}}. Congratulations!\n\nSelection does not confirm attendance. Your team lead must open the C2C portal and choose Confirm attendance for the whole team before the RSVP deadline shown there. If your team cannot attend, choose Decline.\n\nPlease check the portal for your RSVP status, event details, and arrival instructions.\n\nView selection and RSVP: {{portal_url}}\n\nEvent Discord: https://discord.gg/hPkhtMcHq8\n\nBest regards,\nACM-VIT Student Chapter"
+  },
+  {
+    "templateKey": "waitlist",
+    "subject": "{{team_name}} is on the {{event_name}} waitlist",
+    "text": "Hi {{participant_name}},\n\n{{team_name}} is currently on the waitlist for {{event_name}}. No response is needed right now. We will contact you if a place becomes available. Keep your team details current in the portal: {{portal_url}}\n\nACM-VIT community Discord: https://discord.gg/xWyjKPe3S\n\nBest regards,\nACM-VIT Student Chapter"
+  },
+  {
+    "templateKey": "decline",
+    "subject": "An update on {{team_name}}'s {{event_name}} application",
+    "text": "Dear {{participant_name}},\n\nGreetings from ACM-VIT!\n\nUnfortunately, your team, {{team_name}}, didn’t make the cut for {{event_name}}.\n\nBut hey, that’s no reason to stop building your project :)\n\nYou can keep building and share updates with the community on our Discord server. Your submission remains available in the C2C portal.\n\nView submission: {{portal_url}}\n\nACM-VIT community Discord: https://discord.gg/xWyjKPe3S\n\nBest regards,\nACM-VIT Student Chapter"
+  },
+  {
+    "templateKey": "offer",
+    "subject": "RSVP required: confirm {{team_name}} by {{rsvp_deadline}}",
+    "text": "Dear {{participant_name}},\n\nCongratulations from ACM-VIT!\n\nYour team, {{team_name}}, has been selected for {{event_name}}. Your attendance is not confirmed yet.\n\nRSVP by {{rsvp_deadline}}\nYour team lead must choose Confirm attendance in the C2C portal for the whole team.\n\nIf your team cannot attend, choose Decline in the portal. If no response is received by the deadline, your reserved places will be released.\n\nOnly one response from the team lead is needed. All team members can check the current status in the portal.\n\nConfirm attendance: {{portal_url}}\n\nEvent Discord: https://discord.gg/hPkhtMcHq8\n\nBest regards,\nACM-VIT Student Chapter"
+  },
+  {
+    "templateKey": "offer_confirmed",
+    "subject": "Attendance confirmed: {{team_name}} at {{event_name}}",
+    "text": "Dear {{participant_name}},\n\nYou’re in!\n\nYour team lead has confirmed attendance for {{team_name}} at {{event_name}}. Your team’s places are reserved; no further RSVP is needed.\n\nWhen: {{event_start}}\nWhere: {{venue_name}}\n\nPlease check the C2C portal for arrival instructions and join the event Discord for announcements and participant support.\n\nView event details: {{portal_url}}\n\nEvent Discord: https://discord.gg/hPkhtMcHq8\n\nBest regards,\nACM-VIT Student Chapter"
+  },
+  {
+    "templateKey": "offer_declined",
+    "subject": "{{team_name}}'s {{event_name}} offer was declined",
+    "text": "Hi {{participant_name}},\n\nThe offer for {{team_name}} at {{event_name}} was declined by the team lead. The team's reserved places have been released. You can review the current status in the participant portal: {{portal_url}}\n\nACM-VIT community Discord: https://discord.gg/xWyjKPe3S\n\nBest regards,\nACM-VIT Student Chapter"
+  },
+  {
+    "templateKey": "offer_expired",
+    "subject": "{{team_name}}'s {{event_name}} offer has expired",
+    "text": "Dear {{participant_name}},\n\nGreetings from ACM-VIT!\n\nThe RSVP deadline of {{rsvp_deadline}} for {{team_name}} at {{event_name}} passed without a confirmation.\n\nYour team’s reserved places have been released. You can review the current status in the C2C portal.\n\nIf you believe this is a mistake, contact the event help desk through the portal.\n\nView team status: {{portal_url}}\n\nACM-VIT community Discord: https://discord.gg/xWyjKPe3S\n\nBest regards,\nACM-VIT Student Chapter"
+  },
+  {
+    "templateKey": "external_event_pass",
+    "subject": "Your {{event_name}} event pass",
+    "text": "Hi {{participant_name}},\n\nYour personal external-participant pass for {{event_name}} is included in this email. Present its QR before your physical photo ID at first check-in.\n\nWhen: {{event_start}}\nWhere: {{venue_name}}\nPass: {{pass_reference}}\n\nGoogle Wallet: {{google_wallet_url}}\nApple Wallet: {{apple_wallet_url}}\n\nThis pass belongs to you and must not be shared. Event support is available through {{portal_url}}.\n\nEvent Discord: https://discord.gg/hPkhtMcHq8\n\nBest regards,\nACM-VIT Student Chapter"
+  }
+]

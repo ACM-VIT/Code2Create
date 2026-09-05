@@ -13,7 +13,7 @@ import {
   type AdmissionAiDisposition,
   type ApplicationDecision,
 } from "@code2create/domain";
-import { TZDateMini } from "@date-fns/tz";
+import { zonedTimestamp } from "../lib/zonedTimestamp";
 import type { FunctionReturnType } from "convex/server";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import { useMemo, useState, type SubmitEvent } from "react";
@@ -371,6 +371,7 @@ function OfferControl({ detail }: { detail: AdmissionDetailData }) {
   const revokeOffer = useMutation(api.admissions.revokeOffer);
   const operations = useOperationRunner();
   const [deadline, setDeadline] = useState("");
+  const [reminderAt, setReminderAt] = useState("");
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState<"send" | "revoke" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -387,11 +388,13 @@ function OfferControl({ detail }: { detail: AdmissionDetailData }) {
           applicationId: detail.application.id,
           expectedApplicationVersion: detail.application.version,
           expiresAt,
+          ...(reminderAt ? { reminderAt: zonedTimestamp(reminderAt, detail.eventTimezone, "Call start") } : {}),
           clientOperationId,
         };
         return () => sendOffer(command);
       });
       setDeadline("");
+      setReminderAt("");
     } catch (caught) {
       setError(readableError(caught));
     } finally {
@@ -480,6 +483,9 @@ function OfferControl({ detail }: { detail: AdmissionDetailData }) {
               disabled={operationPending || busy !== null}
               onChange={(event) => setDeadline(event.target.value)}
             />
+          </Field>
+          <Field label={`Reminder call starts · ${detail.eventTimezone}`} hint="Leave empty to disable the reminder call for this offer.">
+            <input type="datetime-local" value={reminderAt} disabled={operationPending || busy !== null} onChange={event => setReminderAt(event.target.value)} />
           </Field>
           {detail.capacity ? (
             <p className="capacity-line">
@@ -1576,31 +1582,6 @@ function decidedSentence(detail: AdmissionDetailData, decision: ApplicationDecis
   return reason ? `${outcome}. The team was told: ${reason}.` : `${outcome}.`;
 }
 
-function zonedTimestamp(value: string, timezone: string, label: string) {
-  const [datePart, timePart] = value.split("T");
-  const datePieces = datePart?.split("-");
-  const timePieces = timePart?.split(":");
-  const year = Number(datePieces?.[0]);
-  const month = Number(datePieces?.[1]);
-  const day = Number(datePieces?.[2]);
-  const hour = Number(timePieces?.[0]);
-  const minute = Number(timePieces?.[1]);
-  if ([year, month, day, hour, minute].some((part) => !Number.isInteger(part))) {
-    throw new Error(`${label} is incomplete.`);
-  }
-  const date = new TZDateMini(year, month - 1, day, hour, minute, timezone);
-  if (
-    !Number.isFinite(date.getTime()) ||
-    date.getFullYear() !== year ||
-    date.getMonth() !== month - 1 ||
-    date.getDate() !== day ||
-    date.getHours() !== hour ||
-    date.getMinutes() !== minute
-  ) {
-    throw new Error(`${label} is not a valid local time in ${timezone}.`);
-  }
-  return date.getTime();
-}
 
 function formatEventTime(timestamp: number, timezone: string) {
   return new Intl.DateTimeFormat(undefined, {

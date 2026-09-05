@@ -21,6 +21,7 @@ import {
 } from "./lib/participantNotificationDelivery";
 import { normalizeEmail, normalizedText } from "./lib/strings";
 import { appendParticipantDeliveryReadFactById } from "./lib/operationsAutonomyReadFacts/participantDeliveries";
+import { participantEmailProvider } from "./values";
 
 const notificationTemplateKey = v.union(
   v.literal("accept"),
@@ -58,6 +59,7 @@ const participantDeliveryView = v.object({
 const operationsDeliveryView = v.object({
   id: v.id("participantNotificationDeliveries"),
   state: notificationDeliveryState,
+  provider: v.optional(participantEmailProvider),
   version: v.number(),
   updatedAt: v.number(),
 });
@@ -154,6 +156,7 @@ export const enqueueRosterBatch = internalMutation({
         teamId: args.teamId,
         snapshotMember,
         communicationsPolicyVersionId: communicationsPolicy._id,
+        notificationProvider: communicationsPolicy.notificationProvider,
         templateKey: args.templateKey,
         applicationVersion: args.applicationVersion,
         now,
@@ -304,6 +307,7 @@ export const forApplication = query({
           ? {
               id: delivery._id,
               state: delivery.state,
+              ...(delivery.provider !== undefined ? { provider: delivery.provider } : {}),
               version: delivery.version,
               updatedAt: delivery.updatedAt,
             }
@@ -320,6 +324,7 @@ export const retry = mutation({
     eventSlug: v.string(),
     deliveryId: v.id("participantNotificationDeliveries"),
     expectedDeliveryVersion: v.number(),
+    confirmedNotAcceptedEvidence: v.optional(v.string()),
     reason: v.string(),
     clientOperationId: v.string(),
   },
@@ -332,10 +337,14 @@ export const retry = mutation({
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const reason = normalizedText(args.reason, "Reason", 3, 300);
+    const confirmedNotAcceptedEvidence = args.confirmedNotAcceptedEvidence === undefined
+      ? undefined
+      : normalizedText(args.confirmedNotAcceptedEvidence, "Non-acceptance evidence", 20, 1_000);
     const requestFingerprint = operationFingerprint([
       args.deliveryId,
       args.expectedDeliveryVersion,
       reason,
+      confirmedNotAcceptedEvidence ?? "",
     ]);
     const prior = await findOperation(ctx, {
       eventId: event._id,
@@ -377,7 +386,10 @@ export const retry = mutation({
         message: "The notification delivery changed. Review its current state before retrying.",
       });
     }
-    if (source.state !== "failed") {
+    const reconciledUnknown = source.state === "unknown" &&
+      confirmedNotAcceptedEvidence !== undefined &&
+      source.providerMessageId === undefined && source.providerAcceptedAt === undefined;
+    if (source.state !== "failed" && !reconciledUnknown) {
       throw new ConvexError({
         code: "DELIVERY_NOT_RETRYABLE",
         message:
@@ -449,6 +461,7 @@ export const retry = mutation({
       personId: source.personId,
       destinationId: source.destinationId,
       communicationsPolicyVersionId: source.communicationsPolicyVersionId,
+      ...(source.provider !== undefined ? { provider: source.provider } : {}),
       channel: "verified_email",
       destinationEmailNormalized: source.destinationEmailNormalized,
       templateKey: source.templateKey,
@@ -492,6 +505,7 @@ export const retry = mutation({
         state: source.state,
         retryNumber: source.retryNumber,
         version: source.version,
+        ...(reconciledUnknown ? { confirmedNotAcceptedEvidence } : {}),
       }),
       nextSummary: JSON.stringify({
         deliveryId,

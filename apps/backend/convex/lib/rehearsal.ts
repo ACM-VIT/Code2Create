@@ -298,9 +298,9 @@ export const releaseRehearsalTemplate = [
   scenario(
     39,
     "communications",
-    "Cloudflare Email send response is lost",
+    "Participant email provider response is lost",
     "The original delivery becomes unknown and no second provider request is issued; any lifecycle events remain deduplicated evidence for investigation.",
-    "Reconcile the message in Cloudflare Email logs and use the portal/support route; never create a blind duplicate send.",
+    "Reconcile the message in the selected provider's logs and use the portal/support route; never create a blind duplicate send or switch providers.",
   ),
   scenario(
     40,

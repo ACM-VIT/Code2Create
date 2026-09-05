@@ -6,13 +6,13 @@ import { Buffer } from "node:buffer";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { rewriteParticipantEmailTemplateAssetReferences } from "@code2create/domain";
+import type { ParticipantEmailAttachment } from "@code2create/domain";
 import { v } from "convex/values";
 import QRCode from "qrcode";
 
 import { internal } from "./_generated/api";
 import { internalAction } from "./_generated/server";
-import { readBoundedJsonResponse } from "./lib/boundedHttpBody";
-import { interpretCloudflareEmailSendResponse } from "./lib/cloudflareEmailSending";
+import { sendEmailThroughService } from "./lib/emailServiceSending";
 import {
   createAppleWalletDownloadToken,
   createGoogleWalletSaveUrl,
@@ -22,14 +22,13 @@ import {
   type ExternalEventPassDetails,
 } from "./lib/externalEventPassWallet";
 
-const cloudflareApiBase = "https://api.cloudflare.com/client/v4/accounts";
-
 type TemplateVariables = {
   participant_name: string;
   team_name: string;
   event_name: string;
   portal_url: string;
   event_start: string;
+  rsvp_deadline: string;
   venue_name: string;
   pass_reference: string;
   google_wallet_url: string;
@@ -38,7 +37,7 @@ type TemplateVariables = {
 
 function renderTemplate(template: string, variables: TemplateVariables) {
   return template.replace(
-    /\{\{\s*(participant_name|team_name|event_name|portal_url|event_start|venue_name|pass_reference|google_wallet_url|apple_wallet_url)\s*\}\}/gu,
+    /\{\{\s*(participant_name|team_name|event_name|portal_url|rsvp_deadline|event_start|venue_name|pass_reference|google_wallet_url|apple_wallet_url)\s*\}\}/gu,
     (_match, key: keyof TemplateVariables) => variables[key],
   );
 }
@@ -79,13 +78,13 @@ function htmlEscaped(value: string) {
 
 function rewriteInlineAssetReferences(
   html: string,
-  assets: Array<{ fileName: string; contentId: string; disposition: "inline" | "attachment" }>,
+  assets: Array<{ filename: string; contentId?: string; disposition: "inline" | "attachment" }>,
 ) {
   return rewriteParticipantEmailTemplateAssetReferences(
     html,
     assets
-      .filter((asset) => asset.disposition === "inline")
-      .map((asset) => ({ fileName: asset.fileName, replacement: `cid:${asset.contentId}` })),
+      .filter((asset) => asset.disposition === "inline" && asset.contentId !== undefined)
+      .map((asset) => ({ fileName: asset.filename, replacement: `cid:${asset.contentId ?? ""}` })),
   );
 }
 
@@ -117,14 +116,6 @@ function configuredConvexSiteUrl(path: string) {
   return new URL(path, base).toString();
 }
 
-type EmailAttachment = {
-  filename: string;
-  type: string;
-  content: string;
-  disposition: "inline" | "attachment";
-  content_id?: string;
-};
-
 export const deliver = internalAction({
   args: { deliveryId: v.id("participantNotificationDeliveries") },
   returns: v.null(),
@@ -135,16 +126,12 @@ export const deliver = internalAction({
       attemptId,
     });
     if (!claim) return null;
-    const accountId = process.env.CLOUDFLARE_EMAIL_ACCOUNT_ID?.trim();
-    const apiToken = process.env.CLOUDFLARE_EMAIL_API_TOKEN?.trim();
-    const from = process.env.CLOUDFLARE_EMAIL_FROM?.trim();
-    const replyTo = process.env.CLOUDFLARE_EMAIL_REPLY_TO?.trim();
     const portalUrl = configuredPortalUrl(claim.portalPath);
-    if (!accountId || !apiToken || !from || !portalUrl) {
+    if (!portalUrl) {
       await ctx.runMutation(internal.participantNotificationState.recordSendFailure, {
         deliveryId: claim.deliveryId,
         attemptId,
-        errorCode: "cloudflare_email_not_configured",
+        errorCode: "participant_portal_not_configured",
         retryable: false,
         ambiguous: false,
       });
@@ -156,12 +143,13 @@ export const deliver = internalAction({
       event_name: claim.eventName,
       portal_url: portalUrl,
       event_start: "",
+      rsvp_deadline: claim.rsvpDeadline === undefined ? "" : new Intl.DateTimeFormat("en-IN", { timeZone: claim.eventTimezone, day: "numeric", month: "long", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(claim.rsvpDeadline),
       venue_name: claim.venueName,
       pass_reference: "",
       google_wallet_url: "",
       apple_wallet_url: "",
     };
-    const attachments: EmailAttachment[] = [];
+    const attachments: ParticipantEmailAttachment[] = [];
     if (claim.templateKey === "external_event_pass") {
       if (claim.participantClass !== "external_participant") {
         await ctx.runMutation(internal.participantNotificationState.recordSendFailure, {
@@ -207,10 +195,10 @@ export const deliver = internalAction({
         variables.apple_wallet_url = appleWalletUrl;
         attachments.push({
           filename: "event-pass-qr.png",
-          type: "image/png",
-          content: qr.toString("base64"),
+          contentType: "image/png",
+          contentBase64: qr.toString("base64"),
           disposition: "inline",
-          content_id: "event-pass-qr.png",
+          contentId: "event-pass-qr.png",
         });
       } catch {
         await ctx.runMutation(internal.participantNotificationState.recordSendFailure, {
@@ -229,6 +217,7 @@ export const deliver = internalAction({
       event_name: htmlEscaped(variables.event_name),
       portal_url: htmlEscaped(variables.portal_url),
       event_start: htmlEscaped(variables.event_start),
+      rsvp_deadline: htmlEscaped(variables.rsvp_deadline),
       venue_name: htmlEscaped(variables.venue_name),
       pass_reference: htmlEscaped(variables.pass_reference),
       google_wallet_url: htmlEscaped(variables.google_wallet_url),
@@ -242,11 +231,17 @@ export const deliver = internalAction({
     const html = rewriteInlineAssetReferences(
       renderTemplate(withoutUnavailableWalletActions(claim.htmlTemplate, variables), htmlVariables),
       [
-        ...claim.assets,
+        ...claim.assets.map((asset) => ({
+          filename: asset.fileName,
+          disposition: asset.disposition,
+          ...(asset.contentId !== undefined ? { contentId: asset.contentId } : {}),
+        })),
         ...attachments.map((attachment) => ({
-          fileName: attachment.filename,
-          contentId: attachment.content_id ?? "",
+          filename: attachment.filename,
           disposition: attachment.disposition,
+          ...(attachment.contentId !== undefined
+            ? { contentId: attachment.contentId }
+            : {}),
         })),
       ],
     );
@@ -275,79 +270,37 @@ export const deliver = internalAction({
       }
       attachments.push({
         filename: asset.fileName,
-        type: asset.contentType,
-        content: Buffer.from(bytes).toString("base64"),
+        contentType: asset.contentType,
+        contentBase64: Buffer.from(bytes).toString("base64"),
         disposition: asset.disposition,
-        ...(asset.disposition === "inline" ? { content_id: asset.contentId } : {}),
+        ...(asset.disposition === "inline" ? { contentId: asset.contentId } : {}),
       });
     }
-    let response: Response;
-    try {
-      response = await fetch(
-        `${cloudflareApiBase}/${encodeURIComponent(accountId)}/email/sending/send`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${apiToken}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            from,
-            to: claim.destinationEmail,
-            subject,
-            text,
-            html,
-            ...(attachments.length > 0 ? { attachments } : {}),
-            headers: { "X-Code2Create-Delivery-ID": claim.deliveryId },
-            ...(replyTo ? { reply_to: replyTo } : {}),
-          }),
-          signal: AbortSignal.timeout(10_000),
-        },
-      );
-    } catch {
-      await ctx.runMutation(internal.participantNotificationState.recordSendFailure, {
-        deliveryId: claim.deliveryId,
-        attemptId,
-        errorCode: "cloudflare_email_request_ambiguous",
-        retryable: false,
-        ambiguous: true,
-      });
-      return null;
-    }
-    let decoded: unknown;
-    try {
-      decoded = await readBoundedJsonResponse(response, 64 * 1_024);
-    } catch {
-      await ctx.runMutation(internal.participantNotificationState.recordSendFailure, {
-        deliveryId: claim.deliveryId,
-        attemptId,
-        errorCode: "cloudflare_email_response_ambiguous",
-        retryable: false,
-        ambiguous: true,
-      });
-      return null;
-    }
-    const interpretation = interpretCloudflareEmailSendResponse({
-      status: response.status,
-      ok: response.ok,
-      body: decoded,
-      destinationEmail: claim.destinationEmail,
+    const result = await sendEmailThroughService({
+      provider: claim.notificationProvider,
+      requestId: claim.deliveryId,
+      to: claim.destinationEmail,
+      subject,
+      text,
+      html,
+      headers: [{ name: "X-Code2Create-Delivery-ID", value: claim.deliveryId }],
+      attachments,
     });
-    if (interpretation.kind === "rejected") {
+    if (result.status === "rejected") {
       await ctx.runMutation(internal.participantNotificationState.recordSendFailure, {
         deliveryId: claim.deliveryId,
         attemptId,
-        errorCode: interpretation.errorCode,
-        retryable: interpretation.retryable,
+        errorCode: result.errorCode,
+        retryable: result.retryable,
         ambiguous: false,
       });
       return null;
     }
-    if (interpretation.kind === "ambiguous") {
+    if (result.status === "ambiguous") {
       await ctx.runMutation(internal.participantNotificationState.recordSendFailure, {
         deliveryId: claim.deliveryId,
         attemptId,
-        errorCode: interpretation.errorCode,
+        errorCode: result.errorCode,
         retryable: false,
         ambiguous: true,
       });
@@ -356,8 +309,9 @@ export const deliver = internalAction({
     await ctx.runMutation(internal.participantNotificationState.recordSent, {
       deliveryId: claim.deliveryId,
       attemptId,
-      providerMessageId: interpretation.providerMessageId,
-      initialOutcome: interpretation.initialOutcome,
+      provider: result.provider,
+      providerMessageId: result.messageId,
+      initialOutcome: result.initialOutcome,
     });
     return null;
   },
