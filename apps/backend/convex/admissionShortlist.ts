@@ -13,7 +13,7 @@ import {
   validateShortlistProfile,
 } from "@code2create/domain";
 import { internal } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import {
   internalMutation,
   internalQuery,
@@ -31,6 +31,15 @@ import { redactProjectText } from "./lib/projectText";
 import { writeAuditEvent } from "./lib/audit";
 import { admissionWorkpool, intelligenceWorkpool } from "./workpools";
 import { maximumApplicantTeamsPerEvent } from "./lib/reviewLimits";
+
+function occupiesShortlistCapacity(application: Doc<"applications">): boolean {
+  return (
+    application.state !== "withdrawn" &&
+    application.state !== "offer_expired" &&
+    (application.humanDecision === "accept" ||
+      ["accepted", "offer_sent", "confirmed"].includes(application.state))
+  );
+}
 
 async function authorize(
   ctx: QueryCtx | MutationCtx,
@@ -142,8 +151,7 @@ export const start = mutation({
     const pool = applications.filter(
       (a) =>
         (["submitted", "under_review"].includes(a.state) && !a.humanDecision) ||
-        ["accepted", "offer_sent", "confirmed"].includes(a.state) ||
-        a.humanDecision === "accept",
+        occupiesShortlistCapacity(a),
     );
     const runId = await ctx.db.insert("admissionShortlistRuns", {
       eventId: event._id,
@@ -174,9 +182,7 @@ export const start = mutation({
         ...(a.aiRecommendationId
           ? { recommendationId: a.aiRecommendationId }
           : {}),
-        committed:
-          a.humanDecision === "accept" ||
-          ["accepted", "offer_sent", "confirmed"].includes(a.state),
+        committed: occupiesShortlistCapacity(a),
         teamName: "",
         teamSize: 0,
       });
@@ -834,9 +840,7 @@ export const complete = internalMutation({
       args.expected.filter((e) => !e.committed).length !== run.candidateCount;
     for (const app of current) {
       const prior = expected.get(app._id);
-      const committed =
-        ["accepted", "offer_sent", "confirmed"].includes(app.state) ||
-        app.humanDecision === "accept";
+      const committed = occupiesShortlistCapacity(app);
       if (!prior) {
         if (committed) stale = true;
         continue;

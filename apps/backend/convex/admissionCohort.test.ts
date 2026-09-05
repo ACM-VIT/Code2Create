@@ -477,6 +477,49 @@ describe("frozen advisory shortlist lifecycle", () => {
     vi.restoreAllMocks();
   });
 
+  test("released places do not count historical accepts as current commitments", async () => {
+    const backend = seededBackend();
+    const fixture = await seedCohortFixture(backend);
+    await primeShortlistFixture(backend, fixture);
+    const applications = await backend.run(async (ctx) => {
+      const apps = await ctx.db
+        .query("applications")
+        .withIndex("by_event_submitted", (q) => q.eq("eventId", fixture.eventId))
+        .take(10);
+      const states = ["withdrawn", "offer_expired", "under_review"] as const;
+      for (const [index, app] of apps.entries()) {
+        await ctx.db.patch(app._id, {
+          state: states[index],
+          humanDecision: "accept",
+          decisionStage: "recorded",
+        });
+      }
+      return apps;
+    });
+    expect(applications).toHaveLength(3);
+    const operator = backend.withIdentity({
+      subject: fixture.operatorAuthUserId,
+      sessionId: fixture.operatorAuthSessionId,
+    });
+    const runId = await operator.mutation(api.admissionShortlist.start, {
+      eventSlug: fixture.eventSlug,
+      acceptPeople: 3,
+      waitlistPeople: 2,
+      operationId: "released-capacity-regression",
+    });
+    const candidates = await backend.run((ctx) =>
+      ctx.db
+        .query("admissionShortlistCandidates")
+        .withIndex("by_runId", (q) => q.eq("runId", runId))
+        .take(10),
+    );
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toMatchObject({
+      applicationId: applications[2]._id,
+      committed: true,
+    });
+  });
+
   test("runs profiles, overlap comparison, selection and audit without deciding applications", async () => {
     const backend = seededBackend();
     const fixture = await seedCohortFixture(backend);
