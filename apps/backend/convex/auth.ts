@@ -96,6 +96,13 @@ export function createAuth(ctx: GenericCtx<DataModel>) {
     trustedOrigins: [participantSiteUrl, operationsSiteUrl, "code2create-ops://"],
     database: authComponent.adapter(ctx),
     socialProviders: googleProvider,
+    account: {
+      accountLinking: {
+        // Staging fixtures exist before their owners first verify their email with Google.
+        // The incoming provider email must still be verified and match the local email.
+        requireLocalEmailVerified: process.env.C2C_DEPLOYMENT_ENVIRONMENT !== "staging",
+      },
+    },
     databaseHooks: {
       account: {
         create: {

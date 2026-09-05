@@ -245,16 +245,6 @@ export function ownReviewLine(assignment: { ownRecommendation?: ApplicationDecis
   };
 }
 
-export function nextAssignmentId(
-  assignments: readonly { applicationId: string }[],
-  currentApplicationId: string,
-): string | null {
-  return (
-    assignments.find((assignment) => assignment.applicationId !== currentApplicationId)
-      ?.applicationId ?? null
-  );
-}
-
 export function assignmentOutcomeSummary(
   outcomes: readonly AssignmentOutcome[],
   reviewerEmail: string,

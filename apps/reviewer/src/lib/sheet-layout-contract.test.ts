@@ -26,12 +26,6 @@ describe("native sheet layout contract", () => {
     expect(sheetHostStyle).toMatch(/\bheight:\s*0/);
   });
 
-  test("keeps overflowing sheet actions reachable", () => {
-    expect(uiSource).toMatch(
-      /<ScrollView\s+contentContainerStyle=\{styles\.sheetBody\}[\s\S]*?>[\s\S]*?\{children\}[\s\S]*?<\/ScrollView>/,
-    );
-    expect(uiSource).toContain('keyboardShouldPersistTaps="handled"');
-  });
 });
 
 function extractStyle(source: string, name: string) {

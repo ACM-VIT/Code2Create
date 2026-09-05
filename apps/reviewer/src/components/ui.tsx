@@ -1,4 +1,5 @@
 import { TrueSheet, type SheetDetent } from "@lodev09/react-native-true-sheet";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Path } from "react-native-svg";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
@@ -9,7 +10,6 @@ import {
   Text,
   TextInput,
   View,
-  useWindowDimensions,
 } from "react-native";
 
 import { scanGuideSize } from "@/lib/scan-surface-layout";
@@ -277,22 +277,23 @@ function swallowSheetRace() {}
 
 export function Sheet({
   children,
-  detents = ["auto"],
+  detents = [0.85],
+  footer,
   onClose,
   title,
   visible,
 }: {
   children: ReactNode;
-  detents?: SheetDetent[];
+  detents?: Extract<SheetDetent, number>[];
+  footer?: ReactNode;
   onClose: () => void;
   title: string;
   visible: boolean;
 }) {
   const sheet = useRef<TrueSheet>(null);
-  // A sheet never reaches the top of the screen: the strip of dimmed
-  // background left above it is what says "tap here to close".
-  const { height: windowHeight } = useWindowDimensions();
-  const sheetCeiling = Math.round(windowHeight * 0.85);
+  const insets = useSafeAreaInsets();
+  const [footerHeight, setFooterHeight] = useState(0);
+  const footerSpace = footer ? footerHeight : 0;
   // Mount the native sheet only while it is needed: an idle mounted sheet
   // sits invisibly over the screen and swallows every touch beneath it.
   const [mounted, setMounted] = useState(visible);
@@ -315,17 +316,33 @@ export function Sheet({
         backgroundColor={palette.background}
         cornerRadius={20}
         detents={detents}
+        {...(footer ? {
+          footer: (
+            <View
+              onLayout={({ nativeEvent }) => setFooterHeight(nativeEvent.layout.height)}
+              style={[styles.sheetFooter, { paddingBottom: 16 + insets.bottom }]}
+            >
+              {footer}
+            </View>
+          ),
+          footerOptions: { keyboardOffset: -insets.bottom },
+        } : {})}
         grabber
         initialDetentIndex={0}
-        maxContentHeight={sheetCeiling}
         onDidDismiss={() => {
           onClose();
           setMounted(false);
         }}
         ref={sheet}
+        // Native fitting keeps the ScrollView and focused input above the
+        // keyboard. TrueSheet cannot fit scrollable content with auto detents.
+        scrollable
+        scrollableOptions={{ keyboardScrollOffset: 32 + footerSpace }}
       >
         <ScrollView
-          contentContainerStyle={styles.sheetBody}
+          // The native footer floats over content rather than consuming layout
+          // space. Reserve its measured height for both scrolling and the caret.
+          contentContainerStyle={[styles.sheetBody, { paddingBottom: 40 + footerSpace }]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
@@ -678,6 +695,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   sheetBody: { paddingHorizontal: 20, paddingTop: 24, paddingBottom: 40, gap: 16 },
+  sheetFooter: { paddingHorizontal: 20, paddingTop: 16, backgroundColor: palette.background },
   headerButton: { color: palette.text, fontSize: 20, letterSpacing: 1 },
 
   row: {

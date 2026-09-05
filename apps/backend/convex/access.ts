@@ -125,6 +125,7 @@ const operationsCapabilitiesView = v.object({
   admissions: v.boolean(),
   applicationRead: v.boolean(),
   applicationReviewRead: v.boolean(),
+  applicationReviewDeck: v.boolean(),
   applicationAssign: v.boolean(),
   attendance: v.boolean(),
   attendanceSetup: v.boolean(),
@@ -419,6 +420,7 @@ async function resolveOperationsCapabilities(
   const [
     applicationRead,
     applicationReviewRead,
+    applicationReviewDeck,
     applicationAssign,
     attendance,
     attendanceSetup,
@@ -464,6 +466,7 @@ async function resolveOperationsCapabilities(
   ] = await Promise.all([
     any("application.read"),
     any("application.review.read"),
+    event("application.review_deck.use"),
     any("application.assign"),
     anyOf(attendanceWorkspacePermissions),
     anyOf(["configuration.manage", "attendance.plan.publish"]),
@@ -508,16 +511,20 @@ async function resolveOperationsCapabilities(
     event("reviewer.profile.read"),
   ]);
 
+  // Team permissions also serve the participant portal. They must not add
+  // unrelated operations sections to the restricted emergency review workspace.
+  const deckOnly = applicationReviewDeck && !applicationRead && !applicationReviewRead;
   return {
-    admissions: applicationRead || applicationReviewRead,
+    admissions: applicationRead || applicationReviewRead || applicationReviewDeck,
     applicationRead,
     applicationReviewRead,
+    applicationReviewDeck,
     applicationAssign,
     attendance,
     attendanceSetup,
     roster,
     teamRoster,
-    projectCheckpoints,
+    projectCheckpoints: projectCheckpoints && !deckOnly,
     reviews,
     scores,
     synesthesia:
@@ -551,7 +558,7 @@ async function resolveOperationsCapabilities(
     accessDirectory,
     invitations,
     bundles,
-    integrations,
+    integrations: integrations && !deckOnly,
     integrationConfiguration,
     reviewConfigurationRead,
     reviewConfigurationPublish,

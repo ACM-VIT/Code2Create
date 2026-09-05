@@ -22,7 +22,6 @@ import { Link, useParams } from "react-router-dom";
 import {
   cohortSummary,
   memberContextLine,
-  nextAssignmentId,
   remainingAssignmentsLine,
   reviewAssignmentStatusLine,
   reviewAssignmentSummary,
@@ -36,6 +35,7 @@ import { useReviewAssignmentCounts } from "../lib/useReviewAssignmentCounts";
 import { Icon } from "../components/Icon";
 import { LoadingLabel, SkeletonCard, SkeletonList } from "../components/Skeleton";
 import { ParticipantDeliveryStatus } from "../components/ParticipantDeliveryStatus";
+import { NextReviewButton } from "../components/AdmissionReviewDeck";
 
 type AdmissionDetailData = NonNullable<FunctionReturnType<typeof api.admissions.detail>>;
 type ReviewAssignment = NonNullable<AdmissionDetailData["reviewAssignments"]>[number];
@@ -96,9 +96,9 @@ export function AdmissionDetail({ accountEmail }: { accountEmail: string }) {
     <article className="application-detail">
       <div className="application-nav">
         <Link className="back-link" to="/admissions">
-          ← Applications
+          {detail.permissions.deckOnly ? "← Review deck" : "← Applications"}
         </Link>
-        <NextAssignmentLink
+        <NextReviewButton
           className="text-button"
           currentApplicationId={detail.application.id}
           label="Next to review →"
@@ -113,17 +113,17 @@ export function AdmissionDetail({ accountEmail }: { accountEmail: string }) {
             {formatEventTime(detail.application.submittedAt, detail.eventTimezone)}
           </p>
         </div>
-        <span className="state-label">{applicationStateLabels[detail.application.state]}</span>
+        {!detail.permissions.deckOnly ? <span className="state-label">{applicationStateLabels[detail.application.state]}</span> : null}
       </header>
 
-      <AdmissionReviewOverview detail={detail} />
+      {!detail.permissions.deckOnly ? <AdmissionReviewOverview detail={detail} /> : null}
 
-      <section className="application-next-step">
+      {!detail.permissions.deckOnly ? <section className="application-next-step">
         <p className="eyebrow">What happens next</p>
         <h2>{step.title}</h2>
         <p>{step.detail}</p>
         {step.blocker ? <p className="application-blocker">{step.blocker}</p> : null}
-      </section>
+      </section> : null}
 
       <div
         className={
@@ -654,14 +654,14 @@ function HumanReviews({
   if (!reviewOpen && reviews.length === 0 && !decision) return null;
   return (
     <section className="detail-section">
-      <h2>{reviewOpen ? "Organizer reviews" : "How this was decided"}</h2>
-      <p className="muted">
+      <h2>{detail.permissions.deckOnly ? "Past reviews" : reviewOpen ? "Organizer reviews" : "How this was decided"}</h2>
+      {!detail.permissions.deckOnly ? <p className="muted">
         {!reviewOpen && decision
           ? decidedSentence(detail, decision)
           : outstanding > 0
             ? `Still to come: ${outstanding} of ${detail.policy.minimumHumanReviews}. A final decision cannot be recorded until they are in.`
             : `All ${detail.policy.minimumHumanReviews} required reviews are in.`}
-      </p>
+      </p> : reviews.length === 0 ? <p className="muted">No reviews have been submitted for this project yet.</p> : null}
       {reviews.length ? (
         <ul className="review-list">
           {reviews.map((review) => (
@@ -1014,38 +1014,11 @@ function ReviewAssignmentEvidence({
   );
 }
 
-function NextAssignmentLink({
-  className,
-  currentApplicationId,
-  fallback,
-  label,
-}: {
-  className: string;
-  currentApplicationId: string;
-  fallback?: React.ReactNode;
-  label: string;
-}) {
-  const assignments = usePaginatedQuery(
-    api.admissions.myReviewAssignments,
-    { eventSlug, state: "active" },
-    { initialNumItems: 10 },
-  );
-  const nextId = nextAssignmentId(assignments.results, currentApplicationId);
-  if (nextId === null) {
-    return assignments.status === "LoadingFirstPage" ? null : (fallback ?? null);
-  }
-  return (
-    <Link className={className} to={`/admissions/${nextId}`}>
-      {label}
-    </Link>
-  );
-}
-
 function ReviewForm({ detail }: { detail: AdmissionDetailData }) {
   const saveReview = useMutation(api.admissions.saveReview);
   const operations = useOperationRunner();
   const { capture } = useProductAnalytics();
-  const assignmentCounts = useReviewAssignmentCounts();
+  const assignmentCounts = useReviewAssignmentCounts("all", !detail.permissions.deckOnly);
   const ownReview = detail.humanReviews.find((review) => review.own) ?? null;
   const [editing, setEditing] = useState(ownReview === null);
   const [recommendation, setRecommendation] = useState<ApplicationDecision | null>(
@@ -1135,10 +1108,10 @@ function ReviewForm({ detail }: { detail: AdmissionDetailData }) {
           <p className="muted">{remainingAssignmentsLine(assignmentCounts)}</p>
         ) : null}
         <div className="button-row">
-          <NextAssignmentLink
+          <NextReviewButton
             className="primary"
             currentApplicationId={detail.application.id}
-            fallback={<p className="muted">Nothing else is assigned to you.</p>}
+            fallback={<Link className="secondary" to="/admissions#review-deck">Back to review deck</Link>}
             label="Next to review →"
           />
           <button

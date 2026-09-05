@@ -6,12 +6,14 @@ import {
   applicationStateLabels,
 } from "@code2create/domain";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
+import type { FunctionReturnType } from "convex/server";
 import { useEffect, useRef, useState, type SubmitEvent } from "react";
 import { Link } from "react-router-dom";
 
 import { LoadingLabel, SkeletonLine, SkeletonList } from "../components/Skeleton";
 import { QueuePagination } from "../components/QueuePagination";
 import { AdmissionStat } from "../components/AdmissionStat";
+import { AdmissionReviewDeck } from "../components/AdmissionReviewDeck";
 import {
   aiStateTag,
   applicationQueueStageLabels,
@@ -57,16 +59,28 @@ export function AdmissionsQueue({
   canAssign,
   canReadApplications,
   canReadAssignments,
-  isSupreme,
 }: {
   canAssign: boolean;
   canReadApplications: boolean;
   canReadAssignments: boolean;
-  isSupreme: boolean;
 }) {
   const [selectedView, setSelectedView] = useState<QueueView>(canReadApplications ? "all" : "mine");
   const [origin, setOrigin] = useState<TeamOriginFilter>("all");
   const [recommendationFilter, setRecommendationFilter] = useState<RecommendationFilter | null>(null);
+  if (!canReadApplications && !canReadAssignments) {
+    return (
+      <section className="queue-shell admissions-shell">
+        <header className="page-heading">
+          <div>
+            <p className="eyebrow">Emergency Reviews</p>
+            <h1>Review deck</h1>
+            <p className="muted">Claim a project, read the submission and past reviews, then save your review.</p>
+          </div>
+        </header>
+        <AdmissionReviewDeck origin={origin} onOriginChange={setOrigin} showReviewCounts={false} />
+      </section>
+    );
+  }
   const view =
     selectedView === "all"
       ? canReadApplications
@@ -84,14 +98,15 @@ export function AdmissionsQueue({
           <h1>Applications</h1>
         </div>
       </header>
-      {isSupreme ? (
-        <AdmissionResultsRelease
+      <AdmissionReviewDeck origin={origin} onOriginChange={setOrigin} />
+      {canReadApplications ? (
+        <AdmissionStats
           recommendationFilter={recommendationFilter}
-          onFilter={canReadApplications ? (filter) => {
+          onFilter={(filter) => {
             setSelectedView("all");
             setOrigin("all");
             setRecommendationFilter((current) => current?.source === filter.source && current.outcome === filter.outcome ? null : filter);
-          } : undefined}
+          }}
         />
       ) : null}
       {canReadApplications && canReadAssignments ? (
@@ -157,11 +172,77 @@ export function AdmissionsQueue({
   );
 }
 
-function AdmissionResultsRelease({ recommendationFilter, onFilter }: {
+function AdmissionStats({ recommendationFilter, onFilter }: {
   recommendationFilter: RecommendationFilter | null;
-  onFilter: ((filter: RecommendationFilter) => void) | undefined;
+  onFilter: (filter: RecommendationFilter) => void;
 }) {
-  const status = useQuery(api.admissions.admissionResultsReleaseStatus, { eventSlug });
+  const status = useQuery(api.admissions.admissionSummary, { eventSlug });
+  if (status === undefined) {
+    return <section className="catalog-review"><LoadingLabel>Loading admission stats</LoadingLabel></section>;
+  }
+  const ideaAgent = status.ideaAgent;
+  return (
+    <section className="catalog-review admissions-release-panel" aria-label="Admission summary">
+      {status.canReleaseResults ? <AdmissionResultsRelease status={status} /> : null}
+      <dl className="catalog-summary" aria-label="Human review progress">
+        <AdmissionStat label="Applications" value={status.total} people={status.people.total} />
+        <AdmissionStat label="Reviews complete" value={status.reviewsComplete} people={status.people.reviewsComplete} />
+        <AdmissionStat label="Reviews needed" value={status.reviewsNeeded} people={status.people.reviewsNeeded} />
+      </dl>
+      <dl className="catalog-summary" aria-label="Final admission decisions">
+        <AdmissionStat label="Final decisions ready" value={status.recorded + status.released} people={status.people.recorded + status.people.released} />
+        <AdmissionStat label="Final decisions needed" value={status.unrecorded} people={status.people.unrecorded} />
+        <AdmissionStat label="Selected" value={status.accepted} people={status.people.accepted} />
+        <AdmissionStat label="Waitlisted" value={status.waitlisted} people={status.people.waitlisted} />
+        <AdmissionStat label="Not selected" value={status.declined} people={status.people.declined} />
+      </dl>
+      {ideaAgent ? (
+        <section aria-labelledby="idea-agent-breakdown">
+          <div className="section-heading">
+            <div>
+              <h3 id="idea-agent-breakdown">Idea agent</h3>
+            </div>
+          </div>
+          <dl className="catalog-summary" aria-label="Idea agent recommendations">
+            {(["accepted", "waitlisted", "rejected", "unavailable"] as const).map((outcome) => (
+              <AdmissionStat
+                key={outcome}
+                label={recommendationOutcomeLabels[outcome]}
+                value={ideaAgent[outcome]}
+                people={ideaAgent.people[outcome]}
+                selected={recommendationFilter?.source === "idea" && recommendationFilter.outcome === outcome}
+                onSelect={() => onFilter({ source: "idea", outcome })}
+              />
+            ))}
+          </dl>
+        </section>
+      ) : null}
+      <section aria-labelledby="human-review-breakdown">
+        <div className="section-heading">
+          <div>
+            <h3 id="human-review-breakdown">Human reviews</h3>
+          </div>
+        </div>
+        <dl className="catalog-summary" aria-label="Human recommendations">
+          {(["accepted", "waitlisted", "rejected", "split", "needed"] as const).map((outcome) => (
+            <AdmissionStat
+              key={outcome}
+              label={recommendationOutcomeLabels[outcome]}
+              value={status.humanReviews[outcome]}
+              people={status.humanReviews.people[outcome]}
+              selected={recommendationFilter?.source === "human" && recommendationFilter.outcome === outcome}
+              onSelect={() => onFilter({ source: "human", outcome })}
+            />
+          ))}
+        </dl>
+      </section>
+    </section>
+  );
+}
+
+function AdmissionResultsRelease({ status }: {
+  status: FunctionReturnType<typeof api.admissions.admissionSummary>;
+}) {
   const release = useMutation(api.admissions.releaseAdmissionResults);
   const operations = useOperationRunner();
   const { capture } = useProductAnalytics();
@@ -170,15 +251,6 @@ function AdmissionResultsRelease({ recommendationFilter, onFilter }: {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const pending = operations.hasPending("admission-results-release");
-  if (status === undefined) {
-    return (
-      <section className="catalog-review">
-        <LoadingLabel>Checking recorded decisions</LoadingLabel>
-      </section>
-    );
-  }
-  if (!status.isSupreme) return null;
-  const ideaAgent = status.ideaAgent;
   const ready =
     status.serverNow >= status.applicationsCloseAt &&
     status.releasedAt === undefined &&
@@ -216,7 +288,7 @@ function AdmissionResultsRelease({ recommendationFilter, onFilter }: {
   };
 
   return (
-    <section className="catalog-review admissions-release-panel">
+    <section className="admission-release-controls">
       <div className="section-heading">
         <div>
           <p className="eyebrow">Supreme review</p>
@@ -238,58 +310,6 @@ function AdmissionResultsRelease({ recommendationFilter, onFilter }: {
           </button>
         ) : null}
       </div>
-      <dl className="catalog-summary" aria-label="Human review progress">
-        <AdmissionStat label="Applications" value={status.total} people={status.people.total} />
-        <AdmissionStat label="Reviews complete" value={status.reviewsComplete} people={status.people.reviewsComplete} />
-        <AdmissionStat label="Reviews needed" value={status.reviewsNeeded} people={status.people.reviewsNeeded} />
-      </dl>
-      <dl className="catalog-summary" aria-label="Final admission decisions">
-        <AdmissionStat label="Final decisions ready" value={status.recorded + status.released} people={status.people.recorded + status.people.released} />
-        <AdmissionStat label="Final decisions needed" value={status.unrecorded} people={status.people.unrecorded} />
-        <AdmissionStat label="Selected" value={status.accepted} people={status.people.accepted} />
-        <AdmissionStat label="Waitlisted" value={status.waitlisted} people={status.people.waitlisted} />
-        <AdmissionStat label="Not selected" value={status.declined} people={status.people.declined} />
-      </dl>
-      {ideaAgent ? (
-        <section aria-labelledby="idea-agent-breakdown">
-          <div className="section-heading">
-            <div>
-              <h3 id="idea-agent-breakdown">Idea agent</h3>
-            </div>
-          </div>
-          <dl className="catalog-summary" aria-label="Idea agent recommendations">
-            {(["accepted", "waitlisted", "rejected", "unavailable"] as const).map((outcome) => (
-              <AdmissionStat
-                key={outcome}
-                label={recommendationOutcomeLabels[outcome]}
-                value={ideaAgent[outcome]}
-                people={ideaAgent.people[outcome]}
-                selected={recommendationFilter?.source === "idea" && recommendationFilter.outcome === outcome}
-                onSelect={onFilter ? () => onFilter({ source: "idea", outcome }) : undefined}
-              />
-            ))}
-          </dl>
-        </section>
-      ) : null}
-      <section aria-labelledby="human-review-breakdown">
-        <div className="section-heading">
-          <div>
-            <h3 id="human-review-breakdown">Human reviews</h3>
-          </div>
-        </div>
-        <dl className="catalog-summary" aria-label="Human recommendations">
-          {(["accepted", "waitlisted", "rejected", "split", "needed"] as const).map((outcome) => (
-            <AdmissionStat
-              key={outcome}
-              label={recommendationOutcomeLabels[outcome]}
-              value={status.humanReviews[outcome]}
-              people={status.humanReviews.people[outcome]}
-              selected={recommendationFilter?.source === "human" && recommendationFilter.outcome === outcome}
-              onSelect={onFilter ? () => onFilter({ source: "human", outcome }) : undefined}
-            />
-          ))}
-        </dl>
-      </section>
       {!status.releasedAt && status.unrecorded > 0 ? (
         <p className="notice">
           Record a final decision for all <LiveNumber value={status.unrecorded} /> remaining applications before release.

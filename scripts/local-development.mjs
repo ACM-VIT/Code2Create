@@ -134,6 +134,7 @@ export const localConvexEnvironment = Object.freeze({
   ATTENDANCE_WRAPPING_KEY: attendanceWrappingKey,
   ATTENDANCE_WRAPPING_KEY_VERSION: "local-v1",
   INITIAL_EVENT_SLUG: "code2create-7",
+  INITIAL_SUPREME_EMAILS: "local.ops@example.test",
   ...localPrivateEnvironment,
   ...localPostHogEnvironment,
 });

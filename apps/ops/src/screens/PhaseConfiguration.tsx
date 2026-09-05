@@ -354,7 +354,7 @@ export function PhaseConfiguration({ tabs }: { tabs: ConfigurationTabsVisibility
                       <span>Phase {index + 1}</span>
                       <strong>{phase.displayName}</strong>
                     </header>
-                    <div className="phase-field-grid">
+                    <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,220px),1fr))] gap-3.5">
                       <label className="field">
                         <span>Name</span>
                         <input

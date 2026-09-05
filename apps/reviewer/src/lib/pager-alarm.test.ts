@@ -5,12 +5,13 @@ const alarm = vi.hoisted(() => ({
   nativeStop: vi.fn(),
   vibrate: vi.fn(),
   cancel: vi.fn(),
+  readiness: vi.fn(),
 }));
 
 vi.mock("react-native", () => ({
   Platform: { OS: "android" },
   TurboModuleRegistry: {
-    get: () => ({ stop: alarm.nativeStop }),
+    get: () => ({ stop: alarm.nativeStop, getReadiness: alarm.readiness }),
   },
   Vibration: {
     vibrate: alarm.vibrate,
@@ -18,7 +19,7 @@ vi.mock("react-native", () => ({
   },
 }));
 
-import { startPagerAlarm, stopPagerAlarm } from "./pager-alarm";
+import { androidPagingReadiness, startPagerAlarm, stopPagerAlarm } from "./pager-alarm";
 
 describe("pager alarm", () => {
   beforeEach(() => {
@@ -34,6 +35,13 @@ describe("pager alarm", () => {
 
     expect(alarm.nativeStop).toHaveBeenCalledOnce();
     expect(alarm.cancel).toHaveBeenCalledOnce();
+  });
+
+  test("reads and validates the current Android permission switches", async () => {
+    alarm.readiness.mockResolvedValue({ fullScreenAllowed: true, batteryUnrestricted: false });
+    expect(await androidPagingReadiness()).toEqual({ fullScreenAllowed: true, batteryUnrestricted: false });
+    alarm.readiness.mockResolvedValue({ fullScreenAllowed: "unknown", batteryUnrestricted: false });
+    await expect(androidPagingReadiness()).rejects.toThrow();
   });
 
   test("starts one vibration beat and releases both alarm implementations", () => {

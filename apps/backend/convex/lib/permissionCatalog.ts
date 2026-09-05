@@ -22,6 +22,7 @@ export const permissionCatalog = {
   "application.read": { scopes: ["application"], eventWide: true },
   "application.review.read": { scopes: ["application"], eventWide: true },
   "application.review": { scopes: ["application"], eventWide: true },
+  "application.review_deck.use": { scopes: [], eventWide: true },
   "application.assign": { scopes: ["application"], eventWide: true },
   "application.profile_context.read": { scopes: ["application"], eventWide: true },
   "application.ai_recommendation.read": {

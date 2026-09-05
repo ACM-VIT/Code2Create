@@ -385,17 +385,19 @@ function ReviewerProfileRow({
               <small>{candidate.pool.domain}</small>
             </span>
           </summary>
-          <p style={{ whiteSpace: "pre-wrap" }}>
-            {candidate.pool.skills || "No skill declaration supplied."}
-          </p>
-          {candidate.pool.resumeUrl ? (
-            <a href={candidate.pool.resumeUrl} target="_blank" rel="noreferrer">
-              Resume / experience
-            </a>
-          ) : null}
-          {candidate.pool.githubReference ? (
-            <p className="muted">GitHub: {candidate.pool.githubReference}</p>
-          ) : null}
+          <div className="grid gap-3 p-4 text-[0.8125rem]">
+            <p className="m-0 whitespace-pre-wrap [overflow-wrap:anywhere]">
+              {candidate.pool.skills || "No skill declaration supplied."}
+            </p>
+            {candidate.pool.resumeUrl ? (
+              <a href={candidate.pool.resumeUrl} target="_blank" rel="noreferrer">
+                Resume / experience
+              </a>
+            ) : null}
+            {candidate.pool.githubReference ? (
+              <p className="m-0 text-ink-2 [overflow-wrap:anywhere]">GitHub: {candidate.pool.githubReference}</p>
+            ) : null}
+          </div>
         </details>
       ) : null}
       <div className="reviewer-profile-heading">
@@ -1476,7 +1478,7 @@ function RoundPublisher({
                   }}
                 />
               </label>
-              <label>
+              <label className="check-row">
                 <input
                   type="checkbox"
                   checked={composition.allowSeniorLeadFallback}
@@ -1569,7 +1571,7 @@ function RoundPublisher({
               Suggest {panels.length} panels from skills and experience
             </button>
             <div className="form-grid">
-              <label>
+              <label className="check-row">
                 <input
                   type="checkbox"
                   checked={automaticReplacement}

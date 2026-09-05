@@ -293,7 +293,7 @@ describe("communications policy lifecycle", () => {
 
   test("queues event passes only for external participants", async () => {
     const externalBackend = convexTest(schema, modules);
-    const externalFixture = await seedFixture(externalBackend, "external-event-pass");
+    const externalFixture = await seedFixture(externalBackend, "external-event-pass", "external_participant");
     await externalBackend.run((ctx) =>
       ctx.db.patch(externalFixture.applicationId, {
         state: "confirmed",
@@ -501,7 +501,11 @@ async function runQueuedNotificationBatch(
   return delivery._id;
 }
 
-async function seedFixture(backend: BackendTest, slug: string) {
+async function seedFixture(
+  backend: BackendTest,
+  slug: string,
+  participantClass: "vit_student" | "external_participant" = "vit_student",
+) {
   const now = Date.UTC(2027, 6, 1, 9, 0);
   const startsAt = Date.UTC(2027, 7, 8, 3, 30);
   const endsAt = startsAt + 48 * 60 * 60 * 1_000;
@@ -569,7 +573,7 @@ async function seedFixture(backend: BackendTest, slug: string) {
       eventId,
       personId,
       eventAccessSubjectId: subjectId,
-      participantClass: "external_participant",
+      participantClass,
       eligibilityStatus: "eligible",
       onboardingStatus: "submitted",
       acceptedParticipantPolicyVersionIds: [],
@@ -583,8 +587,8 @@ async function seedFixture(backend: BackendTest, slug: string) {
       leadMembershipId: membershipId,
       status: "submitted",
       activeMemberCount: 1,
-      activeVitMemberCount: 0,
-      activeExternalMemberCount: 1,
+      activeVitMemberCount: participantClass === "vit_student" ? 1 : 0,
+      activeExternalMemberCount: participantClass === "external_participant" ? 1 : 0,
       membershipLocked: true,
       version: 1,
       createdAt: now,

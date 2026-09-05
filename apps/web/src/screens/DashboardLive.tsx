@@ -1,7 +1,6 @@
 import { api } from "@code2create/backend/api";
 import {
   mergeSynesthesiaVoteCounts,
-  teamRoundStateParticipantLabels,
 } from "@code2create/domain";
 import type { FunctionReturnType } from "convex/server";
 import { useAction, useMutation, useQuery } from "convex/react";
@@ -15,7 +14,8 @@ import type {
   MusicRequestView,
   MusicTileModel,
 } from "../components/dashboard/MusicTile";
-import type { ReviewTileModel, ServiceQueueKind } from "../components/dashboard/ReviewTile";
+import type { ReviewTileModel } from "../components/dashboard/ReviewTile";
+import type { ServiceQueuesTileModel } from "../components/dashboard/ServiceQueuesTile";
 import type {
   CheckpointState,
   UpdatesTileModel,
@@ -25,7 +25,6 @@ import type {
   ClusterTeam,
 } from "../components/portal/TeamCluster";
 import { eventSlug } from "../lib/config";
-import { LiveQueueWait } from "../components/LiveTime";
 import { LiveNumber } from "../components/LiveNumber";
 import { useOperationRunner } from "../lib/operations";
 import type { AvailableGitHubRepository, PublicState } from "../types";
@@ -282,36 +281,21 @@ export function DashboardLive({
   };
 
   const reviewSession = queue?.review ?? null;
-  const reviewModel: ReviewTileModel = {
-    available: queueAllowed || serviceQueues !== undefined,
-    queue: queue
-      ? {
-          round: queue.round.name,
-          status:
-            queue.notice?.kind === "up_next"
-              ? "Your team is next"
-              : teamRoundStateParticipantLabels[queue.state],
-          active: queue.state !== "unassigned",
-          rank: queue.teamsAhead === undefined ? null : queue.teamsAhead + 1,
-          detail:
-            [
-              queue.notice?.message ?? queue.panel?.name,
-              queue.round.isPaused ? "Paused by staff; stay nearby." : undefined,
-            ]
-              .filter((part): part is string => part !== undefined)
-              .join(" · ") || null,
-          wait:
-            queue.estimate && !queue.round.isPaused
-              ? <LiveQueueWait estimate={queue.estimate} now={phaseTime} />
-              : null,
-          reviewers: reviewSession
-            ? {
-                present: reviewSession.reviewerPresenceCount,
-                total: reviewSession.reviewerCount,
-              }
-            : null,
-        }
-      : null,
+  const reviewModel: ReviewTileModel | null = queue ? {
+    round: queue.round.name,
+    state: queue.state,
+    paused: queue.round.isPaused,
+    upNext: queue.notice?.kind === "up_next",
+    panel: queue.panel?.name ?? null,
+    rank: queue.teamsAhead === undefined ? null : queue.teamsAhead + 1,
+    notice: queue.notice?.message ?? null,
+    estimate: queue.estimate,
+    now: phaseTime,
+    session: reviewSession ? {
+      status: reviewSession.status,
+      present: reviewSession.reviewerPresenceCount,
+      total: reviewSession.reviewerCount,
+    } : null,
     showCode:
       reviewSession && reviewSession.canShowTeamQr
         ? {
@@ -328,13 +312,17 @@ export function DashboardLive({
             },
           }
         : null,
+  } : null;
+
+  const queuesModel: ServiceQueuesTileModel = {
+    available: serviceQueues !== undefined,
     services: (serviceQueues ?? []).map((service) => ({
       kind: service.kind,
       joined: service.joined,
       position: service.position,
       waitingCount: service.waitingCount,
     })),
-    setServiceQueue: async (kind: ServiceQueueKind, joined: boolean) => {
+    setServiceQueue: async (kind, joined) => {
       if (joined) await joinServiceQueue({ eventSlug, kind });
       else await leaveServiceQueue({ eventSlug, kind });
     },
@@ -361,6 +349,7 @@ export function DashboardLive({
       integrations={integrationsModel}
       updates={updatesModel}
       review={reviewModel}
+      queues={queuesModel}
       help={helpModel}
       benefits={benefitsModel}
     />

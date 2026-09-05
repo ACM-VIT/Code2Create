@@ -23,6 +23,8 @@ export function useReviewerVenue(
   );
   const [issue, setIssue] = useState<string | null>(null);
   const [backgroundEnabled, setBackgroundEnabled] = useState(false);
+  const [foregroundGranted, setForegroundGranted] = useState(false);
+  const [backgroundGranted, setBackgroundGranted] = useState(false);
   const [localEnabled, setLocalEnabled] = useState(false);
   const [revision, setRevision] = useState(0);
   const generation = state?.presence?.trackingGeneration;
@@ -34,10 +36,12 @@ export function useReviewerVenue(
   useEffect(() => {
     if (!loaded) return;
     let active = true;
+    let inspection = 0;
     const inspect = async () => {
+      const currentInspection = ++inspection;
       try {
         const record = await loadVenueTracking();
-        if (!active) return;
+        if (!active || currentInspection !== inspection) return;
         const sameOwner =
           record?.ownerId === ownerId &&
           record?.installationId === installationId &&
@@ -55,17 +59,22 @@ export function useReviewerVenue(
         if (record && !valid) {
           await stopNativeVenueTracking(record);
         }
-        const permission = await Location.getBackgroundPermissionsAsync();
+        const [foreground, background] = await Promise.all([
+          Location.getForegroundPermissionsAsync(),
+          Location.getBackgroundPermissionsAsync(),
+        ]);
         const started =
           await Location.hasStartedLocationUpdatesAsync(venueLocationTask);
         const savedIssue = await readVenueTrackingIssue();
-        if (active) {
-          setLocalEnabled(Boolean(valid));
-          setBackgroundEnabled(permission.granted && started);
+        if (active && currentInspection === inspection) {
+          setForegroundGranted(foreground.granted);
+          setBackgroundGranted(background.granted);
+          setLocalEnabled(Boolean(valid) && foreground.granted);
+          setBackgroundEnabled(Boolean(valid) && foreground.granted && background.granted && started);
           if (savedIssue) setIssue(savedIssue);
         }
       } catch {
-        if (active)
+        if (active && currentInspection === inspection)
           setIssue(
             "Check location permissions in Settings, then reconnect venue checks.",
           );
@@ -100,6 +109,8 @@ export function useReviewerVenue(
     state,
     issue,
     backgroundEnabled,
+    foregroundGranted,
+    backgroundGranted,
     localEnabled,
     installationId,
     ownerId,

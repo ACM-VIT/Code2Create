@@ -32,6 +32,7 @@ import type { HelpTileModel } from "../components/dashboard/HelpTile";
 import type { IntegrationsTileModel } from "../components/dashboard/IntegrationsTile";
 import type { MusicTileModel } from "../components/dashboard/MusicTile";
 import type { ReviewTileModel } from "../components/dashboard/ReviewTile";
+import type { ServiceQueuesTileModel } from "../components/dashboard/ServiceQueuesTile";
 import type { UpdatesTileModel } from "../components/dashboard/UpdatesTile";
 import { DashboardScreen } from "../screens/DashboardScreen";
 import { SglangInterlude } from "../screens/SglangInterlude";
@@ -777,25 +778,23 @@ const dashboardUpdates: UpdatesTileModel = {
 };
 
 const dashboardReview: ReviewTileModel = {
-  available: true,
-  queue: {
-    round: "Midpoint review",
-    status: "Review in progress",
-    active: true,
-    rank: null,
-    detail: "Panel 3",
-    wait: null,
-    reviewers: { present: 3, total: 5 },
-  },
+  round: "Midpoint review",
+  state: "called",
+  paused: false,
+  upNext: false,
+  panel: "Panel 3",
+  rank: null,
+  notice: null,
+  estimate: null,
+  now: eventClock(10, 20, 30),
+  session: { status: "awaiting_presence", present: 3, total: 5 },
   showCode: {
     sessionId: "fixture-review-session",
     mint: async () => {
       await wait(500);
-      return { payload: "c2c:review:paper-cranes:staged", manualCode: "7K2P4-Q9M3X", expiresAt: Date.now() + 120_000, serverNow: Date.now() };
+      return { payload: "c2c:review:paper-cranes:staged", manualCode: "7K2P-4Q9M-3X2A", expiresAt: Date.now() + 120_000, serverNow: Date.now() };
     },
   },
-  services: [],
-  setServiceQueue: async () => {},
 };
 
 const dashboardHelp: HelpTileModel = {
@@ -813,31 +812,42 @@ const dashboardBenefits: BenefitsTileModel = {
 
 const quietMusic: MusicTileModel = { ...dashboardMusic, nowPlaying: null, queue: [], window: null };
 const reviewMusic: MusicTileModel = { ...dashboardMusic, nowPlaying: null, queue: dashboardMusic.queue.slice(0, 2) };
-const quietReview: ReviewTileModel = { available: true, queue: null, showCode: null, services: [], setServiceQueue: async () => {} };
 const queuedReview: ReviewTileModel = {
   ...dashboardReview,
-  queue: { round: "Midpoint review", status: "In queue", active: true, rank: 3, detail: "Panel 3", wait: "About 14–18 min", reviewers: null },
+  state: "queued",
+  rank: 3,
+  estimate: { earliestAt: eventClock(10, 20, 40), latestAt: eventClock(10, 20, 48), basis: "observed" },
+  session: null,
   showCode: null,
 };
 
-type DashboardVariant = "build" | "review" | "quiet";
+const reviewVariants = {
+  queued: queuedReview,
+  next: { ...queuedReview, upNext: true, rank: 1, estimate: { earliestAt: eventClock(10, 20, 30), latestAt: eventClock(10, 20, 35), basis: "observed" } },
+  arriving: dashboardReview,
+  review: { ...dashboardReview, state: "in_review", session: { status: "active", present: 5, total: 5 }, showCode: null },
+  paused: { ...queuedReview, paused: true, estimate: null },
+  scoring: { ...dashboardReview, state: "in_review", session: { status: "scoring", present: 5, total: 5 }, showCode: null },
+} satisfies Record<string, ReviewTileModel>;
+
+type DashboardVariant = "build" | "quiet" | keyof typeof reviewVariants;
 
 function DashboardFixture({ variant = "build" }: { variant?: DashboardVariant }) {
-  const now = variant === "review" ? eventClock(10, 20, 30) : eventClock(10, 2);
-  const [services, setServices] = useState<ReviewTileModel["services"]>([
+  // Build night and quiet mode have no review scheduled. Review fixtures use
+  // the midpoint clock and the exact participant state for that moment.
+  const review = variant === "build" || variant === "quiet" ? null : reviewVariants[variant];
+  const now = review?.now ?? eventClock(10, 2);
+  const [services, setServices] = useState<ServiceQueuesTileModel["services"]>([
     { kind: "outing_permission", joined: false, position: null, waitingCount: 2 },
   ]);
-  const baseReview = variant === "review" ? dashboardReview : variant === "quiet" ? quietReview : queuedReview;
-  const review: ReviewTileModel = {
-    ...baseReview,
+  const queues: ServiceQueuesTileModel = {
+    available: true,
     services,
     setServiceQueue: async (kind, joined) => {
       await wait(250);
       setServices((current) => current.map((service) => {
         if (service.kind !== kind) return service;
-        if (joined) {
-          return { ...service, joined: true, position: service.waitingCount + 1, waitingCount: service.waitingCount + 1 };
-        }
+        if (joined) return { ...service, joined: true, position: service.waitingCount + 1, waitingCount: service.waitingCount + 1 };
         return { ...service, joined: false, position: null, waitingCount: Math.max(0, service.waitingCount - 1) };
       }));
     },
@@ -849,10 +859,11 @@ function DashboardFixture({ variant = "build" }: { variant?: DashboardVariant })
       teamEditable
       onSignOut={noop}
       event={{ ...dashboardEvent, now }}
-      music={variant === "build" ? dashboardMusic : variant === "review" ? reviewMusic : quietMusic}
+      music={variant === "build" ? dashboardMusic : review ? reviewMusic : quietMusic}
       integrations={variant === "quiet" ? dashboardIntegrationsEmpty : dashboardIntegrations}
       updates={variant === "quiet" ? { ...dashboardUpdates, checkpoints: dashboardUpdates.checkpoints.map((c) => ({ ...c, state: c.key === "ideation" ? "upcoming" : c.state })) } : dashboardUpdates}
       review={review}
+      queues={queues}
       help={dashboardHelp}
       benefits={variant === "quiet" ? { available: true, benefits: [] } : dashboardBenefits}
     />
@@ -1073,7 +1084,12 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries([
     ),
   ],
   ["dashboard", () => <DashboardFixture variant="build" />],
+  ["dashboardQueued", () => <DashboardFixture variant="queued" />],
+  ["dashboardNext", () => <DashboardFixture variant="next" />],
+  ["dashboardArriving", () => <DashboardFixture variant="arriving" />],
   ["dashboardReview", () => <DashboardFixture variant="review" />],
+  ["dashboardPaused", () => <DashboardFixture variant="paused" />],
+  ["dashboardScoring", () => <DashboardFixture variant="scoring" />],
   ["dashboardQuiet", () => <DashboardFixture variant="quiet" />],
   [
     "f2",

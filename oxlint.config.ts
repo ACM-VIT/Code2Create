@@ -61,12 +61,27 @@ export default defineConfig({
       },
     },
     {
+      files: ["apps/reviewer/src/lib/*.test.{ts,tsx}"],
+      rules: {
+        // Native-host unit tests use the pinned headless renderer to exercise real
+        // hooks/subscriptions. Keep this exception scoped to its two test APIs.
+        "typescript/no-deprecated": ["error", {
+          allow: [{
+            from: "package",
+            package: "react-test-renderer",
+            name: ["act", "create"],
+          }],
+        }],
+      },
+    },
+    {
       files: [
         "apps/backend/convex/lib/operationsAutonomyReadFactLedger.ts",
         "apps/backend/convex/reviewPush.ts",
         "apps/intelligence/src/lib/eventCommandRegistry.ts",
         "apps/intelligence/src/lib/streamTicket.ts",
         "apps/reviewer/src/lib/encrypted-local-database.ts",
+        "apps/reviewer/src/lib/pager-alarm.ts",
       ],
       rules: {
         // These private helpers return decoded/cause values only to their adjacent schema or traversal owner.

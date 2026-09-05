@@ -130,7 +130,10 @@ export const operationsEpisodeReadEndpoint = httpAction(async (ctx, request) => 
   if (body.response) return body.response;
   const parsed = readRequestSchema.safeParse(body.json);
   if (!parsed.success) return Response.json({ error: "invalid_request" }, { status: 422 });
-  const projection = await ctx.runQuery(internal.operationsEpisodes.serviceProjection, parsed.data);
+  const projection = await ctx.runQuery(internal.operationsEpisodes.serviceProjection, {
+    episodeId: parsed.data.episodeId,
+    operationId: parsed.data.operationId,
+  });
   if (!projection) return Response.json({ error: "authority_revoked" }, { status: 409 });
   return new Response(projection, {
     status: 200,
@@ -148,8 +151,9 @@ export const operationsEpisodeCallbackEndpoint = httpAction(async (ctx, request)
   if (body.response) return body.response;
   const parsed = callbackSchema.safeParse(body.json);
   if (!parsed.success) return Response.json({ error: "invalid_callback" }, { status: 422 });
+  const { protocolVersion: _protocolVersion, ...analysis } = parsed.data;
   try {
-    const result = await ctx.runMutation(internal.operationsEpisodes.recordAnalysis, parsed.data);
+    const result = await ctx.runMutation(internal.operationsEpisodes.recordAnalysis, analysis);
     if (result === "accepted" || result === "already_exists") {
       return Response.json({ state: result }, { status: 202 });
     }

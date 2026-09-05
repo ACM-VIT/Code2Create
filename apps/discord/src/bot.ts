@@ -428,7 +428,8 @@ export class DiscordSupportBot {
       message.webhookId !== null ||
       message.guildId !== this.config.DISCORD_GUILD_ID ||
       message.channel.type !== ChannelType.GuildText ||
-      !this.isManagedCategory(message.channel.parentId)
+      !this.isManagedCategory(message.channel.parentId) ||
+      !/^Code2Create support case:[a-z0-9]+$/u.test(message.channel.topic ?? "")
     ) {
       return;
     }

@@ -1,4 +1,3 @@
-import { normalizedE164Phone } from "./lib/outboundCalls";
 import { ConvexError, v } from "convex/values";
 import {
   normalizeParticipantName,
@@ -931,22 +930,6 @@ export const saveProfile = mutation({
     }
     const now = Date.now();
     const profileVersion = currentProfileVersion + 1;
-    const callConsent = await ctx.db
-      .query("outboundCallConsents")
-      .withIndex("by_event_person_purpose", (q) =>
-        q.eq("eventId", event._id).eq("personId", person._id).eq("purpose", "participant_event_update"),
-      )
-      .unique();
-    if (callConsent?.state === "granted" && callConsent.destinationPhoneE164 !== normalizedE164Phone(phone)) {
-      await ctx.db.patch(callConsent._id, {
-        state: "revoked",
-        destinationPhoneE164: undefined,
-        grantedAt: undefined,
-        revokedAt: now,
-        updatedAt: now,
-        version: callConsent.version + 1,
-      });
-    }
     let profileId;
     if (existing) {
       await ctx.db.patch(existing._id, {
