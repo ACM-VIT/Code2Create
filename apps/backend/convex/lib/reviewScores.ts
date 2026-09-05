@@ -5,6 +5,22 @@ import type { MutationCtx } from "../_generated/server";
 import { operationFingerprint } from "./operations";
 import { normalizedText } from "./strings";
 
+export function requireFinalComment(
+  value: string | undefined,
+  required: boolean,
+) {
+  const comment = value?.trim();
+  if (required && (!comment || comment.length < 3)) {
+    throw new ConvexError({
+      code: "FINAL_COMMENT_REQUIRED",
+      message: "Leave a final comment about the review before submitting.",
+    });
+  }
+  return comment
+    ? normalizedText(comment, "Final comment", required ? 3 : 1, 2_000)
+    : undefined;
+}
+
 export function cleanAssignedRatings(
   ratings: Array<{
     criterionId: Id<"reviewRubricCriteria">;
@@ -17,7 +33,8 @@ export function cleanAssignedRatings(
 ) {
   const byCriterion = new Map<
     Id<"reviewRubricCriteria">,
-    { criterionId: Id<"reviewRubricCriteria">; score: number; evidenceNote?: string }
+    { criterionId: Id<"reviewRubricCriteria">; score: number; evidenceNote?: string;
+    }
   >();
   const assigned = new Set(assignedCriterionIds);
   for (const rating of ratings) {
@@ -87,6 +104,38 @@ export type ComputedReviewEvaluation = {
   submittedScorecardCount: number;
 };
 
+export function activeAssignmentScorecards(
+  assignments: Doc<"reviewAssignments">[],
+  scorecards: Doc<"scorecards">[],
+) {
+  const activeAssignments = assignments.filter((assignment) => assignment.status === "assigned");
+  const activeAssignmentById = new Map(
+    activeAssignments.map((assignment) => [assignment._id, assignment]),
+  );
+  const scorecardByAssignmentId = new Map<
+    Id<"reviewAssignments">,
+    Doc<"scorecards">
+  >();
+  for (const scorecard of scorecards) {
+    const assignment = activeAssignmentById.get(scorecard.assignmentId);
+    if (!assignment) continue;
+    if (
+      scorecardByAssignmentId.has(assignment._id) ||
+      scorecard.reviewerPersonId !== assignment.reviewerPersonId
+    ) {
+      throw new Error("An active review assignment has inconsistent scorecards.");
+    }
+    scorecardByAssignmentId.set(assignment._id, scorecard);
+  }
+  return {
+    assignments: activeAssignments,
+    scorecards: activeAssignments.flatMap((assignment) => {
+      const scorecard = scorecardByAssignmentId.get(assignment._id);
+      return scorecard ? [scorecard] : [];
+    }),
+  };
+}
+
 export async function computeReviewEvaluation(
   ctx: MutationCtx,
   args: {
@@ -98,22 +147,25 @@ export async function computeReviewEvaluation(
   const [assignments, scorecards, criteria] = await Promise.all([
     ctx.db
       .query("reviewAssignments")
-      .withIndex("by_session_person", (index) => index.eq("reviewSessionId", args.session._id))
+      .withIndex("by_session_person", (index) => index.eq("reviewSessionId", args.session._id),
+      )
       .collect(),
     ctx.db
       .query("scorecards")
-      .withIndex("by_session_status", (index) => index.eq("reviewSessionId", args.session._id))
+      .withIndex("by_session_status", (index) => index.eq("reviewSessionId", args.session._id),
+      )
       .collect(),
     ctx.db
       .query("reviewRubricCriteria")
-      .withIndex("by_rubric_order", (index) => index.eq("rubricVersionId", args.rubric._id))
+      .withIndex("by_rubric_order", (index) => index.eq("rubricVersionId", args.rubric._id),
+      )
       .collect(),
   ]);
-  const assigned = assignments.filter((assignment) => assignment.status === "assigned");
+  const active = activeAssignmentScorecards(assignments, scorecards);
   if (
-    assigned.length !== args.round.requiredPanelSize ||
-    scorecards.length !== assigned.length ||
-    scorecards.some(
+    active.assignments.length !== args.round.requiredPanelSize ||
+    active.scorecards.length !== active.assignments.length ||
+    active.scorecards.some(
       (scorecard) => scorecard.status !== "submitted" || !scorecard.submittedVersionId,
     )
   ) {
@@ -124,9 +176,10 @@ export async function computeReviewEvaluation(
   }
 
   const submittedVersions: Array<Doc<"scorecardVersions">> = [];
-  for (const scorecard of scorecards) {
+  for (const scorecard of active.scorecards) {
     const versionId = scorecard.submittedVersionId;
-    if (!versionId) throw new Error("Validated submitted scorecard has no immutable version.");
+    if (!versionId) throw new Error("Validated submitted scorecard has no immutable version.",
+      );
     const submitted = await ctx.db.get(versionId);
     if (
       !submitted ||
@@ -134,8 +187,13 @@ export async function computeReviewEvaluation(
       submitted.scorecardId !== scorecard._id ||
       submitted.rubricVersionId !== args.rubric._id
     ) {
-      throw new Error("Submitted scorecard version does not match its fixed review context.");
+      throw new Error("Submitted scorecard version does not match its fixed review context.",
+      );
     }
+    requireFinalComment(
+      submitted.finalComment,
+      args.round.requiresFinalComment,
+    );
     submittedVersions.push(submitted);
   }
 

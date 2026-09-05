@@ -32,6 +32,7 @@ import {
   type SupportCaseCounters,
   type SupportCaseState,
 } from "./lib/supportCases";
+import { insertSupportCaseAction } from "./lib/supportCaseActions";
 import { supportCaseCategory, supportCaseState } from "./values";
 
 type ReadCtx = QueryCtx | MutationCtx;
@@ -109,6 +110,7 @@ const actionView = v.object({
   ),
   visibility: v.union(v.literal("reporter"), v.literal("internal")),
   actorName: v.string(),
+  source: v.optional(v.literal("discord")),
   body: v.optional(v.string()),
   previousState: v.optional(supportCaseState),
   nextState: v.optional(supportCaseState),
@@ -263,7 +265,7 @@ async function toCaseView(
   };
 }
 
-function counterSource(
+export function supportCaseCounterSource(
   supportCase: Pick<SupportCaseDoc, "state" | "category" | "ownerPersonId" | "awaitingStaffReply">,
 ): SupportCaseCounterSource {
   return {
@@ -302,7 +304,7 @@ function sameCounters(left: SupportCaseCounters, right: SupportCaseCounters) {
   );
 }
 
-async function updateSupportCaseStats(
+export async function updateSupportCaseStats(
   ctx: MutationCtx,
   args: {
     eventId: Id<"events">;
@@ -365,7 +367,11 @@ function sumStatShards(stats: readonly Doc<"supportCaseStatShards">[]) {
 function countersForCases(cases: readonly SupportCaseDoc[]) {
   let counters = emptySupportCaseCounters();
   for (const supportCase of cases) {
-    counters = applySupportCaseCounterChange(counters, undefined, counterSource(supportCase));
+    counters = applySupportCaseCounterChange(
+      counters,
+      undefined,
+      supportCaseCounterSource(supportCase),
+    );
   }
   return counters;
 }
@@ -402,11 +408,16 @@ async function caseActions(ctx: ReadCtx, supportCase: SupportCaseDoc, includeInt
     kind: action.kind,
     visibility: action.visibility,
     actorName:
-      action.kind === "internal_note" && action.body?.startsWith("Code2Create Guide") === true
+      includeInternal && action.externalActor?.provider === "discord"
+        ? action.externalActor.displayName
+        : action.kind === "internal_note" && action.body?.startsWith("Code2Create Guide") === true
         ? "Code2Create Guide"
         : includeInternal || action.actorPersonId === supportCase.reporterPersonId
           ? (names.get(action.actorPersonId) ?? "Event member")
           : "Support",
+    ...(includeInternal && action.externalActor?.provider === "discord"
+      ? { source: "discord" as const }
+      : {}),
     ...(action.body !== undefined ? { body: action.body } : {}),
     ...(action.previousState !== undefined ? { previousState: action.previousState } : {}),
     ...(action.nextState !== undefined ? { nextState: action.nextState } : {}),
@@ -649,7 +660,7 @@ async function insertSupportCase(
     caseId: supportCaseId,
     now: args.now,
   });
-  await ctx.db.insert("supportCaseActions", {
+  await insertSupportCaseAction(ctx, {
     eventId: args.eventId,
     supportCaseId,
     kind: "opened",
@@ -709,7 +720,7 @@ export async function openParticipantAssistantSupportCase(
     ...context,
     now: args.now,
   });
-  await ctx.db.insert("supportCaseActions", {
+  await insertSupportCaseAction(ctx, {
     eventId: args.eventId,
     supportCaseId: result.id,
     kind: "internal_note",
@@ -773,7 +784,7 @@ export async function appendParticipantAssistantSupportMessage(
     supportCase.state === "closed"
       ? "open"
       : supportCase.state;
-  const beforeCounters = counterSource(supportCase);
+  const beforeCounters = supportCaseCounterSource(supportCase);
   const afterCounters: SupportCaseCounterSource = {
     state: nextState,
     category: supportCase.category,
@@ -795,7 +806,7 @@ export async function appendParticipantAssistantSupportMessage(
     before: supportCase,
     now: args.now,
   });
-  await ctx.db.insert("supportCaseActions", {
+  await insertSupportCaseAction(ctx, {
     eventId: args.eventId,
     supportCaseId: supportCase._id,
     kind: "reporter_reply",
@@ -805,7 +816,7 @@ export async function appendParticipantAssistantSupportMessage(
     createdAt: args.now,
   });
   if (nextState !== supportCase.state) {
-    await ctx.db.insert("supportCaseActions", {
+    await insertSupportCaseAction(ctx, {
       eventId: args.eventId,
       supportCaseId: supportCase._id,
       kind: "state_changed",
@@ -865,7 +876,7 @@ export async function appendParticipantAssistantGuideReply(
     throw new Error("The human support conversation is unavailable.");
   }
   const message = normalizedLongText(args.message, "Guide reply", 2, 12_000);
-  await ctx.db.insert("supportCaseActions", {
+  await insertSupportCaseAction(ctx, {
     eventId: args.eventId,
     supportCaseId: supportCase._id,
     kind: "internal_note",
@@ -1523,7 +1534,7 @@ export const replySelf = mutation({
         ? "open"
         : supportCase.state;
     const now = Date.now();
-    const beforeCounters = counterSource(supportCase);
+    const beforeCounters = supportCaseCounterSource(supportCase);
     const afterCounters: SupportCaseCounterSource = {
       state: nextState,
       category: supportCase.category,
@@ -1545,7 +1556,7 @@ export const replySelf = mutation({
       before: supportCase,
       now,
     });
-    await ctx.db.insert("supportCaseActions", {
+    await insertSupportCaseAction(ctx, {
       eventId: event._id,
       supportCaseId: supportCase._id,
       kind: "reporter_reply",
@@ -1555,7 +1566,7 @@ export const replySelf = mutation({
       createdAt: now,
     });
     if (nextState !== supportCase.state) {
-      await ctx.db.insert("supportCaseActions", {
+      await insertSupportCaseAction(ctx, {
         eventId: event._id,
         supportCaseId: supportCase._id,
         kind: "state_changed",
@@ -1721,7 +1732,7 @@ export const updateStaff = mutation({
         ? now
         : supportCase.firstResponseAt;
     const awaitingStaffReply = publicNote === undefined ? supportCase.awaitingStaffReply : false;
-    const beforeCounters = counterSource(supportCase);
+    const beforeCounters = supportCaseCounterSource(supportCase);
     const afterCounters: SupportCaseCounterSource = {
       state: nextState,
       category: supportCase.category,
@@ -1751,7 +1762,7 @@ export const updateStaff = mutation({
       now,
     });
     if (stateChanged) {
-      await ctx.db.insert("supportCaseActions", {
+      await insertSupportCaseAction(ctx, {
         eventId: event._id,
         supportCaseId: supportCase._id,
         kind: "state_changed",
@@ -1763,7 +1774,7 @@ export const updateStaff = mutation({
       });
     }
     if (ownerChanged) {
-      await ctx.db.insert("supportCaseActions", {
+      await insertSupportCaseAction(ctx, {
         eventId: event._id,
         supportCaseId: supportCase._id,
         kind: "owner_changed",
@@ -1777,7 +1788,7 @@ export const updateStaff = mutation({
       });
     }
     if (publicNote) {
-      await ctx.db.insert("supportCaseActions", {
+      await insertSupportCaseAction(ctx, {
         eventId: event._id,
         supportCaseId: supportCase._id,
         kind: "public_note",
@@ -1788,7 +1799,7 @@ export const updateStaff = mutation({
       });
     }
     if (internalNote) {
-      await ctx.db.insert("supportCaseActions", {
+      await insertSupportCaseAction(ctx, {
         eventId: event._id,
         supportCaseId: supportCase._id,
         kind: "internal_note",

@@ -41,7 +41,7 @@ describe("reviewer repaging", () => {
           vitEmailDomains: ["vitstudent.ac.in"],
           applicationsCloseAt: now - 60_000,
           startsAt: now - 1_000,
-          endsAt: now + 600_000,
+          endsAt: now + 1_800_000,
           version: 1,
           createdAt: now,
           updatedAt: now,
@@ -79,11 +79,12 @@ describe("reviewer repaging", () => {
           eventId,
           personId: targetPersonId,
           contactPhone: "+919876543210",
+          seniority: "sc",
+          strength: 2,
           technicalDomains: ["backend"],
           productDomains: ["operations"],
           languages: ["english"],
           criterionKeys: ["quality"],
-          availabilityWindows: [{ startsAt: now - 60_000, endsAt: now + 600_000 }],
           trainingStatus: "complete",
           status: "active",
           version: 1,
@@ -137,7 +138,7 @@ describe("reviewer repaging", () => {
           sequence: 1,
           status: "open",
           startsAt: now - 1_000,
-          endsAt: now + 600_000,
+          endsAt: now + 1_800_000,
           clockInOpensAt: now - 61_000,
           reviewerReportAt: now - 31_000,
           noShowGraceSeconds: 30,
@@ -150,9 +151,19 @@ describe("reviewer repaging", () => {
           substituteResponseSeconds: 300,
           missedReentryPolicy: "queue_end",
           requiredPanelSize: 1,
+          staffing: {
+            seniorSeats: 0,
+            juniorSeats: 0,
+            allowSeniorLeadFallback: true,
+            automaticReplacement: false,
+            juniorRotationReviews: 0,
+            reviewerArrivalSeconds: 90,
+            assignmentReminderSeconds: 300,
+          },
           minimumScorersPerCriterion: 1,
           minimumPresentParticipants: 1,
           requiresSharedCommitments: false,
+          requiresFinalComment: false,
           minimumReviewerBuild: 1,
           requiresCamera: true,
           requiresNotifications: true,
@@ -162,6 +173,16 @@ describe("reviewer repaging", () => {
           createdAt: now,
           publishedAt: now,
           openedAt: now,
+        });
+        await ctx.db.insert("reviewerRoundConfirmations", {
+          eventId,
+          roundId,
+          personId: targetPersonId,
+          status: "confirmed",
+          windows: [{ startsAt: now - 60_000, endsAt: now + 1_800_000 }],
+          version: 1,
+          respondedAt: now,
+          updatedAt: now,
         });
         const panelId = await ctx.db.insert("reviewPanels", {
           eventId,
@@ -196,6 +217,7 @@ describe("reviewer repaging", () => {
           status: "removed",
           assignedAt: now,
           endedAt: now,
+          seatSeniority: "lead",
         });
         const pageGrantId = await ctx.db.insert("permissionGrants", {
           eventId,
@@ -317,10 +339,13 @@ describe("reviewer repaging", () => {
           .collect(),
       );
       expect(deliveries).toHaveLength(reminderOffsets.length + 1);
-      expect(deliveries.map((delivery) => delivery.logicalAttempt).sort()).toEqual(
-        Array.from({ length: reminderOffsets.length + 1 }, (_, index) => index + 1),
+      expect(deliveries.map((delivery) => delivery.logicalAttempt).sort(),
+      ).toEqual(
+        Array.from({ length: reminderOffsets.length + 1 }, (_, index) => index + 1,
+        ),
       );
-      expect(deliveries.find((delivery) => delivery.logicalAttempt === 1)).toMatchObject({
+      expect(deliveries.find((delivery) => delivery.logicalAttempt === 1),
+      ).toMatchObject({
         state: "provider_accepted",
         providerMessageId: "provider-message-1",
       });
@@ -330,7 +355,8 @@ describe("reviewer repaging", () => {
         logicalAttempt += 1
       ) {
         expect(
-          deliveries.find((delivery) => delivery.logicalAttempt === logicalAttempt),
+          deliveries.find((delivery) => delivery.logicalAttempt === logicalAttempt,
+          ),
         ).toMatchObject({
           state: "pending",
           attemptCount: 0,
@@ -383,7 +409,8 @@ describe("reviewer repaging", () => {
           attemptId: crypto.randomUUID(),
         }),
       ).resolves.toBeNull();
-      await expect(backend.run((ctx) => ctx.db.get(call._id))).resolves.toMatchObject({
+      await expect(backend.run((ctx) => ctx.db.get(call._id)),
+      ).resolves.toMatchObject({
         state: "cancelled",
         providerErrorCode: "call_consent_changed",
       });
@@ -409,7 +436,8 @@ describe("reviewer repaging", () => {
           attemptId: crypto.randomUUID(),
         }),
       ).resolves.toBeNull();
-      const historicalDelivery = await backend.run((ctx) => ctx.db.get(historicalDeliveryId));
+      const historicalDelivery = await backend.run((ctx) => ctx.db.get(historicalDeliveryId),
+      );
       expect(historicalDelivery).toMatchObject({
         state: "failed",
         providerErrorCode: "delivery_attempt_missing",

@@ -45,16 +45,13 @@ export const teamRoundStateParticipantLabels: Record<TeamRoundState, string> = {
 };
 
 export type ReviewSessionStatus =
-  | "awaiting_presence"
-  | "active"
-  | "overdue"
-  | "completed"
+  "awaiting_presence" | "active" | "scoring" | "completed"
   | "cancelled";
 
 export const reviewSessionStatusLabels: Record<ReviewSessionStatus, string> = {
   awaiting_presence: "Waiting for reviewers to scan in",
   active: "Under way",
-  overdue: "Past its planned end",
+  scoring: "Discussion finished · entering scores",
   completed: "Complete",
   cancelled: "Cancelled",
 };
@@ -103,7 +100,7 @@ export const reviewerPageChainStateLabels: Record<ReviewerPageChainState, string
 };
 
 export type ReviewerPageState =
-  | "sent"
+  "sent"
   | "opened"
   | "accepted"
   | "declined"
@@ -392,7 +389,7 @@ export const attendanceSessionResultLabels: Record<AttendanceSessionResult, stri
 };
 
 export type VenuePresenceState =
-  | "not_arrived"
+  "not_arrived"
   | "inside"
   | "temporarily_out"
   | "departed"
@@ -434,7 +431,7 @@ export type AttendancePresenceTransition =
   | "manual_reconcile";
 
 export type AttendancePresenceOutcome =
-  | "accepted"
+  "accepted"
   | "duplicate"
   | "rejected"
   | "needs_review"
@@ -706,7 +703,7 @@ export const figmaFileSyncStateLabels: Record<FigmaFileSyncState, string> = {
 };
 
 export type FigmaPreviewState =
-  | "pending"
+  "pending"
   | "running"
   | "ready"
   | "partial"

@@ -1,7 +1,22 @@
+import {
+  venueConfirmationCall,
+  venueCallResponseValue,
+  venueResponseEffect,
+} from "./lib/venueCallResponse";
 import { defineSchema, defineTable } from "convex/server";
+import {
+  reviewerVenueStatus,
+  venuePolicyFields,
+} from "./lib/reviewerVenuePolicy";
 import { v } from "convex/values";
 
 import {
+  reviewEvidenceCheckpointFields,
+  reviewEvidenceAnalysis,
+  reviewEvidenceCoverage,
+  reviewQuestionPolicy,
+  reviewQuestionSource,
+  reviewSuggestedQuestion,
   admissionAiDisposition,
   admissionDecision,
   admissionDecisionStage,
@@ -79,6 +94,7 @@ import {
   reviewEvaluationState,
   reviewPanelStatus,
   reviewRoundStatus,
+  reviewStaffingPolicy,
   reviewerClockInStatus,
   reviewerPageChainState,
   reviewerPageState,
@@ -233,19 +249,26 @@ export default defineSchema({
     status: eventStatus,
     vitEmailDomains: v.array(v.string()),
     publishedParticipantPolicyId: v.optional(v.id("participantPolicyVersions")),
-    publishedParticipantEligibilityImportId: v.optional(v.id("participantEligibilityImports")),
-    publishedEventPhaseScheduleId: v.optional(v.id("eventPhaseScheduleVersions")),
-    publishedProjectCheckpointPlanId: v.optional(v.id("projectCheckpointPlanVersions")),
+    publishedParticipantEligibilityImportId: v.optional(v.id("participantEligibilityImports"),
+    ),
+    publishedEventPhaseScheduleId: v.optional(v.id("eventPhaseScheduleVersions"),
+    ),
+    publishedProjectCheckpointPlanId: v.optional(v.id("projectCheckpointPlanVersions"),
+    ),
     publishedIntakePolicyId: v.optional(v.id("intakePolicyVersions")),
     publishedNoveltyCorpusVersionId: v.optional(v.id("noveltyCorpusVersions")),
     publishedAdmissionPolicyId: v.optional(v.id("admissionPolicyVersions")),
-    publishedAdmissionModelConfigId: v.optional(v.id("admissionModelConfigVersions")),
-    publishedAttendancePlanVersionId: v.optional(v.id("attendancePlanVersions")),
+    publishedAdmissionModelConfigId: v.optional(v.id("admissionModelConfigVersions"),
+    ),
+    publishedAttendancePlanVersionId: v.optional(v.id("attendancePlanVersions"),
+    ),
     publishedIntegrationPolicyId: v.optional(v.id("integrationPolicyVersions")),
-    publishedCommunicationsPolicyId: v.optional(v.id("communicationsPolicyVersions")),
+    publishedCommunicationsPolicyId: v.optional(v.id("communicationsPolicyVersions"),
+    ),
     admissionResultsReleasedAt: v.optional(v.number()),
     admissionResultsReleasedByPersonId: v.optional(v.id("people")),
-    admissionResultsCommunicationsPolicyId: v.optional(v.id("communicationsPolicyVersions")),
+    admissionResultsCommunicationsPolicyId: v.optional(v.id("communicationsPolicyVersions"),
+    ),
     externalApplicationsCloseAt: v.optional(v.number()),
     applicationsCloseAt: v.number(),
     startsAt: v.optional(v.number()),
@@ -318,7 +341,8 @@ export default defineSchema({
     startsAt: v.number(),
     endsAt: v.number(),
     displayOrder: v.number(),
-    status: v.union(v.literal("draft"), v.literal("published"), v.literal("retired")),
+    status: v.union(v.literal("draft"), v.literal("published"), v.literal("retired"),
+    ),
     createdAt: v.number(),
   })
     .index("by_schedule_order", ["scheduleVersionId", "displayOrder"])
@@ -351,7 +375,8 @@ export default defineSchema({
     followUpQuestion: v.string(),
     graceMinutes: v.number(),
     displayOrder: v.number(),
-    status: v.union(v.literal("draft"), v.literal("published"), v.literal("retired")),
+    status: v.union(v.literal("draft"), v.literal("published"), v.literal("retired"),
+    ),
     createdAt: v.number(),
   })
     .index("by_plan_order", ["planVersionId", "displayOrder"])
@@ -529,7 +554,8 @@ export default defineSchema({
     eventId: v.id("events"),
     teamId: v.id("teams"),
     inputFingerprint: v.string(),
-    lifecycle: v.union(v.literal("editing"), v.literal("saved"), v.literal("submitted")),
+    lifecycle: v.union(v.literal("editing"), v.literal("saved"), v.literal("submitted"),
+    ),
     comparisonScope: v.optional(v.string()),
     embedding: v.array(v.float64()),
     sourceUpdatedAt: v.number(),
@@ -574,7 +600,8 @@ export default defineSchema({
   })
     .index("by_team_requested", ["teamId", "requestedAt"])
     .index("by_team_state_requested", ["teamId", "state", "requestedAt"])
-    .index("by_team_fingerprint_requested", ["teamId", "inputFingerprint", "requestedAt"])
+    .index("by_team_fingerprint_requested", ["teamId", "inputFingerprint", "requestedAt",
+    ])
     .index("by_team_client_request", ["teamId", "clientRequestId"])
     .index("by_event_state_requested", ["eventId", "state", "requestedAt"]),
 
@@ -609,7 +636,8 @@ export default defineSchema({
     personId: v.id("people"),
     emailNormalized: v.string(),
     displayName: v.string(),
-    status: v.union(v.literal("active"), v.literal("suspended"), v.literal("closed")),
+    status: v.union(v.literal("active"), v.literal("suspended"), v.literal("closed"),
+    ),
     linkedBy: v.union(
       v.literal("participant_provisioning"),
       v.literal("roster_claim"),
@@ -625,7 +653,8 @@ export default defineSchema({
     .index("by_person", ["personId"])
     .index("by_event_person", ["eventId", "personId"])
     .index("by_event_email", ["eventId", "emailNormalized"])
-    .index("by_event_link_status_email", ["eventId", "linkedBy", "status", "emailNormalized"])
+    .index("by_event_link_status_email", ["eventId", "linkedBy", "status", "emailNormalized",
+    ])
     .index("by_event_status_email", ["eventId", "status", "emailNormalized"])
     .searchIndex("search_by_event_status_name", {
       searchField: "displayName",
@@ -705,7 +734,8 @@ export default defineSchema({
     claimedByPersonId: v.optional(v.id("people")),
     claimedEventAccessSubjectId: v.optional(v.id("eventAccessSubjects")),
     claimedEventRoleId: v.optional(v.id("eventRoles")),
-    permissionGrantBatchIds: v.optional(v.array(v.id("permissionGrantBatches"))),
+    permissionGrantBatchIds: v.optional(v.array(v.id("permissionGrantBatches")),
+    ),
     claimOperationId: v.optional(v.string()),
     claimedAuthUserId: v.optional(v.string()),
     claimedGoogleSubject: v.optional(v.string()),
@@ -727,7 +757,8 @@ export default defineSchema({
   participantEligibilityImports: defineTable({
     eventId: v.id("events"),
     batchKey: v.string(),
-    status: v.union(v.literal("preparing"), v.literal("active"), v.literal("superseded")),
+    status: v.union(v.literal("preparing"), v.literal("active"), v.literal("superseded"),
+    ),
     expectedExternalCount: v.number(),
     expectedVitCount: v.number(),
     externalSourceChecksum: v.string(),
@@ -753,7 +784,8 @@ export default defineSchema({
       "participantClass",
       "identityNormalized",
     ])
-    .index("by_import_class", ["participantEligibilityImportId", "participantClass"])
+    .index("by_import_class", ["participantEligibilityImportId", "participantClass",
+    ])
     .index("by_event_import", ["eventId", "participantEligibilityImportId"]),
 
   teamRosterImports: defineTable({
@@ -797,7 +829,8 @@ export default defineSchema({
     supersededByEntryId: v.optional(v.id("teamRosterEntries")),
   })
     .index("by_event_email_status", ["eventId", "emailNormalized", "status"])
-    .index("by_event_vit_registration_status", ["eventId", "vitRegistrationNumber", "status"])
+    .index("by_event_vit_registration_status", ["eventId", "vitRegistrationNumber", "status",
+    ])
     .index("by_event_team_status", ["eventId", "teamName", "status"])
     .index("by_event_status", ["eventId", "status"])
     .index("by_import_row", ["teamRosterImportId", "sourceRowNumber"])
@@ -818,7 +851,8 @@ export default defineSchema({
     ),
     eligibilityStatus: participantEligibilityStatus,
     onboardingStatus: participantOnboardingStatus,
-    acceptedParticipantPolicyVersionIds: v.array(v.id("participantPolicyVersions")),
+    acceptedParticipantPolicyVersionIds: v.array(v.id("participantPolicyVersions"),
+    ),
     googleHostedDomain: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -827,7 +861,8 @@ export default defineSchema({
     .index("by_person", ["personId"])
     .index("by_event_status", ["eventId", "eligibilityStatus"])
     .index("by_event_onboarding_status", ["eventId", "onboardingStatus"])
-    .index("by_event_vit_registration", ["eventId", "vitStudentIdentity.registrationNumber"]),
+    .index("by_event_vit_registration", ["eventId", "vitStudentIdentity.registrationNumber",
+    ]),
 
   eventRoles: defineTable({
     eventId: v.id("events"),
@@ -842,7 +877,8 @@ export default defineSchema({
       v.literal("revoked"),
       v.literal("expired"),
     ),
-    sourceType: v.union(v.literal("production_seed"), v.literal("roster"), v.literal("manual")),
+    sourceType: v.union(v.literal("production_seed"), v.literal("roster"), v.literal("manual"),
+    ),
     sourceId: v.string(),
     assignedByPersonId: v.id("people"),
     createdAt: v.number(),
@@ -879,7 +915,8 @@ export default defineSchema({
     defaultRole: v.optional(eventRole),
     version: v.number(),
     revision: v.number(),
-    status: v.union(v.literal("draft"), v.literal("published"), v.literal("retired")),
+    status: v.union(v.literal("draft"), v.literal("published"), v.literal("retired"),
+    ),
     entries: v.array(permissionBundleEntry),
     checksum: v.string(),
     createdByPersonId: v.id("people"),
@@ -905,7 +942,8 @@ export default defineSchema({
     bundleVersionId: v.id("permissionBundleVersions"),
     sourceBundleVersionId: v.optional(v.id("permissionBundleVersions")),
     sourceGrantBatchId: v.optional(v.id("permissionGrantBatches")),
-    resolvedBindings: v.optional(v.array(v.object({ key: v.string(), scopeId: v.string() }))),
+    resolvedBindings: v.optional(v.array(v.object({ key: v.string(), scopeId: v.string() })),
+    ),
     reason: v.string(),
     authorizingGrantIds: v.array(v.id("permissionGrants")),
     expectedAccessVersion: v.number(),
@@ -921,7 +959,8 @@ export default defineSchema({
     completedAt: v.optional(v.number()),
   })
     .index("by_event_operation", ["eventId", "clientOperationId"])
-    .index("by_event_target_created", ["eventId", "targetPersonId", "createdAt"])
+    .index("by_event_target_created", ["eventId", "targetPersonId", "createdAt",
+    ])
     .index("by_event_bundle_version_status_created", [
       "eventId",
       "bundleVersionId",
@@ -987,7 +1026,8 @@ export default defineSchema({
     submissionAttemptId: v.optional(v.id("teamSubmissionAttempts")),
     lockedProjectVersionId: v.optional(v.id("projectVersions")),
     lockedAt: v.optional(v.number()),
-    lockParticipantPolicyVersionId: v.optional(v.id("participantPolicyVersions")),
+    lockParticipantPolicyVersionId: v.optional(v.id("participantPolicyVersions"),
+    ),
     version: v.number(),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -1058,7 +1098,8 @@ export default defineSchema({
     completedAt: v.optional(v.number()),
   })
     .index("by_team_and_created_at", ["teamId", "createdAt"])
-    .index("by_event_and_state_and_created_at", ["eventId", "state", "createdAt"])
+    .index("by_event_and_state_and_created_at", ["eventId", "state", "createdAt",
+    ])
     .index("by_event_and_requester_and_client_operation", [
       "eventId",
       "requestedByPersonId",
@@ -1083,9 +1124,12 @@ export default defineSchema({
     destinationEmailNormalized: v.string(),
     materializedAt: v.number(),
   })
-    .index("by_submission_attempt_and_ordinal", ["submissionAttemptId", "ordinal"])
-    .index("by_submission_attempt_and_team_member", ["submissionAttemptId", "teamMemberId"])
-    .index("by_submission_attempt_and_membership", ["submissionAttemptId", "membershipId"]),
+    .index("by_submission_attempt_and_ordinal", ["submissionAttemptId", "ordinal",
+    ])
+    .index("by_submission_attempt_and_team_member", ["submissionAttemptId", "teamMemberId",
+    ])
+    .index("by_submission_attempt_and_membership", ["submissionAttemptId", "membershipId",
+    ]),
 
   teamLeadershipTransfers: defineTable({
     eventId: v.id("events"),
@@ -1134,7 +1178,8 @@ export default defineSchema({
     revokedByPersonId: v.optional(v.id("people")),
     revokeReason: v.optional(v.string()),
   })
-    .index("by_subject_permission_status", ["eventAccessSubjectId", "permissionKey", "status"])
+    .index("by_subject_permission_status", ["eventAccessSubjectId", "permissionKey", "status",
+    ])
     .index("by_subject_permission_status_scope", [
       "eventAccessSubjectId",
       "permissionKey",
@@ -1189,15 +1234,26 @@ export default defineSchema({
     completedAt: v.optional(v.number()),
   })
     .index("by_threadId_and_clientRequestId", ["threadId", "clientRequestId"])
-    .index("by_threadId_and_state_and_updatedAt", ["threadId", "state", "updatedAt"])
+    .index("by_threadId_and_state_and_updatedAt", ["threadId", "state", "updatedAt",
+    ])
     .index("by_threadId_and_updatedAt", ["threadId", "updatedAt"]),
+
+  participantServiceQueueEntries: defineTable({
+    eventId: v.id("events"),
+    membershipId: v.id("eventMemberships"),
+    personId: v.id("people"),
+    kind: v.literal("outing_permission"),
+    joinedAt: v.number(),
+  })
+    .index("by_membership_kind", ["membershipId", "kind"]),
 
   supportCases: defineTable({
     eventId: v.id("events"),
     publicCode: v.string(),
     category: supportCaseCategory,
     description: v.string(),
-    origin: v.union(v.literal("participant"), v.literal("reviewer"), v.literal("staff")),
+    origin: v.union(v.literal("participant"), v.literal("reviewer"), v.literal("staff"),
+    ),
     reporterPersonId: v.id("people"),
     reporterEventAccessSubjectId: v.id("eventAccessSubjects"),
     contactEmail: v.string(),
@@ -1221,9 +1277,12 @@ export default defineSchema({
     .index("by_event_updated", ["eventId", "updatedAt"])
     .index("by_event_state_updated", ["eventId", "state", "updatedAt"])
     .index("by_event_state_created", ["eventId", "state", "createdAt"])
-    .index("by_event_reporter_updated", ["eventId", "reporterPersonId", "updatedAt"])
-    .index("by_event_reporter_state_updated", ["eventId", "reporterPersonId", "state", "updatedAt"])
-    .index("by_event_owner_state_updated", ["eventId", "ownerPersonId", "state", "updatedAt"]),
+    .index("by_event_reporter_updated", ["eventId", "reporterPersonId", "updatedAt",
+    ])
+    .index("by_event_reporter_state_updated", ["eventId", "reporterPersonId", "state", "updatedAt",
+    ])
+    .index("by_event_owner_state_updated", ["eventId", "ownerPersonId", "state", "updatedAt",
+    ]),
 
   supportCaseActions: defineTable({
     eventId: v.id("events"),
@@ -1243,10 +1302,59 @@ export default defineSchema({
     nextState: v.optional(supportCaseState),
     previousOwnerPersonId: v.optional(v.id("people")),
     nextOwnerPersonId: v.optional(v.id("people")),
+    externalActor: v.optional(
+      v.object({
+        provider: v.literal("discord"),
+        providerUserId: v.string(),
+        displayName: v.string(),
+      }),
+    ),
     createdAt: v.number(),
   })
     .index("by_case_time", ["supportCaseId", "createdAt"])
     .index("by_event_time", ["eventId", "createdAt"]),
+
+  supportDiscordChannels: defineTable({
+    eventId: v.id("events"),
+    supportCaseId: v.id("supportCases"),
+    discordGuildId: v.string(),
+    discordChannelId: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_support_case", ["supportCaseId"])
+    .index("by_discord_channel", ["discordChannelId"]),
+
+  supportDiscordOutbox: defineTable({
+    eventId: v.id("events"),
+    supportCaseId: v.id("supportCases"),
+    supportCaseActionId: v.id("supportCaseActions"),
+    state: v.union(v.literal("pending"), v.literal("claimed"), v.literal("delivered")),
+    claimId: v.optional(v.string()),
+    claimExpiresAt: v.optional(v.number()),
+    nextAttemptAt: v.number(),
+    attemptCount: v.number(),
+    lastErrorCode: v.optional(v.string()),
+    discordMessageId: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    deliveredAt: v.optional(v.number()),
+  })
+    .index("by_event_and_state_and_next_attempt", ["eventId", "state", "nextAttemptAt"])
+    .index("by_event_and_state_and_claim_expiry", ["eventId", "state", "claimExpiresAt"])
+    .index("by_support_case_action", ["supportCaseActionId"]),
+
+  supportDiscordInboundMessages: defineTable({
+    eventId: v.id("events"),
+    supportCaseId: v.id("supportCases"),
+    supportCaseActionId: v.id("supportCaseActions"),
+    discordMessageId: v.string(),
+    discordUserId: v.string(),
+    discordDisplayName: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_discord_message", ["discordMessageId"])
+    .index("by_support_case_and_created_at", ["supportCaseId", "createdAt"]),
 
   supportCaseStatShards: defineTable({
     eventId: v.id("events"),
@@ -1345,9 +1453,12 @@ export default defineSchema({
     eventId: v.id("events"),
     title: v.string(),
     summary: v.string(),
-    severity: v.union(v.literal("service_disruption"), v.literal("major"), v.literal("critical")),
-    affectedService: v.union(v.literal("attendance_backend"), v.literal("review_backend")),
-    state: v.union(v.literal("open"), v.literal("monitoring"), v.literal("resolved")),
+    severity: v.union(v.literal("service_disruption"), v.literal("major"), v.literal("critical"),
+    ),
+    affectedService: v.union(v.literal("attendance_backend"), v.literal("review_backend"),
+    ),
+    state: v.union(v.literal("open"), v.literal("monitoring"), v.literal("resolved"),
+    ),
     manualModeState: v.union(
       v.literal("not_requested"),
       v.literal("pending"),
@@ -1365,7 +1476,8 @@ export default defineSchema({
   })
     .index("by_event_state_opened", ["eventId", "state", "openedAt"])
     .index("by_event_opened", ["eventId", "openedAt"])
-    .index("by_event_service_opened", ["eventId", "affectedService", "openedAt"]),
+    .index("by_event_service_opened", ["eventId", "affectedService", "openedAt",
+    ]),
 
   incidentManualModeApprovals: defineTable({
     eventId: v.id("events"),
@@ -1396,7 +1508,8 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   })
-    .index("by_event_provider_track", ["eventId", "provider", "providerTrackId"])
+    .index("by_event_provider_track", ["eventId", "provider", "providerTrackId",
+    ])
     .index("by_event_status_title", ["eventId", "status", "title"])
     .searchIndex("search_event_catalog", {
       searchField: "searchText",
@@ -1469,7 +1582,8 @@ export default defineSchema({
     .index("by_window_track", ["windowId", "catalogTrackId"])
     .index("by_window_created", ["windowId", "createdAt"])
     .index("by_window_state_created", ["windowId", "state", "createdAt"])
-    .index("by_window_requester_created", ["windowId", "requestedByMembershipId", "createdAt"])
+    .index("by_window_requester_created", ["windowId", "requestedByMembershipId", "createdAt",
+    ])
     .index("by_event_created", ["eventId", "createdAt"]),
 
   songVotes: defineTable({
@@ -1493,7 +1607,8 @@ export default defineSchema({
     reporterMembershipId: v.id("eventMemberships"),
     reporterPersonId: v.id("people"),
     reason: v.string(),
-    state: v.union(v.literal("open"), v.literal("resolved"), v.literal("dismissed")),
+    state: v.union(v.literal("open"), v.literal("resolved"), v.literal("dismissed"),
+    ),
     publicResolution: v.optional(v.string()),
     internalResolution: v.optional(v.string()),
     resolvedByPersonId: v.optional(v.id("people")),
@@ -1511,7 +1626,8 @@ export default defineSchema({
     eventId: v.id("events"),
     windowId: v.id("synesthesiaWindows"),
     requestId: v.id("songRequests"),
-    kind: v.union(v.literal("started"), v.literal("played"), v.literal("skipped")),
+    kind: v.union(v.literal("started"), v.literal("played"), v.literal("skipped"),
+    ),
     actorPersonId: v.id("people"),
     requestVersion: v.number(),
     reason: v.optional(v.string()),
@@ -1592,7 +1708,8 @@ export default defineSchema({
     answerVersion: v.number(),
     value: v.string(),
     supersedesAnswerVersionId: v.optional(v.id("intakeAnswerVersions")),
-    status: v.union(v.literal("active"), v.literal("superseded"), v.literal("inactive_for_route")),
+    status: v.union(v.literal("active"), v.literal("superseded"), v.literal("inactive_for_route"),
+    ),
     writtenByMembershipId: v.id("eventMemberships"),
     writtenAt: v.number(),
     clientOperationId: v.string(),
@@ -1611,7 +1728,8 @@ export default defineSchema({
     text: v.string(),
     purposeKey: intakeQuestionPurpose,
     answerLength: intakeAnswerLength,
-    source: v.union(v.literal("fixed"), v.literal("model"), v.literal("fallback")),
+    source: v.union(v.literal("fixed"), v.literal("model"), v.literal("fallback"),
+    ),
     sourceAnswerVersionIds: v.array(v.id("intakeAnswerVersions")),
     intakePolicyVersionId: v.id("intakePolicyVersions"),
     interpretationId: v.optional(v.id("intakeInterpretations")),
@@ -1685,7 +1803,8 @@ export default defineSchema({
         question: v.string(),
         purposeKey: intakeQuestionPurpose,
         answerLength: intakeAnswerLength,
-        source: v.union(v.literal("fixed"), v.literal("model"), v.literal("fallback")),
+        source: v.union(v.literal("fixed"), v.literal("model"), v.literal("fallback"),
+        ),
         answer: v.string(),
       }),
     ),
@@ -1774,7 +1893,8 @@ export default defineSchema({
     .index("by_team_key", ["teamId", "checkpointKey"])
     .index("by_team_sequence", ["teamId", "sequence"])
     .index("by_team_submitted", ["teamId", "submittedAt"])
-    .index("by_event_key_submitted", ["eventId", "checkpointKey", "submittedAt"]),
+    .index("by_event_key_submitted", ["eventId", "checkpointKey", "submittedAt",
+    ]),
 
   applications: defineTable({
     eventId: v.id("events"),
@@ -1801,7 +1921,8 @@ export default defineSchema({
   })
     .index("by_team", ["teamId"])
     .index("by_event_submitted", ["eventId", "submittedAt"])
-    .index("by_event_decision_stage", ["eventId", "decisionStage", "submittedAt"])
+    .index("by_event_decision_stage", ["eventId", "decisionStage", "submittedAt",
+    ])
     .index("by_event_state_submitted", ["eventId", "state", "submittedAt"]),
 
   participantNotificationDestinations: defineTable({
@@ -1839,6 +1960,7 @@ export default defineSchema({
       v.literal("offer_confirmed"),
       v.literal("offer_declined"),
       v.literal("offer_expired"),
+      v.literal("external_event_pass"),
     ),
     applicationVersion: v.number(),
     portalPath: v.string(),
@@ -1878,11 +2000,13 @@ export default defineSchema({
     .index("by_provider_message", ["providerMessageId"])
     .index("by_membership_created", ["membershipId", "createdAt"])
     .index("by_application_created", ["applicationId", "createdAt"])
-    .index("by_application_membership_created", ["applicationId", "membershipId", "createdAt"])
+    .index("by_application_membership_created", ["applicationId", "membershipId", "createdAt",
+    ])
     .index("by_destination_state", ["destinationId", "state"])
     .index("by_event_state_updated", ["eventId", "state", "updatedAt"])
     .index("by_event_state_claim", ["eventId", "state", "claimExpiresAt"])
-    .index("by_event_state_next_attempt", ["eventId", "state", "nextAttemptAt"]),
+    .index("by_event_state_next_attempt", ["eventId", "state", "nextAttemptAt",
+    ]),
 
   participantNotificationProviderEvents: defineTable({
     provider: v.literal("cloudflare_email"),
@@ -1921,7 +2045,8 @@ export default defineSchema({
     recommendation: v.optional(admissionDecision),
     centralProposalConsistency: v.optional(
       v.object({
-        assessment: v.union(v.literal("consistent"), v.literal("contradictory")),
+        assessment: v.union(v.literal("consistent"), v.literal("contradictory"),
+        ),
         sourceRefs: v.array(v.string()),
       }),
     ),
@@ -1934,7 +2059,8 @@ export default defineSchema({
     ),
     strengths: v.array(v.string()),
     concerns: v.array(v.string()),
-    confidence: v.optional(v.union(v.literal("low"), v.literal("medium"), v.literal("high"))),
+    confidence: v.optional(v.union(v.literal("low"), v.literal("medium"), v.literal("high")),
+    ),
     limitations: v.array(v.string()),
     providerRequestId: v.optional(v.string()),
     agentOperationId: v.optional(v.string()),
@@ -2028,7 +2154,8 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_application_status", ["applicationId", "status"])
-    .index("by_application_reviewer_status", ["applicationId", "reviewerPersonId", "status"])
+    .index("by_application_reviewer_status", ["applicationId", "reviewerPersonId", "status",
+    ])
     .index("by_application_reviewer_content_version", [
       "applicationId",
       "reviewerPersonId",
@@ -2050,8 +2177,10 @@ export default defineSchema({
     cancellationReason: v.optional(v.string()),
   })
     .index("by_state_assigned", ["state", "assignedAt"])
-    .index("by_application_state_assigned", ["applicationId", "state", "assignedAt"])
-    .index("by_application_reviewer_state", ["applicationId", "reviewerPersonId", "state"])
+    .index("by_application_state_assigned", ["applicationId", "state", "assignedAt",
+    ])
+    .index("by_application_reviewer_state", ["applicationId", "reviewerPersonId", "state",
+    ])
     .index("by_event_reviewer_state_assigned", [
       "eventId",
       "reviewerPersonId",
@@ -2100,7 +2229,8 @@ export default defineSchema({
     reservedAt: v.number(),
     releasedAt: v.optional(v.number()),
     releasedReason: v.optional(
-      v.union(v.literal("offer_declined"), v.literal("offer_expired"), v.literal("offer_revoked")),
+      v.union(v.literal("offer_declined"), v.literal("offer_expired"), v.literal("offer_revoked"),
+      ),
     ),
     releasedByPersonId: v.optional(v.id("people")),
   })
@@ -2136,7 +2266,8 @@ export default defineSchema({
     iv: v.string(),
     authTag: v.string(),
     wrappingKeyVersion: v.string(),
-    status: v.union(v.literal("active"), v.literal("retired"), v.literal("compromised")),
+    status: v.union(v.literal("active"), v.literal("retired"), v.literal("compromised"),
+    ),
     createdByPersonId: v.id("people"),
     createdAt: v.number(),
     rewrappedAt: v.optional(v.number()),
@@ -2240,7 +2371,8 @@ export default defineSchema({
     stableKey: v.string(),
     name: v.string(),
     mode: v.optional(attendanceStationMode),
-    allowedCredentialKinds: v.optional(v.array(attendanceScannerCredentialKind)),
+    allowedCredentialKinds: v.optional(v.array(attendanceScannerCredentialKind),
+    ),
     status: attendanceStationStatus,
     configurationVersion: v.number(),
     validFrom: v.optional(v.number()),
@@ -2290,7 +2422,8 @@ export default defineSchema({
     zoneId: v.id("attendanceZones"),
     identityCheckMethod: venueIdentityCheckMethod,
     credentialId: v.optional(v.id("attendanceCredentials")),
-    credentialKind: v.optional(v.union(v.literal("vit_id_barcode"), v.literal("badge_qr"))),
+    credentialKind: v.optional(v.union(v.literal("vit_id_barcode"), v.literal("badge_qr")),
+    ),
     credentialVersion: v.optional(v.number()),
     badgeReference: v.optional(v.string()),
     status: venueCheckInStatus,
@@ -2314,40 +2447,52 @@ export default defineSchema({
     updatedAt: v.number(),
   }).index("by_event_shard", ["eventId", "shard"]),
 
-  attendancePortalCredentials: defineTable({
+  attendanceExternalPasses: defineTable({
     eventId: v.id("events"),
     membershipId: v.id("eventMemberships"),
+    encryptedBearer: v.string(),
+    bearerIv: v.string(),
+    bearerAuthTag: v.string(),
+    lookupHash: v.string(),
     version: v.number(),
     state: v.union(v.literal("active"), v.literal("suspended")),
+    issuedAt: v.number(),
     updatedAt: v.number(),
-  }).index("by_membership", ["membershipId"]),
+  })
+    .index("by_membership", ["membershipId"])
+    .index("by_event_lookup", ["eventId", "lookupHash"]),
 
-  attendancePortalQrTokens: defineTable({
+  attendanceExternalIdentityBindings: defineTable({
     eventId: v.id("events"),
     membershipId: v.id("eventMemberships"),
-    portalCredentialId: v.id("attendancePortalCredentials"),
-    credentialVersion: v.number(),
-    sessionId: v.optional(v.id("attendanceSessions")),
-    tokenHash: v.string(),
-    state: v.union(v.literal("active"), v.literal("used"), v.literal("revoked")),
-    issuedAt: v.number(),
-    expiresAt: v.number(),
-    usedAt: v.optional(v.number()),
-    usedByEventId: v.optional(v.id("attendancePresenceEvents")),
+    lookupHash: v.string(),
+    barcodeSymbology,
+    version: v.number(),
+    state: v.union(v.literal("active"), v.literal("suspended")),
+    linkedByPersonId: v.id("people"),
+    linkedAt: v.number(),
+    updatedAt: v.number(),
   })
-    .index("by_event_token", ["eventId", "tokenHash"])
-    .index("by_membership_state", ["membershipId", "state"]),
+    .index("by_membership", ["membershipId"])
+    .index("by_event_lookup", ["eventId", "lookupHash"]),
 
   staffedParticipantResolutions: defineTable({
     eventId: v.id("events"),
     membershipId: v.id("eventMemberships"),
-    portalQrTokenId: v.id("attendancePortalQrTokens"),
+    resolutionMethod: v.union(
+      v.literal("vit_id_barcode"),
+      v.literal("external_pass"),
+      v.literal("manual_lookup"),
+    ),
+    barcodeLookupHash: v.optional(v.string()),
+    barcodeSymbology: v.optional(barcodeSymbology),
     stationId: v.id("attendanceStations"),
     deviceInstallationId: v.id("attendanceDeviceInstallations"),
     resolvedByPersonId: v.id("people"),
     resolvedAt: v.number(),
     expiresAt: v.number(),
-    venueAction: v.optional(v.union(v.literal("record_check_in"), v.literal("reverse_check_in"))),
+    venueAction: v.optional(v.union(v.literal("record_check_in"), v.literal("reverse_check_in")),
+    ),
     venueActionAt: v.optional(v.number()),
     venueCheckInId: v.optional(v.id("venueCheckIns")),
     credentialAction: v.optional(
@@ -2358,13 +2503,15 @@ export default defineSchema({
         v.literal("begin_badge_issue"),
         v.literal("begin_badge_replacement"),
         v.literal("revoke_badge"),
+        v.literal("link_external_id"),
+        v.literal("suspend_external_pass"),
+        v.literal("reissue_external_pass"),
       ),
     ),
     credentialActionAt: v.optional(v.number()),
     attendanceCredentialId: v.optional(v.id("attendanceCredentials")),
-  })
-    .index("by_portal_token", ["portalQrTokenId"])
-    .index("by_event_membership_time", ["eventId", "membershipId", "resolvedAt"]),
+    attendanceExternalPassId: v.optional(v.id("attendanceExternalPasses")),
+  }).index("by_event_membership_time", ["eventId", "membershipId", "resolvedAt"]),
 
   attendanceVenueStates: defineTable({
     eventId: v.id("events"),
@@ -2418,7 +2565,8 @@ export default defineSchema({
     sessionStartsAt: v.number(),
     createdAt: v.number(),
   })
-    .index("by_membership_plan_start", ["membershipId", "planVersionId", "sessionStartsAt"])
+    .index("by_membership_plan_start", ["membershipId", "planVersionId", "sessionStartsAt",
+    ])
     .index("by_session_membership", ["sessionId", "membershipId"]),
 
   attendanceResultRemedyCases: defineTable({
@@ -2426,7 +2574,8 @@ export default defineSchema({
     sessionId: v.id("attendanceSessions"),
     membershipId: v.id("eventMemberships"),
     sessionParticipantId: v.id("attendanceSessionParticipants"),
-    state: v.union(v.literal("open"), v.literal("approved"), v.literal("declined")),
+    state: v.union(v.literal("open"), v.literal("approved"), v.literal("declined"),
+    ),
     openedByPersonId: v.id("people"),
     openedByKind: v.union(v.literal("participant"), v.literal("staff")),
     description: v.string(),
@@ -2465,8 +2614,10 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   })
-    .index("by_session_membership_state", ["sessionId", "membershipId", "state"])
-    .index("by_session_membership_created", ["sessionId", "membershipId", "createdAt"])
+    .index("by_session_membership_state", ["sessionId", "membershipId", "state",
+    ])
+    .index("by_session_membership_created", ["sessionId", "membershipId", "createdAt",
+    ])
     .index("by_session_state_created", ["sessionId", "state", "createdAt"])
     .index("by_membership_created", ["membershipId", "createdAt"]),
 
@@ -2550,7 +2701,6 @@ export default defineSchema({
     operatorPersonId: v.id("people"),
     membershipId: v.optional(v.id("eventMemberships")),
     credentialId: v.optional(v.id("attendanceCredentials")),
-    portalQrTokenId: v.optional(v.id("attendancePortalQrTokens")),
     credentialKind: attendanceCredentialKind,
     clientOperationId: v.string(),
     requestFingerprint: v.string(),
@@ -2575,7 +2725,8 @@ export default defineSchema({
     .index("by_membership_time", ["membershipId", "receivedAt"])
     .index("by_station_time", ["stationId", "receivedAt"])
     .index("by_session_time", ["sessionId", "receivedAt"])
-    .index("by_session_membership_time", ["sessionId", "membershipId", "receivedAt"])
+    .index("by_session_membership_time", ["sessionId", "membershipId", "receivedAt",
+    ])
     .index("by_manual_sheet_line", ["manualSheetId", "manualSheetLineNumber"]),
 
   attendancePresenceIntervals: defineTable({
@@ -2584,7 +2735,8 @@ export default defineSchema({
     zoneId: v.id("attendanceZones"),
     sessionId: v.optional(v.id("attendanceSessions")),
     kind: v.union(v.literal("venue"), v.literal("session")),
-    status: v.union(v.literal("open"), v.literal("closed"), v.literal("voided")),
+    status: v.union(v.literal("open"), v.literal("closed"), v.literal("voided"),
+    ),
     openedByEventId: v.id("attendancePresenceEvents"),
     openedAt: v.number(),
     closedByEventId: v.optional(v.id("attendancePresenceEvents")),
@@ -2672,7 +2824,8 @@ export default defineSchema({
     requestedByPersonId: v.id("people"),
     purpose: v.string(),
     fields: v.array(attendanceExportField),
-    status: v.union(v.literal("pending"), v.literal("ready"), v.literal("failed")),
+    status: v.union(v.literal("pending"), v.literal("ready"), v.literal("failed"),
+    ),
     expiresAt: v.number(),
     requestedAt: v.number(),
     workId: v.optional(v.string()),
@@ -2688,7 +2841,8 @@ export default defineSchema({
     failureCode: v.optional(v.string()),
     version: v.number(),
   })
-    .index("by_session_requester_created", ["sessionId", "requestedByPersonId", "requestedAt"])
+    .index("by_session_requester_created", ["sessionId", "requestedByPersonId", "requestedAt",
+    ])
     .index("by_event_status_created", ["eventId", "status", "requestedAt"]),
 
   emergencyPacks: defineTable({
@@ -2698,7 +2852,8 @@ export default defineSchema({
     serialPrefix: v.string(),
     spareAttendanceSheetCount: v.number(),
     spareReviewSheetCount: v.number(),
-    status: v.union(v.literal("pending"), v.literal("ready"), v.literal("failed")),
+    status: v.union(v.literal("pending"), v.literal("ready"), v.literal("failed"),
+    ),
     expiresAt: v.number(),
     requestedAt: v.number(),
     workId: v.optional(v.string()),
@@ -2730,6 +2885,21 @@ export default defineSchema({
     .index("by_event_created", ["eventId", "requestedAt"])
     .index("by_event_serial_prefix", ["eventId", "serialPrefix"])
     .index("by_event_status_created", ["eventId", "status", "requestedAt"]),
+
+  reviewAggregationPolicies: defineTable({
+    eventId: v.id("events"),
+    version: v.number(),
+    status: v.union(v.literal("published"), v.literal("superseded")),
+    rounds: v.array(
+      v.object({ roundId: v.id("reviewRounds"), weight: v.number() }),
+    ),
+    checksum: v.string(),
+    publishedByPersonId: v.id("people"),
+    publishedAt: v.number(),
+    reason: v.string(),
+  })
+    .index("by_event_version", ["eventId", "version"])
+    .index("by_event_status", ["eventId", "status"]),
 
   reviewRubricVersions: defineTable({
     eventId: v.id("events"),
@@ -2799,9 +2969,11 @@ export default defineSchema({
       v.literal("manual"),
     ),
     requiredPanelSize: v.number(),
+    staffing: reviewStaffingPolicy,
     minimumScorersPerCriterion: v.number(),
     minimumPresentParticipants: v.number(),
     requiresSharedCommitments: v.boolean(),
+    requiresFinalComment: v.boolean(),
     minimumReviewerBuild: v.number(),
     requiresCamera: v.boolean(),
     requiresNotifications: v.boolean(),
@@ -2819,6 +2991,7 @@ export default defineSchema({
     closedByPersonId: v.optional(v.id("people")),
   })
     .index("by_event_status_start", ["eventId", "status", "startsAt"])
+    .index("by_status_start", ["status", "startsAt"])
     .index("by_event_key", ["eventId", "stableKey"]),
 
   reviewRoundPauses: defineTable({
@@ -2838,21 +3011,197 @@ export default defineSchema({
     .index("by_incident_state", ["incidentId", "state"])
     .index("by_event_state_paused", ["eventId", "state", "pausedAt"]),
 
+  reviewerVenuePolicies: defineTable({
+    eventId: v.id("events"),
+    ...venuePolicyFields,
+    version: v.number(),
+    updatedByPersonId: v.id("people"),
+    updatedAt: v.number(),
+  }).index("by_eventId", ["eventId"]),
+
+  reviewerVenuePresence: defineTable({
+    eventId: v.id("events"),
+    personId: v.id("people"),
+    reviewerDeviceId: v.id("reviewerDevices"),
+    policyVersion: v.number(),
+    trackingGeneration: v.number(),
+    trackingStartedAt: v.number(),
+    monitoringEnabled: v.boolean(),
+    status: reviewerVenueStatus,
+    observation: v.union(
+      v.literal("inside"),
+      v.literal("outside"),
+      v.literal("uncertain"),
+    ),
+    sampledAt: v.optional(v.number()),
+    receivedAt: v.optional(v.number()),
+    outsideSince: v.optional(v.number()),
+    departureId: v.optional(v.id("reviewerVenueDepartures")),
+    nextCheckAt: v.optional(v.number()),
+    version: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_eventId_personId", ["eventId", "personId"])
+    .index("by_nextCheckAt", ["nextCheckAt"]),
+
+  reviewerVenueDepartures: defineTable({
+    eventId: v.id("events"),
+    personId: v.id("people"),
+    presenceId: v.id("reviewerVenuePresence"),
+    policyVersion: v.number(),
+    state: v.union(
+      v.literal("open"),
+      v.literal("reported"),
+      v.literal("returned"),
+      v.literal("cancelled"),
+    ),
+    leftAt: v.number(),
+    reportedAt: v.optional(v.number()),
+    reason: v.optional(v.string()),
+    resolvedAt: v.optional(v.number()),
+    notificationState: v.union(
+      v.literal("pending"),
+      v.literal("sending"),
+      v.literal("sent"),
+      v.literal("failed"),
+      v.literal("unavailable"),
+    ),
+    notificationAttempts: v.number(),
+    notificationAttemptId: v.optional(v.string()),
+    notificationClaimUntil: v.optional(v.number()),
+    notificationError: v.optional(v.string()),
+    reminderStartedAt: v.optional(v.number()),
+    notifiedAt: v.optional(v.number()),
+    callDeliveryId: v.optional(v.id("outboundCallDeliveries")),
+    updatedAt: v.number(),
+  }).index("by_eventId_personId_leftAt", ["eventId", "personId", "leftAt"]),
+
   reviewerProfiles: defineTable({
     eventId: v.id("events"),
     personId: v.id("people"),
     contactPhone: v.optional(v.string()),
+    seniority: v.union(v.literal("board"), v.literal("sc"), v.literal("jc")),
+    strength: v.number(),
     technicalDomains: v.array(v.string()),
     productDomains: v.array(v.string()),
     languages: v.array(v.string()),
     criterionKeys: v.array(v.string()),
-    availabilityWindows: v.array(v.object({ startsAt: v.number(), endsAt: v.number() })),
-    trainingStatus: v.union(v.literal("pending"), v.literal("complete"), v.literal("blocked")),
+    trainingStatus: v.union(v.literal("pending"), v.literal("complete"), v.literal("blocked"),
+    ),
     status: v.union(v.literal("active"), v.literal("inactive")),
     version: v.number(),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_event_person", ["eventId", "personId"]),
+
+  reviewerPoolEntries: defineTable({
+    eventId: v.id("events"),
+    emailNormalized: v.string(),
+    displayName: v.string(),
+    seniority: v.union(v.literal("board"), v.literal("sc"), v.literal("jc")),
+    domain: v.string(),
+    skills: v.string(),
+    resumeUrl: v.string(),
+    githubReference: v.string(),
+    importedAt: v.number(),
+  }).index("by_eventId_and_emailNormalized", ["eventId", "emailNormalized"]),
+
+  reviewConfirmationRequests: defineTable({
+    eventId: v.id("events"),
+    roundId: v.id("reviewRounds"),
+    opensAt: v.number(),
+    state: v.union(
+      v.literal("scheduled"),
+      v.literal("open"),
+      v.literal("closed"),
+    ),
+    version: v.number(),
+    createdAt: v.number(),
+  }).index("by_roundId", ["roundId"]),
+
+  reviewerRoundConfirmations: defineTable({
+    eventId: v.id("events"),
+    roundId: v.id("reviewRounds"),
+    personId: v.id("people"),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("confirmed"),
+      v.literal("unavailable"),
+    ),
+    windows: v.array(v.object({ startsAt: v.number(), endsAt: v.number() })),
+    version: v.number(),
+    respondedAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index("by_roundId_and_personId", ["roundId", "personId"])
+    .index("by_eventId_and_personId", ["eventId", "personId"]),
+
+  reviewConfirmationNotifications: defineTable({
+    confirmationId: v.id("reviewerRoundConfirmations"),
+    purpose: v.union(v.literal("availability"), v.literal("shift_reminder")),
+    confirmationVersion: v.number(),
+    shiftStartsAt: v.optional(v.number()),
+    state: v.union(
+      v.literal("pending"),
+      v.literal("sending"),
+      v.literal("sent"),
+      v.literal("failed"),
+      v.literal("unavailable"),
+      v.literal("cancelled"),
+    ),
+    attempts: v.number(),
+    attemptId: v.optional(v.string()),
+    claimExpiresAt: v.optional(v.number()),
+    deviceId: v.optional(v.id("reviewerDevices")),
+    tokenFingerprint: v.optional(v.string()),
+    errorCode: v.optional(v.string()),
+    updatedAt: v.number(),
+  })
+    .index("by_confirmationId", ["confirmationId"])
+    .index("by_confirmation_purpose_shift", [
+      "confirmationId",
+      "purpose",
+      "shiftStartsAt",
+    ]),
+
+  reviewQueuePolicies: defineTable({
+    routingPreference: v.union(
+      v.literal("skills_then_wait"),
+      v.literal("shortest_wait"),
+    ),
+    eventId: v.id("events"),
+    roundId: v.id("reviewRounds"),
+    automaticCallUp: v.boolean(),
+    teamHeadsUpSeconds: v.number(),
+    voiceCalls: v.boolean(),
+    scoringBufferSeconds: v.number(),
+    operatorPersonId: v.id("people"),
+    version: v.number(),
+    updatedAt: v.number(),
+  }).index("by_round", ["roundId"]),
+  reviewQueuePanelChecks: defineTable({
+    roundId: v.id("reviewRounds"),
+    panelId: v.id("reviewPanels"),
+    status: v.string(),
+    checkedAt: v.number(),
+  }).index("by_round_panel", ["roundId", "panelId"]),
+  reviewTeamNotices: defineTable({
+    eventId: v.id("events"),
+    roundId: v.id("reviewRounds"),
+    teamId: v.id("teams"),
+    panelId: v.id("reviewPanels"),
+    teamRoundStateId: v.id("teamRoundStates"),
+    queueVersion: v.number(),
+    kind: v.union(v.literal("up_next"), v.literal("called")),
+    message: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_state_version_kind", [
+      "teamRoundStateId",
+      "queueVersion",
+      "kind",
+    ])
+    .index("by_round_team_created", ["roundId", "teamId", "createdAt"]),
 
   reviewerDevices: defineTable({
     eventId: v.id("events"),
@@ -2866,7 +3215,8 @@ export default defineSchema({
     pushToken: v.optional(v.string()),
     pushTokenFingerprint: v.optional(v.string()),
     pushProvider: v.optional(v.union(v.literal("fcm"), v.literal("apns"))),
-    pushEnvironment: v.optional(v.union(v.literal("development"), v.literal("production"))),
+    pushEnvironment: v.optional(v.union(v.literal("development"), v.literal("production")),
+    ),
     pushTokenStatus: v.union(
       v.literal("not_registered"),
       v.literal("active"),
@@ -2884,7 +3234,8 @@ export default defineSchema({
     .index("by_event_installation", ["eventId", "installationId"])
     .index("by_event_push_fingerprint", ["eventId", "pushTokenFingerprint"])
     .index("by_event_person_status", ["eventId", "personId", "status"])
-    .index("by_event_person_status_seen", ["eventId", "personId", "status", "lastSeenAt"]),
+    .index("by_event_person_status_seen", ["eventId", "personId", "status", "lastSeenAt",
+    ]),
 
   reviewerClockIns: defineTable({
     eventId: v.id("events"),
@@ -2902,7 +3253,8 @@ export default defineSchema({
     .index("by_round_person", ["roundId", "reviewerPersonId"])
     .index("by_round_status", ["roundId", "status"])
     .index("by_person_status", ["reviewerPersonId", "status"])
-    .index("by_event_status_heartbeat", ["eventId", "status", "lastHeartbeatAt"]),
+    .index("by_event_status_heartbeat", ["eventId", "status", "lastHeartbeatAt",
+    ]),
 
   reviewPanels: defineTable({
     eventId: v.id("events"),
@@ -2927,8 +3279,10 @@ export default defineSchema({
     personId: v.id("people"),
     eventAccessSubjectId: v.id("eventAccessSubjects"),
     assignedCriterionIds: v.array(v.id("reviewRubricCriteria")),
+    seatSeniority: v.union(v.literal("lead"), v.literal("sc"), v.literal("jc")),
     isCoordinator: v.boolean(),
-    status: v.union(v.literal("active"), v.literal("replaced"), v.literal("removed")),
+    status: v.union(v.literal("active"), v.literal("replaced"), v.literal("removed"),
+    ),
     assignedAt: v.number(),
     endedAt: v.optional(v.number()),
   })
@@ -2959,7 +3313,8 @@ export default defineSchema({
     eventId: v.id("events"),
     reviewerPersonId: v.id("people"),
     teamId: v.id("teams"),
-    kind: v.union(v.literal("declared"), v.literal("reported"), v.literal("policy")),
+    kind: v.union(v.literal("declared"), v.literal("reported"), v.literal("policy"),
+    ),
     reason: v.string(),
     status: v.union(v.literal("active"), v.literal("resolved")),
     createdByPersonId: v.id("people"),
@@ -2993,51 +3348,110 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_round_team", ["roundId", "teamId"])
-    .index("by_round_state_priority_queued", ["roundId", "state", "priority", "queuedAt"])
-    .index("by_panel_state_priority_queued", ["panelId", "state", "priority", "queuedAt"]),
+    .index("by_round_state_priority_queued", ["roundId", "state", "priority", "queuedAt",
+    ])
+    .index("by_panel_state_priority_queued", ["panelId", "state", "priority", "queuedAt",
+    ]),
 
-  reviewEvidenceCheckpointSets: defineTable({
+  reviewQuestionPolicies: defineTable({
     eventId: v.id("events"),
     roundId: v.id("reviewRounds"),
-    roundSequence: v.number(),
+    policy: reviewQuestionPolicy,
+    operatorPersonId: v.id("people"),
+    version: v.number(),
+    updatedAt: v.number(),
+  }).index("by_round", ["roundId"]),
+  reviewQuestionSets: defineTable({
+    eventId: v.id("events"),
+    roundId: v.id("reviewRounds"),
     teamId: v.id("teams"),
-    projectVersionId: v.id("projectVersions"),
-    teamCheckpointSubmissionId: v.optional(v.id("teamCheckpointSubmissions")),
-    previousCheckpointSetId: v.optional(v.id("reviewEvidenceCheckpointSets")),
-    githubEntries: v.array(
-      v.object({
-        bindingId: v.id("githubRepositoryBindings"),
-        snapshotId: v.optional(v.id("githubRepositorySnapshots")),
-        repositoryName: v.string(),
-        repositoryUrl: v.string(),
-        kind: repositoryKind,
-        purpose: v.string(),
-        trackedBranch: v.string(),
-        rootPath: v.optional(v.string()),
-        requiredTopic: v.string(),
-        stateAtCapture: v.string(),
-      }),
+    policyVersion: v.number(),
+    policy: reviewQuestionPolicy,
+    operatorPersonId: v.id("people"),
+    sourceChecksum: v.string(),
+    snapshot: v.object(reviewEvidenceCheckpointFields),
+    state: v.union(
+      v.literal("queued"),
+      v.literal("collecting"),
+      v.literal("generating"),
+      v.literal("ready"),
+      v.literal("failed"),
+      v.literal("stale"),
     ),
-    figmaEntries: v.array(
-      v.object({
-        bindingId: v.id("figmaFileBindings"),
-        snapshotId: v.optional(v.id("figmaFileSnapshots")),
-        fileName: v.string(),
-        fileUrl: v.string(),
-        role: v.string(),
-        editorType: v.string(),
-        stateAtCapture: v.string(),
-      }),
-    ),
-    expectedResourceCount: v.number(),
-    capturedResourceCount: v.number(),
-    completeness: v.union(v.literal("complete"), v.literal("partial"), v.literal("missing")),
-    checksum: v.string(),
-    createdByPersonId: v.id("people"),
+    attempt: v.number(),
+    leaseExpiresAt: v.optional(v.number()),
+    payloadChecksum: v.optional(v.string()),
+    requestJson: v.optional(v.string()),
+    collectionComplete: v.optional(v.boolean()),
+    lastSourceCheckAt: v.optional(v.number()),
+    analysisLevel: v.optional(v.number()),
+    analysisSummary: v.optional(v.string()),
+    coverage: v.optional(reviewEvidenceCoverage),
+    sources: v.optional(v.array(reviewQuestionSource.omit("text"))),
+    questions: v.optional(v.array(reviewSuggestedQuestion)),
+    failureCode: v.optional(v.string()),
     createdAt: v.number(),
+    updatedAt: v.number(),
+    completedAt: v.optional(v.number()),
   })
+    .index("by_round_team_created", ["roundId", "teamId", "createdAt"])
+    .index("by_event_updated", ["eventId", "updatedAt"])
+    .index("by_event_created", ["eventId", "createdAt"])
+    .index("by_round_team_source_policy", [
+      "roundId",
+      "teamId",
+      "sourceChecksum",
+      "policyVersion",
+    ]),
+
+  reviewQuestionCollections: defineTable({
+    jobId: v.id("reviewQuestionSets"),
+    attempt: v.number(),
+    sourceId: v.string(),
+    kind: v.union(v.literal("github"), v.literal("figma")),
+    state: v.union(
+      v.literal("queued"),
+      v.literal("running"),
+      v.literal("complete"),
+    ),
+    manifestId: v.optional(v.id("_storage")),
+    offset: v.number(),
+    leaseExpiresAt: v.optional(v.number()),
+    failures: v.number(),
+  }).index("by_job_attempt_state", ["jobId", "attempt", "state"]),
+  reviewQuestionParts: defineTable({
+    jobId: v.id("reviewQuestionSets"),
+    teamId: v.id("teams"),
+    attempt: v.number(),
+    key: v.string(),
+    level: v.number(),
+    state: v.union(
+      v.literal("queued"),
+      v.literal("generating"),
+      v.literal("ready"),
+      v.literal("consumed"),
+    ),
+    sources: v.array(reviewQuestionSource),
+    references: v.array(reviewQuestionSource.omit("text")),
+    analysis: v.optional(reviewEvidenceAnalysis),
+    cacheKey: v.string(),
+    cached: v.boolean(),
+    payloadChecksum: v.optional(v.string()),
+    partAttempt: v.number(),
+    leaseExpiresAt: v.optional(v.number()),
+  })
+    .index("by_team_cache_state", ["teamId", "cacheKey", "state"])
+    .index("by_job_attempt_key", ["jobId", "attempt", "key"])
+    .index("by_job_attempt_level_state", [
+      "jobId",
+      "attempt",
+      "level",
+      "state",
+    ]),
+  reviewEvidenceCheckpointSets: defineTable(reviewEvidenceCheckpointFields)
     .index("by_round_team_time", ["roundId", "teamId", "createdAt"])
-    .index("by_team_round_sequence_created", ["teamId", "roundSequence", "createdAt"])
+    .index("by_team_round_sequence_created", ["teamId", "roundSequence", "createdAt",
+    ])
     .index("by_event_created", ["eventId", "createdAt"]),
 
   reviewSessions: defineTable({
@@ -3046,6 +3460,7 @@ export default defineSchema({
     panelId: v.id("reviewPanels"),
     teamId: v.id("teams"),
     projectVersionId: v.id("projectVersions"),
+    questionSetId: v.optional(v.id("reviewQuestionSets")),
     evidenceCheckpointSetId: v.id("reviewEvidenceCheckpointSets"),
     rubricVersionId: v.id("reviewRubricVersions"),
     panelVersion: v.number(),
@@ -3066,6 +3481,7 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   })
+    .index("by_question_set", ["questionSetId"])
     .index("by_round_team_status", ["roundId", "teamId", "status"])
     .index("by_panel_status", ["panelId", "status"])
     .index("by_round_status_updated", ["roundId", "status", "updatedAt"])
@@ -3097,7 +3513,8 @@ export default defineSchema({
     eventAccessSubjectId: v.id("eventAccessSubjects"),
     assignedCriterionIds: v.array(v.id("reviewRubricCriteria")),
     isCoordinator: v.boolean(),
-    status: v.union(v.literal("assigned"), v.literal("conflict"), v.literal("removed")),
+    status: v.union(v.literal("assigned"), v.literal("conflict"), v.literal("removed"),
+    ),
     assignedAt: v.number(),
     endedAt: v.optional(v.number()),
   })
@@ -3111,7 +3528,8 @@ export default defineSchema({
     reviewSessionId: v.id("reviewSessions"),
     reviewerPersonId: v.id("people"),
     reviewerDeviceId: v.optional(v.id("reviewerDevices")),
-    method: v.union(v.literal("qr"), v.literal("fallback_code"), v.literal("board_override")),
+    method: v.union(v.literal("qr"), v.literal("fallback_code"), v.literal("board_override"),
+    ),
     tokenVersion: v.number(),
     confirmedAt: v.number(),
     overrideByPersonId: v.optional(v.id("people")),
@@ -3125,7 +3543,8 @@ export default defineSchema({
     tokenDigest: v.string(),
     manualCodeDigest: v.string(),
     tokenVersion: v.number(),
-    state: v.union(v.literal("active"), v.literal("superseded"), v.literal("expired")),
+    state: v.union(v.literal("active"), v.literal("superseded"), v.literal("expired"),
+    ),
     expiresAt: v.number(),
     issuedByMembershipId: v.id("eventMemberships"),
     issuedAt: v.number(),
@@ -3183,10 +3602,12 @@ export default defineSchema({
   })
     .index("by_chain_state_rank", ["pageChainId", "state", "rank"])
     .index("by_person_state_expiry", ["targetPersonId", "state", "expiresAt"])
-    .index("by_event_person_state_expiry", ["eventId", "targetPersonId", "state", "expiresAt"])
+    .index("by_event_person_state_expiry", ["eventId", "targetPersonId", "state", "expiresAt",
+    ])
     .index("by_reserve_state", ["reserveId", "state"])
     .index("by_event_created", ["eventId", "createdAt"])
-    .index("by_event_person_created", ["eventId", "targetPersonId", "createdAt"])
+    .index("by_event_person_created", ["eventId", "targetPersonId", "createdAt",
+    ])
     .index("by_event_state_expiry", ["eventId", "state", "expiresAt"]),
 
   reviewerPushDeliveries: defineTable({
@@ -3216,7 +3637,9 @@ export default defineSchema({
   outboundCallConsents: defineTable({
     eventId: v.id("events"),
     personId: v.id("people"),
-    purpose: v.union(v.literal("reviewer_substitute_page"), v.literal("participant_event_update")),
+    purpose: v.union(v.literal("reviewer_substitute_page"), v.literal("participant_event_update"),
+      v.literal("reviewer_venue_absence"),
+    ),
     destinationPhoneE164: v.optional(v.string()),
     state: v.union(v.literal("granted"), v.literal("revoked")),
     consentPolicyVersion: v.string(),
@@ -3231,10 +3654,20 @@ export default defineSchema({
   outboundCallDeliveries: defineTable({
     eventId: v.id("events"),
     targetPersonId: v.id("people"),
-    sourceType: v.union(v.literal("reviewer_page"), v.literal("participant_notification")),
+    sourceType: v.union(v.literal("reviewer_page"), v.literal("participant_notification"),
+      v.literal("review_team_notice"),
+      v.literal("reviewer_venue_departure"),
+    ),
     sourceId: v.string(),
-    purpose: v.union(v.literal("reviewer_substitute_page"), v.literal("participant_event_update")),
+    purpose: v.union(v.literal("reviewer_substitute_page"), v.literal("participant_event_update"),
+      v.literal("reviewer_venue_absence"),
+    ),
     destinationPhoneE164: v.optional(v.string()),
+    venueConfirmation: v.optional(venueConfirmationCall),
+    venueResponse: v.optional(venueCallResponseValue.omit("transcript")),
+    responseEventId: v.optional(v.id("outboundCallProviderEvents")),
+    venueResponseEffect: v.optional(venueResponseEffect),
+    responseRecordedAt: v.optional(v.number()),
     script: v.string(),
     locale: v.string(),
     scriptPolicyVersion: v.string(),
@@ -3274,6 +3707,7 @@ export default defineSchema({
     ),
     providerCallId: v.optional(v.string()),
     providerErrorCode: v.optional(v.string()),
+    venueResponse: v.optional(venueCallResponseValue),
     providerAt: v.number(),
     receivedAt: v.number(),
   })
@@ -3296,6 +3730,7 @@ export default defineSchema({
       }),
     ),
     privateNote: v.optional(v.string()),
+    finalComment: v.optional(v.string()),
     draftVersion: v.number(),
     submittedVersionId: v.optional(v.id("scorecardVersions")),
     activeCorrectionCaseId: v.optional(v.id("scorecardCorrectionCases")),
@@ -3309,9 +3744,11 @@ export default defineSchema({
     .index("by_round_session", ["roundId", "reviewSessionId"])
     .index("by_round_status_updated", ["roundId", "status", "updatedAt"])
     .index("by_reviewer_status", ["reviewerPersonId", "status"])
-    .index("by_event_reviewer_status", ["eventId", "reviewerPersonId", "status"])
+    .index("by_event_reviewer_status", ["eventId", "reviewerPersonId", "status",
+    ])
     .index("by_event_created", ["eventId", "createdAt"])
-    .index("by_event_reviewer_created", ["eventId", "reviewerPersonId", "createdAt"]),
+    .index("by_event_reviewer_created", ["eventId", "reviewerPersonId", "createdAt",
+    ]),
 
   scorecardVersions: defineTable({
     eventId: v.id("events"),
@@ -3329,6 +3766,7 @@ export default defineSchema({
       }),
     ),
     privateNote: v.optional(v.string()),
+    finalComment: v.optional(v.string()),
     checksum: v.string(),
     clientOperationId: v.string(),
     manualReviewRecordId: v.optional(v.id("manualReviewRecords")),
@@ -3373,6 +3811,7 @@ export default defineSchema({
           }),
         ),
         privateNote: v.optional(v.string()),
+        finalComment: v.optional(v.string()),
       }),
     ),
     sharedFindings: v.optional(v.string()),
@@ -3408,7 +3847,8 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_event_serial_revision", ["eventId", "serial", "revision"])
-    .index("by_review_status_created", ["reviewSessionId", "status", "enteredAt"])
+    .index("by_review_status_created", ["reviewSessionId", "status", "enteredAt",
+    ])
     .index("by_review_created", ["reviewSessionId", "enteredAt"])
     .index("by_round_status_created", ["roundId", "status", "enteredAt"])
     .index("by_incident_status_created", ["incidentId", "status", "enteredAt"])
@@ -3456,7 +3896,8 @@ export default defineSchema({
     state: scorecardCorrectionState,
     originalVersionId: v.id("scorecardVersions"),
     replacementVersionId: v.optional(v.id("scorecardVersions")),
-    voidDisposition: v.optional(v.union(v.literal("exclude"), v.literal("replacement_review"))),
+    voidDisposition: v.optional(v.union(v.literal("exclude"), v.literal("replacement_review")),
+    ),
     requestedByPersonId: v.id("people"),
     requestedAt: v.number(),
     decidedByPersonId: v.optional(v.id("people")),
@@ -3466,7 +3907,8 @@ export default defineSchema({
     version: v.number(),
   })
     .index("by_scorecard_state", ["scorecardId", "state"])
-    .index("by_scorecard_kind_requested", ["scorecardId", "kind", "requestedAt"])
+    .index("by_scorecard_kind_requested", ["scorecardId", "kind", "requestedAt",
+    ])
     .index("by_round_state", ["roundId", "state"])
     .index("by_session_kind", ["reviewSessionId", "kind"]),
 
@@ -3735,7 +4177,8 @@ export default defineSchema({
     installationId: v.string(),
     accountId: v.string(),
     accountLogin: v.string(),
-    targetType: v.union(v.literal("User"), v.literal("Organization"), v.literal("Enterprise")),
+    targetType: v.union(v.literal("User"), v.literal("Organization"), v.literal("Enterprise"),
+    ),
     repositorySelection: v.union(v.literal("all"), v.literal("selected")),
     state: githubInstallationState,
     connectedByPersonId: v.id("people"),
@@ -3791,10 +4234,14 @@ export default defineSchema({
     .index("by_connection_state", ["installationConnectionId", "state"])
     .index("by_event_state_updated", ["eventId", "state", "updatedAt"])
     .index("by_event_sync_state_updated", ["eventId", "syncState", "updatedAt"])
-    .index("by_event_topic_state_updated", ["eventId", "topicState", "updatedAt"])
-    .index("by_event_state_sync_updated", ["eventId", "state", "syncState", "updatedAt"])
-    .index("by_event_state_sync_lease", ["eventId", "state", "syncState", "syncLeaseExpiresAt"])
-    .index("by_event_state_topic_updated", ["eventId", "state", "topicState", "updatedAt"]),
+    .index("by_event_topic_state_updated", ["eventId", "topicState", "updatedAt",
+    ])
+    .index("by_event_state_sync_updated", ["eventId", "state", "syncState", "updatedAt",
+    ])
+    .index("by_event_state_sync_lease", ["eventId", "state", "syncState", "syncLeaseExpiresAt",
+    ])
+    .index("by_event_state_topic_updated", ["eventId", "state", "topicState", "updatedAt",
+    ]),
 
   githubRepositoryMetrics: defineTable({
     eventId: v.id("events"),
@@ -3809,7 +4256,8 @@ export default defineSchema({
     changedFiles: v.number(),
     observedCommitShas: v.array(v.string()),
     commitIdentityComplete: v.boolean(),
-    languageBytes: v.array(v.object({ language: v.string(), bytes: v.number() })),
+    languageBytes: v.array(v.object({ language: v.string(), bytes: v.number() }),
+    ),
     completeness: githubRepositoryCoverage,
     compareTruncated: v.boolean(),
     lastProviderCommitAt: v.optional(v.number()),
@@ -3836,7 +4284,8 @@ export default defineSchema({
     changedFiles: v.number(),
     observedCommitShas: v.array(v.string()),
     commitIdentityComplete: v.boolean(),
-    languageBytes: v.array(v.object({ language: v.string(), bytes: v.number() })),
+    languageBytes: v.array(v.object({ language: v.string(), bytes: v.number() }),
+    ),
     completeness: githubRepositoryCoverage,
     compareTruncated: v.boolean(),
     providerCommitAt: v.optional(v.number()),
@@ -3863,7 +4312,8 @@ export default defineSchema({
     additions: v.number(),
     deletions: v.number(),
     changedFiles: v.number(),
-    languageBytes: v.array(v.object({ language: v.string(), bytes: v.number() })),
+    languageBytes: v.array(v.object({ language: v.string(), bytes: v.number() }),
+    ),
     completeness: githubRepositoryCoverage,
     incompleteRepositoryCount: v.number(),
     lastActivityAt: v.optional(v.number()),
@@ -3879,7 +4329,8 @@ export default defineSchema({
     installationId: v.optional(v.string()),
     repositoryId: v.optional(v.string()),
     payloadHash: v.string(),
-    state: v.union(v.literal("accepted"), v.literal("ignored"), v.literal("rejected")),
+    state: v.union(v.literal("accepted"), v.literal("ignored"), v.literal("rejected"),
+    ),
     reasonCode: v.string(),
     receivedAt: v.number(),
   }).index("by_delivery", ["deliveryId"]),
@@ -3931,6 +4382,7 @@ export default defineSchema({
 
   figmaOAuthCredentials: defineTable({
     figmaUserId: v.string(),
+    figmaUserHandle: v.optional(v.string()),
     accessTokenCiphertext: v.string(),
     refreshTokenCiphertext: v.string(),
     tokenExpiresAt: v.number(),
@@ -4015,15 +4467,23 @@ export default defineSchema({
     .index("by_webhook", ["webhookId"])
     .index("by_event_state_updated", ["eventId", "state", "updatedAt"])
     .index("by_event_sync_state_updated", ["eventId", "syncState", "updatedAt"])
-    .index("by_event_webhook_state_updated", ["eventId", "webhookState", "updatedAt"])
-    .index("by_event_state_sync_updated", ["eventId", "state", "syncState", "updatedAt"])
-    .index("by_event_state_sync_lease", ["eventId", "state", "syncState", "syncLeaseExpiresAt"])
-    .index("by_event_state_webhook_updated", ["eventId", "state", "webhookState", "updatedAt"])
-    .index("by_state_webhook_retry", ["state", "webhookState", "webhookSetupRetryAt"])
+    .index("by_event_webhook_state_updated", ["eventId", "webhookState", "updatedAt",
+    ])
+    .index("by_event_state_sync_updated", ["eventId", "state", "syncState", "updatedAt",
+    ])
+    .index("by_event_state_sync_lease", ["eventId", "state", "syncState", "syncLeaseExpiresAt",
+    ])
+    .index("by_event_state_webhook_updated", ["eventId", "state", "webhookState", "updatedAt",
+    ])
+    .index("by_state_webhook_retry", ["state", "webhookState", "webhookSetupRetryAt",
+    ])
     .index("by_state_metadata_due", ["state", "nextMetadataCheckAt"])
-    .index("by_event_state_metadata_check", ["eventId", "state", "lastMetadataCheckAt"])
-    .index("by_event_state_rate_limit", ["eventId", "state", "rateLimitRetryAt"])
-    .index("by_event_state_metadata_rate_limit", ["eventId", "state", "metadataRateLimitRetryAt"]),
+    .index("by_event_state_metadata_check", ["eventId", "state", "lastMetadataCheckAt",
+    ])
+    .index("by_event_state_rate_limit", ["eventId", "state", "rateLimitRetryAt",
+    ])
+    .index("by_event_state_metadata_rate_limit", ["eventId", "state", "metadataRateLimitRetryAt",
+    ]),
 
   figmaFileMetrics: defineTable({
     eventId: v.id("events"),
@@ -4194,7 +4654,8 @@ export default defineSchema({
     .index("by_snapshot", ["snapshotId"])
     .index("by_binding_time", ["figmaFileBindingId", "createdAt"])
     .index("by_event_state_updated", ["eventId", "state", "updatedAt"])
-    .index("by_event_state_lease", ["eventId", "state", "renderLeaseExpiresAt"]),
+    .index("by_event_state_lease", ["eventId", "state", "renderLeaseExpiresAt",
+    ]),
 
   figmaNodeFacts: defineTable({
     eventId: v.id("events"),
@@ -4257,7 +4718,8 @@ export default defineSchema({
     uncompressedBytes: v.number(),
     storedBytes: v.number(),
     sha256: v.string(),
-    state: v.union(v.literal("available"), v.literal("quarantined"), v.literal("deleted")),
+    state: v.union(v.literal("available"), v.literal("quarantined"), v.literal("deleted"),
+    ),
     createdAt: v.number(),
   })
     .index("by_figma_binding_time", ["figmaFileBindingId", "createdAt"])
@@ -4311,7 +4773,8 @@ export default defineSchema({
     checksum: v.string(),
   })
     .index("by_event_fact_key", ["eventId", "factKey"])
-    .index("by_event_correlation_observed_at", ["eventId", "correlationKey", "observedAt"]),
+    .index("by_event_correlation_observed_at", ["eventId", "correlationKey", "observedAt",
+    ]),
 
   /** A durable situation assembled from related facts; identities are never people. */
   operationsIntelligenceEpisodes: defineTable({
@@ -4344,8 +4807,10 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_event_updated_at", ["eventId", "updatedAt"])
-    .index("by_event_lifecycle_relevance", ["eventId", "lifecycle", "relevanceScore"])
-    .index("by_event_correlation_lifecycle", ["eventId", "correlationKey", "lifecycle"])
+    .index("by_event_lifecycle_relevance", ["eventId", "lifecycle", "relevanceScore",
+    ])
+    .index("by_event_correlation_lifecycle", ["eventId", "correlationKey", "lifecycle",
+    ])
     .index("by_analysis_kind_updated_at", ["analysisState.kind", "updatedAt"]),
 
   operationsIntelligenceEpisodeFacts: defineTable({
@@ -4368,7 +4833,8 @@ export default defineSchema({
     confidence: v.number(),
     evidenceFactKeys: v.array(v.string()),
     createdAt: v.number(),
-  }).index("by_episode_revision_ordinal", ["episodeId", "analysisRevision", "ordinal"]),
+  }).index("by_episode_revision_ordinal", ["episodeId", "analysisRevision", "ordinal",
+  ]),
 
   operationsIntelligenceCounterfactuals: defineTable({
     eventId: v.id("events"),
@@ -4381,7 +4847,8 @@ export default defineSchema({
     rationale: v.string(),
     evidenceFactKeys: v.array(v.string()),
     createdAt: v.number(),
-  }).index("by_episode_revision_ordinal", ["episodeId", "analysisRevision", "ordinal"]),
+  }).index("by_episode_revision_ordinal", ["episodeId", "analysisRevision", "ordinal",
+  ]),
 
   operationsIntelligencePredictions: defineTable({
     eventId: v.id("events"),
@@ -4396,9 +4863,11 @@ export default defineSchema({
     outcome: operationsEpisodePredictionOutcome,
     createdAt: v.number(),
   })
-    .index("by_episode_revision_ordinal", ["episodeId", "analysisRevision", "ordinal"])
+    .index("by_episode_revision_ordinal", ["episodeId", "analysisRevision", "ordinal",
+    ])
     .index("by_outcome_kind_horizon_at", ["outcome.kind", "horizonAt"])
-    .index("by_event_outcome_kind_horizon_at", ["eventId", "outcome.kind", "horizonAt"]),
+    .index("by_event_outcome_kind_horizon_at", ["eventId", "outcome.kind", "horizonAt",
+    ]),
 
   operationsIntelligenceOutcomes: defineTable({
     eventId: v.id("events"),
@@ -4525,7 +4994,8 @@ export default defineSchema({
     version: v.number(),
     updatedAt: v.number(),
   })
-    .index("by_lifecycle_next_evaluation", ["lifecycle.kind", "nextEvaluationAt"])
+    .index("by_lifecycle_next_evaluation", ["lifecycle.kind", "nextEvaluationAt",
+    ])
     .index("by_event", ["eventId"])
     .index("by_policy", ["policyVersionId"]),
 
@@ -4556,14 +5026,16 @@ export default defineSchema({
     nextAttemptAt: v.number(),
     lifecycle: v.union(
       v.object({ kind: v.literal("pending") }),
-      v.object({ kind: v.literal("claimed"), runId: v.id("operationsAutonomyRuns") }),
+      v.object({ kind: v.literal("claimed"), runId: v.id("operationsAutonomyRuns"),
+      }),
       v.object({ kind: v.literal("canceled"), canceledAt: v.number() }),
     ),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_event_operation_key", ["eventId", "operationKey"])
-    .index("by_event_policy_lifecycle", ["eventId", "policyVersionId", "lifecycle.kind"])
+    .index("by_event_policy_lifecycle", ["eventId", "policyVersionId", "lifecycle.kind",
+    ])
     .index("by_lifecycle_next_attempt_at", ["lifecycle.kind", "nextAttemptAt"])
     .index("by_policy_lifecycle", ["policyVersionId", "lifecycle.kind"]),
 
@@ -4606,7 +5078,8 @@ export default defineSchema({
     ),
     executor: v.union(
       v.object({ kind: v.literal("unknown") }),
-      v.object({ kind: v.literal("known"), agentVersion: v.string(), model: v.string() }),
+      v.object({ kind: v.literal("known"), agentVersion: v.string(), model: v.string(),
+      }),
     ),
     lifecycle: v.union(
       v.object({ kind: v.literal("pending") }),
@@ -4616,12 +5089,14 @@ export default defineSchema({
         leaseExpiresAt: v.number(),
       }),
       v.object({
-        kind: v.union(v.literal("succeeded"), v.literal("no_op"), v.literal("escalated")),
+        kind: v.union(v.literal("succeeded"), v.literal("no_op"), v.literal("escalated"),
+        ),
         completedAt: v.number(),
       }),
       v.object({
         kind: v.literal("failed"),
-        failureCode: v.union(operationsAutonomyFailureCode, v.literal("dispatch_failed")),
+        failureCode: v.union(operationsAutonomyFailureCode, v.literal("dispatch_failed"),
+        ),
         completedAt: v.number(),
       }),
       v.object({
@@ -4641,9 +5116,11 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_event_operation_key", ["eventId", "operationKey"])
-    .index("by_event_policy_lifecycle", ["eventId", "policyVersionId", "lifecycle.kind"])
+    .index("by_event_policy_lifecycle", ["eventId", "policyVersionId", "lifecycle.kind",
+    ])
     .index("by_lifecycle_created_at", ["lifecycle.kind", "createdAt"])
-    .index("by_lifecycle_lease_expires_at", ["lifecycle.kind", "lifecycle.leaseExpiresAt"])
+    .index("by_lifecycle_lease_expires_at", ["lifecycle.kind", "lifecycle.leaseExpiresAt",
+    ])
     .index("by_event_created_at", ["eventId", "createdAt"])
     .index("by_policy_created_at", ["policyVersionId", "createdAt"]),
 
@@ -4706,14 +5183,16 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_run", ["runId"])
-    .index("by_lifecycle_next_action_at", ["lifecycle.kind", "lifecycle.nextActionAt"]),
+    .index("by_lifecycle_next_action_at", ["lifecycle.kind", "lifecycle.nextActionAt",
+    ]),
 
   /** Monotonic owners for immutable, redacted autonomy read facts. */
   operationsAutonomyReadFactStates: defineTable(
     v.union(
       v.object({
         eventId: v.id("events"),
-        source: v.union(v.literal("operations_attention"), v.literal("review_exceptions")),
+        source: v.union(v.literal("operations_attention"), v.literal("review_exceptions"),
+        ),
         sequence: v.number(),
         updatedAt: v.number(),
       }),
@@ -4728,7 +5207,8 @@ export default defineSchema({
           resolved: v.number(),
           closed: v.number(),
         }),
-        openByCategory: v.array(v.object({ category: supportCaseCategory, count: v.number() })),
+        openByCategory: v.array(v.object({ category: supportCaseCategory, count: v.number() }),
+        ),
         unassignedActiveCount: v.number(),
         oldestOpenAt: v.optional(v.number()),
         updatedAt: v.number(),
@@ -4850,8 +5330,10 @@ export default defineSchema({
     ),
   )
     .index("by_event_source_sequence", ["eventId", "source", "sequence"])
-    .index("by_event_source_sequence_entity", ["eventId", "source", "sequence", "entityKey"])
-    .index("by_event_source_entity_sequence", ["eventId", "source", "entityKey", "sequence"]),
+    .index("by_event_source_sequence_entity", ["eventId", "source", "sequence", "entityKey",
+    ])
+    .index("by_event_source_entity_sequence", ["eventId", "source", "entityKey", "sequence",
+    ]),
 
   /** One immutable traversal freezes either a bounded projection or a fact-ledger high-watermark. */
   operationsAutonomyReadTraversals: defineTable(
@@ -5077,8 +5559,10 @@ export default defineSchema({
     .index("by_run_work_item", ["runId", "workItemId"])
     .index("by_run_prior_submission", ["runId", "priorSubmissionId"])
     .index("by_run_created_at", ["runId", "createdAt"])
-    .index("by_run_lifecycle_created_at", ["runId", "lifecycle.kind", "createdAt"])
-    .index("by_lifecycle_next_attempt", ["lifecycle.kind", "lifecycle.nextAttemptAt"]),
+    .index("by_run_lifecycle_created_at", ["runId", "lifecycle.kind", "createdAt",
+    ])
+    .index("by_lifecycle_next_attempt", ["lifecycle.kind", "lifecycle.nextAttemptAt",
+    ]),
 
   /** Only an authenticated operator can settle or execute an agent proposal. */
   intelligenceRecommendations: defineTable({
@@ -5149,7 +5633,8 @@ export default defineSchema({
     observedAt: v.number(),
   })
     .index("by_recommendation_observed_at", ["recommendationId", "observedAt"])
-    .index("by_recommendation_run_set", ["recommendationId", "runId", "evidenceSetId"]),
+    .index("by_recommendation_run_set", ["recommendationId", "runId", "evidenceSetId",
+    ]),
 
   /** Durable attention item; recurrence after resolution creates a new identity. */
   operationsAttentionItems: defineTable({
@@ -5188,7 +5673,8 @@ export default defineSchema({
     resolvedAt: v.optional(v.number()),
     version: v.number(),
   })
-    .index("by_event_state_severity_first", ["eventId", "state", "severity", "firstObservedAt"])
+    .index("by_event_state_severity_first", ["eventId", "state", "severity", "firstObservedAt",
+    ])
     .index("by_event_state_severity_round_first", [
       "eventId",
       "state",
@@ -5268,7 +5754,8 @@ export default defineSchema({
     eventId: v.id("events"),
     benefitId: v.id("benefits"),
     scope: v.union(v.literal("team"), v.literal("person")),
-    status: v.union(v.literal("queued"), v.literal("running"), v.literal("complete")),
+    status: v.union(v.literal("queued"), v.literal("running"), v.literal("complete"),
+    ),
     teamStatusIndex: v.number(),
     cursor: v.optional(v.string()),
     scannedCount: v.number(),

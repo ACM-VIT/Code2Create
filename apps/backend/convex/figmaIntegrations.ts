@@ -207,6 +207,7 @@ const currentView = v.union(
     connections: v.array(
       v.object({
         id: v.id("figmaCredentialConnections"),
+        figmaUserHandle: v.optional(v.string()),
         state: figmaCredentialConnectionState,
         credentialState: figmaCredentialState,
         lastVerifiedAt: v.number(),
@@ -422,6 +423,9 @@ export const current = query({
         }
         return {
           id: connection._id,
+          ...(credential.figmaUserHandle !== undefined
+            ? { figmaUserHandle: credential.figmaUserHandle }
+            : {}),
           state: connection.state,
           credentialState: credential.status,
           lastVerifiedAt: connection.lastVerifiedAt,
@@ -663,6 +667,7 @@ export const finishSetupIntent = internalMutation({
     intentId: v.id("figmaSetupIntents"),
     attemptId: v.string(),
     figmaUserId: v.string(),
+    figmaUserHandle: v.string(),
     accessTokenCiphertext: v.string(),
     refreshTokenCiphertext: v.string(),
     tokenExpiresAt: v.number(),
@@ -706,6 +711,7 @@ export const finishSetupIntent = internalMutation({
       credentialId = existingCredential._id;
       if (args.tokenReceivedAt >= existingCredential.tokenReceivedAt) {
         await ctx.db.patch(existingCredential._id, {
+          figmaUserHandle: args.figmaUserHandle,
           accessTokenCiphertext: args.accessTokenCiphertext,
           refreshTokenCiphertext: args.refreshTokenCiphertext,
           tokenExpiresAt: args.tokenExpiresAt,
@@ -722,6 +728,7 @@ export const finishSetupIntent = internalMutation({
     } else {
       credentialId = await ctx.db.insert("figmaOAuthCredentials", {
         figmaUserId: args.figmaUserId,
+        figmaUserHandle: args.figmaUserHandle,
         accessTokenCiphertext: args.accessTokenCiphertext,
         refreshTokenCiphertext: args.refreshTokenCiphertext,
         tokenExpiresAt: args.tokenExpiresAt,

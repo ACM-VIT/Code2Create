@@ -32,6 +32,7 @@ export CONVEX_DEPLOYMENT=""
 cat >"${C2C_ENV_FILE}" <<EOF
 C2C_DEPLOYMENT_ENVIRONMENT=production
 AUTH_SITE_URL=https://api.c2c.sh
+CONVEX_SITE_URL=https://api.c2c.sh
 PARTICIPANT_SITE_URL=https://c2c.sh
 OPERATIONS_SITE_URL=https://ops.c2c.sh
 BETTER_AUTH_SECRET=$(read_secret better-auth-secret)
@@ -40,6 +41,16 @@ GOOGLE_CLIENT_SECRET=$(read_secret google-client-secret)
 CLOUDFLARE_EMAIL_ACCOUNT_ID=$(read_secret cloudflare-email-account-id)
 CLOUDFLARE_EMAIL_API_TOKEN=$(read_secret cloudflare-email-api-token)
 CLOUDFLARE_EMAIL_FROM=$(read_secret cloudflare-email-from)
+WALLET_DOWNLOAD_SIGNING_SECRET=$(read_secret wallet-download-signing-secret)
+GOOGLE_WALLET_ISSUER_ID=$(read_secret google-wallet-issuer-id)
+GOOGLE_WALLET_SERVICE_ACCOUNT_EMAIL=$(read_secret google-wallet-service-account-email)
+GOOGLE_WALLET_PRIVATE_KEY=$(read_secret google-wallet-private-key)
+APPLE_WALLET_PASS_TYPE_IDENTIFIER=$(read_secret apple-wallet-pass-type-identifier)
+APPLE_WALLET_TEAM_IDENTIFIER=$(read_secret apple-wallet-team-identifier)
+APPLE_WALLET_WWDR_CERTIFICATE_BASE64=$(read_secret apple-wallet-wwdr-certificate-base64)
+APPLE_WALLET_SIGNER_CERTIFICATE_BASE64=$(read_secret apple-wallet-signer-certificate-base64)
+APPLE_WALLET_SIGNER_KEY_BASE64=$(read_secret apple-wallet-signer-key-base64)
+APPLE_WALLET_SIGNER_KEY_PASSPHRASE=$(read_secret apple-wallet-signer-key-passphrase)
 INITIAL_SUPREME_EMAILS=technicaldirector.acmvit@gmail.com
 INITIAL_EVENT_SLUG=code2create-7
 OPENAI_API_KEY=$(read_secret openai-api-key)
@@ -70,6 +81,8 @@ EMAIL_EVENT_CALLBACK_SECRET=$(read_secret email-event-callback-secret)
 OUTBOUND_CALL_WORKER_URL=https://voice.c2c.sh
 OUTBOUND_CALL_REQUEST_SECRET=$(read_secret outbound-call-request-secret)
 OUTBOUND_CALL_EVENT_SECRET=$(read_secret outbound-call-event-secret)
+DISCORD_SUPPORT_ACTOR_EMAIL=technicaldirector.acmvit@gmail.com
+DISCORD_SUPPORT_BRIDGE_SECRET=$(read_secret discord-support-bridge-secret)
 EOF
 
 (

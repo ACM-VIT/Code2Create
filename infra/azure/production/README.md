@@ -111,6 +111,15 @@ Git revision to `deploy-convex.sh`. No Azure client secret or Convex admin key i
 stored in GitHub. Environment configuration remains a separate operator action
 and is not part of an ordinary code deployment.
 
+Discord support is an additional interface over the same Convex support cases;
+it does not replace the operations dashboard. Its bot runs in the separate
+`code2create-discord.service` unit so bot releases do not restart Convex. Store
+`discord-bot-token` and `discord-support-bridge-secret` in the production vault,
+apply the matching Convex bridge secret with `configure-convex-environment.sh`,
+deploy backend functions, then run `deploy-discord.sh <full-git-sha>`. The bot
+refuses to start when either ticket category is public, an allowed role is
+missing, or required channel permissions are absent.
+
 External-participant email sign-in uses the production Cloudflare Email
 Sending identity. Before running `configure-convex-environment.sh`, store
 `cloudflare-email-account-id`, `cloudflare-email-api-token`, and
@@ -118,6 +127,23 @@ Sending identity. Before running `configure-convex-environment.sh`, store
 limited to Email Sending, and the from address must belong to the verified
 production sending domain. The portal advertises email sign-in only when all
 three values are present.
+
+External-participant event-pass delivery also requires these production Key
+Vault secrets before `configure-convex-environment.sh` runs:
+
+- `wallet-download-signing-secret`;
+- `google-wallet-issuer-id`, `google-wallet-service-account-email`, and
+  `google-wallet-private-key`;
+- `apple-wallet-pass-type-identifier`, `apple-wallet-team-identifier`,
+  `apple-wallet-wwdr-certificate-base64`,
+  `apple-wallet-signer-certificate-base64`, and
+  `apple-wallet-signer-key-base64`, plus
+  `apple-wallet-signer-key-passphrase` for the encrypted private key.
+
+Authorize the Google service account for the production Wallet issuer. The
+Apple signer certificate must belong to the configured Pass Type ID. Keep all
+wallet keys environment-specific and verify both wallet installs before
+confirming real external-participant offers.
 
 The D32 backend admits 512 concurrent queries, 256 mutations, and 100 Node or V8
 actions. The intake workpool uses at most 32 Node actions at a time. Draft

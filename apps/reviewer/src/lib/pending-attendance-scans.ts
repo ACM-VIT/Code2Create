@@ -20,7 +20,7 @@ const pendingCredentialSchema = z.discriminatedUnion("kind", [
     })
     .strict(),
   z.object({ kind: z.literal("badge_qr"), bearer: z.string().regex(bearerPattern) }).strict(),
-  z.object({ kind: z.literal("portal_qr"), bearer: z.string().regex(bearerPattern) }).strict(),
+  z.object({ kind: z.literal("external_pass"), bearer: z.string().regex(bearerPattern) }).strict(),
 ]);
 const scanTransitionSchema = z.enum(attendanceScanTransitions);
 const pendingAttendanceScanSchema = z

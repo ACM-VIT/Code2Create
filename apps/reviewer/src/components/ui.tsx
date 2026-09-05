@@ -12,6 +12,7 @@ import {
   useWindowDimensions,
 } from "react-native";
 
+import { scanGuideSize } from "@/lib/scan-surface-layout";
 import { palette, radius } from "@/theme";
 
 export function Section({
@@ -117,7 +118,9 @@ export function Field({
   value,
   ...rest
 }: {
+  autoCapitalize?: "none" | "sentences" | "words" | "characters";
   editable?: boolean;
+  keyboardType?: "default" | "email-address";
   label: string;
   maxLength?: number;
   multiline?: boolean;
@@ -321,10 +324,14 @@ export function Sheet({
         }}
         ref={sheet}
       >
-        <View style={styles.sheetBody}>
+        <ScrollView
+          contentContainerStyle={styles.sheetBody}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
           <Text style={styles.sheetTitle}>{title}</Text>
           {children}
-        </View>
+        </ScrollView>
       </TrueSheet>
     </View>
   );
@@ -432,21 +439,40 @@ export function ScanSurface({
   result?: ReactNode;
   verdict?: ScanVerdict;
 }) {
+  const [guideArea, setGuideArea] = useState({ width: 0, height: 0 });
+  const guideSize = scanGuideSize(guideArea);
+
   return (
     <View style={styles.scanSurface}>
       {camera}
-      <View
-        pointerEvents="none"
-        style={[styles.scanGuide, verdict ? { borderColor: verdict.colour } : null]}
-      >
-        <Verdict verdict={verdict} />
+      <View pointerEvents="box-none" style={styles.scanChrome}>
+        <View pointerEvents="box-none" style={styles.scanTop}>
+          {controls}
+        </View>
+        <View
+          onLayout={(event) => {
+            const { width, height } = event.nativeEvent.layout;
+            setGuideArea((current) =>
+              current.width === width && current.height === height ? current : { width, height },
+            );
+          }}
+          pointerEvents="none"
+          style={styles.scanGuideArea}
+        >
+          {guideSize > 0 ? (
+            <View
+              style={[
+                styles.scanGuide,
+                { width: guideSize, height: guideSize },
+                verdict ? { borderColor: verdict.colour } : null,
+              ]}
+            >
+              <Verdict verdict={verdict} />
+            </View>
+          ) : null}
+        </View>
+        {result ? <View style={styles.scanResult}>{result}</View> : null}
       </View>
-
-      <View pointerEvents="box-none" style={styles.scanTop}>
-        {controls}
-      </View>
-
-      {result ? <View style={styles.scanResult}>{result}</View> : null}
     </View>
   );
 }
@@ -669,17 +695,32 @@ const styles = StyleSheet.create({
   rowChevron: { color: palette.faint, fontSize: 22 },
 
   scanSurface: { flex: 1, backgroundColor: "#000" },
-  scanGuide: {
+  scanChrome: {
     position: "absolute",
-    top: "24%",
-    right: "12%",
-    bottom: "30%",
-    left: "12%",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+  },
+  scanGuideArea: {
+    flex: 1,
+    minHeight: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+  },
+  scanGuide: {
     borderWidth: 2,
     borderRadius: 22,
     borderColor: "rgba(255,255,255,0.55)",
+    overflow: "hidden",
   },
-  scanTop: { position: "absolute", top: 12, right: 16, left: 16, gap: 12, alignItems: "center" },
+  scanTop: {
+    paddingTop: 12,
+    paddingHorizontal: 16,
+    gap: 12,
+    alignItems: "center",
+  },
   verdict: {
     position: "absolute",
     top: 0,
@@ -724,10 +765,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   scanResult: {
-    position: "absolute",
-    right: 0,
-    bottom: 0,
-    left: 0,
     padding: 20,
     paddingBottom: 34,
     gap: 10,

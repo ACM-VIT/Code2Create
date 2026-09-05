@@ -56,9 +56,8 @@ afterAll(() => {
 
 describe("intelligence observability", () => {
   test("intelligence service configuration accepts only canonical origins and strong secrets", () => {
-    expect(parseIntelligenceWorkerOrigin("https://intelligence.example.test").origin).toBe(
-      "https://intelligence.example.test",
-    );
+    expect(parseIntelligenceWorkerOrigin("https://intelligence.example.test").origin,
+    ).toBe("https://intelligence.example.test");
     expect(parseIntelligenceWorkerOrigin("http://localhost:8787").origin).toBe(
       "http://localhost:8787",
     );
@@ -73,11 +72,12 @@ describe("intelligence observability", () => {
       expect(() => parseIntelligenceWorkerOrigin(invalid), invalid).toThrow();
     }
 
-    expect(validateIntelligenceHmacSecret("s".repeat(32), "TEST_SECRET")).toBe("s".repeat(32));
-    expect(validateIntelligenceHmacSecret("é".repeat(16), "TEST_SECRET")).toBe("é".repeat(16));
-    expect(() => validateIntelligenceHmacSecret("s".repeat(31), "TEST_SECRET")).toThrow(
-      "at least 32 UTF-8 bytes",
+    expect(validateIntelligenceHmacSecret("s".repeat(32), "TEST_SECRET")).toBe("s".repeat(32),
     );
+    expect(validateIntelligenceHmacSecret("é".repeat(16), "TEST_SECRET")).toBe("é".repeat(16),
+    );
+    expect(() => validateIntelligenceHmacSecret("s".repeat(31), "TEST_SECRET"),
+    ).toThrow("at least 32 UTF-8 bytes");
   });
 
   test("brief history needs the intelligence read grant", async () => {
@@ -128,14 +128,17 @@ describe("intelligence observability", () => {
     const first = await viewer.query(api.intelligenceObservability.briefHistory, {
       eventSlug: fixture.eventSlug,
       paginationOpts: { numItems: 20, cursor: null },
-    });
+    },
+    );
     const second = await viewer.query(api.intelligenceObservability.briefHistory, {
       eventSlug: fixture.eventSlug,
       paginationOpts: { numItems: 20, cursor: first.continueCursor },
-    });
+    },
+    );
     expect(first.page).toHaveLength(20);
     expect(second.page).toHaveLength(7);
-    expect(new Set([...first.page, ...second.page].map((run) => run.id)).size).toBe(27);
+    expect(new Set([...first.page, ...second.page].map((run) => run.id)).size,
+    ).toBe(27);
     expect([...first.page, ...second.page]).toContainEqual(
       expect.objectContaining({
         headline: "Queue pressure is the story",
@@ -154,14 +157,16 @@ describe("intelligence observability", () => {
 
     const copilot = await viewer.action(api.operationsIntelligenceActions.openCopilotStream, {
       eventSlug: fixture.eventSlug,
-    });
+    },
+    );
     expect(copilot.expiresAt - copilot.issuedAt).toBe(60_000);
     expect(copilot.serverNow).toBeGreaterThanOrEqual(copilot.issuedAt);
     expect(copilot.serverNow).toBeLessThan(copilot.expiresAt);
     expect(copilot.conversationUrl).toMatch(
       /^https:\/\/intelligence\.example\.test\/v1\/operations-copilot\/conversations\//u,
     );
-    const copilotBody = Buffer.from(copilot.ticket, "base64url").toString("utf8");
+    const copilotBody = Buffer.from(copilot.ticket, "base64url").toString("utf8",
+    );
     expect(copilotBody).toContain('"agentName":"operations-copilot"');
     expect(copilotBody).toContain('"capability":"read"');
     expect(copilot.signature).toBe(
@@ -175,7 +180,8 @@ describe("intelligence observability", () => {
     const brief = await viewer.action(api.operationsIntelligenceActions.openBriefStream, {
       eventSlug: fixture.eventSlug,
       briefId: fixture.manualBriefId,
-    });
+    },
+    );
     expect(brief.conversationUrl).toBe(
       `https://intelligence.example.test/v1/operations-brief-runs/${fixture.manualBriefId}`,
     );
@@ -183,7 +189,8 @@ describe("intelligence observability", () => {
     expect(briefBody).toContain(`"briefId":"${fixture.manualBriefId}"`);
     expect(briefBody).not.toContain("conversationId");
     expect(brief.signature).toBe(
-      await signTicket(briefBody, brief.issuedAt, operationsBriefStreamTicketSignatureContext),
+      await signTicket(briefBody, brief.issuedAt, operationsBriefStreamTicketSignatureContext,
+      ),
     );
   });
 
@@ -220,7 +227,8 @@ describe("intelligence observability", () => {
     const requestBodies: string[] = [];
     let attempt = 0;
     vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
-      expect(String(input)).toBe("https://intelligence.example.test/v1/operations-copilot/turns");
+      expect(String(input)).toBe("https://intelligence.example.test/v1/operations-copilot/turns",
+        );
       if (typeof init?.body !== "string") throw new Error("Expected a string request body.");
       requestBodies.push(init.body);
       attempt += 1;
@@ -242,7 +250,8 @@ describe("intelligence observability", () => {
         return Response.json({ error: "internal_error" }, { status: 500 });
       }
       if (attempt === 2) {
-        return Response.json({ error: "unparseable_conflict" }, { status: 409 });
+        return Response.json({ error: "unparseable_conflict" }, { status: 409 },
+          );
       }
       return Response.json(
         {
@@ -256,11 +265,13 @@ describe("intelligence observability", () => {
         },
         { status: 202 },
       );
-    });
+    },
+    );
 
     let ambiguousFailure: unknown;
     try {
-      await viewer.action(api.operationsIntelligenceActions.submitCopilotTurn, args);
+      await viewer.action(api.operationsIntelligenceActions.submitCopilotTurn, args,
+      );
     } catch (error) {
       ambiguousFailure = error;
     }
@@ -269,20 +280,23 @@ describe("intelligence observability", () => {
 
     let malformedConflict: unknown;
     try {
-      await viewer.action(api.operationsIntelligenceActions.submitCopilotTurn, args);
+      await viewer.action(api.operationsIntelligenceActions.submitCopilotTurn, args,
+      );
     } catch (error) {
       malformedConflict = error;
     }
     expect(malformedConflict).toBeInstanceOf(Error);
     expect(malformedConflict).not.toBeInstanceOf(ConvexError);
 
-    const receipt = await viewer.action(api.operationsIntelligenceActions.submitCopilotTurn, args);
+    const receipt = await viewer.action(api.operationsIntelligenceActions.submitCopilotTurn, args,
+    );
     expect(receipt).toMatchObject({
       submissionId: "submission-0001",
       acceptedAt: "2026-08-13T00:00:00.000Z",
       deduplicated: false,
     });
-    expect(receipt.instanceId).toBe(`copilot:${fixture.eventSlug}:${receipt.conversationId}`);
+    expect(receipt.instanceId).toBe(`copilot:${fixture.eventSlug}:${receipt.conversationId}`,
+    );
     expect(requestBodies).toHaveLength(3);
     expect(requestBodies[1]).toBe(requestBodies[0]);
     expect(requestBodies[2]).toBe(requestBodies[0]);
@@ -290,7 +304,8 @@ describe("intelligence observability", () => {
       eventSlug: fixture.eventSlug,
       agent: "operations-copilot",
       paginationOpts: { numItems: 20, cursor: null },
-    });
+    },
+    );
     expect(turnLedger.page).toContainEqual(
       expect.objectContaining({
         state: "accepted",
@@ -318,8 +333,10 @@ describe("intelligence observability", () => {
     expect(definitiveConflict).toBeInstanceOf(ConvexError);
     const fleet = await viewer.query(api.intelligenceObservability.agentFleetStatus, {
       eventSlug: fixture.eventSlug,
-    });
+    },
+    );
     expect(fleet.map((agent) => agent.agent)).toEqual([
+      "review-questions",
       "idea-submission",
       "operations-episode",
       "operations-brief",
@@ -361,9 +378,11 @@ async function seedActivity(backend: BackendTest) {
   const now = Date.now();
   const eventSlug = `observability-${crypto.randomUUID()}`;
   const viewerAuthUserId = await createAuthUser(backend, now, "viewer");
-  const viewerAuthSessionId = await createAuthSession(backend, viewerAuthUserId, now);
+  const viewerAuthSessionId = await createAuthSession(backend, viewerAuthUserId, now,
+  );
   const outsiderAuthUserId = await createAuthUser(backend, now, "outsider");
-  const outsiderAuthSessionId = await createAuthSession(backend, outsiderAuthUserId, now);
+  const outsiderAuthSessionId = await createAuthSession(backend, outsiderAuthUserId, now,
+  );
 
   return backend.run(async (ctx) => {
     const eventId = await ctx.db.insert("events", {
@@ -377,7 +396,8 @@ async function seedActivity(backend: BackendTest) {
       createdAt: now,
       updatedAt: now,
     });
-    const viewer = await insertAccount(ctx, eventId, "viewer", now, viewerAuthUserId);
+    const viewer = await insertAccount(ctx, eventId, "viewer", now, viewerAuthUserId,
+    );
     await insertAccount(ctx, eventId, "outsider", now, outsiderAuthUserId);
     await insertPermissionGrant(ctx, {
       eventId,
@@ -495,11 +515,13 @@ async function createAuthUser(backend: BackendTest, now: number, key: string) {
         updatedAt: now,
       },
     },
-  });
+  },
+  );
   return documentId(result, "Better Auth user");
 }
 
-async function createAuthSession(backend: BackendTest, userId: string, now: number) {
+async function createAuthSession(backend: BackendTest, userId: string, now: number,
+) {
   const result: unknown = await backend.mutation(components.betterAuth.adapter.create, {
     input: {
       model: "session",
@@ -511,7 +533,8 @@ async function createAuthSession(backend: BackendTest, userId: string, now: numb
         userId,
       },
     },
-  });
+  },
+  );
   return documentId(result, "Better Auth session");
 }
 

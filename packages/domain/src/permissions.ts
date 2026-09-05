@@ -61,7 +61,7 @@ const exactPermissionNames: Readonly<Record<string, string>> = {
   "application.profile_context.read": "View an applicant’s year and course",
   "communications.call_consent.manage": "Manage own phone-call consent",
   "attendance.export.identifiable": "Export named attendance records",
-  "attendance.portal_qr.mint": "Show own attendance QR",
+  "attendance.external_pass.read": "View own external event pass",
   "event.lifecycle.manage": "Change the event state",
   "event.lifecycle.read": "View the event state",
   "review.substitute.page": "Use a reviewer substitute page",

@@ -24,20 +24,15 @@ type ParticipantPhysicalCredential =
       state: "not_enrolled" | "active" | "suspended";
     }
   | {
-      kind: "badge_qr";
-      state: "not_issued" | "revoked";
-    }
-  | {
-      kind: "badge_qr";
-      state: "active";
-      badgeReference: string;
+      kind: "external_pass";
+      state: "not_issued" | "active" | "suspended";
     };
 
 export const mine = query({
   args: { eventSlug: v.string() },
   returns: v.object({
     available: v.boolean(),
-    canMintPortalQr: v.boolean(),
+    canViewExternalPass: v.boolean(),
     canReadResultHistory: v.boolean(),
     physicalCredential: v.union(
       v.object({
@@ -45,13 +40,8 @@ export const mine = query({
         state: v.union(v.literal("not_enrolled"), v.literal("active"), v.literal("suspended")),
       }),
       v.object({
-        kind: v.literal("badge_qr"),
-        state: v.union(v.literal("not_issued"), v.literal("revoked")),
-      }),
-      v.object({
-        kind: v.literal("badge_qr"),
-        state: v.literal("active"),
-        badgeReference: v.string(),
+        kind: v.literal("external_pass"),
+        state: v.union(v.literal("not_issued"), v.literal("active"), v.literal("suspended")),
       }),
     ),
     venueCheckIn: v.union(
@@ -110,7 +100,7 @@ export const mine = query({
       venue,
       projections,
       physicalCredential,
-      portalQrGrantIds,
+      externalPassGrantIds,
       resultHistoryGrantIds,
     ] = await Promise.all([
       latestVenueCheckIn(ctx, membership._id),
@@ -129,13 +119,15 @@ export const mine = query({
             .take(maximumAttendanceSessionsPerPlan + 1)
         : [],
       participantPhysicalCredential(ctx, membership._id, membership.participantClass),
-      matchingPermissionGrantIds(ctx, {
-        eventId: event._id,
-        eventAccessSubjectId: subject._id,
-        permissionKey: "attendance.portal_qr.mint",
-        scopeType: "self",
-        scopeId: membership._id,
-      }),
+      membership.participantClass === "external_participant"
+        ? matchingPermissionGrantIds(ctx, {
+            eventId: event._id,
+            eventAccessSubjectId: subject._id,
+            permissionKey: "attendance.external_pass.read",
+            scopeType: "self",
+            scopeId: membership._id,
+          })
+        : [],
       matchingPermissionGrantIds(ctx, {
         eventId: event._id,
         eventAccessSubjectId: subject._id,
@@ -190,7 +182,7 @@ export const mine = query({
         membership.eligibilityStatus === "eligible" &&
         membership.onboardingStatus === "accepted" &&
         planIsPublished,
-      canMintPortalQr: portalQrGrantIds.length > 0,
+      canViewExternalPass: externalPassGrantIds.length > 0,
       canReadResultHistory: resultHistoryGrantIds.length > 0,
       physicalCredential,
       venueCheckIn: venueCheckIn
@@ -205,38 +197,6 @@ export const mine = query({
       venue: venue ? { state: venue.state, updatedAt: venue.updatedAt } : null,
       sessions,
     };
-  },
-});
-
-export const portalQrState = query({
-  args: {
-    eventSlug: v.string(),
-    tokenId: v.id("attendancePortalQrTokens"),
-  },
-  returns: v.union(
-    v.null(),
-    v.object({
-      state: v.union(v.literal("active"), v.literal("used"), v.literal("revoked")),
-      expiresAt: v.number(),
-    }),
-  ),
-  handler: async (ctx, args) => {
-    const event = await requireEventBySlug(ctx, args.eventSlug);
-    const { person } = await requireCurrentPerson(ctx);
-    const subject = await requireEventSubject(ctx, event._id, person._id);
-    const membership = await requireMembership(ctx, event._id, person._id);
-    await requirePermission(ctx, {
-      eventId: event._id,
-      eventAccessSubjectId: subject._id,
-      permissionKey: "attendance.self.read",
-      scopeType: "self",
-      scopeId: membership._id,
-    });
-    const token = await ctx.db.get(args.tokenId);
-    if (!token || token.eventId !== event._id || token.membershipId !== membership._id) {
-      return null;
-    }
-    return { state: token.state, expiresAt: token.expiresAt };
   },
 });
 
@@ -330,43 +290,12 @@ async function participantPhysicalCredential(
       state: active.length === 1 ? "active" : suspended.length === 1 ? "suspended" : "not_enrolled",
     };
   }
-  const [activeCredentials, latestRevoked] = await Promise.all([
-    ctx.db
-      .query("attendanceCredentials")
-      .withIndex("by_membership_state", (index) =>
-        index.eq("membershipId", membershipId).eq("state", "active"),
-      )
-      .take(2),
-    ctx.db
-      .query("attendanceCredentials")
-      .withIndex("by_membership_state", (index) =>
-        index.eq("membershipId", membershipId).eq("state", "revoked"),
-      )
-      .order("desc")
-      .first(),
-  ]);
-  if (activeCredentials.length > 1 || activeCredentials[0]?.kind === "vit_id_barcode") {
-    throw new Error("An external participant must have at most one active badge.");
-  }
-  const active = activeCredentials[0];
-  if (active) {
-    if (!active.badgeReference) {
-      throw new Error("An active external badge must have a printed reference.");
-    }
-    return {
-      kind: "badge_qr",
-      state: "active",
-      badgeReference: active.badgeReference,
-    };
-  }
-  if (
-    latestRevoked &&
-    (latestRevoked.kind !== "badge_qr" || latestRevoked.verifiedAt === undefined)
-  ) {
-    throw new Error("A revoked external badge must be a verified badge.");
-  }
+  const pass = await ctx.db
+    .query("attendanceExternalPasses")
+    .withIndex("by_membership", (index) => index.eq("membershipId", membershipId))
+    .unique();
   return {
-    kind: "badge_qr",
-    state: latestRevoked ? "revoked" : "not_issued",
+    kind: "external_pass",
+    state: pass?.state ?? "not_issued",
   };
 }

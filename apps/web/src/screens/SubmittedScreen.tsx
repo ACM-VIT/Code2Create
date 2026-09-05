@@ -19,7 +19,7 @@ import { PortalButton, PortalTextButton } from "../components/portal/PortalButto
 import { PortalError, PortalTextarea } from "../components/portal/PortalField";
 import { normalizedIdeaLength, useNoveltyPreview } from "../hooks/useNoveltyPreview";
 import { DashboardLive } from "./DashboardLive";
-import { NoveltyPill, ReviewEditRow } from "./IntakeScreen";
+import { NoveltyPill, ReviewEditRow } from "../components/ProposalReview";
 import {
   AccordionItem,
   AccordionItemContent,

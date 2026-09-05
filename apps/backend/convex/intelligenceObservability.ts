@@ -1,11 +1,15 @@
 /** Projects agent lifecycle records without copying Durable Object content. */
 
-import { paginationOptsValidator, paginationResultValidator } from "convex/server";
+import {
+  paginationOptsValidator,
+  paginationResultValidator,
+} from "convex/server";
 
 import { ConvexError, v, type Infer } from "convex/values";
 
 import type { Doc } from "./_generated/dataModel";
-import { internalMutation, internalQuery, query, type QueryCtx } from "./_generated/server";
+import { internalMutation, internalQuery, query, type QueryCtx,
+} from "./_generated/server";
 import { requireEventBySlug } from "./lib/events";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import { requirePermission } from "./lib/permissions";
@@ -14,6 +18,7 @@ const maximumBriefPageSize = 20;
 const maximumAgentRunPageSize = 30;
 
 const intelligenceAgentId = v.union(
+  v.literal("review-questions"),
   v.literal("idea-submission"),
   v.literal("operations-episode"),
   v.literal("operations-brief"),
@@ -165,7 +170,8 @@ export const acceptCopilotTurn = internalMutation({
     const turn = await ctx.db.get(args.turnRecordId);
     if (!turn) throw new Error("The copilot turn ingress record disappeared.");
     if (turn.state === "accepted" && turn.submissionId !== args.submissionId) {
-      throw new Error("The copilot turn was accepted under a different submission.");
+      throw new Error("The copilot turn was accepted under a different submission.",
+      );
     }
     await ctx.db.patch(turn._id, {
       state: "accepted",
@@ -205,7 +211,8 @@ export const authorizeBriefStream = internalQuery({
     eventSlug: v.string(),
     briefId: v.id("operationsIntelligenceBriefs"),
   },
-  returns: v.object({ eventSlug: v.string(), briefId: v.id("operationsIntelligenceBriefs") }),
+  returns: v.object({ eventSlug: v.string(), briefId: v.id("operationsIntelligenceBriefs"),
+  }),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
@@ -296,7 +303,8 @@ export const briefHistory = query({
     requireBriefPageSize(args.paginationOpts.numItems);
     const page = await ctx.db
       .query("operationsIntelligenceBriefs")
-      .withIndex("by_event_requested", (index) => index.eq("eventId", event._id))
+      .withIndex("by_event_requested", (index) => index.eq("eventId", event._id),
+      )
       .order("desc")
       .paginate(args.paginationOpts);
 
@@ -349,10 +357,49 @@ export const agentRunHistory = query({
     const { event } = await requireIntelligenceRead(ctx, args.eventSlug);
     requireAgentRunPageSize(args.paginationOpts.numItems);
 
+    if (args.agent === "review-questions") {
+      const result = await ctx.db
+        .query("reviewQuestionSets")
+        .withIndex("by_event_created", (q) => q.eq("eventId", event._id))
+        .order("desc")
+        .paginate(args.paginationOpts);
+      return {
+        ...result,
+        page: result.page.map((run) => ({
+          id: run._id,
+          agent: args.agent,
+          state: run.state,
+          tone:
+            run.state === "ready"
+              ? ("success" as const)
+              : run.state === "failed"
+                ? ("failure" as const)
+                : run.state === "stale"
+                  ? ("idle" as const)
+                  : ("live" as const),
+          title: "Project review questions",
+          summary:
+            run.failureCode?.replaceAll("_", " ") ??
+            `${run.questions?.length ?? 0} optional questions prepared`,
+          createdAt: run.createdAt,
+          updatedAt: run.updatedAt,
+          ...(run.completedAt ? { completedAt: run.completedAt } : {}),
+          model: run.policy.model,
+          instanceId: `${run._id}:${run.attempt}`,
+          href: `/reviews/${run.roundId}`,
+          metadata: [
+            { label: "Policy", value: String(run.policyVersion) },
+            { label: "Attempt", value: String(run.attempt) },
+            { label: "Sources", value: String(run.sources?.length ?? 0) },
+          ],
+        })),
+      };
+    }
     if (args.agent === "idea-submission") {
       const result = await ctx.db
         .query("admissionAIRecommendations")
-        .withIndex("by_event_created", (index) => index.eq("eventId", event._id))
+        .withIndex("by_event_created", (index) => index.eq("eventId", event._id),
+        )
         .order("desc")
         .paginate(args.paginationOpts);
       const page = await Promise.all(
@@ -378,9 +425,12 @@ export const agentRunHistory = query({
             ...(run.agentOperationId !== undefined ? { operationId: run.agentOperationId } : {}),
             href: `/admissions/${run.applicationId}`,
             metadata: [
-              { label: "Application content", value: `v${run.applicationContentVersion}` },
-              { label: "Experience band", value: run.experienceBand.replaceAll("_", " ") },
-              { label: "Criteria", value: String(run.criterionAssessments.length) },
+              { label: "Application content", value: `v${run.applicationContentVersion}`,
+              },
+              { label: "Experience band", value: run.experienceBand.replaceAll("_", " "),
+              },
+              { label: "Criteria", value: String(run.criterionAssessments.length),
+              },
               ...(run.confidence === undefined
                 ? []
                 : [{ label: "Confidence", value: run.confidence }]),
@@ -397,7 +447,8 @@ export const agentRunHistory = query({
     if (args.agent === "operations-episode") {
       const result = await ctx.db
         .query("operationsIntelligenceEpisodes")
-        .withIndex("by_event_updated_at", (index) => index.eq("eventId", event._id))
+        .withIndex("by_event_updated_at", (index) => index.eq("eventId", event._id),
+        )
         .order("desc")
         .paginate(args.paginationOpts);
       return {
@@ -442,7 +493,8 @@ export const agentRunHistory = query({
     if (args.agent === "operations-brief") {
       const result = await ctx.db
         .query("operationsIntelligenceBriefs")
-        .withIndex("by_event_requested", (index) => index.eq("eventId", event._id))
+        .withIndex("by_event_requested", (index) => index.eq("eventId", event._id),
+        )
         .order("desc")
         .paginate(args.paginationOpts);
       return {
@@ -481,7 +533,8 @@ export const agentRunHistory = query({
     if (args.agent === "operations-copilot") {
       const result = await ctx.db
         .query("operationsCopilotTurns")
-        .withIndex("by_event_created", (index) => index.eq("eventId", event._id))
+        .withIndex("by_event_created", (index) => index.eq("eventId", event._id),
+        )
         .order("desc")
         .paginate(args.paginationOpts);
       return {
@@ -514,7 +567,9 @@ export const agentRunHistory = query({
               : [{ label: "Submission", value: run.submissionId }]),
             ...(run.deduplicated === undefined
               ? []
-              : [{ label: "Deduplicated", value: run.deduplicated ? "yes" : "no" }]),
+              : [{ label: "Deduplicated", value: run.deduplicated ? "yes" : "no",
+                  },
+                ]),
           ],
         })),
       };
@@ -522,7 +577,8 @@ export const agentRunHistory = query({
 
     const result = await ctx.db
       .query("operationsAutonomyRuns")
-      .withIndex("by_event_created_at", (index) => index.eq("eventId", event._id))
+      .withIndex("by_event_created_at", (index) => index.eq("eventId", event._id),
+      )
       .order("desc")
       .paginate(args.paginationOpts);
     return {
@@ -561,13 +617,16 @@ export const agentRunHistory = query({
         metadata: [
           { label: "Policy", value: `v${run.policyVersion}` },
           { label: "Attempt", value: String(run.attemptCount) },
-          { label: "Reads allowed", value: String(run.allowedReadTools.length) },
+          { label: "Reads allowed", value: String(run.allowedReadTools.length),
+          },
           {
             label: "Recommendations allowed",
             value: String(run.allowedRecommendationKinds.length),
           },
           ...(run.admission.kind === "accepted"
-            ? [{ label: "Submission", value: run.admission.currentSubmissionId }]
+            ? [{ label: "Submission", value: run.admission.currentSubmissionId,
+                },
+              ]
             : []),
         ],
       })),
@@ -575,17 +634,20 @@ export const agentRunHistory = query({
   },
 });
 
-/** Compact live/last-seen state for the five-agent fleet rail. */
+/** Compact live/last-seen state for the agent fleet rail. */
 export const agentFleetStatus = query({
   args: { eventSlug: v.string() },
   returns: v.array(fleetAgentStatus),
   handler: async (ctx, args): Promise<FleetAgentStatus[]> => {
     const { event } = await requireIntelligenceRead(ctx, args.eventSlug);
-    const [ideaLatest, ideaPending, ideaRunning, episodes, briefs, autonomy, copilot] =
+    const [ideaLatest, ideaPending, ideaRunning, episodes, briefs, autonomy, copilot,
+      questions,
+    ] =
       await Promise.all([
         ctx.db
           .query("admissionAIRecommendations")
-          .withIndex("by_event_created", (index) => index.eq("eventId", event._id))
+          .withIndex("by_event_created", (index) => index.eq("eventId", event._id),
+        )
           .order("desc")
           .take(1),
         ctx.db
@@ -604,25 +666,37 @@ export const agentFleetStatus = query({
           .take(21),
         ctx.db
           .query("operationsIntelligenceEpisodes")
-          .withIndex("by_event_updated_at", (index) => index.eq("eventId", event._id))
+          .withIndex("by_event_updated_at", (index) => index.eq("eventId", event._id),
+        )
           .order("desc")
           .take(21),
         ctx.db
           .query("operationsIntelligenceBriefs")
-          .withIndex("by_event_requested", (index) => index.eq("eventId", event._id))
+          .withIndex("by_event_requested", (index) => index.eq("eventId", event._id),
+        )
           .order("desc")
           .take(21),
         ctx.db
           .query("operationsAutonomyRuns")
-          .withIndex("by_event_created_at", (index) => index.eq("eventId", event._id))
+          .withIndex("by_event_created_at", (index) => index.eq("eventId", event._id),
+        )
           .order("desc")
           .take(21),
         ctx.db
           .query("operationsCopilotTurns")
-          .withIndex("by_event_created", (index) => index.eq("eventId", event._id))
+          .withIndex("by_event_created", (index) => index.eq("eventId", event._id),
+        )
+        .order("desc")
+        .take(21),
+      ctx.db
+        .query("reviewQuestionSets")
+        .withIndex("by_event_updated", (q) => q.eq("eventId", event._id))
           .order("desc")
           .take(21),
       ]);
+    const activeQuestions = questions.filter((run) =>
+      ["queued", "collecting", "generating"].includes(run.state),
+    );
     const activeEpisodes = episodes.filter(
       (run) =>
         run.analysisState.kind === "pending" ||
@@ -640,6 +714,13 @@ export const agentFleetStatus = query({
       (run) => run.state === "delivery_unknown" || run.state === "conflict",
     );
     return [
+      fleetStatus(
+        "review-questions",
+        questions[0]?.updatedAt,
+        Math.min(20, activeQuestions.length),
+        questions[0]?.state === "failed",
+        activeQuestions.length > 20,
+      ),
       fleetStatus(
         "idea-submission",
         ideaLatest[0]?.createdAt,
@@ -681,6 +762,7 @@ export const agentFleetStatus = query({
 
 function fleetStatus(
   agent:
+    | "review-questions"
     | "idea-submission"
     | "operations-episode"
     | "operations-brief"

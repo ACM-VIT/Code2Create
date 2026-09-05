@@ -8,7 +8,7 @@ export const attendanceScanTransitions = [
 
 export type ScanTransition = (typeof attendanceScanTransitions)[number];
 export type AttendanceStationMode = ScanTransition | "roving";
-export type AttendanceCredentialKind = "portal_qr" | "badge_qr" | "vit_id_barcode";
+export type AttendanceCredentialKind = "external_pass" | "badge_qr" | "vit_id_barcode";
 
 export function allowedRovingTransitions(station: {
   mode: AttendanceStationMode;

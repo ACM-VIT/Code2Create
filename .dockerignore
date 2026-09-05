@@ -1,0 +1,16 @@
+*
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!patches/
+!patches/**
+!apps/
+!apps/discord/
+!apps/discord/package.json
+!apps/discord/src/
+!apps/discord/src/**
+!packages/
+!packages/domain/
+!packages/domain/package.json
+!packages/domain/src/
+!packages/domain/src/**

@@ -42,6 +42,7 @@ type DraftScorecard = {
   signed: boolean;
   ratings: DraftRating[];
   privateNote: string;
+  finalComment: string;
 };
 
 export function ReviewManualRecovery({ roundId }: { roundId: RoundId }) {
@@ -49,11 +50,14 @@ export function ReviewManualRecovery({ roundId }: { roundId: RoundId }) {
     eventSlug,
     affectedService: "review_backend",
   });
-  const workspace = useQuery(api.manualReviewRecords.workspace, { eventSlug, roundId });
+  const workspace = useQuery(api.manualReviewRecords.workspace, { eventSlug, roundId,
+  });
   const serverNow = useEstimatedServerNow(workspace?.serverNow);
 
   if (incidents === undefined || workspace === undefined) {
-    return <p className="muted manual-recovery-loading">Loading paper review recovery…</p>;
+    return (
+      <p className="muted manual-recovery-loading">Loading paper review recovery…</p>
+    );
   }
   if (!incidents.canCreate && incidents.incidents.length === 0 && workspace.reviews.length === 0) {
     return null;
@@ -73,7 +77,8 @@ export function ReviewManualRecovery({ roundId }: { roundId: RoundId }) {
 
       <ReviewIncidentArea data={incidents} />
 
-      {workspace.reviews.some((review) => review.canEnter && isLiveReview(review.status)) ? (
+      {workspace.reviews.some((review) => review.canEnter && isLiveReview(review.status),
+      ) ? (
         <DraftReviewForm
           incidents={incidents.incidents}
           reviews={workspace.reviews}
@@ -222,7 +227,9 @@ function ReviewIncident({ incident }: { incident: Incident }) {
           ? "No approvals yet."
           : incident.approvals.map((approval) => approval.displayName).join(" · ")}
       </p>
-      {incident.canApproveManualMode ? <ApproveIncident incident={incident} /> : null}
+      {incident.canApproveManualMode ? (
+        <ApproveIncident incident={incident} />
+      ) : null}
       {incident.canResolve ? <ResolveIncident incident={incident} /> : null}
     </article>
   );
@@ -399,13 +406,16 @@ function DraftReviewForm({
   ) => {
     invalidate();
     setEntries((current) =>
-      current.map((entry) => (entry.scorecardId === scorecardId ? update(entry) : entry)),
+      current.map((entry) =>
+        entry.scorecardId === scorecardId ? update(entry) : entry,
+      ),
     );
   };
 
   const submit = async (event: SubmitEvent) => {
     event.preventDefault();
-    const incident = approvedIncidents.find((candidate) => candidate.id === incidentId);
+    const incident = approvedIncidents.find((candidate) => candidate.id === incidentId,
+    );
     if (!review || !incident) {
       setError("Choose the active review and approved incident.");
       return;
@@ -441,6 +451,8 @@ function DraftReviewForm({
         signatureConfirmed: entry.signed,
         ratings,
         ...(entry.privateNote.trim() ? { privateNote: entry.privateNote } : {}),
+        ...(entry.finalComment.trim()
+          ? { finalComment: entry.finalComment } : {}),
       });
     }
     setBusy(true);
@@ -638,13 +650,13 @@ function DraftReviewForm({
                           }
                         >
                           <option value="">Score</option>
-                          {scoreOptions(review.rubric.scoreMinimum, review.rubric.scoreMaximum).map(
+                          {scoreOptions(review.rubric.scoreMinimum, review.rubric.scoreMaximum,
+                          ).map(
                             (score) => (
                               <option key={score} value={score}>
                                 {score}
                               </option>
-                            ),
-                          )}
+                            ))}
                         </select>
                       </label>
                       <label className="field">
@@ -656,7 +668,8 @@ function DraftReviewForm({
                               ...current,
                               ratings: current.ratings.map((candidate) =>
                                 candidate.criterionId === rating.criterionId
-                                  ? { ...candidate, evidenceNote: event.target.value }
+                                  ? { ...candidate, evidenceNote: event.target.value,
+                                    }
                                   : candidate,
                               ),
                             }))
@@ -667,6 +680,21 @@ function DraftReviewForm({
                   );
                 })}
               </div>
+              <label className="field">
+                <span>Final reviewer comment</span>
+                <textarea
+                  required={review.requiresFinalComment}
+                  minLength={review.requiresFinalComment ? 3 : undefined}
+                  maxLength={2_000}
+                  value={entry.finalComment}
+                  onChange={(event) =>
+                    updateEntry(entry.scorecardId, (current) => ({
+                      ...current,
+                      finalComment: event.target.value,
+                    }))
+                  }
+                />
+              </label>
               <label className="field">
                 <span>Private reviewer note, if written</span>
                 <textarea
@@ -733,7 +761,9 @@ function DraftReviewForm({
   );
 }
 
-function ManualReviewCard({ record, review }: { record: ManualRecord; review: Review }) {
+function ManualReviewCard({ record, review,
+}: { record: ManualRecord; review: Review;
+}) {
   return (
     <article className="manual-sheet-card">
       <div className="manual-sheet-title">
@@ -791,7 +821,9 @@ function ManualReviewCard({ record, review }: { record: ManualRecord; review: Re
       </details>
       {record.canUploadSource ? <ReviewSourceUpload record={record} /> : null}
       {record.canReadSource ? <ReviewSource record={record} /> : null}
-      {record.canVerify ? <ReviewVerification record={record} review={review} /> : null}
+      {record.canVerify ? (
+        <ReviewVerification record={record} review={review} />
+      ) : null}
       {record.status === "draft" && record.canUploadSource ? (
         <ReviewDraftCancellation record={record} />
       ) : null}
@@ -888,7 +920,8 @@ function ReviewSource({ record }: { record: ManualRecord }) {
     setError(null);
     try {
       const source = await readSource({ eventSlug, recordId: record.id });
-      const nextUrl = URL.createObjectURL(new Blob([source.bytes], { type: source.contentType }));
+      const nextUrl = URL.createObjectURL(new Blob([source.bytes], { type: source.contentType }),
+      );
       setSourceUrl((current) => {
         if (current) URL.revokeObjectURL(current);
         return nextUrl;
@@ -905,7 +938,9 @@ function ReviewSource({ record }: { record: ManualRecord }) {
       <button className="text-button" disabled={busy} type="button" onClick={() => void open()}>
         {busy ? "Opening…" : sourceUrl ? "Reload protected source" : "Open protected source"}
       </button>
-      {sourceUrl ? <img alt={`Paper review ${record.serial}`} src={sourceUrl} /> : null}
+      {sourceUrl ? (
+        <img alt={`Paper review ${record.serial}`} src={sourceUrl} />
+      ) : null}
       {error ? (
         <p className="notice error" role="alert">
           {error}
@@ -915,7 +950,9 @@ function ReviewSource({ record }: { record: ManualRecord }) {
   );
 }
 
-function ReviewVerification({ record, review }: { record: ManualRecord; review: Review }) {
+function ReviewVerification({ record, review,
+}: { record: ManualRecord; review: Review;
+}) {
   const verify = useMutation(api.manualReviewRecords.verify);
   const [kind, setKind] = useState<VerificationKind>("import");
   const [reason, setReason] = useState("");
@@ -1099,12 +1136,14 @@ function createDraftScorecards(review: Review): DraftScorecard[] {
       evidenceNote: "",
     })),
     privateNote: "",
+    finalComment: "",
   }));
 }
 
 function scoreOptions(minimum: number, maximum: number) {
   if (!Number.isInteger(minimum) || !Number.isInteger(maximum) || maximum < minimum) return [];
-  return Array.from({ length: maximum - minimum + 1 }, (_, index) => minimum + index);
+  return Array.from({ length: maximum - minimum + 1 }, (_, index) => minimum + index,
+  );
 }
 
 function parseSeverity(value: string): IncidentSeverity {
@@ -1124,7 +1163,7 @@ function localDateTime(timestamp: number) {
 }
 
 function isLiveReview(status: string) {
-  return status === "active" || status === "overdue";
+  return status === "active" || status === "scoring";
 }
 
 function incidentState(incident: Incident) {

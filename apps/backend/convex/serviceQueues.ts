@@ -1,0 +1,111 @@
+import { ConvexError, v } from "convex/values";
+
+import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { mutation, query } from "./_generated/server";
+import { requireEventBySlug } from "./lib/events";
+import {
+  requireCurrentPerson,
+  requireEligibleMembership,
+  requireMembership,
+} from "./lib/identity";
+import {
+  deleteParticipantServiceQueueEntry,
+  insertParticipantServiceQueueEntry,
+  participantServiceQueueStatus,
+} from "./lib/participantServiceQueue";
+
+type ReadCtx = QueryCtx | MutationCtx;
+
+const serviceQueueKind = v.literal("outing_permission");
+
+const serviceQueueView = v.object({
+  kind: serviceQueueKind,
+  joined: v.boolean(),
+  position: v.union(v.null(), v.number()),
+  waitingCount: v.number(),
+  joinedAt: v.union(v.null(), v.number()),
+});
+
+async function participantContext(ctx: ReadCtx, eventSlug: string) {
+  const event = await requireEventBySlug(ctx, eventSlug);
+  const { person } = await requireCurrentPerson(ctx);
+  const membership = requireEligibleMembership(
+    await requireMembership(ctx, event._id, person._id),
+  );
+  return { event, person, membership };
+}
+
+export const current = query({
+  args: { eventSlug: v.string() },
+  returns: v.array(serviceQueueView),
+  handler: async (ctx, args) => {
+    const { event, membership } = await participantContext(ctx, args.eventSlug);
+    if (event.status !== "live") return [];
+    const ownEntry = await ctx.db
+      .query("participantServiceQueueEntries")
+      .withIndex("by_membership_kind", (index) =>
+        index.eq("membershipId", membership._id).eq("kind", "outing_permission"),
+      )
+      .unique();
+    const status = await participantServiceQueueStatus(
+      ctx,
+      event._id,
+      "outing_permission",
+      ownEntry,
+    );
+    return [{
+      kind: "outing_permission" as const,
+      joined: ownEntry !== null,
+      position: status.position,
+      waitingCount: status.waitingCount,
+      joinedAt: ownEntry?.joinedAt ?? null,
+    }];
+  },
+});
+
+export const join = mutation({
+  args: { eventSlug: v.string(), kind: serviceQueueKind },
+  returns: v.object({ joined: v.boolean(), joinedAt: v.number() }),
+  handler: async (ctx, args) => {
+    const { event, person, membership } = await participantContext(ctx, args.eventSlug);
+    if (event.status !== "live") {
+      throw new ConvexError({
+        code: "QUEUE_CLOSED",
+        message: "The outing permission queue is available while the event is live.",
+      });
+    }
+    const existing = await ctx.db
+      .query("participantServiceQueueEntries")
+      .withIndex("by_membership_kind", (index) =>
+        index.eq("membershipId", membership._id).eq("kind", args.kind),
+      )
+      .unique();
+    if (existing) return { joined: false, joinedAt: existing.joinedAt };
+    const joinedAt = Date.now();
+    await insertParticipantServiceQueueEntry(ctx, {
+      eventId: event._id,
+      membershipId: membership._id,
+      personId: person._id,
+      kind: args.kind,
+      joinedAt,
+    });
+    return { joined: true, joinedAt };
+  },
+});
+
+export const leave = mutation({
+  args: { eventSlug: v.string(), kind: serviceQueueKind },
+  returns: v.object({ left: v.boolean() }),
+  handler: async (ctx, args) => {
+    const { membership } = await participantContext(ctx, args.eventSlug);
+    const existing = await ctx.db
+      .query("participantServiceQueueEntries")
+      .withIndex("by_membership_kind", (index) =>
+        index.eq("membershipId", membership._id).eq("kind", args.kind),
+      )
+      .unique();
+    if (!existing) return { left: false };
+    await deleteParticipantServiceQueueEntry(ctx, existing);
+    return { left: true };
+  },
+});

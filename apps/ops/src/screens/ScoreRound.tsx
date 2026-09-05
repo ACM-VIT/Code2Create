@@ -19,7 +19,8 @@ import { formatMonthDayTime as formatTime } from "../lib/dateTime";
 import { readableError } from "../lib/errors";
 import { useMutationAttempt } from "../lib/operations";
 import { useEstimatedServerNow } from "../lib/useEstimatedServerNow";
-import { LoadingLabel, SkeletonList, SkeletonStats } from "../components/Skeleton";
+import { LoadingLabel, SkeletonList, SkeletonStats,
+} from "../components/Skeleton";
 import { RoundExportControl } from "../components/RoundExportControl";
 
 type Completeness = FunctionReturnType<typeof api.scoreGovernance.completeness>;
@@ -76,7 +77,9 @@ export function ScoreRound() {
     );
   }
   if (!visibleRound) {
-    return <p className="notice error">This results round is not visible to you.</p>;
+    return (
+      <p className="notice error">This results round is not visible to you.</p>
+    );
   }
   if (!completeness) {
     return (
@@ -116,7 +119,8 @@ export function ScoreRound() {
             {completeness.unresolvedTeamCount === 0
               ? "Every team in this round has a countable result."
               : `${completeness.unresolvedTeamCount} ${completeness.unresolvedTeamCount === 1 ? "team has" : "teams have"} no countable result, so this round cannot close.`}{" "}
-            Correction requests close {formatTime(completeness.round.correctionRequestsCloseAt)}.
+            Correction requests close{" "}
+            {formatTime(completeness.round.correctionRequestsCloseAt)}.
           </p>
         </div>
         {completeness.canReadValues ? (
@@ -249,7 +253,8 @@ export function ScoreRound() {
       ) : null}
       {completeness.releasedAt ? (
         <p className="notice">
-          Participant feedback was released {formatTime(completeness.releasedAt)}.
+          Participant feedback was released {" "}
+          {formatTime(completeness.releasedAt)}.
         </p>
       ) : null}
     </section>
@@ -298,7 +303,8 @@ function ReviewCompleteness({
         <span className="score-review-summary-copy">
           <strong>{review.teamName}</strong>
           <small>
-            {review.panelName} · {reviewSessionStatusLabels[review.status]} · {resultLabel}
+            {review.panelName} · {reviewSessionStatusLabels[review.status]} · {" "}
+            {resultLabel}
             {review.manualReviewRecordId ? " · entered from paper" : ""}
           </small>
           <span className={reviewNeedsAction(review) ? "needs-attention" : ""}>{shortfall}</span>
@@ -318,8 +324,8 @@ function ReviewCompleteness({
                 }
                 key={coverage.criterionId}
               >
-                {criterionLabel(criteria, coverage.criterionId)} · {coverage.submittedCount} of{" "}
-                {coverage.requiredCount}
+                {criterionLabel(criteria, coverage.criterionId)} · {" "}
+                {coverage.submittedCount} of {coverage.requiredCount}
                 {coverage.spreadFlag ? " · far apart" : ""}
               </span>
             ))}
@@ -370,7 +376,8 @@ function ReviewCompleteness({
                       {scorecardCorrectionStateLabels[entry.state]}
                     </strong>
                     <span>
-                      {scorecardCorrectionCategoryLabels[entry.category]} · {entry.reason}
+                      {scorecardCorrectionCategoryLabels[entry.category]} ·{" "}
+                      {entry.reason}
                     </span>
                   </li>
                 ))}
@@ -453,7 +460,9 @@ function CorrectionDecision({
             setError(null);
           }}
         >
-          {openDecisionAvailable ? <option value="open">Open correction</option> : null}
+          {openDecisionAvailable ? (
+            <option value="open">Open correction</option>
+          ) : null}
           <option value="reject">Decline request</option>
         </select>
       </label>
@@ -509,8 +518,7 @@ function VoidScorecard({ scorecard }: { scorecard: Scorecard }) {
     | "other"
   >("technical_error");
   const [disposition, setDisposition] = useState<"exclude" | "replacement_review">(
-    "replacement_review",
-  );
+    "replacement_review");
   const [evidenceReference, setEvidenceReference] = useState("");
   const [reason, setReason] = useState("");
   const [confirmed, setConfirmed] = useState(false);
@@ -593,7 +601,8 @@ function VoidScorecard({ scorecard }: { scorecard: Scorecard }) {
             disabled={busy || operationPending}
             value={disposition}
             onChange={(event) => {
-              setDisposition(event.target.value === "exclude" ? "exclude" : "replacement_review");
+              setDisposition(event.target.value === "exclude" ? "exclude" : "replacement_review",
+              );
               changed();
             }}
           >
@@ -811,8 +820,11 @@ function ReleaseRound({ completeness }: { completeness: Completeness }) {
   );
 }
 
-function NumericValues({ criteria, reviews }: { criteria: ValueCriteria; reviews: ValueReview[] }) {
-  const ordered = [...reviews].sort((left, right) => left.teamName.localeCompare(right.teamName));
+function NumericValues({ criteria, reviews,
+}: { criteria: ValueCriteria; reviews: ValueReview[];
+}) {
+  const ordered = [...reviews].sort((left, right) => left.teamName.localeCompare(right.teamName),
+  );
   return (
     <section className="numeric-values">
       <div className="section-heading">
@@ -836,7 +848,8 @@ function NumericValues({ criteria, reviews }: { criteria: ValueCriteria; reviews
           {review.evaluation?.state === "complete" ? (
             <dl className="numeric-criteria">
               {review.evaluation.criterionResults.map((result) => {
-                const criterion = criteria.find((candidate) => candidate.id === result.criterionId);
+                const criterion = criteria.find((candidate) => candidate.id === result.criterionId,
+                );
                 return (
                   <div key={result.criterionId}>
                     <dt>
@@ -844,7 +857,8 @@ function NumericValues({ criteria, reviews }: { criteria: ValueCriteria; reviews
                       {result.spreadFlag ? " · reviewers far apart" : ""}
                     </dt>
                     <dd>
-                      {formatScore(result.meanScore)} average · {formatScore(result.weightedPoints)}{" "}
+                      {formatScore(result.meanScore)} average · {" "}
+                      {formatScore(result.weightedPoints)}
                       weighted
                     </dd>
                   </div>
@@ -859,6 +873,9 @@ function NumericValues({ criteria, reviews }: { criteria: ValueCriteria; reviews
                   {scorecard.reviewerName} · submission {scorecard.version}
                   {scorecard.manualReviewRecordId ? " · entered from paper" : ""}
                 </strong>
+                {scorecard.finalComment ? (
+                  <p>{scorecard.finalComment}</p>
+                ) : null}
                 {scorecard.ratings.map((rating) => {
                   const criterion = criteria.find(
                     (candidate) => candidate.id === rating.criterionId,
@@ -875,7 +892,9 @@ function NumericValues({ criteria, reviews }: { criteria: ValueCriteria; reviews
           </div>
         </details>
       ))}
-      {reviews.length === 0 ? <p className="empty">No completed review has scores yet.</p> : null}
+      {reviews.length === 0 ? (
+        <p className="empty">No completed review has scores yet.</p>
+      ) : null}
     </section>
   );
 }
@@ -915,7 +934,8 @@ function Summary({ label, value }: { label: string; value: number | string }) {
 
 function reviewRank(review: Review) {
   if (review.evaluationState !== "complete") return 0;
-  if (review.cases.some((entry) => entry.state === "requested" || entry.state === "open")) return 1;
+  if (review.cases.some((entry) => entry.state === "requested" || entry.state === "open",
+    )) return 1;
   return 2;
 }
 
@@ -925,12 +945,16 @@ function reviewNeedsAction(review: Review) {
     review.coverage.some(
       (coverage) => coverage.submittedCount < coverage.requiredCount || coverage.spreadFlag,
     ) ||
-    review.cases.some((entry) => entry.state === "requested" || entry.state === "open")
+    review.cases.some((entry) => entry.state === "requested" || entry.state === "open",
+    )
   );
 }
 
-function criterionLabel(criteria: Completeness["criteria"], criterionId: string) {
-  return criteria.find((candidate) => candidate.id === criterionId)?.label ?? "A criterion";
+function criterionLabel(criteria: Completeness["criteria"], criterionId: string,
+) {
+  return (
+    criteria.find((candidate) => candidate.id === criterionId)?.label ?? "A criterion"
+  );
 }
 
 function listNames(values: string[]) {
@@ -939,5 +963,6 @@ function listNames(values: string[]) {
 }
 
 function formatScore(value: number) {
-  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(value);
+  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(value,
+  );
 }

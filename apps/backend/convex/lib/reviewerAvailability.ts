@@ -45,7 +45,8 @@ export function normalizedReviewerAvailabilityWindows(
       }
       return { startsAt: window.startsAt, endsAt: window.endsAt };
     })
-    .sort((left, right) => left.startsAt - right.startsAt || left.endsAt - right.endsAt);
+    .sort((left, right) => left.startsAt - right.startsAt || left.endsAt - right.endsAt,
+    );
 
   const normalized: ReviewerAvailabilityWindow[] = [];
   for (const window of ordered) {
@@ -61,10 +62,10 @@ export function normalizedReviewerAvailabilityWindows(
 
 export function reviewerCoversStaffingWindow(
   windows: readonly ReviewerAvailabilityWindow[],
-  staffing: Pick<ReviewerRoundStaffingPolicy, "clockInOpensAt" | "endsAt">,
+  staffing: ReviewerAvailabilityWindow,
 ) {
   return windows.some(
-    (window) => window.startsAt <= staffing.clockInOpensAt && window.endsAt >= staffing.endsAt,
+    (window) => window.startsAt <= staffing.startsAt && window.endsAt >= staffing.endsAt,
   );
 }
 
@@ -75,7 +76,8 @@ export function reviewerClockInIsOpenAt(
   return now >= round.clockInOpensAt && now < round.endsAt;
 }
 
-export function validateReviewerRoundStaffingPolicy(round: ReviewerRoundStaffingPolicy) {
+export function validateReviewerRoundStaffingPolicy(round: ReviewerRoundStaffingPolicy,
+) {
   const noShowBoundary = round.reviewerReportAt + round.noShowGraceSeconds * 1_000;
   if (
     !Number.isSafeInteger(round.clockInOpensAt) ||
@@ -109,7 +111,8 @@ export function reviewerNoShowBoundary(
       ? clockIn.expectedReturnAt
       : round.reviewerReportAt;
   if (startsAt === undefined) {
-    throw new Error("A temporarily unavailable reviewer has no expected return time.");
+    throw new Error("A temporarily unavailable reviewer has no expected return time.",
+    );
   }
   const boundary = startsAt + round.noShowGraceSeconds * 1_000;
   if (!Number.isSafeInteger(boundary)) {

@@ -2,6 +2,7 @@ import { ConvexError } from "convex/values";
 
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import type { BarcodeSymbology } from "@code2create/domain";
 
 export const staffedParticipantResolutionLifetimeMs = 2 * 60_000;
 
@@ -22,27 +23,23 @@ export async function createStaffedParticipantResolution(
   args: {
     eventId: Id<"events">;
     membershipId: Id<"eventMemberships">;
-    portalQrTokenId: Id<"attendancePortalQrTokens">;
+    resolutionMethod: "vit_id_barcode" | "external_pass" | "manual_lookup";
+    barcodeLookupHash?: string;
+    barcodeSymbology?: BarcodeSymbology;
     stationId: Id<"attendanceStations">;
     deviceInstallationId: Id<"attendanceDeviceInstallations">;
     resolvedByPersonId: Id<"people">;
     now: number;
   },
 ) {
-  const existing = await ctx.db
-    .query("staffedParticipantResolutions")
-    .withIndex("by_portal_token", (index) => index.eq("portalQrTokenId", args.portalQrTokenId))
-    .unique();
-  if (existing) {
-    throw new ConvexError({
-      code: "STAFFED_RESOLUTION_EXISTS",
-      message: "This portal QR has already been resolved by staff.",
-    });
-  }
   return ctx.db.insert("staffedParticipantResolutions", {
     eventId: args.eventId,
     membershipId: args.membershipId,
-    portalQrTokenId: args.portalQrTokenId,
+    resolutionMethod: args.resolutionMethod,
+    ...(args.barcodeLookupHash !== undefined
+      ? { barcodeLookupHash: args.barcodeLookupHash }
+      : {}),
+    ...(args.barcodeSymbology !== undefined ? { barcodeSymbology: args.barcodeSymbology } : {}),
     stationId: args.stationId,
     deviceInstallationId: args.deviceInstallationId,
     resolvedByPersonId: args.resolvedByPersonId,
@@ -59,13 +56,13 @@ export async function requireAvailableStaffedVenueResolution(
   if (resolution.expiresAt <= args.now) {
     throw new ConvexError({
       code: "STAFFED_RESOLUTION_EXPIRED",
-      message: "This participant check expired. Scan a fresh portal QR.",
+      message: "This participant check expired. Resolve the participant again.",
     });
   }
   if (resolution.venueAction !== undefined) {
     throw new ConvexError({
       code: "STAFFED_RESOLUTION_USED",
-      message: "Scan a fresh portal QR before another venue check-in action.",
+      message: "Resolve the participant again before another venue check-in action.",
     });
   }
   return resolution;
@@ -83,13 +80,13 @@ export async function requireAvailableStaffedCredentialResolution(
   if (resolution.expiresAt <= args.now) {
     throw new ConvexError({
       code: "STAFFED_RESOLUTION_EXPIRED",
-      message: "This participant check expired. Scan a fresh portal QR.",
+      message: "This participant check expired. Resolve the participant again.",
     });
   }
   if (resolution.credentialAction !== undefined) {
     throw new ConvexError({
       code: "STAFFED_CREDENTIAL_RESOLUTION_USED",
-      message: "Scan a fresh portal QR before another credential action.",
+      message: "Resolve the participant again before another credential action.",
     });
   }
   return resolution;
@@ -111,7 +108,7 @@ export async function requireClaimedStaffedCredentialResolution(
   ) {
     throw new ConvexError({
       code: "STAFFED_CREDENTIAL_RESOLUTION_REQUIRED",
-      message: "Restart credential setup from this participant's fresh portal QR.",
+      message: "Resolve this participant again before restarting credential setup.",
     });
   }
   return resolution;
@@ -144,7 +141,7 @@ async function requireStaffedResolutionContext(ctx: MutationCtx, args: StaffedRe
   ) {
     throw new ConvexError({
       code: "STAFFED_RESOLUTION_REQUIRED",
-      message: "Scan this participant's fresh portal QR on this phone before continuing.",
+      message: "Resolve this participant on this phone before continuing.",
     });
   }
   return resolution;
@@ -157,7 +154,7 @@ function requireResolutionMembership(
   if (resolution.membershipId !== membershipId) {
     throw new ConvexError({
       code: "STAFFED_RESOLUTION_REQUIRED",
-      message: "Scan this participant's fresh portal QR before continuing.",
+      message: "Resolve this participant before continuing.",
     });
   }
 }

@@ -13,7 +13,8 @@ import {
   requireEventSubject,
   requireMembership,
 } from "./lib/identity";
-import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
+import { matchingPermissionGrantIds, requirePermission,
+} from "./lib/permissions";
 import { estimateQueueWindow } from "./lib/queueEstimate";
 import { participantQueuePosition } from "./lib/reviewQueueProjection";
 import {
@@ -57,7 +58,8 @@ function randomToken() {
 function randomManualCode() {
   const alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
   const bytes = crypto.getRandomValues(new Uint8Array(12));
-  const compact = Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join("");
+  const compact = Array.from(bytes, (byte) => alphabet[byte % alphabet.length],
+  ).join("");
   return `${compact.slice(0, 4)}-${compact.slice(4, 8)}-${compact.slice(8, 12)}`;
 }
 
@@ -66,7 +68,7 @@ function tokenDigest(value: string) {
 }
 
 function isLiveReview(status: Doc<"reviewSessions">["status"]) {
-  return ["awaiting_presence", "active", "overdue"].includes(status);
+  return ["awaiting_presence", "active", "scoring"].includes(status);
 }
 
 export const current = query({
@@ -85,8 +87,17 @@ export const current = query({
         isPaused: v.boolean(),
       }),
       state: teamRoundState,
-      panel: v.union(v.null(), v.object({ id: v.id("reviewPanels"), name: v.string() })),
+      panel: v.union(v.null(), v.object({ id: v.id("reviewPanels"), name: v.string() }),
+      ),
       teamsAhead: v.optional(v.number()),
+      notice: v.union(
+        v.null(),
+        v.object({
+          kind: v.union(v.literal("up_next"), v.literal("called")),
+          message: v.string(),
+          createdAt: v.number(),
+        }),
+      ),
       estimate: v.union(
         v.null(),
         v.object({
@@ -139,7 +150,8 @@ export const current = query({
     if (rounds.length > maximumReviewRoundsPerEvent) {
       throw new Error("An event exceeds the published review-round limit.");
     }
-    const openRounds = rounds.sort((left, right) => left.sequence - right.sequence);
+    const openRounds = rounds.sort((left, right) => left.sequence - right.sequence,
+    );
     let selectedRound: Doc<"reviewRounds"> | null = null;
     let selectedState: Doc<"teamRoundStates"> | null = null;
     for (const round of openRounds) {
@@ -156,16 +168,28 @@ export const current = query({
       }
     }
     if (!selectedRound) return null;
-    const roundPause = await activeRoundPause(ctx, selectedRound._id);
-    const panel = selectedState?.panelId ? await ctx.db.get(selectedState.panelId) : null;
-    const sessions = await ctx.db
-      .query("reviewSessions")
-      .withIndex("by_round_team_status", (index) =>
-        index.eq("roundId", selectedRound._id).eq("teamId", teamContext.team._id),
-      )
-      .take(maximumReviewSessionsPerTeamRound + 1);
+    const [roundPause, panel, sessions, latestNotice] = await Promise.all([
+      activeRoundPause(ctx, selectedRound._id),
+      selectedState?.panelId ? ctx.db.get(selectedState.panelId) : null,
+      ctx.db
+        .query("reviewSessions")
+        .withIndex("by_round_team_status", (index) =>
+          index.eq("roundId", selectedRound._id).eq("teamId", teamContext.team._id),
+        )
+        .take(maximumReviewSessionsPerTeamRound + 1),
+      selectedState
+        ? ctx.db
+            .query("reviewTeamNotices")
+            .withIndex("by_round_team_created", (index) =>
+              index.eq("roundId", selectedRound._id).eq("teamId", teamContext.team._id),
+            )
+            .order("desc")
+            .first()
+        : null,
+    ]);
     if (sessions.length > maximumReviewSessionsPerTeamRound) {
-      throw new Error("A team exceeds the review-attempt limit for this round.");
+      throw new Error("A team exceeds the review-attempt limit for this round.",
+      );
     }
     const session = sessions.find((candidate) => isLiveReview(candidate.status)) ?? null;
     let assignments: Doc<"reviewAssignments">[] = [];
@@ -175,11 +199,13 @@ export const current = query({
       const [loadedAssignments, loadedPresences, teamQrGrantIds] = await Promise.all([
         ctx.db
           .query("reviewAssignments")
-          .withIndex("by_session_person", (index) => index.eq("reviewSessionId", session._id))
+          .withIndex("by_session_person", (index) => index.eq("reviewSessionId", session._id),
+            )
           .take(maximumReviewersPerPanel + 1),
         ctx.db
           .query("reviewPresence")
-          .withIndex("by_session_reviewer", (index) => index.eq("reviewSessionId", session._id))
+          .withIndex("by_session_reviewer", (index) => index.eq("reviewSessionId", session._id),
+            )
           .take(maximumReviewersPerPanel + 1),
         matchingPermissionGrantIds(ctx, {
           eventId: event._id,
@@ -206,8 +232,8 @@ export const current = query({
       if (panelId === undefined) {
         throw new Error("A queued team must have a panel and queue time.");
       }
-      teamsAhead = await participantQueuePosition(ctx, selectedState);
-      const [awaitingPresence, activeReview, overdueReview, completedReviews] = await Promise.all([
+      const [queuePosition, awaitingPresence, activeReview, scoringReview, completedReviews, queuePolicy] = await Promise.all([
+        participantQueuePosition(ctx, selectedState),
         ctx.db
           .query("reviewSessions")
           .withIndex("by_panel_status", (index) =>
@@ -223,7 +249,7 @@ export const current = query({
         ctx.db
           .query("reviewSessions")
           .withIndex("by_panel_status", (index) =>
-            index.eq("panelId", panelId).eq("status", "overdue"),
+            index.eq("panelId", panelId).eq("status", "scoring"),
           )
           .first(),
         ctx.db
@@ -233,16 +259,23 @@ export const current = query({
           )
           .order("desc")
           .take(9),
+        ctx.db
+          .query("reviewQueuePolicies")
+          .withIndex("by_round", (index) => index.eq("roundId", selectedRound._id))
+          .unique(),
       ]);
-      const livePanelReview = activeReview ?? overdueReview ?? awaitingPresence;
+      teamsAhead = queuePosition;
+      const livePanelReview = activeReview ?? scoringReview ?? awaitingPresence;
+      const scoringBuffer = queuePolicy?.scoringBufferSeconds ?? 90;
       const estimatedWindow = roundPause
         ? null
         : estimateQueueWindow({
             now: serverNow,
-            configuredDurationSeconds: selectedRound.reviewDurationSeconds,
+            configuredDurationSeconds: selectedRound.reviewDurationSeconds + scoringBuffer,
             teamsAhead,
             ...(livePanelReview?.plannedEndAt !== undefined
-              ? { activeReviewPlannedEndAt: livePanelReview.plannedEndAt }
+              ? { activeReviewPlannedEndAt: livePanelReview.plannedEndAt + scoringBuffer * 1000,
+                }
               : livePanelReview
                 ? {
                     activeReviewPlannedEndAt:
@@ -264,7 +297,22 @@ export const current = query({
           }
         : null;
     }
+    const notice =
+      latestNotice &&
+      selectedState &&
+      !roundPause &&
+      latestNotice.queueVersion === selectedState.version &&
+      latestNotice.panelId === selectedState.panelId &&
+      selectedState.state ===
+        (latestNotice.kind === "up_next" ? "queued" : "called")
+        ? {
+            kind: latestNotice.kind,
+            message: latestNotice.message,
+            createdAt: latestNotice.createdAt,
+          }
+        : null;
     return {
+      notice,
       teamId: teamContext.team._id,
       teamName: teamContext.team.name,
       serverNow,
@@ -284,7 +332,8 @@ export const current = query({
             id: session._id,
             status: session.status,
             reviewerPresenceCount: presences.length,
-            reviewerCount: assignments.filter((assignment) => assignment.status === "assigned")
+            reviewerCount: assignments.filter((assignment) => assignment.status === "assigned",
+            )
               .length,
             canShowTeamQr: session.status === "awaiting_presence" && canMintTeamQr,
           }
@@ -301,7 +350,8 @@ export const teamQrState = query({
   returns: v.union(
     v.null(),
     v.object({
-      state: v.union(v.literal("active"), v.literal("superseded"), v.literal("expired")),
+      state: v.union(v.literal("active"), v.literal("superseded"), v.literal("expired"),
+      ),
       expiresAt: v.number(),
     }),
   ),
@@ -375,7 +425,8 @@ export const mintTeamQr = mutation({
         .unique(),
       ctx.db
         .query("reviewTeamQrTokens")
-        .withIndex("by_session_version", (index) => index.eq("reviewSessionId", session._id))
+        .withIndex("by_session_version", (index) => index.eq("reviewSessionId", session._id),
+        )
         .order("desc")
         .first(),
     ]);
@@ -422,7 +473,8 @@ export const mintTeamQr = mutation({
       action: "review.team_qr_issued",
       targetType: "review_team_qr",
       targetId: tokenId,
-      nextSummary: JSON.stringify({ reviewSessionId: session._id, tokenVersion, expiresAt }),
+      nextSummary: JSON.stringify({ reviewSessionId: session._id, tokenVersion, expiresAt,
+      }),
       reason: "Team member opened the current reviewer-presence QR",
     });
     return {

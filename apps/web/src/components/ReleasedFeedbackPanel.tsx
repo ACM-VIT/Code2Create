@@ -3,6 +3,13 @@ import { useQuery } from "convex/react";
 
 import { eventSlug } from "../lib/config";
 
+const scoreFormatter = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
+const dateFormatter = new Intl.DateTimeFormat(undefined, {
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+});
+
 export function ReleasedFeedbackPanel() {
   const releases = useQuery(api.scoreGovernance.participantFeedback, { eventSlug });
 
@@ -60,13 +67,9 @@ export function ReleasedFeedbackPanel() {
 }
 
 function formatScore(value: number) {
-  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(value);
+  return scoreFormatter.format(value);
 }
 
 function formatTime(value: number) {
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  }).format(value);
+  return dateFormatter.format(value);
 }

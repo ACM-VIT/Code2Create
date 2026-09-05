@@ -4,6 +4,10 @@ import {
 } from "@code2create/domain";
 import type { OutboundCallRequest } from "@code2create/domain";
 import { z } from "zod";
+import {
+  venueConfirmationCallSchema,
+  venueCallResponseSchema,
+} from "./venue-confirmation.js";
 
 const deliveryId = z.string().min(1).max(128);
 const e164Phone = z.string().regex(/^\+[1-9]\d{7,14}$/u);
@@ -18,6 +22,7 @@ export const outboundCallRequestSchema: z.ZodType<OutboundCallRequest> = z
     destinationPhoneE164: e164Phone,
     script: z.string().min(8).max(600),
     callbackUrl,
+    venueConfirmation: venueConfirmationCallSchema.optional(),
   })
   .strict();
 
@@ -30,6 +35,7 @@ export const outboundCallEventSchema = z
     providerAt: z.number().int().nonnegative(),
     providerCallId: z.string().min(1).max(128).optional(),
     providerErrorCode: z.string().min(1).max(120).optional(),
+    venueResponse: venueCallResponseSchema.optional(),
   })
   .strict();
 
@@ -58,8 +64,7 @@ export const sarvamErrorResponseSchema = z
         z.array(
           z
             .object({ msg: z.string().min(1).max(500) })
-            .loose(),
-        ),
+            .loose()),
       ])
       .optional(),
     message: z.string().min(1).max(500).optional(),
@@ -81,6 +86,19 @@ export const sarvamOutboundWebhookSchema = z
         agent_phone_number: e164Phone,
       })
       .loose(),
+    final_agent_variables: z.unknown().optional(),
+    interaction_transcript: z
+      .array(
+        z
+          .object({
+            role: z.enum(["agent", "user"]),
+            en_text: z.string().max(4000),
+          })
+          .loose(),
+      )
+      .max(100)
+      .nullable()
+      .optional(),
     failure_reason: z.string().min(1).max(500).nullable().optional(),
     webhook_config: z
       .object({

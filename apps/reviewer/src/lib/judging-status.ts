@@ -74,6 +74,8 @@ export function judgingStatus(
   if (duty === undefined) return { status: "—", active: false };
   if (!duty.deviceRegistered) return { status: "Set up phone", active: false };
   if (!duty.panelAssigned) return { status: "No panel yet", active: false };
+  if (duty.clockInStatus === "clocked_out") return { status: "Clocked out", active: false };
+  if (duty.clockInStatus === "no_show") return { status: "Off panel", active: false };
   if (duty.clockInStatus !== "present") return { status: "Not clocked in", active: false };
   if (!duty.review) return { status: "Waiting", active: false };
   if (!duty.review.reviewerPresenceConfirmed) {

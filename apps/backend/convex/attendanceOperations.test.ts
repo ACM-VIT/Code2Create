@@ -23,7 +23,7 @@ const actionPermissions = [
 ] as const;
 
 describe("attendance operations visibility", () => {
-  test("an exact-session action grant exposes its session and capability", async () => {
+  test("session-scoped grants preserve operations and paginated roster visibility", async () => {
     const backend = convexTest(schema, modules);
     backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
     const now = Date.UTC(2027, 8, 10, 8);
@@ -138,9 +138,9 @@ describe("attendance operations visibility", () => {
           grantedByPersonId: ownerId,
           reason: "Attendance action visibility test",
         });
-        readers.push({ ...identity, permission });
+        readers.push({ ...identity, personId, subjectId, permission });
       }
-      return { eventSlug: `attendance-operations-${now}`, sessionId, readers };
+      return { eventId, ownerId, eventSlug: `attendance-operations-${now}`, sessionId, readers };
     });
 
     for (const reader of fixture.readers) {
@@ -153,6 +153,87 @@ describe("attendance operations visibility", () => {
       expect(session.id).toBe(fixture.sessionId);
       expect(session[reader.permission.capability]).toBe(true);
     }
+
+    const reader = fixture.readers[0];
+    if (!reader) throw new Error("Roster reader fixture is missing.");
+    const authenticated = backend.withIdentity({
+      subject: reader.authUserId,
+      sessionId: reader.authSessionId,
+    });
+    const args = { eventSlug: fixture.eventSlug, sessionId: fixture.sessionId };
+    expect(await authenticated.query(api.attendanceOperations.sessionRoster, {
+      ...args, paginationOpts: { numItems: 3, cursor: null },
+    })).toEqual({ page: [], isDone: true, continueCursor: "" });
+
+    const expected = await backend.run(async (ctx) => {
+      await insertPermissionGrant(ctx, {
+        eventId: fixture.eventId,
+        personId: reader.personId,
+        eventAccessSubjectId: reader.subjectId,
+        permissionKey: "attendance.history.read",
+        scopeType: "attendance_session",
+        scopeId: fixture.sessionId,
+        sourceType: "manual",
+        sourceId: "roster-read-test",
+        grantedByPersonId: fixture.ownerId,
+        reason: "Roster pagination test",
+      });
+      for (const [index, participant] of fixture.readers.entries()) {
+        const membershipId = await ctx.db.insert("eventMemberships", {
+          eventId: fixture.eventId,
+          personId: participant.personId,
+          eventAccessSubjectId: participant.subjectId,
+          participantClass: "vit_student",
+          eligibilityStatus: "eligible",
+          onboardingStatus: "accepted",
+          acceptedParticipantPolicyVersionIds: [],
+          createdAt: now,
+          updatedAt: now,
+        });
+        await ctx.db.insert("attendanceSessionParticipants", {
+          eventId: fixture.eventId,
+          sessionId: fixture.sessionId,
+          membershipId,
+          expectation: "required",
+          state: index % 2 === 0 ? "present" : "confirmation_due",
+          late: false,
+          version: 1,
+          updatedAt: now,
+        });
+      }
+      return ctx.db.query("attendanceSessionParticipants")
+        .withIndex("by_session_membership", (index) => index.eq("sessionId", fixture.sessionId))
+        .take(10);
+    });
+
+    const first = await authenticated.query(api.attendanceOperations.sessionRoster, {
+      ...args, paginationOpts: { numItems: 3, cursor: null },
+    });
+    expect(first.isDone).toBe(false);
+    expect(first.page.map((participant) => participant.membershipId))
+      .toEqual(expected.slice(0, 3).map((participant) => participant.membershipId));
+    const rest = await authenticated.query(api.attendanceOperations.sessionRoster, {
+      ...args, paginationOpts: { numItems: 10, cursor: first.continueCursor },
+    });
+    expect(rest.isDone).toBe(true);
+    expect(rest.page.map((participant) => participant.membershipId))
+      .toEqual(expected.slice(3).map((participant) => participant.membershipId));
+    for (const participant of [...first.page, ...rest.page]) {
+      expect(participant.displayName).toMatch(/^Attendance action /);
+      expect(participant.canVoidLastTransition).toBe(false);
+      expect(participant.version).toBe(1);
+      expect(participant).not.toHaveProperty("teamName");
+      expect(participant).not.toHaveProperty("lastEventId");
+    }
+    const present = await authenticated.query(api.attendanceOperations.sessionRoster, {
+      ...args, state: "present", paginationOpts: { numItems: 10, cursor: null },
+    });
+    expect(present.isDone).toBe(true);
+    expect(present.page).toHaveLength(4);
+    expect(present.page.every((participant) => participant.state === "present")).toBe(true);
+    expect(new Set(present.page.map((participant) => participant.membershipId)))
+      .toEqual(new Set(expected.filter((participant) => participant.state === "present")
+        .map((participant) => participant.membershipId)));
   });
 });
 

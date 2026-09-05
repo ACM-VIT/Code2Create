@@ -1,4 +1,10 @@
+import {
+  reviewQuestionAgentVersion,
+  reviewQuestionInstructions,
+} from "./reviewQuestions.ts";
+
 export const intelligenceAgentIds = [
+  "review-questions",
   "idea-submission",
   "operations-episode",
   "operations-brief",
@@ -138,7 +144,46 @@ const prompt = (
 
 export const intelligenceAgentDefinitions: readonly IntelligenceAgentDefinition[] = [
   {
-    id: "idea-submission",
+    id: "review-questions",
+      name: "Review questions",
+      version: reviewQuestionAgentVersion,
+      description:
+        "Prepares source-linked verbal questions for human project reviews.",
+      operation: "continuous",
+      model: "Configured per review round",
+      thinking: "low",
+      compaction: "Disabled; one frozen evidence version",
+      durability:
+        "Create-only agent identity for each evidence version and attempt; idempotent callback",
+      identity: "Review-question set ID and preparation attempt",
+      trigger:
+        "Published round policy, changed source evidence, or review start",
+      memory: [
+        "Frozen, redacted idea and progress updates",
+        "Pinned repository samples and Figma design outlines",
+        "Publish reminder state",
+      ],
+      authority: [
+        "Publish optional, source-linked verbal questions",
+        "Cannot grade, change assignments, or mutate event state",
+      ],
+      tools: ["publish_review_questions"],
+      prompts: [
+        {
+          name: "Review question instructions",
+          purpose:
+            "Keeps suggested questions separate from grading and grounded in captured evidence.",
+          text: reviewQuestionInstructions,
+        },
+      ],
+      management: {
+        href: "/reviews",
+        label: "Manage review rounds",
+        note: "Each round configures question count, refresh, source budget, model and retries.",
+      },
+    },
+    {
+      id: "idea-submission",
     name: "Idea submission",
     version: "idea-submission-v1",
     description:
@@ -252,7 +297,8 @@ export const intelligenceAgentDefinitions: readonly IntelligenceAgentDefinition[
     durability: "Two attempts per manual run; backend dispatch recovery remains authoritative",
     identity: "One durable instance per manual brief run",
     trigger: "An authorized operator requests a brief",
-    memory: ["One publish-reminder flag inside the run", "No cross-run semantic memory"],
+    memory: ["One publish-reminder flag inside the run", "No cross-run semantic memory",
+      ],
     authority: [
       "Select up to three non-overlapping groups of exact signal keys",
       "A deterministic projector authors the final headline, summary, priority, owner, and action text",
@@ -371,7 +417,8 @@ export const intelligenceAgentDefinitions: readonly IntelligenceAgentDefinition[
 ] as const;
 
 export function intelligenceAgentDefinition(agentId: IntelligenceAgentId) {
-  const definition = intelligenceAgentDefinitions.find((candidate) => candidate.id === agentId);
+  const definition = intelligenceAgentDefinitions.find((candidate) => candidate.id === agentId,
+  );
   if (definition === undefined) throw new Error(`Unknown intelligence agent: ${agentId}`);
   return definition;
 }

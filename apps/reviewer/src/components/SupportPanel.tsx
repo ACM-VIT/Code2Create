@@ -67,7 +67,6 @@ export function SupportPanel({
   const cases = useQuery(api.support.mine, { eventSlug });
   const createCase = useMutation(api.support.createSelf);
   const router = useRouter();
-  const [quickAreaHeight, setQuickAreaHeight] = useState(0);
   const [reporting, setReporting] = useState(false);
   const [category, setCategory] = useState<SupportCategory>("reviewer_device");
   const [description, setDescription] = useState("");
@@ -110,13 +109,8 @@ export function SupportPanel({
 
   if (sorted === undefined) return <CaseListSkeleton />;
 
-  const quickCount =
-    quickAreaHeight === 0
-      ? 2
-      : Math.max(2, Math.min(quickReports.length, Math.floor((quickAreaHeight - 34) / 66)));
-
   return (
-    <View style={styles.fixedRoot}>
+    <View style={styles.root}>
       <Lead
         accent={palette.setup}
         detail={
@@ -152,25 +146,20 @@ export function SupportPanel({
         </Section>
       ) : null}
 
-      <View
-        style={styles.quickArea}
-        onLayout={(event) => setQuickAreaHeight(event.nativeEvent.layout.height)}
-      >
-        {canCreate ? (
-          <Section title="Something wrong?">
-            {quickReports.slice(0, quickCount).map(([value, label]) => (
-              <Row
-                key={value}
-                label={label}
-                onPress={() => {
-                  if (!createPending) setCategory(value);
-                  setReporting(true);
-                }}
-              />
-            ))}
-          </Section>
-        ) : null}
-      </View>
+      {canCreate ? (
+        <Section title="Something wrong?">
+          {quickReports.map(([value, label]) => (
+            <Row
+              key={value}
+              label={label}
+              onPress={() => {
+                if (!createPending) setCategory(value);
+                setReporting(true);
+              }}
+            />
+          ))}
+        </Section>
+      ) : null}
 
       {canCreate ? (
         <Action
@@ -341,8 +330,7 @@ function errorMessage(caught: unknown, fallback: string) {
 }
 
 const styles = StyleSheet.create({
-  fixedRoot: { flex: 1, paddingHorizontal: 20, paddingTop: 14, paddingBottom: 18, gap: 18 },
-  quickArea: { flex: 1 },
+  root: { gap: 18 },
   row: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", gap: 12 },
   code: { color: palette.text, fontSize: 17, fontWeight: "600" },
   state: { color: palette.muted, fontSize: 15 },

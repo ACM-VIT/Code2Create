@@ -2,11 +2,15 @@
 
 ## 1. Operating model
 
-A panel is a group of reviewers who walk to the teams they review for a round. A queue contains teams that the panel can review.
+A panel is a stable review station with a queue. Teams report to the review desk and staff place them into a suitable panel's queue.
 
-In the judging documents, “reviewer” normally means a person rostered as External Judge, but authorization comes from the panel/review permission grants. Any event-linked person with the same exact assignment grants can judge regardless of role. Panel coordinator is a per-panel assignment, not another role.
+In the judging documents, “reviewer” means a person assigned to judge, including Board, SC, JC or External Judge; authorization comes from the panel/review permission grants. Any event-linked person with the same exact assignment grants can judge regardless of role. Panel coordinator is a per-panel assignment, not another role.
 
-The working panel size is three scoring reviewers. Final panel size and criterion-coverage rules remain event policy.
+The event defaults to six or seven panels, each with five reviewers: one Board lead, two SC, and two JC. If a Board member is unavailable, the strongest eligible available SC fills the lead seat in addition to the two SC seats. JC seats rotate. Every seat, including the lead, must be replaceable while preserving the configured composition and criterion coverage.
+
+All operational settings belong in the ops dashboard. Panel count, seat count and composition, fallback rules, rotation, confirmation time, duration, call and reminder timing, and replacement deadlines are editable event policy. The values in this document are defaults. Published changes are versioned and cannot silently alter a review already underway.
+
+These are the agreed event requirements. See [Event review readiness](15-event-review-readiness.md) for implementation status; a requirement in this handbook does not mean the corresponding automation is complete.
 
 ## 2. Reviewer profile
 
@@ -19,14 +23,16 @@ A caller with `reviewer.profile.manage` prepares each reviewer record before the
 - product/user domains;
 - rubric criteria the reviewer can score;
 - languages;
-- venue availability windows;
+- current round availability confirmations;
 - conflicts and restricted teams;
 - accessibility or scheduling needs;
 - app and training status.
 
 Reviewer type or seniority never changes score weight.
 
-Availability is explicit event policy, not a free-form note. Each profile stores a bounded set of start/end windows. Operations merges touching or overlapping windows when it saves the profile. An active, training-complete reviewer needs at least one window before the planner treats them as ready.
+The reviewer form's hour selections are discarded because the form mistakenly capped answers at three. Its respondents constitute the whole reviewer pool. The import keeps the latest response per email, seniority, domain, declared skills, resume link, and GitHub reference. These declarations help staff prepare profiles; they do not certify training or grant criterion qualifications.
+
+Availability belongs to each round. Around 23:00 IST, the app asks each rostered person to confirm every time window they can cover or explicitly decline. Reviewers can revise their response. The server merges touching or overlapping windows, checks round boundaries, and requires enough time for a complete review. A pending response is not availability, and confirmation is not arrival.
 
 ## 3. Panel planning
 
@@ -46,7 +52,9 @@ The planner shows gaps before a panel can be published. It also estimates how ma
 
 Publishing a plan creates a version. Later edits keep the previous version and record who changed which seat.
 
-Every round publishes three reviewer-staffing controls with the otherwise immutable round configuration: when clock-in opens, when reviewers must report, and the no-show grace in seconds. Clock-in opening is at or before report time; report time is at or before round start; the no-show boundary must not fall after round start. A panel member or reserve is publishable only when one declared profile window covers the whole interval from clock-in opening through round end. The same check applies when a reserve is paged or put into a seat after publication.
+Round publication schedules the app confirmation request and includes the complete selected pool as seats or reserves. Initial seats are provisional until people confirm. Reserves can confirm while profile and training preparation is still in progress; actual clock-in and substitution still require completed qualifications and a registered device. Clock-in, joining a panel, paging a substitute, calling a team, and starting a review recheck the person's confirmed coverage for the next complete review. No profile must promise availability for the whole round.
+
+Round configuration records clock-in opening, initial report time, and no-show grace. Shift rotation must use each person's confirmed hours, page them five minutes before their assignment, and replace departing or nonresponding people promptly. A later confirmed shift must not be treated as a round-start no-show. The staffing scheduler rechecks confirmed shifts and starts replacement pages when needed; a native reminder precedes a confirmed shift.
 
 ### Changing a seat after publication
 
@@ -64,27 +72,11 @@ The leaving seat is marked replaced rather than deleted, so the round export can
 
 ## 4. Routing teams
 
-The router reads the current proposal and reviewer domain tags. It does not read novelty or admission-model output. A security project still needs product and communication coverage. A health project still needs technical and responsible-use coverage.
+The review desk can choose automatic panel selection or explicitly select a panel. Automatic selection reads the submitted project/answers and connected repository languages alongside the assessed reviewer domain tags. It uses no novelty-preview number or admission-model output.
 
-The routing function first removes ineligible panels:
+A candidate must be ready, fully staffed, authorized for the operator, conflict-free, qualified for the published criterion coverage, on duty and confirmed for another complete review. The configured preference is either domain matches followed by shortest estimated wait, or shortest wait alone. Estimates use observed completed reviews plus the configured score-entry allowance. Matching is deterministic text/tag matching, not a model judgment. The accepted panel, matched domains, estimate and rules version are audited.
 
-- known reviewer conflict;
-- panel unavailable or paused;
-- no required criterion coverage;
-- team already reviewed by the panel when policy forbids continuity;
-- panel at its capacity limit.
-
-It then ranks eligible panels using:
-
-1. proposal-domain and reviewer-domain match;
-2. rubric coverage;
-3. current queue length and observed review pace;
-4. continuity or rotation policy for the round;
-5. number of recent manual exceptions.
-
-The ranker is deterministic code with a recorded rules version. It does not call a language model.
-
-Operations can auto-accept the top result for ordinary teams during a configured assignment window. A manual choice outside the top result requires a reason. Assignment becomes fixed when the team enters `queued`; later moves use the exception flow.
+Placement and its eligibility checks happen in one transaction, and an uncertain retry cannot place the team twice. The selected panel is fixed when the team enters `queued`; a later change uses the reasoned move workflow. Staff still decide when a walk-up team enters the review queue.
 
 ## 6. Reviewer clock-in
 
@@ -100,7 +92,7 @@ The server checks:
 - camera permission or documented scanner fallback;
 - no unresolved conflict/training block.
 
-The server uses its own time. Clock-in is accepted at the exact published opening and remains open until, but not including, round end. It rechecks that the reviewer's current profile still covers the complete staffing window before any clock-in, device, operation, or audit write.
+The server uses its own time. Clock-in is accepted at the exact published opening and remains open until, but not including, round end. It rechecks the reviewer's round confirmation before any clock-in, device, operation, or audit write. Returning from a break rechecks that confirmation too.
 
 Clock-in states are:
 
@@ -122,7 +114,7 @@ When a required seat is empty or a reviewer becomes unavailable:
 6. a declined or expired page advances to the next candidate;
 7. operations sees the entire page chain and can select a different eligible reviewer.
 
-The working acknowledgment window is 90 seconds. Push repeats every 30 seconds, and the first repeat can add the phone fallback.
+The setup defaults to a 30-second acknowledgment window. A page timeout must advance to another eligible candidate promptly. Acceptance and physical arrival remain distinct; an accepted replacement who does not arrive also needs replacement. Paging cadence and any phone escalation must fit within the acknowledgment window rather than waiting until the page has already expired.
 
 A delivered push does not count as acceptance. The system sends push first. If the reviewer gave current call consent and does not acknowledge by the first 30-second repage, the reusable outbound-calling service can place a synthesized call under the page chain's still-current `review.substitute.page` authority. If push is unavailable, the call can start at once. Only an authenticated in-app action accepts or declines the page. If no candidate responds, the server advances to the next candidate and operations sends a floor runner. The exception stays visible.
 
@@ -179,7 +171,7 @@ The final missed-call grace period, number of calls, and re-entry position are o
 
 ### Round-wide incident pause
 
-An authorized operator can pause new calls and starts for one open round only after choosing an active review-backend incident that they may read. The pause is a separate versioned record, not another round lifecycle state. Teams already in a panel queue keep their position, and a review already active or overdue can keep saving and finish normally.
+An authorized operator can pause new calls and starts for one open round only after choosing an active review-backend incident that they may read. The pause is a separate versioned record, not another round lifecycle state. Teams already in a panel queue keep their position, and a review already active or scoring can keep saving and finish normally.
 
 `review.round.pause` and `review.round.resume` are independent exact-round permissions. Both commands require a current scoped authorization, the current round and pause versions, a reason, and a stable operation ID. The pause mutation increments the round version, so a concurrent call, start, or close either commits first or retries against the pause and fails. An incident cannot resolve while one of its round pauses remains active.
 
@@ -228,24 +220,20 @@ All clients calculate elapsed time from `startedAt`. They do not send one write 
 
 The start response also includes `serverNow`. Each client calculates remaining time from the observed server offset and advances it with a monotonic device clock. A live update resynchronizes the offset after foregrounding or reconnect.
 
-## 11. Timer and extension
+## 11. Review timer and score entry
 
-The working duration is 10 minutes. The working ordinary extension is one two-minute block.
+The discussion limit defaults to seven minutes and is configurable in ops. The app shows the server-based countdown and tells the panel to finish the discussion at expiry. Score entry and required final comments remain available afterwards. Finishing that paperwork must not extend the team's discussion or silently submit unfinished work.
 
-- The app warns reviewers at configured remaining times.
-- The panel coordinator requests an extension.
-- The server checks the remaining allowance and updates `extensionSeconds`.
-- Operations sees the new end time immediately.
-- Expiry marks the review overdue; it does not auto-submit unfinished scorecards.
-- A further extension or forced close requires `review.timer.extend_exception` or `review.timer.force_close` for that review, as defined by event policy.
+Operations and participant estimates need to distinguish discussion time from score-entry delay. The next team receives a call-up and sees its queue position, estimated review time, and current pace. Late scorecards remain visible until every required reviewer finishes; they must not be silently dropped to make a panel look complete.
 
-Timer settings are frozen with the round configuration.
+The setup defaults to seven minutes and zero ordinary extensions. The deadline transition ends discussion, keeps score entry open and prevents rotation until review completion.
 
 ## 12. Completing the review
 
 A review can complete when:
 
 - every required reviewer has submitted a valid scorecard;
+- every reviewer has left a final comment at the end of the review;
 - every active rubric criterion has the required independent coverage;
 - panel commitments and the next-checkpoint note are present when the round requires them;
 - no scorecard correction is pending;
@@ -253,20 +241,20 @@ A review can complete when:
 
 The completion mutation closes the session, moves the team to `completed` for the round, frees the panel, and advances the queue.
 
-The panel coordinator may confirm completion. The coordinator cannot edit another judge’s score.
+Any assigned reviewer may confirm completion after every active reviewer has submitted their scorecard and final comment and any required shared notes are complete. Removed assignments and their historical scorecards do not block completion. Reviewers cannot edit another judge’s score.
 
 ## 13. Failure handling
 
-| Failure                            | Response                                                                                                      |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| Reviewer does not arrive           | Page substitutes; keep panel visibly blocked until accepted                                                   |
-| Reviewer phone dies                | Move the reviewer to a spare registered device or replace the reviewer                                        |
-| Push is late                       | In-app assignment and dashboard stay current; call or runner is the fallback                                  |
-| QR expired                         | Refresh the participant QR; do not reuse an old token                                                         |
-| Duplicate review start             | Return the existing active session                                                                            |
-| Review runs over                   | Mark overdue and require an explicit extension or close decision                                              |
-| Required scorecard missing         | Keep the review and round incomplete; page the reviewer or start the approved missing-reviewer process        |
-| Review incident pauses the round   | Keep queue positions and active scorecards; reject new calls, starts, and round close until authorized resume |
+| Failure                          | Response                                                                                                      |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Reviewer does not arrive         | Page substitutes; keep panel visibly blocked until accepted                                                   |
+| Reviewer phone dies              | Move the reviewer to a spare registered device or replace the reviewer                                        |
+| Push is late                     | In-app assignment and dashboard stay current; call or runner is the fallback                                  |
+| QR expired                       | Refresh the participant QR; do not reuse an old token                                                         |
+| Duplicate review start           | Return the existing active session                                                                            |
+| Discussion reaches seven minutes | End discussion; keep score entry and final comments available                                                 |
+| Required scorecard missing       | Keep the review and round incomplete; page the reviewer or start the approved missing-reviewer process        |
+| Review incident pauses the round | Keep queue positions and active scorecards; reject new calls, starts, and round close until authorized resume |
 
 ## 14. Acceptance checks
 
@@ -285,3 +273,10 @@ The panel coordinator may confirm completion. The coordinator cannot edit anothe
 - Queue moves, holds, overrides, extensions, and forced closes retain actor and reason.
 - A round pause racing a call, start, incident resolution, or round close has one transactionally consistent winner.
 - Participant and reviewer clients show the generic pause state without receiving the internal incident summary unless they independently hold incident read access.
+
+
+## Venue confirmation and simpler reviewer actions
+
+GPS is advisory. Sustained outside readings prompt an app reminder and, when configured and consented, a conversational check-in call. Ops selects the published voice agent/version and timing; the response and transcript are recorded separately from GPS and call delivery status. A current explicit unavailable answer can end duty and request a substitute between reviews. Active discussion and unfinished scorecards remain locked; unclear answers or requests for help need ops follow-up. No answer never becomes confirmation. Normal clock-in is the return-to-duty action and cancels an older unresolved check.
+
+The review brief is optional: complete eligible repository text and stored Figma structure are analysed in resumable batches before synthesis. The default is up to three grounded follow-ups, including none when the fixed rubric is enough. The reviewer sees a concise brief in the existing app style. Binary assets, inaccessible resources and runtime/visual verification remain explicit limitations. See [current implementation and rehearsal](15-event-review-readiness.md).

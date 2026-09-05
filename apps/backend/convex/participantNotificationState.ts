@@ -7,6 +7,7 @@ import { internalMutation } from "./_generated/server";
 import { applicationMatchesNotification } from "./lib/participantNotificationDelivery";
 import { normalizeEmail } from "./lib/strings";
 import { appendParticipantDeliveryReadFactById } from "./lib/operationsAutonomyReadFacts/participantDeliveries";
+import { participantEmailTemplateKey } from "./values";
 
 const maxAutomaticAttempts = 3;
 const sendClaimMs = 30_000;
@@ -30,6 +31,11 @@ const deliveryClaim = v.union(
   v.null(),
   v.object({
     deliveryId: v.id("participantNotificationDeliveries"),
+    templateKey: participantEmailTemplateKey,
+    eventId: v.id("events"),
+    eventSlug: v.string(),
+    membershipId: v.id("eventMemberships"),
+    participantClass: v.union(v.literal("vit_student"), v.literal("external_participant")),
     destinationEmail: v.string(),
     portalPath: v.string(),
     subjectTemplate: v.string(),
@@ -38,6 +44,10 @@ const deliveryClaim = v.union(
     participantName: v.string(),
     teamName: v.string(),
     eventName: v.string(),
+    eventStartsAt: v.number(),
+    eventEndsAt: v.number(),
+    eventTimezone: v.string(),
+    venueName: v.string(),
     assets: v.array(
       v.object({
         storageId: v.id("_storage"),
@@ -96,18 +106,27 @@ export const claimDelivery = internalMutation({
       delivery.state === "pending" ||
       (delivery.state === "retry_wait" && (delivery.nextAttemptAt ?? 0) <= now);
     if (!canClaim) return null;
-    const [event, application, destination, person, communicationsPolicy, team] = await Promise.all(
+    const [event, application, destination, person, membership, communicationsPolicy, team] = await Promise.all(
       [
         ctx.db.get(delivery.eventId),
         ctx.db.get(delivery.applicationId),
         ctx.db.get(delivery.destinationId),
         ctx.db.get(delivery.personId),
+        ctx.db.get(delivery.membershipId),
         ctx.db.get(delivery.communicationsPolicyVersionId),
         ctx.db.get(delivery.teamId),
       ],
     );
     if (!event || !application || !applicationMatchesNotification(application, delivery)) {
       await finishWithoutSend(ctx, delivery, "superseded", "application_state_changed", now);
+      return null;
+    }
+    if (
+      !membership ||
+      membership.eventId !== delivery.eventId ||
+      membership.personId !== delivery.personId
+    ) {
+      await finishWithoutSend(ctx, delivery, "failed", "membership_context_invalid", now);
       return null;
     }
     if (
@@ -182,6 +201,11 @@ export const claimDelivery = internalMutation({
     });
     return {
       deliveryId: delivery._id,
+      templateKey: delivery.templateKey,
+      eventId: event._id,
+      eventSlug: event.slug,
+      membershipId: membership._id,
+      participantClass: membership.participantClass,
       destinationEmail: destination.emailNormalized,
       portalPath: delivery.portalPath,
       subjectTemplate: emailTemplate.subject,
@@ -190,6 +214,10 @@ export const claimDelivery = internalMutation({
       participantName: person.displayName,
       teamName: team.name,
       eventName: event.name,
+      eventStartsAt: communicationsPolicy.startsAt,
+      eventEndsAt: communicationsPolicy.endsAt,
+      eventTimezone: event.timezone,
+      venueName: communicationsPolicy.venueName,
       assets: (assetBundle?.assets ?? []).map((asset) => ({
         storageId: asset.storageId,
         fileName: asset.fileName,
