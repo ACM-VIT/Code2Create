@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const shortlistVersion = "admission-shortlist-v3";
+export const shortlistVersion = "admission-shortlist-v4";
 export const shortlistIngressContext = "code2create.shortlist.ingress.v1";
 export const shortlistCallbackContext = "code2create.shortlist.callback.v1";
 export const shortlistDomains = [
@@ -433,15 +433,17 @@ export function selectAdmissionShortlist(
   candidates: ShortlistCandidate[],
   comparisons: ShortlistComparison[],
   settings: ShortlistSettings,
+  committed: ShortlistCandidate[] = [],
 ): ShortlistSuggestion[] {
   for (const n of Object.values(settings))
     if (!Number.isSafeInteger(n) || n < 0)
       throw new Error("Invalid people target");
-  const ids = new Set(candidates.map((c) => c.applicationId));
-  if (ids.size !== candidates.length)
+  const allCandidates = [...candidates, ...committed];
+  const ids = new Set(allCandidates.map((c) => c.applicationId));
+  if (ids.size !== allCandidates.length)
     throw new Error("Duplicate shortlist candidate");
   if (
-    candidates.some(
+    allCandidates.some(
       (c) =>
         !Number.isSafeInteger(c.teamSize) || c.teamSize < 1 || c.teamSize > 20,
     )
@@ -489,17 +491,21 @@ export function selectAdmissionShortlist(
   const rank = rankedCandidates(
     eligible.filter((c) => c.quality === "accept"),
     comparisons,
+    committed,
   );
   const representatives: typeof rank = [];
   for (const entry of rank) {
-    const overlaps = representatives.some((other) =>
+    const overlaps = [
+      ...committed,
+      ...representatives.map((other) => other.candidate),
+    ].some((other) =>
       comparisons.some(
         (p) =>
           p.overlap === "substantial" &&
           ((p.leftId === entry.candidate.applicationId &&
-            p.rightId === other.candidate.applicationId) ||
+            p.rightId === other.applicationId) ||
             (p.rightId === entry.candidate.applicationId &&
-              p.leftId === other.candidate.applicationId)),
+              p.leftId === other.applicationId)),
       ),
     );
     if (!overlaps) representatives.push(entry);
@@ -512,7 +518,10 @@ export function selectAdmissionShortlist(
       settings.remainingCapacity,
     ),
   );
-  const acceptedIds = new Set(accepted.map((e) => e.candidate.applicationId));
+  const acceptedIds = new Set([
+    ...committed.map((c) => c.applicationId),
+    ...accepted.map((e) => e.candidate.applicationId),
+  ]);
   for (const e of accepted)
     put(e.candidate, "accept", "selected", [], e.uncertain);
   const waiting = [
@@ -520,7 +529,7 @@ export function selectAdmissionShortlist(
     ...rankedCandidates(
       eligible.filter((c) => c.quality === "waitlist"),
       comparisons,
-      accepted.map((e) => e.candidate),
+      [...committed, ...accepted.map((e) => e.candidate)],
     ),
   ];
   const waitlisted = new Set(

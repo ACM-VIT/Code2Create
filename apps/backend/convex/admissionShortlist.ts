@@ -169,6 +169,7 @@ export const start = mutation({
       pendingJobs: 0,
       failedJobs: 0,
       preparationDone: false,
+      generation: 0,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
@@ -225,7 +226,8 @@ async function latestVisibleRun(
     return {
       ...snapshot,
       state: "stale" as const,
-      error: "Policy, model or shortlist release changed. Start a new snapshot.",
+      error:
+        "Policy, model or shortlist release changed. Start a new snapshot.",
     };
   }
   return run;
@@ -329,6 +331,7 @@ export const retry = mutation({
     if (run.failedJobs) {
       await ctx.db.patch(run._id, {
         state: "retrying",
+        generation: run.generation + 1,
         preparationDone: false,
         error: undefined,
       });
@@ -339,7 +342,11 @@ export const retry = mutation({
         { retry: true },
       );
     } else {
-      await ctx.db.patch(run._id, { state: "preparing", error: undefined });
+      await ctx.db.patch(run._id, {
+        state: "preparing",
+        generation: run.generation + 1,
+        error: undefined,
+      });
       await enqueueAdvance(ctx, run._id);
     }
   },
@@ -348,6 +355,7 @@ export const retry = mutation({
 export const retryJobBatch = internalMutation({
   args: {
     runId: v.id("admissionShortlistRuns"),
+    generation: v.number(),
     jobs: v.array(
       v.object({ jobId: v.id("admissionShortlistJobs"), attempt: v.number() }),
     ),
@@ -355,7 +363,7 @@ export const retryJobBatch = internalMutation({
   handler: async (ctx, args) => {
     if (args.jobs.length > 25) throw new Error("Retry batch is too large");
     const run = await requireRun(ctx, args.runId);
-    if (run.state !== "retrying") return;
+    if (run.state !== "retrying" || run.generation !== args.generation) return;
     await authorize(ctx, run.eventId, run.actorPersonId, true);
     let count = 0;
     for (const expected of args.jobs) {
@@ -383,12 +391,14 @@ export const retryJobBatch = internalMutation({
 });
 
 export const finishRetry = internalMutation({
-  args: { runId: v.id("admissionShortlistRuns") },
+  args: { runId: v.id("admissionShortlistRuns"), generation: v.number() },
   handler: async (ctx, args) => {
     const run = await requireRun(ctx, args.runId);
-    if (run.state !== "retrying") return;
+    if (run.state !== "retrying" || run.generation !== args.generation) return;
     await ctx.db.patch(run._id, {
-      state: run.failedJobs ? "failed" : "profiling",
+      // Replay preparation to create tasks skipped after the original failure.
+      // Existing successful/pending jobs are retained by their frozen keys.
+      state: run.failedJobs ? "failed" : "preparing",
       preparationDone: true,
     });
     if (!run.failedJobs && !run.pendingJobs) await enqueueAdvance(ctx, run._id);
@@ -483,7 +493,7 @@ export const hydrate = internalMutation({
       });
       return false;
     }
-    if (item.committed || item.inputJson) return true;
+    if (item.inputJson) return true;
     const policy = await ctx.db.get(run.policyId);
     const model = await ctx.db.get(run.modelConfigId);
     if (!policy || !model) throw new Error("Missing frozen shortlist policy");
@@ -491,9 +501,10 @@ export const hydrate = internalMutation({
       ? await ctx.db.get(application.aiRecommendationId)
       : null;
     if (
-      !recommendation ||
-      recommendation.applicationContentVersion !== item.contentVersion ||
-      recommendation.modelConfigVersionId !== run.modelConfigId
+      !item.committed &&
+      (!recommendation ||
+        recommendation.applicationContentVersion !== item.contentVersion ||
+        recommendation.modelConfigVersionId !== run.modelConfigId)
     ) {
       const id = await createAdmissionRecommendation(ctx, {
         application,
@@ -505,7 +516,10 @@ export const hydrate = internalMutation({
       await ctx.db.patch(item._id, { recommendationId: id });
       return false;
     }
-    if (recommendation.state !== "succeeded" || !recommendation.recommendation)
+    if (
+      !item.committed &&
+      (recommendation?.state !== "succeeded" || !recommendation.recommendation)
+    )
       return false;
     const sources = [
       {
@@ -541,11 +555,14 @@ export const hydrate = internalMutation({
           application.experienceBand,
         ),
       })),
-      quality: recommendation.recommendation,
+      // A recorded human acceptance is fixed; do not rerun its individual assessment.
+      quality: item.committed ? "accept" : recommendation?.recommendation,
     });
     await ctx.db.patch(item._id, {
       inputJson: JSON.stringify(input),
-      recommendationId: recommendation._id,
+      ...(!item.committed && recommendation
+        ? { recommendationId: recommendation._id }
+        : {}),
     });
     return true;
   },
@@ -554,12 +571,17 @@ export const hydrate = internalMutation({
 export const createJob = internalMutation({
   args: {
     runId: v.id("admissionShortlistRuns"),
+    generation: v.number(),
     key: v.string(),
     inputJson: v.string(),
   },
   handler: async (ctx, args) => {
     const run = await requireRun(ctx, args.runId);
-    if (["complete", "stale", "failed"].includes(run.state)) return;
+    if (
+      run.generation !== args.generation ||
+      ["complete", "stale", "failed", "retrying"].includes(run.state)
+    )
+      return;
     if (run.releaseVersion !== shortlistVersion) {
       await ctx.db.patch(run._id, {
         state: "stale",
@@ -570,6 +592,12 @@ export const createJob = internalMutation({
     if (args.inputJson.length > 180000)
       throw new Error("Shortlist task exceeds the bounded payload limit");
     const task = shortlistTaskSchema.parse(JSON.parse(args.inputJson));
+    const phase = {
+      profile: "profiling",
+      pair: "comparing",
+      audit: "auditing",
+    }[task.kind];
+    if (run.state !== phase) return;
     const prior = await ctx.db
       .query("admissionShortlistJobs")
       .withIndex("by_runId_and_key", (q) =>
@@ -617,6 +645,8 @@ export const createJob = internalMutation({
 export const setProgress = internalMutation({
   args: {
     runId: v.id("admissionShortlistRuns"),
+    generation: v.number(),
+    expectedState: v.string(),
     state: v.union(
       v.literal("waiting"),
       v.literal("profiling"),
@@ -631,7 +661,14 @@ export const setProgress = internalMutation({
   },
   handler: async (ctx, args) => {
     const run = await requireRun(ctx, args.runId);
-    if (["complete", "stale"].includes(run.state)) return;
+    if (
+      run.generation !== args.generation ||
+      run.state !== args.expectedState ||
+      ["complete", "stale", "failed"].includes(run.state)
+    )
+      return;
+    if (run.state === "retrying" && args.state !== "failed") return;
+    if (run.failedJobs > 0 && args.state !== "failed") return;
     if (run.releaseVersion !== shortlistVersion) {
       await ctx.db.patch(run._id, {
         state: "stale",
@@ -639,7 +676,12 @@ export const setProgress = internalMutation({
       });
       return;
     }
-    const { runId: _runId, ...patch } = args;
+    const {
+      runId: _runId,
+      generation: _generation,
+      expectedState: _expectedState,
+      ...patch
+    } = args;
     const policy = await ctx.db.get(run.policyId);
     await ctx.db.patch(run._id, {
       ...patch,
@@ -656,6 +698,7 @@ export const setProgress = internalMutation({
     if (
       args.preparationDone &&
       run.pendingJobs === 0 &&
+      run.failedJobs === 0 &&
       !["failed", "waiting"].includes(args.state)
     )
       await enqueueAdvance(ctx, run._id);
@@ -720,7 +763,9 @@ export const settleJob = internalMutation({
         !current ||
         current.contentVersion !== candidate.contentVersion ||
         current.aiRecommendationId !== candidate.recommendationId ||
-        current.humanDecision
+        (!candidate.committed && current.humanDecision) ||
+        (candidate.committed &&
+          current.version !== candidate.applicationVersion)
       ) {
         await ctx.db.patch(run._id, {
           state: "stale",
@@ -780,6 +825,7 @@ export const expireJob = internalMutation({
 export const saveSuggestions = internalMutation({
   args: {
     runId: v.id("admissionShortlistRuns"),
+    generation: v.number(),
     rows: v.array(
       v.object({
         applicationId: v.id("applications"),
@@ -797,7 +843,7 @@ export const saveSuggestions = internalMutation({
     if (args.rows.length > 25)
       throw new Error("Shortlist write batch is too large");
     const run = await requireRun(ctx, args.runId);
-    if (["stale", "failed", "complete"].includes(run.state)) return;
+    if (run.generation !== args.generation || run.state !== "auditing") return;
     for (const row of args.rows) {
       const result = shortlistSuggestionSchema.parse(
         JSON.parse(row.resultJson),
@@ -825,6 +871,7 @@ export const saveSuggestions = internalMutation({
 export const complete = internalMutation({
   args: {
     runId: v.id("admissionShortlistRuns"),
+    generation: v.number(),
     summaryJson: v.string(),
     expected: v.array(
       v.object({
@@ -839,7 +886,13 @@ export const complete = internalMutation({
   },
   handler: async (ctx, args) => {
     const run = await requireRun(ctx, args.runId);
-    if (run.state !== "auditing" || run.pendingJobs || run.failedJobs) return;
+    if (
+      run.generation !== args.generation ||
+      run.state !== "auditing" ||
+      run.pendingJobs ||
+      run.failedJobs
+    )
+      return;
     shortlistSummarySchema.parse(JSON.parse(args.summaryJson));
     await authorize(ctx, run.eventId, run.actorPersonId, true);
     const event = await ctx.db.get(run.eventId);

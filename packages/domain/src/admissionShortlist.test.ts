@@ -96,11 +96,58 @@ const settings = {
 const selectedIds = (rows: ReturnType<typeof selectAdmissionShortlist>) =>
   rows.filter((r) => r.suggestion === "accept").map((r) => r.applicationId);
 
+test("committed proposals are fixed overlap anchors, even when the pending proposal is preferred", () => {
+  for (const preferred of ["left", "right", "tie"] as const) {
+    const rows = selectAdmissionShortlist(
+      [candidate("duplicate"), candidate("distinct")],
+      [pair("anchor", "duplicate", preferred)],
+      { ...settings, acceptPeople: 4, tolerance: 0 },
+      [candidate("anchor", { quality: "decline" })],
+    );
+    assert.deepEqual(selectedIds(rows), ["distinct"]);
+    assert.equal(rows.length, 2);
+    assert.deepEqual(
+      rows.find((r) => r.applicationId === "duplicate")
+        ?.preferredApplicationIds,
+      ["anchor"],
+    );
+    assert.equal(
+      rows.find((r) => r.applicationId === "duplicate")?.reason,
+      "overlap",
+    );
+    assert.equal(
+      rows.find((r) => r.applicationId === "duplicate")?.suggestion,
+      "waitlist",
+    );
+  }
+});
+
+test("related anchors do not exclude a distinct pending mechanism or consume its new allocation", () => {
+  const rows = selectAdmissionShortlist(
+    [candidate("new")],
+    [pair("anchor", "new", "tie", "related")],
+    { ...settings, acceptPeople: 4, remainingCapacity: 4, tolerance: 0 },
+    [candidate("anchor")],
+  );
+  assert.deepEqual(selectedIds(rows), ["new"]);
+  assert.equal(rows.length, 1);
+  assert.throws(
+    () =>
+      selectAdmissionShortlist([candidate("anchor")], [], settings, [
+        candidate("anchor"),
+      ]),
+    /Duplicate/,
+  );
+});
+
 test("premise calibration separates central inference from integration and benefit claims", () => {
   assert.match(shortlistProfilePrompt, /Missing production integrations/u);
   assert.match(shortlistProfilePrompt, /Judge the central mechanism/u);
   assert.match(shortlistProfilePrompt, /Apply a dependency test/u);
-  assert.match(shortlistProfilePrompt, /not an independently valuable replacement/u);
+  assert.match(
+    shortlistProfilePrompt,
+    /not an independently valuable replacement/u,
+  );
   assert.match(
     shortlistProfilePrompt,
     /A disclaimer or attractive downstream interface cannot replace that evidence/u,

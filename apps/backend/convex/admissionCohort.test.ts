@@ -484,7 +484,9 @@ describe("frozen advisory shortlist lifecycle", () => {
     const applications = await backend.run(async (ctx) => {
       const apps = await ctx.db
         .query("applications")
-        .withIndex("by_event_submitted", (q) => q.eq("eventId", fixture.eventId))
+        .withIndex("by_event_submitted", (q) =>
+          q.eq("eventId", fixture.eventId),
+        )
         .take(10);
       const states = ["withdrawn", "offer_expired", "under_review"] as const;
       for (const [index, app] of apps.entries()) {
@@ -663,6 +665,200 @@ describe("frozen advisory shortlist lifecycle", () => {
     });
     expect(copilot.summaryJson).toBe(finished?.summaryJson);
   });
+
+  test.each(["profiling", "comparing", "auditing"] as const)(
+    "failure during %s preparation stays retryable and recreates missing work",
+    async (phase) => {
+      const backend = seededBackend();
+      const fixture = await seedCohortFixture(backend);
+      await primeShortlistFixture(backend, fixture);
+      const operator = backend.withIdentity({
+        subject: fixture.operatorAuthUserId,
+        sessionId: fixture.operatorAuthSessionId,
+      });
+      const runId = await operator.mutation(api.admissionShortlist.start, {
+        eventSlug: fixture.eventSlug,
+        acceptPeople: 3,
+        waitlistPeople: 2,
+        operationId: `preparation-race-${phase}`,
+      });
+      await backend.action(internal.admissionShortlistActions.advance, {
+        runId,
+      });
+      while (
+        (await backend.query(internal.admissionShortlist.readRun, { runId }))
+          .state !== phase
+      ) {
+        await settleShortlistTestJobs(backend, runId);
+        await backend.action(internal.admissionShortlistActions.advance, {
+          runId,
+        });
+      }
+      const jobs = await pendingShortlistTestJobs(backend, runId);
+      const first = jobs[0];
+      if (!first) throw new Error("Expected phase jobs");
+      const skipped = jobs.length > 1 ? jobs[jobs.length - 1] : undefined;
+      await backend.run(async (ctx) => {
+        if (skipped) await ctx.db.delete(skipped._id);
+        await ctx.db.patch(runId, {
+          preparationDone: false,
+          pendingJobs: jobs.length - (skipped ? 1 : 0),
+        });
+      });
+      await backend.mutation(internal.admissionShortlist.expireJob, {
+        jobId: first._id,
+        attempt: first.attempt,
+      });
+      const finish = {
+        runId,
+        generation: 0,
+        expectedState: phase,
+        state: phase,
+        preparationDone: true,
+      };
+      await backend.mutation(internal.admissionShortlist.setProgress, finish);
+      expect(
+        await backend.query(internal.admissionShortlist.readRun, { runId }),
+      ).toMatchObject({
+        state: "failed",
+        failedJobs: 1,
+        preparationDone: false,
+      });
+      await operator.mutation(api.admissionShortlist.retry, { runId });
+      await backend.mutation(internal.admissionShortlist.setProgress, finish);
+      expect(
+        await backend.query(internal.admissionShortlist.readRun, { runId }),
+      ).toMatchObject({ state: "retrying", generation: 1 });
+      await backend.action(internal.admissionShortlistActions.retryJobs, {
+        runId,
+      });
+      // Even after retry has finished, the original producer cannot write again.
+      await backend.mutation(internal.admissionShortlist.setProgress, {
+        ...finish,
+        expectedState: "preparing",
+      });
+      await backend.mutation(internal.admissionShortlist.createJob, {
+        runId,
+        generation: 0,
+        key: "obsolete-producer",
+        inputJson: first.inputJson,
+      });
+      expect(
+        await backend.query(internal.admissionShortlist.readRun, { runId }),
+      ).toMatchObject({ state: "preparing", failedJobs: 0 });
+      for (let i = 0; i < 8; i++) {
+        await settleShortlistTestJobs(backend, runId);
+        await backend.action(internal.admissionShortlistActions.advance, {
+          runId,
+        });
+        if (
+          (await backend.query(internal.admissionShortlist.readRun, { runId }))
+            .state === "complete"
+        )
+          break;
+      }
+      expect(
+        await backend.query(internal.admissionShortlist.readRun, { runId }),
+      ).toMatchObject({ state: "complete", failedJobs: 0, pendingJobs: 0 });
+      const finalJobs = await backend.run((ctx) =>
+        ctx.db
+          .query("admissionShortlistJobs")
+          .withIndex("by_runId", (q) => q.eq("runId", runId))
+          .collect(),
+      );
+      expect(finalJobs.some((j) => j.key === "obsolete-producer")).toBe(false);
+      if (skipped)
+        expect(finalJobs.find((j) => j.key === skipped.key)?.state).toBe(
+          "succeeded",
+        );
+      expect(finalJobs.find((j) => j._id === first._id)?.attempt).toBe(2);
+    },
+  );
+
+  test.each([true, false])(
+    "accepted proposals remain fixed comparison anchors (existing AI assessment: %s)",
+    async (hasAssessment) => {
+      const backend = seededBackend();
+      const fixture = await seedCohortFixture(backend);
+      await primeShortlistFixture(backend, fixture);
+      await backend.run((ctx) =>
+        ctx.db.patch(fixture.shortApplicationId, {
+          humanDecision: "accept",
+          ...(!hasAssessment ? { aiRecommendationId: undefined } : {}),
+        }),
+      );
+      const before = await backend.run((ctx) =>
+        ctx.db.get(fixture.shortApplicationId),
+      );
+      const operator = backend.withIdentity({
+        subject: fixture.operatorAuthUserId,
+        sessionId: fixture.operatorAuthSessionId,
+      });
+      const runId = await operator.mutation(api.admissionShortlist.start, {
+        eventSlug: fixture.eventSlug,
+        acceptPeople: 3,
+        waitlistPeople: 2,
+        operationId: "fixed-anchor-test",
+      });
+      await backend.action(internal.admissionShortlistActions.advance, {
+        runId,
+      });
+      expect(
+        await backend.query(internal.admissionShortlist.readRun, { runId }),
+      ).toMatchObject({ candidateCount: 2, pendingJobs: 3 });
+      await settleShortlistTestJobs(backend, runId);
+      await backend.action(internal.admissionShortlistActions.advance, {
+        runId,
+      });
+      const pairs = await pendingShortlistTestJobs(backend, runId);
+      expect(
+        pairs.some((job) => {
+          const task = shortlistTaskSchema.parse(JSON.parse(job.inputJson));
+          return (
+            task.kind === "pair" &&
+            [task.left.applicationId, task.right.applicationId].includes(
+              fixture.shortApplicationId,
+            )
+          );
+        }),
+      ).toBe(true);
+      await settleShortlistTestJobs(backend, runId, [
+        fixture.shortApplicationId,
+        fixture.decidableApplicationId,
+      ]);
+      await backend.action(internal.admissionShortlistActions.advance, {
+        runId,
+      });
+      await settleShortlistTestJobs(backend, runId);
+      await backend.action(internal.admissionShortlistActions.advance, {
+        runId,
+      });
+      expect(
+        await backend.query(internal.admissionShortlist.readRun, { runId }),
+      ).toMatchObject({ state: "complete" });
+      const rows = await backend.run((ctx) =>
+        ctx.db
+          .query("admissionShortlistCandidates")
+          .withIndex("by_runId", (q) => q.eq("runId", runId))
+          .collect(),
+      );
+      expect(
+        rows.find((r) => r.applicationId === fixture.shortApplicationId)
+          ?.suggestion,
+      ).toBeUndefined();
+      const duplicate = rows.find(
+        (r) => r.applicationId === fixture.decidableApplicationId,
+      );
+      expect(duplicate?.suggestion).not.toBe("accept");
+      expect(JSON.parse(duplicate?.resultJson ?? "{}")).toMatchObject({
+        reason: "overlap",
+        preferredApplicationIds: [fixture.shortApplicationId],
+      });
+      expect(
+        await backend.run((ctx) => ctx.db.get(fixture.shortApplicationId)),
+      ).toEqual(before);
+    },
+  );
 
   test("changed content stales a snapshot before analysis", async () => {
     const backend = seededBackend();
@@ -855,7 +1051,7 @@ describe("frozen advisory shortlist lifecycle", () => {
       runId,
     });
     expect(run).toMatchObject({
-      state: "profiling",
+      state: "preparing",
       failedJobs: 0,
       pendingJobs: 53,
     });
@@ -938,6 +1134,83 @@ describe("frozen advisory shortlist lifecycle", () => {
     ).rejects.toThrow("Invalid shortlist identity");
   });
 });
+
+async function pendingShortlistTestJobs(
+  backend: BackendTest,
+  runId: Id<"admissionShortlistRuns">,
+) {
+  return backend.run((ctx) =>
+    ctx.db
+      .query("admissionShortlistJobs")
+      .withIndex("by_runId_and_state", (q) =>
+        q.eq("runId", runId).eq("state", "pending"),
+      )
+      .collect(),
+  );
+}
+
+async function settleShortlistTestJobs(
+  backend: BackendTest,
+  runId: Id<"admissionShortlistRuns">,
+  duplicate?: [string, string],
+) {
+  for (const job of await pendingShortlistTestJobs(backend, runId)) {
+    const task = shortlistTaskSchema.parse(JSON.parse(job.inputJson));
+    const result =
+      task.kind === "profile"
+        ? {
+            user: "Campus volunteers",
+            problem: "Missed collections",
+            workflow: "Report a missed collection",
+            mechanism: "Dispatch recorded reports",
+            deliverable: "Report and acknowledge",
+            distinction: "Offline acknowledgement",
+            domain: "civic",
+            aiRole: "none",
+            sourceRefs: ["initial_idea"],
+            premise: {
+              assessment: "supported",
+              explanation: "Reports identify a collection location.",
+              sourceRefs: ["initial_idea"],
+            },
+            category: {
+              datingOrRomanticMatchmaking: false,
+              explanation: "Collection coordination.",
+              sourceRefs: ["initial_idea"],
+            },
+            criteria: task.candidate.criteria.map((c) => ({
+              criterionKey: c.criterionKey,
+              evidence: "adequate",
+              sourceRefs: ["follow_up_4"],
+            })),
+          }
+        : task.kind === "pair"
+          ? {
+              overlap:
+                duplicate?.includes(task.left.applicationId) &&
+                duplicate.includes(task.right.applicationId)
+                  ? "substantial"
+                  : "distinct",
+              preferred:
+                task.left.applicationId === duplicate?.[1] ? "left" : "right",
+              explanation:
+                "The pending proposal is stronger, but the existing offer is fixed.",
+              leftSourceRefs: ["follow_up_4"],
+              rightSourceRefs: ["follow_up_4"],
+            }
+          : { warnings: [] };
+    await backend.mutation(internal.admissionShortlist.settleJob, {
+      runId,
+      jobId: job._id,
+      attempt: job.attempt,
+      resultJson: JSON.stringify(result),
+      embedding:
+        task.kind === "profile"
+          ? Array.from({ length: 1536 }, (_, i) => (i === 0 ? 1 : 0))
+          : [],
+    });
+  }
+}
 
 async function primeShortlistFixture(
   backend: BackendTest,

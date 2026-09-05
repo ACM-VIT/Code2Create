@@ -71,6 +71,9 @@ export const dispatchJob = internalAction({
 export const retryJobs = internalAction({
   args: { runId: v.id("admissionShortlistRuns") },
   handler: async (ctx, args): Promise<void> => {
+    const run = await ctx.runQuery(internal.admissionShortlist.readRun, args);
+    if (run.state !== "retrying") return;
+    const generation = run.generation;
     try {
       let cursor: string | null = null;
       do {
@@ -83,6 +86,7 @@ export const retryJobs = internalAction({
         if (failed.length)
           await ctx.runMutation(internal.admissionShortlist.retryJobBatch, {
             runId: args.runId,
+            generation,
             jobs: failed.map((job) => ({
               jobId: job._id,
               attempt: job.attempt,
@@ -91,10 +95,15 @@ export const retryJobs = internalAction({
         if (page.isDone) break;
         cursor = page.continueCursor;
       } while (cursor !== null);
-      await ctx.runMutation(internal.admissionShortlist.finishRetry, args);
+      await ctx.runMutation(internal.admissionShortlist.finishRetry, {
+        ...args,
+        generation,
+      });
     } catch {
       await ctx.runMutation(internal.admissionShortlist.setProgress, {
         runId: args.runId,
+        generation,
+        expectedState: "retrying",
         state: "failed",
         preparationDone: false,
         error:
@@ -172,11 +181,18 @@ async function dispatchAttempt(
 export const advance = internalAction({
   args: { runId: v.id("admissionShortlistRuns") },
   handler: async (ctx, args): Promise<void> => {
+    const run = await ctx.runQuery(internal.admissionShortlist.readRun, args);
     try {
-      await advanceRun(ctx, args.runId);
+      await advanceRun(ctx, run);
     } catch {
+      const current = await ctx.runQuery(
+        internal.admissionShortlist.readRun,
+        args,
+      );
       await ctx.runMutation(internal.admissionShortlist.setProgress, {
         runId: args.runId,
+        generation: run.generation,
+        expectedState: current.state,
         state: "failed",
         preparationDone: false,
         error:
@@ -188,12 +204,11 @@ export const advance = internalAction({
 
 async function advanceRun(
   ctx: ActionCtx,
-  runId: Id<"admissionShortlistRuns">,
+  snapshot: Doc<"admissionShortlistRuns">,
 ): Promise<void> {
-  let run: Doc<"admissionShortlistRuns"> = await ctx.runQuery(
-    internal.admissionShortlist.readRun,
-    { runId },
-  );
+  let run = snapshot;
+  const runId = run._id;
+  const generation = run.generation;
   if (
     ["complete", "stale", "failed", "retrying"].includes(run.state) ||
     run.pendingJobs > 0
@@ -210,6 +225,8 @@ async function advanceRun(
     if (!ready) {
       await ctx.runMutation(internal.admissionShortlist.setProgress, {
         runId,
+        generation,
+        expectedState: run.state,
         state: "waiting",
         preparationDone: false,
         error:
@@ -226,6 +243,8 @@ async function advanceRun(
     rows = await loadCandidates(ctx, runId);
     await ctx.runMutation(internal.admissionShortlist.setProgress, {
       runId,
+      generation,
+      expectedState: run.state,
       state: "profiling",
       preparationDone: false,
       committedPeople: rows
@@ -233,10 +252,11 @@ async function advanceRun(
         .reduce((sum, r) => sum + r.teamSize, 0),
       candidateCount: rows.filter((r) => !r.committed).length,
     });
-    for (const row of rows.filter((r) => !r.committed)) {
+    for (const row of rows) {
       if (!row.inputJson) throw new Error("Missing frozen input");
       await ctx.runMutation(internal.admissionShortlist.createJob, {
         runId,
+        generation,
         key: `profile:${row.applicationId}`,
         inputJson: JSON.stringify({
           kind: "profile",
@@ -248,40 +268,45 @@ async function advanceRun(
     }
     await ctx.runMutation(internal.admissionShortlist.setProgress, {
       runId,
+      generation,
+      expectedState: "profiling",
       state: "profiling",
       preparationDone: true,
     });
     return;
   }
   if (!run.preparationDone) return;
-  const candidates = rows
-    .filter((r) => !r.committed)
-    .map((row) => {
-      if (!row.inputJson || !row.profileJson || !row.embedding)
-        throw new Error("Incomplete shortlist profiles");
-      return {
-        ...shortlistCandidateInputSchema.parse(JSON.parse(row.inputJson)),
-        profile: shortlistProfileSchema.parse(JSON.parse(row.profileJson)),
-        embedding: row.embedding,
-      };
-    });
+  const candidates = rows.map((row) => {
+    if (!row.inputJson || !row.profileJson || !row.embedding)
+      throw new Error("Incomplete shortlist profiles");
+    return {
+      ...shortlistCandidateInputSchema.parse(JSON.parse(row.inputJson)),
+      committed: row.committed,
+      profile: shortlistProfileSchema.parse(JSON.parse(row.profileJson)),
+      embedding: row.embedding,
+    };
+  });
   if (run.state === "profiling") {
     await ctx.runMutation(internal.admissionShortlist.setProgress, {
       runId,
+      generation,
+      expectedState: "profiling",
       state: "comparing",
       preparationDone: false,
     });
     const comparable = candidates.filter(
       (c) =>
-        c.quality !== "decline" &&
-        c.profile.premise.assessment === "supported" &&
-        !c.profile.category.datingOrRomanticMatchmaking,
+        c.committed ||
+        (c.quality !== "decline" &&
+          c.profile.premise.assessment === "supported" &&
+          !c.profile.category.datingOrRomanticMatchmaking),
     );
     const byId = new Map(comparable.map((c) => [c.applicationId, c]));
     for (const pair of shortlistNeighbourPairs(comparable)) {
       const left = byId.get(pair.leftId);
       const right = byId.get(pair.rightId);
       if (!left || !right) throw new Error("Invalid comparison pair");
+      if (left.committed && right.committed) continue;
       const task: ShortlistTask = {
         kind: "pair",
         left: leftInput(left),
@@ -289,12 +314,15 @@ async function advanceRun(
       };
       await ctx.runMutation(internal.admissionShortlist.createJob, {
         runId,
+        generation,
         key: `pair:${pair.leftId}:${pair.rightId}`,
         inputJson: JSON.stringify(task),
       });
     }
     await ctx.runMutation(internal.admissionShortlist.setProgress, {
       runId,
+      generation,
+      expectedState: "comparing",
       state: "comparing",
       preparationDone: true,
     });
@@ -314,15 +342,22 @@ async function advanceRun(
       });
     }
   }
-  const suggestions = selectAdmissionShortlist(candidates, comparisons, {
-    acceptPeople: run.acceptPeople,
-    waitlistPeople: run.waitlistPeople,
-    remainingCapacity: run.remainingCapacity,
-    tolerance: 5,
-  });
+  const suggestions = selectAdmissionShortlist(
+    candidates.filter((c) => !c.committed),
+    comparisons,
+    {
+      acceptPeople: run.acceptPeople,
+      waitlistPeople: run.waitlistPeople,
+      remainingCapacity: run.remainingCapacity,
+      tolerance: 5,
+    },
+    candidates.filter((c) => c.committed),
+  );
   if (run.state === "comparing") {
     await ctx.runMutation(internal.admissionShortlist.setProgress, {
       runId,
+      generation,
+      expectedState: "comparing",
       state: "auditing",
       preparationDone: false,
     });
@@ -338,6 +373,7 @@ async function advanceRun(
       });
       await ctx.runMutation(internal.admissionShortlist.saveSuggestions, {
         runId,
+        generation,
         rows: batch,
       });
     }
@@ -353,6 +389,7 @@ async function advanceRun(
     for (let offset = 0; offset < auditRows.length; offset += 8)
       await ctx.runMutation(internal.admissionShortlist.createJob, {
         runId,
+        generation,
         key: `audit:${offset}`,
         inputJson: JSON.stringify({
           kind: "audit",
@@ -361,6 +398,8 @@ async function advanceRun(
       });
     await ctx.runMutation(internal.admissionShortlist.setProgress, {
       runId,
+      generation,
+      expectedState: "auditing",
       state: "auditing",
       preparationDone: true,
     });
@@ -407,6 +446,7 @@ async function advanceRun(
       );
     await ctx.runMutation(internal.admissionShortlist.complete, {
       runId,
+      generation,
       expected: rows.map((r) => ({
         applicationId: r.applicationId,
         contentVersion: r.contentVersion,
