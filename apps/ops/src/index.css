@@ -5811,13 +5811,13 @@ button:disabled {
   flex: 0 0 auto;
   font-size: 0.75rem;
 }
-.sidebar-wordmark {
+.sidebar-logo {
   display: block;
+  width: fit-content;
   padding: 4px 10px 16px;
-  color: var(--text);
-  font-size: 0.875rem;
-  font-weight: 500;
-  text-decoration: none;
+}
+.sidebar-logo svg {
+  display: block;
 }
 
 .health-shell {
@@ -7139,7 +7139,7 @@ label > span {
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 8px 12px;
   }
-  .sidebar-wordmark {
+  .sidebar-logo {
     grid-column: 1;
     grid-row: 1;
     padding: 4px 10px;
