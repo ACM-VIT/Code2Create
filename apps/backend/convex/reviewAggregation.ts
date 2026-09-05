@@ -250,6 +250,7 @@ export const results = query({
               v.literal("result"),
               v.literal("excluded"),
               v.literal("withdrawn"),
+              v.literal("skipped"),
               v.literal("missing"),
             ),
           }),
@@ -337,11 +338,12 @@ export const results = query({
     );
     if (teamIds.size > maximumReviewTeamsPerEvent)
       throw new Error("Review team limit exceeded.");
-    const teams = await Promise.all(
+    const teamResults = await Promise.all(
       [...teamIds].map(async (teamId) => {
         const team = await ctx.db.get(teamId);
         if (!team || team.eventId !== event._id)
           throw new Error("Aggregation team is missing.");
+        if (team.competitionCategory === "oc") return null;
         let total = 0;
         let complete = true;
         const values = rounds.map((entry, index) => {
@@ -369,6 +371,7 @@ export const results = query({
         };
       }),
     );
+    const teams = teamResults.filter((team) => team !== null);
     teams.sort(
       (a, b) =>
         (b.totalPoints ?? -1) - (a.totalPoints ?? -1) ||

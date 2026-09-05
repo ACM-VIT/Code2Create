@@ -496,7 +496,7 @@ export const start = mutation({
       });
     }
     const unresolvedStates = states.filter(
-      (state) => !["completed", "withdrawn"].includes(state.state),
+      (state) => !["completed", "withdrawn", "skipped"].includes(state.state),
     );
     if (unresolvedStates.length > 0) {
       throw new ConvexError({
@@ -531,7 +531,7 @@ export const start = mutation({
     ]);
     const resultCount = entries.filter((entry) => entry.payload.kind === "result",
     ).length;
-    const exclusionCount = entries.filter((entry) => entry.payload.kind === "excluded",
+    const exclusionCount = entries.filter((entry) => entry.payload.kind === "excluded" || entry.payload.kind === "skipped",
     ).length;
     const withdrawnCount = entries.filter((entry) => entry.payload.kind === "withdrawn",
     ).length;
@@ -563,7 +563,7 @@ export const start = mutation({
     const closingRoundVersion = round.version + 1;
     const exportedReviewIds = new Set(
       entries.flatMap((entry) =>
-        entry.payload.kind === "withdrawn" ? [] : [entry.payload.reviewSessionId],
+        (entry.payload.kind === "withdrawn" || entry.payload.kind === "skipped") ? [] : [entry.payload.reviewSessionId],
       ),
     );
     const counts = {
@@ -853,10 +853,10 @@ async function teamExportContext(
       .query("applications")
       .withIndex("by_team", (index) => index.eq("teamId", team._id))
       .unique(),
-    entry.payload.kind === "withdrawn" ? null : ctx.db.get(entry.payload.reviewSessionId),
+    (entry.payload.kind === "withdrawn" || entry.payload.kind === "skipped") ? null : ctx.db.get(entry.payload.reviewSessionId),
   ]);
   const projectVersionId =
-    entry.payload.kind === "withdrawn"
+    (entry.payload.kind === "withdrawn" || entry.payload.kind === "skipped")
       ? team.lockedProjectVersionId
       : session?.projectVersionId;
   const projectVersion = projectVersionId ? await ctx.db.get(projectVersionId) : null;
@@ -886,11 +886,12 @@ async function teamExportContext(
       : null,
     projectVersion,
   };
-  if (entry.payload.kind === "withdrawn") {
+  if (entry.payload.kind === "withdrawn" || entry.payload.kind === "skipped") {
     return {
       json: JSON.stringify({
-        disposition: "withdrawn",
+        disposition: entry.payload.kind,
         team: teamSnapshot,
+        ...(entry.payload.kind === "skipped" ? { reason: entry.payload.reason } : {}),
       }),
       csvRows: [
         roundExportCsvRow({
@@ -898,7 +899,7 @@ async function teamExportContext(
           roundName: round.name,
           teamReference: String(team._id),
           teamName: team.name,
-          teamState: "withdrawn",
+          teamState: entry.payload.kind,
           applicationState: application?.state ?? "",
           reviewReference: "",
           reviewState: "",
@@ -915,7 +916,7 @@ async function teamExportContext(
           criterionLabel: "",
           criterionWeight: "",
           rating: "",
-          evidenceNote: "",
+          evidenceNote: entry.payload.kind === "skipped" ? entry.payload.reason : "",
           privateNote: "",
           finalComment: "",
           evaluationScoreCount: "",
@@ -925,14 +926,14 @@ async function teamExportContext(
           totalPoints: "",
           sharedFindings: "",
           sharedCommitments: "",
-          disposition: "withdrawn",
+          disposition: entry.payload.kind,
         }),
       ],
       counts: {
         team: 1,
         result: 0,
-        excluded: 0,
-        withdrawn: 1,
+        excluded: entry.payload.kind === "skipped" ? 1 : 0,
+        withdrawn: entry.payload.kind === "withdrawn" ? 1 : 0,
         reviewSession: 0,
         scorecard: 0,
         scorecardVersion: 0,

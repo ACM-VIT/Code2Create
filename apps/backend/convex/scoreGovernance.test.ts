@@ -192,6 +192,8 @@ describe("combined review results", () => {
     const incomplete = await read();
     expect(incomplete.teams[0]?.totalPoints).toBeNull();
     expect(incomplete.teams[0]?.rounds[1]?.state).toBe("missing");
+    await backend.run(ctx => ctx.db.patch(fixture.teamId, { competitionCategory: "oc" }));
+    expect((await read()).teams).toEqual([]);
   });
 });
 

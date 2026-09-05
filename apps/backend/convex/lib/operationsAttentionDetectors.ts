@@ -108,7 +108,8 @@ export type TeamProjection = {
     | "completed"
     | "held"
     | "missed"
-    | "withdrawn";
+    | "withdrawn"
+    | "skipped";
   queuedAt?: number;
   calledAt?: number;
   heldAt?: number;

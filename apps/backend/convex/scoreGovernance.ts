@@ -549,7 +549,7 @@ export const completeness = query({
         displayOrder: criterion.displayOrder,
       })),
       unresolvedTeamCount: states.filter(
-        (state) => !["completed", "withdrawn"].includes(state.state),
+        (state) => !["completed", "withdrawn", "skipped"].includes(state.state),
       ).length,
       unresolvedCorrectionCount: requestedCorrections.length + openCorrections.length,
       pendingManualReviewCount: draftManualRecords.length + submittedManualRecords.length,

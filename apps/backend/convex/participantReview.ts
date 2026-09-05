@@ -131,7 +131,7 @@ export const current = query({
       .unique();
     if (!membership) return null;
     const teamContext = await currentTeam(ctx, event._id, membership._id);
-    if (!teamContext) return null;
+    if (!teamContext || teamContext.team.competitionCategory === "oc") return null;
     const subject = await requireEventSubject(ctx, event._id, person._id);
     await requirePermission(ctx, {
       eventId: event._id,
@@ -161,7 +161,7 @@ export const current = query({
           index.eq("roundId", round._id).eq("teamId", teamContext.team._id),
         )
         .unique();
-      if (!state || state.state !== "completed") {
+      if (!state || !["completed", "skipped", "withdrawn"].includes(state.state)) {
         selectedRound = round;
         selectedState = state;
         break;
@@ -360,7 +360,7 @@ export const teamQrState = query({
     const { person } = await requireCurrentPerson(ctx);
     const membership = await requireMembership(ctx, event._id, person._id);
     const teamContext = await currentTeam(ctx, event._id, membership._id);
-    if (!teamContext) return null;
+    if (!teamContext || teamContext.team.competitionCategory === "oc") return null;
     const subject = await requireEventSubject(ctx, event._id, person._id);
     await requirePermission(ctx, {
       eventId: event._id,

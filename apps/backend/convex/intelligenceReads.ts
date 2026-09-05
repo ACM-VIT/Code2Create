@@ -213,6 +213,7 @@ export const resolveEvent = internalQuery({
 /** Mirrors the review overview rule without requiring an authenticated person. */
 function isReviewableTeam(team: Doc<"teams">) {
   return (
+    team.competitionCategory !== "oc" &&
     ["confirmed", "checked_in", "active"].includes(team.status) &&
     team.membershipLocked &&
     team.lockedProjectVersionId !== undefined

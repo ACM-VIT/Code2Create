@@ -127,6 +127,7 @@ export const settings = query({
       ctx.db
         .query("teams")
         .withIndex("by_event_status", (q) => q.eq("eventId", event._id))
+        .filter(q => q.and(q.neq(q.field("competitionCategory"), "oc"), q.or(q.eq(q.field("status"), "confirmed"), q.eq(q.field("status"), "checked_in"), q.eq(q.field("status"), "active"))))
         .take(maximumReviewTeamsPerEvent + 1),
     ]);
     if (teams.length > maximumReviewTeamsPerEvent)
@@ -140,8 +141,7 @@ export const settings = query({
         teams
           .filter(
             (team) =>
-              team.lockedProjectVersionId &&
-              ["confirmed", "checked_in", "active"].includes(team.status),
+              team.lockedProjectVersionId,
           )
           .map(async (team) => {
             const job = await ctx.db
@@ -276,6 +276,7 @@ export async function prepareQuestionSet(
   team: Doc<"teams">,
   snapshot?: Awaited<ReturnType<typeof buildEvidenceCheckpoint>>,
 ) {
+  if (team.competitionCategory === "oc") return undefined;
   const config = await ctx.db
     .query("reviewQuestionPolicies")
     .withIndex("by_round", (q) => q.eq("roundId", round._id))
@@ -391,13 +392,13 @@ export const dispatch = internalMutation({
       const teams = await ctx.db
         .query("teams")
         .withIndex("by_event_status", (q) => q.eq("eventId", round.eventId))
+        .filter(q => q.and(q.neq(q.field("competitionCategory"), "oc"), q.or(q.eq(q.field("status"), "confirmed"), q.eq(q.field("status"), "checked_in"), q.eq(q.field("status"), "active"))))
         .take(maximumReviewTeamsPerEvent + 1);
       if (teams.length > maximumReviewTeamsPerEvent)
         throw new Error("Team limit exceeded.");
       for (const team of teams)
         if (
-          team.lockedProjectVersionId &&
-          ["confirmed", "checked_in", "active"].includes(team.status)
+          team.lockedProjectVersionId
         )
           await ctx.scheduler.runAfter(
             0,
@@ -439,6 +440,7 @@ export const refreshTeam = internalMutation({
       !round ||
       !team ||
       round.eventId !== team.eventId ||
+      team.competitionCategory === "oc" ||
       !team.lockedProjectVersionId ||
       !config?.policy.enabled ||
       !["published", "open"].includes(round.status) ||

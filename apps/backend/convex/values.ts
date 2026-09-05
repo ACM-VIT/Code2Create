@@ -808,6 +808,7 @@ export const teamRoundState = v.union(
   v.literal("held"),
   v.literal("missed"),
   v.literal("withdrawn"),
+  v.literal("skipped"),
 );
 
 export const reviewStaffingPolicy = v.object({

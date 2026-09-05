@@ -18,7 +18,8 @@ export type TeamRoundState =
   | "completed"
   | "held"
   | "missed"
-  | "withdrawn";
+  | "withdrawn"
+  | "skipped";
 
 export const teamRoundStateOperatorLabels: Record<TeamRoundState, string> = {
   unassigned: "Waiting for the desk",
@@ -30,6 +31,7 @@ export const teamRoundStateOperatorLabels: Record<TeamRoundState, string> = {
   held: "On hold",
   missed: "Missed the call",
   withdrawn: "Withdrawn",
+  skipped: "Review skipped",
 };
 
 export const teamRoundStateParticipantLabels: Record<TeamRoundState, string> = {
@@ -42,6 +44,7 @@ export const teamRoundStateParticipantLabels: Record<TeamRoundState, string> = {
   held: "On hold",
   missed: "Missed call",
   withdrawn: "Withdrawn",
+  skipped: "Review skipped",
 };
 
 export type ReviewSessionStatus =

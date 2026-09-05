@@ -83,3 +83,11 @@ Local lifecycle tests cover confirmation and paging retries, active-review locks
 A physical rehearsal remains necessary for actual ID/QR scanning, a full five-phone panel, background/foreground reminders, consented voice delivery, loss/recovery of connectivity and the real provider evidence. PR #122 additionally needs real GPS and locked-screen testing. Local tests and bundle generation do not prove those physical behaviors.
 
 The configurable shift-call and captured-Figma-image follow-up has passed local regression checks, builds and native bundle exports. Its [check record](16-event-follow-up-plan.md#check-record) separates those results from deployment and event-day rehearsal.
+
+## Competition eligibility and skipped reviews
+
+- Ops → Review rounds → Competition eligibility separates OC teams from admitted competitors. A team is OC when marked by ops; this does not alter admission, RSVP, event access, or members’ reviewer duties.
+- OC teams are excluded from competitive routing, participant review cards, question preparation, and combined rankings. Marking OC cancels any pending review sessions and removes queued assignments transactionally. An active, scored, or closed review must be resolved through its existing review governance flow before reclassification.
+- Round managers can use **Skip this review** on a team row after a round is published, including after panel assignment or call-up, until discussion starts. A reason is required and audited. Pending reviewer assignments, draft scorecards, and team QR tokens are cancelled; stale review calls cannot dispatch.
+- **Restore review** returns a skipped competitor to the desk for a new panel assignment. Changing OC back to competitor does not automatically restore earlier skips.
+- Skips are explicit non-scoring outcomes in round closure and JSON/CSV exports, counted among exclusions. They never become a zero or a completed review, and leave combined results incomplete.

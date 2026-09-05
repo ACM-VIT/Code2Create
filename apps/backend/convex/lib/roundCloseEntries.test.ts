@@ -182,3 +182,10 @@ test("assembling a full round reads evaluation keys a linear number of times", (
   assert.equal(entries.length, sessions.length);
   assert.ok(evaluationKeyReads <= evaluations.length * 3);
 });
+
+test("skipped reviews close with an explicit reason and no score or fake review", () => {
+  const teamId = "team-skipped" as Id<"teams">;
+  const input: CloseInput = { states: [{ teamId, state: "skipped", skipReason: "Team excused by ops" }], sessions: [], evaluations: [], cases: [] };
+  assert.deepEqual(buildRoundCloseEntries(input), [{ teamId, payload: { kind: "skipped", reason: "Team excused by ops" } }]);
+  assert.throws(() => buildRoundCloseEntries({ ...input, states: [{ teamId, state: "skipped" }] }), /must have a reason/);
+});

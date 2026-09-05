@@ -1094,6 +1094,7 @@ export default defineSchema({
     .index("by_event_vit_registration", ["eventId", "vitRegistrationNumber"]),
 
   teams: defineTable({
+    competitionCategory: v.optional(v.literal("oc")),
     eventId: v.id("events"),
     name: v.string(),
     publicCode: v.string(),
@@ -3378,6 +3379,7 @@ export default defineSchema({
     completedAt: v.optional(v.number()),
     holdReason: v.optional(v.string()),
     stateBeforeHold: v.optional(teamRoundState),
+    skipReason: v.optional(v.string()),
     heldAt: v.optional(v.number()),
     missedAt: v.optional(v.number()),
     movedFromPanelId: v.optional(v.id("reviewPanels")),
@@ -4002,6 +4004,10 @@ export default defineSchema({
       }),
       v.object({
         kind: v.literal("withdrawn"),
+      }),
+      v.object({
+        kind: v.literal("skipped"),
+        reason: v.string(),
       }),
     ),
     createdAt: v.number(),

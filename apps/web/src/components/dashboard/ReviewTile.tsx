@@ -31,6 +31,7 @@ const reviewCopy: Record<TeamRoundState, { title: string; detail: string | null 
   completed: { title: "Review complete", detail: "Thanks for sharing your work. Your panel has finished scoring." },
   held: { title: "Your review is on hold", detail: "Check with the review desk before leaving your table." },
   missed: { title: "Let’s get you back in line", detail: "Your team missed its call. Contact the review desk to rejoin." },
+  skipped: { title: "Review skipped", detail: "Your team has no review in this round." },
   withdrawn: { title: "Your review was withdrawn", detail: "Contact the review desk if this was unexpected." },
 };
 

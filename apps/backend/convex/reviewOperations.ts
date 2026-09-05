@@ -74,6 +74,7 @@ const roundBoardPermissionKeys = [
 const roundTeamPermissionKeys = [
   "application.read",
   "application.review.read",
+  "round.manage",
   "review.queue.hold",
   "review.queue.resume",
   "review.queue.miss",
@@ -189,6 +190,8 @@ const roundBoardTeamValidator = v.object({
   teamId: v.id("teams"),
   applicationId: v.optional(v.id("applications")),
   teamName: v.string(),
+  skipReason: v.optional(v.string()),
+  canSkip: v.boolean(),
   state: teamRoundState,
   version: v.number(),
   queuedAt: v.optional(v.number()),
@@ -252,6 +255,7 @@ async function activeReviewOperationGrants(
 
 function isReviewableTeam(team: Doc<"teams">) {
   return (
+    team.competitionCategory !== "oc" &&
     ["confirmed", "checked_in", "active"].includes(team.status) &&
     team.membershipLocked &&
     team.lockedProjectVersionId !== undefined
@@ -862,6 +866,7 @@ export const roundTeams = query({
         .filter((filter) =>
           filter.and(
             filter.eq(filter.field("membershipLocked"), true),
+            filter.neq(filter.field("competitionCategory"), "oc"),
             filter.neq(filter.field("lockedProjectVersionId"), undefined),
           ),
         )
@@ -1026,6 +1031,8 @@ export const roundTeams = query({
           ...(canReadApplication ? { applicationId: application._id } : {}),
           teamId: team._id,
           teamName: team.name,
+          ...(state?.skipReason ? { skipReason: state.skipReason } : {}),
+          canSkip: allows("round.manage", [{ type: "round", id: round._id }]),
           state: state?.state ?? "unassigned",
           version: state?.version ?? 0,
           ...(state?.queuedAt !== undefined ? { queuedAt: state.queuedAt } : {}),

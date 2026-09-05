@@ -211,7 +211,7 @@ export function CombinedReviewResults() {
         </div>
       )}
       <p className="m-0 text-ink-2">
-        Missing, excluded, or withdrawn outcomes keep a team’s combined result
+        Missing, skipped, excluded, or withdrawn outcomes keep a team’s combined result
         incomplete. Equal totals remain tied.
       </p>
     </section>

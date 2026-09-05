@@ -1,3 +1,4 @@
+import { ReviewSkip } from "../components/ReviewSkip";
 import { LiveNumber } from "../components/LiveNumber";
 import { api } from "@code2create/backend/api";
 import {
@@ -320,7 +321,7 @@ export function ReviewRoundBoard() {
 
 function teamViewForState(state: Team["state"]): Exclude<TeamView, "all"> {
   if (state === "unassigned" || state === "held" || state === "missed") return "desk";
-  if (state === "completed" || state === "withdrawn") return "done";
+  if (state === "completed" || state === "withdrawn" || state === "skipped") return "done";
   return "in_motion";
 }
 
@@ -334,6 +335,7 @@ const deskOrder: Record<Team["state"], number> = {
   in_review: 6,
   completed: 7,
   withdrawn: 8,
+  skipped: 9,
 };
 
 function byDeskUrgency(left: Team, right: Team) {
@@ -1323,7 +1325,10 @@ function TeamRow({ board, team }: { board: Board; team: Team }) {
         </div>
       </div>
 
-      {participantAvailabilityReady && !team.participantAvailability.isWaived ? null : (
+      {team.skipReason ? <p className="muted">{team.skipReason}</p> : null}
+      <ReviewSkip team={team} round={board.round} />
+
+      {team.state === "skipped" || participantAvailabilityReady && !team.participantAvailability.isWaived ? null : (
         <p className="muted">
           {team.participantAvailability.isWaived
             ? `Called with an exception · ${team.participantAvailability.availableCount} of ${team.participantAvailability.requiredCount} needed were inside`

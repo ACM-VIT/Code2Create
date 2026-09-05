@@ -57,6 +57,7 @@ export async function routeReviewTeam(
   team: Doc<"teams">,
   subject: Doc<"eventAccessSubjects">,
 ): Promise<ReviewPanelRoute | undefined> {
+  if (team.competitionCategory === "oc") return undefined;
   const [panels, criteria, project, repositories, policy] = await Promise.all([
     ctx.db
       .query("reviewPanels")

@@ -1,3 +1,4 @@
+import { ReviewParticipation } from "../components/ReviewParticipation";
 import { LiveNumber } from "../components/LiveNumber";
 import { api } from "@code2create/backend/api";
 import { reviewRoundStatusLabels } from "@code2create/domain";
@@ -62,6 +63,8 @@ export function ReviewOverview({ showSetup }: { showSetup: boolean }) {
           </Link>
         ) : null}
       </header>
+
+      {showSetup ? <ReviewParticipation /> : null}
 
       <div className="review-round-list">
         {overview.rounds.map((round) => (

@@ -2002,3 +2002,122 @@ async function seedQuestionFigma(backend: BackendTest, fixture: Fixture) {
     return { factId, previewSetId };
   });
 }
+
+async function grantParticipationOperations(backend: BackendTest, fixture: Fixture) {
+  await backend.run(async ctx => {
+    for (const permissionKey of ["review.configuration.read", "review.configuration.publish", "round.read", "round.manage", "queue.manage", "review.start"] as const) {
+      await insertPermissionGrant(ctx, {
+        eventId: fixture.eventId, personId: fixture.personId, eventAccessSubjectId: fixture.subjectId,
+        permissionKey, scopeType: "event", sourceType: "manual", sourceId: `participation:${permissionKey}`,
+        grantedByPersonId: fixture.personId, reason: "Manage competition eligibility and skips",
+      });
+    }
+  });
+}
+
+describe("OC eligibility and review skips", () => {
+  test("marking OC removes a queued team, cancels preparation, preserves admission and participant access, and is retryable", async () => {
+    const backend = seededBackend();
+    const fixture = await seedQueueFixture(backend);
+    const sessionId = await seedAwaitingReview(backend, fixture);
+    await grantParticipationOperations(backend, fixture);
+    const before = await backend.run(ctx => ctx.db.get(fixture.teamId));
+    if (!before) throw new Error("Team missing");
+    const actor = asParticipant(backend, fixture);
+    const args = { eventSlug: fixture.eventSlug, teamId: fixture.teamId, category: "oc" as const, expectedVersion: before.version, reason: "Matched to organizing committee roster", clientOperationId: "mark-oc" };
+    const changed = await actor.mutation(api.reviewParticipation.setCategory, args);
+    expect(await actor.mutation(api.reviewParticipation.setCategory, args)).toEqual(changed);
+    const after = await backend.run(ctx => ctx.db.get(fixture.teamId));
+    expect(after).toMatchObject({ competitionCategory: "oc", status: before.status, leadMembershipId: before.leadMembershipId, activeMemberCount: before.activeMemberCount, membershipLocked: before.membershipLocked });
+    expect(await backend.run(ctx => ctx.db.get(sessionId))).toMatchObject({ status: "cancelled" });
+    expect(await backend.run(ctx => nextQueuedTeam(ctx, fixture.panelId))).toBeNull();
+    expect(await actor.query(api.participantReview.current, { eventSlug: fixture.eventSlug })).toBeNull();
+    expect((await actor.query(api.reviewOperations.roundTeams, { eventSlug: fixture.eventSlug, roundId: fixture.roundId, paginationOpts: { numItems: 30, cursor: null } })).page).toEqual([]);
+    expect(await actor.query(api.reviewParticipation.teams, { eventSlug: fixture.eventSlug })).toContainEqual(expect.objectContaining({ id: fixture.teamId, category: "oc" }));
+    await expect(actor.mutation(api.reviewOperations.queueTeam, { eventSlug: fixture.eventSlug, roundId: fixture.roundId, panelId: fixture.panelId, teamId: fixture.teamId, expectedTeamRoundVersion: 2, reason: "Try to route an OC team", clientOperationId: "route-oc" })).rejects.toThrow("confirmed with a locked project");
+    const grants = await backend.run(ctx => ctx.db.query("permissionGrants").withIndex("by_subject_permission_status", q => q.eq("eventAccessSubjectId", fixture.subjectId).eq("permissionKey", "queue.participant.read").eq("status", "active")).collect());
+    expect(grants).toHaveLength(1);
+  });
+
+  test("skip frees an assigned panel and expires its team QR; restoring requires a fresh desk assignment", async () => {
+    const backend = seededBackend();
+    const fixture = await seedQueueFixture(backend);
+    const sessionId = await seedAwaitingReview(backend, fixture);
+    await grantParticipationOperations(backend, fixture);
+    const actor = asParticipant(backend, fixture);
+    await backend.run(async ctx => {
+      const state = await ctx.db.get(fixture.targetStateId);
+      if (!state) throw new Error("State missing");
+      await patchTeamRoundState(ctx, state, { state: "called", calledAt: Date.now() });
+    });
+    await actor.mutation(api.participantReview.mintTeamQr, { eventSlug: fixture.eventSlug, reviewSessionId: sessionId });
+    const args = { eventSlug: fixture.eventSlug, roundId: fixture.roundId, teamId: fixture.teamId, skipped: true, expectedVersion: 1, reason: "Ops approved skipping this review", clientOperationId: "skip-assigned" };
+    expect(await actor.mutation(api.reviewParticipation.setSkipped, args)).toEqual({ version: 2 });
+    expect(await actor.mutation(api.reviewParticipation.setSkipped, args)).toEqual({ version: 2 });
+    const skipped = await backend.run(ctx => ctx.db.get(fixture.targetStateId));
+    expect(skipped).toMatchObject({ state: "skipped", skipReason: args.reason });
+    expect(skipped?.panelId).toBeUndefined();
+    expect(await backend.run(ctx => ctx.db.get(sessionId))).toMatchObject({ status: "cancelled" });
+    expect(await backend.run(ctx => ctx.db.query("reviewTeamQrTokens").collect())).toEqual([expect.objectContaining({ state: "superseded" })]);
+    expect(await actor.query(api.participantReview.current, { eventSlug: fixture.eventSlug })).toBeNull();
+    expect(await actor.mutation(api.reviewParticipation.setSkipped, { ...args, skipped: false, expectedVersion: 2, clientOperationId: "restore-review" })).toEqual({ version: 3 });
+    const restored = await backend.run(ctx => ctx.db.get(fixture.targetStateId));
+    expect(restored).toMatchObject({ state: "unassigned" });
+    expect(restored?.skipReason).toBeUndefined();
+    expect(restored?.panelId).toBeUndefined();
+  });
+
+  test.each(["active", "scoring", "completed"] as const)("%s reviews cannot be skipped or silently converted to OC", async status => {
+    const backend = seededBackend();
+    const fixture = await seedQueueFixture(backend);
+    const sessionId = await seedAwaitingReview(backend, fixture);
+    await grantParticipationOperations(backend, fixture);
+    await backend.run(async ctx => {
+      await ctx.db.patch(sessionId, { status });
+      const state = await ctx.db.get(fixture.targetStateId);
+      if (!state) throw new Error("State missing");
+      await patchTeamRoundState(ctx, state, { state: status === "completed" ? "completed" : "in_review" });
+    });
+    const actor = asParticipant(backend, fixture);
+    const team = await backend.run(ctx => ctx.db.get(fixture.teamId));
+    if (!team) throw new Error("Team missing");
+    await expect(actor.mutation(api.reviewParticipation.setSkipped, { eventSlug: fixture.eventSlug, roundId: fixture.roundId, teamId: fixture.teamId, skipped: true, expectedVersion: 1, reason: "Cannot skip after starting", clientOperationId: "skip-started" })).rejects.toThrow("before discussion starts");
+    await expect(actor.mutation(api.reviewParticipation.setCategory, { eventSlug: fixture.eventSlug, teamId: fixture.teamId, category: "oc", expectedVersion: team.version, reason: "Cannot silently remove an active review", clientOperationId: "oc-started" })).rejects.toThrow("before discussion starts");
+    expect(await backend.run(ctx => ctx.db.get(fixture.teamId))).toEqual(team);
+    expect(await backend.run(ctx => ctx.db.get(sessionId))).toMatchObject({ status });
+  });
+
+  test("participants cannot change category or skip reviews; stale versions are rejected", async () => {
+    const backend = seededBackend();
+    const fixture = await seedQueueFixture(backend);
+    const actor = asParticipant(backend, fixture);
+    const args = { eventSlug: fixture.eventSlug, roundId: fixture.roundId, teamId: fixture.teamId, skipped: true, expectedVersion: 0, reason: "Skip from the ops desk", clientOperationId: "skip-permission" };
+    await expect(actor.mutation(api.reviewParticipation.setSkipped, args)).rejects.toThrow("does not have permission");
+    await expect(actor.mutation(api.reviewParticipation.setCategory, { eventSlug: fixture.eventSlug, teamId: fixture.teamId, category: "oc", expectedVersion: 1, reason: "OC roster match", clientOperationId: "oc-permission" })).rejects.toThrow("does not have permission");
+    await grantParticipationOperations(backend, fixture);
+    await expect(actor.mutation(api.reviewParticipation.setSkipped, args)).rejects.toThrow("review changed");
+  });
+
+  test("an OC team cannot restore its skipped review until reclassified; published rounds can skip an unassigned competitor", async () => {
+    const backend = seededBackend();
+    const fixture = await seedQueueFixture(backend);
+    await grantParticipationOperations(backend, fixture);
+    const actor = asParticipant(backend, fixture);
+    await backend.run(async ctx => {
+      await ctx.db.patch(fixture.teamId, { competitionCategory: "oc" });
+      const state = await ctx.db.get(fixture.targetStateId);
+      if (!state) throw new Error("State missing");
+      await patchTeamRoundState(ctx, state, { state: "skipped", skipReason: "Organizing committee team", panelId: undefined, queuedAt: undefined });
+    });
+    const args = { eventSlug: fixture.eventSlug, roundId: fixture.roundId, teamId: fixture.teamId, skipped: false, expectedVersion: 1, reason: "Restore the review", clientOperationId: "restore-oc" };
+    await expect(actor.mutation(api.reviewParticipation.setSkipped, args)).rejects.toThrow("Only a skipped competitor");
+    await backend.run(async ctx => {
+      await ctx.db.patch(fixture.teamId, { competitionCategory: undefined });
+      await ctx.db.delete(fixture.targetStateId);
+      await ctx.db.patch(fixture.roundId, { status: "published" });
+    });
+    expect(await actor.mutation(api.reviewParticipation.setSkipped, { ...args, skipped: true, expectedVersion: 0, clientOperationId: "skip-before-round" })).toEqual({ version: 1 });
+    const state = await backend.run(ctx => ctx.db.query("teamRoundStates").withIndex("by_round_team", q => q.eq("roundId", fixture.roundId).eq("teamId", fixture.teamId)).unique());
+    expect(state).toMatchObject({ state: "skipped", skipReason: args.reason });
+  });
+});

@@ -14,7 +14,7 @@ type Exclusion = Pick<
 >;
 
 export function buildRoundCloseEntries(args: {
-  states: readonly Pick<Doc<"teamRoundStates">, "teamId" | "state">[];
+  states: readonly Pick<Doc<"teamRoundStates">, "teamId" | "state" | "skipReason">[];
   sessions: readonly CompletedSession[];
   evaluations: readonly Evaluation[];
   cases: readonly Exclusion[];
@@ -53,6 +53,11 @@ export function buildRoundCloseEntries(args: {
 
   const entries: CloseEntry[] = [];
   for (const state of args.states) {
+    if (state.state === "skipped") {
+      if (!state.skipReason) throw new Error("A skipped review must have a reason.");
+      entries.push({ teamId: state.teamId, payload: { kind: "skipped", reason: state.skipReason } });
+      continue;
+    }
     if (state.state === "withdrawn") {
       entries.push({ teamId: state.teamId, payload: { kind: "withdrawn" } });
       continue;
