@@ -149,6 +149,31 @@ function VideoBackdrop({ videoId, still, resizeKey }: { videoId: string; still: 
   );
 }
 
+/** A restrained ambient player state for the gaps between tracks. */
+function QuietMusicBackdrop() {
+  return (
+    <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+      <span className="music-idle-halo absolute top-1/2 left-1/2 size-28 rounded-full bg-rose-light/10 blur-3xl" />
+      <span className="music-idle-note absolute top-1/2 left-1/2 flex size-16 items-center justify-center text-rose-light/35">
+        <svg viewBox="0 0 48 62" className="h-full w-full overflow-visible">
+          <path
+            d="M20 43.5V13.2L40 8v29.2"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="3"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <path d="M20 14l20-5.2v7L20 21z" fill="currentColor" opacity=".5" />
+          <ellipse cx="12.5" cy="46.5" rx="8.5" ry="6" transform="rotate(-14 12.5 46.5)" fill="currentColor" />
+          <ellipse cx="32.5" cy="40.2" rx="8.5" ry="6" transform="rotate(-14 32.5 40.2)" fill="currentColor" />
+        </svg>
+      </span>
+      <span className="music-idle-shadow absolute top-[calc(50%_+_38px)] left-1/2 h-1.5 w-12 rounded-full bg-rose/12 blur-md" />
+    </div>
+  );
+}
+
 function ProgressBar({
   elapsed,
   duration,
@@ -590,7 +615,9 @@ export function MusicTile({
   ).length;
   const backdrop = nowPlaying?.videoId ? (
     <VideoBackdrop videoId={nowPlaying.videoId} still={reducedMotion} resizeKey={focused ? "open" : "rest"} />
-  ) : undefined;
+  ) : (
+    <QuietMusicBackdrop />
+  );
 
   return (
     <Tile

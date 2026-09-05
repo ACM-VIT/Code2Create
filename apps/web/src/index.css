@@ -976,10 +976,98 @@ p {
   gap: 12px;
   padding: 18px;
 }
-/* Service queues use the available tile width before falling back to rows. */
-@container (min-width: 300px) {
-  .service-queue-list { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
-  .service-queue-row { border-top: 0; padding-top: 0; }
+/* Queue cards become paired routes only when both paths have room. */
+@container (min-width: 360px) {
+  .queue-card-list-paired { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+.queue-trail-glint {
+  filter: drop-shadow(0 0 4px var(--glow-rose-soft));
+  animation: queue-path-glide 7.5s ease-in-out infinite;
+}
+
+.queue-destination-pin {
+  box-shadow: 0 0 10px var(--glow-rose-soft);
+}
+
+.queue-petal-self {
+  filter: drop-shadow(0 0 5px var(--glow-rose));
+  animation: queue-petal-arrive 540ms cubic-bezier(.2,.8,.2,1) both;
+}
+
+.queue-petal-leading:not(.queue-petal-self) {
+  animation: queue-petal-breathe 3.6s ease-in-out infinite;
+}
+
+.queue-petal-open {
+  color: color-mix(in srgb, var(--color-rose) 36%, transparent);
+}
+
+.queue-petal-open svg > :first-child {
+  fill: transparent;
+}
+
+.queue-waypoint-1 { transform: translateY(2px) rotate(-8deg); }
+.queue-waypoint-2 { transform: translateY(-1px) rotate(7deg); }
+.queue-waypoint-3 { transform: translateY(1px) rotate(-3deg); }
+
+.music-idle-halo {
+  transform: translate(-50%, -50%);
+  animation: music-idle-halo 5.2s ease-in-out infinite;
+}
+
+.music-idle-note {
+  filter: drop-shadow(0 8px 14px var(--glow-rose-soft));
+  transform: translate(-50%, -50%);
+  transform-origin: 50% 70%;
+  animation: music-note-float 3.8s cubic-bezier(.45,.05,.55,.95) infinite;
+}
+
+.music-idle-shadow {
+  transform: translateX(-50%);
+  animation: music-note-shadow 3.8s cubic-bezier(.45,.05,.55,.95) infinite;
+}
+
+@keyframes queue-path-glide {
+  0% { stroke-dashoffset: 0; opacity: .45; }
+  50% { opacity: .9; }
+  100% { stroke-dashoffset: -260; opacity: .45; }
+}
+
+@keyframes queue-petal-arrive {
+  from { opacity: 0; transform: translateX(10px) rotate(14deg); }
+  to { opacity: 1; transform: translateX(0) rotate(0); }
+}
+
+@keyframes queue-petal-breathe {
+  0%, 100% { opacity: .58; filter: drop-shadow(0 0 0 transparent); }
+  50% { opacity: .9; filter: drop-shadow(0 0 4px var(--glow-rose-soft)); }
+}
+
+@keyframes music-note-float {
+  0%, 100% { transform: translate(-50%, calc(-50% + 3px)) rotate(-2deg); }
+  50% { transform: translate(-50%, calc(-50% - 5px)) rotate(1deg); }
+}
+
+@keyframes music-note-shadow {
+  0%, 100% { opacity: .5; transform: translateX(-50%) scaleX(1); }
+  50% { opacity: .2; transform: translateX(-50%) scaleX(.72); }
+}
+
+@keyframes music-idle-halo {
+  0%, 100% { opacity: .55; transform: translate(-50%, -50%) scale(.92); }
+  50% { opacity: .9; transform: translate(-50%, -50%) scale(1.06); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .queue-trail-glint,
+  .queue-petal-self,
+  .queue-petal-leading:not(.queue-petal-self),
+  .music-idle-halo,
+  .music-idle-note,
+  .music-idle-shadow {
+    animation: none;
+  }
 }
 
 .dashboard-tile-scroll {
@@ -1017,8 +1105,10 @@ p {
   .tile-body { gap: 6px; padding: 12px; }
   .tile-short-hidden { display: none; }
   .tile-short-clamp { -webkit-line-clamp: 1; }
-  .service-queue-list { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-  .service-queue-row { border-top: 0; padding-top: 0; }
-  .service-queue-meta { display: none; }
-  .service-queue-action { height: 28px; padding-inline: 8px; }
+  .queue-card-list-paired { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+  .queue-card { padding-block: 6px; }
+  .queue-card-meta { display: none; }
+  .queue-trail { margin-top: 0; min-height: 32px; }
+  .queue-action { height: 22px; padding-inline: 7px; }
+  .integration-summary-detail { display: none; }
 }
