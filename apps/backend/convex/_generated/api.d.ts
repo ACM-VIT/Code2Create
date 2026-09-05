@@ -306,6 +306,7 @@ import type * as roundExportActions from "../roundExportActions.js";
 import type * as roundExports from "../roundExports.js";
 import type * as scoreGovernance from "../scoreGovernance.js";
 import type * as serviceQueues from "../serviceQueues.js";
+import type * as stagingInternalHack from "../stagingInternalHack.js";
 import type * as stagingSetup from "../stagingSetup.js";
 import type * as support from "../support.js";
 import type * as supportDiscordBridge from "../supportDiscordBridge.js";
@@ -625,6 +626,7 @@ declare const fullApi: ApiFromModules<{
   scoreGovernance: typeof scoreGovernance;
   serviceQueues: typeof serviceQueues;
   stagingSetup: typeof stagingSetup;
+  stagingInternalHack: typeof stagingInternalHack;
   support: typeof support;
   supportDiscordBridge: typeof supportDiscordBridge;
   synesthesiaConfiguration: typeof synesthesiaConfiguration;
