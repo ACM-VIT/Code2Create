@@ -17,7 +17,7 @@
   {
     "templateKey": "offer",
     "subject": "RSVP required: confirm {{team_name}} by {{rsvp_deadline}}",
-    "text": "Dear {{participant_name}},\n\nCongratulations from ACM-VIT!\n\nYour team, {{team_name}}, has been selected for {{event_name}}. Your RSVP is not confirmed yet.\n\nRSVP by {{rsvp_deadline}}\nYour team lead must choose Confirm RSVP in the C2C portal for the whole team.\n\nIf your team cannot attend, choose Decline in the portal. If no response is received by the deadline, your reserved places will be released.\n\nOnly one response from the team lead is needed. All team members can check the current status in the portal.\n\nConfirm RSVP: {{portal_url}}\n\nEvent Discord: https://discord.gg/hPkhtMcHq8\n\nBest regards,\nACM-VIT Student Chapter"
+    "text": "Dear {{participant_name}},\n\nCongratulations from ACM-VIT!\n\nYour team, {{team_name}}, has been selected for {{event_name}}. Your RSVP is not confirmed yet.\n\nConfirm your team’s RSVP by {{rsvp_deadline}}.\n\nIf your team cannot attend, choose Decline in the portal. If no response is received by the deadline, your reserved places will be released.\n\nConfirm RSVP: {{portal_url}}\n\nEvent Discord: https://discord.gg/hPkhtMcHq8\n\nBest regards,\nACM-VIT Student Chapter"
   },
   {
     "templateKey": "offer_confirmed",
