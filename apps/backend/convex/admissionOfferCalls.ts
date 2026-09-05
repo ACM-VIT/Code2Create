@@ -73,17 +73,23 @@ export const sendNow = mutation({
     const existing = await ctx.db.query("outboundCallDeliveries").withIndex("by_source", q => q
       .eq("eventId", event._id).eq("sourceType", "admission_offer_reminder")
       .eq("sourceId", offer._id).eq("purpose", "participant_event_update")).unique();
-    if (!existing) {
+    const bringForward = !existing || existing.state === "pending" || existing.state === "retry_wait";
+    if (bringForward) {
       await ctx.db.patch(offer._id, { reminderAt: now, version: offer.version + 1 });
       await ctx.scheduler.runAt(offer.expiresAt, internal.admissions.expireOffer, { offerId: offer._id, expectedOfferVersion: offer.version + 1 });
-      await ctx.scheduler.runAfter(0, internal.admissionOfferCalls.remind, { offerId: offer._id });
+      if (existing) {
+        await ctx.db.patch(existing._id, { nextAttemptAt: now, version: existing.version + 1, updatedAt: now });
+        await ctx.scheduler.runAfter(0, internal.outboundCalls.deliver, { deliveryId: existing._id });
+      } else {
+        await ctx.scheduler.runAfter(0, internal.admissionOfferCalls.remind, { offerId: offer._id });
+      }
     }
     await recordOperation(ctx, { ...operation, targetType: "admission_offer", targetId: offer._id, resultJson: "null", createdAt: now });
     await writeAuditEvent(ctx, {
       eventId: event._id, actorPersonId: person._id, permissionKey: "application.offer.manage", grantIds,
       scopeType: "application", scopeId: offer.applicationId, action: "admission.rsvp_call_requested",
       targetType: "admission_offer", targetId: offer._id,
-      nextSummary: JSON.stringify({ reminderAt: existing ? offer.reminderAt : now, alreadyRequested: !!existing }),
+      nextSummary: JSON.stringify({ reminderAt: bringForward ? now : offer.reminderAt, alreadyRequested: !!existing, broughtForward: bringForward }),
       reason: "Operator requested the team's RSVP reminder now",
     });
     return null;

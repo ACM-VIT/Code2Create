@@ -1154,6 +1154,34 @@ describe("admission cohort query and decisions", () => {
     expect(immediate.calls).toHaveLength(1);
     expect(immediate.calls[0]?.script).not.toMatch(/test/i);
     expect(immediate.emails).toHaveLength(emailsBeforeCall.length);
+    const queued = immediate.calls[0];
+    if (!queued) throw new Error("Missing reminder delivery");
+    await backend.run(async ctx => {
+      await ctx.db.patch(pendingOffer._id, { reminderAt: Date.now() + 60_000 });
+      await ctx.db.patch(queued._id, { state: "retry_wait", nextAttemptAt: Date.now() + 120_000 });
+    });
+    expect(await backend.mutation(internal.outboundCallState.claimDelivery, {
+      deliveryId: queued._id, attemptId: "too-early",
+    })).toBeNull();
+    const retryArgs = { ...callArgs, clientOperationId: "bring-existing-retry-forward" };
+    await operator.mutation(api.admissionOfferCalls.sendNow, retryArgs);
+    await operator.mutation(api.admissionOfferCalls.sendNow, retryArgs);
+    const expedited = await backend.run(async ctx => ({
+      offer: await ctx.db.get(pendingOffer._id), call: await ctx.db.get(queued._id),
+      calls: await ctx.db.query("outboundCallDeliveries").collect(),
+      emails: await ctx.db.query("participantNotificationDeliveries").collect(),
+    }));
+    expect(expedited.offer!.reminderAt).toBeLessThanOrEqual(Date.now());
+    expect(expedited.call!.nextAttemptAt).toBeLessThanOrEqual(Date.now());
+    expect(expedited.calls).toHaveLength(1);
+    expect(expedited.emails).toEqual(immediate.emails);
+    expect(await backend.mutation(internal.outboundCallState.claimDelivery, {
+      deliveryId: queued._id, attemptId: "operator-expedited",
+    })).not.toBeNull();
+    expect(await backend.mutation(internal.outboundCallState.claimDelivery, {
+      deliveryId: queued._id, attemptId: "duplicate-dispatch",
+    })).toBeNull();
+
     const applications = await backend.run((ctx) =>
       Promise.all([
         ctx.db.get(fixture.decidableApplicationId),

@@ -264,6 +264,7 @@ export const claimDelivery = internalMutation({
           delivery.claimExpiresAt !== undefined &&
           delivery.claimExpiresAt <= now)
       ) ||
+      (delivery.state === "retry_wait" && delivery.nextAttemptAt !== undefined && now < delivery.nextAttemptAt) ||
       delivery.attemptCount >= maximumDispatchAttempts
     ) {
       return null;
