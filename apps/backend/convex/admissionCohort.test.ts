@@ -1090,6 +1090,133 @@ describe("admission cohort query and decisions", () => {
     })).page).toEqual([]);
   });
 
+  test.each(["accept", "waitlist", "decline"] as const)(
+    "keeps recorded results private and releases once without external %s emails",
+    async (externalDecision) => {
+    const backend = seededBackend();
+    const fixture = await seedCohortFixture(backend, { primaryTeamSize: 4 });
+    const operator = backend.withIdentity({
+      subject: fixture.operatorAuthUserId,
+      sessionId: fixture.operatorAuthSessionId,
+    });
+    const participantAuthUserId = await createAuthUser(backend, fixture.now, "release-participant");
+    const participantAuthSessionId = await createAuthSession(backend, participantAuthUserId, fixture.now);
+    const participant = backend.withIdentity({
+      subject: participantAuthUserId,
+      sessionId: participantAuthSessionId,
+    });
+    await backend.run(async (ctx) => {
+      const application = await ctx.db.get(fixture.decidableApplicationId);
+      if (!application) throw new Error("Missing release application");
+      const team = await ctx.db.get(application.teamId);
+      if (!team) throw new Error("Missing release team");
+      const lead = await ctx.db.get(team.leadMembershipId);
+      if (!lead?.eventAccessSubjectId) throw new Error("Missing release lead");
+      await ctx.db.patch(lead.personId, { authUserId: participantAuthUserId });
+      await insertPermissionGrant(ctx, {
+        eventId: fixture.eventId,
+        personId: lead.personId,
+        eventAccessSubjectId: lead.eventAccessSubjectId,
+        permissionKey: "team.read",
+        scopeType: "team",
+        scopeId: team._id,
+        sourceType: "manual",
+        sourceId: "release-rehearsal",
+        grantedByPersonId: fixture.operatorPersonId,
+        reason: "Release rehearsal participant access",
+      });
+    });
+    await operator.mutation(api.admissions.decide, {
+      eventSlug: fixture.eventSlug,
+      applicationId: fixture.decidableApplicationId,
+      expectedApplicationVersion: 1,
+      decision: "accept",
+      reasonCode: "strong_fit",
+      aiDisposition: "unavailable",
+      clientOperationId: "record-private-acceptance",
+    });
+    expect((await participant.query(api.intake.submitted, { eventSlug: fixture.eventSlug }))?.application.state)
+      .toBe("under_review");
+    expect(await backend.run((ctx) => ctx.db.query("participantNotificationDeliveries").collect()))
+      .toEqual([]);
+    const releaseArgs = {
+      eventSlug: fixture.eventSlug,
+      expectedEventVersion: 1,
+      reason: "Isolated admission release rehearsal",
+      clientOperationId: "isolated-release",
+    };
+    await expect(operator.mutation(api.admissions.releaseAdmissionResults, releaseArgs))
+      .rejects.toThrow("Every active application");
+    await backend.run(async (ctx) => {
+      for (const applicationId of [fixture.shortApplicationId, fixture.splitApplicationId]) {
+        const decision = applicationId === fixture.splitApplicationId ? externalDecision : "decline";
+        await ctx.db.patch(applicationId, {
+          decisionStage: "recorded",
+          humanDecision: decision,
+          humanReasonCode: decision === "accept" ? "strong_fit" : decision === "waitlist" ? "promising_fit" : "out_of_scope",
+          aiDisposition: "unavailable",
+          decidedByPersonId: fixture.operatorPersonId,
+          decidedAt: fixture.now,
+          version: 2,
+        });
+      }
+      const externalApplication = await ctx.db.get(fixture.splitApplicationId);
+      if (!externalApplication) throw new Error("Missing external application");
+      const externalProject = await ctx.db.get(externalApplication.submittedProjectVersionId);
+      if (!externalProject) throw new Error("Missing external project");
+      const members = await ctx.db.query("teamSubmissionMembers")
+        .withIndex("by_submission_attempt_and_ordinal", (q) => q.eq("submissionAttemptId", externalProject.lockedRosterSnapshotId))
+        .collect();
+      for (const member of members) {
+        await ctx.db.patch(member.membershipId, { participantClass: "external_participant" });
+        await ctx.db.patch(member._id, { participantClass: "external_participant" });
+      }
+    });
+    const released = await operator.mutation(api.admissions.releaseAdmissionResults, releaseArgs);
+    expect(released.applicationCount).toBe(3);
+    expect(await operator.mutation(api.admissions.releaseAdmissionResults, releaseArgs)).toEqual(released);
+    expect((await participant.query(api.intake.submitted, { eventSlug: fixture.eventSlug }))?.application.state)
+      .toBe("accepted");
+    const finalizeArgs = {
+      eventId: fixture.eventId,
+      releasedAt: released.releasedAt,
+      releasedByPersonId: fixture.operatorPersonId,
+      communicationsPolicyVersionId: fixture.communicationsPolicyId,
+    };
+    await backend.mutation(internal.admissions.finalizeReleasedAdmissionResults, finalizeArgs);
+    await backend.mutation(internal.admissions.finalizeReleasedAdmissionResults, finalizeArgs);
+    for (const applicationId of [fixture.decidableApplicationId, fixture.shortApplicationId, fixture.splitApplicationId]) {
+      const batch = await backend.run(async (ctx) => {
+        const application = await ctx.db.get(applicationId);
+        if (!application?.humanDecision) throw new Error("Missing decision");
+        const project = await ctx.db.get(application.submittedProjectVersionId);
+        if (!project) throw new Error("Missing project");
+        return {
+          eventId: fixture.eventId,
+          applicationId,
+          teamId: application.teamId,
+          lockedRosterSnapshotId: project.lockedRosterSnapshotId,
+          lockedMemberCount: project.lockedMemberCount,
+          communicationsPolicyVersionId: fixture.communicationsPolicyId,
+          templateKey: application.humanDecision,
+          applicationVersion: application.version,
+          cursor: null,
+          processedMemberCount: 0,
+        };
+      });
+      await backend.mutation(internal.participantNotifications.enqueueRosterBatch, batch);
+      await backend.mutation(internal.participantNotifications.enqueueRosterBatch, batch);
+    }
+    const deliveries = await backend.run((ctx) => ctx.db.query("participantNotificationDeliveries").collect());
+    expect(deliveries.filter((d) => d.applicationId === fixture.decidableApplicationId)).toHaveLength(4);
+    expect(deliveries.filter((d) => d.applicationId === fixture.shortApplicationId)).toHaveLength(3);
+    expect(deliveries.filter((d) => d.applicationId === fixture.splitApplicationId)).toHaveLength(0);
+    expect(deliveries.every((d) => d.state === "pending" && d.attemptCount === 0)).toBe(true);
+    expect((await participant.query(api.intake.submitted, { eventSlug: fixture.eventSlug }))?.application.state)
+      .toBe("accepted");
+    },
+  );
+
   test("keeps decisions unavailable while teams can still revise proposals", async () => {
     const backend = seededBackend();
     const fixture = await seedCohortFixture(backend);
@@ -1358,7 +1485,10 @@ async function insertPolicyChain(
   };
 }
 
-async function seedCohortFixture(backend: BackendTest, options: { extraTeams?: number } = {}) {
+async function seedCohortFixture(
+  backend: BackendTest,
+  options: { extraTeams?: number; primaryTeamSize?: number } = {},
+) {
   const now = Date.now();
   const eventSlug = `cohort-${crypto.randomUUID()}`;
   const operatorAuthUserId = await createAuthUser(backend, now, "operator");
@@ -1555,7 +1685,7 @@ async function seedCohortFixture(backend: BackendTest, options: { extraTeams?: n
     const decidableApplicationId = await insertTeam({
       name: "Steady Loom",
       publicCode: "LOOM01",
-      size: 2,
+      size: options.primaryTeamSize ?? 2,
       band: "early_year",
       submittedAt: now - 3_000,
       reviews: [
