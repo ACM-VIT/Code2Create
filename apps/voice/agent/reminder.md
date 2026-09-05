@@ -7,7 +7,7 @@ that binding. Venue-confirmation agents remain separately configured by ops.
 
 ## Settings
 
-- Voice: Sophia (Pro), speed 1.00, pitch 0. Published in agent version 4.
+- Voice: Roopa (Pro), speed 1.00, pitch 0. Published in agent version 5.
 - Model temperature: 0.25 (Compliant).
 - Starting language: English. Keep the existing supported languages and language switching.
 - Allow caller interruptions. Eagerness: balanced (1). Volume threshold: moderate (2).
