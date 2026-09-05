@@ -3,7 +3,7 @@ import {
   type ReviewerSeniority,
 } from "@code2create/domain";
 import { reviewStaffingPolicy } from "./values";
-import { reviewerParticipation } from "./lib/reviewerParticipation";
+import { reviewerHasOverlappingPanel, reviewerParticipation } from "./lib/reviewerParticipation";
 
 import { ConvexError, v } from "convex/values";
 
@@ -1004,6 +1004,15 @@ export const publishRound = mutation({
         criterionKeys: new Set(reviewerProfile?.criterionKeys ?? []),
         ...(reviewerProfile ? { seniority: reviewerProfile.seniority } : {}),
       });
+      if (
+        panelReviewerIds.has(reviewerPersonId) &&
+        (await reviewerHasOverlappingPanel(ctx, event._id, reviewerPersonId, args.round))
+      ) {
+        throw new ConvexError({
+          code: "REVIEWER_ALREADY_SEATED",
+          message: `${reviewerSubject.displayName} already has a panel assignment during these review hours. Choose another reviewer or change the round's hours.`,
+        });
+      }
     }
 
     const criterionKeys = new Set(criteria.map((criterion) => criterion.stableKey),

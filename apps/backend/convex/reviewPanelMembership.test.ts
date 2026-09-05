@@ -4,6 +4,7 @@ import { defaultVitHostelResidenceCatalog } from "@code2create/domain";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
 import { convexTest, type TestConvex } from "convex-test";
+import type { FunctionArgs } from "convex/server";
 import { afterAll, describe, expect, test, vi } from "vitest";
 
 import { api, components, internal } from "./_generated/api";
@@ -509,6 +510,204 @@ describe("automatic panel staffing", () => {
     });
   });
 });
+
+describe("reviewer commitments across rounds", () => {
+  test.each(["overlap", "touching_before", "touching_after", "closed"] as const)(
+    "publication checks occupied review hours (%s)",
+    async (timing) => {
+      const backend = seededBackend();
+      const fixture = await seedPanel(backend);
+      await preparePublicationPolicy(backend, fixture);
+      const round = await backend.run((ctx) => ctx.db.get(fixture.roundId));
+      if (!round) throw new Error("Round fixture missing");
+      if (timing === "closed") {
+        await backend.run((ctx) => ctx.db.patch(round._id, { status: "closed" }));
+      }
+      const startsAt = timing === "touching_before"
+        ? round.startsAt - 3_600_000
+        : timing === "touching_after"
+          ? round.endsAt
+          : round.endsAt - 1;
+      const request = publicationRequest(fixture, startsAt, fixture.memberPersonId);
+      const publish = asOperator(backend, fixture).mutation(
+        api.reviewConfiguration.publishRound,
+        request,
+      );
+      if (timing === "overlap") {
+        await expect(publish).rejects.toThrow("already has a panel assignment during these review hours");
+        await backend.run(async (ctx) => {
+          expect(await ctx.db.query("reviewRounds").collect()).toHaveLength(1);
+          expect(await ctx.db.query("reviewPanels").collect()).toHaveLength(1);
+          expect(await ctx.db.query("reviewRubricVersions").collect()).toHaveLength(1);
+          expect(await ctx.db.get(fixture.memberId)).toMatchObject({ status: "active" });
+        });
+      } else {
+        const published = await publish;
+        expect(published.roundId).not.toBe(fixture.roundId);
+      }
+    },
+  );
+
+  test("overlapping rounds can share their reserve pool", async () => {
+    const backend = seededBackend();
+    const fixture = await seedPanel(backend);
+    await preparePublicationPolicy(backend, fixture);
+    const round = await backend.run((ctx) => ctx.db.get(fixture.roundId));
+    if (!round) throw new Error("Round fixture missing");
+    // Free one reviewer to lead the new panel; the reserve stays in both pools.
+    await asOperator(backend, fixture).mutation(api.reviewPanelMembership.swapPanelMember, {
+      eventSlug: fixture.eventSlug,
+      panelId: fixture.panelId,
+      leavingPersonId: fixture.memberPersonId,
+      expectedPanelVersion: 1,
+      reason: "Move this reviewer to the new panel.",
+      clientOperationId: "free-new-panel-lead",
+    });
+    const request = publicationRequest(fixture, round.startsAt, fixture.memberPersonId);
+    request.reservePersonIds = [fixture.reservePersonId];
+    const published = await asOperator(backend, fixture).mutation(
+      api.reviewConfiguration.publishRound,
+      request,
+    );
+    const reserves = await backend.run((ctx) => ctx.db.query("reviewRoundReserves").collect());
+    expect(reserves.filter((reserve) => reserve.personId === fixture.reservePersonId))
+      .toEqual(expect.arrayContaining([
+        expect.objectContaining({ roundId: fixture.roundId, status: "available" }),
+        expect.objectContaining({ roundId: published.roundId, status: "available" }),
+      ]));
+  });
+
+  test.each(["published", "open"] as const)(
+    "automatic paging skips a reviewer seated in an overlapping %s round between reviews",
+    async (status) => {
+      const backend = seededBackend();
+      const fixture = await seedPanel(backend);
+      await prepareAutomaticStaffing(backend, fixture);
+      await preparePublicationPolicy(backend, fixture);
+      const published = await asOperator(backend, fixture).mutation(
+        api.reviewConfiguration.publishRound,
+        publicationRequest(fixture, Date.now(), fixture.reservePersonId),
+      );
+      await backend.run((ctx) => ctx.db.patch(published.roundId, { status }));
+      await clockOutStaffingMember(backend, fixture);
+
+      await backend.mutation(internal.reviewStaffing.checkPanel, { panelId: fixture.panelId });
+
+      await backend.run(async (ctx) => {
+        expect(await ctx.db.query("reviewerPages").collect()).toHaveLength(0);
+        expect(await ctx.db.get(fixture.panelId)).toMatchObject({ status: "needs_reviewer" });
+        expect(await ctx.db.get(fixture.reserveId)).toMatchObject({ status: "available" });
+      });
+    },
+  );
+
+  test.each(["published", "closed"] as const)(
+    "manual swaps respect an existing %s round's commitment",
+    async (status) => {
+      const backend = seededBackend();
+      const fixture = await seedPanel(backend);
+      await preparePublicationPolicy(backend, fixture);
+      const operator = asOperator(backend, fixture);
+      const published = await operator.mutation(
+        api.reviewConfiguration.publishRound,
+        publicationRequest(fixture, Date.now(), fixture.reservePersonId),
+      );
+      await backend.run((ctx) => ctx.db.patch(published.roundId, { status }));
+      const swap = operator.mutation(api.reviewPanelMembership.swapPanelMember, {
+        eventSlug: fixture.eventSlug,
+        panelId: fixture.panelId,
+        leavingPersonId: fixture.memberPersonId,
+        joiningPersonId: fixture.reservePersonId,
+        expectedPanelVersion: 1,
+        reason: "Replace the reviewer who is leaving.",
+        clientOperationId: "swap-with-existing-commitment",
+      });
+      if (status === "published") {
+        await expect(swap).rejects.toThrow("already sits on a panel whose round overlaps");
+        await backend.run(async (ctx) => {
+          expect(await ctx.db.get(fixture.memberId)).toMatchObject({ status: "active" });
+          expect(await ctx.db.get(fixture.panelId)).toMatchObject({ status: "ready", version: 1 });
+          expect(await ctx.db.get(fixture.reserveId)).toMatchObject({ status: "available" });
+        });
+      } else {
+        await expect(swap).resolves.toMatchObject({ status: "ready", version: 2 });
+      }
+    },
+  );
+
+  test.each(["overlap", "touching_after"] as const)(
+    "page acceptance rechecks a commitment added after paging (%s)",
+    async (timing) => {
+      const backend = seededBackend();
+      const fixture = await seedPanel(backend);
+      await prepareAutomaticStaffing(backend, fixture);
+      await preparePublicationPolicy(backend, fixture);
+      await clockOutStaffingMember(backend, fixture);
+      await backend.mutation(internal.reviewStaffing.checkPanel, { panelId: fixture.panelId });
+      const pages = await backend.run((ctx) => ctx.db.query("reviewerPages").collect());
+      expect(pages).toHaveLength(1);
+      const page = pages[0];
+      if (!page) throw new Error("Expected a reserve page");
+      expect(page.targetPersonId).toBe(fixture.reservePersonId);
+      const round = await backend.run((ctx) => ctx.db.get(fixture.roundId));
+      if (!round) throw new Error("Round fixture missing");
+      await asOperator(backend, fixture).mutation(
+        api.reviewConfiguration.publishRound,
+        publicationRequest(
+          fixture,
+          timing === "overlap" ? round.startsAt : round.endsAt,
+          fixture.reservePersonId,
+        ),
+      );
+      const now = Date.now();
+      const authUserId = await createAuthUser(backend, now);
+      const authSessionId = await createAuthSession(backend, authUserId, now);
+      const installationId = await backend.run(async (ctx) => {
+        await ctx.db.patch(fixture.reservePersonId, { authUserId });
+        const clock = await ctx.db.query("reviewerClockIns")
+          .withIndex("by_round_person", (q) =>
+            q.eq("roundId", fixture.roundId).eq("reviewerPersonId", fixture.reservePersonId),
+          ).unique();
+        if (!clock) throw new Error("Reserve clock fixture missing");
+        const device = await ctx.db.get(clock.reviewerDeviceId);
+        if (!device) throw new Error("Reserve device fixture missing");
+        return device.installationId;
+      });
+      const response = backend.withIdentity({ subject: authUserId, sessionId: authSessionId })
+        .mutation(api.reviewSubstitutions.respondToPage, {
+          eventSlug: fixture.eventSlug,
+          pageId: page._id,
+          response: "accept",
+          installationId,
+          expectedVersion: page.version,
+          clientOperationId: "accept-after-publication",
+        });
+      if (timing === "overlap") {
+        await expect(response).rejects.toThrow("RESERVE_NO_LONGER_ELIGIBLE");
+        expect(await backend.run((ctx) => ctx.db.get(page._id)))
+          .toMatchObject({ state: page.state, version: page.version });
+      } else {
+        await expect(response).resolves.toMatchObject({ state: "accepted" });
+      }
+      const seats = await backend.run((ctx) => ctx.db.query("reviewPanelMembers")
+        .withIndex("by_event_person_status", (q) =>
+          q.eq("eventId", fixture.eventId).eq("personId", fixture.reservePersonId).eq("status", "active"),
+        ).collect());
+      expect(seats).toHaveLength(timing === "overlap" ? 1 : 2);
+    },
+  );
+});
+
+async function clockOutStaffingMember(backend: BackendTest, fixture: Fixture) {
+  await backend.run(async (ctx) => {
+    const clock = await ctx.db.query("reviewerClockIns")
+      .withIndex("by_round_person", (q) =>
+        q.eq("roundId", fixture.roundId).eq("reviewerPersonId", fixture.memberPersonId),
+      ).unique();
+    if (!clock) throw new Error("Member clock fixture missing");
+    await ctx.db.patch(clock._id, { status: "clocked_out" });
+  });
+}
 
 async function prepareAutomaticStaffing(
   backend: BackendTest,
@@ -1828,82 +2027,9 @@ describe("live panel membership", () => {
     const startsAt = Date.now() + 60 * 60_000;
     await preparePublicationPolicy(backend, fixture);
     await expect(
-      asOperator(backend, fixture).mutation(api.reviewConfiguration.publishRound, {
-        eventSlug: fixture.eventSlug,
-          confirmationOpensAt: startsAt - 2 * 60 * 60_000,
-        rubric: {
-          name: "Availability fixture rubric",
-          spreadThreshold: 2,
-          criteria: [
-            {
-              stableKey: "craft",
-              label: "Craft",
-              question: "How strong is the demonstrated craft?",
-              guidance: "Use only the fixed evidence shown by the team.",
-              weight: 100,
-              displayOrder: 0,
-              anchors: {
-                zero: "None",
-                one: "Weak",
-                two: "Sound",
-                three: "Strong",
-                four: "Exceptional",
-              },
-            },
-          ],
-        },
-        round: {
-          stableKey: "availability_fixture_round",
-          name: "Availability fixture round",
-          sequence: 2,
-          clockInOpensAt: startsAt - 60_000,
-          reviewerReportAt: startsAt - 30_000,
-          startsAt,
-          endsAt: startsAt + 3_600_000,
-          noShowGraceSeconds: 30,
-          correctionRequestsCloseAt: startsAt + 3_600_000,
-          reviewDurationSeconds: 600,
-          ordinaryExtensionSeconds: 120,
-          maximumOrdinaryExtensions: 1,
-          missedCallGraceSeconds: 120,
-          requiredCallAttempts: 2,
-          substituteResponseSeconds: 60,
-          missedReentryPolicy: "preserve_queue_time",
-          requiredPanelSize: 1,
-            staffing: {
-              seniorSeats: 0,
-              juniorSeats: 0,
-              allowSeniorLeadFallback: true,
-              automaticReplacement: false,
-              juniorRotationReviews: 0,
-              reviewerArrivalSeconds: 90,
-              assignmentReminderSeconds: 300,
-            },
-            minimumScorersPerCriterion: 1,
-          minimumPresentParticipants: 1,
-          requiresSharedCommitments: true,
-            requiresFinalComment: false,
-          minimumReviewerBuild: 1,
-          requiresCamera: false,
-          requiresNotifications: false,
-        },
-        panels: [
-          {
-            stableKey: "availability_panel",
-            name: "Availability panel",
-            members: [
-              {
-                personId: fixture.memberPersonId,
-                criterionKeys: ["craft"],
-                isCoordinator: true,
-              },
-            ],
-          },
-        ],
-        reservePersonIds: [],
-        reason: "Exercise unavailable reviewer publication",
-        clientOperationId: "publish-unavailable-reviewer",
-      },
+      asOperator(backend, fixture).mutation(
+        api.reviewConfiguration.publishRound,
+        publicationRequest(fixture, startsAt, fixture.memberPersonId),
       ),
     ).resolves.toMatchObject({ roundId: expect.any(String) });
     await backend.run(async (ctx) => {
@@ -2870,6 +2996,89 @@ async function grantNoShow(backend: BackendTest, fixture: Fixture) {
       reason: "Reviewer no-show policy test",
     });
   });
+}
+
+function publicationRequest(
+  fixture: Fixture,
+  startsAt: number,
+  personId: Id<"people">,
+): FunctionArgs<typeof api.reviewConfiguration.publishRound> {
+  return {
+    eventSlug: fixture.eventSlug,
+    confirmationOpensAt: startsAt - 2 * 60 * 60_000,
+    rubric: {
+      name: "Availability fixture rubric",
+      spreadThreshold: 2,
+      criteria: [
+        {
+          stableKey: "craft",
+          label: "Craft",
+          question: "How strong is the demonstrated craft?",
+          guidance: "Use only the fixed evidence shown by the team.",
+          weight: 100,
+          displayOrder: 0,
+          anchors: {
+            zero: "None",
+            one: "Weak",
+            two: "Sound",
+            three: "Strong",
+            four: "Exceptional",
+          },
+        },
+      ],
+    },
+    round: {
+      stableKey: "availability_fixture_round",
+      name: "Availability fixture round",
+      sequence: 2,
+      clockInOpensAt: startsAt - 60_000,
+      reviewerReportAt: startsAt - 30_000,
+      startsAt,
+      endsAt: startsAt + 3_600_000,
+      noShowGraceSeconds: 30,
+      correctionRequestsCloseAt: startsAt + 3_600_000,
+      reviewDurationSeconds: 600,
+      ordinaryExtensionSeconds: 120,
+      maximumOrdinaryExtensions: 1,
+      missedCallGraceSeconds: 120,
+      requiredCallAttempts: 2,
+      substituteResponseSeconds: 60,
+      missedReentryPolicy: "preserve_queue_time",
+      requiredPanelSize: 1,
+      staffing: {
+        seniorSeats: 0,
+        juniorSeats: 0,
+        allowSeniorLeadFallback: true,
+        automaticReplacement: false,
+        juniorRotationReviews: 0,
+        reviewerArrivalSeconds: 90,
+        assignmentReminderSeconds: 300,
+      },
+      minimumScorersPerCriterion: 1,
+      minimumPresentParticipants: 1,
+      requiresSharedCommitments: true,
+      requiresFinalComment: false,
+      minimumReviewerBuild: 1,
+      requiresCamera: false,
+      requiresNotifications: false,
+    },
+    panels: [
+      {
+        stableKey: "availability_panel",
+        name: "Availability panel",
+        members: [
+          {
+            personId,
+            criterionKeys: ["craft"],
+            isCoordinator: true,
+          },
+        ],
+      },
+    ],
+    reservePersonIds: [],
+    reason: "Exercise reviewer publication",
+    clientOperationId: "publish-reviewer",
+  };
 }
 
 async function preparePublicationPolicy(backend: BackendTest, fixture: Fixture,

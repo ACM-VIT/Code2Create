@@ -1,6 +1,6 @@
 import { ConvexError, v } from "convex/values";
 import { reviewerFitsSeat } from "@code2create/domain";
-import { reviewerParticipation } from "./lib/reviewerParticipation";
+import { reviewerHasOverlappingPanel, reviewerParticipation } from "./lib/reviewerParticipation";
 import { z } from "zod";
 
 import { internal } from "./_generated/api";
@@ -246,7 +246,7 @@ export async function eligibleReserve(
   ) {
     return null;
   }
-  const [person, subject, profile, clockIn, activePanelMember, sentPages, openedPages,
+  const [person, subject, profile, clockIn, overlappingPanel, sentPages, openedPages,
   ] =
     await Promise.all([
       ctx.db.get(args.reserve.personId),
@@ -263,15 +263,7 @@ export async function eligibleReserve(
           index.eq("roundId", args.round._id).eq("reviewerPersonId", args.reserve.personId),
         )
         .unique(),
-      ctx.db
-        .query("reviewPanelMembers")
-        .withIndex("by_round_person_status", (index) =>
-          index
-            .eq("roundId", args.round._id)
-            .eq("personId", args.reserve.personId)
-            .eq("status", "active"),
-        )
-        .unique(),
+      reviewerHasOverlappingPanel(ctx, args.round.eventId, args.reserve.personId, args.round),
       ctx.db
         .query("reviewerPages")
         .withIndex("by_event_person_state_expiry", (index) =>
@@ -314,7 +306,7 @@ export async function eligibleReserve(
     !clockIn ||
     clockIn.status !== "present" ||
     args.now - clockIn.lastHeartbeatAt > reviewerLivenessWindowMs ||
-    activePanelMember
+    overlappingPanel
   ) {
     return null;
   }
@@ -1543,7 +1535,7 @@ export const respondToPage = mutation({
     if (!eligible) {
       throw new ConvexError({
         code: "RESERVE_NO_LONGER_ELIGIBLE",
-        message: "Clock in on the paged phone and remain available before accepting this seat.",
+        message: "Clock in on the paged phone and make sure you have no overlapping panel assignment before accepting this seat.",
       });
     }
     const activeMembers = await ctx.db
