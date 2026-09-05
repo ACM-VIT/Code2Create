@@ -357,6 +357,7 @@ describe("event bootstrap", () => {
       email: "owner@example.test",
       omitPermissionKeys: ["team.roster.import"],
     });
+    const obsoleteGrantId = await seedObsoleteSupremeGrant(backend, seeded, "active");
 
     const importGrantCount = await backend.run(async (ctx) => {
       const grants = await ctx.db
@@ -376,9 +377,15 @@ describe("event bootstrap", () => {
       eventSlug: seeded.eventSlug,
     });
     expect(synchronized.createdCount).toBeGreaterThan(0);
+    expect(synchronized.revokedCount).toBe(1);
     expect(synchronized.accessVersion).toBe(seeded.accessVersion + 1);
 
     await backend.run(async (ctx) => {
+      expect(await ctx.db.get(obsoleteGrantId)).toMatchObject({
+        permissionKey: "floor.plan.read",
+        status: "revoked",
+        revokedByPersonId: seeded.personId,
+      });
       const grants = await ctx.db
         .query("permissionGrants")
         .withIndex("by_subject_permission_status", (index) =>
@@ -400,6 +407,104 @@ describe("event bootstrap", () => {
       expect(
         audits.some((event) => event.action === "access.supreme_permissions_synchronized"),
       ).toBe(true);
+    });
+  });
+
+  test.each(["active", "scheduled"] as const)(
+    "retires a %s removed catalog permission without rewriting current grants",
+    async (status) => {
+      const backend = convexTest(schema, modules);
+      backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+      const identity = await createGoogleIdentity(backend, "owner@example.test");
+      const owner = backend.withIdentity({
+        subject: identity.authUserId,
+        sessionId: identity.authSessionId,
+      });
+      const seeded = await seedSupremeOrganizer(backend, {
+        authUserId: identity.authUserId,
+        email: "owner@example.test",
+        omitPermissionKeys: [],
+      });
+      const baseline = await owner.mutation(api.access.synchronizeSupremePermissions, {
+        eventSlug: seeded.eventSlug,
+      });
+      const currentGrants = await backend.run((ctx) => ctx.db
+        .query("permissionGrants")
+        .withIndex("by_source", (index) => index
+          .eq("eventId", seeded.eventId)
+          .eq("sourceType", "role_template")
+          .eq("sourceId", seeded.roleId)
+          .eq("status", "active"))
+        .take(256));
+      const obsoleteGrantId = await seedObsoleteSupremeGrant(backend, seeded, status);
+      const result = await owner.mutation(api.access.synchronizeSupremePermissions, {
+        eventSlug: seeded.eventSlug,
+      });
+      expect(result).toEqual({
+        createdCount: 0,
+        revokedCount: 1,
+        accessVersion: baseline.accessVersion + 1,
+      });
+      await backend.run(async (ctx) => {
+        expect(await ctx.db.get(obsoleteGrantId)).toMatchObject({
+          permissionKey: "floor.plan.read",
+          status: "revoked",
+          revokedByPersonId: seeded.personId,
+          revokeReason: "Permission removed from the Supreme catalog.",
+        });
+        const unchanged = await Promise.all(currentGrants.map((grant) => ctx.db.get(grant._id)));
+        expect(unchanged).toEqual(currentGrants);
+        const audits = await ctx.db.query("auditEvents")
+          .withIndex("by_target_time", (index) => index
+            .eq("targetType", "event_access_subject")
+            .eq("targetId", seeded.subjectId))
+          .take(8);
+        const cleanup = audits.find((audit) => {
+          const summary: unknown = JSON.parse(audit.nextSummary);
+          return typeof summary === "object" && summary !== null &&
+            "revokedGrantCount" in summary && summary.revokedGrantCount === 1;
+        });
+        expect(cleanup?.nextSummary).toContain(obsoleteGrantId);
+      });
+      await expect(owner.mutation(api.access.synchronizeSupremePermissions, {
+        eventSlug: seeded.eventSlug,
+      })).resolves.toEqual({
+        createdCount: 0,
+        revokedCount: 0,
+        accessVersion: result.accessVersion,
+      });
+    },
+  );
+
+  test("requires existing revoke authority before cleaning up a removed permission", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const identity = await createGoogleIdentity(backend, "owner@example.test");
+    const owner = backend.withIdentity({
+      subject: identity.authUserId,
+      sessionId: identity.authSessionId,
+    });
+    const seeded = await seedSupremeOrganizer(backend, {
+      authUserId: identity.authUserId,
+      email: "owner@example.test",
+      omitPermissionKeys: ["access.permissions.revoke_any"],
+    });
+    const obsoleteGrantId = await seedObsoleteSupremeGrant(backend, seeded, "active");
+    await expect(owner.mutation(api.access.synchronizeSupremePermissions, {
+      eventSlug: seeded.eventSlug,
+    })).rejects.toThrow("does not have permission for that exact resource");
+    await backend.run(async (ctx) => {
+      expect(await ctx.db.get(obsoleteGrantId)).toMatchObject({ status: "active" });
+      expect(await ctx.db.get(seeded.subjectId)).toMatchObject({
+        accessVersion: seeded.accessVersion,
+      });
+      const grants = await ctx.db.query("permissionGrants")
+        .withIndex("by_subject_permission_status", (index) => index
+          .eq("eventAccessSubjectId", seeded.subjectId)
+          .eq("permissionKey", "access.permissions.revoke_any")
+          .eq("status", "active"))
+        .take(1);
+      expect(grants).toHaveLength(0);
     });
   });
 
@@ -792,6 +897,27 @@ async function createGoogleIdentity(backend: BackendTest, email: string) {
     });
   });
   return { authUserId, authSessionId };
+}
+
+async function seedObsoleteSupremeGrant(
+  backend: BackendTest,
+  seeded: Awaited<ReturnType<typeof seedSupremeOrganizer>>,
+  status: "active" | "scheduled",
+) {
+  return backend.run((ctx) => ctx.db.insert("permissionGrants", {
+    eventId: seeded.eventId,
+    personId: seeded.personId,
+    eventAccessSubjectId: seeded.subjectId,
+    permissionKey: "floor.plan.read",
+    scopeType: "event",
+    status,
+    sourceType: "role_template",
+    sourceId: seeded.roleId,
+    grantedByPersonId: seeded.personId,
+    reason: "Supreme role authority",
+    validFrom: Date.now() + (status === "scheduled" ? 60_000 : 0),
+    createdAt: Date.now(),
+  }));
 }
 
 async function seedSupremeOrganizer(
