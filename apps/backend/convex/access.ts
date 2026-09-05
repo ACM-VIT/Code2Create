@@ -52,7 +52,7 @@ import {
 } from "./lib/operations";
 import {
   grantSupremeRolePermissions,
-  missingSupremeRolePermissionPlans,
+  supremeRolePermissionChanges,
   supremeRolePermissionPlans,
 } from "./lib/rolePermissions";
 import { normalizeEmail, normalizedText } from "./lib/strings";
@@ -643,6 +643,7 @@ export const synchronizeSupremePermissions = mutation({
   args: { eventSlug: v.string() },
   returns: v.object({
     createdCount: v.number(),
+    revokedCount: v.number(),
     accessVersion: v.number(),
   }),
   handler: async (ctx, args) => {
@@ -661,14 +662,14 @@ export const synchronizeSupremePermissions = mutation({
         message: "Only a Supreme organizer can synchronize Supreme catalog permissions.",
       });
     }
-    const missingPlans = await missingSupremeRolePermissionPlans(ctx, {
+    const { missingGrants, obsoleteGrants } = await supremeRolePermissionChanges(ctx, {
       eventId: event._id,
       personId: person._id,
       eventAccessSubjectId: subject._id,
       roleId: role._id,
     });
-    if (missingPlans.length === 0) {
-      return { createdCount: 0, accessVersion: subject.accessVersion };
+    if (missingGrants.length === 0 && obsoleteGrants.length === 0) {
+      return { createdCount: 0, revokedCount: 0, accessVersion: subject.accessVersion };
     }
     const authority = await requireGrantAuthorities(ctx, {
       eventId: event._id,
@@ -681,6 +682,23 @@ export const synchronizeSupremePermissions = mutation({
         targetPersonId: person._id,
       })),
     });
+    const revokeAuthorityIds = obsoleteGrants.length > 0
+      ? await requirePermission(ctx, {
+          eventId: event._id,
+          eventAccessSubjectId: subject._id,
+          permissionKey: "access.permissions.revoke_any",
+          scopeType: "event",
+        })
+      : [];
+    const now = Date.now();
+    for (const grant of obsoleteGrants) {
+      await ctx.db.patch(grant._id, {
+        status: "revoked",
+        revokedAt: now,
+        revokedByPersonId: person._id,
+        revokeReason: "Permission removed from the Supreme catalog.",
+      });
+    }
     const createdCount = await grantSupremeRolePermissions(ctx, {
       eventId: event._id,
       personId: person._id,
@@ -689,15 +707,15 @@ export const synchronizeSupremePermissions = mutation({
       grantedByPersonId: person._id,
     });
     let accessVersion = subject.accessVersion;
-    if (createdCount > 0) {
-      const now = Date.now();
+    const revokedCount = obsoleteGrants.length;
+    if (createdCount > 0 || revokedCount > 0) {
       accessVersion += 1;
       await ctx.db.patch(subject._id, { accessVersion, updatedAt: now });
       await writeAuditEvent(ctx, {
         eventId: event._id,
         actorPersonId: person._id,
-        permissionKey: "access.roles.assign",
-        grantIds: authority.grantIds,
+        permissionKey: authority.permissionKey,
+        grantIds: [...authority.grantIds, ...revokeAuthorityIds],
         scopeType: "person",
         scopeId: person._id,
         action: "access.supreme_permissions_synchronized",
@@ -707,11 +725,13 @@ export const synchronizeSupremePermissions = mutation({
         nextSummary: JSON.stringify({
           role: "supreme",
           createdGrantCount: createdCount,
+          revokedGrantCount: revokedCount,
+          revokedGrantIds: obsoleteGrants.map((grant) => grant._id),
         }),
         reason: "Synchronize Supreme catalog permissions.",
       });
     }
-    return { createdCount, accessVersion };
+    return { createdCount, revokedCount, accessVersion };
   },
 });
 
