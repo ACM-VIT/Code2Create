@@ -1612,6 +1612,124 @@ describe("participant intake lifecycle", () => {
         clientOperationId: "transfer-after-deadline",
       }),
     ).rejects.toThrow("Applications are closed");
+
+    // Both intake queries serve team leads and members. Keep their application
+    // projection limited to the published outcome and offer, never review data.
+    for (const [decision, state] of [
+      ["accept", "accepted"],
+      ["waitlist", "waitlisted"],
+      ["decline", "declined"],
+    ] as const) {
+      await backend.run(async (ctx) => {
+        const application = await ctx.db.get(submitted.application.id);
+        if (!application) throw new Error("The participant application is missing.");
+        await ctx.db.patch(application.eventId, {
+          admissionResultsReleasedAt: Date.now(),
+        });
+        await ctx.db.patch(application._id, {
+          state,
+          decisionStage: "released",
+          humanDecision: decision,
+          humanReasonCode: "private-review-reason",
+          aiDisposition: "overridden",
+        });
+      });
+      for (const viewer of [participant, secondParticipant]) {
+        const [current, result] = await Promise.all([
+          viewer.query(api.intake.current, { eventSlug: fixture.eventSlug }),
+          viewer.query(api.intake.submitted, { eventSlug: fixture.eventSlug }),
+        ]);
+        for (const view of [current?.application, result?.application]) {
+          expect(view?.state).toBe(state);
+          expect(Object.keys(view ?? {}).sort()).toEqual([
+            "contentVersion",
+            "currentOffer",
+            "id",
+            "state",
+            "submittedAt",
+            "version",
+          ]);
+        }
+      }
+      const internalApplication = await backend.run((ctx) =>
+        ctx.db.get(submitted.application.id),
+      );
+      expect(internalApplication).toMatchObject({
+        humanDecision: decision,
+        humanReasonCode: "private-review-reason",
+        aiDisposition: "overridden",
+      });
+    }
+
+    // The release projection applies only before finalization; it must not
+    // overwrite a later RSVP state in either the route or the screen query.
+    for (const published of [false, true]) {
+      await backend.run(async (ctx) => {
+        const application = await ctx.db.get(submitted.application.id);
+        if (!application) throw new Error("Missing released application.");
+        await ctx.db.patch(application.eventId, {
+          admissionResultsReleasedAt: published ? Date.now() : undefined,
+        });
+        await ctx.db.patch(application._id, {
+          state: "under_review", decisionStage: "recorded", humanDecision: "accept",
+        });
+      });
+      const visibleState = published ? "accepted" : "under_review";
+      expect(await participant.query(api.intake.status, { eventSlug: fixture.eventSlug }))
+        .toMatchObject({ applicationState: visibleState });
+      expect(await participant.query(api.intake.submitted, { eventSlug: fixture.eventSlug }))
+        .toMatchObject({ application: { state: visibleState } });
+    }
+    const offerId = await backend.run(async (ctx) => {
+      const application = await ctx.db.get(submitted.application.id);
+      const teamDoc = await ctx.db.get(team.teamId);
+      const leader = await ctx.db.get(secondMembershipId);
+      if (!application || !teamDoc || !leader) throw new Error("Missing RSVP fixture.");
+      const project = await ctx.db.get(application.submittedProjectVersionId);
+      if (!project) throw new Error("Missing RSVP project.");
+      const offerId = await ctx.db.insert("admissionOffers", {
+        eventId: application.eventId,
+        applicationId: application._id,
+        teamId: teamDoc._id,
+        lockedRosterSnapshotId: project.lockedRosterSnapshotId,
+        participantCount: project.lockedMemberCount,
+        source: "accepted_decision",
+        state: "offered",
+        sentAt: Date.now(),
+        expiresAt: Date.now() + 12 * 60 * 60_000,
+        createdByPersonId: leader.personId,
+        createdByGrantIds: [],
+        version: 1,
+      });
+      await ctx.db.patch(application._id, {
+        state: "offer_sent", decisionStage: "released", currentOfferId: offerId,
+      });
+      return offerId;
+    });
+    for (const [state, offerState] of [
+      ["offer_sent", "offered"],
+      ["confirmed", "confirmed"],
+      ["offer_expired", "expired"],
+      ["withdrawn", "declined"],
+    ] as const) {
+      await backend.run(async (ctx) => {
+        await ctx.db.patch(submitted.application.id, { state });
+        await ctx.db.patch(offerId, { state: offerState });
+      });
+      for (const viewer of [participant, secondParticipant]) {
+        const [status, current, result] = await Promise.all([
+          viewer.query(api.intake.status, { eventSlug: fixture.eventSlug }),
+          viewer.query(api.intake.current, { eventSlug: fixture.eventSlug }),
+          viewer.query(api.intake.submitted, { eventSlug: fixture.eventSlug }),
+        ]);
+        expect(status).toMatchObject({ applicationState: state, revisionInProgress: false });
+        for (const view of [current?.application, result?.application]) {
+          expect(view).toMatchObject({ state, currentOffer: { id: offerId, state: offerState } });
+          expect(view).not.toHaveProperty("humanDecision");
+          expect(view).not.toHaveProperty("humanReasonCode");
+        }
+      }
+    }
   }, 15_000);
 });
 

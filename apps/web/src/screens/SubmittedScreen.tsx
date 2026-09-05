@@ -485,42 +485,49 @@ function SubmittedWorkspace({
           <p className="mb-2.5 font-ui text-lg text-rose-light text-shadow-[0_2px_14px_var(--scene-text-glow)] lg:text-xl">
             {copy.status} for {event.name}
           </p>
-          <h1 className="mb-9 font-display font-light tracking-[-.01em] text-6xl leading-[.96] text-shadow-[0_0_60px_var(--glow-rose-soft),0_10px_50px_var(--scene-text-glow)] lg:mb-[42px] lg:text-[92px]">
+          <h1 className="mb-9 text-balance font-display font-light tracking-[-.01em] text-[clamp(2.5rem,9vw,3.75rem)] leading-[.96] text-shadow-[0_0_60px_var(--glow-rose-soft),0_10px_50px_var(--scene-text-glow)] lg:mb-[42px] lg:text-[92px]">
             {confirmed ? "You’re confirmed." : "You’re in."}
           </h1>
 
-          <PetalCard className="flex flex-col sm:flex-row">
-            <div className="grid flex-1 grid-cols-1 gap-4 px-7 py-[22px] sm:grid-cols-3 sm:gap-0">
-              <div className="sm:border-r sm:border-rose/35 sm:pr-5">
+          <PetalCard className="flex flex-col overflow-hidden md:flex-row">
+            <div className="grid min-w-0 flex-1 grid-cols-1 gap-5 px-6 py-6 md:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)_minmax(0,1fr)] md:gap-0">
+              <div className="min-w-0 md:border-r md:border-rose/35 md:pr-5">
                 <p className="mb-1 text-[10.5px] font-semibold tracking-[.08em] text-fg/50">
                   venue
                 </p>
-                <p className="m-0 font-display font-light tracking-[-.01em] text-[16.5px] leading-[1.3]">
+                <p className="m-0 text-balance wrap-break-word font-display font-light tracking-[-.01em] text-[15px] leading-[1.45]">
                   {communications?.venueName ?? "announced with your offer"}
                 </p>
               </div>
-              <div className="sm:border-r sm:border-rose/35 sm:px-5">
+              <div className="min-w-0 md:border-r md:border-rose/35 md:px-5">
                 <p className="mb-1 text-[10.5px] font-semibold tracking-[.08em] text-fg/50">when</p>
-                <p className="m-0 font-display font-light tracking-[-.01em] text-[16.5px] leading-[1.3]">
-                  {communications
-                    ? `${formatEventTime(communications.startsAt, event.timezone)} – ${formatEventTime(communications.endsAt, event.timezone)}`
-                    : "—"}
-                </p>
+                {communications ? (
+                  <div className="flex items-center justify-center gap-2.5 font-display text-[14px] font-light leading-[1.45] tracking-[-.01em]">
+                    <EventDateTime timestamp={communications.startsAt} timezone={event.timezone} stacked />
+                    <span aria-hidden className="text-xs text-fg/40">→</span>
+                    <span className="sr-only">to</span>
+                    <EventDateTime timestamp={communications.endsAt} timezone={event.timezone} stacked />
+                  </div>
+                ) : <p className="m-0 text-[15px]">—</p>}
               </div>
-              <div className="sm:pl-5">
+              <div className="min-w-0 md:pl-5">
                 <p className="mb-1 text-[10.5px] font-semibold tracking-[.08em] text-fg/50">
                   {confirmed ? "status" : "confirm by"}
                 </p>
-                <p className="m-0 font-display font-light tracking-[-.01em] text-[16.5px] leading-[1.3] text-rose-light">
+                <p className="m-0 text-balance font-display font-light tracking-[-.01em] text-[15px] leading-[1.45] text-rose-light">
                   {confirmed
                     ? "place held"
                     : offer
-                      ? formatEventTime(offer.expiresAt, event.timezone)
+                      ? <EventDateTime timestamp={offer.expiresAt} timezone={event.timezone} stacked />
                       : "offer on its way"}
                 </p>
               </div>
             </div>
-            <div className="flex flex-none items-center justify-center gap-3 border-t-2 border-dashed border-rose/55 px-5 py-4 sm:w-[140px] sm:flex-col sm:gap-[7px] sm:border-t-0 sm:border-l-2">
+            <div
+              aria-hidden
+              className="mx-6 border-0 border-t-2 border-dashed border-rose/55 md:mx-0 md:my-4 md:border-t-0 md:border-l-2"
+            />
+            <div className="flex flex-none items-center justify-center gap-3 px-5 py-4 md:w-[108px] md:flex-col md:gap-[7px]">
               <div className="flex size-12 -rotate-4 items-center justify-center rounded-[10px] bg-rose text-[15px] font-bold text-wash shadow-[0_8px_20px_var(--shade-1)]">
                 C2C
               </div>
@@ -535,7 +542,7 @@ function SubmittedWorkspace({
               {communications.nextSteps.map((step) => (
                 <div
                   key={step.stableKey}
-                  className="flex items-baseline justify-between gap-4 border-b border-petal-line py-2.5 last:border-b-0"
+                  className="flex flex-col gap-1.5 border-b border-petal-line py-2.5 last:border-b-0 sm:flex-row sm:items-baseline sm:justify-between sm:gap-4"
                 >
                   <div>
                     <p className="m-0 text-[13px] font-semibold">
@@ -556,7 +563,7 @@ function SubmittedWorkspace({
                   </div>
                   {step.dueAt ? (
                     <span className="flex-none text-[11px] text-rose-light">
-                      {formatEventTime(step.dueAt, event.timezone)}
+                      <EventDateTime timestamp={step.dueAt} timezone={event.timezone} />
                     </span>
                   ) : null}
                 </div>
@@ -618,7 +625,7 @@ function SubmittedWorkspace({
             ) : application.state === "offer_sent" && intake.currentRole !== "lead" ? (
               <p className="m-0 text-[12.5px] text-fg/60">
                 Your team lead confirms for the team
-                {offer ? ` · by ${formatEventTime(offer.expiresAt, event.timezone)}` : ""}.
+                {offer ? <> · by <EventDateTime timestamp={offer.expiresAt} timezone={event.timezone} /></> : null}.
               </p>
             ) : null}
             {communications?.discordUrl ? (
@@ -1101,6 +1108,30 @@ function recoverProposalDraft(intake: SubmittedIntake, stored: string): Proposal
       answer: values.get(`answer:${response.questionId}`) ?? response.answer,
     })),
   };
+}
+
+function EventDateTime({
+  timestamp,
+  timezone,
+  stacked = false,
+}: {
+  timestamp: number;
+  timezone: string;
+  stacked?: boolean;
+}) {
+  const date = new Intl.DateTimeFormat(undefined, { timeZone: timezone, dateStyle: "medium" });
+  const time = new Intl.DateTimeFormat(undefined, { timeZone: timezone, timeStyle: "short" });
+  return (
+    <time
+      dateTime={new Date(timestamp).toISOString()}
+      className={`inline-flex gap-x-1.5 gap-y-0.5 ${stacked ? "flex-col items-center" : "flex-wrap"}`}
+    >
+      <span className="whitespace-nowrap">{date.format(timestamp)}</span>{" "}
+      <span className={`whitespace-nowrap ${stacked ? "text-[0.9em] opacity-70" : ""}`}>
+        {time.format(timestamp)}
+      </span>
+    </time>
+  );
 }
 
 function formatEventTime(timestamp: number, timezone: string) {

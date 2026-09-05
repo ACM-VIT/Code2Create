@@ -53,7 +53,7 @@ export function AdmissionDetail({ accountEmail }: { accountEmail: string }) {
   const serverNow = useEstimatedServerNow(detail?.serverNow);
   const memberPage = usePaginatedQuery(
     api.admissions.members,
-    detail ? { eventSlug, applicationId: detail.application.id } : "skip",
+    detail && !detail.permissions.deckOnly ? { eventSlug, applicationId: detail.application.id } : "skip",
     { initialNumItems: 25 },
   );
   const members = memberPage.results;
@@ -96,7 +96,7 @@ export function AdmissionDetail({ accountEmail }: { accountEmail: string }) {
     <article className="application-detail">
       <div className="application-nav">
         <Link className="back-link" to="/admissions">
-          ← Applications
+          {detail.permissions.deckOnly ? "← Review deck" : "← Applications"}
         </Link>
         <NextReviewButton
           className="text-button"
@@ -113,17 +113,17 @@ export function AdmissionDetail({ accountEmail }: { accountEmail: string }) {
             {formatEventTime(detail.application.submittedAt, detail.eventTimezone)}
           </p>
         </div>
-        <span className="state-label">{applicationStateLabels[detail.application.state]}</span>
+        {!detail.permissions.deckOnly ? <span className="state-label">{applicationStateLabels[detail.application.state]}</span> : null}
       </header>
 
-      <AdmissionReviewOverview detail={detail} />
+      {!detail.permissions.deckOnly ? <AdmissionReviewOverview detail={detail} /> : null}
 
-      <section className="application-next-step">
+      {!detail.permissions.deckOnly ? <section className="application-next-step">
         <p className="eyebrow">What happens next</p>
         <h2>{step.title}</h2>
         <p>{step.detail}</p>
         {step.blocker ? <p className="application-blocker">{step.blocker}</p> : null}
-      </section>
+      </section> : null}
 
       <div
         className={
@@ -131,7 +131,7 @@ export function AdmissionDetail({ accountEmail }: { accountEmail: string }) {
         }
       >
         <div className="application-evidence">
-          <section className="detail-section">
+          {!detail.permissions.deckOnly ? <section className="detail-section">
             <h2>Team · <LiveNumber value={detail.team.memberCount} /></h2>
             {members.length > 0 && members.every((member) => member.profileContext === null) ? (
               <p className="muted">This account can’t see year and institution.</p>
@@ -169,7 +169,7 @@ export function AdmissionDetail({ accountEmail }: { accountEmail: string }) {
                 {memberPage.status === "LoadingMore" ? "Loading members…" : "Load more members"}
               </button>
             ) : null}
-          </section>
+          </section> : null}
 
           <section className="detail-section prose-section">
             <h2>Project</h2>
@@ -196,11 +196,11 @@ export function AdmissionDetail({ accountEmail }: { accountEmail: string }) {
               <div className="section-heading">
                 <div>
                   <h2>What to look for</h2>
-                  <p className="muted">
+                  {!detail.permissions.deckOnly ? <p className="muted">
                     {detail.application.cohort
                       ? `${cohortSummary(detail.application.cohort)} team`
                       : "You do not have access to year context."}
-                  </p>
+                  </p> : null}
                 </div>
                 <span className="state-label">Admissions only</span>
               </div>
@@ -654,14 +654,14 @@ function HumanReviews({
   if (!reviewOpen && reviews.length === 0 && !decision) return null;
   return (
     <section className="detail-section">
-      <h2>{reviewOpen ? "Organizer reviews" : "How this was decided"}</h2>
-      <p className="muted">
+      <h2>{detail.permissions.deckOnly ? "Past reviews" : reviewOpen ? "Organizer reviews" : "How this was decided"}</h2>
+      {!detail.permissions.deckOnly ? <p className="muted">
         {!reviewOpen && decision
           ? decidedSentence(detail, decision)
           : outstanding > 0
             ? `Still to come: ${outstanding} of ${detail.policy.minimumHumanReviews}. A final decision cannot be recorded until they are in.`
             : `All ${detail.policy.minimumHumanReviews} required reviews are in.`}
-      </p>
+      </p> : reviews.length === 0 ? <p className="muted">No reviews have been submitted for this project yet.</p> : null}
       {reviews.length ? (
         <ul className="review-list">
           {reviews.map((review) => (
@@ -1018,7 +1018,7 @@ function ReviewForm({ detail }: { detail: AdmissionDetailData }) {
   const saveReview = useMutation(api.admissions.saveReview);
   const operations = useOperationRunner();
   const { capture } = useProductAnalytics();
-  const assignmentCounts = useReviewAssignmentCounts();
+  const assignmentCounts = useReviewAssignmentCounts("all", !detail.permissions.deckOnly);
   const ownReview = detail.humanReviews.find((review) => review.own) ?? null;
   const [editing, setEditing] = useState(ownReview === null);
   const [recommendation, setRecommendation] = useState<ApplicationDecision | null>(

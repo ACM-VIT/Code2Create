@@ -1,5 +1,5 @@
 import { api } from "@code2create/backend/api";
-import { eventRoleLabels } from "@code2create/domain";
+import { emergencyReviewsBundle, eventRoleLabels } from "@code2create/domain";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import { useMutation, useQuery } from "convex/react";
 import { useMemo, useState, type SubmitEvent } from "react";
@@ -34,6 +34,10 @@ export function PermissionBundles() {
   const workspace = useQuery(api.permissionBundles.workspace, { eventSlug });
   const [selectedBundleId, setSelectedBundleId] = useState<BundleId | null>(null);
   const [creating, setCreating] = useState(false);
+  const createEmergencyReviews = useMutation(api.permissionBundles.createEmergencyReviews);
+  const presetOperation = useOperationRunner<FunctionReturnType<typeof api.permissionBundles.createEmergencyReviews>>();
+  const [creatingEmergencyReviews, setCreatingEmergencyReviews] = useState(false);
+  const [presetError, setPresetError] = useState<string | null>(null);
   const detail = useQuery(
     api.permissionBundles.detail,
     selectedBundleId ? { eventSlug, bundleId: selectedBundleId } : "skip",
@@ -57,6 +61,21 @@ export function PermissionBundles() {
   const ordered = [...workspace.bundles].sort(
     (left, right) => bundleRank(left) - bundleRank(right) || left.label.localeCompare(right.label),
   );
+  const emergencyReviews = workspace.bundles.find((bundle) => bundle.key === emergencyReviewsBundle.key);
+  const createEmergencyBundle = async () => {
+    setCreatingEmergencyReviews(true);
+    setPresetError(null);
+    try {
+      const result = await presetOperation.run("emergency-reviews", (clientOperationId) =>
+        () => createEmergencyReviews({ eventSlug, clientOperationId }));
+      setCreating(false);
+      setSelectedBundleId(result.bundleId);
+    } catch (caught) {
+      setPresetError(readableError(caught));
+    } finally {
+      setCreatingEmergencyReviews(false);
+    }
+  };
 
   return (
     <section className="access-shell">
@@ -83,6 +102,19 @@ export function PermissionBundles() {
           </button>
         ) : null}
       </header>
+
+      {workspace.canCreate && !emergencyReviews ? (
+        <section className="stage-block">
+          <h2>Emergency Reviews</h2>
+          <p>Give selected JCs the review deck, claimed project details, past reviews, and review submission.</p>
+          <p className="muted">This bundle grants one permission. Application lists, event stats, and organizer controls require separate access.</p>
+          <button className="secondary" type="button" disabled={creatingEmergencyReviews}
+            onClick={() => void createEmergencyBundle()}>
+            {creatingEmergencyReviews ? "Creating…" : "Create Emergency Reviews"}
+          </button>
+          {presetError ? <p className="notice error" role="alert">{presetError}</p> : null}
+        </section>
+      ) : null}
 
       <section className="stage-block">
         <p className="eyebrow">Status</p>

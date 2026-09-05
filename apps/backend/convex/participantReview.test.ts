@@ -643,7 +643,7 @@ describe("participant review queue projection", () => {
       await backend.run((ctx) => ctx.db.query("reviewAssignments").collect()),
     ).toHaveLength(1);
   });
-  test.each(["changed", "removed"])("review calls reject a %s profile phone before enqueue and dispatch", async (change) => {
+  test.each(["unchanged", "changed", "removed"])("automatic review calls use the current lead's %s profile phone", async (change) => {
     const backend = seededBackend();
     const fixture = await seedQueueFixture(backend);
     await prepareAutomaticQueue(backend, fixture);
@@ -663,13 +663,6 @@ describe("participant review queue projection", () => {
         phone: "+919876543210", gender: "male", institution: "VIT", yearOfStudy: "third",
         profileVersion: 1, updatedAt: fixture.now,
       });
-      await ctx.db.insert("outboundCallConsents", {
-        eventId: fixture.eventId, personId: fixture.personId,
-        purpose: "participant_event_update", state: "granted",
-        consentPolicyVersion: "team-review-calls-v1", scriptPolicyVersion: "team-review-call-up-v1",
-        destinationPhoneE164: "+919876543210", version: 1,
-        grantedAt: fixture.now, createdAt: fixture.now, updatedAt: fixture.now,
-      });
       const state = await ctx.db.get(fixture.targetStateId);
       if (!state) throw new Error("Missing state");
       await notifyReviewTeam(ctx, state, "up_next", Date.now());
@@ -678,6 +671,14 @@ describe("participant review queue projection", () => {
     const delivery = await backend.run((ctx) => ctx.db.query("outboundCallDeliveries").unique());
     if (!delivery) throw new Error("Expected queued call");
     expect(delivery.state).toBe("pending");
+    expect(delivery.consentId).toBeUndefined();
+    expect(await backend.run((ctx) => ctx.db.query("outboundCallConsents").collect())).toEqual([]);
+    if (change === "unchanged") {
+      expect(await backend.mutation(internal.outboundCallState.claimDelivery, {
+        deliveryId: delivery._id, attemptId: crypto.randomUUID(),
+      })).toMatchObject({ destinationPhoneE164: "+919876543210" });
+      return;
+    }
     await backend.run(async (ctx) => {
       if (change === "removed") await ctx.db.delete(profileId);
       else await ctx.db.patch(profileId, { phone: "+918000000000" });
@@ -686,97 +687,20 @@ describe("participant review queue projection", () => {
       deliveryId: delivery._id, attemptId: crypto.randomUUID(),
     })).toBeNull();
     expect(await backend.run((ctx) => ctx.db.get(delivery._id))).toMatchObject({
-      state: "cancelled", providerErrorCode: "call_consent_changed",
+      state: "cancelled", providerErrorCode: "participant_phone_changed",
     });
     await backend.run(async (ctx) => {
       const state = await ctx.db.get(fixture.targetStateId);
       if (!state) throw new Error("Missing state");
       await notifyReviewTeam(ctx, state, "called", Date.now());
     });
-    expect(await backend.run((ctx) => ctx.db.query("outboundCallDeliveries").collect())).toHaveLength(1);
-  });
-
-  test("team leads opt into calls using their saved profile phone and can retry or revoke without it", async () => {
-    const backend = seededBackend();
-    const fixture = await seedQueueFixture(backend);
-    await backend.run((ctx) =>
-      insertPermissionGrant(ctx, {
-        eventId: fixture.eventId,
-        personId: fixture.personId,
-        eventAccessSubjectId: fixture.subjectId,
-        permissionKey: "participant.profile.write",
-        scopeType: "self",
-        scopeId: fixture.membershipId,
-        sourceType: "manual",
-        sourceId: "test-consent",
-        reason: "Consent test",
-      }),
-    );
-    const participant = asParticipant(backend, fixture);
-    const command = {
-      eventSlug: fixture.eventSlug,
-      enabled: true,
-      expectedVersion: 0,
-      clientOperationId: "enable-team-calls",
-    };
-    await expect(
-      participant.mutation(api.participantReviewCalls.save, command),
-    ).rejects.toThrow("Update the phone number in your profile");
-    const profileId = await backend.run((ctx) =>
-      ctx.db.insert("participantProfiles", {
-        eventId: fixture.eventId,
-        membershipId: fixture.membershipId,
-        participantClass: "vit_student",
-        fullName: "Queue participant",
-        phone: "+919876543210",
-        gender: "male",
-        institution: "VIT",
-        yearOfStudy: "third",
-        profileVersion: 1,
-        updatedAt: fixture.now,
-      }),
-    );
-    expect(
-      await participant.mutation(api.participantReviewCalls.save, command),
-    ).toEqual({
-      version: 1,
-    });
-    expect(
-      await backend.run((ctx) => ctx.db.query("outboundCallConsents").unique()),
-    ).toMatchObject({
-      personId: fixture.personId,
-      state: "granted",
-      destinationPhoneE164: "+919876543210",
-    });
-    expect(await participant.query(api.participantReviewCalls.mine, {
-      eventSlug: fixture.eventSlug,
-    })).toMatchObject({ enabled: true });
-    await backend.run((ctx) => ctx.db.patch(profileId, { phone: "+918000000000" }));
-    expect(await participant.query(api.participantReviewCalls.mine, {
-      eventSlug: fixture.eventSlug,
-    })).toMatchObject({ enabled: false });
-    await backend.run((ctx) => ctx.db.delete(profileId));
-    expect(
-      await participant.mutation(api.participantReviewCalls.save, command),
-    ).toEqual({
-      version: 1,
-    });
-    expect(
-      await participant.query(api.participantReviewCalls.mine, {
-        eventSlug: fixture.eventSlug,
-      }),
-    ).toMatchObject({ enabled: false });
-    await participant.mutation(api.participantReviewCalls.save, {
-      eventSlug: fixture.eventSlug,
-      enabled: false,
-      expectedVersion: 1,
-      clientOperationId: "disable-team-calls",
-    });
-    expect(
-      await participant.query(api.participantReviewCalls.mine, {
-        eventSlug: fixture.eventSlug,
-      }),
-    ).toEqual({ enabled: false, version: 2 });
+    const calls = await backend.run((ctx) => ctx.db.query("outboundCallDeliveries").collect());
+    expect(calls).toHaveLength(change === "removed" ? 1 : 2);
+    if (change === "changed") {
+      expect(calls.find((call) => call._id !== delivery._id)).toMatchObject({
+        state: "pending", destinationPhoneE164: "+918000000000",
+      });
+    }
   });
 
   test("lets a participant observe staff placement but not place or call the team", async () => {

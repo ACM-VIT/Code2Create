@@ -1,10 +1,12 @@
 import { convexTest, type TestConvex } from "convex-test";
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { defaultParticipantEmailTemplates } from "@code2create/domain";
 
 import { internal } from "./_generated/api.js";
 import type { Id } from "./_generated/dataModel.js";
 import { createAdmissionOffer, transitionOffer } from "./admissions.ts";
+import { admissionRsvpCallDelayMs } from "./lib/admissionOfferCalls";
+import { insertPermissionGrant } from "./lib/permissions";
 import {
   communicationsPolicyChecksum,
   normalizeCommunicationsPolicy,
@@ -18,6 +20,12 @@ import schema from "./schema.ts";
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
 
 type BackendTest = TestConvex<typeof schema>;
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+});
 
 describe("admission offer lifecycle", () => {
   test("only exposes exact application management and exact-team response scopes", () => {
@@ -265,6 +273,160 @@ describe("admission offer lifecycle", () => {
     expect(state.capacity?.reserved).toBe(0);
   });
 });
+
+describe("automatic RSVP reminder calls", () => {
+  test("schedules at six hours and dispatches one call through the voice worker without opt-in", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const now = Date.now();
+    const backend = convexTest(schema, modules);
+    const fixture = await seedOfferedApplication(backend, now + 12 * 60 * 60_000);
+    await prepareRsvpCall(backend, fixture);
+    const jobs = await backend.run((ctx) => ctx.db.system.query("_scheduled_functions").collect());
+    const reminder = jobs.find((job) => job.name === "admissionOfferCalls:remind");
+    expect(reminder).toMatchObject({
+      args: [{ offerId: fixture.offerId }],
+      scheduledTime: now + admissionRsvpCallDelayMs,
+    });
+    await backend.mutation(internal.admissionOfferCalls.remind, { offerId: fixture.offerId });
+    expect(await rsvpCalls(backend)).toEqual([]);
+
+    vi.setSystemTime(now + admissionRsvpCallDelayMs);
+    await backend.mutation(internal.admissionOfferCalls.remind, { offerId: fixture.offerId });
+    await backend.mutation(internal.admissionOfferCalls.remind, { offerId: fixture.offerId });
+    const calls = await rsvpCalls(backend);
+    expect(calls).toHaveLength(1);
+    const call = calls[0];
+    if (!call) throw new Error("The unanswered offer did not queue a reminder.");
+    expect(call).toMatchObject({
+      sourceId: fixture.offerId,
+      sourceType: "admission_offer_reminder",
+      targetPersonId: fixture.personId,
+      destinationPhoneE164: "+919876543210",
+      state: "pending",
+    });
+    expect(call.consentId).toBeUndefined();
+    expect(await backend.run((ctx) => ctx.db.query("outboundCallConsents").collect())).toEqual([]);
+    expect(call.script).toContain("Quiet Circuit");
+    expect(call.script).toContain("confirm or decline for your whole team");
+    expect(call.script.length).toBeLessThanOrEqual(600);
+
+    vi.stubEnv("OUTBOUND_CALL_WORKER_URL", "https://voice.example.test");
+    vi.stubEnv("CONVEX_SITE_URL", "https://api.example.test");
+    vi.stubEnv("OUTBOUND_CALL_REQUEST_SECRET", "a".repeat(64));
+    const dispatch = vi.fn(async () => new Response(JSON.stringify({
+      accepted: true, deliveryId: call._id,
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", dispatch);
+    await backend.action(internal.outboundCalls.deliver, { deliveryId: call._id });
+    await backend.action(internal.outboundCalls.deliver, { deliveryId: call._id });
+    expect(dispatch).toHaveBeenCalledTimes(1);
+    expect(dispatch).toHaveBeenCalledWith(new URL("https://voice.example.test/v1/calls"),
+      expect.objectContaining({ method: "POST", body: expect.stringContaining(call.script) }));
+    expect(await backend.run((ctx) => ctx.db.get(call._id))).toMatchObject({ state: "provider_accepted" });
+  });
+
+  test("does not schedule a reminder after a short offer's deadline", async () => {
+    const backend = convexTest(schema, modules);
+    await seedOfferedApplication(backend, Date.now() + 60_000);
+    const jobs = await backend.run((ctx) => ctx.db.system.query("_scheduled_functions").collect());
+    expect(jobs.some((job) => job.name === "admissionOfferCalls:remind")).toBe(false);
+  });
+
+  test.each(["confirmed", "declined", "expired", "revoked"] as const)(
+    "%s offers cancel queued reminders and cannot enqueue another call",
+    async (transition) => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      const now = Date.now();
+      const backend = convexTest(schema, modules);
+      const fixture = await seedOfferedApplication(backend, now + 12 * 60 * 60_000);
+      await prepareRsvpCall(backend, fixture);
+      vi.setSystemTime(now + admissionRsvpCallDelayMs);
+      await backend.mutation(internal.admissionOfferCalls.remind, { offerId: fixture.offerId });
+      const [call] = await rsvpCalls(backend);
+      if (!call) throw new Error("Expected one queued reminder.");
+      await backend.run(async (ctx) => {
+        const [application, offer, project, team] = await Promise.all([
+          ctx.db.get(fixture.applicationId), ctx.db.get(fixture.offerId),
+          ctx.db.get(fixture.projectId), ctx.db.get(fixture.teamId),
+        ]);
+        if (!application || !offer || !project || !team) throw new Error("Missing offer fixture.");
+        await transitionOffer(ctx, {
+          application, offer, project, team, transition,
+          actorPersonId: fixture.personId, reason: "RSVP response before reminder dispatch", now: Date.now(),
+        });
+      });
+      await backend.mutation(internal.admissionOfferCalls.remind, { offerId: fixture.offerId });
+      expect(await rsvpCalls(backend)).toHaveLength(1);
+      expect(await backend.mutation(internal.outboundCallState.claimDelivery, {
+        deliveryId: call._id, attemptId: crypto.randomUUID(),
+      })).toBeNull();
+      expect(await backend.run((ctx) => ctx.db.get(call._id))).toMatchObject({
+        state: "cancelled", providerErrorCode: "rsvp_offer_no_longer_pending",
+      });
+    },
+  );
+
+  test.each(["phone", "authority", "deadline"] as const)(
+    "rechecks %s changes before dispatch and before creating a reminder",
+    async (change) => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      const now = Date.now();
+      const backend = convexTest(schema, modules);
+      const fixture = await seedOfferedApplication(backend, now + 12 * 60 * 60_000);
+      const setup = await prepareRsvpCall(backend, fixture);
+      vi.setSystemTime(now + admissionRsvpCallDelayMs);
+      await backend.mutation(internal.admissionOfferCalls.remind, { offerId: fixture.offerId });
+      const [call] = await rsvpCalls(backend);
+      if (!call) throw new Error("Expected one queued reminder.");
+      if (change === "deadline") vi.setSystemTime(now + 12 * 60 * 60_000);
+      else await backend.run(async (ctx) => {
+        if (change === "phone") await ctx.db.delete(setup.profileId);
+        else await ctx.db.patch(setup.grantId, { status: "revoked" });
+      });
+      expect(await backend.mutation(internal.outboundCallState.claimDelivery, {
+        deliveryId: call._id, attemptId: crypto.randomUUID(),
+      })).toBeNull();
+      expect(await backend.run((ctx) => ctx.db.get(call._id))).toMatchObject({ state: "cancelled" });
+      // Remove the prior delivery so deduplication cannot conceal a broken eligibility check.
+      await backend.run((ctx) => ctx.db.delete(call._id));
+      await backend.mutation(internal.admissionOfferCalls.remind, { offerId: fixture.offerId });
+      expect(await rsvpCalls(backend)).toEqual([]);
+    },
+  );
+});
+
+async function prepareRsvpCall(
+  backend: BackendTest,
+  fixture: Awaited<ReturnType<typeof seedOfferedApplication>>,
+) {
+  return backend.run(async (ctx) => {
+    const membership = await ctx.db.get(fixture.membershipId);
+    if (!membership) throw new Error("The RSVP lead membership is missing.");
+    const { grantId } = await insertPermissionGrant(ctx, {
+      eventId: fixture.eventId,
+      personId: fixture.personId,
+      eventAccessSubjectId: membership.eventAccessSubjectId,
+      permissionKey: "application.offer.manage",
+      scopeType: "application",
+      scopeId: fixture.applicationId,
+      sourceType: "manual",
+      sourceId: "rsvp-offer-test",
+      reason: "Offer reminder test",
+    });
+    await ctx.db.patch(fixture.offerId, { createdByGrantIds: [grantId] });
+    const profileId = await ctx.db.insert("participantProfiles", {
+      eventId: fixture.eventId, membershipId: fixture.membershipId,
+      participantClass: "external_participant", fullName: "Aarav Menon",
+      phone: "+91 98765 43210", gender: "male", institution: "Example University",
+      yearOfStudy: "not_applicable", profileVersion: 1, updatedAt: Date.now(),
+    });
+    return { grantId, profileId };
+  });
+}
+
+function rsvpCalls(backend: BackendTest) {
+  return backend.run((ctx) => ctx.db.query("outboundCallDeliveries").collect());
+}
 
 async function seedOfferedApplication(backend: BackendTest, expiresAt: number) {
   const now = Date.now();

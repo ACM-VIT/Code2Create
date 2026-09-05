@@ -64,22 +64,12 @@ export async function notifyReviewTeam(
     scopeType: "event",
   });
   if (!grants.length) return noticeId;
-  const consent = await ctx.db
-    .query("outboundCallConsents")
-    .withIndex("by_event_person_purpose", (q) =>
-      q
-        .eq("eventId", state.eventId)
-        .eq("personId", leader.personId)
-        .eq("purpose", "participant_event_update"),
-    )
-    .unique();
-  if (consent?.state !== "granted") return noticeId;
   const profile = await ctx.db
     .query("participantProfiles")
     .withIndex("by_membership", (q) => q.eq("membershipId", leader._id))
     .unique();
   const phone = normalizedE164Phone(profile?.phone);
-  if (phone === null || phone !== consent.destinationPhoneE164) return noticeId;
+  if (phone === null) return noticeId;
   await enqueueOutboundCall(ctx, {
     eventId: state.eventId,
     targetPersonId: leader.personId,
@@ -89,8 +79,7 @@ export async function notifyReviewTeam(
     destinationPhone: phone,
     script: `Code2Create review update. ${message}`.slice(0, 600),
     locale: "en-IN",
-    scriptPolicyVersion: consent.scriptPolicyVersion,
-    consent: { id: consent._id, version: consent.version },
+    scriptPolicyVersion: "team-review-call-up-v1",
     authorizationGrantIds: grants,
     now,
   });

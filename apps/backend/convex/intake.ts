@@ -53,7 +53,6 @@ import { reconcileWorkingFieldsAfterDraftVersionChange } from "./lib/intakeWorki
 import { ideaQuestionEndToEndDeadlineMs } from "./lib/ideaSubmissionAi";
 import { teamClassesMeetPolicy, teamRosterCounts } from "./lib/teamRoster";
 import {
-  admissionDecision,
   admissionOfferState,
   applicationState,
   projectDraftStage,
@@ -170,8 +169,6 @@ const participantApplicationView = v.object({
   version: v.number(),
   contentVersion: v.number(),
   submittedAt: v.number(),
-  humanDecision: v.optional(admissionDecision),
-  humanReasonCode: v.optional(v.string()),
   currentOffer: v.union(
     v.null(),
     v.object({
@@ -258,6 +255,24 @@ export async function currentReadTeamContext(ctx: QueryCtx, eventSlug: string) {
   return { event, membership, member, team };
 }
 
+function participantApplicationState(event: Doc<"events">, application: Doc<"applications">) {
+  // Project the released decision while its batch is being finalized. Once
+  // finalized, preserve the offer's live state, including RSVP and expiry.
+  if (
+    event.admissionResultsReleasedAt !== undefined &&
+    application.decisionStage === "recorded" &&
+    application.state === "under_review" &&
+    application.humanDecision !== undefined
+  ) {
+    return application.humanDecision === "accept"
+      ? ("accepted" as const)
+      : application.humanDecision === "waitlist"
+        ? ("waitlisted" as const)
+        : ("declined" as const);
+  }
+  return application.state;
+}
+
 async function participantApplicationForTeam(
   ctx: ReadCtx,
   event: Doc<"events">,
@@ -271,17 +286,6 @@ async function participantApplicationForTeam(
   if (application.eventId !== event._id) {
     throw new Error("A participant application belongs to another event.");
   }
-  const terminalDecisionReleased =
-    event.admissionResultsReleasedAt !== undefined &&
-    (application.decisionStage === "recorded" || application.decisionStage === "released") &&
-    application.humanDecision !== undefined;
-  const visibleState = terminalDecisionReleased
-    ? application.humanDecision === "accept"
-      ? ("accepted" as const)
-      : application.humanDecision === "waitlist"
-        ? ("waitlisted" as const)
-        : ("declined" as const)
-    : application.state;
   const currentOffer = application.currentOfferId
     ? await ctx.db.get(application.currentOfferId)
     : null;
@@ -298,18 +302,10 @@ async function participantApplicationForTeam(
     application,
     view: {
       id: application._id,
-      state: visibleState,
+      state: participantApplicationState(event, application),
       version: application.version,
       contentVersion: application.contentVersion,
       submittedAt: application.submittedAt,
-      ...((application.decisionStage === "released" || terminalDecisionReleased) &&
-      application.humanDecision !== undefined
-        ? { humanDecision: application.humanDecision }
-        : {}),
-      ...((application.decisionStage === "released" || terminalDecisionReleased) &&
-      application.humanReasonCode !== undefined
-        ? { humanReasonCode: application.humanReasonCode }
-        : {}),
       currentOffer: currentOffer
         ? {
             id: currentOffer._id,
@@ -1492,11 +1488,12 @@ export const status = query({
         : !application && (attempt?.state === "validating" || attempt?.state === "finalizing")
           ? ("validating" as const)
           : null;
+    const visibleState = application ? participantApplicationState(context.event, application) : null;
     return {
-      applicationState: application?.state ?? null,
+      applicationState: visibleState,
       revisionInProgress:
         application !== null &&
-        (application.state === "submitted" || application.state === "under_review") &&
+        (visibleState === "submitted" || visibleState === "under_review") &&
         draft !== null &&
         draft.stage !== "submitted",
       submissionState,

@@ -35,7 +35,7 @@ pnpm --filter @code2create/voice deploy:staging
 pnpm --filter @code2create/voice deploy:production
 ```
 
-The reusable protocol is in `packages/domain/src/voice.ts`. Participant review calls use their saved profile phone, explicit consent and current review-queue authority. Spoken acknowledgement does not change a review assignment or attendance.
+The reusable protocol is in `packages/domain/src/voice.ts`. Participant RSVP reminders and review call-ups are automatic event updates to the team lead's saved profile phone, without participant opt-in controls. An unanswered offer schedules one reminder six hours after it is sent, before its response deadline. The backend rechecks the offer or review queue, current lead and phone, and exact authority before dispatch. Spoken acknowledgement does not confirm an RSVP, change a review assignment, or record attendance.
 
 ## Conversational venue checks
 

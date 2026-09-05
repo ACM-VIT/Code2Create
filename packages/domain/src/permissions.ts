@@ -2,6 +2,18 @@ export function bindingName(value: string) {
   return value.replaceAll("_", " ").replace(/^./, (character) => character.toUpperCase());
 }
 
+export const emergencyReviewsBundle = {
+  key: "emergency_reviews",
+  label: "Emergency Reviews",
+  defaultRole: "jc",
+  entries: [{
+    permissionKey: "application.review_deck.use",
+    scopeType: "event",
+    scopeSource: "event",
+    validityRule: "bundle",
+  }],
+} as const;
+
 const grantSourceNames: Readonly<Record<string, string>> = {
   production_seed: "Initial event owner",
   participant_membership: "Participant account",
@@ -56,6 +68,7 @@ const exactPermissionNames: Readonly<Record<string, string>> = {
   "access.permissions.grant_scoped": "Let someone grant one scoped permission",
   "access.permissions.revoke_scoped": "Let someone revoke one scoped permission",
   "application.assign": "Assign application reviews",
+  "application.review_deck.use": "Review projects from the review deck",
   "application.ai_recommendation.read": "View admission recommendation",
   "application.ai_recommendation.run": "Retry admission analysis",
   "application.profile_context.read": "View an applicant’s year and course",

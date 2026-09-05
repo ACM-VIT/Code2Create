@@ -26,9 +26,10 @@ function useReviewDeck(origin: TeamOriginFilter, excludeApplicationId?: DeckItem
   });
 }
 
-export function AdmissionReviewDeck({ origin, onOriginChange }: {
+export function AdmissionReviewDeck({ origin, onOriginChange, showReviewCounts = true }: {
   origin: TeamOriginFilter;
   onOriginChange: (origin: TeamOriginFilter) => void;
+  showReviewCounts?: boolean;
 }) {
   const deck = useReviewDeck(origin);
   if (deck === null) return null;
@@ -55,14 +56,14 @@ export function AdmissionReviewDeck({ origin, onOriginChange }: {
         <p className="admission-deck-empty" role="status">No submissions available to review.</p>
       ) : (
         <div className="admission-deck-grid">
-          {deck.map((item) => <ReviewCard key={item.applicationId} item={item} />)}
+          {deck.map((item) => <ReviewCard key={item.applicationId} item={item} showReviewCounts={showReviewCounts} />)}
         </div>
       )}
     </section>
   );
 }
 
-function ReviewCard({ item }: { item: DeckItem }) {
+function ReviewCard({ item, showReviewCounts }: { item: DeckItem; showReviewCounts: boolean }) {
   const cancel = useMutation(api.admissions.cancelReviewAssignment);
   const operations = useOperationRunner();
   const [busy, setBusy] = useState(false);
@@ -99,7 +100,7 @@ function ReviewCard({ item }: { item: DeckItem }) {
       <p className="admission-deck-idea">{item.idea}</p>
       <div className="admission-deck-card-meta">
         <span>{item.memberCount} {item.memberCount === 1 ? "member" : "members"}</span>
-        <span><LiveNumber value={item.completedReviewCount} />/{item.minimumHumanReviews} reviews</span>
+        {showReviewCounts ? <span><LiveNumber value={item.completedReviewCount} />/{item.minimumHumanReviews} reviews</span> : null}
       </div>
       <div className="admission-deck-actions">
         <ReviewAction item={item} />

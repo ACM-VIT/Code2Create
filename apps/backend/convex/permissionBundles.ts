@@ -1,8 +1,9 @@
-import { areaForPermission, permissionName } from "@code2create/domain";
-import { ConvexError, v } from "convex/values";
+import { areaForPermission, emergencyReviewsBundle, permissionName } from "@code2create/domain";
+import { ConvexError, v, type Infer } from "convex/values";
 import { z } from "zod";
 
 import type { Doc, Id } from "./_generated/dataModel";
+import { api } from "./_generated/api";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
@@ -459,6 +460,47 @@ function draftResult(bundle: BundleDoc, draft: BundleVersionDoc) {
     checksum: draft.checksum,
   };
 }
+
+export const createEmergencyReviews = mutation({
+  args: { eventSlug: v.string(), clientOperationId: v.string() },
+  returns: v.object({ bundleId: v.id("permissionBundles") }),
+  handler: async (ctx, args) => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    await Promise.all((["access.permission_bundles.read", "access.permission_bundles.publish"] as const)
+      .map((permissionKey) => requirePermission(ctx, {
+        eventId: event._id, eventAccessSubjectId: subject._id, permissionKey, scopeType: "event",
+      })));
+    const existing = await ctx.db.query("permissionBundles")
+      .withIndex("by_event_key", (index) =>
+        index.eq("eventId", event._id).eq("key", emergencyReviewsBundle.key))
+      .unique();
+    if (existing) return { bundleId: existing._id };
+    const clientOperationId = normalizedText(args.clientOperationId, "Client operation ID", 10, 80);
+    // Nested mutations share this transaction, so the ready-to-assign bundle
+    // is created atomically using the same authorization and audit path as the editor.
+    const draft: Infer<typeof savedDraft> = await ctx.runMutation(api.permissionBundles.saveDraft, {
+      eventSlug: args.eventSlug,
+      ...emergencyReviewsBundle,
+      entries: [...emergencyReviewsBundle.entries],
+      bundleId: null,
+      expectedBundleVersion: 0,
+      expectedDraftRevision: null,
+      reason: "Create the Emergency Reviews access bundle",
+      clientOperationId: `${clientOperationId}:draft`,
+    });
+    await ctx.runMutation(api.permissionBundles.publish, {
+      eventSlug: args.eventSlug,
+      bundleId: draft.bundleId,
+      expectedBundleVersion: draft.bundleVersion,
+      expectedDraftRevision: draft.draftRevision,
+      reason: "Enable review-deck access for emergency reviewers",
+      clientOperationId: `${clientOperationId}:publish`,
+    });
+    return { bundleId: draft.bundleId };
+  },
+});
 
 export const saveDraft = mutation({
   args: {

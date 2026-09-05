@@ -65,6 +65,20 @@ export function AdmissionsQueue({
   const [selectedView, setSelectedView] = useState<QueueView>(canReadApplications ? "all" : "mine");
   const [origin, setOrigin] = useState<TeamOriginFilter>("all");
   const [recommendationFilter, setRecommendationFilter] = useState<RecommendationFilter | null>(null);
+  if (!canReadApplications && !canReadAssignments) {
+    return (
+      <section className="queue-shell admissions-shell">
+        <header className="page-heading">
+          <div>
+            <p className="eyebrow">Emergency Reviews</p>
+            <h1>Review deck</h1>
+            <p className="muted">Claim a project, read the submission and past reviews, then save your review.</p>
+          </div>
+        </header>
+        <AdmissionReviewDeck origin={origin} onOriginChange={setOrigin} showReviewCounts={false} />
+      </section>
+    );
+  }
   const view =
     selectedView === "all"
       ? canReadApplications

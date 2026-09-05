@@ -2,6 +2,7 @@ import { internal } from "./_generated/api";
 import { currentShiftReminder } from "./lib/reviewShiftReminders";
 import { reviewerCallConsentPolicyVersion } from "@code2create/domain";
 import { normalizedE164Phone } from "./lib/outboundCalls";
+import { currentAdmissionRsvpReminder } from "./lib/admissionOfferCalls";
 import {
   venueConfirmationCall,
   venueCallResponseValue,
@@ -100,33 +101,33 @@ async function undispatchableReason(
   delivery: Doc<"outboundCallDeliveries">,
   now: number,
 ) {
-  if (
-    delivery.consentId === undefined ||
-    delivery.consentVersion === undefined ||
-    delivery.destinationPhoneE164 === undefined
-  ) {
-    return "call_consent_not_granted";
-  }
-  const consent = await ctx.db.get(delivery.consentId);
-  if (
-    (delivery.venueConfirmation &&
-      delivery.venueConfirmation.expiresAt <= now) ||
-    !consent ||
-    consent.eventId !== delivery.eventId ||
-    consent.personId !== delivery.targetPersonId ||
-    consent.purpose !== (delivery.purpose === "reviewer_shift_reminder"
-      ? "reviewer_substitute_page" : delivery.purpose) ||
-    (delivery.purpose === "reviewer_shift_reminder" &&
-      consent.consentPolicyVersion !== reviewerCallConsentPolicyVersion) ||
-    consent.state !== "granted" ||
-    consent.version !== delivery.consentVersion ||
-    consent.destinationPhoneE164 !== delivery.destinationPhoneE164 ||
-    consent.scriptPolicyVersion !== delivery.scriptPolicyVersion
-  ) {
-    return "call_consent_changed";
+  if (delivery.destinationPhoneE164 === undefined) return "phone_not_e164";
+  if (delivery.purpose === "participant_event_update") {
+    if (delivery.sourceType !== "admission_offer_reminder" && delivery.sourceType !== "review_team_notice") {
+      return "participant_call_source_invalid";
+    }
+  } else {
+    if (delivery.consentId === undefined || delivery.consentVersion === undefined) {
+      return "call_consent_not_granted";
+    }
+    const consent = await ctx.db.get(delivery.consentId);
+    if (
+      (delivery.venueConfirmation && delivery.venueConfirmation.expiresAt <= now) ||
+      !consent || consent.eventId !== delivery.eventId ||
+      consent.personId !== delivery.targetPersonId ||
+      consent.purpose !== (delivery.purpose === "reviewer_shift_reminder"
+        ? "reviewer_substitute_page" : delivery.purpose) ||
+      (delivery.purpose === "reviewer_shift_reminder" &&
+        consent.consentPolicyVersion !== reviewerCallConsentPolicyVersion) ||
+      consent.state !== "granted" || consent.version !== delivery.consentVersion ||
+      consent.destinationPhoneE164 !== delivery.destinationPhoneE164 ||
+      consent.scriptPolicyVersion !== delivery.scriptPolicyVersion
+    ) return "call_consent_changed";
   }
   const requiredPermissionKey =
-    delivery.sourceType === "reviewer_shift_reminder"
+    delivery.sourceType === "admission_offer_reminder"
+      ? "application.offer.manage"
+      : delivery.sourceType === "reviewer_shift_reminder"
       ? "reviewer.clock_in"
       : delivery.purpose === venueCallPurpose
       ? "reviewer.device.register"
@@ -146,6 +147,20 @@ async function undispatchableReason(
       (grant.validUntil === undefined || grant.validUntil > now),
   );
   if (!authorized) return "call_authority_expired";
+  if (delivery.sourceType === "admission_offer_reminder") {
+    const offerId = ctx.db.normalizeId("admissionOffers", delivery.sourceId);
+    const current = offerId ? await currentAdmissionRsvpReminder(ctx, offerId, now) : null;
+    if (
+      !current || current.event._id !== delivery.eventId ||
+      current.leader.personId !== delivery.targetPersonId ||
+      !current.grantIds.some((id) => delivery.authorizationGrantIds.includes(id))
+    ) return "rsvp_offer_no_longer_pending";
+    const profile = await ctx.db.query("participantProfiles")
+      .withIndex("by_membership", (q) => q.eq("membershipId", current.leader._id)).unique();
+    if (normalizedE164Phone(profile?.phone) !== delivery.destinationPhoneE164) {
+      return "participant_phone_changed";
+    }
+  }
   if (delivery.sourceType === "reviewer_venue_departure") {
     const departureId = ctx.db.normalizeId(
       "reviewerVenueDepartures",
@@ -217,7 +232,7 @@ async function undispatchableReason(
       .withIndex("by_membership", (q) => q.eq("membershipId", leader._id))
       .unique();
     if (normalizedE164Phone(profile?.phone) !== delivery.destinationPhoneE164)
-      return "call_consent_changed";
+      return "participant_phone_changed";
   }
   return null;
 }
