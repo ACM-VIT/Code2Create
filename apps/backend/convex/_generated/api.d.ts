@@ -238,6 +238,7 @@ import type * as operationsAttention from "../operationsAttention.js";
 import type * as operationsAttentionSweep from "../operationsAttentionSweep.js";
 import type * as operationsAutonomy from "../operationsAutonomy.js";
 import type * as operationsAutonomyActions from "../operationsAutonomyActions.js";
+import type * as operatorRosterMoves from "../operatorRosterMoves.js";
 import type * as operationsAutonomyCallbacks from "../operationsAutonomyCallbacks.js";
 import type * as operationsAutonomyDispatch from "../operationsAutonomyDispatch.js";
 import type * as operationsAutonomyHttp from "../operationsAutonomyHttp.js";
@@ -562,6 +563,7 @@ declare const fullApi: ApiFromModules<{
   operationsAttentionSweep: typeof operationsAttentionSweep;
   operationsAutonomy: typeof operationsAutonomy;
   operationsAutonomyActions: typeof operationsAutonomyActions;
+  operatorRosterMoves: typeof operatorRosterMoves;
   operationsAutonomyCallbacks: typeof operationsAutonomyCallbacks;
   operationsAutonomyDispatch: typeof operationsAutonomyDispatch;
   operationsAutonomyHttp: typeof operationsAutonomyHttp;

@@ -128,12 +128,68 @@ async function fixture() {
         vitRegistrationNumber: reg, displayName: reg, teamName: "VANTAGE", role: "member", status: "pending", version: 1,
         createdByPersonId: adminId, createdAt: now - 3_600_000 }));
     }
-    return { eventId, teamId, applicationId, projectId, attemptId, entryIds, policyId, adminId, expiresAt: now + 43_200_000 };
+    return { eventId, teamId, applicationId, projectId, attemptId, entryIds, policyId, adminId,
+      adminSubjectId: subjectId, expiresAt: now + 43_200_000 };
   });
   return { backend, admin, students, ...seed };
 }
 
 type Fixture = Awaited<ReturnType<typeof fixture>>;
+
+test("a Supreme can move a sole forming-team lead into an accepted team's locked roster", async () => {
+  const f = await fixture();
+  const setup = await f.backend.run(async ctx => {
+    const now = Date.now();
+    await ctx.db.insert("eventRoles", { eventId: f.eventId, personId: f.adminId,
+      eventAccessSubjectId: f.adminSubjectId, role: "supreme", validFrom: now - 1,
+      status: "active", sourceType: "manual", sourceId: "operator-move-test",
+      assignedByPersonId: f.adminId, createdAt: now, reason: "Operator roster move test" });
+    const personId = await ctx.db.insert("people", { authUserId: "moved-person",
+      verifiedEmail: "moved.person@vitstudent.ac.in", displayName: "Moved Person",
+      status: "active", createdAt: now, updatedAt: now });
+    const subjectId = await ctx.db.insert("eventAccessSubjects", { eventId: f.eventId, personId,
+      emailNormalized: "moved.person@vitstudent.ac.in", displayName: "Moved Person", status: "active",
+      linkedBy: "participant_provisioning", accessVersion: 1, createdAt: now, updatedAt: now });
+    const membershipId = await ctx.db.insert("eventMemberships", { eventId: f.eventId, personId,
+      eventAccessSubjectId: subjectId, participantClass: "vit_student",
+      vitStudentIdentity: { fullName: "Moved Person", registrationNumber: "24BEL0054",
+        programmeCode: "BEL", yearOfStudy: "third" }, eligibilityStatus: "eligible",
+      onboardingStatus: "project_required", acceptedParticipantPolicyVersionIds: [f.policyId],
+      googleHostedDomain: "vitstudent.ac.in", createdAt: now, updatedAt: now });
+    await ctx.db.insert("participantProfiles", { eventId: f.eventId, membershipId,
+      participantClass: "vit_student", fullName: "Moved Person", phone: "+919000000001",
+      gender: "female", institution: "VIT Vellore", yearOfStudy: "third",
+      vitRegistrationNumber: "24BEL0054", vitProgramme: "BEL", vitResidenceType: "day_scholar",
+      profileVersion: 1, updatedAt: now });
+    const sourceTeamId = await ctx.db.insert("teams", { eventId: f.eventId, name: "Source team",
+      publicCode: "SOURCE1", leadMembershipId: membershipId, status: "forming",
+      activeMemberCount: 1, activeVitMemberCount: 1, activeExternalMemberCount: 0,
+      membershipLocked: false, version: 1, createdAt: now, updatedAt: now });
+    await ctx.db.insert("teamMembers", { eventId: f.eventId, teamId: sourceTeamId, membershipId,
+      role: "lead", status: "active", source: "created", joinedAt: now });
+    return { personId, membershipId, sourceTeamId };
+  });
+  const args = { eventSlug, personId: setup.personId, sourceTeamId: setup.sourceTeamId,
+    expectedSourceTeamVersion: 1, targetTeamId: f.teamId, expectedTargetTeamVersion: 5,
+    reason: "Move participant into the organizer-approved accepted team" };
+  const result = await f.admin.client.mutation(api.operatorRosterMoves.moveSoleMemberIntoAcceptedTeam, args);
+  expect(await f.admin.client.mutation(api.operatorRosterMoves.moveSoleMemberIntoAcceptedTeam, args)).toEqual(result);
+  await f.backend.run(async ctx => {
+    expect(await ctx.db.get(setup.sourceTeamId)).toMatchObject({ status: "withdrawn", activeMemberCount: 0 });
+    const target = await ctx.db.get(f.teamId);
+    expect(target).toMatchObject({ status: "admitted", activeMemberCount: 4, version: 6 });
+    expect(await ctx.db.get(f.applicationId)).toMatchObject({ state: "accepted", humanDecision: "accept",
+      completedReviewCount: 2, contentVersion: 2, version: 11,
+      submittedProjectVersionId: target!.lockedProjectVersionId });
+    expect(await ctx.db.get(f.projectId)).toMatchObject({ lockedMemberCount: 3 });
+    expect(await ctx.db.get(target!.lockedProjectVersionId!)).toMatchObject({ lockedMemberCount: 4,
+      initialIdea: "An unchanged accepted idea" });
+    expect(await ctx.db.query("admissionOffers").take(1)).toEqual([]);
+    expect((await ctx.db.query("auditEvents").collect()).some(row =>
+      row.action === "team.operator_member_moved" && row.actorPersonId === f.adminId)).toBe(true);
+  });
+});
+
 function approval(f: Fixture, i = 0) {
   return { eventSlug, teamId: f.teamId, rosterEntryId: f.entryIds[i]!, email: emails[i]!,
     vitRegistrationNumber: registrations[i]!, expiresAt: f.expiresAt, reason: "Recover this previously imported VANTAGE member" };
