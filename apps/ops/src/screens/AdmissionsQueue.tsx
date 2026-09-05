@@ -16,6 +16,7 @@ import {
   aiStateTag,
   applicationQueueStageLabels,
   assignmentOutcomeSummary,
+  canAssignApplicationReview,
   ownReviewLine,
   prioritizeReviewQueue,
   recommendationFilterLabel,
@@ -405,7 +406,9 @@ function ApplicationList({
     JSON.stringify([stage, reviewProgress, origin, searchQuery, recommendationFilter]),
   );
   const shown = reviewable ? prioritizeReviewQueue(pagination.items) : pagination.items;
-  const chosenApplications = shown.filter((application) => selected.has(application.id));
+  const chosenApplications = shown.filter(
+    (application) => selected.has(application.id) && canAssignApplicationReview(application),
+  );
   const loading = pagination.loading;
   const filtersActive = searching || reviewProgress !== null || stage !== null || recommendationFilter !== null;
 
@@ -579,7 +582,7 @@ function ApplicationList({
           <ApplicationRow
             application={application}
             key={application.id}
-            selectable={selecting}
+            selectable={selecting && canAssignApplicationReview(application)}
             selected={selected.has(application.id)}
             onToggle={() => toggle(application.id)}
           />

@@ -2057,7 +2057,8 @@ export async function createAdmissionReviewAssignment(
       message: "Choose an active account in this event.",
     });
   }
-  const [activeAssignment, activeReview] = await Promise.all([
+  const [policy, activeAssignment, activeReview] = await Promise.all([
+    ctx.db.get(args.application.admissionPolicyVersionId),
     ctx.db
       .query("admissionReviewAssignments")
       .withIndex("by_application_reviewer_state", (index) =>
@@ -2077,6 +2078,15 @@ export async function createAdmissionReviewAssignment(
       )
       .unique(),
   ]);
+  if (!policy || policy.eventId !== args.application.eventId) {
+    throw new Error("An application admission policy is missing.");
+  }
+  if (args.application.completedReviewCount >= policy.minimumHumanReviews) {
+    throw new ConvexError({
+      code: "REVIEW_COVERAGE_COMPLETE",
+      message: "This application has already met its human review minimum.",
+    });
+  }
   if (activeAssignment) {
     throw new ConvexError({
       code: "REVIEW_ALREADY_ASSIGNED",

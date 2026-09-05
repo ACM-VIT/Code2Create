@@ -323,6 +323,12 @@ export function needsReview(application: {
   return application.completedReviewCount < application.minimumHumanReviews;
 }
 
+export function canAssignApplicationReview(
+  application: Pick<QueueApplication, "state" | "completedReviewCount" | "minimumHumanReviews">,
+) {
+  return stageAcceptsReviews(application.state) && needsReview(application);
+}
+
 export function prioritizeReviewQueue<
   Application extends {
     completedReviewCount: number;

@@ -5,6 +5,7 @@ import {
   aiStateTag,
   applicationQueueStageLabels,
   assignmentOutcomeSummary,
+  canAssignApplicationReview,
   cohortSummary,
   memberContextLine,
   needsReview,
@@ -288,6 +289,19 @@ test("unfinished reviews stay prioritized even while assigned", () => {
     prioritized.map((application) => application.id),
     ["claimed", "partly-reviewed", "done"],
   );
+});
+
+test("only applications with remaining review coverage can be assigned", () => {
+  for (const state of ["submitted", "under_review"] as const) {
+    assert.equal(canAssignApplicationReview({ state, completedReviewCount: 0, minimumHumanReviews: 2 }), true);
+    assert.equal(canAssignApplicationReview({ state, completedReviewCount: 1, minimumHumanReviews: 2 }), true);
+    assert.equal(canAssignApplicationReview({ state, completedReviewCount: 1, minimumHumanReviews: 1 }), false);
+    assert.equal(canAssignApplicationReview({ state, completedReviewCount: 2, minimumHumanReviews: 2 }), false);
+    assert.equal(canAssignApplicationReview({ state, completedReviewCount: 3, minimumHumanReviews: 2 }), false);
+  }
+  for (const state of ["accepted", "offer_sent", "confirmed", "waitlisted", "declined", "offer_expired", "withdrawn"] as const) {
+    assert.equal(canAssignApplicationReview({ state, completedReviewCount: 0, minimumHumanReviews: 2 }), false);
+  }
 });
 
 test("reviewer workload is readable at a glance", () => {
