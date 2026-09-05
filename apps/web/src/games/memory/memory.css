@@ -76,13 +76,15 @@
  * with the glow turned down to match.
  */
 .memory-game .memory-tile.is-facedown {
-  border-color: transparent;
+  /* The edge is kept rather than dropped: it is what holds the card's shape
+     against the board, and twenty-four unbordered blocks read as one mass. */
+  border-color: var(--color-petal-edge);
   background: var(--memory-picked);
   box-shadow: 0 0 12px rgba(191, 63, 114, 0.35);
 }
 
 .memory-game .memory-tile.is-facedown:not(:disabled):hover {
-  border-color: transparent;
+  border-color: var(--color-rose-light);
   background: #cb4a7e;
   box-shadow: 0 0 16px rgba(191, 63, 114, 0.5);
 }
