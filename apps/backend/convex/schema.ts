@@ -1326,6 +1326,12 @@ export default defineSchema({
     eventId: v.id("events"),
     reactionsEnabled: v.boolean(),
     allowedRoleIds: v.array(v.string()),
+    /**
+     * Bumped on every save. A save carries the revision it was made against, so
+     * two operators editing the same screen cannot silently overwrite one
+     * another — the later one is told to reload instead.
+     */
+    revision: v.number(),
     updatedAt: v.number(),
     updatedByPersonId: v.id("people"),
   }).index("by_event", ["eventId"]),

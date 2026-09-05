@@ -27,7 +27,14 @@ function parseRoleIds(text: string) {
  * of the bot. The bot now reads them on its next poll, within a few seconds of
  * a save.
  */
-export function SupportBridgeConfiguration({ tabs }: { tabs: ConfigurationTabsVisibility }) {
+export function SupportBridgeConfiguration({
+  tabs,
+  canManage,
+}: {
+  tabs: ConfigurationTabsVisibility;
+  /** Without it the screen reads: the controls are disabled rather than failing on save. */
+  canManage: boolean;
+}) {
   const settings = useQuery(api.supportDiscordConfiguration.settings, { eventSlug });
   const saveSettings = useMutation(api.supportDiscordConfiguration.saveSettings);
 
@@ -58,7 +65,8 @@ export function SupportBridgeConfiguration({ tabs }: { tabs: ConfigurationTabsVi
     currentReactions !== settings.reactionsEnabled ||
     roleIds.join(",") !== settings.allowedRoleIds.join(",");
   const tooMany = roleIds.length > maximumDiscordAllowedRoles;
-  const canSave = dirty && reason.trim().length >= 3 && !tooMany && invalidRoleIds.length === 0;
+  const canSave =
+    canManage && dirty && reason.trim().length >= 3 && !tooMany && invalidRoleIds.length === 0;
 
   const onSubmit = (submit: SubmitEvent) => {
     submit.preventDefault();
@@ -69,6 +77,7 @@ export function SupportBridgeConfiguration({ tabs }: { tabs: ConfigurationTabsVi
       eventSlug,
       reactionsEnabled: currentReactions,
       allowedRoleIds: roleIds,
+      expectedRevision: settings.revision,
       reason: reason.trim(),
     })
       .then(() => {
@@ -89,6 +98,9 @@ export function SupportBridgeConfiguration({ tabs }: { tabs: ConfigurationTabsVi
         How the support bridge behaves in Discord. The bot picks these up on its next poll, so a
         change takes effect within a few seconds — no redeploy.
       </p>
+      {canManage ? null : (
+        <p className="muted">You can see these settings but not change them.</p>
+      )}
 
       <form onSubmit={onSubmit}>
         <fieldset>
@@ -97,6 +109,7 @@ export function SupportBridgeConfiguration({ tabs }: { tabs: ConfigurationTabsVi
             <input
               type="checkbox"
               checked={currentReactions}
+              disabled={!canManage}
               onChange={(change) => setReactionsEnabled(change.target.checked)}
             />
             <span>React to replies in ticket channels</span>
@@ -117,6 +130,7 @@ export function SupportBridgeConfiguration({ tabs }: { tabs: ConfigurationTabsVi
             rows={5}
             value={currentRoleText}
             spellCheck={false}
+            readOnly={!canManage}
             onChange={(change) => setRoleText(change.target.value)}
           />
           <p className="muted">
@@ -135,21 +149,24 @@ export function SupportBridgeConfiguration({ tabs }: { tabs: ConfigurationTabsVi
           ) : null}
         </fieldset>
 
-        <fieldset>
+        <fieldset hidden={!canManage}>
           <legend>Reason</legend>
           <label htmlFor="discord-bridge-reason">Why this is changing</label>
           <input
             id="discord-bridge-reason"
             type="text"
             value={reason}
+            readOnly={!canManage}
             onChange={(change) => setReason(change.target.value)}
           />
         </fieldset>
 
         {error ? <p className="error">{error}</p> : null}
-        <button type="submit" disabled={!canSave || saving}>
-          {saving ? "Saving…" : "Save"}
-        </button>
+        {canManage ? (
+          <button type="submit" disabled={!canSave || saving}>
+            {saving ? "Saving…" : "Save"}
+          </button>
+        ) : null}
         {savedAt !== null && !dirty ? <span className="muted"> Saved.</span> : null}
       </form>
 

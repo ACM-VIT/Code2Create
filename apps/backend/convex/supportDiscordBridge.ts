@@ -1,6 +1,6 @@
 import {
   discordSupportAcknowledgeSignatureContext,
-  discordSupportBridgeProtocolVersion,
+  supportedDiscordSupportBridgeProtocolVersions,
   discordSupportPullSignatureContext,
   discordSupportRejectSignatureContext,
   discordSupportReplySignatureContext,
@@ -71,16 +71,28 @@ const discordDelivery = v.object({
   discordChannelId: v.optional(v.string()),
 });
 
+/**
+ * Either version the backend still serves. The bot and the backend deploy
+ * separately, so refusing the older one would stop an un-restarted bot
+ * delivering tickets for the length of the rollout.
+ */
+const supportedProtocolVersion = z.union(
+  supportedDiscordSupportBridgeProtocolVersions.map((version) => z.literal(version)) as [
+    z.ZodLiteral<1>,
+    z.ZodLiteral<2>,
+  ],
+);
+
 const pullSchema = z
   .object({
-    protocolVersion: z.literal(discordSupportBridgeProtocolVersion),
+    protocolVersion: supportedProtocolVersion,
     eventSlug: z.string().min(2).max(80),
   })
   .strict();
 
 const acknowledgeSchema = z
   .object({
-    protocolVersion: z.literal(discordSupportBridgeProtocolVersion),
+    protocolVersion: supportedProtocolVersion,
     deliveryId: z.string().min(1).max(200),
     claimId: z.uuid(),
     discordGuildId: z.string().regex(/^\d{6,32}$/u),
@@ -91,7 +103,7 @@ const acknowledgeSchema = z
 
 const rejectSchema = z
   .object({
-    protocolVersion: z.literal(discordSupportBridgeProtocolVersion),
+    protocolVersion: supportedProtocolVersion,
     deliveryId: z.string().min(1).max(200),
     claimId: z.uuid(),
     errorCode: z.string().regex(/^[a-z0-9_]{2,80}$/u),
@@ -100,7 +112,7 @@ const rejectSchema = z
 
 const replySchema = z
   .object({
-    protocolVersion: z.literal(discordSupportBridgeProtocolVersion),
+    protocolVersion: supportedProtocolVersion,
     eventSlug: z.string().min(2).max(80),
     discordGuildId: z.string().regex(/^\d{6,32}$/u),
     discordChannelId: z.string().regex(/^\d{6,32}$/u),
@@ -566,6 +578,12 @@ export const pullEndpoint = httpAction(async (ctx, request) => {
   const result = await ctx.runMutation(internal.supportDiscordBridge.claimNext, {
     eventSlug: parsed.data.eventSlug,
   });
+  if (parsed.data.protocolVersion < 2) {
+    // A version 1 bot parses this answer strictly, so an unexpected field would
+    // fail it outright. It keeps its deployed configuration instead.
+    const { settings: _settings, ...version1 } = result;
+    return Response.json(version1);
+  }
   return Response.json(result);
 });
 

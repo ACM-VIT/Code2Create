@@ -9,7 +9,8 @@ limit, the bot creates and reuses numbered categories such as `c2c-support-open-
 `c2c-support-closed-02`.
 
 Messages written in a ticket channel by a Discord administrator or a member with an allowed role become public support notes
-on the website. Roles are fetched for each reply so access changes take effect immediately. Bot and webhook messages are ignored. Discord message IDs and backend delivery
+on the website. Only channels this bridge opened count as tickets — they carry a topic it stamps —
+so other channels in a support category are ignored entirely, with no reply and no reaction. Roles are fetched for each reply so access changes take effect immediately. Bot and webhook messages are ignored. Discord message IDs and backend delivery
 claims make both directions idempotent.
 
 ## Configured from the dashboard
@@ -24,6 +25,9 @@ bot already makes, so a change takes effect within one sync interval and needs n
 - **Who may reply.** Discord role IDs allowed to answer a ticket, alongside guild administrators.
   Empty means the `DISCORD_ALLOWED_ROLE_IDS` below still stand, so an unconfigured event behaves
   exactly as it always has.
+
+The backend still answers protocol version 1 as well as 2, and shapes each poll response for the
+version that asked, so a bot that has not been restarted keeps delivering tickets across a rollout.
 
 Reading them needs `support.case.read`; changing them needs `support.case.manage`, and each save is
 audited with a reason.

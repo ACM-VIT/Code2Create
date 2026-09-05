@@ -114,3 +114,28 @@ export function inboundMessageText(content: string, attachmentUrls: readonly str
   const suffix = "\n\n[Reply shortened to fit the support portal.]";
   return `${combined.slice(0, discordMessageLimit - suffix.length).trimEnd()}${suffix}`;
 }
+
+/** The topic the bridge stamps on the channel it opens for a support case. */
+export function channelTopic(supportCaseId: string) {
+  return `${supportTopicPrefix}${supportCaseId}`;
+}
+
+const supportTopicPrefix = "Code2Create support case:";
+
+/**
+ * Whether a channel is a ticket this bridge opened.
+ *
+ * A support category holds more than tickets — staff make channels there for
+ * their own reasons, and old ones outlive the cases they came from. The bridge
+ * has no business in those, so the topic it stamps on its own channels is what
+ * marks a portal ticket. Anything else is somebody else's conversation and is
+ * left entirely alone: not answered, and not reacted to either, since a stray
+ * emoji on an unrelated message is itself an intrusion.
+ */
+export function isPortalTicketTopic(topic: string | null | undefined): boolean {
+  return (
+    typeof topic === "string" &&
+    topic.startsWith(supportTopicPrefix) &&
+    topic.length > supportTopicPrefix.length
+  );
+}

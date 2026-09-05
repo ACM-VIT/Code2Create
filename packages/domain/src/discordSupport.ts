@@ -7,9 +7,24 @@ export const discordSupportRejectSignatureContext =
 export const discordSupportReplySignatureContext =
   "code2create.discord-support.reply.v1";
 
-// 2 added the bridge settings the dashboard owns to every poll response, so a
-// bot on version 1 would not be told about them.
+/**
+ * The version a current bot speaks. 2 added the bridge settings the dashboard
+ * owns to every poll answer.
+ */
 export const discordSupportBridgeProtocolVersion = 2 as const;
+
+/**
+ * Every version the backend still answers.
+ *
+ * The bot runs on a VM and the backend deploys on its own, so the two are never
+ * updated in the same instant. The backend keeps serving the older version and
+ * answers each caller in the shape that caller asked for, which lets a bot that
+ * has not been restarted yet carry on delivering tickets through the window.
+ */
+export const supportedDiscordSupportBridgeProtocolVersions = [1, 2] as const;
+
+export type DiscordSupportBridgeProtocolVersion =
+  (typeof supportedDiscordSupportBridgeProtocolVersions)[number];
 
 /**
  * The bridge settings the operations dashboard owns and the bot reads.
@@ -27,12 +42,20 @@ export interface DiscordSupportBridgeSettings {
   readonly reactionsEnabled: boolean;
   /**
    * Discord role IDs allowed to answer a ticket, alongside guild
-   * administrators. Empty means nobody but an administrator may reply.
+   * administrators.
+   *
+   * Empty is not "no roles": it means nobody has chosen here, so the bot's
+   * deployed `DISCORD_ALLOWED_ROLE_IDS` remain in effect. That keeps an
+   * unconfigured event working rather than locking every non-administrator out
+   * of support the moment this setting exists.
    */
   readonly allowedRoleIds: readonly string[];
 }
 
-/** What the bridge falls back to before anyone has configured it. */
+/**
+ * What the bridge falls back to before anyone has configured it: receipts on,
+ * and the bot's deployed roles still in effect.
+ */
 export const defaultDiscordSupportBridgeSettings: DiscordSupportBridgeSettings = {
   reactionsEnabled: true,
   allowedRoleIds: [],

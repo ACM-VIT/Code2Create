@@ -32,6 +32,8 @@ type ReadCtx = QueryCtx | MutationCtx;
 const settingsView = v.object({
   reactionsEnabled: v.boolean(),
   allowedRoleIds: v.array(v.string()),
+  /** 0 while the defaults stand, then bumped on every save. */
+  revision: v.number(),
   updatedAt: v.union(v.number(), v.null()),
   /** Null until someone has saved: the row is absent and the defaults stand. */
   updatedByName: v.union(v.string(), v.null()),
@@ -77,6 +79,7 @@ export const settings = query({
     return {
       reactionsEnabled: current.reactionsEnabled,
       allowedRoleIds: current.allowedRoleIds,
+      revision: row?.revision ?? 0,
       updatedAt: row?.updatedAt ?? null,
       updatedByName: editor?.displayName ?? null,
     };
@@ -87,15 +90,21 @@ export const settings = query({
  * Save the bridge settings.
  *
  * Roles are cleaned rather than rejected one by one — anything that is not a
- * Discord snowflake is dropped — but an empty result is refused when the caller
- * meant to send some, because silently allowing nobody but administrators to
- * answer tickets is not a change anyone asks for by accident.
+ * Discord snowflake is dropped. A list that was meant to hold roles but cleans
+ * down to nothing is refused instead, because an empty list is not "no roles":
+ * it means the bot's deployed roles stand, which is the opposite of what
+ * someone typing role names was asking for.
+ *
+ * `expectedRevision` is the revision the editor was looking at. A save made
+ * against a stale one is refused rather than quietly replacing whatever the
+ * other operator just wrote.
  */
 export const saveSettings = mutation({
   args: {
     eventSlug: v.string(),
     reactionsEnabled: v.boolean(),
     allowedRoleIds: v.array(v.string()),
+    expectedRevision: v.number(),
     reason: v.string(),
   },
   returns: settingsView,
@@ -132,12 +141,22 @@ export const saveSettings = mutation({
     }
 
     const existing = await findBridgeSettings(ctx, event._id);
+    const currentRevision = existing?.revision ?? 0;
+    if (args.expectedRevision !== currentRevision) {
+      throw new ConvexError({
+        code: "STALE_DISCORD_BRIDGE_REVISION",
+        message:
+          "Someone else changed the support bridge while this was open. Reload to see their change before saving.",
+      });
+    }
     const previous = bridgeSettingsOf(existing);
+    const revision = currentRevision + 1;
     const now = Date.now();
     if (existing) {
       await ctx.db.patch(existing._id, {
         reactionsEnabled: args.reactionsEnabled,
         allowedRoleIds,
+        revision,
         updatedAt: now,
         updatedByPersonId: person._id,
       });
@@ -146,6 +165,7 @@ export const saveSettings = mutation({
         eventId: event._id,
         reactionsEnabled: args.reactionsEnabled,
         allowedRoleIds,
+        revision,
         updatedAt: now,
         updatedByPersonId: person._id,
       });
@@ -160,10 +180,11 @@ export const saveSettings = mutation({
       action: "support.discord_bridge_configured",
       targetType: "event",
       targetId: event._id,
-      previousSummary: JSON.stringify(previous),
+      previousSummary: JSON.stringify({ ...previous, revision: currentRevision }),
       nextSummary: JSON.stringify({
         reactionsEnabled: args.reactionsEnabled,
         allowedRoleIds,
+        revision,
       }),
       reason,
     });
@@ -171,6 +192,7 @@ export const saveSettings = mutation({
     return {
       reactionsEnabled: args.reactionsEnabled,
       allowedRoleIds,
+      revision,
       updatedAt: now,
       updatedByName: person.displayName,
     };

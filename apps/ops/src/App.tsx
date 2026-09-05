@@ -263,6 +263,11 @@ function Operations({
   const canManageAttention = capabilities.attentionManage;
   const canViewIncidents = capabilities.incidents;
   const canViewSupport = capabilities.support;
+  // The bridge is event configuration, so it needs the event-scoped support
+  // grants: the broad support capability also covers create-only and
+  // per-case readers, for whom this screen's read would be refused.
+  const canViewSupportBridge = capabilities.supportBridgeRead;
+  const canManageSupportBridge = capabilities.supportBridgeManage;
   const canViewRehearsal = capabilities.rehearsal;
   const canReadEmergencyPack = capabilities.emergencyPackRead;
   const canPrepareEmergencyPack = capabilities.emergencyPackPrepare;
@@ -294,7 +299,7 @@ function Operations({
     showIntelligence: canViewIntelligenceConfiguration,
     showPhases: canViewPhaseConfiguration,
     showCheckpoints: canViewCheckpointConfiguration,
-    showSupportBridge: canViewSupport,
+    showSupportBridge: canViewSupportBridge,
   };
   const canReadReviewConfiguration = capabilities.reviewConfigurationRead;
   const canPublishReviewConfiguration = capabilities.reviewConfigurationPublish;
@@ -554,12 +559,15 @@ function Operations({
               }
             />
           ) : null}
-          {canViewSupport ? (
+          {canViewSupportBridge ? (
             <Route
               path="/configuration/discord"
               element={
                 <Suspense fallback={<p className="muted">Loading Discord support…</p>}>
-                  <SupportBridgeConfiguration tabs={configurationTabs} />
+                  <SupportBridgeConfiguration
+                    tabs={configurationTabs}
+                    canManage={canManageSupportBridge}
+                  />
                 </Suspense>
               }
             />

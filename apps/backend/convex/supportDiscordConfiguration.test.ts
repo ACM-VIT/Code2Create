@@ -1,5 +1,10 @@
 import betterAuthSchema from "../node_modules/@convex-dev/better-auth/src/component/schema.ts";
+import {
+  discordSupportPullSignatureContext,
+  signServiceBody,
+} from "@code2create/domain";
 import { convexTest, type TestConvex } from "convex-test";
+import { beforeAll, afterAll } from "vitest";
 import { describe, expect, test } from "vitest";
 
 import { api, components, internal } from "./_generated/api";
@@ -11,6 +16,29 @@ const betterAuthModules = import.meta.glob(
   "../node_modules/@convex-dev/better-auth/src/component/**/*.ts",
 );
 type BackendTest = TestConvex<typeof schema>;
+
+const bridgeSecret = `test-${crypto.randomUUID()}-${crypto.randomUUID()}`;
+
+/** Registering the HTTP routes reads these, so the signed poll needs them set. */
+const httpEnvironment = {
+  AUTH_SITE_URL: "http://localhost:3211",
+  PARTICIPANT_SITE_URL: "http://localhost:4173",
+  OPERATIONS_SITE_URL: "http://localhost:4174",
+  DISCORD_SUPPORT_BRIDGE_SECRET: bridgeSecret,
+};
+const previousEnvironment: Record<string, string | undefined> = {};
+beforeAll(() => {
+  for (const [name, value] of Object.entries(httpEnvironment)) {
+    previousEnvironment[name] = process.env[name];
+    process.env[name] = value;
+  }
+});
+afterAll(() => {
+  for (const [name, value] of Object.entries(previousEnvironment)) {
+    if (value === undefined) delete process.env[name];
+    else process.env[name] = value;
+  }
+});
 
 describe("discord support bridge configuration", () => {
   test("starts on the defaults and reports nobody has changed them", async () => {
@@ -36,6 +64,7 @@ describe("discord support bridge configuration", () => {
       eventSlug: fixture.eventSlug,
       reactionsEnabled: false,
       allowedRoleIds: ["123456789012345678"],
+      expectedRevision: 0,
       reason: "Channel is too noisy during the event.",
     });
     expect(saved).toMatchObject({
@@ -68,6 +97,7 @@ describe("discord support bridge configuration", () => {
       eventSlug: fixture.eventSlug,
       reactionsEnabled: false,
       allowedRoleIds: ["222222222222222222"],
+      expectedRevision: 0,
       reason: "Quieter channel, tighter roles.",
     });
 
@@ -91,6 +121,7 @@ describe("discord support bridge configuration", () => {
         eventSlug: fixture.eventSlug,
         reactionsEnabled: true,
         allowedRoleIds: [" 111111111111111111 ", "111111111111111111", "222222222222222222"],
+        expectedRevision: 0,
         reason: "Pasted straight out of Discord.",
       },
     );
@@ -105,6 +136,7 @@ describe("discord support bridge configuration", () => {
         eventSlug: fixture.eventSlug,
         reactionsEnabled: true,
         allowedRoleIds: ["@moderators", "not-an-id"],
+        expectedRevision: 0,
         reason: "Typed the role names.",
       }),
     ).rejects.toThrow("6 to 32 digits");
@@ -119,6 +151,7 @@ describe("discord support bridge configuration", () => {
         eventSlug: fixture.eventSlug,
         reactionsEnabled: true,
         allowedRoleIds: [],
+        expectedRevision: 0,
         reason: "Fall back to the deployment.",
       },
     );
@@ -133,9 +166,75 @@ describe("discord support bridge configuration", () => {
         eventSlug: fixture.eventSlug,
         reactionsEnabled: false,
         allowedRoleIds: [],
+        expectedRevision: 0,
         reason: "  ",
       }),
     ).rejects.toThrow("Say why");
+  });
+
+  test("a save made against a stale revision is refused, not merged", async () => {
+    const backend = seededBackend();
+    const fixture = await seedFixture(backend);
+    const as = staff(backend, fixture);
+
+    // Two operators open the screen on the same revision.
+    const opened = await as.query(api.supportDiscordConfiguration.settings, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(opened.revision).toBe(0);
+
+    await as.mutation(api.supportDiscordConfiguration.saveSettings, {
+      eventSlug: fixture.eventSlug,
+      reactionsEnabled: false,
+      allowedRoleIds: ["111111111111111111"],
+      expectedRevision: opened.revision,
+      reason: "First operator turns receipts off.",
+    });
+
+    // The second still holds revision 0 and must not silently win.
+    await expect(
+      as.mutation(api.supportDiscordConfiguration.saveSettings, {
+        eventSlug: fixture.eventSlug,
+        reactionsEnabled: true,
+        allowedRoleIds: ["222222222222222222"],
+        expectedRevision: opened.revision,
+        reason: "Second operator, working from the old screen.",
+      }),
+    ).rejects.toThrow("Reload");
+
+    const view = await as.query(api.supportDiscordConfiguration.settings, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(view).toMatchObject({
+      reactionsEnabled: false,
+      allowedRoleIds: ["111111111111111111"],
+      revision: 1,
+    });
+  });
+
+  test("a poll from a version 1 bot gets the shape it can parse", async () => {
+    const backend = seededBackend();
+    const fixture = await seedFixture(backend);
+    await staff(backend, fixture).mutation(api.supportDiscordConfiguration.saveSettings, {
+      eventSlug: fixture.eventSlug,
+      reactionsEnabled: false,
+      allowedRoleIds: [],
+      expectedRevision: 0,
+      reason: "Quieter channel.",
+    });
+
+    // The bot and the backend deploy separately, so a bot that has not been
+    // restarted still has to be able to deliver tickets.
+    const version1 = await pull(backend, fixture.eventSlug, 1);
+    expect(version1.status).toBe(200);
+    await expect(version1.json()).resolves.toEqual({ state: "idle" });
+
+    const version2 = await pull(backend, fixture.eventSlug, 2);
+    expect(version2.status).toBe(200);
+    await expect(version2.json()).resolves.toEqual({
+      state: "idle",
+      settings: { reactionsEnabled: false, allowedRoleIds: [] },
+    });
   });
 
   test("reading needs permission, and saving needs more of it", async () => {
@@ -162,11 +261,36 @@ describe("discord support bridge configuration", () => {
         eventSlug: fixture.eventSlug,
         reactionsEnabled: false,
         allowedRoleIds: [],
+        expectedRevision: 0,
         reason: "Trying to turn receipts off.",
       }),
     ).rejects.toThrow();
   });
 });
+
+/**
+ * One signed poll at a chosen protocol version, the way the bot makes it.
+ * The bridge secret is read from the environment at request time.
+ */
+async function pull(backend: BackendTest, eventSlug: string, protocolVersion: 1 | 2) {
+  const body = JSON.stringify({ protocolVersion, eventSlug });
+  const timestamp = Date.now().toString();
+  const signature = await signServiceBody({
+    context: discordSupportPullSignatureContext,
+    secret: bridgeSecret,
+    timestamp,
+    body,
+  });
+  return await backend.fetch("/integrations/discord/support/pull", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-c2c-signature": signature,
+      "x-c2c-timestamp": timestamp,
+    },
+    body,
+  });
+}
 
 type Account = { email: string; authUserId: string; authSessionId: string };
 

@@ -29,8 +29,10 @@ import type {
   DiscordSupportState,
 } from "./contracts.ts";
 import {
+  channelTopic,
   deliveryNonce,
   inboundMessageText,
+  isPortalTicketTopic,
   renderDelivery,
   splitDiscordMessage,
   supportChannelName,
@@ -57,10 +59,6 @@ async function safeReact(message: Message, emoji: string) {
 
 function isClosedState(state: DiscordSupportState) {
   return state === "resolved" || state === "closed";
-}
-
-function channelTopic(supportCaseId: string) {
-  return `Code2Create support case:${supportCaseId}`;
 }
 
 function validateSupportCategory(
@@ -450,6 +448,11 @@ export class DiscordSupportBot {
     ) {
       return;
     }
+    // A support category holds more than tickets. Anything without the topic
+    // this bridge stamps on its own channels is somebody else's conversation:
+    // it is not answered, and not reacted to either, because a stray emoji on
+    // an unrelated message is itself an intrusion.
+    if (!isPortalTicketTopic(message.channel.topic)) return;
     try {
       // Member updates are not subscribed to; fetch current roles for every reply.
       const member = await message.channel.guild.members.fetch({ user: message.author.id, force: true });
@@ -479,6 +482,13 @@ export class DiscordSupportBot {
       }
       if (result.state === "case_closed") {
         await this.react(message, "🔒");
+        return;
+      }
+      if (result.state === "channel_not_found") {
+        // The topic says ticket but the backend knows no case for it — an
+        // orphan left behind by a wiped or migrated deployment. There is
+        // nothing to answer, so say nothing and leave a trace in the log.
+        console.warn("discord_support_orphan_channel", { channelId: message.channel.id });
         return;
       }
       await this.react(message, "❓");

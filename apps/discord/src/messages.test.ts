@@ -1,11 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import {
-  inboundMessageText,
-  splitDiscordMessage,
-  supportChannelName,
-} from "./messages.ts";
+import { channelTopic, inboundMessageText, isPortalTicketTopic, splitDiscordMessage, supportChannelName } from "./messages.ts";
 
 test("splits long Discord messages without exceeding the platform limit", () => {
   const chunks = splitDiscordMessage("word ".repeat(1_000));
@@ -30,4 +26,22 @@ test("creates a Discord-safe ticket channel name", () => {
     },
   };
   assert.equal(supportChannelName(delivery), "c2c-0042-binary-brains-vit");
+});
+
+test("a channel the bridge opened is recognised by its topic", () => {
+  assert.equal(isPortalTicketTopic(channelTopic("case-1")), true);
+});
+
+test("a channel nobody stamped is left alone", () => {
+  for (const topic of [null, undefined, "", "general chatter", "Code2Create support case:"]) {
+    assert.equal(
+      isPortalTicketTopic(topic),
+      false,
+      `${JSON.stringify(topic)} is not a portal ticket`,
+    );
+  }
+});
+
+test("a topic that merely mentions support is not a ticket", () => {
+  assert.equal(isPortalTicketTopic("ask about Code2Create support case:123 here"), false);
 });
