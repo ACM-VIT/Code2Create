@@ -24,6 +24,9 @@ const glass =
 
 const columnHeight = 'max-h-[min(58vh,460px)]'
 
+/** How many places the standings column shows. */
+const leaderboardDepth = 5
+
 /** Every board the arcade keeps: a game, or one of a game's modes. */
 export type BoardRef = { readonly key: GameKey; readonly label: string }
 
@@ -109,10 +112,26 @@ export function ArcadeView({
 /* ------------------------------------------------------------------- tiles */
 
 /**
- * The card a game is picked from: where you stand on it, then what it is.
+ * The rank's size, so a place in the hundreds still sits inside its box.
  *
- * The rank is the loudest thing on the card on purpose — it is the reason to
- * open the game again — and a dash reads as "not yet" without spelling it out.
+ * Three digits at the size a single one wears would run over the edge, and a
+ * box wide enough for the widest case would leave the common one swimming.
+ */
+function rankSize(rank: string): string {
+  if (rank.length <= 3) return 'text-[26px]'
+  if (rank.length === 4) return 'text-[21px]'
+  return 'text-[17px]'
+}
+
+/**
+ * The card a game is picked from: its name, and where you stand on it.
+ *
+ * The rank sits on the right, apart from the name, because it is the thing you
+ * come back to check rather than the thing you read. A dash says "not yet"
+ * without a sentence, so an unplayed game shows no score rather than a zero.
+ *
+ * Reaching for the card puts it out of focus: the name and the rank stay where
+ * they are but blur behind the one word that says what the card does.
  */
 export function GameTile({
   game,
@@ -124,28 +143,42 @@ export function GameTile({
   onPlay: () => void
 }) {
   const played = standing.points > 0
+  const rank = `#${standing.position ?? '—'}`
   return (
     <button
       type="button"
       onClick={onPlay}
-      className={`flex flex-none cursor-pointer items-stretch gap-3.5 p-3.5 text-left lowercase transition-[border-color,background-color,transform] duration-300 hover:border-rose-light/70 hover:bg-fg/8 focus-visible:border-rose-light focus-visible:outline-none active:scale-[.995] ${glass}`}
+      className={`group relative flex flex-none cursor-pointer items-stretch overflow-hidden p-3.5 text-left lowercase transition-[border-color,background-color,transform] duration-300 hover:border-rose-light/70 focus-visible:border-rose-light focus-visible:outline-none active:scale-[.995] ${glass}`}
     >
-      <span className="flex w-[62px] flex-none flex-col items-center justify-center gap-0.5 rounded-petal-sm border border-petal-line bg-black/25 px-1 py-2">
-        <span
-          className={`font-display text-[26px] leading-none tabular-nums ${
-            played && standing.position !== null ? 'text-rose-light' : 'text-fg/35'
-          }`}
-        >
-          #{standing.position ?? '—'}
+      <span className="flex flex-1 items-center gap-3.5">
+        <span className="min-w-0 flex-1 font-ui text-[15px] lowercase text-rose-light">
+          {game.title}
         </span>
-        <span className="font-ui text-[10.5px] leading-none lowercase text-fg/45 tabular-nums">
-          {played ? `${standing.points} pts` : '— pts'}
+
+        <span className="flex w-[70px] flex-none flex-col items-center justify-center gap-0.5 rounded-petal-sm border border-petal-line bg-black/25 px-1.5 py-2">
+          <span
+            className={`font-display leading-none tabular-nums ${rankSize(rank)} ${
+              played && standing.position !== null ? 'text-rose-light' : 'text-fg/35'
+            }`}
+          >
+            {rank}
+          </span>
+          <span className="w-full truncate text-center font-ui text-[10.5px] leading-none lowercase text-fg/45 tabular-nums">
+            {played ? `${standing.points} pts` : '— pts'}
+          </span>
         </span>
       </span>
 
-      <span className="flex min-w-0 flex-1 flex-col justify-center gap-1">
-        <span className="font-ui text-[15px] lowercase text-rose-light">{game.title}</span>
-        <span className="text-[12px] leading-snug lowercase text-fg/60">{game.blurb}</span>
+      {/* The card stays where it is and goes out of focus behind the word. The
+          blur is deep enough that the name and rank read as texture rather than
+          as something still being offered. */}
+      <span
+        aria-hidden
+        className="pointer-events-none absolute inset-0 grid place-items-center bg-black/45 opacity-0 backdrop-blur-[10px] transition-opacity duration-200 group-hover:opacity-100 group-focus-visible:opacity-100 motion-reduce:transition-none"
+      >
+        <span className="font-display text-[22px] lowercase text-white drop-shadow-[0_2px_14px_rgba(0,0,0,.55)]">
+          play
+        </span>
       </span>
     </button>
   )
@@ -218,10 +251,13 @@ export function LeaderboardPanel({ board }: { board: BoardView | undefined }) {
       </p>
     )
   }
+  // The column shows the front of the field; a person's own place is on the line
+  // beneath it whether or not they are in it.
+  const shown = board.entries.slice(0, leaderboardDepth)
   return (
     <>
       <ol className="m-0 list-none p-0">
-        {board.entries.map((entry, index) => (
+        {shown.map((entry, index) => (
           <li
             key={entry.personId}
             className={`flex items-center gap-3 py-1.5 lowercase ${entry.isYou ? 'text-rose-light' : 'text-fg/80'}`}

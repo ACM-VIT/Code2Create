@@ -1889,17 +1889,18 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries([
 
 /** The memory board with its own mode switch, as the arcade wires it. */
 function MemoryFixture() {
-  const [mode, setMode] = useState<"memory" | "memory-grid">("memory");
+  // The modes come from the catalogue, so the fixture opens on whichever one the
+  // arcade opens on rather than a copy that can drift from it.
+  const memory = gameCatalogue.find((game) => game.key === "memory");
+  const modes = memory?.modes ?? [];
+  const [mode, setMode] = useState(modes[0]?.key ?? "memory");
   return (
     <div className="flex min-h-full flex-1 items-center justify-center bg-black p-4">
       <MemoryBoard
         key={mode}
         mode={mode}
-        modes={[
-          { key: "memory", label: "Pairs" },
-          { key: "memory-grid", label: "Pattern" },
-        ]}
-        onModeChange={(next) => setMode(next as "memory" | "memory-grid")}
+        modes={modes}
+        onModeChange={setMode}
         onRoundStart={noop}
         onRoundEnd={noop}
       />

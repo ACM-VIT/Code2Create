@@ -75,9 +75,11 @@ const blurbs: Record<GameKey, string> = {
 }
 
 const modes: Partial<Record<GameKey, readonly GameMode[]>> = {
+  // Pattern leads: it is the quicker one to pick up, and the first mode is what
+  // the game opens on and what its card reports a standing for.
   memory: [
-    { key: 'memory', label: 'Pairs' },
     { key: 'memory-grid', label: 'Pattern' },
+    { key: 'memory', label: 'Pairs' },
   ],
 }
 
