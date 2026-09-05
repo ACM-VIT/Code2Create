@@ -38,6 +38,22 @@ describe("judging duty status", () => {
     expect(judgingStatus(undefined, true, false)).toEqual({ status: "", active: false });
   });
 
+  test("shows clock-out as a terminal off-duty state", () => {
+    expect(
+      judgingStatus(
+        {
+          deviceRegistered: true,
+          panelAssigned: true,
+          clockInStatus: "clocked_out",
+          heartbeat: null,
+          review: null,
+        },
+        false,
+        true,
+      ),
+    ).toEqual({ status: "Clocked out", active: false });
+  });
+
   test("keeps phone registration reachable before a panel is assigned", () => {
     expect(
       reviewerPanelMode({

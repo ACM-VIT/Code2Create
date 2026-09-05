@@ -1,7 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import { z } from "zod";
 
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireAssignedDevice, requireStationPermission } from "./lib/attendance";
@@ -52,6 +52,70 @@ type ReversedResult = {
   version: number;
   teamStatusChanged: boolean;
 };
+
+export async function requireStaffedVenueIdentityEvidence(
+  ctx: MutationCtx,
+  args: {
+    eventId: Id<"events">;
+    membership: Doc<"eventMemberships">;
+    resolution: Doc<"staffedParticipantResolutions">;
+    identityCheckKind: "class_id" | "approved_exception";
+  },
+) {
+  if (args.identityCheckKind === "approved_exception" || args.resolution.resolutionMethod === "manual_lookup") {
+    return;
+  }
+  if (args.membership.participantClass === "vit_student") {
+    if (
+      args.resolution.resolutionMethod !== "vit_id_barcode" ||
+      args.resolution.barcodeLookupHash === undefined
+    ) {
+      throw new ConvexError({
+        code: "VIT_ID_SCAN_REQUIRED",
+        message: "Scan this participant's VIT ID before recording first check-in.",
+      });
+    }
+    const lookupHash = args.resolution.barcodeLookupHash;
+    const matchingCredentials = await ctx.db
+      .query("attendanceCredentials")
+      .withIndex("by_event_lookup", (index) =>
+        index.eq("eventId", args.eventId).eq("lookupHash", lookupHash),
+      )
+      .collect();
+    const activeMatch = matchingCredentials.find(
+      (credential) =>
+        credential.membershipId === args.membership._id &&
+        credential.kind === "vit_id_barcode" &&
+        credential.state === "active",
+    );
+    if (!activeMatch) {
+      throw new ConvexError({
+        code: "VIT_ID_NOT_READY",
+        message: "Link or replace this VIT ID before recording first check-in.",
+      });
+    }
+    return;
+  }
+  if (
+    args.resolution.resolutionMethod !== "external_pass" ||
+    args.resolution.credentialAction !== "link_external_id"
+  ) {
+    throw new ConvexError({
+      code: "EXTERNAL_ID_LINK_REQUIRED",
+      message: "Scan the external event pass, verify the photo ID, and link its barcode first.",
+    });
+  }
+  const binding = await ctx.db
+    .query("attendanceExternalIdentityBindings")
+    .withIndex("by_membership", (index) => index.eq("membershipId", args.membership._id))
+    .unique();
+  if (!binding || binding.eventId !== args.eventId || binding.state !== "active") {
+    throw new ConvexError({
+      code: "EXTERNAL_ID_LINK_REQUIRED",
+      message: "The external participant's physical ID is not actively linked.",
+    });
+  }
+}
 
 const storedRecordedResult = z.object({
   checkInId: z.string().min(1),
@@ -137,6 +201,12 @@ export const record = internalMutation({
         message: "Participant not found for this event.",
       });
     }
+    await requireStaffedVenueIdentityEvidence(ctx, {
+      eventId: event._id,
+      membership,
+      resolution,
+      identityCheckKind: args.identityCheckKind,
+    });
     const permissionKey:
       | "attendance.venue_check_in.record"
       | "attendance.venue_check_in.override_identity" =
@@ -298,7 +368,7 @@ export const reverse = internalMutation({
     if (resolution.membershipId !== membership._id) {
       throw new ConvexError({
         code: "STAFFED_RESOLUTION_REQUIRED",
-        message: "Scan this participant's fresh portal QR before continuing.",
+        message: "Resolve this participant again on this phone before continuing.",
       });
     }
     const reversed = await reverseStaffedVenueCheckIn(ctx, {

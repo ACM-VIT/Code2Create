@@ -2,19 +2,14 @@ import { api } from "@code2create/backend/api";
 import type { FunctionReturnType } from "convex/server";
 import { useAction, useQuery } from "convex/react";
 import { QRCodeSVG } from "qrcode.react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 
 import { eventSlug } from "../lib/config";
 import { readableError } from "../lib/errors";
-import { countdownName } from "../lib/time";
 import { AttendanceResultHistory } from "./AttendanceResultHistory";
 
-type PortalQr = {
-  tokenId: FunctionReturnType<typeof api.attendanceActions.mintPortalQr>["tokenId"];
+type ExternalPass = {
   payload: string;
-  expiresAt: number;
-  serverNow: number;
-  clientNow: number;
 };
 
 type ParticipantAttendance = FunctionReturnType<typeof api.attendanceParticipant.mine>;
@@ -25,65 +20,33 @@ type SessionState = ParticipantAttendance["sessions"][number]["state"];
 
 export function AttendancePanel() {
   const attendance = useQuery(api.attendanceParticipant.mine, { eventSlug });
-  const mintPortalQr = useAction(api.attendanceActions.mintPortalQr);
+  const loadExternalPass = useAction(api.attendanceActions.myExternalPass);
   const mintingRef = useRef(false);
-  const [portalQr, setPortalQr] = useState<PortalQr | null>(null);
-  const [now, setNow] = useState(() => performance.now());
+  const [externalPass, setExternalPass] = useState<ExternalPass | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [minting, setMinting] = useState(false);
-  const portalQrState = useQuery(
-    api.attendanceParticipant.portalQrState,
-    portalQr ? { eventSlug, tokenId: portalQr.tokenId } : "skip",
-  );
-
-  const mint = useCallback(async () => {
-    if (!attendance?.canMintPortalQr || mintingRef.current) return;
+  const showPass = async () => {
+    if (!attendance?.canViewExternalPass || mintingRef.current) return;
     mintingRef.current = true;
     setMinting(true);
     setError(null);
     try {
-      const next = await mintPortalQr({ eventSlug });
-      const clientNow = performance.now();
-      setPortalQr({
-        tokenId: next.tokenId,
-        payload: next.payload,
-        expiresAt: next.expiresAt,
-        serverNow: next.serverNow,
-        clientNow,
-      });
-      setNow(clientNow);
+      const next = await loadExternalPass({ eventSlug });
+      setExternalPass({ payload: next.payload });
     } catch (caught) {
       setError(readableError(caught));
     } finally {
       mintingRef.current = false;
       setMinting(false);
     }
-  }, [attendance?.canMintPortalQr, mintPortalQr]);
-
-  useEffect(() => {
-    if (!portalQr) return;
-    const timer = window.setInterval(() => {
-      const nextNow = performance.now();
-      setNow(nextNow);
-      const nextServerNow = portalQr.serverNow + nextNow - portalQr.clientNow;
-      if (nextServerNow >= portalQr.expiresAt) window.clearInterval(timer);
-    }, 1_000);
-    return () => window.clearInterval(timer);
-  }, [portalQr]);
+  };
 
   if (attendance === undefined) {
     return null;
   }
   if (!attendance.available) return null;
 
-  const qrServerNow = portalQr ? portalQr.serverNow + now - portalQr.clientNow : 0;
-  const secondsLeft = portalQr
-    ? Math.max(0, Math.ceil((portalQr.expiresAt - qrServerNow) / 1_000))
-    : 0;
-  const tokenIsActive = portalQrState === undefined || portalQrState?.state === "active";
-  const currentQr =
-    attendance.canMintPortalQr && tokenIsActive && portalQr && secondsLeft > 0 ? portalQr : null;
-  const usesVitId = attendance.physicalCredential.kind === "vit_id_barcode";
+  const currentQr = attendance.canViewExternalPass ? externalPass : null;
 
   return (
     <section className="attendance-panel" aria-labelledby="attendance-heading">
@@ -114,7 +77,9 @@ export function AttendancePanel() {
         ))}
         <div>
           <dt>
-            {attendance.physicalCredential.kind === "vit_id_barcode" ? "VIT ID" : "Event badge"}
+            {attendance.physicalCredential.kind === "vit_id_barcode"
+              ? "VIT ID"
+              : "External event pass"}
           </dt>
           <dd>{physicalCredentialName(attendance.physicalCredential)}</dd>
         </div>
@@ -131,29 +96,27 @@ export function AttendancePanel() {
               level="M"
               marginSize={2}
               size={220}
-              title="Your short-lived Code2Create attendance code"
+              title="Your Code2Create external participant event pass"
               value={currentQr.payload}
             />
           </div>
-          <p className="inline-status">
-            Expires in {countdownName(secondsLeft)} · Show this only to event staff.
-          </p>
+          <p className="inline-status">Static event pass · Show this only to event staff.</p>
           <button
             type="button"
             className="text-button"
-            disabled={minting}
-            onClick={() => void mint()}
+            onClick={() => setExternalPass(null)}
           >
-            {minting ? "Refreshing…" : "Refresh code"}
+            Hide pass
           </button>
         </div>
-      ) : attendance.canMintPortalQr ? (
-        <button type="button" className="secondary" disabled={minting} onClick={() => void mint()}>
-          {minting
-            ? "Creating code…"
-            : usesVitId
-              ? "Show backup check-in code"
-              : "Show check-in code"}
+      ) : attendance.canViewExternalPass ? (
+        <button
+          type="button"
+          className="secondary"
+          disabled={minting}
+          onClick={() => void showPass()}
+        >
+          {minting ? "Loading pass…" : "Show event pass"}
         </button>
       ) : null}
       {attendance.canReadResultHistory ? <AttendanceResultHistory /> : null}
@@ -172,9 +135,9 @@ function physicalCredentialName(credential: PhysicalCredential) {
     if (credential.state === "suspended") return "Needs staff help";
     return "Link at first check-in";
   }
-  if (credential.state === "active") return `Active · ${credential.badgeReference}`;
-  if (credential.state === "revoked") return "Revoked · ask event staff for a replacement";
-  return "Collect at first check-in";
+  if (credential.state === "active") return "Active";
+  if (credential.state === "suspended") return "Suspended · ask event staff for help";
+  return "Sent after acceptance";
 }
 
 function credentialInstruction(credential: PhysicalCredential) {
@@ -185,11 +148,15 @@ function credentialInstruction(credential: PhysicalCredential) {
     if (credential.state === "active") {
       return "Bring your VIT ID. Staff scan its printed barcode when you enter or leave.";
     }
-    return "Your VIT ID barcode is unavailable. Ask event staff or use the backup code below.";
+    return "Your VIT ID barcode is unavailable. Ask event staff to find you by registration number.";
   }
-  if (credential.state === "active") return "Staff scan your event badge when you enter or leave.";
-  if (credential.state === "revoked") return "Ask event staff for a replacement badge.";
-  return "Show the code below at first check-in. Staff will issue your event badge.";
+  if (credential.state === "active") {
+    return "Show the static event pass from your email when staff record attendance.";
+  }
+  if (credential.state === "suspended") {
+    return "Ask event staff to reissue your event pass. The replacement will appear here.";
+  }
+  return "Your personal event pass will be sent to your verified email.";
 }
 
 function venueStateName(state: VenueState) {

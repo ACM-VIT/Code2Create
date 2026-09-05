@@ -110,8 +110,9 @@ describe("participant assistant phases", () => {
   it("adds event-day handbook knowledge only after the phase boundary opens", () => {
     const submissionInstructions = participantAssistantInstructions("idea_submission", "{}");
     const eventInstructions = participantAssistantInstructions("in_event", "{}");
-    expect(submissionInstructions).not.toContain("VIT students normally use their VIT ID barcode");
-    expect(eventInstructions).toContain("VIT students normally use their VIT ID barcode");
+    expect(submissionInstructions).not.toContain("VIT students use their VIT ID barcode");
+    expect(eventInstructions).toContain("VIT students use their VIT ID barcode");
+    expect(eventInstructions).toContain("static personal event pass by email");
     expect(eventInstructions).toContain("The review-presence QR is separate from attendance");
     expect(eventInstructions).toContain("Queue estimates are ranges, not appointments");
     expect(eventInstructions).toContain("Activity counts are context, not scores");

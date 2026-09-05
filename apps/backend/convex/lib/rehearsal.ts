@@ -209,7 +209,7 @@ export const releaseRehearsalTemplate = [
     "attendance",
     "Participant stays inside across hacking sessions",
     "The next session still shows confirmation due until its own accepted scan.",
-    "Scan the VIT ID or participant QR for the new session; do not copy prior-session credit.",
+    "Scan the participant's normal attendance credential for the new session; do not copy prior-session credit.",
   ),
   scenario(
     27,
@@ -221,7 +221,7 @@ export const releaseRehearsalTemplate = [
   scenario(
     28,
     "attendance",
-    "VIT ID and portal QR are scanned simultaneously",
+    "The same external event pass is scanned simultaneously",
     "One transition is accepted and the other resolves as a duplicate without another interval.",
     "Use the authoritative returned state; do not manually add a second transition.",
   ),
@@ -447,14 +447,14 @@ export const releaseRehearsalTemplate = [
     "attendance",
     "Venue check-in is reversed after a venue-entry scan",
     "The staffed-arrival record and team milestone change, while venue presence, session attendance, and their ledgers remain untouched.",
-    "Correct presence separately only when its own evidence is wrong, then use a fresh portal QR at a venue-entry station to record the valid arrival again.",
+    "Correct presence separately only when its own evidence is wrong, then resolve the participant again at a venue-entry station to record the valid arrival.",
   ),
   scenario(
     61,
     "attendance",
     "Credential setup is attempted without its claimed participant resolution",
     "The server rejects a missing, expired, mismatched, or reused credential slot; one valid begin and matching second scan stay bound to the same operator, phone, station, member, action, and pending credential.",
-    "Ask the participant for a fresh portal QR, restart the intended credential workflow on the assigned phone, and do not reuse the abandoned pending setup.",
+    "Resolve the participant from their VIT ID, external pass, or authorized manual lookup; restart on the assigned phone and do not reuse the abandoned setup.",
   ),
   scenario(
     62,

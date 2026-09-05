@@ -104,6 +104,38 @@ export type ComputedReviewEvaluation = {
   submittedScorecardCount: number;
 };
 
+export function activeAssignmentScorecards(
+  assignments: Doc<"reviewAssignments">[],
+  scorecards: Doc<"scorecards">[],
+) {
+  const activeAssignments = assignments.filter((assignment) => assignment.status === "assigned");
+  const activeAssignmentById = new Map(
+    activeAssignments.map((assignment) => [assignment._id, assignment]),
+  );
+  const scorecardByAssignmentId = new Map<
+    Id<"reviewAssignments">,
+    Doc<"scorecards">
+  >();
+  for (const scorecard of scorecards) {
+    const assignment = activeAssignmentById.get(scorecard.assignmentId);
+    if (!assignment) continue;
+    if (
+      scorecardByAssignmentId.has(assignment._id) ||
+      scorecard.reviewerPersonId !== assignment.reviewerPersonId
+    ) {
+      throw new Error("An active review assignment has inconsistent scorecards.");
+    }
+    scorecardByAssignmentId.set(assignment._id, scorecard);
+  }
+  return {
+    assignments: activeAssignments,
+    scorecards: activeAssignments.flatMap((assignment) => {
+      const scorecard = scorecardByAssignmentId.get(assignment._id);
+      return scorecard ? [scorecard] : [];
+    }),
+  };
+}
+
 export async function computeReviewEvaluation(
   ctx: MutationCtx,
   args: {
@@ -129,12 +161,11 @@ export async function computeReviewEvaluation(
       )
       .collect(),
   ]);
-  const assigned = assignments.filter((assignment) => assignment.status === "assigned",
-  );
+  const active = activeAssignmentScorecards(assignments, scorecards);
   if (
-    assigned.length !== args.round.requiredPanelSize ||
-    scorecards.length !== assigned.length ||
-    scorecards.some(
+    active.assignments.length !== args.round.requiredPanelSize ||
+    active.scorecards.length !== active.assignments.length ||
+    active.scorecards.some(
       (scorecard) => scorecard.status !== "submitted" || !scorecard.submittedVersionId,
     )
   ) {
@@ -145,7 +176,7 @@ export async function computeReviewEvaluation(
   }
 
   const submittedVersions: Array<Doc<"scorecardVersions">> = [];
-  for (const scorecard of scorecards) {
+  for (const scorecard of active.scorecards) {
     const versionId = scorecard.submittedVersionId;
     if (!versionId) throw new Error("Validated submitted scorecard has no immutable version.",
       );

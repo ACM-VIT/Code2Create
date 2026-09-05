@@ -398,6 +398,7 @@ export const participantEmailTemplateKey = v.union(
   v.literal("offer_confirmed"),
   v.literal("offer_declined"),
   v.literal("offer_expired"),
+  v.literal("external_event_pass"),
 );
 
 export const admissionReviewAssignmentState = v.union(
@@ -467,7 +468,7 @@ export const repositoryKind = v.union(
 export const attendanceCredentialKind = v.union(
   v.literal("vit_id_barcode"),
   v.literal("badge_qr"),
-  v.literal("portal_qr"),
+  v.literal("external_pass"),
   v.literal("manual"),
 );
 
@@ -614,7 +615,7 @@ export type AttendanceStationMode = Infer<typeof attendanceStationMode>;
 export const attendanceScannerCredentialKind = v.union(
   v.literal("vit_id_barcode"),
   v.literal("badge_qr"),
-  v.literal("portal_qr"),
+  v.literal("external_pass"),
 );
 
 export type AttendanceScannerCredentialKind = Infer<typeof attendanceScannerCredentialKind>;

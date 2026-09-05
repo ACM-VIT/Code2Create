@@ -22,6 +22,8 @@ This is the status of the local event-flow implementation. It does not certify t
 
 A reviewer cannot leave, rotate, change availability or be substituted while an active review or its score entry is unfinished. This is enforced by the backend, not just a hidden button. A team is not restarted to permit a routine seat change.
 
+Reviewers end their shift through the app’s duty-status sheet. A returning reviewer uses normal clock-in, which checks their current assignment, confirmed hours, training and device readiness again. Ops manages replacement seats; it does not mark an absent reviewer present on their behalf.
+
 The reviewer app keeps its existing components and visual style. Availability opens in a sheet; custom hours are shown only on request. Optional questions and duty changes sit behind quiet actions. Operational policy and staffing tables remain in ops.
 
 ## What “freezing evidence” means
@@ -43,7 +45,7 @@ Generated dependencies, actual credential files and binary assets are explicitly
 3. Reviewers register phones and enable notifications. At the configured time they confirm their actual hours. Check the pending/confirmed/unavailable roster before opening reviews.
 4. Set live staffing, JC rotation, response/arrival windows and reminder timing. Keep the publishing operator's required staffing grants active; ops reports when automation has lost its authority.
 5. Set queue routing and call-up, enable question preparation, and inspect source/job status. Voice calls require existing provider configuration plus separate consent from the recipient; team leads opt in from the participant portal's More screen.
-6. Open the round, scan real arrivals and let staff place walk-up teams. Reviewers scan the team's review QR. The coordinator starts discussion after presence is complete, finishes the review after all cards/comments are submitted, and the queue calls the next team.
+6. Open the round, scan real arrivals and let staff place walk-up teams. Reviewers scan the team's review QR. The coordinator starts discussion after presence is complete. Any assigned reviewer finishes the review after all active reviewers' cards/comments and required shared notes are submitted; the queue then calls the next team.
 7. Close and independently verify each round's export. Publish/check the aggregation policy before using cumulative results.
 
 Structural settings such as rubric and seat composition are chosen in setup and fixed by publication. Live operational settings are versioned; changing them cannot silently rewrite an existing score or review context.

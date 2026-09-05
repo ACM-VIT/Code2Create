@@ -1324,16 +1324,12 @@ function ReviewDiscussionControls({
   review: WorkspaceReview;
 }) {
   const end = useMutation(api.reviewOperations.endDiscussion);
-  const complete = useMutation(api.reviewOperations.completeReview);
   const attempt = useMutationAttempt<
-    | FunctionReturnType<typeof api.reviewOperations.endDiscussion>
-    | FunctionReturnType<typeof api.reviewOperations.completeReview>
+    FunctionReturnType<typeof api.reviewOperations.endDiscussion>
   >();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const isDiscussion = review.status === "active";
-  const finishedScores =
-    review.submittedScorecardCount === review.assignment.reviewerCount;
   if (
     !review.assignment.isCoordinator ||
     review.scorecard.status === "correction_open"
@@ -1351,14 +1347,7 @@ function ReviewDiscussionControls({
           expectedVersion: review.version,
           clientOperationId: randomUUID(),
         };
-        return isDiscussion
-          ? () => end(args)
-          : () =>
-              complete({
-                ...args,
-                reason:
-                  "Coordinator completed the review after all scores and comments were submitted",
-              });
+        return () => end(args);
       });
     } catch (caught) {
       setError(errorMessage(caught, "The review changed. Please try again."));
@@ -1373,7 +1362,7 @@ function ReviewDiscussionControls({
           ? "End the discussion when the team has finished. Everyone can then submit their scores and final comments."
           : `Discussion finished · ${review.submittedScorecardCount} of ${review.assignment.reviewerCount} scorecards submitted`}
       </Text>
-      {isDiscussion || (finishedScores && review.sharedNotesComplete) ? (
+      {isDiscussion ? (
         <QuietAction
           disabled={busy}
           label={
@@ -1381,9 +1370,7 @@ function ReviewDiscussionControls({
               ? "Saving…"
               : attempt.hasPending("review-phase")
                 ? "Retry review update"
-                : isDiscussion
-                  ? "End discussion"
-                  : "Complete review"
+                : "End discussion"
           }
           onPress={() => void run()}
         />
@@ -1421,6 +1408,9 @@ function ReviewWorkspace({
       {review.assignment.isCoordinator && review.scorecard.status !== "correction_open" ? (
         <CoordinatorNotes eventSlug={eventSlug} review={review} />
       ) : null}
+      {review.scorecard.status === "submitted" && review.assignment.completionReady ? (
+        <ReviewCompletion eventSlug={eventSlug} review={review} />
+      ) : null}
       <Sheet onClose={() => setEvidenceOpen(false)} title="Project details" visible={evidenceOpen}>
         <ScrollView showsVerticalScrollIndicator={false} style={styles.evidenceSheet}>
           <ProjectEvidence eventSlug={eventSlug} review={review} />
@@ -1430,9 +1420,70 @@ function ReviewWorkspace({
   );
 }
 
-function CoordinatorNotes({ eventSlug, review,
-}: { eventSlug: string; review: WorkspaceReview;
-}) {
+function ReviewCompletion({ eventSlug, review }: { eventSlug: string; review: WorkspaceReview }) {
+  const completeReview = useMutation(api.reviewOperations.completeReview);
+  const completeAttempt =
+    useMutationAttempt<FunctionReturnType<typeof api.reviewOperations.completeReview>>();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const complete = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await completeAttempt.run("review-complete", () => {
+        const args = {
+          eventSlug,
+          reviewSessionId: review.id,
+          expectedVersion: review.version,
+          reason: "Completed in the reviewer app after every panel scorecard was submitted",
+          clientOperationId: randomUUID(),
+        };
+        return () => completeReview(args);
+      });
+    } catch (caught) {
+      setError(errorMessage(caught, "The review could not be completed."));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const confirm = () => {
+    Alert.alert(
+      "Complete review?",
+      "Every panel scorecard is submitted. This ends the review for the whole panel and makes everyone ready for the next team.",
+      [
+        { text: "Not yet", style: "cancel" },
+        { text: "Complete review", style: "destructive", onPress: () => void complete() },
+      ],
+    );
+  };
+
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>Panel finished</Text>
+      <Text style={styles.body}>
+        All {review.assignment.reviewerCount} panel scorecards are submitted. Any reviewer can
+        close this review.
+      </Text>
+      <Action
+        disabled={busy}
+        label={
+          busy
+            ? "Completing…"
+            : completeAttempt.hasPending("review-complete")
+              ? "Retry completion"
+              : "Complete review"
+        }
+        onPress={confirm}
+      />
+      {error ? <Text style={styles.error}>{error}</Text> : null}
+    </View>
+  );
+}
+
+function CoordinatorNotes({ eventSlug, review }: { eventSlug: string; review: WorkspaceReview }) {
   const saveSharedNotes = useMutation(api.reviewOperations.saveSharedNotes);
   const [initialNotes] = useState(() => ({
     reviewSessionId: review.id,

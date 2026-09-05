@@ -34,6 +34,7 @@ import {
   maximumReviewRoundsPerEvent,
 } from "./lib/reviewLimits";
 import {
+  activeAssignmentScorecards,
   cleanAssignedRatings,
   recomputeReviewEvaluation,
   requireCompleteAssignedRatings,
@@ -1367,6 +1368,8 @@ export const now = query({
           reviewerPresenceConfirmed: v.boolean(),
           reviewerPresenceCount: v.number(),
           reviewerCount: v.number(),
+          submittedScorecardCount: v.number(),
+          completionReady: v.boolean(),
         }),
       }),
     ),
@@ -1623,33 +1626,50 @@ export const now = query({
       ctx.db.get(active.session.panelId),
       ctx.db
         .query("reviewAssignments")
-        .withIndex("by_session_person", (index) => index.eq("reviewSessionId", active.session._id),
-          )
-        .collect(),
+        .withIndex("by_session_person", (index) => index.eq("reviewSessionId", active.session._id))
+        .take(maximumReviewerAssignmentsPerEvent + 1),
       ctx.db
         .query("reviewPresence")
-          .withIndex("by_session_reviewer", (index) =>
-            index.eq("reviewSessionId", active.session._id),
-          )
-          .collect(),
-        ctx.db
-          .query("scorecards")
-        .withIndex("by_session_reviewer", (index) =>
-          index.eq("reviewSessionId", active.session._id),
-        )
-        .collect(),
+        .withIndex("by_session_reviewer", (index) => index.eq("reviewSessionId", active.session._id))
+        .take(maximumReviewerAssignmentsPerEvent + 1),
+      ctx.db
+        .query("scorecards")
+        .withIndex("by_session_reviewer", (index) => index.eq("reviewSessionId", active.session._id))
+        .take(maximumReviewerAssignmentsPerEvent + 1),
     ]);
     if (!team || !round || !panel) {
       throw new Error("The active review context is incomplete.");
     }
-    const assignedRows = assignmentRows.filter((assignment) => assignment.status === "assigned",
-    );
+    if (
+      assignmentRows.length > maximumReviewerAssignmentsPerEvent ||
+      presences.length > maximumReviewerAssignmentsPerEvent ||
+      scorecards.length > maximumReviewerAssignmentsPerEvent
+    ) {
+      throw new Error("The active review exceeds the event assignment limit.");
+    }
+    const activeScorecards = activeAssignmentScorecards(assignmentRows, scorecards);
+    const assignedRows = activeScorecards.assignments;
     const assignedReviewerIds = new Set(
       assignedRows.map((assignment) => assignment.reviewerPersonId),
     );
     const currentPresences = presences.filter((presence) =>
       assignedReviewerIds.has(presence.reviewerPersonId),
     );
+    const submittedReviewerIds = new Set(
+      activeScorecards.scorecards
+        .filter(
+          (scorecard) =>
+            scorecard.status === "submitted" &&
+            scorecard.submittedVersionId !== undefined,
+        )
+        .map((scorecard) => scorecard.reviewerPersonId),
+    );
+    const submittedScorecardCount = submittedReviewerIds.size;
+    const completionReady =
+      assignedRows.length === round.requiredPanelSize &&
+      submittedScorecardCount === assignedRows.length &&
+      (!round.requiresSharedCommitments ||
+        Boolean(active.session.sharedFindings?.trim() && active.session.sharedCommitments?.trim()));
     return {
       serverNow: Date.now(),
       device: deviceView,
@@ -1664,11 +1684,7 @@ export const now = query({
           ? { plannedEndAt: active.session.plannedEndAt }
           : {}),
         extensionCount: active.session.extensionCount,
-        submittedScorecardCount: scorecards.filter(
-          (scorecard) =>
-            assignedReviewerIds.has(scorecard.reviewerPersonId) &&
-            scorecard.status === "submitted",
-        ).length,
+        submittedScorecardCount,
         sharedNotesComplete:
           !round.requiresSharedCommitments ||
           Boolean(
@@ -1698,6 +1714,8 @@ export const now = query({
             currentPresences.map((presence) => presence.reviewerPersonId),
           ).size,
           reviewerCount: assignedRows.length,
+          submittedScorecardCount,
+          completionReady,
         },
       },
     };

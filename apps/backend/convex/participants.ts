@@ -622,17 +622,19 @@ export const provision = mutation({
       sourceId,
       reason: "Participant membership",
     });
-    await insertPermissionGrant(ctx, {
-      eventId: event._id,
-      personId: person._id,
-      eventAccessSubjectId: subject._id,
-      permissionKey: "attendance.portal_qr.mint",
-      scopeType: "self",
-      scopeId: membershipId,
-      sourceType: "participant_membership",
-      sourceId,
-      reason: "Participant membership",
-    });
+    if (resolvedParticipantClass === "external_participant") {
+      await insertPermissionGrant(ctx, {
+        eventId: event._id,
+        personId: person._id,
+        eventAccessSubjectId: subject._id,
+        permissionKey: "attendance.external_pass.read",
+        scopeType: "self",
+        scopeId: membershipId,
+        sourceType: "participant_membership",
+        sourceId,
+        reason: "External participant membership",
+      });
+    }
 
     if (!subjectCreated) {
       await ctx.db.patch("eventAccessSubjects", subject._id, {

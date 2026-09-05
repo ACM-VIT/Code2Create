@@ -278,6 +278,72 @@ describe("communications policy lifecycle", () => {
     expect(deliveries).toEqual([]);
   });
 
+  test("queues event passes only for external participants", async () => {
+    const externalBackend = convexTest(schema, modules);
+    const externalFixture = await seedFixture(externalBackend, "external-event-pass");
+    await externalBackend.run((ctx) =>
+      ctx.db.patch(externalFixture.applicationId, {
+        state: "confirmed",
+        version: 2,
+      }),
+    );
+
+    await externalBackend.mutation(internal.participantNotifications.enqueueRosterBatch, {
+      eventId: externalFixture.event._id,
+      applicationId: externalFixture.applicationId,
+      teamId: externalFixture.teamId,
+      lockedRosterSnapshotId: externalFixture.lockedRosterSnapshotId,
+      lockedMemberCount: 1,
+      communicationsPolicyVersionId: externalFixture.communicationsPolicyId,
+      templateKey: "external_event_pass",
+      applicationVersion: 2,
+      cursor: null,
+      processedMemberCount: 0,
+      participantClass: "external_participant",
+    });
+
+    const externalDeliveries = await externalBackend.run((ctx) =>
+      ctx.db.query("participantNotificationDeliveries").collect(),
+    );
+    expect(externalDeliveries).toHaveLength(1);
+    expect(externalDeliveries[0]).toMatchObject({
+      membershipId: externalFixture.membershipId,
+      templateKey: "external_event_pass",
+      state: "pending",
+    });
+
+    const vitBackend = convexTest(schema, modules);
+    const vitFixture = await seedFixture(vitBackend, "vit-event-pass");
+    await vitBackend.run(async (ctx) => {
+      await ctx.db.patch(vitFixture.applicationId, {
+        state: "confirmed",
+        version: 2,
+      });
+      await ctx.db.patch(vitFixture.membershipId, {
+        participantClass: "vit_student",
+      });
+    });
+
+    await vitBackend.mutation(internal.participantNotifications.enqueueRosterBatch, {
+      eventId: vitFixture.event._id,
+      applicationId: vitFixture.applicationId,
+      teamId: vitFixture.teamId,
+      lockedRosterSnapshotId: vitFixture.lockedRosterSnapshotId,
+      lockedMemberCount: 1,
+      communicationsPolicyVersionId: vitFixture.communicationsPolicyId,
+      templateKey: "external_event_pass",
+      applicationVersion: 2,
+      cursor: null,
+      processedMemberCount: 0,
+      participantClass: "external_participant",
+    });
+
+    const vitDeliveries = await vitBackend.run((ctx) =>
+      ctx.db.query("participantNotificationDeliveries").collect(),
+    );
+    expect(vitDeliveries).toEqual([]);
+  });
+
   test("settles an expired Cloudflare send lease as unknown without reclaiming it", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedFixture(backend, "expired-send");
@@ -605,6 +671,7 @@ async function seedFixture(backend: BackendTest, slug: string) {
       personId,
       teamId,
       teamMemberId,
+      membershipId,
       lockedRosterSnapshotId,
       applicationId,
       communicationsPolicyId,

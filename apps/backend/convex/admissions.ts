@@ -3118,12 +3118,19 @@ export async function transitionOffer(
       : args.transition === "revoked"
         ? "selected"
         : "submitted";
+  const communicationsPolicyVersionId =
+    args.transition === "revoked"
+      ? undefined
+      : await publishedCommunicationsPolicyId(ctx, args.offer.eventId);
   await ctx.scheduler.runAfter(0, internal.admissions.updateRosterOnboardingStatus, {
     applicationId: args.application._id,
     expectedApplicationVersion: applicationVersion,
     lockedRosterSnapshotId: args.offer.lockedRosterSnapshotId,
     onboardingStatus: onboardingStatusAfter,
     cursor: null,
+    ...(args.transition === "confirmed" && communicationsPolicyVersionId
+      ? { externalPassCommunicationsPolicyVersionId: communicationsPolicyVersionId }
+      : {}),
   });
   if (args.transition === "confirmed") {
     await initializeAttendanceTeamAvailability(ctx, {
@@ -3141,10 +3148,9 @@ export async function transitionOffer(
         : args.transition === "declined"
           ? "offer_declined"
           : "offer_expired";
-    const communicationsPolicyVersionId = await publishedCommunicationsPolicyId(
-      ctx,
-      args.offer.eventId,
-    );
+    if (!communicationsPolicyVersionId) {
+      throw new Error("The participant communications policy is unavailable.");
+    }
     await enqueueApplicationNotifications(ctx, {
       eventId: args.offer.eventId,
       applicationId: args.application._id,
@@ -3368,6 +3374,9 @@ export const updateRosterOnboardingStatus = internalMutation({
     lockedRosterSnapshotId: v.id("teamSubmissionAttempts"),
     onboardingStatus: rosterOnboardingStatus,
     cursor: v.union(v.string(), v.null()),
+    externalPassCommunicationsPolicyVersionId: v.optional(
+      v.id("communicationsPolicyVersions"),
+    ),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -3414,6 +3423,28 @@ export const updateRosterOnboardingStatus = internalMutation({
         lockedRosterSnapshotId: attempt._id,
         onboardingStatus: args.onboardingStatus,
         cursor: page.continueCursor,
+        ...(args.externalPassCommunicationsPolicyVersionId !== undefined
+          ? {
+              externalPassCommunicationsPolicyVersionId:
+                args.externalPassCommunicationsPolicyVersionId,
+            }
+          : {}),
+      });
+    } else if (args.externalPassCommunicationsPolicyVersionId !== undefined) {
+      if (args.onboardingStatus !== "accepted") {
+        throw new Error("External event-pass delivery requires accepted roster onboarding.");
+      }
+      await enqueueApplicationNotifications(ctx, {
+        eventId: application.eventId,
+        applicationId: application._id,
+        teamId: application.teamId,
+        lockedRosterSnapshotId: attempt._id,
+        lockedMemberCount: project.lockedMemberCount,
+        communicationsPolicyVersionId: args.externalPassCommunicationsPolicyVersionId,
+        templateKey: "external_event_pass",
+        applicationVersion: args.expectedApplicationVersion,
+        now,
+        participantClass: "external_participant",
       });
     }
     return null;

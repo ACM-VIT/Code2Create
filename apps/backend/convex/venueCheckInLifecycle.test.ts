@@ -6,6 +6,7 @@ import {
   recordStaffedVenueCheckIn,
   reverseStaffedVenueCheckIn,
 } from "./lib/venueCheckInLifecycle.ts";
+import { requireStaffedVenueIdentityEvidence } from "./attendanceVenueCheckIns.ts";
 import {
   initializeAttendanceTeamAvailability,
   moveAttendanceTeamAvailability,
@@ -263,7 +264,9 @@ describe("staffed venue check-in lifecycle", () => {
       createStaffedParticipantResolution(ctx, {
         eventId: fixture.eventId,
         membershipId: fixture.leadMembershipId,
-        portalQrTokenId: fixture.portalQrTokenId,
+        resolutionMethod: "vit_id_barcode",
+        barcodeLookupHash: `resolved-vit-${now}`,
+        barcodeSymbology: "code128",
         stationId: fixture.stationId,
         deviceInstallationId: fixture.deviceInstallationId,
         resolvedByPersonId: fixture.operatorPersonId,
@@ -280,7 +283,7 @@ describe("staffed venue check-in lifecycle", () => {
         now: now + 1,
       }),
     );
-    expect(resolution.portalQrTokenId).toBe(fixture.portalQrTokenId);
+    expect(resolution.resolutionMethod).toBe("vit_id_barcode");
 
     await backend.run((ctx) =>
       ctx.db.patch(resolutionId, {
@@ -299,30 +302,19 @@ describe("staffed venue check-in lifecycle", () => {
           now: now + 3,
         }),
       ),
-    ).rejects.toThrow("fresh portal QR");
+    ).rejects.toThrow("Resolve the participant again");
 
-    const expiredResolutionId = await backend.run(async (ctx) => {
-      const portalQrTokenId = await ctx.db.insert("attendancePortalQrTokens", {
+    const expiredResolutionId = await backend.run((ctx) =>
+      createStaffedParticipantResolution(ctx, {
         eventId: fixture.eventId,
         membershipId: fixture.leadMembershipId,
-        portalCredentialId: fixture.portalCredentialId,
-        credentialVersion: 1,
-        tokenHash: `arrival-expired-token-${now}`,
-        state: "used",
-        issuedAt: now - 1_000,
-        expiresAt: now + 60_000,
-        usedAt: now,
-      });
-      return createStaffedParticipantResolution(ctx, {
-        eventId: fixture.eventId,
-        membershipId: fixture.leadMembershipId,
-        portalQrTokenId,
+        resolutionMethod: "manual_lookup",
         stationId: fixture.stationId,
         deviceInstallationId: fixture.deviceInstallationId,
         resolvedByPersonId: fixture.operatorPersonId,
         now,
-      });
-    });
+      }),
+    );
     await expect(
       backend.run((ctx) =>
         requireAvailableStaffedVenueResolution(ctx, {
@@ -341,28 +333,17 @@ describe("staffed venue check-in lifecycle", () => {
     const now = Date.UTC(2027, 7, 8, 11, 0, 0);
     const backend = convexTest(schema, modules);
     const fixture = await seedFixture(backend, now);
-    const resolutionId = await backend.run(async (ctx) => {
-      const portalQrTokenId = await ctx.db.insert("attendancePortalQrTokens", {
+    const resolutionId = await backend.run((ctx) =>
+      createStaffedParticipantResolution(ctx, {
         eventId: fixture.eventId,
         membershipId: fixture.leadMembershipId,
-        portalCredentialId: fixture.portalCredentialId,
-        credentialVersion: 1,
-        tokenHash: `credential-resolution-${now}`,
-        state: "used",
-        issuedAt: now - 1_000,
-        expiresAt: now + 60_000,
-        usedAt: now,
-      });
-      return createStaffedParticipantResolution(ctx, {
-        eventId: fixture.eventId,
-        membershipId: fixture.leadMembershipId,
-        portalQrTokenId,
+        resolutionMethod: "manual_lookup",
         stationId: fixture.stationId,
         deviceInstallationId: fixture.deviceInstallationId,
         resolvedByPersonId: fixture.operatorPersonId,
         now,
-      });
-    });
+      }),
+    );
 
     await backend.run(async (ctx) => {
       const resolution = await requireAvailableStaffedCredentialResolution(ctx, {
@@ -407,7 +388,7 @@ describe("staffed venue check-in lifecycle", () => {
           now: now + 2,
         }),
       ),
-    ).rejects.toThrow("fresh portal QR");
+    ).rejects.toThrow("Resolve the participant again");
     await expect(
       backend.run((ctx) =>
         requireClaimedStaffedCredentialResolution(ctx, {
@@ -421,7 +402,106 @@ describe("staffed venue check-in lifecycle", () => {
           attendanceCredentialId: fixture.badgeCredentialId,
         }),
       ),
-    ).rejects.toThrow("Restart credential setup");
+    ).rejects.toThrow("restarting credential setup");
+  });
+
+  test("requires completed class-ID evidence before first check-in", async () => {
+    const now = Date.UTC(2027, 7, 8, 12, 0, 0);
+    const backend = convexTest(schema, modules);
+    const fixture = await seedFixture(backend, now);
+    const vitResolutionId = await backend.run((ctx) =>
+      createStaffedParticipantResolution(ctx, {
+        eventId: fixture.eventId,
+        membershipId: fixture.leadMembershipId,
+        resolutionMethod: "vit_id_barcode",
+        barcodeLookupHash: `different-vit-${now}`,
+        barcodeSymbology: "code128",
+        stationId: fixture.stationId,
+        deviceInstallationId: fixture.deviceInstallationId,
+        resolvedByPersonId: fixture.operatorPersonId,
+        now,
+      }),
+    );
+
+    await expect(
+      backend.run(async (ctx) => {
+        const membership = await ctx.db.get(fixture.leadMembershipId);
+        const resolution = await ctx.db.get(vitResolutionId);
+        if (!membership || !resolution) throw new Error("VIT evidence fixture is incomplete.");
+        await requireStaffedVenueIdentityEvidence(ctx, {
+          eventId: fixture.eventId,
+          membership,
+          resolution,
+          identityCheckKind: "class_id",
+        });
+      }),
+    ).rejects.toThrow("Link or replace this VIT ID");
+
+    await backend.run(async (ctx) => {
+      await ctx.db.patch(vitResolutionId, { barcodeLookupHash: `vit-${now}` });
+      const membership = await ctx.db.get(fixture.leadMembershipId);
+      const resolution = await ctx.db.get(vitResolutionId);
+      if (!membership || !resolution) throw new Error("VIT evidence fixture is incomplete.");
+      await requireStaffedVenueIdentityEvidence(ctx, {
+        eventId: fixture.eventId,
+        membership,
+        resolution,
+        identityCheckKind: "class_id",
+      });
+    });
+
+    const externalResolutionId = await backend.run((ctx) =>
+      createStaffedParticipantResolution(ctx, {
+        eventId: fixture.eventId,
+        membershipId: fixture.memberMembershipId,
+        resolutionMethod: "external_pass",
+        stationId: fixture.stationId,
+        deviceInstallationId: fixture.deviceInstallationId,
+        resolvedByPersonId: fixture.operatorPersonId,
+        now,
+      }),
+    );
+
+    await expect(
+      backend.run(async (ctx) => {
+        const membership = await ctx.db.get(fixture.memberMembershipId);
+        const resolution = await ctx.db.get(externalResolutionId);
+        if (!membership || !resolution) throw new Error("External evidence fixture is incomplete.");
+        await requireStaffedVenueIdentityEvidence(ctx, {
+          eventId: fixture.eventId,
+          membership,
+          resolution,
+          identityCheckKind: "class_id",
+        });
+      }),
+    ).rejects.toThrow("link its barcode first");
+
+    await backend.run(async (ctx) => {
+      await ctx.db.insert("attendanceExternalIdentityBindings", {
+        eventId: fixture.eventId,
+        membershipId: fixture.memberMembershipId,
+        lookupHash: `external-id-${now}`,
+        barcodeSymbology: "code128",
+        version: 1,
+        state: "active",
+        linkedByPersonId: fixture.operatorPersonId,
+        linkedAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.patch(externalResolutionId, {
+        credentialAction: "link_external_id",
+        credentialActionAt: now,
+      });
+      const membership = await ctx.db.get(fixture.memberMembershipId);
+      const resolution = await ctx.db.get(externalResolutionId);
+      if (!membership || !resolution) throw new Error("External evidence fixture is incomplete.");
+      await requireStaffedVenueIdentityEvidence(ctx, {
+        eventId: fixture.eventId,
+        membership,
+        resolution,
+        identityCheckKind: "class_id",
+      });
+    });
   });
 });
 
@@ -481,7 +561,7 @@ async function seedFixture(backend: BackendTest, now: number) {
       stableKey: "arrival_desk_1",
       name: "Arrival desk 1",
       mode: "venue_entry",
-      allowedCredentialKinds: ["vit_id_barcode", "badge_qr", "portal_qr"],
+      allowedCredentialKinds: ["vit_id_barcode", "badge_qr", "external_pass"],
       status: "active",
       deviceInstallationId,
       configurationVersion: 1,
@@ -553,24 +633,6 @@ async function seedFixture(backend: BackendTest, now: number) {
       enrolledAt: now - 3_000,
       verifiedAt: now - 2_000,
     });
-    const portalCredentialId = await ctx.db.insert("attendancePortalCredentials", {
-      eventId,
-      membershipId: lead.membershipId,
-      version: 1,
-      state: "active",
-      updatedAt: now - 1_500,
-    });
-    const portalQrTokenId = await ctx.db.insert("attendancePortalQrTokens", {
-      eventId,
-      membershipId: lead.membershipId,
-      portalCredentialId,
-      credentialVersion: 1,
-      tokenHash: `arrival-token-${now}`,
-      state: "used",
-      issuedAt: now - 1_000,
-      expiresAt: now + 60_000,
-      usedAt: now,
-    });
     return {
       eventId,
       stationId,
@@ -581,8 +643,6 @@ async function seedFixture(backend: BackendTest, now: number) {
       memberMembershipId: member.membershipId,
       vitCredentialId,
       badgeCredentialId,
-      portalCredentialId,
-      portalQrTokenId,
     } satisfies {
       eventId: Id<"events">;
       stationId: Id<"attendanceStations">;
@@ -593,8 +653,6 @@ async function seedFixture(backend: BackendTest, now: number) {
       memberMembershipId: Id<"eventMemberships">;
       vitCredentialId: Id<"attendanceCredentials">;
       badgeCredentialId: Id<"attendanceCredentials">;
-      portalCredentialId: Id<"attendancePortalCredentials">;
-      portalQrTokenId: Id<"attendancePortalQrTokens">;
     };
   });
 }

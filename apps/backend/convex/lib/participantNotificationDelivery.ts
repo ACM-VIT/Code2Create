@@ -35,6 +35,8 @@ export function applicationMatchesNotification(
       return application.state === "offer_sent";
     case "offer_confirmed":
       return application.state === "confirmed";
+    case "external_event_pass":
+      return application.state === "confirmed";
     case "offer_declined":
       return application.state === "withdrawn";
     case "offer_expired":
@@ -55,6 +57,7 @@ export async function enqueueApplicationNotifications(
     applicationVersion: number;
     now: number;
     schedule?: false;
+    participantClass?: "external_participant";
   },
 ) {
   const communicationsPolicy = await ctx.db.get(args.communicationsPolicyVersionId);
@@ -87,6 +90,7 @@ export async function enqueueApplicationNotifications(
     applicationVersion: args.applicationVersion,
     cursor: null,
     processedMemberCount: 0,
+    ...(args.participantClass !== undefined ? { participantClass: args.participantClass } : {}),
   });
   return args.lockedMemberCount;
 }
