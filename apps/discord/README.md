@@ -8,8 +8,8 @@ the first category and permission template for each state. When one reaches Disc
 limit, the bot creates and reuses numbered categories such as `c2c-support-open-02` and
 `c2c-support-closed-02`.
 
-Messages written in a ticket channel by a member with an allowed role become public support notes
-on the website. Bot and webhook messages are ignored. Discord message IDs and backend delivery
+Messages written in a ticket channel by a Discord administrator or a member with an allowed role become public support notes
+on the website. Roles are fetched for each reply so access changes take effect immediately. Bot and webhook messages are ignored. Discord message IDs and backend delivery
 claims make both directions idempotent.
 
 ## Discord application

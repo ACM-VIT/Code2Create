@@ -54,22 +54,25 @@ export const mine = query({
     v.null(),
     v.object({
       enabled: v.boolean(),
-      phone: v.optional(v.string()),
       version: v.number(),
     }),
   ),
   handler: async (ctx, args) => {
     const { current, team, membership } = await ownContext(ctx, args.eventSlug);
     if (!team || team.team.leadMembershipId !== membership._id) return null;
+    const profile = await ctx.db
+      .query("participantProfiles")
+      .withIndex("by_membership", (q) => q.eq("membershipId", membership._id))
+      .unique();
+    const phone = normalizedE164Phone(profile?.phone);
     return {
       enabled:
+        phone !== null &&
+        current?.destinationPhoneE164 === phone &&
         current?.state === "granted" &&
         current.consentPolicyVersion === consentVersion &&
         current.scriptPolicyVersion === scriptVersion,
       version: current?.version ?? 0,
-      ...(current?.destinationPhoneE164
-        ? { phone: current.destinationPhoneE164 }
-        : {}),
     };
   },
 });
@@ -77,7 +80,6 @@ export const save = mutation({
   args: {
     eventSlug: v.string(),
     enabled: v.boolean(),
-    phone: v.optional(v.string()),
     expectedVersion: v.number(),
     clientOperationId: v.string(),
   },
@@ -90,15 +92,8 @@ export const save = mutation({
         code: "TEAM_LEAD_REQUIRED",
         message: "Review calls are managed by the current team lead.",
       });
-    const phone = normalizedE164Phone(args.phone);
-    if (args.enabled && !phone)
-      throw new ConvexError({
-        code: "INVALID_PHONE",
-        message: "Use an international phone number, such as +919876543210.",
-      });
     const requestFingerprint = operationFingerprint([
       args.enabled,
-      phone,
       args.expectedVersion,
       consentVersion,
       scriptVersion,
@@ -121,6 +116,20 @@ export const save = mutation({
       throw new ConvexError({
         code: "CALL_SETTING_CHANGED",
         message: "Your call setting changed. Refresh before saving.",
+      });
+    const profile = args.enabled
+      ? await ctx.db
+          .query("participantProfiles")
+          .withIndex("by_membership", (q) =>
+            q.eq("membershipId", membership._id),
+          )
+          .unique()
+      : null;
+    const phone = normalizedE164Phone(profile?.phone);
+    if (args.enabled && !phone)
+      throw new ConvexError({
+        code: "INVALID_PHONE",
+        message: "Update the phone number in your profile before enabling review calls.",
       });
     const now = Date.now();
     const version = args.expectedVersion + 1;

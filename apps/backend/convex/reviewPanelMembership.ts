@@ -18,6 +18,7 @@ import { appendReviewPanelVacancyReadFactById } from "./lib/operationsAutonomyRe
 import { requirePermission, revokeSourceGrants } from "./lib/permissions";
 import { grantPanelMemberAccess } from "./lib/reviewAccess";
 import { requireConfirmedReviewer } from "./lib/reviewConfirmation";
+import { reviewerHasOverlappingPanel } from "./lib/reviewerParticipation";
 import { normalizedText } from "./lib/strings";
 import { reviewPanelStatus } from "./values";
 
@@ -62,16 +63,10 @@ async function resolveJoiningReviewer(
       message: "This panel has no empty seat. Take a reviewer off it in the same change.",
     });
   }
-  const seated = await ctx.db
-    .query("reviewPanelMembers")
-    .withIndex("by_round_person_status", (index) =>
-      index.eq("roundId", args.round._id).eq("personId", args.personId).eq("status", "active"),
-    )
-    .unique();
-  if (seated) {
+  if (await reviewerHasOverlappingPanel(ctx, args.round.eventId, args.personId, args.round)) {
     throw new ConvexError({
       code: "REVIEWER_ALREADY_SEATED",
-      message: "That reviewer already sits on a panel in this round.",
+      message: "That reviewer already sits on a panel whose round overlaps these review hours.",
     });
   }
   const reserve = await ctx.db

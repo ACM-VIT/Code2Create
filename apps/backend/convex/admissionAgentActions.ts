@@ -135,29 +135,6 @@ export const recordDispatchFailure = internalMutation({
   },
 });
 
-export const currentRecommendation = internalQuery({
-  args: { applicationId: v.string(), eventId: v.string() },
-  returns: v.union(v.null(), v.id("admissionAIRecommendations")),
-  handler: async (ctx, args) => {
-    const applicationId = ctx.db.normalizeId("applications", args.applicationId);
-    const eventId = ctx.db.normalizeId("events", args.eventId);
-    if (!applicationId || !eventId) return null;
-    const application = await ctx.db.get(applicationId);
-    if (!application || application.eventId !== eventId || !application.aiRecommendationId) {
-      return null;
-    }
-    const recommendation = await ctx.db.get(application.aiRecommendationId);
-    if (
-      !recommendation ||
-      recommendation.applicationId !== application._id ||
-      recommendation.applicationContentVersion !== application.contentVersion ||
-      (recommendation.state !== "pending" && recommendation.state !== "running")
-    )
-      return null;
-    return recommendation._id;
-  },
-});
-
 export const prepareProjectionIdentity = internalQuery({
   args: { recommendationId: v.string() },
   returns: v.union(

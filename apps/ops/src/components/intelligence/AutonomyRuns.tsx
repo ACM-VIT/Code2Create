@@ -1,3 +1,4 @@
+import { LiveNumber } from "../LiveNumber";
 import { Icon, type IconName } from "../Icon";
 import { OperationsAutonomyRunStream } from "../OperationsAutonomyRunStream";
 import {
@@ -186,7 +187,7 @@ function RunMetric({ label, value }: { label: string; value: number | string }) 
   return (
     <div className="grid gap-1 rounded-lg bg-canvas/60 px-3 py-2.5">
       <dt className="text-[12px] leading-5 text-ink-3">{label}</dt>
-      <dd className="m-0 text-[15px] font-medium tabular-nums text-ink">{value}</dd>
+      <dd className="m-0 text-[15px] font-medium tabular-nums text-ink">{typeof value === "number" ? <LiveNumber value={value} /> : value}</dd>
     </div>
   );
 }

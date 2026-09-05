@@ -1,9 +1,10 @@
+import { normalizedE164Phone } from "./lib/outboundCalls";
+import { venueCallResponseSchema } from "./lib/venueCallResponsePayload";
 import {
-  applyVenueCallResponse,
   venueConfirmationCall,
   venueCallResponseValue,
-  venueCallResponseSchema,
-} from "./lib/venueCallResponse";
+} from "./lib/venueCallValidators";
+import { applyVenueCallResponse } from "./lib/venueCallResponse";
 import type { OutboundCallEventType } from "@code2create/domain";
 import { v } from "convex/values";
 
@@ -203,6 +204,12 @@ async function undispatchableReason(
       (await activeRoundPause(ctx, round._id))
     )
       return "review_notice_no_longer_current";
+    const profile = await ctx.db
+      .query("participantProfiles")
+      .withIndex("by_membership", (q) => q.eq("membershipId", leader._id))
+      .unique();
+    if (normalizedE164Phone(profile?.phone) !== delivery.destinationPhoneE164)
+      return "call_consent_changed";
   }
   return null;
 }

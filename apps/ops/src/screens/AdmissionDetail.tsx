@@ -1,3 +1,4 @@
+import { LiveNumber } from "../components/LiveNumber";
 import { api } from "@code2create/backend/api";
 import { useProductAnalytics } from "@code2create/client-observability";
 import {
@@ -131,7 +132,7 @@ export function AdmissionDetail({ accountEmail }: { accountEmail: string }) {
       >
         <div className="application-evidence">
           <section className="detail-section">
-            <h2>Team · {detail.team.memberCount}</h2>
+            <h2>Team · <LiveNumber value={detail.team.memberCount} /></h2>
             {members.length > 0 && members.every((member) => member.profileContext === null) ? (
               <p className="muted">This account can’t see year and institution.</p>
             ) : null}
@@ -276,56 +277,56 @@ function AdmissionReviewOverview({ detail }: { detail: AdmissionDetailData }) {
     ? applicationDecisionLabels[detail.application.humanDecision]
     : remaining === 0
       ? "Ready"
-      : `${remaining} remaining`;
+      : <><LiveNumber value={remaining} /> remaining</>;
 
   return (
-    <section className="mt-5 grid gap-3 md:grid-cols-2" aria-label="Review summary">
-      <article className="rounded-xl border-l-2 border-green/70 bg-surface p-5">
-        <div className="flex items-start justify-between gap-4">
+    <section className="application-review-summary" aria-label="Review summary">
+      <article className="application-review-summary-group">
+        <div className="application-review-summary-heading">
           <div>
-            <p className="m-0 text-[11px] font-medium tracking-[0.12em] text-ink-3 uppercase">
+            <p className="application-review-summary-label">
               Human review
             </p>
-            <p className="mt-2 mb-0 flex items-baseline gap-2">
-              <strong className="text-[30px] leading-none font-medium tabular-nums text-ink">
-                {completed}
+            <p className="application-review-summary-value">
+              <strong className="application-review-summary-count">
+                <LiveNumber value={completed} />
               </strong>
-              <span className="text-[13px] text-ink-3">of {required} complete</span>
+              <span className="muted">of <LiveNumber value={required} /> complete</span>
             </p>
           </div>
-          <span className="rounded-md bg-field px-2 py-1 text-[11px] text-ink-2">
+          <span className="state-label">
             {humanState}
           </span>
         </div>
-        <dl className="mt-5 mb-0 grid grid-cols-3 gap-3 border-t border-line pt-4">
+        <dl className="catalog-summary">
           <ReviewStat label="Completed" value={completed} />
           <ReviewStat label="Required" value={required} />
           <ReviewStat label="Remaining" value={remaining} />
         </dl>
       </article>
 
-      <article className="rounded-xl border-l-2 border-amber/70 bg-surface p-5">
-        <div className="flex items-start justify-between gap-4">
+      <article className="application-review-summary-group">
+        <div className="application-review-summary-heading">
           <div className="min-w-0">
-            <p className="m-0 text-[11px] font-medium tracking-[0.12em] text-ink-3 uppercase">
+            <p className="application-review-summary-label">
               AI review
             </p>
             <p
-              className={`mt-2 mb-0 truncate text-[24px] leading-none font-medium ${aiDecisionTone(ai?.recommendation)}`}
+              className={`application-review-summary-value ${aiDecisionTone(ai?.recommendation)}`}
             >
               {aiHeadline}
             </p>
           </div>
-          <span className="shrink-0 rounded-md bg-field px-2 py-1 text-[11px] text-ink-2">
+          <span className="state-label">
             {aiState}
           </span>
         </div>
-        <dl className="mt-5 mb-0 grid grid-cols-2 gap-3 border-t border-line pt-4 sm:grid-cols-4">
+        <dl className="catalog-summary">
           <ReviewStat
             label="Criteria"
             value={
               detail.aiRecommendationVisible
-                ? `${ai?.criterionAssessments.length ?? 0}/${detail.policy.criteria.length}`
+                ? <><LiveNumber value={ai?.criterionAssessments.length ?? 0} />/{detail.policy.criteria.length}</>
                 : "—"
             }
           />
@@ -347,12 +348,12 @@ function AdmissionReviewOverview({ detail }: { detail: AdmissionDetailData }) {
   );
 }
 
-function ReviewStat({ label, value }: { label: string; value: string | number }) {
+function ReviewStat({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div>
-      <dt className="text-[11px] text-ink-3">{label}</dt>
-      <dd className="mt-1 mb-0 [overflow-wrap:anywhere] text-[15px] font-medium tabular-nums text-ink capitalize">
-        {value}
+      <dt>{label}</dt>
+      <dd>
+        {typeof value === "number" ? <LiveNumber value={value} /> : value}
       </dd>
     </div>
   );

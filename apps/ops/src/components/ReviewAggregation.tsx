@@ -1,3 +1,4 @@
+import { LiveNumber } from "./LiveNumber";
 import { api } from "@code2create/backend/api";
 import type { FunctionReturnType } from "convex/server";
 import { useMutation, useQuery } from "convex/react";
@@ -194,13 +195,13 @@ export function CombinedReviewResults() {
                     <td key={round.roundId}>
                       {round.points === null
                         ? round.state
-                        : round.points.toFixed(2)}
+                        : <LiveNumber value={round.points} format={{ minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: false }} />}
                     </td>
                   ))}
                   <td>
                     {team.totalPoints === null
                       ? "Incomplete"
-                      : team.totalPoints.toFixed(2)}
+                      : <LiveNumber value={team.totalPoints} format={{ minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: false }} />}
                   </td>
                 </tr>
               ))}

@@ -1,3 +1,4 @@
+import { LiveNumber } from "./LiveNumber";
 import { api } from "@code2create/backend/api";
 import { figmaFileSyncStateLabels } from "@code2create/domain";
 import { useAction, useMutation, useQuery } from "convex/react";
@@ -254,53 +255,51 @@ export function FigmaIntegrationPanel() {
             <div>
               <dt>Files</dt>
               <dd>
-                {integration.summary.completeFileCount} / {integration.summary.fileCount} complete
+                <LiveNumber value={integration.summary.completeFileCount} /> / <LiveNumber value={integration.summary.fileCount} /> complete
               </dd>
             </div>
             <div>
               <dt>Frames</dt>
-              <dd>{integration.summary.frameCount.toLocaleString()}</dd>
+              <dd><LiveNumber value={integration.summary.frameCount} format={{ useGrouping: true }} /></dd>
             </div>
             <div>
               <dt>Components</dt>
               <dd>
-                {(
-                  integration.summary.componentCount + integration.summary.componentSetCount
-                ).toLocaleString()}
+                <LiveNumber value={integration.summary.componentCount + integration.summary.componentSetCount} format={{ useGrouping: true }} />
               </dd>
             </div>
             <div>
               <dt>Design nodes</dt>
-              <dd>{integration.summary.nodeCount.toLocaleString()}</dd>
+              <dd><LiveNumber value={integration.summary.nodeCount} format={{ useGrouping: true }} /></dd>
             </div>
             <div>
               <dt>Frame previews</dt>
               <dd>
-                {integration.summary.availablePreviewCount} /{" "}
-                {integration.summary.selectedPreviewCount}
+                <LiveNumber value={integration.summary.availablePreviewCount} /> /{" "}
+                <LiveNumber value={integration.summary.selectedPreviewCount} />
               </dd>
             </div>
             <div>
               <dt>Comments</dt>
-              <dd>{integration.summary.commentCount.toLocaleString()}</dd>
+              <dd><LiveNumber value={integration.summary.commentCount} format={{ useGrouping: true }} /></dd>
             </div>
             <div>
               <dt>Open threads</dt>
-              <dd>{integration.summary.unresolvedCommentCount.toLocaleString()}</dd>
+              <dd><LiveNumber value={integration.summary.unresolvedCommentCount} format={{ useGrouping: true }} /></dd>
             </div>
             <div>
               <dt>Named versions</dt>
-              <dd>{integration.summary.versionCount.toLocaleString()}</dd>
+              <dd><LiveNumber value={integration.summary.versionCount} format={{ useGrouping: true }} /></dd>
             </div>
           </dl>
           {integration.summary.dirtyCount > 0 ? (
             <p className="fine-print">
-              Files behind current Figma metadata: {integration.summary.dirtyCount}.
+              Files behind current Figma metadata: <LiveNumber value={integration.summary.dirtyCount} />.
             </p>
           ) : null}
           {integration.summary.previewAttentionCount > 0 ? (
             <p className="fine-print">
-              Files with incomplete frame previews: {integration.summary.previewAttentionCount}.
+              Files with incomplete frame previews: <LiveNumber value={integration.summary.previewAttentionCount} />.
             </p>
           ) : null}
         </div>
@@ -371,7 +370,7 @@ export function FigmaIntegrationPanel() {
           <h3>Team files</h3>
           {integration.policy ? (
             <span>
-              {integration.files.length} / {integration.policy.maxActiveFiles}
+              <LiveNumber value={integration.files.length} /> / {integration.policy.maxActiveFiles}
             </span>
           ) : null}
         </div>
@@ -396,19 +395,19 @@ export function FigmaIntegrationPanel() {
               <dl className="repository-facts">
                 <div>
                   <dt>Pages</dt>
-                  <dd>{file.metrics.pageCount}</dd>
+                  <dd><LiveNumber value={file.metrics.pageCount} /></dd>
                 </div>
                 <div>
                   <dt>Frames</dt>
-                  <dd>{file.metrics.frameCount}</dd>
+                  <dd><LiveNumber value={file.metrics.frameCount} /></dd>
                 </div>
                 <div>
                   <dt>Components</dt>
-                  <dd>{file.metrics.componentCount + file.metrics.componentSetCount}</dd>
+                  <dd><LiveNumber value={file.metrics.componentCount + file.metrics.componentSetCount} /></dd>
                 </div>
                 <div>
                   <dt>Comments</dt>
-                  <dd>{file.metrics.commentCount}</dd>
+                  <dd><LiveNumber value={file.metrics.commentCount} /></dd>
                 </div>
               </dl>
               <p className="fine-print">

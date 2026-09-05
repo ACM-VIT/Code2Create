@@ -200,7 +200,6 @@ const permissionSubjectNames: Readonly<Record<string, string>> = {
   "reviewer profile": "reviewer profile",
   "round export": "results export",
   "score completeness": "missing scores",
-  "score feedback": "team feedback",
   "score values": "score values",
   "support case": "help case",
   "synesthesia access": "music access",

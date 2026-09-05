@@ -1,3 +1,4 @@
+import { LiveNumber } from "../components/LiveNumber";
 import { api } from "@code2create/backend/api";
 import type { FunctionReturnType } from "convex/server";
 import { useMutation, useQuery } from "convex/react";
@@ -327,7 +328,7 @@ export function AttendanceOverview() {
           <summary>
             <strong>Scanner phones</strong>
             <span>
-              {activeStationCount} ready · {waitingStationCount} need a phone
+              <LiveNumber value={activeStationCount} /> ready · <LiveNumber value={waitingStationCount} /> need a phone
             </span>
           </summary>
           <p className="muted">
@@ -700,7 +701,7 @@ function Count({ label, value }: { label: string; value: number | string }) {
   return (
     <div>
       <dt>{label}</dt>
-      <dd>{value}</dd>
+      <dd>{typeof value === "number" ? <LiveNumber value={value} /> : value}</dd>
     </div>
   );
 }

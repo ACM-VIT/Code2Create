@@ -2,6 +2,7 @@
    utilities stay unlayered so they beat those element/class selectors). */
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/utilities.css";
+@source "../node_modules/streamdown/dist/*.js";
 
 /* The landing navbar's glass, for every card. The tint comes from the
    surface tokens below; what makes it read as a sheet laid on the scene,
@@ -838,51 +839,6 @@ p {
 ::selection {
   color: var(--background);
   background: var(--accent);
-}
-
-.released-feedback-list {
-  display: grid;
-  border-top: 1px solid var(--border);
-}
-.released-feedback-list article {
-  display: grid;
-  gap: 15px;
-  padding: 22px 0;
-  border-bottom: 1px solid var(--border);
-}
-.feedback-heading {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 20px;
-}
-.feedback-heading strong {
-  font-size: 0.92rem;
-}
-.feedback-heading span,
-.released-feedback-list small {
-  color: var(--muted);
-  font-size: 0.7rem;
-}
-.feedback-total {
-  margin: 0;
-  font-size: 2rem;
-}
-.feedback-total span {
-  color: var(--muted);
-  font-size: 0.8rem;
-}
-.feedback-copy {
-  display: grid;
-  gap: 5px;
-}
-.feedback-copy span {
-  color: var(--muted);
-  font-size: 0.72rem;
-}
-.feedback-copy p {
-  margin: 0;
-  white-space: pre-wrap;
 }
 
 /* The Guide's streaming caret rides the end of the last line of the answer

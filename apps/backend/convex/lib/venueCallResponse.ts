@@ -1,35 +1,9 @@
 import type { VenueCallResponse } from "@code2create/domain";
-// Re-exported so callers keep one import for a call's shapes and its handling.
-export {
-  venueCallResponseValue,
-  venueConfirmationCall,
-  venueResponseEffect,
-} from "./venueCallResponseValidators";
-import { z } from "zod";
 import type { Doc } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { activeVenueAuthority } from "./reviewerVenue";
 import { reviewerParticipation } from "./reviewerParticipation";
 import { clockOutForVenueDeparture } from "./reviewerVenueStaffing";
-
-export const venueCallResponseSchema = z
-  .object({
-    outcome: z.enum(["available", "away", "needs_help", "unclear"]),
-    confirmed: z.boolean(),
-    summary: z.string().min(1).max(1000),
-    returnInMinutes: z.number().int().min(0).max(1440).nullable(),
-    transcript: z
-      .array(
-        z
-          .object({
-            role: z.enum(["agent", "user"]),
-            text: z.string().min(1).max(4000),
-          })
-          .strict(),
-      )
-      .max(100),
-  })
-  .strict();
 
 /** The signed callback is a report, not authority to bypass the current review state. */
 export async function applyVenueCallResponse(

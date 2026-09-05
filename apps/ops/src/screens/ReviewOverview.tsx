@@ -1,3 +1,4 @@
+import { LiveNumber } from "../components/LiveNumber";
 import { api } from "@code2create/backend/api";
 import { reviewRoundStatusLabels } from "@code2create/domain";
 import type { FunctionReturnType } from "convex/server";
@@ -93,7 +94,7 @@ export function ReviewOverview({ showSetup }: { showSetup: boolean }) {
             <div className="panel-strip">
               {round.panels.map((panel) => (
                 <span key={panel.id}>
-                  {panel.name} · {panel.queuedCount} waiting · {panel.activeReviewCount} active
+                  {panel.name} · <LiveNumber value={panel.queuedCount} /> waiting · <LiveNumber value={panel.activeReviewCount} /> active
                 </span>
               ))}
             </div>
@@ -137,7 +138,7 @@ function Count({ label, value }: { label: string; value: number }) {
   return (
     <div>
       <dt>{label}</dt>
-      <dd>{value}</dd>
+      <dd><LiveNumber value={value} /></dd>
     </div>
   );
 }

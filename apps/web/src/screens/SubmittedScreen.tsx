@@ -1,3 +1,4 @@
+import { LiveNumber } from "../components/LiveNumber";
 import { api } from "@code2create/backend/api";
 import type { FunctionReturnType } from "convex/server";
 import { useMutation, useQuery } from "convex/react";
@@ -924,7 +925,7 @@ function ProposalSummary({
                     }}
                   />
                   <p className="mt-1 text-right font-mono text-[11px] tracking-[.04em] text-fg/45">
-                    {draft.initialIdea.length} / {ideaMaximumLength}
+                    <LiveNumber value={draft.initialIdea.length} /> / {ideaMaximumLength}
                   </p>
                   {draft.initialIdea.length > ideaMaximumLength ? (
                     <PortalError

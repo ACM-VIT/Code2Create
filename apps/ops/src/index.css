@@ -977,9 +977,21 @@ html:has(.intelligence-workspace) {
 .admissions-release-panel .catalog-summary {
   margin: 0;
 }
-.admissions-release-panel .table-wrap {
-  max-height: 360px;
-  overflow: auto;
+.admissions-release-panel > section {
+  display: grid;
+  gap: 20px;
+}
+.admission-stat-value {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+.admission-stat-value small {
+  color: var(--faint);
+  font-size: 0.6875rem;
+  font-weight: 400;
+  white-space: nowrap;
 }
 .intake-policy-note {
   margin: 0;
@@ -4387,14 +4399,6 @@ button:disabled {
 .file-manifest-list dt {
   color: var(--muted);
 }
-.release-command {
-  margin-top: 38px;
-}
-.release-fields {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
 .numeric-values {
   display: grid;
   gap: 0;
@@ -5301,8 +5305,7 @@ button:disabled {
     grid-template-columns: 1fr;
   }
   .score-summary-grid,
-  .numeric-criteria,
-  .release-fields {
+  .numeric-criteria {
     grid-template-columns: 1fr;
   }
   .score-summary-grid div {
@@ -6062,7 +6065,6 @@ button.row-action {
 .station-list,
 .synesthesia-window-list {
   overflow: hidden;
-  margin-top: 0;
   background: var(--surface);
   border: 0;
   border-top: 0;
@@ -6336,8 +6338,8 @@ label > span {
 .stage-filter {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin: 18px 0 14px;
+  gap: 8px;
+  margin: 20px 0;
 }
 .stage-chip {
   display: inline-flex;
@@ -6384,7 +6386,7 @@ label > span {
   grid-auto-flow: column;
   grid-auto-columns: minmax(0, 1fr);
   gap: 0;
-  margin: 0 0 20px;
+  margin-bottom: 20px;
 }
 .catalog-summary > div,
 .score-summary-grid > div,
@@ -7988,7 +7990,7 @@ textarea:focus {
   align-items: end;
   justify-content: space-between;
   gap: 16px;
-  margin: 18px 0 8px;
+  margin: 20px 0;
 }
 .checkpoint-toolbar .configuration-tabs,
 .integration-toolbar .configuration-tabs {
@@ -9251,11 +9253,31 @@ textarea:focus {
   margin: 8px 0 0;
   font-size: 0.75rem;
 }
-.admissions-stages {
+.admissions-stage-control > .admissions-stages {
   margin: 0;
 }
-.admissions-list {
+.admissions-controls + .admissions-list {
   margin-top: 0;
+}
+
+.queue-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  padding-block: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.queue-pagination p {
+  margin: 0;
+}
+
+.queue-page-number {
+  min-width: 64px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 .admission-row {
   display: grid;
@@ -9716,4 +9738,56 @@ textarea:focus {
 .venue-roster small {
   display: block;
   margin-top: 4px;
+}
+
+/* Review summaries reuse the same stat cards as the admissions release panel. */
+.application-review-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+  margin: 20px 0;
+}
+.application-review-summary-group {
+  min-width: 0;
+}
+.application-review-summary-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.application-review-summary-label {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+.application-review-summary-value {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 0;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  line-height: 1.5;
+}
+.application-review-summary-count {
+  font-size: inherit;
+  font-weight: inherit;
+}
+.application-review-summary-heading .state-label {
+  flex-shrink: 0;
+}
+.application-review-summary .catalog-summary {
+  margin: 0;
+}
+.application-review-summary .catalog-summary dd {
+  text-transform: capitalize;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 760px) {
+  .application-review-summary {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

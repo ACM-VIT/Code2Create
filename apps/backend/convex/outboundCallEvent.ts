@@ -1,4 +1,4 @@
-import { venueCallResponseSchema } from "./lib/venueCallResponse";
+import { venueCallResponseSchema } from "./lib/venueCallResponsePayload";
 import {
   outboundCallEventSignatureContext,
   outboundCallEventTypes,

@@ -25,6 +25,7 @@ packageExtensionsChecksum: sha256-u139JUvOfYEoMpSF4DaIxKIt2z4BlYwzw80sjKZlouQ=
 
 patchedDependencies:
   '@flue/runtime@2.0.3': 49d896c0bdd92cdadaac04c0383e48c53c636af9dd96c6c49b3fdf5c4f834683
+  '@kitlangton/rolling-number@0.3.0': 3cd3a56b17710207c1fa5fe05d399c69668b13e1178ea7f5e915ecb07590c1e3
   balloons-js@0.0.3: 1abf55e0120ddb03233f645c0907e8381de78f6ad4fdfdaa1e76244d2a60d50f
   convex-helpers@0.1.123: 58486477019cfed1ca449b362f8d13c39a3f04463609e659aced4d0808fa5c17
 
@@ -355,6 +356,9 @@ importers:
       '@flue/sdk':
         specifier: 2.0.3
         version: 2.0.3
+      '@kitlangton/rolling-number':
+        specifier: ^0.3.0
+        version: 0.3.0(patch_hash=3cd3a56b17710207c1fa5fe05d399c69668b13e1178ea7f5e915ecb07590c1e3)(react@19.2.8)
       '@tailwindcss/vite':
         specifier: ^4.3.3
         version: 4.3.3(vite@8.2.2(@types/node@26.4.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.5)(yaml@2.9.0))
@@ -696,6 +700,9 @@ importers:
       '@floating-ui/react':
         specifier: ^0.27.20
         version: 0.27.20(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@kitlangton/rolling-number':
+        specifier: ^0.3.0
+        version: 0.3.0(patch_hash=3cd3a56b17710207c1fa5fe05d399c69668b13e1178ea7f5e915ecb07590c1e3)(react@19.2.8)
       '@tailwindcss/vite':
         specifier: ^4.3.3
         version: 4.3.3(vite@8.2.2(@types/node@26.4.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.5)(yaml@2.9.0))
@@ -735,15 +742,12 @@ importers:
       react-dom:
         specifier: ^19.2.8
         version: 19.2.8(react@19.2.8)
-      react-markdown:
-        specifier: ^10.1.0
-        version: 10.1.0(@types/react@19.2.18)(react@19.2.8)(supports-color@10.2.2)
       react-router-dom:
         specifier: ^7.18.2
         version: 7.18.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      remark-gfm:
-        specifier: ^4.0.1
-        version: 4.0.1(supports-color@10.2.2)
+      streamdown:
+        specifier: ^2.6.0
+        version: 2.6.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(supports-color@10.2.2)
       tailwindcss:
         specifier: ^4.3.3
         version: 4.3.3
@@ -2665,6 +2669,17 @@ packages:
 
   '@js-sdsl/ordered-map@4.4.2':
     resolution: {integrity: sha512-iUKgm52T8HOE/makSxjqoWhe95ZJA1/G1sYsGev2JDKUSS14KAgg1LHb+Ba+IPow0xflbnSkOsZcO08C7w1gYw==}
+
+  '@kitlangton/rolling-number@0.3.0':
+    resolution: {integrity: sha512-+uM1KgKpMIfL+5OVW6u6IMRSZyuEsXMXw1ZQoWcOW0Vmz+b3j6Sh51etLPtT5KIz9zxYF26PMwEKXErlKt7a3g==}
+    peerDependencies:
+      react: ^18.0.0 || ^19.0.0
+      solid-js: ^1.9.0
+    peerDependenciesMeta:
+      react:
+        optional: true
+      solid-js:
+        optional: true
 
   '@lodev09/react-native-true-sheet@3.11.12':
     resolution: {integrity: sha512-eL7mfUw0p3dxqXKqck3k7H2Ja6UHGbPSqbVDRKeANuxZN4xctxF1iFSPYHj0LULVtheqxKBhWBiR4lJ25El57Q==}
@@ -8558,12 +8573,6 @@ packages:
   react-is@19.2.8:
     resolution: {integrity: sha512-s5un28nYxKJw5gvUHyW5PCC28CvBqLu9r3cWgzHT4Vo/5fqqkFcdRYsGcKf50WMPpjjFZS5d76fn3YCo2njKwQ==}
 
-  react-markdown@10.1.0:
-    resolution: {integrity: sha512-qKxVopLT/TyA6BX3Ue5NwabOsAzm0Q7kAPwq6L+wWDwisYs7R8vZ0nRXqq6rkueboxpkjvLGU9fWifiX/ZZFxQ==}
-    peerDependencies:
-      '@types/react': '>=18'
-      react: '>=18'
-
   react-native-drawer-layout@4.2.9:
     resolution: {integrity: sha512-ETOxvlhhb4LmuuG3RN7A3qwt9jr9AZ2it+1G2kNE4g2fTyxxay7QQkPm1HfKi/JzmMSWC5+YTepGSgZNpJIDGg==}
     peerDependencies:
@@ -12707,6 +12716,10 @@ snapshots:
 
   '@js-sdsl/ordered-map@4.4.2':
     optional: true
+
+  '@kitlangton/rolling-number@0.3.0(patch_hash=3cd3a56b17710207c1fa5fe05d399c69668b13e1178ea7f5e915ecb07590c1e3)(react@19.2.8)':
+    optionalDependencies:
+      react: 19.2.8
 
   '@lodev09/react-native-true-sheet@3.11.12(40149f8955649a1830ef293341377fe2)':
     dependencies:
@@ -19661,24 +19674,6 @@ snapshots:
   react-is@18.3.1: {}
 
   react-is@19.2.8: {}
-
-  react-markdown@10.1.0(@types/react@19.2.18)(react@19.2.8)(supports-color@10.2.2):
-    dependencies:
-      '@types/hast': 3.0.5
-      '@types/mdast': 4.0.4
-      '@types/react': 19.2.18
-      devlop: 1.1.0
-      hast-util-to-jsx-runtime: 2.3.6(supports-color@10.2.2)
-      html-url-attributes: 3.0.1
-      mdast-util-to-hast: 13.2.1
-      react: 19.2.8
-      remark-parse: 11.0.0(supports-color@10.2.2)
-      remark-rehype: 11.1.2
-      unified: 11.0.5
-      unist-util-visit: 5.1.0
-      vfile: 6.0.3
-    transitivePeerDependencies:
-      - supports-color
 
   react-native-drawer-layout@4.2.9(33847a5969a426d09ea4874e66ad405d):
     dependencies:

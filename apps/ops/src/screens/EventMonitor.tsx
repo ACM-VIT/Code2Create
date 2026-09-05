@@ -1,3 +1,4 @@
+import { LiveNumber } from "../components/LiveNumber";
 import { api } from "@code2create/backend/api";
 import type { FunctionReturnType } from "convex/server";
 import { useQuery } from "convex/react";
@@ -45,7 +46,7 @@ export function EventMonitor({ canManageAttention }: { canManageAttention: boole
       <section className="attention-section" aria-labelledby="system-checks-heading">
         <div className="section-heading">
           <h2 id="system-checks-heading">System checks</h2>
-          {systemSignals.length > 0 ? <span>{systemSignals.length} open</span> : null}
+          {systemSignals.length > 0 ? <span><LiveNumber value={systemSignals.length} /> open</span> : null}
         </div>
         {health.state !== "ready" ? (
           <div className="health-empty">
@@ -80,7 +81,7 @@ export function EventMonitor({ canManageAttention }: { canManageAttention: boole
                   </small>
                 </div>
                 <span className="row-count">
-                  {signal.count}
+                  <LiveNumber value={signal.count} />
                   {signal.atLeast ? "+" : ""}
                 </span>
               </article>

@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { LiveNumber } from "../LiveNumber";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { readableError } from "../../lib/errors";
 import { QrTree } from "../portal/QrTree";
@@ -31,7 +32,7 @@ export type ReviewTileModel = {
     /** The team's one-based position while queued. */
     rank: number | null;
     detail: string | null;
-    wait: string | null;
+    wait: ReactNode;
     reviewers: { present: number; total: number } | null;
   } | null;
   /** Mints the team's review code; present only while reviewers are due. */
@@ -52,10 +53,10 @@ function ServiceQueueRow({
   const detail = service.joined
     ? service.position === 1
       ? "You're next"
-      : `Position ${service.position ?? "—"}`
+      : <>Position {service.position === null ? "—" : <LiveNumber value={service.position} />}</>
     : service.waitingCount === 0
       ? "No wait"
-      : `${service.waitingCount} waiting`;
+      : <><LiveNumber value={service.waitingCount} /> waiting</>;
   return (
     <div className="service-queue-row flex min-w-0 items-center justify-between gap-2 border-t border-fg/10 pt-2 first:border-t-0 first:pt-0">
       <span className="min-w-0">
@@ -77,9 +78,7 @@ function ServiceQueueRow({
 
 function ReviewQueueRow({ queue }: { queue: NonNullable<ReviewTileModel["queue"]> }) {
   const { rank, status, detail, wait, reviewers } = queue;
-  const summary = [rank === null ? status : `${status} · Position ${rank}`, wait]
-    .filter((part) => part !== null)
-    .join(" · ");
+
   const title = rank === null ? "Project review" : "Review queue";
   return (
     <div className="service-queue-row flex min-w-0 items-center border-t border-fg/10 pt-2 first:border-t-0 first:pt-0">
@@ -89,12 +88,12 @@ function ReviewQueueRow({ queue }: { queue: NonNullable<ReviewTileModel["queue"]
           aria-label={rank === null ? `Review status ${status}` : `Review status ${status}, rank ${rank}`}
           className="block text-[10.5px] text-fg/65"
         >
-          {summary}
+          {status}{rank === null ? null : <> · Position <LiveNumber value={rank} /></>}{wait === null ? null : <> · {wait}</>}
         </span>
         {detail ? <span className="block text-[10.5px] text-fg/45">{detail}</span> : null}
         {reviewers ? (
           <span className="block text-[10.5px] text-fg/45">
-            {reviewers.present} of {reviewers.total} reviewers checked in
+            <LiveNumber value={reviewers.present} /> of <LiveNumber value={reviewers.total} /> reviewers checked in
           </span>
         ) : null}
       </span>
@@ -193,7 +192,7 @@ function ReviewCodeCard({
             ) : (
               <span className="text-[12.5px] text-fg/60">{busy ? "Making your code…" : code ? "Expired. Tap for a new one." : "Making your code…"}</span>
             )}
-            {live ? <span className="text-[11px] text-fg/45">{secondsLeft}s</span> : null}
+            {live ? <span className="text-[11px] text-fg/45"><LiveNumber value={secondsLeft} />s</span> : null}
           </div>
         </div>
       </div>

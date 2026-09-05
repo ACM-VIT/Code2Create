@@ -1,3 +1,4 @@
+import { LiveNumber } from "../components/LiveNumber";
 import { api } from "@code2create/backend/api";
 import type { FunctionReturnType } from "convex/server";
 import { useQuery } from "convex/react";
@@ -16,7 +17,7 @@ type SupportSummary = FunctionReturnType<typeof api.support.mineSummary>;
 function supportRowValue(summary: SupportSummary | undefined) {
   if (summary === undefined) return "…";
   if (summary.openCount === 0) return "Help desk";
-  return `${summary.countIsLowerBound ? "20+" : summary.openCount} open`;
+  return <><LiveNumber value={summary.countIsLowerBound ? 20 : summary.openCount} />{summary.countIsLowerBound ? "+" : ""} open</>;
 }
 
 function Row({

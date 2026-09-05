@@ -1,3 +1,4 @@
+import { LiveNumber } from "../LiveNumber";
 import { api } from "@code2create/backend/api";
 import { useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
@@ -25,7 +26,7 @@ export function CopilotCommandTray() {
     <section aria-label="Copilot command approvals" className="flex flex-col gap-2.5">
       <div className="flex items-baseline justify-between gap-3 px-0.5">
         <p className="m-0 text-[12px] font-medium text-ink-2">Needs your approval</p>
-        <span className="text-[12px] text-ink-3 tabular-nums">{commands.length}</span>
+        <span className="text-[12px] text-ink-3 tabular-nums"><LiveNumber value={commands.length} /></span>
       </div>
       {commands.slice(-3).map((command) => (
         <CopilotCommandCard command={command} key={command.id} operations={operations} />

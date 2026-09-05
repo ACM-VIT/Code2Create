@@ -1,3 +1,4 @@
+import { LiveNumber } from "../components/LiveNumber";
 import { api } from "@code2create/backend/api";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
@@ -366,7 +367,7 @@ export function TeamRoster() {
           return (
             <section key={group.key}>
               <p className="board-section-label">
-                {group.label} · {rows.length}
+                {group.label} · <LiveNumber value={rows.length} />
               </p>
               <div className="health-list">
                 {rows.map((entry) => (
@@ -411,11 +412,11 @@ function TeamRosterPreview({
       <dl className="roster-preview-counts">
         <div>
           <dt>Will be asked to join</dt>
-          <dd>{preview.counts.pending}</dd>
+          <dd><LiveNumber value={preview.counts.pending} /></dd>
         </div>
         <div>
           <dt>Account clashes</dt>
-          <dd>{preview.counts.identityConflicts}</dd>
+          <dd><LiveNumber value={preview.counts.identityConflicts} /></dd>
         </div>
         <div>
           <dt>Already assigned here</dt>
@@ -423,7 +424,7 @@ function TeamRosterPreview({
         </div>
         <div>
           <dt>Needs a choice</dt>
-          <dd>{preview.counts.choiceRequired}</dd>
+          <dd><LiveNumber value={preview.counts.choiceRequired} /></dd>
         </div>
         <div>
           <dt>Team not formed yet</dt>

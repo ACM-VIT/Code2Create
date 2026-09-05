@@ -1,3 +1,4 @@
+import { LiveNumber } from "../components/LiveNumber";
 import { api } from "@code2create/backend/api";
 import { emergencyPackStatusLabels, type EmergencyPackStatus } from "@code2create/domain";
 import type { FunctionReturnType } from "convex/server";
@@ -390,7 +391,7 @@ function Count({ label, value }: { label: string; value: number }) {
   return (
     <div>
       <dt>{label}</dt>
-      <dd>{value}</dd>
+      <dd><LiveNumber value={value} /></dd>
     </div>
   );
 }

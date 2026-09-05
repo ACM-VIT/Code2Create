@@ -1,3 +1,4 @@
+import { LiveNumber } from "../LiveNumber";
 import { useEffect, useState } from "react";
 
 function useElapsed() {
@@ -6,8 +7,7 @@ function useElapsed() {
     const timer = setInterval(() => setSeconds((current) => current + 1), 1_000);
     return () => clearInterval(timer);
   }, []);
-  if (seconds < 60) return `${seconds}s`;
-  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+  return seconds;
 }
 
 export function LoadingState({ label = "Working" }: { label?: string }) {
@@ -16,7 +16,7 @@ export function LoadingState({ label = "Working" }: { label?: string }) {
   return (
     <div className="flex w-fit items-baseline gap-2.5" role="status">
       <StatusText>{label}</StatusText>
-      <span className="font-mono text-[12px] text-ink-3 tabular-nums">{elapsed}</span>
+      <span className="font-mono text-[12px] text-ink-3 tabular-nums">{elapsed >= 60 ? <><LiveNumber value={Math.floor(elapsed / 60)} />m </> : null}<LiveNumber value={elapsed % 60} />s</span>
     </div>
   );
 }

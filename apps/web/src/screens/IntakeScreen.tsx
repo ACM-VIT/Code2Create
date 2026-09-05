@@ -1,3 +1,4 @@
+import { LiveNumber } from "../components/LiveNumber";
 import { api } from "@code2create/backend/api";
 import { useProductAnalytics } from "@code2create/client-observability";
 import { useMutation, useQuery } from "convex/react";
@@ -1397,7 +1398,7 @@ function IntakeWorkspace({
               <div className="mt-1 flex items-center justify-between gap-4">
                 <IdeaPromptsLink />
                 <span className="font-mono text-[11px] tracking-[.04em] text-fg/45">
-                  {idea.length} / {initialIdeaMaxLength}
+                  <LiveNumber value={idea.length} /> / {initialIdeaMaxLength}
                 </span>
               </div>
               <PortalError
@@ -1585,7 +1586,7 @@ function IntakeWorkspace({
                       "the next question is on its way"
                     ) : answer.length > draft.intakePolicy.followUpAnswerMaxLength * 0.8 ? (
                       <span className="font-mono text-[11px] tracking-[.04em]">
-                        {answer.length} / {draft.intakePolicy.followUpAnswerMaxLength}
+                        <LiveNumber value={answer.length} /> / {draft.intakePolicy.followUpAnswerMaxLength}
                       </span>
                     ) : answer.trim() ? (
                       autosaveLabel(followUpAutosaveState)
@@ -1681,7 +1682,7 @@ function IntakeWorkspace({
             <PortalError message={error} />
             <div className="mt-3 flex items-center justify-between gap-4 border-t border-petal-line pt-3.5">
               <span className="font-mono text-[11px] tracking-[.04em] text-fg/45">
-                {value.length} / {draft.additionalInformationMaxLength}
+                <LiveNumber value={value.length} /> / {draft.additionalInformationMaxLength}
               </span>
               <PortalButton
                 type="submit"
@@ -1863,7 +1864,7 @@ function IntakeWorkspace({
             <div className="mt-2.5 flex items-center justify-between gap-4 border-t border-petal-line pt-3">
               <span className="text-xs text-fg/45">
                 {reviewAnswerEdit.value.length > draft.intakePolicy.followUpAnswerMaxLength * 0.8
-                  ? `${reviewAnswerEdit.value.length} / ${draft.intakePolicy.followUpAnswerMaxLength}`
+                  ? <><LiveNumber value={reviewAnswerEdit.value.length} /> / {draft.intakePolicy.followUpAnswerMaxLength}</>
                   : autosaveLabel(revisionAutosaveState)}
               </span>
               <div className="flex items-center gap-4">
@@ -1926,7 +1927,7 @@ function IntakeWorkspace({
               <FadeText as="p" className="m-0 min-w-0 text-left text-[15.5px] font-semibold">
                 {preview.teamName}{" "}
                 <span className="font-normal text-fg/55">
-                  · idea + {preview.followUps.length}{" "}
+                  · idea + <LiveNumber value={preview.followUps.length} />{" "}
                   {preview.followUps.length === 1 ? "answer" : "answers"}
                   {savedNoveltyScore !== null ? ` · novelty ${savedNoveltyScore}/100` : ""}
                 </span>
@@ -2273,7 +2274,7 @@ function IntakeWorkspace({
                   />
                   <div className="mt-3 flex items-center justify-between gap-4">
                     <span className="text-xs text-fg/45">
-                      {(additionalInformationEdit?.value ?? "").length} /{" "}
+                      <LiveNumber value={(additionalInformationEdit?.value ?? "").length} /> /{" "}
                       {preview.additionalInformationMaxLength}
                     </span>
                     <div className="flex items-center gap-4">

@@ -1,11 +1,10 @@
 /**
  * The stored shapes of a venue confirmation call.
  *
- * Separate from `venueCallResponse` because the schema imports these, and
- * Convex evaluates the schema in isolation: anything it reaches has to be
- * validators alone. The module beside this one applies a call's result and
- * carries the runtime that comes with that — Zod, the reviewer lookups, the
- * staffing write — none of which the schema can pull in.
+ * The schema imports these, and Convex evaluates the schema on its own, so
+ * this module holds validators and nothing else — no Zod, no reviewer
+ * lookups. The parser for a reported call lives in
+ * `venueCallResponsePayload`.
  */
 
 import { v } from "convex/values";
@@ -42,3 +41,4 @@ export const venueResponseEffect = v.union(
   v.literal("needs_ops"),
   v.literal("stale"),
 );
+
