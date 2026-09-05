@@ -301,7 +301,7 @@ export function DashboardLive({
               .join(" · ") || null,
           wait:
             queue.estimate && !queue.round.isPaused
-              ? `About ${queueWaitName(queue.estimate, phaseTime)}`
+              ? queueWaitName(queue.estimate, phaseTime)
               : null,
           reviewers: reviewSession
             ? {
