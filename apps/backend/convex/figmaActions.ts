@@ -910,6 +910,7 @@ export const completeConnection = action({
         }),
         initialTokenResponse,
       );
+      const receivedAt = Date.now();
       const account = await figmaRequest(
         token.access_token,
         "/v1/me",
@@ -923,8 +924,7 @@ export const completeConnection = action({
           message: "Figma returned inconsistent account identity. Start the connection again.",
         });
       }
-      const receivedAt = Date.now();
-      return await ctx.runMutation(internal.figmaIntegrations.finishSetupIntent, {
+      const result = await ctx.runMutation(internal.figmaIntegrations.finishSetupIntent, {
         eventSlug: args.eventSlug,
         intentId: claim.intentId,
         attemptId,
@@ -936,6 +936,7 @@ export const completeConnection = action({
         tokenReceivedAt: receivedAt,
         scopes: [...figmaOAuthScopes],
       });
+      return { credentialConnectionId: result.credentialConnectionId };
     } catch (error) {
       await ctx.runMutation(internal.figmaIntegrations.failSetupIntent, {
         intentId: claim.intentId,

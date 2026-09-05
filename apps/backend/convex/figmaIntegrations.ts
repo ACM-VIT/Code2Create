@@ -207,7 +207,6 @@ const currentView = v.union(
     connections: v.array(
       v.object({
         id: v.id("figmaCredentialConnections"),
-        figmaUserId: v.string(),
         figmaUserHandle: v.optional(v.string()),
         state: figmaCredentialConnectionState,
         credentialState: figmaCredentialState,
@@ -424,7 +423,6 @@ export const current = query({
         }
         return {
           id: connection._id,
-          figmaUserId: credential.figmaUserId,
           ...(credential.figmaUserHandle !== undefined
             ? { figmaUserHandle: credential.figmaUserHandle }
             : {}),
