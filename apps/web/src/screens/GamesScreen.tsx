@@ -103,29 +103,18 @@ function GamePanel({ game }: { game: GameEntry }) {
   return (
     <div className="grid w-full gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
       <div className="flex flex-col items-center">
-        {game.modes ? (
-          <div className="mb-3 flex gap-2">
-            {game.modes.map((option) => (
-              <button
-                key={option.key}
-                type="button"
-                onClick={() => setMode(option.key)}
-                className={`rounded-petal-sm border-2 bg-transparent px-3 py-1 font-ui text-[12.5px] transition-colors ${
-                  option.key === gameKey
-                    ? 'border-petal-edge bg-rose-light/15 text-fg'
-                    : 'border-petal-line text-fg/60 hover:text-fg'
-                }`}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-        ) : null}
-        <div className="flex min-h-[420px] w-full items-center justify-center bg-black p-4">
+        <div className="flex min-h-[460px] w-full items-center justify-center bg-black p-4">
           <Suspense fallback={<p className="font-arcade text-sm text-[#F1CEDF]">LOADING…</p>}>
-            {/* Keyed by mode so switching deals a fresh board rather than
-                carrying one game's state into the other. */}
-            <Board key={gameKey} mode={gameKey} onRoundStart={onRoundStart} onRoundEnd={onRoundEnd} />
+            {/* One screen, with the switch inside the board. Keyed by mode so
+                changing it deals a fresh game rather than carrying one mode's
+                state into the other. */}
+            <Board
+              key={gameKey}
+              mode={gameKey}
+              {...(game.modes ? { modes: game.modes, onModeChange: setMode } : {})}
+              onRoundStart={onRoundStart}
+              onRoundEnd={onRoundEnd}
+            />
           </Suspense>
         </div>
         <p className="mt-3 text-center text-[12.5px] text-fg/55">{game.blurb}</p>

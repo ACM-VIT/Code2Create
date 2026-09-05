@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import type { GameKey } from '@code2create/domain'
+import type { GameMode } from '../catalog'
+
 import {
   concealMismatch,
   createGame,
@@ -23,6 +26,7 @@ import {
   type PatternGame,
 } from './game/pattern.ts'
 import { roundScore } from './game/score.ts'
+import './memory.css'
 
 const assetBase = '/games/memory'
 const mismatchRevealMs = 900
@@ -42,10 +46,38 @@ function formatTime(totalMs: number) {
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex min-w-0 flex-col leading-tight">
-      <span className="font-ui text-[10.5px] font-semibold tracking-[.08em] text-fg/50">
-        {label}
-      </span>
+      <span className="font-ui text-[11px] lowercase text-fg/50">{label}</span>
       <span className="font-ui text-[15px] tabular-nums text-fg/85">{value}</span>
+    </div>
+  )
+}
+
+/** The switch between ways of playing, in the board's own control row. */
+function ModeSwitch({
+  modes,
+  mode,
+  onModeChange,
+}: {
+  modes: readonly GameMode[]
+  mode: string | undefined
+  onModeChange: ((next: GameKey) => void) | undefined
+}) {
+  return (
+    <div className="flex items-center gap-1.5">
+      {modes.map((option) => (
+        <button
+          key={option.key}
+          type="button"
+          onClick={() => onModeChange?.(option.key)}
+          className={`rounded-petal-sm border-2 bg-transparent px-2.5 py-1 font-ui text-[12.5px] lowercase transition-colors ${
+            option.key === mode
+              ? 'border-petal-edge bg-rose-light/15 text-fg'
+              : 'border-petal-line text-fg/55 hover:text-fg'
+          }`}
+        >
+          {option.label}
+        </button>
+      ))}
     </div>
   )
 }
@@ -105,11 +137,15 @@ function Hearts({ lives }: { lives: number }) {
  * other ranks levels survived. The arcade presents them as one game with a
  * switch, which is how they are actually played.
  */
-export default function Board(props: {
+export type MemoryBoardProps = {
   mode?: string
+  modes?: readonly GameMode[]
+  onModeChange?: (next: GameKey) => void
   onRoundStart?: () => void
   onRoundEnd?: (score: number) => void
-}) {
+}
+
+export default function Board(props: MemoryBoardProps) {
   return props.mode === 'memory-grid' ? <PatternBoard {...props} /> : <PairsBoard {...props} />
 }
 
@@ -121,13 +157,7 @@ export default function Board(props: {
  * The round scores the levels cleared, so it ends when the last life goes. An
  * abandoned board reports nothing, the same as the pairs mode.
  */
-function PatternBoard({
-  onRoundStart,
-  onRoundEnd,
-}: {
-  onRoundStart?: () => void
-  onRoundEnd?: (score: number) => void
-}) {
+function PatternBoard({ mode, modes, onModeChange, onRoundStart, onRoundEnd }: MemoryBoardProps) {
   const [game, setGame] = useState<PatternGame>(() => createPatternGame())
   const reported = useRef(false)
   const opened = useRef(false)
@@ -183,16 +213,15 @@ function PatternBoard({
   )
 
   return (
-    <div className="flex w-full flex-col items-center gap-4">
-      <div className="flex w-full max-w-[420px] flex-wrap items-center justify-between gap-x-5 gap-y-3">
+    <div className="memory-game flex w-full flex-1 flex-col items-center justify-center gap-4">
+      {modes ? <ModeSwitch modes={modes} mode={mode} onModeChange={onModeChange} /> : null}
+      <div className="flex w-full max-w-[440px] flex-wrap items-center justify-between gap-x-5 gap-y-3">
         <ControlButton onClick={newGame}>New game</ControlButton>
         <div className="flex items-center gap-5">
-          <Stat label="LEVEL" value={String(level)} />
-          <Stat label="CLEARED" value={String(game.cleared)} />
+          <Stat label="level" value={String(level)} />
+          <Stat label="cleared" value={String(game.cleared)} />
           <div className="flex min-w-0 flex-col leading-tight">
-            <span className="font-ui text-[10.5px] font-semibold tracking-[.08em] text-fg/50">
-              LIVES
-            </span>
+            <span className="font-ui text-[11px] lowercase text-fg/50">lives</span>
             <Hearts lives={lives} />
           </div>
         </div>
@@ -200,7 +229,7 @@ function PatternBoard({
 
       <div className="relative">
         <div
-          className="grid gap-1.5"
+          className="memory-board"
           style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
           role="grid"
           aria-label="Memory squares"
@@ -217,14 +246,8 @@ function PatternBoard({
                 aria-label={`Square ${index + 1}`}
                 disabled={phase !== 'playing'}
                 onClick={() => choose(index)}
-                className={`size-[46px] rounded-petal-sm border-2 transition-colors sm:size-[52px] ${
-                  missed
-                    ? 'border-transparent bg-[#e11d48]'
-                    : lit
-                      ? 'border-transparent bg-rose-light'
-                      : chosen
-                        ? 'border-transparent bg-rose-light/60'
-                        : 'border-petal-line bg-black/40 enabled:hover:border-petal-edge'
+                className={`memory-tile size-[42px] sm:size-[46px] ${
+                  missed ? 'is-wrong' : lit ? 'is-lit' : chosen ? 'is-picked' : ''
                 }`}
               />
             )
@@ -232,7 +255,7 @@ function PatternBoard({
         </div>
 
         {phase === 'failed' ? (
-          <div className="absolute inset-0 grid place-items-center rounded-petal-sm bg-black/75 backdrop-blur-sm">
+          <div className="absolute inset-0 grid place-items-center rounded-petal bg-black/75 backdrop-blur-sm">
             <div className="text-center">
               <p className="font-ui text-[15px] text-rose-light">Game over</p>
               <p className="mt-1 font-ui text-[12.5px] text-fg/70">You reached level {level}.</p>
@@ -264,13 +287,7 @@ function PatternBoard({
  * `game/score.ts`. An unfinished board reports nothing, because a round that
  * was abandoned is not a result.
  */
-function PairsBoard({
-  onRoundStart,
-  onRoundEnd,
-}: {
-  onRoundStart?: () => void
-  onRoundEnd?: (score: number) => void
-}) {
+function PairsBoard({ mode, modes, onModeChange, onRoundStart, onRoundEnd }: MemoryBoardProps) {
   const [game, setGame] = useState<MemoryGame>(() => createGame())
   const [elapsedMs, setElapsedMs] = useState(0)
   const [paused, setPaused] = useState(false)
@@ -360,7 +377,8 @@ function PairsBoard({
   const centreIndex = 12
 
   return (
-    <div className="flex w-full flex-col items-center gap-4">
+    <div className="memory-game flex w-full flex-1 flex-col items-center justify-center gap-4">
+      {modes ? <ModeSwitch modes={modes} mode={mode} onModeChange={onModeChange} /> : null}
       {/* Pause, new game and the readings share one line. */}
       <div className="flex w-full max-w-[440px] flex-wrap items-center justify-between gap-x-5 gap-y-3">
         <div className="flex items-center gap-2">
@@ -370,14 +388,19 @@ function PairsBoard({
           <ControlButton onClick={newGame}>New game</ControlButton>
         </div>
         <div className="flex items-center gap-5">
-          <Stat label="PAIRS" value={`${pairs}/${PAIR_COUNT}`} />
-          <Stat label="MOVES" value={String(game.moves)} />
-          <Stat label="TIME" value={formatTime(elapsedMs)} />
+          <Stat label="pairs" value={`${pairs}/${PAIR_COUNT}`} />
+          <Stat label="moves" value={String(game.moves)} />
+          <Stat label="time" value={formatTime(elapsedMs)} />
         </div>
       </div>
 
       <div className="relative">
-        <div className="grid grid-cols-5 gap-2" role="grid" aria-label="Memory cards">
+        <div
+          className="memory-board"
+          style={{ gridTemplateColumns: 'repeat(5, minmax(0, 1fr))' }}
+          role="grid"
+          aria-label="Memory cards"
+        >
           {game.cards.map((card, index) => (
             <PairCard
               key={card.id}
@@ -391,7 +414,7 @@ function PairsBoard({
         </div>
 
         {paused ? (
-          <div className="absolute inset-0 grid place-items-center rounded-petal-sm bg-black/70 backdrop-blur-sm">
+          <div className="absolute inset-0 grid place-items-center rounded-petal bg-black/70 backdrop-blur-sm">
             <p className="font-ui text-[15px] text-rose-light">Paused</p>
           </div>
         ) : null}
@@ -433,13 +456,13 @@ function PairCard({
         <div
           role="gridcell"
           aria-label="Code2Create"
-          className="grid size-[58px] place-items-center sm:size-[64px]"
+          className="grid size-[52px] place-items-center sm:size-[58px]"
         >
           <img
             src={`${assetBase}/C2C-Logo.svg`}
             alt=""
             draggable={false}
-            className="size-[38px] object-contain opacity-80 sm:size-[42px]"
+            className="size-[34px] object-contain opacity-80 sm:size-[38px]"
           />
         </div>
       ) : null}
@@ -449,11 +472,13 @@ function PairCard({
         aria-label={label}
         disabled={disabled}
         onClick={onSelect}
-        className={`grid size-[58px] place-items-center rounded-petal-sm border-2 transition-colors sm:size-[64px] ${
-          shown
-            ? 'border-petal-edge bg-black/40'
-            : // Face down is a plain pink tile: no motif on it, nothing to read.
-              'border-transparent bg-rose-light enabled:hover:bg-rose-light/80'
+        className={`memory-tile grid size-[52px] place-items-center sm:size-[58px] ${
+          card.isMatched
+            ? 'is-picked'
+            : card.isFaceUp
+              ? ''
+              : // Face down is a plain pink tile: no motif on it, nothing to read.
+                'is-facedown'
         }`}
       >
         {shown ? (

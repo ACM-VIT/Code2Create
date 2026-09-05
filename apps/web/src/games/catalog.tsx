@@ -12,18 +12,6 @@ import { lazy, type ComponentType, type LazyExoticComponent } from 'react'
  * Boards are lazy so the arcade's artwork and game loop stay out of the portal's
  * first load; nobody pays for Pac-Man on their way to writing an idea.
  */
-export type GameBoardProps = {
-  /**
-   * Called the moment a round begins, before any of it is played. The arcade
-   * opens a server-side run on it, which the round is then reported against.
-   */
-  onRoundStart: () => void
-  /** Called once with the round's score the moment a round ends. */
-  onRoundEnd: (score: number) => void
-  /** The mode being played, for a board that has more than one. */
-  mode?: GameKey
-}
-
 /**
  * One way of playing a game.
  *
@@ -36,6 +24,22 @@ export type GameBoardProps = {
 export type GameMode = {
   readonly key: GameKey
   readonly label: string
+}
+
+export type GameBoardProps = {
+  /**
+   * Called the moment a round begins, before any of it is played. The arcade
+   * opens a server-side run on it, which the round is then reported against.
+   */
+  onRoundStart: () => void
+  /** Called once with the round's score the moment a round ends. */
+  onRoundEnd: (score: number) => void
+  /** The mode being played, for a board that has more than one. */
+  mode?: GameKey
+  /** Every way this game can be played, so the board can offer the switch. */
+  modes?: readonly GameMode[]
+  /** Asks the arcade to switch mode, which also moves the leaderboard. */
+  onModeChange?: (mode: GameKey) => void
 }
 
 export type GameEntry = {

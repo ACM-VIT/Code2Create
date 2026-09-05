@@ -1865,23 +1865,29 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries([
       </div>
     ),
   ],
-  [
-    "arcade-memory",
-    () => (
-      <div className="flex min-h-full flex-1 items-center justify-center bg-black p-4">
-        <MemoryBoard mode="memory" onRoundStart={noop} onRoundEnd={noop} />
-      </div>
-    ),
-  ],
-  [
-    "arcade-memory-grid",
-    () => (
-      <div className="flex min-h-full flex-1 items-center justify-center bg-black p-4">
-        <MemoryBoard mode="memory-grid" onRoundStart={noop} onRoundEnd={noop} />
-      </div>
-    ),
-  ],
+  // One screen with the mode switch on it, the way the arcade shows it.
+  ["arcade-memory", () => <MemoryFixture />],
 ] as const);
+
+/** The memory board with its own mode switch, as the arcade wires it. */
+function MemoryFixture() {
+  const [mode, setMode] = useState<"memory" | "memory-grid">("memory");
+  return (
+    <div className="flex min-h-full flex-1 items-center justify-center bg-black p-4">
+      <MemoryBoard
+        key={mode}
+        mode={mode}
+        modes={[
+          { key: "memory", label: "Pairs" },
+          { key: "memory-grid", label: "Pattern" },
+        ]}
+        onModeChange={(next) => setMode(next as "memory" | "memory-grid")}
+        onRoundStart={noop}
+        onRoundEnd={noop}
+      />
+    </div>
+  );
+}
 
 /** Renders one gallery screen's fixture content. */
 export function ScreenFixture({ id }: { id: string }) {
