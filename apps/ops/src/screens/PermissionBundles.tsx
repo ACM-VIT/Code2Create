@@ -106,8 +106,8 @@ export function PermissionBundles() {
       {workspace.canCreate && !emergencyReviews ? (
         <section className="stage-block">
           <h2>Emergency Reviews</h2>
-          <p>Give selected JCs the review deck, claimed project details, past reviews, and review submission.</p>
-          <p className="muted">This bundle grants one permission. Application lists, event stats, and organizer controls require separate access.</p>
+          <p>Give selected JCs the review deck, claimed project and participant details, past reviews, and review submission.</p>
+          <p className="muted">Includes participant year and institution. Application lists, event stats, and organizer controls require separate access.</p>
           <button className="secondary" type="button" disabled={creatingEmergencyReviews}
             onClick={() => void createEmergencyBundle()}>
             {creatingEmergencyReviews ? "Creating…" : "Create Emergency Reviews"}

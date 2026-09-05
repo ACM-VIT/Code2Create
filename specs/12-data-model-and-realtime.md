@@ -218,7 +218,7 @@ The build fails when a protected public function has no declared permission key,
 
 ### `permissionBundles`
 
-The code-owned **Emergency Reviews** preset publishes a JC bundle containing only event-scoped `application.review_deck.use`. It can be assigned to an existing person or pinned to an exact-email roster import. It opens only the admissions review deck: claiming a current submission grants access to that project, its previous human reviews, and the review form. It grants no application-list, aggregate-statistics, participant-profile, decision, or other operations access. Detail access requires an unexpired claim or a completed assignment for the current submission version, plus the still-active bundle permission; releasing the claim or ending that permission removes access without leaving application-scoped grants behind.
+The code-owned **Emergency Reviews** preset publishes a JC bundle containing event-scoped `application.review_deck.use` and `application.profile_context.read`. It can be assigned to an existing person or pinned to an exact-email roster import. It opens only the admissions review deck: claiming a current submission grants access to that project, its submitted participants and their year/institution, its previous human reviews, and the review form. It grants no application-list, aggregate-statistics, decision, or other operations access. Detail access requires an unexpired claim or a completed assignment for the current submission version, plus the still-active bundle permission; releasing the claim or ending that permission removes access without leaving application-scoped grants behind.
 
 The stable identity for one convenience template. It never authorizes directly.
 

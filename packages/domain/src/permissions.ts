@@ -11,6 +11,11 @@ export const emergencyReviewsBundle = {
     scopeType: "event",
     scopeSource: "event",
     validityRule: "bundle",
+  }, {
+    permissionKey: "application.profile_context.read",
+    scopeType: "event",
+    scopeSource: "event",
+    validityRule: "bundle",
   }],
 } as const;
 

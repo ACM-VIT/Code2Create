@@ -219,9 +219,12 @@ async function emergencyReviewsFixture() {
   const bundle = await manager.query(api.permissionBundles.detail, { eventSlug: fixture.eventSlug, bundleId: created.bundleId });
   if (!bundle.published) throw new Error("Emergency Reviews must be ready to assign.");
   expect(bundle.bundle).toMatchObject({ key: "emergency_reviews", label: "Emergency Reviews", defaultRole: "jc" });
-  expect(bundle.published.entries).toEqual([{
+  expect(bundle.published.entries).toEqual(expect.arrayContaining([{
     permissionKey: "application.review_deck.use", scopeType: "event", scopeSource: "event", validityRule: "bundle",
-  }]);
+  }, {
+    permissionKey: "application.profile_context.read", scopeType: "event", scopeSource: "event", validityRule: "bundle",
+  }]));
+  expect(bundle.published.entries).toHaveLength(2);
   const target = {
     eventSlug: fixture.eventSlug, targetPersonId: fixture.reviewerPersonId,
     bundleVersionId: bundle.published.id, bindings: [],
@@ -231,9 +234,12 @@ async function emergencyReviewsFixture() {
     ...target, expectedAccessVersion: preview.expectedAccessVersion, previewChecksum: preview.previewChecksum,
     reason: "Add the JC to Emergency Reviews", clientOperationId: "apply-emergency-reviews",
   });
-  expect(applied.createdCount).toBe(1);
-  const batch = await backend.run((ctx) => ctx.db.get(applied.batchId));
-  const grantId = batch?.resultGrantIds[0];
+  expect(applied.createdCount).toBe(2);
+  const grantId = await backend.run(async (ctx) => (await ctx.db.query("permissionGrants")
+    .withIndex("by_subject_permission_status", (index) => index
+      .eq("eventAccessSubjectId", fixture.reviewerSubjectId)
+      .eq("permissionKey", "application.review_deck.use").eq("status", "active"))
+    .unique())?._id);
   if (!grantId) throw new Error("Emergency Reviews did not grant its deck permission.");
   return { ...context, grantId };
 }
@@ -289,7 +295,13 @@ describe("Emergency Reviews bundle", () => {
     expect((await reviewer.query(api.admissions.myReviewAssignmentCountRows, { ...query, paginationOpts })).page).toEqual([]);
     await expect(reviewer.query(api.admissions.admissionSummary, query)).rejects.toThrow();
     await expect(reviewer.query(api.admissions.reviewerWorkload, query)).rejects.toThrow();
-    await expect(reviewer.query(api.admissions.members, { ...query, applicationId: fixture.applicationId, paginationOpts })).rejects.toThrow();
+    const members = await reviewer.query(api.admissions.members, { ...query, applicationId: fixture.applicationId, paginationOpts });
+    expect(members.page).toHaveLength(1);
+    expect(members.page[0]?.profileContext).toEqual({
+      participantClass: "external_participant", yearOfStudy: "not_applicable", institution: "Fixture institution",
+    });
+    expect(detail?.application.cohort).toBeDefined();
+    await expect(reviewer.query(api.admissions.members, { ...query, applicationId: otherId, paginationOpts })).rejects.toThrow();
     await expect(reviewer.query(api.admissions.detail, { ...query, applicationId: otherId })).rejects.toThrow();
     await expect(reviewer.mutation(api.admissions.saveReview, {
       ...query, applicationId: otherId, expectedApplicationContentVersion: 1,
@@ -336,6 +348,7 @@ describe("Emergency Reviews bundle", () => {
           : ctx.db.patch(fixture.applicationId, { contentVersion: application.contentVersion + 1 }));
     }
     await expect(reviewer.query(api.admissions.detail, query)).rejects.toThrow();
+    await expect(reviewer.query(api.admissions.members, { ...query, paginationOpts: { cursor: null, numItems: 25 } })).rejects.toThrow();
     await expect(reviewer.mutation(api.admissions.saveReview, {
       ...query, expectedApplicationContentVersion: 1, recommendation: "accept", reasonCode: "clear_intent", clientOperationId: "review-after-access-ended",
     })).rejects.toThrow();

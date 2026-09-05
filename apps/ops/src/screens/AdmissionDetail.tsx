@@ -53,7 +53,7 @@ export function AdmissionDetail({ accountEmail }: { accountEmail: string }) {
   const serverNow = useEstimatedServerNow(detail?.serverNow);
   const memberPage = usePaginatedQuery(
     api.admissions.members,
-    detail && !detail.permissions.deckOnly ? { eventSlug, applicationId: detail.application.id } : "skip",
+    detail ? { eventSlug, applicationId: detail.application.id } : "skip",
     { initialNumItems: 25 },
   );
   const members = memberPage.results;
@@ -131,7 +131,7 @@ export function AdmissionDetail({ accountEmail }: { accountEmail: string }) {
         }
       >
         <div className="application-evidence">
-          {!detail.permissions.deckOnly ? <section className="detail-section">
+          <section className="detail-section">
             <h2>Team · <LiveNumber value={detail.team.memberCount} /></h2>
             {members.length > 0 && members.every((member) => member.profileContext === null) ? (
               <p className="muted">This account can’t see year and institution.</p>
@@ -169,7 +169,7 @@ export function AdmissionDetail({ accountEmail }: { accountEmail: string }) {
                 {memberPage.status === "LoadingMore" ? "Loading members…" : "Load more members"}
               </button>
             ) : null}
-          </section> : null}
+          </section>
 
           <section className="detail-section prose-section">
             <h2>Project</h2>
@@ -196,11 +196,11 @@ export function AdmissionDetail({ accountEmail }: { accountEmail: string }) {
               <div className="section-heading">
                 <div>
                   <h2>What to look for</h2>
-                  {!detail.permissions.deckOnly ? <p className="muted">
+                  <p className="muted">
                     {detail.application.cohort
                       ? `${cohortSummary(detail.application.cohort)} team`
                       : "You do not have access to year context."}
-                  </p> : null}
+                  </p>
                 </div>
                 <span className="state-label">Admissions only</span>
               </div>

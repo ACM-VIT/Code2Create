@@ -1431,7 +1431,8 @@ export const members = query({
       }),
       ctx.db.get(application.submittedProjectVersionId),
     ]);
-    if (fullReadGrantIds.length === 0 && reviewReadGrantIds.length === 0) {
+    const deckAccess = await deckReviewAccess(ctx, application, subject);
+    if (fullReadGrantIds.length === 0 && reviewReadGrantIds.length === 0 && !deckAccess) {
       throw new ConvexError({
         code: "ACCESS_DENIED",
         message: "This account cannot read that application or assigned review.",
