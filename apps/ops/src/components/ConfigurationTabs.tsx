@@ -12,6 +12,7 @@ export type ConfigurationTabsVisibility = {
   showIntelligence: boolean;
   showPhases: boolean;
   showCheckpoints: boolean;
+  showSupportBridge: boolean;
 };
 
 export function ConfigurationTabs({ visibility }: { visibility: ConfigurationTabsVisibility }) {
@@ -115,6 +116,11 @@ const configurationGroups: readonly {
         label: "Operations agent",
         to: "/configuration/intelligence",
         visibility: "showIntelligence",
+      },
+      {
+        label: "Discord support",
+        to: "/configuration/discord",
+        visibility: "showSupportBridge",
       },
     ],
   },

@@ -131,7 +131,11 @@ describe("support projections", () => {
         body,
       });
       expect(signed.status).toBe(200);
-      await expect(signed.json()).resolves.toEqual({ state: "idle" });
+      // Every poll answer carries the bridge settings, so an idle one is not bare.
+      await expect(signed.json()).resolves.toEqual({
+        state: "idle",
+        settings: { reactionsEnabled: true, allowedRoleIds: [] },
+      });
     } finally {
       for (const [name, value] of Object.entries(previousEnvironment)) {
         if (value === undefined) delete process.env[name];

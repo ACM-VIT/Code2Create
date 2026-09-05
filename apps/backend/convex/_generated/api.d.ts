@@ -193,6 +193,7 @@ import type * as lib_reviewQueueProjection from "../lib/reviewQueueProjection.js
 import type * as lib_reviewRepositoryInventory from "../lib/reviewRepositoryInventory.js";
 import type * as lib_reviewRoundPauses from "../lib/reviewRoundPauses.js";
 import type * as lib_reviewScores from "../lib/reviewScores.js";
+import type * as lib_reviewShiftReminders from "../lib/reviewShiftReminders.js";
 import type * as lib_reviewTeamNotices from "../lib/reviewTeamNotices.js";
 import type * as lib_reviewerAvailability from "../lib/reviewerAvailability.js";
 import type * as lib_reviewerPagePush from "../lib/reviewerPagePush.js";
@@ -307,6 +308,7 @@ import type * as serviceQueues from "../serviceQueues.js";
 import type * as stagingSetup from "../stagingSetup.js";
 import type * as support from "../support.js";
 import type * as supportDiscordBridge from "../supportDiscordBridge.js";
+import type * as supportDiscordConfiguration from "../supportDiscordConfiguration.js";
 import type * as synesthesiaConfiguration from "../synesthesiaConfiguration.js";
 import type * as synesthesiaOperations from "../synesthesiaOperations.js";
 import type * as synesthesiaParticipant from "../synesthesiaParticipant.js";
@@ -509,6 +511,7 @@ declare const fullApi: ApiFromModules<{
   "lib/reviewRepositoryInventory": typeof lib_reviewRepositoryInventory;
   "lib/reviewRoundPauses": typeof lib_reviewRoundPauses;
   "lib/reviewScores": typeof lib_reviewScores;
+  "lib/reviewShiftReminders": typeof lib_reviewShiftReminders;
   "lib/reviewTeamNotices": typeof lib_reviewTeamNotices;
   "lib/reviewerAvailability": typeof lib_reviewerAvailability;
   "lib/reviewerPagePush": typeof lib_reviewerPagePush;
@@ -623,6 +626,7 @@ declare const fullApi: ApiFromModules<{
   stagingSetup: typeof stagingSetup;
   support: typeof support;
   supportDiscordBridge: typeof supportDiscordBridge;
+  supportDiscordConfiguration: typeof supportDiscordConfiguration;
   synesthesiaConfiguration: typeof synesthesiaConfiguration;
   synesthesiaOperations: typeof synesthesiaOperations;
   synesthesiaParticipant: typeof synesthesiaParticipant;

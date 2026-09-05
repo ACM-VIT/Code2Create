@@ -16,6 +16,7 @@ import { env, httpAction, internalMutation } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { HttpBodyTooLargeError, readBoundedRequestText } from "./lib/boundedHttpBody";
 import { requireEventBySlug } from "./lib/events";
+import { bridgeSettingsOf, findBridgeSettings } from "./supportDiscordConfiguration";
 import { requireEventSubject } from "./lib/identity";
 import { requirePermission } from "./lib/permissions";
 import { normalizedLongText, normalizedText } from "./lib/strings";
@@ -211,11 +212,25 @@ async function deliveryView(
   };
 }
 
+/**
+ * The bridge settings ride along with every poll rather than having an endpoint
+ * of their own: the bot already asks for work continuously, so this is the
+ * channel that is always open, and it costs nothing to answer with.
+ */
+const bridgeSettings = v.object({
+  reactionsEnabled: v.boolean(),
+  allowedRoleIds: v.array(v.string()),
+});
+
 export const claimNext = internalMutation({
   args: { eventSlug: v.string() },
   returns: v.union(
-    v.object({ state: v.literal("idle") }),
-    v.object({ state: v.literal("work"), delivery: discordDelivery }),
+    v.object({ state: v.literal("idle"), settings: bridgeSettings }),
+    v.object({
+      state: v.literal("work"),
+      delivery: discordDelivery,
+      settings: bridgeSettings,
+    }),
   ),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
@@ -238,6 +253,7 @@ export const claimNext = internalMutation({
         updatedAt: now,
       });
     }
+    const settings = bridgeSettingsOf(await findBridgeSettings(ctx, event._id));
     const candidates = await ctx.db
       .query("supportDiscordOutbox")
       .withIndex("by_event_and_state_and_next_attempt", (index) =>
@@ -271,9 +287,10 @@ export const claimNext = internalMutation({
       return {
         state: "work" as const,
         delivery: await deliveryView(ctx, claimed, supportCase, action, channel),
+        settings,
       };
     }
-    return { state: "idle" as const };
+    return { state: "idle" as const, settings };
   },
 });
 

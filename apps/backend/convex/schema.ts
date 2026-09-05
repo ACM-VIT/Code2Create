@@ -1314,6 +1314,22 @@ export default defineSchema({
     .index("by_case_time", ["supportCaseId", "createdAt"])
     .index("by_event_time", ["eventId", "createdAt"]),
 
+  /**
+   * How the Discord support bridge behaves for one event.
+   *
+   * The reaction receipts and the roles allowed to answer a ticket were both
+   * deployment configuration the bot read once at startup. They belong to the
+   * people running the event, so they live here and the bot reads them on its
+   * next poll. One row per event; its absence means the published defaults.
+   */
+  supportDiscordBridgeSettings: defineTable({
+    eventId: v.id("events"),
+    reactionsEnabled: v.boolean(),
+    allowedRoleIds: v.array(v.string()),
+    updatedAt: v.number(),
+    updatedByPersonId: v.id("people"),
+  }).index("by_event", ["eventId"]),
+
   supportDiscordChannels: defineTable({
     eventId: v.id("events"),
     supportCaseId: v.id("supportCases"),

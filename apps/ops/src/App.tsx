@@ -68,6 +68,11 @@ const EventSetupOverview = lazy(() =>
 const Rehearsal = lazy(() =>
   import("./screens/Rehearsal").then((module) => ({ default: module.Rehearsal })),
 );
+const SupportBridgeConfiguration = lazy(() =>
+  import("./screens/SupportBridgeConfiguration").then((module) => ({
+    default: module.SupportBridgeConfiguration,
+  })),
+);
 const SupportDesk = lazy(() =>
   import("./screens/SupportDesk").then((module) => ({ default: module.SupportDesk })),
 );
@@ -289,6 +294,7 @@ function Operations({
     showIntelligence: canViewIntelligenceConfiguration,
     showPhases: canViewPhaseConfiguration,
     showCheckpoints: canViewCheckpointConfiguration,
+    showSupportBridge: canViewSupport,
   };
   const canReadReviewConfiguration = capabilities.reviewConfigurationRead;
   const canPublishReviewConfiguration = capabilities.reviewConfigurationPublish;
@@ -544,6 +550,16 @@ function Operations({
                     authClient={authClient}
                     tabs={configurationTabs}
                   />
+                </Suspense>
+              }
+            />
+          ) : null}
+          {canViewSupport ? (
+            <Route
+              path="/configuration/discord"
+              element={
+                <Suspense fallback={<p className="muted">Loading Discord support…</p>}>
+                  <SupportBridgeConfiguration tabs={configurationTabs} />
                 </Suspense>
               }
             />

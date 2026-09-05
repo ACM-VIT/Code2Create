@@ -68,9 +68,28 @@ export const deliverySchema = z
   })
   .strict();
 
+/**
+ * What the dashboard says the bridge should do. Sent with every poll, so a
+ * change reaches the bot within one cycle instead of at the next restart.
+ */
+export const bridgeSettingsSchema = z
+  .object({
+    reactionsEnabled: z.boolean(),
+    allowedRoleIds: z.array(z.string()),
+  })
+  .strict();
+
+export type BridgeSettings = z.infer<typeof bridgeSettingsSchema>;
+
 export const pullResponseSchema = z.discriminatedUnion("state", [
-  z.object({ state: z.literal("idle") }).strict(),
-  z.object({ state: z.literal("work"), delivery: deliverySchema }).strict(),
+  z.object({ state: z.literal("idle"), settings: bridgeSettingsSchema }).strict(),
+  z
+    .object({
+      state: z.literal("work"),
+      delivery: deliverySchema,
+      settings: bridgeSettingsSchema,
+    })
+    .strict(),
 ]);
 
 export const acknowledgementResponseSchema = z

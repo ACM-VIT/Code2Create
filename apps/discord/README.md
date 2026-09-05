@@ -12,6 +12,27 @@ Messages written in a ticket channel by a Discord administrator or a member with
 on the website. Roles are fetched for each reply so access changes take effect immediately. Bot and webhook messages are ignored. Discord message IDs and backend delivery
 claims make both directions idempotent.
 
+## Configured from the dashboard
+
+Two settings live in operations under **Event setup → Operations → Discord support**
+(`/configuration/discord`), not in this service's environment. They ride along with the poll the
+bot already makes, so a change takes effect within one sync interval and needs no redeploy.
+
+- **Reply receipts.** Whether the bot marks a staff reply with its outcome: ✅ recorded, ⛔ not
+  allowed, 🔒 case closed, ⚠️ too short, ❓ unexpected. Switching them off silences all of them,
+  including the ones reporting a reply was *not* recorded.
+- **Who may reply.** Discord role IDs allowed to answer a ticket, alongside guild administrators.
+  Empty means the `DISCORD_ALLOWED_ROLE_IDS` below still stand, so an unconfigured event behaves
+  exactly as it always has.
+
+Reading them needs `support.case.read`; changing them needs `support.case.manage`, and each save is
+audited with a reason.
+
+`DISCORD_ALLOWED_ROLE_IDS` remains the deployment's own list. It is still what the startup contract
+checks the category permission overwrites against — which roles can *see* a ticket channel is a
+deployment concern, so a dashboard edit can never widen who reads support traffic. A bot that has
+not yet reached the backend uses it for replies too.
+
 ## Discord application
 
 - Application ID: `1336816810699264091`

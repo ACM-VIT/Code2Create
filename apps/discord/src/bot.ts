@@ -13,6 +13,7 @@ import {
 } from "discord.js";
 
 import { canReplyToSupport } from "./permissions.ts";
+import { reactionsAllowed, replyRoleIds } from "./settings.ts";
 import { BridgeRequestError, SupportBackend } from "./backend.ts";
 import {
   nextSupportCategoryRolloverIndex,
@@ -22,7 +23,11 @@ import {
   type SupportCategoryKind,
 } from "./categories.ts";
 import type { DiscordSupportConfig } from "./config.ts";
-import type { DiscordSupportDelivery, DiscordSupportState } from "./contracts.ts";
+import type {
+  BridgeSettings,
+  DiscordSupportDelivery,
+  DiscordSupportState,
+} from "./contracts.ts";
 import {
   deliveryNonce,
   inboundMessageText,
@@ -110,6 +115,12 @@ export class DiscordSupportBot {
   private syncTimer: NodeJS.Timeout | null = null;
   private draining = false;
   private lastBackendSuccessAt = 0;
+  /**
+   * What the dashboard last told the bridge to do, or null before the first
+   * poll answers. Until then the deployment's own configuration stands, so a
+   * bot that has not reached the backend behaves exactly as it used to.
+   */
+  private settings: BridgeSettings | null = null;
 
   constructor(config: DiscordSupportConfig) {
     this.config = config;
@@ -289,6 +300,7 @@ export class DiscordSupportBot {
       for (let index = 0; index < deliveriesPerDrain; index += 1) {
         const result = await this.backend.pull();
         this.lastBackendSuccessAt = Date.now();
+        this.settings = result.settings;
         if (result.state === "idle") return;
         await this.deliver(result.delivery);
       }
@@ -422,6 +434,12 @@ export class DiscordSupportBot {
       : null;
   }
 
+  /** A receipt, unless the dashboard has switched them off. */
+  private async react(message: Message, emoji: string) {
+    if (!reactionsAllowed(this.settings)) return;
+    await safeReact(message, emoji);
+  }
+
   private async onMessage(message: Message) {
     if (
       message.author.bot ||
@@ -435,8 +453,8 @@ export class DiscordSupportBot {
     try {
       // Member updates are not subscribed to; fetch current roles for every reply.
       const member = await message.channel.guild.members.fetch({ user: message.author.id, force: true });
-      if (!canReplyToSupport(member.permissions, member.roles.cache.keys(), this.config.DISCORD_ALLOWED_ROLE_IDS)) {
-        await safeReact(message, "⛔");
+      if (!canReplyToSupport(member.permissions, member.roles.cache.keys(), replyRoleIds(this.settings, this.config.DISCORD_ALLOWED_ROLE_IDS))) {
+        await this.react(message, "⛔");
         return;
       }
       const text = inboundMessageText(
@@ -444,7 +462,7 @@ export class DiscordSupportBot {
         message.attachments.map((attachment) => attachment.url),
       );
       if (text.trim().length < 2) {
-        await safeReact(message, "⚠️");
+        await this.react(message, "⚠️");
         return;
       }
       const result = await this.backend.reply({
@@ -456,20 +474,20 @@ export class DiscordSupportBot {
       });
       this.lastBackendSuccessAt = Date.now();
       if (result.state === "accepted" || result.state === "already_recorded") {
-        await safeReact(message, "✅");
+        await this.react(message, "✅");
         return;
       }
       if (result.state === "case_closed") {
-        await safeReact(message, "🔒");
+        await this.react(message, "🔒");
         return;
       }
-      await safeReact(message, "❓");
+      await this.react(message, "❓");
     } catch (error) {
       console.error("discord_support_reply_failed", {
         messageId: message.id,
         code: errorCode(error),
       });
-      await safeReact(message, "❌");
+      await this.react(message, "❌");
     }
   }
 }
