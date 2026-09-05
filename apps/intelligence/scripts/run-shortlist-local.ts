@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { URL } from "node:url";
+import assert from "node:assert/strict";
 import {
   selectAdmissionShortlist,
   shortlistCandidateInputSchema,
@@ -142,6 +143,26 @@ let candidates: ShortlistCandidateInput[] = [
       "Users type a first name. An AI model detects hidden name patterns and immediately returns A, B, AB or O. The name is our only input.",
       "Build a form and display the prediction; we plan to ask clinics for data later.",
       "No blood sample, records or family history is needed because AI discovers patterns humans cannot see.",
+    ],
+  ),
+  fixture(
+    "pet-reminders",
+    "A pet-care organizer so owners never miss a vaccination again.",
+    [
+      "Owners lose track of vaccination dates and medication schedules across paper records.",
+      "An owner creates a pet profile and enters dates from the vet's prescription. The app stores those dates, schedules reminders and lets the owner mark doses completed. It does not prescribe treatments.",
+      "Create a pet, add a vaccination date, advance a test clock and show the reminder and recorded completion.",
+      "Keep multiple pets' schedules separate and share the entered schedule with household caregivers.",
+    ],
+  ),
+  fixture(
+    "bounded-memory-queue",
+    "Crash-proof local model serving for student laptops.",
+    [
+      "Concurrent requests to a local model can exceed a laptop's available memory.",
+      "A local server queues requests, enforces a configured context limit and limits active batches using measured free memory and per-request estimates. It rejects oversized requests and records allocation failures. Quantization reduces model memory use.",
+      "Load one model, submit a bounded test workload and display queue length, observed memory and allocation failures. Compare the same workload with uncontrolled concurrency.",
+      "A local-only diagnostic view makes the tradeoff between memory and waiting visible on one laptop, without claiming support for every model or device.",
     ],
   ),
   fixture(
@@ -375,6 +396,34 @@ for (const [index, pair] of pairs.entries()) {
   );
 }
 const suggestions = selectAdmissionShortlist(profiled, comparisons, settings);
+if (!values.input) {
+  for (const id of ["pet-reminders", "bounded-memory-queue", "accessible-room"]) {
+    assert.equal(
+      profiled.find((candidate) => candidate.applicationId === id)?.profile.premise.assessment,
+      "supported",
+      `${id}: a credible described core must not fail on an exaggerated benefit`,
+    );
+  }
+  for (const id of ["dating", "blood-from-name", "quality-decline-control"]) {
+    assert.equal(
+      suggestions.find((suggestion) => suggestion.applicationId === id)?.suggestion,
+      "reject",
+      `${id}: policy exclusion must survive selection`,
+    );
+  }
+  const overlap = comparisons.find(
+    (comparison) =>
+      [comparison.leftId, comparison.rightId].includes("surplus-strong") &&
+      [comparison.leftId, comparison.rightId].includes("surplus-alternative"),
+  );
+  assert.ok(overlap, "Missing known overlap comparison");
+  assert.equal(overlap.overlap, "substantial");
+  assert.equal(
+    overlap.preferred === "left" ? overlap.leftId : overlap.preferred === "right" ? overlap.rightId : "tie",
+    "surplus-strong",
+    "Concrete handoff and concurrency evidence must win the direct comparison",
+  );
+}
 const audits: unknown[] = [];
 for (let offset = 0; offset < suggestions.length; offset += 8) {
   const rows = suggestions.slice(offset, offset + 10).map((s) => {

@@ -99,6 +99,8 @@ const selectedIds = (rows: ReturnType<typeof selectAdmissionShortlist>) =>
 test("premise calibration separates central inference from integration and benefit claims", () => {
   assert.match(shortlistProfilePrompt, /Missing production integrations/u);
   assert.match(shortlistProfilePrompt, /Judge the central mechanism/u);
+  assert.match(shortlistProfilePrompt, /Apply a dependency test/u);
+  assert.match(shortlistProfilePrompt, /not an independently valuable replacement/u);
   assert.match(
     shortlistProfilePrompt,
     /A disclaimer or attractive downstream interface cannot replace that evidence/u,

@@ -488,8 +488,10 @@ describe("frozen advisory shortlist lifecycle", () => {
         .take(10);
       const states = ["withdrawn", "offer_expired", "under_review"] as const;
       for (const [index, app] of apps.entries()) {
+        const state = states[index];
+        if (!state) throw new Error("Unexpected fixture application");
         await ctx.db.patch(app._id, {
-          state: states[index],
+          state,
           humanDecision: "accept",
           decisionStage: "recorded",
         });
@@ -497,6 +499,8 @@ describe("frozen advisory shortlist lifecycle", () => {
       return apps;
     });
     expect(applications).toHaveLength(3);
+    const currentAccept = applications[2];
+    if (!currentAccept) throw new Error("Missing recorded accept fixture");
     const operator = backend.withIdentity({
       subject: fixture.operatorAuthUserId,
       sessionId: fixture.operatorAuthSessionId,
@@ -515,7 +519,7 @@ describe("frozen advisory shortlist lifecycle", () => {
     );
     expect(candidates).toHaveLength(1);
     expect(candidates[0]).toMatchObject({
-      applicationId: applications[2]._id,
+      applicationId: currentAccept._id,
       committed: true,
     });
   });
