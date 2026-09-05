@@ -575,6 +575,18 @@ function ApplicationRow({
         ) : null}
         {ai ? <span className={`admission-tag ${ai.tone}`}>{ai.text}</span> : null}
       </span>
+      <span
+        className="admission-row-score"
+        role="group"
+        aria-label={`Human review score: ${application.humanReviewScore.accept} accept, ${application.humanReviewScore.waitlist} waitlist, ${application.humanReviewScore.reject} reject`}
+      >
+        <span>Human review score</span>
+        <strong>
+          {application.humanReviewScore.accept} / {application.humanReviewScore.waitlist} /{" "}
+          {application.humanReviewScore.reject}
+        </strong>
+        <small>Accept / Waitlist / Reject</small>
+      </span>
     </>
   );
   if (selectable) {
