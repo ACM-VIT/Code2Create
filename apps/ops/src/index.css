@@ -9119,7 +9119,20 @@ textarea:focus {
   gap: 12px;
 }
 .support-status-field {
-  flex: 0 1 240px;
+  flex: 1 1 360px;
+}
+.support-status-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.support-status-buttons .secondary {
+  min-height: 38px;
+}
+.support-status-buttons .secondary[aria-pressed="true"] {
+  color: var(--text);
+  background: var(--hover);
+  opacity: 1;
 }
 .support-composer-actions .primary {
   min-height: 38px;

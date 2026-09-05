@@ -7,7 +7,6 @@ import {
   supportCaseStateLabels,
   type SupportCaseState,
 } from "@code2create/domain";
-import { useVersionedState } from "@code2create/web-forms";
 import type { FunctionReturnType } from "convex/server";
 import { useMutation, useQuery } from "convex/react";
 import { useRef, useState, type SubmitEvent, type KeyboardEvent, type ReactNode } from "react";
@@ -21,7 +20,7 @@ import { readableError } from "../lib/errors";
 import { useMutationAttempt } from "../lib/operations";
 import {
   groupSupportCases,
-  parseSupportState,
+  supportCaseRefreshPending,
   supportEmptyQueueText,
   supportEventText,
   supportExcerpt,
@@ -38,7 +37,6 @@ import {
   supportRowStatus,
   supportRowTone,
   supportStatusChoices,
-  supportSubmitLabel,
   supportUpdateReason,
   type SupportAction,
   type SupportCase,
@@ -60,6 +58,7 @@ const ageTickMs = 60 * 1000;
 const collapseNoteAfter = 700;
 const createSlot = "create-support-case";
 const updateSlot = "update-support-case";
+const statusSlot = "change-support-status";
 const ownerSlot = "change-support-owner";
 
 /**
@@ -369,13 +368,11 @@ function CaseDetail({
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [committedStatusVersion, setCommittedStatusVersion] = useState<number | null>(null);
   const busyRef = useRef(false);
   const formAttempt = useMutationAttempt<UpdateStaffResult>();
   const ownerAttempt = useMutationAttempt<UpdateStaffResult>();
-  const status = useVersionedState<SupportCaseState>(
-    `${supportCaseId}:${detail?.supportCase.version ?? 0}`,
-    detail?.supportCase.state ?? "open",
-  );
+  const statusAttempt = useMutationAttempt<UpdateStaffResult>();
 
   if (detail === undefined) {
     return (
@@ -399,10 +396,14 @@ function CaseDetail({
   const supportCase = detail.supportCase;
   const formPending = formAttempt.hasPending(updateSlot);
   const ownerPending = ownerAttempt.hasPending(ownerSlot);
+  const statusPending = statusAttempt.hasPending(statusSlot);
+  const statusRefreshPending = supportCaseRefreshPending(
+    supportCase.version,
+    committedStatusVersion,
+  );
+  const statusLocked = statusPending || statusRefreshPending;
   const message = text.trim();
   const wrote = message.length >= 2;
-  const nextState = status.value !== supportCase.state ? status.value : null;
-  const ready = wrote || nextState !== null;
   const reporterFirstName = supportCase.reporterName.split(" ")[0] || supportCase.reporterName;
 
   const ownerPersonId = supportCase.ownerPersonId;
@@ -433,7 +434,7 @@ function CaseDetail({
 
   const save = (event: SubmitEvent) => {
     event.preventDefault();
-    if (!ready && !formPending) return;
+    if (statusLocked || (!wrote && !formPending)) return;
     void guarded(async () => {
       await formAttempt.run(updateSlot, () => {
         const publicNote = wrote && mode === "reply";
@@ -442,16 +443,60 @@ function CaseDetail({
           eventSlug,
           supportCaseId: supportCase.id,
           expectedVersion: supportCase.version,
-          ...(nextState !== null ? { nextState } : {}),
           clearOwner: false,
           ...(publicNote ? { publicNote: message } : {}),
           ...(internalNote ? { internalNote: message } : {}),
-          reason: supportUpdateReason({ publicNote, internalNote, nextState }),
+          reason: supportUpdateReason({ publicNote, internalNote, nextState: null }),
           clientOperationId: crypto.randomUUID(),
         };
         return () => updateCase(args);
       });
       setText("");
+    });
+  };
+
+  const changeStatus = (nextState: SupportCaseState) => {
+    if (
+      busyRef.current ||
+      nextState === supportCase.state ||
+      formPending ||
+      ownerPending ||
+      statusLocked
+    ) {
+      return;
+    }
+    setCommittedStatusVersion(supportCase.version + 1);
+    void guarded(async () => {
+      try {
+        const result = await statusAttempt.run(statusSlot, () => {
+          const args = {
+            eventSlug,
+            supportCaseId: supportCase.id,
+            expectedVersion: supportCase.version,
+            nextState,
+            clearOwner: false,
+            reason: supportUpdateReason({ publicNote: false, internalNote: false, nextState }),
+            clientOperationId: crypto.randomUUID(),
+          };
+          return () => updateCase(args);
+        });
+        setCommittedStatusVersion(result.version);
+      } catch (caught) {
+        if (!statusAttempt.hasPending(statusSlot)) setCommittedStatusVersion(null);
+        throw caught;
+      }
+    });
+  };
+
+  const retryStatus = () => {
+    void guarded(async () => {
+      try {
+        const result = await statusAttempt.retryPending(statusSlot);
+        setCommittedStatusVersion(result.version);
+      } catch (caught) {
+        if (!statusAttempt.hasPending(statusSlot)) setCommittedStatusVersion(null);
+        throw caught;
+      }
     });
   };
 
@@ -518,7 +563,7 @@ function CaseDetail({
           <label className="field support-owner-field">
             Owner
             <select
-              disabled={busy || ownerPending || owners === undefined}
+              disabled={busy || statusLocked || ownerPending || owners === undefined}
               value={ownerPersonId ?? ""}
               onChange={(event) => selectOwner(event.target.value)}
             >
@@ -535,7 +580,7 @@ function CaseDetail({
           {supportCase.ownedByViewer ? null : (
             <button
               className="secondary"
-              disabled={busy || ownerPending}
+              disabled={busy || statusLocked || ownerPending}
               type="button"
               onClick={() => changeOwner(currentPersonId, supportOwnerReason({ kind: "claim" }))}
             >
@@ -615,33 +660,68 @@ function CaseDetail({
             onKeyDown={submitOnModifierEnter}
           />
           <div className="support-composer-actions">
-            <label className="field support-status-field">
-              Status
-              <select
-                disabled={busy || formPending}
-                value={status.value}
-                onChange={(event) =>
-                  status.replace(parseSupportState(event.target.value, supportCase.state))
-                }
+            <div className="field support-status-field">
+              <span id="support-status-label">Status</span>
+              <div
+                className="support-status-buttons"
+                role="group"
+                aria-labelledby="support-status-label"
+                aria-busy={(statusPending && busy) || statusRefreshPending}
               >
                 {supportStatusChoices(supportCase.state).map((state) => (
-                  <option key={state} value={state}>
-                    {state === supportCase.state
-                      ? `${supportCaseStateLabels[state]} (now)`
-                      : supportCaseStateLabels[state]}
-                  </option>
+                  <button
+                    aria-pressed={state === supportCase.state}
+                    className="secondary"
+                    disabled={
+                      busy || formPending || ownerPending || statusLocked || state === supportCase.state
+                    }
+                    key={state}
+                    type="button"
+                    onClick={() => changeStatus(state)}
+                  >
+                    {supportCaseStateLabels[state]}
+                    {state === supportCase.state ? " (now)" : ""}
+                  </button>
                 ))}
-              </select>
-            </label>
-            <button className="primary" disabled={busy || (!ready && !formPending)} type="submit">
+              </div>
+            </div>
+            <button
+              className="primary"
+              disabled={busy || statusLocked || (!wrote && !formPending)}
+              type="submit"
+            >
               {busy
                 ? "Saving…"
                 : formPending
                   ? "Confirm update"
-                  : supportSubmitLabel({ mode, wrote, nextState })}
+                  : mode === "reply"
+                    ? "Send reply"
+                    : "Add note"}
             </button>
           </div>
+          {statusPending || statusRefreshPending ? (
+            <p className="support-composer-hint" role="status">
+              {busy
+                ? "Saving status…"
+                : statusRefreshPending
+                  ? "Refreshing status…"
+                  : (
+                      <>
+                        The status change did not confirm.{" "}
+                        <button
+                          className="text-button"
+                          disabled={busy}
+                          type="button"
+                          onClick={retryStatus}
+                        >
+                          Try again
+                        </button>
+                      </>
+                    )}
+            </p>
+          ) : null}
           <p className="support-composer-hint">
+            Status changes save immediately.{" "}
             {mode === "reply"
               ? "Waiting on a reply parks it with the reporter. "
               : "Desk notes never reach the reporter. "}

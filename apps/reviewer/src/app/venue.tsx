@@ -179,7 +179,7 @@ export default function VenueScreen() {
                 {state.departure?.reason ?? "Your departure is recorded."}
               </Body>
               <Meta>
-                You're off duty. When you're back, clock in from Reviews.
+                You’re off duty. When you’re back, clock in from Reviews.
               </Meta>
               <Action
                 label="Go to Reviews"
