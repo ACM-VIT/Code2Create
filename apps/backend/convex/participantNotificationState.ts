@@ -48,6 +48,7 @@ const deliveryClaim = v.union(
     eventStartsAt: v.number(),
     eventEndsAt: v.number(),
     eventTimezone: v.string(),
+    rsvpDeadline: v.optional(v.number()),
     venueName: v.string(),
     assets: v.array(
       v.object({
@@ -130,6 +131,10 @@ export const claimDelivery = internalMutation({
       await finishWithoutSend(ctx, delivery, "failed", "membership_context_invalid", now);
       return null;
     }
+    if (membership.participantClass === "external_participant" && delivery.templateKey !== "external_event_pass") {
+      await finishWithoutSend(ctx, delivery, "suppressed", "external_admission_notification_disabled", now);
+      return null;
+    }
     if (
       !communicationsPolicy ||
       communicationsPolicy.eventId !== delivery.eventId ||
@@ -208,7 +213,9 @@ export const claimDelivery = internalMutation({
     await ctx.scheduler.runAt(claimExpiresAt, internal.participantEmail.deliver, {
       deliveryId: delivery._id,
     });
+    const offer = application.currentOfferId ? await ctx.db.get(application.currentOfferId) : null;
     return {
+      ...(offer ? { rsvpDeadline: offer.expiresAt } : {}),
       deliveryId: delivery._id,
       templateKey: delivery.templateKey,
       notificationProvider: communicationsPolicy.notificationProvider,

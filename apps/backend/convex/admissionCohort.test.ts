@@ -915,6 +915,7 @@ describe("admission cohort query and decisions", () => {
       recommendationFilter: { source: "idea", outcome: "unavailable" },
     })).applications.map((application) => application.id)).toEqual([fixture.decidableApplicationId]);
     await expect(reader.mutation(api.admissions.releaseAdmissionResults, {
+      rsvpClosesAt: Date.now() + 60 * 60_000,
       eventSlug: fixture.eventSlug, expectedEventVersion: 1,
       reason: "A reader must not release results", clientOperationId: "reader-release-denied",
     })).rejects.toThrow("Only an active Supreme");
@@ -1009,6 +1010,7 @@ describe("admission cohort query and decisions", () => {
     });
     await expect(
       onlooker.mutation(api.admissions.releaseAdmissionResults, {
+      rsvpClosesAt: Date.now() + 60 * 60_000,
         eventSlug: fixture.eventSlug,
         expectedEventVersion: 1,
         reason: "Release the reviewed admissions set",
@@ -1017,6 +1019,7 @@ describe("admission cohort query and decisions", () => {
     ).rejects.toThrow("Only an active Supreme");
     await expect(
       operator.mutation(api.admissions.releaseAdmissionResults, {
+      rsvpClosesAt: Date.now() + 60 * 60_000,
         eventSlug: fixture.eventSlug,
         expectedEventVersion: 1,
         reason: "Release the reviewed admissions set",
@@ -1055,6 +1058,7 @@ describe("admission cohort query and decisions", () => {
       declined: 1,
     });
     const released = await operator.mutation(api.admissions.releaseAdmissionResults, {
+      rsvpClosesAt: Date.now() + 60 * 60_000,
       eventSlug: fixture.eventSlug,
       expectedEventVersion: 1,
       reason: "Release the reviewed admissions set",
@@ -1069,6 +1073,26 @@ describe("admission cohort query and decisions", () => {
         communicationsPolicyVersionId: fixture.communicationsPolicyId,
       });
     }
+    const rsvpArgs = {
+      eventSlug: fixture.eventSlug, expectedEventVersion: 2,
+      closesAt: fixture.now + 2 * 60 * 60_000, reminderAt: fixture.now + 60 * 60_000,
+      reason: "Open attendance confirmation with a scheduled reminder", clientOperationId: "open-rsvp",
+    };
+    await expect(onlooker.mutation(api.admissionRsvp.configure, rsvpArgs)).rejects.toThrow("permission");
+    await operator.mutation(api.admissionRsvp.configure, rsvpArgs);
+    await operator.mutation(api.admissionRsvp.configure, rsvpArgs);
+    await backend.mutation(internal.admissionRsvp.openForApplication, { applicationId: fixture.decidableApplicationId });
+    await backend.mutation(internal.admissionRsvp.openForApplication, { applicationId: fixture.decidableApplicationId });
+    const offers = await backend.run(ctx => ctx.db.query("admissionOffers").collect());
+    expect(offers).toHaveLength(1);
+    expect(offers[0]).toMatchObject({ state: "offered", expiresAt: rsvpArgs.closesAt, reminderAt: rsvpArgs.reminderAt });
+    await operator.mutation(api.admissionRsvp.configure, {
+      ...rsvpArgs, expectedEventVersion: 3, closesAt: rsvpArgs.closesAt + 60_000, reminderAt: rsvpArgs.reminderAt + 60_000, clientOperationId: "edit-rsvp",
+    });
+    await backend.mutation(internal.admissionRsvp.openForApplication, { applicationId: fixture.decidableApplicationId });
+    const changedOffers = await backend.run(ctx => ctx.db.query("admissionOffers").collect());
+    expect(changedOffers).toHaveLength(1);
+    expect(changedOffers[0]).toMatchObject({ state: "offered", expiresAt: rsvpArgs.closesAt + 60_000, reminderAt: rsvpArgs.reminderAt + 60_000, version: (offers[0]?.version ?? 0) + 1 });
     const applications = await backend.run((ctx) =>
       Promise.all([
         ctx.db.get(fixture.decidableApplicationId),
@@ -1079,13 +1103,13 @@ describe("admission cohort query and decisions", () => {
     expect(
       applications.map((application) => [application?.state, application?.decisionStage]),
     ).toEqual([
-      ["accepted", "released"],
+      ["offer_sent", "released"],
       ["waitlisted", "released"],
       ["declined", "released"],
     ]);
     expect(await operator.query(api.admissions.stageCounts, { eventSlug: fixture.eventSlug }))
       .toEqual(expect.arrayContaining([
-        { state: "accepted", count: 1 }, { state: "waitlisted", count: 1 }, { state: "declined", count: 1 },
+        { state: "offer_sent", count: 1 }, { state: "waitlisted", count: 1 }, { state: "declined", count: 1 },
       ]));
     expect((await operator.query(api.admissions.list, {
       eventSlug: fixture.eventSlug, state: "recorded", paginationOpts: { cursor: null, numItems: 30 },
@@ -1115,6 +1139,7 @@ describe("admission cohort query and decisions", () => {
       const lead = await ctx.db.get(team.leadMembershipId);
       if (!lead?.eventAccessSubjectId) throw new Error("Missing release lead");
       await ctx.db.patch(lead.personId, { authUserId: participantAuthUserId });
+      await insertPermissionGrant(ctx, { eventId: fixture.eventId, personId: lead.personId, eventAccessSubjectId: lead.eventAccessSubjectId, permissionKey: "application.offer.respond", scopeType: "team", scopeId: team._id, sourceType: "manual", sourceId: "rsvp-rehearsal", reason: "Team lead RSVP response" });
       await insertPermissionGrant(ctx, {
         eventId: fixture.eventId,
         personId: lead.personId,
@@ -1142,6 +1167,7 @@ describe("admission cohort query and decisions", () => {
     expect(await backend.run((ctx) => ctx.db.query("participantNotificationDeliveries").collect()))
       .toEqual([]);
     const releaseArgs = {
+      rsvpClosesAt: Date.now() + 60 * 60_000,
       eventSlug: fixture.eventSlug,
       expectedEventVersion: 1,
       reason: "Isolated admission release rehearsal",
@@ -1192,6 +1218,7 @@ describe("admission cohort query and decisions", () => {
     await backend.mutation(internal.admissions.finalizeReleasedAdmissionResults, finalizeArgs);
     await backend.mutation(internal.admissions.finalizeReleasedAdmissionResults, finalizeArgs);
     for (const applicationId of [fixture.decidableApplicationId, fixture.shortApplicationId, fixture.splitApplicationId]) {
+      await backend.mutation(internal.admissionRsvp.openForApplication, { applicationId });
       const batch = await backend.run(async (ctx) => {
         const application = await ctx.db.get(applicationId);
         if (!application?.humanDecision) throw new Error("Missing decision");
@@ -1204,7 +1231,7 @@ describe("admission cohort query and decisions", () => {
           lockedRosterSnapshotId: project.lockedRosterSnapshotId,
           lockedMemberCount: project.lockedMemberCount,
           communicationsPolicyVersionId: fixture.communicationsPolicyId,
-          templateKey: application.humanDecision,
+          templateKey: application.humanDecision === "accept" ? "offer" as const : application.humanDecision,
           applicationVersion: application.version,
           cursor: null,
           processedMemberCount: 0,
@@ -1218,8 +1245,20 @@ describe("admission cohort query and decisions", () => {
     expect(deliveries.filter((d) => d.applicationId === fixture.shortApplicationId)).toHaveLength(3);
     expect(deliveries.filter((d) => d.applicationId === fixture.splitApplicationId)).toHaveLength(0);
     expect(deliveries.every((d) => d.state === "pending" && d.attemptCount === 0)).toBe(true);
+    expect(deliveries.filter(d => d.applicationId === fixture.decidableApplicationId).every(d => d.templateKey === "offer")).toBe(true);
     expect((await participant.query(api.intake.submitted, { eventSlug: fixture.eventSlug }))?.application.state)
-      .toBe("accepted");
+      .toBe("offer_sent");
+    const submitted = await participant.query(api.intake.submitted, { eventSlug: fixture.eventSlug });
+    if (!submitted?.application.currentOffer) throw new Error("The selected team cannot see its RSVP.");
+    const response = {
+      eventSlug: fixture.eventSlug, applicationId: fixture.decidableApplicationId,
+      expectedApplicationVersion: submitted.application.version,
+      expectedOfferVersion: submitted.application.currentOffer.version,
+      response: "confirm" as const, clientOperationId: "team-lead-confirms",
+    };
+    const confirmed = await participant.mutation(api.admissions.respondToOffer, response);
+    expect(await participant.mutation(api.admissions.respondToOffer, response)).toEqual(confirmed);
+    expect((await participant.query(api.intake.submitted, { eventSlug: fixture.eventSlug }))?.application.state).toBe("confirmed");
     },
   );
 
@@ -1534,7 +1573,9 @@ async function seedCohortFixture(
     const chain = await insertPolicyChain(ctx, eventId, operator.personId, now, {
       minimumHumanReviews: 2,
     });
+    await ctx.db.insert("admissionCapacityBuckets", { eventId, admissionPolicyVersionId: chain.admissionPolicyId, capacity: 825, reserved: 0, version: 1, updatedAt: now });
     for (const permissionKey of [
+      "application.offer.manage",
       "application.read",
       "application.profile_context.read",
       "application.ai_recommendation.read",

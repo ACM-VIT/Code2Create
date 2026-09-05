@@ -487,7 +487,7 @@ function SubmittedWorkspace({
             {copy.status} for {event.name}
           </p>
           <h1 className="mb-9 text-balance font-display font-light tracking-[-.01em] text-[clamp(2.5rem,9vw,3.75rem)] leading-[.96] text-shadow-[0_0_60px_var(--glow-rose-soft),0_10px_50px_var(--scene-text-glow)] lg:mb-[42px] lg:text-[92px]">
-            {confirmed ? "You’re confirmed." : "You’re in."}
+            {confirmed ? "You’re confirmed." : "Your team is selected."}
           </h1>
 
           <PetalCard className="flex flex-col overflow-hidden md:flex-row">
@@ -520,7 +520,7 @@ function SubmittedWorkspace({
                     ? "place held"
                     : offer
                       ? <EventDateTime timestamp={offer.expiresAt} timezone={event.timezone} stacked />
-                      : "accepted"}
+                      : "RSVP pending"}
                 </p>
               </div>
             </div>
@@ -537,40 +537,6 @@ function SubmittedWorkspace({
               </p>
             </div>
           </PetalCard>
-
-          {communications?.nextSteps.length ? (
-            <div className="mt-7 w-full max-w-[560px] text-left">
-              {communications.nextSteps.map((step) => (
-                <div
-                  key={step.stableKey}
-                  className="flex flex-col gap-1.5 border-b border-petal-line py-2.5 last:border-b-0 sm:flex-row sm:items-baseline sm:justify-between sm:gap-4"
-                >
-                  <div>
-                    <p className="m-0 text-[13px] font-semibold">
-                      {step.actionUrl ? (
-                        <a
-                          href={step.actionUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-fg underline-offset-4 hover:text-rose-light hover:underline"
-                        >
-                          {step.title}
-                        </a>
-                      ) : (
-                        step.title
-                      )}
-                    </p>
-                    <p className="m-0 text-xs text-fg/55">{step.detail}</p>
-                  </div>
-                  {step.dueAt ? (
-                    <span className="flex-none text-[11px] text-rose-light">
-                      <EventDateTime timestamp={step.dueAt} timezone={event.timezone} />
-                    </span>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-          ) : null}
 
           <div className="mt-9 flex flex-col items-center gap-3.5 lg:mt-[42px]">
             {canRespond ? (
@@ -612,7 +578,7 @@ function SubmittedWorkspace({
                       ? "Confirming…"
                       : pendingResponse === "confirm"
                         ? "Confirm earlier response"
-                        : "Confirm your spot"}
+                        : "Confirm attendance"}
                   </PortalButton>
                   <PortalTextButton
                     type="button"
@@ -640,6 +606,40 @@ function SubmittedWorkspace({
               </a>
             ) : null}
           </div>
+
+          {communications?.nextSteps.length ? (
+            <div className="mt-7 w-full max-w-[560px] text-left">
+              {communications.nextSteps.map((step) => (
+                <div
+                  key={step.stableKey}
+                  className="flex flex-col gap-1.5 border-b border-petal-line py-2.5 last:border-b-0 sm:flex-row sm:items-baseline sm:justify-between sm:gap-4"
+                >
+                  <div>
+                    <p className="m-0 text-[13px] font-semibold">
+                      {step.actionUrl ? (
+                        <a
+                          href={step.actionUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-fg underline-offset-4 hover:text-rose-light hover:underline"
+                        >
+                          {step.title}
+                        </a>
+                      ) : (
+                        step.title
+                      )}
+                    </p>
+                    <p className="m-0 text-xs text-fg/55">{step.detail}</p>
+                  </div>
+                  {step.dueAt ? (
+                    <span className="flex-none text-[11px] text-rose-light">
+                      <EventDateTime timestamp={step.dueAt} timezone={event.timezone} />
+                    </span>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          ) : null}
 
           <PortalError message={error} />
           {proposalLink}

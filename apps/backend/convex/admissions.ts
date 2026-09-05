@@ -5,7 +5,7 @@ import { paginator } from "convex-helpers/server/pagination";
 import { z } from "zod";
 
 import { internal } from "./_generated/api";
-import { admissionRsvpCallDelayMs } from "./lib/admissionOfferCalls";
+import { validateAdmissionRsvpSchedule, requireAdmissionRsvpCapacity } from "./lib/admissionRsvpSchedule";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation, mutation, query } from "./_generated/server";
@@ -361,6 +361,11 @@ export const admissionSummary = query({
   args: { eventSlug: v.string() },
   returns: v.object({
     canReleaseResults: v.boolean(),
+    canManageRsvp: v.boolean(),
+    timezone: v.string(),
+    rsvpClosesAt: v.optional(v.number()),
+    rsvpReminderAt: v.optional(v.number()),
+    rsvp: v.object({ notInvited: v.number(), pending: v.number(), confirmed: v.number(), declined: v.number(), expired: v.number() }),
     serverNow: v.number(),
     eventVersion: v.number(),
     applicationsCloseAt: v.number(),
@@ -489,6 +494,17 @@ export const admissionSummary = query({
       : null;
     return {
       canReleaseResults: decisionGrantIds.length > 0,
+      canManageRsvp: readGrantIds.length > 0 && (await matchingPermissionGrantIds(ctx, { eventId: event._id, eventAccessSubjectId: subject._id, permissionKey: "application.offer.manage", scopeType: "event" })).length > 0,
+      timezone: event.timezone,
+      ...(event.admissionRsvpClosesAt !== undefined ? { rsvpClosesAt: event.admissionRsvpClosesAt } : {}),
+      ...(event.admissionRsvpReminderAt !== undefined ? { rsvpReminderAt: event.admissionRsvpReminderAt } : {}),
+      rsvp: {
+        notInvited: active.filter(a => a.decisionStage === "released" && a.state === "accepted").length,
+        pending: active.filter(a => a.state === "offer_sent").length,
+        confirmed: active.filter(a => a.state === "confirmed").length,
+        declined: active.filter(a => a.humanDecision === "accept" && a.state === "withdrawn").length,
+        expired: active.filter(a => a.state === "offer_expired").length,
+      },
       serverNow: Date.now(),
       eventVersion: event.version,
       applicationsCloseAt: event.applicationsCloseAt,
@@ -515,6 +531,8 @@ export const releaseAdmissionResults = mutation({
   args: {
     eventSlug: v.string(),
     expectedEventVersion: v.number(),
+    rsvpClosesAt: v.number(),
+    rsvpReminderAt: v.optional(v.number()),
     reason: v.string(),
     clientOperationId: v.string(),
   },
@@ -523,7 +541,7 @@ export const releaseAdmissionResults = mutation({
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
-    const requestFingerprint = operationFingerprint([args.expectedEventVersion, args.reason]);
+    const requestFingerprint = operationFingerprint([args.expectedEventVersion, args.reason, args.rsvpClosesAt, args.rsvpReminderAt ?? null]);
     const prior = await findOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -569,6 +587,11 @@ export const releaseAdmissionResults = mutation({
         message: "Results can be released only after applications close.",
       });
     }
+    validateAdmissionRsvpSchedule(event, args.rsvpClosesAt, args.rsvpReminderAt, now);
+    await requirePermission(ctx, {
+      eventId: event._id, eventAccessSubjectId: subject._id,
+      permissionKey: "application.offer.manage", scopeType: "event",
+    });
     const communicationsPolicyVersionId = await publishedCommunicationsPolicyId(ctx, event._id);
     const applications = await ctx.db
       .query("applications")
@@ -595,9 +618,13 @@ export const releaseAdmissionResults = mutation({
         throw new Error("A recorded admission decision is incomplete.");
       }
     }
+    await requireAdmissionRsvpCapacity(ctx, active.filter(application => application.humanDecision === "accept"));
     const reason = normalizedText(args.reason, "Release reason", 5, 500);
     await ctx.db.patch(event._id, {
       admissionResultsReleasedAt: now,
+      admissionRsvpClosesAt: args.rsvpClosesAt,
+      admissionRsvpReminderAt: args.rsvpReminderAt,
+      admissionRsvpOpenedByPersonId: person._id,
       admissionResultsReleasedByPersonId: person._id,
       admissionResultsCommunicationsPolicyId: communicationsPolicyVersionId,
       version: event.version + 1,
@@ -3569,19 +3596,6 @@ function storedOfferOperationResult(
   };
 }
 
-function requireOfferExpiry(event: Doc<"events">, expiresAt: number, now: number) {
-  const latestAllowedExpiry = Math.min(
-    event.startsAt ?? now + 30 * 24 * 60 * 60 * 1_000,
-    now + 30 * 24 * 60 * 60 * 1_000,
-  );
-  if (!Number.isSafeInteger(expiresAt) || expiresAt <= now || expiresAt > latestAllowedExpiry) {
-    throw new ConvexError({
-      code: "INVALID_OFFER_EXPIRY",
-      message: "Choose a future offer deadline no later than the event start or 30 days from now.",
-    });
-  }
-}
-
 async function requireActiveOfferReservation(ctx: MutationCtx, offer: Doc<"admissionOffers">) {
   const reservation = await ctx.db
     .query("admissionCapacityReservations")
@@ -3750,6 +3764,7 @@ export async function createAdmissionOffer(
     actorPersonId: Id<"people">;
     grantIds: Id<"permissionGrants">[];
     expiresAt: number;
+    reminderAt?: number;
     now: number;
   },
 ) {
@@ -3768,7 +3783,7 @@ export async function createAdmissionOffer(
   ) {
     throw new Error("The accepted application context is incomplete.");
   }
-  requireOfferExpiry(args.event, args.expiresAt, args.now);
+  validateAdmissionRsvpSchedule(args.event, args.expiresAt, args.reminderAt, args.now);
   const offerId = await ctx.db.insert("admissionOffers", {
     eventId: args.event._id,
     applicationId: args.application._id,
@@ -3779,6 +3794,7 @@ export async function createAdmissionOffer(
     state: "offered",
     sentAt: args.now,
     expiresAt: args.expiresAt,
+    ...(args.reminderAt !== undefined ? { reminderAt: args.reminderAt } : {}),
     createdByPersonId: args.actorPersonId,
     createdByGrantIds: args.grantIds,
     version: 1,
@@ -3820,9 +3836,8 @@ export async function createAdmissionOffer(
     offerId,
     expectedOfferVersion: 1,
   });
-  const remindAt = args.now + admissionRsvpCallDelayMs;
-  if (remindAt < args.expiresAt) {
-    await ctx.scheduler.runAt(remindAt, internal.admissionOfferCalls.remind, { offerId });
+  if (args.reminderAt !== undefined) {
+    await ctx.scheduler.runAt(args.reminderAt, internal.admissionOfferCalls.remind, { offerId });
   }
   const offer = await ctx.db.get(offerId);
   const updatedApplication = await ctx.db.get(args.application._id);
@@ -3920,6 +3935,10 @@ export const finalizeReleasedAdmissionResults = internalMutation({
           onboardingStatus: "selected",
           cursor: null,
         });
+        await ctx.scheduler.runAfter(0, internal.admissionRsvp.openForApplication, {
+          applicationId: application._id,
+        });
+        continue;
       }
       await enqueueAdmissionDecisionNotifications(ctx, {
         eventId: args.eventId,
@@ -4030,6 +4049,7 @@ export const sendOffer = mutation({
     applicationId: v.id("applications"),
     expectedApplicationVersion: v.number(),
     expiresAt: v.number(),
+    reminderAt: v.optional(v.number()),
     clientOperationId: v.string(),
   },
   returns: offerMutationResult,
@@ -4039,6 +4059,7 @@ export const sendOffer = mutation({
       args.applicationId,
       args.expectedApplicationVersion,
       args.expiresAt,
+      args.reminderAt ?? null,
     ]);
     const prior = await findOperation(ctx, {
       eventId: event._id,
@@ -4095,6 +4116,7 @@ export const sendOffer = mutation({
       actorPersonId: person._id,
       grantIds,
       expiresAt: args.expiresAt,
+      ...(args.reminderAt !== undefined ? { reminderAt: args.reminderAt } : {}),
       now,
     });
     const offerId = created.offer._id;

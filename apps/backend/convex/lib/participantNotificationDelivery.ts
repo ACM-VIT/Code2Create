@@ -125,7 +125,7 @@ export async function ensureApplicationNotification(
   // External admissions are communicated by the registration team, outside this release.
   if (
     membership.participantClass === "external_participant" &&
-    (args.templateKey === "accept" || args.templateKey === "waitlist" || args.templateKey === "decline")
+    args.templateKey !== "external_event_pass"
   ) {
     return null;
   }

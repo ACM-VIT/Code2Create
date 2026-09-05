@@ -13,7 +13,7 @@ export const remind = internalMutation({
   handler: async (ctx, args) => {
     const now = Date.now();
     const current = await currentAdmissionRsvpReminder(ctx, args.offerId, now);
-    if (!current) return null;
+    if (!current || now < (current.offer.reminderAt ?? Infinity)) return null;
     const { offer, team, event, leader, grantIds } = current;
     const profile = await ctx.db
       .query("participantProfiles")
