@@ -34,6 +34,7 @@
 }
 
 :root {
+  color-scheme: dark;
   font-family:
     system-ui,
     -apple-system,
@@ -80,6 +81,7 @@ select {
   font: inherit;
 }
 button:focus-visible,
+summary:focus-visible,
 a:focus-visible,
 input:focus-visible,
 textarea:focus-visible,
@@ -645,11 +647,6 @@ html:has(.intelligence-workspace) {
 .phase-card header strong {
   margin-top: 4px;
   font-size: 0.84rem;
-}
-.phase-field-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 0.8fr) repeat(2, minmax(0, 1fr));
-  gap: 14px;
 }
 .phase-card textarea {
   min-height: 72px;
@@ -1483,8 +1480,7 @@ html:has(.intelligence-workspace) {
 .section-heading > .secondary {
   flex: 0 0 auto;
 }
-/* A row of actions stays a row — including inside headings, whose title
-   block rule (`> div { display: grid }`) would otherwise stack them. */
+/* Heading actions wrap independently of the title's layout. */
 .button-row {
   display: flex;
   flex-wrap: wrap;
@@ -2202,11 +2198,7 @@ textarea {
    a two-line label); otherwise the grid stretches both rows and the control
    grows and drifts down. */
 .field {
-  display: grid;
-  align-content: start;
-  gap: 7px;
-  color: var(--muted);
-  font-size: 0.76rem;
+  @apply grid min-w-0 content-start gap-2 text-[0.8125rem] leading-normal text-ink-2;
 }
 .field small {
   color: var(--faint);
@@ -2217,15 +2209,7 @@ textarea {
 }
 .primary,
 .secondary {
-  display: inline-flex;
-  min-height: 30px;
-  align-items: center;
-  justify-content: center;
-  padding: 0 12px;
-  font-size: 0.8125rem;
-  font-weight: 500;
-  border-radius: var(--radius-control);
-  cursor: pointer;
+  @apply inline-flex min-h-9 max-w-full cursor-pointer items-center justify-center rounded-md px-3 py-1.5 text-center text-[0.8125rem] font-medium leading-5;
 }
 .primary {
   color: var(--background);
@@ -2737,13 +2721,15 @@ button:disabled {
   gap: 14px;
 }
 .roll-call-title strong,
-.roll-call-title span {
+.roll-call-title > span,
+.roll-call-title > div > span {
   display: block;
 }
 .roll-call-title strong {
   margin-bottom: 4px;
 }
-.roll-call-title span {
+.roll-call-title > span,
+.roll-call-title > div > span {
   color: var(--muted);
   font-size: 0.72rem;
 }
@@ -3937,11 +3923,8 @@ button:disabled {
   color: var(--muted);
   font-size: 0.72rem;
 }
-.panel-strip span {
-  padding: 5px 7px;
-  background: var(--surface);
-  border: 0;
-  border-radius: var(--radius-card);
+.panel-strip > span {
+  @apply rounded-xl border-0 bg-surface px-[7px] py-[5px];
 }
 .review-panel-list {
   display: grid;
@@ -4113,13 +4096,16 @@ button:disabled {
   padding: 14px 2px;
   border-bottom: 1px solid var(--border);
 }
-.published-rounds strong,
-.published-rounds span,
+.published-rounds > div > strong,
+.published-rounds > div > div > strong,
+.published-rounds > div > span,
+.published-rounds > div > div > span,
 .reviewer-profile-heading strong,
 .reviewer-profile-heading span {
   display: block;
 }
-.published-rounds span,
+.published-rounds > div > span,
+.published-rounds > div > div > span,
 .reviewer-profile-heading span {
   margin-top: 4px;
   color: var(--muted);
@@ -4295,13 +4281,8 @@ button:disabled {
   flex-wrap: wrap;
   gap: 7px;
 }
-.coverage-strip span {
-  padding: 5px 7px;
-  color: var(--muted);
-  font-size: 0.7rem;
-  background: var(--surface);
-  border: 0;
-  border-radius: var(--radius-card);
+.coverage-strip > span {
+  @apply rounded-xl border-0 bg-surface px-[7px] py-[5px] text-[0.7rem] text-ink-2;
 }
 .coverage-strip .needs-attention {
   color: var(--danger);
@@ -5101,7 +5082,6 @@ button:disabled {
   .novelty-corpus-file-row .file-button {
     justify-self: start;
   }
-  .phase-field-grid,
   .published-phase-list li {
     grid-template-columns: 1fr;
   }
@@ -5492,7 +5472,7 @@ button:disabled {
 .synesthesia-window-heading strong,
 .synesthesia-window-heading span,
 .synesthesia-request-heading strong,
-.synesthesia-request-heading span,
+.synesthesia-request-heading > div > span,
 .synesthesia-catalog-track strong,
 .synesthesia-catalog-track span {
   display: block;
@@ -5505,7 +5485,7 @@ button:disabled {
 }
 .synesthesia-window-heading span,
 .synesthesia-window-heading small,
-.synesthesia-request-heading span,
+.synesthesia-request-heading > div > span,
 .synesthesia-request-state,
 .synesthesia-catalog-track span,
 .synesthesia-catalog-track small {
@@ -5613,7 +5593,7 @@ button:disabled {
   gap: 3px;
   text-align: right;
 }
-.synesthesia-request-state span {
+.synesthesia-request-state > span {
   color: var(--text);
 }
 .synesthesia-request-note {
@@ -5831,13 +5811,13 @@ button:disabled {
   flex: 0 0 auto;
   font-size: 0.75rem;
 }
-.sidebar-wordmark {
+.sidebar-logo {
   display: block;
+  width: fit-content;
   padding: 4px 10px 16px;
-  color: var(--text);
-  font-size: 0.875rem;
-  font-weight: 500;
-  text-decoration: none;
+}
+.sidebar-logo svg {
+  display: block;
 }
 
 .health-shell {
@@ -6194,7 +6174,6 @@ button.row-action {
 }
 
 .form-grid,
-.phase-field-grid,
 .configuration-field-grid,
 .intake-policy-grid {
   gap: 14px;
@@ -6293,8 +6272,7 @@ label > span {
 .manual-incident-summary > div,
 .manual-sheet-title > div,
 .manual-new-sheet > div,
-.section-heading > div,
-.page-heading > div {
+:where(.section-heading, .page-heading) > div {
   display: grid;
   gap: 2px;
   min-width: 0;
@@ -6932,12 +6910,14 @@ label > span {
 .reviewer-profile-row:hover {
   background: var(--hover);
 }
-.published-rounds strong,
+.published-rounds > div > strong,
+.published-rounds > div > div > strong,
 .reviewer-profile-heading strong {
   font-size: 0.8125rem;
   font-weight: 500;
 }
-.published-rounds span,
+.published-rounds > div > span,
+.published-rounds > div > div > span,
 .reviewer-profile-heading span {
   margin-top: 2px;
   font-size: 0.75rem;
@@ -6968,10 +6948,14 @@ label > span {
   font-size: 0.8125rem;
 }
 .published-round-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
+  @apply flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-center sm:gap-4;
+}
+.published-round-row > strong,
+.published-round-row > span {
+  @apply min-w-0 [overflow-wrap:anywhere];
+}
+.published-round-row > span {
+  @apply sm:text-right;
 }
 .published-round-row > div {
   display: grid;
@@ -7155,7 +7139,7 @@ label > span {
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 8px 12px;
   }
-  .sidebar-wordmark {
+  .sidebar-logo {
     grid-column: 1;
     grid-row: 1;
     padding: 4px 10px;
@@ -7752,12 +7736,10 @@ textarea:focus {
   border-color: color-mix(in srgb, var(--accent) 55%, var(--border-strong));
 }
 .check-row {
-  display: flex;
-  width: fit-content;
-  align-items: center;
-  gap: 8px;
-  color: var(--muted);
-  font-size: 0.75rem;
+  @apply flex min-h-9 w-fit max-w-full items-start gap-2.5 py-2 text-[0.8125rem] leading-5 text-ink-2;
+}
+.check-row > input {
+  @apply mt-0.5 shrink-0;
 }
 
 @media (min-width: 900px) {
@@ -8550,6 +8532,7 @@ textarea:focus {
 }
 .review-team-workspace-heading,
 .score-team-workspace-heading {
+  @apply flex-wrap;
   align-items: end;
   margin-bottom: 10px;
 }
@@ -9119,7 +9102,20 @@ textarea:focus {
   gap: 12px;
 }
 .support-status-field {
-  flex: 0 1 240px;
+  flex: 1 1 360px;
+}
+.support-status-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.support-status-buttons .secondary {
+  min-height: 38px;
+}
+.support-status-buttons .secondary[aria-pressed="true"] {
+  color: var(--text);
+  background: var(--hover);
+  opacity: 1;
 }
 .support-composer-actions .primary {
   min-height: 38px;
@@ -9187,6 +9183,113 @@ textarea:focus {
 }
 
 /* Applications: a stage queue that coordinators can assign from and reviewers can work through. */
+.admission-deck {
+  padding-block: 24px 32px;
+  border-bottom: 1px solid var(--border);
+  scroll-margin-top: 24px;
+}
+.admission-deck-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+.admission-deck-heading h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+.admission-deck-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+.admission-deck-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 14px;
+  min-width: 0;
+  padding: 18px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+}
+.admission-deck-card.claimed {
+  border-color: var(--accent);
+}
+.admission-deck-card h3 {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.admission-deck-card-status,
+.admission-deck-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px 12px;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+}
+.admission-deck-card-status {
+  min-height: 24px;
+}
+.admission-deck-idea {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+.admission-deck-card-meta {
+  margin-top: auto;
+}
+.admission-deck-actions {
+  display: grid;
+  grid-template-rows: 36px minmax(36px, auto);
+  gap: 6px;
+}
+.admission-deck-actions > .primary {
+  justify-self: stretch;
+  text-align: center;
+  text-decoration: none;
+}
+.admission-deck-actions > .notice {
+  grid-row: 3;
+}
+.admission-deck-release {
+  justify-self: center;
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+.admission-deck-empty {
+  margin: 0;
+  padding: 32px 20px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-card);
+  color: var(--muted);
+  text-align: center;
+}
+@media (max-width: 1000px) {
+  .admission-deck-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  .admission-deck-heading { align-items: start; flex-direction: column; }
+  .admission-deck-grid { grid-template-columns: minmax(0, 1fr); }
+  .admission-deck-actions { grid-template-rows: none; grid-auto-rows: minmax(36px, auto); }
+}
 .admissions-control-label {
   display: block;
   color: var(--faint);
@@ -9243,20 +9346,10 @@ textarea:focus {
 }
 .admissions-toolbar {
   display: grid;
-  grid-template-columns: minmax(240px, 1fr) minmax(320px, auto) auto;
+  grid-template-columns: minmax(240px, 1fr) auto;
   align-items: end;
   gap: 14px 24px;
 }
-.admissions-filter-set {
-  display: grid;
-  gap: 8px;
-}
-.admissions-filter-set legend {
-  color: var(--faint);
-  font-size: 0.7rem;
-  font-weight: 500;
-}
-.admissions-filter-set > div,
 .admissions-toolbar-buttons {
   display: flex;
   flex-wrap: wrap;
@@ -9570,10 +9663,6 @@ textarea:focus {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
   }
-  .admissions-filter-set > div {
-    display: grid;
-    justify-items: start;
-  }
   .admissions-toolbar-buttons {
     justify-content: flex-start;
   }
@@ -9723,25 +9812,6 @@ textarea:focus {
   margin-top: 4px;
   font-size: 0.72rem;
   word-break: break-all;
-}
-/* Venue presence uses the same compact setup surface as judging configuration. */
-.venue-configuration fieldset {
-  border: 0;
-  padding: 0;
-  margin: 0;
-}
-.venue-fields {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 16px;
-  margin: 20px 0;
-}
-.venue-fields label {
-  display: grid;
-  gap: 6px;
-}
-.venue-fields input {
-  width: 100%;
 }
 .venue-table-scroll {
   overflow-x: auto;

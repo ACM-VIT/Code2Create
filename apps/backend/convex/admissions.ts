@@ -5,6 +5,7 @@ import { paginator } from "convex-helpers/server/pagination";
 import { z } from "zod";
 
 import { internal } from "./_generated/api";
+import { admissionRsvpCallDelayMs } from "./lib/admissionOfferCalls";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation, mutation, query } from "./_generated/server";
@@ -90,6 +91,11 @@ const maximumAdmissionPageSize = 100;
 export const admissionReviewClaimMs = 30 * 60 * 1_000;
 const admissionTeamOrigin = v.union(v.literal("internal"), v.literal("external"));
 const admissionQueueStage = v.union(applicationState, v.literal("recorded"));
+const admissionReviewProgress = v.union(
+  v.literal("unreviewed"),
+  v.literal("partial"),
+  v.literal("complete"),
+);
 const recommendationOutcome = v.union(v.literal("accepted"), v.literal("waitlisted"), v.literal("rejected"));
 const recommendationFilter = v.union(
   v.object({ source: v.literal("idea"), outcome: v.union(recommendationOutcome, v.literal("unavailable")) }),
@@ -100,6 +106,14 @@ function applicationQueueStage(application: Doc<"applications">): Doc<"applicati
   return application.decisionStage === "recorded" && application.state !== "withdrawn"
     ? "recorded"
     : application.state;
+}
+
+function applicationReviewProgress(
+  application: Pick<Doc<"applications">, "completedReviewCount">,
+  minimumHumanReviews: number,
+): Infer<typeof admissionReviewProgress> {
+  if (application.completedReviewCount === 0) return "unreviewed";
+  return application.completedReviewCount < minimumHumanReviews ? "partial" : "complete";
 }
 
 type HumanReviewScoreSource = Pick<
@@ -168,6 +182,23 @@ async function applicationMatchesRecommendation(
   return humanReviewOutcome(countHumanReviewScore(reviews, application.contentVersion), policy.minimumHumanReviews) === filter.outcome;
 }
 
+/** Null means event-wide AI access; a set limits summaries and filters to granted applications. */
+async function admissionAiReadScopeIds(
+  ctx: QueryCtx,
+  eventId: Id<"events">,
+  eventAccessSubjectId: Id<"eventAccessSubjects">,
+) {
+  const eventGrants = await matchingPermissionGrantIds(ctx, {
+    eventId, eventAccessSubjectId,
+    permissionKey: "application.ai_recommendation.read", scopeType: "event",
+  });
+  return eventGrants.length > 0 ? null : boundedActivePermissionScopeIds(ctx, {
+    eventId, eventAccessSubjectId,
+    permissionKey: "application.ai_recommendation.read", scopeType: "application",
+    maximumScopeCount: maximumScopedApplicationsForStageCounts,
+  });
+}
+
 function requireAdmissionPageSize(numItems: number) {
   if (!Number.isSafeInteger(numItems) || numItems < 1 || numItems > maximumAdmissionPageSize) {
     throw new ConvexError({
@@ -185,6 +216,22 @@ async function applicationMatchesOrigin(
   if (origin === undefined) return true;
   const team = await ctx.db.get(application.teamId);
   return team !== null && teamMatchesOrigin(team, origin);
+}
+
+async function applicationMatchesReviewProgress(
+  ctx: QueryCtx,
+  application: Doc<"applications">,
+  progress: Infer<typeof admissionReviewProgress> | undefined,
+) {
+  if (progress === undefined) return true;
+  if (application.state === "withdrawn") return false;
+  if (application.completedReviewCount === 0) return progress === "unreviewed";
+  if (progress === "unreviewed") return false;
+  const policy = await ctx.db.get(application.admissionPolicyVersionId);
+  if (!policy || policy.eventId !== application.eventId) {
+    throw new Error("An application admission policy is missing.");
+  }
+  return applicationReviewProgress(application, policy.minimumHumanReviews) === progress;
 }
 
 async function rosterCohort(ctx: QueryCtx, project: Doc<"projectVersions">) {
@@ -212,19 +259,7 @@ export const stageCounts = query({
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
-    const eventGrantIds = await matchingPermissionGrantIds(ctx, {
-      eventId: event._id,
-      eventAccessSubjectId: subject._id,
-      permissionKey: "application.read",
-      scopeType: "event",
-    });
-    const applications =
-      eventGrantIds.length > 0
-        ? await ctx.db
-            .query("applications")
-            .withIndex("by_event_state_submitted", (index) => index.eq("eventId", event._id))
-            .collect()
-        : await scopedApplicationsForStageCounts(ctx, event._id, subject._id);
+    const applications = await readableApplicationsForCounts(ctx, event._id, subject._id);
     const counts = new Map<ReturnType<typeof applicationQueueStage>, number>();
     for (const application of applications) {
       if (!(await applicationMatchesOrigin(ctx, application, args.origin))) continue;
@@ -238,6 +273,46 @@ export const stageCounts = query({
       counts.set(stage, (counts.get(stage) ?? 0) + 1);
     }
     return [...counts.entries()].map(([state, count]) => ({ state, count }));
+  },
+});
+
+/** Returns mutually exclusive human-review coverage counts for readable active applications. */
+export const reviewProgressCounts = query({
+  args: {
+    eventSlug: v.string(),
+    origin: v.optional(admissionTeamOrigin),
+  },
+  returns: v.object({
+    total: v.number(),
+    unreviewed: v.number(),
+    partial: v.number(),
+    complete: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    const readable = await readableApplicationsForCounts(ctx, event._id, subject._id);
+    const active = [];
+    for (const application of readable) {
+      if (application.state === "withdrawn") continue;
+      if (!(await applicationMatchesOrigin(ctx, application, args.origin))) continue;
+      active.push(application);
+    }
+    const policyIds = [...new Set(active.map((application) => application.admissionPolicyVersionId))];
+    const policies = await getAll(ctx.db, "admissionPolicyVersions", policyIds);
+    const policiesById = new Map(
+      policies.filter((policy) => policy !== null).map((policy) => [policy._id, policy]),
+    );
+    const counts = { total: active.length, unreviewed: 0, partial: 0, complete: 0 };
+    for (const application of active) {
+      const policy = policiesById.get(application.admissionPolicyVersionId);
+      if (!policy || policy.eventId !== event._id) {
+        throw new Error("An application admission policy is missing.");
+      }
+      counts[applicationReviewProgress(application, policy.minimumHumanReviews)] += 1;
+    }
+    return counts;
   },
 });
 
@@ -282,10 +357,10 @@ const humanReviewSummaryCounts = v.object({
   needed: v.number(),
 });
 
-export const admissionResultsReleaseStatus = query({
+export const admissionSummary = query({
   args: { eventSlug: v.string() },
   returns: v.object({
-    isSupreme: v.boolean(),
+    canReleaseResults: v.boolean(),
     serverNow: v.number(),
     eventVersion: v.number(),
     applicationsCloseAt: v.number(),
@@ -307,6 +382,16 @@ export const admissionResultsReleaseStatus = query({
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const supremeRole = await activeSupremeRole(ctx, event._id, person._id);
+    const readGrantIds = await matchingPermissionGrantIds(ctx, {
+      eventId: event._id, eventAccessSubjectId: subject._id,
+      permissionKey: "application.read", scopeType: "event",
+    });
+    const decisionGrantIds = supremeRole && readGrantIds.length > 0
+      ? await matchingPermissionGrantIds(ctx, {
+          eventId: event._id, eventAccessSubjectId: subject._id,
+          permissionKey: "application.decide", scopeType: "event",
+        })
+      : [];
     const counts = {
       total: 0, reviewsComplete: 0, reviewsNeeded: 0,
       unrecorded: 0, recorded: 0, released: 0,
@@ -317,36 +402,19 @@ export const admissionResultsReleaseStatus = query({
       accepted: 0, waitlisted: 0, rejected: 0, split: 0, needed: 0,
       people: { accepted: 0, waitlisted: 0, rejected: 0, split: 0, needed: 0 },
     };
-    if (!supremeRole) {
-      return {
-        isSupreme: false,
-        serverNow: Date.now(),
-        eventVersion: event.version,
-        applicationsCloseAt: event.applicationsCloseAt,
-        ...(event.admissionResultsReleasedAt !== undefined
-          ? { releasedAt: event.admissionResultsReleasedAt }
-          : {}),
-        ...counts,
-        people,
-        humanReviews,
-        ideaAgent: null,
-      };
-    }
-    const applications = await ctx.db
-      .query("applications")
-      .withIndex("by_event_submitted", (index) => index.eq("eventId", event._id))
-      .collect();
+    const applications = readGrantIds.length > 0
+      ? await ctx.db
+          .query("applications")
+          .withIndex("by_event_submitted", (index) => index.eq("eventId", event._id))
+          .collect()
+      : await scopedApplicationsForStageCounts(ctx, event._id, subject._id);
     const active = applications.filter(
       (application) =>
         application.state !== "withdrawn" || application.decisionStage === "released",
     );
-    const aiGrantIds = await matchingPermissionGrantIds(ctx, {
-      eventId: event._id,
-      eventAccessSubjectId: subject._id,
-      permissionKey: "application.ai_recommendation.read",
-      scopeType: "event",
-    });
-    const ideaAgent = aiGrantIds.length > 0
+    const aiScopeIds = await admissionAiReadScopeIds(ctx, event._id, subject._id);
+    const aiApplications = active.filter((application) => aiScopeIds === null || aiScopeIds.has(application._id));
+    const ideaAgent = aiScopeIds === null || aiScopeIds.size > 0
       ? {
           accepted: 0, waitlisted: 0, rejected: 0, unavailable: 0,
           people: { accepted: 0, waitlisted: 0, rejected: 0, unavailable: 0 },
@@ -355,7 +423,7 @@ export const admissionResultsReleaseStatus = query({
     const policyIds = [...new Set(active.map((application) => application.admissionPolicyVersionId))];
     const projectIds = [...new Set(active.map((application) => application.submittedProjectVersionId))];
     const recommendationIds = ideaAgent
-      ? [...new Set(active.flatMap((application) =>
+      ? [...new Set(aiApplications.flatMap((application) =>
           application.aiRecommendationId ? [application.aiRecommendationId] : [],
         ))]
       : [];
@@ -400,7 +468,7 @@ export const admissionResultsReleaseStatus = query({
       const humanOutcome = humanReviewOutcome(score, policy.minimumHumanReviews);
       humanReviews[humanOutcome] += 1;
       humanReviews.people[humanOutcome] += memberCount;
-      if (ideaAgent) {
+      if (ideaAgent && (aiScopeIds === null || aiScopeIds.has(application._id))) {
         const recommendation = application.aiRecommendationId
           ? recommendationsById.get(application.aiRecommendationId)
           : null;
@@ -420,7 +488,7 @@ export const admissionResultsReleaseStatus = query({
       ? await ctx.db.get(event.admissionResultsReleasedByPersonId)
       : null;
     return {
-      isSupreme: true,
+      canReleaseResults: decisionGrantIds.length > 0,
       serverNow: Date.now(),
       eventVersion: event.version,
       applicationsCloseAt: event.applicationsCloseAt,
@@ -602,6 +670,32 @@ async function scopedApplicationsForStageCounts(
   return applications.filter((application) => application !== null);
 }
 
+async function readableApplicationsForCounts(
+  ctx: QueryCtx,
+  eventId: Id<"events">,
+  eventAccessSubjectId: Id<"eventAccessSubjects">,
+) {
+  const eventGrantIds = await matchingPermissionGrantIds(ctx, {
+    eventId,
+    eventAccessSubjectId,
+    permissionKey: "application.read",
+    scopeType: "event",
+  });
+  if (eventGrantIds.length === 0) {
+    return scopedApplicationsForStageCounts(ctx, eventId, eventAccessSubjectId);
+  }
+  const applications = await ctx.db
+    .query("applications")
+    .withIndex("by_event_state_submitted", (index) => index.eq("eventId", eventId))
+    .take(maximumApplicantTeamsPerEvent + 1);
+  if (applications.length > maximumApplicantTeamsPerEvent) {
+    throw new Error(
+      `Admission counts support at most ${maximumApplicantTeamsPerEvent} applicant teams.`,
+    );
+  }
+  return applications;
+}
+
 async function applicationListProjection(
   ctx: QueryCtx,
   eventId: Id<"events">,
@@ -690,6 +784,7 @@ export const list = query({
     eventSlug: v.string(),
     state: v.optional(admissionQueueStage),
     origin: v.optional(admissionTeamOrigin),
+    reviewProgress: v.optional(admissionReviewProgress),
     completedReviewCount: v.optional(v.literal(1)),
     needsReview: v.optional(v.literal(true)),
     recommendationFilter: v.optional(recommendationFilter),
@@ -701,14 +796,18 @@ export const list = query({
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
     requireAdmissionPageSize(args.paginationOpts.numItems);
-    if (args.recommendationFilter?.source === "idea") {
-      await requirePermission(ctx, {
-        eventId: event._id, eventAccessSubjectId: subject._id,
-        permissionKey: "application.ai_recommendation.read", scopeType: "event",
-      });
+    const aiScopeIds = args.recommendationFilter?.source === "idea"
+      ? await admissionAiReadScopeIds(ctx, event._id, subject._id) : null;
+    if (aiScopeIds?.size === 0) {
+      throw new ConvexError({ code: "ACCESS_DENIED", message: "This account lacks AI recommendation read permission." });
     }
     const state = args.state;
-    if (args.origin !== undefined || args.needsReview || args.recommendationFilter) {
+    if (
+      args.origin !== undefined ||
+      args.reviewProgress !== undefined ||
+      args.needsReview ||
+      args.recommendationFilter
+    ) {
       const applications = paginator(ctx.db, schema).query("applications");
       const applicationQuery = state === "recorded"
         ? applications.withIndex("by_event_decision_stage", (index) =>
@@ -721,6 +820,7 @@ export const list = query({
       return applicationQuery
         .order("asc")
         .map(async (application) => {
+          if (aiScopeIds !== null && !aiScopeIds.has(application._id)) return null;
           if (state !== undefined && applicationQueueStage(application) !== state) return null;
           if (
             args.completedReviewCount !== undefined &&
@@ -729,26 +829,33 @@ export const list = query({
             return null;
           }
           if (!(await applicationMatchesOrigin(ctx, application, args.origin))) return null;
+          if (!(await applicationMatchesReviewProgress(ctx, application, args.reviewProgress))) {
+            return null;
+          }
           if (args.recommendationFilter &&
             !(await applicationMatchesRecommendation(ctx, application, args.recommendationFilter))) return null;
-          const projected = await visibleApplicationListProjection(
+          // Check review shortfalls before loading permissions, project details, and reviews.
+          if (args.needsReview) {
+            const policy = await ctx.db.get(application.admissionPolicyVersionId);
+            if (!policy || application.completedReviewCount >= policy.minimumHumanReviews) {
+              return null;
+            }
+          }
+          return visibleApplicationListProjection(
             ctx,
             event._id,
             subject._id,
             application,
           );
-          if (
-            args.needsReview &&
-            projected &&
-            projected.completedReviewCount >= projected.minimumHumanReviews
-          ) {
-            return null;
-          }
-          return projected;
         })
         .paginate({
           ...args.paginationOpts,
-          maximumRowsRead: args.recommendationFilter ? maximumAdmissionPageSize : maximumApplicantTeamsPerEvent + 1,
+          // Filtered-out rows still consume reads; return a continuation before
+          // scanning an entire cohort and exhausting the transaction budget.
+          maximumRowsRead: Math.min(
+            args.paginationOpts.maximumRowsRead ?? maximumAdmissionPageSize,
+            maximumAdmissionPageSize,
+          ),
         });
     }
     const applications = ctx.db.query("applications");
@@ -792,6 +899,7 @@ export const searchApplications = query({
     state: v.optional(admissionQueueStage),
     search: v.string(),
     origin: v.optional(admissionTeamOrigin),
+    reviewProgress: v.optional(admissionReviewProgress),
     completedReviewCount: v.optional(v.literal(1)),
     needsReview: v.optional(v.literal(true)),
     recommendationFilter: v.optional(recommendationFilter),
@@ -807,11 +915,10 @@ export const searchApplications = query({
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
-    if (args.recommendationFilter?.source === "idea") {
-      await requirePermission(ctx, {
-        eventId: event._id, eventAccessSubjectId: subject._id,
-        permissionKey: "application.ai_recommendation.read", scopeType: "event",
-      });
+    const aiScopeIds = args.recommendationFilter?.source === "idea"
+      ? await admissionAiReadScopeIds(ctx, event._id, subject._id) : null;
+    if (aiScopeIds?.size === 0) {
+      throw new ConvexError({ code: "ACCESS_DENIED", message: "This account lacks AI recommendation read permission." });
     }
     const state = args.state;
     const applicationQuery = ctx.db.query("applications");
@@ -851,13 +958,14 @@ export const searchApplications = query({
           (application) =>
             (state === undefined || applicationQueueStage(application) === state) &&
             (readableScopeIds === null || readableScopeIds.has(application._id)) &&
+            (aiScopeIds === null || aiScopeIds.has(application._id)) &&
             (args.completedReviewCount === undefined ||
               application.completedReviewCount === args.completedReviewCount),
         )
         .map(async (application) => {
           const [team, policy] = await Promise.all([
             ctx.db.get(application.teamId),
-            args.needsReview
+            args.needsReview || args.reviewProgress !== undefined
               ? ctx.db.get(application.admissionPolicyVersionId)
               : Promise.resolve(null),
           ]);
@@ -871,7 +979,12 @@ export const searchApplications = query({
           !searchTerms.every((term) => team.name.toLowerCase().includes(term)) ||
           (args.origin !== undefined && !teamMatchesOrigin(team, args.origin)) ||
           (args.needsReview &&
-            (!policy || application.completedReviewCount >= policy.minimumHumanReviews))
+            (!policy || application.completedReviewCount >= policy.minimumHumanReviews)) ||
+          (args.reviewProgress !== undefined &&
+            (!policy ||
+              policy.eventId !== event._id ||
+              application.state === "withdrawn" ||
+              applicationReviewProgress(application, policy.minimumHumanReviews) !== args.reviewProgress))
         ) {
           return [];
         }
@@ -920,6 +1033,179 @@ const assignedReviewItem = v.object({
 
 const reviewAssignmentCountRow = v.object({
   state: v.union(v.literal("active"), v.literal("completed")),
+});
+
+const reviewDeckItem = v.object({
+  applicationId: v.id("applications"),
+  applicationVersion: v.number(),
+  teamName: v.string(),
+  idea: v.string(),
+  memberCount: v.number(),
+  completedReviewCount: v.number(),
+  minimumHumanReviews: v.number(),
+  assignment: v.union(v.null(), v.object({
+    id: v.id("admissionReviewAssignments"),
+    version: v.number(),
+    expiresAt: v.number(),
+  })),
+});
+
+async function admissionPermissionScope(
+  ctx: QueryCtx,
+  eventId: Id<"events">,
+  eventAccessSubjectId: Id<"eventAccessSubjects">,
+  permissionKey: "application.read" | "application.review.read" | "application.review" | "application.assign",
+) {
+  const grants = await matchingPermissionGrantIds(ctx, {
+    eventId, eventAccessSubjectId, permissionKey, scopeType: "event",
+  });
+  return grants.length > 0 ? null : boundedActivePermissionScopeIds(ctx, {
+    eventId, eventAccessSubjectId, permissionKey, scopeType: "application",
+    maximumScopeCount: maximumScopedApplicationsForStageCounts,
+  });
+}
+
+function acceptsDeckReview(application: Doc<"applications">) {
+  return application.decisionStage === "unrecorded" &&
+    (application.state === "submitted" || application.state === "under_review");
+}
+
+async function deckReviewAccess(
+  ctx: QueryCtx | MutationCtx,
+  application: Doc<"applications">,
+  subject: Doc<"eventAccessSubjects">,
+) {
+  const grantIds = await matchingPermissionGrantIds(ctx, {
+    eventId: application.eventId,
+    eventAccessSubjectId: subject._id,
+    permissionKey: "application.review_deck.use",
+    scopeType: "event",
+  });
+  if (grantIds.length === 0) return null;
+  const assignments = await Promise.all(
+    (["active", "completed"] as const).map((state) => ctx.db
+      .query("admissionReviewAssignments")
+      .withIndex("by_application_reviewer_state", (index) => index
+        .eq("applicationId", application._id)
+        .eq("reviewerPersonId", subject.personId)
+        .eq("state", state))
+      .order("desc")
+      .first()),
+  );
+  const now = Date.now();
+  const assignment = assignments.find((candidate) => candidate &&
+    candidate.applicationContentVersion === application.contentVersion &&
+    (candidate.state === "completed" || candidate.assignedAt + admissionReviewClaimMs > now));
+  return assignment ? { grantIds, assignment } : null;
+}
+
+function liveApplicationAssignments(
+  ctx: QueryCtx | MutationCtx,
+  application: Doc<"applications">,
+  now: number,
+  limit: number,
+) {
+  return ctx.db.query("admissionReviewAssignments")
+    .withIndex("by_application_state_assigned", (index) =>
+      index.eq("applicationId", application._id).eq("state", "active")
+        .gt("assignedAt", now - admissionReviewClaimMs),
+    )
+    .filter((filter) => filter.eq(filter.field("applicationContentVersion"), application.contentVersion))
+    .take(limit);
+}
+
+export const reviewDeck = query({
+  args: {
+    eventSlug: v.string(),
+    now: v.number(),
+    origin: v.optional(admissionTeamOrigin),
+    excludeApplicationId: v.optional(v.id("applications")),
+  },
+  returns: v.union(v.null(), v.array(reviewDeckItem)),
+  handler: async (ctx, args) => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    const now = Date.now();
+    const [read, reviewRead, review, assign, deckGrants] = await Promise.all([
+      admissionPermissionScope(ctx, event._id, subject._id, "application.read"),
+      admissionPermissionScope(ctx, event._id, subject._id, "application.review.read"),
+      admissionPermissionScope(ctx, event._id, subject._id, "application.review"),
+      admissionPermissionScope(ctx, event._id, subject._id, "application.assign"),
+      matchingPermissionGrantIds(ctx, {
+        eventId: event._id, eventAccessSubjectId: subject._id,
+        permissionKey: "application.review_deck.use", scopeType: "event",
+      }),
+    ]);
+    const canUseDeck = deckGrants.length > 0;
+    if (!canUseDeck && review?.size === 0 && assign?.size === 0) return null;
+    const [applications, assignments] = await Promise.all([
+      ctx.db.query("applications")
+        .withIndex("by_event_decision_stage", (index) =>
+          index.eq("eventId", event._id).eq("decisionStage", "unrecorded"),
+        ).take(maximumApplicantTeamsPerEvent + 1),
+      ctx.db.query("admissionReviewAssignments")
+        .withIndex("by_event_reviewer_state_assigned", (index) =>
+          index.eq("eventId", event._id).eq("reviewerPersonId", person._id).eq("state", "active")
+            .gt("assignedAt", now - admissionReviewClaimMs),
+        ).take(maximumApplicantTeamsPerEvent + 1),
+    ]);
+    if (applications.length > maximumApplicantTeamsPerEvent || assignments.length > maximumApplicantTeamsPerEvent) {
+      throw new Error("The admission review deck exceeds the event application limit.");
+    }
+    const ownAssignments = new Map(assignments.map((assignment) => [assignment.applicationId, assignment]));
+    const candidates = applications.filter((application) =>
+      acceptsDeckReview(application) && application._id !== args.excludeApplicationId &&
+      (canUseDeck || read === null || read.has(application._id) || reviewRead === null || reviewRead.has(application._id)) &&
+      (canUseDeck || review === null || review.has(application._id) || assign === null || assign.has(application._id)),
+    ).sort((a, b) =>
+      Number(ownAssignments.has(b._id)) - Number(ownAssignments.has(a._id)) ||
+      b.completedReviewCount - a.completedReviewCount || a.submittedAt - b.submittedAt,
+    );
+    const policies = await getAll(ctx.db, [...new Set(candidates.map((application) => application.admissionPolicyVersionId))]);
+    const minimums = new Map(policies.flatMap((policy) => policy ? [[policy._id, policy.minimumHumanReviews] as const] : []));
+    const pending = candidates.flatMap((application) => {
+      const minimumHumanReviews = minimums.get(application.admissionPolicyVersionId);
+      if (minimumHumanReviews === undefined) throw new Error("An application admission policy is missing.");
+      return application.completedReviewCount < minimumHumanReviews ? [{ application, minimumHumanReviews }] : [];
+    });
+    const deck: Infer<typeof reviewDeckItem>[] = [];
+    // Hydrate small batches; stop as soon as the four-card deck is full.
+    for (let offset = 0; offset < pending.length && deck.length < 4; offset += 16) {
+      const batch = await Promise.all(pending.slice(offset, offset + 16).map(async ({ application, minimumHumanReviews }) => {
+        const [ownReview, reserved, matchesOrigin] = await Promise.all([
+          ctx.db.query("admissionHumanReviews")
+            .withIndex("by_application_reviewer_status", (index) =>
+              index.eq("applicationId", application._id).eq("reviewerPersonId", person._id).eq("status", "active"),
+            ).unique(),
+          liveApplicationAssignments(ctx, application, now, minimumHumanReviews),
+          applicationMatchesOrigin(ctx, application, args.origin),
+        ]);
+        if (!matchesOrigin || ownReview?.applicationContentVersion === application.contentVersion) return null;
+        const own = ownAssignments.get(application._id);
+        const assignment = own?.applicationContentVersion === application.contentVersion ? own : null;
+        if (!assignment && application.completedReviewCount + reserved.length >= minimumHumanReviews) return null;
+        return { application, assignment, minimumHumanReviews };
+      }));
+      for (const item of batch) {
+        if (!item || deck.length === 4) continue;
+        const { application, assignment, minimumHumanReviews } = item;
+        const [team, project] = await Promise.all([
+          ctx.db.get(application.teamId), ctx.db.get(application.submittedProjectVersionId),
+        ]);
+        if (!team || !project) throw new Error("The review deck application context is missing.");
+        deck.push({
+          applicationId: application._id, applicationVersion: application.version,
+          teamName: team.name, idea: project.initialIdea.slice(0, 320), memberCount: project.lockedMemberCount,
+          completedReviewCount: application.completedReviewCount, minimumHumanReviews,
+          assignment: assignment ? {
+            id: assignment._id, version: assignment.version, expiresAt: assignment.assignedAt + admissionReviewClaimMs,
+          } : null,
+        });
+      }
+    }
+    return deck;
+  },
 });
 
 async function visibleReviewAssignmentApplication(
@@ -1247,7 +1533,8 @@ export const members = query({
       }),
       ctx.db.get(application.submittedProjectVersionId),
     ]);
-    if (fullReadGrantIds.length === 0 && reviewReadGrantIds.length === 0) {
+    const deckAccess = await deckReviewAccess(ctx, application, subject);
+    if (fullReadGrantIds.length === 0 && reviewReadGrantIds.length === 0 && !deckAccess) {
       throw new ConvexError({
         code: "ACCESS_DENIED",
         message: "This account cannot read that application or assigned review.",
@@ -1398,6 +1685,7 @@ export const detail = query({
       ),
       capacity: v.union(v.null(), v.object({ capacity: v.number(), reserved: v.number() })),
       permissions: v.object({
+        deckOnly: v.boolean(),
         review: v.boolean(),
         assign: v.boolean(),
         decide: v.boolean(),
@@ -1475,7 +1763,9 @@ export const detail = query({
     ]);
     const canReadApplication = fullReadGrantIds.length > 0;
     const canReadReview = reviewReadGrantIds.length > 0;
-    if (!canReadApplication && !canReadReview) {
+    const deckAccess = await deckReviewAccess(ctx, application, subject);
+    const deckOnly = !canReadApplication && !canReadReview && deckAccess !== null;
+    if (!canReadApplication && !canReadReview && !deckAccess) {
       throw new ConvexError({
         code: "ACCESS_DENIED",
         message: "This account cannot read that application or assigned review.",
@@ -1527,7 +1817,7 @@ export const detail = query({
     );
     const ownReview = currentReviews.find((review) => review.reviewerPersonId === person._id);
     const visibleReviews =
-      canReadApplication || ownReview
+      canReadApplication || deckAccess || ownReview
         ? currentReviews
         : currentReviews.filter((review) => review.reviewerPersonId === person._id);
     const reviewViews = [];
@@ -1589,13 +1879,13 @@ export const detail = query({
         contentVersion: application.contentVersion,
         version: application.version,
         submittedAt: application.submittedAt,
-        ...(application.humanDecision !== undefined
+        ...(!deckOnly && application.humanDecision !== undefined
           ? { humanDecision: application.humanDecision }
           : {}),
-        ...(application.humanReasonCode !== undefined
+        ...(!deckOnly && application.humanReasonCode !== undefined
           ? { humanReasonCode: application.humanReasonCode }
           : {}),
-        ...(application.aiDisposition !== undefined
+        ...(!deckOnly && application.aiDisposition !== undefined
           ? { aiDisposition: application.aiDisposition }
           : {}),
       },
@@ -1619,7 +1909,7 @@ export const detail = query({
         criteria: policy.criteria.map((criterion) => ({
           criterionKey: criterion.criterionKey,
           label: criterion.label,
-          ...(canReadProfileContext
+          ...(canReadProfileContext || deckAccess
             ? {
                 guidance: admissionGuidanceForBand(
                   criterion.guidanceByBand,
@@ -1683,7 +1973,8 @@ export const detail = query({
           : null,
       capacity: capacity ? { capacity: capacity.capacity, reserved: capacity.reserved } : null,
       permissions: {
-        review: reviewGrantIds.length > 0,
+        deckOnly,
+        review: reviewGrantIds.length > 0 || deckAccess !== null,
         assign: assignmentGrantIds.length > 0,
         decide: decideGrantIds.length > 0,
         offerManage: offerGrantIds.length > 0,
@@ -1932,6 +2223,7 @@ export async function createAdmissionReviewAssignment(
     expectedApplicationVersion: number;
     reviewerSubject: Doc<"eventAccessSubjects">;
     assignedByPersonId: Id<"people">;
+    grantReviewPermissions: boolean;
     now: number;
   },
 ) {
@@ -1959,7 +2251,8 @@ export async function createAdmissionReviewAssignment(
       message: "Choose an active account in this event.",
     });
   }
-  const [activeAssignment, activeReview] = await Promise.all([
+  const [policy, activeAssignment, activeReview] = await Promise.all([
+    ctx.db.get(args.application.admissionPolicyVersionId),
     ctx.db
       .query("admissionReviewAssignments")
       .withIndex("by_application_reviewer_state", (index) =>
@@ -1979,6 +2272,15 @@ export async function createAdmissionReviewAssignment(
       )
       .unique(),
   ]);
+  if (!policy || policy.eventId !== args.application.eventId) {
+    throw new Error("An application admission policy is missing.");
+  }
+  if (args.application.completedReviewCount >= policy.minimumHumanReviews) {
+    throw new ConvexError({
+      code: "REVIEW_COVERAGE_COMPLETE",
+      message: "This application has already met its human review minimum.",
+    });
+  }
   if (activeAssignment) {
     throw new ConvexError({
       code: "REVIEW_ALREADY_ASSIGNED",
@@ -1989,6 +2291,18 @@ export async function createAdmissionReviewAssignment(
     throw new ConvexError({
       code: "REVIEW_ALREADY_COMPLETED",
       message: "That person already reviewed the current application version.",
+    });
+  }
+  const reserved = await liveApplicationAssignments(
+    ctx,
+    args.application,
+    args.now,
+    policy.minimumHumanReviews - args.application.completedReviewCount,
+  );
+  if (args.application.completedReviewCount + reserved.length >= policy.minimumHumanReviews) {
+    throw new ConvexError({
+      code: "REVIEW_SLOTS_CLAIMED",
+      message: "The remaining reviews were just claimed. Choose another submission.",
     });
   }
   const assignmentId = await ctx.db.insert("admissionReviewAssignments", {
@@ -2002,7 +2316,7 @@ export async function createAdmissionReviewAssignment(
     assignedAt: args.now,
   });
   const sourceId = assignmentSourceId(assignmentId);
-  for (const permissionKey of ["application.review.read", "application.review"] as const) {
+  for (const permissionKey of args.grantReviewPermissions ? ["application.review.read", "application.review"] as const : []) {
     await insertPermissionGrant(ctx, {
       eventId: args.application.eventId,
       personId: args.reviewerSubject.personId,
@@ -2179,6 +2493,96 @@ export async function completeAdmissionReviewAssignment(
   return args.assignment._id;
 }
 
+export const claimReview = mutation({
+  args: {
+    eventSlug: v.string(),
+    applicationId: v.id("applications"),
+    clientOperationId: v.string(),
+  },
+  returns: v.object({
+    applicationId: v.id("applications"),
+    assignmentId: v.id("admissionReviewAssignments"),
+    assignmentState: admissionReviewAssignmentState,
+  }),
+  handler: async (ctx, args) => {
+    const { event, person, subject, application } = await applicationContext(ctx, args);
+    const requestFingerprint = operationFingerprint([application._id]);
+    const commandName = "admissions.review_assignment.claim";
+    const prior = await findOperation(ctx, {
+      eventId: event._id, actorPersonId: person._id,
+      clientOperationId: args.clientOperationId, commandName, requestFingerprint,
+    });
+    if (prior) {
+      const id = ctx.db.normalizeId("admissionReviewAssignments", prior.targetId);
+      const assignment = id ? await ctx.db.get(id) : null;
+      if (!assignment) throw new Error("The previous review claim is missing.");
+      return { applicationId: application._id, assignmentId: assignment._id, assignmentState: assignment.state };
+    }
+    const [reviewGrants, deckGrants] = await Promise.all([
+      matchingPermissionGrantIds(ctx, {
+        eventId: event._id, eventAccessSubjectId: subject._id,
+        permissionKey: "application.review", scopeType: "application", scopeId: application._id,
+      }),
+      matchingPermissionGrantIds(ctx, {
+        eventId: event._id, eventAccessSubjectId: subject._id,
+        permissionKey: "application.review_deck.use", scopeType: "event",
+      }),
+    ]);
+    const permissionKey = deckGrants.length > 0 ? "application.review_deck.use"
+      : reviewGrants.length > 0 ? "application.review" : "application.assign";
+    const grantIds = deckGrants.length > 0 ? deckGrants : reviewGrants.length > 0 ? reviewGrants : await requirePermission(ctx, {
+      eventId: event._id, eventAccessSubjectId: subject._id,
+      permissionKey, scopeType: "application", scopeId: application._id,
+    });
+    const now = Date.now();
+    const [policy, existing] = await Promise.all([
+      ctx.db.get(application.admissionPolicyVersionId),
+      ctx.db.query("admissionReviewAssignments")
+        .withIndex("by_application_reviewer_state", (index) =>
+          index.eq("applicationId", application._id).eq("reviewerPersonId", person._id).eq("state", "active"),
+        ).unique(),
+    ]);
+    if (!policy) throw new Error("An application admission policy is missing.");
+    if (!acceptsDeckReview(application) || application.completedReviewCount >= policy.minimumHumanReviews) {
+      throw new ConvexError({ code: "APPLICATION_NOT_REVIEWABLE", message: "This submission has no reviews remaining." });
+    }
+    let assignmentId: Id<"admissionReviewAssignments">;
+    if (existing && existing.assignedAt + admissionReviewClaimMs > now &&
+        existing.applicationContentVersion === application.contentVersion) {
+      assignmentId = existing._id;
+    } else {
+      let currentApplication = application;
+      if (existing) {
+        const cancelled = await cancelAdmissionReviewAssignment(ctx, {
+          application, expectedApplicationVersion: application.version,
+          assignment: existing, expectedAssignmentVersion: existing.version,
+          cancelledByPersonId: person._id, reason: "Replaced an expired or outdated review claim", now,
+        });
+        currentApplication = { ...application, assignedReviewCount: application.assignedReviewCount - 1, version: cancelled.applicationVersion };
+      }
+      const result = await createAdmissionReviewAssignment(ctx, {
+        application: currentApplication, expectedApplicationVersion: currentApplication.version,
+        reviewerSubject: subject, assignedByPersonId: person._id, now,
+        grantReviewPermissions: deckGrants.length === 0,
+      });
+      assignmentId = result.assignmentId;
+      await writeAuditEvent(ctx, {
+        eventId: event._id, actorPersonId: person._id, permissionKey, grantIds,
+        scopeType: permissionKey === "application.review_deck.use" ? "event" : "application",
+        ...(permissionKey === "application.review_deck.use" ? {} : { scopeId: application._id }),
+        action: "admission.review_assigned", targetType: "application", targetId: application._id,
+        nextSummary: JSON.stringify({ assignmentId, reviewerPersonId: person._id, applicationVersion: result.applicationVersion }),
+        reason: "Claimed application review",
+      });
+    }
+    await recordOperation(ctx, {
+      eventId: event._id, actorPersonId: person._id, clientOperationId: args.clientOperationId,
+      commandName, requestFingerprint, targetType: "admission_review_assignment", targetId: assignmentId, createdAt: now,
+    });
+    return { applicationId: application._id, assignmentId, assignmentState: activeReviewAssignmentState };
+  },
+});
+
 export const assignReview = mutation({
   args: {
     eventSlug: v.string(),
@@ -2250,6 +2654,7 @@ export const assignReview = mutation({
       expectedApplicationVersion: args.expectedApplicationVersion,
       reviewerSubject,
       assignedByPersonId: person._id,
+      grantReviewPermissions: true,
       now,
     });
     await recordOperation(ctx, {
@@ -2338,13 +2743,6 @@ export const cancelReviewAssignment = mutation({
         applicationVersion: currentApplication.version,
       };
     }
-    const grantIds = await requirePermission(ctx, {
-      eventId: event._id,
-      eventAccessSubjectId: subject._id,
-      permissionKey: "application.assign",
-      scopeType: "application",
-      scopeId: application._id,
-    });
     const assignment = await ctx.db.get(args.assignmentId);
     if (!assignment) {
       throw new ConvexError({
@@ -2352,6 +2750,25 @@ export const cancelReviewAssignment = mutation({
         message: "Review assignment not found.",
       });
     }
+    const assignGrantIds = await matchingPermissionGrantIds(ctx, {
+      eventId: event._id, eventAccessSubjectId: subject._id,
+      permissionKey: "application.assign", scopeType: "application", scopeId: application._id,
+    });
+    const ownDeckGrants = assignment.reviewerPersonId === person._id
+      ? await matchingPermissionGrantIds(ctx, {
+          eventId: event._id, eventAccessSubjectId: subject._id,
+          permissionKey: "application.review_deck.use", scopeType: "event",
+        }) : [];
+    const permissionKey = assignGrantIds.length > 0 ? "application.assign"
+      : ownDeckGrants.length > 0 ? "application.review_deck.use"
+      : assignment.reviewerPersonId === person._id ? "application.review" : "application.assign";
+    const grantIds = assignGrantIds.length > 0 ? assignGrantIds : ownDeckGrants.length > 0 ? ownDeckGrants : await requirePermission(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey,
+      scopeType: "application",
+      scopeId: application._id,
+    });
     const now = Date.now();
     const result = await cancelAdmissionReviewAssignment(ctx, {
       application,
@@ -2375,10 +2792,10 @@ export const cancelReviewAssignment = mutation({
     await writeAuditEvent(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
-      permissionKey: "application.assign",
+      permissionKey,
       grantIds,
-      scopeType: "application",
-      scopeId: application._id,
+      scopeType: permissionKey === "application.review_deck.use" ? "event" : "application",
+      ...(permissionKey === "application.review_deck.use" ? {} : { scopeId: application._id }),
       action: "admission.review_assignment_cancelled",
       targetType: "application",
       targetId: application._id,
@@ -2539,7 +2956,8 @@ export const saveReview = mutation({
         applicationVersion: storedOperationVersion(prior.resultJson, "admission-review"),
       };
     }
-    const grantIds = await requirePermission(ctx, {
+    const deckAccess = await deckReviewAccess(ctx, application, subject);
+    const grantIds = deckAccess?.grantIds ?? await requirePermission(ctx, {
       eventId: event._id,
       eventAccessSubjectId: subject._id,
       permissionKey: "application.review",
@@ -2570,10 +2988,10 @@ export const saveReview = mutation({
     await writeAuditEvent(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
-      permissionKey: "application.review",
+      permissionKey: deckAccess ? "application.review_deck.use" : "application.review",
       grantIds,
-      scopeType: "application",
-      scopeId: application._id,
+      scopeType: deckAccess ? "event" : "application",
+      ...(deckAccess ? {} : { scopeId: application._id }),
       action: "admission.human_review_saved",
       targetType: "application",
       targetId: application._id,
@@ -3402,6 +3820,10 @@ export async function createAdmissionOffer(
     offerId,
     expectedOfferVersion: 1,
   });
+  const remindAt = args.now + admissionRsvpCallDelayMs;
+  if (remindAt < args.expiresAt) {
+    await ctx.scheduler.runAt(remindAt, internal.admissionOfferCalls.remind, { offerId });
+  }
   const offer = await ctx.db.get(offerId);
   const updatedApplication = await ctx.db.get(args.application._id);
   if (!offer || !updatedApplication) throw new Error("The admission offer did not persist.");

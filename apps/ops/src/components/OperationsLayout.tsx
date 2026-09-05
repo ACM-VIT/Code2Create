@@ -2,6 +2,7 @@ import { Link, NavLink, useLocation } from "react-router-dom";
 import type { Code2CreateAuthClient } from "@code2create/web-auth";
 import { useState, type ReactNode } from "react";
 
+import { BrandMark } from "./Brand";
 import { Icon, type IconName } from "./Icon";
 import { IncidentBanner } from "./IncidentBanner";
 
@@ -44,8 +45,8 @@ export function OperationsLayout({
       data-app-surface="operations"
     >
       <aside className="sidebar">
-        <Link className="sidebar-wordmark" to={homePath}>
-          Code2Create
+        <Link aria-label="Code2Create home" className="sidebar-logo" to={homePath}>
+          <BrandMark size={40} />
         </Link>
         <nav aria-label="Operations" className="desktop-navigation">
           {nowItems.length > 0 ? (

@@ -30,6 +30,7 @@ export async function enqueueOutboundCall(
       | "reviewer_page"
       | "reviewer_shift_reminder"
       | "participant_notification"
+      | "admission_offer_reminder"
       | "review_team_notice"
       | "reviewer_venue_departure";
     sourceId: string;

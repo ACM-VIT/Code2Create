@@ -3678,6 +3678,7 @@ export default defineSchema({
     eventId: v.id("events"),
     targetPersonId: v.id("people"),
     sourceType: v.union(v.literal("reviewer_page"), v.literal("participant_notification"),
+      v.literal("admission_offer_reminder"),
       v.literal("review_team_notice"),
       v.literal("reviewer_shift_reminder"),
       v.literal("reviewer_venue_departure"),

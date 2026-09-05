@@ -338,7 +338,10 @@ function Operations({
     {
       label: "Applications",
       items: canViewAdmissions
-        ? [{ label: "Review applications", to: "/admissions", icon: "inbox" as const }]
+        ? [{
+            label: capabilities.applicationRead || capabilities.applicationReviewRead ? "Review applications" : "Review deck",
+            to: "/admissions", icon: "inbox" as const,
+          }]
         : [],
     },
     {
@@ -485,7 +488,6 @@ function Operations({
                   canAssign={capabilities.applicationAssign}
                   canReadApplications={capabilities.applicationRead}
                   canReadAssignments={capabilities.applicationReviewRead}
-                  isSupreme={capabilities.isSupreme}
                 />
               }
             />

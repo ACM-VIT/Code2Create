@@ -444,15 +444,15 @@ export class DiscordSupportBot {
       message.webhookId !== null ||
       message.guildId !== this.config.DISCORD_GUILD_ID ||
       message.channel.type !== ChannelType.GuildText ||
-      !this.isManagedCategory(message.channel.parentId)
+      !this.isManagedCategory(message.channel.parentId) ||
+      // A support category holds more than tickets. Anything without the topic
+      // this bridge stamps on its own channels is somebody else's conversation:
+      // it is not answered, and not reacted to either, because a stray emoji on
+      // an unrelated message is itself an intrusion.
+      !isPortalTicketTopic(message.channel.topic)
     ) {
       return;
     }
-    // A support category holds more than tickets. Anything without the topic
-    // this bridge stamps on its own channels is somebody else's conversation:
-    // it is not answered, and not reacted to either, because a stray emoji on
-    // an unrelated message is itself an intrusion.
-    if (!isPortalTicketTopic(message.channel.topic)) return;
     try {
       // Member updates are not subscribed to; fetch current roles for every reply.
       const member = await message.channel.guild.members.fetch({ user: message.author.id, force: true });

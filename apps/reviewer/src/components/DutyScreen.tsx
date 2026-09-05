@@ -45,6 +45,7 @@ export function DutyScreen({
           contentContainerStyle={[styles.content, { paddingBottom: bottomPadding }]}
           contentInsetAdjustmentBehavior="automatic"
           keyboardDismissMode="interactive"
+          keyboardShouldPersistTaps="handled"
           onContentSizeChange={(_, height) => setContentHeight(height)}
           onLayout={(event) => setViewportHeight(event.nativeEvent.layout.height)}
           refreshControl={

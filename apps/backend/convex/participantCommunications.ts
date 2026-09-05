@@ -44,7 +44,8 @@ export async function acceptedTeamCommunicationsForTeam(
   const acceptedByReleasedResults = Boolean(
     application &&
     event.admissionResultsReleasedAt !== undefined &&
-    (application.decisionStage === "recorded" || application.decisionStage === "released") &&
+    application.decisionStage === "recorded" &&
+    application.state === "under_review" &&
     application.humanDecision === "accept",
   );
   if (

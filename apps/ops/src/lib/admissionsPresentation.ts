@@ -32,7 +32,17 @@ export type StageCount = FunctionReturnType<typeof api.admissions.stageCounts>[n
 export type ApplicationQueueStage = StageCount["state"];
 export const applicationQueueStageLabels: Record<ApplicationQueueStage, string> = {
   ...applicationStateLabels,
+  submitted: "Not started",
+  under_review: "Review started",
   recorded: "Recorded decisions",
+};
+export const reviewProgresses = ["unreviewed", "partial", "complete"] as const;
+export type ReviewProgress = (typeof reviewProgresses)[number];
+export type ReviewProgressCounts = FunctionReturnType<typeof api.admissions.reviewProgressCounts>;
+export const reviewProgressLabels: Record<ReviewProgress, string> = {
+  unreviewed: "No reviews",
+  partial: "Partially reviewed",
+  complete: "Review minimum met",
 };
 export type ReviewAssignmentCounts = { active: number; completed: number };
 export type ReviewerWorkload = FunctionReturnType<typeof api.admissions.reviewerWorkload>[number];
@@ -87,16 +97,10 @@ export function stageCountMap(counts: readonly StageCount[]) {
   return new Map<ApplicationQueueStage, number>(counts.map((row) => [row.state, row.count]));
 }
 
-export function busiestStage(
-  counts: ReadonlyMap<ApplicationQueueStage, number>,
-): ApplicationQueueStage | null {
-  return applicationStageOrder.find((stage) => (counts.get(stage) ?? 0) > 0) ?? null;
-}
-
 /** Keep recorded decisions discoverable even before the first decision is saved. */
 export function visibleStages(
   counts: ReadonlyMap<ApplicationQueueStage, number>,
-  selected: ApplicationQueueStage,
+  selected: ApplicationQueueStage | null,
 ): ApplicationQueueStage[] {
   return applicationStageOrder.filter(
     (stage) => stage === "recorded" || stage === selected || (counts.get(stage) ?? 0) > 0,
@@ -107,40 +111,16 @@ export function parseApplicationStage(value: string): ApplicationQueueStage {
   return applicationStageOrder.find((stage) => stage === value) ?? "submitted";
 }
 
-export function queueLeadSentence(
-  counts: ReadonlyMap<ApplicationQueueStage, number>,
+export function reviewProgressLeadSentence(
+  counts: ReviewProgressCounts,
   origin: TeamOriginFilter = "all",
-  oneReviewOnly = false,
 ): string {
-  const total = [...counts.values()].reduce((sum, count) => sum + count, 0);
-  if (total === 0) {
-    if (oneReviewOnly) {
-      return `No ${teamOriginNoun(origin, false)} has exactly 1 review in.`;
-    }
+  if (counts.total === 0) {
     return origin === "all"
       ? "No team has applied yet."
       : `No ${teamOriginNoun(origin, false)} has applied yet.`;
   }
-  const clauses: string[] = [];
-  const submitted = counts.get("submitted") ?? 0;
-  const underReview = counts.get("under_review") ?? 0;
-  const accepted = counts.get("accepted") ?? 0;
-  const offered = counts.get("offer_sent") ?? 0;
-  if (submitted > 0)
-    clauses.push(`${submitted} ${submitted === 1 ? "needs" : "need"} a first review`);
-  if (underReview > 0)
-    clauses.push(`${underReview} ${underReview === 1 ? "is" : "are"} being reviewed`);
-  if (accepted > 0) clauses.push(`${accepted} accepted without an offer yet`);
-  if (offered > 0) clauses.push(`${offered} waiting for the team to confirm`);
-  if (clauses.length === 0)
-    return `${total} ${total === 1 ? "application" : "applications"}, all decided.`;
-  return `${joinClauses(clauses.slice(0, 3))}.`;
-}
-
-export function completedReviewCountQueryArgs(oneReviewOnly: boolean): {
-  completedReviewCount?: 1;
-} {
-  return oneReviewOnly ? { completedReviewCount: 1 } : {};
+  return `${counts.unreviewed} without a review, ${counts.partial} partially reviewed and ${counts.complete} at the review minimum.`;
 }
 
 export function reviewerLeadSentence(
@@ -265,16 +245,6 @@ export function ownReviewLine(assignment: { ownRecommendation?: ApplicationDecis
   };
 }
 
-export function nextAssignmentId(
-  assignments: readonly { applicationId: string }[],
-  currentApplicationId: string,
-): string | null {
-  return (
-    assignments.find((assignment) => assignment.applicationId !== currentApplicationId)
-      ?.applicationId ?? null
-  );
-}
-
 export function assignmentOutcomeSummary(
   outcomes: readonly AssignmentOutcome[],
   reviewerEmail: string,
@@ -341,6 +311,12 @@ export function needsReview(application: {
   minimumHumanReviews: number;
 }) {
   return application.completedReviewCount < application.minimumHumanReviews;
+}
+
+export function canAssignApplicationReview(
+  application: Pick<QueueApplication, "state" | "completedReviewCount" | "minimumHumanReviews">,
+) {
+  return stageAcceptsReviews(application.state) && needsReview(application);
 }
 
 export function prioritizeReviewQueue<

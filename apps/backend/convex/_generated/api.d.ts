@@ -17,6 +17,7 @@ import type * as admissionAgentHttp from "../admissionAgentHttp.js";
 import type * as admissionCohort from "../admissionCohort.js";
 import type * as admissionIdeaSimilarity from "../admissionIdeaSimilarity.js";
 import type * as admissionIntelligence from "../admissionIntelligence.js";
+import type * as admissionOfferCalls from "../admissionOfferCalls.js";
 import type * as admissionPolicyConfiguration from "../admissionPolicyConfiguration.js";
 import type * as admissions from "../admissions.js";
 import type * as attendanceActions from "../attendanceActions.js";
@@ -72,6 +73,7 @@ import type * as intelligenceReads from "../intelligenceReads.js";
 import type * as intelligenceRecommendations from "../intelligenceRecommendations.js";
 import type * as lib_accessVersion from "../lib/accessVersion.js";
 import type * as lib_admission from "../lib/admission.js";
+import type * as lib_admissionOfferCalls from "../lib/admissionOfferCalls.js";
 import type * as lib_admissionPolicy from "../lib/admissionPolicy.js";
 import type * as lib_admissionRecommendation from "../lib/admissionRecommendation.js";
 import type * as lib_artifactStorage from "../lib/artifactStorage.js";
@@ -263,7 +265,6 @@ import type * as participantNotificationState from "../participantNotificationSt
 import type * as participantNotifications from "../participantNotifications.js";
 import type * as participantPolicyConfiguration from "../participantPolicyConfiguration.js";
 import type * as participantReview from "../participantReview.js";
-import type * as participantReviewCalls from "../participantReviewCalls.js";
 import type * as participants from "../participants.js";
 import type * as permissionBundleMigrations from "../permissionBundleMigrations.js";
 import type * as permissionBundles from "../permissionBundles.js";
@@ -335,6 +336,7 @@ declare const fullApi: ApiFromModules<{
   admissionCohort: typeof admissionCohort;
   admissionIdeaSimilarity: typeof admissionIdeaSimilarity;
   admissionIntelligence: typeof admissionIntelligence;
+  admissionOfferCalls: typeof admissionOfferCalls;
   admissionPolicyConfiguration: typeof admissionPolicyConfiguration;
   admissions: typeof admissions;
   attendanceActions: typeof attendanceActions;
@@ -390,6 +392,7 @@ declare const fullApi: ApiFromModules<{
   intelligenceRecommendations: typeof intelligenceRecommendations;
   "lib/accessVersion": typeof lib_accessVersion;
   "lib/admission": typeof lib_admission;
+  "lib/admissionOfferCalls": typeof lib_admissionOfferCalls;
   "lib/admissionPolicy": typeof lib_admissionPolicy;
   "lib/admissionRecommendation": typeof lib_admissionRecommendation;
   "lib/artifactStorage": typeof lib_artifactStorage;
@@ -581,7 +584,6 @@ declare const fullApi: ApiFromModules<{
   participantNotifications: typeof participantNotifications;
   participantPolicyConfiguration: typeof participantPolicyConfiguration;
   participantReview: typeof participantReview;
-  participantReviewCalls: typeof participantReviewCalls;
   participants: typeof participants;
   permissionBundleMigrations: typeof permissionBundleMigrations;
   permissionBundles: typeof permissionBundles;

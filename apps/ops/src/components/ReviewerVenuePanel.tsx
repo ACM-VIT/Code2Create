@@ -24,9 +24,9 @@ export function ReviewerVenuePanel({
     canReadConfiguration ? { eventSlug } : "skip",
   );
   return (
-    <section className="setup-section venue-operations">
+    <section className="setup-section">
       <h2>Reviewer venue presence</h2>
-      <p className="muted">
+      <p className="m-0 text-ink-2">
         Track physical presence separately from panel clock-in. Unavailable
         location is not a confirmed departure.
       </p>
@@ -112,16 +112,16 @@ function VenueConfiguration({
         </strong>
       </summary>
       <form
-        className="workspace-disclosure-body venue-configuration"
+        className="grid gap-5 p-4 sm:p-5"
         onSubmit={submit}
       >
-        <p className="muted">
+        <p className="m-0 text-ink-2">
           Use the venue centre and a radius that covers the building. Changing
           settings stops checks using the old boundary; reviewers reconnect from
           the app. All times below use this browser's timezone.
         </p>
-        <fieldset disabled={!canPublish || busy}>
-          <label>
+        <fieldset className="grid gap-5" disabled={!canPublish || busy}>
+          <label className="check-row">
             <input
               type="checkbox"
               name="enabled"
@@ -129,8 +129,8 @@ function VenueConfiguration({
             />{" "}
             Enable during the live event
           </label>
-          <div className="venue-fields">
-            <label>
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="field">
               Venue name
               <input
                 name="name"
@@ -139,7 +139,7 @@ function VenueConfiguration({
                 defaultValue={policy?.name ?? ""}
               />
             </label>
-            <label>
+            <label className="field">
               Latitude
               <input
                 name="latitude"
@@ -151,7 +151,7 @@ function VenueConfiguration({
                 defaultValue={policy?.latitude}
               />
             </label>
-            <label>
+            <label className="field">
               Longitude
               <input
                 name="longitude"
@@ -163,7 +163,7 @@ function VenueConfiguration({
                 defaultValue={policy?.longitude}
               />
             </label>
-            <label>
+            <label className="field">
               Radius in metres
               <input
                 name="radiusMeters"
@@ -174,7 +174,7 @@ function VenueConfiguration({
                 defaultValue={policy?.radiusMeters ?? 200}
               />
             </label>
-            <label>
+            <label className="field">
               Checks start
               <input
                 name="startsAt"
@@ -183,7 +183,7 @@ function VenueConfiguration({
                 defaultValue={policy ? localTime(policy.startsAt) : ""}
               />
             </label>
-            <label>
+            <label className="field">
               Checks end
               <input
                 name="endsAt"
@@ -192,7 +192,7 @@ function VenueConfiguration({
                 defaultValue={policy ? localTime(policy.endsAt) : ""}
               />
             </label>
-            <label>
+            <label className="field">
               Check after minutes outside
               <input
                 name="absenceGraceMinutes"
@@ -203,7 +203,7 @@ function VenueConfiguration({
                 defaultValue={policy?.absenceGraceMinutes ?? 2}
               />
             </label>
-            <label>
+            <label className="field">
               Call minutes after reminder
               <input
                 name="callDelayMinutes"
@@ -215,62 +215,64 @@ function VenueConfiguration({
               />
             </label>
           </div>
-          <details className="workspace-disclosure">
-            <summary>Confirmation calls</summary>
-            <p className="muted">
-              GPS triggers a conversation. A confirmed absence clocks the
-              reviewer out between reviews. No answer or an active review needs
-              ops follow-up. Configure and test the published Sarvam agent
-              before enabling calls.
-            </p>
-            <label>
-              <input
-                type="checkbox"
-                name="confirmationCalls"
-                defaultChecked={Boolean(policy?.confirmationAgent)}
-              />{" "}
-              Enable conversational confirmation calls
-            </label>
-            <div className="venue-fields">
-              <label>
-                Published Sarvam agent ID
+          <details className="rounded-md border border-solid border-line">
+            <summary className="cursor-pointer px-4 py-3 text-sm">Confirmation calls</summary>
+            <div className="grid gap-4 border-0 border-t border-solid border-line p-4">
+              <p className="m-0 text-ink-2">
+                GPS triggers a conversation. A confirmed absence clocks the
+                reviewer out between reviews. No answer or an active review needs
+                ops follow-up. Configure and test the published Sarvam agent
+                before enabling calls.
+              </p>
+              <label className="check-row">
                 <input
-                  name="appId"
-                  maxLength={128}
-                  defaultValue={policy?.confirmationAgent?.appId ?? ""}
-                />
+                  type="checkbox"
+                  name="confirmationCalls"
+                  defaultChecked={Boolean(policy?.confirmationAgent)}
+                />{" "}
+                Enable conversational confirmation calls
               </label>
-              <label>
-                Agent version
-                <input
-                  name="appVersion"
-                  type="number"
-                  min={1}
-                  defaultValue={policy?.confirmationAgent?.appVersion ?? 1}
-                />
-              </label>
-              <label>
-                Accept response within minutes
-                <input
-                  name="responseWindowMinutes"
-                  type="number"
-                  min={2}
-                  max={30}
-                  defaultValue={
-                    policy?.confirmationAgent?.responseWindowMinutes ?? 10
-                  }
-                />
-              </label>
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="field">
+                  Published Sarvam agent ID
+                  <input
+                    name="appId"
+                    maxLength={128}
+                    defaultValue={policy?.confirmationAgent?.appId ?? ""}
+                  />
+                </label>
+                <label className="field">
+                  Agent version
+                  <input
+                    name="appVersion"
+                    type="number"
+                    min={1}
+                    defaultValue={policy?.confirmationAgent?.appVersion ?? 1}
+                  />
+                </label>
+                <label className="field">
+                  Accept response within minutes
+                  <input
+                    name="responseWindowMinutes"
+                    type="number"
+                    min={2}
+                    max={30}
+                    defaultValue={
+                      policy?.confirmationAgent?.responseWindowMinutes ?? 10
+                    }
+                  />
+                </label>
+              </div>
             </div>
           </details>
           {canPublish ? (
-            <button type="submit" disabled={busy}>
+            <button className="primary" type="submit" disabled={busy}>
               {busy ? "Saving…" : "Save venue settings"}
             </button>
           ) : null}
         </fieldset>
         {error ? (
-          <p role="alert" className="error-note">
+          <p role="alert" className="notice error m-0">
             {error}
           </p>
         ) : null}
@@ -291,7 +293,7 @@ function VenueRoster() {
     return () => clearInterval(timer);
   }, []);
   return (
-    <div className="venue-roster">
+    <div className="venue-roster grid gap-4 text-[0.8125rem]">
       <div className="venue-table-scroll">
         <table>
           <caption>Reviewer locations and departure follow-up</caption>
@@ -374,16 +376,17 @@ function VenueRoster() {
         </table>
       </div>
       {status === "LoadingFirstPage" ? (
-        <p className="muted">Loading reviewer presence…</p>
+        <p className="m-0 text-ink-2">Loading reviewer presence…</p>
       ) : null}
       {status !== "LoadingFirstPage" && results.length === 0 ? (
-        <p className="muted">
+        <p className="m-0 text-ink-2">
           Reviewer profiles will appear here even before location checks are
           enabled.
         </p>
       ) : null}
       {status === "CanLoadMore" || status === "LoadingMore" ? (
         <button
+          className="secondary"
           type="button"
           disabled={status === "LoadingMore"}
           onClick={() => loadMore(40)}

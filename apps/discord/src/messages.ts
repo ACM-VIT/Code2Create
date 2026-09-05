@@ -122,6 +122,9 @@ export function channelTopic(supportCaseId: string) {
 
 const supportTopicPrefix = "Code2Create support case:";
 
+/** The stamped topic in full: the prefix and a document id, and nothing else. */
+const supportTopicPattern = /^Code2Create support case:[a-z0-9]+$/u;
+
 /**
  * Whether a channel is a ticket this bridge opened.
  *
@@ -133,9 +136,5 @@ const supportTopicPrefix = "Code2Create support case:";
  * emoji on an unrelated message is itself an intrusion.
  */
 export function isPortalTicketTopic(topic: string | null | undefined): boolean {
-  return (
-    typeof topic === "string" &&
-    topic.startsWith(supportTopicPrefix) &&
-    topic.length > supportTopicPrefix.length
-  );
+  return typeof topic === "string" && supportTopicPattern.test(topic);
 }

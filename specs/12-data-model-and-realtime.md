@@ -218,6 +218,8 @@ The build fails when a protected public function has no declared permission key,
 
 ### `permissionBundles`
 
+The code-owned **Emergency Reviews** preset publishes a JC bundle containing event-scoped `application.review_deck.use` and `application.profile_context.read`. It can be assigned to an existing person or pinned to an exact-email roster import. It opens only the admissions review deck: claiming a current submission grants access to that project, its submitted participants and their year/institution, its previous human reviews, and the review form. It grants no application-list, aggregate-statistics, decision, or other operations access. Detail access requires an unexpired claim or a completed assignment for the current submission version, plus the still-active bundle permission; releasing the claim or ending that permission removes access without leaving application-scoped grants behind.
+
 The stable identity for one convenience template. It never authorizes directly.
 
 Key fields:
@@ -1880,18 +1882,20 @@ One current consent row exists for each event, person, and call purpose.
 - `state: granted | revoked`;
 - granted or revoked time, optimistic version, and created/updated time.
 
-The idempotent command record and audit event retain the actor, exact self-scoped consent grant, action, and prior/next state without copying the phone number into audit text. Consent does not grant call authority. Reviewer dispatch also requires the page chain's exact `review.substitute.page` authority. The reserved participant purpose cannot run until its own consent text, script policy, source validation, and permission rule are published and implemented.
+The idempotent command record and audit event retain the actor, exact self-scoped consent grant, action, and prior/next state without copying the phone number into audit text. Consent does not grant call authority. Reviewer dispatch also requires the page chain's exact `review.substitute.page` authority. Participant RSVP reminders and team review notices are automatic event updates to the team lead's current profile phone; they do not use participant opt-in controls or consent records.
 
 ### `outboundCallDeliveries`
 
-One durable call row records one page escalation.
+One durable call row records one page escalation, duty reminder, RSVP reminder, or team review notice.
 
 - event, source type/ID, recipient person, destination, purpose, locale, script, and script-policy version;
-- consent ID/version and the page chain's authorizing permission-grant IDs;
+- consent ID/version for reviewer duty calls and the source's authorizing permission-grant IDs;
 - `state: unavailable | pending | sending | retry_wait | provider_accepted | queued | initiated | ringing | answered | completed | busy | no_answer | cancelled | failed | ambiguous`;
 - stable delivery ID, claim ID/expiry, attempt number, next-attempt time, provider call ID, safe error category, and timestamps.
 
-The claim transaction rechecks the active page, no acknowledgement, current consent version and destination, script policy, and every frozen grant. An acknowledgement that commits first makes the claim cancel the delivery. A claim that commits first may still produce the call; the page response remains authoritative and the transport race stays visible. A backend-to-Worker retry uses the same delivery ID and is idempotent. A provider dispatch whose outcome remains uncertain becomes `ambiguous` and is not redialled.
+For reviewer pages, the claim transaction rechecks the active page, no acknowledgement, current consent version and destination, script policy, and every frozen grant. An acknowledgement that commits first makes the claim cancel the delivery. A claim that commits first may still produce the call; the page response remains authoritative and the transport race stays visible. A backend-to-Worker retry uses the same delivery ID and is idempotent. A provider dispatch whose outcome remains uncertain becomes `ambiguous` and is not redialled.
+
+An admission offer schedules one RSVP reminder six hours after `sentAt`, provided the response deadline is later. The reminder and dispatch transaction both require the same current offer to remain unanswered and unexpired, the locked team lead to remain eligible, the lead's saved phone to match, and the offer sender's exact offer-management authority to remain active. An RSVP confirmation, decline, expiry, or revocation cancels an undispatched reminder. The call directs the lead to confirm or decline in the participant portal; a telephone response does not change the RSVP. Team review calls continue to follow the published queue policy and current queue state.
 
 ### `outboundCallProviderEvents`
 

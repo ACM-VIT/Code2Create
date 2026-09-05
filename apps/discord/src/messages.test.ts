@@ -29,7 +29,8 @@ test("creates a Discord-safe ticket channel name", () => {
 });
 
 test("a channel the bridge opened is recognised by its topic", () => {
-  assert.equal(isPortalTicketTopic(channelTopic("case-1")), true);
+  // A Convex document id: lowercase alphanumeric, which is what the topic holds.
+  assert.equal(isPortalTicketTopic(channelTopic("k17abc9xyz0q4m2")), true);
 });
 
 test("a channel nobody stamped is left alone", () => {
@@ -44,4 +45,9 @@ test("a channel nobody stamped is left alone", () => {
 
 test("a topic that merely mentions support is not a ticket", () => {
   assert.equal(isPortalTicketTopic("ask about Code2Create support case:123 here"), false);
+});
+
+test("a topic with something appended to a real case is not a ticket", () => {
+  // Anchored on purpose: a channel renamed to trail the stamp is not one of ours.
+  assert.equal(isPortalTicketTopic(`${channelTopic("k17abc9xyz0q4m2")} (archived)`), false);
 });

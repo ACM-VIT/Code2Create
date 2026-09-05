@@ -195,7 +195,7 @@ function IncidentArea({ data }: { data: IncidentData }) {
           </div>
         </form>
       ) : null}
-      <div className="manual-incident-list">
+      <div className="grid gap-4">
         {data.incidents.map((incident) => (
           <IncidentRow key={incident.id} incident={incident} />
         ))}
@@ -515,7 +515,7 @@ function DraftSheetForm({
       <div className="manual-entry-table">
         {rows.map((row) => (
           <div className="manual-entry-row" key={row.key}>
-            <label className="field manual-line">
+            <label className="field">
               <span>Line</span>
               <input
                 disabled={createPending}
@@ -545,7 +545,7 @@ function DraftSheetForm({
                 onChange={(event) => updateRow(row.key, "capturedAt", event.target.value)}
               />
             </label>
-            <label className="field manual-initials">
+            <label className="field">
               <span>Initials</span>
               <input
                 disabled={createPending}

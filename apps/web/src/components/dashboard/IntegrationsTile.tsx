@@ -68,6 +68,38 @@ function MarkBox({ target }: { target: IntegrationTarget }) {
   );
 }
 
+function ProviderSummary({
+  target,
+  connected,
+  detail,
+}: {
+  target: IntegrationTarget;
+  connected: boolean;
+  detail: ReactNode;
+}) {
+  return (
+    <div className="flex min-w-0 items-center gap-2 rounded-xl border border-rose/25 bg-wash/18 px-2.5 py-2">
+      <MarkBox target={target} />
+      <span className="min-w-0 flex-1">
+        <span className="flex items-center gap-1.5 text-[11.5px] text-fg/90">
+          <span
+            className={`size-1.5 shrink-0 rounded-full ${
+              connected
+                ? "bg-rose-light shadow-[0_0_7px_var(--glow-rose)]"
+                : "border border-rose/55"
+            }`}
+            aria-hidden
+          />
+          {target === "github" ? "GitHub" : "Figma"}
+        </span>
+        <span className="integration-summary-detail block truncate text-[9.5px] text-fg/45">
+          {connected ? detail : "not connected"}
+        </span>
+      </span>
+    </div>
+  );
+}
+
 function ActionButton({ children, onClick }: {
   children: string;
   onClick: () => void;
@@ -245,7 +277,20 @@ export function IntegrationsTile({ slot, model }: {
             <p className="m-0 text-[13px] leading-snug text-fg/65">
               Opens once your team is confirmed.
             </p>
-          ) : view === "closed" ? null : view === "github" ? (
+          ) : view === "closed" ? (
+            <Reveal key="summary" className="grid grid-cols-2 gap-2">
+              <ProviderSummary
+                target="github"
+                connected={model.github.connected}
+                detail={model.github.detail}
+              />
+              <ProviderSummary
+                target="figma"
+                connected={model.figma.connected}
+                detail={model.figma.detail}
+              />
+            </Reveal>
+          ) : view === "github" ? (
             <GitHubRepositoryManager
               model={model.github}
               addControl={addControl}
