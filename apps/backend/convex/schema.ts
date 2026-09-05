@@ -3990,6 +3990,7 @@ export default defineSchema({
 
   figmaOAuthCredentials: defineTable({
     figmaUserId: v.string(),
+    figmaUserHandle: v.optional(v.string()),
     accessTokenCiphertext: v.string(),
     refreshTokenCiphertext: v.string(),
     tokenExpiresAt: v.number(),

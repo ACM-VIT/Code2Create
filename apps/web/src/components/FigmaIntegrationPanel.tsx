@@ -66,6 +66,8 @@ export function FigmaIntegrationPanel() {
   const selectedConnection =
     activeConnections.find((connection) => connection.id === selectedConnectionId) ??
     activeConnections[0];
+  const selectedConnectionLabel =
+    selectedConnection?.figmaUserHandle?.trim() || "Figma account";
   const teamAccepted = ["admitted", "confirmed", "checked_in", "active", "completed"].includes(
     integration.teamStatus,
   );
@@ -321,12 +323,15 @@ export function FigmaIntegrationPanel() {
               >
                 {activeConnections.map((connection, index) => (
                   <option value={connection.id} key={connection.id}>
-                    Figma account {index + 1}
+                    {connection.figmaUserHandle?.trim() || `Figma account ${index + 1}`}
                   </option>
                 ))}
               </select>
             </label>
           ) : null}
+          <p className="fine-print form-span">
+            Connected as <strong>{selectedConnectionLabel}</strong>.
+          </p>
           <label className="field form-span">
             <span className="field-label">Figma file link</span>
             <input
