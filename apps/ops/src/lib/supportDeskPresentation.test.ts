@@ -18,7 +18,6 @@ import {
   supportRowStatus,
   supportRowTone,
   supportStatusChoices,
-  supportSubmitLabel,
   supportUpdateReason,
 } from "./supportDeskPresentation.ts";
 
@@ -285,18 +284,6 @@ test("audit reasons are derived from the update instead of typed by hand", () =>
   );
 });
 
-test("the submit button says exactly what will happen", () => {
-  assert.equal(supportSubmitLabel({ mode: "reply", wrote: true, nextState: null }), "Send reply");
-  assert.equal(supportSubmitLabel({ mode: "note", wrote: true, nextState: null }), "Add note");
-  assert.equal(
-    supportSubmitLabel({ mode: "reply", wrote: true, nextState: "resolved" }),
-    "Send reply and move to Resolved",
-  );
-  assert.equal(
-    supportSubmitLabel({ mode: "reply", wrote: false, nextState: "waiting" }),
-    "Move to Waiting on a reply",
-  );
-});
 
 test("ages stay short enough for a list row", () => {
   assert.equal(formatSupportAge(now, now), "just now");

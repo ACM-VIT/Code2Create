@@ -225,10 +225,6 @@ export function supportStatusChoices(current: SupportCaseState): SupportCaseStat
   return [current, ...stateTransitions[current]];
 }
 
-export function parseSupportState(value: string, current: SupportCaseState): SupportCaseState {
-  return supportStatusChoices(current).find((state) => state === value) ?? current;
-}
-
 export function parseSupportFilter(value: string): SupportFilter {
   return supportFilters.find(([filter]) => filter === value)?.[0] ?? "active";
 }
@@ -322,18 +318,6 @@ export function supportOwnerReason(
   if (change.kind === "claim") return "Claimed at the help desk";
   if (change.kind === "release") return "Returned to the unassigned support queue";
   return `Handed to ${change.displayName} at the help desk`;
-}
-
-export function supportSubmitLabel(update: {
-  mode: SupportComposerMode;
-  wrote: boolean;
-  nextState: SupportCaseState | null;
-}): string {
-  const action = update.mode === "reply" ? "Send reply" : "Add note";
-  if (update.nextState === null) return action;
-  const move = `move to ${supportCaseStateLabels[update.nextState]}`;
-  if (!update.wrote) return `Move to ${supportCaseStateLabels[update.nextState]}`;
-  return `${action} and ${move}`;
 }
 
 export function supportFirstReply(createdAt: number, firstResponseAt: number | undefined): string {
