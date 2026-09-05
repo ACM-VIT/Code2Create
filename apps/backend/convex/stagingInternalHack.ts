@@ -366,6 +366,9 @@ export const prepare = internalMutation({
         version: bucket.version + 1,
         updatedAt: Date.now(),
       });
+    for (const rosterImport of await ctx.db.query("rosterImports").collect()) {
+      if (rosterImport.validUntil > Date.now()) await ctx.scheduler.runAt(rosterImport.validUntil, internal.rosters.expireImportEntries, {rosterImportId:rosterImport._id});
+    }
     await ctx.scheduler.runAt(args.startsAt, internal.stagingInternalHack.start, {
       eventId: event._id,
       startsAt: args.startsAt,
@@ -509,7 +512,7 @@ export const cancelScheduled = internalMutation({
     requireStaging();
     const page = await ctx.db.system
       .query("_scheduled_functions")
-      .paginate({ cursor: args.cursor, numItems: 100 });
+      .paginate({ cursor: args.cursor, numItems: 1000 });
     let cancelled = 0;
     for (const fn of page.page)
       if (fn.state.kind === "pending") {
