@@ -1,11 +1,3 @@
-export function countdownName(seconds: number) {
-  if (seconds >= 90) {
-    const minutes = Math.ceil(seconds / 60);
-    return `${minutes} minutes`;
-  }
-  return `${seconds} second${seconds === 1 ? "" : "s"}`;
-}
-
 export const maximumBrowserTimerDelay = 2_147_000_000;
 
 export function nextDeadlineTimerDelay(deadline: number, currentTime: number, graceMs = 100) {
@@ -35,14 +27,11 @@ export function scheduleDeadline(
   };
 }
 
-export function queueWaitName(estimate: { earliestAt: number; latestAt: number }, now: number) {
-  if (estimate.latestAt <= now) return "Taking longer than estimated";
-  const upperMinutes = Math.max(5, Math.ceil((estimate.latestAt - now) / 300_000) * 5);
-  if (estimate.earliestAt <= now) return `Within ${upperMinutes} min`;
-  const lowerMinutes = Math.max(0, Math.floor((estimate.earliestAt - now) / 300_000) * 5);
-  return lowerMinutes === 0
-    ? `Within ${upperMinutes} min`
-    : `About ${lowerMinutes}–${upperMinutes} min`;
+export function queueWaitRange(estimate: { earliestAt: number; latestAt: number }, now: number) {
+  if (estimate.latestAt <= now) return null;
+  const upper = Math.max(5, Math.ceil((estimate.latestAt - now) / 300_000) * 5);
+  const lower = Math.max(0, Math.floor((estimate.earliestAt - now) / 300_000) * 5);
+  return { lower, upper };
 }
 
 /** How long ago something happened, in the coarse words a participant reads at a glance. */

@@ -1,3 +1,4 @@
+import { LiveNumber } from "./LiveNumber";
 import { api } from "@code2create/backend/api";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import { useMutation, useQuery } from "convex/react";
@@ -59,7 +60,7 @@ function JuniorParticipation({ roundId }: { roundId: RoundId }) {
     <details className="workspace-disclosure">
       <summary>
         <strong>
-          JC participation · {reviewed} of {people.length} have reviewed
+          JC participation · <LiveNumber value={reviewed} /> of <LiveNumber value={people.length} /> have reviewed
         </strong>
       </summary>
       <p className="muted">
@@ -73,7 +74,7 @@ function JuniorParticipation({ roundId }: { roundId: RoundId }) {
           <div className="published-round-row" key={person.personId}>
             <strong>{person.displayName}</strong>
             <span>
-              {person.completedReviews} completed · {labels[person.status]}
+              <LiveNumber value={person.completedReviews} /> completed · {labels[person.status]}
             </span>
           </div>
         ))}

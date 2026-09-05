@@ -5,23 +5,23 @@ import {
   elapsedName,
   maximumBrowserTimerDelay,
   nextDeadlineTimerDelay,
-  queueWaitName,
+  queueWaitRange,
 } from "./time.ts";
 
 const now = 1_000_000;
 
 test("ages a queue window without presenting it as an appointment", () => {
-  assert.equal(
-    queueWaitName({ earliestAt: now, latestAt: now + 10 * 60_000 }, now),
-    "Within 10 min",
+  assert.deepEqual(
+    queueWaitRange({ earliestAt: now, latestAt: now + 10 * 60_000 }, now),
+    { lower: 0, upper: 10 },
   );
-  assert.equal(
-    queueWaitName({ earliestAt: now + 14 * 60_000, latestAt: now + 29 * 60_000 }, now + 6 * 60_000),
-    "About 5–25 min",
+  assert.deepEqual(
+    queueWaitRange({ earliestAt: now + 14 * 60_000, latestAt: now + 29 * 60_000 }, now + 6 * 60_000),
+    { lower: 5, upper: 25 },
   );
-  assert.equal(
-    queueWaitName({ earliestAt: now - 10 * 60_000, latestAt: now }, now),
-    "Taking longer than estimated",
+  assert.deepEqual(
+    queueWaitRange({ earliestAt: now - 10 * 60_000, latestAt: now }, now),
+    null,
   );
 });
 

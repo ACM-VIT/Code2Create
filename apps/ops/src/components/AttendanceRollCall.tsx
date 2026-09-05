@@ -1,3 +1,4 @@
+import { LiveNumber } from "./LiveNumber";
 import { api } from "@code2create/backend/api";
 import { rollCallPresenceStateLabels } from "@code2create/domain";
 import type { FunctionReturnType } from "convex/server";
@@ -215,7 +216,7 @@ export function AttendanceRollCall({ session }: { session: AttendanceSession }) 
                 {dateTimeName(latest.snapshotAt)}
               </span>
             </div>
-            <span>{latest.currentCounts.expected} expected</span>
+            <span><LiveNumber value={latest.currentCounts.expected} /> expected</span>
           </div>
           <dl className="roll-call-counts">
             <Count label="Inside" value={latest.currentCounts.inside} />
@@ -328,7 +329,7 @@ function Count({ label, value }: { label: string; value: number }) {
   return (
     <div>
       <dt>{label}</dt>
-      <dd>{value}</dd>
+      <dd><LiveNumber value={value} /></dd>
     </div>
   );
 }

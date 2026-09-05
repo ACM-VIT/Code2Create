@@ -558,7 +558,11 @@ export const acknowledgeEndpoint = httpAction(async (ctx, request) => {
   const parsed = acknowledgeSchema.safeParse(body.json);
   if (!parsed.success) return Response.json({ error: "invalid_request" }, { status: 422 });
   const result = await ctx.runMutation(internal.supportDiscordBridge.acknowledgeDelivery, {
-    ...parsed.data,
+    deliveryId: parsed.data.deliveryId,
+    claimId: parsed.data.claimId,
+    discordGuildId: parsed.data.discordGuildId,
+    discordChannelId: parsed.data.discordChannelId,
+    discordMessageId: parsed.data.discordMessageId,
   });
   return Response.json({ state: result }, { status: result === "stale_claim" ? 409 : 202 });
 });
@@ -581,7 +585,15 @@ export const replyEndpoint = httpAction(async (ctx, request) => {
   if (body.response) return body.response;
   const parsed = replySchema.safeParse(body.json);
   if (!parsed.success) return Response.json({ error: "invalid_request" }, { status: 422 });
-  const result = await ctx.runMutation(internal.supportDiscordBridge.recordReply, parsed.data);
+  const result = await ctx.runMutation(internal.supportDiscordBridge.recordReply, {
+    eventSlug: parsed.data.eventSlug,
+    discordGuildId: parsed.data.discordGuildId,
+    discordChannelId: parsed.data.discordChannelId,
+    discordMessageId: parsed.data.discordMessageId,
+    discordUserId: parsed.data.discordUserId,
+    discordDisplayName: parsed.data.discordDisplayName,
+    message: parsed.data.message,
+  });
   const status = result.state === "channel_not_found" ? 404 : result.state === "case_closed" ? 409 : 202;
   return Response.json(result, { status });
 });

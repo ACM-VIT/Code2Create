@@ -102,6 +102,7 @@ minimumReleaseAgeExclude:
   - ai@7.0.89
   - expo-location@57.0.16
   - expo-task-manager@57.0.16
+  - '@kitlangton/rolling-number@0.3.0'
 patchedDependencies:
   "@flue/runtime@2.0.3": patches/@flue__runtime@2.0.3.patch
   balloons-js@0.0.3: patches/balloons-js@0.0.3.patch

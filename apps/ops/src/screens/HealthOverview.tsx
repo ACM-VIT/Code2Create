@@ -1,3 +1,4 @@
+import { LiveNumber } from "../components/LiveNumber";
 import { api } from "@code2create/backend/api";
 import { eventBlockerPaths, eventStageGuidance } from "@code2create/domain";
 import type { FunctionReturnType } from "convex/server";
@@ -86,7 +87,7 @@ function StageSummary({
           <span>Next</span>
           <h2 id="next-event-step">{stage.nextStep}</h2>
         </div>
-        {blockers.length > 0 ? <span>{blockers.length} blocked</span> : <span>Ready</span>}
+        {blockers.length > 0 ? <span><LiveNumber value={blockers.length} /> blocked</span> : <span>Ready</span>}
       </div>
       {blockers.length === 0 ? (
         availableBlockerPaths.includes("/configuration") ? (

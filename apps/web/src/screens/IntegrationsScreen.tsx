@@ -1,3 +1,4 @@
+import { LiveNumber } from "../components/LiveNumber";
 import {
   githubRepositorySyncStateLabels,
   githubRepositoryTopicStateLabels,
@@ -542,45 +543,47 @@ export function IntegrationsScreen({
                   <div>
                     <dt>Repositories</dt>
                     <dd>
-                      {integration.summary.completeRepositoryCount} /{" "}
-                      {integration.summary.repositoryCount} complete
+                      <LiveNumber value={integration.summary.completeRepositoryCount} /> /{" "}
+                      <LiveNumber value={integration.summary.repositoryCount} /> complete
                     </dd>
                   </div>
                   <div>
                     <dt>Topics ready</dt>
                     <dd>
-                      {integration.summary.topicPresentCount} /{" "}
-                      {integration.summary.repositoryCount}
+                      <LiveNumber value={integration.summary.topicPresentCount} /> /{" "}
+                      <LiveNumber value={integration.summary.repositoryCount} />
                     </dd>
                   </div>
                   <div>
                     <dt>Observed unique commits</dt>
                     <dd>
-                      {integration.summary.uniqueObservedCommitCount.toLocaleString()}
+                      <LiveNumber value={integration.summary.uniqueObservedCommitCount} format={{ useGrouping: true }} />
                       {integration.summary.commitIdentityComplete ? "" : "+"}
                     </dd>
                   </div>
                   <div>
                     <dt>Pushes</dt>
-                    <dd>{integration.summary.pushCount.toLocaleString()}</dd>
+                    <dd><LiveNumber value={integration.summary.pushCount} format={{ useGrouping: true }} /></dd>
                   </div>
                   <div>
                     <dt>Changes</dt>
                     <dd>
-                      +{integration.summary.additions.toLocaleString()} −
-                      {integration.summary.deletions.toLocaleString()}
+                      +<LiveNumber value={integration.summary.additions} format={{ useGrouping: true }} /> −
+                      <LiveNumber value={integration.summary.deletions} format={{ useGrouping: true }} />
                     </dd>
                   </div>
                   <div>
                     <dt>Changed files</dt>
-                    <dd>{integration.summary.changedFiles.toLocaleString()}</dd>
+                    <dd><LiveNumber value={integration.summary.changedFiles} format={{ useGrouping: true }} /></dd>
                   </div>
                 </dl>
                 {integration.summary.kindCounts.length > 0 ? (
                   <p className="fine-print">
-                    {integration.summary.kindCounts
-                      .map((item) => `${repositoryKindLabels[item.kind]} ${item.count}`)
-                      .join(" · ")}
+                    {integration.summary.kindCounts.map((item, index) => (
+                      <span key={item.kind}>
+                        {index > 0 ? " · " : ""}{repositoryKindLabels[item.kind]} <LiveNumber value={item.count} />
+                      </span>
+                    ))}
                   </p>
                 ) : null}
                 {integration.summary.languageBytes.length > 0 ? (
@@ -594,7 +597,7 @@ export function IntegrationsScreen({
                 ) : null}
                 {integration.summary.commitOverlapCount > 0 ? (
                   <p className="fine-print">
-                    {integration.summary.commitOverlapCount.toLocaleString()} commit occurrences
+                    <LiveNumber value={integration.summary.commitOverlapCount} format={{ useGrouping: true }} /> commit occurrences
                     overlap across connected repositories and count once here.
                   </p>
                 ) : null}
@@ -637,7 +640,7 @@ export function IntegrationsScreen({
                 <div className="subheading-row">
                   <h2>Available repositories</h2>
                   <span>
-                    {availableRepositories.repositories.length} / {availableRepositories.totalCount}
+                    <LiveNumber value={availableRepositories.repositories.length} /> / <LiveNumber value={availableRepositories.totalCount} />
                   </span>
                 </div>
                 {availableRepositories.repositories.length === 0 ? (
@@ -776,7 +779,7 @@ export function IntegrationsScreen({
                 <h2>Team repositories</h2>
                 {integration.policy ? (
                   <span>
-                    {integration.repositories.length} / {integration.policy.maxActiveRepositories}
+                    <LiveNumber value={integration.repositories.length} /> / {integration.policy.maxActiveRepositories}
                   </span>
                 ) : null}
               </div>
@@ -816,7 +819,7 @@ export function IntegrationsScreen({
                       </div>
                       <div>
                         <dt>Commits</dt>
-                        <dd>{repository.metrics.commitCount}</dd>
+                        <dd><LiveNumber value={repository.metrics.commitCount} /></dd>
                       </div>
                       <div>
                         <dt>Changed files</dt>

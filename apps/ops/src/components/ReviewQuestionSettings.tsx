@@ -1,3 +1,4 @@
+import { LiveNumber } from "./LiveNumber";
 import { api } from "@code2create/backend/api";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import { useMutation, useQuery } from "convex/react";
@@ -23,7 +24,7 @@ export function ReviewQuestionSettings({ roundId }: { roundId: RoundId }) {
         <strong>Suggested review questions</strong>
         <span>
           {settings.policy.enabled
-            ? `${ready} of ${settings.teams.length} prepared`
+            ? <><LiveNumber value={ready} /> of <LiveNumber value={settings.teams.length} /> prepared</>
             : "Off"}
         </span>
       </summary>

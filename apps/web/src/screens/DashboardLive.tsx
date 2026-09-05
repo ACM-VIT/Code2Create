@@ -25,7 +25,8 @@ import type {
   ClusterTeam,
 } from "../components/portal/TeamCluster";
 import { eventSlug } from "../lib/config";
-import { queueWaitName } from "../lib/time";
+import { LiveQueueWait } from "../components/LiveTime";
+import { LiveNumber } from "../components/LiveNumber";
 import { useOperationRunner } from "../lib/operations";
 import type { AvailableGitHubRepository, PublicState } from "../types";
 import { DashboardScreen } from "./DashboardScreen";
@@ -193,7 +194,7 @@ export function DashboardLive({
           ? "Link your repositories"
           : connectedRepositories.length === 1
             ? "1 repository"
-            : `${connectedRepositories.length} repositories`,
+            : <><LiveNumber value={connectedRepositories.length} /> repositories</>,
       repositories: connectedRepositories,
       ...(activeGithubConnection
         ? {
@@ -230,7 +231,7 @@ export function DashboardLive({
           ? "Link your design files"
           : fileCount === 1
             ? "1 file"
-            : `${fileCount} files`,
+            : <><LiveNumber value={fileCount} /> files</>,
     },
     open: (target, repository) => {
       if (target === "github" && repository) {
@@ -301,7 +302,7 @@ export function DashboardLive({
               .join(" · ") || null,
           wait:
             queue.estimate && !queue.round.isPaused
-              ? queueWaitName(queue.estimate, phaseTime)
+              ? <LiveQueueWait estimate={queue.estimate} now={phaseTime} />
               : null,
           reviewers: reviewSession
             ? {

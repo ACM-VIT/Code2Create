@@ -91,7 +91,7 @@ const SPONSORS: readonly SponsorSpec[] = [
   },
   {
     name: "IDFC FIRST",
-    logo: "/assets/sponsors/idfc-first-bank.png",
+    logo: "/assets/sponsors/idfc-first-bank.webp",
     logoClass: "sponsor__logo--idfc",
     href: "https://www.idfcfirst.bank.in/",
     tier: "lead",

@@ -1,3 +1,4 @@
+import { LiveNumber } from "./LiveNumber";
 import { api } from "@code2create/backend/api";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import { useMutation, useQuery } from "convex/react";
@@ -50,8 +51,8 @@ export function ReviewConfirmations({
         <span>
           <strong>Round availability</strong>
           <small>
-            {confirmed} confirmed · {pending} awaiting response ·{" "}
-            {data.people.length - confirmed - pending} unavailable
+            <LiveNumber value={confirmed} /> confirmed · <LiveNumber value={pending} /> awaiting response ·{" "}
+            <LiveNumber value={data.people.length - confirmed - pending} /> unavailable
           </small>
         </span>
       </summary>

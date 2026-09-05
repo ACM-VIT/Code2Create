@@ -1,3 +1,4 @@
+import { LiveNumber } from "./LiveNumber";
 import { api } from "@code2create/backend/api";
 import type { FunctionReturnType } from "convex/server";
 import { useMutation, useQuery } from "convex/react";
@@ -50,7 +51,7 @@ export function ProjectCheckpointsPanel({ timezone }: { timezone: string }) {
         <details className="checkpoint-other-updates">
           <summary>
             <span>Earlier and upcoming updates</span>
-            <small>{otherCheckpoints.length}</small>
+            <small><LiveNumber value={otherCheckpoints.length} /></small>
           </summary>
           <div className="checkpoint-list">
             {otherCheckpoints.map((checkpoint) => (

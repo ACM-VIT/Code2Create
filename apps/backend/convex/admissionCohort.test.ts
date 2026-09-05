@@ -446,6 +446,110 @@ describe("admission cohort query and decisions", () => {
     ).rejects.toThrow("permission");
   });
 
+  test("separates completed human reviews from missing final decisions", async () => {
+    const backend = seededBackend();
+    const fixture = await seedCohortFixture(backend);
+    const operator = backend.withIdentity({
+      subject: fixture.operatorAuthUserId,
+      sessionId: fixture.operatorAuthSessionId,
+    });
+    const status = await operator.query(api.admissions.admissionResultsReleaseStatus, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(status).toMatchObject({
+      total: 3,
+      reviewsComplete: 2,
+      reviewsNeeded: 1,
+      recorded: 0,
+      unrecorded: 3,
+      ideaAgent: { accepted: 0, waitlisted: 0, rejected: 0, unavailable: 3 },
+    });
+    // Review readiness uses each application's policy, not the latest event policy.
+    await backend.run(async (ctx) => {
+      const application = await ctx.db.get(fixture.shortApplicationId);
+      if (!application) throw new Error("Missing fixture application");
+      const policy = await ctx.db.get(application.admissionPolicyVersionId);
+      if (!policy) throw new Error("Missing fixture policy");
+      const { _id, _creationTime, ...fields } = policy;
+      const policyId = await ctx.db.insert("admissionPolicyVersions", {
+        ...fields, version: "one-review", minimumHumanReviews: 1,
+      });
+      await ctx.db.patch(application._id, { admissionPolicyVersionId: policyId });
+    });
+    expect(await operator.query(api.admissions.admissionResultsReleaseStatus, {
+      eventSlug: fixture.eventSlug,
+    })).toMatchObject({ reviewsComplete: 3, reviewsNeeded: 0, unrecorded: 3 });
+  });
+
+  test("counts only current idea-agent recommendations and respects AI read access", async () => {
+    const backend = seededBackend();
+    const fixture = await seedCohortFixture(backend, { extraTeams: 1 });
+    const operator = backend.withIdentity({
+      subject: fixture.operatorAuthUserId,
+      sessionId: fixture.operatorAuthSessionId,
+    });
+    const recommendationIds = await backend.run(async (ctx) => {
+      const ids: Id<"admissionAIRecommendations">[] = [];
+      for (const [applicationId, recommendation] of [
+        [fixture.decidableApplicationId, "accept"],
+        [fixture.shortApplicationId, "waitlist"],
+        [fixture.splitApplicationId, "decline"],
+      ] as const) {
+        const application = await ctx.db.get(applicationId);
+        if (!application) throw new Error("Missing fixture application");
+        const id = await ctx.db.insert("admissionAIRecommendations", {
+          eventId: fixture.eventId,
+          applicationId,
+          teamId: application.teamId,
+          projectVersionId: application.submittedProjectVersionId,
+          admissionPolicyVersionId: application.admissionPolicyVersionId,
+          applicationContentVersion: application.contentVersion,
+          sourceInputFingerprint: "summary-fixture",
+          experienceBand: application.experienceBand,
+          state: "succeeded",
+          recommendation,
+          criterionAssessments: [], strengths: [], concerns: [], limitations: [],
+          createdAt: fixture.now,
+        });
+        await ctx.db.patch(applicationId, { aiRecommendationId: id });
+        ids.push(id);
+      }
+      return ids;
+    });
+    const queryStatus = () => operator.query(api.admissions.admissionResultsReleaseStatus, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(await queryStatus()).toMatchObject({
+      total: 4, reviewsComplete: 2, reviewsNeeded: 2,
+      ideaAgent: { accepted: 1, waitlisted: 1, rejected: 1, unavailable: 1 },
+    });
+    await backend.run(async (ctx) => {
+      await ctx.db.patch(recommendationIds[0]!, { state: "stale" });
+      await ctx.db.patch(recommendationIds[1]!, { applicationContentVersion: 99 });
+      await ctx.db.patch(fixture.splitApplicationId, { state: "withdrawn" });
+    });
+    expect(await queryStatus()).toMatchObject({
+      total: 3,
+      ideaAgent: { accepted: 0, waitlisted: 0, rejected: 0, unavailable: 3 },
+    });
+    await backend.run(async (ctx) => {
+      const grants = await ctx.db.query("permissionGrants").collect();
+      for (const grant of grants) {
+        if (grant.eventId === fixture.eventId && grant.permissionKey === "application.ai_recommendation.read") {
+          await ctx.db.delete(grant._id);
+        }
+      }
+    });
+    expect(await queryStatus()).toMatchObject({ ideaAgent: null });
+    const onlooker = backend.withIdentity({
+      subject: fixture.onlookerAuthUserId,
+      sessionId: fixture.onlookerAuthSessionId,
+    });
+    expect(await onlooker.query(api.admissions.admissionResultsReleaseStatus, {
+      eventSlug: fixture.eventSlug,
+    })).toMatchObject({ isSupreme: false, reviewsComplete: 0, reviewsNeeded: 0, ideaAgent: null });
+  });
+
   test("only Supreme releases the complete recorded decision set", async () => {
     const backend = seededBackend();
     const fixture = await seedCohortFixture(backend);

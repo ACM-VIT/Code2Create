@@ -1,3 +1,4 @@
+import { LiveNumber } from "./LiveNumber";
 import { api } from "@code2create/backend/api";
 import type { FunctionReturnType } from "convex/server";
 import { useMutation, useQuery } from "convex/react";
@@ -127,10 +128,10 @@ export function OperationsAttention({
         </h2>
         {attention && rows.length > 0 ? (
           <span>
-            {rows.length}
+            <LiveNumber value={rows.length} />
             {attention.summary.hasMore ? "+" : ""} open
             {attention.summary.acknowledgedCount > 0
-              ? ` · ${attention.summary.acknowledgedCount} picked up`
+              ? <> · <LiveNumber value={attention.summary.acknowledgedCount} /> picked up</>
               : ""}
           </span>
         ) : null}
@@ -166,7 +167,7 @@ export function OperationsAttention({
                   <section className="attention-group" key={group.detectorKey}>
                     <div className="attention-group-heading">
                       <h3>{attentionGroupLabels[group.detectorKey]}</h3>
-                      <span>{group.rows.length}</span>
+                      <span><LiveNumber value={group.rows.length} /></span>
                     </div>
                     <div className="health-list">{groupRows.map(rowView)}</div>
                     {group.rows.length > groupRowLimit ? (
@@ -182,7 +183,7 @@ export function OperationsAttention({
                           )
                         }
                       >
-                        {expanded ? "Show fewer" : `Show ${hidden} more`}
+                        {expanded ? "Show fewer" : <>Show <LiveNumber value={hidden} /> more</>}
                       </button>
                     ) : null}
                   </section>
@@ -195,7 +196,7 @@ export function OperationsAttention({
               View event monitor
               <span>
                 {hiddenRowCount > 0
-                  ? `${hiddenRowCount}${attention.summary.hasMore ? "+" : ""} more`
+                  ? <><LiveNumber value={hiddenRowCount} />{attention.summary.hasMore ? "+" : ""} more</>
                   : "More open work"}
               </span>
             </Link>

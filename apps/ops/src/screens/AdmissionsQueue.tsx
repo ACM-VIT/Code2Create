@@ -1,3 +1,4 @@
+import { LiveNumber } from "../components/LiveNumber";
 import { api } from "@code2create/backend/api";
 import { useProductAnalytics } from "@code2create/client-observability";
 import {
@@ -205,32 +206,58 @@ function AdmissionResultsRelease() {
           </button>
         ) : null}
       </div>
-      <dl className="catalog-summary">
+      <dl className="catalog-summary" aria-label="Human review progress">
         <div>
           <dt>Applications</dt>
-          <dd>{status.total}</dd>
+          <dd><LiveNumber value={status.total} /></dd>
         </div>
         <div>
-          <dt>Decisions ready</dt>
-          <dd>{status.recorded + status.released}</dd>
+          <dt>Reviews complete</dt>
+          <dd><LiveNumber value={status.reviewsComplete} /></dd>
         </div>
         <div>
-          <dt>Still needed</dt>
-          <dd>{status.unrecorded}</dd>
+          <dt>Reviews needed</dt>
+          <dd><LiveNumber value={status.reviewsNeeded} /></dd>
+        </div>
+      </dl>
+      <dl className="catalog-summary" aria-label="Final admission decisions">
+        <div>
+          <dt>Final decisions ready</dt>
+          <dd><LiveNumber value={status.recorded + status.released} /></dd>
+        </div>
+        <div>
+          <dt>Final decisions needed</dt>
+          <dd><LiveNumber value={status.unrecorded} /></dd>
         </div>
         <div>
           <dt>Selected</dt>
-          <dd>{status.accepted}</dd>
+          <dd><LiveNumber value={status.accepted} /></dd>
         </div>
         <div>
           <dt>Waitlisted</dt>
-          <dd>{status.waitlisted}</dd>
+          <dd><LiveNumber value={status.waitlisted} /></dd>
         </div>
         <div>
           <dt>Not selected</dt>
-          <dd>{status.declined}</dd>
+          <dd><LiveNumber value={status.declined} /></dd>
         </div>
       </dl>
+      {status.ideaAgent ? (
+        <section aria-labelledby="idea-agent-breakdown">
+          <div className="section-heading">
+            <div>
+              <h3 id="idea-agent-breakdown">Idea agent</h3>
+              <p className="muted">Current recommendations across all applications. Final admission decisions are recorded separately.</p>
+            </div>
+          </div>
+          <dl className="catalog-summary">
+            <div><dt>Accepted</dt><dd><LiveNumber value={status.ideaAgent.accepted} /></dd></div>
+            <div><dt>Waitlisted</dt><dd><LiveNumber value={status.ideaAgent.waitlisted} /></dd></div>
+            <div><dt>Rejected</dt><dd><LiveNumber value={status.ideaAgent.rejected} /></dd></div>
+            <div><dt>No current recommendation</dt><dd><LiveNumber value={status.ideaAgent.unavailable} /></dd></div>
+          </dl>
+        </section>
+      ) : null}
       {status.decisions.length > 0 ? (
         <div className="table-wrap">
           <table>
@@ -259,12 +286,12 @@ function AdmissionResultsRelease() {
       ) : null}
       {!status.releasedAt && status.unrecorded > 0 ? (
         <p className="notice">
-          Record a final decision for all {status.unrecorded} remaining applications before release.
+          Record a final decision for all <LiveNumber value={status.unrecorded} /> remaining applications before release.
         </p>
       ) : null}
       {!status.releasedAt && armed ? (
         <div className="publish-confirmation">
-          <h3>Release all {status.total} results?</h3>
+          <h3>Release all <LiveNumber value={status.total} /> results?</h3>
           <p className="muted">
             This is the participant-visible boundary. It cannot be rolled back.
           </p>
@@ -418,7 +445,7 @@ function ApplicationList({
                 }}
               >
                 {applicationStateLabels[candidate]}
-                <span>{countByState.get(candidate) ?? 0}</span>
+                <span><LiveNumber value={countByState.get(candidate) ?? 0} /></span>
               </button>
             ))}
           </div>
@@ -582,8 +609,8 @@ function ApplicationRow({
       >
         <span>Human review score</span>
         <strong>
-          {application.humanReviewScore.accept} / {application.humanReviewScore.waitlist} /{" "}
-          {application.humanReviewScore.reject}
+          <LiveNumber value={application.humanReviewScore.accept} /> / <LiveNumber value={application.humanReviewScore.waitlist} /> /{" "}
+          <LiveNumber value={application.humanReviewScore.reject} />
         </strong>
         <small>Accept / Waitlist / Reject</small>
       </span>
@@ -676,7 +703,7 @@ function AssignBar({
   return (
     <form className="admission-assign-bar" onSubmit={(event) => void submit(event)}>
       <div className="admission-assign-selection">
-        <strong>{applications.length} selected</strong>
+        <strong><LiveNumber value={applications.length} /> selected</strong>
         <button
           className="text-button"
           disabled={busy || applications.length === 0}
@@ -700,7 +727,7 @@ function AssignBar({
       {confirmingBulkAssignment ? (
         <div className="admission-assign-confirmation" role="alert">
           <div>
-            <strong>Assign {applications.length} applications to one reviewer?</strong>
+            <strong>Assign <LiveNumber value={applications.length} /> applications to one reviewer?</strong>
             <p>
               Confirm the count and email. Every assignment remains open for up to 30 minutes.
             </p>
@@ -795,7 +822,7 @@ function AssignmentList({ origin }: { origin: TeamOriginFilter }) {
           onClick={() => setState("active")}
         >
           To review
-          {counts === undefined ? null : <span>{counts.active}</span>}
+          {counts === undefined ? null : <span><LiveNumber value={counts.active} /></span>}
         </button>
         <button
           aria-pressed={state === "completed"}
@@ -804,7 +831,7 @@ function AssignmentList({ origin }: { origin: TeamOriginFilter }) {
           onClick={() => setState("completed")}
         >
           Done
-          {counts === undefined ? null : <span>{counts.completed}</span>}
+          {counts === undefined ? null : <span><LiveNumber value={counts.completed} /></span>}
         </button>
       </div>
       <div className="queue-list admissions-list">

@@ -1,11 +1,13 @@
 import betterAuthSchema from "../node_modules/@convex-dev/better-auth/src/component/schema.ts";
 import {
   discordSupportBridgeProtocolVersion,
+  discordSupportAcknowledgeSignatureContext,
   discordSupportPullSignatureContext,
+  discordSupportReplySignatureContext,
   signServiceBody,
 } from "@code2create/domain";
 import { convexTest, type TestConvex } from "convex-test";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 import { api, components, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -20,6 +22,73 @@ const betterAuthModules = import.meta.glob(
 type BackendTest = TestConvex<typeof schema>;
 
 describe("support projections", () => {
+  test("signed Discord HTTP acknowledgements and replies accept the wire protocol", async () => {
+    const backend = seededBackend();
+    const fixture = await seedOperator(backend);
+    const operator = backend.withIdentity({
+      subject: fixture.authUserId,
+      sessionId: fixture.authSessionId,
+    });
+    const created = await operator.mutation(api.support.createStaff, {
+      eventSlug: fixture.eventSlug,
+      category: "queue",
+      description: "The participant needs the correct queue location.",
+      clientOperationId: crypto.randomUUID(),
+    });
+    const claimed = await backend.mutation(internal.supportDiscordBridge.claimNext, {
+      eventSlug: fixture.eventSlug,
+    });
+    if (claimed.state !== "work") throw new Error("The Discord delivery was not claimed.");
+    const secret = `test-${crypto.randomUUID()}-${crypto.randomUUID()}`;
+    vi.stubEnv("AUTH_SITE_URL", "http://localhost:3211");
+    vi.stubEnv("PARTICIPANT_SITE_URL", "http://localhost:4173");
+    vi.stubEnv("OPERATIONS_SITE_URL", "http://localhost:4174");
+    vi.stubEnv("DISCORD_SUPPORT_BRIDGE_SECRET", secret);
+    vi.stubEnv("DISCORD_SUPPORT_ACTOR_EMAIL", fixture.email);
+    const signedPost = async (path: string, context: string, payload: Record<string, string>) => {
+      const body = JSON.stringify({ protocolVersion: discordSupportBridgeProtocolVersion, ...payload });
+      const timestamp = Date.now().toString();
+      const signature = await signServiceBody({ context, secret, timestamp, body });
+      return backend.fetch(`/integrations/discord/support/${path}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-c2c-signature": signature,
+          "x-c2c-timestamp": timestamp,
+        },
+        body,
+      });
+    };
+    try {
+      const acknowledgement = {
+        deliveryId: claimed.delivery.id,
+        claimId: claimed.delivery.claimId,
+        discordGuildId: "1411784063571988722",
+        discordChannelId: "1555555555555555555",
+        discordMessageId: "1666666666666666666",
+      };
+      const response = await signedPost("acknowledge", discordSupportAcknowledgeSignatureContext, acknowledgement);
+      expect(response.status).toBe(202);
+      await expect(response.json()).resolves.toEqual({ state: "accepted" });
+      const reply = {
+        eventSlug: fixture.eventSlug,
+        discordGuildId: acknowledgement.discordGuildId,
+        discordChannelId: acknowledgement.discordChannelId,
+        discordMessageId: "1777777777777777777",
+        discordUserId: "1888888888888888888",
+        discordDisplayName: "Discord operator",
+        message: "Use the north registration queue beside the auditorium.",
+      };
+      for (const state of ["accepted", "already_recorded"]) {
+        const response = await signedPost("reply", discordSupportReplySignatureContext, reply);
+        expect(response.status).toBe(202);
+        await expect(response.json()).resolves.toMatchObject({ state, publicCode: created.publicCode, version: 2 });
+      }
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   test("the Discord bridge rejects unsigned pulls", async () => {
     const backend = seededBackend();
     const fixture = await seedOperator(backend);
