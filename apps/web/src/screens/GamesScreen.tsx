@@ -22,6 +22,8 @@ import { createRoundRecorder } from '../lib/gameRounds'
 const glass =
   'rounded-[18px] border border-petal-edge/70 bg-fg/5 shadow-[0_20px_44px_-30px_var(--shade-2),inset_0_1px_0_color-mix(in_srgb,var(--color-fg)_14%,transparent)] backdrop-blur-[22px] backdrop-saturate-[1.35]'
 
+const columnHeight = 'max-h-[min(58vh,460px)]'
+
 /** Every board the arcade keeps: a game, or one of a game's modes. */
 export type BoardRef = { readonly key: GameKey; readonly label: string }
 
@@ -33,28 +35,40 @@ export function boardsOf(entries: readonly GameEntry[]): readonly BoardRef[] {
   )
 }
 
-/**
- * The arcade.
- *
- * Three columns: the games to pick from, the mark in the middle, and the
- * standings. The two outer columns scroll on their own, so a long list of games
- * never pushes the standings off the screen and neither one moves the page.
- *
- * A game opens over the screen rather than replacing it. The arcade is somewhere
- * to pass a few minutes while something else finishes, and coming back out of a
- * game should not feel like navigating.
- *
- * Standings are per person, not per team, and a person may replay as often as
- * they like — the board keeps their best single round, so replaying can improve
- * a place but never inflate one.
- */
-export function GamesScreen({ header }: { header: ReactNode }) {
-  const [playing, setPlaying] = useState<GameEntry | null>(null)
-  const boards = useMemo(() => boardsOf(games), [])
+/** Where a person stands on one board. `position` is null until they place. */
+export type Standing = { readonly position: number | null; readonly points: number }
 
+export type BoardView = FunctionReturnType<typeof api.games.leaderboard>
+
+export function standingOf(board: BoardView | undefined): Standing {
+  if (board === undefined) return { position: null, points: 0 }
+  const index = board.entries.findIndex((entry) => entry.isYou)
+  return { position: index >= 0 ? index + 1 : null, points: board.yourBestScore }
+}
+
+/* ------------------------------------------------------------------ layout */
+
+/**
+ * The arcade's frame, given its two columns.
+ *
+ * Separate from the queries so the screen gallery can show it full of standings
+ * without a backend behind it, and without the live screen carrying sample data
+ * of its own.
+ */
+export function ArcadeView({
+  header,
+  tiles,
+  standings,
+  children,
+}: {
+  header: ReactNode
+  tiles: ReactNode
+  standings: ReactNode
+  children?: ReactNode
+}) {
   return (
     <PortalScene tree="left" header={header}>
-      <div className="flex w-full max-w-[1180px] flex-col items-center lowercase">
+      <div className="flex w-full max-w-[1120px] flex-col items-center lowercase">
         <h1 className="mb-1.5 text-center font-display font-light lowercase tracking-[-.01em] text-3xl text-shadow-[0_6px_40px_var(--scene-text-glow)] lg:text-[42px]">
           games to play while your agent cooks!
         </h1>
@@ -64,13 +78,11 @@ export function GamesScreen({ header }: { header: ReactNode }) {
           </Link>
         </p>
 
-        <div className="grid w-full gap-5 lg:grid-cols-[minmax(0,1fr)_160px_minmax(0,340px)]">
+        <div className="grid w-full gap-5 lg:grid-cols-[minmax(0,330px)_minmax(0,1fr)_minmax(0,330px)]">
           <section aria-label="Games" className="flex min-w-0 flex-col">
             <h2 className="mb-2.5 font-ui text-[15px] lowercase text-rose-light">pick a game</h2>
-            <div className="flex max-h-[min(58vh,460px)] flex-col gap-4 overflow-y-auto pr-1">
-              {games.map((game) => (
-                <GameTile key={game.key} game={game} onPlay={() => setPlaying(game)} />
-              ))}
+            <div className={`flex flex-col gap-3.5 overflow-y-auto pr-1 ${columnHeight}`}>
+              {tiles}
             </div>
           </section>
 
@@ -79,54 +91,97 @@ export function GamesScreen({ header }: { header: ReactNode }) {
             <img
               src="/assets/logo.svg"
               alt=""
-              className="w-[92px] opacity-70 drop-shadow-[0_0_26px_var(--logo-glow)]"
+              className="w-[104px] opacity-70 drop-shadow-[0_0_28px_var(--logo-glow)]"
             />
           </div>
 
           <section aria-label="Leaderboards" className="flex min-w-0 flex-col">
             <h2 className="mb-2.5 font-ui text-[15px] lowercase text-rose-light">leaderboards</h2>
-            <LeaderboardColumn boards={boards} />
+            {standings}
           </section>
         </div>
       </div>
-
-      {playing ? <GameDialog game={playing} onClose={() => setPlaying(null)} /> : null}
+      {children}
     </PortalScene>
   )
 }
 
-/** The glass card a game is picked from. */
-function GameTile({ game, onPlay }: { game: GameEntry; onPlay: () => void }) {
+/* ------------------------------------------------------------------- tiles */
+
+/**
+ * The card a game is picked from: where you stand on it, then what it is.
+ *
+ * The rank is the loudest thing on the card on purpose — it is the reason to
+ * open the game again — and a dash reads as "not yet" without spelling it out.
+ */
+export function GameTile({
+  game,
+  standing,
+  onPlay,
+}: {
+  game: GameEntry
+  standing: Standing
+  onPlay: () => void
+}) {
+  const played = standing.points > 0
   return (
     <button
       type="button"
       onClick={onPlay}
-      className={`flex flex-none cursor-pointer flex-col justify-between gap-3 p-[18px] text-left lowercase transition-[border-color,background-color,transform] duration-300 hover:border-rose-light/70 hover:bg-fg/8 focus-visible:border-rose-light focus-visible:outline-none active:scale-[.995] ${glass}`}
+      className={`flex flex-none cursor-pointer items-stretch gap-3.5 p-3.5 text-left lowercase transition-[border-color,background-color,transform] duration-300 hover:border-rose-light/70 hover:bg-fg/8 focus-visible:border-rose-light focus-visible:outline-none active:scale-[.995] ${glass}`}
     >
-      <div>
-        <p className="m-0 font-ui text-[15px] lowercase text-rose-light">{game.title}</p>
-        <p className="mt-1.5 text-[12.5px] leading-snug lowercase text-fg/60">{game.blurb}</p>
-      </div>
-      <span className="font-ui text-[12.5px] lowercase text-fg/45">
-        {game.modes ? `${game.modes.length} ways to play · play` : 'play'}
+      <span className="flex w-[62px] flex-none flex-col items-center justify-center gap-0.5 rounded-petal-sm border border-petal-line bg-black/25 px-1 py-2">
+        <span
+          className={`font-display text-[26px] leading-none tabular-nums ${
+            played && standing.position !== null ? 'text-rose-light' : 'text-fg/35'
+          }`}
+        >
+          #{standing.position ?? '—'}
+        </span>
+        <span className="font-ui text-[10.5px] leading-none lowercase text-fg/45 tabular-nums">
+          {played ? `${standing.points} pts` : '— pts'}
+        </span>
+      </span>
+
+      <span className="flex min-w-0 flex-1 flex-col justify-center gap-1">
+        <span className="font-ui text-[15px] lowercase text-rose-light">{game.title}</span>
+        <span className="text-[12px] leading-snug lowercase text-fg/60">{game.blurb}</span>
       </span>
     </button>
   )
 }
 
-/** The standings column: one board at a time, chosen by the tabs above it. */
-function LeaderboardColumn({ boards }: { boards: readonly BoardRef[] }) {
-  const [active, setActive] = useState<GameKey>(boards[0]?.key ?? 'pacman')
-  const board = useQuery(api.games.leaderboard, { eventSlug, gameKey: active })
+/** The card, reading its own standing from the board it belongs to. */
+function GameTileLive({ game, onPlay }: { game: GameEntry; onPlay: () => void }) {
+  // A game played more than one way stands on its first board; the rest are a
+  // tab away in the standings column.
+  const gameKey = game.modes?.[0]?.key ?? game.key
+  const board = useQuery(api.games.leaderboard, { eventSlug, gameKey })
+  return <GameTile game={game} standing={standingOf(board)} onPlay={onPlay} />
+}
 
+/* -------------------------------------------------------------- standings */
+
+/** The standings column: one board at a time, chosen by the tabs above it. */
+export function StandingsColumn({
+  boards,
+  active,
+  onSelect,
+  board,
+}: {
+  boards: readonly BoardRef[]
+  active: GameKey
+  onSelect: (key: GameKey) => void
+  board: BoardView | undefined
+}) {
   return (
-    <div className={`flex max-h-[min(58vh,460px)] min-h-0 flex-col ${glass}`}>
+    <div className={`flex min-h-0 flex-col ${columnHeight} ${glass}`}>
       <div className="flex flex-none flex-wrap gap-1.5 border-b border-petal-line p-3">
         {boards.map((option) => (
           <button
             key={option.key}
             type="button"
-            onClick={() => setActive(option.key)}
+            onClick={() => onSelect(option.key)}
             className={`rounded-petal-sm border-2 bg-transparent px-2.5 py-1 font-ui text-[11.5px] lowercase transition-colors ${
               option.key === active
                 ? 'border-petal-edge bg-rose-light/15 text-fg'
@@ -144,14 +199,14 @@ function LeaderboardColumn({ boards }: { boards: readonly BoardRef[] }) {
   )
 }
 
-export type BoardView = FunctionReturnType<typeof api.games.leaderboard>
+/** The standings column, reading the board it is showing. */
+function StandingsColumnLive({ boards }: { boards: readonly BoardRef[] }) {
+  const [active, setActive] = useState<GameKey>(boards[0]?.key ?? 'pacman')
+  const board = useQuery(api.games.leaderboard, { eventSlug, gameKey: active })
+  return <StandingsColumn boards={boards} active={active} onSelect={setActive} board={board} />
+}
 
-/**
- * One board's standings, given the data.
- *
- * Split from the query so the screen gallery can show a full board without a
- * backend behind it, and without the screen carrying sample data of its own.
- */
+/** One board's standings, given the data. */
 export function LeaderboardPanel({ board }: { board: BoardView | undefined }) {
   if (board === undefined) {
     return <p className="py-4 text-center text-[12.5px] lowercase text-fg/50">loading…</p>
@@ -188,6 +243,40 @@ export function LeaderboardPanel({ board }: { board: BoardView | undefined }) {
         </p>
       ) : null}
     </>
+  )
+}
+
+/* ------------------------------------------------------------------ screen */
+
+/**
+ * The arcade.
+ *
+ * Three columns: the games to pick from, the mark in the middle, and the
+ * standings. The two outer columns scroll on their own, so a long list of games
+ * never pushes the standings off the screen and neither one moves the page.
+ *
+ * A game opens over the screen rather than replacing it. The arcade is somewhere
+ * to pass a few minutes while something else finishes, and coming back out of a
+ * game should not feel like navigating.
+ *
+ * Standings are per person, not per team, and a person may replay as often as
+ * they like — the board keeps their best single round, so replaying can improve
+ * a place but never inflate one.
+ */
+export function GamesScreen({ header }: { header: ReactNode }) {
+  const [playing, setPlaying] = useState<GameEntry | null>(null)
+  const boards = useMemo(() => boardsOf(games), [])
+
+  return (
+    <ArcadeView
+      header={header}
+      tiles={games.map((game) => (
+        <GameTileLive key={game.key} game={game} onPlay={() => setPlaying(game)} />
+      ))}
+      standings={<StandingsColumnLive boards={boards} />}
+    >
+      {playing ? <GameDialog game={playing} onClose={() => setPlaying(null)} /> : null}
+    </ArcadeView>
   )
 }
 

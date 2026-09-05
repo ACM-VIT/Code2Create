@@ -30,7 +30,6 @@ export const GALLERY_SCREENS = [
   { id: "f13", label: "Help · thread" },
   { id: "f13b", label: "Help · first visit" },
   { id: "arcade-screen", label: "Arcade · the screen" },
-  { id: "arcade-leaderboard", label: "Arcade · standings" },
   { id: "arcade", label: "Arcade · Pac-Man" },
   { id: "arcade-stack", label: "Arcade · Logo Stack" },
   { id: "arcade-memory", label: "Arcade · Memory" },
