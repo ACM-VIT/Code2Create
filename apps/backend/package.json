@@ -20,7 +20,7 @@
     "test:recovery": "node --test scripts/recovery/recovery.test.ts",
     "test:release-environment": "node --test scripts/release/webEnvironment.test.ts scripts/release/keyEnvironment.test.ts scripts/release/deployCloudflareViteWorker.test.ts scripts/release/discordDeployment.test.mjs scripts/release/rollingNumberRuntime.test.mjs",
     "test:release-providers": "node --test scripts/release/providerEnvironment.test.ts",
-    "test:release-fixtures": "node --test scripts/release/browserFixtureEnvironment.test.ts && vitest run convex/releaseVerification.test.ts",
+    "test:release-fixtures": "node --test scripts/release/browserFixtureEnvironment.test.ts && vitest run convex/releaseVerification.test.ts convex/stagingInternalHack.test.ts",
     "browser-fixtures:check:staging": "node scripts/release/checkBrowserFixtures.ts",
     "providers:check:staging": "node scripts/release/liveProviderChecks.ts",
     "keys:check": "node scripts/release/checkKeys.ts",
