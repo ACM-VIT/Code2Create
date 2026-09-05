@@ -1061,12 +1061,14 @@ describe("admission cohort query and decisions", () => {
       clientOperationId: "release-complete-set",
     });
     expect(released.applicationCount).toBe(3);
-    await backend.mutation(internal.admissions.finalizeReleasedAdmissionResults, {
-      eventId: fixture.eventId,
-      releasedAt: released.releasedAt,
-      releasedByPersonId: fixture.operatorPersonId,
-      communicationsPolicyVersionId: fixture.communicationsPolicyId,
-    });
+    for (let index = 0; index < 3; index += 1) {
+      await backend.mutation(internal.admissions.finalizeReleasedAdmissionResults, {
+        eventId: fixture.eventId,
+        releasedAt: released.releasedAt,
+        releasedByPersonId: fixture.operatorPersonId,
+        communicationsPolicyVersionId: fixture.communicationsPolicyId,
+      });
+    }
     const applications = await backend.run((ctx) =>
       Promise.all([
         ctx.db.get(fixture.decidableApplicationId),
@@ -1183,6 +1185,10 @@ describe("admission cohort query and decisions", () => {
       releasedByPersonId: fixture.operatorPersonId,
       communicationsPolicyVersionId: fixture.communicationsPolicyId,
     };
+    await backend.mutation(internal.admissions.finalizeReleasedAdmissionResults, finalizeArgs);
+    const partial = await operator.query(api.admissions.admissionSummary, { eventSlug: fixture.eventSlug });
+    expect(partial).toMatchObject({ recorded: 2, released: 1 });
+    await backend.mutation(internal.admissions.finalizeReleasedAdmissionResults, finalizeArgs);
     await backend.mutation(internal.admissions.finalizeReleasedAdmissionResults, finalizeArgs);
     await backend.mutation(internal.admissions.finalizeReleasedAdmissionResults, finalizeArgs);
     for (const applicationId of [fixture.decidableApplicationId, fixture.shortApplicationId, fixture.splitApplicationId]) {

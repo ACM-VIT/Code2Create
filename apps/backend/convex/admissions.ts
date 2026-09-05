@@ -3860,7 +3860,9 @@ export const finalizeReleasedAdmissionResults = internalMutation({
       .withIndex("by_event_decision_stage", (index) =>
         index.eq("eventId", args.eventId).eq("decisionStage", "recorded"),
       )
-      .take(25);
+      // Each application updates its comparison index and schedules roster work.
+      // Keep the transaction within the production backend's one-second limit.
+      .take(1);
     const now = Date.now();
     for (const application of applications) {
       if (application.state === "withdrawn") {
@@ -3931,7 +3933,7 @@ export const finalizeReleasedAdmissionResults = internalMutation({
         now,
       });
     }
-    if (applications.length === 25) {
+    if (applications.length === 1) {
       await ctx.scheduler.runAfter(0, internal.admissions.finalizeReleasedAdmissionResults, args);
     }
     return null;

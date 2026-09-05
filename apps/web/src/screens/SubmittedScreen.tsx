@@ -513,14 +513,14 @@ function SubmittedWorkspace({
               </div>
               <div className="min-w-0 md:pl-5">
                 <p className="mb-1 text-[10.5px] font-semibold tracking-[.08em] text-fg/50">
-                  {confirmed ? "status" : "confirm by"}
+                  {confirmed || !offer ? "status" : "confirm by"}
                 </p>
                 <p className="m-0 text-balance font-display font-light tracking-[-.01em] text-[15px] leading-[1.45] text-rose-light">
                   {confirmed
                     ? "place held"
                     : offer
                       ? <EventDateTime timestamp={offer.expiresAt} timezone={event.timezone} stacked />
-                      : "offer on its way"}
+                      : "accepted"}
                 </p>
               </div>
             </div>
