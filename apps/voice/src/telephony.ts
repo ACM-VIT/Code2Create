@@ -310,20 +310,20 @@ export async function queueSarvamCall(
             agent_phone_number: agentPhoneNumber,
           },
           app_type: "agent",
-          ...(args.venueConfirmation
-            ? {
-                agent_variables: {
+          agent_variables: {
+            call_message: withOutboundCallIntroduction(args.script),
+            ...(args.venueConfirmation
+              ? {
                   reviewer_name: args.venueConfirmation.reviewerName,
                   venue_name: args.venueConfirmation.venueName,
                   outcome: "unclear",
                   confirmed: false,
                   summary: "",
                   return_in_minutes: null,
-                },
-              }
-            : {}),
+                }
+              : {}),
+          },
           app_overrides: {
-            initial_bot_message: withOutboundCallIntroduction(args.script),
             initial_language_name: "English",
           },
         },

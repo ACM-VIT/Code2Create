@@ -160,9 +160,11 @@ describe("outbound voice transport", () => {
           agent_phone_number: "+917965854087",
         },
         app_type: "agent",
-        app_overrides: {
-          initial_bot_message:
+        agent_variables: {
+          call_message:
             "hi, i'm calling on behalf of the code2create team. Code2Create needs you now.",
+        },
+        app_overrides: {
           initial_language_name: "English",
         },
       },
@@ -471,6 +473,8 @@ test("a confirmation pins the conversational agent and cannot fall back to an an
       app_id: "confirmation-agent",
       app_version: 4,
       agent_variables: {
+        call_message:
+          "hi, i'm calling on behalf of the code2create team. May I confirm your availability?",
         reviewer_name: "Reviewer",
         venue_name: "Hall",
         outcome: "unclear",
