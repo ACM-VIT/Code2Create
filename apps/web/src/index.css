@@ -931,40 +931,129 @@ p {
   gap: 12px;
   padding: 18px;
 }
-/* Queue cards become paired routes only when both paths have room. */
-@container (min-width: 360px) {
-  .queue-card-list-paired { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.outing-queue-sequence {
+  height: 100%;
+  max-height: 104px;
 }
 
-.queue-trail-glint {
-  filter: drop-shadow(0 0 4px var(--glow-rose-soft));
-  animation: queue-path-glide 7.5s ease-in-out infinite;
+.outing-queue-blossom {
+  --queue-rest-x: 50%;
+  position: absolute;
+  top: 44%;
+  left: var(--queue-rest-x);
+  display: block;
+  width: 24px;
+  height: 24px;
+  color: var(--color-rose);
+  transform: translate(-50%, -50%) scale(.92);
+  transform-origin: center;
+  transition: color 240ms ease, opacity 240ms ease, filter 240ms ease;
 }
 
-.queue-destination-pin {
-  box-shadow: 0 0 10px var(--glow-rose-soft);
+.outing-queue-blossom:nth-child(1) {
+  --queue-rest-x: 5%;
+}
+.outing-queue-blossom:nth-child(2) {
+  --queue-rest-x: 23%;
+}
+.outing-queue-blossom:nth-child(3) {
+  --queue-rest-x: 41%;
+}
+.outing-queue-blossom:nth-child(4) {
+  --queue-rest-x: 59%;
+}
+.outing-queue-blossom:nth-child(5) {
+  --queue-rest-x: 77%;
+}
+.outing-queue-blossom:nth-child(6) {
+  --queue-rest-x: 95%;
 }
 
-.queue-petal-self {
-  filter: drop-shadow(0 0 5px var(--glow-rose));
-  animation: queue-petal-arrive 540ms cubic-bezier(.2,.8,.2,1) both;
+.outing-queue-blossom-base {
+  opacity: .58;
 }
 
-.queue-petal-leading:not(.queue-petal-self) {
-  animation: queue-petal-breathe 3.6s ease-in-out infinite;
+.outing-queue-blossom-self {
+  color: var(--color-rose-light);
+  opacity: 1;
+  filter: drop-shadow(0 0 7px var(--glow-rose));
 }
 
-.queue-petal-open {
-  color: color-mix(in srgb, var(--color-rose) 36%, transparent);
+.outing-queue-sequence.is-joining .outing-queue-blossom-base {
+  animation: outing-queue-make-way 520ms cubic-bezier(.45, 0, .25, 1) both;
 }
 
-.queue-petal-open svg > :first-child {
-  fill: transparent;
+.outing-queue-sequence.is-joining .outing-queue-blossom-base:nth-child(1) { animation-delay: 80ms; }
+.outing-queue-sequence.is-joining .outing-queue-blossom-base:nth-child(2) { animation-delay: 280ms; }
+.outing-queue-sequence.is-joining .outing-queue-blossom-base:nth-child(3) { animation-delay: 480ms; }
+.outing-queue-sequence.is-joining .outing-queue-blossom-base:nth-child(4) { animation-delay: 680ms; }
+.outing-queue-sequence.is-joining .outing-queue-blossom-base:nth-child(5) { animation-delay: 880ms; }
+
+.outing-queue-sequence.is-joining .outing-queue-blossom-self {
+  z-index: 2;
+  animation: outing-queue-join 1.55s cubic-bezier(.4, 0, .2, 1) both;
 }
 
-.queue-waypoint-1 { transform: translateY(2px) rotate(-8deg); }
-.queue-waypoint-2 { transform: translateY(-1px) rotate(7deg); }
-.queue-waypoint-3 { transform: translateY(1px) rotate(-3deg); }
+.outing-queue-loader.is-joining .outing-queue-position {
+  opacity: 0;
+}
+
+.outing-queue-sequence.is-leaving .outing-queue-blossom-self {
+  animation: outing-queue-leave-glow 820ms ease-out both;
+}
+
+.outing-queue-sequence.is-leaving .outing-queue-blossom-self svg g path {
+  --queue-fall-x: 0px;
+  --queue-fall-y: 22px;
+  --queue-fall-turn: 0deg;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: outing-queue-petal-release 720ms cubic-bezier(.2, .65, .3, 1) both;
+}
+
+.outing-queue-sequence.is-leaving .outing-queue-blossom-self svg g path:nth-child(1) {
+  --queue-fall-x: -3px;
+  --queue-fall-y: 17px;
+  --queue-fall-turn: -18deg;
+}
+.outing-queue-sequence.is-leaving .outing-queue-blossom-self svg g path:nth-child(2) {
+  --queue-fall-x: 5px;
+  --queue-fall-y: 23px;
+  --queue-fall-turn: 24deg;
+  animation-delay: 35ms;
+}
+.outing-queue-sequence.is-leaving .outing-queue-blossom-self svg g path:nth-child(3) {
+  --queue-fall-x: 2px;
+  --queue-fall-y: 29px;
+  --queue-fall-turn: 31deg;
+  animation-delay: 80ms;
+}
+.outing-queue-sequence.is-leaving .outing-queue-blossom-self svg g path:nth-child(4) {
+  --queue-fall-x: -5px;
+  --queue-fall-y: 25px;
+  --queue-fall-turn: -27deg;
+  animation-delay: 110ms;
+}
+.outing-queue-sequence.is-leaving .outing-queue-blossom-self svg g path:nth-child(5) {
+  --queue-fall-x: -2px;
+  --queue-fall-y: 20px;
+  --queue-fall-turn: -14deg;
+  animation-delay: 55ms;
+}
+
+.outing-queue-sequence.is-leaving .outing-queue-blossom-self svg > circle {
+  animation: outing-queue-center-fade 320ms ease-out both;
+}
+
+.outing-queue-loader.is-leaving .outing-queue-position {
+  opacity: 0;
+}
+
+@container (max-width: 220px) {
+  .outing-queue > :first-child { gap: 6px; }
+  .outing-queue-title { font-size: 10px; }
+  .outing-queue-action { height: 24px; padding-inline: 6px; }
+}
 
 .music-idle-halo {
   transform: translate(-50%, -50%);
@@ -983,20 +1072,51 @@ p {
   animation: music-note-shadow 3.8s cubic-bezier(.45,.05,.55,.95) infinite;
 }
 
-@keyframes queue-path-glide {
-  0% { stroke-dashoffset: 0; opacity: .45; }
-  50% { opacity: .9; }
-  100% { stroke-dashoffset: -260; opacity: .45; }
+@keyframes outing-queue-make-way {
+  0%, 100% { transform: translate(-50%, -50%) scale(.92); }
+  48% { transform: translate(-50%, calc(-50% - 17px)) rotate(5deg) scale(.98); }
 }
 
-@keyframes queue-petal-arrive {
-  from { opacity: 0; transform: translateX(10px) rotate(14deg); }
-  to { opacity: 1; transform: translateX(0) rotate(0); }
+@keyframes outing-queue-join {
+  0% {
+    top: 78%;
+    left: -4%;
+    opacity: 0;
+    transform: translate(-50%, -50%) rotate(-18deg) scale(.72);
+  }
+  12% { opacity: 1; }
+  76% {
+    top: 75%;
+    left: var(--queue-rest-x);
+    transform: translate(-50%, -50%) rotate(12deg) scale(.92);
+  }
+  100% {
+    top: 44%;
+    left: var(--queue-rest-x);
+    opacity: 1;
+    transform: translate(-50%, -50%) rotate(0deg) scale(.92);
+  }
 }
 
-@keyframes queue-petal-breathe {
-  0%, 100% { opacity: .58; filter: drop-shadow(0 0 0 transparent); }
-  50% { opacity: .9; filter: drop-shadow(0 0 4px var(--glow-rose-soft)); }
+@keyframes outing-queue-leave-glow {
+  0% { filter: drop-shadow(0 0 7px var(--glow-rose)); }
+  30% { filter: drop-shadow(0 0 11px var(--glow-rose)); }
+  100% { filter: drop-shadow(0 5px 2px transparent); }
+}
+
+@keyframes outing-queue-petal-release {
+  0%, 14% {
+    opacity: 1;
+    transform: translate(0, 0) rotate(0deg) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--queue-fall-x), var(--queue-fall-y)) rotate(var(--queue-fall-turn)) scale(.76);
+  }
+}
+
+@keyframes outing-queue-center-fade {
+  to { opacity: 0; }
 }
 
 @keyframes music-note-float {
@@ -1015,13 +1135,20 @@ p {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .queue-trail-glint,
-  .queue-petal-self,
-  .queue-petal-leading:not(.queue-petal-self),
+  .outing-queue-sequence.is-joining .outing-queue-blossom-base,
+  .outing-queue-sequence.is-joining .outing-queue-blossom-self,
+  .outing-queue-sequence.is-leaving .outing-queue-blossom-self,
+  .outing-queue-sequence.is-leaving .outing-queue-blossom-self svg g path,
+  .outing-queue-sequence.is-leaving .outing-queue-blossom-self svg > circle,
   .music-idle-halo,
   .music-idle-note,
   .music-idle-shadow {
     animation: none;
+  }
+
+  .outing-queue-loader.is-joining .outing-queue-position,
+  .outing-queue-loader.is-leaving .outing-queue-position {
+    opacity: 1;
   }
 }
 
@@ -1060,10 +1187,10 @@ p {
   .tile-body { gap: 6px; padding: 12px; }
   .tile-short-hidden { display: none; }
   .tile-short-clamp { -webkit-line-clamp: 1; }
-  .queue-card-list-paired { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
-  .queue-card { padding-block: 6px; }
-  .queue-card-meta { display: none; }
-  .queue-trail { margin-top: 0; min-height: 32px; }
-  .queue-action { height: 22px; padding-inline: 7px; }
+  .outing-queue-meta,
+  .outing-queue-position { display: none; }
+  .outing-queue-sequence { height: 44px; }
+  .outing-queue-blossom { width: 17px; height: 17px; }
+  .outing-queue-action { height: 22px; padding-inline: 7px; }
   .integration-summary-detail { display: none; }
 }
