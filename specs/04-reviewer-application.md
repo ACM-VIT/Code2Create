@@ -101,6 +101,8 @@ The device record stores no Google password or raw OAuth token.
 
 ## 5. Clock-in
 
+Before the round, an availability card opens at the scheduled confirmation time, normally 23:00 IST. It offers all of the round's time windows, a whole-round selection, and an explicit unavailable response. There is no three-selection limit. Form-export hours are never prefilled as promises. Operations sees pending, confirmed, and unavailable responses separately. Only qualified reviewers with confirmed coverage may clock in for a review.
+
 The clock-in screen shows:
 
 - event and review window;
@@ -110,7 +112,7 @@ The clock-in screen shows:
 - declared criterion coverage;
 - unresolved conflict or training block.
 
-Clock-in is one server write. The server, not the phone clock, enforces the published opening and round end and rechecks declared availability. The app keeps the control unavailable before the published opening and treats the server refusal as authoritative. It then subscribes to `reviewer.now`, which contains the reviewer’s current panel, page, assignment, and review.
+Clock-in is one server write. The server, not the phone clock, enforces the published opening and round end and rechecks round-confirmed coverage for a complete review. The app keeps the control unavailable before the published opening and treats the server refusal as authoritative. It then subscribes to `reviewer.now`, which contains the reviewer’s current panel, page, assignment, and review.
 
 The reviewer can mark **Temporarily unavailable** with a reason and expected return time. Operations sees it immediately and decides whether to replace the seat.
 
@@ -201,6 +203,8 @@ The workspace has four parts.
 
 The start/query response includes `serverNow`, `startedAt`, and approved extension seconds. The app derives the remaining duration from the server offset, then advances it with a monotonic device clock. It resynchronizes after foregrounding or reconnect so a wrong device wall clock cannot change the official timer.
 
+The discussion limit defaults to seven minutes and follows the published ops configuration. At expiry, the server moves the review to scoring. The UI shows score entry and final comments without locking unfinished scorecards; it never silently submits them.
+
 ### Evidence
 
 The configured checklist can include:
@@ -229,7 +233,7 @@ Changing a score or checkbox saves immediately. Text saves after a short idle pe
 
 ### Notes and commitments
 
-Private judge notes remain attached to that judge. Panel commitments are a separate shared field entered by the panel coordinator and confirmed before review completion.
+Every reviewer must leave a final comment at the end of the review. That comment is part of completing their scorecard. Optional private judge notes remain distinct from feedback intended for the team. Panel commitments are a separate shared field entered by the panel coordinator and confirmed before review completion. The configured final-comment requirement is checked on submission, correction and paper recovery; drafts can remain incomplete.
 
 ## 10. Draft saving
 
@@ -258,7 +262,7 @@ Only the active review draft is kept offline. Completed project context and scor
 
 ## 11. Submission
 
-The reviewer presses **Review and submit**. The app lists missing criteria, required explanations, and unresolved sync.
+The reviewer presses **Review and submit**. The app lists missing criteria, required explanations, the required final comment, and unresolved sync.
 
 Submission sends the complete scorecard plus a stable submission operation ID. The server checks:
 
@@ -359,3 +363,10 @@ On a device handover, operations revokes the old device, registers the spare, an
 - A side-by-side Figma comparison follows the previous judging checkpoint set, never an intervening provider refresh, and returns **Uncertain** instead of claiming an addition or removal outside an incomplete frame set.
 - A newer provider snapshot or changed repository set cannot silently replace the evidence fixed when the review started.
 - A round pause removes the start control on every connected reviewer device without interrupting an already-active review or its draft.
+
+
+## Venue confirmation and simpler reviewer actions
+
+GPS is advisory. Sustained outside readings prompt an app reminder and, when configured and consented, a conversational check-in call. Ops selects the published voice agent/version and timing; the response and transcript are recorded separately from GPS and call delivery status. A current explicit unavailable answer can end duty and request a substitute between reviews. Active discussion and unfinished scorecards remain locked; unclear answers or requests for help need ops follow-up. No answer never becomes confirmation. Normal clock-in is the return-to-duty action and cancels an older unresolved check.
+
+The review brief is optional: complete eligible repository text and stored Figma structure are analysed in resumable batches before synthesis. The default is up to three grounded follow-ups, including none when the fixed rubric is enough. The reviewer sees a concise brief in the existing app style. Binary assets, inaccessible resources and runtime/visual verification remain explicit limitations. See [current implementation and rehearsal](15-event-review-readiness.md).

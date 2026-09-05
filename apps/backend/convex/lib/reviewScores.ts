@@ -5,6 +5,22 @@ import type { MutationCtx } from "../_generated/server";
 import { operationFingerprint } from "./operations";
 import { normalizedText } from "./strings";
 
+export function requireFinalComment(
+  value: string | undefined,
+  required: boolean,
+) {
+  const comment = value?.trim();
+  if (required && (!comment || comment.length < 3)) {
+    throw new ConvexError({
+      code: "FINAL_COMMENT_REQUIRED",
+      message: "Leave a final comment about the review before submitting.",
+    });
+  }
+  return comment
+    ? normalizedText(comment, "Final comment", required ? 3 : 1, 2_000)
+    : undefined;
+}
+
 export function cleanAssignedRatings(
   ratings: Array<{
     criterionId: Id<"reviewRubricCriteria">;
@@ -17,7 +33,8 @@ export function cleanAssignedRatings(
 ) {
   const byCriterion = new Map<
     Id<"reviewRubricCriteria">,
-    { criterionId: Id<"reviewRubricCriteria">; score: number; evidenceNote?: string }
+    { criterionId: Id<"reviewRubricCriteria">; score: number; evidenceNote?: string;
+    }
   >();
   const assigned = new Set(assignedCriterionIds);
   for (const rating of ratings) {
@@ -130,15 +147,18 @@ export async function computeReviewEvaluation(
   const [assignments, scorecards, criteria] = await Promise.all([
     ctx.db
       .query("reviewAssignments")
-      .withIndex("by_session_person", (index) => index.eq("reviewSessionId", args.session._id))
+      .withIndex("by_session_person", (index) => index.eq("reviewSessionId", args.session._id),
+      )
       .collect(),
     ctx.db
       .query("scorecards")
-      .withIndex("by_session_status", (index) => index.eq("reviewSessionId", args.session._id))
+      .withIndex("by_session_status", (index) => index.eq("reviewSessionId", args.session._id),
+      )
       .collect(),
     ctx.db
       .query("reviewRubricCriteria")
-      .withIndex("by_rubric_order", (index) => index.eq("rubricVersionId", args.rubric._id))
+      .withIndex("by_rubric_order", (index) => index.eq("rubricVersionId", args.rubric._id),
+      )
       .collect(),
   ]);
   const active = activeAssignmentScorecards(assignments, scorecards);
@@ -158,7 +178,8 @@ export async function computeReviewEvaluation(
   const submittedVersions: Array<Doc<"scorecardVersions">> = [];
   for (const scorecard of active.scorecards) {
     const versionId = scorecard.submittedVersionId;
-    if (!versionId) throw new Error("Validated submitted scorecard has no immutable version.");
+    if (!versionId) throw new Error("Validated submitted scorecard has no immutable version.",
+      );
     const submitted = await ctx.db.get(versionId);
     if (
       !submitted ||
@@ -166,8 +187,13 @@ export async function computeReviewEvaluation(
       submitted.scorecardId !== scorecard._id ||
       submitted.rubricVersionId !== args.rubric._id
     ) {
-      throw new Error("Submitted scorecard version does not match its fixed review context.");
+      throw new Error("Submitted scorecard version does not match its fixed review context.",
+      );
     }
+    requireFinalComment(
+      submitted.finalComment,
+      args.round.requiresFinalComment,
+    );
     submittedVersions.push(submitted);
   }
 

@@ -3,7 +3,8 @@ import { z } from "zod";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import { internalMutation, internalQuery, mutation, query,
+} from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
@@ -14,13 +15,15 @@ import {
   storedOperationResult,
   storedOperationVersion,
 } from "./lib/operations";
-import { boundedActivePermissionGrants, requirePermission } from "./lib/permissions";
+import { boundedActivePermissionGrants, requirePermission,
+} from "./lib/permissions";
 import { maximumActiveReviewGrantsPerPermission } from "./lib/reviewLimits";
 import { patchTeamRoundState } from "./lib/reviewQueueProjection";
 import {
   cleanAssignedRatings,
   computeReviewEvaluation,
   requireCompleteAssignedRatings,
+  requireFinalComment,
 } from "./lib/reviewScores";
 import { normalizedText, optionalNormalizedText } from "./lib/strings";
 
@@ -85,6 +88,7 @@ const reviewerEntryInput = v.object({
   signatureConfirmed: v.boolean(),
   ratings: v.array(ratingInput),
   privateNote: v.optional(v.string()),
+  finalComment: v.optional(v.string()),
 });
 
 const ratingView = v.object({
@@ -102,6 +106,7 @@ const reviewerEntryView = v.object({
   signatureConfirmed: v.boolean(),
   ratings: v.array(ratingView),
   privateNote: v.optional(v.string()),
+  finalComment: v.optional(v.string()),
 });
 
 const recordView = v.object({
@@ -150,6 +155,7 @@ const reviewView = v.object({
   roundVersion: v.number(),
   startedAt: v.optional(v.number()),
   requiresSharedCommitments: v.boolean(),
+  requiresFinalComment: v.boolean(),
   rubric: v.object({
     id: v.id("reviewRubricVersions"),
     name: v.string(),
@@ -191,7 +197,7 @@ function normalizedSerial(value: string) {
 }
 
 function liveReview(status: Doc<"reviewSessions">["status"]) {
-  return status === "active" || status === "overdue";
+  return status === "active" || status === "scoring";
 }
 
 async function activeManualGrants(
@@ -249,17 +255,24 @@ export const workspace = query({
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const round = await ctx.db.get(args.roundId);
     if (!round || round.eventId !== event._id) {
-      throw new ConvexError({ code: "ROUND_NOT_FOUND", message: "Review round not found." });
+      throw new ConvexError({ code: "ROUND_NOT_FOUND", message: "Review round not found.",
+      });
     }
-    const [readGrants, enterGrants, verifyGrants, sourceGrants, sessions, criteria] =
+    const [readGrants, enterGrants, verifyGrants, sourceGrants, sessions, criteria,
+    ] =
       await Promise.all([
-        activeManualGrants(ctx, event._id, subject._id, "review.manual_record.read"),
-        activeManualGrants(ctx, event._id, subject._id, "review.manual_record.enter"),
-        activeManualGrants(ctx, event._id, subject._id, "review.manual_record.verify"),
-        activeManualGrants(ctx, event._id, subject._id, "review.manual_record.source.read"),
+        activeManualGrants(ctx, event._id, subject._id, "review.manual_record.read",
+      ),
+        activeManualGrants(ctx, event._id, subject._id, "review.manual_record.enter",
+      ),
+        activeManualGrants(ctx, event._id, subject._id, "review.manual_record.verify",
+      ),
+        activeManualGrants(ctx, event._id, subject._id, "review.manual_record.source.read",
+      ),
         ctx.db
           .query("reviewSessions")
-          .withIndex("by_round_team_status", (index) => index.eq("roundId", round._id))
+          .withIndex("by_round_team_status", (index) => index.eq("roundId", round._id),
+        )
           .collect(),
         ctx.db
           .query("reviewRubricCriteria")
@@ -273,32 +286,40 @@ export const workspace = query({
       throw new Error("The round rubric no longer resolves.");
     }
     const reviews = [];
-    for (const session of sessions.sort((left, right) => left.createdAt - right.createdAt)) {
+    for (const session of sessions.sort((left, right) => left.createdAt - right.createdAt,
+    )) {
       if (!grantsAllowReview(readGrants, session._id)) continue;
       const [team, panel, assignments, scorecards, records] = await Promise.all([
         ctx.db.get(session.teamId),
         ctx.db.get(session.panelId),
         ctx.db
           .query("reviewAssignments")
-          .withIndex("by_session_person", (index) => index.eq("reviewSessionId", session._id))
+          .withIndex("by_session_person", (index) => index.eq("reviewSessionId", session._id),
+            )
           .collect(),
         ctx.db
           .query("scorecards")
-          .withIndex("by_session_status", (index) => index.eq("reviewSessionId", session._id))
+          .withIndex("by_session_status", (index) => index.eq("reviewSessionId", session._id),
+            )
           .collect(),
         ctx.db
           .query("manualReviewRecords")
-          .withIndex("by_review_created", (index) => index.eq("reviewSessionId", session._id))
+          .withIndex("by_review_created", (index) => index.eq("reviewSessionId", session._id),
+            )
           .order("desc")
           .take(10),
-      ]);
+      ],
+      );
       if (!team || !panel) throw new Error("A review references a missing team or panel.");
       const scorecardViews = [];
-      for (const assignment of assignments.filter((entry) => entry.status === "assigned")) {
-        const scorecard = scorecards.find((entry) => entry.assignmentId === assignment._id);
+      for (const assignment of assignments.filter((entry) => entry.status === "assigned",
+      )) {
+        const scorecard = scorecards.find((entry) => entry.assignmentId === assignment._id,
+        );
         const reviewer = await ctx.db.get(assignment.reviewerPersonId);
         if (!scorecard || !reviewer) {
-          throw new Error("A review assignment is missing its reviewer or scorecard.");
+          throw new Error("A review assignment is missing its reviewer or scorecard.",
+          );
         }
         scorecardViews.push({
           id: scorecard._id,
@@ -373,6 +394,7 @@ export const workspace = query({
         roundVersion: round.version,
         ...(session.startedAt !== undefined ? { startedAt: session.startedAt } : {}),
         requiresSharedCommitments: round.requiresSharedCommitments,
+        requiresFinalComment: round.requiresFinalComment,
         rubric: {
           id: rubric._id,
           name: rubric.name,
@@ -445,7 +467,8 @@ export const createDraft = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const recordId = ctx.db.normalizeId("manualReviewRecords", prior.targetId);
+      const recordId = ctx.db.normalizeId("manualReviewRecords", prior.targetId,
+      );
       if (!recordId) throw new Error("The stored paper-review draft is invalid.");
       return {
         id: recordId,
@@ -479,7 +502,8 @@ export const createDraft = mutation({
       });
     }
     if (!session || session.eventId !== event._id) {
-      throw new ConvexError({ code: "REVIEW_NOT_FOUND", message: "Review not found." });
+      throw new ConvexError({ code: "REVIEW_NOT_FOUND", message: "Review not found.",
+      });
     }
     const grantIds = await requireReviewPermission(ctx, {
       eventId: event._id,
@@ -487,18 +511,21 @@ export const createDraft = mutation({
       permissionKey: "review.manual_record.enter",
       reviewSessionId: session._id,
     });
-    const [round, panel, rubric, assignments, scorecards, pendingDraft, pendingSubmitted] =
+    const [round, panel, rubric, assignments, scorecards, pendingDraft, pendingSubmitted,
+    ] =
       await Promise.all([
         ctx.db.get(session.roundId),
         ctx.db.get(session.panelId),
         ctx.db.get(session.rubricVersionId),
         ctx.db
           .query("reviewAssignments")
-          .withIndex("by_session_person", (index) => index.eq("reviewSessionId", session._id))
+          .withIndex("by_session_person", (index) => index.eq("reviewSessionId", session._id),
+        )
           .collect(),
         ctx.db
           .query("scorecards")
-          .withIndex("by_session_status", (index) => index.eq("reviewSessionId", session._id))
+          .withIndex("by_session_status", (index) => index.eq("reviewSessionId", session._id),
+        )
           .collect(),
         ctx.db
           .query("manualReviewRecords")
@@ -557,7 +584,8 @@ export const createDraft = mutation({
           "The copied start and end times must match this active review and cannot be in the future.",
       });
     }
-    const assigned = assignments.filter((assignment) => assignment.status === "assigned");
+    const assigned = assignments.filter((assignment) => assignment.status === "assigned",
+    );
     if (
       assigned.length !== round.requiredPanelSize ||
       scorecards.length !== assigned.length ||
@@ -578,7 +606,8 @@ export const createDraft = mutation({
         });
       }
       inputScorecardIds.add(input.scorecardId);
-      const scorecard = scorecards.find((entry) => entry._id === input.scorecardId);
+      const scorecard = scorecards.find((entry) => entry._id === input.scorecardId,
+      );
       const assignment = scorecard
         ? assigned.find((entry) => entry._id === scorecard.assignmentId)
         : undefined;
@@ -611,7 +640,12 @@ export const createDraft = mutation({
         rubric.scoreMinimum,
         rubric.scoreMaximum,
       );
-      const privateNote = optionalNormalizedText(input.privateNote, "Private note", 2_000);
+      const privateNote = optionalNormalizedText(input.privateNote, "Private note", 2_000,
+      );
+      const finalComment = requireFinalComment(
+        input.finalComment,
+        round.requiresFinalComment,
+      );
       reviewerEntries.push({
         assignmentId: assignment._id,
         scorecardId: scorecard._id,
@@ -621,9 +655,11 @@ export const createDraft = mutation({
         signatureConfirmed: true,
         ratings,
         ...(privateNote !== undefined ? { privateNote } : {}),
+        ...(finalComment !== undefined ? { finalComment } : {}),
       });
     }
-    const sharedFindings = optionalNormalizedText(args.sharedFindings, "Shared findings", 4_000);
+    const sharedFindings = optionalNormalizedText(args.sharedFindings, "Shared findings", 4_000,
+    );
     const sharedCommitments = optionalNormalizedText(
       args.sharedCommitments,
       "Shared commitments",
@@ -641,14 +677,16 @@ export const createDraft = mutation({
         index.eq("eventId", event._id).eq("serial", serial),
       )
       .collect();
-    if (revisions.some((record) => record.status !== "rejected" && record.status !== "cancelled")) {
+    if (revisions.some((record) => record.status !== "rejected" && record.status !== "cancelled",
+      )) {
       throw new ConvexError({
         code: "PAPER_SERIAL_ALREADY_USED",
         message: "That paper serial already has an active or imported record.",
       });
     }
     const revision =
-      revisions.reduce((highest, record) => Math.max(highest, record.revision), 0) + 1;
+      revisions.reduce((highest, record) => Math.max(highest, record.revision), 0,
+      ) + 1;
     const recordId = await ctx.db.insert("manualReviewRecords", {
       eventId: event._id,
       incidentId: incident._id,
@@ -730,7 +768,8 @@ export const sourceUploadContext = internalQuery({
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const record = await ctx.db.get(args.recordId);
     if (!record || record.eventId !== event._id) {
-      throw new ConvexError({ code: "PAPER_REVIEW_NOT_FOUND", message: "Paper review not found." });
+      throw new ConvexError({ code: "PAPER_REVIEW_NOT_FOUND", message: "Paper review not found.",
+      });
     }
     await requireReviewPermission(ctx, {
       eventId: event._id,
@@ -771,13 +810,15 @@ export const sourceUploadContext = internalQuery({
       requestFingerprint,
     });
     if (prior) {
-      const priorRecordId = ctx.db.normalizeId("manualReviewRecords", prior.targetId);
+      const priorRecordId = ctx.db.normalizeId("manualReviewRecords", prior.targetId,
+      );
       if (!priorRecordId || priorRecordId !== record._id) {
         throw new Error("The stored paper-review submission is invalid.");
       }
       return {
         kind: completeUploadKind,
-        version: storedOperationVersion(prior.resultJson, "paper-review submission"),
+        version: storedOperationVersion(prior.resultJson, "paper-review submission",
+        ),
       };
     }
     if (record.status === "submitted" && record.sourceStorageId !== undefined) {
@@ -875,14 +916,16 @@ export const attachSource = internalMutation({
       requestFingerprint,
     });
     if (prior) {
-      const recordId = ctx.db.normalizeId("manualReviewRecords", prior.targetId);
+      const recordId = ctx.db.normalizeId("manualReviewRecords", prior.targetId,
+      );
       const record = recordId ? await ctx.db.get(recordId) : null;
       if (!record || record.eventId !== event._id || !record.sourceStorageId) {
         throw new Error("The stored paper-review submission is invalid.");
       }
       return {
         id: record._id,
-        version: storedOperationVersion(prior.resultJson, "paper-review submission"),
+        version: storedOperationVersion(prior.resultJson, "paper-review submission",
+        ),
         storageId: record.sourceStorageId,
       };
     }
@@ -903,7 +946,8 @@ export const attachSource = internalMutation({
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const record = await ctx.db.get(args.recordId);
     if (!record || record.eventId !== event._id) {
-      throw new ConvexError({ code: "PAPER_REVIEW_NOT_FOUND", message: "Paper review not found." });
+      throw new ConvexError({ code: "PAPER_REVIEW_NOT_FOUND", message: "Paper review not found.",
+      });
     }
     if (
       record.enteredByPersonId !== person._id ||
@@ -927,7 +971,8 @@ export const attachSource = internalMutation({
       ctx.db.get(record.roundId),
       ctx.db
         .query("manualReviewRecords")
-        .withIndex("by_source_storage", (index) => index.eq("sourceStorageId", args.storageId))
+        .withIndex("by_source_storage", (index) => index.eq("sourceStorageId", args.storageId),
+        )
         .unique(),
     ]);
     if (reusedSource) {
@@ -994,7 +1039,8 @@ export const attachSource = internalMutation({
       action: "review.manual_record_submitted",
       targetType: "manual_review_record",
       targetId: record._id,
-      previousSummary: JSON.stringify({ status: record.status, version: record.version }),
+      previousSummary: JSON.stringify({ status: record.status, version: record.version,
+      }),
       nextSummary: JSON.stringify({
         status: "submitted",
         version,
@@ -1033,11 +1079,13 @@ export const cancelDraft = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const recordId = ctx.db.normalizeId("manualReviewRecords", prior.targetId);
+      const recordId = ctx.db.normalizeId("manualReviewRecords", prior.targetId,
+      );
       if (!recordId) throw new Error("The stored paper-review cancellation is invalid.");
       return {
         id: recordId,
-        version: storedOperationVersion(prior.resultJson, "paper-review cancellation"),
+        version: storedOperationVersion(prior.resultJson, "paper-review cancellation",
+        ),
       };
     }
     const subject = await requireEventSubject(ctx, event._id, person._id);
@@ -1090,7 +1138,8 @@ export const cancelDraft = mutation({
       action: "review.manual_record_cancelled",
       targetType: "manual_review_record",
       targetId: record._id,
-      previousSummary: JSON.stringify({ status: record.status, version: record.version }),
+      previousSummary: JSON.stringify({ status: record.status, version: record.version,
+      }),
       nextSummary: JSON.stringify({ status: "cancelled", version }),
       reason,
     });
@@ -1195,7 +1244,8 @@ export const verify = mutation({
         "paper-review verification",
         manualReviewVerificationOperationResult,
       );
-      const recordId = ctx.db.normalizeId("manualReviewRecords", prior.targetId);
+      const recordId = ctx.db.normalizeId("manualReviewRecords", prior.targetId,
+      );
       const evaluationId = result.evaluationId
         ? ctx.db.normalizeId("reviewEvaluations", result.evaluationId)
         : undefined;
@@ -1212,7 +1262,8 @@ export const verify = mutation({
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const record = await ctx.db.get(args.recordId);
     if (!record || record.eventId !== event._id) {
-      throw new ConvexError({ code: "PAPER_REVIEW_NOT_FOUND", message: "Paper review not found." });
+      throw new ConvexError({ code: "PAPER_REVIEW_NOT_FOUND", message: "Paper review not found.",
+      });
     }
     if (record.enteredByPersonId === person._id) {
       throw new ConvexError({
@@ -1298,7 +1349,8 @@ export const verify = mutation({
         action: "review.manual_record_rejected",
         targetType: "manual_review_record",
         targetId: record._id,
-        previousSummary: JSON.stringify({ status: record.status, version: record.version }),
+        previousSummary: JSON.stringify({ status: record.status, version: record.version,
+        }),
         nextSummary: JSON.stringify({ status: "rejected", version }),
         reason,
       });
@@ -1352,7 +1404,8 @@ export const verify = mutation({
     const [existingEvaluation, state, assignments, scorecards] = await Promise.all([
       ctx.db
         .query("reviewEvaluations")
-        .withIndex("by_session", (index) => index.eq("reviewSessionId", session._id))
+        .withIndex("by_session", (index) => index.eq("reviewSessionId", session._id),
+          )
         .unique(),
       ctx.db
         .query("teamRoundStates")
@@ -1362,11 +1415,13 @@ export const verify = mutation({
         .unique(),
       ctx.db
         .query("reviewAssignments")
-        .withIndex("by_session_person", (index) => index.eq("reviewSessionId", session._id))
+        .withIndex("by_session_person", (index) => index.eq("reviewSessionId", session._id),
+          )
         .collect(),
       ctx.db
         .query("scorecards")
-        .withIndex("by_session_status", (index) => index.eq("reviewSessionId", session._id))
+        .withIndex("by_session_status", (index) => index.eq("reviewSessionId", session._id),
+          )
         .collect(),
     ]);
     if (existingEvaluation) {
@@ -1381,7 +1436,8 @@ export const verify = mutation({
         message: "The team is no longer in this active review.",
       });
     }
-    const assigned = assignments.filter((assignment) => assignment.status === "assigned");
+    const assigned = assignments.filter((assignment) => assignment.status === "assigned",
+    );
     if (
       assigned.length !== round.requiredPanelSize ||
       scorecards.length !== assigned.length ||
@@ -1394,8 +1450,10 @@ export const verify = mutation({
     }
     const importedScorecardVersionIds: Array<Id<"scorecardVersions">> = [];
     for (const entry of record.reviewerEntries) {
-      const assignment = assigned.find((candidate) => candidate._id === entry.assignmentId);
-      const scorecard = scorecards.find((candidate) => candidate._id === entry.scorecardId);
+      const assignment = assigned.find((candidate) => candidate._id === entry.assignmentId,
+      );
+      const scorecard = scorecards.find((candidate) => candidate._id === entry.scorecardId,
+      );
       if (
         !assignment ||
         !scorecard ||
@@ -1426,9 +1484,14 @@ export const verify = mutation({
       );
       const priorVersion = await ctx.db
         .query("scorecardVersions")
-        .withIndex("by_scorecard_version", (index) => index.eq("scorecardId", scorecard._id))
+        .withIndex("by_scorecard_version", (index) => index.eq("scorecardId", scorecard._id),
+        )
         .order("desc")
         .first();
+      const finalComment = requireFinalComment(
+        entry.finalComment,
+        round.requiresFinalComment,
+      );
       const scorecardVersion = (priorVersion?.version ?? 0) + 1;
       const checksum = operationFingerprint([
         scorecard._id,
@@ -1437,6 +1500,7 @@ export const verify = mutation({
         record._id,
         JSON.stringify(ratings),
         entry.privateNote ?? null,
+        finalComment ?? null,
       ]);
       const scorecardVersionId = await ctx.db.insert("scorecardVersions", {
         eventId: event._id,
@@ -1448,6 +1512,7 @@ export const verify = mutation({
         rubricVersionId: rubric._id,
         ratings,
         ...(entry.privateNote !== undefined ? { privateNote: entry.privateNote } : {}),
+        ...(finalComment !== undefined ? { finalComment } : {}),
         checksum,
         clientOperationId: `manual:${record._id}:${scorecard._id}`,
         manualReviewRecordId: record._id,
@@ -1456,6 +1521,7 @@ export const verify = mutation({
       await ctx.db.patch(scorecard._id, {
         status: "submitted",
         ratings,
+        finalComment,
         ...(entry.privateNote !== undefined
           ? { privateNote: entry.privateNote }
           : { privateNote: undefined }),
@@ -1466,7 +1532,8 @@ export const verify = mutation({
       });
       importedScorecardVersionIds.push(scorecardVersionId);
     }
-    const evaluation = await computeReviewEvaluation(ctx, { round, session, rubric });
+    const evaluation = await computeReviewEvaluation(ctx, { round, session, rubric,
+    });
     const evaluationId = await ctx.db.insert("reviewEvaluations", {
       eventId: event._id,
       roundId: round._id,

@@ -28,7 +28,8 @@ export type PagingReadinessCheck = {
   consequence: string;
   /** `unknown` means Android exposes the switch but no read API. */
   met: boolean | "unknown";
-  fix?: "app_settings" | "notification_settings" | "full_screen_settings" | "battery_settings";
+  fix?:
+    | "app_settings" | "notification_settings" | "full_screen_settings" | "battery_settings";
 };
 
 export async function pagingReadiness(): Promise<PagingReadinessCheck[]> {
@@ -165,11 +166,19 @@ async function nativeRegistration(
 
 function validNativeToken(provider: "fcm" | "apns", token: string) {
   if (provider === "apns") return /^[A-Fa-f0-9]{32,512}$/u.test(token);
-  return token.length >= 20 && token.length <= 4_096 && /^[A-Za-z0-9:_-]+$/u.test(token);
+  return (
+    token.length >= 20 && token.length <= 4_096 && /^[A-Za-z0-9:_-]+$/u.test(token)
+  );
 }
 
 async function prepareAndroidChannel() {
   if (Platform.OS !== "android") return;
+  await Notifications.setNotificationChannelAsync("reviewer-venue", {
+    name: "Venue reminders",
+    importance: Notifications.AndroidImportance.HIGH,
+    enableVibrate: true,
+    showBadge: false,
+  });
   await Notifications.setNotificationChannelAsync("reviewer-pages", {
     name: "Reviewer pages",
     // Full-screen lock-screen notifications require maximum importance.
@@ -183,7 +192,8 @@ async function prepareAndroidChannel() {
   });
 }
 
-function allowsNotifications(permission: Notifications.NotificationPermissionsStatus) {
+function allowsNotifications(permission: Notifications.NotificationPermissionsStatus,
+) {
   return (
     permission.granted ||
     permission.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL

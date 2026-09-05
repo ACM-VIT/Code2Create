@@ -3,7 +3,8 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
-import { internalAction, internalMutation, internalQuery, query } from "./_generated/server";
+import { internalAction, internalMutation, internalQuery, query,
+} from "./_generated/server";
 import { requireEventBySlug } from "./lib/events";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import {
@@ -54,7 +55,8 @@ function coverageMarker(values: readonly object[], generatedAt: number) {
   return values.length === queryLimit ? [generatedAt] : [];
 }
 
-async function incidentHealth(ctx: QueryCtx, eventId: Id<"events">, generatedAt: number) {
+async function incidentHealth(ctx: QueryCtx, eventId: Id<"events">, generatedAt: number,
+) {
   const [open, monitoring, pauses] = await Promise.all([
     ctx.db
       .query("incidents")
@@ -98,9 +100,10 @@ async function incidentHealth(ctx: QueryCtx, eventId: Id<"events">, generatedAt:
   };
 }
 
-async function reviewHealth(ctx: QueryCtx, eventId: Id<"events">, generatedAt: number) {
+async function reviewHealth(ctx: QueryCtx, eventId: Id<"events">, generatedAt: number,
+) {
   const staleBefore = generatedAt - reviewerHeartbeatWindowMs;
-  const [panels, overdueReviews, staleClockIns, sentPages, openedPages] = await Promise.all([
+  const [panels, scoringReviews, staleClockIns, sentPages, openedPages] = await Promise.all([
     ctx.db
       .query("reviewPanels")
       .withIndex("by_event_status_updated", (index) =>
@@ -110,7 +113,7 @@ async function reviewHealth(ctx: QueryCtx, eventId: Id<"events">, generatedAt: n
     ctx.db
       .query("reviewSessions")
       .withIndex("by_event_status_updated", (index) =>
-        index.eq("eventId", eventId).eq("status", "overdue"),
+        index.eq("eventId", eventId).eq("status", "scoring"),
       )
       .take(queryLimit),
     ctx.db
@@ -151,16 +154,19 @@ async function reviewHealth(ctx: QueryCtx, eventId: Id<"events">, generatedAt: n
   }
   return {
     counts: {
-      panels_needing_reviewer: boundedCount(panels.map((panel) => panel.updatedAt)),
+      panels_needing_reviewer: boundedCount(panels.map((panel) => panel.updatedAt),
+      ),
       stale_reviewer_heartbeats: boundedCount(staleHeartbeatTimes),
-      overdue_reviews: boundedCount(overdueReviews.map((review) => review.updatedAt)),
+      overdue_reviews: boundedCount(
+        scoringReviews.map((review) => review.updatedAt),
+      ),
       expired_reviewer_pages: boundedCount(
         [...sentPages, ...openedPages].map((page) => page.expiresAt),
       ),
     },
     coverage: [
       ...coverageMarker(panels, generatedAt),
-      ...coverageMarker(overdueReviews, generatedAt),
+      ...coverageMarker(scoringReviews, generatedAt),
       ...coverageMarker(staleClockIns, generatedAt),
       ...coverageMarker(sentPages, generatedAt),
       ...coverageMarker(openedPages, generatedAt),
@@ -171,7 +177,8 @@ async function reviewHealth(ctx: QueryCtx, eventId: Id<"events">, generatedAt: n
 type IntakeFailureState = "refused" | "invalid" | "timed_out" | "rate_limited" | "failed";
 type AdmissionFailureState = IntakeFailureState;
 
-function intakeStateBefore(ctx: QueryCtx, eventId: Id<"events">, state: "running", before: number) {
+function intakeStateBefore(ctx: QueryCtx, eventId: Id<"events">, state: "running", before: number,
+) {
   return ctx.db
     .query("intakeInterpretations")
     .withIndex("by_event_state_created", (index) =>
@@ -250,7 +257,8 @@ function admissionStateSince(
     .take(queryLimit);
 }
 
-async function intelligenceHealth(ctx: QueryCtx, eventId: Id<"events">, generatedAt: number) {
+async function intelligenceHealth(ctx: QueryCtx, eventId: Id<"events">, generatedAt: number,
+) {
   const intakeFailureStates: IntakeFailureState[] = [
     "refused",
     "invalid",
@@ -276,19 +284,26 @@ async function intelligenceHealth(ctx: QueryCtx, eventId: Id<"events">, generate
     admissionFailures,
   ] = await Promise.all([
     intakeStateBefore(ctx, eventId, "running", generatedAt - intakeJobWindowMs),
-    noveltyStateBefore(ctx, eventId, "running", generatedAt - noveltyPreviewStallWindowMs),
-    noveltyStateSince(ctx, eventId, "unavailable", generatedAt - recentModelFailureWindowMs),
-    noveltyStateSince(ctx, eventId, "failed", generatedAt - recentModelFailureWindowMs),
-    admissionStateBefore(ctx, eventId, "pending", generatedAt - shortJobWindowMs),
-    admissionStateBefore(ctx, eventId, "running", generatedAt - shortJobWindowMs),
+    noveltyStateBefore(ctx, eventId, "running", generatedAt - noveltyPreviewStallWindowMs,
+    ),
+    noveltyStateSince(ctx, eventId, "unavailable", generatedAt - recentModelFailureWindowMs,
+    ),
+    noveltyStateSince(ctx, eventId, "failed", generatedAt - recentModelFailureWindowMs,
+    ),
+    admissionStateBefore(ctx, eventId, "pending", generatedAt - shortJobWindowMs,
+    ),
+    admissionStateBefore(ctx, eventId, "running", generatedAt - shortJobWindowMs,
+    ),
     Promise.all(
       intakeFailureStates.map((state) =>
-        intakeStateSince(ctx, eventId, state, generatedAt - recentModelFailureWindowMs),
+        intakeStateSince(ctx, eventId, state, generatedAt - recentModelFailureWindowMs,
+        ),
       ),
     ),
     Promise.all(
       admissionFailureStates.map((state) =>
-        admissionStateSince(ctx, eventId, state, generatedAt - recentModelFailureWindowMs),
+        admissionStateSince(ctx, eventId, state, generatedAt - recentModelFailureWindowMs,
+        ),
       ),
     ),
   ]);
@@ -302,9 +317,11 @@ async function intelligenceHealth(ctx: QueryCtx, eventId: Id<"events">, generate
       recent_intake_fallbacks: boundedCount(
         flatIntakeFailures.map((interpretation) => interpretation.createdAt),
       ),
-      novelty_preview_stalls: boundedCount(noveltyStalls.map((request) => request.requestedAt)),
+      novelty_preview_stalls: boundedCount(noveltyStalls.map((request) => request.requestedAt),
+      ),
       recent_novelty_unavailable: boundedCount(
-        [...noveltyUnavailable, ...noveltyFailed].map((request) => request.requestedAt),
+        [...noveltyUnavailable, ...noveltyFailed].map((request) => request.requestedAt,
+        ),
       ),
       admission_analysis_stalls: boundedCount(
         [...pendingAdmissionStalls, ...runningAdmissionStalls].map(
@@ -343,7 +360,8 @@ function attendanceJobState(
   };
 }
 
-async function attendanceHealth(ctx: QueryCtx, event: Doc<"events">, generatedAt: number) {
+async function attendanceHealth(ctx: QueryCtx, event: Doc<"events">, generatedAt: number,
+) {
   const stalledBefore = generatedAt - shortJobWindowMs;
   const [preparingSessions, closingSessions] = await Promise.all([
     ctx.db
@@ -441,7 +459,8 @@ async function attendanceHealth(ctx: QueryCtx, event: Doc<"events">, generatedAt
   };
 }
 
-async function communicationsHealth(ctx: QueryCtx, eventId: Id<"events">, generatedAt: number) {
+async function communicationsHealth(ctx: QueryCtx, eventId: Id<"events">, generatedAt: number,
+) {
   const stalledBefore = generatedAt - shortJobWindowMs;
   const [failed, bounced, suppressed, unknown, pending, sending, retrying] = await Promise.all([
     ctx.db
@@ -490,11 +509,14 @@ async function communicationsHealth(ctx: QueryCtx, eventId: Id<"events">, genera
   return {
     counts: {
       participant_delivery_failures: boundedCount(
-        [...failed, ...bounced, ...suppressed].map((delivery) => delivery.updatedAt),
+        [...failed, ...bounced, ...suppressed].map((delivery) => delivery.updatedAt,
+        ),
       ),
-      participant_delivery_unknown: boundedCount(unknown.map((delivery) => delivery.updatedAt)),
+      participant_delivery_unknown: boundedCount(unknown.map((delivery) => delivery.updatedAt),
+      ),
       participant_delivery_stalls: boundedCount(
-        [...pending, ...sending, ...retrying].map((delivery) => delivery.updatedAt),
+        [...pending, ...sending, ...retrying].map((delivery) => delivery.updatedAt,
+        ),
       ),
     },
     coverage: [
@@ -579,7 +601,8 @@ function figmaSyncRows(
     .take(queryLimit);
 }
 
-function figmaLeaseRows(ctx: QueryCtx, eventId: Id<"events">, expiresBefore: number) {
+function figmaLeaseRows(ctx: QueryCtx, eventId: Id<"events">, expiresBefore: number,
+) {
   return ctx.db
     .query("figmaFileBindings")
     .withIndex("by_event_state_sync_lease", (index) =>
@@ -610,7 +633,8 @@ function figmaWebhookRows(
     .take(queryLimit);
 }
 
-async function integrationHealth(ctx: QueryCtx, event: Doc<"events">, generatedAt: number) {
+async function integrationHealth(ctx: QueryCtx, event: Doc<"events">, generatedAt: number,
+) {
   const eventId = event._id;
   const stalledBefore = generatedAt - shortJobWindowMs;
   const metadataStaleBefore =
@@ -678,7 +702,8 @@ async function integrationHealth(ctx: QueryCtx, event: Doc<"events">, generatedA
   ]);
   const githubGroups = await Promise.all(
     currentGithubStates.map(async (state) => {
-      const [errors, pending, running, rateLimited, missingTopics, unknownTopics] =
+      const [errors, pending, running, rateLimited, missingTopics, unknownTopics,
+      ] =
         await Promise.all([
           githubSyncRows(ctx, eventId, state, "error"),
           githubSyncRows(ctx, eventId, state, "pending", stalledBefore),
@@ -687,7 +712,8 @@ async function integrationHealth(ctx: QueryCtx, event: Doc<"events">, generatedA
           githubTopicRows(ctx, eventId, state, "missing"),
           githubTopicRows(ctx, eventId, state, "unknown"),
         ]);
-      return { errors, pending, running, rateLimited, missingTopics, unknownTopics };
+      return { errors, pending, running, rateLimited, missingTopics, unknownTopics,
+      };
     }),
   );
   const githubErrors = githubGroups.flatMap((group) => group.errors);
@@ -707,24 +733,30 @@ async function integrationHealth(ctx: QueryCtx, event: Doc<"events">, generatedA
     ...coverageMarker(group.unknownTopics, generatedAt),
   ]);
   const figmaRateLimitedById = new Map(
-    [...figmaRateLimited, ...figmaRateLimitWaits, ...figmaMetadataRateLimitWaits].map((binding) => [
+    [...figmaRateLimited, ...figmaRateLimitWaits, ...figmaMetadataRateLimitWaits,
+    ].map((binding) => [
       binding._id,
-      binding,
-    ]),
+      binding]),
   );
   return {
     counts: {
       github_inaccessible_repositories: boundedCount(
         githubInaccessible.map((binding) => binding.updatedAt),
       ),
-      github_sync_errors: boundedCount(githubErrors.map((binding) => binding.updatedAt)),
-      github_sync_stalls: boundedCount(
-        [...githubPending, ...githubRunning].map((binding) => binding.updatedAt),
+      github_sync_errors: boundedCount(githubErrors.map((binding) => binding.updatedAt),
       ),
-      github_rate_limits: boundedCount(githubRateLimited.map((binding) => binding.updatedAt)),
-      github_unverified_topics: boundedCount(githubTopics.map((binding) => binding.updatedAt)),
-      figma_inaccessible_files: boundedCount(figmaInaccessible.map((binding) => binding.updatedAt)),
-      figma_sync_errors: boundedCount(figmaErrors.map((binding) => binding.updatedAt)),
+      github_sync_stalls: boundedCount(
+        [...githubPending, ...githubRunning].map((binding) => binding.updatedAt,
+        ),
+      ),
+      github_rate_limits: boundedCount(githubRateLimited.map((binding) => binding.updatedAt),
+      ),
+      github_unverified_topics: boundedCount(githubTopics.map((binding) => binding.updatedAt),
+      ),
+      figma_inaccessible_files: boundedCount(figmaInaccessible.map((binding) => binding.updatedAt),
+      ),
+      figma_sync_errors: boundedCount(figmaErrors.map((binding) => binding.updatedAt),
+      ),
       figma_sync_stalls: boundedCount(
         [...figmaPending, ...figmaRunning].map((binding) => binding.updatedAt),
       ),
@@ -735,7 +767,8 @@ async function integrationHealth(ctx: QueryCtx, event: Doc<"events">, generatedA
         figmaMetadataStale.map((binding) => binding.lastMetadataCheckAt),
       ),
       figma_webhook_errors: boundedCount(
-        [...figmaWebhookError, ...figmaWebhookPending].map((binding) => binding.updatedAt),
+        [...figmaWebhookError, ...figmaWebhookPending].map((binding) => binding.updatedAt,
+        ),
       ),
       figma_webhook_unavailable: boundedCount(
         figmaWebhookUnavailable.map((binding) => binding.updatedAt),
@@ -759,7 +792,8 @@ async function integrationHealth(ctx: QueryCtx, event: Doc<"events">, generatedA
   };
 }
 
-async function scoreHealth(ctx: QueryCtx, eventId: Id<"events">, generatedAt: number) {
+async function scoreHealth(ctx: QueryCtx, eventId: Id<"events">, generatedAt: number,
+) {
   const stalledBefore = generatedAt - exportWindowMs;
   const closingRounds = await ctx.db
     .query("reviewRounds")
@@ -799,7 +833,8 @@ async function scoreHealth(ctx: QueryCtx, eventId: Id<"events">, generatedAt: nu
   };
 }
 
-async function emergencyPackHealth(ctx: QueryCtx, eventId: Id<"events">, generatedAt: number) {
+async function emergencyPackHealth(ctx: QueryCtx, eventId: Id<"events">, generatedAt: number,
+) {
   const stalledBefore = generatedAt - exportWindowMs;
   const [failed, pending] = await Promise.all([
     ctx.db
@@ -827,11 +862,13 @@ async function emergencyPackHealth(ctx: QueryCtx, eventId: Id<"events">, generat
         pending.filter((pack) => pack.expiresAt > generatedAt).map((pack) => pack.requestedAt),
       ),
     },
-    coverage: [...coverageMarker(failed, generatedAt), ...coverageMarker(pending, generatedAt)],
+    coverage: [...coverageMarker(failed, generatedAt), ...coverageMarker(pending, generatedAt),
+    ],
   };
 }
 
-async function synesthesiaHealth(ctx: QueryCtx, eventId: Id<"events">, generatedAt: number) {
+async function synesthesiaHealth(ctx: QueryCtx, eventId: Id<"events">, generatedAt: number,
+) {
   const window = await activeSynesthesiaWindow(ctx, eventId, generatedAt);
   if (!window) {
     return {
@@ -870,14 +907,17 @@ async function synesthesiaHealth(ctx: QueryCtx, eventId: Id<"events">, generated
     .map((request) => request.playbackStartedAt ?? request.updatedAt);
   return {
     counts: {
-      open_synesthesia_reports: boundedCount(openReports.map((report) => report.createdAt)),
+      open_synesthesia_reports: boundedCount(openReports.map((report) => report.createdAt),
+      ),
       stale_synesthesia_playback: boundedCount(stalePlaybackTimes),
       synesthesia_playback_conflicts: boundedCount(
         playingRequests.length > 1
-          ? playingRequests.map((request) => request.playbackStartedAt ?? request.updatedAt)
+          ? playingRequests.map((request) => request.playbackStartedAt ?? request.updatedAt,
+            )
           : [],
       ),
-      synesthesia_playback_paused: boundedCount(window.playbackPaused ? [window.updatedAt] : []),
+      synesthesia_playback_paused: boundedCount(window.playbackPaused ? [window.updatedAt] : [],
+      ),
     },
     coverage: [
       ...coverageMarker(openReports, generatedAt),
@@ -1014,7 +1054,8 @@ export const upsertSnapshot = internalMutation({
       args.snapshot.event.timezone !== event.timezone ||
       args.snapshot.event.status !== event.status
     ) {
-      throw new Error("The operations-health snapshot does not match its event.");
+      throw new Error("The operations-health snapshot does not match its event.",
+      );
     }
     const existing = await ctx.db
       .query("operationsHealthSnapshots")
@@ -1032,7 +1073,8 @@ export const upsertSnapshot = internalMutation({
       await ctx.scheduler.runAt(staleAt, internal.operationsHealth.markSnapshotStale, {
         eventId: args.eventId,
         expectedGeneratedAt: args.snapshot.generatedAt,
-      });
+      },
+      );
       await enqueueOperationsAutonomySignal(ctx, {
         eventId: args.eventId,
         snapshot: args.snapshot,
@@ -1057,7 +1099,8 @@ export const upsertSnapshot = internalMutation({
     await ctx.scheduler.runAt(staleAt, internal.operationsHealth.markSnapshotStale, {
       eventId: args.eventId,
       expectedGeneratedAt: args.snapshot.generatedAt,
-    });
+    },
+    );
     await enqueueOperationsAutonomySignal(ctx, {
       eventId: args.eventId,
       snapshot: args.snapshot,
@@ -1093,8 +1136,11 @@ export const markSnapshotStale = internalMutation({
 
 export const refresh = internalAction({
   args: {},
-  returns: v.union(v.literal("no_event"), v.literal("in_progress"), snapshotWriteResult),
-  handler: async (ctx): Promise<"no_event" | "in_progress" | SnapshotWriteResult> => {
+  returns: v.union(v.literal("no_event"), v.literal("in_progress"), snapshotWriteResult,
+  ),
+  handler: async (
+    ctx,
+  ): Promise<"no_event" | "in_progress" | SnapshotWriteResult> => {
     const leaseId = crypto.randomUUID();
     const claimed = await ctx.runMutation(internal.operationsBackground.claim, {
       holder: "health_refresh",
@@ -1121,7 +1167,8 @@ export const refresh = internalAction({
         leaseId,
         now: Date.now(),
         leaseDurationMs: operationsHealthMaximumAgeMs,
-      });
+      },
+      );
       if (!renewed) return "in_progress";
       const result = await ctx.runMutation(internal.operationsHealth.upsertSnapshot, {
         eventId: target.eventId,
@@ -1129,7 +1176,8 @@ export const refresh = internalAction({
         leaseId,
         leaseObservedAt: Date.now(),
         snapshot: computed.snapshot,
-      });
+      },
+      );
       return result === "lease_lost" ? "in_progress" : result;
     } finally {
       await ctx.runMutation(internal.operationsBackground.release, {

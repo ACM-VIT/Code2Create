@@ -11,8 +11,10 @@ import { z } from "zod";
 
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { httpAction, internalQuery, type ActionCtx, type QueryCtx } from "./_generated/server";
-import { HttpBodyTooLargeError, readBoundedRequestText } from "./lib/boundedHttpBody";
+import { httpAction, internalQuery, type ActionCtx, type QueryCtx,
+} from "./_generated/server";
+import { HttpBodyTooLargeError, readBoundedRequestText,
+} from "./lib/boundedHttpBody";
 import { redactProjectText } from "./lib/projectText";
 import { requireIntelligenceHmacSecret } from "./lib/intelligenceServiceConfiguration";
 import { intelligenceRecommendationStatus } from "./lib/intelligenceRecommendationValidators";
@@ -128,7 +130,8 @@ export const intelligenceReadEndpoint = httpAction(async (ctx, request) => {
       : { read: parsed.data.read, eventId, now },
   );
   if (data === null) {
-    return Response.json({ error: "operations_health_unavailable" }, { status: 503 });
+    return Response.json({ error: "operations_health_unavailable" }, { status: 503 },
+    );
   }
   return Response.json({ read: parsed.data.read, data }, { status: 200 });
 });
@@ -155,7 +158,8 @@ export async function runIntelligenceRead(
       const health = await ctx.runQuery(internal.operationsHealth.materializedForEvent, {
         eventId: args.eventId,
         now: args.now,
-      });
+      },
+      );
       return health.state === "ready" ? health.snapshot : null;
     }
     case "operations_attention":
@@ -188,7 +192,8 @@ export async function runIntelligenceRead(
         eventId: args.eventId,
         conversationId: args.conversationId,
         now: args.now,
-      });
+      },
+      );
   }
 }
 
@@ -198,7 +203,8 @@ export const resolveEvent = internalQuery({
   handler: async (ctx, args) => {
     const event = await ctx.db
       .query("events")
-      .withIndex("by_slug", (index) => index.eq("slug", args.eventSlug.trim().toLowerCase()))
+      .withIndex("by_slug", (index) => index.eq("slug", args.eventSlug.trim().toLowerCase()),
+      )
       .unique();
     return event ? { eventId: event._id } : null;
   },
@@ -213,10 +219,12 @@ function isReviewableTeam(team: Doc<"teams">) {
   );
 }
 
-async function activeRoundPauseExists(ctx: QueryCtx, roundId: Id<"reviewRounds">) {
+async function activeRoundPauseExists(ctx: QueryCtx, roundId: Id<"reviewRounds">,
+) {
   const pause = await ctx.db
     .query("reviewRoundPauses")
-    .withIndex("by_round_state", (index) => index.eq("roundId", roundId).eq("state", "active"))
+    .withIndex("by_round_state", (index) => index.eq("roundId", roundId).eq("state", "active"),
+    )
     .unique();
   return pause !== null;
 }
@@ -259,7 +267,8 @@ export const reviewRoundsRead = internalQuery({
     const [rounds, confirmedTeams, checkedInTeams, activeTeams] = await Promise.all([
       ctx.db
         .query("reviewRounds")
-        .withIndex("by_event_status_start", (index) => index.eq("eventId", args.eventId))
+        .withIndex("by_event_status_start", (index) => index.eq("eventId", args.eventId),
+          )
         .take(maximumReviewRoundsPerEvent + 1),
       ctx.db
         .query("teams")
@@ -289,16 +298,22 @@ export const reviewRoundsRead = internalQuery({
     }
     const reviewableTeams = eventTeams.filter(isReviewableTeam);
     const views = [];
-    for (const round of rounds.sort((left, right) => left.startsAt - right.startsAt)) {
-      const [panels, states, awaitingSessions, activeSessions, overdueSessions, isPaused] =
+    for (const round of rounds.sort((left, right) => left.startsAt - right.startsAt,
+    )) {
+      const [panels, states, awaitingSessions, activeSessions,
+        scoringSessions,
+        isPaused,
+      ] =
         await Promise.all([
           ctx.db
             .query("reviewPanels")
-            .withIndex("by_round_status", (index) => index.eq("roundId", round._id))
+            .withIndex("by_round_status", (index) => index.eq("roundId", round._id),
+          )
             .take(maximumReviewPanelsPerRound + 1),
           ctx.db
             .query("teamRoundStates")
-            .withIndex("by_round_state_priority_queued", (index) => index.eq("roundId", round._id))
+            .withIndex("by_round_state_priority_queued", (index) => index.eq("roundId", round._id),
+          )
             .take(maximumReviewTeamsPerEvent + 1),
           ctx.db
             .query("reviewSessions")
@@ -315,7 +330,7 @@ export const reviewRoundsRead = internalQuery({
           ctx.db
             .query("reviewSessions")
             .withIndex("by_round_status_updated", (index) =>
-              index.eq("roundId", round._id).eq("status", "overdue"),
+              index.eq("roundId", round._id).eq("status", "scoring"),
             )
             .take(maximumReviewPanelsPerRound + 1),
           activeRoundPauseExists(ctx, round._id),
@@ -324,11 +339,14 @@ export const reviewRoundsRead = internalQuery({
         throw new Error("A review round exceeds the published panel limit.");
       }
       if (states.length > maximumReviewTeamsPerEvent) {
-        throw new Error("A review round exceeds the review intelligence team limit.");
+        throw new Error("A review round exceeds the review intelligence team limit.",
+        );
       }
-      const liveSessions = [...awaitingSessions, ...activeSessions, ...overdueSessions];
+      const liveSessions = [...awaitingSessions, ...activeSessions, ...scoringSessions,
+      ];
       if (liveSessions.length > maximumReviewPanelsPerRound) {
-        throw new Error("A review round has more live reviews than published panels.");
+        throw new Error("A review round has more live reviews than published panels.",
+        );
       }
       const panelRows = panels.map((panel) => ({
         panelId: panel._id,
@@ -337,7 +355,8 @@ export const reviewRoundsRead = internalQuery({
         queuedCount: states.filter(
           (state) => state.panelId === panel._id && state.state === "queued",
         ).length,
-        activeReviewCount: liveSessions.filter((session) => session.panelId === panel._id).length,
+        activeReviewCount: liveSessions.filter((session) => session.panelId === panel._id,
+        ).length,
       }));
       const stateTeamIds = new Set(states.map((state) => state.teamId));
       const count = (state: Doc<"teamRoundStates">["state"]) =>
@@ -440,7 +459,8 @@ export const reviewExceptionsRead = internalQuery({
     if (rounds.length > maximumReviewRoundsPerEvent) {
       throw new Error("An event exceeds the published review-round limit.");
     }
-    const exceptionStates = ["queued", "called", "at_table", "held", "missed"] as const;
+    const exceptionStates = ["queued", "called", "at_table", "held", "missed",
+    ] as const;
     const teams = [];
     roundLoop: for (const round of rounds) {
       for (const state of exceptionStates) {
@@ -517,7 +537,8 @@ export const operationsAttentionRead = internalQuery({
             detectorKey: item.detectorKey,
             subjectType: item.subjectType,
             severity: item.severity,
-            statement: operationsAttentionIntelligenceStatement(item.detectorKey),
+            statement: operationsAttentionIntelligenceStatement(item.detectorKey,
+            ),
             state,
             version: item.version,
             recurrenceCount: item.recurrenceCount,
@@ -584,9 +605,11 @@ export const attendanceCountsRead = internalQuery({
       .withIndex("by_event_shard", (index) => index.eq("eventId", args.eventId))
       .take(attendanceCounterShardCount + 1);
     if (venueShards.length > attendanceCounterShardCount) {
-      throw new Error("Venue attendance counters exceed the configured shard count.");
+      throw new Error("Venue attendance counters exceed the configured shard count.",
+      );
     }
-    const venueCheckedIn = venueShards.reduce((total, shard) => total + shard.checkedIn, 0);
+    const venueCheckedIn = venueShards.reduce((total, shard) => total + shard.checkedIn, 0,
+    );
     const planId = event.publishedAttendancePlanVersionId;
     const plan = planId ? await ctx.db.get(planId) : null;
     if (!plan || plan.eventId !== event._id || plan.status !== "published") {
@@ -597,7 +620,8 @@ export const attendanceCountsRead = internalQuery({
       .withIndex("by_plan_key", (index) => index.eq("planVersionId", plan._id))
       .take(maximumAttendanceSessionsPerPlan + 1);
     if (sessions.length > maximumAttendanceSessionsPerPlan) {
-      throw new Error("An attendance plan exceeds the published session limit.");
+      throw new Error("An attendance plan exceeds the published session limit.",
+      );
     }
     const views = await Promise.all(
       sessions
@@ -605,10 +629,12 @@ export const attendanceCountsRead = internalQuery({
         .map(async (session) => {
           const shards = await ctx.db
             .query("attendanceSessionCounterShards")
-            .withIndex("by_session_shard", (index) => index.eq("sessionId", session._id))
+            .withIndex("by_session_shard", (index) => index.eq("sessionId", session._id),
+            )
             .take(attendanceCounterShardCount + 1);
           if (shards.length > attendanceCounterShardCount) {
-            throw new Error("Session attendance counters exceed the configured shard count.");
+            throw new Error("Session attendance counters exceed the configured shard count.",
+            );
           }
           const counts = shards.reduce(
             (total, shard) => ({
@@ -658,7 +684,8 @@ export const supportLoadRead = internalQuery({
       resolved: v.number(),
       closed: v.number(),
     }),
-    openByCategory: v.array(v.object({ category: supportCaseCategory, count: v.number() })),
+    openByCategory: v.array(v.object({ category: supportCaseCategory, count: v.number() }),
+    ),
     unassignedActiveCount: v.number(),
     oldestOpenAt: v.optional(v.number()),
     atLeast: v.boolean(),
@@ -666,7 +693,8 @@ export const supportLoadRead = internalQuery({
       v.object({
         caseId: v.id("supportCases"),
         category: supportCaseCategory,
-        state: v.union(v.literal("open"), v.literal("investigating"), v.literal("waiting")),
+        state: v.union(v.literal("open"), v.literal("investigating"), v.literal("waiting"),
+        ),
         createdAt: v.number(),
         teamId: v.optional(v.id("teams")),
         roundId: v.optional(v.id("reviewRounds")),
@@ -677,7 +705,8 @@ export const supportLoadRead = internalQuery({
     const [statShards, openRows, investigatingRows, waitingRows, oldestOpen] = await Promise.all([
       ctx.db
         .query("supportCaseStatShards")
-        .withIndex("by_event_shard", (index) => index.eq("eventId", args.eventId))
+        .withIndex("by_event_shard", (index) => index.eq("eventId", args.eventId),
+          )
         .take(supportCaseCounterShardCount + 1),
       ctx.db
         .query("supportCases")
@@ -724,7 +753,8 @@ export const supportLoadRead = internalQuery({
     const boundedOpenRows = openRows.slice(0, queryLimit - 1);
     const categoryCounts = new Map<Doc<"supportCases">["category"], number>();
     for (const row of boundedOpenRows) {
-      categoryCounts.set(row.category, (categoryCounts.get(row.category) ?? 0) + 1);
+      categoryCounts.set(row.category, (categoryCounts.get(row.category) ?? 0) + 1,
+      );
     }
     const atLeast =
       openRows.length === queryLimit ||
@@ -758,7 +788,8 @@ export const supportLoadRead = internalQuery({
       openByCategory: [...categoryCounts.entries()].map(([category, count]) => ({
         category,
         count,
-      })),
+      }),
+      ),
       unassignedActiveCount: totals.unowned,
       ...(oldestOpen ? { oldestOpenAt: oldestOpen.createdAt } : {}),
       atLeast,
@@ -768,7 +799,8 @@ export const supportLoadRead = internalQuery({
 });
 
 export const recommendationHistoryRead = internalQuery({
-  args: { eventId: v.id("events"), conversationId: v.string(), now: v.number() },
+  args: { eventId: v.id("events"), conversationId: v.string(), now: v.number(),
+  },
   returns: v.object({
     generatedAt: v.number(),
     recommendations: v.array(

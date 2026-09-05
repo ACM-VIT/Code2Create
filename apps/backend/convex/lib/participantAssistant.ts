@@ -10,17 +10,20 @@ export function participantAssistantPhaseForEvent(
   return event.status === "live" || event.status === "complete" ? "in_event" : "idea_submission";
 }
 
-export function participantAssistantPhaseLabel(phase: ParticipantAssistantPhase) {
+export function participantAssistantPhaseLabel(phase: ParticipantAssistantPhase,
+) {
   return phase === "in_event" ? "During the event" : "Idea submission";
 }
 
-export function participantAssistantPhaseDescription(phase: ParticipantAssistantPhase) {
+export function participantAssistantPhaseDescription(phase: ParticipantAssistantPhase,
+) {
   return phase === "in_event"
     ? "Ask what is happening now, what your team should do next, or where you need to be."
     : "I can check your team and submission status, help sharpen the idea, and tell you what to do next.";
 }
 
-export function participantAssistantSuggestions(phase: ParticipantAssistantPhase) {
+export function participantAssistantSuggestions(phase: ParticipantAssistantPhase,
+) {
   return phase === "in_event"
     ? [
         "What’s happening right now?",
@@ -57,7 +60,7 @@ IDEA AND SUBMISSION
 - Active team members can help write the draft. Next commits the current answer and advances the flow. The optional final field accepts up to 4,000 characters of notes and links, but no PPT or file upload.
 - The fresh-project rule means project-specific implementation and design begin after Code2Create officially starts. Permitted general tools and prior resources still need honest disclosure where the form asks for it.
 - Only the current lead submits. Submission creates an immutable version, but it does not freeze the team or proposal before the class deadline. A valid later edit creates a new version and makes older admission review stale.
-- Admission and hackathon judging are separate. Novelty is not used in either. AI admission analysis is advisory; an authorized human makes the admission decision. Results are not visible until they are released. The portal then shows selected, waitlisted, or not selected. A generic email points participants back to the authenticated portal instead of putting the decision in the email. If an offer is issued, only the current lead can accept or decline it for the team.
+- Admission and hackathon judging are separate. The live idea novelty preview is not used for admission or judging. AI admission analysis is advisory; an authorized human makes the admission decision. Results are not visible until they are released. The portal then shows selected, waitlisted, or not selected. A generic email points participants back to the authenticated portal instead of putting the decision in the email. If an offer is issued, only the current lead can accept or decline it for the team.
 
 SUPPORT
 - A participant can see and reply only to their own event-team conversation. A closed case stays closed; a new occurrence needs a new handoff. Refreshing, changing device, or reinstalling must not duplicate team membership, submissions, or attendance facts.`;
@@ -73,7 +76,7 @@ EVENT DAY
 - Staff control review placement and queue priority. Participants cannot put themselves in a queue. Queue estimates are ranges, not appointments, and may change after a hold, move, pause, or another review finishing.
 - When called, the team gets ready for the reviewers. One temporarily absent member does not automatically remove the team from the queue. The portal may ask the team to regroup, and staff can hold or handle an approved exception.
 - GitHub and Figma connections give reviewers project evidence. Activity counts are context, not scores or proof of one member's contribution. Missing provider access is shown as incomplete evidence and can use the approved alternative-evidence route.
-- Reviewers score independently using the published rubric. AI cannot write or recommend a judging score, rank, award, or winner. Participants can report a review-process problem, but a complaint does not directly edit a score.
+- Reviewers score independently using the published rubric. The default Round 1 rubric includes human assessment of idea novelty; it does not use the automated idea-preview number. Round 1 contributes 30% and Round 2 contributes 70% under the configured event policy. The default discussion lasts seven minutes, with final comments and score entry afterwards. AI cannot write or recommend a judging score, rank, award, or winner. Participants can report a review-process problem, but a complaint does not directly edit a score.
 - The event decides which commitments, criterion scores, written feedback, total, and finalist reason participants receive. Private reviewer notes, conflicts, other teams' results, and staff audit details are never shared.
 - During a published Synesthesia window, eligible accepted participants can request, vote for, and report catalog tracks. A vote guides the music desk but does not promise playback. Participants cannot control playback or queue order, and music activity affects no other event result.`;
 }

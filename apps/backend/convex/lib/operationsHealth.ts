@@ -208,11 +208,13 @@ const signalDefinitions = {
   overdue_reviews: {
     area: "reviews",
     severity: "attention",
-    singular: "Overdue review",
-    plural: "Overdue reviews",
-    detail: "A live review has passed its planned end time.",
+    singular: "Review finishing scorecards",
+    plural: "Reviews finishing scorecards",
+    detail:
+      "The discussion has ended and reviewers are entering their scores and comments.",
     owner: "Panel coordinator",
-    nextAction: "Complete, extend, or escalate the review through its panel.",
+    nextAction:
+      "Finish the scorecards and shared notes, then complete the review.",
   },
   expired_reviewer_pages: {
     area: "reviews",
@@ -431,9 +433,11 @@ const severityRank: Record<HealthSeverity, number> = {
   watch: 2,
 };
 
-export function boundedCount(timestamps: readonly number[], maximum = 100): BoundedCount {
+export function boundedCount(timestamps: readonly number[], maximum = 100,
+): BoundedCount {
   if (!Number.isSafeInteger(maximum) || maximum < 1) {
-    throw new Error("The operations health count limit must be a positive integer.");
+    throw new Error("The operations health count limit must be a positive integer.",
+    );
   }
   const oldestAt = timestamps.length > 0 ? Math.min(...timestamps) : undefined;
   return {
@@ -515,9 +519,12 @@ export function buildOperationsHealth(counts: OperationsHealthCounts): {
       severityRank[left.severity] - severityRank[right.severity] ||
       left.title.localeCompare(right.title),
   );
-  const criticalSignalCount = signals.filter((signal) => signal.severity === "critical").length;
-  const attentionSignalCount = signals.filter((signal) => signal.severity === "attention").length;
-  const watchSignalCount = signals.filter((signal) => signal.severity === "watch").length;
+  const criticalSignalCount = signals.filter((signal) => signal.severity === "critical",
+  ).length;
+  const attentionSignalCount = signals.filter((signal) => signal.severity === "attention",
+  ).length;
+  const watchSignalCount = signals.filter((signal) => signal.severity === "watch",
+  ).length;
   const status: HealthStatus =
     criticalSignalCount > 0
       ? "critical"

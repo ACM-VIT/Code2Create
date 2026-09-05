@@ -1,4 +1,5 @@
-export const participantClasses = ["vit_student", "external_participant"] as const;
+export const participantClasses = ["vit_student", "external_participant",
+] as const;
 export type ParticipantClass = (typeof participantClasses)[number];
 
 export const participantGenders = ["male", "female"] as const;
@@ -87,7 +88,8 @@ export type AttendanceQr =
 
 export function attendanceQrPayload(credential: AttendanceQr) {
   if (!attendanceBearerPattern.test(credential.bearer)) {
-    throw new Error("An attendance bearer must be 32-byte base64url without padding.");
+    throw new Error("An attendance bearer must be 32-byte base64url without padding.",
+    );
   }
   const prefix = credential.kind === "external_pass" ? externalPassQrPrefix : badgeQrPrefix;
   return `${prefix}${credential.bearer}`;
@@ -107,7 +109,8 @@ export function parseAttendanceQrPayload(payload: string): AttendanceQr | null {
 
 export function attendanceBadgeReference(bearer: string) {
   if (!attendanceBearerPattern.test(bearer)) {
-    throw new Error("An attendance badge bearer must be 32-byte base64url without padding.");
+    throw new Error("An attendance badge bearer must be 32-byte base64url without padding.",
+    );
   }
   return `C2C-${bearer.slice(0, 4).toUpperCase()}-${bearer.slice(4, 8).toUpperCase()}`;
 }
@@ -132,3 +135,5 @@ export * from "./ideaIntake.ts";
 export * from "./intelligenceAgents.ts";
 export * from "./participantProfile.ts";
 export * from "./discordSupport.ts";
+export * from "./reviewPanelPlanning.ts";
+export * from "./reviewQuestions.ts";

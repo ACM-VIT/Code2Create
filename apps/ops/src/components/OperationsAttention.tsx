@@ -20,7 +20,7 @@ const groupRowLimit = 3;
 const attentionGroupLabels: Record<AttentionRow["detectorKey"], string> = {
   panel_seat_empty: "Empty panel seats",
   seat_at_risk: "Reviewers about to drop off",
-  review_overdue: "Overdue reviews",
+  review_overdue: "Scorecards in progress",
   review_presence_incomplete: "Reviewers not fully checked in",
   team_below_minimum: "Teams below minimum size",
   team_held: "Teams on hold",
@@ -102,7 +102,8 @@ export function OperationsAttention({
           >
             {pending === row.id
               ? "Picking up"
-              : acknowledgeOperations.hasPending(attentionAcknowledgeSlot(row.id))
+              : acknowledgeOperations.hasPending(attentionAcknowledgeSlot(row.id),
+                  )
                 ? "Confirm pickup"
                 : "Pick up"}
           </button>
@@ -148,7 +149,7 @@ export function OperationsAttention({
         <div className="health-empty">
           <strong>Nothing needs action.</strong>
           {compact ? null : (
-            <span>No panel is short, no review is overdue, and no team is stuck.</span>
+            <span>No panel is short, no review is waiting for scorecards, and no team is stuck.</span>
           )}
         </div>
       ) : (
@@ -175,7 +176,8 @@ export function OperationsAttention({
                         onClick={() =>
                           setExpandedGroups((current) =>
                             expanded
-                              ? current.filter((key) => key !== group.detectorKey)
+                              ? current.filter((key) => key !== group.detectorKey,
+                                )
                               : [...current, group.detectorKey],
                           )
                         }
@@ -216,14 +218,16 @@ function groupAttentionRows(rows: AttentionRow[]) {
     if (current) current.push(row);
     else grouped.set(row.detectorKey, [row]);
   }
-  return [...grouped].map(([detectorKey, groupRows]) => ({ detectorKey, rows: groupRows }));
+  return [...grouped].map(([detectorKey, groupRows]) => ({ detectorKey, rows: groupRows,
+  }));
 }
 
 function attentionAcknowledgeSlot(itemId: string) {
   return `attention-acknowledge:${itemId}`;
 }
 
-function rowMeta(row: { firstObservedAt: number; recurrenceCount: number; acknowledged: boolean }) {
+function rowMeta(row: { firstObservedAt: number; recurrenceCount: number; acknowledged: boolean;
+}) {
   const parts = [`Open since ${formatClockTime(row.firstObservedAt)}`];
   if (row.recurrenceCount > 1) parts.push(`${ordinal(row.recurrenceCount)} time today`);
   if (row.acknowledged) parts.push("Picked up");

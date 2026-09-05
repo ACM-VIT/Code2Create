@@ -8,6 +8,11 @@ import {
   requireEligibleMembership,
   requireMembership,
 } from "./lib/identity";
+import {
+  deleteParticipantServiceQueueEntry,
+  insertParticipantServiceQueueEntry,
+  participantServiceQueueStatus,
+} from "./lib/participantServiceQueue";
 
 type ReadCtx = QueryCtx | MutationCtx;
 
@@ -36,30 +41,24 @@ export const current = query({
   handler: async (ctx, args) => {
     const { event, membership } = await participantContext(ctx, args.eventSlug);
     if (event.status !== "live") return [];
-    const persistedEntries = await ctx.db
+    const ownEntry = await ctx.db
       .query("participantServiceQueueEntries")
-      .withIndex("by_event_kind_joined", (index) =>
-        index.eq("eventId", event._id).eq("kind", "outing_permission"),
+      .withIndex("by_membership_kind", (index) =>
+        index.eq("membershipId", membership._id).eq("kind", "outing_permission"),
       )
-      .order("asc")
-      .collect();
-    const queuedMemberships = await Promise.all(
-      persistedEntries.map((entry) => ctx.db.get(entry.membershipId)),
+      .unique();
+    const status = await participantServiceQueueStatus(
+      ctx,
+      event._id,
+      "outing_permission",
+      ownEntry,
     );
-    const entries = persistedEntries.filter((_, index) => {
-      const queuedMembership = queuedMemberships[index];
-      return (
-        queuedMembership?.eventId === event._id &&
-        queuedMembership.eligibilityStatus === "eligible"
-      );
-    });
-    const ownIndex = entries.findIndex((entry) => entry.membershipId === membership._id);
     return [{
       kind: "outing_permission" as const,
-      joined: ownIndex >= 0,
-      position: ownIndex >= 0 ? ownIndex + 1 : null,
-      waitingCount: entries.length,
-      joinedAt: ownIndex >= 0 ? (entries[ownIndex]?.joinedAt ?? null) : null,
+      joined: ownEntry !== null,
+      position: status.position,
+      waitingCount: status.waitingCount,
+      joinedAt: ownEntry?.joinedAt ?? null,
     }];
   },
 });
@@ -83,7 +82,7 @@ export const join = mutation({
       .unique();
     if (existing) return { joined: false, joinedAt: existing.joinedAt };
     const joinedAt = Date.now();
-    await ctx.db.insert("participantServiceQueueEntries", {
+    await insertParticipantServiceQueueEntry(ctx, {
       eventId: event._id,
       membershipId: membership._id,
       personId: person._id,
@@ -106,7 +105,7 @@ export const leave = mutation({
       )
       .unique();
     if (!existing) return { left: false };
-    await ctx.db.delete(existing._id);
+    await deleteParticipantServiceQueueEntry(ctx, existing);
     return { left: true };
   },
 });

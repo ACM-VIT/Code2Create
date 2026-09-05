@@ -79,6 +79,8 @@ export type EmergencyPackRound = {
   scoreMinimum: number;
   scoreMaximum: number;
   requiresSharedCommitments: boolean;
+  requiresFinalComment: boolean;
+  requiredPanelSize: number;
   criteria: EmergencyPackCriterion[];
   panels: EmergencyPackPanel[];
 };
@@ -169,9 +171,11 @@ function attendanceSheets(
   serialPrefix: string,
   spareCount: number,
 ) {
-  const assignedStations = snapshot.stations.filter((station) => station.status === "active");
+  const assignedStations = snapshot.stations.filter((station) => station.status === "active",
+  );
   const sheets: AttendanceSheet[] = assignedStations.map((station, index) => {
-    const session = snapshot.sessions.find((candidate) => candidate.zoneId === station.zoneId);
+    const session = snapshot.sessions.find((candidate) => candidate.zoneId === station.zoneId,
+    );
     return {
       serial: emergencyPackSerial(serialPrefix, "attendance", index + 1),
       station,
@@ -180,7 +184,8 @@ function attendanceSheets(
   });
   for (let index = 0; index < spareCount; index += 1) {
     sheets.push({
-      serial: emergencyPackSerial(serialPrefix, "attendance", sheets.length + 1),
+      serial: emergencyPackSerial(serialPrefix, "attendance", sheets.length + 1,
+      ),
     });
   }
   if (sheets.length === 0) {
@@ -189,7 +194,8 @@ function attendanceSheets(
   return sheets;
 }
 
-function reviewSheets(snapshot: EmergencyPackSnapshot, serialPrefix: string, spareCount: number) {
+function reviewSheets(snapshot: EmergencyPackSnapshot, serialPrefix: string, spareCount: number,
+) {
   const sheets: ReviewSheet[] = [];
   for (const round of snapshot.rounds) {
     for (const panel of round.panels) {
@@ -224,9 +230,12 @@ function cover(
   attendanceSheetCount: number,
   reviewSheetCount: number,
 ) {
-  const panelCount = snapshot.rounds.reduce((sum, round) => sum + round.panels.length, 0);
+  const panelCount = snapshot.rounds.reduce((sum, round) => sum + round.panels.length, 0,
+  );
   const teamCount = new Set(
-    snapshot.roster.flatMap((row) => (row.teamCode === undefined ? [] : [row.teamCode])),
+    snapshot.roster.flatMap((row) =>
+      row.teamCode === undefined ? [] : [row.teamCode],
+    ),
   ).size;
   return `
     <section class="page cover">
@@ -355,7 +364,8 @@ function blankAttendanceRows() {
   ).join("");
 }
 
-function attendanceForm(sheet: AttendanceSheet, snapshot: EmergencyPackSnapshot) {
+function attendanceForm(sheet: AttendanceSheet, snapshot: EmergencyPackSnapshot,
+) {
   const station = sheet.station;
   const session = sheet.session;
   return `
@@ -378,7 +388,9 @@ function attendanceForm(sheet: AttendanceSheet, snapshot: EmergencyPackSnapshot)
     </section>`;
 }
 
-function reviewCriteriaRows(round: EmergencyPackRound | undefined) {
+function reviewCriteriaRows(round: EmergencyPackRound | undefined,
+  reviewerCount: number,
+) {
   const criteria = round?.criteria.length
     ? round.criteria
     : Array.from({ length: 5 }, (_, index) => ({
@@ -392,7 +404,7 @@ function reviewCriteriaRows(round: EmergencyPackRound | undefined) {
       (criterion) => `
         <tr>
           <td><strong>${cell(criterion.label)}</strong><small>${cell(criterion.question)}</small></td>
-          <td></td><td></td><td></td><td></td><td></td><td></td>
+          ${"<td></td><td></td>".repeat(reviewerCount)}
         </tr>`,
     )
     .join("");
@@ -401,6 +413,16 @@ function reviewCriteriaRows(round: EmergencyPackRound | undefined) {
 function reviewForm(sheet: ReviewSheet, snapshot: EmergencyPackSnapshot) {
   const round = sheet.round;
   const panel = sheet.panel;
+  const reviewerCount =
+    round?.requiredPanelSize ??
+    Math.max(
+      1,
+      ...snapshot.rounds.map((candidate) => candidate.requiredPanelSize),
+    );
+  const reviewerNumbers = Array.from(
+    { length: reviewerCount },
+    (_, index) => index + 1,
+  );
   const scoreRange = round
     ? `${round.scoreMinimum}–${round.scoreMaximum}`
     : "published rubric range";
@@ -419,8 +441,8 @@ function reviewForm(sheet: ReviewSheet, snapshot: EmergencyPackSnapshot) {
         <div><dt>Unavailable reason</dt><dd>____________________________</dd></div>
       </dl>
       <p class="caption">Rubric: ${cell(round?.rubricName)} · score range ${escapeHtml(scoreRange)}. Reviewer names at snapshot: ${cell(panel?.reviewerNames.join(", "))}.</p>
-      <table class="rating-table"><thead><tr><th>Criterion</th><th>Reviewer 1 score</th><th>Reviewer 1 evidence</th><th>Reviewer 2 score</th><th>Reviewer 2 evidence</th><th>Reviewer 3 score</th><th>Reviewer 3 evidence</th></tr></thead><tbody>${reviewCriteriaRows(round)}</tbody></table>
-      <div class="reviewer-lines"><p>Reviewer 1 name / signature: ____________________________________________________</p><p>Reviewer 2 name / signature: ____________________________________________________</p><p>Reviewer 3 name / signature: ____________________________________________________</p></div>
+      <table class="rating-table"><thead><tr><th>Criterion</th>${reviewerNumbers.map((number) => `<th>Reviewer ${number} score</th><th>Reviewer ${number} evidence</th>`).join("")}</tr></thead><tbody>${reviewCriteriaRows(round, reviewerCount)}</tbody></table>
+      <div class="reviewer-lines">${reviewerNumbers.map((number) => `<div><p>Reviewer ${number} name / signature: __________________________</p><p>Final comment${round?.requiresFinalComment ? " (required)" : ""}: __________________________</p><p>____________________________________________________</p></div>`).join("")}</div>
       <div class="notes-grid"><div><strong>Private reviewer notes</strong><p></p><p></p><p></p></div><div><strong>Shared findings</strong><p></p><p></p><p></p></div><div><strong>Next-checkpoint commitments${round?.requiresSharedCommitments ? " (required)" : ""}</strong><p></p><p></p><p></p></div></div>
       <div class="signatures"><p>Entered by / time: __________________________________________</p><p>Verified by / time: _________________________________________</p><p>Original filed at: ___________________________________________</p></div>
       <footer>Snapshot ${escapeHtml(formattedTime(snapshot.snapshotAt, snapshot.event.timezone))} · Serial must match the digital recovery record.</footer>
@@ -500,8 +522,10 @@ export function buildEmergencyPackHtml(args: {
     args.spareReviewSheetCount,
     "Spare review-sheet count",
   );
-  const attendance = attendanceSheets(args.snapshot, args.serialPrefix, spareAttendanceSheetCount);
-  const reviews = reviewSheets(args.snapshot, args.serialPrefix, spareReviewSheetCount);
+  const attendance = attendanceSheets(args.snapshot, args.serialPrefix, spareAttendanceSheetCount,
+  );
+  const reviews = reviewSheets(args.snapshot, args.serialPrefix, spareReviewSheetCount,
+  );
   const title = `${args.snapshot.event.name} emergency pack`;
   const html = `<!doctype html>
 <html lang="en">

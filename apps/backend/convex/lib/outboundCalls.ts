@@ -1,3 +1,4 @@
+import type { VenueConfirmationCall } from "@code2create/domain";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
@@ -25,11 +26,19 @@ export async function enqueueOutboundCall(
   args: {
     eventId: Id<"events">;
     targetPersonId: Id<"people">;
-    sourceType: "reviewer_page" | "participant_notification";
+    sourceType:
+      | "reviewer_page"
+      | "participant_notification"
+      | "review_team_notice"
+      | "reviewer_venue_departure";
     sourceId: string;
-    purpose: "reviewer_substitute_page" | "participant_event_update";
+    purpose:
+      | "reviewer_substitute_page"
+      | "participant_event_update"
+      | "reviewer_venue_absence";
     destinationPhone?: string;
     script: string;
+    venueConfirmation?: VenueConfirmationCall;
     locale: string;
     scriptPolicyVersion: string;
     consent?: {
@@ -64,6 +73,9 @@ export async function enqueueOutboundCall(
     purpose: args.purpose,
     ...(destinationPhoneE164 !== null ? { destinationPhoneE164 } : {}),
     script: args.script,
+    ...(args.venueConfirmation
+      ? { venueConfirmation: args.venueConfirmation }
+      : {}),
     locale: args.locale,
     scriptPolicyVersion: args.scriptPolicyVersion,
     ...(args.consent !== undefined
@@ -84,7 +96,8 @@ export async function enqueueOutboundCall(
     updatedAt: args.now,
   });
   if (destinationPhoneE164 !== null) {
-    await ctx.scheduler.runAfter(0, internal.outboundCalls.deliver, { deliveryId });
+    await ctx.scheduler.runAfter(0, internal.outboundCalls.deliver, { deliveryId,
+    });
   }
   return deliveryId;
 }
