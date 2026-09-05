@@ -60,8 +60,15 @@ export const mine = query({
   handler: async (ctx, args) => {
     const { current, team, membership } = await ownContext(ctx, args.eventSlug);
     if (!team || team.team.leadMembershipId !== membership._id) return null;
+    const profile = await ctx.db
+      .query("participantProfiles")
+      .withIndex("by_membership", (q) => q.eq("membershipId", membership._id))
+      .unique();
+    const phone = normalizedE164Phone(profile?.phone);
     return {
       enabled:
+        phone !== null &&
+        current?.destinationPhoneE164 === phone &&
         current?.state === "granted" &&
         current.consentPolicyVersion === consentVersion &&
         current.scriptPolicyVersion === scriptVersion,

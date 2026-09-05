@@ -1,7 +1,7 @@
 import type { Doc } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { matchingPermissionGrantIds } from "./permissions";
-import { enqueueOutboundCall } from "./outboundCalls";
+import { enqueueOutboundCall, normalizedE164Phone } from "./outboundCalls";
 
 export async function notifyReviewTeam(
   ctx: MutationCtx,
@@ -61,8 +61,7 @@ export async function notifyReviewTeam(
     eventId: state.eventId,
     eventAccessSubjectId: operator._id,
     permissionKey: "communications.delivery.manage",
-    scopeType: "team",
-    scopeId: team._id,
+    scopeType: "event",
   });
   if (!grants.length) return noticeId;
   const consent = await ctx.db
@@ -75,15 +74,19 @@ export async function notifyReviewTeam(
     )
     .unique();
   if (consent?.state !== "granted") return noticeId;
+  const profile = await ctx.db
+    .query("participantProfiles")
+    .withIndex("by_membership", (q) => q.eq("membershipId", leader._id))
+    .unique();
+  const phone = normalizedE164Phone(profile?.phone);
+  if (phone === null || phone !== consent.destinationPhoneE164) return noticeId;
   await enqueueOutboundCall(ctx, {
     eventId: state.eventId,
     targetPersonId: leader.personId,
     sourceType: "review_team_notice",
     sourceId: noticeId,
     purpose: "participant_event_update",
-    ...(consent.destinationPhoneE164
-      ? { destinationPhone: consent.destinationPhoneE164 }
-      : {}),
+    destinationPhone: phone,
     script: `Code2Create review update. ${message}`.slice(0, 600),
     locale: "en-IN",
     scriptPolicyVersion: consent.scriptPolicyVersion,
