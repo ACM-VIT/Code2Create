@@ -233,7 +233,7 @@ Changing a score or checkbox saves immediately. Text saves after a short idle pe
 
 ### Notes and commitments
 
-Every reviewer must leave a final comment at the end of the review. That comment is part of completing their scorecard. Optional private judge notes remain distinct from feedback intended for the team. Panel commitments are a separate shared field entered by the panel coordinator and confirmed before review completion. The configured final-comment requirement is checked on submission, correction and paper recovery; drafts can remain incomplete.
+Every reviewer must leave a final comment at the end of the review. That comment is part of completing their scorecard. Private judge notes remain distinct from shared panel findings. Panel commitments are a separate shared field entered by the panel coordinator and confirmed before review completion. The configured final-comment requirement is checked on submission, correction and paper recovery; drafts can remain incomplete.
 
 ## 10. Draft saving
 

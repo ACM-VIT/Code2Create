@@ -6,7 +6,6 @@ import { Link } from "react-router-dom";
 
 import { eventSlug } from "../lib/config";
 import {
-  formatMonthDayTime as formatTime,
   formatMonthDayTimeWindow as formatWindow,
 } from "../lib/dateTime";
 import { LoadingLabel, SkeletonList } from "../components/Skeleton";
@@ -41,7 +40,7 @@ export function ScoreOverview() {
           <p className="eyebrow">After judging</p>
           <h1>Results</h1>
           <p className="muted">
-            Open a round to finish missing work, close judging, or publish participant feedback.
+            Open a round to finish missing work and close judging.
           </p>
         </div>
       </header>
@@ -69,16 +68,7 @@ export function ScoreOverview() {
                 value={round.exportState ? exportStateLabels[round.exportState] : "Not started"}
               />
               <Summary label="Scores" value={round.canReadValues ? "Visible" : "Hidden"} />
-              <Summary
-                label="Participant feedback"
-                value={round.releasedAt ? "Released" : "Not released"}
-              />
             </dl>
-            {round.releasedAt ? (
-              <p className="panel-strip">
-                <span>Released {formatTime(round.releasedAt)}</span>
-              </p>
-            ) : null}
           </article>
         ))}
       </div>

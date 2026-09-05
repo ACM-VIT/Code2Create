@@ -23,6 +23,53 @@ const betterAuthModules = import.meta.glob(
 type BackendTest = TestConvex<typeof schema>;
 
 describe("participant phone verification lifecycle", () => {
+  test("profile phone changes revoke call consent once, while formatting changes preserve it", async () => {
+    const backend = testBackend();
+    const fixture = await seedParticipant(backend);
+    const participant = backend.withIdentity({ subject: fixture.authUserId, sessionId: fixture.authSessionId });
+    const profile = {
+      eventSlug: fixture.eventSlug,
+      participantPolicyVersionId: fixture.policyId,
+      fullName: "Test Participant",
+      gender: "female" as const,
+      yearOfStudy: "second" as const,
+      externalUniversity: "Example University",
+      externalCollege: "Example College",
+      phone: "+919000000000",
+      expectedProfileVersion: 0,
+      clientOperationId: "initial-profile",
+    };
+    await participant.mutation(api.participants.saveProfile, profile);
+    const consentId = await backend.run(async (ctx) => {
+      const membership = await ctx.db.get(fixture.membershipId);
+      if (!membership) throw new Error("Missing fixture membership");
+      return ctx.db.insert("outboundCallConsents", {
+        eventId: membership.eventId,
+        personId: membership.personId,
+        purpose: "participant_event_update",
+        state: "granted",
+        consentPolicyVersion: "team-review-calls-v1",
+        scriptPolicyVersion: "team-review-call-up-v1",
+        destinationPhoneE164: profile.phone,
+        version: 1,
+        grantedAt: Date.now(),
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+    await participant.mutation(api.participants.saveProfile, {
+      ...profile, phone: "+91 90000 00000", expectedProfileVersion: 1, clientOperationId: "format-phone",
+    });
+    expect(await backend.run((ctx) => ctx.db.get(consentId))).toMatchObject({ state: "granted", version: 1 });
+    const changed = { ...profile, phone: "+918000000000", expectedProfileVersion: 2, clientOperationId: "change-phone" };
+    await participant.mutation(api.participants.saveProfile, changed);
+    await participant.mutation(api.participants.saveProfile, changed);
+    const revoked = await backend.run((ctx) => ctx.db.get(consentId));
+    expect(revoked).toMatchObject({ state: "revoked", version: 2 });
+    expect(revoked?.destinationPhoneE164).toBeUndefined();
+    expect(revoked?.revokedAt).toEqual(expect.any(Number));
+  });
+
   test("keeps the idempotent OTP lifecycle available when the published policy does not require it", async () => {
     const backend = testBackend();
     const fixture = await seedParticipant(backend);

@@ -10,7 +10,6 @@ import type { MutationCtx } from "./_generated/server";
 import { insertPermissionGrant } from "./lib/permissions";
 import {
   maximumReviewerAssignmentsPerEvent,
-  maximumReviewRoundsPerEvent,
 } from "./lib/reviewLimits";
 import { requireScoreGovernancePageSize } from "./scoreGovernance";
 import { createTestSubmissionSnapshot } from "./lib/testSubmissionSnapshot";
@@ -574,130 +573,6 @@ describe("score governance pagination", () => {
     } finally {
       clock.mockRestore();
     }
-  });
-
-  test("participant feedback fails within a bounded read when its owner limit is broken", async () => {
-    const backend = seededBackend({ documentsRead: 50 });
-    const fixture = await seedCorrectionFixture(backend);
-    const releaseId = await backend.run(async (ctx) => {
-      await insertPermissionGrant(ctx, {
-        eventId: fixture.eventId,
-        personId: fixture.personId,
-        eventAccessSubjectId: fixture.subjectId,
-        permissionKey: "score.feedback.read",
-        scopeType: "team",
-        scopeId: fixture.teamId,
-        sourceType: "manual",
-        sourceId: `${fixture.eventSlug}:participant-feedback`,
-        grantedByPersonId: fixture.personId,
-        reason: "Participant feedback test",
-      });
-      const closeSnapshotId = await ctx.db.insert("roundCloseSnapshots", {
-        eventId: fixture.eventId,
-        roundId: fixture.roundId,
-        rubricVersionId: fixture.rubricVersionId,
-        revision: 1,
-        roundConfigurationChecksum: "participant-feedback-round",
-        resultCount: 0,
-        exclusionCount: 0,
-        withdrawnCount: 0,
-        checksum: "participant-feedback-snapshot",
-        createdByPersonId: fixture.personId,
-        createdAt: fixture.now,
-      });
-      const roundExportId = await ctx.db.insert("roundExports", {
-        eventId: fixture.eventId,
-        roundId: fixture.roundId,
-        closeSnapshotId,
-        revision: 1,
-        exportFormatVersion: 1,
-        state: "verified",
-        closingRoundVersion: 1,
-        counts: {
-          team: 0,
-          result: 0,
-          excluded: 0,
-          withdrawn: 0,
-          reviewSession: 0,
-          scorecard: 0,
-          scorecardVersion: 0,
-          correctionCase: 0,
-          manualReviewRecord: 0,
-        },
-        checksum: "participant-feedback-export",
-        requestedByPersonId: fixture.personId,
-        requestedAt: fixture.now,
-        verifiedByPersonId: fixture.personId,
-        verifiedAt: fixture.now,
-        verificationReason: "Participant feedback test",
-        version: 1,
-        updatedAt: fixture.now,
-      });
-      const releaseId = await ctx.db.insert("scoreReleaseVersions", {
-        eventId: fixture.eventId,
-        roundId: fixture.roundId,
-        closeSnapshotId,
-        roundExportId,
-        policyVersion: "participant-feedback-v1",
-        includeCriterionScores: false,
-        includeTotalScore: true,
-        includeSharedFindings: false,
-        includeSharedCommitments: false,
-        checksum: "participant-feedback-release",
-        publishedByPersonId: fixture.personId,
-        publishedAt: fixture.now,
-        reason: "Participant feedback test",
-      });
-      await ctx.db.insert("scoreReleaseEntries", {
-        eventId: fixture.eventId,
-        roundId: fixture.roundId,
-        releaseId,
-        teamId: fixture.teamId,
-        reviewSessionId: fixture.reviewSessionId,
-        criterionResults: [],
-        totalPoints: 0,
-        createdAt: fixture.now,
-      });
-      return releaseId;
-    });
-    const participant = backend.withIdentity({
-      subject: fixture.authUserId,
-      sessionId: fixture.authSessionId,
-    });
-    await expect(
-      participant.query(api.scoreGovernance.participantFeedback, {
-        eventSlug: fixture.eventSlug,
-      }),
-    ).resolves.toEqual([
-      {
-        roundId: fixture.roundId,
-        roundName: "Correction round",
-        roundSequence: 1,
-        policyVersion: "participant-feedback-v1",
-        publishedAt: fixture.now,
-        totalScore: 0,
-        criteria: [],
-      },
-    ]);
-    await backend.run(async (ctx) => {
-      for (let index = 1; index <= maximumReviewRoundsPerEvent; index += 1) {
-        await ctx.db.insert("scoreReleaseEntries", {
-          eventId: fixture.eventId,
-          roundId: fixture.roundId,
-          releaseId,
-          teamId: fixture.teamId,
-          reviewSessionId: fixture.reviewSessionId,
-          criterionResults: [],
-          totalPoints: index,
-          createdAt: fixture.now + index,
-        });
-      }
-    });
-    await expect(
-      participant.query(api.scoreGovernance.participantFeedback, {
-        eventSlug: fixture.eventSlug,
-      }),
-    ).rejects.toThrow("participant feedback release limit");
   });
 
   test("submitted participant view reads the immutable project instead of a mutable draft", async () => {

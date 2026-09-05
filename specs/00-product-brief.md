@@ -20,7 +20,7 @@ The product must prevent these failures:
 
 | Actor          | Main work                                                                                                       |
 | -------------- | --------------------------------------------------------------------------------------------------------------- |
-| Participant    | Maintain a profile, join a team, submit a proposal, attend sessions, follow review state, and receive feedback  |
+| Participant    | Maintain a profile, join a team, submit a proposal, attend sessions, follow review state  |
 | Team lead      | Manage membership, transfer leadership, revise the proposal, answer admission questions, and connect team tools |
 | Supreme        | Hold suggested event-governance grants                                                                          |
 | Board          | Hold suggested policy, admission, rubric, result, correction, export, and override grants                       |
@@ -200,7 +200,7 @@ Board and the named owners must publish these values before the applicable relea
 - fresh-project and pre-start-work rules;
 - admission criteria, human-review minimum, model policy, capacity, waitlist order, and offer deadline;
 - reviewer eligibility, panel size, and expertise coverage;
-- round schedule, rubric, correction deadline, feedback policy, and award rules;
+- round schedule, rubric, correction deadline and award rules;
 - attendance sessions, expected groups, grace windows, and result policy;
 - reviewer page timeout, push policy, call script, consent text, provider rate limits, and retention;
 - GitHub and Figma requirements and accepted alternatives;

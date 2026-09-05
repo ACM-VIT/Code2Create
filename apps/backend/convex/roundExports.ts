@@ -100,7 +100,6 @@ const exportWorkspace = v.object({
   canVerify: v.boolean(),
   canRetry: v.boolean(),
   canReopen: v.boolean(),
-  hasParticipantRelease: v.boolean(),
 });
 
 type ReadCtx = QueryCtx | MutationCtx;
@@ -228,7 +227,6 @@ export const workspace = query({
       verifyGrants,
       retryGrants,
       reopenGrants,
-      release,
     ] = await Promise.all([
       activeExportForRound(ctx, round),
       permissionIds(ctx, {
@@ -261,10 +259,6 @@ export const workspace = query({
         permissionKey: "round.reopen",
         roundId: round._id,
       }),
-      ctx.db
-        .query("scoreReleaseVersions")
-        .withIndex("by_round", (index) => index.eq("roundId", round._id))
-        .unique(),
     ]);
     let activeExport: {
       id: Id<"roundExports">;
@@ -333,7 +327,6 @@ export const workspace = query({
         exportRecord?.requestedByPersonId !== person._id,
       canRetry: retryGrants.length > 0,
       canReopen: reopenGrants.length > 0,
-      hasParticipantRelease: release !== null,
     };
   },
 });
@@ -2010,24 +2003,10 @@ export const reopen = mutation({
       scopeType: "round",
       scopeId: round._id,
     });
-    const [release, laterRounds] = await Promise.all([
-      ctx.db
-        .query("scoreReleaseVersions")
-        .withIndex("by_round", (index) => index.eq("roundId", round._id))
-        .unique(),
-      ctx.db
-        .query("reviewRounds")
-        .withIndex("by_event_status_start", (index) => index.eq("eventId", event._id),
-        )
-        .collect(),
-    ]);
-    if (release) {
-      throw new ConvexError({
-        code: "ROUND_RELEASED",
-        message:
-          "Participant feedback is already published. Reopening needs a separate incident remedy.",
-      });
-    }
+    const laterRounds = await ctx.db
+      .query("reviewRounds")
+      .withIndex("by_event_status_start", (index) => index.eq("eventId", event._id))
+      .collect();
     if (
       laterRounds.some(
         (candidate) => candidate.sequence > round.sequence && candidate.status !== "draft",

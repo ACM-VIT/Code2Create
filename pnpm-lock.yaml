@@ -25,6 +25,7 @@ packageExtensionsChecksum: sha256-u139JUvOfYEoMpSF4DaIxKIt2z4BlYwzw80sjKZlouQ=
 
 patchedDependencies:
   '@flue/runtime@2.0.3': 49d896c0bdd92cdadaac04c0383e48c53c636af9dd96c6c49b3fdf5c4f834683
+  '@kitlangton/rolling-number@0.3.0': 3cd3a56b17710207c1fa5fe05d399c69668b13e1178ea7f5e915ecb07590c1e3
   balloons-js@0.0.3: 1abf55e0120ddb03233f645c0907e8381de78f6ad4fdfdaa1e76244d2a60d50f
   convex-helpers@0.1.123: 58486477019cfed1ca449b362f8d13c39a3f04463609e659aced4d0808fa5c17
 
@@ -357,7 +358,7 @@ importers:
         version: 2.0.3
       '@kitlangton/rolling-number':
         specifier: ^0.3.0
-        version: 0.3.0(react@19.2.8)
+        version: 0.3.0(patch_hash=3cd3a56b17710207c1fa5fe05d399c69668b13e1178ea7f5e915ecb07590c1e3)(react@19.2.8)
       '@tailwindcss/vite':
         specifier: ^4.3.3
         version: 4.3.3(vite@8.2.2(@types/node@26.4.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.5)(yaml@2.9.0))
@@ -701,7 +702,7 @@ importers:
         version: 0.27.20(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@kitlangton/rolling-number':
         specifier: ^0.3.0
-        version: 0.3.0(react@19.2.8)
+        version: 0.3.0(patch_hash=3cd3a56b17710207c1fa5fe05d399c69668b13e1178ea7f5e915ecb07590c1e3)(react@19.2.8)
       '@tailwindcss/vite':
         specifier: ^4.3.3
         version: 4.3.3(vite@8.2.2(@types/node@26.4.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.5)(yaml@2.9.0))
@@ -12707,7 +12708,7 @@ snapshots:
   '@js-sdsl/ordered-map@4.4.2':
     optional: true
 
-  '@kitlangton/rolling-number@0.3.0(react@19.2.8)':
+  '@kitlangton/rolling-number@0.3.0(patch_hash=3cd3a56b17710207c1fa5fe05d399c69668b13e1178ea7f5e915ecb07590c1e3)(react@19.2.8)':
     optionalDependencies:
       react: 19.2.8
 

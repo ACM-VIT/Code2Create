@@ -21,9 +21,9 @@ completion webhook is idempotent and bound to the same per-delivery Durable
 Object with an unguessable callback URL token. A valid late provider callback
 can resolve a previously ambiguous dispatch without placing another call.
 
-Copy `.env.example` to `.dev.vars` for local provider testing. Do not commit it. Set the same request and callback secrets on the matching Convex deployment. Configure `OUTBOUND_CALL_PRIMARY_PROVIDER` and the remaining provider secrets on each Cloudflare Worker environment before deployment. `SARVAM_VOICE_AGENTS_API_KEY` must be a non-empty key created under Voice Agents Settings, and `SARVAM_APP_VERSION` must be the committed version used by the active inbound/outbound deployment.
+Copy `.env.example` to `.dev.vars` for local provider testing. Do not commit it. Set the same request and callback secrets on the matching Convex deployment. Configure `OUTBOUND_CALL_PRIMARY_PROVIDER` and the remaining provider secrets on each Cloudflare Worker environment before deployment. `SARVAM_VOICE_AGENTS_API_KEY` must be a non-empty key created under Voice Agents Settings, and `SARVAM_APP_VERSION` must identify the committed agent version. Instant Outbound does not require an inbound deployment.
 
-The Sarvam app version is a separate deployment prerequisite. The Worker controls the exact initial message—starting with `hi, i'm calling on behalf of the code2create team`—but Sarvam controls the speaker, base instructions, and hang-up behavior. Configure the selected version with the approved English voice, no provider-branded greeting, and instructions to deliver the alert and end the call. Instant Outbound supports an initial-message override but not a per-call forced-hangup instruction, so staging release validation must include a real call that verifies both the spoken introduction and termination behavior.
+The Sarvam app version is a separate deployment prerequisite. The Worker supplies `agent_variables.call_message`, starting with `hi, i'm calling on behalf of the code2create team`. Declare that input on every selected agent, include it in context, and set the greeting and every greeting translation to `{{call_message}}`. Regenerate and save translations before committing a version. A live rehearsal found that the initial-message override still played a stale provider-branded English translation; the service now uses the explicit input variable. Sarvam controls the speaker, instructions and end-call behavior. Release validation must include a real call that checks the actual greeting, conversation and termination. See [review call agent setup](agents/review-calls.md).
 
 Cloudflare Workers Builds deploys staging from repository branch `staging`, root directory `apps/voice`, build command `pnpm cloudflare:build:staging`, and deploy command `pnpm cloudflare:deploy:staging`. Production uses branch `main`, the corresponding `production` commands, and `https://voice.c2c.sh`. Non-production branch builds stay disabled.
 
@@ -35,7 +35,7 @@ pnpm --filter @code2create/voice deploy:staging
 pnpm --filter @code2create/voice deploy:production
 ```
 
-The reusable protocol is in `packages/domain/src/voice.ts`. A participant operational-call release must add its own consent copy, source validation, permission rule, and bounded script policy before it can create deliveries.
+The reusable protocol is in `packages/domain/src/voice.ts`. Participant review calls use their saved profile phone, explicit consent and current review-queue authority. Spoken acknowledgement does not change a review assignment or attendance.
 
 ## Conversational venue checks
 

@@ -113,7 +113,6 @@ describe("surface capability projections", () => {
       attendance: false,
       projectCheckpoints: false,
       reviewQueue: false,
-      scoreFeedback: false,
       supportRead: true,
       supportCreate: true,
     });
