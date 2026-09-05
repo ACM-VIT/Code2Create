@@ -246,6 +246,15 @@ describe("Emergency Reviews bundle", () => {
     await backend.run(async (ctx) => {
       const application = await ctx.db.get(fixture.applicationId);
       if (!application) throw new Error("Missing application.");
+      for (const permissionKey of ["integration.read", "project.checkpoint.read"] as const) {
+        await insertPermissionGrant(ctx, {
+          eventId: fixture.eventId, personId: fixture.reviewerPersonId,
+          eventAccessSubjectId: fixture.reviewerSubjectId, permissionKey,
+          scopeType: "team", scopeId: application.teamId,
+          sourceType: "team_membership", sourceId: "reviewer-participant-team",
+          reason: "Keep the reviewer's existing participant team access",
+        });
+      }
       await ctx.db.patch(application.admissionPolicyVersionId, { minimumHumanReviews: 2 });
       await ctx.db.patch(application._id, { completedReviewCount: 1 });
       await ctx.db.insert("admissionHumanReviews", {

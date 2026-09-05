@@ -511,6 +511,9 @@ async function resolveOperationsCapabilities(
     event("reviewer.profile.read"),
   ]);
 
+  // Team permissions also serve the participant portal. They must not add
+  // unrelated operations sections to the restricted emergency review workspace.
+  const deckOnly = applicationReviewDeck && !applicationRead && !applicationReviewRead;
   return {
     admissions: applicationRead || applicationReviewRead || applicationReviewDeck,
     applicationRead,
@@ -521,7 +524,7 @@ async function resolveOperationsCapabilities(
     attendanceSetup,
     roster,
     teamRoster,
-    projectCheckpoints,
+    projectCheckpoints: projectCheckpoints && !deckOnly,
     reviews,
     scores,
     synesthesia:
@@ -555,7 +558,7 @@ async function resolveOperationsCapabilities(
     accessDirectory,
     invitations,
     bundles,
-    integrations,
+    integrations: integrations && !deckOnly,
     integrationConfiguration,
     reviewConfigurationRead,
     reviewConfigurationPublish,
