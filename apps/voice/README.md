@@ -23,7 +23,7 @@ can resolve a previously ambiguous dispatch without placing another call.
 
 Copy `.env.example` to `.dev.vars` for local provider testing. Do not commit it. Set the same request and callback secrets on the matching Convex deployment. Configure `OUTBOUND_CALL_PRIMARY_PROVIDER` and the remaining provider secrets on each Cloudflare Worker environment before deployment. `SARVAM_VOICE_AGENTS_API_KEY` must be a non-empty key created under Voice Agents Settings, and `SARVAM_APP_VERSION` must identify the committed agent version. Instant Outbound does not require an inbound deployment.
 
-The Sarvam app version is a separate deployment prerequisite. The Worker supplies `agent_variables.call_message`, starting with `hi, i'm calling on behalf of the code2create team`. Declare that input on every selected agent, include it in context, and set the greeting and every greeting translation to `{{call_message}}`. Regenerate and save translations before committing a version. A live rehearsal found that the initial-message override still played a stale provider-branded English translation; the service now uses the explicit input variable. Sarvam controls the speaker, instructions and end-call behavior. Release validation must include a real call that checks the actual greeting, conversation and termination. See [review call agent setup](agents/review-calls.md).
+The Sarvam app version is a separate deployment prerequisite. The Worker supplies the call context in `agent_variables.call_message`. Declare that input on every selected agent and include it in context. The published greeting first asks whether the caller can hear the agent; after their reply, the agent delivers the supplied message. Keep every greeting translation aligned with that opening. Sarvam controls the speaker, instructions and end-call behavior. Release validation must include a real call that checks the greeting, caller replies and audible closing message. See the [event reminder agent setup](agent/reminder.md).
 
 Cloudflare Workers Builds deploys staging from repository branch `staging`, root directory `apps/voice`, build command `pnpm cloudflare:build:staging`, and deploy command `pnpm cloudflare:deploy:staging`. Production uses branch `main`, the corresponding `production` commands, and `https://voice.c2c.sh`. Non-production branch builds stay disabled.
 
@@ -35,7 +35,7 @@ pnpm --filter @code2create/voice deploy:staging
 pnpm --filter @code2create/voice deploy:production
 ```
 
-The reusable protocol is in `packages/domain/src/voice.ts`. Participant RSVP reminders and review call-ups are automatic event updates to the team lead's saved profile phone, without participant opt-in controls. An unanswered offer schedules one reminder six hours after it is sent, before its response deadline. The backend rechecks the offer or review queue, current lead and phone, and exact authority before dispatch. Spoken acknowledgement does not confirm an RSVP, change a review assignment, or record attendance.
+The reusable protocol is in `packages/domain/src/voice.ts`. Participant RSVP reminders and review call-ups are automatic event updates to the team lead's saved profile phone, without participant opt-in controls. Ops configures the RSVP reminder time and response deadline. The backend rechecks the unanswered offer or review queue, current lead and phone, and exact authority before dispatch. Spoken acknowledgement does not confirm an RSVP, change a review assignment, or record attendance.
 
 ## Conversational venue checks
 
