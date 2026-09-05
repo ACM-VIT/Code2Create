@@ -51,13 +51,13 @@ const assumedSize = Number(values["assumed-team-size"]);
 if (
   !Number.isInteger(concurrency) ||
   concurrency < 1 ||
-  concurrency > 16 ||
+  concurrency > 32 ||
   !Number.isInteger(assumedSize) ||
   assumedSize < 2 ||
   assumedSize > 5
 )
   throw new Error(
-    "Use concurrency 1–16 and a labelled simulated team size 2–5",
+    "Use concurrency 1–32 and a labelled simulated team size 2–5",
   );
 const settings = {
   acceptPeople: Number(values["accept-people"]),
@@ -283,7 +283,8 @@ async function parallel<T, R>(
         if (row === undefined) return;
         results[i] = await work(row, i);
         completed++;
-        console.log(JSON.stringify({ stage, completed, total: rows.length }));
+        if (completed % 10 === 0 || completed === rows.length)
+          console.log(JSON.stringify({ stage, completed, total: rows.length }));
       }
     }),
   );
@@ -462,14 +463,48 @@ const report = {
     };
   }),
 };
+const accepted = report.teams.filter((team) => team.suggestion === "accept");
+const domainMix = Object.fromEntries(
+  [
+    ...new Set(
+      accepted.flatMap((team) => (team.profile ? [team.profile.domain] : [])),
+    ),
+  ]
+    .sort()
+    .map((domain) => [
+      domain,
+      accepted.filter((team) => team.profile?.domain === domain).length,
+    ]),
+);
+const aiMix = Object.fromEntries(
+  ["none", "supporting", "core"].map((role) => [
+    role,
+    accepted.filter((team) => team.profile?.aiRole === role).length,
+  ]),
+);
+const displaced = report.teams.filter(
+  (team) =>
+    team.quality?.recommendation === "accept" && team.suggestion !== "accept",
+);
+const describeTeam = (team: (typeof report.teams)[number]) =>
+  `- ${team.teamName} (${team.applicationId}) — ${team.suggestion}, ${team.reason}. ${team.profile?.problem ?? "No profile; see individual concerns."} ${team.profile?.mechanism ?? ""}\n  - Original quality: ${team.quality?.recommendation ?? "unresolved"}; premise: ${team.profile?.premise.assessment ?? "not profiled"}. ${team.profile?.premise.explanation ?? team.quality?.concerns.join(" ") ?? "No assessment"}${team.preferredApplicationIds.length ? `\n  - Preferred overlapping alternative(s): ${team.preferredApplicationIds.map((id) => labels.get(id) ?? id).join(", ")}` : ""}`;
 await writeFile(
   resolve(directory, "report.json"),
-  JSON.stringify(report, null, 2),
+  JSON.stringify({ ...report, domainMix, aiMix }, null, 2),
   { mode: 0o600 },
 );
 await writeFile(
   resolve(directory, "review.md"),
-  `# Local seed shortlist calibration\n\n${assumptions.map((a) => `- ${a}`).join("\n")}\n\n${[
+  `# Local seed shortlist calibration\n\n${assumptions.map((a) => `- ${a}`).join("\n")}\n\n## Totals\n\n| Suggestion | Teams | Simulated people |\n| --- | ---: | ---: |\n${Object.entries(
+    totals,
+  )
+    .map(
+      ([kind, counts]) =>
+        `| ${kind} | ${counts.teams} | ${counts.simulatedPeople} |`,
+    )
+    .join(
+      "\n",
+    )}\n\nAccepted domains (teams): ${JSON.stringify(domainMix)}\n\nAccepted AI roles (teams): ${JSON.stringify(aiMix)}\n\n${[
     "accept",
     "waitlist",
     "reject",
@@ -479,13 +514,23 @@ await writeFile(
       (kind) =>
         `## ${kind}\n\n${report.teams
           .filter((t) => t.suggestion === kind)
-          .map(
-            (t) =>
-              `- ${t.teamName} (${t.applicationId}): ${t.reason}; ${t.profile?.premise.explanation ?? t.quality?.concerns.join(" ") ?? "No assessment"}`,
-          )
+          .map(describeTeam)
           .join("\n")}`,
     )
     .join("\n\n")}\n`,
+  { mode: 0o600 },
+);
+await writeFile(
+  resolve(directory, "boundary-review.md"),
+  `# Qualifying ideas displaced or flagged\n\nThese ${displaced.length} teams passed the original individual rubric but did not enter Accept. This is an inspection list, not a claim that each should be accepted. Whole-team capacity, direct overlap, premise and category checks still apply.\n\n${displaced.map(describeTeam).join("\n\n")}\n\n## Independent audit\n\n${
+    audits
+      .flatMap((audit) => shortlistAuditSchema.parse(audit).warnings)
+      .map(
+        (warning) =>
+          `- ${warning.applicationIds.map((id) => labels.get(id) ?? id).join(", ")}: ${warning.explanation}`,
+      )
+      .join("\n") || "No warnings in the bounded audit slices."
+  }\n`,
   { mode: 0o600 },
 );
 console.log(
