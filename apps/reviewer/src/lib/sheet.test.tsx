@@ -3,7 +3,7 @@ import { ScrollView, TextInput } from "react-native";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
-import { Sheet } from "../components/ui";
+import { Action, Sheet } from "../components/ui";
 import { DutyScreen } from "../components/DutyScreen";
 
 vi.mock("@lodev09/react-native-true-sheet", () => ({ TrueSheet: "TrueSheet" }));
@@ -75,4 +75,23 @@ test("dismissal removes the native overlay and reopening mounts a fresh sheet", 
   expect(renderer.toJSON()).toBeNull();
   await act(async () => { renderer.update(render(true)); });
   expect(renderer.root.findByType(TrueSheet).props.initialDetentIndex).toBe(0);
+});
+
+test("a fixed action uses the native keyboard-following footer outside scrolling fields", async () => {
+  await act(async () => {
+    renderer = create(
+      <Sheet
+        footer={<Action disabled label="Declare it" onPress={vi.fn()} />}
+        onClose={vi.fn()}
+        title="Declare an incident"
+        visible
+      >
+        <TextInput testID="description" multiline />
+      </Sheet>,
+    );
+  });
+  const nativeSheet = renderer.root.findByType(TrueSheet);
+  expect(nativeSheet.props.footer).toBeDefined();
+  expect(nativeSheet.props.footerOptions.keyboardOffset).toBe(-24);
+  expect(nativeSheet.findByType(ScrollView).findAllByType(Action)).toHaveLength(0);
 });

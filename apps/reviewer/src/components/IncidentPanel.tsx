@@ -391,7 +391,19 @@ function DeclareSheet({
   };
 
   return (
-    <Sheet onClose={close} title="Declare an incident" visible={visible}>
+    <Sheet
+      footer={
+        <Action
+          accent={duty.incident.accent}
+          disabled={busy || !ready}
+          label={busy ? "Declaring…" : createPending ? "Confirm declaration" : "Declare it"}
+          onPress={declare}
+        />
+      }
+      onClose={close}
+      title="Declare an incident"
+      visible={visible}
+    >
       <ChipRow
         accent={duty.incident.accent}
         onSelect={(value: ServiceKey) => {
@@ -434,12 +446,6 @@ function DeclareSheet({
       />
       {error ? <Problem>{error}</Problem> : null}
       {createPending ? <Meta>Confirm the earlier declaration before starting another.</Meta> : null}
-      <Action
-        accent={duty.incident.accent}
-        disabled={busy || !ready}
-        label={busy ? "Declaring…" : createPending ? "Confirm declaration" : "Declare it"}
-        onPress={declare}
-      />
     </Sheet>
   );
 }

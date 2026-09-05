@@ -1,4 +1,5 @@
 import { TrueSheet, type SheetDetent } from "@lodev09/react-native-true-sheet";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Path } from "react-native-svg";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
@@ -277,17 +278,20 @@ function swallowSheetRace() {}
 export function Sheet({
   children,
   detents = [0.85],
+  footer,
   onClose,
   title,
   visible,
 }: {
   children: ReactNode;
   detents?: Extract<SheetDetent, number>[];
+  footer?: ReactNode;
   onClose: () => void;
   title: string;
   visible: boolean;
 }) {
   const sheet = useRef<TrueSheet>(null);
+  const insets = useSafeAreaInsets();
   // Mount the native sheet only while it is needed: an idle mounted sheet
   // sits invisibly over the screen and swallows every touch beneath it.
   const [mounted, setMounted] = useState(visible);
@@ -310,6 +314,14 @@ export function Sheet({
         backgroundColor={palette.background}
         cornerRadius={20}
         detents={detents}
+        {...(footer ? {
+          footer: (
+            <View style={[styles.sheetFooter, { paddingBottom: 16 + insets.bottom }]}>
+              {footer}
+            </View>
+          ),
+          footerOptions: { keyboardOffset: -insets.bottom },
+        } : {})}
         grabber
         initialDetentIndex={0}
         onDidDismiss={() => {
@@ -676,6 +688,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   sheetBody: { paddingHorizontal: 20, paddingTop: 24, paddingBottom: 40, gap: 16 },
+  sheetFooter: { paddingHorizontal: 20, paddingTop: 16, backgroundColor: palette.background },
   headerButton: { color: palette.text, fontSize: 20, letterSpacing: 1 },
 
   row: {
