@@ -617,7 +617,7 @@ function Operations({
             />
           ) : null}
           {canViewReviews ? (
-            <Route path="/reviews" element={<ReviewOverview showSetup={canOpenReviewSetup} />} />
+            <Route path="/reviews" element={<ReviewOverview showSetup={canOpenReviewSetup} canReadConfiguration={canReadReviewConfiguration} />} />
           ) : null}
           {canViewReviews ? (
             <Route path="/reviews/:roundId" element={<ReviewRoundBoard />} />

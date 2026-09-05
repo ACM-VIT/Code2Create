@@ -13,7 +13,7 @@ import { formatMonthDayTimeWindow as formatWindow } from "../lib/dateTime";
 import { readableError } from "../lib/errors";
 import { useMutationAttempt } from "../lib/operations";
 
-export function ReviewOverview({ showSetup }: { showSetup: boolean }) {
+export function ReviewOverview({ showSetup, canReadConfiguration }: { showSetup: boolean; canReadConfiguration: boolean }) {
   const overview = useQuery(api.reviewOperations.overview, { eventSlug });
   const openRound = useMutation(api.reviewOperations.openRound);
   const openAttempt =
@@ -64,7 +64,7 @@ export function ReviewOverview({ showSetup }: { showSetup: boolean }) {
         ) : null}
       </header>
 
-      {showSetup ? <ReviewParticipation /> : null}
+      {canReadConfiguration ? <ReviewParticipation /> : null}
 
       <div className="review-round-list">
         {overview.rounds.map((round) => (
