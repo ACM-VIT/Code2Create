@@ -1,3 +1,4 @@
+import { LiveNumber } from "../components/LiveNumber";
 import { api } from "@code2create/backend/api";
 import { eventRoleLabels } from "@code2create/domain";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
@@ -253,7 +254,7 @@ export function Roster({ canReadBundles }: { canReadBundles: boolean }) {
               </p>
             ) : rosterPage.status === "CanLoadMore" ? (
               <p className="muted">
-                These counts cover the {entries.length} most recently added people.
+                These counts cover the <LiveNumber value={entries.length} /> most recently added people.
               </p>
             ) : null}
             {workspace.importBlocker ? (
@@ -425,7 +426,7 @@ export function Roster({ canReadBundles }: { canReadBundles: boolean }) {
           return (
             <section key={group.key}>
               <p className="board-section-label">
-                {group.label} · {rows.length}
+                {group.label} · <LiveNumber value={rows.length} />
               </p>
               <div className="health-list">
                 {rows.map((entry) => (
@@ -470,19 +471,19 @@ function RosterPreview({
       <dl className="roster-preview-counts">
         <div>
           <dt>New people</dt>
-          <dd>{preview.counts.create}</dd>
+          <dd><LiveNumber value={preview.counts.create} /></dd>
         </div>
         <div>
           <dt>Invitation replaced</dt>
-          <dd>{preview.counts.replace}</dd>
+          <dd><LiveNumber value={preview.counts.replace} /></dd>
         </div>
         <div>
           <dt>Unchanged</dt>
-          <dd>{preview.counts.unchanged}</dd>
+          <dd><LiveNumber value={preview.counts.unchanged} /></dd>
         </div>
         <div>
           <dt>Already signed in</dt>
-          <dd>{preview.counts.alreadyClaimed}</dd>
+          <dd><LiveNumber value={preview.counts.alreadyClaimed} /></dd>
         </div>
       </dl>
       <div className="roster-preview-rows">

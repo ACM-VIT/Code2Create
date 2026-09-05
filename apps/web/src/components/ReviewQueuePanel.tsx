@@ -1,3 +1,4 @@
+import { LiveNumber } from "./LiveNumber";
 import { api } from "@code2create/backend/api";
 import { teamRoundStateParticipantLabels, type TeamRoundState,
 } from "@code2create/domain";
@@ -8,7 +9,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { eventSlug } from "../lib/config";
 import { readableError } from "../lib/errors";
-import { countdownName, queueWaitName } from "../lib/time";
+import { LiveCountdown, LiveQueueWait } from "./LiveTime";
 
 type TeamQr = {
   tokenId: FunctionReturnType<typeof api.participantReview.mintTeamQr>["tokenId"];
@@ -122,7 +123,6 @@ export function ReviewQueuePanel() {
             <dd>
               <EstimatedWait
                 estimate={queue.estimate}
-                key={queue.serverNow}
                 serverNow={queue.serverNow}
               />
             </dd>
@@ -137,8 +137,8 @@ export function ReviewQueuePanel() {
           <div>
             <dt>Reviewer check-in</dt>
             <dd>
-              {queue.review.reviewerPresenceCount} of{" "}
-              {queue.review.reviewerCount}
+              <LiveNumber value={queue.review.reviewerPresenceCount} /> of{" "}
+              <LiveNumber value={queue.review.reviewerCount} />
             </dd>
           </div>
         ) : null}
@@ -158,7 +158,7 @@ export function ReviewQueuePanel() {
             />
           </div>
           <p className="inline-status">
-            Expires in {countdownName(secondsLeft)} · show this to each reviewer when they arrive.
+            Expires in <LiveCountdown seconds={secondsLeft} /> · show this to each reviewer when they arrive.
           </p>
           <p className="manual-code" aria-label={`Fallback code ${currentQr.manualCode}`}>
             {currentQr.manualCode}
@@ -199,15 +199,21 @@ function EstimatedWait({
   >;
   serverNow: number;
 }) {
-  const [clock] = useState(() => ({ serverNow, clientNow: performance.now() }));
+  const [clock, setClock] = useState(() => ({ serverNow, clientNow: performance.now() }));
   const [now, setNow] = useState(clock.clientNow);
+  if (clock.serverNow !== serverNow) {
+    const clientNow = performance.now();
+    setClock({ serverNow, clientNow });
+    setNow(clientNow);
+  }
+
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(performance.now()), 30_000);
     return () => window.clearInterval(timer);
   }, []);
 
-  return queueWaitName(estimate, clock.serverNow + now - clock.clientNow);
+  return <LiveQueueWait estimate={estimate} now={clock.serverNow + now - clock.clientNow} />;
 }
 
 function queueStateCopy(state: TeamRoundState, teamsAhead?: number) {
@@ -217,7 +223,7 @@ function queueStateCopy(state: TeamRoundState, teamsAhead?: number) {
     if (teamsAhead === 0) return "You are next at this panel. Keep the team nearby.";
     if (teamsAhead === 1) return "One team is ahead of you. Keep the team nearby.";
     if (teamsAhead !== undefined)
-      return `${teamsAhead} teams are ahead of you. Keep the team nearby.`;
+      return <><LiveNumber value={teamsAhead} /> teams are ahead of you. Keep the team nearby.</>;
     return "Keep the team nearby. This page updates when your panel calls you.";
   }
   if (state === "called")

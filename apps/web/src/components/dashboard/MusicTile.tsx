@@ -1,3 +1,4 @@
+import { LiveNumber, LiveDuration } from "../LiveNumber";
 import { useEffect, useRef, useState, type SubmitEvent } from "react";
 
 import { readableError } from "../../lib/errors";
@@ -203,7 +204,7 @@ function VoteButton({
           strokeWidth="1.3"
         />
       </svg>
-      {request.voteCount}
+      <LiveNumber value={request.voteCount} />
     </button>
   );
 }
@@ -345,7 +346,7 @@ function OpenMusic({ model }: { model: MusicTileModel }) {
             <div className="flex flex-col gap-1.5">
               <ProgressBar elapsed={elapsed} duration={nowPlaying.durationSeconds} />
               <div className="flex justify-between text-[11px] text-fg/55">
-                <span>{elapsed === null ? "–:––" : durationLabel(elapsed)}</span>
+                <span>{elapsed === null ? "–:––" : <LiveDuration seconds={elapsed} />}</span>
                 <span>{durationLabel(nowPlaying.durationSeconds)}</span>
               </div>
             </div>
@@ -363,7 +364,7 @@ function OpenMusic({ model }: { model: MusicTileModel }) {
             ) : null}
             <PlayerAction onClick={() => setPanel("queue")}>
               queue
-              <span className="text-fg/55">{model.queue.length}</span>
+              <span className="text-fg/55"><LiveNumber value={model.queue.length} /></span>
             </PlayerAction>
             {canRequest ? (
               <PlayerAction onClick={() => setPanel("search")}>search</PlayerAction>
@@ -392,7 +393,7 @@ function OpenMusic({ model }: { model: MusicTileModel }) {
             >
               queue
               <span className={panel === "queue" ? "text-wash/70" : "text-fg/55"}>
-                {model.queue.length}
+                <LiveNumber value={model.queue.length} />
               </span>
             </PlayerAction>
             {canRequest ? (
@@ -405,7 +406,7 @@ function OpenMusic({ model }: { model: MusicTileModel }) {
             ) : null}
             {musicWindow ? (
               <span className="ml-auto text-[11.5px] text-fg/45">
-                {musicWindow.requestsUsed}/{musicWindow.requestsAllowed} requests
+                <LiveNumber value={musicWindow.requestsUsed} />/{musicWindow.requestsAllowed} requests
               </span>
             ) : null}
           </div>
@@ -614,7 +615,7 @@ export function MusicTile({
             ) : (
               <p className="m-0 text-[13px] leading-snug text-fg/65">
                 {status ??
-                  (waiting > 0 ? `${waiting} waiting in the queue` : "Nothing playing yet.")}
+                  (waiting > 0 ? <><LiveNumber value={waiting} /> waiting in the queue</> : "Nothing playing yet.")}
               </p>
             )}
           </div>

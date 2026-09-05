@@ -1,3 +1,4 @@
+import { LiveNumber } from "../LiveNumber";
 import { useState } from "react";
 
 import { dayTimeLabel, timeLabel } from "./format";
@@ -16,10 +17,10 @@ export type EventTileModel = {
 function remainingLabel(until: number, now: number) {
   const minutes = Math.max(0, Math.round((until - now) / 60_000));
   if (minutes < 1) return "ending now";
-  if (minutes < 60) return `ends in ${minutes} min`;
+  if (minutes < 60) return <>ends in <LiveNumber value={minutes} /> min</>;
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
-  return rest === 0 ? `ends in ${hours}h` : `ends in ${hours}h ${rest}m`;
+  return rest === 0 ? <>ends in <LiveNumber value={hours} />h</> : <>ends in <LiveNumber value={hours} />h <LiveNumber value={rest} />m</>;
 }
 
 /**

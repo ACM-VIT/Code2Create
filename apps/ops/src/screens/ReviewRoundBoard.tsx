@@ -1,3 +1,4 @@
+import { LiveNumber } from "../components/LiveNumber";
 import { api } from "@code2create/backend/api";
 import {
   reviewRoundStatusLabels,
@@ -163,27 +164,27 @@ export function ReviewRoundBoard() {
       <dl className="catalog-summary">
         <div>
           <dt>Waiting for the desk</dt>
-          <dd>{visibleRound.stateCounts.unassigned}</dd>
+          <dd><LiveNumber value={visibleRound.stateCounts.unassigned} /></dd>
         </div>
         <div>
           <dt>Queued</dt>
-          <dd>{visibleRound.stateCounts.queued}</dd>
+          <dd><LiveNumber value={visibleRound.stateCounts.queued} /></dd>
         </div>
         <div>
           <dt>Called</dt>
-          <dd>{visibleRound.stateCounts.called}</dd>
+          <dd><LiveNumber value={visibleRound.stateCounts.called} /></dd>
         </div>
         <div>
           <dt>In review</dt>
-          <dd>{visibleRound.stateCounts.inReview}</dd>
+          <dd><LiveNumber value={visibleRound.stateCounts.inReview} /></dd>
         </div>
         <div>
           <dt>Complete</dt>
-          <dd>{visibleRound.stateCounts.completed}</dd>
+          <dd><LiveNumber value={visibleRound.stateCounts.completed} /></dd>
         </div>
         <div>
           <dt>Held</dt>
-          <dd>{visibleRound.stateCounts.held}</dd>
+          <dd><LiveNumber value={visibleRound.stateCounts.held} /></dd>
         </div>
       </dl>
 
@@ -257,7 +258,7 @@ export function ReviewRoundBoard() {
               type="button"
               onClick={() => setTeamView("desk")}
             >
-              Desk · {deskTeams.length}
+              Desk · <LiveNumber value={deskTeams.length} />
             </button>
             <button
               aria-pressed={teamView === "in_motion"}
@@ -265,7 +266,7 @@ export function ReviewRoundBoard() {
               type="button"
               onClick={() => setTeamView("in_motion")}
             >
-              In motion · {movingTeams.length}
+              In motion · <LiveNumber value={movingTeams.length} />
             </button>
             <button
               aria-pressed={teamView === "done"}
@@ -273,7 +274,7 @@ export function ReviewRoundBoard() {
               type="button"
               onClick={() => setTeamView("done")}
             >
-              Done · {doneTeams.length}
+              Done · <LiveNumber value={doneTeams.length} />
             </button>
             <button
               aria-pressed={teamView === "all"}
@@ -281,7 +282,7 @@ export function ReviewRoundBoard() {
               type="button"
               onClick={() => setTeamView("all")}
             >
-              All · {boardTeams.length}
+              All · <LiveNumber value={boardTeams.length} />
             </button>
           </div>
         </div>
@@ -1294,11 +1295,11 @@ function TeamRow({ board, team }: { board: Board; team: Team }) {
     team.participantAvailability.isMet || team.participantAvailability.isWaived;
   const blocker =
     review?.status === "awaiting_presence" && !allReviewersPresent
-      ? `Waiting for reviewers to scan in · ${review.reviewerPresenceCount} of ${review.reviewerCount} done`
+      ? <>Waiting for reviewers to scan in · <LiveNumber value={review.reviewerPresenceCount} /> of <LiveNumber value={review.reviewerCount} /> done</>
       : review?.status === "awaiting_presence" && !participantAvailabilityReady
         ? "Waiting for the team to regroup"
         : (review?.status === "active" || review?.status === "scoring") && !allScorecardsSubmitted
-          ? `Waiting for scorecards · ${review.submittedScorecardCount} of ${review.reviewerCount} submitted`
+          ? <>Waiting for scorecards · <LiveNumber value={review.submittedScorecardCount} /> of <LiveNumber value={review.reviewerCount} /> submitted</>
           : (review?.status === "active" || review?.status === "scoring") &&
               !review.sharedNotesComplete
             ? "Waiting for the panel to agree shared notes"
@@ -1335,13 +1336,13 @@ function TeamRow({ board, team }: { board: Board; team: Team }) {
           <div>
             <dt>Reviewer presence</dt>
             <dd>
-              {review.reviewerPresenceCount}/{review.reviewerCount}
+              <LiveNumber value={review.reviewerPresenceCount} />/<LiveNumber value={review.reviewerCount} />
             </dd>
           </div>
           <div>
             <dt>Scorecards</dt>
             <dd>
-              {review.submittedScorecardCount}/{review.reviewerCount}
+              <LiveNumber value={review.submittedScorecardCount} />/<LiveNumber value={review.reviewerCount} />
             </dd>
           </div>
           {review.requiresSharedCommitments ? (
@@ -1772,7 +1773,7 @@ function TeamExceptions({ board, team }: { board: Board; team: Team }) {
       </div>
       {canCall ? (
         <p className="muted exception-policy">
-          {team.callAttemptCount}/{board.round.requiredCallAttempts} calls · missed eligible{" "}
+          <LiveNumber value={team.callAttemptCount} />/{board.round.requiredCallAttempts} calls · missed eligible{" "}
           {team.missedEligibleAt
             ? formatMoment(team.missedEligibleAt)
             : "after the next recorded call"}

@@ -1,3 +1,4 @@
+import { LiveNumber } from "../LiveNumber";
 import { Link } from "react-router-dom";
 
 import { Tile, TileEyebrow } from "./Tile";
@@ -31,7 +32,7 @@ export function HelpTile({ slot, model }: {
           {model.support ? (
             <Link to="/support" viewTransition className={chip}>
               Support
-              {model.support.open > 0 ? <span className="text-fg/55">{model.support.open}</span> : null}
+              {model.support.open > 0 ? <span className="text-fg/55"><LiveNumber value={model.support.open} /></span> : null}
             </Link>
           ) : null}
           <Link to="/more" viewTransition className={chip}>

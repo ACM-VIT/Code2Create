@@ -1,14 +1,10 @@
+import { LiveNumber, LiveDuration } from "../LiveNumber";
 import { CodeInput } from "./CodeInput";
 import { PortalTickButton } from "./PortalButton";
 import { PortalLabel } from "./PortalField";
 
 /** Every verification state except `verified`, which the phone field shows itself. */
 export type PhoneCodeState = "queued" | "sending" | "sent" | "send_failed" | "expired" | "locked";
-
-function countdown(ms: number) {
-  const total = Math.max(0, Math.ceil(ms / 1000));
-  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
-}
 
 /**
  * The row that opens under the phone field once a code has been texted: six
@@ -48,7 +44,7 @@ export function PhoneCodePanel({
     ? "sending the text…"
     : state === "sent"
       ? expiresInMs !== null
-        ? `expires in ${countdown(expiresInMs)}`
+        ? <>expires in <LiveDuration seconds={Math.max(0, Math.ceil(expiresInMs / 1000))} /></>
         : "check your messages"
       : state === "send_failed"
         ? canVerify
@@ -58,7 +54,7 @@ export function PhoneCodePanel({
           ? "that code expired"
           : "too many wrong attempts";
   const resend = waiting ? null : resendInMs > 0 ? (
-    <span>resend in {Math.ceil(resendInMs / 1000)}s</span>
+    <span>resend in <LiveNumber value={Math.ceil(resendInMs / 1000)} />s</span>
   ) : (
     <button
       type="button"

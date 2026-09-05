@@ -1,3 +1,4 @@
+import { LiveNumber } from "./LiveNumber";
 import { api } from "@code2create/backend/api";
 import type { FunctionReturnType } from "convex/server";
 import { useAction, useMutation, useQuery } from "convex/react";
@@ -551,7 +552,7 @@ function Summary({ label, value }: { label: string; value: number }) {
   return (
     <div>
       <dt>{label}</dt>
-      <dd>{value}</dd>
+      <dd><LiveNumber value={value} /></dd>
     </div>
   );
 }

@@ -212,6 +212,14 @@ export const admissionResultsReleaseStatus = query({
     releasedAt: v.optional(v.number()),
     releasedByName: v.optional(v.string()),
     total: v.number(),
+    reviewsComplete: v.number(),
+    reviewsNeeded: v.number(),
+    ideaAgent: v.union(v.null(), v.object({
+      accepted: v.number(),
+      waitlisted: v.number(),
+      rejected: v.number(),
+      unavailable: v.number(),
+    })),
     unrecorded: v.number(),
     recorded: v.number(),
     released: v.number(),
@@ -234,7 +242,7 @@ export const admissionResultsReleaseStatus = query({
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
-    await requireEventSubject(ctx, event._id, person._id);
+    const subject = await requireEventSubject(ctx, event._id, person._id);
     const supremeRole = await activeSupremeRole(ctx, event._id, person._id);
     if (!supremeRole) {
       return {
@@ -246,6 +254,9 @@ export const admissionResultsReleaseStatus = query({
           ? { releasedAt: event.admissionResultsReleasedAt }
           : {}),
         total: 0,
+        reviewsComplete: 0,
+        reviewsNeeded: 0,
+        ideaAgent: null,
         unrecorded: 0,
         recorded: 0,
         released: 0,
@@ -263,11 +274,46 @@ export const admissionResultsReleaseStatus = query({
       (application) =>
         application.state !== "withdrawn" || application.decisionStage === "released",
     );
+    const aiGrantIds = await matchingPermissionGrantIds(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey: "application.ai_recommendation.read",
+      scopeType: "event",
+    });
+    const ideaAgent = aiGrantIds.length > 0
+      ? { accepted: 0, waitlisted: 0, rejected: 0, unavailable: 0 }
+      : null;
+    const policyIds = [...new Set(active.map((application) => application.admissionPolicyVersionId))];
+    const applicationsWithPolicies = (await Promise.all(policyIds.map(async (id) => {
+      const policy = await ctx.db.get(id);
+      if (!policy || policy.eventId !== event._id) throw new Error("An application admission policy is missing.");
+      return active
+        .filter((application) => application.admissionPolicyVersionId === id)
+        .map((application) => ({ application, policy }));
+    }))).flat();
+    let reviewsComplete = 0;
     const decisions = [];
     let accepted = 0;
     let waitlisted = 0;
     let declined = 0;
-    for (const application of active) {
+    for (const { application, policy } of applicationsWithPolicies) {
+      if (application.completedReviewCount >= policy.minimumHumanReviews) reviewsComplete += 1;
+      if (ideaAgent) {
+        const recommendation = application.aiRecommendationId
+          ? await ctx.db.get(application.aiRecommendationId)
+          : null;
+        const current = recommendation?.state === "succeeded" &&
+          recommendation.eventId === event._id &&
+          recommendation.applicationId === application._id &&
+          recommendation.projectVersionId === application.submittedProjectVersionId &&
+          recommendation.admissionPolicyVersionId === application.admissionPolicyVersionId &&
+          recommendation.applicationContentVersion === application.contentVersion;
+        if (current && recommendation.recommendation === "accept") ideaAgent.accepted += 1;
+        else if (current && recommendation.recommendation === "waitlist") ideaAgent.waitlisted += 1;
+        else if (current && recommendation.recommendation === "decline") ideaAgent.rejected += 1;
+        else ideaAgent.unavailable += 1;
+      }
+
       if (
         application.decisionStage === "unrecorded" ||
         application.humanDecision === undefined ||
@@ -277,10 +323,9 @@ export const admissionResultsReleaseStatus = query({
       ) {
         continue;
       }
-      const [team, decider, policy] = await Promise.all([
+      const [team, decider] = await Promise.all([
         ctx.db.get(application.teamId),
         ctx.db.get(application.decidedByPersonId),
-        ctx.db.get(application.admissionPolicyVersionId),
       ]);
       const reason = policy?.decisionReasonCodes.find(
         (candidate) => candidate.key === application.humanReasonCode,
@@ -316,6 +361,9 @@ export const admissionResultsReleaseStatus = query({
         : {}),
       ...(releaser ? { releasedByName: releaser.displayName } : {}),
       total: active.length,
+      reviewsComplete,
+      reviewsNeeded: active.length - reviewsComplete,
+      ideaAgent,
       unrecorded: active.filter((application) => application.decisionStage === "unrecorded").length,
       recorded: active.filter((application) => application.decisionStage === "recorded").length,
       released: active.filter((application) => application.decisionStage === "released").length,

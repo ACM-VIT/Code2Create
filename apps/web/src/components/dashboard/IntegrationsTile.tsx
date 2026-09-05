@@ -1,3 +1,4 @@
+import { LiveNumber } from "../LiveNumber";
 import {
   FloatingFocusManager,
   FloatingPortal,
@@ -33,11 +34,11 @@ export type IntegrationsTileModel = {
   available: boolean;
   github: {
     connected: boolean;
-    detail: string;
+    detail: ReactNode;
     repositories: readonly IntegrationRepository[];
     listRepositories?: () => Promise<readonly IntegrationRepository[]>;
   };
-  figma: { connected: boolean; detail: string };
+  figma: { connected: boolean; detail: ReactNode };
   open: (target: IntegrationTarget, repository?: IntegrationRepository) => void;
 };
 
@@ -112,7 +113,7 @@ function GitHubRepositoryManager({
               ? "Not connected"
               : model.repositories.length === 1
                 ? "1 repo connected"
-                : `${model.repositories.length} repos connected`}
+                : <><LiveNumber value={model.repositories.length} /> repos connected</>}
           </p>
         </div>
         {model.connected ? addControl : <ActionButton onClick={onManage}>Connect</ActionButton>}

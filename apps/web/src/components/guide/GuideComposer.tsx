@@ -1,3 +1,4 @@
+import { LiveNumber } from "../LiveNumber";
 import type { KeyboardEvent, ReactNode, RefObject } from "react";
 import { PortalButton, PortalTextButton } from "../portal/PortalButton";
 
@@ -116,7 +117,7 @@ export function GuideComposer({
       </form>
       {value.length > 1_200 ? (
         <p className="m-0 mt-1 pr-2 text-right font-mono text-[11px] text-fg/45 tabular-nums">
-          {value.length} / {messageMaximum}
+          <LiveNumber value={value.length} /> / {messageMaximum}
         </p>
       ) : null}
     </div>

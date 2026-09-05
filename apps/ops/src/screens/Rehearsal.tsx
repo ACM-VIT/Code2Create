@@ -1,3 +1,4 @@
+import { LiveNumber } from "../components/LiveNumber";
 import { api } from "@code2create/backend/api";
 import {
   rehearsalRunStateLabels,
@@ -111,7 +112,7 @@ export function Rehearsal() {
               <span>
                 <strong>{run.name}</strong>
                 <small>
-                  {run.counts.total - run.counts.passed} of {run.counts.total} checks still to pass
+                  <LiveNumber value={run.counts.total - run.counts.passed} /> of <LiveNumber value={run.counts.total} /> checks still to pass
                 </small>
               </span>
               <span className={`rehearsal-state ${run.state}`}>
@@ -140,7 +141,7 @@ function RunLead({ run }: { run: RehearsalRun | undefined }) {
     return (
       <>
         <p>
-          {run.name} has been signed off. All {run.counts.total} checks passed.
+          {run.name} has been signed off. All <LiveNumber value={run.counts.total} /> checks passed.
         </p>
       </>
     );
@@ -156,7 +157,7 @@ function RunLead({ run }: { run: RehearsalRun | undefined }) {
     return (
       <>
         <p>
-          {run.name} is set up with {run.counts.total} checks but has not started.
+          {run.name} is set up with <LiveNumber value={run.counts.total} /> checks but has not started.
         </p>
         <p className="muted">
           {run.assignedWorkstreamCount === run.requiredWorkstreamCount
@@ -171,7 +172,7 @@ function RunLead({ run }: { run: RehearsalRun | undefined }) {
       <p>
         {run.name}:{" "}
         {wrong > 0 ? `${wrong} ${wrong === 1 ? "check" : "checks"} went wrong and ` : ""}
-        {untried} of {run.counts.total} have not been tried yet.
+        <LiveNumber value={untried} /> of <LiveNumber value={run.counts.total} /> have not been tried yet.
       </p>
       <p className="muted">
         {wrong > 0
@@ -433,23 +434,23 @@ function RunCounts({ run }: { run: RehearsalRun }) {
     <dl className="rehearsal-counts">
       <div>
         <dt>Did not work</dt>
-        <dd>{run.counts.failed}</dd>
+        <dd><LiveNumber value={run.counts.failed} /></dd>
       </div>
       <div>
         <dt>Could not be tried</dt>
-        <dd>{run.counts.blocked}</dd>
+        <dd><LiveNumber value={run.counts.blocked} /></dd>
       </div>
       <div>
         <dt>Being tried now</dt>
-        <dd>{run.counts.running}</dd>
+        <dd><LiveNumber value={run.counts.running} /></dd>
       </div>
       <div>
         <dt>Not tried yet</dt>
-        <dd>{run.counts.pending}</dd>
+        <dd><LiveNumber value={run.counts.pending} /></dd>
       </div>
       <div>
         <dt>Worked</dt>
-        <dd>{run.counts.passed}</dd>
+        <dd><LiveNumber value={run.counts.passed} /></dd>
       </div>
     </dl>
   );
@@ -760,7 +761,7 @@ function RunControls({ detail }: { detail: RehearsalDetail }) {
       <div className="workspace-disclosure-body rehearsal-run-controls">
         {detail.run.state === "draft" && missingOwners > 0 ? (
           <p className="notice">
-            This run cannot start: {missingOwners} of its {detail.run.requiredWorkstreamCount} areas
+            This run cannot start: <LiveNumber value={missingOwners} /> of its <LiveNumber value={detail.run.requiredWorkstreamCount} /> areas
             have no owner.
           </p>
         ) : null}

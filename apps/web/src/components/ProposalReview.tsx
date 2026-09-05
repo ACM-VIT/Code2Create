@@ -1,3 +1,4 @@
+import { LiveNumber } from "./LiveNumber";
 import { useState } from "react";
 import {
   FloatingPortal,
@@ -157,7 +158,7 @@ export function NoveltyReviewRow({
             ? state.status === "checking"
               ? "Checking"
               : "Preparing score"
-            : `${score} / 100${band === null ? "" : ` · ${noveltyBandLabels[band]}`}`}
+            : <span><LiveNumber value={score} /> / 100{band === null ? "" : ` · ${noveltyBandLabels[band]}`}</span>}
           <NoveltyHelp align="end" />
         </span>
       </div>
@@ -199,16 +200,16 @@ export function NoveltyPill({
           {signal === null ? (
             label
           ) : signal.band === null ? (
-            `${signal.score} / 100`
+            <><LiveNumber value={signal.score} /> / 100</>
           ) : (
             <>
               {/* Wide screens carry both; phones trade them on a slow tick. */}
               <span className="hidden sm:inline">
-                {signal.score} / 100 · {noveltyBandLabels[signal.band]}
+                <LiveNumber value={signal.score} /> / 100 · {noveltyBandLabels[signal.band]}
               </span>
               <span className="grid overflow-hidden text-center sm:hidden">
                 <span className="col-start-1 row-start-1 animate-[c2cticka_5.6s_ease-in-out_infinite] motion-reduce:animate-none">
-                  {signal.score} / 100
+                  <LiveNumber value={signal.score} /> / 100
                 </span>
                 <span className="col-start-1 row-start-1 animate-[c2ctickb_5.6s_ease-in-out_infinite] motion-reduce:hidden">
                   {noveltyBandLabels[signal.band]}

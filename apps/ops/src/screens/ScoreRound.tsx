@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+import { LiveNumber } from "../components/LiveNumber";
 import { api } from "@code2create/backend/api";
 import {
   reviewEvaluationStateLabels,
@@ -137,7 +139,7 @@ export function ScoreRound() {
       <dl className="score-summary-grid governance-summary">
         <Summary
           label="Sessions loaded"
-          value={`${reviews.results.length}${reviews.status === "CanLoadMore" ? "+" : ""}`}
+          value={<><LiveNumber value={reviews.results.length} />{reviews.status === "CanLoadMore" ? "+" : ""}</>}
         />
         <Summary label="Teams with no result" value={completeness.unresolvedTeamCount} />
         <Summary label="Paper sheets to enter" value={completeness.pendingManualReviewCount} />
@@ -194,7 +196,7 @@ export function ScoreRound() {
               type="button"
               onClick={() => setReviewView("needs_action")}
             >
-              Needs action · {needsActionCount}
+              Needs action · <LiveNumber value={needsActionCount} />
             </button>
             <button
               aria-pressed={reviewView === "settled"}
@@ -202,7 +204,7 @@ export function ScoreRound() {
               type="button"
               onClick={() => setReviewView("settled")}
             >
-              Settled · {settledCount}
+              Settled · <LiveNumber value={settledCount} />
             </button>
             <button
               aria-pressed={reviewView === "all"}
@@ -210,7 +212,7 @@ export function ScoreRound() {
               type="button"
               onClick={() => setReviewView("all")}
             >
-              All · {ordered.length}
+              All · <LiveNumber value={ordered.length} />
             </button>
           </div>
         </div>
@@ -325,7 +327,7 @@ function ReviewCompleteness({
                 key={coverage.criterionId}
               >
                 {criterionLabel(criteria, coverage.criterionId)} · {" "}
-                {coverage.submittedCount} of {coverage.requiredCount}
+                <LiveNumber value={coverage.submittedCount} /> of <LiveNumber value={coverage.requiredCount} />
                 {coverage.spreadFlag ? " · far apart" : ""}
               </span>
             ))}
@@ -839,7 +841,7 @@ function NumericValues({ criteria, reviews,
             <span>{review.teamName}</span>
             <strong>
               {review.evaluation?.state === "complete"
-                ? formatScore(review.evaluation.totalPoints)
+                ? <LiveNumber value={review.evaluation.totalPoints} format={{ maximumFractionDigits: 2 }} />
                 : review.evaluation
                   ? reviewEvaluationStateLabels[review.evaluation.state]
                   : "No result"}
@@ -857,8 +859,8 @@ function NumericValues({ criteria, reviews,
                       {result.spreadFlag ? " · reviewers far apart" : ""}
                     </dt>
                     <dd>
-                      {formatScore(result.meanScore)} average · {" "}
-                      {formatScore(result.weightedPoints)}
+                      {<LiveNumber value={result.meanScore} format={{ maximumFractionDigits: 2 }} />} average · {" "}
+                      {<LiveNumber value={result.weightedPoints} format={{ maximumFractionDigits: 2 }} />}
                       weighted
                     </dd>
                   </div>
@@ -923,11 +925,11 @@ function Check({
   );
 }
 
-function Summary({ label, value }: { label: string; value: number | string }) {
+function Summary({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div>
       <dt>{label}</dt>
-      <dd>{value}</dd>
+      <dd>{typeof value === "number" ? <LiveNumber value={value} /> : value}</dd>
     </div>
   );
 }
@@ -960,9 +962,4 @@ function criterionLabel(criteria: Completeness["criteria"], criterionId: string,
 function listNames(values: string[]) {
   if (values.length <= 1) return values[0] ?? "Nothing";
   return `${values.slice(0, -1).join(", ")} and ${values[values.length - 1]}`;
-}
-
-function formatScore(value: number) {
-  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(value,
-  );
 }

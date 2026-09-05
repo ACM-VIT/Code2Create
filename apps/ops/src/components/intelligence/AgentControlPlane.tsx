@@ -1,3 +1,4 @@
+import { LiveNumber } from "../LiveNumber";
 import { api } from "@code2create/backend/api";
 import {
   intelligenceAgentDefinitions,
@@ -137,9 +138,9 @@ function FleetSummary({ fleet }: { fleet: FleetStatus[] | undefined }) {
   const attention = fleet.filter((agent) => agent.state === "attention").length;
   return (
     <span>
-      {intelligenceAgentDefinitions.length} deployed · {active}
+      {intelligenceAgentDefinitions.length} deployed · <LiveNumber value={active} />
       {activeAtLeast ? "+" : ""} active
-      {attention > 0 ? ` · ${attention} ${attention === 1 ? "needs" : "need"} attention` : ""}
+      {attention > 0 ? <> · <LiveNumber value={attention} /> {attention === 1 ? "needs" : "need"} attention</> : ""}
     </span>
   );
 }

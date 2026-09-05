@@ -1,3 +1,4 @@
+import { LiveNumber } from "../LiveNumber";
 import { safePolygon, useFloating, useHover, useInteractions } from "@floating-ui/react";
 import { useState } from "react";
 import { useDesktop } from "../../lib/useDesktop";
@@ -160,7 +161,7 @@ export function TeamCluster({
                 data-ph-sensitive
                 className="flex size-10 flex-none items-center justify-center rounded-full bg-fg/15 font-ui text-[13px] text-fg/80 lg:size-12 lg:text-sm"
               >
-                +{hidden.length}
+                +<LiveNumber value={hidden.length} />
               </div>
             ) : null}
           </div>
@@ -234,7 +235,7 @@ export function TeamRosterPanel({
       <div className="mb-3 flex items-baseline justify-between">
         <span className="font-ui font-normal text-base text-rose-light">{team.name}</span>
         <span className="text-[10.5px] font-semibold tracking-[.08em] text-fg/50">
-          {team.activeMemberCount} of {team.teamMaximumSize}
+          <LiveNumber value={team.activeMemberCount} /> of {team.teamMaximumSize}
         </span>
       </div>
       {/* Preflight is off, so a bare ul keeps the UA's 40px indent. */}

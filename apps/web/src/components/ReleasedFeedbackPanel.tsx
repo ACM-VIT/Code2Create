@@ -1,9 +1,10 @@
+import { LiveNumber } from "./LiveNumber";
 import { api } from "@code2create/backend/api";
 import { useQuery } from "convex/react";
 
 import { eventSlug } from "../lib/config";
 
-const scoreFormatter = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
+const scoreFormat = { maximumFractionDigits: 2 } satisfies Intl.NumberFormatOptions;
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
   month: "short",
   day: "numeric",
@@ -34,7 +35,7 @@ export function ReleasedFeedbackPanel() {
             </div>
             {release.totalScore !== undefined ? (
               <p className="feedback-total">
-                {formatScore(release.totalScore)} <span>/ 100</span>
+                <LiveNumber value={release.totalScore} format={scoreFormat} /> <span>/ 100</span>
               </p>
             ) : null}
             {release.criteria.length > 0 ? (
@@ -42,7 +43,7 @@ export function ReleasedFeedbackPanel() {
                 {release.criteria.map((criterion) => (
                   <div key={criterion.criterionId}>
                     <dt>{criterion.label}</dt>
-                    <dd>{formatScore(criterion.meanScore)} / 4</dd>
+                    <dd><LiveNumber value={criterion.meanScore} format={scoreFormat} /> / 4</dd>
                   </div>
                 ))}
               </dl>
@@ -64,10 +65,6 @@ export function ReleasedFeedbackPanel() {
       </div>
     </section>
   );
-}
-
-function formatScore(value: number) {
-  return scoreFormatter.format(value);
 }
 
 function formatTime(value: number) {

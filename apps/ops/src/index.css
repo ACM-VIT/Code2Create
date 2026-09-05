@@ -9717,3 +9717,55 @@ textarea:focus {
   display: block;
   margin-top: 4px;
 }
+
+/* Review summaries reuse the same stat cards as the admissions release panel. */
+.application-review-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+  margin: 20px 0;
+}
+.application-review-summary-group {
+  min-width: 0;
+}
+.application-review-summary-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.application-review-summary-label {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+.application-review-summary-value {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 0;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  line-height: 1.5;
+}
+.application-review-summary-count {
+  font-size: inherit;
+  font-weight: inherit;
+}
+.application-review-summary-heading .state-label {
+  flex-shrink: 0;
+}
+.application-review-summary .catalog-summary {
+  margin-bottom: 0;
+}
+.application-review-summary .catalog-summary dd {
+  text-transform: capitalize;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 760px) {
+  .application-review-summary {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

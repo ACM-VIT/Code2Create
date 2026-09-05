@@ -1,3 +1,4 @@
+import { LiveNumber } from "../components/LiveNumber";
 import { api } from "@code2create/backend/api";
 import { useQuery } from "convex/react";
 import { type SubmitEvent, useState } from "react";
@@ -150,7 +151,7 @@ function DecisionsPreview({ pending }: { pending: PendingRecommendations }) {
         <h2 id="overview-decisions-heading">Needs your decision</h2>
         {pending.loading || pending.count === 0 ? null : (
           <span>
-            {pending.count}
+            <LiveNumber value={pending.count} />
             {pending.atLeast ? "+" : ""} waiting
           </span>
         )}

@@ -1,3 +1,4 @@
+import { LiveNumber, LiveDuration } from "../components/LiveNumber";
 import { api } from "@code2create/backend/api";
 import { useQuery } from "convex/react";
 import { useEffect, useState } from "react";
@@ -38,13 +39,12 @@ function Countdown({ deadline }: { deadline: number }) {
   }, []);
   const left = Math.max(0, deadline - now);
   const days = Math.floor(left / 86_400_000);
-  const pad = (value: number) => String(value).padStart(2, "0");
-  const clock = `${pad(Math.floor(left / 3_600_000) % 24)}:${pad(Math.floor(left / 60_000) % 60)}:${pad(Math.floor(left / 1000) % 60)}`;
+  const clock = <LiveDuration seconds={Math.floor(left / 1000) % 86_400} hours />;
   return (
     <p className="m-0 font-display font-light tracking-[-.01em] text-[26px] text-rose-light [font-variant-numeric:tabular-nums]">
       {days > 0 ? (
         <>
-          {days}
+          <LiveNumber value={days} />
           <span className="text-sm">d</span> {clock}
         </>
       ) : (
@@ -107,8 +107,8 @@ export function HomeScreen({
             <div className="mt-9 flex flex-col items-start gap-2.5 sm:items-end">
               <p className="m-0 text-[12.5px] text-fg/55">
                 {team.activeMemberCount === 1
-                  ? `Just you so far · ${openSeats} ${openSeats === 1 ? "seat" : "seats"} open`
-                  : `${team.activeMemberCount} of ${team.teamMaximumSize} on the team · ${openSeats} ${openSeats === 1 ? "seat" : "seats"} open`}
+                  ? <>Just you so far · <LiveNumber value={openSeats} /> {openSeats === 1 ? "seat" : "seats"} open</>
+                  : <><LiveNumber value={team.activeMemberCount} /> of {team.teamMaximumSize} on the team · <LiveNumber value={openSeats} /> {openSeats === 1 ? "seat" : "seats"} open</>}
                 {" · "}
                 <Link
                   to="/team"

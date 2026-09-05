@@ -1,3 +1,4 @@
+import { LiveNumber } from "../components/LiveNumber";
 import { api } from "@code2create/backend/api";
 import {
   figmaPreviewStateLabels,
@@ -82,7 +83,7 @@ function ProviderCount({
     >
       <Icon name={icon} />
       <span className="integration-provider-name">{name}</span>
-      <span aria-label={plural(count, unit, units)}>{count}</span>
+      <span aria-label={plural(count, unit, units)}><LiveNumber value={count} /></span>
     </span>
   );
 }
@@ -365,9 +366,9 @@ function IntegrationDetails({ team }: { team: IntegrationTeam }) {
                       : ` · ${githubRepositorySyncStateLabels[repository.syncState]}`}
                   </small>
                   <small>
-                    {plural(repository.commitCount, "commit", "commits")} ·{" "}
-                    {plural(repository.pushCount, "push", "pushes")} · +{repository.additions} −
-                    {repository.deletions} in {plural(repository.changedFiles, "file", "files")}
+                    <LiveNumber value={repository.commitCount} /> {repository.commitCount === 1 ? "commit" : "commits"} ·{" "}
+                    <LiveNumber value={repository.pushCount} /> {repository.pushCount === 1 ? "push" : "pushes"} · +<LiveNumber value={repository.additions} /> −
+                    <LiveNumber value={repository.deletions} /> in <LiveNumber value={repository.changedFiles} /> {repository.changedFiles === 1 ? "file" : "files"}
                   </small>
                   {repository.completeness === "complete" && !repository.compareTruncated ? null : (
                     <small>
@@ -413,8 +414,8 @@ function IntegrationDetails({ team }: { team: IntegrationTeam }) {
                       </small>
                     ) : null}
                     <small>
-                      {file.preview.availableCount} of{" "}
-                      {plural(file.preview.selectedNodeCount, "frame", "frames")}
+                      <LiveNumber value={file.preview.availableCount} /> of{" "}
+                      <LiveNumber value={file.preview.selectedNodeCount} /> {file.preview.selectedNodeCount === 1 ? "frame" : "frames"}
                       {file.preview.state === "ready"
                         ? ""
                         : ` · ${figmaPreviewStateLabels[file.preview.state]}`}
