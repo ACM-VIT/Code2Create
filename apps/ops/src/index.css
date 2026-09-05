@@ -9200,6 +9200,113 @@ textarea:focus {
 }
 
 /* Applications: a stage queue that coordinators can assign from and reviewers can work through. */
+.admission-deck {
+  padding-block: 24px 32px;
+  border-bottom: 1px solid var(--border);
+  scroll-margin-top: 24px;
+}
+.admission-deck-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+.admission-deck-heading h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+.admission-deck-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+.admission-deck-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 14px;
+  min-width: 0;
+  padding: 18px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+}
+.admission-deck-card.claimed {
+  border-color: var(--accent);
+}
+.admission-deck-card h3 {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.admission-deck-card-status,
+.admission-deck-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px 12px;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+}
+.admission-deck-card-status {
+  min-height: 24px;
+}
+.admission-deck-idea {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+.admission-deck-card-meta {
+  margin-top: auto;
+}
+.admission-deck-actions {
+  display: grid;
+  grid-template-rows: 36px minmax(36px, auto);
+  gap: 6px;
+}
+.admission-deck-actions > .primary {
+  justify-self: stretch;
+  text-align: center;
+  text-decoration: none;
+}
+.admission-deck-actions > .notice {
+  grid-row: 3;
+}
+.admission-deck-release {
+  justify-self: center;
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+.admission-deck-empty {
+  margin: 0;
+  padding: 32px 20px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-card);
+  color: var(--muted);
+  text-align: center;
+}
+@media (max-width: 1000px) {
+  .admission-deck-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  .admission-deck-heading { align-items: start; flex-direction: column; }
+  .admission-deck-grid { grid-template-columns: minmax(0, 1fr); }
+  .admission-deck-actions { grid-template-rows: none; grid-auto-rows: minmax(36px, auto); }
+}
 .admissions-control-label {
   display: block;
   color: var(--faint);

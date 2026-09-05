@@ -10,7 +10,6 @@ import {
   completedReviewCountQueryArgs,
   memberContextLine,
   needsReview,
-  nextAssignmentId,
   ownReviewLine,
   prioritizeReviewQueue,
   queueLeadSentence,
@@ -212,14 +211,12 @@ test("short tags replace the AI sentences in the list", () => {
   });
 });
 
-test("a reviewer sees what they said and where to go next", () => {
+test("a reviewer sees what they said", () => {
   assert.deepEqual(ownReviewLine({}), { text: "Not reviewed yet", done: false });
   assert.deepEqual(ownReviewLine({ ownRecommendation: "decline" }), {
     text: "You said do not select",
     done: true,
   });
-  assert.equal(nextAssignmentId([{ applicationId: "a" }, { applicationId: "b" }], "a"), "b");
-  assert.equal(nextAssignmentId([{ applicationId: "a" }], "a"), null);
 });
 
 test("bulk assignment reports what landed and what did not", () => {
