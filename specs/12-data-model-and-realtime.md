@@ -1603,15 +1603,6 @@ There is no generic “missing” result. Close cannot start until every team-ro
 
 The live round references one active export. Only an uploaded export can be independently verified; only that transaction changes the round to `closed`. Retry reuses the same snapshot/export identity after failure. Reopen marks a verified export `superseded` and preserves its files before clearing the round’s active pointers.
 
-### `scoreReleaseVersions`
-
-- event, round, verified close-snapshot, and verified round-export IDs;
-- published participant-feedback policy and field switches;
-- immutable participant result rows derived only from `result` close entries;
-- checksum and publishing actor/time.
-
-Release cannot point to an unverified or superseded export. Once a release exists, ordinary reopen is unavailable.
-
 ### `auditEvents`
 
 Append-only protected history.
@@ -2299,7 +2290,6 @@ The rehearsal result stores its source manifest/archive, exact staging target, o
 | `roundCloseEntries.by_snapshot_team`                                           | Page one frozen disposition per team in deterministic order                                                    |
 | `roundExports.by_round_revision`                                               | Allocate and inspect immutable export revisions                                                                |
 | `roundExports.by_event_state_updated`                                          | Operate failed or in-progress export work without a broad scan                                                 |
-| `scoreReleaseVersions.by_round`                                                | Enforce one immutable participant-feedback release per round                                                   |
 | `auditEvents.by_event_time`                                                    | Event audit                                                                                                    |
 | `auditEvents.by_target_time`                                                   | Object history                                                                                                 |
 
@@ -2335,7 +2325,7 @@ Recomputes the full preview. The command requires a current scoped authorization
 
 ### Participant home composition
 
-The web portal composes small subscribed queries for participant/team/project completion, application/admission state, communications, notification delivery, attendance, review-presence QR capability, queue estimate, generic round pause, checkpoints, feedback, and integrations. It does not use one unbounded participant-home response. The composed view never exposes an internal incident title, summary, or pause reason.
+The web portal composes small subscribed queries for participant/team/project completion, application/admission state, communications, notification delivery, attendance, review-presence QR capability, queue estimate, generic round pause, checkpoints and integrations. It does not use one unbounded participant-home response. The composed view never exposes an internal incident title, summary, or pause reason.
 
 ### `participants.me`
 
@@ -2804,7 +2794,7 @@ The start-close mutation reads the current round, active-pause range, team state
 
 The export action is not trusted as a state transition. It pages only the frozen entries, recomputes selected results, writes exact-version S3 objects, reads them back, then submits the current export version to a completion mutation. A stale worker, retry, changed round pointer, mismatched count, different S3 object version, or checksum mismatch cannot publish `uploaded`.
 
-Verification first rechecks exact read/verify grants, current authorization, two-person separation, attestations, and versions; then reads the recorded S3 object versions and hashes outside the transaction. Its final mutation repeats every permission, actor, state, snapshot-pointer, and expected-version check before changing export and round together. Two verifiers may perform reads, but only one current mutation closes; the other receives a changed-version result. Reopen similarly checks the verified export and active snapshot pointers, feedback release, later-round state, and both expected versions before superseding the export and reopening in one transaction.
+Verification first rechecks exact read/verify grants, current authorization, two-person separation, attestations, and versions; then reads the recorded S3 object versions and hashes outside the transaction. Its final mutation repeats every permission, actor, state, snapshot-pointer, and expected-version check before changing export and round together. Two verifiers may perform reads, but only one current mutation closes; the other receives a changed-version result. Reopen similarly checks the verified export and active snapshot pointers, later-round state, and both expected versions before superseding the export and reopening in one transaction.
 
 ## 17. Data retention
 

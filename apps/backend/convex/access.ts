@@ -106,7 +106,6 @@ const participantCapabilitiesView = v.object({
   attendance: v.boolean(),
   projectCheckpoints: v.boolean(),
   reviewQueue: v.boolean(),
-  scoreFeedback: v.boolean(),
   supportRead: v.boolean(),
   supportCreate: v.boolean(),
 });
@@ -265,7 +264,6 @@ async function resolveParticipantCapabilities(
     attendanceGrantIds,
     projectCheckpointGrantIds,
     reviewQueueGrantIds,
-    scoreFeedbackGrantIds,
   ] = await Promise.all([
     selfOrEvent("support.case.read"),
     selfOrEvent("support.case.create"),
@@ -350,15 +348,6 @@ async function resolveParticipantCapabilities(
           scopeId: teamId,
         })
       : Promise.resolve([]),
-    teamId
-      ? matchingPermissionGrantIds(ctx, {
-          eventId: args.eventId,
-          eventAccessSubjectId: args.eventAccessSubjectId,
-          permissionKey: "score.feedback.read",
-          scopeType: "team",
-          scopeId: teamId,
-        })
-      : Promise.resolve([]),
   ]);
   return {
     profileRead: profileReadGrantIds.length > 0,
@@ -371,7 +360,6 @@ async function resolveParticipantCapabilities(
     attendance: attendanceGrantIds.length > 0,
     projectCheckpoints: projectCheckpointGrantIds.length > 0,
     reviewQueue: reviewQueueGrantIds.length > 0,
-    scoreFeedback: scoreFeedbackGrantIds.length > 0,
     supportRead,
     supportCreate,
   };

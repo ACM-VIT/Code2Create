@@ -13,7 +13,6 @@ export const teamMemberPermissionKeys = [
   "team.lead.accept",
   "queue.participant.read",
   "review.team_qr.mint",
-  "score.feedback.read",
 ] as const;
 
 const teamLeadPermissionKeys = [

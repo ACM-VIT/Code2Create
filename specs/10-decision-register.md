@@ -128,7 +128,7 @@ Every operational choice below is configurable through ops. The listed values ar
 | O-003 | Board and admissions owner  | Admission rubric, minimum human reviews, AI-use rule, capacity, waitlist order, offer deadline, and participant-visible reasons |
 | O-004 | Board and participant owner | Profile fields, notices, consent, privacy URL, fresh-project text, and final-submission warning                                 |
 | O-005 | Board and review owner      | Final choice of six or seven panels, criterion coverage, and the named leads/qualification decisions                            |
-| O-006 | Board and judging owner     | Correction deadline, feedback release, finalist process, award eligibility, and tie-breaks                                      |
+| O-006 | Board and judging owner     | Correction deadline, finalist process, award eligibility, and tie-breaks                                      |
 | O-007 | Attendance owner            | Sessions, expected groups, scan windows, grace rules, and result policy                                                         |
 | O-009 | Communications owner        | Reviewer push text, call delay, call script, consent, quiet hours, retries, and escalation stop rules                           |
 | O-010 | Integrations owner          | GitHub and Figma requirements, repository/file limits, freeze, and alternative evidence                                         |

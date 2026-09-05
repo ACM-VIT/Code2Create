@@ -248,17 +248,6 @@ export function ScoreRound() {
       ) : null}
 
       <RoundExportControl roundId={completeness.round.id} />
-      {completeness.canRelease &&
-      completeness.round.status === "closed" &&
-      !completeness.releasedAt ? (
-        <ReleaseRound completeness={completeness} />
-      ) : null}
-      {completeness.releasedAt ? (
-        <p className="notice">
-          Participant feedback was released {" "}
-          {formatTime(completeness.releasedAt)}.
-        </p>
-      ) : null}
     </section>
   );
 }
@@ -672,156 +661,6 @@ function VoidScorecard({ scorecard }: { scorecard: Scorecard }) {
   );
 }
 
-function ReleaseRound({ completeness }: { completeness: Completeness }) {
-  const publishRelease = useMutation(api.scoreGovernance.publishRelease);
-  const [policyVersion, setPolicyVersion] = useState("");
-  const [criterionScores, setCriterionScores] = useState(false);
-  const [totalScore, setTotalScore] = useState(false);
-  const [sharedFindings, setSharedFindings] = useState(false);
-  const [sharedCommitments, setSharedCommitments] = useState(false);
-  const [reason, setReason] = useState("");
-  const [confirmed, setConfirmed] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const operationAttempt =
-    useMutationAttempt<FunctionReturnType<typeof api.scoreGovernance.publishRelease>>();
-  const operationSlot = `score-release:${completeness.round.id}`;
-  const operationPending = operationAttempt.hasPending(operationSlot);
-  const hasContent = criterionScores || totalScore || sharedFindings || sharedCommitments;
-
-  const changed = () => {
-    setError(null);
-  };
-
-  const submit = async () => {
-    if (
-      busy ||
-      !confirmed ||
-      !hasContent ||
-      policyVersion.trim().length < 3 ||
-      reason.trim().length < 5
-    )
-      return;
-    setBusy(true);
-    setError(null);
-    try {
-      await operationAttempt.run(operationSlot, () => {
-        const args = {
-          eventSlug,
-          roundId: completeness.round.id,
-          expectedRoundVersion: completeness.round.version,
-          policyVersion,
-          includeCriterionScores: criterionScores,
-          includeTotalScore: totalScore,
-          includeSharedFindings: sharedFindings,
-          includeSharedCommitments: sharedCommitments,
-          reason,
-          clientOperationId: crypto.randomUUID(),
-        };
-        return () => publishRelease(args);
-      });
-    } catch (caught) {
-      setError(readableError(caught));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <section className="score-final-command score-command release-command">
-      <h2>Release participant feedback</h2>
-      <p>The release cannot be undone.</p>
-      <label className="field">
-        <span>Feedback rules name</span>
-        <input
-          disabled={busy || operationPending}
-          value={policyVersion}
-          onChange={(event) => {
-            setPolicyVersion(event.target.value);
-            changed();
-          }}
-        />
-      </label>
-      <div className="release-fields">
-        <Check
-          label="Criterion scores"
-          checked={criterionScores}
-          disabled={busy || operationPending}
-          onChange={(value) => {
-            setCriterionScores(value);
-            changed();
-          }}
-        />
-        <Check
-          label="Total score"
-          checked={totalScore}
-          disabled={busy || operationPending}
-          onChange={(value) => {
-            setTotalScore(value);
-            changed();
-          }}
-        />
-        <Check
-          label="Shared findings"
-          checked={sharedFindings}
-          disabled={busy || operationPending}
-          onChange={(value) => {
-            setSharedFindings(value);
-            changed();
-          }}
-        />
-        <Check
-          label="What the team committed to next"
-          checked={sharedCommitments}
-          disabled={busy || operationPending}
-          onChange={(value) => {
-            setSharedCommitments(value);
-            changed();
-          }}
-        />
-      </div>
-      <label className="field">
-        <span>Why it’s being released</span>
-        <textarea
-          disabled={busy || operationPending}
-          value={reason}
-          onChange={(event) => {
-            setReason(event.target.value);
-            changed();
-          }}
-        />
-      </label>
-      <label className="check-filter">
-        <input
-          checked={confirmed}
-          disabled={busy || operationPending}
-          type="checkbox"
-          onChange={(event) => {
-            setConfirmed(event.target.checked);
-            changed();
-          }}
-        />
-        I confirm these are the fields the published feedback rules allow.
-      </label>
-      <button
-        className="primary"
-        disabled={
-          busy ||
-          !confirmed ||
-          !hasContent ||
-          policyVersion.trim().length < 3 ||
-          reason.trim().length < 5
-        }
-        type="button"
-        onClick={() => void submit()}
-      >
-        {busy ? "Publishing…" : operationPending ? "Confirm earlier release" : "Publish feedback"}
-      </button>
-      {error ? <p className="notice error">{error}</p> : null}
-    </section>
-  );
-}
-
 function NumericValues({ criteria, reviews,
 }: { criteria: ValueCriteria; reviews: ValueReview[];
 }) {
@@ -898,30 +737,6 @@ function NumericValues({ criteria, reviews,
         <p className="empty">No completed review has scores yet.</p>
       ) : null}
     </section>
-  );
-}
-
-function Check({
-  label,
-  checked,
-  disabled,
-  onChange,
-}: {
-  label: string;
-  checked: boolean;
-  disabled: boolean;
-  onChange: (checked: boolean) => void;
-}) {
-  return (
-    <label className="check-filter">
-      <input
-        checked={checked}
-        disabled={disabled}
-        type="checkbox"
-        onChange={(event) => onChange(event.target.checked)}
-      />
-      {label}
-    </label>
   );
 }
 
