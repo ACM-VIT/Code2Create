@@ -11,8 +11,10 @@
  */
 
 .memory-game {
-  --memory-pink: #f48fb1;
-  --memory-picked: #bf3f72;
+  /* The one pink the board uses to say "this is the thing to remember": the
+     square the pattern is showing, the pair already found, and the card still
+     face down all wear it. Only the glow distinguishes them. */
+  --memory-remember: #bf3f72;
   --memory-wrong: #e11d48;
 }
 
@@ -48,38 +50,44 @@
   transform: scale(1.03);
 }
 
-/* A square the pattern is showing, and a card still face down. */
+/*
+ * A square the pattern is showing.
+ *
+ * The same pink a face-down card wears, because both are the board saying "this
+ * is the thing to remember". Only the glow is stronger here: this one is on
+ * screen for a moment and has to carry across the whole grid at once.
+ */
 .memory-game .memory-tile.is-lit {
-  border-color: transparent;
-  background: var(--memory-pink);
-  box-shadow: 0 0 24px rgba(244, 143, 177, 0.7);
+  border-color: var(--color-petal-edge);
+  background: var(--memory-remember);
+  box-shadow: 0 0 24px rgba(191, 63, 114, 0.65);
 }
 
 .memory-game .memory-tile.is-lit:not(:disabled):hover {
-  border-color: transparent;
-  background: var(--memory-pink);
-  box-shadow: 0 0 28px rgba(244, 143, 177, 0.85);
+  border-color: var(--color-petal-edge);
+  background: var(--memory-remember);
+  box-shadow: 0 0 28px rgba(191, 63, 114, 0.8);
 }
 
 /* A square answered correctly, and a pair already found. */
 .memory-game .memory-tile.is-picked {
   border-color: rgba(255, 255, 255, 0.25);
-  background: var(--memory-picked);
+  background: var(--memory-remember);
   box-shadow: 0 0 15px rgba(191, 63, 114, 0.5);
 }
 
 /*
  * A card still face down.
  *
- * The pattern's lit pink is a flash meant to be seen for an instant; two dozen
- * of them held at once is a wall of it. This is the same palette a step deeper,
- * with the glow turned down to match.
+ * The same pink a lit square wears, with the glow turned down: a lit square is
+ * on screen for an instant and has to carry, while two dozen face-down cards
+ * are held there for the whole round.
  */
 .memory-game .memory-tile.is-facedown {
   /* The edge is kept rather than dropped: it is what holds the card's shape
      against the board, and twenty-four unbordered blocks read as one mass. */
   border-color: var(--color-petal-edge);
-  background: var(--memory-picked);
+  background: var(--memory-remember);
   box-shadow: 0 0 12px rgba(191, 63, 114, 0.35);
 }
 
