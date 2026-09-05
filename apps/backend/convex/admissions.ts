@@ -168,6 +168,23 @@ async function applicationMatchesRecommendation(
   return humanReviewOutcome(countHumanReviewScore(reviews, application.contentVersion), policy.minimumHumanReviews) === filter.outcome;
 }
 
+/** Null means event-wide AI access; a set limits summaries and filters to granted applications. */
+async function admissionAiReadScopeIds(
+  ctx: QueryCtx,
+  eventId: Id<"events">,
+  eventAccessSubjectId: Id<"eventAccessSubjects">,
+) {
+  const eventGrants = await matchingPermissionGrantIds(ctx, {
+    eventId, eventAccessSubjectId,
+    permissionKey: "application.ai_recommendation.read", scopeType: "event",
+  });
+  return eventGrants.length > 0 ? null : boundedActivePermissionScopeIds(ctx, {
+    eventId, eventAccessSubjectId,
+    permissionKey: "application.ai_recommendation.read", scopeType: "application",
+    maximumScopeCount: maximumScopedApplicationsForStageCounts,
+  });
+}
+
 function requireAdmissionPageSize(numItems: number) {
   if (!Number.isSafeInteger(numItems) || numItems < 1 || numItems > maximumAdmissionPageSize) {
     throw new ConvexError({
@@ -282,10 +299,10 @@ const humanReviewSummaryCounts = v.object({
   needed: v.number(),
 });
 
-export const admissionResultsReleaseStatus = query({
+export const admissionSummary = query({
   args: { eventSlug: v.string() },
   returns: v.object({
-    isSupreme: v.boolean(),
+    canReleaseResults: v.boolean(),
     serverNow: v.number(),
     eventVersion: v.number(),
     applicationsCloseAt: v.number(),
@@ -307,6 +324,16 @@ export const admissionResultsReleaseStatus = query({
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const supremeRole = await activeSupremeRole(ctx, event._id, person._id);
+    const readGrantIds = await matchingPermissionGrantIds(ctx, {
+      eventId: event._id, eventAccessSubjectId: subject._id,
+      permissionKey: "application.read", scopeType: "event",
+    });
+    const decisionGrantIds = supremeRole && readGrantIds.length > 0
+      ? await matchingPermissionGrantIds(ctx, {
+          eventId: event._id, eventAccessSubjectId: subject._id,
+          permissionKey: "application.decide", scopeType: "event",
+        })
+      : [];
     const counts = {
       total: 0, reviewsComplete: 0, reviewsNeeded: 0,
       unrecorded: 0, recorded: 0, released: 0,
@@ -317,36 +344,19 @@ export const admissionResultsReleaseStatus = query({
       accepted: 0, waitlisted: 0, rejected: 0, split: 0, needed: 0,
       people: { accepted: 0, waitlisted: 0, rejected: 0, split: 0, needed: 0 },
     };
-    if (!supremeRole) {
-      return {
-        isSupreme: false,
-        serverNow: Date.now(),
-        eventVersion: event.version,
-        applicationsCloseAt: event.applicationsCloseAt,
-        ...(event.admissionResultsReleasedAt !== undefined
-          ? { releasedAt: event.admissionResultsReleasedAt }
-          : {}),
-        ...counts,
-        people,
-        humanReviews,
-        ideaAgent: null,
-      };
-    }
-    const applications = await ctx.db
-      .query("applications")
-      .withIndex("by_event_submitted", (index) => index.eq("eventId", event._id))
-      .collect();
+    const applications = readGrantIds.length > 0
+      ? await ctx.db
+          .query("applications")
+          .withIndex("by_event_submitted", (index) => index.eq("eventId", event._id))
+          .collect()
+      : await scopedApplicationsForStageCounts(ctx, event._id, subject._id);
     const active = applications.filter(
       (application) =>
         application.state !== "withdrawn" || application.decisionStage === "released",
     );
-    const aiGrantIds = await matchingPermissionGrantIds(ctx, {
-      eventId: event._id,
-      eventAccessSubjectId: subject._id,
-      permissionKey: "application.ai_recommendation.read",
-      scopeType: "event",
-    });
-    const ideaAgent = aiGrantIds.length > 0
+    const aiScopeIds = await admissionAiReadScopeIds(ctx, event._id, subject._id);
+    const aiApplications = active.filter((application) => aiScopeIds === null || aiScopeIds.has(application._id));
+    const ideaAgent = aiScopeIds === null || aiScopeIds.size > 0
       ? {
           accepted: 0, waitlisted: 0, rejected: 0, unavailable: 0,
           people: { accepted: 0, waitlisted: 0, rejected: 0, unavailable: 0 },
@@ -355,7 +365,7 @@ export const admissionResultsReleaseStatus = query({
     const policyIds = [...new Set(active.map((application) => application.admissionPolicyVersionId))];
     const projectIds = [...new Set(active.map((application) => application.submittedProjectVersionId))];
     const recommendationIds = ideaAgent
-      ? [...new Set(active.flatMap((application) =>
+      ? [...new Set(aiApplications.flatMap((application) =>
           application.aiRecommendationId ? [application.aiRecommendationId] : [],
         ))]
       : [];
@@ -400,7 +410,7 @@ export const admissionResultsReleaseStatus = query({
       const humanOutcome = humanReviewOutcome(score, policy.minimumHumanReviews);
       humanReviews[humanOutcome] += 1;
       humanReviews.people[humanOutcome] += memberCount;
-      if (ideaAgent) {
+      if (ideaAgent && (aiScopeIds === null || aiScopeIds.has(application._id))) {
         const recommendation = application.aiRecommendationId
           ? recommendationsById.get(application.aiRecommendationId)
           : null;
@@ -420,7 +430,7 @@ export const admissionResultsReleaseStatus = query({
       ? await ctx.db.get(event.admissionResultsReleasedByPersonId)
       : null;
     return {
-      isSupreme: true,
+      canReleaseResults: decisionGrantIds.length > 0,
       serverNow: Date.now(),
       eventVersion: event.version,
       applicationsCloseAt: event.applicationsCloseAt,
@@ -701,11 +711,10 @@ export const list = query({
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
     requireAdmissionPageSize(args.paginationOpts.numItems);
-    if (args.recommendationFilter?.source === "idea") {
-      await requirePermission(ctx, {
-        eventId: event._id, eventAccessSubjectId: subject._id,
-        permissionKey: "application.ai_recommendation.read", scopeType: "event",
-      });
+    const aiScopeIds = args.recommendationFilter?.source === "idea"
+      ? await admissionAiReadScopeIds(ctx, event._id, subject._id) : null;
+    if (aiScopeIds?.size === 0) {
+      throw new ConvexError({ code: "ACCESS_DENIED", message: "This account lacks AI recommendation read permission." });
     }
     const state = args.state;
     if (args.origin !== undefined || args.needsReview || args.recommendationFilter) {
@@ -721,6 +730,7 @@ export const list = query({
       return applicationQuery
         .order("asc")
         .map(async (application) => {
+          if (aiScopeIds !== null && !aiScopeIds.has(application._id)) return null;
           if (state !== undefined && applicationQueueStage(application) !== state) return null;
           if (
             args.completedReviewCount !== undefined &&
@@ -807,11 +817,10 @@ export const searchApplications = query({
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
-    if (args.recommendationFilter?.source === "idea") {
-      await requirePermission(ctx, {
-        eventId: event._id, eventAccessSubjectId: subject._id,
-        permissionKey: "application.ai_recommendation.read", scopeType: "event",
-      });
+    const aiScopeIds = args.recommendationFilter?.source === "idea"
+      ? await admissionAiReadScopeIds(ctx, event._id, subject._id) : null;
+    if (aiScopeIds?.size === 0) {
+      throw new ConvexError({ code: "ACCESS_DENIED", message: "This account lacks AI recommendation read permission." });
     }
     const state = args.state;
     const applicationQuery = ctx.db.query("applications");
@@ -851,6 +860,7 @@ export const searchApplications = query({
           (application) =>
             (state === undefined || applicationQueueStage(application) === state) &&
             (readableScopeIds === null || readableScopeIds.has(application._id)) &&
+            (aiScopeIds === null || aiScopeIds.has(application._id)) &&
             (args.completedReviewCount === undefined ||
               application.completedReviewCount === args.completedReviewCount),
         )

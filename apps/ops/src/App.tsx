@@ -474,7 +474,6 @@ function Operations({
                   canAssign={capabilities.applicationAssign}
                   canReadApplications={capabilities.applicationRead}
                   canReadAssignments={capabilities.applicationReviewRead}
-                  isSupreme={capabilities.isSupreme}
                 />
               }
             />
