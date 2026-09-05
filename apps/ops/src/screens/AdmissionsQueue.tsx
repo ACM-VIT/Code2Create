@@ -13,6 +13,7 @@ import { Link } from "react-router-dom";
 import { LoadingLabel, SkeletonLine, SkeletonList } from "../components/Skeleton";
 import { QueuePagination } from "../components/QueuePagination";
 import { AdmissionStat } from "../components/AdmissionStat";
+import { AdmissionReviewDeck } from "../components/AdmissionReviewDeck";
 import {
   aiStateTag,
   applicationQueueStageLabels,
@@ -81,6 +82,7 @@ export function AdmissionsQueue({
           <h1>Applications</h1>
         </div>
       </header>
+      <AdmissionReviewDeck origin={origin} onOriginChange={setOrigin} />
       {canReadApplications ? (
         <AdmissionStats
           recommendationFilter={recommendationFilter}

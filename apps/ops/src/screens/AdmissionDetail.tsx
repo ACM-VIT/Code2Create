@@ -22,7 +22,6 @@ import { Link, useParams } from "react-router-dom";
 import {
   cohortSummary,
   memberContextLine,
-  nextAssignmentId,
   remainingAssignmentsLine,
   reviewAssignmentStatusLine,
   reviewAssignmentSummary,
@@ -36,6 +35,7 @@ import { useReviewAssignmentCounts } from "../lib/useReviewAssignmentCounts";
 import { Icon } from "../components/Icon";
 import { LoadingLabel, SkeletonCard, SkeletonList } from "../components/Skeleton";
 import { ParticipantDeliveryStatus } from "../components/ParticipantDeliveryStatus";
+import { NextReviewButton } from "../components/AdmissionReviewDeck";
 
 type AdmissionDetailData = NonNullable<FunctionReturnType<typeof api.admissions.detail>>;
 type ReviewAssignment = NonNullable<AdmissionDetailData["reviewAssignments"]>[number];
@@ -98,7 +98,7 @@ export function AdmissionDetail({ accountEmail }: { accountEmail: string }) {
         <Link className="back-link" to="/admissions">
           ← Applications
         </Link>
-        <NextAssignmentLink
+        <NextReviewButton
           className="text-button"
           currentApplicationId={detail.application.id}
           label="Next to review →"
@@ -1014,33 +1014,6 @@ function ReviewAssignmentEvidence({
   );
 }
 
-function NextAssignmentLink({
-  className,
-  currentApplicationId,
-  fallback,
-  label,
-}: {
-  className: string;
-  currentApplicationId: string;
-  fallback?: React.ReactNode;
-  label: string;
-}) {
-  const assignments = usePaginatedQuery(
-    api.admissions.myReviewAssignments,
-    { eventSlug, state: "active" },
-    { initialNumItems: 10 },
-  );
-  const nextId = nextAssignmentId(assignments.results, currentApplicationId);
-  if (nextId === null) {
-    return assignments.status === "LoadingFirstPage" ? null : (fallback ?? null);
-  }
-  return (
-    <Link className={className} to={`/admissions/${nextId}`}>
-      {label}
-    </Link>
-  );
-}
-
 function ReviewForm({ detail }: { detail: AdmissionDetailData }) {
   const saveReview = useMutation(api.admissions.saveReview);
   const operations = useOperationRunner();
@@ -1135,10 +1108,10 @@ function ReviewForm({ detail }: { detail: AdmissionDetailData }) {
           <p className="muted">{remainingAssignmentsLine(assignmentCounts)}</p>
         ) : null}
         <div className="button-row">
-          <NextAssignmentLink
+          <NextReviewButton
             className="primary"
             currentApplicationId={detail.application.id}
-            fallback={<p className="muted">Nothing else is assigned to you.</p>}
+            fallback={<Link className="secondary" to="/admissions#review-deck">Back to review deck</Link>}
             label="Next to review →"
           />
           <button

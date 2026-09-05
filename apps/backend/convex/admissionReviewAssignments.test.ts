@@ -29,6 +29,175 @@ type ReviewAssignmentCountPage = FunctionReturnType<
   typeof api.admissions.myReviewAssignmentCountRows
 >;
 
+describe("admission review deck", () => {
+  test("fills four cards, prioritizes partially reviewed submissions, and replaces saved reviews", async () => {
+    const { backend, fixture, reviewer } = await deckFixture();
+    const ids = await cloneDeckApplications(backend, fixture, 6);
+    await backend.run(async (ctx) => {
+      const application = await ctx.db.get(fixture.applicationId);
+      if (!application) throw new Error("Missing deck fixture.");
+      await ctx.db.patch(application.admissionPolicyVersionId, { minimumHumanReviews: 2 });
+      await ctx.db.patch(ids[4]!, { completedReviewCount: 1 });
+    });
+    const args = { eventSlug: fixture.eventSlug, now: Date.now() };
+    const before = await reviewer.query(api.admissions.reviewDeck, args);
+    expect(before).toHaveLength(4);
+    expect(before?.[0]).toMatchObject({ applicationId: ids[4], completedReviewCount: 1, minimumHumanReviews: 2 });
+    const claimed = await reviewer.mutation(api.admissions.claimReview, {
+      eventSlug: fixture.eventSlug, applicationId: fixture.applicationId, clientOperationId: "deck-claim",
+    });
+    expect((await reviewer.query(api.admissions.reviewDeck, args))?.[0]).toMatchObject({
+      applicationId: fixture.applicationId, assignment: { id: claimed.assignmentId },
+    });
+    await reviewer.mutation(api.admissions.saveReview, {
+      eventSlug: fixture.eventSlug, applicationId: fixture.applicationId,
+      expectedApplicationContentVersion: 1, recommendation: "accept", reasonCode: "clear_intent", clientOperationId: "deck-save",
+    });
+    const after = await reviewer.query(api.admissions.reviewDeck, args);
+    expect(after).toHaveLength(4);
+    expect(after?.some((item) => item.applicationId === fixture.applicationId)).toBe(false);
+    expect((await assignmentState(backend, fixture, claimed.assignmentId)).assignment?.state).toBe("completed");
+  });
+
+  test("excludes completed, withdrawn, decided, reserved, and already-reviewed submissions", async () => {
+    const { backend, fixture, reviewer } = await deckFixture();
+    const ids = await cloneDeckApplications(backend, fixture, 5);
+    await backend.run(async (ctx) => {
+      const application = await ctx.db.get(fixture.applicationId);
+      if (!application) throw new Error("Missing deck fixture.");
+      await ctx.db.patch(application.admissionPolicyVersionId, { minimumHumanReviews: 2 });
+      await ctx.db.patch(ids[0]!, { completedReviewCount: 2 });
+      await ctx.db.patch(ids[1]!, { state: "withdrawn" });
+      await ctx.db.patch(ids[2]!, { decisionStage: "recorded" });
+      await ctx.db.patch(ids[3]!, { completedReviewCount: 1, assignedReviewCount: 1 });
+      await ctx.db.insert("admissionReviewAssignments", {
+        eventId: fixture.eventId, applicationId: ids[3]!, applicationContentVersion: 1,
+        reviewerPersonId: fixture.secondReviewerPersonId, assignedByPersonId: fixture.managerPersonId,
+        state: "active", version: 1, assignedAt: Date.now(),
+      });
+      await ctx.db.patch(ids[4]!, { completedReviewCount: 1 });
+      await ctx.db.insert("admissionHumanReviews", {
+        eventId: fixture.eventId, applicationId: ids[4]!, applicationContentVersion: 1,
+        reviewerPersonId: fixture.reviewerPersonId, recommendation: "accept", reasonCode: "clear_intent",
+        status: "active", createdAt: Date.now(),
+      });
+    });
+    const args = { eventSlug: fixture.eventSlug, now: Date.now() };
+    expect((await reviewer.query(api.admissions.reviewDeck, args))?.map((item) => item.applicationId)).toEqual([fixture.applicationId]);
+    expect(await reviewer.query(api.admissions.reviewDeck, { ...args, excludeApplicationId: fixture.applicationId })).toEqual([]);
+    expect(await reviewer.query(api.admissions.reviewDeck, { ...args, origin: "internal" })).toEqual([]);
+    expect(await reviewer.query(api.admissions.reviewDeck, { ...args, origin: "external" })).toHaveLength(1);
+    for (const applicationId of ids.slice(0, 3)) {
+      await expect(reviewer.mutation(api.admissions.claimReview, {
+        eventSlug: fixture.eventSlug, applicationId, clientOperationId: `unreviewable:${applicationId}`,
+      })).rejects.toThrow("no reviews remaining");
+    }
+  });
+
+  test("read access alone cannot claim; scoped and assigned reviewers only see their applications", async () => {
+    const { backend, fixture, reviewer } = await deckFixture("none");
+    await cloneDeckApplications(backend, fixture, 2);
+    const args = { eventSlug: fixture.eventSlug, now: Date.now() };
+    expect(await reviewer.query(api.admissions.reviewDeck, args)).toBeNull();
+    await expect(reviewer.mutation(api.admissions.claimReview, {
+      eventSlug: fixture.eventSlug, applicationId: fixture.applicationId, clientOperationId: "read-only",
+    })).rejects.toThrow();
+    const assignment = await assignFixtureReviewer(backend, fixture, fixture.reviewerSubjectId);
+    expect((await reviewer.query(api.admissions.reviewDeck, args))?.map((item) => item.applicationId)).toEqual([fixture.applicationId]);
+    expect((await reviewer.query(api.admissions.reviewDeck, args))?.[0]?.assignment?.id).toBe(assignment.assignmentId);
+  });
+
+  test("claims are idempotent and only one reviewer can take the final slot", async () => {
+    const { backend, fixture, reviewer, manager } = await deckFixture();
+    const command = { eventSlug: fixture.eventSlug, applicationId: fixture.applicationId, clientOperationId: "claim-final-slot" };
+    const claims = await Promise.allSettled([
+      reviewer.mutation(api.admissions.claimReview, command),
+      manager.mutation(api.admissions.claimReview, command),
+    ]);
+    expect(claims.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(claims.filter((result) => result.status === "rejected")).toHaveLength(1);
+    const winner = claims[0]?.status === "fulfilled" ? reviewer : manager;
+    const first = await winner.mutation(api.admissions.claimReview, command);
+    expect(await winner.mutation(api.admissions.claimReview, { ...command, clientOperationId: "another-click" })).toEqual(first);
+    expect((await backend.run((ctx) => ctx.db.get(fixture.applicationId)))?.assignedReviewCount).toBe(1);
+  });
+
+  test("reviewers can release their own claim, freeing the slot, but cannot release someone else's", async () => {
+    const { backend, fixture, reviewer, manager } = await deckFixture();
+    const claim = await reviewer.mutation(api.admissions.claimReview, {
+      eventSlug: fixture.eventSlug, applicationId: fixture.applicationId, clientOperationId: "claim-to-release",
+    });
+    const command = {
+      eventSlug: fixture.eventSlug, applicationId: fixture.applicationId, expectedApplicationVersion: 2,
+      assignmentId: claim.assignmentId, expectedAssignmentVersion: 1, reason: "Released my review claim", clientOperationId: "release-own",
+    };
+    await expect(manager.mutation(api.admissions.cancelReviewAssignment, command)).rejects.toThrow();
+    const released = await reviewer.mutation(api.admissions.cancelReviewAssignment, command);
+    expect(released.assignmentState).toBe("cancelled");
+    expect(await reviewer.mutation(api.admissions.cancelReviewAssignment, command)).toEqual(released);
+    const state = await assignmentState(backend, fixture, claim.assignmentId);
+    expect(state.application?.assignedReviewCount).toBe(0);
+    expect(state.assignmentGrants.every((grant) => grant.status === "revoked")).toBe(true);
+    expect(await manager.query(api.admissions.reviewDeck, { eventSlug: fixture.eventSlug, now: Date.now() })).toHaveLength(1);
+    await manager.mutation(api.admissions.claimReview, {
+      eventSlug: fixture.eventSlug, applicationId: fixture.applicationId, clientOperationId: "claim-released-slot",
+    });
+  });
+
+  test("expired reservations do not block a new claim before the expiry sweep", async () => {
+    const { backend, fixture, reviewer } = await deckFixture();
+    const command = { eventSlug: fixture.eventSlug, applicationId: fixture.applicationId, clientOperationId: "first-claim" };
+    const claim = await reviewer.mutation(api.admissions.claimReview, command);
+    await backend.run((ctx) => ctx.db.patch(claim.assignmentId, { assignedAt: Date.now() - admissionReviewClaimMs - 1 }));
+    expect((await reviewer.query(api.admissions.reviewDeck, { eventSlug: fixture.eventSlug, now: Date.now() }))?.[0]?.assignment).toBeNull();
+    const renewed = await reviewer.mutation(api.admissions.claimReview, { ...command, clientOperationId: "new-claim" });
+    expect(renewed.assignmentId).not.toBe(claim.assignmentId);
+    expect((await assignmentState(backend, fixture, claim.assignmentId)).assignment?.state).toBe("cancelled");
+    expect((await assignmentState(backend, fixture, renewed.assignmentId)).application?.assignedReviewCount).toBe(1);
+  });
+});
+
+async function deckFixture(reviewAccess: "event" | "none" = "event") {
+  const backend = convexTest(schema, modules);
+  backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+  const reviewerAuth = await createReviewerAuth(backend);
+  const managerAuth = await createReviewerAuth(backend);
+  const fixture = await seedAssignmentFixture(backend, {
+    reviewerAuthUserId: reviewerAuth.authUserId, managerAuthUserId: managerAuth.authUserId,
+  });
+  await backend.run(async (ctx) => {
+    for (const [personId, subjectId] of [
+      [fixture.reviewerPersonId, fixture.reviewerSubjectId], [fixture.managerPersonId, fixture.managerSubjectId],
+    ] as const) {
+      const permissions = reviewAccess === "none" ? ["application.read"] as const : ["application.read", "application.review"] as const;
+      for (const permissionKey of permissions) {
+        await insertPermissionGrant(ctx, {
+          eventId: fixture.eventId, personId, eventAccessSubjectId: subjectId, permissionKey,
+          scopeType: "event", sourceType: "manual", sourceId: `deck:${permissionKey}:${personId}`, reason: "Review deck fixture",
+        });
+      }
+    }
+  });
+  return {
+    backend, fixture,
+    reviewer: backend.withIdentity({ subject: reviewerAuth.authUserId, sessionId: reviewerAuth.authSessionId }),
+    manager: backend.withIdentity({ subject: managerAuth.authUserId, sessionId: managerAuth.authSessionId }),
+  };
+}
+
+async function cloneDeckApplications(backend: BackendTest, fixture: AssignmentFixture, count: number) {
+  return backend.run(async (ctx) => {
+    const application = await ctx.db.get(fixture.applicationId);
+    if (!application) throw new Error("Missing deck fixture.");
+    const { _id, _creationTime, ...fields } = application;
+    const ids = [];
+    for (let index = 0; index < count; index += 1) {
+      ids.push(await ctx.db.insert("applications", { ...fields, submittedAt: application.submittedAt + index + 1 }));
+    }
+    return ids;
+  });
+}
+
 describe("admission review assignments", () => {
   test("origin filters fill pages past assignments and applications from the other origin", async () => {
     const backend = convexTest(schema, modules);

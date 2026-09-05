@@ -932,6 +932,145 @@ const reviewAssignmentCountRow = v.object({
   state: v.union(v.literal("active"), v.literal("completed")),
 });
 
+const reviewDeckItem = v.object({
+  applicationId: v.id("applications"),
+  applicationVersion: v.number(),
+  teamName: v.string(),
+  idea: v.string(),
+  memberCount: v.number(),
+  completedReviewCount: v.number(),
+  minimumHumanReviews: v.number(),
+  assignment: v.union(v.null(), v.object({
+    id: v.id("admissionReviewAssignments"),
+    version: v.number(),
+    expiresAt: v.number(),
+  })),
+});
+
+async function admissionPermissionScope(
+  ctx: QueryCtx,
+  eventId: Id<"events">,
+  eventAccessSubjectId: Id<"eventAccessSubjects">,
+  permissionKey: "application.read" | "application.review.read" | "application.review" | "application.assign",
+) {
+  const grants = await matchingPermissionGrantIds(ctx, {
+    eventId, eventAccessSubjectId, permissionKey, scopeType: "event",
+  });
+  return grants.length > 0 ? null : boundedActivePermissionScopeIds(ctx, {
+    eventId, eventAccessSubjectId, permissionKey, scopeType: "application",
+    maximumScopeCount: maximumScopedApplicationsForStageCounts,
+  });
+}
+
+function acceptsDeckReview(application: Doc<"applications">) {
+  return application.decisionStage === "unrecorded" &&
+    (application.state === "submitted" || application.state === "under_review");
+}
+
+function liveApplicationAssignments(
+  ctx: QueryCtx | MutationCtx,
+  application: Doc<"applications">,
+  now: number,
+  limit: number,
+) {
+  return ctx.db.query("admissionReviewAssignments")
+    .withIndex("by_application_state_assigned", (index) =>
+      index.eq("applicationId", application._id).eq("state", "active")
+        .gt("assignedAt", now - admissionReviewClaimMs),
+    )
+    .filter((filter) => filter.eq(filter.field("applicationContentVersion"), application.contentVersion))
+    .take(limit);
+}
+
+export const reviewDeck = query({
+  args: {
+    eventSlug: v.string(),
+    now: v.number(),
+    origin: v.optional(admissionTeamOrigin),
+    excludeApplicationId: v.optional(v.id("applications")),
+  },
+  returns: v.union(v.null(), v.array(reviewDeckItem)),
+  handler: async (ctx, args) => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    const [read, reviewRead, review, assign] = await Promise.all([
+      admissionPermissionScope(ctx, event._id, subject._id, "application.read"),
+      admissionPermissionScope(ctx, event._id, subject._id, "application.review.read"),
+      admissionPermissionScope(ctx, event._id, subject._id, "application.review"),
+      admissionPermissionScope(ctx, event._id, subject._id, "application.assign"),
+    ]);
+    if (review?.size === 0 && assign?.size === 0) return null;
+    const [applications, assignments] = await Promise.all([
+      ctx.db.query("applications")
+        .withIndex("by_event_decision_stage", (index) =>
+          index.eq("eventId", event._id).eq("decisionStage", "unrecorded"),
+        ).take(maximumApplicantTeamsPerEvent + 1),
+      ctx.db.query("admissionReviewAssignments")
+        .withIndex("by_event_reviewer_state_assigned", (index) =>
+          index.eq("eventId", event._id).eq("reviewerPersonId", person._id).eq("state", "active")
+            .gt("assignedAt", args.now - admissionReviewClaimMs),
+        ).take(maximumApplicantTeamsPerEvent + 1),
+    ]);
+    if (applications.length > maximumApplicantTeamsPerEvent || assignments.length > maximumApplicantTeamsPerEvent) {
+      throw new Error("The admission review deck exceeds the event application limit.");
+    }
+    const ownAssignments = new Map(assignments.map((assignment) => [assignment.applicationId, assignment]));
+    const candidates = applications.filter((application) =>
+      acceptsDeckReview(application) && application._id !== args.excludeApplicationId &&
+      (read === null || read.has(application._id) || reviewRead === null || reviewRead.has(application._id)) &&
+      (review === null || review.has(application._id) || assign === null || assign.has(application._id)),
+    ).sort((a, b) =>
+      Number(ownAssignments.has(b._id)) - Number(ownAssignments.has(a._id)) ||
+      b.completedReviewCount - a.completedReviewCount || a.submittedAt - b.submittedAt,
+    );
+    const policies = await getAll(ctx.db, [...new Set(candidates.map((application) => application.admissionPolicyVersionId))]);
+    const minimums = new Map(policies.flatMap((policy) => policy ? [[policy._id, policy.minimumHumanReviews] as const] : []));
+    const pending = candidates.filter((application) => {
+      const minimum = minimums.get(application.admissionPolicyVersionId);
+      if (minimum === undefined) throw new Error("An application admission policy is missing.");
+      return application.completedReviewCount < minimum;
+    });
+    const deck: Infer<typeof reviewDeckItem>[] = [];
+    // Hydrate small batches; stop as soon as the four-card deck is full.
+    for (let offset = 0; offset < pending.length && deck.length < 4; offset += 16) {
+      const batch = await Promise.all(pending.slice(offset, offset + 16).map(async (application) => {
+        const minimumHumanReviews = minimums.get(application.admissionPolicyVersionId)!;
+        const [ownReview, reserved, matchesOrigin] = await Promise.all([
+          ctx.db.query("admissionHumanReviews")
+            .withIndex("by_application_reviewer_status", (index) =>
+              index.eq("applicationId", application._id).eq("reviewerPersonId", person._id).eq("status", "active"),
+            ).unique(),
+          liveApplicationAssignments(ctx, application, args.now, minimumHumanReviews),
+          applicationMatchesOrigin(ctx, application, args.origin),
+        ]);
+        if (!matchesOrigin || ownReview?.applicationContentVersion === application.contentVersion) return null;
+        const own = ownAssignments.get(application._id);
+        const assignment = own?.applicationContentVersion === application.contentVersion ? own : null;
+        if (!assignment && application.completedReviewCount + reserved.length >= minimumHumanReviews) return null;
+        return { application, assignment, minimumHumanReviews };
+      }));
+      for (const item of batch) {
+        if (!item || deck.length === 4) continue;
+        const { application, assignment, minimumHumanReviews } = item;
+        const [team, project] = await Promise.all([
+          ctx.db.get(application.teamId), ctx.db.get(application.submittedProjectVersionId),
+        ]);
+        if (!team || !project) throw new Error("The review deck application context is missing.");
+        deck.push({
+          applicationId: application._id, applicationVersion: application.version,
+          teamName: team.name, idea: project.initialIdea.slice(0, 320), memberCount: project.lockedMemberCount,
+          completedReviewCount: application.completedReviewCount, minimumHumanReviews,
+          assignment: assignment ? {
+            id: assignment._id, version: assignment.version, expiresAt: assignment.assignedAt + admissionReviewClaimMs,
+          } : null,
+        });
+      }
+    }
+    return deck;
+  },
+});
+
 async function visibleReviewAssignmentApplication(
   ctx: QueryCtx,
   eventId: Id<"events">,
@@ -2189,6 +2328,91 @@ export async function completeAdmissionReviewAssignment(
   return args.assignment._id;
 }
 
+export const claimReview = mutation({
+  args: {
+    eventSlug: v.string(),
+    applicationId: v.id("applications"),
+    clientOperationId: v.string(),
+  },
+  returns: v.object({
+    applicationId: v.id("applications"),
+    assignmentId: v.id("admissionReviewAssignments"),
+    assignmentState: admissionReviewAssignmentState,
+  }),
+  handler: async (ctx, args) => {
+    const { event, person, subject, application } = await applicationContext(ctx, args);
+    const requestFingerprint = operationFingerprint([application._id]);
+    const commandName = "admissions.review_assignment.claim";
+    const prior = await findOperation(ctx, {
+      eventId: event._id, actorPersonId: person._id,
+      clientOperationId: args.clientOperationId, commandName, requestFingerprint,
+    });
+    if (prior) {
+      const id = ctx.db.normalizeId("admissionReviewAssignments", prior.targetId);
+      const assignment = id ? await ctx.db.get(id) : null;
+      if (!assignment) throw new Error("The previous review claim is missing.");
+      return { applicationId: application._id, assignmentId: assignment._id, assignmentState: assignment.state };
+    }
+    const reviewGrants = await matchingPermissionGrantIds(ctx, {
+      eventId: event._id, eventAccessSubjectId: subject._id,
+      permissionKey: "application.review", scopeType: "application", scopeId: application._id,
+    });
+    const permissionKey = reviewGrants.length > 0 ? "application.review" : "application.assign";
+    const grantIds = reviewGrants.length > 0 ? reviewGrants : await requirePermission(ctx, {
+      eventId: event._id, eventAccessSubjectId: subject._id,
+      permissionKey, scopeType: "application", scopeId: application._id,
+    });
+    const now = Date.now();
+    const [policy, existing] = await Promise.all([
+      ctx.db.get(application.admissionPolicyVersionId),
+      ctx.db.query("admissionReviewAssignments")
+        .withIndex("by_application_reviewer_state", (index) =>
+          index.eq("applicationId", application._id).eq("reviewerPersonId", person._id).eq("state", "active"),
+        ).unique(),
+    ]);
+    if (!policy) throw new Error("An application admission policy is missing.");
+    if (!acceptsDeckReview(application) || application.completedReviewCount >= policy.minimumHumanReviews) {
+      throw new ConvexError({ code: "APPLICATION_NOT_REVIEWABLE", message: "This submission has no reviews remaining." });
+    }
+    let assignmentId: Id<"admissionReviewAssignments">;
+    if (existing && existing.assignedAt + admissionReviewClaimMs > now &&
+        existing.applicationContentVersion === application.contentVersion) {
+      assignmentId = existing._id;
+    } else {
+      const reserved = await liveApplicationAssignments(ctx, application, now, policy.minimumHumanReviews);
+      if (application.completedReviewCount + reserved.length >= policy.minimumHumanReviews) {
+        throw new ConvexError({ code: "REVIEW_SLOTS_CLAIMED", message: "The remaining reviews were just claimed. Choose another submission." });
+      }
+      let currentApplication = application;
+      if (existing) {
+        const cancelled = await cancelAdmissionReviewAssignment(ctx, {
+          application, expectedApplicationVersion: application.version,
+          assignment: existing, expectedAssignmentVersion: existing.version,
+          cancelledByPersonId: person._id, reason: "Replaced an expired or outdated review claim", now,
+        });
+        currentApplication = { ...application, assignedReviewCount: application.assignedReviewCount - 1, version: cancelled.applicationVersion };
+      }
+      const result = await createAdmissionReviewAssignment(ctx, {
+        application: currentApplication, expectedApplicationVersion: currentApplication.version,
+        reviewerSubject: subject, assignedByPersonId: person._id, now,
+      });
+      assignmentId = result.assignmentId;
+      await writeAuditEvent(ctx, {
+        eventId: event._id, actorPersonId: person._id, permissionKey, grantIds,
+        scopeType: "application", scopeId: application._id,
+        action: "admission.review_assigned", targetType: "application", targetId: application._id,
+        nextSummary: JSON.stringify({ assignmentId, reviewerPersonId: person._id, applicationVersion: result.applicationVersion }),
+        reason: "Claimed application review",
+      });
+    }
+    await recordOperation(ctx, {
+      eventId: event._id, actorPersonId: person._id, clientOperationId: args.clientOperationId,
+      commandName, requestFingerprint, targetType: "admission_review_assignment", targetId: assignmentId, createdAt: now,
+    });
+    return { applicationId: application._id, assignmentId, assignmentState: activeReviewAssignmentState };
+  },
+});
+
 export const assignReview = mutation({
   args: {
     eventSlug: v.string(),
@@ -2348,13 +2572,6 @@ export const cancelReviewAssignment = mutation({
         applicationVersion: currentApplication.version,
       };
     }
-    const grantIds = await requirePermission(ctx, {
-      eventId: event._id,
-      eventAccessSubjectId: subject._id,
-      permissionKey: "application.assign",
-      scopeType: "application",
-      scopeId: application._id,
-    });
     const assignment = await ctx.db.get(args.assignmentId);
     if (!assignment) {
       throw new ConvexError({
@@ -2362,6 +2579,19 @@ export const cancelReviewAssignment = mutation({
         message: "Review assignment not found.",
       });
     }
+    const assignGrantIds = await matchingPermissionGrantIds(ctx, {
+      eventId: event._id, eventAccessSubjectId: subject._id,
+      permissionKey: "application.assign", scopeType: "application", scopeId: application._id,
+    });
+    const permissionKey = assignGrantIds.length === 0 && assignment.reviewerPersonId === person._id
+      ? "application.review" : "application.assign";
+    const grantIds = assignGrantIds.length > 0 ? assignGrantIds : await requirePermission(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey,
+      scopeType: "application",
+      scopeId: application._id,
+    });
     const now = Date.now();
     const result = await cancelAdmissionReviewAssignment(ctx, {
       application,
@@ -2385,7 +2615,7 @@ export const cancelReviewAssignment = mutation({
     await writeAuditEvent(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
-      permissionKey: "application.assign",
+      permissionKey,
       grantIds,
       scopeType: "application",
       scopeId: application._id,
