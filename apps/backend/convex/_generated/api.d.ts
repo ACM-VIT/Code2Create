@@ -105,6 +105,7 @@ import type * as lib_figmaMetadataSchedule from "../lib/figmaMetadataSchedule.js
 import type * as lib_figmaPreviewDownload from "../lib/figmaPreviewDownload.js";
 import type * as lib_figmaTeamMetrics from "../lib/figmaTeamMetrics.js";
 import type * as lib_githubClient from "../lib/githubClient.js";
+import type * as lib_githubInstallationContract from "../lib/githubInstallationContract.js";
 import type * as lib_githubTeamMetrics from "../lib/githubTeamMetrics.js";
 import type * as lib_grantScopes from "../lib/grantScopes.js";
 import type * as lib_ideaSubmissionAi from "../lib/ideaSubmissionAi.js";
@@ -161,6 +162,7 @@ import type * as lib_participantEligibility from "../lib/participantEligibility.
 import type * as lib_participantNotificationDelivery from "../lib/participantNotificationDelivery.js";
 import type * as lib_participantNovelty from "../lib/participantNovelty.js";
 import type * as lib_participantPolicy from "../lib/participantPolicy.js";
+import type * as lib_participantServiceQueue from "../lib/participantServiceQueue.js";
 import type * as lib_permissionBundleEntries from "../lib/permissionBundleEntries.js";
 import type * as lib_permissionCatalog from "../lib/permissionCatalog.js";
 import type * as lib_permissionDelegation from "../lib/permissionDelegation.js";
@@ -189,6 +191,7 @@ import type * as lib_scoreCorrectionPolicy from "../lib/scoreCorrectionPolicy.js
 import type * as lib_staffedParticipantResolution from "../lib/staffedParticipantResolution.js";
 import type * as lib_strings from "../lib/strings.js";
 import type * as lib_submittedTeamRoster from "../lib/submittedTeamRoster.js";
+import type * as lib_supportCaseActions from "../lib/supportCaseActions.js";
 import type * as lib_supportCases from "../lib/supportCases.js";
 import type * as lib_synesthesia from "../lib/synesthesia.js";
 import type * as lib_synesthesiaVotes from "../lib/synesthesiaVotes.js";
@@ -266,8 +269,10 @@ import type * as rosters from "../rosters.js";
 import type * as roundExportActions from "../roundExportActions.js";
 import type * as roundExports from "../roundExports.js";
 import type * as scoreGovernance from "../scoreGovernance.js";
+import type * as serviceQueues from "../serviceQueues.js";
 import type * as stagingSetup from "../stagingSetup.js";
 import type * as support from "../support.js";
+import type * as supportDiscordBridge from "../supportDiscordBridge.js";
 import type * as synesthesiaConfiguration from "../synesthesiaConfiguration.js";
 import type * as synesthesiaOperations from "../synesthesiaOperations.js";
 import type * as synesthesiaParticipant from "../synesthesiaParticipant.js";
@@ -382,6 +387,7 @@ declare const fullApi: ApiFromModules<{
   "lib/figmaPreviewDownload": typeof lib_figmaPreviewDownload;
   "lib/figmaTeamMetrics": typeof lib_figmaTeamMetrics;
   "lib/githubClient": typeof lib_githubClient;
+  "lib/githubInstallationContract": typeof lib_githubInstallationContract;
   "lib/githubTeamMetrics": typeof lib_githubTeamMetrics;
   "lib/grantScopes": typeof lib_grantScopes;
   "lib/ideaSubmissionAi": typeof lib_ideaSubmissionAi;
@@ -438,6 +444,7 @@ declare const fullApi: ApiFromModules<{
   "lib/participantNotificationDelivery": typeof lib_participantNotificationDelivery;
   "lib/participantNovelty": typeof lib_participantNovelty;
   "lib/participantPolicy": typeof lib_participantPolicy;
+  "lib/participantServiceQueue": typeof lib_participantServiceQueue;
   "lib/permissionBundleEntries": typeof lib_permissionBundleEntries;
   "lib/permissionCatalog": typeof lib_permissionCatalog;
   "lib/permissionDelegation": typeof lib_permissionDelegation;
@@ -466,6 +473,7 @@ declare const fullApi: ApiFromModules<{
   "lib/staffedParticipantResolution": typeof lib_staffedParticipantResolution;
   "lib/strings": typeof lib_strings;
   "lib/submittedTeamRoster": typeof lib_submittedTeamRoster;
+  "lib/supportCaseActions": typeof lib_supportCaseActions;
   "lib/supportCases": typeof lib_supportCases;
   "lib/synesthesia": typeof lib_synesthesia;
   "lib/synesthesiaVotes": typeof lib_synesthesiaVotes;
@@ -543,8 +551,10 @@ declare const fullApi: ApiFromModules<{
   roundExportActions: typeof roundExportActions;
   roundExports: typeof roundExports;
   scoreGovernance: typeof scoreGovernance;
+  serviceQueues: typeof serviceQueues;
   stagingSetup: typeof stagingSetup;
   support: typeof support;
+  supportDiscordBridge: typeof supportDiscordBridge;
   synesthesiaConfiguration: typeof synesthesiaConfiguration;
   synesthesiaOperations: typeof synesthesiaOperations;
   synesthesiaParticipant: typeof synesthesiaParticipant;
@@ -586,6 +596,7 @@ export declare const components: {
   betterAuth: import("@convex-dev/better-auth/_generated/component.js").ComponentApi<"betterAuth">;
   agent: import("@convex-dev/agent/_generated/component.js").ComponentApi<"agent">;
   reviewQueue: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"reviewQueue">;
+  participantServiceQueues: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"participantServiceQueues">;
   synesthesiaVotes: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"synesthesiaVotes">;
   admissionWorkpool: import("@convex-dev/workpool/_generated/component.js").ComponentApi<"admissionWorkpool">;
   integrationWorkpool: import("@convex-dev/workpool/_generated/component.js").ComponentApi<"integrationWorkpool">;

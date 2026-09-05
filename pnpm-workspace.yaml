@@ -34,6 +34,11 @@ overrides:
   sharp: 0.35.2
   undici: 7.29.0
   uuid: 11.1.1
+packageExtensions:
+  "posthog-react-native@4.67.0":
+    dependencies:
+      "@expo/config-plugins": 57.0.9
+      metro: 0.84.5
 minimumReleaseAgeExclude:
   - "@expo/cli@57.0.13 || 57.0.20"
   - "@expo/config-plugins@57.0.7"

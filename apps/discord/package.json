@@ -1,0 +1,22 @@
+{
+  "name": "@code2create/discord",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --experimental-strip-types src/index.ts",
+    "lint": "oxlint src",
+    "test": "node --experimental-strip-types --test src/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@code2create/domain": "workspace:*",
+    "discord.js": "14.27.0",
+    "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.0",
+    "oxlint": "^1.81.0",
+    "typescript": "~7.0.2"
+  }
+}
