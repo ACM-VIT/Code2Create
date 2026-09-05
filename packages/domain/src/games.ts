@@ -8,7 +8,7 @@
  * replay a game as often as they like — the leaderboard keeps their best round.
  */
 
-export const gameKeys = ["pacman"] as const;
+export const gameKeys = ["pacman", "stack"] as const;
 export type GameKey = (typeof gameKeys)[number];
 
 export type GameDefinition = {
@@ -42,6 +42,19 @@ export const gameCatalog = [
     // nowhere near it for long. A maximum round therefore cannot be claimed in
     // under ~33s, against the minutes it truly takes.
     maximumScorePerSecond: 750,
+  },
+  {
+    key: "stack",
+    title: "Logo Stack",
+    // A round is three lives at 100 points a piece, and the stack resets with
+    // each life. Fifty pieces on a life is already an exceptional tower, so
+    // 150 of them across the round — 15,000 — is far past a real ceiling;
+    // 50,000 leaves room for the endless climb to keep going.
+    maximumScore: 50_000,
+    // A piece has to fall and then hold still for `SETTLE_MS` before it locks,
+    // so 100 points cannot arrive faster than about once a second. 300/s is
+    // several times the real rate and still refuses an instant round.
+    maximumScorePerSecond: 300,
   },
 ] as const satisfies readonly GameDefinition[];
 

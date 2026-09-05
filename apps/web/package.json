@@ -16,7 +16,7 @@
     "deploy": "pnpm build:release && pnpm deploy:built",
     "deploy:built": "node ../backend/scripts/release/webEnvironment.ts participant deploy && node ../backend/scripts/release/deployCloudflareViteWorker.ts code2create-participant",
     "lint": "oxlint",
-    "test": "node --experimental-strip-types --test scripts/generateAttendanceBadges.test.ts src/lib/errors.test.ts src/lib/googleAuthorization.test.ts src/lib/ideaSubmission.test.ts src/lib/intakeCollaboration.test.ts src/lib/noveltyPreview.test.ts src/lib/operations.test.ts src/lib/proposalRevision.test.ts src/lib/sessionDraft.test.ts src/lib/submissionCelebration.test.ts src/lib/teamLeave.test.ts src/lib/time.test.ts src/components/dashboard/dashboardLayout.test.ts src/components/dashboard/relevance.test.ts src/games/pacman/game/ghosts.test.ts src/games/pacman/game/maze.test.ts src/games/pacman/game/tick.test.ts src/games/pacman/game/timing.test.ts",
+    "test": "node --experimental-strip-types --test scripts/generateAttendanceBadges.test.ts src/lib/errors.test.ts src/lib/googleAuthorization.test.ts src/lib/ideaSubmission.test.ts src/lib/intakeCollaboration.test.ts src/lib/noveltyPreview.test.ts src/lib/operations.test.ts src/lib/proposalRevision.test.ts src/lib/sessionDraft.test.ts src/lib/submissionCelebration.test.ts src/lib/teamLeave.test.ts src/lib/time.test.ts src/components/dashboard/dashboardLayout.test.ts src/components/dashboard/relevance.test.ts src/games/stack/game/rules.test.ts src/games/pacman/game/ghosts.test.ts src/games/pacman/game/maze.test.ts src/games/pacman/game/tick.test.ts src/games/pacman/game/timing.test.ts",
     "typecheck": "tsc -b",
     "preview": "vite preview"
   },
@@ -40,6 +40,8 @@
     "convex": "^1.45.0",
     "convex-helpers": "^0.1.123",
     "gsap": "^3.15.0",
+    "matter-js": "^0.20.0",
+    "poly-decomp": "^0.3.0",
     "qrcode.react": "^4.2.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
@@ -55,6 +57,7 @@
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.54.1",
+    "@types/matter-js": "^0.19.8",
     "@types/node": "^26.4.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",

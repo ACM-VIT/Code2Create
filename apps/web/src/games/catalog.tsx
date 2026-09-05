@@ -33,10 +33,14 @@ const boards: Record<GameKey, LazyExoticComponent<ComponentType<GameBoardProps>>
   pacman: lazy(() =>
     import('./pacman/Map.tsx').then((module) => ({ default: module.default })),
   ),
+  stack: lazy(() =>
+    import('./stack/Board.tsx').then((module) => ({ default: module.default })),
+  ),
 }
 
 const blurbs: Record<GameKey, string> = {
   pacman: 'Clear the maze, dodge the ghosts, and eat them while the power pellet lasts.',
+  stack: 'Drop each piece onto the tower and keep it standing. Three lives, one running total.',
 }
 
 export const games: readonly GameEntry[] = gameCatalog.map((game) => ({
