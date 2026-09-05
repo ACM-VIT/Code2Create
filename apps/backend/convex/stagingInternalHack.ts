@@ -83,7 +83,7 @@ export const populateTeam = internalMutation({
         membershipId,
         participantClass: "vit_student",
         fullName: person.displayName,
-        phone: `+1202555${String(args.number * 5 + index).padStart(4, "0")}`,
+        phone: `+1202555${String(100 + ((args.number * 5 + index) % 100)).padStart(4, "0")}`,
         gender: index % 2 === 0 ? "female" : "male",
         institution: "VIT Vellore",
         yearOfStudy: person.verifiedEmail.includes("2025") ? "second" : "third",

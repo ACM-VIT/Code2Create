@@ -625,8 +625,8 @@ declare const fullApi: ApiFromModules<{
   roundExports: typeof roundExports;
   scoreGovernance: typeof scoreGovernance;
   serviceQueues: typeof serviceQueues;
-  stagingSetup: typeof stagingSetup;
   stagingInternalHack: typeof stagingInternalHack;
+  stagingSetup: typeof stagingSetup;
   support: typeof support;
   supportDiscordBridge: typeof supportDiscordBridge;
   synesthesiaConfiguration: typeof synesthesiaConfiguration;
