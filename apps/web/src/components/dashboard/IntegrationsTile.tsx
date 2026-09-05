@@ -58,45 +58,32 @@ function FigmaMark({ className }: { className: string }) {
   );
 }
 
-
-function MarkBox({ target }: { target: IntegrationTarget }) {
-  const Mark = target === "github" ? GitHubMark : FigmaMark;
-  return (
-    <span className="flex size-8 flex-none items-center justify-center rounded-full border border-rose/45 bg-wash/35 text-fg/85">
-      <Mark className="size-4" />
-    </span>
-  );
-}
-
-function ProviderSummary({
+function IntegrationOrb({
   target,
   connected,
   detail,
+  onOpen,
 }: {
   target: IntegrationTarget;
   connected: boolean;
   detail: ReactNode;
+  onOpen: () => void;
 }) {
+  const Mark = target === "github" ? GitHubMark : FigmaMark;
+  const label = target === "github" ? "GitHub" : "Figma";
   return (
-    <div className="flex min-w-0 items-center gap-2 rounded-xl border border-rose/25 bg-wash/18 px-2.5 py-2">
-      <MarkBox target={target} />
-      <span className="min-w-0 flex-1">
-        <span className="flex items-center gap-1.5 text-[11.5px] text-fg/90">
-          <span
-            className={`size-1.5 shrink-0 rounded-full ${
-              connected
-                ? "bg-rose-light shadow-[0_0_7px_var(--glow-rose)]"
-                : "border border-rose/55"
-            }`}
-            aria-hidden
-          />
-          {target === "github" ? "GitHub" : "Figma"}
-        </span>
-        <span className="integration-summary-detail block truncate text-[9.5px] text-fg/45">
-          {connected ? detail : "not connected"}
-        </span>
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-label={`${connected ? "Manage" : "Connect"} ${label}`}
+      className="group flex min-w-0 cursor-pointer flex-col items-center gap-1.5 rounded-xl border-0 bg-transparent p-0 text-center focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-rose-light"
+    >
+      <span className={`integration-orb-mark flex size-12 shrink-0 items-center justify-center rounded-full border transition-[transform,border-color,color] duration-300 motion-safe:group-hover:-translate-y-0.5 group-hover:border-rose-light ${connected ? "border-ring-lead bg-avatar-lead text-rose-light" : "border-rose/60 bg-avatar text-fg/80 group-hover:text-fg"}`}>
+        <Mark className="size-[19px]" />
       </span>
-    </div>
+      <span className="text-[11.5px] leading-none text-fg/80">{label}</span>
+      <span className={`integration-orb-detail max-w-full truncate text-[10.5px] leading-snug ${connected ? "text-rose-light" : "text-fg/45"}`}>{connected ? detail : "not connected"}</span>
+    </button>
   );
 }
 
@@ -128,7 +115,7 @@ function GitHubRepositoryManager({
 }) {
   return (
     <Reveal key="github-manager" className="flex min-h-0 flex-1 flex-col gap-1.5">
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
           onClick={onBack}
@@ -137,8 +124,7 @@ function GitHubRepositoryManager({
         >
           <span aria-hidden>←</span>
         </button>
-        <MarkBox target="github" />
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 basis-11">
           <p className="m-0 text-[13px] text-fg">GitHub</p>
           <p className="m-0 truncate text-[10.5px] text-fg/45">
             {!model.connected
@@ -185,14 +171,14 @@ function GitHubRepositoryManager({
   );
 }
 
-type IntegrationsView = "closed" | "providers" | "github";
+type IntegrationsView = "providers" | "github";
 
-/** Opens from a quiet tile into provider choices, then replaces itself with GitHub management. */
+/** The original provider circles, with repository management one tap away. */
 export function IntegrationsTile({ slot, model }: {
   slot: Slot;
   model: IntegrationsTileModel;
 }) {
-  const [view, setView] = useState<IntegrationsView>("closed");
+  const [view, setView] = useState<IntegrationsView>("providers");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [availableRepositories, setAvailableRepositories] =
@@ -252,11 +238,6 @@ export function IntegrationsTile({ slot, model }: {
     setPickerOpen(true);
     void loadAvailableRepositories();
   };
-  const toggleTile = () => {
-    if (!model.available) return;
-    setPickerOpen(false);
-    setView((current) => (current === "closed" ? "providers" : "closed"));
-  };
   const addControl = (
     <button
       type="button"
@@ -270,26 +251,13 @@ export function IntegrationsTile({ slot, model }: {
 
   return (
     <>
-      <Tile slot={slot} open={view !== "closed"} onToggle={toggleTile}>
+      <Tile slot={slot} open={view === "github"}>
         <div className={tileBody}>
-          {view === "closed" || !model.available ? <TileEyebrow>Integrations</TileEyebrow> : null}
+          {view === "providers" || !model.available ? <TileEyebrow>Integrations</TileEyebrow> : null}
           {!model.available ? (
             <p className="m-0 text-[13px] leading-snug text-fg/65">
               Opens once your team is confirmed.
             </p>
-          ) : view === "closed" ? (
-            <Reveal key="summary" className="grid grid-cols-2 gap-2">
-              <ProviderSummary
-                target="github"
-                connected={model.github.connected}
-                detail={model.github.detail}
-              />
-              <ProviderSummary
-                target="figma"
-                connected={model.figma.connected}
-                detail={model.figma.detail}
-              />
-            </Reveal>
           ) : view === "github" ? (
             <GitHubRepositoryManager
               model={model.github}
@@ -301,56 +269,23 @@ export function IntegrationsTile({ slot, model }: {
               onManage={(repo) => model.open("github", repo)}
             />
           ) : (
-            <Reveal key="providers" className="grid min-h-0 flex-1 grid-cols-2 gap-2">
-              <div className="flex min-w-0 flex-col items-center justify-center gap-1 text-center">
-                <button
-                  type="button"
-                  onClick={() => setView("github")}
-                  className="flex flex-col items-center gap-1 rounded-lg text-fg hover:text-rose-light"
-                >
-                  <MarkBox target="github" />
-                  <span className="max-w-full truncate text-[11.5px]">
-                    GitHub{" "}
-                    <span className="text-[9.5px] text-fg/45">
-                      · {model.github.connected ? "Connected" : "Not connected"}
-                    </span>
-                  </span>
-                </button>
-                <ActionButton
-                  onClick={
-                    !model.github.connected
-                      ? () => model.open("github")
-                      : model.github.repositories.length === 0
-                        ? openGitHubPicker
-                        : () => setView("github")
-                  }
-                >
-                  {!model.github.connected
-                    ? "Connect"
-                    : model.github.repositories.length === 0
-                      ? "Add repo"
-                      : "Manage"}
-                </ActionButton>
-              </div>
-
-              <div className="flex min-w-0 flex-col items-center justify-center gap-1 text-center">
-                <button
-                  type="button"
-                  onClick={() => model.open("figma")}
-                  className="flex flex-col items-center gap-1 rounded-lg text-fg hover:text-rose-light"
-                >
-                  <MarkBox target="figma" />
-                  <span className="max-w-full truncate text-[11.5px]">
-                    Figma{" "}
-                    <span className="text-[9.5px] text-fg/45">
-                      · {model.figma.connected ? "Connected" : "Not connected"}
-                    </span>
-                  </span>
-                </button>
-                <ActionButton onClick={() => model.open("figma")}>
-                  {model.figma.connected ? "Manage" : "Connect"}
-                </ActionButton>
-              </div>
+            <Reveal key="providers" className="grid w-full max-w-[224px] grid-cols-2 items-start gap-4">
+              <IntegrationOrb
+                target="github"
+                connected={model.github.connected}
+                detail={model.github.detail}
+                onOpen={() => {
+                  if (!model.github.connected) model.open("github");
+                  else if (model.github.repositories.length === 0) openGitHubPicker();
+                  else setView("github");
+                }}
+              />
+              <IntegrationOrb
+                target="figma"
+                connected={model.figma.connected}
+                detail={model.figma.detail}
+                onOpen={() => model.open("figma")}
+              />
             </Reveal>
           )}
         </div>
@@ -400,7 +335,7 @@ export function IntegrationsTile({ slot, model }: {
                           setPickerOpen(false);
                           model.open("github", repository);
                         }}
-                        className="flex-none text-[10.5px] text-rose-light"
+                        className="flex-none cursor-pointer rounded-full border border-rose/45 bg-wash/35 px-2.5 py-1 text-[10.5px] text-rose-light transition-colors hover:border-rose-light hover:bg-fg/8 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-light"
                       >
                         Add
                       </button>

@@ -47,6 +47,7 @@ import type * as communicationsEmailAssetActions from "../communicationsEmailAss
 import type * as communicationsEmailAssets from "../communicationsEmailAssets.js";
 import type * as communicationsPolicyConfiguration from "../communicationsPolicyConfiguration.js";
 import type * as crons from "../crons.js";
+import type * as developmentSeed from "../developmentSeed.js";
 import type * as emergencyPackActions from "../emergencyPackActions.js";
 import type * as emergencyPacks from "../emergencyPacks.js";
 import type * as eventLifecycle from "../eventLifecycle.js";
@@ -366,6 +367,7 @@ declare const fullApi: ApiFromModules<{
   communicationsEmailAssets: typeof communicationsEmailAssets;
   communicationsPolicyConfiguration: typeof communicationsPolicyConfiguration;
   crons: typeof crons;
+  developmentSeed: typeof developmentSeed;
   emergencyPackActions: typeof emergencyPackActions;
   emergencyPacks: typeof emergencyPacks;
   eventLifecycle: typeof eventLifecycle;

@@ -1,14 +1,35 @@
 /// <reference types="vite/client" />
 
 import workpoolTest from "@convex-dev/workpool/test";
+import { operationsEpisodeReadSignatureContext, operationsEpisodeCallbackSignatureContext, operationsIntelligenceProtocolVersion, signServiceBody } from "@code2create/domain";
 import { convexTest, type TestConvex } from "convex-test";
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { internal } from "./_generated/api";
 import schema from "./schema";
 
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
 type BackendTest = TestConvex<typeof schema>;
+
+afterEach(() => vi.unstubAllEnvs());
+
+async function episodeHttp(backend: BackendTest, kind: "read" | "callback", payload: Record<string, unknown>) {
+  const secret = "local-episode-http-regression-secret-2026";
+  vi.stubEnv("AUTH_SITE_URL", "http://localhost:3211");
+  vi.stubEnv("PARTICIPANT_SITE_URL", "http://localhost:5180");
+  vi.stubEnv("OPERATIONS_SITE_URL", "http://localhost:5181");
+  vi.stubEnv(kind === "read" ? "INTELLIGENCE_READ_SECRET" : "INTELLIGENCE_CALLBACK_SECRET", secret);
+  const body = JSON.stringify({ protocolVersion: operationsIntelligenceProtocolVersion, ...payload });
+  const timestamp = String(Date.now());
+  const signature = await signServiceBody({
+    context: kind === "read" ? operationsEpisodeReadSignatureContext : operationsEpisodeCallbackSignatureContext,
+    secret, timestamp, body,
+  });
+  return backend.fetch(`/intelligence/operations-episodes/${kind}`, {
+    method: "POST", body,
+    headers: { "content-type": "application/json", "x-c2c-timestamp": timestamp, "x-c2c-signature": signature },
+  });
+}
 
 function episodeBackend() {
   const backend = convexTest(schema, modules);
@@ -143,6 +164,14 @@ describe("operations intelligence episodes", () => {
         expect.objectContaining({ signalKey: "participant_delivery_stalls" }),
       ]),
     });
+
+    const readResponse = await episodeHttp(backend, "read", { episodeId: episode._id, operationId: "http-projection-read" });
+    expect(readResponse.status).toBe(200);
+    expect(await readResponse.json()).toMatchObject({ episodeId: episode._id, revision: 1 });
+    const unsupported = await episodeHttp(backend, "read", {
+      episodeId: episode._id, operationId: "http-projection-invalid-version", protocolVersion: "unsupported-version",
+    });
+    expect(unsupported.status).toBe(422);
 
     await backend.mutation(internal.operationsHealth.upsertSnapshot, {
       eventId,
@@ -358,8 +387,7 @@ describe("operations intelligence episodes", () => {
       }),
     ).rejects.toThrow("facts from this episode");
 
-    expect(
-      await backend.mutation(internal.operationsEpisodes.recordAnalysis, {
+    const callback = await episodeHttp(backend, "callback", {
         ...base,
         operationId: "episode-analysis:accepted",
         predictions: [
@@ -371,8 +399,9 @@ describe("operations intelligence episodes", () => {
             evidenceFactKeys: [factKey],
           },
         ],
-      }),
-    ).toBe("accepted");
+      });
+    expect(callback.status).toBe(202);
+    expect(await callback.json()).toEqual({ state: "accepted" });
     expect(await backend.run((ctx) => ctx.db.get(episode._id))).toMatchObject({
       analysisState: { kind: "ready", revision: episode.revision },
       analysisAgentVersion: "operations-episode-v1",

@@ -147,25 +147,6 @@ export function IntegrationsScreen({
     [integration?.repositories],
   );
 
-  if (integration === undefined) {
-    return (
-      <IntegrationsScene team={team} members={members} onSignOut={onSignOut}>
-        <p className="text-[13px] text-[rgb(248_248_248/.6)]" role="status">
-          Loading integrations…
-        </p>
-      </IntegrationsScene>
-    );
-  }
-  if (!integration) {
-    return (
-      <IntegrationsScene team={team} members={members} onSignOut={onSignOut}>
-        <p className="text-[13px] text-[rgb(248_248_248/.6)]">
-          A team is required before connecting project tools.
-        </p>
-      </IntegrationsScene>
-    );
-  }
-
   const connect = async () => {
     if (commandInFlight.current) return;
     commandInFlight.current = true;
@@ -298,6 +279,25 @@ export function IntegrationsScreen({
       }
     })();
   }, [integration, location.state, searchParams]);
+
+  if (integration === undefined) {
+    return (
+      <IntegrationsScene team={team} members={members} onSignOut={onSignOut}>
+        <p className="text-[13px] text-[rgb(248_248_248/.6)]" role="status">
+          Loading integrations…
+        </p>
+      </IntegrationsScene>
+    );
+  }
+  if (!integration) {
+    return (
+      <IntegrationsScene team={team} members={members} onSignOut={onSignOut}>
+        <p className="text-[13px] text-[rgb(248_248_248/.6)]">
+          A team is required before connecting project tools.
+        </p>
+      </IntegrationsScene>
+    );
+  }
 
   const saveRepository = async () => {
     if (!draft || commandInFlight.current) return;

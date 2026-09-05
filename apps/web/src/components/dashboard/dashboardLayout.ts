@@ -19,6 +19,7 @@ export const tileKeys = [
   "review",
   "help",
   "benefits",
+  "queues",
 ] as const;
 
 export type TileKey = (typeof tileKeys)[number];
@@ -35,7 +36,7 @@ type Breakpoint = "base" | "md" | "lg";
 const resting: Record<Breakpoint, GridTemplate> = {
   base: {
     columns: "repeat(2, minmax(0, 1fr))",
-    rows: "minmax(150px, 1.15fr) minmax(210px, 1.45fr) repeat(3, minmax(145px, 1fr)) minmax(112px, .8fr)",
+    rows: "minmax(var(--dash-hero-min, 150px), 1.15fr) minmax(210px, 1.45fr) repeat(3, minmax(145px, 1fr)) minmax(112px, .8fr)",
     areas: [
       "hero hero",
       "blossom blossom",
@@ -47,12 +48,12 @@ const resting: Record<Breakpoint, GridTemplate> = {
   },
   md: {
     columns: "repeat(2, minmax(0, 1fr))",
-    rows: "minmax(0, 1.35fr) repeat(4, minmax(0, 1fr))",
+    rows: "minmax(var(--dash-hero-min, 0px), 1.35fr) repeat(4, minmax(0, 1fr))",
     areas: ["hero hero", "blossom rose", "center feature", "garden feature", "garden small"],
   },
   lg: {
     columns: "minmax(0, 322fr) minmax(0, 365fr) minmax(0, 395fr)",
-    rows: "minmax(0, 293fr) minmax(0, 234fr) minmax(0, 70fr) minmax(0, 177fr)",
+    rows: "minmax(var(--dash-hero-min, 0px), 293fr) minmax(0, 234fr) minmax(0, 70fr) minmax(0, 177fr)",
     areas: ["hero hero blossom", "rose center feature", "rose garden feature", "small garden feature"],
   },
 };
