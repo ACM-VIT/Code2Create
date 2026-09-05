@@ -258,12 +258,15 @@ export function ParticipantApp({
 
   // ---- f12 · everything else, one quiet list -------------------------------
   const moreHeader = team ? (
-    <TeamCluster
-      team={team}
-      members={teamMembers.results}
-      editable={!teamDeadlineReached}
-      canManage={team.currentRole === "lead" && !teamDeadlineReached}
-    />
+    <>
+      <ArcadeLink />
+      <TeamCluster
+        team={team}
+        members={teamMembers.results}
+        editable={!teamDeadlineReached}
+        canManage={team.currentRole === "lead" && !teamDeadlineReached}
+      />
+    </>
   ) : (
     accountHeader
   );
@@ -499,12 +502,15 @@ export function ParticipantApp({
       tree="left"
       onSignOut={signOut}
       header={
-        <TeamCluster
-          team={team}
-          members={teamMembers.results}
-          editable={teamEditable}
-          canManage={team.currentRole === "lead" && teamEditable}
-        />
+        <>
+          <ArcadeLink />
+          <TeamCluster
+            team={team}
+            members={teamMembers.results}
+            editable={teamEditable}
+            canManage={team.currentRole === "lead" && teamEditable}
+          />
+        </>
       }
     >
       <div className="w-full max-w-[720px] text-left">

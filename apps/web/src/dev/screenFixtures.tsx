@@ -23,6 +23,7 @@ import {
 import { GpuSky } from "../components/portal/GpuSky";
 import { Flower } from "../components/portal/FlowerAvatar";
 import { ArcadeLink } from "../components/portal/ArcadeLink";
+import { games as gameCatalogue } from "../games/catalog";
 import { PortalScene } from "../components/portal/PortalScene";
 import { StackedSheet } from "../components/portal/StackedSheet";
 import { TreeLoader } from "../components/portal/TreeLoader";
@@ -35,7 +36,7 @@ import type { MusicTileModel } from "../components/dashboard/MusicTile";
 import type { ReviewTileModel } from "../components/dashboard/ReviewTile";
 import type { UpdatesTileModel } from "../components/dashboard/UpdatesTile";
 import { DashboardScreen } from "../screens/DashboardScreen";
-import { GamesScreen } from "../screens/GamesScreen";
+import { boardsOf, GamesScreen, LeaderboardPanel, type BoardView } from "../screens/GamesScreen";
 import { SglangInterlude } from "../screens/SglangInterlude";
 import { ConfirmCard, RenameTeamCard } from "../screens/TeamLobbyScreen";
 import { NoveltyPill, NoveltyReviewRow, ReviewEditRow } from "../components/ProposalReview";
@@ -1872,9 +1873,10 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries([
       </div>
     ),
   ],
-  // The arcade itself: the games on the left, every board's standings on the
-  // right. The leaderboards need the backend, so offline they sit on Loading.
+  // The arcade itself. The live screen reads its standings from the backend, so
+  // this one is the empty case; the board beside it shows a full one.
   ["arcade-screen", () => <GamesScreen header={account} />],
+  ["arcade-leaderboard", () => <ArcadeStandingsFixture />],
   // One screen with the mode switch on it, the way the arcade shows it.
   ["arcade-memory", () => <MemoryFixture />],
 ] as const);
@@ -1896,6 +1898,87 @@ function MemoryFixture() {
         onRoundEnd={noop}
       />
     </div>
+  );
+}
+
+/**
+ * A full board, so the standings can be read without a backend or a played
+ * round behind them. The names are invented; nothing here reaches the database.
+ */
+/** The board's person id is branded; a made-up one has to say so. */
+const asPersonId = (value: string) =>
+  value as unknown as BoardView["entries"][number]["personId"];
+
+const sampleBoards: Record<string, BoardView> = {
+  pacman: {
+    entries: [
+      { personId: asPersonId("p1"), displayName: "Ananya Iyer", bestScore: 18_240, playedAt: 0, isYou: false },
+      { personId: asPersonId("p2"), displayName: "Rahul Menon", bestScore: 15_110, playedAt: 0, isYou: true },
+      { personId: asPersonId("p3"), displayName: "Sneha Kulkarni", bestScore: 12_980, playedAt: 0, isYou: false },
+      { personId: asPersonId("p4"), displayName: "Vikram Rao", bestScore: 9_450, playedAt: 0, isYou: false },
+      { personId: asPersonId("p5"), displayName: "Priya Nair", bestScore: 6_310, playedAt: 0, isYou: false },
+    ],
+    yourBestScore: 15_110,
+  },
+  stack: {
+    entries: [
+      { personId: asPersonId("p6"), displayName: "Kabir Shah", bestScore: 4_200, playedAt: 0, isYou: false },
+      { personId: asPersonId("p2"), displayName: "Rahul Menon", bestScore: 3_700, playedAt: 0, isYou: true },
+      { personId: asPersonId("p7"), displayName: "Meera Pillai", bestScore: 2_900, playedAt: 0, isYou: false },
+    ],
+    yourBestScore: 3_700,
+  },
+  memory: {
+    entries: [
+      { personId: asPersonId("p3"), displayName: "Sneha Kulkarni", bestScore: 4_615, playedAt: 0, isYou: false },
+      { personId: asPersonId("p2"), displayName: "Rahul Menon", bestScore: 4_180, playedAt: 0, isYou: true },
+      { personId: asPersonId("p8"), displayName: "Arjun Deshpande", bestScore: 3_940, playedAt: 0, isYou: false },
+      { personId: asPersonId("p1"), displayName: "Ananya Iyer", bestScore: 3_205, playedAt: 0, isYou: false },
+    ],
+    yourBestScore: 4_180,
+  },
+  "memory-grid": {
+    entries: [
+      { personId: asPersonId("p5"), displayName: "Priya Nair", bestScore: 17, playedAt: 0, isYou: false },
+      { personId: asPersonId("p8"), displayName: "Arjun Deshpande", bestScore: 14, playedAt: 0, isYou: false },
+      { personId: asPersonId("p2"), displayName: "Rahul Menon", bestScore: 11, playedAt: 0, isYou: true },
+    ],
+    yourBestScore: 11,
+  },
+};
+
+function ArcadeStandingsFixture() {
+  const boards = boardsOf(gameCatalogue);
+  const [active, setActive] = useState(boards[0]?.key ?? "pacman");
+  const glass =
+    "rounded-[18px] border border-petal-edge/70 bg-fg/5 shadow-[0_20px_44px_-30px_var(--shade-2),inset_0_1px_0_color-mix(in_srgb,var(--color-fg)_14%,transparent)] backdrop-blur-[22px] backdrop-saturate-[1.35]";
+  return (
+    <PortalScene tree="left" header={account}>
+      <div className="flex w-full max-w-[380px] flex-col lowercase">
+        <h2 className="mb-2.5 font-ui text-[15px] lowercase text-rose-light">leaderboards</h2>
+        <div className={`flex max-h-[min(58vh,460px)] min-h-0 flex-col ${glass}`}>
+          <div className="flex flex-none flex-wrap gap-1.5 border-b border-petal-line p-3">
+            {boards.map((option) => (
+              <button
+                key={option.key}
+                type="button"
+                onClick={() => setActive(option.key)}
+                className={`rounded-petal-sm border-2 bg-transparent px-2.5 py-1 font-ui text-[11.5px] lowercase transition-colors ${
+                  option.key === active
+                    ? "border-petal-edge bg-rose-light/15 text-fg"
+                    : "border-petal-line text-fg/55 hover:text-fg"
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+            <LeaderboardPanel board={sampleBoards[active]} />
+          </div>
+        </div>
+      </div>
+    </PortalScene>
   );
 }
 

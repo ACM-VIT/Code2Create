@@ -13,6 +13,7 @@ import { areasValue, composeDashboard, gridTemplates } from "../components/dashb
 import { tileRelevance, type DashboardModels } from "../components/dashboard/relevance";
 import { useReducedMotion } from "../components/dashboard/useReducedMotion";
 import { PortalScene } from "../components/portal/PortalScene";
+import { ArcadeLink } from "../components/portal/ArcadeLink";
 import { TeamCluster, type ClusterMember, type ClusterTeam } from "../components/portal/TeamCluster";
 
 type DashboardGridStyle = CSSProperties & Record<`--dash-${string}`, string>;
@@ -80,7 +81,12 @@ export function DashboardScreen({
       tree="both"
       branch
       onSignOut={onSignOut}
-      header={<TeamCluster team={team} members={members} editable={teamEditable} />}
+      header={
+        <>
+          <ArcadeLink />
+          <TeamCluster team={team} members={members} editable={teamEditable} />
+        </>
+      }
     >
       <div className="flex w-full max-w-[1200px] flex-1 flex-col justify-center lg:pt-8 lg:pb-6">
         <h1 className="sr-only">Dashboard</h1>
