@@ -26,7 +26,7 @@ export function selfScopeKind(permissionKey: PermissionKey) {
     permissionKey === "attendance.self.read" ||
     permissionKey === "attendance.remedy.self.read" ||
     permissionKey === "attendance.remedy.self.open" ||
-    permissionKey === "attendance.portal_qr.mint"
+    permissionKey === "attendance.external_pass.read"
   ) {
     return "participant_membership" as const;
   }

@@ -13,7 +13,6 @@ import {
   offlineReplayTimeRejection,
   scannerCaptureFutureToleranceMs,
 } from "./lib/attendanceOfflineReplay";
-import { consumePortalQrToken } from "./lib/attendancePortalQrLifecycle";
 import { updateActiveRollCallsForVenueChange } from "./lib/attendanceRollCalls";
 import {
   applySessionTransitionProjection,
@@ -48,8 +47,6 @@ type CredentialResolution =
       resolved: true;
       membershipId: Id<"eventMemberships">;
       credentialId?: Id<"attendanceCredentials">;
-      portalQrTokenId?: Id<"attendancePortalQrTokens">;
-      portalQrSessionId?: Id<"attendanceSessions">;
     }
   | { resolved: false; reasonCode: string };
 
@@ -233,38 +230,34 @@ async function resolveCredential(
   ctx: MutationCtx,
   args: {
     eventId: Id<"events">;
-    credentialKind: "vit_id_barcode" | "badge_qr" | "portal_qr";
+    credentialKind: "vit_id_barcode" | "badge_qr" | "external_pass";
     lookupHash: string;
-    receivedAt: number;
   },
 ): Promise<CredentialResolution> {
-  if (args.credentialKind === "portal_qr") {
-    const token = await ctx.db
-      .query("attendancePortalQrTokens")
-      .withIndex("by_event_token", (index) =>
-        index.eq("eventId", args.eventId).eq("tokenHash", args.lookupHash),
+  if (args.credentialKind === "external_pass") {
+    const pass = await ctx.db
+      .query("attendanceExternalPasses")
+      .withIndex("by_event_lookup", (index) =>
+        index.eq("eventId", args.eventId).eq("lookupHash", args.lookupHash),
       )
       .unique();
-    if (!token || token.state === "revoked" || token.expiresAt <= args.receivedAt) {
-      return { resolved: false, reasonCode: "portal_qr_invalid" };
+    if (!pass || pass.state !== "active") {
+      return { resolved: false, reasonCode: "external_pass_invalid" };
     }
-    if (token.state === "used") {
-      return { resolved: false, reasonCode: "portal_qr_used" };
-    }
-    const portalCredential = await ctx.db.get(token.portalCredentialId);
+    const identityBinding = await ctx.db
+      .query("attendanceExternalIdentityBindings")
+      .withIndex("by_membership", (index) => index.eq("membershipId", pass.membershipId))
+      .unique();
     if (
-      !portalCredential ||
-      portalCredential.eventId !== args.eventId ||
-      portalCredential.state !== "active" ||
-      portalCredential.version !== token.credentialVersion
+      !identityBinding ||
+      identityBinding.eventId !== args.eventId ||
+      identityBinding.state !== "active"
     ) {
-      return { resolved: false, reasonCode: "portal_qr_revoked" };
+      return { resolved: false, reasonCode: "external_identity_not_verified" };
     }
     return {
       resolved: true,
-      membershipId: token.membershipId,
-      portalQrTokenId: token._id,
-      ...(token.sessionId !== undefined ? { portalQrSessionId: token.sessionId } : {}),
+      membershipId: pass.membershipId,
     };
   }
   const matches = await ctx.db
@@ -356,7 +349,7 @@ export const recordScan = internalMutation({
     credentialKind: v.union(
       v.literal("vit_id_barcode"),
       v.literal("badge_qr"),
-      v.literal("portal_qr"),
+      v.literal("external_pass"),
     ),
     lookupHash: v.string(),
     rovingTransition: v.optional(attendanceScanTransition),
@@ -389,12 +382,6 @@ export const recordScan = internalMutation({
     });
     if (prior) {
       return storedScanReceipt(ctx, prior.targetId, prior.resultJson);
-    }
-    if (args.isOfflineReplay && args.credentialKind === "portal_qr") {
-      throw new ConvexError({
-        code: "PORTAL_QR_REQUIRES_ONLINE_SCAN",
-        message: "A portal QR must begin at an online scanner.",
-      });
     }
     if (!Number.isSafeInteger(args.deviceSequence) || args.deviceSequence < 1) {
       throw new ConvexError({
@@ -497,7 +484,6 @@ export const recordScan = internalMutation({
       eventId: event._id,
       credentialKind: args.credentialKind,
       lookupHash: args.lookupHash,
-      receivedAt: now,
     });
     let membership: Doc<"eventMemberships"> | null = null;
     let decision: Decision | null = null;
@@ -532,11 +518,6 @@ export const recordScan = internalMutation({
           rejectionReason = args.isOfflineReplay
             ? "offline_scan_needs_reconciliation"
             : "session_not_open";
-        } else if (
-          resolved.portalQrSessionId !== undefined &&
-          resolved.portalQrSessionId !== session._id
-        ) {
-          rejectionReason = "portal_qr_wrong_session";
         } else {
           const windowRejection = attendanceSessionWindowRejection({
             session,
@@ -564,8 +545,6 @@ export const recordScan = internalMutation({
             }
           }
         }
-      } else if (resolved.portalQrSessionId !== undefined) {
-        rejectionReason = "portal_qr_wrong_session";
       } else {
         const activeMembership = membership;
         venueState = await ctx.db
@@ -646,9 +625,6 @@ export const recordScan = internalMutation({
       ...(membership ? { membershipId: membership._id } : {}),
       ...(resolved.resolved && resolved.credentialId !== undefined
         ? { credentialId: resolved.credentialId }
-        : {}),
-      ...(resolved.resolved && resolved.portalQrTokenId !== undefined
-        ? { portalQrTokenId: resolved.portalQrTokenId }
         : {}),
       credentialKind: args.credentialKind,
       clientOperationId: args.clientOperationId,
@@ -782,15 +758,6 @@ export const recordScan = internalMutation({
           now,
         });
       }
-    }
-    if (resolved.resolved && resolved.portalQrTokenId !== undefined) {
-      await consumePortalQrToken(ctx, {
-        tokenId: resolved.portalQrTokenId,
-        membershipId: resolved.membershipId,
-        usedAt: now,
-        purpose: "attendance_scan",
-        presenceEventId,
-      });
     }
     await ctx.db.patch(device._id, {
       lastSeenAt: now,

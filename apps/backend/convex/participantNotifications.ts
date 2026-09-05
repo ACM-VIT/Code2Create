@@ -30,6 +30,7 @@ const notificationTemplateKey = v.union(
   v.literal("offer_confirmed"),
   v.literal("offer_declined"),
   v.literal("offer_expired"),
+  v.literal("external_event_pass"),
 );
 
 const notificationDeliveryState = v.union(
@@ -107,6 +108,7 @@ export const enqueueRosterBatch = internalMutation({
     applicationVersion: v.number(),
     cursor: v.union(v.string(), v.null()),
     processedMemberCount: v.number(),
+    participantClass: v.optional(v.literal("external_participant")),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -139,6 +141,13 @@ export const enqueueRosterBatch = internalMutation({
       .paginate({ numItems: notificationRosterBatchSize, cursor: args.cursor });
     const now = Date.now();
     for (const snapshotMember of page.page) {
+      if (args.participantClass !== undefined) {
+        const membership = await ctx.db.get(snapshotMember.membershipId);
+        if (!membership || membership.eventId !== args.eventId) {
+          throw new Error("The participant notification membership is invalid.");
+        }
+        if (membership.participantClass !== args.participantClass) continue;
+      }
       await ensureApplicationNotification(ctx, {
         eventId: args.eventId,
         applicationId: application._id,

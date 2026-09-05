@@ -70,7 +70,6 @@ export function SupportPanel({
   const cases = useQuery(api.support.mine, canRead ? { eventSlug } : "skip");
   const createCase = useMutation(api.support.createSelf);
   const router = useRouter();
-  const [quickAreaHeight, setQuickAreaHeight] = useState(0);
   const [reporting, setReporting] = useState(false);
   const [category, setCategory] = useState<SupportCategory>("reviewer_device");
   const [description, setDescription] = useState("");
@@ -118,13 +117,8 @@ export function SupportPanel({
 
   if (canRead && sorted === undefined) return <CaseListSkeleton />;
 
-  const quickCount =
-    quickAreaHeight === 0
-      ? 2
-      : Math.max(2, Math.min(quickReports.length, Math.floor((quickAreaHeight - 34) / 66)));
-
   return (
-    <View style={styles.fixedRoot}>
+    <View style={styles.root}>
       {createdCode ? (
         <Section title={`Report sent · ${createdCode}`}>
           <Body>The help desk has received your report. Keep this code for follow-up.</Body>
@@ -167,25 +161,20 @@ export function SupportPanel({
         </Section>
       ) : null}
 
-      <View
-        style={styles.quickArea}
-        onLayout={(event) => setQuickAreaHeight(event.nativeEvent.layout.height)}
-      >
-        {canCreate ? (
-          <Section title="Something wrong?">
-            {quickReports.slice(0, quickCount).map(([value, label]) => (
-              <Row
-                key={value}
-                label={label}
-                onPress={() => {
-                  if (!createPending) setCategory(value);
-                  setReporting(true);
-                }}
-              />
-            ))}
-          </Section>
-        ) : null}
-      </View>
+      {canCreate ? (
+        <Section title="Something wrong?">
+          {quickReports.map(([value, label]) => (
+            <Row
+              key={value}
+              label={label}
+              onPress={() => {
+                if (!createPending) setCategory(value);
+                setReporting(true);
+              }}
+            />
+          ))}
+        </Section>
+      ) : null}
 
       {canCreate ? (
         <Action
@@ -375,8 +364,7 @@ function errorMessage(caught: unknown, fallback: string) {
 }
 
 const styles = StyleSheet.create({
-  fixedRoot: { flex: 1, gap: 18 },
-  quickArea: { flex: 1 },
+  root: { gap: 18 },
   row: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", gap: 12 },
   code: { color: palette.text, fontSize: 17, fontWeight: "600" },
   state: { color: palette.muted, fontSize: 15 },

@@ -1,19 +1,29 @@
 import betterAuthSchema from "../node_modules/@convex-dev/better-auth/src/component/schema.ts";
 import aggregateTest from "@convex-dev/aggregate/test";
-import { defaultVitHostelResidenceCatalog } from "@code2create/domain";
+import { defaultVitHostelResidenceCatalog,
+  reviewQuestionProtocolVersion,
+  reviewQuestionAgentVersion,
+  type ReviewQuestionRequest,
+} from "@code2create/domain";
 import { convexTest, type TestConvex } from "convex-test";
 import { afterAll, describe, expect, test } from "vitest";
 
-import { api, components } from "./_generated/api";
+import { api, components, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { initializeAttendanceTeamAvailability } from "./lib/attendanceTeamAvailability.ts";
 import { insertPermissionGrant } from "./lib/permissions.ts";
 import { createTestSubmissionSnapshot } from "./lib/testSubmissionSnapshot.ts";
 import {
+  nextQueuedTeam,
   insertTeamRoundState,
   participantQueuePosition,
   patchTeamRoundState,
 } from "./lib/reviewQueueProjection.ts";
+import { notifyReviewTeam } from "./lib/reviewTeamNotices.ts";
+import { integrationPolicyChecksum } from "./lib/integrationPolicy.ts";
+import { routeReviewTeam } from "./lib/reviewPanelRouting.ts";
+import { prepareQuestionSet } from "./reviewQuestions.ts";
+import { questionPayloadChecksum } from "./lib/reviewQuestionProtocol.ts";
 import schema from "./schema.ts";
 
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
@@ -38,6 +48,553 @@ afterAll(() => {
 });
 
 describe("participant review queue projection", () => {
+  test("synthesizes all batches across odd reduction levels and permits no extra questions", async () => {
+    const backend = seededBackend();
+    const fixture = await seedQueueFixture(backend);
+    await seedAwaitingReview(backend, fixture);
+    await prepareAutomaticQueue(backend, fixture);
+    const prepared = await prepareQuestionFixture(backend, fixture, false);
+    const identity = { jobId: prepared.jobId, attempt: 1 };
+    await backend.mutation(internal.reviewQuestionParts.initialize, { ...identity, collections: [], sources: Array.from({ length: 3 }, (_, i) => ({ id: `source-${i}`, kind: "github" as const, title: `File ${i}`, text: "x".repeat(80000), coverage: "captured" as const })) });
+    let published = 0;
+    for (let step = 0; step < 16; step++) {
+      await backend.mutation(internal.reviewQuestionParts.advance, identity);
+      const parts = await backend.run(ctx => ctx.db.query("reviewQuestionParts").collect());
+      for (const part of parts.filter(p => p.state === "generating")) {
+        const checksum = "d".repeat(64);
+        await backend.mutation(internal.reviewQuestionParts.saveRequest, { partId: part._id, partAttempt: part.partAttempt, payloadChecksum: checksum });
+        await backend.mutation(internal.reviewQuestions.settle, { body: JSON.stringify({ protocolVersion: reviewQuestionProtocolVersion, ...identity, partId: part._id, partAttempt: part.partAttempt, sourceChecksum: prepared.context.sourceChecksum, payloadChecksum: checksum, agentVersion: reviewQuestionAgentVersion, status: "analysed", examinedSourceIds: part.sources.map(source => source.id), summary: "All source sections were inspected; no extra question is necessary.", findings: [] }) });
+        published++;
+      }
+    }
+    const job = await backend.run(ctx => ctx.db.get(prepared.jobId));
+    expect(job).toMatchObject({ collectionComplete: true, analysisLevel: 2, coverage: { chunks: 6, analysedChunks: 6 } });
+    expect(published).toBe(5);
+    const ready = await backend.run(ctx => ctx.db.query("reviewQuestionParts").withIndex("by_job_attempt_level_state", q => q.eq("jobId", prepared.jobId).eq("attempt", 1).eq("level", 2).eq("state", "ready")).unique());
+    if (!ready) throw new Error("Missing complete synthesis");
+    const body = { ...prepared.body, references: [], sources: [{ id: "analysis", kind: "checkpoint" as const, title: "Complete analysis", text: ready.analysis?.summary ?? "", coverage: "partial" as const }] };
+    const payloadChecksum = questionPayloadChecksum(body);
+    expect(await backend.mutation(internal.reviewQuestions.storeRequest, { ...identity, analysisPartId: ready._id, requestJson: JSON.stringify({ ...body, payloadChecksum }) })).toBe(true);
+    expect(await backend.mutation(internal.reviewQuestions.settle, { body: JSON.stringify({ ...prepared.callback, payloadChecksum, questions: [] }) })).toBe("accepted");
+    expect(await backend.run(ctx => ctx.db.get(prepared.jobId))).toMatchObject({ state: "ready", questions: [] });
+  });
+
+  test("analysis accounts for every section, refuses early publication and reuses unchanged results", async () => {
+    const backend = seededBackend();
+    const fixture = await seedQueueFixture(backend);
+    await seedAwaitingReview(backend, fixture);
+    await prepareAutomaticQueue(backend, fixture);
+    const prepared = await prepareQuestionFixture(backend, fixture, false);
+    const identity = { jobId: prepared.jobId, attempt: 1 };
+    await backend.mutation(internal.reviewQuestionParts.initialize, {
+      ...identity,
+      sources: prepared.body.sources,
+      collections: [{ sourceId: "github:pending", kind: "github" }],
+    });
+    await backend.mutation(internal.reviewQuestionParts.advance, identity);
+    const part = await backend.run((ctx) =>
+      ctx.db
+        .query("reviewQuestionParts")
+        .withIndex("by_job_attempt_level_state", (q) =>
+          q
+            .eq("jobId", prepared.jobId)
+            .eq("attempt", 1)
+            .eq("level", 0)
+            .eq("state", "generating"),
+        )
+        .unique(),
+    );
+    if (!part) throw new Error("No analysis was dispatched.");
+    const payloadChecksum = "c".repeat(64);
+    await backend.mutation(internal.reviewQuestionParts.saveRequest, {
+      partId: part._id,
+      partAttempt: part.partAttempt,
+      payloadChecksum,
+    });
+    const callback = {
+      protocolVersion: reviewQuestionProtocolVersion,
+      jobId: prepared.jobId,
+      attempt: 1,
+      partId: part._id,
+      partAttempt: part.partAttempt,
+      sourceChecksum: prepared.context.sourceChecksum,
+      payloadChecksum,
+      agentVersion: reviewQuestionAgentVersion,
+      status: "analysed",
+      examinedSourceIds: part.sources.map((s) => s.id),
+      summary:
+        "The submitted idea describes a review queue. Runtime behavior is unverified.",
+      findings: [
+        {
+          category: "architecture",
+          observation: "The submitted idea describes a review queue.",
+          followUp: "Which queue state transitions are implemented?",
+          sourceIds: ["project"],
+        },
+      ],
+    };
+    await expect(
+      backend.mutation(internal.reviewQuestions.settle, {
+        body: JSON.stringify({
+          ...callback,
+          examinedSourceIds: ["not-inspected"],
+        }),
+      }),
+    ).rejects.toThrow("Every source must be accounted for");
+    await expect(
+      backend.mutation(internal.reviewQuestions.settle, {
+        body: JSON.stringify({
+          ...callback,
+          findings: [{ ...callback.findings[0], sourceIds: ["another-team"] }],
+        }),
+      }),
+    ).rejects.toThrow("Every source must be accounted for");
+    expect(
+      await backend.mutation(internal.reviewQuestions.settle, {
+        body: JSON.stringify(callback),
+      }),
+    ).toBe("accepted");
+    expect(
+      await backend.mutation(internal.reviewQuestions.settle, {
+        body: JSON.stringify(callback),
+      }),
+    ).toBe("already_settled");
+    expect(
+      await backend.run((ctx) => ctx.db.get(prepared.jobId)),
+    ).toMatchObject({
+      state: "collecting",
+      coverage: { analysedChunks: 1, chunks: 1 },
+    });
+    expect(
+      await backend.mutation(internal.reviewQuestions.storeRequest, {
+        ...identity,
+        analysisPartId: part._id,
+        requestJson: JSON.stringify({
+          ...prepared.body,
+          payloadChecksum: questionPayloadChecksum(prepared.body),
+        }),
+      }),
+    ).toBe(false);
+    await backend.run((ctx) =>
+      ctx.db.patch(prepared.jobId, { state: "queued" }),
+    );
+    expect(
+      await backend.mutation(internal.reviewQuestions.claim, {
+        jobId: prepared.jobId,
+      }),
+    ).toMatchObject({ attempt: 2 });
+    await backend.mutation(internal.reviewQuestionParts.initialize, {
+      jobId: prepared.jobId,
+      attempt: 2,
+      sources: prepared.body.sources,
+      collections: [],
+    });
+    expect(
+      await backend.run((ctx) => ctx.db.get(prepared.jobId)),
+    ).toMatchObject({
+      collectionComplete: true,
+      coverage: { cachedBatches: 1, analysedChunks: 1, chunks: 1 },
+    });
+    expect(
+      await backend.run((ctx) => ctx.db.query("scorecardVersions").collect()),
+    ).toHaveLength(0);
+  });
+
+  test("question generation deduplicates and rejects references outside the captured sources", async () => {
+    const backend = seededBackend();
+    const fixture = await seedQueueFixture(backend);
+    await seedAwaitingReview(backend, fixture);
+    await prepareAutomaticQueue(backend, fixture);
+    const prepared = await prepareQuestionFixture(backend, fixture);
+    const second = await backend.run(async (ctx) => {
+      const round = await ctx.db.get(fixture.roundId);
+      const team = await ctx.db.get(fixture.teamId);
+      if (!round || !team) throw new Error("Missing fixture");
+      return prepareQuestionSet(ctx, round, team);
+    });
+    expect(second).toBe(prepared.jobId);
+    const invalid = {
+      ...prepared.callback,
+      questions: [
+        {
+          ...prepared.callback.questions[0],
+          sourceIds: ["another-team-secret"],
+        },
+      ],
+    };
+    await expect(
+      backend.mutation(internal.reviewQuestions.settle, {
+        body: JSON.stringify(invalid),
+      }),
+    ).rejects.toThrow("do not match their frozen sources");
+    expect(
+      await backend.mutation(internal.reviewQuestions.settle, {
+        body: JSON.stringify(prepared.callback),
+      }),
+    ).toBe("accepted");
+    expect(
+      await backend.mutation(internal.reviewQuestions.settle, {
+        body: JSON.stringify({
+          ...prepared.callback,
+          questions: [
+            {
+              ...prepared.callback.questions[0],
+              question: "Another question that must not replace the first?",
+            },
+          ],
+        }),
+      }),
+    ).toBe("already_settled");
+    expect(
+      await backend.run((ctx) => ctx.db.get(prepared.jobId)),
+    ).toMatchObject({
+      state: "ready",
+      questions: prepared.callback.questions,
+    });
+    expect(
+      await backend.run((ctx) => ctx.db.query("scorecardVersions").collect()),
+    ).toHaveLength(0);
+  });
+  test.each([false, true])(
+    "new evidence leaves the original question set fixed when pinned=%s",
+    async (pinned) => {
+      const backend = seededBackend();
+      const fixture = await seedQueueFixture(backend);
+      const sessionId = await seedAwaitingReview(backend, fixture);
+      await prepareAutomaticQueue(backend, fixture);
+      const prepared = await prepareQuestionFixture(backend, fixture);
+      await backend.run(async (ctx) => {
+        if (pinned)
+          await ctx.db.patch(sessionId, {
+            questionSetId: prepared.jobId,
+            status: "active",
+            startedAt: Date.now(),
+          });
+        const team = await ctx.db.get(fixture.teamId);
+        const project = team?.lockedProjectVersionId
+          ? await ctx.db.get(team.lockedProjectVersionId)
+          : null;
+        if (!project) throw new Error("Project missing");
+        const { _id: oldId, _creationTime: creationTime, ...fields } = project;
+        expect(oldId).toBe(team?.lockedProjectVersionId);
+        expect(creationTime).toBeGreaterThan(0);
+        const newId = await ctx.db.insert("projectVersions", {
+          ...fields,
+          version: 2,
+          initialIdea: "A materially updated project version for this test.",
+        });
+        await ctx.db.patch(fixture.teamId, { lockedProjectVersionId: newId });
+      });
+      expect(
+        await backend.mutation(internal.reviewQuestions.settle, {
+          body: JSON.stringify(prepared.callback),
+        }),
+      ).toBe(pinned ? "accepted" : "stale");
+    },
+  );
+
+  test.each(["expired", "permission_revoked", "disabled"] as const)(
+    "question callbacks reject %s work",
+    async (boundary) => {
+      const backend = seededBackend();
+      const fixture = await seedQueueFixture(backend);
+      const sessionId = await seedAwaitingReview(backend, fixture);
+      await prepareAutomaticQueue(backend, fixture);
+      const prepared = await prepareQuestionFixture(backend, fixture);
+      await backend.run(async (ctx) => {
+        await ctx.db.patch(sessionId, {
+          questionSetId: prepared.jobId,
+          status: "active",
+          startedAt: Date.now(),
+        });
+        if (boundary === "expired")
+          await ctx.db.patch(prepared.jobId, {
+            leaseExpiresAt: Date.now() - 1,
+          });
+        else if (boundary === "permission_revoked")
+          await ctx.db.patch(fixture.subjectId, { status: "suspended" });
+        else {
+          const policy = await ctx.db
+            .query("reviewQuestionPolicies")
+            .withIndex("by_round", (q) => q.eq("roundId", fixture.roundId))
+            .unique();
+          if (!policy) throw new Error("Question policy missing");
+          await ctx.db.patch(policy._id, {
+            policy: { ...policy.policy, enabled: false },
+            version: 2,
+          });
+        }
+      });
+      expect(
+        await backend.query(internal.reviewQuestions.request, {
+          jobId: prepared.jobId,
+          attempt: 1,
+        }),
+      ).toBeNull();
+      expect(
+        await backend.mutation(internal.reviewQuestions.settle, {
+          body: JSON.stringify(prepared.callback),
+        }),
+      ).toBe("stale");
+      expect(
+        (await backend.run((ctx) => ctx.db.get(prepared.jobId)))?.questions,
+      ).toBeUndefined();
+    },
+  );
+
+  test("automatic placement uses only an authorized, confirmed panel and retries once", async () => {
+    const backend = seededBackend();
+    const fixture = await seedQueueFixture(backend);
+    const sessionId = await seedAwaitingReview(backend, fixture);
+    await backend.run((ctx) =>
+      ctx.db.patch(sessionId, { status: "cancelled" }),
+    );
+    await prepareAutomaticQueue(backend, fixture);
+    await backend.run(async (ctx) => {
+      const now = Date.now();
+      await insertPermissionGrant(ctx, {
+        eventId: fixture.eventId,
+        personId: fixture.personId,
+        eventAccessSubjectId: fixture.subjectId,
+        permissionKey: "queue.manage",
+        scopeType: "panel",
+        scopeId: fixture.panelId,
+        sourceType: "manual",
+        sourceId: "routing-test",
+        reason: "Test automatic placement",
+      });
+      await ctx.db.insert("reviewerProfiles", {
+        eventId: fixture.eventId,
+        personId: fixture.personId,
+        seniority: "board",
+        strength: 4,
+        technicalDomains: ["React"],
+        productDomains: [],
+        languages: [],
+        criterionKeys: ["technical_execution"],
+        trainingStatus: "complete",
+        status: "active",
+        version: 1,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const criterionId = await ctx.db.insert("reviewRubricCriteria", {
+        eventId: fixture.eventId,
+        rubricVersionId: fixture.rubricVersionId,
+        stableKey: "technical_execution",
+        label: "Technical execution",
+        question: "Explain your architecture.",
+        guidance: "Use project evidence.",
+        weight: 100,
+        displayOrder: 0,
+        anchors: {
+          zero: "None",
+          one: "Early",
+          two: "Partial",
+          three: "Mostly",
+          four: "Complete",
+        },
+        createdAt: now,
+      });
+      const member = await ctx.db
+        .query("reviewPanelMembers")
+        .withIndex("by_panel_status", (q) =>
+          q.eq("panelId", fixture.panelId).eq("status", "active"),
+        )
+        .unique();
+      const state = await ctx.db.get(fixture.targetStateId);
+      if (!member || !state) throw new Error("Routing fixture missing");
+      await ctx.db.patch(member._id, { assignedCriterionIds: [criterionId] });
+      await patchTeamRoundState(ctx, state, {
+        state: "unassigned",
+        panelId: undefined,
+        version: 2,
+      });
+    });
+    const operator = asParticipant(backend, fixture);
+    const args = {
+      eventSlug: fixture.eventSlug,
+      roundId: fixture.roundId,
+      teamId: fixture.teamId,
+      expectedTeamRoundVersion: 2,
+      reason: "Automatic walk-up placement",
+      clientOperationId: "automatic-walk-up-test",
+    };
+    const first = await operator.mutation(api.reviewOperations.queueTeam, args);
+    expect(
+      await operator.mutation(api.reviewOperations.queueTeam, args),
+    ).toEqual(first);
+    expect(
+      await backend.run((ctx) => ctx.db.get(first.teamRoundStateId)),
+    ).toMatchObject({
+      panelId: fixture.panelId,
+      state: "queued",
+      version: 3,
+    });
+    await backend.run(async (ctx) => {
+      const confirmation = await ctx.db
+        .query("reviewerRoundConfirmations")
+        .withIndex("by_roundId_and_personId", (q) =>
+          q.eq("roundId", fixture.roundId).eq("personId", fixture.personId),
+        )
+        .unique();
+      if (!confirmation) throw new Error("Confirmation missing");
+      await ctx.db.patch(confirmation._id, {
+        status: "unavailable",
+        windows: [],
+        version: 2,
+      });
+      const round = await ctx.db.get(fixture.roundId);
+      const team = await ctx.db.get(fixture.teamId);
+      const subject = await ctx.db.get(fixture.subjectId);
+      if (!round || !team || !subject)
+        throw new Error("Routing context missing");
+      expect(await routeReviewTeam(ctx, round, team, subject)).toBeUndefined();
+    });
+  });
+
+  test("next-team notices follow priority, deduplicate and disappear after a queue move", async () => {
+    const backend = seededBackend();
+    const fixture = await seedQueueFixture(backend);
+    const high = await addQueueTeam(backend, fixture, {
+      key: "high",
+      panelId: fixture.panelId,
+      priority: 3,
+      queuedAt: fixture.now + 60,
+    });
+    const low = await addQueueTeam(backend, fixture, {
+      key: "low",
+      panelId: fixture.panelId,
+      priority: 1,
+      queuedAt: fixture.now - 60,
+    });
+    expect(
+      await backend.run((ctx) => nextQueuedTeam(ctx, fixture.panelId)),
+    ).toMatchObject({
+      _id: high,
+    });
+    await patchState(backend, high, { state: "held" });
+    expect(
+      await backend.run((ctx) => nextQueuedTeam(ctx, fixture.panelId)),
+    ).toMatchObject({
+      _id: low,
+    });
+    await backend.run(async (ctx) => {
+      const state = await ctx.db.get(fixture.targetStateId);
+      if (!state) throw new Error("State missing");
+      const first = await notifyReviewTeam(ctx, state, "up_next", Date.now());
+      expect(await notifyReviewTeam(ctx, state, "up_next", Date.now())).toBe(
+        first,
+      );
+    });
+    expect((await currentQueue(backend, fixture))?.notice).toMatchObject({
+      kind: "up_next",
+    });
+    await patchState(backend, fixture.targetStateId, {
+      panelId: fixture.targetPanelId,
+      version: 2,
+    });
+    expect((await currentQueue(backend, fixture))?.notice).toBeNull();
+  });
+  test("automatic call-up preserves a live review, then calls exactly once when it ends", async () => {
+    const backend = seededBackend();
+    const fixture = await seedQueueFixture(backend);
+    const sessionId = await seedAwaitingReview(backend, fixture);
+    await prepareAutomaticQueue(backend, fixture);
+    await backend.run((ctx) =>
+      ctx.db.patch(sessionId, {
+        status: "scoring",
+        startedAt: fixture.now - 600000,
+        plannedEndAt: fixture.now - 1000,
+      }),
+    );
+    await backend.mutation(internal.reviewQueueAutomation.advance, {
+      panelId: fixture.panelId,
+    });
+    expect((await currentQueue(backend, fixture))?.notice).toMatchObject({
+      kind: "up_next",
+    });
+    expect(
+      await backend.run((ctx) => ctx.db.query("reviewSessions").collect()),
+    ).toHaveLength(1);
+    await backend.run((ctx) =>
+      ctx.db.patch(sessionId, { status: "cancelled" }),
+    );
+    await backend.mutation(internal.reviewQueueAutomation.advance, {
+      panelId: fixture.panelId,
+    });
+    await backend.mutation(internal.reviewQueueAutomation.advance, {
+      panelId: fixture.panelId,
+    });
+    expect((await currentQueue(backend, fixture))?.state).toBe("called");
+    expect((await currentQueue(backend, fixture))?.notice).toMatchObject({
+      kind: "called",
+    });
+    const live = await backend.run((ctx) =>
+      ctx.db
+        .query("reviewSessions")
+        .withIndex("by_panel_status", (q) =>
+          q.eq("panelId", fixture.panelId).eq("status", "awaiting_presence"),
+        )
+        .collect(),
+    );
+    expect(live).toHaveLength(1);
+    expect(
+      await backend.run((ctx) => ctx.db.query("reviewAssignments").collect()),
+    ).toHaveLength(1);
+  });
+  test("team leads can opt in and revoke calls without changing another person's consent", async () => {
+    const backend = seededBackend();
+    const fixture = await seedQueueFixture(backend);
+    await backend.run((ctx) =>
+      insertPermissionGrant(ctx, {
+        eventId: fixture.eventId,
+        personId: fixture.personId,
+        eventAccessSubjectId: fixture.subjectId,
+        permissionKey: "participant.profile.write",
+        scopeType: "self",
+        scopeId: fixture.membershipId,
+        sourceType: "manual",
+        sourceId: "test-consent",
+        reason: "Consent test",
+      }),
+    );
+    const participant = asParticipant(backend, fixture);
+    const command = {
+      eventSlug: fixture.eventSlug,
+      enabled: true,
+      phone: "+919876543210",
+      expectedVersion: 0,
+      clientOperationId: "enable-team-calls",
+    };
+    expect(
+      await participant.mutation(api.participantReviewCalls.save, command),
+    ).toEqual({
+      version: 1,
+    });
+    expect(
+      await participant.mutation(api.participantReviewCalls.save, command),
+    ).toEqual({
+      version: 1,
+    });
+    expect(
+      await participant.query(api.participantReviewCalls.mine, {
+        eventSlug: fixture.eventSlug,
+      }),
+    ).toMatchObject({ enabled: true });
+    await participant.mutation(api.participantReviewCalls.save, {
+      eventSlug: fixture.eventSlug,
+      enabled: false,
+      expectedVersion: 1,
+      clientOperationId: "disable-team-calls",
+    });
+    expect(
+      await participant.query(api.participantReviewCalls.mine, {
+        eventSlug: fixture.eventSlug,
+      }),
+    ).toEqual({ enabled: false, version: 2 });
+  });
+
   test("lets a participant observe staff placement but not place or call the team", async () => {
     const backend = seededBackend();
     const fixture = await seedQueueFixture(backend);
@@ -135,10 +692,12 @@ describe("participant review queue projection", () => {
       eventSlug: fixture.eventSlug,
       roundId: fixture.roundId,
       paginationOpts: { cursor: null, numItems: 10 },
-    });
+    },
+    );
 
     expect(boardWithoutApplicationAccess.page).toHaveLength(1);
-    expect(boardWithoutApplicationAccess.page[0]?.applicationId).toBeUndefined();
+    expect(boardWithoutApplicationAccess.page[0]?.applicationId,
+    ).toBeUndefined();
 
     await backend.run(async (ctx) => {
       await insertPermissionGrant(ctx, {
@@ -158,9 +717,11 @@ describe("participant review queue projection", () => {
       eventSlug: fixture.eventSlug,
       roundId: fixture.roundId,
       paginationOpts: { cursor: null, numItems: 10 },
-    });
+    },
+    );
 
-    expect(boardWithApplicationAccess.page[0]?.applicationId).toBe(applicationId);
+    expect(boardWithApplicationAccess.page[0]?.applicationId).toBe(applicationId,
+    );
   });
 
   test("preserves priority and time order through reorder, move, start, and completion", async () => {
@@ -194,7 +755,8 @@ describe("participant review queue projection", () => {
       priority: 3,
       updatedAt: fixture.now + 100,
     });
-    expect(await currentQueue(backend, fixture)).toMatchObject({ teamsAhead: 0 });
+    expect(await currentQueue(backend, fixture)).toMatchObject({ teamsAhead: 0,
+    });
 
     await patchState(backend, fixture.targetStateId, {
       panelId: fixture.targetPanelId,
@@ -210,7 +772,8 @@ describe("participant review queue projection", () => {
       calledAt: fixture.now + 300,
       updatedAt: fixture.now + 300,
     });
-    expect(await currentQueue(backend, fixture)).toMatchObject({ teamsAhead: 0 });
+    expect(await currentQueue(backend, fixture)).toMatchObject({ teamsAhead: 0,
+    });
 
     await patchState(backend, fixture.targetStateId, {
       state: "called",
@@ -225,7 +788,8 @@ describe("participant review queue projection", () => {
       state: "in_review",
       updatedAt: fixture.now + 500,
     });
-    expect(await currentQueue(backend, fixture)).toMatchObject({ state: "in_review" });
+    expect(await currentQueue(backend, fixture)).toMatchObject({ state: "in_review",
+    });
 
     await patchState(backend, fixture.targetStateId, {
       state: "completed",
@@ -259,7 +823,8 @@ describe("participant review queue projection", () => {
 
     const current = await currentQueue(backend, fixture);
     expect(current).toMatchObject({ state: "queued", teamsAhead: queuedAhead });
-    expect(new TextEncoder().encode(JSON.stringify(current)).byteLength).toBeLessThan(1_024);
+    expect(new TextEncoder().encode(JSON.stringify(current)).byteLength,
+    ).toBeLessThan(1_024);
   });
 
   test("rejects a queued source row that bypassed the aggregate owner", async () => {
@@ -337,7 +902,8 @@ describe("participant review queue projection", () => {
     const second = await participant.mutation(api.participantReview.mintTeamQr, {
       eventSlug: fixture.eventSlug,
       reviewSessionId,
-    });
+    },
+    );
     expect(first.payload).toMatch(/^c2c-review-v1\.[a-f0-9]{64}$/);
     expect(first.serverNow).toBeLessThan(first.expiresAt);
     expect(second.payload).toMatch(/^c2c-review-v1\.[a-f0-9]{64}$/);
@@ -364,7 +930,8 @@ describe("participant review queue projection", () => {
         .take(2);
       const latest = await ctx.db
         .query("reviewTeamQrTokens")
-        .withIndex("by_session_version", (index) => index.eq("reviewSessionId", reviewSessionId))
+        .withIndex("by_session_version", (index) => index.eq("reviewSessionId", reviewSessionId),
+        )
         .order("desc")
         .take(3);
       expect(active).toHaveLength(1);
@@ -399,9 +966,9 @@ describe("participant review queue projection", () => {
           index.eq("reviewSessionId", reviewSessionId).eq("state", "active"),
         )
         .take(3);
-      expect(active.map((token) => token.tokenVersion).sort((left, right) => left - right)).toEqual(
-        [71, 72],
-      );
+      expect(active.map((token) => token.tokenVersion).sort((left, right) => left - right),
+      ).toEqual(
+        [71, 72]);
     });
   });
 });
@@ -485,7 +1052,8 @@ async function addQueueTeam(
 
 async function seedQueueFixture(
   backend: BackendTest,
-  { grantTeamQr = true, targetQueuedAt }: { grantTeamQr?: boolean; targetQueuedAt?: number } = {},
+  { grantTeamQr = true, targetQueuedAt,
+  }: { grantTeamQr?: boolean; targetQueuedAt?: number } = {},
 ) {
   const now = fixtureNow();
   const eventSlug = `participant-review-${crypto.randomUUID()}`;
@@ -601,9 +1169,19 @@ async function seedQueueFixture(
       substituteResponseSeconds: 60,
       missedReentryPolicy: "preserve_queue_time",
       requiredPanelSize: 1,
+      staffing: {
+        seniorSeats: 0,
+        juniorSeats: 0,
+        allowSeniorLeadFallback: true,
+        automaticReplacement: false,
+        juniorRotationReviews: 0,
+        reviewerArrivalSeconds: 90,
+        assignmentReminderSeconds: 300,
+      },
       minimumScorersPerCriterion: 1,
       minimumPresentParticipants: 1,
       requiresSharedCommitments: false,
+      requiresFinalComment: false,
       minimumReviewerBuild: 1,
       requiresCamera: false,
       requiresNotifications: false,
@@ -716,7 +1294,8 @@ async function seedAwaitingReview(backend: BackendTest, fixture: Fixture) {
       createdByPersonId: fixture.personId,
       createdAt: fixture.now,
       publishedAt: fixture.now,
-    });
+    },
+    );
     const intakePolicyVersionId = await ctx.db.insert("intakePolicyVersions", {
       eventId: fixture.eventId,
       version: 1,
@@ -755,7 +1334,8 @@ async function seedAwaitingReview(backend: BackendTest, fixture: Fixture) {
       createdByPersonId: fixture.personId,
       createdAt: fixture.now,
       publishedAt: fixture.now,
-    });
+    },
+    );
     const lockedRosterSnapshotId = await createTestSubmissionSnapshot(ctx, {
       eventId: fixture.eventId,
       teamId: fixture.teamId,
@@ -793,7 +1373,8 @@ async function seedAwaitingReview(backend: BackendTest, fixture: Fixture) {
       submittedByMembershipId: fixture.membershipId,
       submittedAt: fixture.now,
     });
-    await ctx.db.patch(fixture.teamId, { lockedProjectVersionId: projectVersionId });
+    await ctx.db.patch(fixture.teamId, { lockedProjectVersionId: projectVersionId,
+    });
     const evidenceCheckpointSetId = await ctx.db.insert("reviewEvidenceCheckpointSets", {
       eventId: fixture.eventId,
       roundId: fixture.roundId,
@@ -808,7 +1389,8 @@ async function seedAwaitingReview(backend: BackendTest, fixture: Fixture) {
       checksum: "qr-fixture-evidence",
       createdByPersonId: fixture.personId,
       createdAt: fixture.now,
-    });
+    },
+    );
     return ctx.db.insert("reviewSessions", {
       eventId: fixture.eventId,
       roundId: fixture.roundId,
@@ -842,11 +1424,13 @@ async function createAuthUser(backend: BackendTest, now: number) {
         updatedAt: now,
       },
     },
-  });
+  },
+  );
   return documentId(result, "Better Auth user");
 }
 
-async function createAuthSession(backend: BackendTest, userId: string, now: number) {
+async function createAuthSession(backend: BackendTest, userId: string, now: number,
+) {
   const result: unknown = await backend.mutation(components.betterAuth.adapter.create, {
     input: {
       model: "session",
@@ -858,7 +1442,8 @@ async function createAuthSession(backend: BackendTest, userId: string, now: numb
         userId,
       },
     },
-  });
+  },
+  );
   return documentId(result, "Better Auth session");
 }
 
@@ -883,4 +1468,293 @@ function restoreEnvironment(name: string, value: string | undefined) {
     return;
   }
   process.env[name] = value;
+}
+
+async function prepareAutomaticQueue(backend: BackendTest, fixture: Fixture) {
+  await backend.run(async (ctx) => {
+    const now = Date.now();
+    await ctx.db.insert("reviewQueuePolicies", {
+      routingPreference: "skills_then_wait",
+      eventId: fixture.eventId,
+      roundId: fixture.roundId,
+      automaticCallUp: true,
+      teamHeadsUpSeconds: 300,
+      voiceCalls: false,
+      scoringBufferSeconds: 90,
+      operatorPersonId: fixture.personId,
+      version: 1,
+      updatedAt: now,
+    });
+    await insertPermissionGrant(ctx, {
+      eventId: fixture.eventId,
+      personId: fixture.personId,
+      eventAccessSubjectId: fixture.subjectId,
+      permissionKey: "review.prepare",
+      scopeType: "panel",
+      scopeId: fixture.panelId,
+      sourceType: "manual",
+      sourceId: "auto-call-authority",
+      reason: "Queue test",
+    });
+    await ctx.db.insert("reviewPanelMembers", {
+      eventId: fixture.eventId,
+      roundId: fixture.roundId,
+      panelId: fixture.panelId,
+      personId: fixture.personId,
+      eventAccessSubjectId: fixture.subjectId,
+      seatSeniority: "lead",
+      assignedCriterionIds: [],
+      isCoordinator: true,
+      status: "active",
+      assignedAt: now,
+    });
+    const deviceId = await ctx.db.insert("reviewerDevices", {
+      eventId: fixture.eventId,
+      personId: fixture.personId,
+      installationId: "queue-phone",
+      name: "Queue phone",
+      platform: "android",
+      appBuild: 1,
+      cameraReady: true,
+      encryptedDraftReady: true,
+      pushTokenStatus: "not_registered",
+      pushTokenUpdatedAt: now,
+      status: "active",
+      version: 1,
+      registeredAt: now,
+      lastSeenAt: now,
+    });
+    await ctx.db.insert("reviewerClockIns", {
+      eventId: fixture.eventId,
+      roundId: fixture.roundId,
+      reviewerPersonId: fixture.personId,
+      reviewerDeviceId: deviceId,
+      status: "present",
+      clockedInAt: now,
+      lastHeartbeatAt: now,
+      version: 1,
+    });
+    await ctx.db.insert("reviewerRoundConfirmations", {
+      eventId: fixture.eventId,
+      roundId: fixture.roundId,
+      personId: fixture.personId,
+      status: "confirmed",
+      windows: [{ startsAt: now - 60000, endsAt: now + 3600000 }],
+      version: 1,
+      updatedAt: now,
+    });
+    const availability = await ctx.db
+      .query("attendanceTeamAvailability")
+      .withIndex("by_event_team", (q) =>
+        q.eq("eventId", fixture.eventId).eq("teamId", fixture.teamId),
+      )
+      .unique();
+    if (!availability) throw new Error("Availability missing");
+    await ctx.db.patch(availability._id, { insideMemberCount: 1 });
+    const policy = {
+      policyVersion: "test-1",
+      requiredGitHubTopic: "test",
+      maxActiveGitHubRepositoriesPerTeam: 3,
+      maxActiveFigmaFilesPerTeam: 3,
+    };
+    const policyId = await ctx.db.insert("integrationPolicyVersions", {
+      eventId: fixture.eventId,
+      ...policy,
+      version: 1,
+      status: "published",
+      checksum: integrationPolicyChecksum(policy),
+      createdByPersonId: fixture.personId,
+      createdAt: now,
+      publishedAt: now,
+    });
+    const planId = await ctx.db.insert("attendancePlanVersions", {
+      eventId: fixture.eventId,
+      version: 1,
+      name: "Test",
+      vitBarcodeSymbologies: [],
+      vitBarcodeNormalizationVersion: "v1",
+      offlineQueueMaxScans: 10,
+      offlineQueueMaxAgeSeconds: 60,
+      status: "published",
+      checksum: "test",
+      createdByPersonId: fixture.personId,
+      createdAt: now,
+      publishedAt: now,
+    });
+    await ctx.db.patch(fixture.eventId, {
+      publishedIntegrationPolicyId: policyId,
+      publishedAttendancePlanVersionId: planId,
+    });
+  });
+}
+
+async function prepareQuestionFixture(
+  backend: BackendTest,
+  fixture: Fixture,
+  finalRequest = true,
+) {
+  const jobId = await backend.run(async (ctx) => {
+    const now = Date.now();
+    await insertPermissionGrant(ctx, {
+      eventId: fixture.eventId,
+      personId: fixture.personId,
+      eventAccessSubjectId: fixture.subjectId,
+      permissionKey: "operations.intelligence.generate",
+      scopeType: "event",
+      sourceType: "manual",
+      sourceId: "question-test",
+      reason: "Prepare questions test",
+    });
+    await ctx.db.insert("reviewRubricCriteria", {
+      eventId: fixture.eventId,
+      rubricVersionId: fixture.rubricVersionId,
+      stableKey: "technical_execution",
+      label: "Technical execution",
+      question: "Explain the architecture.",
+      guidance: "Use the captured evidence.",
+      weight: 100,
+      displayOrder: 0,
+      anchors: {
+        zero: "None",
+        one: "Early",
+        two: "Partial",
+        three: "Mostly",
+        four: "Complete",
+      },
+      createdAt: now,
+    });
+    const policy = {
+      enabled: true,
+      refreshSeconds: 120,
+      maximumQuestions: 6,
+      parallelAnalyses: 3,
+      batchCharacters: 80000,
+      maximumAttempts: 3,
+      preparationTimeoutSeconds: 300,
+      model: "openai/gpt-5.6-terra",
+      instructions: "",
+    };
+    await ctx.db.insert("reviewQuestionPolicies", {
+      eventId: fixture.eventId,
+      roundId: fixture.roundId,
+      policy,
+      operatorPersonId: fixture.personId,
+      version: 1,
+      updatedAt: now,
+    });
+    const round = await ctx.db.get(fixture.roundId);
+    const team = await ctx.db.get(fixture.teamId);
+    if (!round || !team) throw new Error("Missing fixture");
+    const id = await prepareQuestionSet(ctx, round, team);
+    if (!id) throw new Error("Question set missing");
+    return id;
+  });
+  expect(
+    await backend.mutation(internal.reviewQuestions.claim, { jobId }),
+  ).toMatchObject({
+    attempt: 1,
+  });
+  const context = await backend.query(internal.reviewQuestions.sourceContext, {
+    jobId,
+    attempt: 1,
+  });
+  if (!context) throw new Error("Source context missing");
+  const body: Omit<ReviewQuestionRequest, "payloadChecksum"> = {
+    protocolVersion: reviewQuestionProtocolVersion,
+    jobId,
+    attempt: 1,
+    stage: "questions",
+    partId: "final",
+    partAttempt: 1,
+    references: [
+      {
+        id: "project",
+        kind: "project",
+        title: "Submitted idea",
+        coverage: "captured",
+      },
+    ],
+    sourceChecksum: context.sourceChecksum,
+    model: context.policy.model,
+    maximumQuestions: context.policy.maximumQuestions,
+    instructions: context.policy.instructions,
+    criteria: context.criteria,
+    sources: [
+      {
+        id: "project",
+        kind: "project",
+        title: "Submitted idea",
+        text: context.projectText,
+        coverage: "captured",
+      },
+    ],
+  };
+  const payloadChecksum = questionPayloadChecksum(body);
+  if (finalRequest) {
+    const analysisPartId = await backend.run(async (ctx) => {
+      await ctx.db.patch(jobId, {
+        collectionComplete: true,
+        analysisLevel: 0,
+        coverage: {
+          discovered: 1,
+          captured: 1,
+          excluded: 0,
+          unavailable: 0,
+          chunks: 1,
+          analysedChunks: 1,
+          cachedBatches: 0,
+        },
+      });
+      return await ctx.db.insert("reviewQuestionParts", {
+        jobId,
+        teamId: fixture.teamId,
+        attempt: 1,
+        key: "fixture",
+        level: 0,
+        state: "ready",
+        sources: body.sources,
+        references: body.references,
+        analysis: {
+          examinedSourceIds: ["project"],
+          summary: "Submitted project evidence",
+          findings: [],
+        },
+        cacheKey: "fixture",
+        cached: false,
+        partAttempt: 1,
+      });
+    });
+    expect(
+      await backend.mutation(internal.reviewQuestions.storeRequest, {
+        jobId,
+        attempt: 1,
+        analysisPartId,
+        requestJson: JSON.stringify({ ...body, payloadChecksum }),
+      }),
+    ).toBe(true);
+  }
+  return {
+    jobId,
+    body,
+    context,
+    callback: {
+      protocolVersion: reviewQuestionProtocolVersion,
+      jobId,
+      attempt: 1,
+      sourceChecksum: context.sourceChecksum,
+      payloadChecksum,
+      partId: "final",
+      partAttempt: 1,
+      agentVersion: reviewQuestionAgentVersion,
+      status: "ready",
+      questions: [
+        {
+          question: "Why did you choose this architecture?",
+          reason: "The submitted idea needs an implementation explanation.",
+          criterionKey: "technical_execution",
+          sourceIds: ["project"],
+        },
+      ],
+    },
+  };
 }

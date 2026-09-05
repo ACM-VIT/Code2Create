@@ -16,16 +16,6 @@ export function ReviewerObservabilityProvider({
   runtime: ReviewerRuntime;
 }) {
   const configuration = reviewerObservabilityConfiguration;
-  useEffect(() => {
-    if (!configuration && __DEV__) {
-      console.error(
-        new Error(
-          "PostHog is not configured. Set the project token and host in your environment variables.",
-        ),
-      );
-    }
-  }, [configuration]);
-
   if (!configuration) {
     return children;
   }

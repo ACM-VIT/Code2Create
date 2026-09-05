@@ -23,7 +23,8 @@ const acceptedResponse = z
   })
   .strict();
 
-function requiredServiceUrl(name: "OUTBOUND_CALL_WORKER_URL" | "CONVEX_SITE_URL") {
+function requiredServiceUrl(name: "OUTBOUND_CALL_WORKER_URL" | "CONVEX_SITE_URL",
+) {
   const configured = process.env[name]?.trim();
   if (!configured) return null;
   let url: URL;
@@ -50,11 +51,13 @@ async function recordFailure(
     retryable: boolean;
   },
 ) {
-  const result = await ctx.runMutation(internal.outboundCallState.recordDispatchFailure, args);
+  const result = await ctx.runMutation(internal.outboundCallState.recordDispatchFailure, args,
+  );
   if (result.retry && result.delayMs !== undefined) {
     await ctx.scheduler.runAfter(result.delayMs, internal.outboundCalls.deliver, {
       deliveryId: args.deliveryId,
-    });
+    },
+    );
   }
 }
 
@@ -66,7 +69,8 @@ export const deliver = internalAction({
     const claim = await ctx.runMutation(internal.outboundCallState.claimDelivery, {
       deliveryId: args.deliveryId,
       attemptId,
-    });
+    },
+    );
     if (!claim) return null;
     const worker = requiredServiceUrl("OUTBOUND_CALL_WORKER_URL");
     const callbackUrl = outboundCallCallbackUrl();
@@ -86,6 +90,9 @@ export const deliver = internalAction({
       deliveryId: claim.deliveryId,
       destinationPhoneE164: claim.destinationPhoneE164,
       script: claim.script,
+      ...(claim.venueConfirmation
+        ? { venueConfirmation: claim.venueConfirmation }
+        : {}),
       callbackUrl,
     };
     const body = JSON.stringify(request);

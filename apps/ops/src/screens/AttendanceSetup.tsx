@@ -102,7 +102,7 @@ const stationModes: readonly { value: StationMode; label: string }[] = [
 const credentialKinds: readonly { value: CredentialKind; label: string }[] = [
   { value: "vit_id_barcode", label: "VIT ID barcode" },
   { value: "badge_qr", label: "Event badge QR" },
-  { value: "portal_qr", label: "Participant portal QR" },
+  { value: "external_pass", label: "External event pass" },
 ];
 
 const barcodeSymbologyLabels: Record<BarcodeSymbology, string> = {

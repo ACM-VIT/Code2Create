@@ -19,6 +19,7 @@ const storedDraftSchema = z
         .strict(),
     ),
     privateNote: z.string(),
+    finalComment: z.string(),
     savedAt: z.number().int().positive(),
   })
   .strict();
@@ -30,7 +31,8 @@ export async function checkEncryptedDraftStorage(eventSlug: string) {
   await withScorecardDatabase(eventSlug, async () => undefined);
 }
 
-export async function loadLocalScorecardDraft(eventSlug: string, scorecardId: string) {
+export async function loadLocalScorecardDraft(eventSlug: string, scorecardId: string,
+) {
   return withScorecardDatabase(eventSlug, async (database) => {
     const row: unknown = await database.getFirstAsync<unknown>(
       "SELECT payload FROM scorecard_drafts WHERE event_slug = ? AND scorecard_id = ?",
@@ -72,7 +74,8 @@ export function saveLocalScorecardDraft(input: SaveDraftInput) {
   });
 }
 
-export function clearLocalScorecardDraft(eventSlug: string, scorecardId: string) {
+export function clearLocalScorecardDraft(eventSlug: string, scorecardId: string,
+) {
   return withScorecardDatabase(eventSlug, async (database) => {
     await database.runAsync(
       "DELETE FROM scorecard_drafts WHERE event_slug = ? AND scorecard_id = ?",

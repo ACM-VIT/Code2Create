@@ -1,4 +1,5 @@
 import { Stack } from "expo-router";
+import "@/lib/venue-location";
 import { StatusBar } from "expo-status-bar";
 import { StrictMode } from "react";
 import { StyleSheet, Text } from "react-native";
@@ -6,6 +7,7 @@ import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 
 import { ReviewerAuthProvider } from "@/components/ReviewerAuthProvider";
 import { ReviewerSessionProvider } from "@/components/ReviewerSession";
+import { ReviewNotificationRoute } from "@/components/ReviewNotificationRoute";
 import { ReviewerObservabilityProvider } from "@/lib/observability";
 import { reviewerRuntime } from "@/lib/runtime";
 import { palette } from "@/theme";
@@ -50,6 +52,7 @@ function RootLayout() {
                   }}
                 />
               </Stack>
+            <ReviewNotificationRoute />
             </ReviewerSessionProvider>
           </ReviewerAuthProvider>
         </SafeAreaProvider>
