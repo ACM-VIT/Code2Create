@@ -2,7 +2,7 @@ import {
   venueConfirmationCall,
   venueCallResponseValue,
   venueResponseEffect,
-} from "./lib/venueCallResponse";
+} from "./lib/venueCallResponseValidators";
 import { defineSchema, defineTable } from "convex/server";
 import {
   reviewerVenueStatus,
