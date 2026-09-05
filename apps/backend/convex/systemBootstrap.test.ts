@@ -42,29 +42,24 @@ describe("event bootstrap", () => {
     expect(supremeSelfPermissionKeys).toContain("communications.call_consent.manage");
   });
 
-  test("advertises external email sign-in only with complete delivery configuration", async () => {
+  test("checks the selected email provider before advertising external OTP sign-in", async () => {
     vi.stubEnv("EMAIL_SERVICE_URL", "https://email.example.test");
     vi.stubEnv("EMAIL_SEND_INGRESS_SECRET", "participant-email-secret-with-32-characters");
-    vi.stubEnv("AUTHENTICATION_EMAIL_PROVIDER", "");
-    const backend = convexTest(schema, modules);
-    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
-
-    await expect(
-      backend.query(api.system.getPublicShellState, {
-        eventSlug: "code2create-7",
-      }),
-    ).resolves.toMatchObject({
-      auth: { emailOtpConfigured: false },
-    });
-
     vi.stubEnv("AUTHENTICATION_EMAIL_PROVIDER", "aws_ses");
-    await expect(
-      backend.query(api.system.getPublicShellState, {
-        eventSlug: "code2create-7",
-      }),
-    ).resolves.toMatchObject({
-      auth: { emailOtpConfigured: true },
-    });
+    const backend = convexTest(schema, modules);
+    const fetchMock = vi.fn().mockResolvedValue(Response.json({ provider: "aws_ses", configured: false }));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      expect(await backend.action(api.system.emailSignInReadiness, {})).toBe(false);
+      fetchMock.mockResolvedValue(Response.json({ provider: "aws_ses", configured: true }));
+      expect(await backend.action(api.system.emailSignInReadiness, {})).toBe(true);
+      fetchMock.mockResolvedValue(Response.json({ provider: "cloudflare_email", configured: true }));
+      expect(await backend.action(api.system.emailSignInReadiness, {})).toBe(false);
+      fetchMock.mockRejectedValue(new Error("Worker unavailable"));
+      expect(await backend.action(api.system.emailSignInReadiness, {})).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   test("lets the configured owner create the complete draft baseline once", async () => {

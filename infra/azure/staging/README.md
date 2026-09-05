@@ -43,10 +43,12 @@ has private VNet access only and seven days of managed backups. The participant
 GitHub OAuth App must be configured separately from the read-only team GitHub App.
 Figma, voice, and native-push integrations remain deliberately unconfigured
 until their staging registrations are approved. Before testing external email
-sign-in, configure `CLOUDFLARE_EMAIL_ACCOUNT_ID`,
-`CLOUDFLARE_EMAIL_API_TOKEN`, and `CLOUDFLARE_EMAIL_FROM` with the staging
-sending identity; the portal keeps the email option disabled until all three
-are present.
+sign-in, deploy the staging email Worker, configure one SES or Cloudflare
+provider in that Worker, and set Convex `EMAIL_SERVICE_URL`,
+`EMAIL_SEND_INGRESS_SECRET`, and `AUTHENTICATION_EMAIL_PROVIDER`. The HMAC must
+match the Worker. The portal keeps the email option disabled until the Convex
+side of that boundary is complete; verify the selected provider in staging
+before opening sign-in.
 
 Phone verification uses AWS End User Messaging SMS in `ap-south-1`. The
 staging Convex environment needs `PHONE_VERIFICATION_HMAC_SECRET`,

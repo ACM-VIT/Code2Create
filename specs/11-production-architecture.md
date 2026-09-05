@@ -18,7 +18,7 @@
 | Durable intelligence                  | Flue on a separate Vite-built Cloudflare Worker, OpenAI Responses, and one Durable Object agent instance per job identity; Convex remains authoritative                                                                                                          |
 | External job control                  | Native scheduled actions with a 20-second server fallback for participant intake; `@convex-dev/workpool` for admission analysis (16 slots), intelligence dispatch, integrations, and exports; short participant-email sends use claimed Convex scheduler actions |
 | Provider integrations                 | GitHub App installation tokens/webhooks and Figma OAuth/Webhooks V2                                                                                                                                                                                              |
-| Participant status email              | Cloudflare Email Sending REST API, lifecycle Event Subscription to Queues, a small HMAC bridge Worker, and Cloudflare Email Routing for the approved inbound support alias; generic text links back to authenticated portal state                                |
+| Participant status email              | Event-owned email Worker with policy-selected Amazon SES or Cloudflare Email Sending, signed Convex ingress, Cloudflare lifecycle Event Subscription to Queues, and Cloudflare Email Routing for the approved inbound support alias; generic messages link back to authenticated portal state |
 | Mobile camera                         | `expo-camera` for VIT ID barcodes, static external event passes, external physical-ID barcodes, optional external badges, and review-presence QR; explicit app modes keep each purpose on its own permission and server command                                      |
 | Mobile notifications                  | Native tokens through `expo-notifications`; direct Firebase Cloud Messaging and Apple Push Notification service sends                                                                                                                                            |
 | Outbound calls                        | Reusable event-owned voice service with synthesized scripts, push-first escalation, consent, scoped permissions, provider callbacks, and audit                                                                                                                   |
@@ -73,7 +73,7 @@ Flue intelligence Worker --> OpenAI Responses API
 
 Convex scheduled action --> APNs / FCM --> reviewer device
 Convex scheduled action --> voice Worker/provider --> reviewer phone
-Convex scheduled action --> Cloudflare Email Sending --> participant verified email
+Convex scheduled action --> signed email Worker --> Amazon SES or Cloudflare Email Sending --> participant verified email
 Cloudflare Email Event Subscription --> Queue --> email Worker --> signed Convex delivery event
 Inbound support alias --> Cloudflare Email Routing --> email Worker --> verified operations mailbox
 Integration artifacts --> private S3 artifact bucket
@@ -93,7 +93,7 @@ apps/
   reviewer/               Expo reviewer application
   updates/                Expo Updates protocol Worker and local signed publisher
   intelligence/           Flue/Vite Cloudflare Worker for bounded durable intelligence jobs
-  email/                  Cloudflare Email Queue bridge and inbound Email Routing forwarder
+  email/                  authenticated outbound provider boundary, Cloudflare lifecycle Queue bridge, and inbound Email Routing forwarder
   voice/                  reusable synthesized outbound-call service
   backend/
     convex/               auth, schema, functions, HTTP routes, schedules, workpools, and generated API types
@@ -308,7 +308,7 @@ Convex actions call:
 - the private intelligence Worker for a signed operations-brief dispatch;
 - GitHub repository, topic, commit, compare, tree, contents, language, and installation APIs;
 - Figma metadata, full file, version, comment, image, OAuth-token, and webhook APIs;
-- Firebase Cloud Messaging, Apple Push Notification service, and Cloudflare Email Sending REST API;
+- Firebase Cloud Messaging and Apple Push Notification service directly, plus the signed event-owned email Worker for participant email;
 - S3 integration-artifact and export upload.
 
 A heavy external workflow writes a pending domain or job record. It then adds an internal action to the applicable Workpool. The action makes the network call. An internal mutation records success, provider-directed delay, retry, or terminal failure. A Figma preview set is the rendering job record. It does not need a second generic job record. Participant email writes its dedicated delivery row and schedules one short claimed action. The two participant-intake model attempts are different: native scheduler and backend action limits bound them, while an independent server deadline materializes the published fallback after 20 seconds even if an action never starts. Intake-job operations facts are delayed background projections. A normal short run coalesces directly to its terminal fact; a job still running after 30 seconds publishes that state. Telemetry cannot fail or delay a participant answer.
@@ -327,13 +327,11 @@ FCM message IDs and APNs IDs record only provider acceptance. The page remains p
 
 ### Participant email and external event passes
 
-Each Convex environment sets these values:
+Each Convex environment sets `EMAIL_SERVICE_URL`, `EMAIL_SEND_INGRESS_SECRET`, `AUTHENTICATION_EMAIL_PROVIDER`, and `EMAIL_EVENT_CALLBACK_SECRET`. The email Worker holds provider credentials instead of Convex:
 
-- `CLOUDFLARE_EMAIL_ACCOUNT_ID`;
-- a least-privilege `CLOUDFLARE_EMAIL_API_TOKEN`;
-- `CLOUDFLARE_EMAIL_FROM`;
-- optional `CLOUDFLARE_EMAIL_REPLY_TO`;
-- `EMAIL_EVENT_CALLBACK_SECRET`.
+- Amazon SES: `AWS_SES_REGION`, `AWS_SES_ACCESS_KEY_ID`, `AWS_SES_SECRET_ACCESS_KEY`, `AWS_SES_FROM`, plus optional session-token, reply-to, and configuration-set values;
+- Cloudflare Email Sending: `CLOUDFLARE_EMAIL_ACCOUNT_ID`, a least-privilege `CLOUDFLARE_EMAIL_API_TOKEN`, `CLOUDFLARE_EMAIL_FROM`, and optional `CLOUDFLARE_EMAIL_REPLY_TO`;
+- the matching `EMAIL_SEND_INGRESS_SECRET`, callback/routing values, and sending domain.
 
 External event-pass delivery additionally requires:
 
@@ -342,7 +340,7 @@ External event-pass delivery additionally requires:
 - `APPLE_WALLET_PASS_TYPE_IDENTIFIER`, `APPLE_WALLET_TEAM_IDENTIFIER`, and base64-encoded WWDR, signer certificate, and signer private-key values for Apple Wallet;
 - the public `CONVEX_SITE_URL`, which owns the signed Apple Wallet download endpoint.
 
-`PARTICIPANT_SITE_URL` supplies the authenticated return origin. It must use HTTPS outside localhost. Cloudflare Email Service must verify and enable the sending domain.
+`PARTICIPANT_SITE_URL` supplies the authenticated return origin. It must use HTTPS outside localhost. Each selected provider must verify and enable its sending identity in the configured region or domain.
 
 Each environment has one Cloudflare Email Sending Event Subscription for its sending domain. The subscription publishes `delivered`, `deferred`, `bounced`, `failed`, `rejected`, and `complained` events to a separate Queue. `apps/email` is the only consumer.
 
@@ -350,15 +348,15 @@ The Worker validates the event schema and domain. It discards subject, raw SMTP 
 
 The same Worker handles only the exact normalized `EMAIL_ROUTING_ADDRESS` alias, even if a broader Cloudflare routing rule is configured accidentally. It forwards matching messages to the verified `EMAIL_ROUTING_FORWARD_TO` mailbox. It rejects every other recipient and does not convert inbound mail into application data or commands.
 
-One `admissions.decide` transaction writes the human decision, participant-facing state, and verified-email destination. It also writes one pending delivery for each member of the locked submitted roster. The delivery contains a generic text-template key and `/` portal path. It does not copy the decision, proposal text, novelty number, or Discord destination. The transaction schedules `participantEmail.deliver`. It does not call Cloudflare inside the mutation.
+One `admissions.decide` transaction writes the human decision, participant-facing state, and verified-email destination. It also writes one pending delivery for each member of the locked submitted roster. The delivery contains a generic text-template key and `/` portal path. It does not copy the decision, proposal text, novelty number, or Discord destination. The transaction schedules `participantEmail.deliver`. It does not call an email provider inside the mutation.
 
 When an external participant confirms an offer, the same transaction also queues a separate `external_event_pass` delivery. Delivery creates or reuses that membership's static encrypted pass and renders its QR inline before attempting either wallet integration. Each wallet URL is isolated: an omitted, partial, invalid, or unavailable Google Wallet or Apple Wallet provider hides only that action and never blocks the inline QR or email delivery. VIT participants never receive this delivery.
 
-The action claims a pending or due-retry delivery for 30 seconds. Before a Cloudflare call, it rechecks the application decision, active destination, recipient identity, and current Google-verified email. Each call has exactly one recipient.
+The action claims a pending or due-retry delivery for 30 seconds. Before a signed email-Worker request, it rechecks the application decision, active destination, recipient identity, and current Google-verified email. Each call has exactly one recipient and uses the provider pinned by the delivery's communications-policy version.
 
 A valid success contains one provider message ID. It also contains the recipient in exactly one of `delivered`, `queued`, or `permanent_bounces`. A structured provider error that proves non-acceptance can retry after five seconds and 30 seconds. The limit is three claims.
 
-Cloudflare Email Sending does not document a request idempotency key. A timeout, invalid or contradictory success, recipient-outcome mismatch, or expired active lease becomes `unknown` immediately. The system does not reclaim or retry it automatically.
+Neither outbound integration provides a safe application idempotency key for this workflow. A Worker/provider timeout, invalid or contradictory success, recipient-outcome mismatch, or expired active lease becomes `unknown` immediately. The system does not reclaim, retry, or switch providers automatically.
 
 Before parsing, the Convex HTTP action verifies the Worker's bounded raw request, five-minute timestamp, and context-separated HMAC. It stores the Cloudflare event ID, provider message ID, normalized recipient, event time, safe error category, destination-disable decision, and payload hash. Duplicate event IDs must contain identical content.
 
@@ -488,7 +486,7 @@ Examples:
 - `projects.reviseSubmitted` appends one immutable proposal version before `applicationsCloseAt`, invalidates stale review and AI output, and updates every authorized application view.
 - `checkpointConfiguration.publish` supersedes one exact checkpoint plan and moves only the event default. `projectCheckpoints.saveUpdate` and `.saveFollowUp` update one optimistic shared team draft; `.submit` freezes one immutable submission. Team members and authorized operations readers converge on the same row, while no checkpoint command writes queue, review, or score state.
 - Starting a review captures the latest already-submitted team checkpoint ID in the same evidence transaction that fixes GitHub/Figma snapshots. Reviewer context and the verified round export resolve that ID rather than querying whichever update is newest later.
-- `admissions.decide` changes participant admission state and confirmed-capacity views, creates one delivery record per member of the deadline-frozen application roster, and unlocks selected-team next steps in the same transaction. Cloudflare email processing happens later and never substitutes for the authoritative portal state.
+- `admissions.decide` changes participant admission state and confirmed-capacity views, creates one provider-pinned delivery record per member of the deadline-frozen application roster, and unlocks selected-team next steps in the same transaction. Email-provider processing happens later and never substitutes for the authoritative portal state.
 - Signed normalized Cloudflare Email lifecycle events update the participant's minimal delivery line and each authorized operations recipient row through the same stored delivery record.
 - `pages.accept` changes reviewer Now, panel staffing, and the operations exception list.
 - `reviews.start` changes participant state, reviewer context, panel row, queue, and active-review board.
@@ -568,11 +566,11 @@ Before a binary for a new runtime reaches a phone, release operations publishes 
 
 | Store                             | Secrets                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Convex environment                | Better Auth secret, Google secret, OpenAI API key, PostHog project token/ingest host/release ID, GitHub App private key and webhook secret, Figma client secret, token-encryption key, attendance-key wrapping key, Firebase service account, APNs private key and identifiers, Cloudflare Email settings and event HMAC, voice Worker URL and callback HMAC, S3 restricted credential, intelligence Worker URL, and separate intelligence HMAC secrets |
+| Convex environment                | Better Auth secret, Google secret, OpenAI API key, PostHog project token/ingest host/release ID, GitHub App private key and webhook secret, Figma client secret, token-encryption key, attendance-key wrapping key, Firebase service account, APNs private key and identifiers, email Worker URL and send/event HMACs, authentication-email provider, voice Worker URL and callback HMAC, S3 restricted credential, intelligence Worker URL, and separate intelligence HMAC secrets |
 | Cloudflare build environment      | Public Convex query/auth URLs, event slug, PostHog project token/ingest host, and build-only source-map upload credentials; no provider private key or handbook Markdown                                                                                                                                                                                                                                                                                |
 | Update Worker environment         | Environment-specific admin token; the private R2 bucket is a binding and the update signing key is absent                                                                                                                                                                                                                                                                                                                                               |
 | Intelligence Worker environment   | Encrypted `OPENAI_API_KEY`, PostHog project token/ingest host/environment/release labels, autonomy admission-fence namespace, exact Ops origin, exact Convex brief/autonomy callback, read, work-authorization, recommendation, and recommendation-evidence URLs, plus four HMAC secrets for ingress, callback/recommendation delivery, read/work authorization, and browser stream capabilities; no Convex service credential                          |
-| Email Worker environment          | Exact Convex email-event callback URL, sending domain, verified Email Routing forward destination, and email-event HMAC secret; no Convex service credential or Cloudflare Email Sending API token                                                                                                                                                                                                                                                      |
+| Email Worker environment          | Send-ingress HMAC, exact Convex email-event callback URL, callback HMAC, sending domain, verified Email Routing destination, and credentials/identities for each enabled Amazon SES or Cloudflare Email Sending provider; no Convex service credential |
 | Voice Worker environment          | Public Worker origin, approved Twilio credential and sending number, Sarvam synthesis key, request HMAC, and callback HMAC; no Convex service credential, broad event credential, purpose decision, or proposal data                                                                                                                                                                                                                                    |
 | Controlled mobile release machine | Update private key and publisher token, Android keystore/passwords, Firebase `google-services.json`, Apple signing/provisioning keychain, public backend/auth/update URLs, app identifiers, and PostHog symbol-upload credentials                                                                                                                                                                                                                       |
 | Cloudflare Workers Builds         | Worker-specific GitHub connection and deploy token; browser build values and PostHog source-map upload credentials only where required; no Convex deploy, provider, mobile, or update-signing key                                                                                                                                                                                                                                                       |
@@ -698,6 +696,8 @@ Business history stays in domain records and audit events. PostHog is not the ju
 - [Cloudflare Email Sending REST API](https://developers.cloudflare.com/email-service/api/send-emails/rest-api/)
 - [Cloudflare Email Sending event subscriptions](https://developers.cloudflare.com/email-service/platform/event-subscriptions/)
 - [Cloudflare Email Routing Worker API](https://developers.cloudflare.com/email-service/api/route-emails/email-handler/)
+- [Amazon SES v2 SendEmail API](https://docs.aws.amazon.com/ses/latest/APIReference-V2/API_SendEmail.html)
+- [Amazon SES attachments](https://docs.aws.amazon.com/ses/latest/dg/attachments.html)
 - [Cloudflare Queues consumer configuration](https://developers.cloudflare.com/queues/configuration/configure-queues/)
 - [OpenAI Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs)
 - [OpenAI evaluation best practices](https://developers.openai.com/api/docs/guides/evaluation-best-practices)

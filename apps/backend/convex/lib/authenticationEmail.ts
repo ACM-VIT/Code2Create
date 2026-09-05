@@ -1,6 +1,6 @@
 import {
   configuredParticipantEmailProvider,
-  emailServiceConfigured,
+  emailServiceProviderReady,
   sendEmailThroughService,
 } from "./emailServiceSending";
 import { vitStudentEmailDomain } from "./vitStudentIdentity";
@@ -9,8 +9,9 @@ function authenticationEmailProvider() {
   return configuredParticipantEmailProvider(process.env.AUTHENTICATION_EMAIL_PROVIDER);
 }
 
-export function authenticationEmailConfigured() {
-  return authenticationEmailProvider() !== null && emailServiceConfigured();
+export async function authenticationEmailConfigured(): Promise<boolean> {
+  const provider = authenticationEmailProvider();
+  return provider !== null && await emailServiceProviderReady(provider);
 }
 
 function htmlEscaped(value: string) {
@@ -102,7 +103,7 @@ export async function sendAuthenticationOtp(input: {
     throw new Error("VIT email addresses must continue with Google Workspace.");
   }
   const provider = authenticationEmailProvider();
-  if (!provider || !emailServiceConfigured()) {
+  if (!provider || !(await emailServiceProviderReady(provider))) {
     throw new Error("Authentication email is not configured.");
   }
   const message = authenticationOtpEmail(input.otp, participantSiteOrigin());

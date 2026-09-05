@@ -386,7 +386,7 @@ One immutable accepted-team and notification release.
 - start/end snapshot that must exactly match the event's operational window;
 - one-to-eight ordered next steps with unique stable key, title, detail, optional internal/HTTPS action, and optional due time;
 - official Discord invite URL and participant-facing label;
-- fixed `notificationProvider: cloudflare_email` plus generic text-only subject and introduction;
+- fixed `notificationProvider: cloudflare_email | aws_ses` plus generic subject, text, HTML, and asset bundle per message type;
 - checksum, creator/time, and optional publication time.
 
 One event has at most one draft and one published row. Draft replacement retires the prior draft rather than editing it. Publication revalidates the complete content, exact current draft/checksum/event version, operational-window match, recent Google session, and reason, then supersedes the old row and moves `events.publishedCommunicationsPolicyId` in the same transaction. Venue/Discord fields do not live on `events` and never enter the unauthenticated public event response.
@@ -1936,11 +1936,11 @@ One append-only provider attempt for one locked team member and published admiss
 - optional Cloudflare message ID, provider-accepted/last-event/sent/delivered/completed times, deterministic last provider-event ID for equal-time ordering, and non-sensitive provider error code;
 - `version`, created/updated time.
 
-Each admission or offer transition creates retry zero for every member of the deadline-frozen application roster after resolving the current published communications policy. A delivery remains current only while its template and application version still match the authoritative application state. It renders from its pinned published-or-superseded policy. A manual retry copies the same pin. A later publication cannot silently rewrite queued wording. `by_root_retry` proves that a manual source is still latest. `by_application_membership_created` loads one member row without scanning the application. `by_destination_state` suppresses only queued work for one address. `by_provider_message` joins lifecycle events that can race the send response. A structured Cloudflare error that proves non-acceptance can enter the bounded automatic retry schedule. Cloudflare documents no send idempotency key. Therefore, a timeout, invalid/contradictory response, or expired lease becomes terminal `unknown` and cannot be reclaimed. A manual retry creates a new ID/row only from a definite failure. Delivery is transport telemetry. It never proves that the participant read or accepted the decision or offer.
+Each admission or offer transition creates retry zero for every member of the deadline-frozen application roster after resolving the current published communications policy. A delivery remains current only while its template and application version still match the authoritative application state. It renders from its pinned published-or-superseded policy, including that policy's outbound provider. A manual retry copies the same pin. A later publication cannot silently rewrite queued wording or move queued work between providers. `by_root_retry` proves that a manual source is still latest. `by_application_membership_created` loads one member row without scanning the application. `by_destination_state` suppresses only queued work for one address. `by_provider_message` joins Cloudflare lifecycle events that can race the send response. A structured provider error that proves non-acceptance can enter the bounded automatic retry schedule. A timeout, invalid/contradictory response, or expired lease becomes terminal `unknown` and cannot be reclaimed or sent through another provider. A manual retry creates a new ID/row only from a definite failure. Delivery is transport telemetry. It never proves that the participant read or accepted the decision or offer.
 
 ### `participantNotificationProviderEvents`
 
-Append-only verified Cloudflare Email Sending lifecycle-event receipts.
+Append-only verified Cloudflare Email Sending lifecycle-event receipts. SES messages store provider acceptance on the delivery row; SES lifecycle-event ingestion is not part of this table yet.
 
 - fixed provider and Cloudflare event ID;
 - provider message ID, normalized recipient, supported internal event type, provider timestamp, destination-disable decision, and optional safe provider error category;

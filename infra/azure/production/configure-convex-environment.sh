@@ -88,6 +88,7 @@ EOF
 (
   cd "${C2C_REPOSITORY_ROOT}/apps/backend"
   pnpm exec convex env set --from-file "${C2C_ENV_FILE}" --force
+  read_secret github-app-private-key | pnpm exec convex env set GITHUB_APP_PRIVATE_KEY
   printf '%s' "${C2C_PHONE_VERIFICATION_MESSAGE_TEMPLATE}" \
     | pnpm exec convex env set PHONE_VERIFICATION_MESSAGE_TEMPLATE
 )

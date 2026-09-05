@@ -1,11 +1,14 @@
 import {
   participantEmailSendSignatureContext,
+  participantEmailReadinessSignatureContext,
   verifyServiceBody,
   type ParticipantEmailSendRequest,
   type ParticipantEmailSendResult,
 } from "@code2create/domain";
 
 import { HttpBodyTooLargeError, readBoundedRequestText } from "./httpBody.js";
+import { z } from "zod";
+import { participantEmailProviders } from "@code2create/domain";
 import { participantEmailSendRequestSchema } from "./outboundContracts.js";
 import {
   sendWithCloudflare,
@@ -17,6 +20,7 @@ const maximumSendRequestBytes = 6 * 1_024 * 1_024;
 
 export interface OutboundEmailEnvironment {
   EMAIL_SEND_INGRESS_SECRET: string;
+  OUTBOUND_EMAILS: { getByName(name: string): { fetch(request: Request): Promise<Response> } };
   CLOUDFLARE_EMAIL_ACCOUNT_ID?: string;
   CLOUDFLARE_EMAIL_API_TOKEN?: string;
   CLOUDFLARE_EMAIL_FROM?: string;
@@ -105,8 +109,8 @@ function jsonResponse(body: unknown, status = 200) {
 export async function handleOutboundEmailRequest(
   request: Request,
   environment: OutboundEmailEnvironment,
-  dependencies: ProviderDependencies = {},
 ) {
+  const readiness = new URL(request.url).pathname === "/readiness";
   let body: string;
   try {
     body = await readBoundedRequestText(request, maximumSendRequestBytes);
@@ -121,7 +125,7 @@ export async function handleOutboundEmailRequest(
   let verified = false;
   try {
     verified = await verifyServiceBody({
-      context: participantEmailSendSignatureContext,
+      context: readiness ? participantEmailReadinessSignatureContext : participantEmailSendSignatureContext,
       secret: environment.EMAIL_SEND_INGRESS_SECRET,
       timestamp,
       signature,
@@ -139,17 +143,17 @@ export async function handleOutboundEmailRequest(
   } catch {
     return jsonResponse({ error: "invalid_json" }, 400);
   }
+  if (readiness) {
+    const parsed = z.object({ provider: z.enum(participantEmailProviders) }).strict().safeParse(decoded);
+    if (!parsed.success) return jsonResponse({ error: "invalid_request" }, 400);
+    return jsonResponse({ provider: parsed.data.provider, configured: !!environment.OUTBOUND_EMAILS &&
+      (parsed.data.provider === "aws_ses" ? configuredSes(environment) !== null : configuredCloudflare(environment) !== null) });
+  }
   const parsed = participantEmailSendRequestSchema.safeParse(decoded);
   if (!parsed.success) return jsonResponse({ error: "invalid_request" }, 400);
-  const validatedRequest: ParticipantEmailSendRequest = {
-    ...parsed.data,
-    attachments: parsed.data.attachments.map((attachment) => ({
-      filename: attachment.filename,
-      contentType: attachment.contentType,
-      contentBase64: attachment.contentBase64,
-      disposition: attachment.disposition,
-      ...(attachment.contentId !== undefined ? { contentId: attachment.contentId } : {}),
-    })),
-  };
-  return jsonResponse(await sendOutboundEmail(validatedRequest, environment, dependencies));
+  const validatedRequest = parsed.data;
+  const delivery = environment.OUTBOUND_EMAILS.getByName(validatedRequest.requestId);
+  return delivery.fetch(new Request("https://email-dispatch.internal/send", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(validatedRequest),
+  }));
 }

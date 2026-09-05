@@ -1,6 +1,7 @@
 import { participantEmailEventSignatureContext, signServiceBody } from "@code2create/domain";
 import type { ParticipantEmailEvent } from "@code2create/domain";
 import { z } from "zod";
+export { OutboundEmailDelivery } from "./emailDispatch.js";
 
 import {
   cloudflareEmailSendingEventSchema,
@@ -117,7 +118,7 @@ export default {
     if (request.method === "GET" && url.pathname === "/health") {
       return Response.json({ service: "code2create-email", ok: true });
     }
-    if (request.method === "POST" && url.pathname === "/send") {
+    if (request.method === "POST" && (url.pathname === "/send" || url.pathname === "/readiness")) {
       return handleOutboundEmailRequest(request, environment);
     }
     return new Response("Not found.", { status: 404 });

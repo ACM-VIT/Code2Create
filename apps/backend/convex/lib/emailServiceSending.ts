@@ -2,6 +2,7 @@ import {
   participantEmailProviders,
   participantEmailSendProtocolVersion,
   participantEmailSendSignatureContext,
+  participantEmailReadinessSignatureContext,
   signServiceBody,
   type ParticipantEmailProvider,
   type ParticipantEmailSendRequest,
@@ -132,4 +133,27 @@ export async function sendEmailThroughService(
     };
   }
   return parsed.data;
+}
+
+/** Ask the owning Worker before exposing its selected sign-in provider. */
+export async function emailServiceProviderReady(provider: ParticipantEmailProvider): Promise<boolean> {
+  const configuration = emailServiceConfiguration();
+  if (!configuration) return false;
+  const body = JSON.stringify({ provider });
+  const timestamp = String(Date.now());
+  const signature = await signServiceBody({
+    context: participantEmailReadinessSignatureContext, secret: configuration.secret, timestamp, body,
+  });
+  try {
+    const response = await fetch(new URL("/readiness", configuration.url), {
+      method: "POST", headers: { "content-type": "application/json", "x-c2c-timestamp": timestamp, "x-c2c-signature": signature },
+      body, signal: AbortSignal.timeout(5_000),
+    });
+    if (!response.ok) return false;
+    const parsed = z.object({ provider: providerSchema, configured: z.boolean() }).strict()
+      .safeParse(await readBoundedJsonResponse(response, 1_024));
+    return parsed.success && parsed.data.provider === provider && parsed.data.configured;
+  } catch {
+    return false;
+  }
 }

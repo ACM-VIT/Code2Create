@@ -4,6 +4,12 @@ This Worker is the authenticated outbound-email boundary for Code2Create. A publ
 
 The service never falls back from one provider to the other after a request. A transport failure can be ambiguous, so automatic cross-provider fallback could send a duplicate message.
 
+## Delivery guarantees
+
+The signed `/send` endpoint routes each request ID to one durable delivery receipt. Replays with the same payload return the saved result; a changed payload is rejected. Accepted or uncertain sends are never automatically dispatched again during the seven-day receipt retention period. A definite rejection can be retried after 30 seconds; the caller still decides whether that rejection qualifies for automatic retry. Receipts contain a payload digest and delivery outcome, not message content.
+
+The signed `/readiness` endpoint checks the selected provider's required Worker configuration before the portal offers email sign-in. This confirms configuration presence, not provider account health. Deploy this Worker, including its `OUTBOUND_EMAILS` binding, before deploying the backend that uses readiness checks.
+
 ## Staging setup
 
 1. Create the event queue and its dead-letter queue:

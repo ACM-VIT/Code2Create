@@ -75,3 +75,5 @@ export type ParticipantEmailEvent = {
   disableDestination: boolean;
   providerErrorCode?: string;
 };
+
+export const participantEmailReadinessSignatureContext = "code2create-email-readiness-v1";

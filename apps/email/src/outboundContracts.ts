@@ -1,4 +1,5 @@
 import {
+  type ParticipantEmailAttachment,
   participantEmailProviders,
   participantEmailSendProtocolVersion,
 } from "@code2create/domain";
@@ -34,7 +35,11 @@ export const participantEmailSendRequestSchema = z.object({
     name: z.string().regex(/^X-Code2Create-[A-Za-z0-9-]+$/u),
     value: z.string().min(1).max(998).refine((value) => !/[\r\n]/u.test(value)),
   })).max(10),
-  attachments: z.array(attachmentSchema).max(32),
+  attachments: z.array(attachmentSchema.transform((attachment): ParticipantEmailAttachment => ({
+    filename: attachment.filename, contentType: attachment.contentType,
+    contentBase64: attachment.contentBase64, disposition: attachment.disposition,
+    ...(attachment.contentId !== undefined ? { contentId: attachment.contentId } : {}),
+  }))).max(32),
 });
 
 export type ValidatedParticipantEmailSendRequest = z.infer<

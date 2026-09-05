@@ -1,6 +1,7 @@
 import {
   participantEmailSendProtocolVersion,
   participantEmailSendSignatureContext,
+  participantEmailReadinessSignatureContext,
   signServiceBody,
   type ParticipantEmailSendRequest,
 } from "@code2create/domain";
@@ -218,7 +219,7 @@ describe("authenticated outbound email endpoint", () => {
       timestamp,
       body,
     });
-    const sender = vi.fn(async () => ({ MessageId: "ses-message-2", $metadata: {} }));
+    const sender = vi.fn(async () => Response.json({ status: "accepted", provider: "aws_ses", messageId: "ses-message-2", initialOutcome: "queued" }));
     const response = await handleOutboundEmailRequest(
       new Request("https://email.example.test/send", {
         method: "POST",
@@ -229,8 +230,7 @@ describe("authenticated outbound email endpoint", () => {
         },
         body,
       }),
-      sesEnvironment(),
-      { sesSender: sender },
+      sesEnvironment(sender),
     );
 
     expect(response.status).toBe(200);
@@ -242,6 +242,17 @@ describe("authenticated outbound email endpoint", () => {
     expect(sender).toHaveBeenCalledOnce();
   });
 
+  test("reports the selected provider unavailable when credentials are missing", async () => {
+    const body = JSON.stringify({ provider: "aws_ses" });
+    const timestamp = String(Date.now());
+    const signature = await signServiceBody({ context: participantEmailReadinessSignatureContext, secret: ingressSecret, timestamp, body });
+    const environment = { ...sesEnvironment(), AWS_SES_SECRET_ACCESS_KEY: "" };
+    const response = await handleOutboundEmailRequest(new Request("https://email.example.test/readiness", {
+      method: "POST", headers: { "x-c2c-timestamp": timestamp, "x-c2c-signature": signature }, body,
+    }), environment);
+    expect(await response.json()).toEqual({ provider: "aws_ses", configured: false });
+  });
+
   test("rejects unsigned requests without contacting a provider", async () => {
     const sender = vi.fn();
     const response = await handleOutboundEmailRequest(
@@ -250,16 +261,18 @@ describe("authenticated outbound email endpoint", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify(sendRequest),
       }),
-      sesEnvironment(),
-      { sesSender: sender },
+      sesEnvironment(sender),
     );
     expect(response.status).toBe(401);
     expect(sender).not.toHaveBeenCalled();
   });
 });
 
-function sesEnvironment() {
+function sesEnvironment(dispatch = vi.fn(async () => Response.json({ status: "accepted" }))) {
   return {
+    OUTBOUND_EMAILS: {
+      getByName: () => ({ fetch: dispatch }),
+    },
     EMAIL_SEND_INGRESS_SECRET: ingressSecret,
     AWS_SES_REGION: sesConfiguration.region,
     AWS_SES_ACCESS_KEY_ID: sesConfiguration.accessKeyId,

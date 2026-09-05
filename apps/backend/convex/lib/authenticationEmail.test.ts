@@ -1,5 +1,6 @@
 import {
   participantEmailSendSignatureContext,
+  participantEmailReadinessSignatureContext,
   verifyServiceBody,
 } from "@code2create/domain";
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -44,9 +45,10 @@ describe("authentication OTP email", () => {
     const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       const body = String(init?.body ?? "");
       const headers = new Headers(init?.headers);
+      const readiness = String(_url).endsWith("/readiness");
       expect(
         await verifyServiceBody({
-          context: participantEmailSendSignatureContext,
+          context: readiness ? participantEmailReadinessSignatureContext : participantEmailSendSignatureContext,
           secret: ingressSecret,
           timestamp: headers.get("x-c2c-timestamp") ?? "",
           signature: headers.get("x-c2c-signature") ?? "",
@@ -55,6 +57,7 @@ describe("authentication OTP email", () => {
           maximumAgeMs: 60_000,
         }),
       ).toBe(true);
+      if (readiness) return Response.json({ provider: "aws_ses", configured: true });
       expect(JSON.parse(body)).toMatchObject({
         protocolVersion: "participant-email-send-v1",
         provider: "aws_ses",
@@ -72,15 +75,15 @@ describe("authentication OTP email", () => {
 
     await sendAuthenticationOtp({ email: destinationEmail, otp: "123456", type: "sign-in" });
 
-    expect(fetchMock).toHaveBeenCalledOnce();
-    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://email.example.test/send");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1]?.[0]).toBe("https://email.example.test/send");
   });
 
   test("rejects a definite provider refusal", async () => {
     configureEmailService();
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
+      vi.fn().mockResolvedValueOnce(Response.json({ provider: "aws_ses", configured: true })).mockResolvedValueOnce(
         Response.json({
           status: "rejected",
           provider: "aws_ses",
@@ -96,7 +99,7 @@ describe("authentication OTP email", () => {
 
   test("preserves the issued code when delivery is ambiguous", async () => {
     configureEmailService();
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("fetch stopped")));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(Response.json({ provider: "aws_ses", configured: true })).mockRejectedValueOnce(new TypeError("fetch stopped")));
     await expect(
       sendAuthenticationOtp({ email: destinationEmail, otp: "123456", type: "sign-in" }),
     ).resolves.toBeUndefined();

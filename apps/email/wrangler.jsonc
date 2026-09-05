@@ -8,9 +8,11 @@
   "observability": {
     "enabled": true,
   },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["OutboundEmailDelivery"] }],
   "env": {
     "staging": {
       "name": "code2create-email-staging",
+      "durable_objects": { "bindings": [{ "name": "OUTBOUND_EMAILS", "class_name": "OutboundEmailDelivery" }] },
       "queues": {
         "consumers": [
           {
@@ -26,6 +28,7 @@
     },
     "production": {
       "name": "code2create-email",
+      "durable_objects": { "bindings": [{ "name": "OUTBOUND_EMAILS", "class_name": "OutboundEmailDelivery" }] },
       "routes": [
         {
           "pattern": "email.c2c.sh",
