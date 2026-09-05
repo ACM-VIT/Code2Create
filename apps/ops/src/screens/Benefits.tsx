@@ -365,7 +365,7 @@ function BenefitCard({ benefit, canManage }: { benefit: Benefit; canManage: bool
           {error ? <p className="notice error" role="alert">{error}</p> : null}
         </form>
       ) : null}
-      {notice ? <p className="inline-status" role="status" data-ph-sensitive>{notice}</p> : null}
+      {notice ? <p className="m-0 text-[0.8125rem] text-green" role="status" data-ph-sensitive>{notice}</p> : null}
     </article>
   );
 }

@@ -20,7 +20,7 @@ export function ReviewQueueSettings({ roundId }: { roundId: RoundId }) {
     <details className="workspace-disclosure">
       <summary>
         <strong>Queue call-up</strong>
-        <span>{settings.automaticCallUp ? "Automatic" : "Manual"}</span>
+        <span className="shrink-0 text-xs text-ink-2">{settings.automaticCallUp ? "Automatic" : "Manual"}</span>
       </summary>
       <QueueForm key={settings.version} settings={settings} roundId={roundId} />
       {settings.automaticCallUp ? (
@@ -87,16 +87,20 @@ function QueueForm({
     }
   };
   return (
-    <form onSubmit={submit}>
-      <p className="muted">
+    <form className="grid gap-5 p-4 sm:p-5" onSubmit={submit}>
+      <p className="m-0 text-ink-2">
         Call the next queued team after all scorecards are finished and staffing
         is ready. Team order follows priority, then time queued. The dashboard
         shows the next-team notice; calls go only to team leads who opted in.
       </p>
-      <fieldset disabled={!settings.canConfigure || busy || pending}>
-        <label>
+      <fieldset
+        className="grid gap-4 md:grid-cols-2"
+        disabled={!settings.canConfigure || busy || pending}
+      >
+        <label className="field md:col-span-2">
           Automatic panel selection
           <select
+            className="max-w-none"
             value={routingPreference}
             onChange={(event) => {
               const value = event.target.value;
@@ -108,7 +112,7 @@ function QueueForm({
             <option value="shortest_wait">Shortest wait</option>
           </select>
         </label>
-        <label className="checkbox-field">
+        <label className="check-row md:col-span-2">
           <input
             type="checkbox"
             checked={automatic}
@@ -116,7 +120,7 @@ function QueueForm({
           />
           Automatic next-team call-up
         </label>
-        <label className="checkbox-field">
+        <label className="check-row md:col-span-2">
           <input
             type="checkbox"
             checked={voice}
@@ -124,7 +128,7 @@ function QueueForm({
           />
           Voice calls to consenting team leads
         </label>
-        <label>
+        <label className="field">
           Next-team heads-up, seconds before discussion ends (0 disables)
           <input
             type="number"
@@ -134,7 +138,7 @@ function QueueForm({
             onChange={(e) => setHeadsUp(e.target.value)}
           />
         </label>
-        <label>
+        <label className="field">
           Score-entry allowance for ETA, seconds
           <input
             type="number"
@@ -144,13 +148,14 @@ function QueueForm({
             onChange={(e) => setBuffer(e.target.value)}
           />
         </label>
-        <label>
+        <label className="field md:col-span-2">
           Reason
           <input value={reason} onChange={(e) => setReason(e.target.value)} />
         </label>
       </fieldset>
       {settings.canConfigure ? (
         <button
+          className="primary"
           type="submit"
           disabled={busy || (!pending && reason.trim().length < 3)}
         >
@@ -161,7 +166,7 @@ function QueueForm({
               : "Save queue settings"}
         </button>
       ) : null}
-      {error ? <p role="alert">{error}</p> : null}
+      {error ? <p className="notice error m-0" role="alert">{error}</p> : null}
     </form>
   );
 }

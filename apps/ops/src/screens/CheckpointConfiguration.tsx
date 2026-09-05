@@ -284,7 +284,7 @@ export function CheckpointConfiguration({ tabs }: { tabs: ConfigurationTabsVisib
             <SkeletonLine width="40%" />
           ) : null}
           {validation && !validation.valid ? (
-            <ul className="issue-list">
+            <ul className="my-4 grid gap-2 pl-5 text-[0.8125rem] text-red">
               {validation.issues.map((issue) => (
                 <li key={issue}>{issue}</li>
               ))}
@@ -315,7 +315,7 @@ export function CheckpointConfiguration({ tabs }: { tabs: ConfigurationTabsVisib
                   )}
                 </p>
               )}
-              <div className="offer-actions">
+              <div className="flex flex-wrap items-center gap-3">
                 <button
                   className="secondary"
                   disabled={busy || publishPending}
@@ -363,7 +363,7 @@ export function CheckpointConfiguration({ tabs }: { tabs: ConfigurationTabsVisib
               <div className="phase-card-list">
                 {definitions.map((definition, index) => (
                   <article
-                    className="phase-card checkpoint-editor-card"
+                    className="phase-card"
                     key={definition.checkpointKey}
                   >
                     <header className="checkpoint-editor-card-heading">

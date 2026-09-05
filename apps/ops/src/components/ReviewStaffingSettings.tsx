@@ -64,7 +64,7 @@ function JuniorParticipation({ roundId }: { roundId: RoundId }) {
           <LiveNumber value={people.length} /> have reviewed
         </strong>
       </summary>
-      <p className="muted">
+      <p className="m-0 px-4 py-5 text-ink-2 sm:px-5">
         {waitingForFirst} on-duty JCs are waiting for their first review.
         Allocation checks availability and qualifications, then prefers the
         fewest completed reviews across this event and the longest wait since
@@ -135,14 +135,17 @@ function StaffingForm({
       <summary>
         <strong>Staffing controls</strong>
       </summary>
-      <p className="muted">
-        One lead · {policy.seniorSeats} SC · {policy.juniorSeats} JC. Changes
-        apply to new pages and subsequent staffing checks. An active page keeps
-        its response deadline.
-      </p>
-      <form className="stack" onSubmit={submit}>
-        <fieldset disabled={!settings.canConfigure || busy || pending}>
-          <label>
+      <form className="grid gap-5 p-4 sm:p-5" onSubmit={submit}>
+        <p className="m-0 text-ink-2">
+          One lead · {policy.seniorSeats} SC · {policy.juniorSeats} JC. Changes
+          apply to new pages and subsequent staffing checks. An active page keeps
+          its response deadline.
+        </p>
+        <fieldset
+          className="grid gap-4 md:grid-cols-2"
+          disabled={!settings.canConfigure || busy || pending}
+        >
+          <label className="check-row md:col-span-2">
             <input
               type="checkbox"
               checked={policy.allowSeniorLeadFallback}
@@ -155,7 +158,7 @@ function StaffingForm({
             />
             Allow an SC lead if Board is unavailable
           </label>
-          <label>
+          <label className="check-row md:col-span-2">
             <input
               type="checkbox"
               checked={policy.automaticReplacement}
@@ -168,7 +171,7 @@ function StaffingForm({
             />
             Automatic replacement
           </label>
-          <label>
+          <label className="field">
             Rotate JC after this many reviews (0 disables)
             <input
               type="number"
@@ -184,7 +187,7 @@ function StaffingForm({
               }
             />
           </label>
-          <label>
+          <label className="field">
             Page response window (seconds)
             <input
               type="number"
@@ -195,7 +198,7 @@ function StaffingForm({
               onChange={(event) => setResponse(event.target.value)}
             />
           </label>
-          <label>
+          <label className="field">
             Arrival after page acceptance (seconds)
             <input
               type="number"
@@ -211,7 +214,7 @@ function StaffingForm({
               }
             />
           </label>
-          <label>
+          <label className="field">
             No-show grace (seconds)
             <input
               type="number"
@@ -222,7 +225,7 @@ function StaffingForm({
               onChange={(event) => setGrace(event.target.value)}
             />
           </label>
-          <label>
+          <label className="field">
             Remind before shift (seconds, 0 disables)
             <input
               type="number"
@@ -238,7 +241,7 @@ function StaffingForm({
               }
             />
           </label>
-          <label>
+          <label className="check-row md:col-span-2">
             <input
               type="checkbox"
               checked={policy.assignmentReminderCalls}
@@ -251,12 +254,12 @@ function StaffingForm({
             />
             Also call reviewers who allow review calls
           </label>
-          <p className="muted">
+          <p className="m-0 text-ink-2 md:col-span-2">
             Push and calls use the same lead time. Changes reschedule upcoming
             reminders; reviewers already clocked in are not reminded.
           </p>
           {settings.canConfigure ? (
-            <label>
+            <label className="field md:col-span-2">
               Reason
               <input
                 required
@@ -269,12 +272,12 @@ function StaffingForm({
           ) : null}
         </fieldset>
         {error ? (
-          <p className="error" role="alert">
+          <p className="notice error m-0" role="alert">
             {error}
           </p>
         ) : null}
         {settings.canConfigure ? (
-          <button type="submit" disabled={busy}>
+          <button className="primary" type="submit" disabled={busy}>
             {busy
               ? "Saving…"
               : pending

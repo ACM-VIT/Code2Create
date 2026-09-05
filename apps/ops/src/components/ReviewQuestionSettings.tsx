@@ -22,7 +22,7 @@ export function ReviewQuestionSettings({ roundId }: { roundId: RoundId }) {
     <details className="workspace-disclosure">
       <summary>
         <strong>Suggested review questions</strong>
-        <span>
+        <span className="text-right text-xs text-ink-2">
           {settings.policy.enabled ? (
             <>
               <LiveNumber value={ready} /> of{" "}
@@ -118,8 +118,8 @@ function QuestionForm({
     ],
   ] as const;
   return (
-    <form onSubmit={submit}>
-      <p className="muted">
+    <form className="grid gap-5 p-4 sm:p-5" onSubmit={submit}>
+      <p className="m-0 text-ink-2">
         Prepare ungraded verbal prompts for every reviewable team. Updated
         evidence creates a fresh set; each review keeps the evidence captured
         when it starts. All readable repository files and stored Figma nodes are
@@ -128,8 +128,11 @@ function QuestionForm({
         needs a live demonstration. Ops can see collection and analysis
         coverage; reviewers receive a short brief with useful follow-ups.
       </p>
-      <fieldset disabled={!settings.canConfigure || busy || pending}>
-        <label className="checkbox-field">
+      <fieldset
+        className="grid gap-4 md:grid-cols-2"
+        disabled={!settings.canConfigure || busy || pending}
+      >
+        <label className="check-row md:col-span-2">
           <input
             type="checkbox"
             checked={policy.enabled}
@@ -139,7 +142,7 @@ function QuestionForm({
           />
           Continuously prepare suggested questions
         </label>
-        <label className="checkbox-field">
+        <label className="check-row md:col-span-2">
           <input
             type="checkbox"
             checked={policy.visualAnalysis}
@@ -149,7 +152,7 @@ function QuestionForm({
           />
           Inspect captured Figma screens
         </label>
-        <label>
+        <label className="field md:col-span-2">
           Model
           <input
             value={policy.model}
@@ -157,7 +160,7 @@ function QuestionForm({
           />
         </label>
         {numericFields.map(([key, label, min, max]) => (
-          <label key={key}>
+          <label className="field" key={key}>
             {label}
             <input
               type="number"
@@ -170,9 +173,10 @@ function QuestionForm({
             />
           </label>
         ))}
-        <label>
+        <label className="field md:col-span-2">
           Additional review guidance
           <textarea
+            className="min-h-28 resize-y"
             maxLength={2000}
             value={policy.instructions}
             onChange={(e) =>
@@ -180,13 +184,14 @@ function QuestionForm({
             }
           />
         </label>
-        <label>
+        <label className="field md:col-span-2">
           Reason
           <input value={reason} onChange={(e) => setReason(e.target.value)} />
         </label>
       </fieldset>
       {settings.canConfigure ? (
         <button
+          className="primary"
           type="submit"
           disabled={busy || (!pending && reason.trim().length < 3)}
         >
@@ -197,7 +202,7 @@ function QuestionForm({
               : "Save question settings"}
         </button>
       ) : null}
-      {error ? <p role="alert">{error}</p> : null}
+      {error ? <p className="notice error m-0" role="alert">{error}</p> : null}
     </form>
   );
 }

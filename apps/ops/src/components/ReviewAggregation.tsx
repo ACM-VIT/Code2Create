@@ -17,7 +17,7 @@ export function ReviewAggregationConfiguration() {
   const configuration = useQuery(api.reviewAggregation.configuration, {
     eventSlug,
   });
-  if (!configuration) return <p className="muted">Loading round weights…</p>;
+  if (!configuration) return <p className="m-0 text-ink-2">Loading round weights…</p>;
   if (!configuration.rounds.length) return null;
   return (
     <AggregationEditor
@@ -88,14 +88,14 @@ function AggregationEditor({
       <summary>
         <strong>Combined results · round weights</strong>
       </summary>
-      <form className="stack" onSubmit={submit}>
-        <p className="muted">
+      <form className="grid gap-5 p-4 sm:p-5" onSubmit={submit}>
+        <p className="m-0 text-ink-2">
           Set the contribution of each round to the final result. Use 0 to
           exclude a round. Weights must total 100%. Combined results use the
           approved outcomes after every contributing round closes.
         </p>
         {configuration.rounds.map((round, index) => (
-          <label key={round.id}>
+          <label className="field" key={round.id}>
             {round.name} (%)
             <input
               type="number"
@@ -117,7 +117,7 @@ function AggregationEditor({
             />
           </label>
         ))}
-        <p className="muted">
+        <p className="m-0 text-ink-2">
           Total {total}% ·{" "}
           {configuration.version
             ? `Published version ${configuration.version}`
@@ -125,7 +125,7 @@ function AggregationEditor({
         </p>
         {configuration.canPublish ? (
           <>
-            <label>
+            <label className="field">
               Reason
               <input
                 minLength={3}
@@ -137,11 +137,12 @@ function AggregationEditor({
               />
             </label>
             {error ? (
-              <p className="error" role="alert">
+              <p className="notice error m-0" role="alert">
                 {error}
               </p>
             ) : null}
             <button
+              className="primary"
               type="submit"
               disabled={busy || (!pending && total !== 100)}
             >
@@ -165,7 +166,7 @@ export function CombinedReviewResults() {
   return (
     <section className="setup-section">
       <h2>Combined results</h2>
-      <p className="muted">
+      <p className="m-0 text-ink-2">
         {data.rounds
           .map((round) => `${round.name} ${round.weight}%`)
           .join(" · ")}{" "}
@@ -176,8 +177,8 @@ export function CombinedReviewResults() {
           Combined results will appear after all contributing rounds are closed.
         </p>
       ) : (
-        <div className="table-scroll">
-          <table>
+        <div className="my-4 min-w-0 overflow-x-auto">
+          <table className="w-full border-collapse text-left text-[0.8125rem] [&_th]:px-4 [&_th]:py-3 [&_th]:font-medium [&_td]:px-4 [&_td]:py-3 [&_tr]:border-0 [&_tr]:border-b [&_tr]:border-solid [&_tr]:border-line">
             <thead>
               <tr>
                 <th>Team</th>
@@ -209,7 +210,7 @@ export function CombinedReviewResults() {
           </table>
         </div>
       )}
-      <p className="muted">
+      <p className="m-0 text-ink-2">
         Missing, excluded, or withdrawn outcomes keep a team’s combined result
         incomplete. Equal totals remain tied.
       </p>

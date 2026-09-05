@@ -345,7 +345,7 @@ export function NoveltyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibili
               <h2>Past projects</h2>
               <p className="muted">Each project needs a short, supportive question for teams.</p>
             </div>
-            <span className="status-pill">{importStateName(draft.importState)}</span>
+            <span className="state-label">{importStateName(draft.importState)}</span>
           </div>
           {draft.importFailureCategory ? (
             <p className="notice error">

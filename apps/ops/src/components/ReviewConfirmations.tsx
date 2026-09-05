@@ -38,7 +38,7 @@ export function ReviewConfirmations({
     roundId,
   });
   if (!data)
-    return <p className="muted">Loading availability confirmations…</p>;
+    return <p className="m-0 text-ink-2">Loading availability confirmations…</p>;
   const confirmed = data.people.filter(
     (person) => person.response.status === "confirmed",
   ).length;
@@ -56,7 +56,7 @@ export function ReviewConfirmations({
           </small>
         </span>
       </summary>
-      <p className="muted">
+      <p className="m-0 px-4 py-5 text-ink-2 sm:px-5">
         App confirmation opens at {dateTime.format(data.opensAt)} IST. These
         responses determine availability for this round.
       </p>
@@ -138,10 +138,10 @@ function ConfirmationSchedule({
   };
 
   return (
-    <details className="workspace-disclosure">
-      <summary>Change confirmation time</summary>
-      <form className="stack" onSubmit={submit}>
-        <label>
+    <details className="mx-4 mb-5 rounded-md border border-solid border-line sm:mx-5">
+      <summary className="cursor-pointer px-4 py-3 text-sm">Change confirmation time</summary>
+      <form className="grid gap-5 p-4 sm:p-5" onSubmit={submit}>
+        <label className="field">
           Opening time (IST)
           <input
             type="datetime-local"
@@ -151,7 +151,7 @@ function ConfirmationSchedule({
             onChange={(event) => setOpening(event.target.value)}
           />
         </label>
-        <label>
+        <label className="field">
           Reason for the change
           <input
             required
@@ -162,16 +162,16 @@ function ConfirmationSchedule({
             onChange={(event) => setReason(event.target.value)}
           />
         </label>
-        <p className="muted">
+        <p className="m-0 text-ink-2">
           You can change this until confirmation opens. Existing reviewer
           responses are preserved.
         </p>
         {error ? (
-          <p role="alert" className="error">
+          <p role="alert" className="notice error m-0">
             {error}
           </p>
         ) : null}
-        <button type="submit" disabled={busy}>
+        <button className="primary" type="submit" disabled={busy}>
           {busy
             ? "Saving…"
             : pending
