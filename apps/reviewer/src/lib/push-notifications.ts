@@ -125,8 +125,15 @@ export async function requestReviewerPushRegistration(
 export function subscribeToReviewerPushTokenChanges(
   onChange: () => void,
 ) {
-  // Re-read permission too: a rotated token alone does not prove notifications are allowed.
-  const subscription = Notifications.addPushTokenListener(onChange);
+  let lastToken: string | undefined;
+  const subscription = Notifications.addPushTokenListener((token) => {
+    // Expo emits this event after every token read, not just token rotations.
+    // Re-reading an identical event would perpetually restart registration.
+    if (typeof token.data !== "string" || token.data === lastToken) return;
+    lastToken = token.data;
+    // Re-read permission too: a token does not prove notifications are allowed.
+    onChange();
+  });
   return () => subscription.remove();
 }
 

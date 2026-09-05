@@ -3,6 +3,7 @@ import {
   currentReviewerPushRegistration,
   pagingReadiness,
   requestReviewerPushRegistration,
+  subscribeToReviewerPushTokenChanges,
 } from "./push-notifications";
 
 const native = vi.hoisted(() => ({
@@ -13,6 +14,7 @@ const native = vi.hoisted(() => ({
   channel: vi.fn(),
   readiness: vi.fn(),
   settings: vi.fn(),
+  tokenListener: vi.fn(),
 }));
 vi.mock("react-native", () => ({
   Platform: native.platform,
@@ -25,6 +27,7 @@ vi.mock("expo-crypto", () => ({
 vi.mock("./pager-alarm", () => ({ androidPagingReadiness: native.readiness }));
 vi.mock("expo-notifications", () => ({
   setNotificationHandler: vi.fn(),
+  addPushTokenListener: native.tokenListener,
   getPermissionsAsync: native.permission,
   requestPermissionsAsync: native.request,
   getDevicePushTokenAsync: native.token,
@@ -43,6 +46,38 @@ beforeEach(() => {
     batteryUnrestricted: true,
   });
   native.token.mockResolvedValue({ data: "fcm:valid_test_token_1234567890" });
+});
+
+test("token reads do not recursively refresh registration, but rotations still do", async () => {
+  let emit!: (token: { type: "android"; data: string }) => void;
+  const remove = vi.fn();
+  native.tokenListener.mockImplementation((listener: typeof emit) => {
+    emit = listener;
+    return { remove };
+  });
+  let token = "fcm:valid_test_token_1234567890";
+  native.token.mockImplementation(async () => {
+    if (native.token.mock.calls.length > 5) throw new Error("Token read loop");
+    emit({ type: "android", data: token });
+    return { data: token };
+  });
+  const refreshed: ReturnType<typeof currentReviewerPushRegistration>[] = [];
+  const unsubscribe = subscribeToReviewerPushTokenChanges(() => {
+    refreshed.push(currentReviewerPushRegistration("production"));
+  });
+  expect(await currentReviewerPushRegistration("production")).toMatchObject({ status: "ready" });
+  await Promise.all(refreshed);
+  expect(refreshed).toHaveLength(1);
+  expect(native.token).toHaveBeenCalledTimes(2);
+
+  token = "fcm:rotated_test_token_0987654321";
+  emit({ type: "android", data: token });
+  await Promise.all(refreshed);
+  expect(refreshed).toHaveLength(2);
+  expect(native.token).toHaveBeenCalledTimes(3);
+  expect(await refreshed[1]).toMatchObject({ status: "ready", token });
+  unsubscribe();
+  expect(remove).toHaveBeenCalledOnce();
 });
 
 test("Android reports the actual full-screen and battery switches, including later revocation", async () => {

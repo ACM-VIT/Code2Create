@@ -3,7 +3,7 @@ import { api } from "@code2create/backend/api";
 import type { FunctionReturnType } from "convex/server";
 import { useMutation, useQueries } from "convex/react";
 import { randomUUID } from "expo-crypto";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { StyleSheet, Text, TextInput, View } from "react-native";
 
 import { Action, CheckRow, QuietAction } from "@/components/ui";
@@ -42,14 +42,18 @@ export function PagingSetup({
   const [callBusy, setCallBusy] = useState(false);
   const [callError, setCallError] = useState<string | null>(null);
   const [phoneOverride, setPhoneOverride] = useState<string | null>(null);
+  // Convex's subscription changes during render when this object's identity
+  // changes. Keep it stable across local permission and form updates.
+  const consentQuery = useMemo(
+    () => ({ consent: { query: api.outboundCallConsents.mine, args: { eventSlug } } }),
+    [eventSlug],
+  );
   // Call consent is optional. A denied/failed query must not crash phone setup.
   const {
     consent,
   }: {
     consent?: FunctionReturnType<typeof api.outboundCallConsents.mine> | Error;
-  } = useQueries({
-    consent: { query: api.outboundCallConsents.mine, args: { eventSlug } },
-  });
+  } = useQueries(consentQuery);
   const consentError =
     consent instanceof Error
       ? describeError(
