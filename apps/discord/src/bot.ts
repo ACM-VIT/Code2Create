@@ -12,6 +12,7 @@ import {
   type TextChannel,
 } from "discord.js";
 
+import { canReplyToSupport } from "./permissions.ts";
 import { BridgeRequestError, SupportBackend } from "./backend.ts";
 import {
   nextSupportCategoryRolloverIndex,
@@ -431,27 +432,26 @@ export class DiscordSupportBot {
     ) {
       return;
     }
-    if (
-      message.member === null ||
-      !this.config.DISCORD_ALLOWED_ROLE_IDS.some((roleId) => message.member?.roles.cache.has(roleId))
-    ) {
-      await safeReact(message, "⛔");
-      return;
-    }
-    const text = inboundMessageText(
-      message.cleanContent,
-      message.attachments.map((attachment) => attachment.url),
-    );
-    if (text.trim().length < 2) {
-      await safeReact(message, "⚠️");
-      return;
-    }
     try {
+      // Member updates are not subscribed to; fetch current roles for every reply.
+      const member = await message.channel.guild.members.fetch({ user: message.author.id, force: true });
+      if (!canReplyToSupport(member.permissions, member.roles.cache.keys(), this.config.DISCORD_ALLOWED_ROLE_IDS)) {
+        await safeReact(message, "⛔");
+        return;
+      }
+      const text = inboundMessageText(
+        message.cleanContent,
+        message.attachments.map((attachment) => attachment.url),
+      );
+      if (text.trim().length < 2) {
+        await safeReact(message, "⚠️");
+        return;
+      }
       const result = await this.backend.reply({
         discordChannelId: message.channel.id,
         discordMessageId: message.id,
         discordUserId: message.author.id,
-        discordDisplayName: message.member?.displayName ?? message.author.displayName,
+        discordDisplayName: member.displayName,
         message: text,
       });
       this.lastBackendSuccessAt = Date.now();
