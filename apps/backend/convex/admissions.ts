@@ -5,7 +5,7 @@ import { paginator } from "convex-helpers/server/pagination";
 import { z } from "zod";
 
 import { internal } from "./_generated/api";
-import { validateAdmissionRsvpSchedule, requireAdmissionRsvpCapacity } from "./lib/admissionRsvpSchedule";
+import { validateAdmissionOfferTiming, validateAdmissionRsvpSchedule, requireAdmissionRsvpCapacity } from "./lib/admissionRsvpSchedule";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation, mutation, query } from "./_generated/server";
@@ -3783,7 +3783,7 @@ export async function createAdmissionOffer(
   ) {
     throw new Error("The accepted application context is incomplete.");
   }
-  validateAdmissionRsvpSchedule(args.event, args.expiresAt, args.reminderAt, args.now);
+  validateAdmissionOfferTiming(args.event, args.expiresAt, args.reminderAt, args.now);
   const offerId = await ctx.db.insert("admissionOffers", {
     eventId: args.event._id,
     applicationId: args.application._id,
@@ -4107,6 +4107,7 @@ export const sendOffer = mutation({
       throw new Error("The accepted application context is incomplete.");
     }
     const now = Date.now();
+    validateAdmissionRsvpSchedule(event, args.expiresAt, args.reminderAt, now);
     const created = await createAdmissionOffer(ctx, {
       event,
       application,

@@ -3,7 +3,8 @@ import { getAll } from "convex-helpers/server/relationships";
 import type { MutationCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 
-export function validateAdmissionRsvpSchedule(
+/** Timing for an offer, including a previously saved schedule applied by a queued job. */
+export function validateAdmissionOfferTiming(
   event: Doc<"events">,
   closesAt: number,
   reminderAt: number | undefined,
@@ -15,6 +16,19 @@ export function validateAdmissionRsvpSchedule(
   }
   if (reminderAt !== undefined && (!Number.isSafeInteger(reminderAt) || reminderAt >= closesAt)) {
     throw new ConvexError({ code: "INVALID_RSVP_REMINDER", message: "Reminder calls must start before RSVP closes." });
+  }
+}
+
+/** A newly submitted schedule must never turn an elapsed timestamp into an immediate call. */
+export function validateAdmissionRsvpSchedule(
+  event: Doc<"events">,
+  closesAt: number,
+  reminderAt: number | undefined,
+  now: number,
+) {
+  validateAdmissionOfferTiming(event, closesAt, reminderAt, now);
+  if (reminderAt !== undefined && reminderAt <= now) {
+    throw new ConvexError({ code: "INVALID_RSVP_REMINDER", message: "Reminder calls must start in the future, before RSVP closes." });
   }
 }
 

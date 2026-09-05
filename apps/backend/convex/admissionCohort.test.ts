@@ -1,7 +1,7 @@
 import betterAuthSchema from "../node_modules/@convex-dev/better-auth/src/component/schema.ts";
 import { convexTest, type TestConvex } from "convex-test";
 import type { FunctionReturnType } from "convex/server";
-import { afterAll, describe, expect, test } from "vitest";
+import { afterAll, afterEach, describe, expect, test, vi } from "vitest";
 
 import {
   admissionIntelligenceReadSignatureContext,
@@ -46,6 +46,8 @@ process.env.INTELLIGENCE_READ_SECRET = readSecret;
 process.env.AUTH_SITE_URL = "http://localhost:3211";
 process.env.PARTICIPANT_SITE_URL = "http://localhost:4173";
 process.env.OPERATIONS_SITE_URL = "http://localhost:4174";
+
+afterEach(() => vi.useRealTimers());
 
 afterAll(() => {
   for (const [name, value] of Object.entries(savedEnvironment)) {
@@ -998,6 +1000,7 @@ describe("admission cohort query and decisions", () => {
   });
 
   test("only Supreme releases the complete recorded decision set", async () => {
+    vi.useFakeTimers();
     const backend = seededBackend();
     const fixture = await seedCohortFixture(backend);
     const operator = backend.withIdentity({
@@ -1057,6 +1060,17 @@ describe("admission cohort query and decisions", () => {
       waitlisted: 1,
       declined: 1,
     });
+    for (const reminderAt of [fixture.now - 60_000, Date.now()]) {
+      await expect(operator.mutation(api.admissions.releaseAdmissionResults, {
+        rsvpClosesAt: Date.now() + 60 * 60_000,
+        rsvpReminderAt: reminderAt,
+        eventSlug: fixture.eventSlug,
+        expectedEventVersion: 1,
+        reason: "Reject an elapsed reminder schedule",
+        clientOperationId: `invalid-release-${reminderAt}`,
+      })).rejects.toThrow("Reminder calls must start in the future");
+    }
+    expect((await backend.run(ctx => ctx.db.get(fixture.eventId)))?.admissionResultsReleasedAt).toBeUndefined();
     const released = await operator.mutation(api.admissions.releaseAdmissionResults, {
       rsvpClosesAt: Date.now() + 60 * 60_000,
       eventSlug: fixture.eventSlug,
@@ -1079,10 +1093,30 @@ describe("admission cohort query and decisions", () => {
       reason: "Open attendance confirmation with a scheduled reminder", clientOperationId: "open-rsvp",
     };
     await expect(onlooker.mutation(api.admissionRsvp.configure, rsvpArgs)).rejects.toThrow("permission");
+    const selected = await backend.run(ctx => ctx.db.get(fixture.decidableApplicationId));
+    if (!selected) throw new Error("Missing accepted application");
+    for (const reminderAt of [fixture.now - 60_000, Date.now()]) {
+      await expect(operator.mutation(api.admissionRsvp.configure, {
+        ...rsvpArgs, reminderAt, clientOperationId: `invalid-configure-${reminderAt}`,
+      })).rejects.toThrow("Reminder calls must start in the future");
+      await expect(operator.mutation(api.admissions.sendOffer, {
+        eventSlug: fixture.eventSlug, applicationId: selected._id,
+        expectedApplicationVersion: selected.version, expiresAt: rsvpArgs.closesAt, reminderAt,
+        clientOperationId: `invalid-offer-${reminderAt}`,
+      })).rejects.toThrow("Reminder calls must start in the future");
+    }
+    expect(await backend.run(ctx => ctx.db.query("admissionOffers").collect())).toEqual([]);
+    expect((await backend.run(ctx => ctx.db.get(fixture.eventId)))?.version).toBe(2);
     await operator.mutation(api.admissionRsvp.configure, rsvpArgs);
     await operator.mutation(api.admissionRsvp.configure, rsvpArgs);
-    await backend.mutation(internal.admissionRsvp.openForApplication, { applicationId: fixture.decidableApplicationId });
-    await backend.mutation(internal.admissionRsvp.openForApplication, { applicationId: fixture.decidableApplicationId });
+    // The schedule was saved on time, but a delayed worker can apply it after calls begin.
+    const delayedClock = vi.spyOn(Date, "now").mockReturnValue(rsvpArgs.reminderAt + 1);
+    try {
+      await backend.mutation(internal.admissionRsvp.openForApplication, { applicationId: fixture.decidableApplicationId });
+      await backend.mutation(internal.admissionRsvp.openForApplication, { applicationId: fixture.decidableApplicationId });
+    } finally {
+      delayedClock.mockRestore();
+    }
     const offers = await backend.run(ctx => ctx.db.query("admissionOffers").collect());
     expect(offers).toHaveLength(1);
     expect(offers[0]).toMatchObject({ state: "offered", expiresAt: rsvpArgs.closesAt, reminderAt: rsvpArgs.reminderAt });
