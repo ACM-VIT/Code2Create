@@ -8,7 +8,7 @@
  * replay a game as often as they like — the leaderboard keeps their best round.
  */
 
-export const gameKeys = ["pacman", "stack"] as const;
+export const gameKeys = ["pacman", "stack", "memory"] as const;
 export type GameKey = (typeof gameKeys)[number];
 
 export type GameDefinition = {
@@ -58,6 +58,18 @@ export const gameCatalog = [
     // so 100 points cannot arrive faster than about once a second. 300/s is
     // several times the real rate and still refuses an instant round.
     maximumScorePerSecond: 300,
+  },
+  {
+    key: "memory",
+    title: "Memory",
+    // A finished board starts from a perfect 5,000 and spends from it: 40 a
+    // move past the twelve a flawless memory needs, and 5 a second. Nothing
+    // scores above the perfect board, so that is the ceiling exactly.
+    maximumScore: 5_000,
+    // Turning 24 cards takes time even played perfectly, and the score only
+    // falls as the clock runs. 400/s puts the ceiling out of reach until about
+    // 12 seconds in, which no real board is finished inside.
+    maximumScorePerSecond: 400,
   },
 ] as const satisfies readonly GameDefinition[];
 

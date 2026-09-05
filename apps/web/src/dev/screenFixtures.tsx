@@ -72,6 +72,7 @@ import {
 import { SubmitCelebration } from "../components/portal/SubmitCelebration";
 import { ImportedTeamChoiceView } from "../components/portal/ImportedTeamChoiceView";
 import PacmanBoard from "../games/pacman/Map.tsx";
+import MemoryBoard from "../games/memory/Board.tsx";
 import StackBoard from "../games/stack/Board.tsx";
 
 const team: ClusterTeam = {
@@ -1861,6 +1862,14 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries([
     () => (
       <div className="flex min-h-full flex-1 items-center justify-center bg-black p-4">
         <StackBoard onRoundStart={noop} onRoundEnd={noop} />
+      </div>
+    ),
+  ],
+  [
+    "arcade-memory",
+    () => (
+      <div className="flex min-h-full flex-1 items-center justify-center bg-black p-4">
+        <MemoryBoard onRoundStart={noop} onRoundEnd={noop} />
       </div>
     ),
   ],
