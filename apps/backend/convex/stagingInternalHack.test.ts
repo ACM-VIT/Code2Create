@@ -139,6 +139,78 @@ test.each([2, 5])(
       return offer._id;
     });
     await t.mutation(internal.admissions.expireOffer, { offerId, expectedOfferVersion: 1 });
+    const roundId = await t.run(async (ctx) => {
+      const rubricVersionId = await ctx.db.insert("reviewRubricVersions", {
+        eventId: setup.eventId,
+        version: 1,
+        name: "Internal rubric",
+        status: "published",
+        scoreMinimum: 0,
+        scoreMaximum: 4,
+        aggregationFormula: "criterion_mean_weighted_v1",
+        spreadThreshold: 2,
+        checksum: "fixture",
+        createdByPersonId: setup.ownerPersonId,
+        createdAt: now,
+      });
+      return ctx.db.insert("reviewRounds", {
+        eventId: setup.eventId,
+        rubricVersionId,
+        stableKey: "internal_review_1",
+        name: "Review 1",
+        sequence: 1,
+        status: "open",
+        startsAt: now - 1000,
+        openedAt: now - 1000,
+        endsAt: now + 14400000,
+        clockInOpensAt: now - 1801000,
+        reviewerReportAt: now - 601000,
+        correctionRequestsCloseAt: now + 14400000,
+        noShowGraceSeconds: 300,
+        reviewDurationSeconds: 420,
+        ordinaryExtensionSeconds: 60,
+        maximumOrdinaryExtensions: 1,
+        missedCallGraceSeconds: 120,
+        requiredCallAttempts: 2,
+        substituteResponseSeconds: 60,
+        missedReentryPolicy: "preserve_queue_time",
+        requiredPanelSize: 3,
+        staffing: {
+          allowSeniorLeadFallback: false,
+          assignmentReminderCalls: false,
+          assignmentReminderSeconds: 300,
+          automaticReplacement: false,
+          juniorRotationReviews: 1,
+          juniorSeats: 1,
+          reviewerArrivalSeconds: 90,
+          seniorSeats: 1,
+        },
+        minimumScorersPerCriterion: 2,
+        minimumPresentParticipants: 1,
+        requiresSharedCommitments: true,
+        requiresFinalComment: true,
+        minimumReviewerBuild: 1,
+        requiresCamera: false,
+        requiresNotifications: false,
+        version: 2,
+        configurationChecksum: "fixture",
+        createdByPersonId: setup.ownerPersonId,
+        createdAt: now,
+      });
+    });
+    const startsAt = now + 11400000;
+    await t.mutation(internal.stagingInternalHack.rescheduleRound, { roundId, startsAt });
+    await t.mutation(internal.stagingInternalHack.rescheduleRound, { roundId, startsAt });
+    await t.mutation(internal.stagingInternalHack.openScheduledRound, { roundId });
+    await t.run(async (ctx) => {
+      expect(await ctx.db.get(roundId)).toMatchObject({
+        status: "published",
+        startsAt,
+        version: 3,
+        clockInOpensAt: startsAt - 1800000,
+        reviewerReportAt: startsAt - 600000,
+      });
+    });
     const extension = {
       eventId: setup.eventId,
       ownerPersonId: setup.ownerPersonId,

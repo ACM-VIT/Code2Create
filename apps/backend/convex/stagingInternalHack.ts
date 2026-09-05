@@ -1,5 +1,6 @@
 import { enqueueApplicationNotifications } from "./lib/participantNotificationDelivery";
 import { writeAuditEvent } from "./lib/audit";
+import { operationFingerprint } from "./lib/operations";
 import { defaultParticipantEmailTemplates } from "@code2create/domain";
 import { participantPolicyChecksum, participantPolicyFromDocument } from "./lib/participantPolicy";
 import { ConvexError, v } from "convex/values";
@@ -585,13 +586,48 @@ export const scheduleRound = internalMutation({
     return null;
   },
 });
+export const rescheduleRound = internalMutation({
+  args: { roundId: v.id("reviewRounds"), startsAt: v.number() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    requireStaging();
+    const round = await ctx.db.get(args.roundId);
+    if (!round || !["published", "open"].includes(round.status))
+      throw new Error("Only a scheduled or unused open round can be rescheduled.");
+    if (args.startsAt <= Date.now() || args.startsAt >= round.endsAt)
+      throw new Error("Choose a future start before the round ends.");
+    const session = await ctx.db
+      .query("reviewSessions")
+      .withIndex("by_round_status_updated", (q) => q.eq("roundId", round._id))
+      .first();
+    if (session) throw new Error("A round with review sessions cannot be rescheduled.");
+    if (round.startsAt === args.startsAt && round.status === "published") return null;
+    const shift = args.startsAt - round.startsAt;
+    await ctx.db.patch(round._id, {
+      startsAt: args.startsAt,
+      clockInOpensAt: round.clockInOpensAt + shift,
+      reviewerReportAt: round.reviewerReportAt + shift,
+      status: "published",
+      openedAt: undefined,
+      version: round.version + 1,
+      configurationChecksum: operationFingerprint([
+        round.configurationChecksum,
+        String(args.startsAt),
+      ]),
+    });
+    await ctx.scheduler.runAt(args.startsAt, internal.stagingInternalHack.openScheduledRound, {
+      roundId: round._id,
+    });
+    return null;
+  },
+});
 export const openScheduledRound = internalMutation({
   args: { roundId: v.id("reviewRounds") },
   returns: v.null(),
   handler: async (ctx, args) => {
     requireStaging();
     const round = await ctx.db.get(args.roundId);
-    if (!round || round.status !== "published") return null;
+    if (!round || round.status !== "published" || Date.now() < round.startsAt) return null;
     const event = await ctx.db.get(round.eventId);
     if (event?.status !== "live") throw new Error("Internal hack is not live.");
     await ctx.db.patch(round._id, {
@@ -660,6 +696,15 @@ export const extendRsvp = internalMutation({
       minute: "2-digit",
       hour12: true,
     }).format(args.expiresAt);
+    const reviewRound = await ctx.db
+      .query("reviewRounds")
+      .withIndex("by_event_key", (q) =>
+        q.eq("eventId", event._id).eq("stableKey", "internal_review_1"),
+      )
+      .unique();
+    const reviewSchedule = reviewRound
+      ? `Review 1 starts at ${new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", hour: "numeric", minute: "2-digit", hour12: true }).format(reviewRound.startsAt)} IST.`
+      : "Check staging for the updated review schedule.";
     const policy = {
       ...communicationsPolicyFromDocument(communications),
       emailTemplates: communications.emailTemplates.map((template) =>
@@ -667,8 +712,8 @@ export const extendRsvp = internalMutation({
           ? {
               ...template,
               subject: "[UPDATED STAGING RSVP] Confirm {{team_name}}",
-              text: `Hi {{participant_name}},\n\nRSVP for {{team_name}} has been reopened until ${deadline} IST. Please ignore the earlier expiry email. The internal hack started at 11:00pm IST; review 1 remains at 11:30pm IST. Your team lead should confirm here: {{portal_url}}\n\nThis is the internal staging test, not a production admission result.`,
-              html: `<p>Hi {{participant_name}},</p><p>RSVP for <strong>{{team_name}}</strong> is open until <strong>${deadline} IST</strong>. Please ignore the earlier expiry email.</p><p>The internal hack started at 11:00pm IST. Review 1 remains at 11:30pm IST.</p><p><a href='{{portal_url}}'>Team lead: confirm your team on staging</a></p><p>This is an internal staging test, not a production admission result.</p>`,
+              text: `Hi {{participant_name}},\n\nRSVP for {{team_name}} has been reopened until ${deadline} IST. Please ignore the earlier expiry email. ${reviewSchedule} Your team lead should confirm here: {{portal_url}}\n\nThis is the internal staging test, not a production admission result.`,
+              html: `<p>Hi {{participant_name}},</p><p>RSVP for <strong>{{team_name}}</strong> is open until <strong>${deadline} IST</strong>. Please ignore the earlier expiry email.</p><p>${reviewSchedule}</p><p><a href='{{portal_url}}'>Team lead: confirm your team on staging</a></p><p>This is an internal staging test, not a production admission result.</p>`,
             }
           : template,
       ),
