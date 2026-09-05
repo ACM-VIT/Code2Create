@@ -1,6 +1,6 @@
 import { TrueSheet } from "@lodev09/react-native-true-sheet";
 import { ScrollView, TextInput } from "react-native";
-import { act, create, type ReactTestRenderer } from "react-test-renderer";
+import { act, create } from "react-test-renderer";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { Action, Sheet } from "../components/ui";
@@ -24,7 +24,7 @@ vi.mock("react-native", () => ({
   Platform: { OS: "android" },
 }));
 
-let renderer: ReactTestRenderer;
+let renderer: ReturnType<typeof create>;
 beforeEach(() => vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true));
 afterEach(async () => {
   await act(async () => renderer?.unmount());

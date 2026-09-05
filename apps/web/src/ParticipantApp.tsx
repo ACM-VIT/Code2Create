@@ -628,6 +628,7 @@ function ProvisionScreen({
   onSignOut: () => void;
 }) {
   const provision = useMutation(api.participants.provision);
+  const recovery = useQuery(api.rosterRecovery.current, { eventSlug, now: publicState.serverNow });
   const provisioningRef = useRef(false);
   const attemptedClassRef = useRef<ParticipantClass | null>(null);
   const [participantClass, setParticipantClass] = useState<ParticipantClass | null>(() => {
@@ -637,8 +638,8 @@ function ProvisionScreen({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const vitOpen = Boolean(
-    publicState.event?.registrationOpen &&
-    publicState.serverNow < publicState.event.applicationsCloseAt,
+    recovery || (publicState.event?.registrationOpen &&
+    publicState.serverNow < publicState.event.applicationsCloseAt),
   );
   const externalOpen = Boolean(
     publicState.event?.registrationOpen &&
@@ -704,6 +705,13 @@ function ProvisionScreen({
         <h1 className="mb-2 font-display font-light tracking-[-.01em] text-balance text-3xl lg:text-[40px]">
           Choose your participant type.
         </h1>
+        {recovery ? (
+          <p className="mb-4 text-sm text-fg/75">
+            The event team approved recovery of your existing {recovery.teamName} roster entry.
+            Complete your profile, accept the participant policy, and confirm your team to continue.
+            Registration remains closed for new applications.
+          </p>
+        ) : null}
         {/* The class is settled from the verified identity, so the account is
             the one fact worth showing: whoever signed in with the wrong one
             can see it here and use the door in the corner. */}

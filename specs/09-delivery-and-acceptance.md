@@ -19,7 +19,7 @@ Deliver these foundations:
 - server-time and idempotent-operation helpers;
 - Cloudflare Worker boundaries;
 - event-owned R2 storage for Expo Updates;
-- Cloudflare Email Routing and the event-owned email Worker;
+- the event-owned email Worker with Amazon SES and Cloudflare Email Sending providers, plus Cloudflare Email Routing for inbound support;
 - local, staging, and production environment contracts; and
 - backup and restore scripts.
 

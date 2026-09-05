@@ -159,11 +159,11 @@ export function defaultParticipantEmailTemplates(): ParticipantEmailTemplate[] {
     },
     {
       templateKey: "offer",
-      subject: "Confirm {{team_name}}'s place at Code2Create",
-      text: "Hi {{participant_name}},\n\n{{team_name}} has received an offer for {{event_name}}. The team lead must respond before the deadline shown here: {{portal_url}}",
+      subject: "RSVP required: confirm {{team_name}} by {{rsvp_deadline}}",
+      text: "Hi {{participant_name}},\n\n{{team_name}} has been selected for {{event_name}}, but attendance is not confirmed yet. Your team lead must open {{portal_url}} and choose Confirm attendance for the whole team by {{rsvp_deadline}}. If your team cannot attend, choose Decline. Unanswered reservations expire at the deadline.",
       html: emailHtml(
-        "Your team's offer is ready.",
-        "The team lead for {{team_name}} must respond before the deadline shown in the participant portal.",
+        "Confirm your team's attendance.",
+        "{{team_name}} has been selected, but attendance is not confirmed yet. Your team lead must choose Confirm attendance in the participant portal by {{rsvp_deadline}}. If your team cannot attend, choose Decline. Unanswered reservations expire at the deadline.",
       ),
     },
     {

@@ -1,4 +1,5 @@
 import type { Doc, Id } from "../_generated/dataModel";
+import type { ParticipantEmailProvider } from "@code2create/domain";
 import type { MutationCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { appendParticipantDeliveryReadFactById } from "./operationsAutonomyReadFacts/participantDeliveries";
@@ -103,6 +104,7 @@ export async function ensureApplicationNotification(
     teamId: Id<"teams">;
     snapshotMember: Doc<"teamSubmissionMembers">;
     communicationsPolicyVersionId: Id<"communicationsPolicyVersions">;
+    notificationProvider: ParticipantEmailProvider;
     templateKey: ParticipantNotificationTemplate;
     applicationVersion: number;
     now: number;
@@ -119,6 +121,13 @@ export async function ensureApplicationNotification(
     membership.personId !== snapshotMember.personId
   ) {
     throw new Error("Participant membership is missing for participant notification.");
+  }
+  // External admissions are communicated by the registration team, outside this release.
+  if (
+    membership.participantClass === "external_participant" &&
+    args.templateKey !== "external_event_pass"
+  ) {
+    return null;
   }
   const person = await ctx.db.get(snapshotMember.personId);
   if (!person || person.status !== "active") {
@@ -181,6 +190,7 @@ export async function ensureApplicationNotification(
     personId: person._id,
     destinationId: destination._id,
     communicationsPolicyVersionId: args.communicationsPolicyVersionId,
+    provider: args.notificationProvider,
     channel: "verified_email",
     destinationEmailNormalized: destination.emailNormalized,
     templateKey: args.templateKey,

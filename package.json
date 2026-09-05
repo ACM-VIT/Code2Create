@@ -7,6 +7,8 @@
     "dev": "node scripts/dev.mjs",
     "dev:full": "node scripts/dev.mjs --full",
     "dev:prepare": "node scripts/prepare-local-development.mjs",
+    "dev:seed": "node --experimental-strip-types scripts/seed-local-development.mjs",
+    "dev:playground": "node scripts/local-playground.mjs",
     "dev:web": "pnpm --filter @code2create/web dev",
     "dev:ops": "pnpm --filter @code2create/ops dev",
     "dev:backend": "pnpm --filter @code2create/backend dev",

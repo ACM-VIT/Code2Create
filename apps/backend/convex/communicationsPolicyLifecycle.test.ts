@@ -1,8 +1,11 @@
 import { convexTest, type TestConvex } from "convex-test";
 import { describe, expect, test } from "vitest";
 import { defaultParticipantEmailTemplates } from "@code2create/domain";
+import betterAuthSchema from "../node_modules/@convex-dev/better-auth/src/component/schema.ts";
+import { z } from "zod";
 
-import { internal } from "./_generated/api.js";
+import { api, components, internal } from "./_generated/api.js";
+import { insertPermissionGrant } from "./lib/permissions";
 import {
   communicationsPolicyChecksum,
   normalizeCommunicationsPolicy,
@@ -19,9 +22,63 @@ import { acceptedTeamCommunicationsForTeam } from "./participantCommunications.t
 import schema from "./schema.ts";
 
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
+const betterAuthModules = import.meta.glob("../node_modules/@convex-dev/better-auth/src/component/**/*.ts");
 type BackendTest = TestConvex<typeof schema>;
 
 describe("communications policy lifecycle", () => {
+  test("requires permission and recorded non-acceptance evidence to retry an unknown send exactly once", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedFixture(backend, "reconciled-send");
+    const deliveryId = await queueAcceptedNotification(backend, fixture);
+    await backend.run((ctx) => ctx.db.patch(deliveryId, {
+      state: "unknown", providerErrorCode: "email_service_response_ambiguous", version: 3,
+    }));
+    const now = Date.now();
+    const authUser = z.object({ _id: z.string() }).parse(await backend.mutation(components.betterAuth.adapter.create, {
+      input: { model: "user", data: { name: "Operator", email: "operator@example.test", emailVerified: true, createdAt: now, updatedAt: now } },
+    }));
+    const session = z.object({ _id: z.string() }).parse(await backend.mutation(components.betterAuth.adapter.create, {
+      input: { model: "session", data: { userId: authUser._id, token: crypto.randomUUID(), expiresAt: now + 60_000, createdAt: now, updatedAt: now } },
+    }));
+    await backend.run((ctx) => ctx.db.patch(fixture.personId, { authUserId: authUser._id }));
+    const operator = backend.withIdentity({ subject: authUser._id, sessionId: session._id });
+    const args = {
+      eventSlug: fixture.event.slug, deliveryId, expectedDeliveryVersion: 3,
+      reason: "Recover a confirmed missing email route", clientOperationId: "route-recovery",
+      confirmedNotAcceptedEvidence: "Worker request log confirms HTTP 404 before any provider call.",
+    };
+    await expect(operator.mutation(api.participantNotifications.retry, args)).rejects.toThrow();
+    await backend.run(async (ctx) => {
+      const membership = await ctx.db.get(fixture.membershipId);
+      if (!membership) throw new Error("Missing fixture membership");
+      await insertPermissionGrant(ctx, {
+        eventId: fixture.event._id, personId: fixture.personId,
+        eventAccessSubjectId: membership.eventAccessSubjectId,
+        permissionKey: "communications.delivery.manage", scopeType: "event",
+        sourceType: "manual", sourceId: "recovery-fixture", reason: "Recovery test",
+      });
+    });
+    const { confirmedNotAcceptedEvidence, ...withoutEvidence } = args;
+    await expect(operator.mutation(api.participantNotifications.retry, withoutEvidence))
+      .rejects.toThrow("Reconcile it with the provider");
+    await backend.run((ctx) => ctx.db.patch(deliveryId, { providerMessageId: "already-accepted" }));
+    await expect(operator.mutation(api.participantNotifications.retry, args)).rejects.toThrow("Reconcile it with the provider");
+    await backend.run((ctx) => ctx.db.patch(deliveryId, { providerMessageId: undefined }));
+    await expect(operator.mutation(api.participantNotifications.retry, { ...args, expectedDeliveryVersion: 2 }))
+      .rejects.toThrow("delivery changed");
+    const result = await operator.mutation(api.participantNotifications.retry, args);
+    expect(await operator.mutation(api.participantNotifications.retry, args)).toEqual(result);
+    const saved = await backend.run(async (ctx) => ({
+      source: await ctx.db.get(deliveryId), retry: await ctx.db.get(result.deliveryId),
+      audits: await ctx.db.query("auditEvents").collect(),
+    }));
+    expect(saved.source?.state).toBe("superseded");
+    expect(saved.retry).toMatchObject({ state: "pending", retryNumber: 1, supersedesDeliveryId: deliveryId });
+    const audit = saved.audits.find((entry) => entry.action === "communications.participant_notification_retried");
+    expect(JSON.parse(audit?.previousSummary ?? "{}")).toMatchObject({ confirmedNotAcceptedEvidence });
+  });
+
   test("keeps configuration capabilities independently event scoped", () => {
     expect(permissionCatalog["configuration.communications.read"]).toEqual({
       scopes: [],
@@ -76,6 +133,15 @@ describe("communications policy lifecycle", () => {
     );
 
     expect(() => normalizeCommunicationsPolicy(input)).not.toThrow();
+  });
+
+  test("preserves Amazon SES as the published outbound provider", () => {
+    const startsAt = Date.UTC(2027, 7, 8, 3, 30);
+    const endsAt = startsAt + 48 * 60 * 60 * 1_000;
+    const input = policy(startsAt, endsAt, "ses");
+    input.notificationProvider = "aws_ses";
+
+    expect(normalizeCommunicationsPolicy(input).notificationProvider).toBe("aws_ses");
   });
 
   test("allows one competing draft from the same observed state", async () => {
@@ -147,11 +213,13 @@ describe("communications policy lifecycle", () => {
     );
     const deliveryId = await runQueuedNotificationBatch(backend, fixture);
 
+    const nextPolicy = policy(fixture.startsAt, fixture.endsAt, "new");
+    nextPolicy.notificationProvider = "aws_ses";
     const draft = await backend.run((ctx) =>
       saveCommunicationsPolicyDraft(ctx, {
         event: fixture.event,
         actorPersonId: fixture.personId,
-        policy: policy(fixture.startsAt, fixture.endsAt, "new"),
+        policy: nextPolicy,
         now: fixture.now + 2,
       }),
     );
@@ -185,7 +253,9 @@ describe("communications policy lifecycle", () => {
     });
     expect(result.oldPolicy?.status).toBe("superseded");
     expect(result.delivery?.communicationsPolicyVersionId).toBe(fixture.communicationsPolicyId);
+    expect(result.delivery?.provider).toBe("cloudflare_email");
     expect(claim).toMatchObject({
+      notificationProvider: "cloudflare_email",
       subjectTemplate: "Code2Create initial accept update",
       textTemplate: "The initial accept update for {{team_name}} is ready: {{portal_url}}",
       participantName: "Communications fixture",
@@ -280,7 +350,7 @@ describe("communications policy lifecycle", () => {
 
   test("queues event passes only for external participants", async () => {
     const externalBackend = convexTest(schema, modules);
-    const externalFixture = await seedFixture(externalBackend, "external-event-pass");
+    const externalFixture = await seedFixture(externalBackend, "external-event-pass", "external_participant");
     await externalBackend.run((ctx) =>
       ctx.db.patch(externalFixture.applicationId, {
         state: "confirmed",
@@ -364,7 +434,7 @@ describe("communications policy lifecycle", () => {
     expect(delivery).toMatchObject({
       state: "unknown",
       attemptCount: 1,
-      providerErrorCode: "cloudflare_email_send_outcome_unknown",
+      providerErrorCode: "email_send_outcome_unknown",
     });
     expect(delivery?.attemptId).toBeUndefined();
   });
@@ -488,7 +558,11 @@ async function runQueuedNotificationBatch(
   return delivery._id;
 }
 
-async function seedFixture(backend: BackendTest, slug: string) {
+async function seedFixture(
+  backend: BackendTest,
+  slug: string,
+  participantClass: "vit_student" | "external_participant" = "vit_student",
+) {
   const now = Date.UTC(2027, 6, 1, 9, 0);
   const startsAt = Date.UTC(2027, 7, 8, 3, 30);
   const endsAt = startsAt + 48 * 60 * 60 * 1_000;
@@ -556,7 +630,7 @@ async function seedFixture(backend: BackendTest, slug: string) {
       eventId,
       personId,
       eventAccessSubjectId: subjectId,
-      participantClass: "external_participant",
+      participantClass,
       eligibilityStatus: "eligible",
       onboardingStatus: "submitted",
       acceptedParticipantPolicyVersionIds: [],
@@ -570,8 +644,8 @@ async function seedFixture(backend: BackendTest, slug: string) {
       leadMembershipId: membershipId,
       status: "submitted",
       activeMemberCount: 1,
-      activeVitMemberCount: 0,
-      activeExternalMemberCount: 1,
+      activeVitMemberCount: participantClass === "vit_student" ? 1 : 0,
+      activeExternalMemberCount: participantClass === "external_participant" ? 1 : 0,
       membershipLocked: true,
       version: 1,
       createdAt: now,

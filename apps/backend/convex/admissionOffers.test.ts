@@ -5,7 +5,6 @@ import { defaultParticipantEmailTemplates } from "@code2create/domain";
 import { internal } from "./_generated/api.js";
 import type { Id } from "./_generated/dataModel.js";
 import { createAdmissionOffer, transitionOffer } from "./admissions.ts";
-import { admissionRsvpCallDelayMs } from "./lib/admissionOfferCalls";
 import { insertPermissionGrant } from "./lib/permissions";
 import {
   communicationsPolicyChecksum,
@@ -16,6 +15,8 @@ import { createTestSubmissionSnapshot } from "./lib/testSubmissionSnapshot.ts";
 import { defaultParticipantPolicy, participantPolicyChecksum } from "./lib/participantPolicy.ts";
 import { defaultDeterministicIntakePolicy, intakePolicyChecksum } from "./lib/intakePolicy.ts";
 import schema from "./schema.ts";
+
+const admissionRsvpCallDelayMs = 8.5 * 60 * 60_000;
 
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
 
@@ -126,6 +127,11 @@ describe("admission offer lifecycle", () => {
       templateKey: "offer",
       applicationVersion: 3,
     });
+    const invitation = state.deliveries[0];
+    if (!invitation) throw new Error("Missing RSVP invitation");
+    const claim = await backend.mutation(internal.participantNotificationState.claimDelivery, { deliveryId: invitation._id, attemptId: "rsvp-email-deadline" });
+    expect(claim?.rsvpDeadline).toBe(state.offer?.expiresAt);
+    expect(claim?.textTemplate).toContain("{{rsvp_deadline}}");
   });
 
   test("confirmation preserves the exact reservation and defeats a stale expiry", async () => {
@@ -275,11 +281,31 @@ describe("admission offer lifecycle", () => {
 });
 
 describe("automatic RSVP reminder calls", () => {
-  test("schedules at six hours and dispatches one call through the voice worker without opt-in", async () => {
+  test("external teams receive neither RSVP invitations nor reminder calls", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     const now = Date.now();
     const backend = convexTest(schema, modules);
-    const fixture = await seedOfferedApplication(backend, now + 12 * 60 * 60_000);
+    const fixture = await seedOfferedApplication(backend, now + 12 * 60 * 60_000, now + admissionRsvpCallDelayMs);
+    await prepareRsvpCall(backend, fixture);
+    await backend.run(ctx => ctx.db.patch(fixture.membershipId, { participantClass: "external_participant" }));
+    await enqueueRosterNotification(backend, fixture, "offer", 3);
+    expect((await readOfferState(backend, fixture)).deliveries).toHaveLength(0);
+    vi.setSystemTime(now + admissionRsvpCallDelayMs);
+    await backend.mutation(internal.admissionOfferCalls.remind, { offerId: fixture.offerId });
+    expect(await rsvpCalls(backend)).toEqual([]);
+  });
+
+  test("rejects a reminder at or after the response deadline", async () => {
+    const backend = convexTest(schema, modules);
+    const deadline = Date.now() + 60_000;
+    await expect(seedOfferedApplication(backend, deadline, deadline)).rejects.toThrow("before RSVP closes");
+  });
+
+  test("schedules at the configured time and dispatches one call through the voice worker without opt-in", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const now = Date.now();
+    const backend = convexTest(schema, modules);
+    const fixture = await seedOfferedApplication(backend, now + 12 * 60 * 60_000, now + admissionRsvpCallDelayMs);
     await prepareRsvpCall(backend, fixture);
     const jobs = await backend.run((ctx) => ctx.db.system.query("_scheduled_functions").collect());
     const reminder = jobs.find((job) => job.name === "admissionOfferCalls:remind");
@@ -325,6 +351,26 @@ describe("automatic RSVP reminder calls", () => {
     expect(await backend.run((ctx) => ctx.db.get(call._id))).toMatchObject({ state: "provider_accepted" });
   });
 
+  test("postpones an already queued call and uses the current RSVP deadline", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const now = Date.now();
+    const backend = convexTest(schema, modules);
+    const fixture = await seedOfferedApplication(backend, now + 12 * 60 * 60_000, now + admissionRsvpCallDelayMs);
+    await prepareRsvpCall(backend, fixture);
+    vi.setSystemTime(now + admissionRsvpCallDelayMs);
+    await backend.mutation(internal.admissionOfferCalls.remind, { offerId: fixture.offerId });
+    const [call] = await rsvpCalls(backend);
+    if (!call) throw new Error("Missing queued call");
+    const reminderAt = now + admissionRsvpCallDelayMs + 60_000;
+    await backend.run(ctx => ctx.db.patch(fixture.offerId, { reminderAt, expiresAt: now + 13 * 60 * 60_000 }));
+    expect(await backend.mutation(internal.outboundCallState.claimDelivery, { deliveryId: call._id, attemptId: "early" })).toBeNull();
+    expect(await backend.run(ctx => ctx.db.get(call._id))).toMatchObject({ state: "retry_wait", nextAttemptAt: reminderAt, attemptCount: 0 });
+    vi.setSystemTime(reminderAt);
+    const claim = await backend.mutation(internal.outboundCallState.claimDelivery, { deliveryId: call._id, attemptId: "due" });
+    expect(claim?.script).not.toBe(call.script);
+    expect((await backend.run(ctx => ctx.db.get(call._id)))?.script).toBe(claim?.script);
+  });
+
   test("does not schedule a reminder after a short offer's deadline", async () => {
     const backend = convexTest(schema, modules);
     await seedOfferedApplication(backend, Date.now() + 60_000);
@@ -338,7 +384,7 @@ describe("automatic RSVP reminder calls", () => {
       vi.useFakeTimers({ toFake: ["Date"] });
       const now = Date.now();
       const backend = convexTest(schema, modules);
-      const fixture = await seedOfferedApplication(backend, now + 12 * 60 * 60_000);
+      const fixture = await seedOfferedApplication(backend, now + 12 * 60 * 60_000, now + admissionRsvpCallDelayMs);
       await prepareRsvpCall(backend, fixture);
       vi.setSystemTime(now + admissionRsvpCallDelayMs);
       await backend.mutation(internal.admissionOfferCalls.remind, { offerId: fixture.offerId });
@@ -372,7 +418,7 @@ describe("automatic RSVP reminder calls", () => {
       vi.useFakeTimers({ toFake: ["Date"] });
       const now = Date.now();
       const backend = convexTest(schema, modules);
-      const fixture = await seedOfferedApplication(backend, now + 12 * 60 * 60_000);
+      const fixture = await seedOfferedApplication(backend, now + 12 * 60 * 60_000, now + admissionRsvpCallDelayMs);
       const setup = await prepareRsvpCall(backend, fixture);
       vi.setSystemTime(now + admissionRsvpCallDelayMs);
       await backend.mutation(internal.admissionOfferCalls.remind, { offerId: fixture.offerId });
@@ -416,7 +462,7 @@ async function prepareRsvpCall(
     await ctx.db.patch(fixture.offerId, { createdByGrantIds: [grantId] });
     const profileId = await ctx.db.insert("participantProfiles", {
       eventId: fixture.eventId, membershipId: fixture.membershipId,
-      participantClass: "external_participant", fullName: "Aarav Menon",
+      participantClass: "vit_student", fullName: "Aarav Menon",
       phone: "+91 98765 43210", gender: "male", institution: "Example University",
       yearOfStudy: "not_applicable", profileVersion: 1, updatedAt: Date.now(),
     });
@@ -428,7 +474,7 @@ function rsvpCalls(backend: BackendTest) {
   return backend.run((ctx) => ctx.db.query("outboundCallDeliveries").collect());
 }
 
-async function seedOfferedApplication(backend: BackendTest, expiresAt: number) {
+async function seedOfferedApplication(backend: BackendTest, expiresAt: number, reminderAt?: number) {
   const now = Date.now();
   return backend.run(async (ctx) => {
     const startsAt = now + 24 * 60 * 60 * 1_000;
@@ -481,7 +527,7 @@ async function seedOfferedApplication(backend: BackendTest, expiresAt: number) {
       eventId,
       personId,
       eventAccessSubjectId: subjectId,
-      participantClass: "external_participant",
+      participantClass: "vit_student",
       eligibilityStatus: "eligible",
       onboardingStatus: "selected",
       acceptedParticipantPolicyVersionIds: [],
@@ -495,8 +541,8 @@ async function seedOfferedApplication(backend: BackendTest, expiresAt: number) {
       leadMembershipId: membershipId,
       status: "admitted",
       activeMemberCount: 1,
-      activeVitMemberCount: 0,
-      activeExternalMemberCount: 1,
+      activeVitMemberCount: 1,
+      activeExternalMemberCount: 0,
       membershipLocked: true,
       version: 2,
       createdAt: now,
@@ -723,6 +769,7 @@ async function seedOfferedApplication(backend: BackendTest, expiresAt: number) {
       actorPersonId: personId,
       grantIds: [],
       expiresAt: creationExpiry,
+      ...(reminderAt !== undefined ? { reminderAt } : {}),
       now,
     });
     if (creationExpiry !== expiresAt) {

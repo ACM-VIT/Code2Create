@@ -1,4 +1,8 @@
 import { api } from "@code2create/backend/api";
+import {
+  participantEmailProviderLabels,
+  type ParticipantEmailProvider,
+} from "@code2create/domain";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import { useMutation, usePaginatedQuery } from "convex/react";
 import { useState, type SubmitEvent } from "react";
@@ -199,13 +203,14 @@ function DeliveryRow({ recipient }: { recipient: DeliveryRecipient }) {
         <span>{destination?.email ?? "No verified email address"}</span>
         <small>
           {delivery ? deliveryStateLabel[delivery.state] : "Not sent yet"}
+          {delivery?.provider ? ` · ${participantEmailProviderLabels[delivery.provider]}` : ""}
           {destination
             ? ` · email ${destination.status === "active" ? "enabled" : "disabled"}`
             : ""}
           {delivery?.updatedAt ? ` · ${new Date(delivery.updatedAt).toLocaleString()}` : ""}
         </small>
         {delivery && deliveryNeedsAttention(delivery.state) ? (
-          <small>{deliveryIssueMessage(delivery.state)}</small>
+          <small>{deliveryIssueMessage(delivery.state, delivery.provider)}</small>
         ) : null}
       </div>
       {canRetry || canDisable ? (
@@ -283,10 +288,24 @@ function DeliveryRow({ recipient }: { recipient: DeliveryRecipient }) {
   );
 }
 
-function deliveryIssueMessage(state: DeliveryState) {
+function deliveryIssueMessage(
+  state: DeliveryState,
+  provider?: ParticipantEmailProvider,
+) {
+  const providerName = provider ? participantEmailProviderLabels[provider] : null;
   if (state === "bounced") return "The recipient's mail server rejected this email.";
   if (state === "suppressed") return "Email to this address has been stopped.";
-  if (state === "delivery_delayed") return "Cloudflare has delayed this delivery.";
-  if (state === "unknown") return "Check the Cloudflare Email logs before sending again.";
-  return "Cloudflare could not send this email. Check the Email logs before retrying.";
+  if (state === "delivery_delayed") {
+    return providerName
+      ? `${providerName} has delayed this delivery.`
+      : "The email provider has delayed this delivery.";
+  }
+  if (state === "unknown") {
+    return providerName
+      ? `Check the ${providerName} logs before sending again.`
+      : "Check the email provider logs before sending again.";
+  }
+  return providerName
+    ? `${providerName} could not send this message. Check its logs before retrying.`
+    : "The email provider could not send this message. Check its logs before retrying.";
 }

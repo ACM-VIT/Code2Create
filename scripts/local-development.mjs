@@ -31,6 +31,7 @@ const intelligenceCallbackSecret = "code2create-local-intelligence-callback-2026
 const intelligenceReadSecret = "code2create-local-intelligence-read-2026-v1";
 const intelligenceStreamSecret = "code2create-local-intelligence-stream-2026-v1";
 const localBetterAuthSecret = "code2create-local-better-auth-secret-2026-v1";
+const localEmailSendIngressSecret = "code2create-local-email-send-secret-2026-v1";
 
 // Local-only deterministic key; production requires a random versioned key.
 const attendanceWrappingKey = "Y29kZTJjcmVhdGUtbG9jYWwtYXR0ZW5kYW5jZS1rZXk";
@@ -56,10 +57,6 @@ const privateEnvironmentKeys = [
   "ATTENDANCE_WRAPPING_KEY",
   "ATTENDANCE_WRAPPING_KEY_VERSION",
   "BETTER_AUTH_SECRET",
-  "CLOUDFLARE_EMAIL_ACCOUNT_ID",
-  "CLOUDFLARE_EMAIL_API_TOKEN",
-  "CLOUDFLARE_EMAIL_FROM",
-  "CLOUDFLARE_EMAIL_REPLY_TO",
   "EMAIL_EVENT_CALLBACK_SECRET",
   "FIGMA_CLIENT_ID",
   "FIGMA_CLIENT_SECRET",
@@ -111,6 +108,11 @@ const localPrivateEnvironment = Object.fromEntries(
 );
 
 const localOpenAiApiKey = process.env.OPENAI_API_KEY?.trim();
+const authenticationEmailProvider = process.env.AUTHENTICATION_EMAIL_PROVIDER?.trim();
+const configuredAuthenticationEmailProvider =
+  authenticationEmailProvider === "aws_ses" || authenticationEmailProvider === "cloudflare_email"
+    ? authenticationEmailProvider
+    : null;
 
 export const localConvexEnvironment = Object.freeze({
   C2C_DEPLOYMENT_ENVIRONMENT: "development",
@@ -119,6 +121,11 @@ export const localConvexEnvironment = Object.freeze({
   AUTH_SITE_URL: "http://localhost:3211",
   PARTICIPANT_SITE_URL: "http://localhost:5180",
   OPERATIONS_SITE_URL: "http://localhost:5181",
+  EMAIL_SERVICE_URL: "http://localhost:8793",
+  EMAIL_SEND_INGRESS_SECRET: localEmailSendIngressSecret,
+  ...(configuredAuthenticationEmailProvider
+    ? { AUTHENTICATION_EMAIL_PROVIDER: configuredAuthenticationEmailProvider }
+    : {}),
   INTELLIGENCE_WORKER_URL: "http://localhost:8791",
   INTELLIGENCE_INGRESS_SECRET: intelligenceIngressSecret,
   INTELLIGENCE_CALLBACK_SECRET: intelligenceCallbackSecret,
@@ -127,6 +134,7 @@ export const localConvexEnvironment = Object.freeze({
   ATTENDANCE_WRAPPING_KEY: attendanceWrappingKey,
   ATTENDANCE_WRAPPING_KEY_VERSION: "local-v1",
   INITIAL_EVENT_SLUG: "code2create-7",
+  INITIAL_SUPREME_EMAILS: "local.ops@example.test",
   ...localPrivateEnvironment,
   ...localPostHogEnvironment,
 });

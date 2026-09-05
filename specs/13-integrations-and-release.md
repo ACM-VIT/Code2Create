@@ -179,7 +179,7 @@ GitHub's topic write endpoint is not a narrow “add topic” operation. `PUT /r
 
 If the board later requires automatic topic repair, ship it as a separate elevated App registration after security approval. That path must fetch the current list, merge the exact topic from the published integration policy, replace the list, and read it back. Do not add Administration write to the read-only evidence App.
 
-Do not request Contents write, Actions, Issues, pull requests, Secrets, Members, user email, or account-wide repository access. The installer chooses **Only select repositories** and grants exactly the repositories the team wants to submit.
+Private repositories use the same Metadata and Contents read permissions as public repositories; they do not need the classic OAuth `repo` scope. Prefer **Only select repositories** during installation. If the installer authorizes all repositories or several repositories, the callback opens the verified installation’s paginated repository picker. Authorization alone never submits a repository: the lead explicitly adds each project repository with its role and purpose. Do not request Contents write, Actions, Secrets, Members, or user email for repository evidence.
 
 ### Repository set and kind
 
@@ -295,6 +295,8 @@ Counts are context. Squashes, generated files, rebases, pair programming, and Gi
 
 Request only:
 
+- `current_user:read`;
+- `file_metadata:read`;
 - `file_content:read`;
 - `file_versions:read`;
 - `file_comments:read`;
@@ -304,7 +306,7 @@ The file-content scope is required because reviewers and teams need the document
 
 Do not request `projects:read`, organization scopes, variables, libraries, or write scopes in the baseline. A later event may add `file_dev_resources:read` or `file_variables:read` only after a separate feature, plan check, consent text, and review. Variables API access is not available on every Figma plan.
 
-The portal accepts a Figma file URL instead of listing a person's projects. The backend parses the file key and reads the file through `GET /v1/files/:key`; it does not request a second metadata scope for a separate preflight call.
+The portal accepts a Figma file URL instead of listing a person's projects. Current-user access verifies the authorizing account through `/v1/me`; metadata access supports lightweight file freshness checks. Content access supplies the complete evidence snapshot through `GET /v1/files/:key`.
 
 ### Credential grant versus team ownership
 
@@ -430,11 +432,11 @@ The VIT domain list comes from event configuration after VIT IT confirms it.
 
 ### Participant status notifications
 
-The current official outbound transport is Cloudflare Email Sending to each member of the deadline-frozen application roster at that person's Google-verified email. Cloudflare Email Routing owns the approved inbound support alias. It forwards through the event-owned email Worker to one verified operations mailbox. Board must approve the production sending domain and address, support alias and destination, wording, reply-to, retention, and support policy before decisions are released. The communications editor publishes one immutable generic subject and introduction. The same publication contains the accepted-team venue, next steps, and Discord. The admission-decision mutation resolves that policy. In the same transaction, it refreshes the verified-email destination and inserts one pending delivery per roster member and application version. Messages contain no decision, private proposal or eligibility detail, venue, or Discord link. They point only to the authenticated participant portal. Inbound messages do not become commands or application evidence.
+The event-owned email Worker is the official outbound boundary. Each immutable communications policy selects Amazon SES or Cloudflare Email Sending for every message queued under that version. Cloudflare Email Routing owns the approved inbound support alias and forwards through the same Worker to one verified operations mailbox. Board must approve the production sending identity, provider, support alias and destination, wording, reply-to, retention, and support policy before decisions are released. The admission-decision mutation resolves that policy and, in the same transaction, refreshes the verified-email destination and inserts one pending delivery per deadline-frozen roster member and application version. Messages contain no decision, private proposal or eligibility detail, venue, or Discord link. They point only to the authenticated participant portal. Inbound messages do not become commands or application evidence.
 
-The delivery record distinguishes pending, sending, retry-wait, provider-accepted, delayed, delivered, bounced, failed, suppressed, unknown, and superseded states. A valid Cloudflare response must return one message ID. It must return exactly one delivered/queued/permanent-bounce outcome for the intended recipient. A structured error that proves non-acceptance can use the bounded automatic retry schedule. Cloudflare documents no send idempotency key. Therefore, a lost response, invalid or contradictory success, recipient mismatch, or expired claim becomes `unknown` immediately. The system never retries this outcome automatically.
+The delivery record distinguishes pending, sending, retry-wait, provider-accepted, delayed, delivered, bounced, failed, suppressed, unknown, and superseded states. The email Worker normalizes a valid provider acceptance to one provider, one message ID, and one initial outcome. A structured error that proves non-acceptance can use the bounded automatic retry schedule. A lost response, invalid or contradictory success, recipient mismatch, or expired claim becomes `unknown` immediately. The system never retries or switches providers for this outcome automatically.
 
-One Cloudflare Email Sending Event Subscription per environment publishes delivered, deferred, bounced, failed, rejected, and complained events to an environment-specific Queue. `apps/email` validates the event schema and sending domain. It strips content/SMTP detail and signs the normalized callback. It posts the callback to `<CONVEX_SITE_URL>/communications/cloudflare-email/events`. Callback failures retry and then enter the configured DLQ. Convex verifies the context-separated HMAC and age. It deduplicates by Cloudflare event ID and orders by provider time plus event ID. Hard bounce, provider suppression, or complaint disables the exact destination. A soft exhausted bounce does not disable the destination. A receipt does not prove that the participant read or accepted anything. The system does not consume open/click events. Discord is the primary accepted-team community/support destination. It is not the sole official decision channel.
+One Cloudflare Email Sending Event Subscription per environment publishes delivered, deferred, bounced, failed, rejected, and complained events to an environment-specific Queue. `apps/email` validates the event schema and sending domain, strips content/SMTP detail, and signs the normalized callback to Convex. Callback failures retry and then enter the configured DLQ. SES sends currently record the provider's accepted message ID and remain queued until SES event ingestion is configured; the product does not claim a delivered state from acceptance alone. A provider receipt never proves that the participant read or accepted anything. The system does not consume open/click events. Discord is the primary accepted-team community/support destination, not the sole official decision channel.
 
 The repository creates both Queue resources through `pnpm --filter @code2create/email queue:create:<environment>`. Wrangler creates the staging `email.sending` Event Subscription through `pnpm --filter @code2create/email subscription:create:staging`. The command fixes the exact sending domain and all six lifecycle events. `pnpm --filter @code2create/email subscription:list:<environment>` verifies the resulting subscription. Do not use another event source as a fallback.
 
@@ -817,7 +819,7 @@ Before launch, rehearse rotation for:
 - attendance-key wrapping key;
 - intelligence ingress, callback/recommendation, read/work, and stream-capability HMAC secrets;
 - update Worker admin token and the locally held Expo Updates signing key;
-- Cloudflare Email Sending API token and email-event HMAC secret;
+- email-Worker send HMAC, selected Amazon SES and/or Cloudflare Email Sending credentials, and email-event HMAC secret;
 - S3 application credential;
 - PostHog CLI personal API key.
 
@@ -875,7 +877,7 @@ Intelligence HMAC rotation uses the autonomy kill switch, pauses manual generati
 - Figma connection, file, metadata, full-sync, preview, and webhook transitions update the same team's current materialized summary transactionally; the event operations list reads one Figma row per team and loads file evidence only after exact-team expansion.
 - Two team members see the same shared repository and Figma file sets, and any current lead can replace a revoked Figma authorizer without moving evidence ownership.
 - Native provider acceptance, reviewer acknowledgment, page expiry, and operations fallback remain distinct; a stale invalid-token result cannot disable a refreshed registration.
-- An accepted team can open published venue/date/next steps, its deadline-frozen application summary, and Discord from the portal. One generic Cloudflare Email delivery is recorded per roster member. Duplicate/out-of-order Queue events converge through the signed bridge. Transport state is exact-person scoped. Unknown sends cannot be retried blindly. The approved inbound alias routes through Cloudflare Email Routing. No provider receipt becomes decision acknowledgment.
+- An accepted team can open published venue/date/next steps, its deadline-frozen application summary, and Discord from the portal. One generic provider-pinned email delivery is recorded per roster member. Duplicate/out-of-order Cloudflare Queue events converge through the signed bridge. Transport state is exact-person scoped. Unknown sends cannot be retried or moved to another provider blindly. The approved inbound alias routes through Cloudflare Email Routing. No provider receipt becomes decision acknowledgment.
 - Representative VIT and external physical-ID barcodes plus static external event-pass QR scan successfully in the signed production build on the provisioned fleet; unreadable credentials have complete registration-number or verified-email fallback paths.
 - A raw VIT ID barcode value is discarded after event-scoped fingerprinting and never becomes participant identity. A suspended prior binding or replaced external badge is rejected online, while historical events remain traceable to the old credential reference.
 - A repeated/simultaneous mixed-method scan creates one accepted transition; a connection loss remains pending and replays idempotently.
@@ -927,6 +929,8 @@ Current milestone note: the metadata scheduler, exact provider retry gate, separ
 - [Cloudflare Email Sending REST API](https://developers.cloudflare.com/email-service/api/send-emails/rest-api/)
 - [Cloudflare Email Sending event subscriptions](https://developers.cloudflare.com/email-service/platform/event-subscriptions/)
 - [Cloudflare Email Routing Worker API](https://developers.cloudflare.com/email-service/api/route-emails/email-handler/)
+- [Amazon SES v2 SendEmail API](https://docs.aws.amazon.com/ses/latest/APIReference-V2/API_SendEmail.html)
+- [Amazon SES attachments](https://docs.aws.amazon.com/ses/latest/dg/attachments.html)
 - [Cloudflare Queues consumer configuration](https://developers.cloudflare.com/queues/configuration/configure-queues/)
 - [Expo Updates protocol](https://docs.expo.dev/technical-specs/expo-updates-1/)
 - [Expo local application builds](https://docs.expo.dev/guides/local-app-overview/)

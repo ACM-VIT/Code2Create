@@ -120,13 +120,16 @@ deploy backend functions, then run `deploy-discord.sh <full-git-sha>`. The bot
 refuses to start when either ticket category is public, an allowed role is
 missing, or required channel permissions are absent.
 
-External-participant email sign-in uses the production Cloudflare Email
-Sending identity. Before running `configure-convex-environment.sh`, store
-`cloudflare-email-account-id`, `cloudflare-email-api-token`, and
-`cloudflare-email-from` in the production Key Vault. The API token must be
-limited to Email Sending, and the from address must belong to the verified
-production sending domain. The portal advertises email sign-in only when all
-three values are present.
+External-participant email sign-in uses Amazon SES through the production email
+Worker at `https://email.c2c.sh`. Before running
+`configure-convex-environment.sh`, store `email-send-ingress-secret` in the
+production Key Vault and put the exact same value into the Worker as
+`EMAIL_SEND_INGRESS_SECRET`. Keep the SES region, least-privilege access key,
+secret key, verified from address, and optional reply-to/configuration set only
+in the Worker's secrets. Cloudflare Email Sending credentials may also be kept
+there as the policy-selectable alternative. The portal advertises email sign-in
+when the Worker URL, HMAC, and authentication provider are configured; verify
+the selected Worker provider before opening external sign-in.
 
 External-participant event-pass delivery also requires these production Key
 Vault secrets before `configure-convex-environment.sh` runs:

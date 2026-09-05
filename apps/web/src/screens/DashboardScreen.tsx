@@ -7,6 +7,7 @@ import { HelpTile } from "../components/dashboard/HelpTile";
 import { IntegrationsTile } from "../components/dashboard/IntegrationsTile";
 import { MusicTile } from "../components/dashboard/MusicTile";
 import { ReviewTile } from "../components/dashboard/ReviewTile";
+import { ServiceQueuesTile } from "../components/dashboard/ServiceQueuesTile";
 import { SquadTile } from "../components/dashboard/SquadTile";
 import { UpdatesTile } from "../components/dashboard/UpdatesTile";
 import { areasValue, composeDashboard, gridTemplates } from "../components/dashboard/dashboardLayout";
@@ -19,8 +20,8 @@ type DashboardGridStyle = CSSProperties & Record<`--dash-${string}`, string>;
 
 /**
  * The dashboard bento: the mockup's seven slots, filled by whichever tiles
- * matter most right now. Music can take the big slot; a due review code uses
- * that space by default so it stays scannable. Tiles take plain data and
+ * matter most right now. An active review takes the horizontal hero; music
+ * can expand when opened. Tiles take plain data and
  * callbacks, so the live app and the gallery render the same screen.
  */
 export function DashboardScreen({
@@ -39,9 +40,7 @@ export function DashboardScreen({
   const reducedMotion = useReducedMotion();
   const seating = composeDashboard(tileRelevance(models));
   const musicSlot = seating.music ?? null;
-  const focus = musicOpen && musicSlot
-    ? musicSlot
-    : models.review.showCode ? seating.review ?? null : null;
+  const focus = musicOpen && musicSlot ? musicSlot : null;
 
   const setMusic = (next: boolean) => {
     if (next === musicOpen) return;
@@ -85,7 +84,7 @@ export function DashboardScreen({
         <h1 className="sr-only">Dashboard</h1>
         <div
           style={gridStyle}
-          className="relative grid h-[max(1080px,calc(100dvh-176px))] grid-cols-[var(--dash-cols)] grid-rows-[var(--dash-rows)] gap-4 [grid-template-areas:var(--dash-areas)] md:h-[max(640px,calc(100dvh-176px))] md:grid-cols-[var(--dash-cols-md)] md:grid-rows-[var(--dash-rows-md)] md:[grid-template-areas:var(--dash-areas-md)] lg:h-[max(460px,min(880px,calc(100dvh-232px)))] lg:grid-cols-[var(--dash-cols-lg)] lg:grid-rows-[var(--dash-rows-lg)] lg:gap-[18px] lg:[grid-template-areas:var(--dash-areas-lg)]"
+          className={`relative grid h-[max(1080px,calc(100dvh-176px))] grid-cols-[var(--dash-cols)] grid-rows-[var(--dash-rows)] gap-4 [grid-template-areas:var(--dash-areas)] md:h-[max(640px,calc(100dvh-176px))] md:grid-cols-[var(--dash-cols-md)] md:grid-rows-[var(--dash-rows-md)] md:[grid-template-areas:var(--dash-areas-md)] lg:h-[max(460px,min(880px,calc(100dvh-232px)))] lg:grid-cols-[var(--dash-cols-lg)] lg:grid-rows-[var(--dash-rows-lg)] lg:gap-[18px] lg:[grid-template-areas:var(--dash-areas-lg)] ${seating.review === "hero" ? "[--dash-hero-min:300px] md:[--dash-hero-min:280px]" : ""}`}
         >
           {seating.event ? <EventTile slot={seating.event} model={models.event} /> : null}
           {seating.squad ? <SquadTile slot={seating.squad} team={team} members={members} /> : null}
@@ -100,7 +99,8 @@ export function DashboardScreen({
           ) : null}
           {seating.integrations ? <IntegrationsTile slot={seating.integrations} model={models.integrations} /> : null}
           {seating.updates ? <UpdatesTile slot={seating.updates} model={models.updates} /> : null}
-          {seating.review ? <ReviewTile slot={seating.review} model={models.review} /> : null}
+          {seating.review && models.review ? <ReviewTile slot={seating.review} model={models.review} /> : null}
+          {seating.queues ? <ServiceQueuesTile slot={seating.queues} model={models.queues} /> : null}
           {seating.help ? <HelpTile slot={seating.help} model={models.help} /> : null}
           {seating.benefits ? <BenefitsTile slot={seating.benefits} model={models.benefits} /> : null}
         </div>

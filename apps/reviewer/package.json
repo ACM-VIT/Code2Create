@@ -5,7 +5,7 @@
   "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",
-    "dev": "expo start --port 8082",
+    "dev": "expo start --port 8082 --private-key-path \"${C2C_UPDATE_PRIVATE_KEY_PATH:-$HOME/.config/code2create/updates/private-key.pem}\"",
     "android": "expo run:android",
     "ios": "expo run:ios",
     "config:check": "expo config --type public",

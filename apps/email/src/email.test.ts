@@ -18,9 +18,11 @@ const domain = "mail.code2create.example";
 const eventTimestamp = "2026-08-08T12:00:00.000Z";
 const callbackSecret = "participant-email-test-secret-with-32-characters";
 const environment: EmailBridgeEnvironment = {
+  OUTBOUND_EMAILS: { getByName() { throw new Error("Unused in inbound tests"); } },
   CONVEX_EMAIL_EVENT_CALLBACK_URL:
     "https://backend.example.test/communications/cloudflare-email/events",
   EMAIL_EVENT_CALLBACK_SECRET: callbackSecret,
+  EMAIL_SEND_INGRESS_SECRET: "participant-email-send-secret-with-32-characters",
   EMAIL_ROUTING_ADDRESS: "support@mail.code2create.example",
   EMAIL_ROUTING_FORWARD_TO: "operations@example.test",
   EMAIL_SENDING_DOMAIN: domain,

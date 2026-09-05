@@ -1,5 +1,5 @@
 import { createElement } from "react";
-import { act, create, type ReactTestRenderer } from "react-test-renderer";
+import { act, create } from "react-test-renderer";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { useReviewerVenue } from "./use-reviewer-venue";
 
@@ -50,7 +50,7 @@ vi.mock("./venue-location", () => ({
   subscribeToForegroundVenueChecks: () => () => {},
   venueLocationTask: "venue-task",
 }));
-let renderer: ReactTestRenderer;
+let renderer: ReturnType<typeof create>;
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   native.foreground = false;

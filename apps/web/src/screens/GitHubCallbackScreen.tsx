@@ -41,8 +41,13 @@ export function GitHubCallbackScreen() {
     }
     let active = true;
     void completion
-      .then(() => {
-        if (active) void navigate("/integrations", { replace: true, viewTransition: true });
+      .then(({ connectionId }) => {
+        if (active) {
+          void navigate(`/integrations?connectionId=${encodeURIComponent(connectionId)}`, {
+            replace: true,
+            viewTransition: true,
+          });
+        }
       })
       .catch((caught: unknown) => {
         if (active) {

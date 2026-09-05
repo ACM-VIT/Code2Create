@@ -1,5 +1,5 @@
 import { createElement, useCallback } from "react";
-import { act, create, type ReactTestRenderer } from "react-test-renderer";
+import { act, create } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { useDeviceCheck } from "./use-device-check";
 import { useCameraAccess } from "./use-camera-access";
@@ -50,7 +50,7 @@ vi.mock("./push-notifications", () => ({
   },
 }));
 
-let renderer: ReactTestRenderer;
+let renderer: ReturnType<typeof create>;
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   native.permission = { granted: false, canAskAgain: true };

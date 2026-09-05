@@ -3,6 +3,7 @@ import { bytesToHex } from "@noble/hashes/utils.js";
 import {
   normalizeParticipantEmailTemplateAssetReference,
   participantEmailTemplateZipMaximumBytes,
+  type ParticipantEmailTemplateKey,
 } from "@code2create/domain";
 import { Unzip, UnzipInflate, UnzipPassThrough } from "fflate";
 
@@ -259,7 +260,11 @@ function validateHtml(html: string) {
   }
 }
 
-function validateImageReferences(html: string, assets: ImportedEmailTemplateAsset[]) {
+function validateImageReferences(
+  html: string,
+  assets: ImportedEmailTemplateAsset[],
+  templateKey: ParticipantEmailTemplateKey,
+) {
   const inlineAssets = new Set(
     assets.filter((asset) => asset.disposition === "inline").map((asset) => asset.fileName),
   );
@@ -276,6 +281,8 @@ function validateImageReferences(html: string, assets: ImportedEmailTemplateAsse
       invalidBundle("Every template image must have exactly one quoted src value.");
     }
     const rawSource = sources[0]?.[2] ?? "";
+    // The delivery service attaches each participant's QR; it is never a ZIP asset.
+    if (templateKey === "external_event_pass" && rawSource.trim() === "cid:event-pass-qr.png") continue;
     const source = normalizeParticipantEmailTemplateAssetReference(rawSource);
     if (!source || !inlineAssets.has(source)) {
       invalidBundle(`Template image ${rawSource || "(empty)"} is not included in the ZIP.`);
@@ -285,6 +292,7 @@ function validateImageReferences(html: string, assets: ImportedEmailTemplateAsse
 
 export async function readEmailTemplateBundle(
   bytes: Uint8Array,
+  templateKey: ParticipantEmailTemplateKey,
 ): Promise<ImportedEmailTemplateBundle> {
   if (bytes.byteLength < 22 || bytes.byteLength > participantEmailTemplateZipMaximumBytes) {
     invalidBundle("Choose a valid ZIP file no larger than 3.5 MB.");
@@ -309,6 +317,9 @@ export async function readEmailTemplateBundle(
     .filter((entry) => entry !== htmlEntry)
     .map((entry): ImportedEmailTemplateAsset => {
       const fileName = entry.path.slice(prefix.length);
+      if (fileName === "event-pass-qr.png") {
+        invalidBundle("The event pass QR is generated per participant; do not include it in the ZIP.");
+      }
       const contentType = contentTypes[extension(fileName)];
       if (!contentType) {
         invalidBundle(
@@ -331,6 +342,6 @@ export async function readEmailTemplateBundle(
   }
   const html = decodeHtml(htmlEntry.bytes);
   validateHtml(html);
-  validateImageReferences(html, assets);
+  validateImageReferences(html, assets, templateKey);
   return { html, htmlFileName: htmlEntry.path.slice(prefix.length), assets };
 }

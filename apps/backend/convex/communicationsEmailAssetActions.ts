@@ -108,7 +108,7 @@ async function importBundle(
   },
 ): Promise<BundleResult> {
   const sourceSha256 = bytesToHex(sha256(args.zipBytes));
-  const content = await readEmailTemplateBundle(args.zipBytes);
+  const content = await readEmailTemplateBundle(args.zipBytes, args.templateKey);
   const context = await ctx.runQuery(internal.communicationsEmailAssets.uploadContext, {
     eventSlug: args.eventSlug,
     templateKey: args.templateKey,

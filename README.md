@@ -49,6 +49,26 @@ pnpm dev
 
 This starts the local Convex backend, participant portal, and operations dashboard. It applies local service configuration but does not create product records or synthetic provider results.
 
+For a disposable event playground, wait for `Local stack ready`, then run:
+
+```sh
+pnpm dev:seed
+pnpm dev:playground
+```
+
+The seed creates eight teams (six admitted, one awaiting admission, one drafting), six panels of five reviewers, four reserves, confirmed availability, five queued teams, and entry/exit stations. Panel 1 has three teams so queue position and ETA can be exercised. Reviews use the seven-minute rubric with mandatory final comments. Re-running preserves existing teams and review progress. The seed refuses hosted deployments; its backend helpers also require the local development environment.
+
+Open `http://127.0.0.1:5190/web` for the QueueCraft participant and `http://127.0.0.1:5190/ops` for the local operator. These use the normal one-time-token sign-in flow. The loopback helper keeps the simulated reviewer phones online; the actual iOS reviewer owns its own device and heartbeat. Scoring remains manual. Local account sessions are stored in the ignored, private `outputs/dev/accounts.json` file and expire after seven days. Keep the playground process running during review tests. Live calls and external provider results are not seeded.
+
+After changing Expo native plugins, regenerate the native project before building the simulator app:
+
+```sh
+pnpm --filter @code2create/reviewer exec expo prebuild --platform ios --no-install
+pnpm --filter @code2create/reviewer ios
+```
+
+Reviewer Metro signs development manifests with the existing update key at `~/.config/code2create/updates/private-key.pem`; set `C2C_UPDATE_PRIVATE_KEY_PATH` to use another matching key. Start it with `pnpm dev:reviewer` when using a separately built simulator app.
+
 Start every runtime only for a complete rehearsal:
 
 ```sh
@@ -94,7 +114,7 @@ Run `pnpm dev:prepare` after changing local backend or worker environment while 
 | `apps/backend`                  | Convex data, authorization, transactions, jobs, and provider orchestration |
 | `apps/intelligence`             | Flue-based operations intelligence worker                                  |
 | `apps/updates`                  | Event-owned Expo Updates Worker and R2 delivery                            |
-| `apps/email`                    | Cloudflare Email Routing delivery worker                                   |
+| `apps/email`                    | SES/Cloudflare outbound email and Cloudflare routing worker                 |
 | `apps/voice`                    | Outbound call and synthesized-audio worker                                 |
 | `apps/discord`                  | Discord support bridge                                                    |
 | `apps/e2e`                      | Browser verification                                                      |

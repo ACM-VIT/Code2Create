@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useAction } from "convex/react";
+import { api } from "@code2create/backend/api";
 import {
   GoogleFedCmButton,
   signInWithGooglePopup,
@@ -39,6 +41,19 @@ export function EntryScreen({
   });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const checkEmailReadiness = useAction(api.system.emailSignInReadiness);
+  const [emailOtpConfigured, setEmailOtpConfigured] = useState(false);
+  useEffect(() => {
+    if (participantClass !== "external_participant") return;
+    let active = true;
+    void checkEmailReadiness({}).then(ready => {
+      if (active) setEmailOtpConfigured(ready);
+    }).catch(() => {
+      if (active) setEmailOtpConfigured(false);
+    });
+    return () => { active = false; };
+  }, [checkEmailReadiness, participantClass]);
+
 
   // Before the event is published there is nothing to sign into — tease,
   // don't explain.
@@ -79,12 +94,17 @@ export function EntryScreen({
     );
   }
 
+  const vitOpen = publicState.event.registrationOpen &&
+    publicState.serverNow < publicState.event.applicationsCloseAt;
+  const externalOpen = publicState.event.registrationOpen &&
+    publicState.serverNow < publicState.event.externalApplicationsCloseAt;
+
   const authUnavailableMessage =
     participantClass === "vit_student"
       ? publicState.auth.googleConfigured
         ? null
         : "Google sign-in is unavailable right now. Ask an organizer for help."
-      : publicState.auth.googleConfigured || publicState.auth.emailOtpConfigured
+      : publicState.auth.googleConfigured || emailOtpConfigured
         ? null
         : "Sign-in is unavailable right now. Ask an organizer for help.";
 
@@ -153,6 +173,16 @@ export function EntryScreen({
           />
         </h1>
 
+        {(!vitOpen || !externalOpen) && (
+          <p className="mb-5 text-[13px] text-fg/70">
+            {!vitOpen && !externalOpen
+              ? "Applications are closed."
+              : !vitOpen
+                ? "VIT student applications are closed."
+                : "External participant applications are closed."}
+            {" Existing participants can still select their type and sign in below."}
+          </p>
+        )}
         <div
           className="mb-7 flex w-full flex-col gap-3 sm:flex-row sm:justify-center sm:gap-4"
           role="group"
@@ -207,7 +237,7 @@ export function EntryScreen({
             <EmailOtpSignIn
               key={participantClass ?? "none"}
               authClient={authClient}
-              configured={publicState.auth.emailOtpConfigured}
+              configured={emailOtpConfigured}
               disabled={participantClass !== "external_participant"}
               googleOnlyEmailDomain={vitStudentEmailDomain}
             />

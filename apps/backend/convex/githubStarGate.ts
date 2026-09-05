@@ -4,7 +4,8 @@ import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { internalMutation, query } from "./_generated/server";
-import { requireEventBySlug, requireRegistrationOpen } from "./lib/events";
+import { requireEventBySlug } from "./lib/events";
+import { requireParticipantOnboardingOpen } from "./lib/rosterRecovery";
 import {
   findCurrentPerson,
   requireCurrentPerson,
@@ -23,7 +24,7 @@ async function onboardingContext(ctx: MutationCtx, eventSlug: string) {
   const event = await requireEventBySlug(ctx, eventSlug);
   const { person } = await requireCurrentPerson(ctx);
   const membership = requireEligibleMembership(await requireMembership(ctx, event._id, person._id));
-  requireRegistrationOpen(event, membership.participantClass);
+  await requireParticipantOnboardingOpen(ctx, event, person, membership);
   const profile = await ctx.db
     .query("participantProfiles")
     .withIndex("by_membership", (index) => index.eq("membershipId", membership._id))
