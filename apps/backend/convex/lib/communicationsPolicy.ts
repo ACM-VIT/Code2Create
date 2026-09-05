@@ -1,11 +1,13 @@
 import { ConvexError, v } from "convex/values";
 import {
   participantEmailTemplateKeys,
+  type ParticipantEmailProvider,
   type ParticipantEmailTemplateKey,
 } from "@code2create/domain";
 
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
+import { participantEmailProvider } from "../values";
 import { fingerprintText, normalizedLongText, normalizedText } from "./strings";
 
 type ReadCtx = QueryCtx | MutationCtx;
@@ -44,7 +46,7 @@ export const communicationsPolicyInput = v.object({
   nextSteps: v.array(communicationsNextStepInput),
   discordUrl: v.string(),
   discordLabel: v.string(),
-  notificationProvider: v.literal("cloudflare_email"),
+  notificationProvider: participantEmailProvider,
   emailTemplates: v.array(communicationsEmailTemplateInput),
 });
 
@@ -65,7 +67,7 @@ export type CommunicationsPolicy = {
   nextSteps: CommunicationsNextStep[];
   discordUrl: string;
   discordLabel: string;
-  notificationProvider: "cloudflare_email";
+  notificationProvider: ParticipantEmailProvider;
   emailTemplates: Array<{
     templateKey: ParticipantEmailTemplateKey;
     subject: string;
@@ -246,7 +248,7 @@ export function normalizeCommunicationsPolicy(input: CommunicationsPolicy): Comm
     nextSteps,
     discordUrl: normalizedDiscordUrl(input.discordUrl),
     discordLabel: normalizedText(input.discordLabel, "Discord label", 2, 60),
-    notificationProvider: "cloudflare_email",
+    notificationProvider: input.notificationProvider,
     emailTemplates: normalizedEmailTemplates(input.emailTemplates),
   };
 }

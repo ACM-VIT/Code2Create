@@ -6,8 +6,9 @@ import {
   cloudflareEmailSendingEventSchema,
   normalizeCloudflareEmailEvent,
 } from "./contracts.js";
+import { handleOutboundEmailRequest, type OutboundEmailEnvironment } from "./outbound.js";
 
-export interface EmailBridgeEnvironment {
+export interface EmailBridgeEnvironment extends OutboundEmailEnvironment {
   CONVEX_EMAIL_EVENT_CALLBACK_URL: string;
   EMAIL_EVENT_CALLBACK_SECRET: string;
   EMAIL_ROUTING_ADDRESS: string;
@@ -111,10 +112,13 @@ export async function consumeEmailEventMessages(
 }
 
 export default {
-  fetch(request) {
+  async fetch(request, environment) {
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/health") {
       return Response.json({ service: "code2create-email", ok: true });
+    }
+    if (request.method === "POST" && url.pathname === "/send") {
+      return handleOutboundEmailRequest(request, environment);
     }
     return new Response("Not found.", { status: 404 });
   },

@@ -21,6 +21,7 @@ import {
 } from "./lib/participantNotificationDelivery";
 import { normalizeEmail, normalizedText } from "./lib/strings";
 import { appendParticipantDeliveryReadFactById } from "./lib/operationsAutonomyReadFacts/participantDeliveries";
+import { participantEmailProvider } from "./values";
 
 const notificationTemplateKey = v.union(
   v.literal("accept"),
@@ -58,6 +59,7 @@ const participantDeliveryView = v.object({
 const operationsDeliveryView = v.object({
   id: v.id("participantNotificationDeliveries"),
   state: notificationDeliveryState,
+  provider: v.optional(participantEmailProvider),
   version: v.number(),
   updatedAt: v.number(),
 });
@@ -154,6 +156,7 @@ export const enqueueRosterBatch = internalMutation({
         teamId: args.teamId,
         snapshotMember,
         communicationsPolicyVersionId: communicationsPolicy._id,
+        notificationProvider: communicationsPolicy.notificationProvider,
         templateKey: args.templateKey,
         applicationVersion: args.applicationVersion,
         now,
@@ -304,6 +307,7 @@ export const forApplication = query({
           ? {
               id: delivery._id,
               state: delivery.state,
+              ...(delivery.provider !== undefined ? { provider: delivery.provider } : {}),
               version: delivery.version,
               updatedAt: delivery.updatedAt,
             }
@@ -449,6 +453,7 @@ export const retry = mutation({
       personId: source.personId,
       destinationId: source.destinationId,
       communicationsPolicyVersionId: source.communicationsPolicyVersionId,
+      ...(source.provider !== undefined ? { provider: source.provider } : {}),
       channel: "verified_email",
       destinationEmailNormalized: source.destinationEmailNormalized,
       templateKey: source.templateKey,

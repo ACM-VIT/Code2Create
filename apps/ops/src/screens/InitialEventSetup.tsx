@@ -5,6 +5,9 @@ import {
   ideaIntakeFallbackQuestions,
   ideaQuestionRelease,
   ideaQuestionSystemInstruction,
+  participantEmailProviderLabels,
+  participantEmailProviders,
+  type ParticipantEmailProvider,
 } from "@code2create/domain";
 import type { Code2CreateAuthClient } from "@code2create/web-auth";
 import { useMutation, useQuery } from "convex/react";
@@ -33,6 +36,8 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
   const [teamMinimumSize, setTeamMinimumSize] = useState("2");
   const [teamMaximumSize, setTeamMaximumSize] = useState("5");
   const [participantCapacity, setParticipantCapacity] = useState("1000");
+  const [notificationProvider, setNotificationProvider] =
+    useState<ParticipantEmailProvider>("aws_ses");
   const [integrationPolicyVersion, setIntegrationPolicyVersion] = useState("integrations-v1");
   const [requiredGitHubTopic, setRequiredGitHubTopic] = useState("code2create-7-0");
   const [maximumGitHubRepositories, setMaximumGitHubRepositories] = useState("10");
@@ -174,7 +179,7 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
           ],
           discordUrl,
           discordLabel: "Open event Discord",
-          notificationProvider: "cloudflare_email",
+          notificationProvider,
           emailTemplates: defaultParticipantEmailTemplates(),
         },
         integrationPolicy: {
@@ -339,6 +344,35 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
                   value={participantCapacity}
                   onChange={(event) => setParticipantCapacity(event.currentTarget.value)}
                 />
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Participant email</legend>
+            <p className="muted">
+              The selected provider sends participant-status email through the email service.
+              Sign-in email uses its separate deployment setting.
+            </p>
+            <div className="form-grid two-columns">
+              <label className="field">
+                <span>Outbound provider</span>
+                <select
+                  value={notificationProvider}
+                  onChange={(event) =>
+                    setNotificationProvider(
+                      event.currentTarget.value === "cloudflare_email"
+                        ? "cloudflare_email"
+                        : "aws_ses",
+                    )
+                  }
+                >
+                  {participantEmailProviders.map((provider) => (
+                    <option key={provider} value={provider}>
+                      {participantEmailProviderLabels[provider]}
+                    </option>
+                  ))}
+                </select>
               </label>
             </div>
           </fieldset>

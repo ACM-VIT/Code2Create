@@ -78,6 +78,7 @@ import {
   participantEligibilityStatus,
   participantOnboardingStatus,
   participantPhoneVerificationStatus,
+  participantEmailProvider,
   participantEmailTemplateKey,
   participantAssistantPhase,
   participantAssistantRequestState,
@@ -465,7 +466,7 @@ export default defineSchema({
     ),
     discordUrl: v.string(),
     discordLabel: v.string(),
-    notificationProvider: v.literal("cloudflare_email"),
+    notificationProvider: participantEmailProvider,
     emailTemplates: v.array(
       v.object({
         templateKey: participantEmailTemplateKey,
@@ -1984,6 +1985,7 @@ export default defineSchema({
     attemptId: v.optional(v.string()),
     claimExpiresAt: v.optional(v.number()),
     nextAttemptAt: v.optional(v.number()),
+    provider: v.optional(participantEmailProvider),
     providerMessageId: v.optional(v.string()),
     providerAcceptedAt: v.optional(v.number()),
     lastProviderEventAt: v.optional(v.number()),
