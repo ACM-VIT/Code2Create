@@ -2,6 +2,8 @@
 
 This is the status of the local event-flow implementation. It does not certify the live event configuration, physical devices, or provider delivery.
 
+The current remaining-work list is [Event follow-up plan](16-event-follow-up-plan.md). Reviewer assessment and provisional panels are prepared once with the event owner from supplied resumes/metadata, then applied through existing roster, profile and panel commands. A resume-analysis service is outside the agreed scope. Event-day configuration is planned setup, not missing implementation.
+
 ## Flow implemented
 
 | Step                    | Current behavior                                                                                                                                                                                                                                     | Operations controls                                                                                                                              |
@@ -36,11 +38,13 @@ The question agent cannot grade, rank or change event state. Its results are evi
 
 Repository analysis inventories every file at the captured commit and reads all eligible text files in resumable batches. There is no four-file, directory-depth or extension allowlist. Large files are split without discarding source text, truncated GitHub trees are traversed explicitly, and unchanged analyses can be reused. Figma analysis includes every node in the stored file structure, full text and available interaction/layout/style properties. Pairwise synthesis combines all completed batches before preparing the final review brief. Coverage tracks captured, excluded, unavailable and analysed items; final questions cannot publish before collection and analysis are complete.
 
-Generated dependencies, actual credential files and binary assets are explicitly excluded and accounted for. This does not execute a team's code or visually inspect rendered Figma screens. Notes and links are included as submitted text; arbitrary external documents and reviewer resumes are not automatically downloaded. Credentials stay in the backend and source text is redacted before model dispatch. The brief defaults to at most three optional questions, and may contain none when the fixed rubric is enough. Fixed questions remain usable while evidence preparation runs or if a source fails.
+Generated dependencies, actual credential files and binary assets are explicitly excluded and accounted for. This does not execute a team's code. When ops enables visual analysis, the same pipeline inspects captured Figma PNG renders, with one image per inspection batch and exact frame/checksum references. Notes and links are included as submitted text. Teams will not be asked for project documents, PDFs or slide decks, so ingestion of those materials is outside the agreed scope. Newly available renders refresh future preparation; earlier snapshots keep their captured render list. Missing previews and preview capture limits remain explicit. Reviewer resumes belong to the separate one-time preparation workflow. Credentials stay in the backend and source text is redacted before model dispatch. The brief defaults to at most three optional questions, and may contain none when the fixed rubric is enough. Fixed questions remain usable while evidence preparation runs or if a source fails.
+
+Reviewer shift reminders use the ops-configured lead time, 0–3600 seconds with 300 as the default; 0 disables reminders. Ops can also enable consented calls at that same time. Changes reschedule upcoming reminders. Clock-in, changed hours, closed rounds, expired reminders and revoked consent/access suppress obsolete dispatch. One reviewer call setting covers shift reminders and substitute calls, with explicit confirmation of the updated notice. Team call-ups and substitute-page voice escalation remain available.
 
 ## Use the operations dashboard
 
-1. Preview/import the cleaned reviewer pool and finish account/profile/training setup. No resume declaration automatically grants a qualification.
+1. Prepare assessments and provisional panels with the event owner. Preview/import the cleaned reviewer pool, then apply assessed profiles and the plan through existing ops commands. Record actual training separately. The roster CSV is not a bulk import for arbitrary profile or panel fields.
 2. Select a rubric preset, review its fixed questions and anchors, and publish provisional panels with everyone else as reserves. Verify the confirmation date and actual round hours.
 3. Reviewers register phones and enable notifications. At the configured time they confirm their actual hours. Check the pending/confirmed/unavailable roster before opening reviews.
 4. Set live staffing, JC rotation, response/arrival windows and reminder timing. Keep the publishing operator's required staffing grants active; ops reports when automation has lost its authority.
@@ -50,7 +54,7 @@ Generated dependencies, actual credential files and binary assets are explicitly
 
 Structural settings such as rubric and seat composition are chosen in setup and fixed by publication. Live operational settings are versioned; changing them cannot silently rewrite an existing score or review context.
 
-Code alone does not schedule tonight's live confirmation or import the roster. No live roster import, round publication, notifications or calls were performed in this task.
+Roster import, confirmation timing, round publication and phone registration are event setup tasks for the planned time. Their absence before that setup is not an implementation gap.
 
 ## Staffing capacity
 
@@ -74,6 +78,8 @@ The detailed initial PR review is in `outputs/event-flow/pr-122-review.md`. Thes
 
 ## Validation boundary
 
-Local lifecycle tests cover confirmation and paging retries, active-review locks, rotation, priority/order and call deduplication, routing eligibility, question source/version isolation and settlement, mandatory comments, scoring and exports. The current local check record is `outputs/event-flow/final-validation.md`: 687 backend Vitest tests, 112 backend utility tests, all client/voice suites, seven package type checks, root lint, four builds and both native JavaScript exports passed. A final 90-test affected-flow rerun also passed after the call-response and live-board changes.
+Local lifecycle tests cover confirmation and paging retries, active-review locks, rotation, priority/order and call deduplication, routing eligibility, question source/version isolation and settlement, mandatory comments, scoring and exports. The 5 September repository review passed 1,350 tests through the root test command, root lint, and all 16 package typechecks. The current scope, follow-up checks and verification limits are recorded in [Event follow-up plan](16-event-follow-up-plan.md#check-record).
 
 A physical rehearsal remains necessary for actual ID/QR scanning, a full five-phone panel, background/foreground reminders, consented voice delivery, loss/recovery of connectivity and the real provider evidence. PR #122 additionally needs real GPS and locked-screen testing. Local tests and bundle generation do not prove those physical behaviors.
+
+The configurable shift-call and captured-Figma-image follow-up has passed local regression checks, builds and native bundle exports. Its [check record](16-event-follow-up-plan.md#check-record) separates those results from deployment and event-day rehearsal.

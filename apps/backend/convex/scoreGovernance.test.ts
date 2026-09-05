@@ -985,6 +985,7 @@ async function seedCorrectionFixture(backend: BackendTest) {
         juniorRotationReviews: 0,
         reviewerArrivalSeconds: 90,
         assignmentReminderSeconds: 300,
+        assignmentReminderCalls: true,
       },
       minimumScorersPerCriterion: 1,
       minimumPresentParticipants: 1,

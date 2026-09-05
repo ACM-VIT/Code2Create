@@ -25,6 +25,8 @@ import { confirmedReviewWindows } from "./lib/reviewConfirmation";
 import { maximumReviewRoundsPerEvent } from "./lib/reviewLimits";
 import { normalizedText } from "./lib/strings";
 
+import { currentShiftReminder, enqueueShiftReminderCall } from "./lib/reviewShiftReminders";
+
 const windowInput = v.object({ startsAt: v.number(), endsAt: v.number() });
 
 export async function scheduleShiftReminders(
@@ -66,21 +68,16 @@ export const prepareShiftReminder = internalMutation({
     const confirmation = await ctx.db.get(args.confirmationId);
     const round = confirmation ? await ctx.db.get(confirmation.roundId) : null;
     const now = Date.now();
-    if (
-      !confirmation ||
-      confirmation.status !== "confirmed" ||
-      confirmation.version !== args.confirmationVersion ||
-      !confirmation.windows.some(
-        (window) => window.startsAt === args.shiftStartsAt,
-      ) ||
-      !round ||
-      !["published", "open"].includes(round.status) ||
-      round.staffing.assignmentReminderSeconds === 0 ||
-      now <
-        args.shiftStartsAt - round.staffing.assignmentReminderSeconds * 1000 ||
-      now >= args.shiftStartsAt
-    )
-      return null;
+    if (!confirmation || !round) return null;
+    const current = await currentShiftReminder(
+      ctx,
+      confirmation,
+      round,
+      args.confirmationVersion,
+      args.shiftStartsAt,
+      now,
+    );
+    if (!current || now < current.remindAt) return null;
     const prior = await ctx.db
       .query("reviewConfirmationNotifications")
       .withIndex("by_confirmation_purpose_shift", (q) =>
@@ -90,13 +87,6 @@ export const prepareShiftReminder = internalMutation({
           .eq("shiftStartsAt", args.shiftStartsAt),
       )
       .unique();
-    if (
-      prior &&
-      ["sent", "sending", "pending"].includes(prior.state) &&
-      prior.confirmationVersion === confirmation.version
-    )
-      return null;
-    if (prior?.state === "sent") return null;
     const fields = {
       purpose: "shift_reminder" as const,
       confirmationVersion: confirmation.version,
@@ -111,14 +101,29 @@ export const prepareShiftReminder = internalMutation({
         confirmationId: confirmation._id,
         ...fields,
       }));
-    if (prior)
-      await ctx.db.patch(prior._id, {
-        ...fields,
-        attemptId: undefined,
-        claimExpiresAt: undefined,
+    const pushAlreadyPrepared =
+      prior &&
+      (prior.state === "sent" ||
+        (prior.confirmationVersion === confirmation.version &&
+          ["sending", "pending"].includes(prior.state)));
+    if (!pushAlreadyPrepared) {
+      if (prior)
+        await ctx.db.patch(prior._id, {
+          ...fields,
+          attemptId: undefined,
+          claimExpiresAt: undefined,
+        });
+      await ctx.scheduler.runAfter(0, internal.reviewConfirmationPush.deliver, {
+        notificationId,
       });
-    await ctx.scheduler.runAfter(0, internal.reviewConfirmationPush.deliver, {
+    }
+    await enqueueShiftReminderCall(ctx, {
       notificationId,
+      confirmation,
+      round,
+      shiftStartsAt: args.shiftStartsAt,
+      grantIds: current.grantIds,
+      now,
     });
     return null;
   },

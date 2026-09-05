@@ -813,6 +813,7 @@ export const reviewStaffingPolicy = v.object({
   juniorRotationReviews: v.number(),
   reviewerArrivalSeconds: v.number(),
   assignmentReminderSeconds: v.number(),
+  assignmentReminderCalls: v.boolean(),
 });
 
 export const reviewSessionStatus = v.union(
@@ -1076,6 +1077,10 @@ export const reviewEvidenceCheckpointFields = {
     v.object({
       bindingId: v.id("figmaFileBindings"),
       snapshotId: v.optional(v.id("figmaFileSnapshots")),
+      preview: v.optional(v.object({
+        state: v.string(), discoveredNodes: v.number(), selectedNodes: v.number(), truncated: v.boolean(),
+        renders: v.array(v.object({ factId: v.id("figmaNodeFacts"), sha256: v.string() })),
+      })),
       fileName: v.string(),
       fileUrl: v.string(),
       role: v.string(),
@@ -1097,6 +1102,7 @@ export const reviewEvidenceCheckpointFields = {
 
 export const reviewQuestionPolicy = v.object({
   enabled: v.boolean(),
+  visualAnalysis: v.boolean(),
   refreshSeconds: v.number(),
   maximumQuestions: v.number(),
   parallelAnalyses: v.number(),
@@ -1106,7 +1112,9 @@ export const reviewQuestionPolicy = v.object({
   model: v.string(),
   instructions: v.string(),
 });
+export const reviewQuestionImage = v.object({ factId: v.string(), sha256: v.string() });
 export const reviewQuestionSource = v.object({
+  image: v.optional(reviewQuestionImage),
   id: v.string(),
   kind: v.union(
     v.literal("project"),

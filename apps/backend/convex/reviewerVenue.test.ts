@@ -1,3 +1,4 @@
+import { venueCallConsentVersion, reviewerCallConsentPolicyVersion } from "@code2create/domain";
 /// <reference types="vite/client" />
 import betterAuthSchema from "../node_modules/@convex-dev/better-auth/src/component/schema.ts";
 import { convexTest } from "convex-test";
@@ -269,6 +270,7 @@ async function fixture() {
       eventSlug: base.eventSlug,
       purpose: venueCallPurpose,
       state: "granted",
+      consentPolicyVersion: venueCallConsentVersion,
       destinationPhone: "+919111111111",
       expectedVersion: 0,
       clientOperationId: "consent-test",
@@ -719,6 +721,7 @@ describe("reviewer venue lifecycle", () => {
     await f.reviewer.mutation(api.outboundCallConsents.saveReviewerConsent, {
       eventSlug: f.base.eventSlug,
       state: "granted",
+      consentPolicyVersion: reviewerCallConsentPolicyVersion,
       destinationPhone: "+919111111111",
       expectedVersion: 0,
       clientOperationId: "page-consent",

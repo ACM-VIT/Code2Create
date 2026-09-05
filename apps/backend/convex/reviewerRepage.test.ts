@@ -5,7 +5,7 @@ import { internal } from "./_generated/api";
 import {
   reviewerCallConsentPolicyVersion,
   reviewerCallScriptPolicyVersion,
-} from "./outboundCallConsents";
+} from "@code2create/domain";
 import schema from "./schema";
 
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
@@ -159,6 +159,7 @@ describe("reviewer repaging", () => {
             juniorRotationReviews: 0,
             reviewerArrivalSeconds: 90,
             assignmentReminderSeconds: 300,
+            assignmentReminderCalls: true,
           },
           minimumScorersPerCriterion: 1,
           minimumPresentParticipants: 1,

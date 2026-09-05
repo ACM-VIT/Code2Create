@@ -16,6 +16,7 @@ export const reviewQuestionRequestSchema = v.strictObject({
   references: v.pipe(
     v.array(
       v.strictObject({
+        image: v.optional(v.strictObject({ factId: id, sha256: digest })),
         id,
         kind: v.picklist(["project", "checkpoint", "github", "figma"]),
         title: text(500),
@@ -45,9 +46,20 @@ export const reviewQuestionRequestSchema = v.strictObject({
     v.minLength(1),
     v.maxLength(20),
   ),
+  images: v.pipe(
+    v.array(
+      v.strictObject({
+        sourceId: id,
+        sha256: digest,
+        data: v.pipe(v.string(), v.minLength(1), v.maxLength(12 * 1024 * 1024)),
+      }),
+    ),
+    v.maxLength(1),
+  ),
   sources: v.pipe(
     v.array(
       v.strictObject({
+        image: v.optional(v.strictObject({ factId: id, sha256: digest })),
         id,
         kind: v.picklist(["project", "checkpoint", "github", "figma"]),
         title: text(500),
@@ -78,8 +90,14 @@ export const suggestedReviewQuestionsSchema = v.strictObject({
     v.maxLength(12),
   ),
 });
-export type ReviewQuestionInput = v.InferOutput<
+export type ReviewQuestionPayload = v.InferOutput<
   typeof reviewQuestionRequestSchema
+>;
+export const reviewQuestionInputSchema = v.omit(reviewQuestionRequestSchema, [
+  "images",
+]);
+export type ReviewQuestionInput = v.InferOutput<
+  typeof reviewQuestionInputSchema
 >;
 
 export const evidenceAnalysisSchema = v.strictObject({

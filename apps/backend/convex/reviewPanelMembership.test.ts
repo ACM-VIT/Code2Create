@@ -16,6 +16,7 @@ import { maximumReviewTeamsPerEvent } from "./lib/reviewLimits.ts";
 import { insertTeamRoundState } from "./lib/reviewQueueProjection.ts";
 import { createTestSubmissionSnapshot } from "./lib/testSubmissionSnapshot.ts";
 import schema from "./schema.ts";
+import { reviewerCallConsentPolicyVersion, reviewerCallScriptPolicyVersion } from "@code2create/domain";
 
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
 const betterAuthModules = import.meta.glob(
@@ -37,6 +38,319 @@ afterAll(() => {
   restoreEnvironment("PARTICIPANT_SITE_URL", originalParticipantSiteUrl);
   restoreEnvironment("OPERATIONS_SITE_URL", originalOperationsSiteUrl);
 });
+
+describe("reviewer shift reminders", () => {
+  test("uses the configured lead time and dispatches at most one call for a shift", async () => {
+    const f = await shiftReminderFixture(600_000);
+    {
+      await f.prepare();
+      expect(await f.calls()).toHaveLength(0);
+      await f.configure(600, true);
+      await f.prepare();
+      await f.prepare();
+      const calls = await f.calls();
+      expect(calls).toHaveLength(1);
+      const call = calls[0]!;
+      expect(call).toMatchObject({
+        purpose: "reviewer_shift_reminder",
+        attemptCount: 0,
+      });
+      expect(call.script).toContain("open the reviewer app");
+      const claim = { deliveryId: call._id, attemptId: "first" };
+      expect(
+        await f.backend.mutation(
+          internal.outboundCallState.claimDelivery,
+          claim,
+        ),
+      ).not.toBeNull();
+      expect(
+        await f.backend.mutation(
+          internal.outboundCallState.claimDelivery,
+          claim,
+        ),
+      ).toBeNull();
+      await f.prepare();
+      expect(await f.calls()).toHaveLength(1);
+    }
+  });
+
+  test.each([
+    "hours",
+    "clock_in",
+    "calls_off",
+    "reminders_off",
+    "round_closed",
+    "consent",
+    "permission",
+    "expired",
+  ] as const)(
+    "cancels a queued call when %s makes it obsolete",
+    async (change) => {
+      const f = await shiftReminderFixture();
+      await f.prepare();
+      const [call] = await f.calls();
+      if (!call) throw new Error("Reminder missing");
+      await f.backend.run(async (ctx) => {
+        const round = await ctx.db.get(f.fixture.roundId);
+        if (!round) throw new Error("Round missing");
+        if (change === "hours")
+          await ctx.db.patch(f.confirmationId, { version: 2, windows: [] });
+        if (change === "calls_off")
+          await ctx.db.patch(round._id, {
+            staffing: { ...round.staffing, assignmentReminderCalls: false },
+          });
+        if (change === "reminders_off")
+          await ctx.db.patch(round._id, {
+            staffing: { ...round.staffing, assignmentReminderSeconds: 0 },
+          });
+        if (change === "round_closed")
+          await ctx.db.patch(round._id, { status: "closed" });
+        if (change === "consent")
+          await ctx.db.patch(f.consentId, { state: "revoked", version: 2 });
+        if (change === "permission") {
+          for (const id of call.authorizationGrantIds)
+            await ctx.db.patch(id, { status: "revoked" });
+        }
+        if (change === "clock_in")
+          await ctx.db.insert("reviewerClockIns", {
+            eventId: f.fixture.eventId,
+            roundId: f.fixture.roundId,
+            reviewerPersonId: f.fixture.memberPersonId,
+            reviewerDeviceId: f.deviceId,
+            status: "present",
+            clockedInAt: Date.now(),
+            lastHeartbeatAt: Date.now(),
+            version: 1,
+          });
+      });
+      const clock =
+        change === "expired"
+          ? vi.spyOn(Date, "now").mockReturnValue(f.shiftStartsAt)
+          : null;
+      try {
+        expect(
+          await f.backend.mutation(internal.outboundCallState.claimDelivery, {
+            deliveryId: call._id,
+            attemptId: "obsolete",
+          }),
+        ).toBeNull();
+        expect(
+          await f.backend.run((ctx) => ctx.db.get(call._id)),
+        ).toMatchObject({ state: "cancelled", attemptCount: 0 });
+      } finally {
+        clock?.mockRestore();
+      }
+    },
+  );
+
+  test("shortening the lead time defers a queued call without consuming a dispatch attempt", async () => {
+    const f = await shiftReminderFixture();
+    await f.prepare();
+    const [call] = await f.calls();
+    if (!call) throw new Error("Reminder missing");
+    await f.configure(60, true);
+    expect(
+      await f.backend.mutation(internal.outboundCallState.claimDelivery, {
+        deliveryId: call._id,
+        attemptId: "early",
+      }),
+    ).toBeNull();
+    expect(await f.backend.run((ctx) => ctx.db.get(call._id))).toMatchObject({
+      state: "retry_wait",
+      nextAttemptAt: f.shiftStartsAt - 60_000,
+      attemptCount: 0,
+    });
+    const clock = vi
+      .spyOn(Date, "now")
+      .mockReturnValue(f.shiftStartsAt - 60_000);
+    try {
+      expect(
+        await f.backend.mutation(internal.outboundCallState.claimDelivery, {
+          deliveryId: call._id,
+          attemptId: "due",
+        }),
+      ).not.toBeNull();
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  test("late consent and enabling calls work even after the push was sent", async () => {
+    const f = await shiftReminderFixture();
+    await f.backend.run((ctx) =>
+      ctx.db.patch(f.consentId, {
+        consentPolicyVersion: "reviewer-page-call-consent-v1",
+      }),
+    );
+    await f.prepare();
+    expect(await f.calls()).toHaveLength(0);
+    await f.backend.run(async (ctx) => {
+      const notification = await ctx.db
+        .query("reviewConfirmationNotifications")
+        .unique();
+      if (!notification) throw new Error("Push missing");
+      await ctx.db.patch(notification._id, { state: "sent" });
+    });
+    await f.configure(300, false);
+    await f.reviewer.identity.mutation(
+      api.outboundCallConsents.saveReviewerConsent,
+      {
+        eventSlug: f.fixture.eventSlug,
+        state: "granted",
+        consentPolicyVersion: reviewerCallConsentPolicyVersion,
+        destinationPhone: "+919000000001",
+        expectedVersion: 1,
+        clientOperationId: crypto.randomUUID(),
+      },
+    );
+    await f.prepare();
+    expect(await f.calls()).toHaveLength(0);
+    await f.configure(300, true);
+    await f.prepare();
+    expect(await f.calls()).toHaveLength(1);
+    expect(
+      await f.backend.run((ctx) =>
+        ctx.db.query("reviewConfirmationNotifications").collect(),
+      ),
+    ).toEqual([expect.objectContaining({ state: "sent" })]);
+  });
+
+  test("clock-in also cancels push delivery", async () => {
+    const f = await shiftReminderFixture();
+    await f.prepare();
+    await f.backend.run((ctx) =>
+      ctx.db.insert("reviewerClockIns", {
+        eventId: f.fixture.eventId,
+        roundId: f.fixture.roundId,
+        reviewerPersonId: f.fixture.memberPersonId,
+        reviewerDeviceId: f.deviceId,
+        status: "present",
+        clockedInAt: Date.now(),
+        lastHeartbeatAt: Date.now(),
+        version: 1,
+      }),
+    );
+    const notification = await f.backend.run((ctx) =>
+      ctx.db.query("reviewConfirmationNotifications").unique(),
+    );
+    if (!notification) throw new Error("Push missing");
+    expect(
+      await f.backend.mutation(internal.reviewConfirmationPushState.claim, {
+        notificationId: notification._id,
+        attemptId: "already-here",
+      }),
+    ).toBeNull();
+    expect(
+      await f.backend.run((ctx) => ctx.db.get(notification._id)),
+    ).toMatchObject({ state: "cancelled" });
+  });
+});
+
+async function shiftReminderFixture(leadMs = 240_000) {
+  const backend = seededBackend();
+  const fixture = await seedPanel(backend);
+  const reviewer = await prepareReviewerClockIn(backend, fixture);
+  const shiftStartsAt = Date.now() + leadMs;
+  const seeded = await backend.run(async (ctx) => {
+    const confirmation = await ctx.db
+      .query("reviewerRoundConfirmations")
+      .withIndex("by_roundId_and_personId", (q) =>
+        q.eq("roundId", fixture.roundId).eq("personId", fixture.memberPersonId),
+      )
+      .unique();
+    const device = await ctx.db
+      .query("reviewerDevices")
+      .withIndex("by_event_installation", (q) =>
+        q
+          .eq("eventId", fixture.eventId)
+          .eq("installationId", reviewer.installationId),
+      )
+      .unique();
+    if (!confirmation || !device) throw new Error("Reviewer fixture missing");
+    await ctx.db.patch(confirmation._id, {
+      windows: [{ startsAt: shiftStartsAt, endsAt: shiftStartsAt + 1_200_000 }],
+    });
+    await insertPermissionGrant(ctx, {
+      eventId: fixture.eventId,
+      personId: fixture.operatorPersonId,
+      eventAccessSubjectId: fixture.operatorSubjectId,
+      permissionKey: "review.configuration.publish",
+      scopeType: "event",
+      sourceType: "manual",
+      sourceId: "reminder-test-config",
+      grantedByPersonId: fixture.operatorPersonId,
+      reason: "Configure shift reminders",
+    });
+    await insertPermissionGrant(ctx, {
+      eventId: fixture.eventId,
+      personId: fixture.memberPersonId,
+      eventAccessSubjectId: fixture.memberSubjectId,
+      permissionKey: "communications.call_consent.manage",
+      scopeType: "self",
+      scopeId: fixture.memberSubjectId,
+      sourceType: "manual",
+      sourceId: "reminder-test-consent",
+      grantedByPersonId: fixture.operatorPersonId,
+      reason: "Reviewer call setting",
+    });
+    const consentId = await ctx.db.insert("outboundCallConsents", {
+      eventId: fixture.eventId,
+      personId: fixture.memberPersonId,
+      purpose: "reviewer_substitute_page",
+      state: "granted",
+      destinationPhoneE164: "+919000000001",
+      consentPolicyVersion: reviewerCallConsentPolicyVersion,
+      scriptPolicyVersion: reviewerCallScriptPolicyVersion,
+      version: 1,
+      grantedAt: Date.now(),
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    return {
+      confirmationId: confirmation._id,
+      consentId,
+      deviceId: device._id,
+    };
+  });
+  return {
+    backend,
+    fixture,
+    reviewer,
+    shiftStartsAt,
+    ...seeded,
+    prepare: () =>
+      backend.mutation(internal.reviewConfirmations.prepareShiftReminder, {
+        confirmationId: seeded.confirmationId,
+        confirmationVersion: 1,
+        shiftStartsAt,
+      }),
+    calls: () =>
+      backend.run((ctx) => ctx.db.query("outboundCallDeliveries").collect()),
+    configure: async (seconds: number, calls: boolean) => {
+      const round = await backend.run((ctx) => ctx.db.get(fixture.roundId));
+      if (!round) throw new Error("Round missing");
+      return backend
+        .withIdentity({
+          subject: fixture.authUserId,
+          sessionId: fixture.authSessionId,
+        })
+        .mutation(api.reviewStaffing.configure, {
+          eventSlug: fixture.eventSlug,
+          roundId: round._id,
+          expectedVersion: round.version,
+          staffing: {
+            ...round.staffing,
+            assignmentReminderSeconds: seconds,
+            assignmentReminderCalls: calls,
+          },
+          substituteResponseSeconds: round.substituteResponseSeconds,
+          noShowGraceSeconds: round.noShowGraceSeconds,
+          reason: "Change reminder lead time",
+          clientOperationId: crypto.randomUUID(),
+        });
+    },
+  };
+}
 
 describe("automatic panel staffing", () => {
   test.each(["available", "outside_window", "unconfirmed"] as const)(
@@ -1366,6 +1680,7 @@ describe("live panel membership", () => {
           juniorRotationReviews: 0,
           reviewerArrivalSeconds: 90,
           assignmentReminderSeconds: 300,
+          assignmentReminderCalls: true,
         },
         minimumScorersPerCriterion: 1,
         minimumPresentParticipants: 1,
@@ -3053,6 +3368,7 @@ function publicationRequest(
         juniorRotationReviews: 0,
         reviewerArrivalSeconds: 90,
         assignmentReminderSeconds: 300,
+        assignmentReminderCalls: true,
       },
       minimumScorersPerCriterion: 1,
       minimumPresentParticipants: 1,
@@ -3297,6 +3613,7 @@ async function seedPanel(backend: BackendTest) {
         juniorRotationReviews: 0,
         reviewerArrivalSeconds: 90,
         assignmentReminderSeconds: 300,
+        assignmentReminderCalls: true,
       },
       minimumScorersPerCriterion: 1,
       minimumPresentParticipants: 1,

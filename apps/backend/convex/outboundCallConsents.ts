@@ -1,3 +1,5 @@
+import { venueCallConsentVersion } from "@code2create/domain";
+import { scheduleShiftReminders } from "./reviewConfirmations";
 import { ConvexError, v } from "convex/values";
 
 import type { Id } from "./_generated/dataModel";
@@ -14,13 +16,12 @@ import {
 import { normalizedE164Phone } from "./lib/outboundCalls";
 import { requirePermission } from "./lib/permissions";
 import {
-  venueCallConsentVersion,
   venueCallPurpose,
   venueCallScriptVersion,
 } from "./lib/reviewerVenuePolicy";
 
-export const reviewerCallConsentPolicyVersion = "reviewer-page-call-consent-v1";
-export const reviewerCallScriptPolicyVersion = "reviewer-substitute-page-v1";
+import { reviewerCallConsentPolicyVersion, reviewerCallScriptPolicyVersion } from "@code2create/domain";
+import { maximumReviewRoundsPerEvent } from "./lib/reviewLimits";
 
 const reviewerPurpose = v.optional(
   v.union(
@@ -122,6 +123,7 @@ export const saveReviewerConsent = mutation({
     purpose: reviewerPurpose,
     state: v.union(v.literal("granted"), v.literal("revoked")),
     destinationPhone: v.optional(v.string()),
+    consentPolicyVersion: v.optional(v.string()),
     expectedVersion: v.number(),
     clientOperationId: v.string(),
   },
@@ -139,6 +141,12 @@ export const saveReviewerConsent = mutation({
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
+    if (args.state === "granted" && args.consentPolicyVersion !== reviewerCallConsentPolicyVersion) {
+      throw new ConvexError({
+        code: "CALL_NOTICE_CHANGED",
+        message: "Update the reviewer app and read the current call notice before allowing calls.",
+      });
+    }
     const destinationPhoneE164 = normalizedE164Phone(args.destinationPhone);
     if (args.state === "granted" && destinationPhoneE164 === null) {
       throw new ConvexError({
@@ -151,6 +159,7 @@ export const saveReviewerConsent = mutation({
       args.state,
       destinationPhoneE164,
       args.expectedVersion,
+      args.consentPolicyVersion ?? null,
       reviewerCallConsentPolicyVersion,
       reviewerCallScriptPolicyVersion,
     ]);
@@ -259,6 +268,18 @@ export const saveReviewerConsent = mutation({
         createdAt: now,
       });
     }
+    if (args.state === "granted" && reviewerCallPurpose === "reviewer_substitute_page") {
+      const confirmations = await ctx.db.query("reviewerRoundConfirmations")
+        .withIndex("by_eventId_and_personId", (q) =>
+          q.eq("eventId", event._id).eq("personId", person._id)).take(maximumReviewRoundsPerEvent + 1);
+      if (confirmations.length > maximumReviewRoundsPerEvent)
+        throw new Error("Reviewer round limit exceeded.");
+      for (const confirmation of confirmations) {
+        const round = await ctx.db.get(confirmation.roundId);
+        if (round && ["published", "open"].includes(round.status) && round.endsAt > now)
+          await scheduleShiftReminders(ctx, confirmation, round, now);
+      }
+    }
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -291,8 +312,8 @@ export const saveReviewerConsent = mutation({
       nextSummary: JSON.stringify({ state: args.state, version }),
       reason:
         args.state === "granted"
-          ? "Reviewer enabled phone fallback"
-          : "Reviewer disabled phone fallback",
+          ? "Reviewer enabled shift reminders and substitute calls"
+          : "Reviewer disabled review calls",
     });
     return { consentId, state: args.state, version };
   },

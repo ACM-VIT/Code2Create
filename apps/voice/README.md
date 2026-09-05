@@ -2,7 +2,7 @@
 
 This Cloudflare Worker places one phone call for one accepted delivery ID. Convex decides whether a call is allowed. The Worker cannot read event data or create a page.
 
-The current reviewer flow is push first. A missing push address can call immediately; otherwise the first unanswered 30-second repage can call. The reviewer must have current phone-call consent. The page chain must still hold its exact call authority. A call asks the reviewer to open the app and never accepts or declines the page.
+The current reviewer flow is push first. A missing push address can call immediately; otherwise the first unanswered reminder can call. Its delay is half the page response window, capped at 30 seconds: a default 30-second page can escalate after 15 seconds. The reviewer must have current phone-call consent. The page chain must still hold its exact call authority. A call asks the reviewer to open the app and never accepts or declines the page. Scheduled shift reminders currently use push; adding voice for that purpose is tracked in the [event follow-up plan](../../specs/16-event-follow-up-plan.md).
 
 The Worker uses:
 
@@ -44,3 +44,5 @@ Venue checks use a dedicated published Sarvam agent selected in ops. They pass i
 The completion webhook carries a structured response and transcript. The Worker validates them and relays them through the existing signed callback. Convex records the response separately from delivery status, validates the still-current source/consent/policy/expiry, and requests staffing replacement for a confirmed absence only between reviews. An unclear response, help request or absence during active/scoring review needs ops follow-up. An answered or completed call alone never confirms availability. No answer remains a distinct delivery outcome. An available response does not invent an inside-GPS reading or replace pre-round confirmation.
 
 The app's call consent now explains conversation and transcript storage. Old announcement-only venue consent requires confirmation again. Audio recording is not enabled or downloaded by this integration. See [agent instructions, variables and rehearsal](agents/venue-confirmation.md) for the concrete provider configuration. No provider agent was published or live call placed during local implementation.
+
+Reviewer shift calls use the same outbound delivery service. Ops chooses the lead time and enables calling in staffing settings. The backend rechecks confirmed hours, clock-in, round state, reminder timing, consent and reviewer access at dispatch, and deduplicates calls by the shift notice. The call gives the actual shift start time and directs the reviewer to the app. The updated reviewer call notice covers both shift reminders and substitute calls; GPS conversation consent remains separate.

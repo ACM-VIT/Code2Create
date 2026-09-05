@@ -1433,6 +1433,7 @@ describe("review question ingress", () => {
   const input = {
     protocolVersion: reviewQuestionProtocolVersion,
     jobId: "question-set-1",
+    images: [],
     attempt: 1,
     stage: "questions",
     partId: "final",
@@ -1513,18 +1514,85 @@ describe("review question ingress", () => {
     expect(await (await send(JSON.stringify(input))).json()).toEqual({
       state: "already_exists",
     });
+    const { images: _images, ...expectedInitialData } = input;
     expect(runtime.dispatchBrief.mock.calls.map((call) => call[1])).toEqual([
       expect.objectContaining({
         id: "question-set-1:1:final:1",
         uid: null,
-        initialData: input,
+        initialData: expectedInitialData,
       }),
       expect.objectContaining({
         id: "question-set-1:1:final:1",
         uid: null,
-        initialData: input,
+        initialData: expectedInitialData,
       }),
     ]);
+  });
+  test("delivers captured PNG bytes as a model image without copying them into initial data", async () => {
+    const data =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWQAAAABJRU5ErkJggg==";
+    const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+    const digest = Array.from(
+      new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)),
+      (b) => b.toString(16).padStart(2, "0"),
+    ).join("");
+    const visual = {
+      ...input,
+      stage: "inspect",
+      partId: "image-1",
+      sources: [
+        {
+          id: "figma:frame",
+          kind: "figma",
+          title: "Captured screen",
+          text: "Inspect this captured screen",
+          coverage: "captured",
+          image: { factId: "fact-1", sha256: digest },
+        },
+      ],
+      images: [{ sourceId: "figma:frame", sha256: digest, data }],
+    };
+    runtime.dispatchBrief.mockResolvedValue({
+      submissionId: "visual",
+      acceptedAt: "2026-09-05T00:00:00.000Z",
+      uid: "visual",
+    });
+    expect((await send(JSON.stringify(visual))).status).toBe(202);
+    const { images, ...initialData } = visual;
+    expect(runtime.dispatchBrief).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        initialData,
+        message: {
+          kind: "user",
+          body: expect.stringContaining("figma:frame"),
+          attachments: [
+            { type: "image", mimeType: "image/png", data: images[0]?.data },
+          ],
+        },
+      }),
+    );
+    for (const invalid of [
+      { ...visual, images: [] },
+      { ...visual, stage: "questions" },
+      {
+        ...visual,
+        images: [{ sourceId: "unrelated-frame", sha256: digest, data }],
+      },
+      {
+        ...visual,
+        images: [
+          {
+            sourceId: "figma:frame",
+            sha256: digest,
+            data: btoa("different bytes"),
+          },
+        ],
+      },
+      { ...visual, model: "openai/nonexistent-vision-model" },
+    ])
+      expect((await send(JSON.stringify(invalid))).status).toBe(422);
+    expect(runtime.dispatchBrief).toHaveBeenCalledTimes(1);
   });
   test("rejects signatures for another purpose and unexpected grading input", async () => {
     expect(

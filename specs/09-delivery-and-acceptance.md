@@ -10,7 +10,7 @@ Use pnpm for all workspace commands. Use strict TypeScript. Do not add compatibi
 
 Deliver these foundations:
 
-- separate Vite participant, operations, and handbook applications;
+- separate Vite participant and operations applications, with repository Markdown as the handbook source;
 - a separate Convex backend;
 - a locally built and signed Expo reviewer application;
 - Google sign-in through Better Auth;

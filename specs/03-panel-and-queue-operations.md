@@ -32,6 +32,10 @@ Reviewer type or seniority never changes score weight.
 
 The reviewer form's hour selections are discarded because the form mistakenly capped answers at three. Its respondents constitute the whole reviewer pool. The import keeps the latest response per email, seniority, domain, declared skills, resume link, and GitHub reference. These declarations help staff prepare profiles; they do not certify training or grant criterion qualifications.
 
+Reviewer assessment is a one-time preparation task performed with the event owner in the planning conversation. The owner supplies resumes and metadata matched by email. The prepared output records evidence-backed domain and criterion qualifications, lead suitability, uncertainty, provisional panels, and replacement candidates. The existing roster importer admits the people and their source references; existing reviewer-profile and panel-publication commands apply the assessment and plan. There is no new resume crawler, recurring reviewer-assessment agent, or separate profile-import product. Actual training completion remains separately recorded.
+
+Prepared panels are provisional. App confirmations, current availability, conflicts, clock-in, and qualified replacements continue to govern live staffing and fair JC rotation. See [Event follow-up plan](16-event-follow-up-plan.md) for the preparation handoff and remaining implementation work.
+
 Availability belongs to each round. Around 23:00 IST, the app asks each rostered person to confirm every time window they can cover or explicitly decline. Reviewers can revise their response. The server merges touching or overlapping windows, checks round boundaries, and requires enough time for a complete review. A pending response is not availability, and confirmation is not arrival.
 
 ## 3. Panel planning
@@ -116,7 +120,7 @@ When a required seat is empty or a reviewer becomes unavailable:
 
 The setup defaults to a 30-second acknowledgment window. A page timeout must advance to another eligible candidate promptly. Acceptance and physical arrival remain distinct; an accepted replacement who does not arrive also needs replacement. Paging cadence and any phone escalation must fit within the acknowledgment window rather than waiting until the page has already expired.
 
-A delivered push does not count as acceptance. The system sends push first. If the reviewer gave current call consent and does not acknowledge by the first 30-second repage, the reusable outbound-calling service can place a synthesized call under the page chain's still-current `review.substitute.page` authority. If push is unavailable, the call can start at once. Only an authenticated in-app action accepts or declines the page. If no candidate responds, the server advances to the next candidate and operations sends a floor runner. The exception stays visible.
+A delivered push does not count as acceptance. The system sends push first. If the reviewer gave current call consent and does not acknowledge by the first reminder, the reusable outbound-calling service can place a synthesized call under the page chain's still-current `review.substitute.page` authority. That reminder occurs at half the response window, capped at 30 seconds, so the default 30-second page can escalate at 15 seconds before it expires. If push is unavailable, the call can start at once. Only an authenticated in-app action accepts or declines the page. If no candidate responds, the server advances to the next candidate and operations sends a floor runner. The exception stays visible.
 
 ## 8. Queue
 
@@ -167,7 +171,7 @@ The live board shows each team's active-member count, currently-inside count, an
 
 An exceptional call requires `review.participant_availability.waive` for that exact team or an explicit event-wide grant. It also requires a reason, the same idempotent call operation, and a current scoped authorization. Before the transaction creates the called review, it records an immutable waiver. The waiver contains the observed and required counts, authorizing grant IDs, actor, and time. If availability drops after the call, the same permission can cover that exact review or team. The system records the waiver against the current pending-review version. A waiver never changes attendance and cannot be copied to another review. The team portal only asks members to regroup. It does not show the exception reason or identify the person who is away.
 
-The final missed-call grace period, number of calls, and re-entry position are open decisions. The dashboard must not implement a hidden default.
+Operations explicitly publishes the missed-call grace period, required call attempts, and re-entry policy with the round. Setup currently proposes 180 seconds, two attempts, and preservation of the original queue time; the operator can change those values before publication.
 
 ### Round-wide incident pause
 
@@ -279,4 +283,4 @@ Any assigned reviewer may confirm completion after every active reviewer has sub
 
 GPS is advisory. Sustained outside readings prompt an app reminder and, when configured and consented, a conversational check-in call. Ops selects the published voice agent/version and timing; the response and transcript are recorded separately from GPS and call delivery status. A current explicit unavailable answer can end duty and request a substitute between reviews. Active discussion and unfinished scorecards remain locked; unclear answers or requests for help need ops follow-up. No answer never becomes confirmation. Normal clock-in is the return-to-duty action and cancels an older unresolved check.
 
-The review brief is optional: complete eligible repository text and stored Figma structure are analysed in resumable batches before synthesis. The default is up to three grounded follow-ups, including none when the fixed rubric is enough. The reviewer sees a concise brief in the existing app style. Binary assets, inaccessible resources and runtime/visual verification remain explicit limitations. See [current implementation and rehearsal](15-event-review-readiness.md).
+The review brief is optional: complete eligible repository text and stored Figma structure are analysed in resumable batches before synthesis. The default is up to three grounded follow-ups, including none when the fixed rubric is enough. The reviewer sees a concise brief in the existing app style. Ops can also enable inspection of captured Figma renders with exact frame/checksum references. Binary repository assets, inaccessible resources, preview capture limits and runtime verification remain explicit limitations. See [current implementation and rehearsal](15-event-review-readiness.md).

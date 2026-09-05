@@ -23,8 +23,10 @@ export function questionPayloadChecksum(
         s.title,
         s.url ?? null,
         s.coverage,
+        s.image ?? null,
       ]),
     ),
+    JSON.stringify(input.images.map((image) => [image.sourceId, image.sha256])),
     input.model,
     input.maximumQuestions,
     input.instructions,
@@ -39,6 +41,7 @@ export function questionPayloadChecksum(
         s.url ?? null,
         s.text,
         s.coverage,
+        s.image ?? null,
       ]),
     ),
   ]);
@@ -58,6 +61,13 @@ export const reviewQuestionRequestSchema = z
       .array(
         z
           .object({
+            image: z
+              .object({
+                factId: z.string().min(1).max(200),
+                sha256: z.string().regex(/^[a-f0-9]{64}$/),
+              })
+              .strict()
+              .optional(),
             id: z.string().min(1).max(200),
             kind: z.enum(["project", "checkpoint", "github", "figma"]),
             title: z.string().max(500),
@@ -83,10 +93,31 @@ export const reviewQuestionRequestSchema = z
       )
       .min(1)
       .max(20),
+    images: z
+      .array(
+        z
+          .object({
+            sourceId: z.string().min(1).max(200),
+            sha256: z.string().regex(/^[a-f0-9]{64}$/),
+            data: z
+              .string()
+              .min(1)
+              .max(12 * 1024 * 1024),
+          })
+          .strict(),
+      )
+      .max(1),
     sources: z
       .array(
         z
           .object({
+            image: z
+              .object({
+                factId: z.string().min(1).max(200),
+                sha256: z.string().regex(/^[a-f0-9]{64}$/),
+              })
+              .strict()
+              .optional(),
             id: z.string().min(1).max(200),
             kind: z.enum(["project", "checkpoint", "github", "figma"]),
             title: z.string().max(500),

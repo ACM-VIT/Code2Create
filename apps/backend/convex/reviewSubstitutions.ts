@@ -10,7 +10,7 @@ import { internalMutation, mutation, query } from "./_generated/server";
 import {
   reviewerCallConsentPolicyVersion,
   reviewerCallScriptPolicyVersion,
-} from "./outboundCallConsents";
+} from "@code2create/domain";
 import { advanceAccessVersion } from "./lib/accessVersion";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
