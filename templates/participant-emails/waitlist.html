@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{event_name}} - Your team is still in consideration.</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet" />
+  <style>
+    body { font-family: "Inter", sans-serif; background-color: #FFFFFF; color: #000000; text-align: center; margin: 10px; }
+    .highlight-text { color: #B44F76; font-weight: 700; }
+    .btn { display: inline-block; background-color: #B44F76; color: #FFFFFF !important; font-weight: 700; padding: 15px 20px; border-radius: 20px; }
+    a { text-decoration: none; }
+    @media (max-width: 600px) { .parent { padding: 20px 5px !important; } }
+  </style>
+</head>
+<body style="font-family:Inter,Arial,sans-serif;background:#FFFFFF;color:#000000;margin:0;padding:10px">
+  <div class="parent" style="max-width: 600px; margin: 20px auto; padding: 10px 30px; border: none; border-radius: 10px;">
+    <div><img src="cid:banner.png" alt="{{event_name}} banner" style="width: 100%; border: 4px solid #B44F76; border-radius: 18px; box-sizing: border-box;" /></div>
+    <br />
+    <div style="text-align: left; padding: 0 5%;">
+      <div>Dear {{participant_name}},</div>
+      <br />
+      <div>Greetings from ACM-VIT!</div>
+      <br />
+      <div>Your team, <span class="highlight-text" style="color:#B44F76;font-weight:700">{{team_name}}</span>, is currently on the <span class="highlight-text" style="color:#B44F76;font-weight:700">waitlist</span> for <span class="highlight-text" style="color:#B44F76;font-weight:700">{{event_name}}</span>.</div><br /><div>No response is required right now. Please keep an eye on your registered email and the <a href="{{portal_url}}" class="highlight-text" style="color:#B44F76;font-weight:700">C2C portal</a>; we will contact you if a place becomes available.</div><br />
+      <div>Thank you for your patience and for the work your team put into the application.</div>
+      <br />
+
+      <div><a href="{{portal_url}}" class="btn" style="display:inline-block;background:#B44F76;color:#FFFFFF;text-decoration:none;font-weight:700;padding:15px 20px;border-radius:20px">Open participant portal</a></div>
+      <br /><br />
+      <div>For updates, queries, and announcements, check out our Instagram and Discord:</div>
+      <br />
+      <div>Instagram: <a href="https://www.instagram.com/acmvit" class="highlight-text" style="color:#B44F76;font-weight:700">https://www.instagram.com/acmvit</a><br />
+      Discord: <a href="https://discord.gg/xWyjKPe3S" class="highlight-text" style="color:#B44F76;font-weight:700">https://discord.gg/xWyjKPe3S</a></div>
+      <br />
+      <div>Best regards,<br /><strong>ACM-VIT Student Chapter</strong></div>
+    </div>
+    <br />
+    <div style="padding: 2% 0; text-align: center; width: 100%;">
+      <a href="https://www.instagram.com/acmvit" target="_blank"><img src="cid:instagram.png" alt="Instagram" style="width:6vw;max-width:32px;height:auto" /></a><a href="https://www.youtube.com/@acm_vit" target="_blank"><img src="cid:youtube.png" alt="YouTube" style="width:6vw;max-width:32px;height:auto" /></a><a href="https://github.com/ACM-VIT" target="_blank"><img src="cid:github.png" alt="GitHub" style="width:6vw;max-width:32px;height:auto" /></a><a href="https://www.facebook.com/acmvitvellore" target="_blank"><img src="cid:facebook.png" alt="Facebook" style="width:6vw;max-width:32px;height:auto" /></a><a href="https://www.linkedin.com/company/acmvit" target="_blank"><img src="cid:linkedin.png" alt="LinkedIn" style="width:6vw;max-width:32px;height:auto" /></a><a href="https://x.com/ACM_VIT" target="_blank"><img src="cid:x.png" alt="X" style="width:6vw;max-width:32px;height:auto" /></a><a href="https://blog.acmvit.in" target="_blank"><img src="cid:hashnode.png" alt="ACM-VIT blog" style="width:6vw;max-width:32px;height:auto" /></a>
+    </div>
+    <div><img src="cid:tagline.png" alt="ACM-VIT" style="width: 80%; display: block; margin: 0 auto;" /></div>
+  </div>
+</body>
+</html>
