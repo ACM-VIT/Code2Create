@@ -18,7 +18,6 @@ import {
   createGoogleWalletSaveUrl,
   EventPassWalletConfigurationError,
   externalEventPassReference,
-  formattedEventStart,
   type ExternalEventPassDetails,
 } from "./lib/externalEventPassWallet";
 
@@ -142,7 +141,10 @@ export const deliver = internalAction({
       team_name: claim.teamName,
       event_name: claim.eventName,
       portal_url: portalUrl,
-      event_start: "",
+      event_start: new Intl.DateTimeFormat("en-IN", {
+        timeZone: claim.eventTimezone, day: "numeric", month: "long", year: "numeric",
+        hour: "numeric", minute: "2-digit", timeZoneName: "short",
+      }).format(claim.eventStartsAt),
       rsvp_deadline: claim.rsvpDeadline === undefined ? "" : new Intl.DateTimeFormat("en-IN", { timeZone: claim.eventTimezone, day: "numeric", month: "long", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(claim.rsvpDeadline),
       venue_name: claim.venueName,
       pass_reference: "",
@@ -189,7 +191,6 @@ export const deliver = internalAction({
           walletUrlOrEmpty(() => optionalGoogleWalletUrl(details)),
           walletUrlOrEmpty(() => optionalAppleWalletUrl(details)),
         ]);
-        variables.event_start = formattedEventStart(details);
         variables.pass_reference = externalEventPassReference(details.payload);
         variables.google_wallet_url = googleWalletUrl;
         variables.apple_wallet_url = appleWalletUrl;

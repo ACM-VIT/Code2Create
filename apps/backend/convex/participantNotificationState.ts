@@ -135,6 +135,13 @@ export const claimDelivery = internalMutation({
       await finishWithoutSend(ctx, delivery, "suppressed", "external_admission_notification_disabled", now);
       return null;
     }
+    if (delivery.templateKey === "offer") {
+      const project = await ctx.db.get(application.submittedProjectVersionId);
+      if (!project || project.lockedLeadMembershipId !== membership._id) {
+        await finishWithoutSend(ctx, delivery, "suppressed", "rsvp_recipient_not_team_lead", now);
+        return null;
+      }
+    }
     if (
       !communicationsPolicy ||
       communicationsPolicy.eventId !== delivery.eventId ||

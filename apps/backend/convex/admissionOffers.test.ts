@@ -29,6 +29,41 @@ afterEach(() => {
 });
 
 describe("admission offer lifecycle", () => {
+  test("renders the event date and time in VIT RSVP confirmation emails", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-05T08:30:00Z"));
+    vi.stubEnv("PARTICIPANT_SITE_URL", "https://c2c.sh");
+    vi.stubEnv("EMAIL_SERVICE_URL", "https://email.example.test");
+    vi.stubEnv("EMAIL_SEND_INGRESS_SECRET", "rsvp-email-fixture-secret-at-least-thirty-two-characters");
+    let sentBody = "";
+    vi.stubGlobal("fetch", async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (typeof init?.body === "string") sentBody = init.body;
+      return Response.json({ status: "accepted", provider: "cloudflare_email", messageId: "rsvp-confirmed-message", initialOutcome: "queued" });
+    });
+    const backend = convexTest(schema, modules);
+    const fixture = await seedOfferedApplication(backend, Date.now() + 60_000);
+    await backend.run(async ctx => {
+      const [application, offer, project, team] = await Promise.all([
+        ctx.db.get(fixture.applicationId), ctx.db.get(fixture.offerId), ctx.db.get(fixture.projectId), ctx.db.get(fixture.teamId),
+      ]);
+      if (!application || !offer || !project || !team) throw new Error("Missing RSVP fixture");
+      await transitionOffer(ctx, { application, offer, project, team, transition: "confirmed", actorPersonId: fixture.personId, reason: "Team lead confirmed RSVP", now: Date.now() });
+    });
+    const application = await backend.run(ctx => ctx.db.get(fixture.applicationId));
+    if (!application) throw new Error("Missing confirmed application");
+    await enqueueRosterNotification(backend, fixture, "offer_confirmed", application.version);
+    const state = await readOfferState(backend, fixture);
+    const delivery = state.deliveries.find(d => d.templateKey === "offer_confirmed");
+    if (!delivery) throw new Error("Missing confirmation email");
+    await backend.action(internal.participantEmail.deliver, { deliveryId: delivery._id });
+    const request: unknown = JSON.parse(sentBody);
+    expect(request).toMatchObject({
+      text: expect.stringContaining("When: 6 September 2026 at 2:00 pm IST"),
+      html: expect.stringContaining("When: 6 September 2026 at 2:00 pm IST"),
+    });
+    expect((await readOfferState(backend, fixture)).deliveries.find(d => d._id === delivery._id)?.state).toBe("sent");
+  });
+
   test("only exposes exact application management and exact-team response scopes", () => {
     expect(permissionCatalog["application.offer.manage"]).toEqual({
       scopes: ["application"],

@@ -114,6 +114,7 @@ export async function ensureApplicationNotification(
   if (snapshotMember.eventId !== args.eventId || snapshotMember.teamId !== args.teamId) {
     throw new Error("Locked roster snapshot is invalid for participant notification.");
   }
+  if (args.templateKey === "offer" && snapshotMember.role !== "lead") return null;
   const membership = await ctx.db.get(snapshotMember.membershipId);
   if (
     !membership ||

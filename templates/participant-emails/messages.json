@@ -2,7 +2,7 @@
   {
     "templateKey": "accept",
     "subject": "{{team_name}} has been selected for {{event_name}}",
-    "text": "Dear {{participant_name}},\n\nCongratulations from ACM-VIT!\n\nYour team, {{team_name}}, has been selected for {{event_name}}. Congratulations!\n\nSelection does not confirm attendance. Your team lead must open the C2C portal and choose Confirm attendance for the whole team before the RSVP deadline shown there. If your team cannot attend, choose Decline.\n\nPlease check the portal for your RSVP status, event details, and arrival instructions.\n\nView selection and RSVP: {{portal_url}}\n\nEvent Discord: https://discord.gg/hPkhtMcHq8\n\nBest regards,\nACM-VIT Student Chapter"
+    "text": "Dear {{participant_name}},\n\nCongratulations from ACM-VIT!\n\nYour team, {{team_name}}, has been selected for {{event_name}}. Congratulations!\n\nSelection does not confirm your RSVP. Your team lead must open the C2C portal and choose Confirm RSVP for the whole team before the RSVP deadline shown there. If your team cannot attend, choose Decline.\n\nPlease check the portal for your RSVP status, event details, and arrival instructions.\n\nView selection and RSVP: {{portal_url}}\n\nEvent Discord: https://discord.gg/hPkhtMcHq8\n\nBest regards,\nACM-VIT Student Chapter"
   },
   {
     "templateKey": "waitlist",
@@ -17,12 +17,12 @@
   {
     "templateKey": "offer",
     "subject": "RSVP required: confirm {{team_name}} by {{rsvp_deadline}}",
-    "text": "Dear {{participant_name}},\n\nCongratulations from ACM-VIT!\n\nYour team, {{team_name}}, has been selected for {{event_name}}. Your attendance is not confirmed yet.\n\nRSVP by {{rsvp_deadline}}\nYour team lead must choose Confirm attendance in the C2C portal for the whole team.\n\nIf your team cannot attend, choose Decline in the portal. If no response is received by the deadline, your reserved places will be released.\n\nOnly one response from the team lead is needed. All team members can check the current status in the portal.\n\nConfirm attendance: {{portal_url}}\n\nEvent Discord: https://discord.gg/hPkhtMcHq8\n\nBest regards,\nACM-VIT Student Chapter"
+    "text": "Dear {{participant_name}},\n\nCongratulations from ACM-VIT!\n\nYour team, {{team_name}}, has been selected for {{event_name}}. Your RSVP is not confirmed yet.\n\nRSVP by {{rsvp_deadline}}\nYour team lead must choose Confirm RSVP in the C2C portal for the whole team.\n\nIf your team cannot attend, choose Decline in the portal. If no response is received by the deadline, your reserved places will be released.\n\nOnly one response from the team lead is needed. All team members can check the current status in the portal.\n\nConfirm RSVP: {{portal_url}}\n\nEvent Discord: https://discord.gg/hPkhtMcHq8\n\nBest regards,\nACM-VIT Student Chapter"
   },
   {
     "templateKey": "offer_confirmed",
-    "subject": "Attendance confirmed: {{team_name}} at {{event_name}}",
-    "text": "Dear {{participant_name}},\n\nYou’re in!\n\nYour team lead has confirmed attendance for {{team_name}} at {{event_name}}. Your team’s places are reserved; no further RSVP is needed.\n\nWhen: {{event_start}}\nWhere: {{venue_name}}\n\nPlease check the C2C portal for arrival instructions and join the event Discord for announcements and participant support.\n\nView event details: {{portal_url}}\n\nEvent Discord: https://discord.gg/hPkhtMcHq8\n\nBest regards,\nACM-VIT Student Chapter"
+    "subject": "RSVP confirmed: {{team_name}} at {{event_name}}",
+    "text": "Dear {{participant_name}},\n\nYou’re in!\n\nRSVP has been confirmed for {{team_name}} at {{event_name}}. Your team’s places are reserved. No further RSVP is needed.\n\nWhen: {{event_start}}\nWhere: {{venue_name}}\n\nPlease check the C2C portal for arrival instructions and join the event Discord for announcements and participant support.\n\nView event details: {{portal_url}}\n\nEvent Discord: https://discord.gg/hPkhtMcHq8\n\nBest regards,\nACM-VIT Student Chapter"
   },
   {
     "templateKey": "offer_declined",

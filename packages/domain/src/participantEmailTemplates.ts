@@ -160,19 +160,19 @@ export function defaultParticipantEmailTemplates(): ParticipantEmailTemplate[] {
     {
       templateKey: "offer",
       subject: "RSVP required: confirm {{team_name}} by {{rsvp_deadline}}",
-      text: "Hi {{participant_name}},\n\n{{team_name}} has been selected for {{event_name}}, but attendance is not confirmed yet. Your team lead must open {{portal_url}} and choose Confirm attendance for the whole team by {{rsvp_deadline}}. If your team cannot attend, choose Decline. Unanswered reservations expire at the deadline.",
+      text: "Hi {{participant_name}},\n\n{{team_name}} has been selected for {{event_name}}, but your RSVP is not confirmed yet. Your team lead must open {{portal_url}} and choose Confirm RSVP for the whole team by {{rsvp_deadline}}. If your team cannot attend, choose Decline. Unanswered reservations expire at the deadline.",
       html: emailHtml(
-        "Confirm your team's attendance.",
-        "{{team_name}} has been selected, but attendance is not confirmed yet. Your team lead must choose Confirm attendance in the participant portal by {{rsvp_deadline}}. If your team cannot attend, choose Decline. Unanswered reservations expire at the deadline.",
+        "Confirm your team's RSVP.",
+        "{{team_name}} has been selected, but your RSVP is not confirmed yet. Your team lead must choose Confirm RSVP in the participant portal by {{rsvp_deadline}}. If your team cannot attend, choose Decline. Unanswered reservations expire at the deadline.",
       ),
     },
     {
       templateKey: "offer_confirmed",
-      subject: "{{team_name}} is confirmed for Code2Create",
-      text: "Hi {{participant_name}},\n\n{{team_name}} is confirmed for {{event_name}}. View the event details and next steps here: {{portal_url}}",
+      subject: "RSVP confirmed: {{team_name}} at {{event_name}}",
+      text: "Hi {{participant_name}},\n\nRSVP has been confirmed for {{team_name}} at {{event_name}}.\n\nWhen: {{event_start}}\nWhere: {{venue_name}}\n\nView the event details and next steps here: {{portal_url}}",
       html: emailHtml(
-        "Your team is confirmed.",
-        "{{team_name}} has a place at {{event_name}}. Event details and next steps are available in the participant portal.",
+        "Your team's RSVP is confirmed.",
+        "RSVP has been confirmed for {{team_name}} at {{event_name}}. When: {{event_start}}. Where: {{venue_name}}. Event details and next steps are available in the participant portal.",
       ),
     },
     {

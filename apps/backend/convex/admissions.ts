@@ -492,6 +492,13 @@ export const admissionSummary = query({
     const releaser = event.admissionResultsReleasedByPersonId
       ? await ctx.db.get(event.admissionResultsReleasedByPersonId)
       : null;
+    const selectedApplications = active.filter(application => application.humanDecision === "accept");
+    const selectedTeams = await getAll(ctx.db, "teams", selectedApplications.map(application => application.teamId));
+    const vitTeamIds = new Set(selectedTeams.flatMap(team => {
+      if (!team) throw new Error("A selected team's RSVP context is missing.");
+      return team.activeVitMemberCount > 0 ? [team._id] : [];
+    }));
+    const vitRsvps = selectedApplications.filter(application => vitTeamIds.has(application.teamId));
     return {
       canReleaseResults: decisionGrantIds.length > 0,
       canManageRsvp: readGrantIds.length > 0 && (await matchingPermissionGrantIds(ctx, { eventId: event._id, eventAccessSubjectId: subject._id, permissionKey: "application.offer.manage", scopeType: "event" })).length > 0,
@@ -499,11 +506,11 @@ export const admissionSummary = query({
       ...(event.admissionRsvpClosesAt !== undefined ? { rsvpClosesAt: event.admissionRsvpClosesAt } : {}),
       ...(event.admissionRsvpReminderAt !== undefined ? { rsvpReminderAt: event.admissionRsvpReminderAt } : {}),
       rsvp: {
-        notInvited: active.filter(a => a.decisionStage === "released" && a.state === "accepted").length,
-        pending: active.filter(a => a.state === "offer_sent").length,
-        confirmed: active.filter(a => a.state === "confirmed").length,
-        declined: active.filter(a => a.humanDecision === "accept" && a.state === "withdrawn").length,
-        expired: active.filter(a => a.state === "offer_expired").length,
+        notInvited: vitRsvps.filter(a => a.decisionStage === "released" && a.state === "accepted").length,
+        pending: vitRsvps.filter(a => a.state === "offer_sent").length,
+        confirmed: vitRsvps.filter(a => a.state === "confirmed").length,
+        declined: vitRsvps.filter(a => a.state === "withdrawn").length,
+        expired: vitRsvps.filter(a => a.state === "offer_expired").length,
       },
       serverNow: Date.now(),
       eventVersion: event.version,

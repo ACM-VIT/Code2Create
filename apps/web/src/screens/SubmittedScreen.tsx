@@ -578,7 +578,7 @@ function SubmittedWorkspace({
                       ? "Confirming…"
                       : pendingResponse === "confirm"
                         ? "Confirm earlier response"
-                        : "Confirm attendance"}
+                        : "Confirm RSVP"}
                   </PortalButton>
                   <PortalTextButton
                     type="button"

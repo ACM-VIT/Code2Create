@@ -27,6 +27,7 @@ async function applySchedule(ctx: MutationCtx, event: Doc<"events">, application
     ctx.db.get(application.submittedProjectVersionId), ctx.db.get(application.admissionPolicyVersionId), ctx.db.get(application.teamId),
   ]);
   if (!project || !policy || !team) throw new Error("The selected team's RSVP context is missing.");
+  if (team.activeVitMemberCount === 0) return;
   const now = Date.now();
   let offerId: Id<"admissionOffers">;
   if (application.state === "accepted") {
@@ -120,7 +121,13 @@ export const configure = mutation({
     const selected = await ctx.db.query("applications")
       .withIndex("by_event_state_submitted", q => q.eq("eventId", event._id).eq("state", "accepted")).take(2001);
     if (selected.length > 2000) throw new ConvexError({ code: "RSVP_BATCH_TOO_LARGE", message: "The selected cohort exceeds the supported event size." });
-    await requireAdmissionRsvpCapacity(ctx, selected);
+    const vitSelected = [];
+    for (const application of selected) {
+      const team = await ctx.db.get(application.teamId);
+      if (!team) throw new Error("The selected team's RSVP context is missing.");
+      if (team.activeVitMemberCount > 0) vitSelected.push(application);
+    }
+    await requireAdmissionRsvpCapacity(ctx, vitSelected);
     const reason = normalizedText(args.reason, "RSVP schedule note", 5, 500);
     const now = Date.now();
     await ctx.db.patch(event._id, { admissionRsvpClosesAt: args.closesAt, admissionRsvpReminderAt: args.reminderAt,

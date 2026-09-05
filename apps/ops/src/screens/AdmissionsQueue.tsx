@@ -304,11 +304,11 @@ function AdmissionResultsRelease({ status }: {
       <div className="section-heading">
         <div>
           <p className="eyebrow">Supreme review</p>
-          <h2>{status.releasedAt ? "Attendance RSVP" : "Release admission results"}</h2>
+          <h2>{status.releasedAt ? "RSVP" : "Release admission results"}</h2>
           <p className="muted">
             {status.releasedAt
               ? `${status.rsvp.confirmed} confirmed · ${status.rsvp.pending} awaiting response · ${status.rsvp.notInvited} awaiting invitation · ${status.rsvp.declined} declined · ${status.rsvp.expired} expired`
-              : "Release results and invite selected team leads to confirm attendance by the RSVP deadline."}
+              : "Release results and invite selected VIT team leads to confirm RSVP by the RSVP deadline."}
           </p>
         </div>
         {!armed && (status.releasedAt ? status.canManageRsvp : status.canReleaseResults && status.canManageRsvp) ? (
@@ -336,7 +336,7 @@ function AdmissionResultsRelease({ status }: {
         <div className="publish-confirmation">
           <h3>{status.releasedAt ? "Open or update pending RSVPs" : <>Release all <LiveNumber value={status.total} /> results?</>}</h3>
           <p className="muted">
-            {status.releasedAt ? "Applies to selected teams awaiting a response. Confirmed and declined teams stay unchanged." : "Results become visible and selected teams receive an RSVP invitation."}
+            {status.releasedAt ? "Applies to accepted VIT teams awaiting a response. Only team leads receive invitations. Confirmed and declined teams stay unchanged." : "Results become visible and selected teams receive an RSVP invitation."}
           </p>
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="field"><span>RSVP deadline · {status.timezone}</span><input type="datetime-local" required value={closesAt} onChange={e => setClosesAt(e.currentTarget.value)} /></label>

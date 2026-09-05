@@ -1288,6 +1288,7 @@ describe("admission cohort query and decisions", () => {
         await ctx.db.patch(member.membershipId, { participantClass: "external_participant" });
         await ctx.db.patch(member._id, { participantClass: "external_participant" });
       }
+      await ctx.db.patch(externalApplication.teamId, { activeVitMemberCount: 0, activeExternalMemberCount: members.length });
     });
     const released = await operator.mutation(api.admissions.releaseAdmissionResults, releaseArgs);
     expect(released.applicationCount).toBe(3);
@@ -1330,7 +1331,14 @@ describe("admission cohort query and decisions", () => {
       await backend.mutation(internal.participantNotifications.enqueueRosterBatch, batch);
     }
     const deliveries = await backend.run((ctx) => ctx.db.query("participantNotificationDeliveries").collect());
-    expect(deliveries.filter((d) => d.applicationId === fixture.decidableApplicationId)).toHaveLength(4);
+    expect(deliveries.filter((d) => d.applicationId === fixture.decidableApplicationId)).toHaveLength(1);
+    const lead = await backend.run(async ctx => {
+      const application = await ctx.db.get(fixture.decidableApplicationId);
+      if (!application) throw new Error("Missing selected application");
+      return (await ctx.db.get(application.submittedProjectVersionId))?.lockedLeadMembershipId;
+    });
+    expect(deliveries.find(d => d.applicationId === fixture.decidableApplicationId)?.membershipId).toBe(lead);
+    expect(await backend.run(ctx => ctx.db.query("admissionOffers").filter(q => q.eq(q.field("applicationId"), fixture.splitApplicationId)).collect())).toEqual([]);
     expect(deliveries.filter((d) => d.applicationId === fixture.shortApplicationId)).toHaveLength(3);
     expect(deliveries.filter((d) => d.applicationId === fixture.splitApplicationId)).toHaveLength(0);
     expect(deliveries.every((d) => d.state === "pending" && d.attemptCount === 0)).toBe(true);
