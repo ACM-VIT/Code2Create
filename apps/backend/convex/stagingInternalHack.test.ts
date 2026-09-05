@@ -88,6 +88,14 @@ test.each([2, 5])(
         );
       return { eventId, ownerPersonId: ownerId, people };
     });
+    await t.run(async ctx => {
+      const event = await ctx.db.get(setup.eventId);
+      if (!event?.publishedCommunicationsPolicyId) throw new Error("Missing communications");
+      const policy = await ctx.db.get(event.publishedCommunicationsPolicyId);
+      if (!policy) throw new Error("Missing communications");
+      await ctx.db.patch(policy._id, {emailTemplates:policy.emailTemplates.slice(0,3)});
+    });
+    await t.mutation(internal.stagingInternalHack.prepare,{eventId:setup.eventId,startsAt:now+7200000,endsAt:now+14400000});
     const args = {
       ...setup,
       number: 1,
