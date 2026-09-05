@@ -1,13 +1,14 @@
 import { participantEmailEventSignatureContext, signServiceBody } from "@code2create/domain";
 import type { ParticipantEmailEvent } from "@code2create/domain";
 import { z } from "zod";
-export { OutboundEmailDelivery } from "./emailDispatch.js";
 
 import {
   cloudflareEmailSendingEventSchema,
   normalizeCloudflareEmailEvent,
 } from "./contracts.js";
 import { handleOutboundEmailRequest, type OutboundEmailEnvironment } from "./outbound.js";
+
+export { OutboundEmailDelivery } from "./emailDispatch.js";
 
 export interface EmailBridgeEnvironment extends OutboundEmailEnvironment {
   CONVEX_EMAIL_EVENT_CALLBACK_URL: string;

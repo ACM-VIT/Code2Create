@@ -31,7 +31,7 @@ const laterStudyYears: readonly Doc<"participantProfiles">["yearOfStudy"][] = [
   "fifth_or_later",
 ];
 
-function experienceBandFor(members: readonly RosterMember[]) {
+export function experienceBandFor(members: readonly Pick<RosterMember, "membership" | "profile">[]) {
   if (members.some(({ membership }) => membership.participantClass === "external_participant")) {
     return "mixed_or_external" as const;
   }
@@ -48,7 +48,7 @@ function experienceBandFor(members: readonly RosterMember[]) {
   return "mixed_or_external" as const;
 }
 
-async function loadRosterMembers(
+export async function loadRosterMembers(
   ctx: MutationCtx,
   args: {
     event: Doc<"events">;
@@ -275,8 +275,9 @@ export async function refreshSubmittedApplicationRoster(
     lockedRosterSnapshotId: attemptId,
     lockedMemberCount: members.length,
     lockedLeadMembershipId: team.leadMembershipId,
-    freshForEventAttestation: project.freshForEventAttestation,
-    finalConfirmation: project.finalConfirmation,
+    ...(project.freshForEventAttestation === null
+      ? { freshForEventAttestation: null, finalConfirmation: null, organizerImport: project.organizerImport }
+      : { freshForEventAttestation: project.freshForEventAttestation, finalConfirmation: project.finalConfirmation }),
     participantPolicyVersionId: participantPolicy._id,
     admissionPolicyVersionId: project.admissionPolicyVersionId,
     ...(project.proposalRevision !== undefined

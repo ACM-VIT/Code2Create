@@ -14,6 +14,8 @@ import {
   unusedTeamCode,
 } from "./lib/teamMembership";
 import { applicationsCloseAtFor, requireEventBySlug, requireRegistrationOpen } from "./lib/events";
+import { requireParticipantOnboardingOpen, recoveryUnavailable } from "./lib/rosterRecovery";
+import { finalizeAcceptedRosterRecovery } from "./lib/acceptedRosterRecovery";
 import {
   findCurrentPerson,
   requireCurrentPerson,
@@ -974,7 +976,10 @@ export const acceptAssignedTeam = mutation({
     const membership = requireEligibleMembership(
       await requireMembership(ctx, event._id, person._id),
     );
-    requireRegistrationOpen(event, membership.participantClass);
+    const recoveryContext = await requireParticipantOnboardingOpen(ctx, event, person, membership);
+    if (recoveryContext && (args.currentTeam !== null || args.teamRosterEntryId !== recoveryContext.entry._id)) {
+      return recoveryUnavailable();
+    }
     await requireCurrentPolicyAcceptance(ctx, membership, participantPolicy.policy);
     await requireGitHubStarCompletion(ctx, event, membership);
     const joinGrantIds = await requirePermission(ctx, {
@@ -1126,7 +1131,13 @@ export const acceptAssignedTeam = mutation({
         now,
       });
     }
-    if (acceptedEntry.claimedTeamId) {
+    if (recoveryContext) {
+      if (acceptedEntry.claimedTeamId !== recoveryContext.team._id) return recoveryUnavailable();
+      await finalizeAcceptedRosterRecovery(ctx, {
+        event, recovery: recoveryContext.recovery, membership, person,
+        clientOperationId: operationId, requestFingerprint, grantIds: joinGrantIds, now,
+      });
+    } else if (acceptedEntry.claimedTeamId) {
       await refreshSubmittedApplicationRoster(ctx, {
         event,
         teamId: acceptedEntry.claimedTeamId,

@@ -640,8 +640,9 @@ async function commitSubmittedProposalRevision(
     lockedRosterSnapshotId: args.project.lockedRosterSnapshotId,
     lockedMemberCount: args.project.lockedMemberCount,
     lockedLeadMembershipId: args.project.lockedLeadMembershipId,
-    freshForEventAttestation: args.project.freshForEventAttestation,
-    finalConfirmation: args.project.finalConfirmation,
+    ...(args.project.freshForEventAttestation === null
+      ? { freshForEventAttestation: null, finalConfirmation: null, organizerImport: args.project.organizerImport }
+      : { freshForEventAttestation: args.project.freshForEventAttestation, finalConfirmation: args.project.finalConfirmation }),
     participantPolicyVersionId: args.project.participantPolicyVersionId,
     admissionPolicyVersionId: args.project.admissionPolicyVersionId,
     proposalRevision: {
@@ -1209,8 +1210,8 @@ export const beginSubmittedRevision = mutation({
       additionalInformation,
       stage: "follow_up",
       adaptiveQuestionDeadlineAt: undefined,
-      freshnessAttestedByMembershipId: project.freshForEventAttestation.acceptedByMembershipId,
-      freshnessAttestedAt: project.freshForEventAttestation.acceptedAt,
+      freshnessAttestedByMembershipId: project.freshForEventAttestation?.acceptedByMembershipId,
+      freshnessAttestedAt: project.freshForEventAttestation?.acceptedAt,
       ...(ideaChangedInDraft
         ? {
             noveltyEvaluatedInputFingerprint: undefined,

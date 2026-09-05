@@ -5,7 +5,6 @@ import { defaultParticipantEmailTemplates } from "@code2create/domain";
 import { internal } from "./_generated/api.js";
 import type { Id } from "./_generated/dataModel.js";
 import { createAdmissionOffer, transitionOffer } from "./admissions.ts";
-const admissionRsvpCallDelayMs = 8.5 * 60 * 60_000;
 import { insertPermissionGrant } from "./lib/permissions";
 import {
   communicationsPolicyChecksum,
@@ -16,6 +15,8 @@ import { createTestSubmissionSnapshot } from "./lib/testSubmissionSnapshot.ts";
 import { defaultParticipantPolicy, participantPolicyChecksum } from "./lib/participantPolicy.ts";
 import { defaultDeterministicIntakePolicy, intakePolicyChecksum } from "./lib/intakePolicy.ts";
 import schema from "./schema.ts";
+
+const admissionRsvpCallDelayMs = 8.5 * 60 * 60_000;
 
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
 

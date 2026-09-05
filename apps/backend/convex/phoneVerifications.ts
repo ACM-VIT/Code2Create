@@ -6,7 +6,8 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
-import { requireEventBySlug, requireRegistrationOpen } from "./lib/events";
+import { requireEventBySlug } from "./lib/events";
+import { requireParticipantOnboardingOpen } from "./lib/rosterRecovery";
 import {
   requireCurrentPerson,
   requireEligibleMembership,
@@ -260,7 +261,7 @@ export const request = mutation({
       args.eventSlug,
       "participant.profile.write",
     );
-    requireRegistrationOpen(event, membership.participantClass);
+    await requireParticipantOnboardingOpen(ctx, event, person, membership);
     const requestFingerprint = operationFingerprint([phone]);
     const prior = await findOperation(ctx, {
       eventId: event._id,
@@ -414,7 +415,7 @@ export const verify = mutation({
       args.eventSlug,
       "participant.profile.write",
     );
-    requireRegistrationOpen(event, membership.participantClass);
+    await requireParticipantOnboardingOpen(ctx, event, person, membership);
     const verification = await ctx.db.get(args.verificationId);
     if (
       !verification ||

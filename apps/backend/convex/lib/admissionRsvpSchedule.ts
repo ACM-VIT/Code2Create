@@ -49,3 +49,11 @@ export async function requireAdmissionRsvpCapacity(ctx: MutationCtx, application
     }
   }
 }
+
+/** Account for every selected roster as well as places already reserved by offers. */
+export async function requireSelectedAdmissionCapacity(ctx: MutationCtx, eventId: Id<"events">) {
+  const selected = await ctx.db.query("applications")
+    .withIndex("by_event_state_submitted", q => q.eq("eventId", eventId).eq("state", "accepted")).take(2001);
+  if (selected.length > 2000) throw new ConvexError({ code: "RSVP_BATCH_TOO_LARGE", message: "The selected cohort exceeds the supported event size." });
+  await requireAdmissionRsvpCapacity(ctx, selected);
+}

@@ -12,6 +12,7 @@ import { mutation, query } from "./_generated/server";
 import { authComponent } from "./auth";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug, requireRegistrationOpen } from "./lib/events";
+import { requireParticipantOnboardingOpen } from "./lib/rosterRecovery";
 import {
   ensurePerson,
   findCurrentPerson,
@@ -463,7 +464,14 @@ export const provision = mutation({
       ...(identity.hostedDomain !== undefined ? { hostedDomain: identity.hostedDomain } : {}),
       displayName: identity.displayName,
     });
-    requireRegistrationOpen(event, resolvedParticipantClass);
+    const vitStudentIdentity =
+      resolvedParticipantClass === "vit_student"
+        ? requireVitStudentProfileIdentity(identity.displayName, event)
+        : null;
+    await requireParticipantOnboardingOpen(ctx, event, person, {
+      participantClass: resolvedParticipantClass,
+      ...(vitStudentIdentity ? { vitStudentIdentity } : {}),
+    });
 
     const existingMembership = await ctx.db
       .query("eventMemberships")
@@ -484,10 +492,6 @@ export const provision = mutation({
       return { membershipId: existingMembership._id, created: false };
     }
 
-    const vitStudentIdentity =
-      resolvedParticipantClass === "vit_student"
-        ? requireVitStudentProfileIdentity(identity.displayName, event)
-        : null;
     if (vitStudentIdentity) {
       await requireAvailableVitRegistrationNumber(ctx, {
         eventId: event._id,
@@ -691,7 +695,7 @@ export const acceptPolicy = mutation({
     const membership = requireEligibleMembership(
       await requireMembership(ctx, event._id, person._id),
     );
-    requireRegistrationOpen(event, membership.participantClass);
+    await requireParticipantOnboardingOpen(ctx, event, person, membership);
     const grantIds = await requirePermission(ctx, {
       eventId: event._id,
       eventAccessSubjectId: subject._id,
@@ -810,7 +814,7 @@ export const saveProfile = mutation({
     const membership = requireEligibleMembership(
       await requireMembership(ctx, event._id, person._id),
     );
-    requireRegistrationOpen(event, membership.participantClass);
+    await requireParticipantOnboardingOpen(ctx, event, person, membership);
     const grantIds = await requirePermission(ctx, {
       eventId: event._id,
       eventAccessSubjectId: subject._id,

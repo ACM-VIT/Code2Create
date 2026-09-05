@@ -1,4 +1,5 @@
 import {
+  participantEmailProviders,
   participantEmailSendSignatureContext,
   participantEmailReadinessSignatureContext,
   verifyServiceBody,
@@ -8,7 +9,6 @@ import {
 
 import { HttpBodyTooLargeError, readBoundedRequestText } from "./httpBody.js";
 import { z } from "zod";
-import { participantEmailProviders } from "@code2create/domain";
 import { participantEmailSendRequestSchema } from "./outboundContracts.js";
 import {
   sendWithCloudflare,

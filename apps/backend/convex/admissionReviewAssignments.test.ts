@@ -815,7 +815,7 @@ describe("admission review assignments", () => {
           .order("desc")
           .first(),
       ]);
-      if (!application || !currentProject) {
+      if (!application || !currentProject || !currentProject.freshForEventAttestation || !currentProject.finalConfirmation) {
         throw new Error("Assignment fixture is incomplete.");
       }
       const revisedProjectId = await ctx.db.insert("projectVersions", {
