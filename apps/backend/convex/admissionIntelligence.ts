@@ -3,8 +3,10 @@ import { v, type Infer } from "convex/values";
 
 import { internal } from "./_generated/api";
 import type { DataModel, Doc } from "./_generated/dataModel";
-import { internalMutation } from "./_generated/server";
+import { internalMutation, type MutationCtx } from "./_generated/server";
 import { admissionGuidanceForBand, admissionInputFingerprint } from "./lib/admission";
+import { loadPublishedAdmissionConfiguration } from "./lib/admissionPolicy";
+import { createAdmissionRecommendation } from "./lib/admissionRecommendation";
 import { operationFingerprint } from "./lib/operations";
 import { appendAdmissionJobReadFactById } from "./lib/operationsAutonomyReadFacts/admissionJobs";
 import { admissionDecision, admissionExperienceBand, criterionAssessment } from "./values";
@@ -14,6 +16,56 @@ const sourceRef = v.string();
 const agentDispatchRetryDelayMs = 60_000;
 
 type SourceRef = Infer<typeof sourceRef>;
+
+async function replaceExpiredAgentRecommendation(
+  ctx: MutationCtx,
+  recommendation: Doc<"admissionAIRecommendations">,
+  failureCategory: string,
+  limitation: string,
+) {
+  const [application, event, project] = await Promise.all([
+    ctx.db.get(recommendation.applicationId),
+    ctx.db.get(recommendation.eventId),
+    ctx.db.get(recommendation.projectVersionId),
+  ]);
+  if (
+    !application ||
+    !event ||
+    !project ||
+    application.aiRecommendationId !== recommendation._id ||
+    application.eventId !== recommendation.eventId ||
+    application.teamId !== recommendation.teamId ||
+    application.submittedProjectVersionId !== recommendation.projectVersionId ||
+    application.admissionPolicyVersionId !== recommendation.admissionPolicyVersionId ||
+    application.contentVersion !== recommendation.applicationContentVersion
+  ) {
+    return false;
+  }
+  const configuration = await loadPublishedAdmissionConfiguration(ctx, event);
+  if (
+    configuration.policy._id !== application.admissionPolicyVersionId ||
+    configuration.model === null
+  ) {
+    return false;
+  }
+  const now = Date.now();
+  await ctx.db.patch(recommendation._id, {
+    state: "timed_out",
+    limitations: [limitation],
+    failureCategory,
+    completedAt: now,
+  });
+  await appendAdmissionJobReadFactById(ctx, recommendation._id, now);
+  await createAdmissionRecommendation(ctx, {
+    application,
+    project,
+    policy: configuration.policy,
+    modelConfig: configuration.model,
+    now,
+  });
+  await ctx.db.patch(application._id, { version: application.version + 1 });
+  return true;
+}
 
 const recommendationContext = v.object({
   recommendationId: v.id("admissionAIRecommendations"),
@@ -266,24 +318,12 @@ export const recoverAgentRecommendation = internalMutation({
       recommendation.agentSubmissionId !== args.submissionId
     )
       return false;
-    await ctx.db.patch(recommendation._id, {
-      state: "pending",
-      agentSubmissionId: undefined,
-      agentAcceptedAt: undefined,
-      limitations: ["The durable idea agent is recovering an interrupted analysis."],
-      failureCategory: "agent_analysis_recovered",
-    });
-    await admissionWorkpool.enqueueAction(
+    return replaceExpiredAgentRecommendation(
       ctx,
-      internal.admissionAgentActions.dispatchRecommendation,
-      { recommendationId: recommendation._id },
-      {
-        retry: true,
-        onComplete: internal.admissionIntelligence.agentDispatchFinished,
-        context: recommendation._id,
-      },
+      recommendation,
+      "agent_analysis_lease_expired",
+      "The durable idea agent exceeded its analysis lease and was replaced.",
     );
-    return true;
   },
 });
 
@@ -302,23 +342,36 @@ export const recoverAgentDispatchAttempt = internalMutation({
       recommendation.agentSubmissionId
     )
       return false;
-    await ctx.db.patch(recommendation._id, {
-      state: "pending",
-      agentDispatchAttemptId: undefined,
-      limitations: ["The durable idea agent is recovering an interrupted dispatch."],
-      failureCategory: "agent_dispatch_recovered",
-    });
-    await admissionWorkpool.enqueueAction(
+    return replaceExpiredAgentRecommendation(
       ctx,
-      internal.admissionAgentActions.dispatchRecommendation,
-      { recommendationId: recommendation._id },
-      {
-        retry: true,
-        onComplete: internal.admissionIntelligence.agentDispatchFinished,
-        context: recommendation._id,
-      },
+      recommendation,
+      "agent_dispatch_lease_expired",
+      "The durable idea agent exceeded its dispatch lease and was replaced.",
     );
-    return true;
+  },
+});
+
+export const recoverOrphanedAgentRecommendation = internalMutation({
+  args: { recommendationId: v.id("admissionAIRecommendations") },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const recommendation = await ctx.db.get(args.recommendationId);
+    if (
+      !recommendation ||
+      recommendation.state !== "running" ||
+      recommendation.agentDispatchAttemptId ||
+      recommendation.agentSubmissionId ||
+      (recommendation.failureCategory !== "agent_analysis_recovered" &&
+        recommendation.failureCategory !== "agent_dispatch_recovered")
+    ) {
+      return false;
+    }
+    return replaceExpiredAgentRecommendation(
+      ctx,
+      recommendation,
+      "agent_recovery_orphaned",
+      "The recovered idea-agent run lost its dispatch authority and was replaced.",
+    );
   },
 });
 
@@ -378,14 +431,7 @@ export const finishRecommendation = internalMutation({
       agentOutputChecksum === recommendation.agentOutputChecksum
     )
       return "already_exists";
-    const canAcceptRecoveredDispatchCompletion =
-      recommendation?.state === "pending" &&
-      recommendation.failureCategory === "agent_dispatch_recovered";
-    if (
-      !recommendation ||
-      (recommendation.state !== "running" && !canAcceptRecoveredDispatchCompletion)
-    )
-      return "stale";
+    if (!recommendation || recommendation.state !== "running") return "stale";
     const application = await ctx.db.get(recommendation.applicationId);
     if (
       !application ||

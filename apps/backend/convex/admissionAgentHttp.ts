@@ -21,7 +21,7 @@ const readRequestSchema = z
     protocolVersion: z.literal(operationsIntelligenceProtocolVersion),
     applicationId: z.string().min(1).max(200),
     eventId: z.string().min(1).max(200),
-    recommendationId: z.string().min(1).max(200).optional(),
+    recommendationId: z.string().min(1).max(200),
     operationId: z.string().min(8).max(240),
   })
   .strict();
@@ -129,18 +129,9 @@ export const ideaIntelligenceReadEndpoint = httpAction(async (ctx, request) => {
   if (body.response) return body.response;
   const parsed = readRequestSchema.safeParse(body.json);
   if (!parsed.success) return Response.json({ error: "invalid_request" }, { status: 422 });
-  const currentRecommendationId = parsed.data.recommendationId
-    ? parsed.data.recommendationId
-    : await ctx.runQuery(internal.admissionAgentActions.currentRecommendation, {
-        applicationId: parsed.data.applicationId,
-        eventId: parsed.data.eventId,
-      });
-  if (!currentRecommendationId) {
-    return Response.json({ error: "authority_revoked" }, { status: 409 });
-  }
   const recommendation = await ctx.runQuery(
     internal.admissionAgentActions.prepareProjectionIdentity,
-    { recommendationId: currentRecommendationId },
+    { recommendationId: parsed.data.recommendationId },
   );
   if (
     !recommendation ||
