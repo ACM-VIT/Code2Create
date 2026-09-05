@@ -1,4 +1,7 @@
-import { paginationOptsValidator, paginationResultValidator } from "convex/server";
+import {
+  paginationOptsValidator,
+  paginationResultValidator,
+} from "convex/server";
 import { ConvexError, v } from "convex/values";
 import { z } from "zod";
 
@@ -7,7 +10,8 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
-import { findCurrentPerson, requireCurrentPerson, requireEventSubject } from "./lib/identity";
+import { findCurrentPerson, requireCurrentPerson, requireEventSubject,
+} from "./lib/identity";
 import {
   findOperation,
   operationFingerprint,
@@ -96,7 +100,8 @@ function unresolvedCorrection(state: Doc<"scorecardCorrectionCases">["state"]) {
   return state === "requested" || state === "open";
 }
 
-async function requireRound(ctx: ReadCtx, eventId: Id<"events">, roundId: Id<"reviewRounds">) {
+async function requireRound(ctx: ReadCtx, eventId: Id<"events">, roundId: Id<"reviewRounds">,
+) {
   const round = await ctx.db.get(roundId);
   if (!round || round.eventId !== eventId) {
     throw new ConvexError({
@@ -178,10 +183,12 @@ function grantAllowsScorecard(
   );
 }
 
-async function currentTeam(ctx: ReadCtx, eventId: Id<"events">, personId: Id<"people">) {
+async function currentTeam(ctx: ReadCtx, eventId: Id<"events">, personId: Id<"people">,
+) {
   const membership = await ctx.db
     .query("eventMemberships")
-    .withIndex("by_event_person", (index) => index.eq("eventId", eventId).eq("personId", personId))
+    .withIndex("by_event_person", (index) => index.eq("eventId", eventId).eq("personId", personId),
+    )
     .unique();
   if (!membership) return null;
   const teamMember = await ctx.db
@@ -204,7 +211,8 @@ export const rounds = query({
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const allRounds = await ctx.db
       .query("reviewRounds")
-      .withIndex("by_event_status_start", (index) => index.eq("eventId", event._id))
+      .withIndex("by_event_status_start", (index) => index.eq("eventId", event._id),
+      )
       .collect();
     const rows: Array<{
       id: Id<"reviewRounds">;
@@ -222,7 +230,8 @@ export const rounds = query({
       canStartClose: boolean;
       canRelease: boolean;
     }> = [];
-    for (const round of allRounds.sort((left, right) => left.sequence - right.sequence)) {
+    for (const round of allRounds.sort((left, right) => left.sequence - right.sequence,
+    )) {
       const readGrantIds = await matchingPermissionGrantIds(ctx, {
         eventId: event._id,
         eventAccessSubjectId: subject._id,
@@ -269,7 +278,8 @@ export const rounds = query({
         correctionRequestsCloseAt: round.correctionRequestsCloseAt,
         version: round.version,
         ...(exportRecord
-          ? { exportState: exportRecord.state, exportRevision: exportRecord.revision }
+          ? { exportState: exportRecord.state, exportRevision: exportRecord.revision,
+            }
           : {}),
         ...(release ? { releasedAt: release.publishedAt } : {}),
         canReadValues: valueGrants.length > 0,
@@ -355,7 +365,8 @@ async function scorecardCorrectionCasesBeforeInsert(
 ) {
   const cases = await ctx.db
     .query("scorecardCorrectionCases")
-    .withIndex("by_scorecard_state", (index) => index.eq("scorecardId", scorecardId))
+    .withIndex("by_scorecard_state", (index) => index.eq("scorecardId", scorecardId),
+    )
     .take(maximumCorrectionCasesPerScorecard + 1);
   if (cases.length >= maximumCorrectionCasesPerScorecard) {
     throw new ConvexError({
@@ -380,15 +391,18 @@ async function completenessReviewView(
     ctx.db.get(session.panelId),
     ctx.db
       .query("scorecards")
-      .withIndex("by_session_status", (index) => index.eq("reviewSessionId", session._id))
+      .withIndex("by_session_status", (index) => index.eq("reviewSessionId", session._id),
+      )
       .take(maximumReviewersPerPanel + 1),
     ctx.db
       .query("reviewEvaluations")
-      .withIndex("by_session", (index) => index.eq("reviewSessionId", session._id))
+      .withIndex("by_session", (index) => index.eq("reviewSessionId", session._id),
+      )
       .unique(),
     ctx.db
       .query("scorecardCorrectionCases")
-      .withIndex("by_session_kind", (index) => index.eq("reviewSessionId", session._id))
+      .withIndex("by_session_kind", (index) => index.eq("reviewSessionId", session._id),
+      )
       .take(maximumCorrectionCasesPerReview + 1),
   ]);
   if (!team || !panel) throw new Error("A review references a missing team or panel.");
@@ -415,7 +429,8 @@ async function completenessReviewView(
           correctionCase.scorecardId === scorecard._id &&
           unresolvedCorrection(correctionCase.state),
       );
-      const canDecideCorrection = grantAllowsScorecard(openGrants, scorecard._id, session._id);
+      const canDecideCorrection = grantAllowsScorecard(openGrants, scorecard._id, session._id,
+      );
       return {
         id: scorecard._id,
         reviewerName: reviewer.displayName,
@@ -435,7 +450,8 @@ async function completenessReviewView(
       : [],
   );
   const submittedVersions = (
-    await Promise.all(submittedVersionIds.map((versionId) => ctx.db.get(versionId)))
+    await Promise.all(submittedVersionIds.map((versionId) => ctx.db.get(versionId)),
+    )
   ).filter((version): version is Doc<"scorecardVersions"> => version !== null);
   return {
     id: session._id,
@@ -444,7 +460,8 @@ async function completenessReviewView(
     panelName: panel.name,
     status: session.status,
     ...(evaluation
-      ? { evaluationState: evaluation.state, evaluationVersion: evaluation.version }
+      ? { evaluationState: evaluation.state, evaluationVersion: evaluation.version,
+        }
       : {}),
     ...(session.completedByManualReviewRecordId !== undefined
       ? { manualReviewRecordId: session.completedByManualReviewRecordId }
@@ -452,11 +469,13 @@ async function completenessReviewView(
     coverage: criteria.map((criterion) => ({
       criterionId: criterion._id,
       submittedCount: submittedVersions.filter((scorecardVersion) =>
-        scorecardVersion.ratings.some((rating) => rating.criterionId === criterion._id),
+        scorecardVersion.ratings.some((rating) => rating.criterionId === criterion._id,
+        ),
       ).length,
       requiredCount: minimumScorersPerCriterion,
       spreadFlag:
-        evaluation?.criterionResults.find((result) => result.criterionId === criterion._id)
+        evaluation?.criterionResults.find((result) => result.criterionId === criterion._id,
+        )
           ?.spreadFlag ?? false,
     })),
     scorecards: scorecardRows,
@@ -477,7 +496,8 @@ export const completeness = query({
     }),
     serverNow: v.number(),
     criteria: v.array(
-      v.object({ id: v.id("reviewRubricCriteria"), label: v.string(), displayOrder: v.number() }),
+      v.object({ id: v.id("reviewRubricCriteria"), label: v.string(), displayOrder: v.number(),
+      }),
     ),
     unresolvedTeamCount: v.number(),
     unresolvedCorrectionCount: v.number(),
@@ -516,11 +536,13 @@ export const completeness = query({
     ] = await Promise.all([
       ctx.db
         .query("reviewRubricCriteria")
-        .withIndex("by_rubric_order", (index) => index.eq("rubricVersionId", round.rubricVersionId))
+        .withIndex("by_rubric_order", (index) => index.eq("rubricVersionId", round.rubricVersionId),
+        )
         .collect(),
       ctx.db
         .query("teamRoundStates")
-        .withIndex("by_round_state_priority_queued", (index) => index.eq("roundId", round._id))
+        .withIndex("by_round_state_priority_queued", (index) => index.eq("roundId", round._id),
+        )
         .collect(),
       ctx.db
         .query("manualReviewRecords")
@@ -542,7 +564,8 @@ export const completeness = query({
         .collect(),
       ctx.db
         .query("scorecardCorrectionCases")
-        .withIndex("by_round_state", (index) => index.eq("roundId", round._id).eq("state", "open"))
+        .withIndex("by_round_state", (index) => index.eq("roundId", round._id).eq("state", "open"),
+        )
         .collect(),
       matchingPermissionGrantIds(ctx, {
         eventId: event._id,
@@ -595,7 +618,8 @@ export const completeness = query({
       canStartClose: closeGrants.length > 0,
       canRelease: releaseGrants.length > 0,
       ...(exportRecord
-        ? { exportState: exportRecord.state, exportRevision: exportRecord.revision }
+        ? { exportState: exportRecord.state, exportRevision: exportRecord.revision,
+          }
         : {}),
       ...(release ? { releasedAt: release.publishedAt } : {}),
     };
@@ -625,11 +649,13 @@ export const completenessReviews = query({
     const [criteria, sessions, openGrants, voidGrants] = await Promise.all([
       ctx.db
         .query("reviewRubricCriteria")
-        .withIndex("by_rubric_order", (index) => index.eq("rubricVersionId", round.rubricVersionId))
+        .withIndex("by_rubric_order", (index) => index.eq("rubricVersionId", round.rubricVersionId),
+        )
         .collect(),
       ctx.db
         .query("reviewSessions")
-        .withIndex("by_round_status_updated", (index) => index.eq("roundId", round._id))
+        .withIndex("by_round_status_updated", (index) => index.eq("roundId", round._id),
+        )
         .paginate(args.paginationOpts),
       activeGrants(ctx, {
         eventId: event._id,
@@ -642,7 +668,8 @@ export const completenessReviews = query({
         permissionKey: "scorecard.void",
       }),
     ]);
-    const correctionRequestsOpen = scoreCorrectionRequestIsOpen(round, Date.now());
+    const correctionRequestsOpen = scoreCorrectionRequestIsOpen(round, Date.now(),
+    );
     const page = await Promise.all(
       sessions.page.map((session) =>
         completenessReviewView(
@@ -685,6 +712,7 @@ const roundValueReview = v.object({
       reviewerName: v.string(),
       version: v.number(),
       submittedAt: v.number(),
+      finalComment: v.optional(v.string()),
       manualReviewRecordId: v.optional(v.id("manualReviewRecords")),
       ratings: v.array(
         v.object({
@@ -697,16 +725,19 @@ const roundValueReview = v.object({
   ),
 });
 
-async function roundValueReviewView(ctx: QueryCtx, session: Doc<"reviewSessions">) {
+async function roundValueReviewView(ctx: QueryCtx, session: Doc<"reviewSessions">,
+) {
   const [team, evaluation, scorecards] = await Promise.all([
     ctx.db.get(session.teamId),
     ctx.db
       .query("reviewEvaluations")
-      .withIndex("by_session", (index) => index.eq("reviewSessionId", session._id))
+      .withIndex("by_session", (index) => index.eq("reviewSessionId", session._id),
+      )
       .unique(),
     ctx.db
       .query("scorecards")
-      .withIndex("by_session_status", (index) => index.eq("reviewSessionId", session._id))
+      .withIndex("by_session_status", (index) => index.eq("reviewSessionId", session._id),
+      )
       .collect(),
   ]);
   if (!team) throw new Error("A completed review references a missing team.");
@@ -727,6 +758,9 @@ async function roundValueReviewView(ctx: QueryCtx, session: Doc<"reviewSessions"
         reviewerName: reviewer.displayName,
         version: version.version,
         submittedAt: version.submittedAt,
+        ...(version.finalComment !== undefined
+          ? { finalComment: version.finalComment }
+          : {}),
         ...(version.manualReviewRecordId !== undefined
           ? { manualReviewRecordId: version.manualReviewRecordId }
           : {}),
@@ -758,7 +792,8 @@ async function roundValueReviewView(ctx: QueryCtx, session: Doc<"reviewSessions"
 export const roundValueCriteria = query({
   args: { eventSlug: v.string(), roundId: v.id("reviewRounds") },
   returns: v.array(
-    v.object({ id: v.id("reviewRubricCriteria"), label: v.string(), weight: v.number() }),
+    v.object({ id: v.id("reviewRubricCriteria"), label: v.string(), weight: v.number(),
+    }),
   ),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
@@ -774,7 +809,8 @@ export const roundValueCriteria = query({
     });
     const criteria = await ctx.db
       .query("reviewRubricCriteria")
-      .withIndex("by_rubric_order", (index) => index.eq("rubricVersionId", round.rubricVersionId))
+      .withIndex("by_rubric_order", (index) => index.eq("rubricVersionId", round.rubricVersionId),
+      )
       .collect();
     return criteria.map((criterion) => ({
       id: criterion._id,
@@ -857,9 +893,11 @@ export const myCorrectionOptions = query({
     const rows = [];
     for (const scorecard of scorecards) {
       if (scorecard.submittedAt === undefined) {
-        throw new Error("A submitted scorecard is missing its submission time.");
+        throw new Error("A submitted scorecard is missing its submission time.",
+        );
       }
-      const [round, session, latestCorrection, requestedCase, openCase, grantIds] =
+      const [round, session, latestCorrection, requestedCase, openCase, grantIds,
+      ] =
         await Promise.all([
           ctx.db.get(scorecard.roundId),
           ctx.db.get(scorecard.reviewSessionId),
@@ -935,7 +973,8 @@ export const requestCorrection = mutation({
     reason: v.string(),
     clientOperationId: v.string(),
   },
-  returns: v.object({ correctionCaseId: v.id("scorecardCorrectionCases"), version: v.number() }),
+  returns: v.object({ correctionCaseId: v.id("scorecardCorrectionCases"), version: v.number(),
+  }),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
@@ -955,7 +994,8 @@ export const requestCorrection = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const correctionCaseId = ctx.db.normalizeId("scorecardCorrectionCases", prior.targetId);
+      const correctionCaseId = ctx.db.normalizeId("scorecardCorrectionCases", prior.targetId,
+      );
       if (!correctionCaseId) throw new Error("Prior correction request is invalid.");
       return {
         correctionCaseId,
@@ -1191,7 +1231,8 @@ export const decideCorrection = mutation({
         state: correctionCase.state,
         version: correctionCase.version,
       }),
-      nextSummary: JSON.stringify({ state, version: correctionCase.version + 1 }),
+      nextSummary: JSON.stringify({ state, version: correctionCase.version + 1,
+      }),
       reason,
     });
     return result;
@@ -1218,7 +1259,8 @@ export const voidScorecard = mutation({
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const reason = normalizedText(args.reason, "Void reason", 5, 500);
-    const evidenceReference = normalizedText(args.evidenceReference, "Evidence reference", 3, 500);
+    const evidenceReference = normalizedText(args.evidenceReference, "Evidence reference", 3, 500,
+    );
     const requestFingerprint = operationFingerprint([
       args.scorecardId,
       args.expectedScorecardVersion,
@@ -1235,7 +1277,8 @@ export const voidScorecard = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const correctionCaseId = ctx.db.normalizeId("scorecardCorrectionCases", prior.targetId);
+      const correctionCaseId = ctx.db.normalizeId("scorecardCorrectionCases", prior.targetId,
+      );
       if (!correctionCaseId) throw new Error("Prior void result is invalid.");
       return { correctionCaseId, disposition: args.disposition };
     }
@@ -1270,7 +1313,8 @@ export const voidScorecard = mutation({
       ctx.db.get(scorecard.reviewSessionId),
       ctx.db
         .query("reviewEvaluations")
-        .withIndex("by_session", (index) => index.eq("reviewSessionId", scorecard.reviewSessionId))
+        .withIndex("by_session", (index) => index.eq("reviewSessionId", scorecard.reviewSessionId),
+        )
         .unique(),
       scorecardCorrectionCasesBeforeInsert(ctx, scorecard._id),
     ]);
@@ -1332,7 +1376,8 @@ export const voidScorecard = mutation({
     });
     if (args.disposition === "replacement_review") {
       if (!teamState || teamState.teamId !== session.teamId) {
-        throw new Error("The completed review has no matching team-round state.");
+        throw new Error("The completed review has no matching team-round state.",
+        );
       }
       await patchTeamRoundState(ctx, teamState, {
         state: "held",
@@ -1401,7 +1446,8 @@ export const publishRelease = mutation({
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
-    const policyVersion = normalizedText(args.policyVersion, "Release policy version", 3, 100);
+    const policyVersion = normalizedText(args.policyVersion, "Release policy version", 3, 100,
+    );
     const reason = normalizedText(args.reason, "Release reason", 5, 500);
     const requestFingerprint = operationFingerprint([
       args.roundId,
@@ -1426,7 +1472,8 @@ export const publishRelease = mutation({
         "score release",
         scoreReleaseOperationResult,
       );
-      const releaseId = ctx.db.normalizeId("scoreReleaseVersions", result.releaseId);
+      const releaseId = ctx.db.normalizeId("scoreReleaseVersions", result.releaseId,
+      );
       if (!releaseId || releaseId !== prior.targetId) {
         throw new Error("The stored score-release result is invalid.");
       }
@@ -1475,7 +1522,8 @@ export const publishRelease = mutation({
       roundExport.closeSnapshotId !== closeSnapshot._id ||
       roundExport.state !== "verified"
     ) {
-      throw new Error("A closed round has no verified export and close snapshot.");
+      throw new Error("A closed round has no verified export and close snapshot.",
+      );
     }
     if (existing) {
       throw new ConvexError({
@@ -1510,14 +1558,17 @@ export const publishRelease = mutation({
     });
     const closeEntries = await ctx.db
       .query("roundCloseEntries")
-      .withIndex("by_snapshot_team", (index) => index.eq("closeSnapshotId", closeSnapshot._id))
+      .withIndex("by_snapshot_team", (index) => index.eq("closeSnapshotId", closeSnapshot._id),
+      )
       .collect();
-    const resultEntries = closeEntries.filter((entry) => entry.payload.kind === "result");
+    const resultEntries = closeEntries.filter((entry) => entry.payload.kind === "result",
+    );
     for (const entry of resultEntries) {
       if (entry.payload.kind !== "result") continue;
       const session = await ctx.db.get(entry.payload.reviewSessionId);
       if (!session || session.teamId !== entry.teamId || session.roundId !== round._id) {
-        throw new Error("The close snapshot references an invalid review session.");
+        throw new Error("The close snapshot references an invalid review session.",
+        );
       }
       await ctx.db.insert("scoreReleaseEntries", {
         eventId: event._id,
@@ -1574,7 +1625,8 @@ export const publishRelease = mutation({
       }),
       reason,
     });
-    return { releaseId, publishedAt: now, releasedTeamCount: resultEntries.length };
+    return { releaseId, publishedAt: now, releasedTeamCount: resultEntries.length,
+    };
   },
 });
 
@@ -1624,7 +1676,8 @@ export const participantFeedback = query({
     const rows = [];
     for (const entry of entries) {
       if (entry.criterionResults.length > maximumReviewCriteriaPerRubric) {
-        throw new Error("A participant feedback entry exceeds the rubric criterion limit.");
+        throw new Error("A participant feedback entry exceeds the rubric criterion limit.",
+        );
       }
       const [release, round] = await Promise.all([
         ctx.db.get(entry.releaseId),
@@ -1638,7 +1691,8 @@ export const participantFeedback = query({
         for (const result of entry.criterionResults) {
           const criterion = await ctx.db.get(result.criterionId);
           if (!criterion || criterion.rubricVersionId !== round.rubricVersionId) {
-            throw new Error("A released criterion no longer matches its round rubric.");
+            throw new Error("A released criterion no longer matches its round rubric.",
+            );
           }
           criteria.push({
             criterionId: criterion._id,

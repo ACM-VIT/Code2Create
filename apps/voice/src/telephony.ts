@@ -1,4 +1,7 @@
-import type { OutboundCallEventType } from "@code2create/domain";
+import type {
+  OutboundCallEventType,
+  VenueConfirmationCall,
+} from "@code2create/domain";
 
 import {
   sarvamErrorResponseSchema,
@@ -263,15 +266,19 @@ export async function queueSarvamCall(
     token: string;
     destinationPhoneE164: string;
     script: string;
+    venueConfirmation?: VenueConfirmationCall | undefined;
   },
 ): Promise<QueuedCall> {
   const apiKey = sarvamVoiceAgentsApiKey(environment);
   const orgId = configuredValue(environment.SARVAM_ORG_ID);
   const workspaceId = configuredValue(environment.SARVAM_WORKSPACE_ID);
-  const appId = configuredValue(environment.SARVAM_APP_ID);
-  const appVersion = sarvamAppVersion(environment);
+  const appId =
+    args.venueConfirmation?.appId ?? configuredValue(environment.SARVAM_APP_ID);
+  const appVersion =
+    args.venueConfirmation?.appVersion ?? sarvamAppVersion(environment);
   const connectionId = configuredValue(environment.SARVAM_CONNECTION_ID);
-  const agentPhoneNumber = configuredValue(environment.SARVAM_AGENT_PHONE_NUMBER);
+  const agentPhoneNumber = configuredValue(environment.SARVAM_AGENT_PHONE_NUMBER,
+  );
   if (
     !apiKey ||
     !orgId ||
@@ -303,6 +310,18 @@ export async function queueSarvamCall(
             agent_phone_number: agentPhoneNumber,
           },
           app_type: "agent",
+          ...(args.venueConfirmation
+            ? {
+                agent_variables: {
+                  reviewer_name: args.venueConfirmation.reviewerName,
+                  venue_name: args.venueConfirmation.venueName,
+                  outcome: "unclear",
+                  confirmed: false,
+                  summary: "",
+                  return_in_minutes: null,
+                },
+              }
+            : {}),
           app_overrides: {
             initial_bot_message: withOutboundCallIntroduction(args.script),
             initial_language_name: "English",
@@ -315,8 +334,7 @@ export async function queueSarvamCall(
           url: sarvamWebhookUrl(
             environment,
             args.deliveryId,
-            args.token,
-          ),
+            args.token),
           metadata: {
             delivery_id: args.deliveryId,
           },
@@ -352,10 +370,10 @@ async function decodeSarvamResponse(response: Response): Promise<QueuedCall> {
     const detail = error.success
       ? typeof error.data.detail === "string"
         ? error.data.detail
-        : error.data.detail?.[0]?.msg ??
+        : (error.data.detail?.[0]?.msg ??
           error.data.message ??
           error.data.error?.message ??
-          `HTTP ${response.status}`
+          `HTTP ${response.status}`)
       : `HTTP ${response.status}`;
     throw new RejectedCallDispatchError("sarvam", detail);
   }
@@ -385,6 +403,7 @@ function queueProviderCall(
     token: string;
     destinationPhoneE164: string;
     script: string;
+    venueConfirmation?: VenueConfirmationCall | undefined;
   },
 ) {
   return provider === "twilio"
@@ -399,8 +418,16 @@ export async function queueOutboundCall(
     token: string;
     destinationPhoneE164: string;
     script: string;
+    venueConfirmation?: VenueConfirmationCall | undefined;
   },
 ) {
+  if (args.venueConfirmation) {
+    if (args.venueConfirmation.expiresAt <= Date.now())
+      throw new TelephonyConfigurationError(
+        "The confirmation request expired.",
+      );
+    return queueSarvamCall(environment, args);
+  }
   const providerOrder = outboundCallProviderOrder(environment);
   let lastRejection: RejectedCallDispatchError | null = null;
   for (const provider of providerOrder) {
@@ -418,7 +445,8 @@ export async function queueOutboundCall(
   throw new TelephonyConfigurationError();
 }
 
-export function twilioStatusEvent(status: string): OutboundCallEventType | null {
+export function twilioStatusEvent(status: string,
+): OutboundCallEventType | null {
   switch (status.trim().toLocaleLowerCase("en")) {
     case "queued": {
       return "call.queued";

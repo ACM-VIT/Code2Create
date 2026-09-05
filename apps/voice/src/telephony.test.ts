@@ -52,7 +52,8 @@ describe("outbound voice transport", () => {
     );
     expect(withOutboundCallIntroduction(
       `${introduction}. Code2Create needs you now.`,
-    )).toBe(`${introduction}. Code2Create needs you now.`);
+    ),
+    ).toBe(`${introduction}. Code2Create needs you now.`);
   });
 
   test("normalizes provider lifecycle values", () => {
@@ -129,14 +130,14 @@ describe("outbound voice transport", () => {
 
   test("sends a managed Sarvam Voice Agents call over its Vobiz connection", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      Response.json({ attempt_id: "attempt-1" }),
-    );
+      Response.json({ attempt_id: "attempt-1" }));
     await expect(queueSarvamCall(sarvamEnvironment, {
       deliveryId: "delivery-1",
       token: "token-1",
       destinationPhoneE164: "+919876543210",
       script: "Code2Create needs you now.",
-    })).resolves.toEqual({
+    }),
+    ).resolves.toEqual({
       provider: "sarvam",
       providerCallId: "attempt-1",
       providerStatus: "queued",
@@ -192,7 +193,9 @@ describe("outbound voice transport", () => {
       token: "token-1",
       destinationPhoneE164: "+919876543210",
       script: "Code2Create needs you now.",
-    })).resolves.toMatchObject({
+    },
+      ),
+    ).resolves.toMatchObject({
       provider: "sarvam",
       providerCallId: "attempt-1",
     });
@@ -201,8 +204,7 @@ describe("outbound voice transport", () => {
 
   test("uses the configured primary provider before the fallback", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      Response.json({ attempt_id: "attempt-1" }),
-    );
+      Response.json({ attempt_id: "attempt-1" }));
     await expect(queueOutboundCall({
       ...sarvamEnvironment,
       OUTBOUND_CALL_PRIMARY_PROVIDER: "sarvam",
@@ -214,7 +216,9 @@ describe("outbound voice transport", () => {
       token: "token-1",
       destinationPhoneE164: "+919876543210",
       script: "Code2Create needs you now.",
-    })).resolves.toMatchObject({ provider: "sarvam" });
+    },
+      ),
+    ).resolves.toMatchObject({ provider: "sarvam" });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("apps.sarvam.ai");
   });
@@ -222,11 +226,11 @@ describe("outbound voice transport", () => {
   test("falls back to Twilio after a definite Sarvam rejection", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(
-        Response.json({ detail: "The Sarvam route is unavailable." }, { status: 429 }),
+        Response.json({ detail: "The Sarvam route is unavailable." }, { status: 429 },
+        ),
       )
       .mockResolvedValueOnce(
-        Response.json({ sid: "CA123", status: "queued" }),
-      );
+        Response.json({ sid: "CA123", status: "queued" }));
     await expect(queueOutboundCall({
       ...sarvamEnvironment,
       OUTBOUND_CALL_PRIMARY_PROVIDER: "sarvam",
@@ -238,7 +242,9 @@ describe("outbound voice transport", () => {
       token: "token-1",
       destinationPhoneE164: "+919876543210",
       script: "Code2Create needs you now.",
-    })).resolves.toMatchObject({ provider: "twilio", providerCallId: "CA123" });
+    },
+      ),
+    ).resolves.toMatchObject({ provider: "twilio", providerCallId: "CA123" });
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
@@ -257,7 +263,9 @@ describe("outbound voice transport", () => {
       token: "token-1",
       destinationPhoneE164: "+919876543210",
       script: "Code2Create needs you now.",
-    })).rejects.toBeInstanceOf(AmbiguousCallDispatchError);
+    },
+      ),
+    ).rejects.toBeInstanceOf(AmbiguousCallDispatchError);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -275,18 +283,20 @@ describe("outbound voice transport", () => {
       token: "token-1",
       destinationPhoneE164: "+919876543210",
       script: "Code2Create needs you now.",
-    })).rejects.toBeInstanceOf(AmbiguousCallDispatchError);
+    },
+      ),
+    ).rejects.toBeInstanceOf(AmbiguousCallDispatchError);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   test("does not double-dial when the Twilio response body is interrupted", async () => {
-    const interruptedResponse = Response.json({ sid: "CA123", status: "queued" });
+    const interruptedResponse = Response.json({ sid: "CA123", status: "queued",
+    });
     vi.spyOn(interruptedResponse, "text").mockRejectedValue(
       new Error("connection reset"),
     );
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      interruptedResponse,
-    );
+      interruptedResponse);
     await expect(queueOutboundCall({
       ...sarvamEnvironment,
       TWILIO_ACCOUNT_SID: "AC123",
@@ -297,7 +307,9 @@ describe("outbound voice transport", () => {
       token: "token-1",
       destinationPhoneE164: "+919876543210",
       script: "Code2Create needs you now.",
-    })).rejects.toBeInstanceOf(AmbiguousCallDispatchError);
+    },
+      ),
+    ).rejects.toBeInstanceOf(AmbiguousCallDispatchError);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -312,7 +324,8 @@ describe("outbound voice transport", () => {
       token: "token-1",
       destinationPhoneE164: "+919876543210",
       script: "Code2Create needs you now.",
-    })).rejects.toBeInstanceOf(AmbiguousCallDispatchError);
+    }),
+    ).rejects.toBeInstanceOf(AmbiguousCallDispatchError);
   });
 
   test("surfaces a definite Sarvam rejection", async () => {
@@ -322,15 +335,18 @@ describe("outbound voice transport", () => {
           loc: ["body", "app_config", "app_version"],
           msg: "The app version is not deployed.",
           type: "value_error",
-        }],
-      }, { status: 422 }),
+        },
+          ],
+      }, { status: 422 },
+      ),
     );
     await expect(queueSarvamCall(sarvamEnvironment, {
       deliveryId: "delivery-1",
       token: "token-1",
       destinationPhoneE164: "+919876543210",
       script: "Code2Create needs you now.",
-    })).rejects.toEqual(
+    }),
+    ).rejects.toEqual(
       new RejectedCallDispatchError(
         "sarvam",
         "The app version is not deployed.",
@@ -340,14 +356,14 @@ describe("outbound voice transport", () => {
 
   test("uses Sarvam when Twilio is not configured", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      Response.json({ attempt_id: "attempt-1" }),
-    );
+      Response.json({ attempt_id: "attempt-1" }));
     await expect(queueOutboundCall(sarvamEnvironment, {
       deliveryId: "delivery-1",
       token: "token-1",
       destinationPhoneE164: "+919876543210",
       script: "Code2Create needs you now.",
-    })).resolves.toMatchObject({ provider: "sarvam" });
+    }),
+    ).resolves.toMatchObject({ provider: "sarvam" });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -355,19 +371,23 @@ describe("outbound voice transport", () => {
     expect(sarvamConfigured({
       ...sarvamEnvironment,
       SARVAM_APP_VERSION: "13.5",
-    })).toBe(false);
+    }),
+    ).toBe(false);
   });
 
   test("validates the configured primary provider", () => {
-    expect(outboundCallProviderOrder(environment)).toEqual(["twilio", "sarvam"]);
+    expect(outboundCallProviderOrder(environment)).toEqual(["twilio", "sarvam",
+    ]);
     expect(outboundCallProviderOrder({
       ...environment,
       OUTBOUND_CALL_PRIMARY_PROVIDER: " Sarvam ",
-    })).toEqual(["sarvam", "twilio"]);
+    }),
+    ).toEqual(["sarvam", "twilio"]);
     expect(() => outboundCallProviderOrder({
       ...environment,
       OUTBOUND_CALL_PRIMARY_PROVIDER: "other",
-    })).toThrow("must be either twilio or sarvam");
+    }),
+    ).toThrow("must be either twilio or sarvam");
   });
 
   test("preserves a configured provider rejection when no fallback is available", async () => {
@@ -384,18 +404,22 @@ describe("outbound voice transport", () => {
       token: "token-1",
       destinationPhoneE164: "+919876543210",
       script: "Code2Create needs you now.",
-    })).rejects.toEqual(new RejectedCallDispatchError("twilio", "rejected"));
+    },
+      ),
+    ).rejects.toEqual(new RejectedCallDispatchError("twilio", "rejected"));
   });
 
   test("accepts a non-prefixed Voice Agents key and rejects whitespace-only keys", () => {
     expect(sarvamConfigured({
       ...sarvamEnvironment,
       SARVAM_VOICE_AGENTS_API_KEY: "voice-agents-key",
-    })).toBe(true);
+    }),
+    ).toBe(true);
     expect(sarvamConfigured({
       ...sarvamEnvironment,
       SARVAM_VOICE_AGENTS_API_KEY: "   ",
-    })).toBe(false);
+    }),
+    ).toBe(false);
   });
 
   test("fails clearly when neither provider is configured", async () => {
@@ -404,6 +428,54 @@ describe("outbound voice transport", () => {
       token: "token-1",
       destinationPhoneE164: "+919876543210",
       script: "Code2Create needs you now.",
-    })).rejects.toBeInstanceOf(TelephonyConfigurationError);
+    }),
+    ).rejects.toBeInstanceOf(TelephonyConfigurationError);
+  });
+});
+
+test("a confirmation pins the conversational agent and cannot fall back to an announcement", async () => {
+  const fetchMock = vi
+    .spyOn(globalThis, "fetch")
+    .mockResolvedValue(
+      Response.json({ detail: "Agent unavailable" }, { status: 422 }),
+    );
+  await expect(
+    queueOutboundCall(
+      {
+        ...sarvamEnvironment,
+        OUTBOUND_CALL_PRIMARY_PROVIDER: "twilio",
+        TWILIO_ACCOUNT_SID: "AC123",
+        TWILIO_AUTH_TOKEN: "secret",
+        TWILIO_FROM_NUMBER: "+12025550123",
+      },
+      {
+        deliveryId: "confirmation-1",
+        token: "token",
+        destinationPhoneE164: "+919876543210",
+        script: "May I confirm your availability?",
+        venueConfirmation: {
+          appId: "confirmation-agent",
+          appVersion: 4,
+          reviewerName: "Reviewer",
+          venueName: "Hall",
+          expiresAt: Date.now() + 600000,
+        },
+      },
+    ),
+  ).rejects.toBeInstanceOf(RejectedCallDispatchError);
+  expect(fetchMock).toHaveBeenCalledOnce();
+  const [url, init] = fetchMock.mock.calls[0] ?? [];
+  expect(String(url)).toContain("apps.sarvam.ai");
+  expect(JSON.parse(String(init?.body))).toMatchObject({
+    app_config: {
+      app_id: "confirmation-agent",
+      app_version: 4,
+      agent_variables: {
+        reviewer_name: "Reviewer",
+        venue_name: "Hall",
+        outcome: "unclear",
+        confirmed: false,
+      },
+    },
   });
 });

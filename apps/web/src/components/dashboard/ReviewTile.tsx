@@ -30,6 +30,9 @@ export type ReviewTileModel = {
     active: boolean;
     /** The team's one-based position while queued. */
     rank: number | null;
+    detail: string | null;
+    wait: string | null;
+    reviewers: { present: number; total: number } | null;
   } | null;
   /** Mints the team's review code; present only while reviewers are due. */
   showCode: { sessionId: string; mint: () => Promise<TeamReviewCode> } | null;
@@ -72,8 +75,11 @@ function ServiceQueueRow({
   );
 }
 
-function ReviewQueueRow({ rank, status }: { rank: number | null; status: string }) {
-  const detail = rank === null ? status : `${status} · Position ${rank}`;
+function ReviewQueueRow({ queue }: { queue: NonNullable<ReviewTileModel["queue"]> }) {
+  const { rank, status, detail, wait, reviewers } = queue;
+  const summary = [rank === null ? status : `${status} · Position ${rank}`, wait]
+    .filter((part) => part !== null)
+    .join(" · ");
   const title = rank === null ? "Project review" : "Review queue";
   return (
     <div className="service-queue-row flex min-w-0 items-center border-t border-fg/10 pt-2 first:border-t-0 first:pt-0">
@@ -81,10 +87,16 @@ function ReviewQueueRow({ rank, status }: { rank: number | null; status: string 
         <span className="block truncate text-[12.5px] text-fg/90">{title}</span>
         <span
           aria-label={rank === null ? `Review status ${status}` : `Review status ${status}, rank ${rank}`}
-          className="block truncate text-[10.5px] text-fg/45"
+          className="block text-[10.5px] text-fg/65"
         >
-          {detail}
+          {summary}
         </span>
+        {detail ? <span className="block text-[10.5px] text-fg/45">{detail}</span> : null}
+        {reviewers ? (
+          <span className="block text-[10.5px] text-fg/45">
+            {reviewers.present} of {reviewers.total} reviewers checked in
+          </span>
+        ) : null}
       </span>
     </div>
   );
@@ -229,6 +241,7 @@ export function ReviewTile({ slot, model }: { slot: Slot; model: ReviewTileModel
         </div>
         {hasQueueRows ? (
           <div className="service-queue-list grid min-h-0 shrink-0 gap-2">
+            {queue ? <ReviewQueueRow queue={queue} /> : null}
             {model.services.map((service) => (
               <ServiceQueueRow
                 key={service.kind}
@@ -237,7 +250,6 @@ export function ReviewTile({ slot, model }: { slot: Slot; model: ReviewTileModel
                 onChange={(joined) => void changeServiceQueue(service.kind, joined)}
               />
             ))}
-            {queue ? <ReviewQueueRow rank={queue.rank} status={queue.status} /> : null}
           </div>
         ) : !model.available ? (
           <p className="m-0 text-[13px] leading-snug text-fg/65">Queues open once your place is confirmed.</p>

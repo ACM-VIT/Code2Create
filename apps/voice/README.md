@@ -1,6 +1,6 @@
 # Outbound voice service
 
-This Cloudflare Worker places one synthesized phone call for one accepted delivery ID. Convex decides whether a call is allowed. The Worker cannot read event data or create a page.
+This Cloudflare Worker places one phone call for one accepted delivery ID. Convex decides whether a call is allowed. The Worker cannot read event data or create a page.
 
 The current reviewer flow is push first. A missing push address can call immediately; otherwise the first unanswered 30-second repage can call. The reviewer must have current phone-call consent. The page chain must still hold its exact call authority. A call asks the reviewer to open the app and never accepts or declines the page.
 
@@ -12,7 +12,7 @@ The Worker uses:
 - separate HMAC secrets for Convex requests and Worker callbacks.
 
 `OUTBOUND_CALL_PRIMARY_PROVIDER` selects `twilio` or `sarvam` as the first
-provider for each environment; it defaults to `twilio` for compatibility. The
+provider for each environment; it defaults to `twilio`. The
 other fully configured provider remains the fallback when the selected provider
 is unavailable or explicitly rejects the create request. The Worker does not
 fail over after a timeout, connection reset, HTTP 5xx, or malformed success
@@ -36,3 +36,11 @@ pnpm --filter @code2create/voice deploy:production
 ```
 
 The reusable protocol is in `packages/domain/src/voice.ts`. A participant operational-call release must add its own consent copy, source validation, permission rule, and bounded script policy before it can create deliveries.
+
+## Conversational venue checks
+
+Venue checks use a dedicated published Sarvam agent selected in ops. They pass its ID/version in the signed request and do not fall back to an announcement provider. The existing short announcement calls keep their provider order.
+
+The completion webhook carries a structured response and transcript. The Worker validates them and relays them through the existing signed callback. Convex records the response separately from delivery status, validates the still-current source/consent/policy/expiry, and requests staffing replacement for a confirmed absence only between reviews. An unclear response, help request or absence during active/scoring review needs ops follow-up. An answered or completed call alone never confirms availability. No answer remains a distinct delivery outcome. An available response does not invent an inside-GPS reading or replace pre-round confirmation.
+
+The app's call consent now explains conversation and transcript storage. Old announcement-only venue consent requires confirmation again. Audio recording is not enabled or downloaded by this integration. See [agent instructions, variables and rehearsal](agents/venue-confirmation.md) for the concrete provider configuration. No provider agent was published or live call placed during local implementation.

@@ -40,7 +40,8 @@ describe("operations attention ledger", () => {
     const backend = seededBackend();
     const fixture = await seedFloor(backend);
 
-    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {},
+    );
     const opened = await items(backend, fixture);
     expect(opened).toHaveLength(1);
     const first = opened[0];
@@ -56,7 +57,8 @@ describe("operations attention ledger", () => {
     expect(first.statement).toContain("Panel D is short one reviewer");
     expect(first.firstObservedAt).toBe(first.lastObservedAt);
 
-    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {},
+    );
     const persisted = await items(backend, fixture);
     expect(persisted).toHaveLength(1);
     expect(persisted[0]?._id).toBe(first._id);
@@ -67,14 +69,16 @@ describe("operations attention ledger", () => {
     expect(persisted[0]?.clearedSince).toBeUndefined();
 
     await fillTheSeat(backend, fixture);
-    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {},
+    );
     const clearing = await items(backend, fixture);
     expect(clearing[0]?.state).toBe("open");
     expect(clearing[0]?.clearedSince).toEqual(expect.any(Number));
 
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(Date.now() + clearDelayMs + 1_000);
-    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {},
+    );
     const resolved = await items(backend, fixture);
     expect(resolved).toHaveLength(1);
     expect(resolved[0]?.state).toBe("resolved");
@@ -86,18 +90,22 @@ describe("operations attention ledger", () => {
     const backend = seededBackend();
     const fixture = await seedFloor(backend);
 
-    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {},
+    );
     await fillTheSeat(backend, fixture);
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(Date.now() + minute);
-    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {},
+    );
     vi.setSystemTime(Date.now() + clearDelayMs + 1_000);
-    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {},
+    );
     expect((await items(backend, fixture))[0]?.state).toBe("resolved");
 
     await emptyTheSeat(backend, fixture);
     vi.setSystemTime(Date.now() + 2 * minute);
-    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {},
+    );
 
     const rows = await items(backend, fixture);
     expect(rows).toHaveLength(2);
@@ -111,12 +119,14 @@ describe("operations attention ledger", () => {
     const backend = seededBackend();
     const fixture = await seedFloor(backend);
     const operator = asOperator(backend, fixture);
-    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {},
+    );
 
     const before = await operator.query(api.operationsAttention.overview, {
       eventSlug: fixture.eventSlug,
     });
-    expect(before.summary).toMatchObject({ rowCount: 1, criticalCount: 1, acknowledgedCount: 0 });
+    expect(before.summary).toMatchObject({ rowCount: 1, criticalCount: 1, acknowledgedCount: 0,
+    });
     const row = before.rows[0];
     if (!row) throw new Error("The overview returned no row.");
 
@@ -131,10 +141,12 @@ describe("operations attention ledger", () => {
       acknowledgeCommand,
     );
     await expect(
-      operator.mutation(api.operationsAttention.acknowledge, acknowledgeCommand),
+      operator.mutation(api.operationsAttention.acknowledge, acknowledgeCommand,
+      ),
     ).resolves.toEqual(acknowledgement);
 
-    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {},
+    );
     const after = await operator.query(api.operationsAttention.overview, {
       eventSlug: fixture.eventSlug,
     });
@@ -145,11 +157,13 @@ describe("operations attention ledger", () => {
     const audit = await backend.run(async (ctx) =>
       ctx.db
         .query("auditEvents")
-        .withIndex("by_event_time", (index) => index.eq("eventId", fixture.eventId))
+        .withIndex("by_event_time", (index) => index.eq("eventId", fixture.eventId),
+        )
         .collect(),
     );
     expect(
-      audit.filter((entry) => entry.action === "operations.attention_item_acknowledged"),
+      audit.filter((entry) => entry.action === "operations.attention_item_acknowledged",
+      ),
     ).toHaveLength(1);
   });
 
@@ -157,14 +171,17 @@ describe("operations attention ledger", () => {
     const backend = seededBackend();
     const fixture = await seedFloor(backend);
     const operator = asOperator(backend, fixture);
-    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {},
+    );
     const row = (
-      await operator.query(api.operationsAttention.overview, { eventSlug: fixture.eventSlug })
+      await operator.query(api.operationsAttention.overview, { eventSlug: fixture.eventSlug,
+      })
     ).rows[0];
     if (!row) throw new Error("The overview returned no row.");
 
     await openTheVacancy(backend, fixture);
-    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {},
+    );
     await expect(
       operator.mutation(api.operationsAttention.acknowledge, {
         eventSlug: fixture.eventSlug,
@@ -179,13 +196,16 @@ describe("operations attention ledger", () => {
     const backend = seededBackend();
     const fixture = await seedFloor(backend);
     const operator = asOperator(backend, fixture);
-    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {},
+    );
     const row = (
-      await operator.query(api.operationsAttention.overview, { eventSlug: fixture.eventSlug })
+      await operator.query(api.operationsAttention.overview, { eventSlug: fixture.eventSlug,
+      })
     ).rows[0];
     if (!row) throw new Error("The overview returned no row.");
 
-    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {},
+    );
     await expect(
       operator.mutation(api.operationsAttention.acknowledge, {
         eventSlug: fixture.eventSlug,
@@ -199,9 +219,11 @@ describe("operations attention ledger", () => {
   test("only one reconciliation can commit from a discovered sweep version", async () => {
     const backend = seededBackend();
     const fixture = await seedFloor(backend);
-    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {},
+    );
     const target = (
-      await backend.query(internal.operationsAttentionSweep.reviewDomainTargets, {})
+      await backend.query(internal.operationsAttentionSweep.reviewDomainTargets, {},
+      )
     ).find((candidate) => candidate.roundId === fixture.roundId);
     if (!target) throw new Error("The dispatcher did not discover the fixture round.");
     const now = Date.now() + 1;
@@ -227,21 +249,26 @@ describe("operations attention ledger", () => {
     const request = { ...target, observed, now };
 
     await expect(
-      backend.mutation(internal.operationsAttentionSweep.reconcileReviewRound, request),
+      backend.mutation(internal.operationsAttentionSweep.reconcileReviewRound, request,
+      ),
     ).resolves.toBe("applied");
     await expect(
-      backend.mutation(internal.operationsAttentionSweep.reconcileReviewRound, request),
+      backend.mutation(internal.operationsAttentionSweep.reconcileReviewRound, request,
+      ),
     ).resolves.toBe("stale");
-    expect((await items(backend, fixture))[0]).toMatchObject({ state: "open", version: 1 });
+    expect((await items(backend, fixture))[0]).toMatchObject({ state: "open", version: 1,
+    });
   });
 
   test("a dismissed row leaves the board but the sweep keeps its evidence current", async () => {
     const backend = seededBackend();
     const fixture = await seedFloor(backend);
     const operator = asOperator(backend, fixture);
-    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {},
+    );
     const row = (
-      await operator.query(api.operationsAttention.overview, { eventSlug: fixture.eventSlug })
+      await operator.query(api.operationsAttention.overview, { eventSlug: fixture.eventSlug,
+      })
     ).rows[0];
     if (!row) throw new Error("The overview returned no row.");
 
@@ -252,7 +279,8 @@ describe("operations attention ledger", () => {
       reason: "The third seat is deliberately empty for this round.",
       clientOperationId: "attention-dismissal-survives",
     };
-    const dismissal = await operator.mutation(api.operationsAttention.dismiss, dismissCommand);
+    const dismissal = await operator.mutation(api.operationsAttention.dismiss, dismissCommand,
+    );
     await expect(
       operator.mutation(api.operationsAttention.dismiss, dismissCommand),
     ).resolves.toEqual(dismissal);
@@ -262,7 +290,8 @@ describe("operations attention ledger", () => {
     });
     expect(board.rows).toHaveLength(0);
 
-    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {},
+    );
     const rows = await items(backend, fixture);
     expect(rows).toHaveLength(1);
     expect(rows[0]?.state).toBe("dismissed");
@@ -272,7 +301,8 @@ describe("operations attention ledger", () => {
   test("a row only reaches a caller who can open the workspace it links to", async () => {
     const backend = seededBackend();
     const fixture = await seedFloor(backend);
-    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {},
+    );
 
     const onlooker = backend.withIdentity({
       subject: fixture.onlookerAuthUserId,
@@ -299,7 +329,8 @@ describe("operations attention ledger", () => {
     const backend = seededBackend();
     const fixture = await seedFloor(backend);
     const operator = asOperator(backend, fixture);
-    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {},
+    );
     const source = (await items(backend, fixture))[0];
     if (!source) throw new Error("The sweep opened no source item.");
 
@@ -359,9 +390,11 @@ describe("operations attention ledger", () => {
       watchCount: 0,
     });
     expect(overview.rows).toHaveLength(20);
-    expect(overview.rows.every((row) => row.severity === "critical")).toBe(true);
+    expect(overview.rows.every((row) => row.severity === "critical")).toBe(true,
+    );
     expect(overview.rows.map((row) => row.statement)).toEqual(
-      Array.from({ length: 20 }, (_unused, index) => `Priority condition ${index}`),
+      Array.from({ length: 20 }, (_unused, index) => `Priority condition ${index}`,
+      ),
     );
   });
 
@@ -369,7 +402,8 @@ describe("operations attention ledger", () => {
     const backend = seededBackend();
     const fixture = await seedFloor(backend);
     const operator = asOperator(backend, fixture);
-    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {},
+    );
     const source = (await items(backend, fixture))[0];
     if (!source) throw new Error("The sweep opened no source item.");
     const historicalId = await backend.run((ctx) =>
@@ -400,8 +434,10 @@ describe("operations attention ledger", () => {
     const intelligence = await backend.query(internal.intelligenceReads.operationsAttentionRead, {
       eventId: fixture.eventId,
       now: Date.now(),
-    });
-    expect(intelligence.items.map((item) => item.itemId)).not.toContain(historicalId);
+    },
+    );
+    expect(intelligence.items.map((item) => item.itemId)).not.toContain(historicalId,
+    );
     await expect(
       operator.mutation(api.operationsAttention.acknowledge, {
         eventSlug: fixture.eventSlug,
@@ -416,12 +452,15 @@ describe("operations attention ledger", () => {
     const backend = seededBackend();
     const fixture = await seedFloor(backend);
     await openTheVacancy(backend, fixture);
-    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {},
+    );
 
     const withCommand = await asOperator(backend, fixture).query(api.operationsAttention.overview, {
       eventSlug: fixture.eventSlug,
-    });
-    const row = withCommand.rows.find((entry) => entry.detectorKey === "panel_seat_empty");
+    },
+    );
+    const row = withCommand.rows.find((entry) => entry.detectorKey === "panel_seat_empty",
+    );
     expect(row?.canAct).toBe(true);
     expect(row?.proposal?.command).toMatchObject({
       name: "reviewSubstitutions.startPageChain",
@@ -429,10 +468,12 @@ describe("operations attention ledger", () => {
       expectedPanelVersion: 2,
     });
 
-    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {},
+    );
     const unchanged = await asOperator(backend, fixture).query(api.operationsAttention.overview, {
       eventSlug: fixture.eventSlug,
-    });
+    },
+    );
     expect(unchanged.rows[0]).toMatchObject({
       id: row?.id,
       version: row?.version,
@@ -455,21 +496,26 @@ describe("operations attention ledger", () => {
     const fixture = await seedFloor(backend);
     const second = await addShortRound(backend, fixture);
 
-    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {},
+    );
     const opened = await items(backend, fixture);
     expect(opened).toHaveLength(2);
     expect(opened.map((item) => item.roundId).sort()).toEqual(
       [fixture.roundId, second.roundId].sort(),
     );
 
-    await backend.run((ctx) => ctx.db.patch(second.roundId, { status: "closed" }));
-    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    await backend.run((ctx) => ctx.db.patch(second.roundId, { status: "closed" }),
+    );
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {},
+    );
     const clearing = await items(backend, fixture);
-    expect(clearing.find((item) => item.roundId === fixture.roundId)).toMatchObject({
+    expect(clearing.find((item) => item.roundId === fixture.roundId),
+    ).toMatchObject({
       state: "open",
       version: 1,
     });
-    expect(clearing.find((item) => item.roundId === second.roundId)).toMatchObject({
+    expect(clearing.find((item) => item.roundId === second.roundId),
+    ).toMatchObject({
       state: "open",
       clearedSince: expect.any(Number),
       version: 2,
@@ -477,13 +523,16 @@ describe("operations attention ledger", () => {
 
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(Date.now() + clearDelayMs + 1_000);
-    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {});
+    await backend.action(internal.operationsAttentionSweep.sweepReviewDomain, {},
+    );
     const resolved = await items(backend, fixture);
-    expect(resolved.find((item) => item.roundId === fixture.roundId)).toMatchObject({
+    expect(resolved.find((item) => item.roundId === fixture.roundId),
+    ).toMatchObject({
       state: "open",
       version: 1,
     });
-    expect(resolved.find((item) => item.roundId === second.roundId)).toMatchObject({
+    expect(resolved.find((item) => item.roundId === second.roundId),
+    ).toMatchObject({
       state: "resolved",
       version: 3,
     });
@@ -507,7 +556,8 @@ async function items(backend: BackendTest, fixture: Fixture) {
   return backend.run(async (ctx) =>
     ctx.db
       .query("operationsAttentionItems")
-      .withIndex("by_event_dedupe", (index) => index.eq("eventId", fixture.eventId))
+      .withIndex("by_event_dedupe", (index) => index.eq("eventId", fixture.eventId),
+      )
       .collect(),
   );
 }
@@ -521,7 +571,8 @@ async function fillTheSeat(backend: BackendTest, fixture: Fixture) {
       )
       .unique();
     if (!clockIn) throw new Error("The fixture reviewer has no clock-in.");
-    await ctx.db.patch(clockIn._id, { status: "present", version: clockIn.version + 1 });
+    await ctx.db.patch(clockIn._id, { status: "present", version: clockIn.version + 1,
+    });
   });
 }
 
@@ -534,7 +585,8 @@ async function emptyTheSeat(backend: BackendTest, fixture: Fixture) {
       )
       .unique();
     if (!clockIn) throw new Error("The fixture reviewer has no clock-in.");
-    await ctx.db.patch(clockIn._id, { status: "clocked_out", version: clockIn.version + 1 });
+    await ctx.db.patch(clockIn._id, { status: "clocked_out", version: clockIn.version + 1,
+    });
   });
 }
 
@@ -544,7 +596,8 @@ async function openTheVacancy(backend: BackendTest, fixture: Fixture) {
       status: "removed",
       endedAt: Date.now(),
     });
-    await ctx.db.patch(fixture.panelId, { status: "needs_reviewer", version: 2 });
+    await ctx.db.patch(fixture.panelId, { status: "needs_reviewer", version: 2,
+    });
   });
 }
 
@@ -553,9 +606,12 @@ async function addShortRound(backend: BackendTest, fixture: Fixture) {
     const now = Date.now();
     const sourceRound = await ctx.db.get(fixture.roundId);
     if (!sourceRound) throw new Error("The fixture review round is missing.");
-    const coordinator = await insertAccount(ctx, fixture.eventId, "second-coordinator", now);
-    const seated = await insertAccount(ctx, fixture.eventId, "second-seated", now);
-    const absent = await insertAccount(ctx, fixture.eventId, "second-absent", now);
+    const coordinator = await insertAccount(ctx, fixture.eventId, "second-coordinator", now,
+    );
+    const seated = await insertAccount(ctx, fixture.eventId, "second-seated", now,
+    );
+    const absent = await insertAccount(ctx, fixture.eventId, "second-absent", now,
+    );
     const roundId = await ctx.db.insert("reviewRounds", {
       eventId: fixture.eventId,
       rubricVersionId: sourceRound.rubricVersionId,
@@ -577,9 +633,19 @@ async function addShortRound(backend: BackendTest, fixture: Fixture) {
       substituteResponseSeconds: 60,
       missedReentryPolicy: "preserve_queue_time",
       requiredPanelSize: 3,
+      staffing: {
+        seniorSeats: 2,
+        juniorSeats: 0,
+        allowSeniorLeadFallback: true,
+        automaticReplacement: false,
+        juniorRotationReviews: 0,
+        reviewerArrivalSeconds: 90,
+        assignmentReminderSeconds: 300,
+      },
       minimumScorersPerCriterion: 1,
       minimumPresentParticipants: 1,
       requiresSharedCommitments: true,
+      requiresFinalComment: false,
       minimumReviewerBuild: 1,
       requiresCamera: false,
       requiresNotifications: false,
@@ -617,6 +683,7 @@ async function addShortRound(backend: BackendTest, fixture: Fixture) {
         isCoordinator: key === "coordinator",
         status: "active",
         assignedAt: now,
+        seatSeniority: key === "coordinator" ? "lead" : "sc",
       });
       const deviceId = await ctx.db.insert("reviewerDevices", {
         eventId: fixture.eventId,
@@ -655,9 +722,11 @@ async function seedFloor(backend: BackendTest) {
   const authUserId = await createAuthUser(backend, now, "operator");
   const authSessionId = await createAuthSession(backend, authUserId, now);
   const onlookerAuthUserId = await createAuthUser(backend, now, "onlooker");
-  const onlookerAuthSessionId = await createAuthSession(backend, onlookerAuthUserId, now);
+  const onlookerAuthSessionId = await createAuthSession(backend, onlookerAuthUserId, now,
+  );
   const readerAuthUserId = await createAuthUser(backend, now, "reader");
-  const readerAuthSessionId = await createAuthSession(backend, readerAuthUserId, now);
+  const readerAuthSessionId = await createAuthSession(backend, readerAuthUserId, now,
+  );
 
   return backend.run(async (ctx) => {
     const eventId = await ctx.db.insert("events", {
@@ -673,9 +742,12 @@ async function seedFloor(backend: BackendTest) {
       createdAt: now,
       updatedAt: now,
     });
-    const operator = await insertAccount(ctx, eventId, "operator", now, authUserId);
-    const onlooker = await insertAccount(ctx, eventId, "onlooker", now, onlookerAuthUserId);
-    const reader = await insertAccount(ctx, eventId, "reader", now, readerAuthUserId);
+    const operator = await insertAccount(ctx, eventId, "operator", now, authUserId,
+    );
+    const onlooker = await insertAccount(ctx, eventId, "onlooker", now, onlookerAuthUserId,
+    );
+    const reader = await insertAccount(ctx, eventId, "reader", now, readerAuthUserId,
+    );
 
     const rubricVersionId = await ctx.db.insert("reviewRubricVersions", {
       eventId,
@@ -712,9 +784,19 @@ async function seedFloor(backend: BackendTest) {
       substituteResponseSeconds: 60,
       missedReentryPolicy: "preserve_queue_time",
       requiredPanelSize: 3,
+      staffing: {
+        seniorSeats: 2,
+        juniorSeats: 0,
+        allowSeniorLeadFallback: true,
+        automaticReplacement: false,
+        juniorRotationReviews: 0,
+        reviewerArrivalSeconds: 90,
+        assignmentReminderSeconds: 300,
+      },
       minimumScorersPerCriterion: 1,
       minimumPresentParticipants: 1,
       requiresSharedCommitments: true,
+      requiresFinalComment: false,
       minimumReviewerBuild: 1,
       requiresCamera: false,
       requiresNotifications: false,
@@ -756,6 +838,7 @@ async function seedFloor(backend: BackendTest) {
           isCoordinator: key === "coordinator",
           status: "active",
           assignedAt: now,
+          seatSeniority: key === "coordinator" ? "lead" : "sc",
         }),
       );
       const deviceId = await ctx.db.insert("reviewerDevices", {
@@ -950,11 +1033,13 @@ async function createAuthUser(backend: BackendTest, now: number, key: string) {
         updatedAt: now,
       },
     },
-  });
+  },
+  );
   return documentId(result, "Better Auth user");
 }
 
-async function createAuthSession(backend: BackendTest, userId: string, now: number) {
+async function createAuthSession(backend: BackendTest, userId: string, now: number,
+) {
   const result: unknown = await backend.mutation(components.betterAuth.adapter.create, {
     input: {
       model: "session",
@@ -966,7 +1051,8 @@ async function createAuthSession(backend: BackendTest, userId: string, now: numb
         userId,
       },
     },
-  });
+  },
+  );
   return documentId(result, "Better Auth session");
 }
 

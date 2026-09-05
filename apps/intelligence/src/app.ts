@@ -10,6 +10,7 @@ import {
   postHogIntelligenceObservabilityConfigured,
 } from "./lib/posthogObservability.ts";
 import { autonomyRoutes } from "./routes/autonomyRoutes.ts";
+import { reviewQuestionRoutes } from "./routes/reviewQuestionRoutes.ts";
 import { briefRoutes } from "./routes/briefRoutes.ts";
 import { copilotRoutes } from "./routes/copilotRoutes.ts";
 import { episodeRoutes } from "./routes/episodeRoutes.ts";
@@ -42,13 +43,15 @@ app.route("/", healthRoutes);
 app.route("/", streamRoutes);
 app.route("/", autonomyRoutes);
 app.route("/", briefRoutes);
+app.route("/", reviewQuestionRoutes);
 app.route("/", copilotRoutes);
 app.route("/", episodeRoutes);
 app.route("/", ideaRoutes);
 
 app.onError((_error, context) => {
   if (postHogIntelligenceObservabilityConfigured(context.env)) {
-    context.executionCtx.waitUntil(captureIntelligenceFailure(context.env, "unhandled_request"));
+    context.executionCtx.waitUntil(captureIntelligenceFailure(context.env, "unhandled_request"),
+    );
   }
   return new Response(JSON.stringify({ error: "internal_error" }), {
     status: 500,

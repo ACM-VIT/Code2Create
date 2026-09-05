@@ -1,3 +1,4 @@
+import { callback as reviewQuestionCallback } from "./reviewQuestionHttp";
 import { httpRouter } from "convex/server";
 
 import { admissionIntelligenceReadEndpoint } from "./admissionCohort";
@@ -37,6 +38,11 @@ import {
 } from "./supportDiscordBridge";
 
 const http = httpRouter();
+http.route({
+  path: "/intelligence/review-questions",
+  method: "POST",
+  handler: reviewQuestionCallback,
+});
 
 authComponent.registerRoutes(http, createAuth, { cors: true });
 http.route({

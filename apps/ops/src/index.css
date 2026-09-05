@@ -2970,7 +2970,10 @@ button:disabled {
 }
 .manual-entry-row {
   display: grid;
-  grid-template-columns: 64px minmax(150px, 1.25fr) minmax(170px, 1fr) 80px minmax(150px, 1fr) auto;
+  grid-template-columns: 64px minmax(150px, 1.25fr) minmax(
+      170px,
+      1fr
+    ) 80px minmax(150px, 1fr) auto;
   gap: 9px;
   align-items: end;
   padding-top: 9px;
@@ -3308,7 +3311,10 @@ button:disabled {
 .permission-grid-head,
 .permission-row {
   display: grid;
-  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1.1fr) minmax(0, 0.9fr) 118px;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1.1fr) minmax(
+      0,
+      0.9fr
+    ) 118px;
   gap: 16px;
   align-items: center;
   padding: 10px 16px;
@@ -3774,7 +3780,10 @@ button:disabled {
 }
 .checkpoint-operations-row {
   display: grid;
-  grid-template-columns: minmax(150px, 0.7fr) auto minmax(260px, 1.6fr) minmax(140px, 0.6fr);
+  grid-template-columns: minmax(150px, 0.7fr) auto minmax(260px, 1.6fr) minmax(
+      140px,
+      0.6fr
+    );
   gap: 18px;
   align-items: start;
   padding: 16px 2px;
@@ -4513,10 +4522,9 @@ button:disabled {
 }
 .bundle-entry-row {
   display: grid;
-  grid-template-columns: 28px minmax(190px, 1.5fr) minmax(140px, 0.75fr) minmax(
-      140px,
-      0.8fr
-    ) minmax(140px, 0.8fr) auto;
+  grid-template-columns:
+    28px minmax(190px, 1.5fr) minmax(140px, 0.75fr) minmax(140px, 0.8fr)
+    minmax(140px, 0.8fr) auto;
   gap: 10px;
   align-items: end;
   padding: 14px 2px;
@@ -7410,7 +7418,8 @@ label > span {
 .configuration-editor-body {
   padding: 28px 0;
 }
-.configuration-editor-disclosure :is(.configuration-editor, .phase-editor, .setup-form) {
+.configuration-editor-disclosure
+  :is(.configuration-editor, .phase-editor, .setup-form) {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 260px;
   gap: 28px 32px;
@@ -7420,7 +7429,9 @@ label > span {
   padding: 0;
   border: 0;
 }
-.configuration-editor-disclosure :is(.configuration-editor, .phase-editor, .setup-form) > fieldset {
+.configuration-editor-disclosure
+  :is(.configuration-editor, .phase-editor, .setup-form)
+  > fieldset {
   display: grid !important;
   grid-column: 1;
   gap: 28px;
@@ -7754,7 +7765,8 @@ textarea:focus {
     padding-left: 0;
     border-left: 0;
   }
-  .configuration-editor-disclosure :is(.configuration-editor, .phase-editor, .setup-form) {
+  .configuration-editor-disclosure
+    :is(.configuration-editor, .phase-editor, .setup-form) {
     grid-template-columns: minmax(0, 1fr);
   }
   .configuration-editor-disclosure .configuration-save {
@@ -8352,7 +8364,12 @@ textarea:focus {
   padding: 6px 16px 20px;
 }
 .access-management-content
-  :is(.role-form, .grant-form, .bundle-application-form, .permission-batch-form) {
+  :is(
+    .role-form,
+    .grant-form,
+    .bundle-application-form,
+    .permission-batch-form
+  ) {
   margin-top: 0;
 }
 .access-management-content .permission-batch-actions {
@@ -8418,7 +8435,8 @@ textarea:focus {
   .access-management-content {
     padding-inline: 14px;
   }
-  .access-management-content :is(.grant-form, .bundle-application-form, .permission-panel-form) {
+  .access-management-content
+    :is(.grant-form, .bundle-application-form, .permission-panel-form) {
     grid-template-columns: minmax(0, 1fr);
   }
 }
@@ -9591,11 +9609,89 @@ textarea:focus {
 }
 
 /* The benefits desk. */
-.benefits-shell { width: min(100%, 1120px); margin: 0 auto; }
-.benefits-list { display: grid; margin-top: 22px; border-top: 1px solid var(--border); }
-.benefit { display: grid; gap: 10px; padding: 18px 2px; border-bottom: 1px solid var(--border); }
-.benefit-heading { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px 24px; }
-.benefit-heading strong { display: block; margin-bottom: 4px; font-size: .86rem; }
-.benefit-heading span { display: block; color: var(--muted); font-size: .7rem; }
-.benefit-heading p { margin: 6px 0 0; max-width: 60ch; color: var(--muted); font-size: .74rem; }
-.benefit-heading a { display: inline-block; margin-top: 4px; font-size: .72rem; word-break: break-all; }
+.benefits-shell {
+  width: min(100%, 1120px);
+  margin: 0 auto;
+}
+.benefits-list {
+  display: grid;
+  margin-top: 22px;
+  border-top: 1px solid var(--border);
+}
+.benefit {
+  display: grid;
+  gap: 10px;
+  padding: 18px 2px;
+  border-bottom: 1px solid var(--border);
+}
+.benefit-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px 24px;
+}
+.benefit-heading strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 0.86rem;
+}
+.benefit-heading span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+.benefit-heading p {
+  margin: 6px 0 0;
+  max-width: 60ch;
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+.benefit-heading a {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 0.72rem;
+  word-break: break-all;
+}
+/* Venue presence uses the same compact setup surface as judging configuration. */
+.venue-configuration fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+.venue-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin: 20px 0;
+}
+.venue-fields label {
+  display: grid;
+  gap: 6px;
+}
+.venue-fields input {
+  width: 100%;
+}
+.venue-table-scroll {
+  overflow-x: auto;
+  margin-top: 20px;
+}
+.venue-roster table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+.venue-roster caption {
+  text-align: left;
+  padding-bottom: 12px;
+}
+.venue-roster th,
+.venue-roster td {
+  padding: 12px;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+}
+.venue-roster small {
+  display: block;
+  margin-top: 4px;
+}

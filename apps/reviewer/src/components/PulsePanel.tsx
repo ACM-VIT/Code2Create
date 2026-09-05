@@ -67,7 +67,7 @@ export function PulsePanel({
       />
 
       {rows.length === 0 ? (
-        <Nothing>No panel is short, no review is overdue, and no team is stuck.</Nothing>
+        <Nothing>No panel is short, no review is waiting for scorecards, and no team is stuck.</Nothing>
       ) : (
         <Section title="Needs someone">
           {rows.map((row) => (
@@ -77,13 +77,16 @@ export function PulsePanel({
               selected={row.severity === "critical" && !row.acknowledged}
             >
               <View style={styles.cardTop}>
-                <Text style={[styles.severity, { color: severityColour(row.severity) }]}>
+                <Text style={[styles.severity, { color: severityColour(row.severity) },
+                  ]}>
                   {severityWord(row.severity)}
                 </Text>
                 <Meta>{sinceLine(row)}</Meta>
               </View>
               <Body>{row.statement}</Body>
-              {row.acknowledged ? <Meta>Someone has picked this up</Meta> : null}
+              {row.acknowledged ? (
+                <Meta>Someone has picked this up</Meta>
+              ) : null}
             </Card>
           ))}
           {attention.summary.hasMore ? (
@@ -98,7 +101,8 @@ export function PulsePanel({
             <Card key={signal.key}>
               <View style={styles.cardTop}>
                 <Text style={styles.signalTitle}>{signal.title}</Text>
-                <Text style={[styles.signalCount, { color: severityColour(signal.severity) }]}>
+                <Text style={[styles.signalCount, { color: severityColour(signal.severity) },
+                  ]}>
                   {signal.count}
                   {signal.atLeast ? "+" : ""}
                 </Text>

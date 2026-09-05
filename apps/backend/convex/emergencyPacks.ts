@@ -7,7 +7,8 @@ import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import { internalMutation, internalQuery, mutation, query,
+} from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { loadPublishedCommunicationsPolicy } from "./lib/communicationsPolicy";
 import { requireEventBySlug } from "./lib/events";
@@ -116,6 +117,8 @@ const roundSnapshot = v.object({
   scoreMinimum: v.number(),
   scoreMaximum: v.number(),
   requiresSharedCommitments: v.boolean(),
+  requiresFinalComment: v.boolean(),
+  requiredPanelSize: v.number(),
   criteria: v.array(criterionSnapshot),
   panels: v.array(panelSnapshot),
 });
@@ -194,7 +197,8 @@ function activeSessionStatus(status: Doc<"attendanceSessions">["status"]) {
 }
 
 async function buildSnapshot(ctx: QueryCtx, event: Doc<"events">) {
-  const [{ normalized: communicationsPolicy }, { normalized: participantPolicy }] =
+  const [{ normalized: communicationsPolicy }, { normalized: participantPolicy },
+  ] =
     await Promise.all([
       loadPublishedCommunicationsPolicy(ctx, event),
       loadPublishedParticipantPolicy(ctx, event),
@@ -219,7 +223,8 @@ async function buildSnapshot(ctx: QueryCtx, event: Doc<"events">) {
       const [profile, teamMember, venueState] = await Promise.all([
         ctx.db
           .query("participantProfiles")
-          .withIndex("by_membership", (index) => index.eq("membershipId", membership._id))
+          .withIndex("by_membership", (index) => index.eq("membershipId", membership._id),
+          )
           .unique(),
         ctx.db
           .query("teamMembers")
@@ -242,7 +247,9 @@ async function buildSnapshot(ctx: QueryCtx, event: Doc<"events">) {
   );
   const teamIds = [
     ...new Set(
-      membershipRows.flatMap(({ teamMember }) => (teamMember === null ? [] : [teamMember.teamId])),
+      membershipRows.flatMap(({ teamMember }) =>
+        teamMember === null ? [] : [teamMember.teamId],
+      ),
     ),
   ];
   if (teamIds.length > maximumEventTeams) {
@@ -252,8 +259,7 @@ async function buildSnapshot(ctx: QueryCtx, event: Doc<"events">) {
     });
   }
   const teams = (await Promise.all(teamIds.map((teamId) => ctx.db.get(teamId)))).filter(
-    (team): team is Doc<"teams"> => team !== null,
-  );
+    (team): team is Doc<"teams"> => team !== null);
   const teamsById = mapById(teams);
   const teamByMembership = new Map<Id<"eventMemberships">, Doc<"teams">>();
   for (const { membership, teamMember } of membershipRows) {
@@ -266,7 +272,8 @@ async function buildSnapshot(ctx: QueryCtx, event: Doc<"events">) {
   const attendanceZones = attendancePlanId
     ? await ctx.db
         .query("attendanceZones")
-        .withIndex("by_plan_key", (index) => index.eq("planVersionId", attendancePlanId))
+        .withIndex("by_plan_key", (index) => index.eq("planVersionId", attendancePlanId),
+        )
         .collect()
     : [];
   const attendanceZonesById = mapById(attendanceZones);
@@ -321,11 +328,13 @@ async function buildSnapshot(ctx: QueryCtx, event: Doc<"events">) {
     ? await Promise.all([
         ctx.db
           .query("attendanceSessions")
-          .withIndex("by_plan_key", (index) => index.eq("planVersionId", attendancePlanId))
+          .withIndex("by_plan_key", (index) => index.eq("planVersionId", attendancePlanId),
+          )
           .collect(),
         ctx.db
           .query("attendanceStations")
-          .withIndex("by_plan_key", (index) => index.eq("planVersionId", attendancePlanId))
+          .withIndex("by_plan_key", (index) => index.eq("planVersionId", attendancePlanId),
+          )
           .take(maximumEventStations + 1),
       ])
     : [[], []];
@@ -375,9 +384,11 @@ async function buildSnapshot(ctx: QueryCtx, event: Doc<"events">) {
 
   const allRounds = await ctx.db
     .query("reviewRounds")
-    .withIndex("by_event_status_start", (index) => index.eq("eventId", event._id))
+    .withIndex("by_event_status_start", (index) => index.eq("eventId", event._id),
+    )
     .collect();
-  const activeRounds = allRounds.filter((round) => activeRoundStatus(round.status));
+  const activeRounds = allRounds.filter((round) => activeRoundStatus(round.status),
+  );
   if (activeRounds.length > maximumActiveRounds) {
     throw new ConvexError({
       code: "EMERGENCY_PACK_ROUND_COUNT_TOO_LARGE",
@@ -398,11 +409,13 @@ async function buildSnapshot(ctx: QueryCtx, event: Doc<"events">) {
             .collect(),
           ctx.db
             .query("reviewPanels")
-            .withIndex("by_round_status", (index) => index.eq("roundId", round._id))
+            .withIndex("by_round_status", (index) => index.eq("roundId", round._id),
+            )
             .take(maximumCurrentPanels + 1),
         ]);
         if (!rubric || rubric.eventId !== event._id) {
-          throw new Error("An active emergency-pack round has no event rubric.");
+          throw new Error("An active emergency-pack round has no event rubric.",
+          );
         }
         const panelRows = await Promise.all(
           panels
@@ -415,15 +428,16 @@ async function buildSnapshot(ctx: QueryCtx, event: Doc<"events">) {
                 )
                 .collect();
               const people = await Promise.all(
-                [panel.coordinatorPersonId, ...members.map((member) => member.personId)].map(
-                  (personId) => ctx.db.get(personId),
-                ),
+                [panel.coordinatorPersonId, ...members.map((member) => member.personId),
+                ].map(
+                  (personId) => ctx.db.get(personId)),
               );
               const coordinator = people[0];
               const reviewerNames = [
                 ...new Set(
                   people
-                    .filter((person): person is Doc<"people"> => person !== null)
+                    .filter((person): person is Doc<"people"> => person !== null,
+                    )
                     .map((person) => person.displayName),
                 ),
               ].sort((left, right) => left.localeCompare(right));
@@ -448,6 +462,8 @@ async function buildSnapshot(ctx: QueryCtx, event: Doc<"events">) {
           scoreMinimum: rubric.scoreMinimum,
           scoreMaximum: rubric.scoreMaximum,
           requiresSharedCommitments: round.requiresSharedCommitments,
+          requiresFinalComment: round.requiresFinalComment,
+          requiredPanelSize: round.requiredPanelSize,
           criteria: criteria.map((criterion) => ({
             id: criterion._id,
             label: criterion.label,
@@ -458,7 +474,8 @@ async function buildSnapshot(ctx: QueryCtx, event: Doc<"events">) {
         };
       }),
   );
-  const currentPanelCount = rounds.reduce((count, round) => count + round.panels.length, 0);
+  const currentPanelCount = rounds.reduce((count, round) => count + round.panels.length, 0,
+  );
   if (currentPanelCount > maximumCurrentPanels) {
     throw new ConvexError({
       code: "EMERGENCY_PACK_PANEL_COUNT_TOO_LARGE",
@@ -530,8 +547,10 @@ export const request = mutation({
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
-    const purpose = normalizedText(args.purpose, "Emergency-pack purpose", 10, 240);
-    validateSpareCount(args.spareAttendanceSheetCount, "Spare attendance-sheet count");
+    const purpose = normalizedText(args.purpose, "Emergency-pack purpose", 10, 240,
+    );
+    validateSpareCount(args.spareAttendanceSheetCount, "Spare attendance-sheet count",
+    );
     validateSpareCount(args.spareReviewSheetCount, "Spare review-sheet count");
     const requestFingerprint = operationFingerprint([
       purpose,
@@ -561,7 +580,8 @@ export const request = mutation({
     }
     const requestedAt = Date.now();
     const expiresAt = requestedAt + packLifetimeMs;
-    const serialPrefix = operationFingerprint([event._id, person._id, args.clientOperationId])
+    const serialPrefix = operationFingerprint([event._id, person._id, args.clientOperationId,
+    ])
       .slice(0, 16)
       .toUpperCase();
     const existingSerialPrefix = await ctx.db
@@ -653,7 +673,8 @@ export const list = query({
       .withIndex("by_event_created", (index) => index.eq("eventId", event._id))
       .order("desc")
       .take(10);
-    const requesters = await Promise.all(packs.map((pack) => ctx.db.get(pack.requestedByPersonId)));
+    const requesters = await Promise.all(packs.map((pack) => ctx.db.get(pack.requestedByPersonId)),
+    );
     const now = Date.now();
     return {
       serverNow: now,
@@ -749,7 +770,8 @@ export const complete = internalMutation({
         pack.objectVersionId !== args.objectVersionId ||
         pack.snapshotChecksum !== args.snapshotChecksum
       ) {
-        throw new Error("Emergency-pack completion does not match the stored artifact.");
+        throw new Error("Emergency-pack completion does not match the stored artifact.",
+        );
       }
       return null;
     }

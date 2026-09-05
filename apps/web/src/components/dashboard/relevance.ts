@@ -50,7 +50,7 @@ export function tileRelevance(models: DashboardModels): Candidate[] {
     { key: "squad", score: 45, prefer: ["box", "tall"] },
     { key: "integrations", score: !integrations.available ? 10 : bothConnected ? 30 : 60, prefer: ["box", "wide"] },
     { key: "updates", score: !updates.available ? 10 : openCheckpoint ? 92 : upcomingCheckpoint ? 55 : 15, prefer: ["tall", "box"] },
-    { key: "review", score: reviewScore, prefer: ["box"] },
+    { key: "review", score: reviewScore, prefer: reviewIsActive ? ["wide", "box"] : ["box"] },
     { key: "help", score: help.support && help.support.open > 0 ? 50 : 35, prefer: ["box", "wide"] },
     { key: "benefits", score: !benefits.available ? 5 : benefits.benefits.length > 0 ? 70 : 8, prefer: ["box", "tall"] },
   ];

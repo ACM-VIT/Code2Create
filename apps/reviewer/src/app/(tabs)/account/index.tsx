@@ -1,6 +1,7 @@
 import { StyleSheet, Text, View } from "react-native";
 
 import { DutyScreen } from "@/components/DutyScreen";
+import { VenueStatusLink } from "@/components/VenueStatusLink";
 import { useReviewerSession } from "@/components/ReviewerSession";
 import { PrimaryAction } from "@/components/ReviewerSessionGate";
 import { palette, radius } from "@/theme";
@@ -14,6 +15,7 @@ export default function AccountScreen() {
         <Text style={styles.email}>{email}</Text>
       </View>
       <View style={styles.rows}>
+        <VenueStatusLink />
         <Row label="Event" value={runtime.configuration.eventSlug} />
         <Row
           label="Duties"
@@ -38,7 +40,8 @@ function Row({ label, value }: { label: string; value: string }) {
 
 const styles = StyleSheet.create({
   identity: { paddingBottom: 22 },
-  name: { color: palette.text, fontSize: 28, fontWeight: "600", letterSpacing: -0.5 },
+  name: { color: palette.text, fontSize: 28, fontWeight: "600", letterSpacing: -0.5,
+  },
   email: { marginTop: 4, color: palette.muted, fontSize: 16 },
   rows: { gap: 8 },
   row: {

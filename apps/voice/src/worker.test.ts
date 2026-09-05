@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { MockInstance } from "vitest";
 
-import type { OutboundCallRequest } from "@code2create/domain";
+import type { OutboundCallRequest,
+  VenueCallResponse,
+} from "@code2create/domain";
 import { outboundCallProtocolVersion } from "@code2create/domain";
 
 import { OutboundCallSession } from "./worker.js";
@@ -123,9 +125,11 @@ function relayedEvents(fetchMock: MockInstance<typeof fetch>) {
     .filter(([input]) => String(input) === request.callbackUrl)
     .map(([, init]) => JSON.parse(String(init?.body)) as {
       eventType: string;
-      providerCallId?: string;
+          venueResponse?: VenueCallResponse;
+          providerCallId?: string;
       providerErrorCode?: string;
-    });
+    },
+    );
 }
 
 afterEach(() => {
@@ -141,8 +145,7 @@ describe("outbound call durable session", () => {
     const { session, storage } = fixture();
     storage.values.set("call-session", sessionRecord("dispatching", now));
     const callback = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(null, { status: 204 }),
-    );
+      new Response(null, { status: 204 }));
 
     await session.alarm();
     expect(storedSession(storage)).toMatchObject({
@@ -151,7 +154,8 @@ describe("outbound call durable session", () => {
       pendingEvents: [{
         eventType: "call.failed",
         providerErrorCode: "provider_dispatch_ambiguous",
-      }],
+      },
+      ],
     });
 
     await session.alarm();
@@ -172,8 +176,8 @@ describe("outbound call durable session", () => {
         ? new Promise<Response>((resolve) => {
             acceptProvider = resolve;
           })
-        : Promise.resolve(new Response(null, { status: 204 }))
-    );
+        : Promise.resolve(new Response(null, { status: 204 })),
+      );
 
     const dispatch = session.alarm();
     await vi.waitFor(() => {
@@ -210,8 +214,7 @@ describe("outbound call durable session", () => {
     const { session, storage } = fixture();
     storage.values.set("call-session", sessionRecord("ambiguous", now));
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(null, { status: 204 }),
-    );
+      new Response(null, { status: 204 }));
 
     await expect(session.fetch(sarvamCallback())).resolves.toMatchObject({
       status: 204,
@@ -223,13 +226,86 @@ describe("outbound call durable session", () => {
       pendingEvents: [{
         eventType: "call.completed",
         providerCallId: "attempt-1",
-      }],
+      },
+      ],
     });
     await session.alarm();
     expect(relayedEvents(fetchMock)).toMatchObject([{
       eventType: "call.completed",
       providerCallId: "attempt-1",
-    }]);
+    },
+    ]);
     expect(storedSession(storage).pendingEvents).toEqual([]);
+  });
+});
+
+test("relays a conversational answer once with its transcript and the original call identity", async () => {
+  const { storage, session } = fixture();
+  await storage.put("call-session", {
+    ...sessionRecord("dispatching", Date.now()),
+    request: {
+      ...request,
+      venueConfirmation: {
+        appId: "confirmation-agent",
+        appVersion: 4,
+        reviewerName: "Reviewer",
+        venueName: "Hall",
+        expiresAt: Date.now() + 600000,
+      },
+    },
+  });
+  const callbackBody = {
+    attempt_id: "attempt-1",
+    status: "connected",
+    channel_info: {
+      channel_type: "v2v",
+      channel_provider: "vobiz",
+      agent_phone_number: "+917965854087",
+    },
+    final_agent_variables: {
+      outcome: "away",
+      confirmed: true,
+      summary: "Away for 10 minutes",
+      return_in_minutes: 10,
+    },
+    interaction_transcript: [
+      {
+        role: "agent",
+        en_text: "You are away and unavailable for ten minutes, correct?",
+      },
+      { role: "user", en_text: "Yes, that is correct." },
+    ],
+  };
+  const callback = () =>
+    new Request("https://voice.internal/sarvam-status", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-c2c-call-token": "callback-token",
+      },
+      body: JSON.stringify(callbackBody),
+    });
+  expect((await session.fetch(callback())).status).toBe(204);
+  expect((await session.fetch(callback())).status).toBe(204);
+  const fetchMock = vi
+    .spyOn(globalThis, "fetch")
+    .mockResolvedValue(Response.json({ accepted: true }));
+  await session.alarm();
+  expect(relayedEvents(fetchMock)).toHaveLength(1);
+  expect(relayedEvents(fetchMock)[0]).toMatchObject({
+    eventType: "call.completed",
+    providerCallId: "attempt-1",
+    venueResponse: {
+      outcome: "away",
+      confirmed: true,
+      returnInMinutes: 10,
+      transcript: [
+        {
+          role: "agent",
+          text: callbackBody.interaction_transcript[0]?.en_text,
+        },
+        { role: "user", text: callbackBody.interaction_transcript[1]?.en_text },
+      ],
+    },
   });
 });
