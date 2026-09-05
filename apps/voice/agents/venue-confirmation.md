@@ -2,7 +2,7 @@
 
 Publish a dedicated conversational agent in the existing Sarvam workspace. Select its ID and immutable published version under **Review setup → Reviewer venue presence → Confirmation calls** in ops. This is separate from the short announcement agent used for substitute pages. Ops also controls the GPS boundary, operating hours, outside grace, call delay, and response window. Turning confirmation calls off removes the agent selection.
 
-The Worker supplies the initial message, reviewer name and venue name for each call. Set a maximum call duration of two minutes in the published agent's conversation settings. Enable the standard conversation and end-call tools; this agent needs no API tool, database credential or event mutation capability.
+The Worker supplies `call_message`, reviewer name and venue name for each call. Insert `call_message` into the greeting and set every greeting translation to `{{call_message}}`; regenerate and save translations before committing the version. Set a maximum call duration of two minutes in the published agent's conversation settings. Enable the standard conversation and end-call tools; this agent needs no API tool, database credential or event mutation capability.
 
 ## Agent instruction
 
@@ -24,6 +24,7 @@ Declare these variables on the agent. Inputs are set by the Worker; output value
 
 | Variable          | Type           | Default / meaning                                                  |
 | ----------------- | -------------- | ------------------------------------------------------------------ |
+| call_message      | string         | Input: exact opening message; include in context and all greeting translations |
 | reviewer_name     | string         | Input: intended reviewer                                           |
 | venue_name        | string         | Input: configured venue                                            |
 | outcome           | string         | `unclear`; one of `available`, `away`, `needs_help`, `unclear`     |

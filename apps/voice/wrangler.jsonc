@@ -34,7 +34,7 @@
         ],
       },
       "vars": {
-        "OUTBOUND_CALL_PRIMARY_PROVIDER": "twilio",
+        "OUTBOUND_CALL_PRIMARY_PROVIDER": "sarvam",
         "PUBLIC_BASE_URL": "https://code2create-voice-staging.acmvit.workers.dev",
       },
     },
@@ -55,7 +55,7 @@
         ],
       },
       "vars": {
-        "OUTBOUND_CALL_PRIMARY_PROVIDER": "twilio",
+        "OUTBOUND_CALL_PRIMARY_PROVIDER": "sarvam",
         "PUBLIC_BASE_URL": "https://voice.c2c.sh",
       },
     },
