@@ -2077,6 +2077,7 @@ export default defineSchema({
   })
     .index("by_application_created", ["applicationId", "createdAt"])
     .index("by_event_created", ["eventId", "createdAt"])
+    .index("by_state_and_createdAt", ["state", "createdAt"])
     .index("by_event_state_created", ["eventId", "state", "createdAt"]),
 
   admissionPolicyVersions: defineTable({
