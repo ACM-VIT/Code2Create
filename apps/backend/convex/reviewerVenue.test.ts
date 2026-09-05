@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 import betterAuthSchema from "../node_modules/@convex-dev/better-auth/src/component/schema.ts";
 import { convexTest } from "convex-test";
+import { FirebaseMessagingError } from "firebase-admin/messaging";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { api, components, internal } from "./_generated/api";
 import {
@@ -216,6 +217,7 @@ async function fixture() {
   const base = { eventSlug: "venue-test", installationId: "venue-phone" };
   const enabled = await reviewer.mutation(api.reviewerVenue.setMonitoring, {
     ...base,
+    ownerId: userId,
     enabled: true,
     clientOperationId: "enable-test",
   });
@@ -282,6 +284,7 @@ async function fixture() {
   };
   return {
     backend,
+    ownerId: userId,
     reviewer,
     base,
     ids,
@@ -297,12 +300,28 @@ async function fixture() {
 }
 
 describe("reviewer venue lifecycle", () => {
+  test("an opt-out queued by another account cannot change the current reviewer's monitoring", async () => {
+    const f = await fixture();
+    await expect(f.reviewer.mutation(api.reviewerVenue.setMonitoring, {
+      ...f.base,
+      ownerId: "a-different-signed-in-account",
+      enabled: false,
+      expectedGeneration: f.enabled.generation,
+      clientOperationId: "wrong-owner-disable",
+    })).rejects.toThrow("Sign in with the account that requested this venue check change");
+    expect((await f.mine()).presence).toMatchObject({
+      monitoringEnabled: true,
+      trackingGeneration: f.enabled.generation,
+    });
+  });
+
   test("rejects a pre-generation GPS fix even when labelled with the current generation", async () => {
     const f = await fixture();
     const oldSampledAt = Date.now();
     advance(1);
     const next = await f.reviewer.mutation(api.reviewerVenue.setMonitoring, {
       ...f.base,
+      ownerId: f.ownerId,
       enabled: true,
       clientOperationId: "enable-new-generation",
     });
@@ -320,6 +339,7 @@ describe("reviewer venue lifecycle", () => {
     expect(
       await f.reviewer.mutation(api.reviewerVenue.setMonitoring, {
         ...f.base,
+        ownerId: f.ownerId,
         enabled: true,
         clientOperationId: "enable-new-generation",
       }),
@@ -352,6 +372,7 @@ describe("reviewer venue lifecycle", () => {
     const f = await fixture();
     await f.reviewer.mutation(api.reviewerVenue.setMonitoring, {
       ...f.base,
+      ownerId: f.ownerId,
       enabled: false,
       expectedGeneration: 1,
       clientOperationId: "off-for-break",
@@ -368,6 +389,7 @@ describe("reviewer venue lifecycle", () => {
     });
     const enabled = await f.reviewer.mutation(api.reviewerVenue.setMonitoring, {
       ...f.base,
+      ownerId: f.ownerId,
       enabled: true,
       clientOperationId: "check-return",
     });
@@ -536,6 +558,61 @@ describe("reviewer venue lifecycle", () => {
     });
   });
 
+  test("retires an invalid FCM token and keeps the consented call fallback", async () => {
+    const f = await fixture();
+    await f.grantCall();
+    const departureId = await f.dwell();
+    sendPush.mockRejectedValueOnce(new FirebaseMessagingError({
+      code: "registration-token-not-registered",
+      message: "The device token is no longer registered.",
+    }));
+    await f.backend.action(internal.reviewPush.deliverVenueReminder, { departureId });
+    expect(await f.backend.run((ctx) => ctx.db.get(f.ids.deviceId))).toMatchObject({
+      pushTokenStatus: "invalid",
+      pushTokenInvalidatedAt: Date.now(),
+      pushTokenFailureCode: "messaging_registration-token-not-registered",
+    });
+    expect((await f.mine()).departure?.notificationState).toBe("unavailable");
+    await f.backend.action(internal.reviewPush.deliverVenueReminder, { departureId });
+    expect(sendPush).toHaveBeenCalledOnce();
+    await f.waitForCall();
+    expect((await f.calls())[0]?.state).toBe("pending");
+  });
+
+  test("a late push failure cannot retire a refreshed token or another notification attempt", async () => {
+    const f = await fixture();
+    const departureId = await f.dwell();
+    const claim = await f.backend.mutation(internal.reviewerVenueEscalation.claimNotification, {
+      departureId,
+      attemptId: "old-token-attempt",
+    });
+    if (!claim) throw new Error("Expected a venue notification claim.");
+    await f.backend.run((ctx) => ctx.db.patch(f.ids.deviceId, {
+      pushToken: "newly-registered-device-token",
+      pushTokenUpdatedAt: Date.now() + 1,
+    }));
+    const result = {
+      departureId,
+      attemptId: "old-token-attempt",
+      reviewerDeviceId: claim.reviewerDeviceId,
+      tokenFingerprint: claim.tokenFingerprint,
+      sent: false,
+      errorCode: "messaging_registration-token-not-registered",
+      invalidateToken: true,
+      retryable: false,
+    };
+    await f.backend.mutation(internal.reviewerVenueEscalation.recordNotification, {
+      ...result,
+      attemptId: "unrelated-attempt",
+    });
+    expect((await f.mine()).departure?.notificationState).toBe("sending");
+    await f.backend.mutation(internal.reviewerVenueEscalation.recordNotification, result);
+    expect(await f.backend.run((ctx) => ctx.db.get(f.ids.deviceId))).toMatchObject({
+      pushToken: "newly-registered-device-token",
+      pushTokenStatus: "active",
+    });
+  });
+
   test("unavailable push still falls back to a consented call after the reminder delay", async () => {
     const f = await fixture();
     await f.grantCall();
@@ -597,6 +674,7 @@ describe("reviewer venue lifecycle", () => {
     if (change === "stop")
       await f.reviewer.mutation(api.reviewerVenue.setMonitoring, {
         ...f.base,
+        ownerId: f.ownerId,
         enabled: false,
         expectedGeneration: 1,
         clientOperationId: "stop",
@@ -636,7 +714,7 @@ describe("reviewer venue lifecycle", () => {
     expect((await f.calls())[0]?.state).toBe("cancelled");
   });
 
-  test("call consent is purpose-specific and missing consent is visible as unavailable", async () => {
+  test("waits for venue-specific consent and calls once if it is granted after the reminder delay", async () => {
     const f = await fixture();
     await f.reviewer.mutation(api.outboundCallConsents.saveReviewerConsent, {
       eventSlug: f.base.eventSlug,
@@ -647,28 +725,37 @@ describe("reviewer venue lifecycle", () => {
     });
     await f.notify();
     await f.waitForCall();
-    expect((await f.calls())[0]).toMatchObject({
-      state: "unavailable",
-      providerErrorCode: "call_consent_not_granted",
-    });
+    expect(await f.calls()).toEqual([]);
+    expect((await f.mine()).departure?.callDeliveryId).toBeUndefined();
     expect(
       await f.reviewer.query(api.outboundCallConsents.mine, {
         eventSlug: f.base.eventSlug,
         purpose: venueCallPurpose,
       }),
     ).toMatchObject({ state: "not_configured" });
+    await f.grantCall();
+    advance(1);
+    await f.sample();
+    await f.backend.mutation(internal.reviewerVenueEscalation.sweep, {});
+    advance(1);
+    await f.sample();
+    await f.backend.mutation(internal.reviewerVenueEscalation.sweep, {});
+    expect(await f.calls()).toHaveLength(1);
+    expect((await f.calls())[0]).toMatchObject({ state: "pending", purpose: venueCallPurpose });
   });
 
   test("old tracking generations, foreign devices and unprivileged roster reads are rejected", async () => {
     const f = await fixture();
     await f.reviewer.mutation(api.reviewerVenue.setMonitoring, {
       ...f.base,
+      ownerId: f.ownerId,
       enabled: false,
       expectedGeneration: 1,
       clientOperationId: "off",
     });
     await f.reviewer.mutation(api.reviewerVenue.setMonitoring, {
       ...f.base,
+      ownerId: f.ownerId,
       enabled: true,
       clientOperationId: "new-session",
     });
@@ -676,6 +763,7 @@ describe("reviewer venue lifecycle", () => {
     await expect(
       f.reviewer.mutation(api.reviewerVenue.setMonitoring, {
         ...f.base,
+        ownerId: f.ownerId,
         enabled: false,
         expectedGeneration: 1,
         clientOperationId: "delayed-off",

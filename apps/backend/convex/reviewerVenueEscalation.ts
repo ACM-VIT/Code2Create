@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalMutation } from "./_generated/server";
 import { enqueueOutboundCall } from "./lib/outboundCalls";
+import { pushTokenFingerprint } from "./lib/pushTokens";
 import {
   activeVenueAuthority,
   openVenueDeparture,
@@ -90,6 +91,7 @@ export const sweep = internalMutation({
         consent?.state === "granted" &&
         consent.consentPolicyVersion === venueCallConsentVersion &&
         consent.scriptPolicyVersion === venueCallScriptVersion;
+      if (!consentReady || !consent.destinationPhoneE164) continue;
       const person = await ctx.db.get(presence.personId);
       const callDeliveryId = await enqueueOutboundCall(ctx, {
         eventId: presence.eventId,
@@ -108,12 +110,8 @@ export const sweep = internalMutation({
         },
         locale: "en-IN",
         scriptPolicyVersion: venueCallScriptVersion,
-        ...(consentReady
-          ? {
-              destinationPhone: consent.destinationPhoneE164,
-              consent: { id: consent._id, version: consent.version },
-            }
-          : {}),
+        destinationPhone: consent.destinationPhoneE164,
+        consent: { id: consent._id, version: consent.version },
         authorizationGrantIds: authority.grants,
         now,
       });
@@ -169,6 +167,8 @@ export const claimNotification = internalMutation({
       updatedAt: now,
     });
     return {
+      reviewerDeviceId: device._id,
+      tokenFingerprint: pushTokenFingerprint(device.pushToken),
       provider: device.pushProvider,
       token: device.pushToken,
       environment: device.pushEnvironment,
@@ -184,6 +184,10 @@ export const recordNotification = internalMutation({
     departureId: v.id("reviewerVenueDepartures"),
     attemptId: v.string(),
     sent: v.boolean(),
+    reviewerDeviceId: v.id("reviewerDevices"),
+    tokenFingerprint: v.string(),
+    invalidateToken: v.boolean(),
+    retryable: v.boolean(),
     errorCode: v.optional(v.string()),
   },
   returns: v.null(),
@@ -196,8 +200,23 @@ export const recordNotification = internalMutation({
     )
       return null;
     const now = Date.now();
+    if (!args.sent && args.invalidateToken) {
+      const device = await ctx.db.get(args.reviewerDeviceId);
+      if (
+        device?.pushTokenStatus === "active" &&
+        device.pushToken !== undefined &&
+        pushTokenFingerprint(device.pushToken) === args.tokenFingerprint
+      ) {
+        await ctx.db.patch(device._id, {
+          pushTokenStatus: "invalid",
+          pushTokenInvalidatedAt: now,
+          pushTokenFailureCode: args.errorCode,
+          version: device.version + 1,
+        });
+      }
+    }
     await ctx.db.patch(departure._id, {
-      notificationState: args.sent ? "sent" : "failed",
+      notificationState: args.sent ? "sent" : args.retryable ? "failed" : "unavailable",
       notificationClaimUntil: undefined,
       ...(args.sent
         ? {

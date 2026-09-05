@@ -241,7 +241,7 @@ A review can complete when:
 
 The completion mutation closes the session, moves the team to `completed` for the round, frees the panel, and advances the queue.
 
-The panel coordinator may confirm completion. The coordinator cannot edit another judge’s score.
+Any assigned reviewer may confirm completion after every active reviewer has submitted their scorecard and final comment and any required shared notes are complete. Removed assignments and their historical scorecards do not block completion. Reviewers cannot edit another judge’s score.
 
 ## 13. Failure handling
 

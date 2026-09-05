@@ -1,5 +1,6 @@
 import { api } from "@code2create/backend/api";
 import { ConvexHttpClient } from "convex/browser";
+import { ConvexError } from "convex/values";
 import { randomUUID } from "expo-crypto";
 import * as Location from "expo-location";
 import * as SecureStore from "expo-secure-store";
@@ -11,6 +12,7 @@ import { reviewerConfiguration } from "./config";
 
 export const venueLocationTask = "code2create-reviewer-venue-location";
 const storageKey = "code2create.venue-tracking.v1";
+const pendingDisableKey = "code2create.venue-tracking.pending-disables";
 const issueKey = "code2create.venue-tracking.issue";
 const trackingSchema = z.object({
   eventSlug: z.string(),
@@ -21,6 +23,15 @@ const trackingSchema = z.object({
   endsAt: z.number(),
   policyVersion: z.number(),
 });
+const pendingDisableSchema = trackingSchema.pick({
+  eventSlug: true,
+  installationId: true,
+  generation: true,
+  ownerId: true,
+}).extend({ clientOperationId: z.string() });
+const disableErrorSchema = z.object({ code: z.string() });
+type PendingDisable = z.infer<typeof pendingDisableSchema>;
+
 const taskDataSchema = z.object({
   locations: z.array(
     z.object({
@@ -117,6 +128,51 @@ export async function loadVenueTracking() {
   return trackingSchema.parse(decoded);
 }
 
+async function loadPendingDisables(): Promise<PendingDisable[]> {
+  const value = await SecureStore.getItemAsync(pendingDisableKey);
+  if (!value) return [];
+  const decoded: unknown = JSON.parse(value);
+  return z.array(pendingDisableSchema).parse(decoded);
+}
+
+async function flushPendingDisables(ownerId: string) {
+  let pending = await loadPendingDisables();
+  for (const request of pending.filter((entry) => entry.ownerId === ownerId)) {
+    try {
+      const client = await venueHttpClient();
+      await client.mutation(api.reviewerVenue.setMonitoring, {
+        eventSlug: request.eventSlug,
+        installationId: request.installationId,
+        enabled: false,
+        expectedGeneration: request.generation,
+        ownerId: request.ownerId,
+        clientOperationId: request.clientOperationId,
+      });
+    } catch (error) {
+      const parsed = disableErrorSchema.safeParse(
+        error instanceof ConvexError ? error.data : null,
+      );
+      if (
+        !parsed.success ||
+        !["VENUE_DEVICE_CHANGED", "VENUE_TRACKING_CHANGED"].includes(parsed.data.code)
+      ) {
+        throw error;
+      }
+      // The requested generation is gone; an old opt-out must not stop its replacement.
+    }
+    pending = pending.filter((entry) => entry.clientOperationId !== request.clientOperationId);
+    if (pending.length) {
+      await SecureStore.setItemAsync(pendingDisableKey, JSON.stringify(pending));
+    } else {
+      await SecureStore.deleteItemAsync(pendingDisableKey);
+    }
+  }
+}
+
+export function retryPendingVenueDisables(ownerId: string) {
+  return changeTracking(() => flushPendingDisables(ownerId));
+}
+
 export function readVenueTrackingIssue() {
   return SecureStore.getItemAsync(issueKey);
 }
@@ -140,6 +196,7 @@ export async function enableVenueTracking(
   input: Omit<Tracking, "generation" | "startedAt">,
 ) {
   await changeTracking(async () => {
+    await flushPendingDisables(input.ownerId);
     if (Platform.OS !== "ios" && Platform.OS !== "android")
       throw new Error("Venue checks need the installed mobile app.");
     if (!(await Location.hasServicesEnabledAsync()))
@@ -156,6 +213,7 @@ export async function enableVenueTracking(
         eventSlug: input.eventSlug,
         installationId: input.installationId,
         enabled: true,
+        ownerId: input.ownerId,
         clientOperationId: randomUUID(),
       },
     );
@@ -197,17 +255,22 @@ export function enableBackgroundVenueTracking() {
 export function disableVenueTracking() {
   return changeTracking(async () => {
     const tracking = await loadVenueTracking();
-    await clearNativeTracking();
-    if (tracking) {
-      const client = await venueHttpClient();
-      await client.mutation(api.reviewerVenue.setMonitoring, {
-        eventSlug: tracking.eventSlug,
-        installationId: tracking.installationId,
-        enabled: false,
-        expectedGeneration: tracking.generation,
-        clientOperationId: randomUUID(),
-      });
+    try {
+      if (tracking) {
+        const pending = await loadPendingDisables();
+        pending.push({
+          eventSlug: tracking.eventSlug,
+          installationId: tracking.installationId,
+          generation: tracking.generation,
+          ownerId: tracking.ownerId,
+          clientOperationId: randomUUID(),
+        });
+        await SecureStore.setItemAsync(pendingDisableKey, JSON.stringify(pending));
+      }
+    } finally {
+      await clearNativeTracking();
     }
+    if (tracking) await flushPendingDisables(tracking.ownerId);
   });
 }
 
@@ -278,6 +341,7 @@ async function sendVenueSample(sample: Sample, expected?: Tracking) {
 }
 
 export function subscribeToForegroundVenueChecks(
+  ownerId: string,
   onIssue: (message: string | null) => void,
 ) {
   let stopped = false;
@@ -286,6 +350,7 @@ export function subscribeToForegroundVenueChecks(
     if (sending || stopped || AppState.currentState !== "active") return;
     sending = true;
     try {
+      await retryPendingVenueDisables(ownerId);
       if (await loadVenueTracking()) await refreshVenueLocation();
       if (!stopped) onIssue(null);
     } catch {

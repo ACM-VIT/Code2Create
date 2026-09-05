@@ -51,6 +51,7 @@ import {
 } from "./lib/reviewParticipantAvailability";
 import { activeRoundPause as findActiveRoundPause } from "./lib/reviewRoundPauses";
 import { computeReviewEvaluation } from "./lib/reviewScores";
+import { reviewOverviewCounts } from "./lib/reviewOverviewCounts";
 import { requireConfirmedReviewer } from "./lib/reviewConfirmation";
 import { normalizedText } from "./lib/strings";
 import {
@@ -413,105 +414,90 @@ export async function buildReviewOverview(
     throw new Error("An event exceeds the review operations team limit.");
   }
   const reviewableTeams = eventTeams.filter(isReviewableTeam);
-  const visible: OverviewRoundView[] = [];
-  for (const round of rounds) {
-    const grants = await matchingPermissionGrantIds(ctx, {
-      eventId: event._id,
-      eventAccessSubjectId: subject._id,
-      permissionKey: "round.read",
-      scopeType: "round",
-      scopeId: round._id,
-    });
-    if (grants.length === 0) continue;
-    const [manageGrants, panels, states, awaitingSessions, activeSessions,
-      scoringSessions,
-      pause,
-    ] =
-      await Promise.all([
-        matchingPermissionGrantIds(ctx, {
+  const visible = (
+    await Promise.all(
+      rounds.map(async (round): Promise<OverviewRoundView | null> => {
+        const grants = await matchingPermissionGrantIds(ctx, {
           eventId: event._id,
           eventAccessSubjectId: subject._id,
-          permissionKey: "round.manage",
+          permissionKey: "round.read",
           scopeType: "round",
           scopeId: round._id,
-        }),
-        ctx.db
-          .query("reviewPanels")
-          .withIndex("by_round_status", (index) => index.eq("roundId", round._id))
-          .take(maximumReviewPanelsPerRound + 1),
-        ctx.db
-          .query("teamRoundStates")
-          .withIndex("by_round_state_priority_queued", (index) => index.eq("roundId", round._id),
-        )
-          .take(maximumReviewTeamsPerEvent + 1),
-        ctx.db
-          .query("reviewSessions")
-          .withIndex("by_round_status_updated", (index) =>
-            index.eq("roundId", round._id).eq("status", "awaiting_presence"),
-          )
-          .take(maximumReviewPanelsPerRound + 1),
-        ctx.db
-          .query("reviewSessions")
-          .withIndex("by_round_status_updated", (index) =>
-            index.eq("roundId", round._id).eq("status", "active"),
-          )
-          .take(maximumReviewPanelsPerRound + 1),
-        ctx.db
-          .query("reviewSessions")
-          .withIndex("by_round_status_updated", (index) =>
-            index.eq("roundId", round._id).eq("status", "scoring"),
-          )
-          .take(maximumReviewPanelsPerRound + 1),
-        findActiveRoundPause(ctx, round._id),
-      ]);
-    if (panels.length > maximumReviewPanelsPerRound) {
-      throw new Error("A review round exceeds the published panel limit.");
-    }
-    if (states.length > maximumReviewTeamsPerEvent) {
-      throw new Error("A review round exceeds the review operations team limit.",
-      );
-    }
-    const liveSessions = [...awaitingSessions, ...activeSessions, ...scoringSessions,
-    ];
-    if (liveSessions.length > maximumReviewPanelsPerRound) {
-      throw new Error("A review round has more live reviews than published panels.",
-      );
-    }
-    const panelRows = panels.map((panel) => ({
-      id: panel._id,
-      name: panel.name,
-      status: panel.status,
-      queuedCount: states.filter((state) => state.panelId === panel._id && state.state === "queued",
-      )
-        .length,
-      activeReviewCount: liveSessions.filter((session) => session.panelId === panel._id,
-      ).length,
-    }));
-    const stateTeamIds = new Set(states.map((state) => state.teamId));
-    visible.push({
-      id: round._id,
-      name: round.name,
-      status: round.status,
-      startsAt: round.startsAt,
-      endsAt: round.endsAt,
-      version: round.version,
-      canManage: manageGrants.length > 0,
-      isPaused: pause !== null,
-      panels: panelRows,
-      stateCounts: {
-        unassigned:
-          states.filter((state) => state.state === "unassigned").length +
-          reviewableTeams.filter((team) => !stateTeamIds.has(team._id)).length,
-        queued: states.filter((state) => state.state === "queued").length,
-        called: states.filter((state) => state.state === "called" || state.state === "at_table",
-        )
-          .length,
-        inReview: states.filter((state) => state.state === "in_review").length,
-        completed: states.filter((state) => state.state === "completed").length,
-        held: states.filter((state) => state.state === "held").length,
-      },
-    });
-  }
+        });
+        if (grants.length === 0) return null;
+        const [manageGrants, panels, states, awaitingSessions, activeSessions,
+          scoringSessions,
+          pause,
+        ] =
+          await Promise.all([
+            matchingPermissionGrantIds(ctx, {
+              eventId: event._id,
+              eventAccessSubjectId: subject._id,
+              permissionKey: "round.manage",
+              scopeType: "round",
+              scopeId: round._id,
+            }),
+            ctx.db
+              .query("reviewPanels")
+              .withIndex("by_round_status", (index) => index.eq("roundId", round._id))
+              .take(maximumReviewPanelsPerRound + 1),
+            ctx.db
+              .query("teamRoundStates")
+              .withIndex("by_round_state_priority_queued", (index) => index.eq("roundId", round._id))
+              .take(maximumReviewTeamsPerEvent + 1),
+            ctx.db
+              .query("reviewSessions")
+              .withIndex("by_round_status_updated", (index) =>
+                index.eq("roundId", round._id).eq("status", "awaiting_presence"),
+              )
+              .take(maximumReviewPanelsPerRound + 1),
+            ctx.db
+              .query("reviewSessions")
+              .withIndex("by_round_status_updated", (index) =>
+                index.eq("roundId", round._id).eq("status", "active"),
+              )
+              .take(maximumReviewPanelsPerRound + 1),
+            ctx.db
+              .query("reviewSessions")
+              .withIndex("by_round_status_updated", (index) =>
+                index.eq("roundId", round._id).eq("status", "scoring"),
+              )
+              .take(maximumReviewPanelsPerRound + 1),
+            findActiveRoundPause(ctx, round._id),
+          ]);
+        if (panels.length > maximumReviewPanelsPerRound) {
+          throw new Error("A review round exceeds the published panel limit.");
+        }
+        if (states.length > maximumReviewTeamsPerEvent) {
+          throw new Error("A review round exceeds the review operations team limit.");
+        }
+        const liveSessions = [...awaitingSessions, ...activeSessions, ...scoringSessions];
+        if (liveSessions.length > maximumReviewPanelsPerRound) {
+          throw new Error("A review round has more live reviews than published panels.");
+        }
+        const counts = reviewOverviewCounts({ states, liveSessions, reviewableTeams });
+        const panelRows = panels.map((panel) => ({
+          id: panel._id,
+          name: panel.name,
+          status: panel.status,
+          queuedCount: counts.queuedByPanel.get(panel._id) ?? 0,
+          activeReviewCount: counts.activeByPanel.get(panel._id) ?? 0,
+        }));
+        return {
+          id: round._id,
+          name: round.name,
+          status: round.status,
+          startsAt: round.startsAt,
+          endsAt: round.endsAt,
+          version: round.version,
+          canManage: manageGrants.length > 0,
+          isPaused: pause !== null,
+          panels: panelRows,
+          stateCounts: counts.stateCounts,
+        };
+      }),
+    )
+  ).flatMap((round) => (round === null ? [] : [round]));
   return { rounds: visible.sort((left, right) => left.startsAt - right.startsAt),
   };
 }

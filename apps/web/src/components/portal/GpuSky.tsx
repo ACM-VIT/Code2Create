@@ -61,6 +61,7 @@ async function startSky(
   const gpu = navigator.gpu;
   if (!gpu) return;
   if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  let cleanup: (() => void) | undefined;
   try {
     const adapter = await gpu.requestAdapter();
     if (!adapter || stopped.current) return;
@@ -69,6 +70,7 @@ async function startSky(
       device.destroy();
       return;
     }
+    cleanup = () => device.destroy();
     const context = canvas.getContext("webgpu");
     if (!context) {
       device.destroy();
@@ -91,6 +93,26 @@ async function startSky(
       layout: pipeline.getBindGroupLayout(0),
       entries: [{ binding: 0, resource: { buffer: uniforms } }],
     });
+    // Read layout when it changes, keeping the animation loop free of layout reads.
+    const resize = () => {
+      const width = canvas.clientWidth || canvas.width;
+      const height = canvas.clientHeight || canvas.height;
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+      }
+    };
+    resize();
+    const resizeObserver = new ResizeObserver(resize);
+    resizeObserver.observe(canvas);
+    let frame = 0;
+    const stop = () => {
+      cancelAnimationFrame(frame);
+      resizeObserver.disconnect();
+      device.destroy();
+    };
+    cleanup = stop;
+    const uniformValues = new Float32Array(4);
     const startedAt = performance.now();
     // Mounting lands directly in the current light; only a live toggle
     // eases `day` toward its target, playing the sunrise (or nightfall).
@@ -99,29 +121,18 @@ async function startSky(
     let lastFrameAt = startedAt;
     const tick = () => {
       if (stopped.current || !canvas.isConnected) {
-        device.destroy();
+        stop();
         return;
-      }
-      const width = canvas.clientWidth || canvas.width;
-      const height = canvas.clientHeight || canvas.height;
-      if (canvas.width !== width || canvas.height !== height) {
-        canvas.width = width;
-        canvas.height = height;
       }
       const frameAt = performance.now();
       const dt = Math.min((frameAt - lastFrameAt) / 1000, 0.1);
       lastFrameAt = frameAt;
       day += (dayTarget.current - day) * Math.min(1, dt * 3.2);
-      device.queue.writeBuffer(
-        uniforms,
-        0,
-        new Float32Array([
-          (performance.now() - startedAt) / 1000,
-          canvas.width,
-          canvas.height,
-          day,
-        ]),
-      );
+      uniformValues[0] = (performance.now() - startedAt) / 1000;
+      uniformValues[1] = canvas.width;
+      uniformValues[2] = canvas.height;
+      uniformValues[3] = day;
+      device.queue.writeBuffer(uniforms, 0, uniformValues);
       const encoder = device.createCommandEncoder();
       const pass = encoder.beginRenderPass({
         colorAttachments: [
@@ -138,10 +149,12 @@ async function startSky(
       pass.draw(3);
       pass.end();
       device.queue.submit([encoder.finish()]);
-      requestAnimationFrame(tick);
+      frame = requestAnimationFrame(tick);
     };
-    requestAnimationFrame(tick);
+    frame = requestAnimationFrame(tick);
+    return stop;
   } catch {
+    cleanup?.();
     // The scene's CSS gradient stays underneath; nothing to do.
   }
 }
@@ -164,9 +177,14 @@ export function GpuSky() {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const stopped = { current: false };
-    void startSky(canvas, stopped, dayTarget);
+    let cleanup: (() => void) | undefined;
+    void startSky(canvas, stopped, dayTarget).then((stop) => {
+      if (stopped.current) stop?.();
+      else cleanup = stop;
+    });
     return () => {
       stopped.current = true;
+      cleanup?.();
     };
   }, []);
 

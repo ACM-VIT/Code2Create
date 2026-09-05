@@ -98,6 +98,9 @@ async function sendFcmNotification(claim: PushClaim): Promise<PushOutcome> {
         priority: "high",
         ttl,
         collapseKey: claim.collapseKey,
+        ...(claim.notificationChannel
+          ? { notification: { channelId: claim.notificationChannel, sound: "default" } }
+          : {}),
       },
     });
     return { ok: true, messageId };
@@ -154,7 +157,7 @@ async function sendApnsNotification(claim: PushClaim): Promise<PushOutcome> {
         "interruption-level": "time-sensitive",
         "relevance-score": 1,
         sound: "default",
-        "thread-id": "reviewer-pages",
+        "thread-id": claim.notificationChannel ?? "reviewer-pages",
       },
       ...claim.data,
     },
@@ -308,6 +311,7 @@ type PushClaim = {
   title: string;
   body: string;
   collapseKey: string;
+  notificationChannel?: string;
   data: Record<string, string>;
   token: string;
   provider: "fcm" | "apns";
@@ -337,56 +341,25 @@ export const deliverVenueReminder = internalAction({
       { ...args, attemptId },
     );
     if (!claim) return null;
-    let outcome: PushOutcome;
-    try {
-      if (claim.provider === "fcm") {
-        const messageId = await getMessaging(firebaseApp()).send({
-          token: claim.token,
-          notification: { title: claim.title, body: claim.body },
-          data: {
-            kind: "reviewer_venue_absence",
-            departureId: args.departureId,
-            url: "/venue",
-            expiresAt: String(claim.expiresAt),
-          },
-          android: {
-            priority: "high",
-            ttl: Math.max(1_000, claim.expiresAt - Date.now()),
-            collapseKey: `venue-${args.departureId}`,
-            notification: { channelId: "reviewer-venue", sound: "default" },
-          },
-        });
-        outcome = { ok: true, messageId };
-      } else {
-        outcome = await sendApnsAlert({
-          ...claim,
-          collapseId: `venue-${args.departureId}`,
-          payload: {
-            aps: {
-              alert: { title: claim.title, body: claim.body },
-              sound: "default",
-              "thread-id": "reviewer-venue",
-              "interruption-level": "time-sensitive",
-            },
-            kind: "reviewer_venue_absence",
-            departureId: args.departureId,
-            url: "/venue",
-            expiresAt: claim.expiresAt,
-          },
-        });
-      }
-    } catch {
-      outcome = {
-        ok: false,
-        errorCode: "venue_push_failed",
-        retryable: true,
-        invalidateToken: false,
-      };
-    }
+    const outcome = await sendReviewerPush({
+      ...claim,
+      collapseKey: `venue-${args.departureId}`,
+      notificationChannel: "reviewer-venue",
+      data: {
+        kind: "reviewer_venue_absence",
+        departureId: args.departureId,
+        url: "/venue",
+        expiresAt: String(claim.expiresAt),
+      },
+    });
     await ctx.runMutation(internal.reviewerVenueEscalation.recordNotification, {
       ...args,
       attemptId,
       sent: outcome.ok,
+      reviewerDeviceId: claim.reviewerDeviceId,
+      tokenFingerprint: claim.tokenFingerprint,
+      invalidateToken: !outcome.ok && outcome.invalidateToken,
+      retryable: !outcome.ok && outcome.retryable,
       ...(!outcome.ok ? { errorCode: outcome.errorCode } : {}),
     });
     return null;

@@ -1960,6 +1960,7 @@ export default defineSchema({
       v.literal("offer_confirmed"),
       v.literal("offer_declined"),
       v.literal("offer_expired"),
+      v.literal("external_event_pass"),
     ),
     applicationVersion: v.number(),
     portalPath: v.string(),
@@ -2446,35 +2447,45 @@ export default defineSchema({
     updatedAt: v.number(),
   }).index("by_event_shard", ["eventId", "shard"]),
 
-  attendancePortalCredentials: defineTable({
+  attendanceExternalPasses: defineTable({
     eventId: v.id("events"),
     membershipId: v.id("eventMemberships"),
+    encryptedBearer: v.string(),
+    bearerIv: v.string(),
+    bearerAuthTag: v.string(),
+    lookupHash: v.string(),
     version: v.number(),
     state: v.union(v.literal("active"), v.literal("suspended")),
+    issuedAt: v.number(),
     updatedAt: v.number(),
-  }).index("by_membership", ["membershipId"]),
+  })
+    .index("by_membership", ["membershipId"])
+    .index("by_event_lookup", ["eventId", "lookupHash"]),
 
-  attendancePortalQrTokens: defineTable({
+  attendanceExternalIdentityBindings: defineTable({
     eventId: v.id("events"),
     membershipId: v.id("eventMemberships"),
-    portalCredentialId: v.id("attendancePortalCredentials"),
-    credentialVersion: v.number(),
-    sessionId: v.optional(v.id("attendanceSessions")),
-    tokenHash: v.string(),
-    state: v.union(v.literal("active"), v.literal("used"), v.literal("revoked"),
-    ),
-    issuedAt: v.number(),
-    expiresAt: v.number(),
-    usedAt: v.optional(v.number()),
-    usedByEventId: v.optional(v.id("attendancePresenceEvents")),
+    lookupHash: v.string(),
+    barcodeSymbology,
+    version: v.number(),
+    state: v.union(v.literal("active"), v.literal("suspended")),
+    linkedByPersonId: v.id("people"),
+    linkedAt: v.number(),
+    updatedAt: v.number(),
   })
-    .index("by_event_token", ["eventId", "tokenHash"])
-    .index("by_membership_state", ["membershipId", "state"]),
+    .index("by_membership", ["membershipId"])
+    .index("by_event_lookup", ["eventId", "lookupHash"]),
 
   staffedParticipantResolutions: defineTable({
     eventId: v.id("events"),
     membershipId: v.id("eventMemberships"),
-    portalQrTokenId: v.id("attendancePortalQrTokens"),
+    resolutionMethod: v.union(
+      v.literal("vit_id_barcode"),
+      v.literal("external_pass"),
+      v.literal("manual_lookup"),
+    ),
+    barcodeLookupHash: v.optional(v.string()),
+    barcodeSymbology: v.optional(barcodeSymbology),
     stationId: v.id("attendanceStations"),
     deviceInstallationId: v.id("attendanceDeviceInstallations"),
     resolvedByPersonId: v.id("people"),
@@ -2492,14 +2503,15 @@ export default defineSchema({
         v.literal("begin_badge_issue"),
         v.literal("begin_badge_replacement"),
         v.literal("revoke_badge"),
+        v.literal("link_external_id"),
+        v.literal("suspend_external_pass"),
+        v.literal("reissue_external_pass"),
       ),
     ),
     credentialActionAt: v.optional(v.number()),
     attendanceCredentialId: v.optional(v.id("attendanceCredentials")),
-  })
-    .index("by_portal_token", ["portalQrTokenId"])
-    .index("by_event_membership_time", ["eventId", "membershipId", "resolvedAt",
-    ]),
+    attendanceExternalPassId: v.optional(v.id("attendanceExternalPasses")),
+  }).index("by_event_membership_time", ["eventId", "membershipId", "resolvedAt"]),
 
   attendanceVenueStates: defineTable({
     eventId: v.id("events"),
@@ -2689,7 +2701,6 @@ export default defineSchema({
     operatorPersonId: v.id("people"),
     membershipId: v.optional(v.id("eventMemberships")),
     credentialId: v.optional(v.id("attendanceCredentials")),
-    portalQrTokenId: v.optional(v.id("attendancePortalQrTokens")),
     credentialKind: attendanceCredentialKind,
     clientOperationId: v.string(),
     requestFingerprint: v.string(),

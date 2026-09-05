@@ -7,6 +7,7 @@ import {
   ideaIntelligenceReadEndpoint,
   ideaIntelligenceSimilarityEndpoint,
 } from "./admissionAgentHttp";
+import { applePassEndpoint } from "./attendanceWalletHttp";
 import { authComponent, createAuth } from "./auth";
 import {
   importBundleEndpoint,
@@ -45,6 +46,11 @@ http.route({
 });
 
 authComponent.registerRoutes(http, createAuth, { cors: true });
+http.route({
+  path: "/attendance/external-pass/apple",
+  method: "GET",
+  handler: applePassEndpoint,
+});
 http.route({
   path: "/configuration/communications/email-template",
   method: "POST",

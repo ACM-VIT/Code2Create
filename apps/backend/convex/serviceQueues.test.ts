@@ -4,7 +4,7 @@ import { convexTest, type TestConvex } from "convex-test";
 import { describe, expect, test } from "vitest";
 
 import { api, components } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import schema from "./schema.ts";
 
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
@@ -31,6 +31,18 @@ describe("participant outing permission queue", () => {
       createdAt: now,
       updatedAt: now,
     }));
+    for (const status of ["rejected", "suspended"] as const) {
+      const participant = backend.withIdentity(
+        await createParticipant(backend, eventId, status, now, status),
+      );
+      await expect(participant.mutation(api.serviceQueues.join, {
+        eventSlug,
+        kind: "outing_permission",
+      })).rejects.toThrow();
+    }
+    await backend.run(async (ctx) => {
+      expect(await ctx.db.query("participantServiceQueueEntries").collect()).toEqual([]);
+    });
     const first = backend.withIdentity(await createParticipant(backend, eventId, "first", now));
     const second = backend.withIdentity(await createParticipant(backend, eventId, "second", now + 1));
 
@@ -130,6 +142,7 @@ async function createParticipant(
   eventId: Id<"events">,
   key: string,
   now: number,
+  eligibilityStatus: Doc<"eventMemberships">["eligibilityStatus"] = "eligible",
 ) {
   const email = `${key}-${crypto.randomUUID()}@example.test`;
   const user: unknown = await backend.mutation(components.betterAuth.adapter.create, {
@@ -184,7 +197,7 @@ async function createParticipant(
       personId,
       eventAccessSubjectId: subjectId,
       participantClass: "external_participant",
-      eligibilityStatus: "eligible",
+      eligibilityStatus,
       onboardingStatus: "accepted",
       acceptedParticipantPolicyVersionIds: [],
       createdAt: now,

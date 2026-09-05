@@ -1,34 +1,56 @@
-export function formatClockTime(value: number) {
-  return new Intl.DateTimeFormat(undefined, {
+const dateTimeOptions = {
+  clock: {
     hour: "2-digit",
     minute: "2-digit",
-  }).format(value);
-}
-
-export function formatCompactDateTime(value: number) {
-  return new Intl.DateTimeFormat(undefined, {
+  },
+  compact: {
     day: "numeric",
     month: "short",
     hour: "2-digit",
     minute: "2-digit",
-  }).format(value);
-}
-
-export function formatMediumDateTime(value: number) {
-  return new Intl.DateTimeFormat(undefined, {
+  },
+  medium: {
     dateStyle: "medium",
     timeStyle: "short",
-  }).format(value);
-}
-
-export function formatMonthDayTime(value: number, timeZone?: string) {
-  return new Intl.DateTimeFormat(undefined, {
-    ...(timeZone ? { timeZone } : {}),
+  },
+  monthDay: {
     month: "short",
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
-  }).format(value);
+  },
+  time: { timeStyle: "short" },
+} satisfies Record<string, Intl.DateTimeFormatOptions>;
+
+const dateTimeFormatters = new Map<string, Intl.DateTimeFormat>();
+
+function dateTimeFormatter(style: keyof typeof dateTimeOptions, timeZone?: string) {
+  const key = timeZone === undefined ? style : `${style}:${timeZone}`;
+  let formatter = dateTimeFormatters.get(key);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat(undefined, {
+      ...dateTimeOptions[style],
+      ...(timeZone === undefined ? {} : { timeZone }),
+    });
+    dateTimeFormatters.set(key, formatter);
+  }
+  return formatter;
+}
+
+export function formatClockTime(value: number) {
+  return dateTimeFormatter("clock").format(value);
+}
+
+export function formatCompactDateTime(value: number) {
+  return dateTimeFormatter("compact").format(value);
+}
+
+export function formatMediumDateTime(value: number) {
+  return dateTimeFormatter("medium").format(value);
+}
+
+export function formatMonthDayTime(value: number, timeZone?: string) {
+  return dateTimeFormatter("monthDay", timeZone || undefined).format(value);
 }
 
 export function formatMonthDayTimeWindow(startsAt: number, endsAt: number, timeZone?: string) {
@@ -36,19 +58,12 @@ export function formatMonthDayTimeWindow(startsAt: number, endsAt: number, timeZ
 }
 
 export function formatZonedDateTimeWindow(startsAt: number, endsAt: number, timeZone: string) {
-  const formatter = new Intl.DateTimeFormat(undefined, {
-    timeZone,
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
+  const formatter = dateTimeFormatter("medium", timeZone);
   return `${formatter.format(startsAt)} – ${formatter.format(endsAt)}`;
 }
 
 export function formatZonedTime(value: number, timeZone: string) {
-  return new Intl.DateTimeFormat(undefined, {
-    timeZone,
-    timeStyle: "short",
-  }).format(value);
+  return dateTimeFormatter("time", timeZone).format(value);
 }
 
 /** "in 12 min", "2 h ago" — for schedules and freshness where a clock time reads worse. */

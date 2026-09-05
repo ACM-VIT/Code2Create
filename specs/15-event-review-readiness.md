@@ -22,6 +22,8 @@ This is the status of the local event-flow implementation. It does not certify t
 
 A reviewer cannot leave, rotate, change availability or be substituted while an active review or its score entry is unfinished. This is enforced by the backend, not just a hidden button. A team is not restarted to permit a routine seat change.
 
+Reviewers end their shift through the app’s duty-status sheet. A returning reviewer uses normal clock-in, which checks their current assignment, confirmed hours, training and device readiness again. Ops manages replacement seats; it does not mark an absent reviewer present on their behalf.
+
 The reviewer app keeps its existing components and visual style. Availability opens in a sheet; custom hours are shown only on request. Optional questions and duty changes sit behind quiet actions. Operational policy and staffing tables remain in ops.
 
 ## What “freezing evidence” means
@@ -43,7 +45,7 @@ Generated dependencies, actual credential files and binary assets are explicitly
 3. Reviewers register phones and enable notifications. At the configured time they confirm their actual hours. Check the pending/confirmed/unavailable roster before opening reviews.
 4. Set live staffing, JC rotation, response/arrival windows and reminder timing. Keep the publishing operator's required staffing grants active; ops reports when automation has lost its authority.
 5. Set queue routing and call-up, enable question preparation, and inspect source/job status. Voice calls require existing provider configuration plus separate consent from the recipient; team leads opt in from the participant portal's More screen.
-6. Open the round, scan real arrivals and let staff place walk-up teams. Reviewers scan the team's review QR. The coordinator starts discussion after presence is complete, finishes the review after all cards/comments are submitted, and the queue calls the next team.
+6. Open the round, scan real arrivals and let staff place walk-up teams. Reviewers scan the team's review QR. The coordinator starts discussion after presence is complete. Any assigned reviewer finishes the review after all active reviewers' cards/comments and required shared notes are submitted; the queue then calls the next team.
 7. Close and independently verify each round's export. Publish/check the aggregation policy before using cumulative results.
 
 Structural settings such as rubric and seat composition are chosen in setup and fixed by publication. Live operational settings are versioned; changing them cannot silently rewrite an existing score or review context.
@@ -60,13 +62,15 @@ Six panels with SC leads need 18 SC and 12 JC, leaving 5 SC and 45 JC outside th
 
 [Track reviewer venue presence and escalate unreported departures](https://github.com/ACM-VIT/Code2Create/pull/122) was reviewed at `0c03ff6fadd90c6d3f4c1000e8ad85f214f5252d`. It adds venue configuration, opt-in foreground/background location checks, explicit departure reporting, ops visibility, native reminders and consented calls. It fits the availability portion of this flow, but it is separate from panel duty in that PR.
 
-The PR's changes are integrated into the local working tree. Declared departures share the active/scoring review lock and end duty between reviews. Native and backend checks reject location samples captured before the current tracking generation. GPS is advisory and never changes staffing by itself. The separate confirm-return mutation and duty-home venue shortcut were removed: the reviewer returns through normal clock-in, which also cancels an older unresolved call check.
+The PR's feature work was integrated into staging in `761d839`. Declared departures share the active/scoring review lock and end duty between reviews. Native and backend checks reject location samples captured before the current tracking generation. GPS is advisory and never changes staffing by itself. The separate confirm-return mutation and duty-home venue shortcut were removed: the reviewer returns through normal clock-in, which also cancels an older unresolved call check.
 
 A sustained outside reading triggers an app reminder, then an opt-in conversational call using the agent/version selected in ops. The agent asks about current presence, availability and return time, clarifies, and requests agreement to a read-back. Ops sees the recorded answer, timestamp, transcript, call delivery status and resulting staffing action. A current, explicit unavailable response ends duty and requests substitution between reviews. Available, unclear, help requested and no answer remain distinct. Active/scoring review never permits automatic departure or replacement. Expired calls, revoked consent, changed tracking/policy and resolved departures cannot apply a late answer.
 
 The concrete [voice-agent setup](../apps/voice/agents/venue-confirmation.md) is ready for publication and rehearsal. The implementation stores answers/transcripts and does not enable or download audio recordings. Selecting an agent is optional; without it, GPS/app/ops checks continue and no conversational calls dispatch.
 
-The detailed PR review is in `outputs/event-flow/pr-122-review.md`. No remote PR merge, comment, push or production deployment was performed.
+The follow-up preserves a departure without creating a terminal call record while venue-call consent is missing, so consent granted later can still trigger one call if the departure remains current. Native opt-out stops local uploads immediately and persists an owner-scoped, idempotent server-disable request for foreground retry. Obsolete requests cannot disable a replacement tracking generation. Venue reminders use the shared native push sender and retire invalid tokens only when the failed token still matches the device registration.
+
+The detailed initial PR review is in `outputs/event-flow/pr-122-review.md`. These changes do not replace physical GPS, notification and voice rehearsal.
 
 ## Validation boundary
 

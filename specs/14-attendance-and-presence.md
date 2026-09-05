@@ -40,7 +40,7 @@ An event publishes an immutable attendance-plan version before participant check
 - expected cohort, such as all admitted participants, volunteers, finalists, or an explicit list;
 - required, optional, or information-only status;
 - tracked zones and valid scan stations;
-- allowed methods by participant class: VIT ID barcode, external event-badge QR, portal QR, staffed confirmation, or manual exception;
+- allowed methods by participant class: VIT ID barcode, static external event-pass QR, external event-badge QR, staffed lookup, or manual exception;
 - the maximum encrypted offline queue size and maximum replay age, constrained to 1–25 scans and 30–600 seconds;
 - temporary-exit behavior and the duration after which operations receives an away alert;
 - whether a minimum presence duration or one or more checkpoints are required;
@@ -79,18 +79,18 @@ A VIT student presents the VIT ID they already carry. A provisioned staff phone 
 
 The card is normally enrolled to the participant’s event membership at the staffed arrival desk:
 
-1. the participant is already authenticated through the VIT Google path;
-2. staff compare the card’s visible name/photo and registration number with the participant record;
-3. the phone scans the barcode without displaying its decoded value;
-4. the backend normalizes it with the approved barcode-profile adapter and computes an event-scoped keyed fingerprint;
-5. one active fingerprint is bound to one event membership;
-6. the scanner immediately reads the card again and verifies the resulting participant.
+1. the phone scans the barcode without displaying its decoded value;
+2. the backend parses the registration number and resolves one eligible, accepted RSVP membership;
+3. the app shows the authoritative participant name, registration number, institution, and team;
+4. staff compare those details with the visible card and participant;
+5. the backend normalizes the barcode with the approved adapter and computes an event-scoped keyed fingerprint;
+6. one active fingerprint is bound to one event membership and the staffed arrival can be recorded.
 
 The system does not store, log, or export the raw barcode value. It does not use that value as account identity. The Google-linked person and event membership remain authoritative. The barcode fingerprint is a pseudonymous server lookup value. It is not a biometric. It proves only that someone presented the enrolled physical card to a supervised scanner.
 
 One event cannot bind the same active barcode fingerprint to two people. A rebind after card replacement or incorrect enrollment requires `attendance.credential.rebind` for the exact person. An explicit event-wide grant can also authorize it. The operator also needs a provisioned current-plan phone with station-read access. The phone or station grant alone cannot replace a participant's binding.
 
-The participant first presents a fresh portal QR. The QR resolves the exact membership without showing a barcode value. Staff compare the new card with the returned identity details. They enter a reason and use a current scoped authorization.
+Staff resolve the participant from the currently bound VIT ID or the authorized registration-number fallback. They compare the replacement card with the returned identity details, enter a reason, and use a current scoped authorization.
 
 The first scan claims the resolution's credential slot for the exact replacement and pending credential. It creates a pending replacement that expires after five minutes. An existing active card remains active during this period. A suspended card remains unusable.
 
@@ -103,25 +103,32 @@ The second scan must use the same resolution, operator, phone, station, and memb
 
 A stale version cannot change the current binding. A reused or mismatched resolution cannot change it. A same-card attempt, different second scan, duplicate active fingerprint, expired attempt, or competing replacement also cannot change it. The old binding remains in history. It stops resolving on the first online scan after the replacement commits.
 
-Suspension is an independent one-way command. It requires `attendance.credential.suspend` for the exact participant or an explicit event-wide grant. Staff must use an assigned current-plan phone. They must scan a fresh participant portal QR, confirm visible identity, and give a reason. Their scoped authorization must still be active.
+Suspension is an independent one-way command. It requires `attendance.credential.suspend` for the exact participant or an explicit event-wide grant. Staff must use an assigned current-plan phone, resolve the participant from the VIT ID or authorized registration-number lookup, confirm visible identity, and give a reason. Their scoped authorization must still be active.
 
 The server checks the active credential and version. One transaction then changes the credential to `suspended` and cancels each unfinished successor. The old barcode fails at the next online attendance scan.
 
-The system has no resume button or `suspended → active` transition. The portal QR remains available. Only a separately authorized two-scan rebind to a different VIT ID restores a physical credential. A suspended row remains the participant's current VIT binding for setup. Station-scoped initial enrollment cannot bypass the exact-person recovery boundary.
+The system has no resume button or `suspended → active` transition. Only a separately authorized two-scan rebind to a different VIT ID restores a physical credential. A suspended row remains the participant's current VIT binding for setup. Station-scoped initial enrollment cannot bypass the exact-person recovery boundary.
 
-The production team must test current VIT IDs before it makes barcode scanning mandatory. The handbook does not assume Code 128, QR, or another symbology before the team tests representative cards. If qualified phones cannot reliably read a campus or batch barcode, staff can verify the visible VIT ID and record arrival. The participant then uses the portal QR for later attendance and keeps event access.
+The production team must test current VIT IDs before it makes barcode scanning mandatory. The handbook does not assume Code 128, QR, or another symbology before the team tests representative cards. If qualified phones cannot reliably read a campus or batch barcode, staff use the registration-number lookup, verify the visible VIT ID, and record arrival. That same staffed lookup remains the VIT fallback; internal participants never receive an attendance QR.
 
 ### External participants and fallback
 
-External participants use:
+Each accepted external participant receives a separate event-pass email after the team confirms its offer. The email contains one personal static QR, event and venue details, and each working signed **Add to Google Wallet** or **Add to Apple Wallet** action. Missing, partial, invalid, or unavailable wallet integration hides only its own button and never blocks the QR email. The pass is not issued to VIT participants. Its opaque 32-byte bearer contains no identity, stays stable for the event, and is stored only in encrypted form; the searchable database value is an event-scoped HMAC.
 
-- a short-lived dynamic QR in the authenticated participant portal;
-- an opaque printed QR on an ordinary event badge when the event issues one;
-- staffed lookup/manual confirmation when neither is available.
+At first check-in, staff:
+
+1. scan the external participant's event-pass QR, or use the verified-email fallback when the QR cannot be read;
+2. compare the returned name, institution, and team with the participant and visible physical photo ID;
+3. scan the barcode on that physical ID and bind its event-scoped HMAC to the resolved membership;
+4. record staffed venue arrival.
+
+If the external institution's ID has no readable supported barcode, the authorized email lookup plus visible photo-ID check can record arrival without creating a barcode binding. A physical-ID barcode can belong to only one active external membership. The system never stores or displays its raw value.
+
+External participants may also use an opaque printed QR on an ordinary event badge when the event explicitly issues one. Staffed lookup/manual confirmation remains the fallback when an event pass or physical barcode is unavailable.
 
 Attendance operations preprint anonymous badge stock with `pnpm attendance:badges --count <n> --output <new-file.html>`. Each card contains one opaque 32-byte bearer as QR geometry. A short reference is printed below the QR. The generator limits a batch to 500 cards. It atomically creates a new owner-only `0600` file, refuses to overwrite an existing file, and does not write a plaintext bearer list. Staff keep the HTML and all unused cards in controlled custody. They destroy a partly scanned card when its five-minute verification expires. They do not bind that card again.
 
-Badge issue starts in the app's separate **Credential setup** mode. The participant presents a fresh portal QR. Staff compare the participant with the returned profile.
+Badge issue starts in the app's separate **Credential setup** mode. Staff first resolve the external participant from the static event pass or verified-email lookup and compare the participant with the returned profile.
 
 Badge issue requires all of these conditions:
 
@@ -138,30 +145,25 @@ Lost-card revocation requires `attendance.badge.revoke`. It has a separate reaso
 
 Possession of the phone does not authorize these actions. A station-read grant or another badge permission also does not authorize them. The public action keeps the scanned bearer only long enough to derive the event HMAC and short reference. Internal mutations, tables, audit records, operation records, logs, exports, and user interfaces never receive or show the bearer.
 
-VIT students receive the same portal QR fallback for a forgotten, unreadable, or unavailable VIT ID. Code2Create does not print a replacement attendance card.
+VIT students use registration-number lookup for a forgotten, unreadable, or unavailable VIT ID. Code2Create does not print a replacement attendance card and does not expose an internal-participant attendance QR.
 
-Dynamic QR state is:
-
-- bound to the event, participant, credential version, token scope, and attendance session when session-scoped;
-- opaque and free of personal data;
-- valid for 60 seconds, with at most one active code per membership; minting or manual refresh revokes every prior active code in the same transaction;
-- invalid after use, revocation, session close, or account/credential repair.
-
-When the server resolves a portal token, the attendance receipt consumes it. The outcome can be accepted, duplicate, rejected, or needs review. The token cannot cause a second transition after its first resolved use. A successful staffed-participant resolution also consumes the token and revokes each sibling. This resolution does not create an attendance event. The portal always shows **Refresh code** after use or a lost response. A screenshot or old portal QR cannot become a permanent event credential.
+The static external pass remains usable after a scan and across devices. Suspension is an explicit server-side state change; refreshing the portal or reopening the email never rotates the QR. Wallet download links are independently signed and expire after the event, while the Apple and Google passes contain the same static attendance QR.
 
 ## 5. Scanner surfaces
 
 Attendance scanning is a capability-gated mode in the signed Expo event application. It uses:
 
-- the camera for VIT ID barcodes, external event-badge QR, and attendance portal QR while Attendance mode is selected;
+- the camera for VIT ID barcodes, external physical-ID barcodes, static external event passes, and external event-badge QR while Attendance mode is selected;
 - secure session storage and registered-device checks;
 - an encrypted, bounded pending queue for short connection loss.
 
 The camera also has a separate online-only participant-first surface. A configured `venue_entry` station labels it **Arrival desk**. Other stations label it **Credential setup**.
 
-The surface accepts a fresh participant portal QR. It shows only the identity, team, and current-arrival state needed at that station. It creates a two-minute server resolution. The resolution is bound to the operator, assigned phone, station, and person.
+The surface accepts a VIT ID directly, an external event pass, or an authorized registration-number/email lookup. It shows only the identity, team, and current-arrival state needed at that station. It creates a two-minute server resolution bound to the operator, assigned phone, station, person, and resolution method.
 
-Independent one-action venue and credential slots permit one valid action in each domain. To repeat an action, staff must scan another QR. A two-scan credential workflow stays bound to its claimed resolution and pending credential for five minutes. The surface then accepts the VIT ID barcode or external badge QR for the participant class.
+Independent one-action venue and credential slots permit one valid action in each domain. To repeat an action, staff must resolve the participant again. A two-scan replacement workflow stays bound to its claimed resolution and pending credential for five minutes. The normal internal flow begins with the VIT ID itself. The normal external flow begins with the personal pass and then accepts the physical-ID barcode.
+
+The server permits an ordinary staffed arrival only after the evidence chain is complete: a direct VIT resolution must point to the participant's active linked barcode, and a direct external-pass resolution must have linked an active physical-ID binding. Manual lookup is the explicit visible-ID fallback. A suspended VIT card cannot use the ordinary check-in command; it requires replacement or an authorized identity exception.
 
 The arrival button does not record presence. Credential controls do not issue or change an arrival record. Ordinary Attendance mode performs neither action.
 
@@ -171,7 +173,7 @@ A normal record confirms the visible VIT ID for a VIT student. For an external p
 
 A reversal requires its separate permission, current check-in version, reason, and current authorization. Neither exception nor reversal changes venue or session presence.
 
-Repetitive VIT ID scanning is operated on provisioned phones that passed the actual-card and lighting rehearsal. VIT barcodes and attendance QR use the same Attendance camera mode, while the event app mounts a separate Review mode for its separately prefixed team credential and server command.
+Repetitive ID scanning is operated on provisioned phones that passed the actual-card and lighting rehearsal. VIT barcodes and external event passes use the same Attendance camera mode, while the event app mounts a separate Review mode for its separately prefixed team credential and server command.
 
 Each scanner installation is assigned to a station configuration:
 
@@ -211,7 +213,7 @@ The scanner result is deliberately brief:
 - preferred name, badge reference, and team;
 - accepted state and server time;
 - one clear color, sound, and haptic result;
-- a direct recovery action for already present, wrong session, revoked badge, expired QR, or pending network state.
+- a direct recovery action for already present, wrong session, suspended credential, invalid pass, or pending network state.
 
 The screen never exposes the bearer token.
 
@@ -219,10 +221,10 @@ The screen never exposes the bearer token.
 
 ### Venue arrival
 
-1. The participant shows one current portal attendance QR at a provisioned `venue_entry` station; resolving it consumes that code and returns the exact confirmed member, team, class, and minimum identity details.
-2. Staff compare the person with the visible class-appropriate ID. A separately authorized no-ID exception is available when the published recovery policy permits it.
-3. The operator explicitly records venue check-in. A normal retry is idempotent, a second active check-in is rejected, and the participant portal shows this arrival state separately from venue presence.
-4. As applicable, the same participant-first surface enrols the VIT ID barcode or issues an unused external badge through the independent two-scan credential command. An unreadable/unavailable physical credential does not prevent the approved portal-QR fallback.
+1. A VIT participant presents the VIT ID barcode directly. An external participant presents the static event pass first and then the physical photo-ID barcode. The authorized fallback searches VIT participants by registration number and external participants by verified email.
+2. The server returns only an eligible, accepted RSVP member, team, class, and minimum identity details. Staff compare the person with the visible class-appropriate ID. A separately authorized no-ID exception is available when the published recovery policy permits it.
+3. The normal scan links the VIT barcode or external physical-ID barcode to that exact membership without storing its raw value.
+4. The operator explicitly records venue check-in. A normal retry is idempotent, a second active check-in is rejected, and the participant portal shows this arrival state separately from venue presence.
 5. A separate entry scan places the participant inside the configured venue zone.
 6. The participant portal shows arrival, current venue state, physical credential, and the next scheduled attendance session as separate facts.
 
@@ -232,7 +234,7 @@ The team reaches the coarse `checked_in` milestone when each active member of th
 
 ### Session start
 
-The portal subscribes to a current-plan projection containing only all current sessions and the next upcoming session. It shows each session's check-in window, location, and current status. It does not subscribe to old session rows. Each expected participant confirms the session separately. VIT students normally present the enrolled VIT ID barcode. External participants and fallback paths use QR.
+The portal subscribes to a current-plan projection containing only all current sessions and the next upcoming session. It shows each session's check-in window, location, and current status. It does not subscribe to old session rows. Each expected participant confirms the session separately. VIT students normally present the enrolled VIT ID barcode. External participants normally present their static event pass or an issued event badge. The staffed manual fallback is limited to first check-in and does not create a reusable QR credential.
 
 Confirmation can happen at:
 
@@ -325,7 +327,7 @@ Attendance duration and temporary exits never enter a judging score or GitHub/Fi
 
 ## 9. Scan command and realtime update
 
-Enrolled VIT ID barcodes, external-badge QR, and portal QR all reach the same protected scanner command. A staffed missing or incorrect transition uses the separate authorized reconciliation command and the same presence ledger/projections; it does not impersonate a scanner device.
+Enrolled VIT ID barcodes, external-badge QR, and static external event passes all reach the same protected scanner command. A staffed missing or incorrect transition uses the separate authorized reconciliation command and the same presence ledger/projections; it does not impersonate a scanner device.
 
 The request contains:
 
@@ -339,7 +341,7 @@ The server:
 
 1. authenticates the operator and registered device;
 2. checks `attendance.scan.execute` for the exact station and the active station assignment;
-3. converts a VIT ID barcode value into its event-scoped keyed fingerprint, or resolves the QR token, then validates event, membership, and credential/binding state;
+3. converts an ID barcode value into its event-scoped keyed fingerprint, or resolves the static external-pass/badge bearer, then validates event, membership, and credential/binding state;
 4. resolves the applicable attendance session or sessions and expected participant records;
 5. applies station direction, anti-passback, duplicate, and time-window rules;
 6. records the scan attempt with accepted, duplicate, rejected, or needs-review outcome;
@@ -357,13 +359,13 @@ The working performance target on the venue network is:
 - affected participant and operations views updated within two seconds at the 95th percentile;
 - sustained event-wide bursts of at least 60 scan attempts per second without delaying review or score writes.
 
-The final target is signed off after testing with the chosen phones, representative VIT ID barcode formats and conditions, external-badge and portal QR, Wi-Fi, backup connection, and station layout.
+The final target is signed off after testing with the chosen phones, representative VIT and external physical-ID barcode formats and conditions, external-badge and static event-pass QR, Wi-Fi, backup connection, and station layout.
 
 ## 10. Duplicate and conflict behavior
 
 - Repeating the same client operation ID returns the first result.
 - The same credential and transition repeated within the deduplication window returns **Already recorded**.
-- Two near-simultaneous VIT-barcode and portal-QR scans for one participant create one accepted transition and one duplicate result.
+- Two near-simultaneous scans of the same static external event pass create one accepted transition and one duplicate result.
 - Two entry scans do not manufacture extra present time.
 - A stale station configuration is rejected with the current station mode.
 - A scan racing session close is evaluated against server order. An operator may reconcile a legitimate boundary case only if the correction commits while the session is still open; otherwise it enters the reviewed post-session remedy path.
@@ -431,18 +433,18 @@ An online scanner shows **Accepted** only after the server response.
 
 During a short connection loss:
 
-- The scanner stores a small queue in its SQLCipher database. Device-only secure storage holds the database key. Each row contains the operation ID, credential payload, station and configuration version, device time, and sequence. Raw VIT ID barcode values, badge bearers, and a portal bearer after an uncertain response expire with the row. The system never logs them.
+- The scanner stores a small queue in its SQLCipher database. Device-only secure storage holds the database key. Each row contains the operation ID, credential payload, station and configuration version, device time, and sequence. Raw VIT ID barcode values, badge bearers, and static external-pass bearers expire with the row. The system never logs them.
 - The screen shows **Pending**. It does not show **Accepted**.
-- A definitely offline phone puts only VIT ID and event-badge scans in the queue. A portal QR requires an online station because the phone cannot check its current short-lived state locally.
+- A definitely offline phone can queue VIT ID, event-badge, and static external event-pass scans within the published count and age limits.
 - The operator can continue only within the immutable plan's queue and age limits.
 - Backup connectivity or another online station is the preferred recovery.
 - After reconnection, the phone sends events in device order. It shows accepted, duplicate, rejected, or needs-review results.
 
-Staffed participant resolution, venue check-in, identity exception, reversal, and credential setup remain online-only. They require a current single-use portal QR and current permission state. Some actions also require a current scoped authorization. These actions never enter the offline scan queue.
+Staffed participant resolution, venue check-in, identity exception, reversal, and credential setup remain online-only. They require a current two-minute participant resolution and current permission state. Some actions also require a current scoped authorization. These actions never enter the offline scan queue.
 
 The phone saves each scan before online transmission. If the response is uncertain, replay uses the same operation ID and semantic request. A server commit and retry therefore resolve to one receipt. A definite server rejection removes the row. A connection failure keeps it. The phone deletes the row after a definite receipt, definite rejection, or short recovery expiry. The queue is not another attendance database.
 
-If the scanner battery or camera fails, staff change the method or device. A VIT student can use the portal QR without changing the VIT ID barcode binding. If backend failure exceeds the incident threshold, operations can open an attendance-backend incident. Before paper entry starts, two different authorized people must approve paper mode. Each person must hold `incident.manual_mode.approve` for the exact incident.
+If the scanner battery or camera fails, staff change the device or use registration-number/email lookup with visible identity verification. If backend failure exceeds the incident threshold, operations can open an attendance-backend incident. Before paper entry starts, two different authorized people must approve paper mode. Each person must hold `incident.manual_mode.approve` for the exact incident.
 
 The paper sheet comes from a current restricted emergency pack. Staff prepare the pack while the backend and private storage are healthy. The pack contains one prefilled sheet for each active station and current session. It also contains the requested spare sheets. Each sheet has a serial in the attendance manual-import format.
 
@@ -472,7 +474,7 @@ Import requires the original-paper filing attestation. It creates append-only `m
 ## 14. Acceptance checks
 
 - Venue check-in, venue entry, and session confirmation remain distinct records.
-- A fresh portal QR at a venue-entry station resolves one exact confirmed team member and is consumed even when the operator performs no later arrival or credential command.
+- A VIT ID, static external pass, or authorized manual lookup at a venue-entry station resolves one exact eligible, accepted RSVP member for two minutes.
 - A staffed venue action rejects a missing, expired, mismatched, or already claimed resolution; the successful domain write claims it in the same transaction.
 - A credential begin/single-step command rejects a missing, expired, mismatched, or already claimed credential slot; its second scan rejects a different action, target, operator, phone, station, or member.
 - Normal venue check-in, approved no-ID exception, and reversal fail independently without their exact person permission; a station grant, credential permission, or role label cannot substitute.
@@ -480,9 +482,11 @@ Import requires the original-paper filing attestation. It creates append-only `m
 - Recording or reversing arrival creates no presence event, venue state, interval, session participant/result, judging fact, or score change.
 - The team reaches `checked_in` only after every member of its deadline-frozen roster has a current venue check-in; a reversal at that milestone returns it to `confirmed` without rewriting a later active event phase.
 - The same participant can check into every configured hacking session without receiving a new account or badge.
-- An enrolled VIT ID barcode, external event-badge QR, and portal QR produce the same accepted domain transition.
-- A portal QR cannot be used for another participant, event, session scope, or incompatible station; direction remains server-owned station configuration.
-- Two concurrent portal-QR mints leave only the last committed code active; consuming one code also revokes any older active sibling.
+- An enrolled VIT ID barcode, external event-badge QR, and static external pass produce the same accepted domain transition.
+- An external pass cannot be used for another participant, event, or incompatible station; direction remains server-owned station configuration.
+- Repeated portal loads and repeated pass-email attempts return the same encrypted external pass instead of minting a new QR.
+- A VIT first check-in resolves the accepted RSVP membership directly from the registration number in the scanned ID and never requests a participant QR.
+- An external first check-in resolves the pass before accepting and binding the physical-ID barcode; the verified-email fallback remains available when either barcode cannot be read.
 - A suspended or replaced VIT ID barcode or revoked external badge fails immediately on every online scanner.
 - A VIT ID rebind cannot deactivate the old card after only one scan. An unchanged pending attempt expires after five minutes; verification and expiry serialize on the pending credential version.
 - Repeated and simultaneous scans produce one accepted transition and stable totals.
@@ -494,8 +498,7 @@ Import requires the original-paper filing attestation. It creates append-only `m
 - Overlapping optional and required sessions keep separate per-participant state and cannot overwrite one another.
 - Session open fails while its expectation build is incomplete; close or cancellation remains visibly in progress until every indexed batch and count check succeeds.
 - An offline queue never displays server acceptance, never exceeds the published count/age bounds, and replays in device order with the original operation ID.
-- A definitely offline portal QR is refused locally; an uncertain online attempt can only retry its already-persisted operation and cannot turn the bearer into a reusable credential.
-- A resolved portal QR is consumed by its first scanner receipt even when that receipt is duplicate, rejected, or needs review.
+- A definitely offline static external pass can enter the same bounded encrypted queue as a VIT ID scan; an uncertain response retries only the persisted operation ID.
 - A quiet scanner that receives no cards remains online through its authenticated heartbeat; closing or disconnecting its camera surface makes an expected live station visible as stale within two minutes.
 - Disabling a scanner revokes its device secret and source-attributed station grants in the same transaction, increments the station configuration version, and makes its next heartbeat, scan, or offline replay fail.
 - Making a disabled station available never revives the old phone or operator grants; provisioning creates a fresh installation secret and assignment.

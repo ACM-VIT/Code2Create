@@ -671,47 +671,50 @@ export const sessionRoster = query({
           .query("attendanceSessionParticipants")
           .withIndex("by_session_membership", (index) => index.eq("sessionId", session._id))
           .paginate(args.paginationOpts);
-    const visible = [];
-    for (const participant of page.page) {
-      const membership = await ctx.db.get(participant.membershipId);
-      if (!membership || membership.eventId !== event._id) continue;
-      const [profile, participantPerson, teamMember, lastEvent] = await Promise.all([
-        ctx.db
-          .query("participantProfiles")
-          .withIndex("by_membership", (index) => index.eq("membershipId", membership._id))
-          .unique(),
-        ctx.db.get(membership.personId),
-        ctx.db
-          .query("teamMembers")
-          .withIndex("by_event_membership_status", (index) =>
-            index
-              .eq("eventId", event._id)
-              .eq("membershipId", membership._id)
-              .eq("status", "active"),
-          )
-          .unique(),
-        participant.lastEventId ? ctx.db.get(participant.lastEventId) : Promise.resolve(null),
-      ]);
-      if (!participantPerson) continue;
-      const team = teamMember ? await ctx.db.get(teamMember.teamId) : null;
-      visible.push({
-        membershipId: membership._id,
-        displayName: profile?.fullName ?? participantPerson.displayName,
-        ...(team ? { teamName: team.name } : {}),
-        expectation: participant.expectation,
-        state: participant.state,
-        ...(participant.result !== undefined ? { result: participant.result } : {}),
-        late: participant.late,
-        ...(participant.confirmedAt !== undefined ? { confirmedAt: participant.confirmedAt } : {}),
-        ...(participant.presentDurationMs !== undefined
-          ? { presentDurationMs: participant.presentDurationMs }
-          : {}),
-        version: participant.version,
-        ...(participant.lastEventId !== undefined ? { lastEventId: participant.lastEventId } : {}),
-        canVoidLastTransition: canVoidLastTransition(participant, lastEvent),
-        updatedAt: participant.updatedAt,
-      });
-    }
+    const visible = (
+      await Promise.all(
+        page.page.map(async (participant) => {
+          const membership = await ctx.db.get(participant.membershipId);
+          if (!membership || membership.eventId !== event._id) return null;
+          const [profile, participantPerson, teamMember, lastEvent] = await Promise.all([
+            ctx.db
+              .query("participantProfiles")
+              .withIndex("by_membership", (index) => index.eq("membershipId", membership._id))
+              .unique(),
+            ctx.db.get(membership.personId),
+            ctx.db
+              .query("teamMembers")
+              .withIndex("by_event_membership_status", (index) =>
+                index
+                  .eq("eventId", event._id)
+                  .eq("membershipId", membership._id)
+                  .eq("status", "active"),
+              )
+              .unique(),
+            participant.lastEventId ? ctx.db.get(participant.lastEventId) : null,
+          ]);
+          if (!participantPerson) return null;
+          const team = teamMember ? await ctx.db.get(teamMember.teamId) : null;
+          return {
+            membershipId: membership._id,
+            displayName: profile?.fullName ?? participantPerson.displayName,
+            ...(team ? { teamName: team.name } : {}),
+            expectation: participant.expectation,
+            state: participant.state,
+            ...(participant.result !== undefined ? { result: participant.result } : {}),
+            late: participant.late,
+            ...(participant.confirmedAt !== undefined ? { confirmedAt: participant.confirmedAt } : {}),
+            ...(participant.presentDurationMs !== undefined
+              ? { presentDurationMs: participant.presentDurationMs }
+              : {}),
+            version: participant.version,
+            ...(participant.lastEventId !== undefined ? { lastEventId: participant.lastEventId } : {}),
+            canVoidLastTransition: canVoidLastTransition(participant, lastEvent),
+            updatedAt: participant.updatedAt,
+          };
+        }),
+      )
+    ).flatMap((participant) => (participant === null ? [] : [participant]));
     return { ...page, page: visible };
   },
 });

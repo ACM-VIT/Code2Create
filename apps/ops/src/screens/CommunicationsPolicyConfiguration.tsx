@@ -47,6 +47,21 @@ type EmailBundleImportResponse = {
   assetCount: number;
 };
 
+const commonParticipantEmailFields = [
+  "participant_name",
+  "team_name",
+  "event_name",
+  "portal_url",
+] as const;
+const externalPassEmailFields = [
+  ...commonParticipantEmailFields,
+  "event_start",
+  "venue_name",
+  "pass_reference",
+  "google_wallet_url",
+  "apple_wallet_url",
+] as const;
+
 function isEmailBundleImportResponse(value: unknown): value is EmailBundleImportResponse {
   return (
     typeof value === "object" &&
@@ -682,11 +697,12 @@ export function CommunicationsPolicyConfiguration({
                     </div>
                     <p className="muted email-placeholder-help">
                       Fields you can use:{" "}
-                      {(["participant_name", "team_name", "event_name", "portal_url"] as const).map(
-                        (field) => (
-                          <code key={field}>{`{{${field}}}`}</code>
-                        ),
-                      )}
+                      {(selectedEmail === "external_event_pass"
+                        ? externalPassEmailFields
+                        : commonParticipantEmailFields
+                      ).map((field) => (
+                        <code key={field}>{`{{${field}}}`}</code>
+                      ))}
                     </p>
                     <label className="field">
                       <span>Subject</span>
@@ -924,8 +940,26 @@ function renderEmailPreview(value: string) {
     .replaceAll("{{participant_name}}", "Aarav")
     .replaceAll("{{team_name}}", "Team Sakura")
     .replaceAll("{{event_name}}", "Code2Create 7.0")
-    .replaceAll("{{portal_url}}", "https://c2c.acmvit.in");
+    .replaceAll("{{portal_url}}", "https://c2c.acmvit.in")
+    .replaceAll("{{event_start}}", "18 April 2027, 9:00 am")
+    .replaceAll("{{venue_name}}", "Anna Auditorium, VIT Vellore")
+    .replaceAll("{{pass_reference}}", "C2C-7H4M9Q")
+    .replaceAll("{{google_wallet_url}}", "#google-wallet-preview")
+    .replaceAll("{{apple_wallet_url}}", "#apple-wallet-preview")
+    .replaceAll("cid:event-pass-qr.png", eventPassQrPreview);
 }
+
+const eventPassQrPreview = `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240">
+  <rect width="240" height="240" rx="16" fill="#fff"/>
+  <rect x="22" y="22" width="58" height="58" fill="#19070f"/>
+  <rect x="34" y="34" width="34" height="34" fill="#fff"/>
+  <rect x="160" y="22" width="58" height="58" fill="#19070f"/>
+  <rect x="172" y="34" width="34" height="34" fill="#fff"/>
+  <rect x="22" y="160" width="58" height="58" fill="#19070f"/>
+  <rect x="34" y="172" width="34" height="34" fill="#fff"/>
+  <path fill="#19070f" d="M101 22h18v18h-18zm28 0h18v18h-18zm-28 29h18v18h-18zm28 18h18v18h-18zm-40 20h18v18H89zm29 0h18v18h-18zm30 0h18v18h-18zm30 0h18v18h-18zm-89 29h18v18H89zm39 0h18v18h-18zm40 0h18v18h-18zm30 0h18v18h-18zm-89 30h18v18H89zm29 0h18v18h-18zm40 0h18v18h-18zm30 0h18v18h-18zm-69 30h18v18h-18zm29 0h18v18h-18zm30 0h18v18h-18zm-59 30h18v18h-18zm40 0h18v18h-18zm29 0h18v18h-18z"/>
+  <text x="120" y="232" text-anchor="middle" fill="#b44f76" font-family="Arial" font-size="10" font-weight="700">QR GENERATED WHEN SENT</text>
+</svg>`)}`;
 
 function toEditorPolicy(policy: Policy, timezone: string): EditorPolicy {
   return {

@@ -289,7 +289,7 @@ GitHub and Figma evidence gives reviewers context. Activity counts do not become
 
 An accepted team must confirm its live offer before venue and review workflows.
 
-Staff scan the barcode on a VIT participant's existing VIT ID from a provisioned phone. External participants use an event-badge QR or current portal QR. A VIT participant can use the portal QR as a staffed fallback when the card is forgotten or unreadable.
+Staff scan the barcode on a VIT participant's existing VIT ID from a provisioned phone; the embedded registration number resolves the accepted RSVP membership. VIT participants have no attendance QR and use staffed registration-number lookup when the card is forgotten or unreadable. Accepted external participants receive one static personal event pass by email, then show and link their physical ID at first check-in; verified-email lookup is their fallback.
 
 Venue arrival, session presence, temporary exit, return, and departure are separate facts. Attendance cannot change admission or judging.
 
@@ -358,6 +358,6 @@ The participant cannot control playback or queue order. A music action cannot ch
 - Git tracked branches and Synesthesia music tracks remain unchanged concepts.
 - One team can connect multiple GitHub repositories.
 - Figma evidence pins exact provider versions.
-- A VIT ID barcode and event QR resolve to the same participant authority.
+- A VIT ID barcode and an external event pass each resolve to exactly one accepted participant authority for their respective participant class.
 - Participants cannot enter their team into a review queue.
 - Realtime views use the same accepted backend records.
