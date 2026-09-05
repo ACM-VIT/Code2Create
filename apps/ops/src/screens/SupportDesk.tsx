@@ -20,6 +20,7 @@ import { readableError } from "../lib/errors";
 import { useMutationAttempt } from "../lib/operations";
 import {
   groupSupportCases,
+  supportCaseRefreshPending,
   supportEmptyQueueText,
   supportEventText,
   supportExcerpt,
@@ -367,6 +368,7 @@ function CaseDetail({
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [committedStatusVersion, setCommittedStatusVersion] = useState<number | null>(null);
   const busyRef = useRef(false);
   const formAttempt = useMutationAttempt<UpdateStaffResult>();
   const ownerAttempt = useMutationAttempt<UpdateStaffResult>();
@@ -395,6 +397,11 @@ function CaseDetail({
   const formPending = formAttempt.hasPending(updateSlot);
   const ownerPending = ownerAttempt.hasPending(ownerSlot);
   const statusPending = statusAttempt.hasPending(statusSlot);
+  const statusRefreshPending = supportCaseRefreshPending(
+    supportCase.version,
+    committedStatusVersion,
+  );
+  const statusLocked = statusPending || statusRefreshPending;
   const message = text.trim();
   const wrote = message.length >= 2;
   const reporterFirstName = supportCase.reporterName.split(" ")[0] || supportCase.reporterName;
@@ -427,7 +434,7 @@ function CaseDetail({
 
   const save = (event: SubmitEvent) => {
     event.preventDefault();
-    if (statusPending || (!wrote && !formPending)) return;
+    if (statusLocked || (!wrote && !formPending)) return;
     void guarded(async () => {
       await formAttempt.run(updateSlot, () => {
         const publicNote = wrote && mode === "reply";
@@ -449,21 +456,48 @@ function CaseDetail({
   };
 
   const changeStatus = (nextState: SupportCaseState) => {
-    if (nextState === supportCase.state || formPending || ownerPending || statusPending) return;
-    void guarded(() =>
-      statusAttempt.run(statusSlot, () => {
-        const args = {
-          eventSlug,
-          supportCaseId: supportCase.id,
-          expectedVersion: supportCase.version,
-          nextState,
-          clearOwner: false,
-          reason: supportUpdateReason({ publicNote: false, internalNote: false, nextState }),
-          clientOperationId: crypto.randomUUID(),
-        };
-        return () => updateCase(args);
-      }),
-    );
+    if (
+      busyRef.current ||
+      nextState === supportCase.state ||
+      formPending ||
+      ownerPending ||
+      statusLocked
+    ) {
+      return;
+    }
+    setCommittedStatusVersion(supportCase.version + 1);
+    void guarded(async () => {
+      try {
+        const result = await statusAttempt.run(statusSlot, () => {
+          const args = {
+            eventSlug,
+            supportCaseId: supportCase.id,
+            expectedVersion: supportCase.version,
+            nextState,
+            clearOwner: false,
+            reason: supportUpdateReason({ publicNote: false, internalNote: false, nextState }),
+            clientOperationId: crypto.randomUUID(),
+          };
+          return () => updateCase(args);
+        });
+        setCommittedStatusVersion(result.version);
+      } catch (caught) {
+        if (!statusAttempt.hasPending(statusSlot)) setCommittedStatusVersion(null);
+        throw caught;
+      }
+    });
+  };
+
+  const retryStatus = () => {
+    void guarded(async () => {
+      try {
+        const result = await statusAttempt.retryPending(statusSlot);
+        setCommittedStatusVersion(result.version);
+      } catch (caught) {
+        if (!statusAttempt.hasPending(statusSlot)) setCommittedStatusVersion(null);
+        throw caught;
+      }
+    });
   };
 
   const changeOwner = (nextOwnerPersonId: PersonId | null, reason: string) => {
@@ -529,7 +563,7 @@ function CaseDetail({
           <label className="field support-owner-field">
             Owner
             <select
-              disabled={busy || statusPending || ownerPending || owners === undefined}
+              disabled={busy || statusLocked || ownerPending || owners === undefined}
               value={ownerPersonId ?? ""}
               onChange={(event) => selectOwner(event.target.value)}
             >
@@ -546,7 +580,7 @@ function CaseDetail({
           {supportCase.ownedByViewer ? null : (
             <button
               className="secondary"
-              disabled={busy || statusPending || ownerPending}
+              disabled={busy || statusLocked || ownerPending}
               type="button"
               onClick={() => changeOwner(currentPersonId, supportOwnerReason({ kind: "claim" }))}
             >
@@ -632,14 +666,14 @@ function CaseDetail({
                 className="support-status-buttons"
                 role="group"
                 aria-labelledby="support-status-label"
-                aria-busy={statusPending && busy}
+                aria-busy={(statusPending && busy) || statusRefreshPending}
               >
                 {supportStatusChoices(supportCase.state).map((state) => (
                   <button
                     aria-pressed={state === supportCase.state}
                     className="secondary"
                     disabled={
-                      busy || formPending || ownerPending || statusPending || state === supportCase.state
+                      busy || formPending || ownerPending || statusLocked || state === supportCase.state
                     }
                     key={state}
                     type="button"
@@ -653,7 +687,7 @@ function CaseDetail({
             </div>
             <button
               className="primary"
-              disabled={busy || statusPending || (!wrote && !formPending)}
+              disabled={busy || statusLocked || (!wrote && !formPending)}
               type="submit"
             >
               {busy
@@ -665,21 +699,25 @@ function CaseDetail({
                     : "Add note"}
             </button>
           </div>
-          {statusPending ? (
+          {statusPending || statusRefreshPending ? (
             <p className="support-composer-hint" role="status">
-              {busy ? "Saving status…" : (
-                <>
-                  The status change did not confirm.{" "}
-                  <button
-                    className="text-button"
-                    disabled={busy}
-                    type="button"
-                    onClick={() => void guarded(() => statusAttempt.retryPending(statusSlot))}
-                  >
-                    Try again
-                  </button>
-                </>
-              )}
+              {busy
+                ? "Saving status…"
+                : statusRefreshPending
+                  ? "Refreshing status…"
+                  : (
+                      <>
+                        The status change did not confirm.{" "}
+                        <button
+                          className="text-button"
+                          disabled={busy}
+                          type="button"
+                          onClick={retryStatus}
+                        >
+                          Try again
+                        </button>
+                      </>
+                    )}
             </p>
           ) : null}
           <p className="support-composer-hint">

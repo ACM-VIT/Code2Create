@@ -225,6 +225,13 @@ export function supportStatusChoices(current: SupportCaseState): SupportCaseStat
   return [current, ...stateTransitions[current]];
 }
 
+export function supportCaseRefreshPending(
+  observedVersion: number,
+  committedVersion: number | null,
+): boolean {
+  return committedVersion !== null && observedVersion < committedVersion;
+}
+
 export function parseSupportFilter(value: string): SupportFilter {
   return supportFilters.find(([filter]) => filter === value)?.[0] ?? "active";
 }

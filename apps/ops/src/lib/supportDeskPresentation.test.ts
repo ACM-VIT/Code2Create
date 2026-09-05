@@ -5,6 +5,7 @@ import {
   compareSupportCases,
   formatSupportAge,
   groupSupportCases,
+  supportCaseRefreshPending,
   supportEventText,
   supportExcerpt,
   supportFilterCount,
@@ -284,6 +285,12 @@ test("audit reasons are derived from the update instead of typed by hand", () =>
   );
 });
 
+test("case controls stay locked until live detail observes the committed version", () => {
+  assert.equal(supportCaseRefreshPending(7, 8), true);
+  assert.equal(supportCaseRefreshPending(8, 8), false);
+  assert.equal(supportCaseRefreshPending(9, 8), false);
+  assert.equal(supportCaseRefreshPending(7, null), false);
+});
 
 test("ages stay short enough for a list row", () => {
   assert.equal(formatSupportAge(now, now), "just now");
