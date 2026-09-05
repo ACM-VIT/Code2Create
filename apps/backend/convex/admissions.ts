@@ -1,3 +1,4 @@
+import { getAll } from "convex-helpers/server/relationships";
 import { paginationOptsValidator, paginationResultValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import { paginator } from "convex-helpers/server/pagination";
@@ -291,6 +292,18 @@ export const admissionResultsReleaseStatus = query({
         .filter((application) => application.admissionPolicyVersionId === id)
         .map((application) => ({ application, policy }));
     }))).flat();
+    // Fetch only the current recommendation pointers, concurrently and once per ID.
+    const recommendationIds = ideaAgent
+      ? [...new Set(active.flatMap((application) =>
+          application.aiRecommendationId ? [application.aiRecommendationId] : [],
+        ))]
+      : [];
+    const recommendations = await getAll(ctx.db, "admissionAIRecommendations", recommendationIds);
+    const recommendationsById = new Map(
+      recommendations
+        .filter((recommendation) => recommendation !== null)
+        .map((recommendation) => [recommendation._id, recommendation]),
+    );
     let reviewsComplete = 0;
     const decisions = [];
     let accepted = 0;
@@ -300,7 +313,7 @@ export const admissionResultsReleaseStatus = query({
       if (application.completedReviewCount >= policy.minimumHumanReviews) reviewsComplete += 1;
       if (ideaAgent) {
         const recommendation = application.aiRecommendationId
-          ? await ctx.db.get(application.aiRecommendationId)
+          ? recommendationsById.get(application.aiRecommendationId)
           : null;
         const current = recommendation?.state === "succeeded" &&
           recommendation.eventId === event._id &&
