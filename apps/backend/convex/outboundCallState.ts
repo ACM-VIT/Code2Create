@@ -1,9 +1,9 @@
 import {
-  applyVenueCallResponse,
   venueConfirmationCall,
   venueCallResponseValue,
   venueCallResponseSchema,
-} from "./lib/venueCallResponse";
+} from "./lib/venueCallValidators";
+import { applyVenueCallResponse } from "./lib/venueCallResponse";
 import type { OutboundCallEventType } from "@code2create/domain";
 import { v } from "convex/values";
 
