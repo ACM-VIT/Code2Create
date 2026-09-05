@@ -404,7 +404,12 @@ if (!values.input) {
       `${id}: a credible described core must not fail on an exaggerated benefit`,
     );
   }
-  for (const id of ["dating", "blood-from-name", "quality-decline-control"]) {
+  for (const id of [
+    "dating",
+    "blood-from-name",
+    "quality-decline-control",
+    ...(values["sample-seed"] ? ["seed-cough-example"] : []),
+  ]) {
     assert.equal(
       suggestions.find((suggestion) => suggestion.applicationId === id)?.suggestion,
       "reject",
