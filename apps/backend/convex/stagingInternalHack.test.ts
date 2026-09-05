@@ -88,14 +88,18 @@ test.each([2, 5])(
         );
       return { eventId, ownerPersonId: ownerId, people };
     });
-    await t.run(async ctx => {
+    await t.run(async (ctx) => {
       const event = await ctx.db.get(setup.eventId);
       if (!event?.publishedCommunicationsPolicyId) throw new Error("Missing communications");
       const policy = await ctx.db.get(event.publishedCommunicationsPolicyId);
       if (!policy) throw new Error("Missing communications");
-      await ctx.db.patch(policy._id, {emailTemplates:policy.emailTemplates.slice(0,3)});
+      await ctx.db.patch(policy._id, { emailTemplates: policy.emailTemplates.slice(0, 3) });
     });
-    await t.mutation(internal.stagingInternalHack.prepare,{eventId:setup.eventId,startsAt:now+7200000,endsAt:now+14400000});
+    await t.mutation(internal.stagingInternalHack.prepare, {
+      eventId: setup.eventId,
+      startsAt: now + 7200000,
+      endsAt: now + 14400000,
+    });
     const args = {
       ...setup,
       number: 1,
@@ -104,6 +108,11 @@ test.each([2, 5])(
     };
     const id = await t.mutation(internal.stagingInternalHack.populateTeam, args);
     expect(await t.mutation(internal.stagingInternalHack.populateTeam, args)).toBe(id);
+    expect(
+      await t.mutation(internal.stagingInternalHack.completeFixtureProfiles, {
+        eventId: setup.eventId,
+      }),
+    ).toBe(size);
     await t.run(async (ctx) => {
       const team = await ctx.db.get(id);
       expect(team?.activeMemberCount).toBe(size);
@@ -116,6 +125,36 @@ test.each([2, 5])(
       expect((await ctx.db.query("reviewerConflicts").collect()).length).toBe(size);
       expect(await ctx.db.query("admissionOffers").collect()).toHaveLength(0);
       expect(await ctx.db.query("participantNotificationDeliveries").collect()).toHaveLength(0);
+    });
+    await t.mutation(internal.stagingInternalHack.sendTeamOffer, {
+      eventId: setup.eventId,
+      teamId: id,
+      ownerPersonId: setup.ownerPersonId,
+      expiresAt: now + 3600000,
+    });
+    const offerId = await t.run(async (ctx) => {
+      const offer = await ctx.db.query("admissionOffers").first();
+      if (!offer) throw new Error("Offer missing");
+      await ctx.db.patch(offer._id, { expiresAt: now - 1 });
+      return offer._id;
+    });
+    await t.mutation(internal.admissions.expireOffer, { offerId, expectedOfferVersion: 1 });
+    const extension = {
+      eventId: setup.eventId,
+      ownerPersonId: setup.ownerPersonId,
+      expiresAt: now + 10800000,
+    };
+    expect(await t.mutation(internal.stagingInternalHack.extendRsvp, extension)).toBe(1);
+    expect(await t.mutation(internal.stagingInternalHack.extendRsvp, extension)).toBe(0);
+    await t.mutation(internal.admissions.expireOffer, { offerId, expectedOfferVersion: 1 });
+    await t.run(async (ctx) => {
+      const offer = await ctx.db.get(offerId);
+      expect(offer?.state).toBe("offered");
+      expect(offer?.expiresAt).toBe(extension.expiresAt);
+      expect((await ctx.db.get(id))?.status).toBe("admitted");
+      const reservations = await ctx.db.query("admissionCapacityReservations").collect();
+      expect(reservations.filter((r) => r.state === "active")).toHaveLength(1);
+      expect((await ctx.db.query("admissionCapacityBuckets").first())?.reserved).toBe(size);
     });
   },
 );

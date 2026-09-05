@@ -1,3 +1,5 @@
+import { enqueueApplicationNotifications } from "./lib/participantNotificationDelivery";
+import { writeAuditEvent } from "./lib/audit";
 import { defaultParticipantEmailTemplates } from "@code2create/domain";
 import { participantPolicyChecksum, participantPolicyFromDocument } from "./lib/participantPolicy";
 import { ConvexError, v } from "convex/values";
@@ -369,7 +371,10 @@ export const prepare = internalMutation({
         updatedAt: Date.now(),
       });
     for (const rosterImport of await ctx.db.query("rosterImports").collect()) {
-      if (rosterImport.validUntil > Date.now()) await ctx.scheduler.runAt(rosterImport.validUntil, internal.rosters.expireImportEntries, {rosterImportId:rosterImport._id});
+      if (rosterImport.validUntil > Date.now())
+        await ctx.scheduler.runAt(rosterImport.validUntil, internal.rosters.expireImportEntries, {
+          rosterImportId: rosterImport._id,
+        });
     }
     await ctx.scheduler.runAt(args.startsAt, internal.stagingInternalHack.start, {
       eventId: event._id,
@@ -598,4 +603,173 @@ export const openScheduledRound = internalMutation({
   },
 });
 
-export const completeFixtureProfiles = internalMutation({args:{eventId:v.id("events")},returns:v.number(),handler:async(ctx,args)=>{requireStaging();const event=await ctx.db.get(args.eventId);if(!event?.publishedParticipantPolicyId)throw new Error("Policy missing.");const policy=await ctx.db.get(event.publishedParticipantPolicyId);if(!policy)throw new Error("Policy missing.");const normalized={...participantPolicyFromDocument(policy),phoneVerificationEnabled:false};await ctx.db.patch(policy._id,{...normalized,checksum:participantPolicyChecksum(normalized)});const profiles=await ctx.db.query("participantProfiles").collect();for(const profile of profiles){if(profile.eventId!==event._id)continue;await ctx.db.patch(profile.membershipId,{vitStudentIdentity:{fullName:profile.fullName,registrationNumber:profile.vitRegistrationNumber??"STAGING",programmeCode:profile.vitProgramme??"Internal fixture",yearOfStudy:profile.yearOfStudy}});}return profiles.length;}});
+export const completeFixtureProfiles = internalMutation({
+  args: { eventId: v.id("events") },
+  returns: v.number(),
+  handler: async (ctx, args) => {
+    requireStaging();
+    const event = await ctx.db.get(args.eventId);
+    if (!event?.publishedParticipantPolicyId) throw new Error("Policy missing.");
+    const policy = await ctx.db.get(event.publishedParticipantPolicyId);
+    if (!policy) throw new Error("Policy missing.");
+    const normalized = {
+      ...participantPolicyFromDocument(policy),
+      phoneVerificationEnabled: false,
+    };
+    await ctx.db.patch(policy._id, {
+      ...normalized,
+      checksum: participantPolicyChecksum(normalized),
+    });
+    const profiles = await ctx.db.query("participantProfiles").collect();
+    for (const profile of profiles) {
+      if (profile.eventId !== event._id) continue;
+      await ctx.db.patch(profile.membershipId, {
+        vitStudentIdentity: {
+          fullName: profile.fullName,
+          registrationNumber: profile.vitRegistrationNumber ?? "STAGING",
+          programmeCode: profile.vitProgramme ?? "Internal fixture",
+          yearOfStudy: profile.yearOfStudy,
+        },
+      });
+    }
+    return profiles.length;
+  },
+});
+
+// A staging rehearsal may keep RSVP open after its scheduled build start.
+// This restores expired fixture offers without changing production admission rules.
+export const extendRsvp = internalMutation({
+  args: { eventId: v.id("events"), expiresAt: v.number(), ownerPersonId: v.id("people") },
+  returns: v.number(),
+  handler: async (ctx, args) => {
+    requireStaging();
+    const now = Date.now();
+    const event = await ctx.db.get(args.eventId);
+    if (
+      !event?.publishedCommunicationsPolicyId ||
+      !event.endsAt ||
+      args.expiresAt <= now ||
+      args.expiresAt > event.endsAt
+    )
+      throw new Error("Choose a future staging RSVP deadline within the event.");
+    const communications = await ctx.db.get(event.publishedCommunicationsPolicyId);
+    if (!communications) throw new Error("Communications missing.");
+    const deadline = new Intl.DateTimeFormat("en-IN", {
+      timeZone: "Asia/Kolkata",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    }).format(args.expiresAt);
+    const policy = {
+      ...communicationsPolicyFromDocument(communications),
+      emailTemplates: communications.emailTemplates.map((template) =>
+        template.templateKey === "offer"
+          ? {
+              ...template,
+              subject: "[UPDATED STAGING RSVP] Confirm {{team_name}}",
+              text: `Hi {{participant_name}},\n\nRSVP for {{team_name}} has been reopened until ${deadline} IST. Please ignore the earlier expiry email. The internal hack started at 11:00pm IST; review 1 remains at 11:30pm IST. Your team lead should confirm here: {{portal_url}}\n\nThis is the internal staging test, not a production admission result.`,
+              html: `<p>Hi {{participant_name}},</p><p>RSVP for <strong>{{team_name}}</strong> is open until <strong>${deadline} IST</strong>. Please ignore the earlier expiry email.</p><p>The internal hack started at 11:00pm IST. Review 1 remains at 11:30pm IST.</p><p><a href='{{portal_url}}'>Team lead: confirm your team on staging</a></p><p>This is an internal staging test, not a production admission result.</p>`,
+            }
+          : template,
+      ),
+    };
+    await ctx.db.patch(communications._id, {
+      ...policy,
+      checksum: communicationsPolicyChecksum(policy),
+    });
+    let changed = 0;
+    for (const application of await ctx.db.query("applications").collect()) {
+      if (
+        application.eventId !== event._id ||
+        !application.currentOfferId ||
+        !["offer_sent", "offer_expired"].includes(application.state)
+      )
+        continue;
+      const offer = await ctx.db.get(application.currentOfferId);
+      const team = await ctx.db.get(application.teamId);
+      if (!offer || !team || !["offered", "expired"].includes(offer.state))
+        throw new Error("Unexpected fixture offer state.");
+      if (offer.state === "offered" && offer.expiresAt === args.expiresAt) continue;
+      const reservation = await ctx.db
+        .query("admissionCapacityReservations")
+        .withIndex("by_offer", (q) => q.eq("offerId", offer._id))
+        .unique();
+      if (!reservation) throw new Error("Fixture reservation missing.");
+      if (reservation.state === "released") {
+        const bucket = await ctx.db
+          .query("admissionCapacityBuckets")
+          .withIndex("by_policy", (q) =>
+            q.eq("admissionPolicyVersionId", reservation.admissionPolicyVersionId),
+          )
+          .unique();
+        if (!bucket || bucket.reserved + reservation.participantCount > bucket.capacity)
+          throw new Error("Staging admission capacity is full.");
+        await ctx.db.patch(bucket._id, {
+          reserved: bucket.reserved + reservation.participantCount,
+          version: bucket.version + 1,
+          updatedAt: now,
+        });
+        await ctx.db.patch(reservation._id, {
+          state: "active",
+          reservedAt: now,
+          releasedAt: undefined,
+          releasedReason: undefined,
+          releasedByPersonId: undefined,
+        });
+      }
+      const version = application.version + 1;
+      await ctx.db.patch(offer._id, {
+        state: "offered",
+        expiresAt: args.expiresAt,
+        decidedAt: undefined,
+        decidedByPersonId: undefined,
+        decisionReason: undefined,
+        version: offer.version + 1,
+      });
+      await ctx.db.patch(application._id, { state: "offer_sent", version });
+      await ctx.db.patch(team._id, {
+        status: "admitted",
+        version: team.version + 1,
+        updatedAt: now,
+      });
+      await ctx.scheduler.runAfter(0, internal.admissions.updateRosterOnboardingStatus, {
+        applicationId: application._id,
+        expectedApplicationVersion: version,
+        lockedRosterSnapshotId: offer.lockedRosterSnapshotId,
+        onboardingStatus: "offer_pending",
+        cursor: null,
+      });
+      await ctx.scheduler.runAt(args.expiresAt, internal.admissions.expireOffer, {
+        offerId: offer._id,
+        expectedOfferVersion: offer.version + 1,
+      });
+      await enqueueApplicationNotifications(ctx, {
+        eventId: event._id,
+        applicationId: application._id,
+        teamId: team._id,
+        lockedRosterSnapshotId: offer.lockedRosterSnapshotId,
+        lockedMemberCount: offer.participantCount,
+        communicationsPolicyVersionId: communications._id,
+        templateKey: "offer",
+        applicationVersion: version,
+        now,
+      });
+      await writeAuditEvent(ctx, {
+        eventId: event._id,
+        actorPersonId: args.ownerPersonId,
+        permissionKey: "application.offer.manage",
+        grantIds: [],
+        scopeType: "application",
+        scopeId: application._id,
+        action: "staging.rsvp_extended",
+        targetType: "admission_offer",
+        targetId: offer._id,
+        previousSummary: JSON.stringify({ state: offer.state, expiresAt: offer.expiresAt }),
+        nextSummary: JSON.stringify({ state: "offered", expiresAt: args.expiresAt }),
+        reason: "User requested a later RSVP deadline for the internal staging hack",
+      });
+      changed++;
+    }
+    return changed;
+  },
+});
