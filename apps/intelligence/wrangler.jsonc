@@ -29,6 +29,7 @@
       "deleted_classes": ["FlueIdeaSubmissionAgent"],
       "new_sqlite_classes": ["FlueIdeaSubmissionReviewAgent"],
     },
+    { "tag": "v8", "new_sqlite_classes": ["FlueReviewQuestionsAgent"] },
   ],
   "env": {
     "staging": {
