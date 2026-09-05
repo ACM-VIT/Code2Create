@@ -351,6 +351,31 @@ export const recoverAgentDispatchAttempt = internalMutation({
   },
 });
 
+/** Keep recovery reachable even when an earlier lease already lost its dispatch authority. */
+export const recoverOrphanedAgentRecommendations = internalMutation({
+  args: { cursor: v.union(v.string(), v.null()) },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    const page = await ctx.db
+      .query("admissionAIRecommendations")
+      .withIndex("by_state_and_createdAt", (index) => index.eq("state", "running"))
+      .paginate({ cursor: args.cursor, numItems: 50 });
+    for (const recommendation of page.page) {
+      await ctx.runMutation(internal.admissionIntelligence.recoverOrphanedAgentRecommendation, {
+        recommendationId: recommendation._id,
+      });
+    }
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.admissionIntelligence.recoverOrphanedAgentRecommendations,
+        { cursor: page.continueCursor },
+      );
+    }
+    return null;
+  },
+});
+
 export const recoverOrphanedAgentRecommendation = internalMutation({
   args: { recommendationId: v.id("admissionAIRecommendations") },
   returns: v.boolean(),
