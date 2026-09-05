@@ -837,6 +837,27 @@ export default defineSchema({
     .index("by_import_row", ["teamRosterImportId", "sourceRowNumber"])
     .index("by_event_created", ["eventId", "createdAt"]),
 
+  participantRosterRecoveries: defineTable({
+    eventId: v.id("events"),
+    teamId: v.id("teams"),
+    rosterEntryId: v.id("teamRosterEntries"),
+    emailNormalized: v.string(),
+    vitRegistrationNumber: v.string(),
+    status: v.union(v.literal("approved"), v.literal("completed"), v.literal("revoked")),
+    expiresAt: v.number(),
+    approvedByPersonId: v.id("people"),
+    authorizingGrantIds: v.array(v.id("permissionGrants")),
+    reason: v.string(),
+    approvedAt: v.number(),
+    completedAt: v.optional(v.number()),
+    completedByMembershipId: v.optional(v.id("eventMemberships")),
+    revokedAt: v.optional(v.number()),
+    revokedByPersonId: v.optional(v.id("people")),
+  })
+    .index("by_event_email", ["eventId", "emailNormalized"])
+    .index("by_roster_entry", ["rosterEntryId"])
+    .index("by_team_status", ["teamId", "status"]),
+
   eventMemberships: defineTable({
     eventId: v.id("events"),
     personId: v.id("people"),
