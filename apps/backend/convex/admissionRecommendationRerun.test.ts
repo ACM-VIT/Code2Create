@@ -276,7 +276,7 @@ describe("manual admission analysis retry", () => {
     expect(detail?.aiRecommendationRerun).toBeNull();
   });
 
-  test("recovers only the exact accepted agent submission and permits one new dispatch", async () => {
+  test("retires an expired accepted analysis and creates one replacement", async () => {
     const backend = seededBackend();
     const fixture = await seedFixture(backend);
     const runner = backend.withIdentity({
@@ -317,20 +317,42 @@ describe("manual admission analysis retry", () => {
     ).toBe(true);
     const recovered = await backend.run((ctx) => ctx.db.get(rerun.recommendationId));
     expect(recovered).toMatchObject({
-      state: "pending",
-      failureCategory: "agent_analysis_recovered",
+      state: "timed_out",
+      failureCategory: "agent_analysis_lease_expired",
     });
-    expect(recovered?.agentSubmissionId).toBeUndefined();
+    expect(recovered?.agentSubmissionId).toBe("accepted-submission-1");
 
-    const second = await backend.mutation(internal.admissionAgentActions.prepareDispatch, {
-      recommendationId: rerun.recommendationId,
+    const application = await backend.run((ctx) => ctx.db.get(fixture.applicationId));
+    const replacementId = application?.aiRecommendationId;
+    if (!replacementId) throw new Error("The replacement recommendation was not created.");
+    expect(replacementId).not.toBe(rerun.recommendationId);
+    expect(application?.version).toBe(3);
+    expect(await backend.run((ctx) => ctx.db.get(replacementId))).toMatchObject({
+      state: "pending",
+      applicationId: fixture.applicationId,
     });
-    expect(second?.attemptId).not.toBe(first.attemptId);
+
+    expect(
+      await backend.mutation(internal.admissionIntelligence.recoverAgentRecommendation, {
+        recommendationId: rerun.recommendationId,
+        submissionId: "accepted-submission-1",
+      }),
+    ).toBe(false);
+    expect(
+      await backend.mutation(internal.admissionIntelligence.beginRecommendation, {
+        recommendationId: rerun.recommendationId,
+      }),
+    ).toBeNull();
     expect(
       await backend.mutation(internal.admissionAgentActions.prepareDispatch, {
         recommendationId: rerun.recommendationId,
       }),
     ).toBeNull();
+    const replacementDispatch = await backend.mutation(
+      internal.admissionAgentActions.prepareDispatch,
+      { recommendationId: replacementId },
+    );
+    expect(replacementDispatch?.attemptId).not.toBe(first.attemptId);
   });
 
   test("rejects prohibited scoring language at the authoritative callback seam", async () => {
@@ -453,7 +475,7 @@ describe("manual admission analysis retry", () => {
     ).toBe("accepted");
   });
 
-  test("recovers only the exact running dispatch attempt after its lease", async () => {
+  test("retires an expired dispatch attempt and revokes its late completion", async () => {
     const backend = seededBackend();
     const fixture = await seedFixture(backend);
     const runner = backend.withIdentity({
@@ -503,10 +525,20 @@ describe("manual admission analysis retry", () => {
     ).toBe(true);
     const recovered = await backend.run((ctx) => ctx.db.get(rerun.recommendationId));
     expect(recovered).toMatchObject({
-      state: "pending",
-      failureCategory: "agent_dispatch_recovered",
+      state: "timed_out",
+      failureCategory: "agent_dispatch_lease_expired",
     });
-    expect(recovered?.agentDispatchAttemptId).toBeUndefined();
+    expect(recovered?.agentDispatchAttemptId).toBe(prepared.attemptId);
+
+    const application = await backend.run((ctx) => ctx.db.get(fixture.applicationId));
+    const replacementId = application?.aiRecommendationId;
+    if (!replacementId) throw new Error("The replacement recommendation was not created.");
+    expect(replacementId).not.toBe(rerun.recommendationId);
+    expect(application?.version).toBe(3);
+    expect(await backend.run((ctx) => ctx.db.get(replacementId))).toMatchObject({
+      state: "pending",
+      applicationId: fixture.applicationId,
+    });
 
     expect(
       await backend.mutation(internal.admissionIntelligence.finishRecommendation, {
@@ -531,13 +563,83 @@ describe("manual admission analysis retry", () => {
         agentVersion: "idea-submission-v1",
         agentModel: "openai/gpt-4.1-mini",
       }),
-    ).toBe("accepted");
+    ).toBe("stale");
 
     expect(
       await backend.mutation(internal.admissionAgentActions.prepareDispatch, {
         recommendationId: rerun.recommendationId,
       }),
     ).toBeNull();
+    expect(
+      await backend.mutation(internal.admissionAgentActions.prepareDispatch, {
+        recommendationId: replacementId,
+      }),
+    ).not.toBeNull();
+  });
+
+  test("repairs one orphaned recovered analysis idempotently", async () => {
+    const backend = seededBackend();
+    const fixture = await seedFixture(backend);
+    const runner = backend.withIdentity({
+      subject: fixture.runnerAuthUserId,
+      sessionId: fixture.runnerAuthSessionId,
+    });
+    const rerun = await runner.mutation(api.admissions.rerunAiRecommendation, {
+      eventSlug: fixture.eventSlug,
+      applicationId: fixture.applicationId,
+      expectedApplicationVersion: 1,
+      expectedRecommendationId: fixture.failedRecommendationId,
+      reason: "Repair an orphaned recovered analysis",
+      clientOperationId: "repair-orphaned-agent-analysis",
+    });
+    expect(
+      await backend.mutation(internal.admissionIntelligence.beginRecommendation, {
+        recommendationId: rerun.recommendationId,
+      }),
+    ).not.toBeNull();
+    await backend.run(async (ctx) => {
+      await ctx.db.patch(rerun.recommendationId, {
+        failureCategory: "agent_analysis_recovered",
+        limitations: ["The durable idea agent is recovering an interrupted analysis."],
+      });
+    });
+
+    expect(
+      await backend.mutation(
+        internal.admissionIntelligence.recoverOrphanedAgentRecommendation,
+        { recommendationId: rerun.recommendationId },
+      ),
+    ).toBe(true);
+    expect(await backend.run((ctx) => ctx.db.get(rerun.recommendationId))).toMatchObject({
+      state: "timed_out",
+      failureCategory: "agent_recovery_orphaned",
+    });
+
+    const application = await backend.run((ctx) => ctx.db.get(fixture.applicationId));
+    const replacementId = application?.aiRecommendationId;
+    if (!replacementId) throw new Error("The orphan replacement was not created.");
+    expect(replacementId).not.toBe(rerun.recommendationId);
+    expect(application?.version).toBe(3);
+    expect(await backend.run((ctx) => ctx.db.get(replacementId))).toMatchObject({
+      state: "pending",
+      applicationId: fixture.applicationId,
+    });
+    expect(
+      await backend.mutation(
+        internal.admissionIntelligence.recoverOrphanedAgentRecommendation,
+        { recommendationId: rerun.recommendationId },
+      ),
+    ).toBe(false);
+    expect(
+      await backend.mutation(internal.admissionIntelligence.beginRecommendation, {
+        recommendationId: rerun.recommendationId,
+      }),
+    ).toBeNull();
+    expect(
+      await backend.mutation(internal.admissionAgentActions.prepareDispatch, {
+        recommendationId: replacementId,
+      }),
+    ).not.toBeNull();
   });
 
   test("releases a dispatch attempt that failed before reaching the worker", async () => {
