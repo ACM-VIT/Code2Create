@@ -64,6 +64,15 @@ function VenueConfiguration({
     };
     const number = (key: string) => Number(text(key));
     const draft = {
+      ...(form.get("confirmationCalls") === "on"
+        ? {
+            confirmationAgent: {
+              appId: text("appId").trim(),
+              appVersion: number("appVersion"),
+              responseWindowMinutes: number("responseWindowMinutes"),
+            },
+          }
+        : {}),
       enabled: form.get("enabled") === "on",
       name: text("name"),
       latitude: number("latitude"),
@@ -184,14 +193,14 @@ function VenueConfiguration({
               />
             </label>
             <label>
-              Mark left after minutes outside
+              Check after minutes outside
               <input
                 name="absenceGraceMinutes"
                 type="number"
                 min={2}
                 max={60}
                 required
-                defaultValue={policy?.absenceGraceMinutes ?? 5}
+                defaultValue={policy?.absenceGraceMinutes ?? 2}
               />
             </label>
             <label>
@@ -199,13 +208,61 @@ function VenueConfiguration({
               <input
                 name="callDelayMinutes"
                 type="number"
-                min={2}
+                min={0}
                 max={120}
                 required
-                defaultValue={policy?.callDelayMinutes ?? 10}
+                defaultValue={policy?.callDelayMinutes ?? 1}
               />
             </label>
           </div>
+          <details className="workspace-disclosure">
+            <summary>Confirmation calls</summary>
+            <p className="muted">
+              GPS triggers a conversation. A confirmed absence clocks the
+              reviewer out between reviews. No answer or an active review needs
+              ops follow-up. Configure and test the published Sarvam agent
+              before enabling calls.
+            </p>
+            <label>
+              <input
+                type="checkbox"
+                name="confirmationCalls"
+                defaultChecked={Boolean(policy?.confirmationAgent)}
+              />{" "}
+              Enable conversational confirmation calls
+            </label>
+            <div className="venue-fields">
+              <label>
+                Published Sarvam agent ID
+                <input
+                  name="appId"
+                  maxLength={128}
+                  defaultValue={policy?.confirmationAgent?.appId ?? ""}
+                />
+              </label>
+              <label>
+                Agent version
+                <input
+                  name="appVersion"
+                  type="number"
+                  min={1}
+                  defaultValue={policy?.confirmationAgent?.appVersion ?? 1}
+                />
+              </label>
+              <label>
+                Accept response within minutes
+                <input
+                  name="responseWindowMinutes"
+                  type="number"
+                  min={2}
+                  max={30}
+                  defaultValue={
+                    policy?.confirmationAgent?.responseWindowMinutes ?? 10
+                  }
+                />
+              </label>
+            </div>
+          </details>
           {canPublish ? (
             <button type="submit" disabled={busy}>
               {busy ? "Saving…" : "Save venue settings"}
@@ -282,6 +339,34 @@ function VenueRoster() {
                         : ""}
                     </small>
                   ) : null}
+                  {row.response && row.callId ? (
+                    <div>
+                      <strong>
+                        {row.responseEffect === "stale"
+                          ? "Response no longer current"
+                          : row.responseEffect === "clocked_out"
+                            ? "Confirmed away · replacement requested"
+                            : row.responseEffect === "confirmed"
+                              ? "Confirmed available by phone"
+                              : "Ops follow-up needed"}
+                      </strong>
+                      <p>{row.response.summary}</p>
+                      {row.responseRecordedAt ? (
+                        <small>
+                          Recorded{" "}
+                          {new Date(
+                            row.responseRecordedAt,
+                          ).toLocaleTimeString()}
+                          {row.response.returnInMinutes !== null
+                            ? ` · expected back in ${row.response.returnInMinutes} minutes from this call`
+                            : ""}
+                        </small>
+                      ) : null}
+                      <CallTranscript deliveryId={row.callId} />
+                    </div>
+                  ) : row.callState === "completed" ? (
+                    <small>Answered; availability was not confirmed.</small>
+                  ) : null}
                 </td>
               </tr>
             ))}
@@ -314,4 +399,32 @@ function localTime(timestamp: number) {
   const date = new Date(timestamp);
   const pad = (value: number) => String(value).padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function CallTranscript({
+  deliveryId,
+}: {
+  deliveryId: NonNullable<
+    FunctionReturnType<
+      typeof api.reviewerVenueOperations.roster
+    >["page"][number]["callId"]
+  >;
+}) {
+  const [open, setOpen] = useState(false);
+  const response = useQuery(
+    api.reviewerVenueOperations.callResponse,
+    open ? { eventSlug, deliveryId } : "skip",
+  );
+  return (
+    <details onToggle={(event) => setOpen(event.currentTarget.open)}>
+      <summary>Conversation</summary>
+      {open && response === undefined ? <p>Loading…</p> : null}
+      {response?.transcript.map((turn, index) => (
+        <p key={index}>
+          <strong>{turn.role === "user" ? "Reviewer" : "Agent"}:</strong>{" "}
+          {turn.text}
+        </p>
+      ))}
+    </details>
+  );
 }

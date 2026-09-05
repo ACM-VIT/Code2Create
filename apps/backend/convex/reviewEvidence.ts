@@ -11,7 +11,7 @@ import { compareFigmaCheckpointFacts } from "./lib/figmaCheckpointComparison";
 
 type ReadCtx = QueryCtx | MutationCtx;
 
-async function fixedEvidenceContext(
+export async function fixedEvidenceContext(
   ctx: ReadCtx,
   args: { eventSlug: string; reviewSessionId: Id<"reviewSessions"> },
 ) {
@@ -45,7 +45,8 @@ async function fixedEvidenceContext(
     checkpoint.teamId !== session.teamId ||
     checkpoint.projectVersionId !== session.projectVersionId
   ) {
-    throw new Error("The review references an invalid evidence checkpoint set.");
+    throw new Error("The review references an invalid evidence checkpoint set.",
+    );
   }
   const [reviewGrantIds, checkpointGrantIds] = await Promise.all([
     matchingPermissionGrantIds(ctx, {
@@ -78,7 +79,8 @@ async function fixedEvidenceContext(
     permissionScope:
       reviewGrantIds.length > 0
         ? { scopeType: "review" as const, scopeId: session._id }
-        : { scopeType: "evidence_checkpoint" as const, scopeId: checkpoint._id },
+        : { scopeType: "evidence_checkpoint" as const, scopeId: checkpoint._id,
+          },
   };
 }
 
@@ -92,7 +94,8 @@ async function pinnedFigmaContext(
 ) {
   const context = await fixedEvidenceContext(ctx, args);
   const { event, session, checkpoint } = context;
-  const entry = checkpoint.figmaEntries.find((item) => item.bindingId === args.bindingId);
+  const entry = checkpoint.figmaEntries.find((item) => item.bindingId === args.bindingId,
+  );
   if (!entry?.snapshotId) {
     throw new ConvexError({
       code: "FIGMA_CHECKPOINT_UNAVAILABLE",
@@ -132,8 +135,10 @@ export const githubAccessContext = internalQuery({
     rootPath: v.optional(v.string()),
   }),
   handler: async (ctx, args) => {
-    const { event, session, checkpoint } = await fixedEvidenceContext(ctx, args);
-    const entry = checkpoint.githubEntries.find((item) => item.bindingId === args.bindingId);
+    const { event, session, checkpoint } = await fixedEvidenceContext(ctx, args,
+    );
+    const entry = checkpoint.githubEntries.find((item) => item.bindingId === args.bindingId,
+    );
     if (!entry?.snapshotId) {
       throw new ConvexError({
         code: "GITHUB_CHECKPOINT_UNAVAILABLE",
@@ -261,7 +266,8 @@ export const recordFigmaArtifactAccess = internalMutation({
   },
   returns: v.object({ serverNow: v.number() }),
   handler: async (ctx, args) => {
-    const { event, person, session, binding, snapshot, artifact, grantIds, permissionScope } =
+    const { event, person, session, binding, snapshot, artifact, grantIds, permissionScope,
+    } =
       await requireFigmaArtifactAccess(ctx, args);
     if (
       artifact._id !== args.artifactId ||
@@ -356,7 +362,8 @@ export const figmaPreviewListContext = internalQuery({
             v.literal("unchanged"),
             v.literal("unknown"),
           ),
-          renderState: v.union(v.literal("pending"), v.literal("available"), v.literal("failed")),
+          renderState: v.union(v.literal("pending"), v.literal("available"), v.literal("failed"),
+          ),
           width: v.optional(v.number()),
           height: v.optional(v.number()),
         }),
@@ -364,7 +371,8 @@ export const figmaPreviewListContext = internalQuery({
     }),
   ),
   handler: async (ctx, args) => {
-    const { event, session, binding, snapshot } = await pinnedFigmaContext(ctx, args);
+    const { event, session, binding, snapshot } = await pinnedFigmaContext(ctx, args,
+    );
     const previewSet = await ctx.db
       .query("figmaPreviewSets")
       .withIndex("by_snapshot", (index) => index.eq("snapshotId", snapshot._id))
@@ -380,7 +388,8 @@ export const figmaPreviewListContext = internalQuery({
     }
     const facts = await ctx.db
       .query("figmaNodeFacts")
-      .withIndex("by_preview_page_order", (index) => index.eq("previewSetId", previewSet._id))
+      .withIndex("by_preview_page_order", (index) => index.eq("previewSetId", previewSet._id),
+      )
       .collect();
     if (
       facts.length !== previewSet.selectedNodeCount ||
@@ -471,19 +480,23 @@ export const figmaActivityContext = internalQuery({
     }),
   ),
   handler: async (ctx, args) => {
-    const { event, session, binding, snapshot } = await pinnedFigmaContext(ctx, args);
+    const { event, session, binding, snapshot } = await pinnedFigmaContext(ctx, args,
+    );
     const [activity, versions, comments] = await Promise.all([
       ctx.db
         .query("figmaSnapshotActivity")
-        .withIndex("by_snapshot", (index) => index.eq("snapshotId", snapshot._id))
+        .withIndex("by_snapshot", (index) => index.eq("snapshotId", snapshot._id),
+        )
         .unique(),
       ctx.db
         .query("figmaVersionFacts")
-        .withIndex("by_snapshot_order", (index) => index.eq("snapshotId", snapshot._id))
+        .withIndex("by_snapshot_order", (index) => index.eq("snapshotId", snapshot._id),
+        )
         .collect(),
       ctx.db
         .query("figmaCommentFacts")
-        .withIndex("by_snapshot_order", (index) => index.eq("snapshotId", snapshot._id))
+        .withIndex("by_snapshot_order", (index) => index.eq("snapshotId", snapshot._id),
+        )
         .collect(),
     ]);
     if (!activity) return null;
@@ -545,7 +558,8 @@ export const figmaActivityContext = internalQuery({
   },
 });
 
-const previewState = v.union(v.literal("pending"), v.literal("available"), v.literal("failed"));
+const previewState = v.union(v.literal("pending"), v.literal("available"), v.literal("failed"),
+);
 
 export const figmaComparisonListContext = internalQuery({
   args: {
@@ -601,7 +615,8 @@ export const figmaComparisonListContext = internalQuery({
   handler: async (ctx, args) => {
     const { event, session, checkpoint, binding, snapshot } = await pinnedFigmaContext(ctx, args);
     if (!checkpoint.previousCheckpointSetId) return null;
-    const previousCheckpoint = await ctx.db.get(checkpoint.previousCheckpointSetId);
+    const previousCheckpoint = await ctx.db.get(checkpoint.previousCheckpointSetId,
+    );
     if (
       !previousCheckpoint ||
       previousCheckpoint.eventId !== event._id ||
@@ -629,17 +644,20 @@ export const figmaComparisonListContext = internalQuery({
     const [currentSet, previousSet, currentFacts, previousFacts] = await Promise.all([
       ctx.db
         .query("figmaPreviewSets")
-        .withIndex("by_snapshot", (index) => index.eq("snapshotId", snapshot._id))
+        .withIndex("by_snapshot", (index) => index.eq("snapshotId", snapshot._id),
+          )
         .unique(),
       previousSnapshot
         ? ctx.db
             .query("figmaPreviewSets")
-            .withIndex("by_snapshot", (index) => index.eq("snapshotId", previousSnapshot._id))
+            .withIndex("by_snapshot", (index) => index.eq("snapshotId", previousSnapshot._id),
+              )
             .unique()
         : Promise.resolve(null),
       ctx.db
         .query("figmaNodeFacts")
-        .withIndex("by_snapshot_page_order", (index) => index.eq("snapshotId", snapshot._id))
+        .withIndex("by_snapshot_page_order", (index) => index.eq("snapshotId", snapshot._id),
+          )
         .collect(),
       previousSnapshot
         ? ctx.db
@@ -851,7 +869,8 @@ export const figmaComparisonPreviewAccessContext = internalQuery({
         message: "This review has no earlier judging checkpoint to compare.",
       });
     }
-    const previousCheckpoint = await ctx.db.get(checkpoint.previousCheckpointSetId);
+    const previousCheckpoint = await ctx.db.get(checkpoint.previousCheckpointSetId,
+    );
     if (
       !previousCheckpoint ||
       previousCheckpoint.eventId !== event._id ||
@@ -885,12 +904,14 @@ export const figmaComparisonPreviewAccessContext = internalQuery({
     const [currentSet, previousSet, currentFact, previousFact] = await Promise.all([
       ctx.db
         .query("figmaPreviewSets")
-        .withIndex("by_snapshot", (index) => index.eq("snapshotId", snapshot._id))
+        .withIndex("by_snapshot", (index) => index.eq("snapshotId", snapshot._id),
+          )
         .unique(),
       previousSnapshot
         ? ctx.db
             .query("figmaPreviewSets")
-            .withIndex("by_snapshot", (index) => index.eq("snapshotId", previousSnapshot._id))
+            .withIndex("by_snapshot", (index) => index.eq("snapshotId", previousSnapshot._id),
+              )
             .unique()
         : Promise.resolve(null),
       args.currentFactId ? ctx.db.get(args.currentFactId) : Promise.resolve(null),
@@ -980,7 +1001,8 @@ export const recordFigmaComparisonPreviewAccess = internalMutation({
       });
     }
     const context = await pinnedFigmaContext(ctx, args);
-    const { event, person, session, checkpoint, binding, snapshot, grantIds, permissionScope } =
+    const { event, person, session, checkpoint, binding, snapshot, grantIds, permissionScope,
+    } =
       context;
     if (!checkpoint.previousCheckpointSetId) {
       throw new ConvexError({
@@ -988,7 +1010,8 @@ export const recordFigmaComparisonPreviewAccess = internalMutation({
         message: "This review has no earlier judging checkpoint to compare.",
       });
     }
-    const previousCheckpoint = await ctx.db.get(checkpoint.previousCheckpointSetId);
+    const previousCheckpoint = await ctx.db.get(checkpoint.previousCheckpointSetId,
+    );
     if (
       !previousCheckpoint ||
       previousCheckpoint.eventId !== event._id ||
@@ -1022,12 +1045,14 @@ export const recordFigmaComparisonPreviewAccess = internalMutation({
     const [currentSet, previousSet, currentFact, previousFact] = await Promise.all([
       ctx.db
         .query("figmaPreviewSets")
-        .withIndex("by_snapshot", (index) => index.eq("snapshotId", snapshot._id))
+        .withIndex("by_snapshot", (index) => index.eq("snapshotId", snapshot._id),
+          )
         .unique(),
       previousSnapshot
         ? ctx.db
             .query("figmaPreviewSets")
-            .withIndex("by_snapshot", (index) => index.eq("snapshotId", previousSnapshot._id))
+            .withIndex("by_snapshot", (index) => index.eq("snapshotId", previousSnapshot._id),
+              )
             .unique()
         : Promise.resolve(null),
       args.currentFactId ? ctx.db.get(args.currentFactId) : Promise.resolve(null),
@@ -1209,7 +1234,8 @@ export const recordFigmaPreviewAccess = internalMutation({
   },
   returns: v.object({ serverNow: v.number() }),
   handler: async (ctx, args) => {
-    const { event, person, session, binding, preview, grantIds, permissionScope } =
+    const { event, person, session, binding, preview, grantIds, permissionScope,
+    } =
       await requireFigmaPreviewAccess(ctx, args);
     if (!samePrivateFigmaPreview(preview, args.expected)) {
       throw new ConvexError({

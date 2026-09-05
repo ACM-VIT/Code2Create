@@ -15,6 +15,8 @@ type ReadCtx = QueryCtx | MutationCtx;
 export const reviewerVenueView = v.object({
   status: reviewerVenueStatus,
   sampledAt: v.optional(v.number()),
+  followUp: v.optional(v.string()),
+  needsAttention: v.optional(v.boolean()),
 });
 
 export async function readVenuePresenceView(
@@ -26,6 +28,23 @@ export async function readVenuePresenceView(
     venuePolicy(ctx, eventId),
     venuePresence(ctx, eventId, personId),
   ]);
+  const current = policy?.enabled && presence?.policyVersion === policy.version;
+  const departure = current && presence.departureId ? await ctx.db.get(presence.departureId) : null;
+  const call = departure?.callDeliveryId ? await ctx.db.get(departure.callDeliveryId) : null;
+  let followUp: string | undefined;
+  let needsAttention = false;
+  if (call?.venueResponseEffect === "confirmed") followUp = "Confirmed available by phone";
+  else if (call?.venueResponseEffect === "clocked_out") followUp = "Confirmed away · replacement requested";
+  else if (call?.venueResponseEffect === "needs_ops") {
+    followUp = `Needs ops: ${call.venueResponse?.summary ?? "Call needs follow-up"}`;
+    needsAttention = true;
+  } else if (call && ["completed", "busy", "no_answer", "failed", "unavailable", "ambiguous"].includes(call.state)) {
+    followUp = `Availability unconfirmed · call ${call.state.replaceAll("_", " ")}`;
+    needsAttention = true;
+  } else if (call?.venueConfirmation && call.venueConfirmation.expiresAt <= Date.now()) {
+    followUp = "Confirmation overdue · contact reviewer";
+    needsAttention = true;
+  }
   return {
     status:
       policy?.enabled && presence?.policyVersion === policy.version
@@ -34,6 +53,7 @@ export async function readVenuePresenceView(
     ...(presence?.sampledAt !== undefined
       ? { sampledAt: presence.sampledAt }
       : {}),
+    ...(followUp ? { followUp, needsAttention } : {}),
   };
 }
 

@@ -40,7 +40,8 @@ function Row({ label, value }: { label: string; value: string }) {
 
 const styles = StyleSheet.create({
   identity: { paddingBottom: 22 },
-  name: { color: palette.text, fontSize: 28, fontWeight: "600", letterSpacing: -0.5 },
+  name: { color: palette.text, fontSize: 28, fontWeight: "600", letterSpacing: -0.5,
+  },
   email: { marginTop: 4, color: palette.muted, fontSize: 16 },
   rows: { gap: 8 },
   row: {

@@ -1,15 +1,11 @@
 export type VenueStatus =
-  | "unknown"
-  | "inside"
-  | "outside"
-  | "left"
-  | "reported_left";
+  "unknown" | "inside" | "outside" | "left" | "reported_left";
 
 export const venueStatusLabels: Record<VenueStatus, string> = {
   unknown: "Location unavailable",
   inside: "At venue",
   outside: "Outside venue",
-  left: "Left without informing",
+  left: "Outside venue — check needed",
   reported_left: "Leaving reported",
 };
 

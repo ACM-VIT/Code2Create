@@ -53,8 +53,10 @@ jobs:
         run: pnpm --filter @code2create/reviewer config:check && pnpm --filter @code2create/reviewer export:check && pnpm --filter @code2create/reviewer native:android:check
         env:
           C2C_NATIVE_BUILD: "true"
+          C2C_NATIVE_PLATFORM: android
           C2C_IOS_BUNDLE_IDENTIFIER: com.code2create.ops.ci
           C2C_ANDROID_PACKAGE: com.code2create.ops.ci
+          C2C_ANDROID_GOOGLE_SERVICES_FILE: ../../.github/fixtures/reviewer-google-services.json
           C2C_UPDATES_URL: https://updates-ci.example.invalid/manifest
           EXPO_PUBLIC_APP_BUILD: "1"
           EXPO_PUBLIC_APNS_ENVIRONMENT: development

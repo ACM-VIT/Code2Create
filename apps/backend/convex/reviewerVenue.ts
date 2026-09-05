@@ -1,3 +1,6 @@
+import { z } from "zod";
+import { reviewerParticipation } from "./lib/reviewerParticipation";
+import { clockOutForVenueDeparture } from "./lib/reviewerVenueStaffing";
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
@@ -6,10 +9,9 @@ import {
   findOperation,
   operationFingerprint,
   recordOperation,
-  storedOperationVersion,
+  storedOperationResult,
 } from "./lib/operations";
 import {
-  activeVenueAuthority,
   resolveVenueDeparture,
   venueDevice,
   venuePolicy,
@@ -54,6 +56,7 @@ export const mine = query({
         deviceReady: false,
         trackingOnThisDevice: false,
         eligible: false,
+        reviewInProgress: false,
       };
     const [policy, presence, device] = await Promise.all([
       venuePolicy(ctx, event._id),
@@ -78,6 +81,9 @@ export const mine = query({
       trackingOnThisDevice:
         device !== null && presence?.reviewerDeviceId === device._id,
       eligible: true,
+      reviewInProgress: (
+        await reviewerParticipation(ctx, event._id, person._id)
+      ).hasActiveReview,
     };
   },
 });
@@ -87,15 +93,22 @@ export const setMonitoring = mutation({
     eventSlug: v.string(),
     installationId: v.string(),
     enabled: v.boolean(),
+    ownerId: v.string(),
     expectedGeneration: v.optional(v.number()),
     clientOperationId: v.string(),
   },
-  returns: v.object({ generation: v.number() }),
+  returns: v.object({ generation: v.number(), startedAt: v.number() }),
   handler: async (ctx, args) => {
     const { event, person, subject, grants } = await venueReviewer(
       ctx,
       args.eventSlug,
     );
+    if (person.authUserId !== args.ownerId) {
+      throw new ConvexError({
+        code: "VENUE_OWNER_CHANGED",
+        message: "Sign in with the account that requested this venue check change.",
+      });
+    }
     const device = await venueDevice(
       ctx,
       event._id,
@@ -117,9 +130,11 @@ export const setMonitoring = mutation({
     };
     const prior = await findOperation(ctx, operation);
     if (prior)
-      return {
-        generation: storedOperationVersion(prior.resultJson, "venue tracking"),
-      };
+      return storedOperationResult(
+        prior.resultJson,
+        "venue tracking",
+        z.object({ generation: z.number().int(), startedAt: z.number().int() }),
+      );
     const [policy, current] = await Promise.all([
       venuePolicy(ctx, event._id),
       venuePresence(ctx, event._id, person._id),
@@ -160,6 +175,7 @@ export const setMonitoring = mutation({
       reviewerDeviceId: device._id,
       policyVersion: policy?.version ?? 0,
       trackingGeneration: generation,
+      trackingStartedAt: now,
       monitoringEnabled: args.enabled,
       status:
         current?.status === "reported_left"
@@ -189,7 +205,7 @@ export const setMonitoring = mutation({
       ...operation,
       targetType: "reviewer_venue_presence",
       targetId: presenceId,
-      resultJson: String(generation),
+      resultJson: JSON.stringify({ generation, startedAt: now }),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -207,7 +223,7 @@ export const setMonitoring = mutation({
         ? "Reviewer enabled venue checks"
         : "Reviewer stopped venue checks",
     });
-    return { generation };
+    return { generation, startedAt: now };
   },
 });
 
@@ -250,6 +266,7 @@ export const reportLocation = mutation({
     if (
       !Number.isSafeInteger(args.sampledAt) ||
       args.sampledAt > now + 30_000 ||
+      args.sampledAt < current.trackingStartedAt ||
       now - args.sampledAt > 120_000 ||
       (current.sampledAt !== undefined && args.sampledAt <= current.sampledAt)
     )
@@ -358,6 +375,7 @@ export const declareDeparture = mutation({
         message: "Venue reporting is closed for this event.",
       });
     const now = Date.now();
+    await clockOutForVenueDeparture(ctx, event._id, person._id, reason, now);
     const presenceId =
       current?._id ??
       (await ctx.db.insert("reviewerVenuePresence", {
@@ -366,6 +384,7 @@ export const declareDeparture = mutation({
         reviewerDeviceId: device._id,
         policyVersion: policy.version,
         trackingGeneration: 0,
+        trackingStartedAt: now,
         monitoringEnabled: false,
         status: "unknown",
         observation: "uncertain",
@@ -403,6 +422,7 @@ export const declareDeparture = mutation({
         ? {
             policyVersion: policy.version,
             trackingGeneration: current.trackingGeneration + 1,
+            trackingStartedAt: now,
             monitoringEnabled: false,
             observation: "uncertain" as const,
             sampledAt: undefined,
@@ -435,49 +455,6 @@ export const declareDeparture = mutation({
       targetId: departureId,
       reason,
       nextSummary: JSON.stringify({ state: "reported", reason }),
-    });
-    return null;
-  },
-});
-
-export const confirmReturn = mutation({
-  args: {
-    eventSlug: v.string(),
-    installationId: v.string(),
-    departureId: v.id("reviewerVenueDepartures"),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const { event, person } = await venueReviewer(ctx, args.eventSlug);
-    const device = await venueDevice(
-      ctx,
-      event._id,
-      person._id,
-      args.installationId,
-    );
-    const current = await venuePresence(ctx, event._id, person._id);
-    const now = Date.now();
-    if (!current || current.departureId !== args.departureId) return null;
-    if (
-      current.reviewerDeviceId !== device._id ||
-      current.observation !== "inside" ||
-      current.sampledAt === undefined ||
-      now - current.sampledAt > 60_000 ||
-      !(await activeVenueAuthority(ctx, current, now))
-    ) {
-      throw new ConvexError({
-        code: "VENUE_RETURN_NOT_VERIFIED",
-        message:
-          "Refresh your location at the venue before confirming your return.",
-      });
-    }
-    await resolveVenueDeparture(ctx, current, "returned", now);
-    await ctx.db.patch(current._id, {
-      status: "inside",
-      departureId: undefined,
-      outsideSince: undefined,
-      version: current.version + 1,
-      updatedAt: now,
     });
     return null;
   },

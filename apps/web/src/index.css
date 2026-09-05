@@ -977,7 +977,7 @@ p {
   padding: 18px;
 }
 /* Service queues use the available tile width before falling back to rows. */
-@container (min-width: 360px) {
+@container (min-width: 300px) {
   .service-queue-list { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
   .service-queue-row { border-top: 0; padding-top: 0; }
 }

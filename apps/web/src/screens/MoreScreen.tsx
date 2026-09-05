@@ -3,6 +3,7 @@ import type { FunctionReturnType } from "convex/server";
 import { useQuery } from "convex/react";
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
+import { ReviewCallSetting } from "../components/ReviewCallSetting";
 import { Flower } from "../components/portal/FlowerAvatar";
 import { PetalCard } from "../components/portal/PetalCard";
 import { PortalScene } from "../components/portal/PortalScene";
@@ -133,6 +134,7 @@ export function MoreScreen({
               }
             />
           ) : null}
+          {capabilities?.reviewQueue ? <ReviewCallSetting /> : null}
           {showIntegrations ? (
             <Row label="Integrations" value="Repos and Figma" to="/integrations" />
           ) : null}
@@ -143,7 +145,9 @@ export function MoreScreen({
               href={communications.discordUrl}
             />
           ) : null}
-          {showMusic ? <Row label="Music" value="Synesthesia" to="/music" /> : null}
+          {showMusic ? (
+            <Row label="Music" value="Synesthesia" to="/music" />
+          ) : null}
           {capabilities?.supportRead ? (
             <Row label="Support" value={supportRowValue(support)} to="/support" />
           ) : null}

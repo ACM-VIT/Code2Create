@@ -1,14 +1,28 @@
 import { api } from "@code2create/backend/api";
-import { reviewRoundStatusLabels } from "@code2create/domain";
+import { reviewRoundStatusLabels,
+  planReviewPanels,
+  type ReviewerSeniority,
+  type PanelComposition,
+} from "@code2create/domain";
 import type { FunctionReturnType } from "convex/server";
 import { useMutation, useQuery } from "convex/react";
 import { useRef, useState, type SubmitEvent } from "react";
 import { Link } from "react-router-dom";
+
 import { ReviewerVenuePanel } from "../components/ReviewerVenuePanel";
 
+import {
+  indiaDateTimeToTimestamp,
+  reviewConfirmationOpening,
+} from "../lib/indiaDateTime";
 import { eventSlug } from "../lib/config";
 import { readableError } from "../lib/errors";
 import { useMutationAttempt } from "../lib/operations";
+import {
+  reviewRubricPresets,
+  type CriterionDraft,
+} from "../lib/reviewRubricPresets";
+import { ReviewAggregationConfiguration } from "../components/ReviewAggregation";
 
 type Candidate = FunctionReturnType<typeof api.reviewConfiguration.candidates>[number];
 type TrainingStatus = "pending" | "complete" | "blocked";
@@ -20,15 +34,6 @@ type Anchors = {
   two: string;
   three: string;
   four: string;
-};
-type CriterionDraft = {
-  id: string;
-  stableKey: string;
-  label: string;
-  question: string;
-  guidance: string;
-  weight: string;
-  anchors: Anchors;
 };
 type MemberDraft = {
   id: string;
@@ -42,16 +47,12 @@ type PanelDraft = {
   name: string;
   members: MemberDraft[];
 };
-type AvailabilityWindowDraft = {
-  id: string;
-  startsAt: string;
-  endsAt: string;
-};
 type ReviewerView = "needs_setup" | "ready" | "all";
 type RoundDraft = {
   stableKey: string;
   name: string;
   sequence: string;
+  confirmationOpensAt: string;
   clockInOpensAt: string;
   reviewerReportAt: string;
   startsAt: string;
@@ -70,75 +71,14 @@ type RoundDraft = {
   minimumPresentParticipants: string;
   minimumReviewerBuild: string;
   requiresSharedCommitments: boolean;
+  requiresFinalComment: boolean;
   requiresCamera: boolean;
   requiresNotifications: boolean;
 };
 
-const initialCriteria: CriterionDraft[] = [
-  {
-    id: "criterion-problem",
-    stableKey: "problem_value",
-    label: "Problem and user value",
-    question: "Is the team solving a clear problem for a specific user?",
-    guidance:
-      "Look for a concrete need, intended user, and a useful outcome rather than presentation polish.",
-    weight: "25",
-    anchors: {
-      zero: "No clear problem or user.",
-      one: "A broad problem is named, but the user or value is unclear.",
-      two: "The problem and intended user are understandable.",
-      three: "The team explains the user need and important constraints clearly.",
-      four: "The team shows a sharp, well-supported understanding of the user and value.",
-    },
-  },
-  {
-    id: "criterion-progress",
-    stableKey: "working_progress",
-    label: "Working progress",
-    question: "What has the team made and demonstrated during this hack?",
-    guidance:
-      "Judge the current working slice and verified progress. Do not reward a polished pitch in place of a product.",
-    weight: "25",
-    anchors: {
-      zero: "No working progress can be demonstrated.",
-      one: "Only isolated setup or static mock material is shown.",
-      two: "A small end-to-end path or meaningful subsystem works.",
-      three: "The core path works with only bounded gaps.",
-      four: "A coherent product works end to end and handles its central use case well.",
-    },
-  },
-  {
-    id: "criterion-technical",
-    stableKey: "technical_execution",
-    label: "Technical execution",
-    question: "Do the implementation choices fit the problem and hold up under inspection?",
-    guidance:
-      "Use the fixed repository and Figma evidence. Consider correctness, integration, data flow, and practical trade-offs.",
-    weight: "30",
-    anchors: {
-      zero: "The claimed implementation cannot be explained or inspected.",
-      one: "Major technical claims are disconnected or largely unimplemented.",
-      two: "The implementation is plausible and the main choices are understood.",
-      three: "The system is thoughtfully built with sound, inspectable trade-offs.",
-      four: "The implementation is unusually strong, coherent, and well matched to the problem.",
-    },
-  },
-  {
-    id: "criterion-decisions",
-    stableKey: "decisions_next_step",
-    label: "Decisions and next step",
-    question: "Has the team learned, made deliberate choices, and identified the right next step?",
-    guidance:
-      "Look for honest reasoning and a concrete next checkpoint, not certainty or inflated claims.",
-    weight: "20",
-    anchors: {
-      zero: "The team cannot explain its decisions or next step.",
-      one: "Decisions are mostly accidental and the next step is vague.",
-      two: "The team can explain key choices and a reasonable next step.",
-      three: "Learning clearly changed the product and the next step is specific.",
-      four: "The team demonstrates exceptional judgment, reflection, and prioritisation.",
-    },
-  },
+const allPresetCriteria = [
+  ...reviewRubricPresets.round1.criteria,
+  ...reviewRubricPresets.round2.criteria,
 ];
 
 export function ReviewSetup({
@@ -201,8 +141,9 @@ export function ReviewSetup({
                 <div>
                   <strong>{round.name}</strong>
                   <span>
-                    {reviewRoundStatusLabels[round.status]} · {round.panelCount} panels ·{" "}
-                    {round.reviewerCount} reviewers · {round.reserveCount} reserves
+                    {reviewRoundStatusLabels[round.status]} · {round.panelCount}{" "}
+                    panels · {round.reviewerCount} reviewers ·{" "}
+                    {round.reserveCount} reserves
                   </span>
                   <span>
                     Clock-in {formatMoment(round.clockInOpensAt)} · report{" "}
@@ -210,7 +151,8 @@ export function ReviewSetup({
                     {round.noShowGraceSeconds}s
                   </span>
                   <span>
-                    Score-correction requests close {formatMoment(round.correctionRequestsCloseAt)}
+                    Score-correction requests close{" "}
+                    {formatMoment(round.correctionRequestsCloseAt)}
                   </span>
                 </div>
                 {round.canReadBoard ? (
@@ -227,7 +169,10 @@ export function ReviewSetup({
         </section>
       ) : null}
 
-      {canReadProfiles ? <ReviewerProfiles candidates={reviewerCandidates} /> : null}
+      {canReadProfiles ? (
+        <ReviewerProfiles candidates={reviewerCandidates} />
+      ) : null}
+      {canReadConfiguration ? <ReviewAggregationConfiguration /> : null}
       <ReviewerVenuePanel
         canReadConfiguration={canReadConfiguration}
         canReadProfiles={canReadProfiles}
@@ -338,8 +283,7 @@ function ReviewerProfiles({ candidates }: { candidates: Candidate[] }) {
 function reviewerIsReady(candidate: Candidate) {
   return (
     candidate.profile?.status === "active" &&
-    candidate.profile.trainingStatus === "complete" &&
-    candidate.profile.availabilityWindows.length > 0
+    candidate.profile.trainingStatus === "complete"
   );
 }
 
@@ -351,31 +295,31 @@ function ReviewerProfileRow({
   canManage: boolean;
 }) {
   const saveProfile = useMutation(api.reviewConfiguration.saveProfile);
-  const nextAvailabilityIdRef = useRef(candidate.profile?.availabilityWindows.length ?? 0);
   const [editing, setEditing] = useState(false);
-  const [contactPhone, setContactPhone] = useState(candidate.profile?.contactPhone ?? "");
+  const [contactPhone, setContactPhone] = useState(candidate.profile?.contactPhone ?? "",
+  );
+  const [seniority, setSeniority] = useState<ReviewerSeniority>(
+    candidate.profile?.seniority ?? candidate.pool?.seniority ?? "sc",
+  );
+  const [strength, setStrength] = useState(
+    String(candidate.profile?.strength ?? 2),
+  );
   const [technicalDomains, setTechnicalDomains] = useState(
     candidate.profile?.technicalDomains.join(", ") ?? "",
   );
   const [productDomains, setProductDomains] = useState(
     candidate.profile?.productDomains.join(", ") ?? "",
   );
-  const [languages, setLanguages] = useState(candidate.profile?.languages.join(", ") ?? "");
+  const [languages, setLanguages] = useState(candidate.profile?.languages.join(", ") ?? "",
+  );
   const [criterionKeys, setCriterionKeys] = useState(
     candidate.profile?.criterionKeys.join(", ") ?? "",
-  );
-  const [availabilityWindows, setAvailabilityWindows] = useState<AvailabilityWindowDraft[]>(
-    () =>
-      candidate.profile?.availabilityWindows.map((window, index) => ({
-        id: `availability-${index}`,
-        startsAt: localDateTime(window.startsAt),
-        endsAt: localDateTime(window.endsAt),
-      })) ?? [],
   );
   const [trainingStatus, setTrainingStatus] = useState<TrainingStatus>(
     candidate.profile?.trainingStatus ?? "pending",
   );
-  const [status, setStatus] = useState<ProfileStatus>(candidate.profile?.status ?? "active");
+  const [status, setStatus] = useState<ProfileStatus>(candidate.profile?.status ?? "active",
+  );
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -397,23 +341,6 @@ function ReviewerProfileRow({
     changed();
   };
 
-  const addAvailabilityWindow = () => {
-    const id = `availability-${nextAvailabilityIdRef.current}`;
-    nextAvailabilityIdRef.current += 1;
-    setAvailabilityWindows((current) => [...current, { id, startsAt: "", endsAt: "" }]);
-    changed();
-  };
-
-  const updateAvailabilityWindow = (
-    id: string,
-    update: (current: AvailabilityWindowDraft) => AvailabilityWindowDraft,
-  ) => {
-    setAvailabilityWindows((current) =>
-      current.map((window) => (window.id === id ? update(window) : window)),
-    );
-    changed();
-  };
-
   const submit = async (event: SubmitEvent) => {
     event.preventDefault();
     setBusy(true);
@@ -423,15 +350,13 @@ function ReviewerProfileRow({
         const args = {
           eventSlug,
           personId: candidate.personId,
+          seniority,
+          strength: Number(strength),
           ...(contactPhone.trim() ? { contactPhone: contactPhone.trim() } : {}),
           technicalDomains: commaList(technicalDomains),
           productDomains: commaList(productDomains),
           languages: commaList(languages),
           criterionKeys: commaList(criterionKeys),
-          availabilityWindows: availabilityWindows.map((window, index) => ({
-            startsAt: timestamp(window.startsAt, `Availability window ${index + 1} start`),
-            endsAt: timestamp(window.endsAt, `Availability window ${index + 1} end`),
-          })),
           trainingStatus,
           status,
           expectedVersion: candidate.profile?.version ?? 0,
@@ -450,6 +375,29 @@ function ReviewerProfileRow({
 
   return (
     <article className="reviewer-profile-row">
+      {candidate.pool ? (
+        <details className="workspace-disclosure">
+          <summary>
+            <span>
+              <strong>
+                Declared skills · {candidate.pool.seniority.toUpperCase()}
+              </strong>
+              <small>{candidate.pool.domain}</small>
+            </span>
+          </summary>
+          <p style={{ whiteSpace: "pre-wrap" }}>
+            {candidate.pool.skills || "No skill declaration supplied."}
+          </p>
+          {candidate.pool.resumeUrl ? (
+            <a href={candidate.pool.resumeUrl} target="_blank" rel="noreferrer">
+              Resume / experience
+            </a>
+          ) : null}
+          {candidate.pool.githubReference ? (
+            <p className="muted">GitHub: {candidate.pool.githubReference}</p>
+          ) : null}
+        </details>
+      ) : null}
       <div className="reviewer-profile-heading">
         <div>
           <strong>{candidate.displayName}</strong>
@@ -457,9 +405,8 @@ function ReviewerProfileRow({
         </div>
         <div className="reviewer-profile-state">
           <span>
-            {trainingStatusName(candidate.profile?.trainingStatus)} ·{" "}
-            {candidate.profile?.availabilityWindows.length ?? 0} availability{" "}
-            {(candidate.profile?.availabilityWindows.length ?? 0) === 1 ? "window" : "windows"}
+            {trainingStatusName(candidate.profile?.trainingStatus)} ·
+            Availability confirmed in the app for each round
           </span>
           {canManage ? (
             <button
@@ -476,6 +423,41 @@ function ReviewerProfileRow({
       {editing ? (
         <form className="reviewer-profile-form" onSubmit={submit}>
           <fieldset disabled={operationPending} style={{ display: "contents" }}>
+            <label className="field">
+              <span>Seniority</span>
+              <select
+                value={seniority}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  if (value === "board" || value === "sc" || value === "jc")
+                    setSeniority(value);
+                  changed();
+                }}
+              >
+                <option value="board">Board</option>
+                <option value="sc">SC</option>
+                <option value="jc">JC</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>Reviewer experience · 0–4</span>
+              <input
+                type="number"
+                min={0}
+                max={4}
+                step={1}
+                required
+                value={strength}
+                onChange={(event) => {
+                  setStrength(event.target.value);
+                  changed();
+                }}
+              />
+              <small>
+                Organizer assessment for balancing panels and ranking eligible
+                leads.
+              </small>
+            </label>
             <label className="field">
               <span>
                 Phone <small>For urgent paging</small>
@@ -529,13 +511,14 @@ function ReviewerProfileRow({
             <fieldset className="reviewer-qualification-field">
               <legend>Can judge</legend>
               <div className="criterion-assignment-list">
-                {initialCriteria.map((criterion) => (
+                {allPresetCriteria.map((criterion) => (
                   <label className="check-filter" key={criterion.stableKey}>
                     <input
                       checked={selectedCriterionKeys.has(criterion.stableKey)}
                       type="checkbox"
                       onChange={(event) =>
-                        toggleCriterionKey(criterion.stableKey, event.target.checked)
+                        toggleCriterionKey(criterion.stableKey, event.target.checked,
+                        )
                       }
                     />
                     {criterion.label}
@@ -558,69 +541,13 @@ function ReviewerProfileRow({
                 </label>
               </details>
             </fieldset>
-            <fieldset className="reviewer-qualification-field">
-              <legend>Available for judging</legend>
-              <p className="muted">
-                Every reviewer and reserve must be available for the whole staffing window.
-              </p>
-              <div className="criterion-editors">
-                {availabilityWindows.map((window, index) => (
-                  <div className="form-grid" key={window.id}>
-                    <label className="field">
-                      <span>
-                        Window {index + 1} starts <small>Event local time</small>
-                      </span>
-                      <input
-                        type="datetime-local"
-                        value={window.startsAt}
-                        onChange={(event) => {
-                          updateAvailabilityWindow(window.id, (current) => ({
-                            ...current,
-                            startsAt: event.target.value,
-                          }));
-                        }}
-                      />
-                    </label>
-                    <label className="field">
-                      <span>
-                        Window {index + 1} ends <small>Event local time</small>
-                      </span>
-                      <input
-                        type="datetime-local"
-                        value={window.endsAt}
-                        onChange={(event) => {
-                          updateAvailabilityWindow(window.id, (current) => ({
-                            ...current,
-                            endsAt: event.target.value,
-                          }));
-                        }}
-                      />
-                    </label>
-                    <button
-                      className="text-button"
-                      type="button"
-                      onClick={() => {
-                        setAvailabilityWindows((current) =>
-                          current.filter((item) => item.id !== window.id),
-                        );
-                        changed();
-                      }}
-                    >
-                      Remove window
-                    </button>
-                  </div>
-                ))}
-              </div>
-              <button className="secondary" type="button" onClick={addAvailabilityWindow}>
-                Add availability window
-              </button>
-            </fieldset>
             <label className="field">
               <span>Training</span>
               <select
                 value={trainingStatus}
                 onChange={(event) => {
-                  setTrainingStatus(trainingStatusValue(event.target.value, trainingStatus));
+                  setTrainingStatus(trainingStatusValue(event.target.value, trainingStatus),
+                  );
                   changed();
                 }}
               >
@@ -634,7 +561,8 @@ function ReviewerProfileRow({
               <select
                 value={status}
                 onChange={(event) => {
-                  setStatus(event.target.value === "inactive" ? "inactive" : "active");
+                  setStatus(event.target.value === "inactive" ? "inactive" : "active",
+                  );
                   changed();
                 }}
               >
@@ -681,44 +609,67 @@ function RoundPublisher({
   candidates: Candidate[];
   nextSequence: number;
 }) {
+  const initialPreset =
+    nextSequence === 1
+      ? reviewRubricPresets.round1
+      : reviewRubricPresets.round2;
   const publishRound = useMutation(api.reviewConfiguration.publishRound);
   const nextCriterionIdRef = useRef(5);
-  const nextPanelIdRef = useRef(2);
+  const nextPanelIdRef = useRef(7);
   const nextMemberIdRef = useRef(1);
   const publishAttempt =
     useMutationAttempt<FunctionReturnType<typeof api.reviewConfiguration.publishRound>>();
   const publishPending = publishAttempt.hasPending("review-round-publish");
-  const [rubricName, setRubricName] = useState("Code2Create project review");
+  const [rubricName, setRubricName] = useState(initialPreset.name);
   const [spreadThreshold, setSpreadThreshold] = useState("2");
-  const [criteria, setCriteria] = useState<CriterionDraft[]>(initialCriteria);
+  const [automaticReplacement, setAutomaticReplacement] = useState(true);
+  const [juniorRotationReviews, setJuniorRotationReviews] = useState("1");
+  const [reviewerArrivalSeconds, setReviewerArrivalSeconds] = useState("90");
+  const [assignmentReminderSeconds, setAssignmentReminderSeconds] =
+    useState("300");
+  const [composition, setComposition] = useState<PanelComposition>({
+    seniorSeats: 2,
+    juniorSeats: 2,
+    allowSeniorLeadFallback: true,
+  });
+  const [criteria, setCriteria] = useState<CriterionDraft[]>(
+    initialPreset.criteria,
+  );
   const [round, setRound] = useState<RoundDraft>({
     stableKey: `review_${nextSequence}`,
     name: `Project review ${nextSequence}`,
     sequence: `${nextSequence}`,
+    confirmationOpensAt: "",
     clockInOpensAt: "",
     reviewerReportAt: "",
     startsAt: "",
     endsAt: "",
     noShowGraceSeconds: "180",
     correctionRequestsCloseAt: "",
-    reviewDurationMinutes: "10",
-    ordinaryExtensionMinutes: "2",
-    maximumOrdinaryExtensions: "1",
+    reviewDurationMinutes: "7",
+    ordinaryExtensionMinutes: "0",
+    maximumOrdinaryExtensions: "0",
     missedCallGraceSeconds: "180",
     requiredCallAttempts: "2",
-    substituteResponseSeconds: "90",
+    substituteResponseSeconds: "30",
     missedReentryPolicy: "preserve_queue_time",
-    requiredPanelSize: "3",
+    requiredPanelSize: "5",
     minimumScorersPerCriterion: "2",
     minimumPresentParticipants: "2",
     minimumReviewerBuild: "1",
     requiresSharedCommitments: true,
+    requiresFinalComment: true,
     requiresCamera: true,
     requiresNotifications: true,
   });
-  const [panels, setPanels] = useState<PanelDraft[]>([
-    { id: "panel-1", stableKey: "panel_1", name: "Panel 1", members: [] },
-  ]);
+  const [panels, setPanels] = useState<PanelDraft[]>(() =>
+    Array.from({ length: 6 }, (_, index) => ({
+      id: `panel-${index + 1}`,
+      stableKey: `panel_${index + 1}`,
+      name: `Panel ${index + 1}`,
+      members: [],
+    })),
+  );
   const [reservePersonIds, setReservePersonIds] = useState<PersonId[]>([]);
   const [reason, setReason] = useState("");
   const [confirmed, setConfirmed] = useState(false);
@@ -729,8 +680,7 @@ function RoundPublisher({
     (candidate) =>
       candidate.profile?.status === "active" &&
       candidate.profile.trainingStatus === "complete" &&
-      candidate.profile.criterionKeys.length > 0 &&
-      candidate.profile.availabilityWindows.length > 0,
+      candidate.profile.criterionKeys.length > 0,
   );
 
   const changed = () => {
@@ -739,9 +689,12 @@ function RoundPublisher({
     setSuccess(null);
   };
 
-  const updateCriterion = (id: string, update: (current: CriterionDraft) => CriterionDraft) => {
+  const updateCriterion = (id: string, update: (current: CriterionDraft) => CriterionDraft,
+  ) => {
     setCriteria((current) =>
-      current.map((criterion) => (criterion.id === id ? update(criterion) : criterion)),
+      current.map((criterion) =>
+        criterion.id === id ? update(criterion) : criterion,
+      ),
     );
     changed();
   };
@@ -772,21 +725,25 @@ function RoundPublisher({
 
   const removeCriterion = (id: string) => {
     if (criteria.length <= 1) return;
-    setCriteria((current) => current.filter((criterion) => criterion.id !== id));
+    setCriteria((current) => current.filter((criterion) => criterion.id !== id),
+    );
     setPanels((current) =>
       current.map((panel) => ({
         ...panel,
         members: panel.members.map((member) => ({
           ...member,
-          criterionIds: member.criterionIds.filter((criterionId) => criterionId !== id),
+          criterionIds: member.criterionIds.filter((criterionId) => criterionId !== id,
+          ),
         })),
       })),
     );
     changed();
   };
 
-  const updatePanel = (id: string, update: (current: PanelDraft) => PanelDraft) => {
-    setPanels((current) => current.map((panel) => (panel.id === id ? update(panel) : panel)));
+  const updatePanel = (id: string, update: (current: PanelDraft) => PanelDraft,
+  ) => {
+    setPanels((current) => current.map((panel) => (panel.id === id ? update(panel) : panel)),
+    );
     changed();
   };
 
@@ -806,8 +763,10 @@ function RoundPublisher({
   };
 
   const addMember = (panelId: string) => {
-    const used = new Set(panels.flatMap((panel) => panel.members.map((member) => member.personId)));
-    const available = readyCandidates.find((candidate) => !used.has(candidate.personId));
+    const used = new Set(panels.flatMap((panel) => panel.members.map((member) => member.personId)),
+    );
+    const available = readyCandidates.find((candidate) => !used.has(candidate.personId),
+    );
     const memberId = `member-${nextMemberIdRef.current}`;
     nextMemberIdRef.current += 1;
     if (available) {
@@ -825,7 +784,8 @@ function RoundPublisher({
           criterionIds: available
             ? criteria
                 .filter((criterion) =>
-                  available.profile?.criterionKeys.includes(criterion.stableKey),
+                  available.profile?.criterionKeys.includes(criterion.stableKey,
+                  ),
                 )
                 .map((criterion) => criterion.id)
             : [],
@@ -837,13 +797,15 @@ function RoundPublisher({
 
   const removeMember = (panelId: string, memberId: string) => {
     updatePanel(panelId, (panel) => {
-      const remaining = panel.members.filter((member) => member.id !== memberId);
+      const remaining = panel.members.filter((member) => member.id !== memberId,
+      );
       if (remaining.some((member) => member.isCoordinator) || remaining.length === 0) {
         return { ...panel, members: remaining };
       }
       return {
         ...panel,
-        members: remaining.map((member, index) => ({ ...member, isCoordinator: index === 0 })),
+        members: remaining.map((member, index) => ({ ...member, isCoordinator: index === 0,
+        })),
       };
     });
   };
@@ -856,9 +818,11 @@ function RoundPublisher({
     setSuccess(null);
     try {
       await publishAttempt.run("review-round-publish", () => {
-        const requiredPanelSize = positiveInteger(round.requiredPanelSize, "Panel size");
+        const requiredPanelSize = positiveInteger(round.requiredPanelSize, "Panel size",
+        );
         if (panels.some((panel) => panel.members.length !== requiredPanelSize)) {
-          throw new Error(`Every panel must contain exactly ${requiredPanelSize} reviewers.`);
+          throw new Error(`Every panel must contain exactly ${requiredPanelSize} reviewers.`,
+          );
         }
         const reviewerIds = panels.flatMap((panel) =>
           panel.members.map((member) => member.personId),
@@ -867,22 +831,28 @@ function RoundPublisher({
           reviewerIds.some((personId) => !personId) ||
           new Set(reviewerIds).size !== reviewerIds.length
         ) {
-          throw new Error("Choose a different trained reviewer for every panel seat.");
+          throw new Error("Choose a different trained reviewer for every panel seat.",
+          );
         }
         if (reservePersonIds.some((personId) => reviewerIds.includes(personId))) {
-          throw new Error("A panel reviewer cannot also be selected as a reserve.");
+          throw new Error("A panel reviewer cannot also be selected as a reserve.",
+          );
         }
         const mappedPanels = panels.map((panel) => ({
           stableKey: panel.stableKey,
           name: panel.name,
           members: panel.members.map((member) => {
-            const candidate = readyCandidates.find((item) => item.personId === member.personId);
+            const candidate = readyCandidates.find((item) => item.personId === member.personId,
+            );
             if (!candidate)
-              throw new Error("A selected reviewer is no longer active, or has not finished training.");
+              throw new Error("A selected reviewer is no longer active, or has not finished training.",
+              );
             const criterionKeys = member.criterionIds.map((criterionId) => {
-              const criterion = criteria.find((item) => item.id === criterionId);
+              const criterion = criteria.find((item) => item.id === criterionId,
+              );
               if (!criterion)
-                throw new Error("A criterion assigned to a reviewer no longer exists.");
+                throw new Error("A criterion assigned to a reviewer no longer exists.",
+                );
               return criterion.stableKey;
             });
             return {
@@ -894,15 +864,21 @@ function RoundPublisher({
         }));
         const args = {
           eventSlug,
+          confirmationOpensAt: timestamp(
+            round.confirmationOpensAt,
+            "Availability confirmation opening",
+          ),
           rubric: {
             name: rubricName,
-            spreadThreshold: boundedInteger(spreadThreshold, "How far scores may differ", 1, 4),
+            spreadThreshold: boundedInteger(spreadThreshold, "How far scores may differ", 1, 4,
+            ),
             criteria: criteria.map((criterion, index) => ({
               stableKey: criterion.stableKey,
               label: criterion.label,
               question: criterion.question,
               guidance: criterion.guidance,
-              weight: positiveInteger(criterion.weight, `${criterion.label} weight`),
+              weight: positiveInteger(criterion.weight, `${criterion.label} weight`,
+              ),
               displayOrder: index,
               anchors: criterion.anchors,
             })),
@@ -912,7 +888,8 @@ function RoundPublisher({
             name: round.name,
             sequence: positiveInteger(round.sequence, "Round order"),
             clockInOpensAt: timestamp(round.clockInOpensAt, "Clock-in opening"),
-            reviewerReportAt: timestamp(round.reviewerReportAt, "Reviewer report time"),
+            reviewerReportAt: timestamp(round.reviewerReportAt, "Reviewer report time",
+            ),
             startsAt: timestamp(round.startsAt, "Round start"),
             endsAt: timestamp(round.endsAt, "Round end"),
             noShowGraceSeconds: boundedInteger(
@@ -928,7 +905,8 @@ function RoundPublisher({
             reviewDurationSeconds:
               positiveInteger(round.reviewDurationMinutes, "Review duration") * 60,
             ordinaryExtensionSeconds:
-              nonnegativeInteger(round.ordinaryExtensionMinutes, "Extension duration") * 60,
+              nonnegativeInteger(round.ordinaryExtensionMinutes, "Extension duration",
+              ) * 60,
             maximumOrdinaryExtensions: nonnegativeInteger(
               round.maximumOrdinaryExtensions,
               "Extension count",
@@ -946,6 +924,13 @@ function RoundPublisher({
               "Substitute response window",
             ),
             missedReentryPolicy: round.missedReentryPolicy,
+            staffing: {
+              ...composition,
+              automaticReplacement,
+              juniorRotationReviews: Number(juniorRotationReviews),
+              reviewerArrivalSeconds: Number(reviewerArrivalSeconds),
+              assignmentReminderSeconds: Number(assignmentReminderSeconds),
+            },
             requiredPanelSize,
             minimumScorersPerCriterion: positiveInteger(
               round.minimumScorersPerCriterion,
@@ -956,6 +941,7 @@ function RoundPublisher({
               "Minimum participants",
             ),
             requiresSharedCommitments: round.requiresSharedCommitments,
+            requiresFinalComment: round.requiresFinalComment,
             minimumReviewerBuild: positiveInteger(
               round.minimumReviewerBuild,
               "Minimum reviewer build",
@@ -996,7 +982,25 @@ function RoundPublisher({
               <input
                 value={round.name}
                 onChange={(event) => {
-                  setRound((current) => ({ ...current, name: event.target.value }));
+                  setRound((current) => ({ ...current, name: event.target.value,
+                  }));
+                  changed();
+                }}
+              />
+            </label>
+            <label className="field">
+              <span>
+                Confirm availability from{" "}
+                <small>Event local time · usually 11pm</small>
+              </span>
+              <input
+                type="datetime-local"
+                value={round.confirmationOpensAt}
+                onChange={(event) => {
+                  setRound((current) => ({
+                    ...current,
+                    confirmationOpensAt: event.target.value,
+                  }));
                   changed();
                 }}
               />
@@ -1009,7 +1013,8 @@ function RoundPublisher({
                 type="datetime-local"
                 value={round.clockInOpensAt}
                 onChange={(event) => {
-                  setRound((current) => ({ ...current, clockInOpensAt: event.target.value }));
+                  setRound((current) => ({ ...current, clockInOpensAt: event.target.value,
+                  }));
                   changed();
                 }}
               />
@@ -1022,7 +1027,8 @@ function RoundPublisher({
                 type="datetime-local"
                 value={round.reviewerReportAt}
                 onChange={(event) => {
-                  setRound((current) => ({ ...current, reviewerReportAt: event.target.value }));
+                  setRound((current) => ({ ...current, reviewerReportAt: event.target.value,
+                  }));
                   changed();
                 }}
               />
@@ -1035,7 +1041,11 @@ function RoundPublisher({
                 type="datetime-local"
                 value={round.startsAt}
                 onChange={(event) => {
-                  setRound((current) => ({ ...current, startsAt: event.target.value }));
+                  setRound((current) => ({ ...current, startsAt: event.target.value,
+                    confirmationOpensAt:
+                      current.confirmationOpensAt ||
+                      reviewConfirmationOpening(event.target.value),
+                  }));
                   changed();
                 }}
               />
@@ -1048,7 +1058,8 @@ function RoundPublisher({
                 type="datetime-local"
                 value={round.endsAt}
                 onChange={(event) => {
-                  setRound((current) => ({ ...current, endsAt: event.target.value }));
+                  setRound((current) => ({ ...current, endsAt: event.target.value,
+                  }));
                   changed();
                 }}
               />
@@ -1075,7 +1086,8 @@ function RoundPublisher({
                 inputMode="numeric"
                 value={round.noShowGraceSeconds}
                 onChange={(event) => {
-                  setRound((current) => ({ ...current, noShowGraceSeconds: event.target.value }));
+                  setRound((current) => ({ ...current, noShowGraceSeconds: event.target.value,
+                  }));
                   changed();
                 }}
               />
@@ -1100,7 +1112,8 @@ function RoundPublisher({
                 inputMode="numeric"
                 value={round.requiredPanelSize}
                 onChange={(event) => {
-                  setRound((current) => ({ ...current, requiredPanelSize: event.target.value }));
+                  setRound((current) => ({ ...current, requiredPanelSize: event.target.value,
+                  }));
                   changed();
                 }}
               />
@@ -1144,7 +1157,8 @@ function RoundPublisher({
                   inputMode="numeric"
                   value={round.sequence}
                   onChange={(event) => {
-                    setRound((current) => ({ ...current, sequence: event.target.value }));
+                    setRound((current) => ({ ...current, sequence: event.target.value,
+                    }));
                     changed();
                   }}
                 />
@@ -1260,7 +1274,8 @@ function RoundPublisher({
                 label="Panels must record findings and next steps"
                 checked={round.requiresSharedCommitments}
                 onChange={(checked) => {
-                  setRound((current) => ({ ...current, requiresSharedCommitments: checked }));
+                  setRound((current) => ({ ...current, requiresSharedCommitments: checked,
+                  }));
                   changed();
                 }}
               />
@@ -1268,7 +1283,8 @@ function RoundPublisher({
                 label="Reviewers must have a working camera"
                 checked={round.requiresCamera}
                 onChange={(checked) => {
-                  setRound((current) => ({ ...current, requiresCamera: checked }));
+                  setRound((current) => ({ ...current, requiresCamera: checked,
+                  }));
                   changed();
                 }}
               />
@@ -1276,7 +1292,8 @@ function RoundPublisher({
                 label="Reviewers must allow notifications"
                 checked={round.requiresNotifications}
                 onChange={(checked) => {
-                  setRound((current) => ({ ...current, requiresNotifications: checked }));
+                  setRound((current) => ({ ...current, requiresNotifications: checked,
+                  }));
                   changed();
                 }}
               />
@@ -1284,6 +1301,59 @@ function RoundPublisher({
           </details>
 
           <section className="publisher-block">
+            <div className="form-grid">
+              <button
+                className="secondary"
+                type="button"
+                onClick={() => {
+                  setCriteria(reviewRubricPresets.round1.criteria);
+                  setRubricName(reviewRubricPresets.round1.name);
+                  setPanels((current) =>
+                    current.map((panel) => ({
+                      ...panel,
+                      members: panel.members.map((member) => ({
+                        ...member,
+                        criterionIds: [],
+                      })),
+                    })),
+                  );
+                  changed();
+                }}
+              >
+                Use Round 1 defaults
+              </button>
+              <button
+                className="secondary"
+                type="button"
+                onClick={() => {
+                  setCriteria(reviewRubricPresets.round2.criteria);
+                  setRubricName(reviewRubricPresets.round2.name);
+                  setPanels((current) =>
+                    current.map((panel) => ({
+                      ...panel,
+                      members: panel.members.map((member) => ({
+                        ...member,
+                        criterionIds: [],
+                      })),
+                    })),
+                  );
+                  changed();
+                }}
+              >
+                Use Round 2 defaults
+              </button>
+            </div>
+            <PolicyCheck
+              label="Require a final comment from every reviewer"
+              checked={round.requiresFinalComment}
+              onChange={(checked) => {
+                setRound((current) => ({
+                  ...current,
+                  requiresFinalComment: checked,
+                }));
+                changed();
+              }}
+            />
             <div className="section-heading">
               <div>
                 <h2>
@@ -1339,7 +1409,8 @@ function RoundPublisher({
             </div>
             <p className="weight-total">
               Current weight total:{" "}
-              {criteria.reduce((total, criterion) => total + numericValue(criterion.weight), 0)}
+              {criteria.reduce((total, criterion) => total + numericValue(criterion.weight), 0,
+              )}
             </p>
           </section>
 
@@ -1360,6 +1431,196 @@ function RoundPublisher({
             {readyCandidates.length === 0 ? (
               <p className="notice">No trained, active reviewer is available.</p>
             ) : null}
+            <div className="form-grid">
+              <label className="field">
+                <span>SC seats, besides the lead</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={6}
+                  step={1}
+                  value={composition.seniorSeats}
+                  onChange={(event) => {
+                    const seniorSeats = Number(event.target.value);
+                    setComposition((current) => ({ ...current, seniorSeats }));
+                    setRound((current) => ({
+                      ...current,
+                      requiredPanelSize: String(
+                        1 + seniorSeats + composition.juniorSeats,
+                      ),
+                    }));
+                    changed();
+                  }}
+                />
+              </label>
+              <label className="field">
+                <span>JC seats</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={6}
+                  step={1}
+                  value={composition.juniorSeats}
+                  onChange={(event) => {
+                    const juniorSeats = Number(event.target.value);
+                    setComposition((current) => ({ ...current, juniorSeats }));
+                    setRound((current) => ({
+                      ...current,
+                      requiredPanelSize: String(
+                        1 + composition.seniorSeats + juniorSeats,
+                      ),
+                    }));
+                    changed();
+                  }}
+                />
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={composition.allowSeniorLeadFallback}
+                  onChange={(event) => {
+                    setComposition((current) => ({
+                      ...current,
+                      allowSeniorLeadFallback: event.target.checked,
+                    }));
+                    changed();
+                  }}
+                />
+                Strongest eligible SC may lead when Board is unavailable
+              </label>
+            </div>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => {
+                try {
+                  const plan = planReviewPanels(
+                    readyCandidates
+                      .flatMap((candidate) =>
+                        candidate.profile
+                          ? [
+                              {
+                                id: candidate.personId,
+                                completedReviews: candidate.completedReviews,
+                                ...(candidate.lastReviewedAt === undefined
+                                  ? {}
+                                  : {
+                                      lastReviewedAt: candidate.lastReviewedAt,
+                                    }),
+                                seniority: candidate.profile.seniority,
+                                strength: candidate.profile.strength,
+                                domains: [
+                                  ...candidate.profile.technicalDomains,
+                                  ...candidate.profile.productDomains,
+                                ],
+                                criterionKeys:
+                                  candidate.profile.criterionKeys.filter(
+                                    (key) =>
+                                      criteria.some(
+                                        (criterion) =>
+                                          criterion.stableKey === key,
+                                      ),
+                                  ),
+                              },
+                            ]
+                          : [],
+                      )
+                      .filter(
+                        (candidate) => candidate.criterionKeys.length > 0,
+                      ),
+                    panels.length,
+                    composition,
+                  );
+                  setPanels((current) =>
+                    current.map((panel, index) => ({
+                      ...panel,
+                      members: (plan.panels[index] ?? []).map((candidate) => ({
+                        id: crypto.randomUUID(),
+                        personId: candidate.id,
+                        isCoordinator: candidate.isCoordinator,
+                        criterionIds: criteria
+                          .filter((criterion) =>
+                            candidate.criterionKeys.includes(
+                              criterion.stableKey,
+                            ),
+                          )
+                          .map((criterion) => criterion.id),
+                      })),
+                    })),
+                  );
+                  const seated = new Set(
+                    plan.panels.flatMap((panel) =>
+                      panel.map((candidate) => candidate.id),
+                    ),
+                  );
+                  setReservePersonIds(
+                    candidates
+                      .filter((candidate) => !seated.has(candidate.personId))
+                      .map((candidate) => candidate.personId),
+                  );
+                  changed();
+                } catch (caught) {
+                  setError(readableError(caught));
+                }
+              }}
+            >
+              Suggest {panels.length} panels from skills and experience
+            </button>
+            <div className="form-grid">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={automaticReplacement}
+                  onChange={(event) => {
+                    setAutomaticReplacement(event.target.checked);
+                    changed();
+                  }}
+                />
+                Automatically replace unavailable reviewers
+              </label>
+              <label className="field">
+                <span>JC rotation after reviews (0 disables)</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={juniorRotationReviews}
+                  onChange={(event) => {
+                    setJuniorRotationReviews(event.target.value);
+                    changed();
+                  }}
+                />
+              </label>
+              <label className="field">
+                <span>Arrival after accepting a page (seconds)</span>
+                <input
+                  type="number"
+                  min={15}
+                  max={1800}
+                  step={1}
+                  value={reviewerArrivalSeconds}
+                  onChange={(event) => {
+                    setReviewerArrivalSeconds(event.target.value);
+                    changed();
+                  }}
+                />
+              </label>
+              <label className="field">
+                <span>Assignment reminder before shift (seconds)</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={3600}
+                  step={1}
+                  value={assignmentReminderSeconds}
+                  onChange={(event) => {
+                    setAssignmentReminderSeconds(event.target.value);
+                    changed();
+                  }}
+                />
+              </label>
+            </div>
             <div className="panel-editors">
               {panels.map((panel) => (
                 <PanelEditor
@@ -1370,13 +1631,15 @@ function RoundPublisher({
                   key={panel.id}
                   onAddMember={() => addMember(panel.id)}
                   onRemove={() => {
-                    setPanels((current) => current.filter((item) => item.id !== panel.id));
+                    setPanels((current) => current.filter((item) => item.id !== panel.id),
+                    );
                     changed();
                   }}
                   onRemoveMember={(memberId) => removeMember(panel.id, memberId)}
                   onReviewerSelected={(personId) => {
                     if (personId) {
-                      setReservePersonIds((current) => current.filter((id) => id !== personId));
+                      setReservePersonIds((current) => current.filter((id) => id !== personId),
+                      );
                     }
                   }}
                   onUpdate={(update) => updatePanel(panel.id, update)}
@@ -1393,14 +1656,36 @@ function RoundPublisher({
                   <span className="step-number">4</span>Reserves
                 </h2>
                 <p className="muted">
-                  Trained reviewers not on a panel can be called in to fill an empty seat.
+                  Include the whole remaining pool for app confirmation.
+                  Training and skills must be completed before a reserve can
+                  join a review.
                 </p>
               </div>
+              <button
+                className="secondary"
+                type="button"
+                onClick={() => {
+                  const seated = new Set(
+                    panels.flatMap((panel) =>
+                      panel.members.map((member) => member.personId),
+                    ),
+                  );
+                  setReservePersonIds(
+                    candidates
+                      .filter((candidate) => !seated.has(candidate.personId))
+                      .map((candidate) => candidate.personId),
+                  );
+                  changed();
+                }}
+              >
+                Include everyone not seated
+              </button>
             </div>
             <div className="criterion-assignment-list">
-              {readyCandidates.map((candidate) => {
+              {candidates.map((candidate) => {
                 const panelReviewer = panels.some((panel) =>
-                  panel.members.some((member) => member.personId === candidate.personId),
+                  panel.members.some((member) => member.personId === candidate.personId,
+                  ),
                 );
                 const selected = reservePersonIds.includes(candidate.personId);
                 return (
@@ -1413,12 +1698,14 @@ function RoundPublisher({
                         setReservePersonIds((current) =>
                           event.target.checked
                             ? [...current, candidate.personId]
-                            : current.filter((personId) => personId !== candidate.personId),
+                            : current.filter((personId) => personId !== candidate.personId,
+                              ),
                         );
                         changed();
                       }}
                     />
-                    {candidate.displayName} · {candidate.profile?.criterionKeys.length ?? 0} review{" "}
+                    {candidate.displayName} ·{" "}
+                    {candidate.profile?.criterionKeys.length ?? 0} review{" "}
                     {candidate.profile?.criterionKeys.length === 1 ? "area" : "areas"}
                   </label>
                 );
@@ -1456,7 +1743,7 @@ function RoundPublisher({
               onChange={(event) => setConfirmed(event.target.checked)}
             />
             I reviewed the clock-in and report times, no-show grace, rubric weights, panel seats,
-            coordinators, and reviewer availability.
+            coordinators, and the app confirmation time.
           </label>
           <button
             className="primary"
@@ -1499,7 +1786,8 @@ function CriterionEditor({
   onRemove: () => void;
 }) {
   const updateAnchor = (key: keyof Anchors, value: string) => {
-    onUpdate((current) => ({ ...current, anchors: { ...current.anchors, [key]: value } }));
+    onUpdate((current) => ({ ...current, anchors: { ...current.anchors, [key]: value },
+    }));
   };
   return (
     <details className="criterion-editor">
@@ -1514,7 +1802,8 @@ function CriterionEditor({
               inputMode="numeric"
               value={criterion.weight}
               onChange={(event) =>
-                onUpdate((current) => ({ ...current, weight: event.target.value }))
+                onUpdate((current) => ({ ...current, weight: event.target.value,
+                }))
               }
             />
           </label>
@@ -1523,7 +1812,8 @@ function CriterionEditor({
             <input
               value={criterion.label}
               onChange={(event) =>
-                onUpdate((current) => ({ ...current, label: event.target.value }))
+                onUpdate((current) => ({ ...current, label: event.target.value,
+                }))
               }
             />
           </label>
@@ -1532,7 +1822,8 @@ function CriterionEditor({
             <textarea
               value={criterion.question}
               onChange={(event) =>
-                onUpdate((current) => ({ ...current, question: event.target.value }))
+                onUpdate((current) => ({ ...current, question: event.target.value,
+                }))
               }
             />
           </label>
@@ -1541,7 +1832,8 @@ function CriterionEditor({
             <textarea
               value={criterion.guidance}
               onChange={(event) =>
-                onUpdate((current) => ({ ...current, guidance: event.target.value }))
+                onUpdate((current) => ({ ...current, guidance: event.target.value,
+                }))
               }
             />
           </label>
@@ -1553,7 +1845,8 @@ function CriterionEditor({
             <input
               value={criterion.stableKey}
               onChange={(event) =>
-                onUpdate((current) => ({ ...current, stableKey: event.target.value }))
+                onUpdate((current) => ({ ...current, stableKey: event.target.value,
+                }))
               }
             />
           </label>
@@ -1638,10 +1931,13 @@ function PanelEditor({
   const usedReviewerIds = new Set(
     allPanels.flatMap((item) => item.members.map((member) => member.personId)),
   );
-  const updateMember = (memberId: string, update: (current: MemberDraft) => MemberDraft) => {
+  const updateMember = (memberId: string, update: (current: MemberDraft) => MemberDraft,
+  ) => {
     onUpdate((current) => ({
       ...current,
-      members: current.members.map((member) => (member.id === memberId ? update(member) : member)),
+      members: current.members.map((member) =>
+        member.id === memberId ? update(member) : member,
+      ),
     }));
   };
   return (
@@ -1665,14 +1961,16 @@ function PanelEditor({
                   value={member.personId}
                   onChange={(event) => {
                     const personId = event.target.value;
-                    const candidate = candidates.find((item) => item.personId === personId);
+                    const candidate = candidates.find((item) => item.personId === personId,
+                    );
                     updateMember(member.id, (current) => ({
                       ...current,
                       personId,
                       criterionIds: candidate
                         ? criteria
                             .filter((criterion) =>
-                              candidate.profile?.criterionKeys.includes(criterion.stableKey),
+                              candidate.profile?.criterionKeys.includes(criterion.stableKey,
+                              ),
                             )
                             .map((criterion) => criterion.id)
                         : [],
@@ -1727,7 +2025,8 @@ function PanelEditor({
                   (candidate) => candidate.personId === member.personId,
                 );
                 const qualified =
-                  selectedCandidate?.profile?.criterionKeys.includes(criterion.stableKey) ?? false;
+                  selectedCandidate?.profile?.criterionKeys.includes(criterion.stableKey,
+                  ) ?? false;
                 return (
                   <label className="check-filter" key={criterion.id}>
                     <input
@@ -1739,7 +2038,8 @@ function PanelEditor({
                           ...current,
                           criterionIds: event.target.checked
                             ? [...current.criterionIds, criterion.id]
-                            : current.criterionIds.filter((id) => id !== criterion.id),
+                            : current.criterionIds.filter((id) => id !== criterion.id,
+                              ),
                         }))
                       }
                     />
@@ -1794,7 +2094,8 @@ function commaList(value: string) {
     .filter(Boolean);
 }
 
-function trainingStatusValue(value: string, fallback: TrainingStatus): TrainingStatus {
+function trainingStatusValue(value: string, fallback: TrainingStatus,
+): TrainingStatus {
   if (value === "pending" || value === "complete" || value === "blocked") return value;
   return fallback;
 }
@@ -1818,10 +2119,12 @@ function positiveInteger(value: string, label: string) {
   return parsed;
 }
 
-function boundedInteger(value: string, label: string, minimum: number, maximum: number) {
+function boundedInteger(value: string, label: string, minimum: number, maximum: number,
+) {
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed < minimum || parsed > maximum) {
-    throw new Error(`${label} must be a whole number from ${minimum} through ${maximum}.`);
+    throw new Error(`${label} must be a whole number from ${minimum} through ${maximum}.`,
+    );
   }
   return parsed;
 }
@@ -1834,19 +2137,14 @@ function nonnegativeInteger(value: string, label: string) {
 }
 
 function timestamp(value: string, label: string) {
-  const parsed = new Date(value).getTime();
-  if (!Number.isFinite(parsed)) throw new Error(`${label} is required.`);
+  const parsed = indiaDateTimeToTimestamp(value);
+  if (parsed === null) throw new Error(`${label} is required.`);
   return parsed;
 }
 
-function localDateTime(value: number) {
-  const date = new Date(value);
-  const pad = (part: number) => String(part).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
 function formatMoment(value: number) {
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat("en-IN", {
+    timeZone: "Asia/Kolkata",
     day: "numeric",
     month: "short",
     hour: "numeric",

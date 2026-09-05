@@ -135,7 +135,7 @@ pnpm --filter @code2create/backend keys:check
 - [Product brief](./specs/00-product-brief.md)
 - [Domain and access](./specs/01-domain-and-access.md)
 - [Participant onboarding](./specs/02-participant-onboarding.md)
-- [Panels and queues](./specs/03-panels-and-queues.md)
+- [Panels and queues](./specs/03-panel-and-queue-operations.md)
 - [Reviewer application](./specs/04-reviewer-application.md)
 - [Evaluation system](./specs/05-evaluation-system.md)
 - [Operations dashboard](./specs/06-operations-dashboard.md)
@@ -147,5 +147,6 @@ pnpm --filter @code2create/backend keys:check
 - [Data model and realtime](./specs/12-data-model-and-realtime.md)
 - [Integrations and release](./specs/13-integrations-and-release.md)
 - [Attendance and presence](./specs/14-attendance-and-presence.md)
+- [Event review readiness](./specs/15-event-review-readiness.md)
 
 The specifications define product behavior and invariants. Code and generated API types define implementation detail; do not manually duplicate the full schema or endpoint inventory in this file.

@@ -12,7 +12,8 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import { readAttendanceTeamAvailability } from "./lib/attendanceTeamAvailability";
-import { applyInhibition, attentionClearDelayMs } from "./lib/operationsAttention";
+import { applyInhibition, attentionClearDelayMs,
+} from "./lib/operationsAttention";
 import { appendOperationsAttentionReadFactById } from "./lib/operationsAutonomyReadFacts";
 import {
   reviewPanelItems,
@@ -47,7 +48,8 @@ import {
 const paceSampleLimit = 9;
 /** Ignore older reviews when chasing outstanding scorecards. */
 const scorecardChaseWindowMs = 4 * 60 * 60 * 1_000;
-const activeTeamStates = ["queued", "called", "at_table", "in_review", "held"] as const;
+const activeTeamStates = ["queued", "called", "at_table", "in_review", "held",
+] as const;
 /** Review-domain keys reconciled by this sweep. */
 const reviewDomainDetectorKeys: readonly AttentionDetectorKey[] = [
   "panel_seat_empty",
@@ -148,6 +150,7 @@ const scorecardGapPage = v.object({
 });
 
 type SweepRoundContext = {
+  scoringBufferSeconds: number;
   event: Doc<"events">;
   round: Doc<"reviewRounds">;
   isPaused: boolean;
@@ -157,7 +160,8 @@ async function readSweepRoundContext(
   ctx: QueryCtx,
   args: { eventId: Id<"events">; roundId: Id<"reviewRounds"> },
 ): Promise<SweepRoundContext | null> {
-  const [event, round] = await Promise.all([ctx.db.get(args.eventId), ctx.db.get(args.roundId)]);
+  const [event, round] = await Promise.all([ctx.db.get(args.eventId), ctx.db.get(args.roundId),
+  ]);
   if (
     event === null ||
     event.status !== "live" ||
@@ -169,9 +173,16 @@ async function readSweepRoundContext(
   }
   const pause = await ctx.db
     .query("reviewRoundPauses")
-    .withIndex("by_round_state", (index) => index.eq("roundId", round._id).eq("state", "active"))
+    .withIndex("by_round_state", (index) => index.eq("roundId", round._id).eq("state", "active"),
+    )
     .first();
-  return { event, round, isPaused: pause !== null };
+  const queuePolicy = await ctx.db
+    .query("reviewQueuePolicies")
+    .withIndex("by_round", (q) => q.eq("roundId", round._id))
+    .unique();
+  return { event, round, isPaused: pause !== null,
+    scoringBufferSeconds: queuePolicy?.scoringBufferSeconds ?? 90,
+  };
 }
 
 function detectorCandidate(
@@ -208,7 +219,8 @@ export const reviewDomainTargets = internalQuery({
     const addTarget = (target: ReviewSweepTarget) => {
       const existing = byRound.get(target.roundId);
       if (existing !== undefined && existing.eventId !== target.eventId) {
-        throw new Error("An attention sweep round cannot belong to two events.");
+        throw new Error("An attention sweep round cannot belong to two events.",
+        );
       }
       const expectedSweepVersion = target.expectedSweepVersion ?? existing?.expectedSweepVersion;
       byRound.set(target.roundId, {
@@ -220,7 +232,8 @@ export const reviewDomainTargets = internalQuery({
 
     const events = await ctx.db.query("events").take(2);
     if (events.length > 1) {
-      throw new Error("An attention sweep deployment cannot have more than one event.");
+      throw new Error("An attention sweep deployment cannot have more than one event.",
+      );
     }
     for (const event of events.filter((row) => row.status === "live")) {
       for (const status of ["open", "closing"] as const) {
@@ -246,7 +259,8 @@ export const reviewDomainTargets = internalQuery({
       .withIndex("by_state", (index) => index.eq("state", "active"))
       .take(maximumSweepRounds + 1);
     if (unsettled.length > maximumSweepRounds) {
-      throw new Error(`Attention sweep supports at most ${maximumSweepRounds} unsettled rounds.`);
+      throw new Error(`Attention sweep supports at most ${maximumSweepRounds} unsettled rounds.`,
+      );
     }
     for (const state of unsettled) {
       addTarget({
@@ -256,7 +270,8 @@ export const reviewDomainTargets = internalQuery({
       });
     }
     if (byRound.size > maximumSweepRounds) {
-      throw new Error(`Attention sweep supports at most ${maximumSweepRounds} current rounds.`);
+      throw new Error(`Attention sweep supports at most ${maximumSweepRounds} current rounds.`,
+      );
     }
 
     const targets = await Promise.all(
@@ -269,7 +284,8 @@ export const reviewDomainTargets = internalQuery({
         return state === null ? target : { ...target, expectedSweepVersion: state.version };
       }),
     );
-    return targets.sort((left, right) => left.roundId.localeCompare(right.roundId));
+    return targets.sort((left, right) => left.roundId.localeCompare(right.roundId),
+    );
   },
 });
 
@@ -284,7 +300,8 @@ export const reviewPanelSnapshotPage = internalQuery({
   returns: sweepCandidatePage,
   handler: async (ctx, args) => {
     if (args.paginationOpts.numItems !== panelPageSize) {
-      throw new Error(`Attention panel pages contain exactly ${panelPageSize} panels.`);
+      throw new Error(`Attention panel pages contain exactly ${panelPageSize} panels.`,
+      );
     }
     const context = await readSweepRoundContext(ctx, args);
     if (context === null) {
@@ -298,7 +315,8 @@ export const reviewPanelSnapshotPage = internalQuery({
     }
     const page = await ctx.db
       .query("reviewPanels")
-      .withIndex("by_round_status", (index) => index.eq("roundId", context.round._id))
+      .withIndex("by_round_status", (index) => index.eq("roundId", context.round._id),
+      )
       .paginate(args.paginationOpts);
     const states = await ctx.db
       .query("teamRoundStates")
@@ -319,16 +337,18 @@ export const reviewPanelSnapshotPage = internalQuery({
     const panelViews: PanelProjection[] = [];
     for (const panel of page.page) {
       panelViews.push(
-        await readPanelProjection(ctx, context, panel, queuedByPanelId.get(panel._id) ?? []),
+        await readPanelProjection(ctx, context, panel, queuedByPanelId.get(panel._id) ?? [],
+        ),
       );
     }
-    const input = floorInput(context.round, args.now, context.isPaused, panelViews, []);
+    const input = floorInput(context, args.now, panelViews, []);
     return {
       continueCursor: page.continueCursor,
       isDone: page.isDone,
       valid: true,
       scannedCount: page.page.length,
-      candidates: reviewPanelItems(input).map((item) => detectorCandidate(ctx, item)),
+      candidates: reviewPanelItems(input).map((item) => detectorCandidate(ctx, item),
+      ),
     };
   },
 });
@@ -344,7 +364,8 @@ export const reviewTeamSnapshotPage = internalQuery({
   returns: sweepCandidatePage,
   handler: async (ctx, args) => {
     if (args.paginationOpts.numItems !== teamPageSize) {
-      throw new Error(`Attention team pages contain exactly ${teamPageSize} teams.`);
+      throw new Error(`Attention team pages contain exactly ${teamPageSize} teams.`,
+      );
     }
     const context = await readSweepRoundContext(ctx, args);
     if (context === null) {
@@ -367,13 +388,14 @@ export const reviewTeamSnapshotPage = internalQuery({
       if (!activeTeamStates.some((value) => value === state.state)) continue;
       teamViews.push(await readTeamProjection(ctx, context, state));
     }
-    const input = floorInput(context.round, args.now, context.isPaused, [], teamViews);
+    const input = floorInput(context, args.now, [], teamViews);
     return {
       continueCursor: page.continueCursor,
       isDone: page.isDone,
       valid: true,
       scannedCount: page.page.length,
-      candidates: reviewTeamItems(input).map((item) => detectorCandidate(ctx, item)),
+      candidates: reviewTeamItems(input).map((item) => detectorCandidate(ctx, item),
+      ),
     };
   },
 });
@@ -389,7 +411,8 @@ export const reviewScorecardGapPage = internalQuery({
   returns: scorecardGapPage,
   handler: async (ctx, args) => {
     if (args.paginationOpts.numItems !== scorecardPageSize) {
-      throw new Error(`Attention scorecard pages contain exactly ${scorecardPageSize} rows.`);
+      throw new Error(`Attention scorecard pages contain exactly ${scorecardPageSize} rows.`,
+      );
     }
     const context = await readSweepRoundContext(ctx, args);
     if (context === null) {
@@ -430,7 +453,8 @@ export const reviewScorecardGapPage = internalQuery({
         assignment.reviewSessionId !== session._id ||
         assignment.reviewerPersonId !== scorecard.reviewerPersonId
       ) {
-        throw new Error("An outstanding scorecard has an invalid review context.");
+        throw new Error("An outstanding scorecard has an invalid review context.",
+        );
       }
       const completedAt = session.completedAt;
       if (
@@ -446,7 +470,8 @@ export const reviewScorecardGapPage = internalQuery({
         ctx.db.get(session.panelId),
       ]);
       if (team === null || panel === null) {
-        throw new Error("A completed review references a missing team or panel.");
+        throw new Error("A completed review references a missing team or panel.",
+        );
       }
       gaps.push({
         reviewSessionId: session._id,
@@ -477,14 +502,16 @@ export const reviewRoundAggregateSnapshot = internalQuery({
     roundId: v.id("reviewRounds"),
     now: v.number(),
   },
-  returns: v.object({ valid: v.boolean(), candidates: v.array(sweepCandidate) }),
+  returns: v.object({ valid: v.boolean(), candidates: v.array(sweepCandidate),
+  }),
   handler: async (ctx, args) => {
     const context = await readSweepRoundContext(ctx, args);
     if (context === null) return { valid: false, candidates: [] };
     const [panels, states] = await Promise.all([
       ctx.db
         .query("reviewPanels")
-        .withIndex("by_round_status", (index) => index.eq("roundId", context.round._id))
+        .withIndex("by_round_status", (index) => index.eq("roundId", context.round._id),
+        )
         .take(maximumReviewPanelsPerRound + 1),
       ctx.db
         .query("teamRoundStates")
@@ -508,12 +535,14 @@ export const reviewRoundAggregateSnapshot = internalQuery({
     }
     const panelViews: PanelProjection[] = [];
     for (const panel of panels) {
-      panelViews.push(await readForecastPanelProjection(ctx, panel, queuedByPanelId));
+      panelViews.push(await readForecastPanelProjection(ctx, panel, queuedByPanelId),
+      );
     }
-    const input = floorInput(context.round, args.now, context.isPaused, panelViews, []);
+    const input = floorInput(context, args.now, panelViews, []);
     return {
       valid: true,
-      candidates: roundForecastItems(input).map((item) => detectorCandidate(ctx, item)),
+      candidates: roundForecastItems(input).map((item) => detectorCandidate(ctx, item),
+      ),
     };
   },
 });
@@ -553,7 +582,8 @@ export const reviewScorecardSnapshot = internalQuery({
         existing.panelName !== gap.panelName ||
         existing.completedAt !== gap.completedAt
       ) {
-        throw new Error("One review produced inconsistent scorecard chase facts.");
+        throw new Error("One review produced inconsistent scorecard chase facts.",
+        );
       }
       existing.reviewers.push(gap.reviewer);
     }
@@ -630,13 +660,15 @@ export const sweepReviewDomain = internalAction({
         ...target,
         observed,
         now,
-      });
+      },
+      );
     }
     return null;
   },
 });
 
-async function readBoundedRoundSnapshot(ctx: ActionCtx, target: ReviewSweepTarget, now: number) {
+async function readBoundedRoundSnapshot(ctx: ActionCtx, target: ReviewSweepTarget, now: number,
+) {
   const panelCandidates: SweepCandidate[] = [];
   const teamCandidates: SweepCandidate[] = [];
   const [panelCount, teamCount, gapReading] = await Promise.all([
@@ -674,7 +706,8 @@ async function readBoundedRoundSnapshot(ctx: ActionCtx, target: ReviewSweepTarge
       eventId: target.eventId,
       roundId: target.roundId,
       now,
-    }),
+    },
+    ),
     ctx.runQuery(internal.operationsAttentionSweep.reviewScorecardSnapshot, {
       eventId: target.eventId,
       roundId: target.roundId,
@@ -692,7 +725,8 @@ async function readBoundedRoundSnapshot(ctx: ActionCtx, target: ReviewSweepTarge
   return detected;
 }
 
-async function readScorecardGaps(ctx: ActionCtx, target: ReviewSweepTarget, now: number) {
+async function readScorecardGaps(ctx: ActionCtx, target: ReviewSweepTarget, now: number,
+) {
   const gaps: ScorecardGap[] = [];
   let scorecardCursor: string | null = null;
   let scorecardCount = 0;
@@ -703,13 +737,15 @@ async function readScorecardGaps(ctx: ActionCtx, target: ReviewSweepTarget, now:
         eventId: target.eventId,
         roundId: target.roundId,
         now,
-        paginationOpts: { cursor: scorecardCursor, numItems: scorecardPageSize },
+        paginationOpts: { cursor: scorecardCursor, numItems: scorecardPageSize,
+        },
       },
     );
     if (!page.valid) return null;
     scorecardCount += page.scannedCount;
     if (scorecardCount > maximumDraftScorecardsPerRound) {
-      throw new Error("A round exceeds the outstanding-scorecard projection limit.");
+      throw new Error("A round exceeds the outstanding-scorecard projection limit.",
+      );
     }
     gaps.push(...page.gaps);
     if (page.isDone) break;
@@ -737,7 +773,8 @@ async function readCandidatePages(
       roundId: target.roundId,
       now,
       paginationOpts: { cursor, numItems },
-    });
+    },
+    );
     if (!page.valid) return 0;
     scannedCount += page.scannedCount;
     if (scannedCount > maximumRows) return scannedCount;
@@ -760,14 +797,15 @@ function assertObservationPayload(observed: readonly SweepObservation[]) {
 }
 
 function floorInput(
-  round: Doc<"reviewRounds">,
+  context: SweepRoundContext,
   now: number,
-  isPaused: boolean,
   panels: readonly PanelProjection[],
   teams: readonly TeamProjection[],
 ) {
+  const { round, isPaused, scoringBufferSeconds } = context;
   return {
     now,
+    scoringBufferSeconds,
     roundId: round._id,
     roundName: round.name,
     roundEndsAt: round.endsAt,
@@ -796,7 +834,8 @@ async function readPanelProjection(
       .take(maximumReviewersPerPanel + 1),
     ctx.db
       .query("reviewerPageChains")
-      .withIndex("by_panel_state", (index) => index.eq("panelId", panel._id).eq("state", "active"))
+      .withIndex("by_panel_state", (index) => index.eq("panelId", panel._id).eq("state", "active"),
+        )
       .first(),
     livePanelSessions(ctx, panel._id),
     panel.status === "needs_reviewer"
@@ -907,7 +946,8 @@ async function readTeamProjection(
         .take(maximumReviewersPerPanel + 1),
       ctx.db
         .query("reviewPresence")
-        .withIndex("by_session_reviewer", (index) => index.eq("reviewSessionId", live._id))
+        .withIndex("by_session_reviewer", (index) => index.eq("reviewSessionId", live._id),
+        )
         .take(maximumReviewersPerPanel + 1),
       findReviewParticipantAvailabilityWaiver(ctx, live._id),
     ]);
@@ -917,7 +957,8 @@ async function readTeamProjection(
     ) {
       throw new Error("A live review exceeds the published reviewer limit.");
     }
-    const assigned = assignments.filter((assignment) => assignment.status === "assigned");
+    const assigned = assignments.filter((assignment) => assignment.status === "assigned",
+    );
     review = {
       reviewSessionId: live._id,
       version: live.version,
@@ -925,22 +966,25 @@ async function readTeamProjection(
       createdAt: live.createdAt,
       ...(live.plannedEndAt === undefined ? {} : { plannedEndAt: live.plannedEndAt }),
       reviewerPresenceCount: assigned.filter((assignment) =>
-        presences.some((presence) => presence.reviewerPersonId === assignment.reviewerPersonId),
+        presences.some((presence) => presence.reviewerPersonId === assignment.reviewerPersonId,
+        ),
       ).length,
       reviewerCount: assigned.length,
       canExtend: live.extensionCount < context.round.maximumOrdinaryExtensions,
     };
     availabilityWaived = waiver !== null;
   }
-  return teamProjection(state, team.name, review, availability, context.round, availabilityWaived);
+  return teamProjection(state, team.name, review, availability, context.round, availabilityWaived,
+  );
 }
 
 async function livePanelSessions(ctx: QueryCtx, panelId: Id<"reviewPanels">) {
   const rows = await Promise.all(
-    (["awaiting_presence", "active", "overdue"] as const).map((status) =>
+    (["awaiting_presence", "active", "scoring"] as const).map((status) =>
       ctx.db
         .query("reviewSessions")
-        .withIndex("by_panel_status", (index) => index.eq("panelId", panelId).eq("status", status))
+        .withIndex("by_panel_status", (index) => index.eq("panelId", panelId).eq("status", status),
+        )
         .take(2),
     ),
   );
@@ -949,9 +993,10 @@ async function livePanelSessions(ctx: QueryCtx, panelId: Id<"reviewPanels">) {
   return sessions;
 }
 
-async function liveTeamSessions(ctx: QueryCtx, roundId: Id<"reviewRounds">, teamId: Id<"teams">) {
+async function liveTeamSessions(ctx: QueryCtx, roundId: Id<"reviewRounds">, teamId: Id<"teams">,
+) {
   const rows = await Promise.all(
-    (["awaiting_presence", "active", "overdue"] as const).map((status) =>
+    (["awaiting_presence", "active", "scoring"] as const).map((status) =>
       ctx.db
         .query("reviewSessions")
         .withIndex("by_round_team_status", (index) =>
@@ -1031,7 +1076,8 @@ function teamProjection(
     ...(state.holdReason === undefined ? {} : { holdReason: state.holdReason }),
     ...(lastCallAt === undefined
       ? {}
-      : { missedEligibleAt: lastCallAt + round.missedCallGraceSeconds * 1_000 }),
+      : { missedEligibleAt: lastCallAt + round.missedCallGraceSeconds * 1_000,
+        }),
     updatedAt: state.updatedAt,
     availableCount: availability.insideMemberCount,
     requiredCount: round.minimumPresentParticipants,
@@ -1040,7 +1086,8 @@ function teamProjection(
   };
 }
 
-function clockInStatusOf(clockIn: Doc<"reviewerClockIns"> | null): ClockInStatus {
+function clockInStatusOf(clockIn: Doc<"reviewerClockIns"> | null,
+): ClockInStatus {
   return clockIn === null ? "not_clocked_in" : clockIn.status;
 }
 
@@ -1055,17 +1102,20 @@ function completedDurations(sessions: readonly Doc<"reviewSessions">[]) {
     )
     .sort((left, right) => (right.completedAt ?? 0) - (left.completedAt ?? 0))
     .slice(0, paceSampleLimit)
-    .map((session) => ((session.completedAt ?? 0) - (session.startedAt ?? 0)) / 1_000);
+    .map((session) => ((session.completedAt ?? 0) - (session.startedAt ?? 0)) / 1_000,
+    );
 }
 
 /** Normalizes detector IDs; invalid targets remove the proposal shortcut. */
-function resolvedProposal(ctx: QueryCtx, proposal: AttentionProposal | undefined) {
+function resolvedProposal(ctx: QueryCtx, proposal: AttentionProposal | undefined,
+) {
   if (proposal === undefined) return undefined;
   return storedProposal(ctx, proposal) ?? undefined;
 }
 
 /** Spread form, so an absent proposal is an absent key under exactOptionalPropertyTypes. */
-function proposalFields(ctx: QueryCtx, proposal: AttentionProposal | undefined) {
+function proposalFields(ctx: QueryCtx, proposal: AttentionProposal | undefined,
+) {
   const resolved = resolvedProposal(ctx, proposal);
   return resolved === undefined ? {} : { proposal: resolved };
 }
@@ -1084,24 +1134,29 @@ function storedProposal(
   const stored = ((): StoredAttentionCommand | null => {
     switch (command.name) {
       case "reviewSubstitutions.startPageChain": {
-        const target = ctx.db.normalizeId("reviewPanelMembers", command.missingPanelMemberId);
+        const target = ctx.db.normalizeId("reviewPanelMembers", command.missingPanelMemberId,
+        );
         return target === null ? null : { ...command, missingPanelMemberId: target };
       }
       case "reviewSubstitutions.markNoShow": {
-        const target = ctx.db.normalizeId("reviewPanelMembers", command.panelMemberId);
+        const target = ctx.db.normalizeId("reviewPanelMembers", command.panelMemberId,
+        );
         return target === null ? null : { ...command, panelMemberId: target };
       }
       case "reviewOperations.extendReview": {
-        const target = ctx.db.normalizeId("reviewSessions", command.reviewSessionId);
+        const target = ctx.db.normalizeId("reviewSessions", command.reviewSessionId,
+        );
         return target === null ? null : { ...command, reviewSessionId: target };
       }
       case "reviewExceptions.resumeTeam":
       case "reviewExceptions.markMissed": {
-        const target = ctx.db.normalizeId("teamRoundStates", command.teamRoundStateId);
+        const target = ctx.db.normalizeId("teamRoundStates", command.teamRoundStateId,
+        );
         return target === null ? null : { ...command, teamRoundStateId: target };
       }
       case "reviewExceptions.moveQueuedTeam": {
-        const target = ctx.db.normalizeId("teamRoundStates", command.teamRoundStateId);
+        const target = ctx.db.normalizeId("teamRoundStates", command.teamRoundStateId,
+        );
         const panel = ctx.db.normalizeId("reviewPanels", command.targetPanelId);
         return target === null || panel === null
           ? null
@@ -1141,12 +1196,15 @@ async function reconcile(
   for (const state of liveItemStates) {
     const rows = await ctx.db
       .query("operationsAttentionItems")
-      .withIndex("by_state_round", (index) => index.eq("state", state).eq("roundId", args.roundId))
+      .withIndex("by_state_round", (index) => index.eq("state", state).eq("roundId", args.roundId),
+      )
       .take(maximumReviewAttentionObservations + 1);
     if (rows.length > maximumReviewAttentionObservations) {
       throw new Error("A round exceeds the live attention-row limit.");
     }
-    live.push(...rows.filter((row) => reviewDomainDetectorKeys.includes(row.detectorKey)));
+    live.push(...rows.filter((row) => reviewDomainDetectorKeys.includes(row.detectorKey),
+      ),
+    );
     if (live.length > maximumReviewAttentionObservations) {
       throw new Error("A round exceeds the live attention-row limit.");
     }
@@ -1238,7 +1296,8 @@ async function hasLiveRoundRows(ctx: MutationCtx, roundId: Id<"reviewRounds">) {
   for (const state of liveItemStates) {
     const row = await ctx.db
       .query("operationsAttentionItems")
-      .withIndex("by_state_round", (index) => index.eq("state", state).eq("roundId", roundId))
+      .withIndex("by_state_round", (index) => index.eq("state", state).eq("roundId", roundId),
+      )
       .first();
     if (row !== null) return true;
   }
@@ -1280,7 +1339,8 @@ function sameProposal(
   );
 }
 
-function sameCommand(left: StoredAttentionCommand, right: StoredAttentionCommand) {
+function sameCommand(left: StoredAttentionCommand, right: StoredAttentionCommand,
+) {
   if (left.name !== right.name) return false;
   switch (left.name) {
     case "reviewSubstitutions.startPageChain":

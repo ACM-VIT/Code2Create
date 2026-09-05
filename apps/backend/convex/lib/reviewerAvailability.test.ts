@@ -28,9 +28,12 @@ test("treats the exact clock-in opening as open and the round end as closed", ()
   assert.equal(reviewerClockInIsOpenAt(round, 2_000), false);
 });
 
-test("requires one declared window to cover the complete staffing window", () => {
-  const staffing = { clockInOpensAt: 1_000, endsAt: 4_000 };
-  assert.equal(reviewerCoversStaffingWindow([{ startsAt: 1_000, endsAt: 4_000 }], staffing), true);
+test("requires one confirmed window to cover the complete review", () => {
+  const staffing = { startsAt: 1_000, endsAt: 4_000 };
+  assert.equal(reviewerCoversStaffingWindow([{ startsAt: 1_000, endsAt: 4_000 }], staffing,
+    ),
+    true,
+  );
   assert.equal(
     reviewerCoversStaffingWindow(
       [

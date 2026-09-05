@@ -2,7 +2,6 @@ import { useRouter } from "expo-router";
 import { useSyncExternalStore } from "react";
 
 import { DutyHome, type DutyHeadline, type DutyTile } from "@/components/DutyHome";
-import { VenueStatusLink } from "@/components/VenueStatusLink";
 import { DutyIcon } from "@/components/DutyIcon";
 import { useReviewerSession } from "@/components/ReviewerSession";
 import { localStoreWasReset, subscribeToLocalStoreReset } from "@/lib/encrypted-local-database";
@@ -35,7 +34,6 @@ export function DutyBoard({ group }: { group: "floor" | "board" }) {
 
   return (
     <DutyHome
-      venueAction={<VenueStatusLink />}
       headline={groupHeadline(statuses, shown, who, group)}
       {...(storeReset
         ? {

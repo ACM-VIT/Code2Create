@@ -162,12 +162,14 @@ export const saveReviewerConsent = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const consentId = ctx.db.normalizeId("outboundCallConsents", prior.targetId);
+      const consentId = ctx.db.normalizeId("outboundCallConsents", prior.targetId,
+      );
       if (!consentId) throw new Error("Stored call-consent result is invalid.");
       return {
         consentId,
         state: args.state,
-        version: storedOperationVersion(prior.resultJson, "outbound call consent"),
+        version: storedOperationVersion(prior.resultJson, "outbound call consent",
+        ),
       };
     }
     const grantIds = await requirePermission(ctx, {
@@ -282,7 +284,9 @@ export const saveReviewerConsent = mutation({
       targetType: "outbound_call_consent",
       targetId: consentId,
       ...(current
-        ? { previousSummary: JSON.stringify({ state: current.state, version: current.version }) }
+        ? { previousSummary: JSON.stringify({ state: current.state, version: current.version,
+            }),
+          }
         : {}),
       nextSummary: JSON.stringify({ state: args.state, version }),
       reason:

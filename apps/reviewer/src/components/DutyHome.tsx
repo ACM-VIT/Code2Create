@@ -1,9 +1,12 @@
 import { useState } from "react";
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View,
+} from "react-native";
+import { SafeAreaView, useSafeAreaInsets,
+} from "react-native-safe-area-context";
 
 import { androidNativeTabBarHeight } from "@/lib/navigation-layout";
-import { duty, palette, radius, space, tileAspectRatio, type, type DutyKey } from "@/theme";
+import { duty, palette, radius, space, tileAspectRatio, type, type DutyKey,
+} from "@/theme";
 
 export type DutyTile = {
   key: DutyKey;
@@ -26,12 +29,10 @@ export function DutyHome({
   headline,
   notice,
   tiles,
-  venueAction,
 }: {
   headline: DutyHeadline;
   notice?: string;
   tiles: DutyTile[];
-  venueAction?: React.ReactNode;
 }) {
   const insets = useSafeAreaInsets();
   // Enable scrolling only when content extends behind the Android tab bar.
@@ -51,7 +52,8 @@ export function DutyHome({
           contentContainerStyle={[
             styles.scroll,
             Platform.OS === "android" && overflows
-              ? { paddingBottom: 18 + androidNativeTabBarHeight + insets.bottom }
+              ? { paddingBottom: 18 + androidNativeTabBarHeight + insets.bottom,
+                }
               : null,
           ]}
           contentInsetAdjustmentBehavior="automatic"
@@ -85,12 +87,6 @@ export function DutyHome({
           {notice ? (
             <View style={styles.notice}>
               <Text style={styles.noticeText}>{notice}</Text>
-            </View>
-          ) : null}
-
-          {venueAction ? (
-            <View style={{ marginHorizontal: space.text, marginBottom: 18 }}>
-              {venueAction}
             </View>
           ) : null}
 
@@ -131,7 +127,8 @@ function Tile({ tile }: { tile: DutyTile }) {
       <Text numberOfLines={2} style={[styles.tileStatus, { color: statusColour }]}>
         {tile.status}
       </Text>
-      <View style={[styles.tileIcon, filled || tile.resting !== true ? null : styles.dim]}>
+      <View style={[styles.tileIcon, filled || tile.resting !== true ? null : styles.dim,
+        ]}>
         {tile.icon}
       </View>
     </Pressable>

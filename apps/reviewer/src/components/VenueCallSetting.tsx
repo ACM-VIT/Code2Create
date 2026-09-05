@@ -59,11 +59,12 @@ export function VenueCallSetting({ eventSlug }: { eventSlug: string }) {
     }
   };
   return (
-    <Section title="Departure calls">
+    <Section title="Check-in calls">
       <Body>
-        Allow an automated event call if an unreported departure stays
-        unresolved after the app reminder. This setting is separate from
-        substitute-reviewer calls.
+        Allow an automated assistant to call when your phone suggests you may
+        have left the venue. You can explain whether you are available and when
+        you will return. Your answers and a transcript are saved for organizers.
+        A confirmed absence ends your duty between reviews.
       </Body>
       <Text style={styles.label}>Phone number with country code</Text>
       <TextInput
@@ -83,19 +84,19 @@ export function VenueCallSetting({ eventSlug }: { eventSlug: string }) {
             ? "Saving…"
             : consent.state === "granted"
               ? "Update call number"
-              : "Allow departure calls"
+              : "Allow check-in calls"
         }
         disabled={busy || !value.trim()}
         onPress={() => change("granted")}
       />
       {consent.state === "granted" ? (
         <QuietAction
-          label="Turn off departure calls"
+          label="Turn off check-in calls"
           disabled={busy}
           onPress={() => change("revoked")}
         />
       ) : (
-        <Meta>Departure calls are off.</Meta>
+        <Meta>Check-in calls are off.</Meta>
       )}
     </Section>
   );

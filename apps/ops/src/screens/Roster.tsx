@@ -2,39 +2,30 @@ import { api } from "@code2create/backend/api";
 import { eventRoleLabels } from "@code2create/domain";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
-import * as Papa from "papaparse";
 import { useState, type ChangeEvent, type SubmitEvent } from "react";
 import { Link } from "react-router-dom";
 
 import { Icon, type IconName } from "../components/Icon";
-import { LoadingLabel, SkeletonCard, SkeletonList, SkeletonStats } from "../components/Skeleton";
+import { LoadingLabel, SkeletonCard, SkeletonList, SkeletonStats,
+} from "../components/Skeleton";
 import { eventSlug } from "../lib/config";
 import { readableError } from "../lib/errors";
 import { useOperationRunner } from "../lib/operations";
+import { parseRosterCsv, maximumRosterRows } from "../lib/rosterCsv";
 import { useEstimatedServerNow } from "../lib/useEstimatedServerNow";
 
 type Workspace = FunctionReturnType<typeof api.rosters.workspace>;
 type Entry = Workspace["entries"][number];
 type PreviewRequest = FunctionArgs<typeof api.rosters.previewImport>;
 type ImportRow = PreviewRequest["rows"][number];
-type RosterRole = ImportRow["role"];
 type BundleVersionId = PreviewRequest["bundleVersionIds"][number];
 type ImportResult = FunctionReturnType<typeof api.rosters.confirmImport>;
 
 type EntryGroup = "lapsed" | "waiting" | "signed_in" | "ended";
 
 const maximumCsvBytes = 256 * 1024;
-const maximumRosterRows = 200;
 const maximumBundleSelections = 8;
 const rosterRoles = ["supreme", "board", "sc", "jc", "external_judge"] as const;
-const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-const roleByWrittenForm = new Map<string, RosterRole>(
-  rosterRoles.flatMap((role) => [
-    [role, role] as const,
-    [normalizedRoleText(eventRoleLabels[role]), role] as const,
-  ]),
-);
 const writtenRoleChoices = rosterRoles.map((role) => eventRoleLabels[role]).join(", ");
 
 const rosterGroups: ReadonlyArray<{ key: EntryGroup; label: string }> = [
@@ -62,10 +53,12 @@ export function Roster({ canReadBundles }: { canReadBundles: boolean }) {
   const [sourceName, setSourceName] = useState("");
   const [validFromOverride, setValidFrom] = useState<string | null>(null);
   const [validUntilOverride, setValidUntil] = useState<string | null>(null);
-  const [bundleVersionIds, setBundleVersionIds] = useState<BundleVersionId[]>([]);
+  const [bundleVersionIds, setBundleVersionIds] = useState<BundleVersionId[]>([],
+  );
   const [reason, setReason] = useState("");
   const [fileInputKey, setFileInputKey] = useState(0);
-  const [previewRequest, setPreviewRequest] = useState<PreviewRequest | null>(null);
+  const [previewRequest, setPreviewRequest] = useState<PreviewRequest | null>(null,
+  );
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -92,8 +85,10 @@ export function Roster({ canReadBundles }: { canReadBundles: boolean }) {
   const waiting = entries.filter((entry) => entry.status === "pending").length;
   const signedIn = entries.filter((entry) => entry.status === "claimed").length;
   const lapsed = entries.filter((entry) => entry.status === "expired").length;
-  const compatibleBundles = workspace.bundles.filter((bundle) => bundle.rosterCompatible);
-  const laterBundles = workspace.bundles.filter((bundle) => !bundle.rosterCompatible);
+  const compatibleBundles = workspace.bundles.filter((bundle) => bundle.rosterCompatible,
+  );
+  const laterBundles = workspace.bundles.filter((bundle) => !bundle.rosterCompatible,
+  );
 
   const readCsv = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -145,7 +140,8 @@ export function Roster({ canReadBundles }: { canReadBundles: boolean }) {
       return;
     }
     if (reason.trim().length < 5) {
-      setError("Say why this list is being added, in at least five characters.");
+      setError("Say why this list is being added, in at least five characters.",
+      );
       return;
     }
     setError(null);
@@ -195,11 +191,13 @@ export function Roster({ canReadBundles }: { canReadBundles: boolean }) {
 
   const selectBundle = (versionId: BundleVersionId, selected: boolean) => {
     if (!selected) {
-      setBundleVersionIds((current) => current.filter((id) => id !== versionId));
+      setBundleVersionIds((current) => current.filter((id) => id !== versionId),
+      );
       return;
     }
     if (bundleVersionIds.length >= maximumBundleSelections) {
-      setError(`One list can carry at most ${maximumBundleSelections} reusable access sets.`);
+      setError(`One list can carry at most ${maximumBundleSelections} reusable access sets.`,
+      );
       return;
     }
     setError(null);
@@ -258,7 +256,9 @@ export function Roster({ canReadBundles }: { canReadBundles: boolean }) {
                 These counts cover the {entries.length} most recently added people.
               </p>
             ) : null}
-            {workspace.importBlocker ? <p className="muted">{workspace.importBlocker}</p> : null}
+            {workspace.importBlocker ? (
+              <p className="muted">{workspace.importBlocker}</p>
+            ) : null}
             {!workspace.canImport && !workspace.importBlocker ? (
               <p className="muted">You can read this list but not add people to it.</p>
             ) : null}
@@ -294,7 +294,10 @@ export function Roster({ canReadBundles }: { canReadBundles: boolean }) {
           <div>
             <h2>Add people from a spreadsheet</h2>
             <p className="muted">
-              A CSV of up to {maximumRosterRows} rows with the columns <code>email,name,role</code>.
+              Import up to {maximumRosterRows} people using{" "}
+              <code>email,name,role</code> or the reviewer form CSV/TSV. Form
+              imports keep skills, resume and GitHub references, use each
+              person’s latest response, and ignore the old hour selections.
               The role is one of: {writtenRoleChoices}.
             </p>
           </div>
@@ -314,14 +317,14 @@ export function Roster({ canReadBundles }: { canReadBundles: boolean }) {
               <label className="field roster-file-field">
                 <span>Team list</span>
                 <input
-                  accept=".csv,text/csv"
+                  accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values,text/plain"
                   key={fileInputKey}
                   type="file"
                   onChange={(event) => void readCsv(event)}
                 />
                 {loadedRoster ? (
                   <small>
-                    {loadedRoster.rows.length} {people(loadedRoster.rows.length)} read from{" "}
+                    {loadedRoster.rows.length}{" "} {people(loadedRoster.rows.length)} read from{" "}
                     {loadedRoster.fileName}
                   </small>
                 ) : null}
@@ -523,7 +526,8 @@ function RosterEntry({ entry }: { entry: Entry }) {
 
   const confirmRevoke = async () => {
     if (reason.trim().length < 5) {
-      setError("Say why this invitation is being removed, in at least five characters.");
+      setError("Say why this invitation is being removed, in at least five characters.",
+      );
       return;
     }
     setBusy(true);
@@ -558,7 +562,9 @@ function RosterEntry({ entry }: { entry: Entry }) {
         <div className="row-text">
           <strong>
             {entry.displayName}
-            <span className="row-context"> · {eventRoleLabels[entry.role]}</span>
+            <span className="row-context">
+              {" "}
+              · {eventRoleLabels[entry.role]}</span>
           </strong>
           <small>{statusStatement(entry)}</small>
           <small className="row-context">
@@ -653,66 +659,6 @@ function statusStatement(entry: Entry) {
     return "The invitation was removed, so this person can no longer sign in.";
   }
   return "A newer invitation for the same email address replaced this one.";
-}
-
-function parseRosterCsv(text: string): ImportRow[] {
-  const parsed = Papa.parse<string[]>(text, { skipEmptyLines: false });
-  const firstError = parsed.errors[0];
-  if (firstError) {
-    const row = firstError.row === undefined ? "" : ` on row ${firstError.row + 1}`;
-    throw new Error(`CSV parsing failed${row}: ${firstError.message}`);
-  }
-  const header = parsed.data[0];
-  const normalizedHeader = header?.map((cell, index) =>
-    (index === 0 ? cell.replace(/^\uFEFF/, "") : cell).trim().toLowerCase(),
-  );
-  if (
-    normalizedHeader?.length !== 3 ||
-    normalizedHeader[0] !== "email" ||
-    normalizedHeader[1] !== "name" ||
-    normalizedHeader[2] !== "role"
-  ) {
-    throw new Error("The first CSV row must be exactly: email,name,role.");
-  }
-  const rows: ImportRow[] = [];
-  for (let index = 1; index < parsed.data.length; index += 1) {
-    const source = parsed.data[index];
-    if (!source || source.every((cell) => !cell.trim())) continue;
-    const email = source[0]?.trim().toLowerCase();
-    const displayName = source[1]?.trim();
-    const role = source[2] ? parsedRole(source[2]) : null;
-    if (source.length !== 3 || !email || !displayName || !role) {
-      throw new Error(
-        `CSV row ${index + 1} needs an email, a name, and one of these roles: ${writtenRoleChoices}.`,
-      );
-    }
-    if (!emailPattern.test(email) || email.length > 254) {
-      throw new Error(`CSV row ${index + 1} has an invalid email address.`);
-    }
-    if (displayName.length < 2 || displayName.length > 100) {
-      throw new Error(`CSV row ${index + 1} needs a name between 2 and 100 characters.`);
-    }
-    rows.push({ rowNumber: index + 1, email, displayName, role });
-  }
-  if (rows.length === 0) throw new Error("The CSV contains no roster rows.");
-  if (rows.length > maximumRosterRows) {
-    throw new Error(`Import at most ${maximumRosterRows} roster rows at a time.`);
-  }
-  const duplicate = rows.find((row, index) =>
-    rows.some(
-      (candidate, candidateIndex) => candidateIndex < index && candidate.email === row.email,
-    ),
-  );
-  if (duplicate) throw new Error(`${duplicate.email} appears more than once in the CSV.`);
-  return rows;
-}
-
-function normalizedRoleText(value: string) {
-  return value.trim().toLowerCase().replace(/[ -]+/g, "_");
-}
-
-function parsedRole(value: string): RosterRole | null {
-  return roleByWrittenForm.get(normalizedRoleText(value)) ?? null;
 }
 
 function sourceNameFromFile(fileName: string) {

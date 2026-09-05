@@ -73,6 +73,8 @@ const snapshot: EmergencyPackSnapshot = {
       scoreMinimum: 0,
       scoreMaximum: 4,
       requiresSharedCommitments: true,
+      requiresFinalComment: true,
+      requiredPanelSize: 5,
       criteria: [
         {
           id: "criterion-1",
@@ -124,6 +126,8 @@ test("builds the live snapshot and the requested numbered paper forms", () => {
   assert.match(result.html, /C2C7-A1B2C3D40011EEFF-R-002/);
   assert.match(result.html, /North entry/);
   assert.match(result.html, /Intermediate rubric/);
+  assert.match(result.html, /Reviewer 5 score/);
+  assert.match(result.html, /Final comment \(required\)/);
   assert.match(result.html, /Venue network recovery rehearsal/);
   assert.match(result.html, /Ladies&#039; hostel · S block/);
   assert.match(result.html, />412</);

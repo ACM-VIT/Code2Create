@@ -36,7 +36,6 @@ export default function VenueScreen() {
   const { eventSlug, surfaces, venue } = useReviewerSession();
   const router = useRouter();
   const declareDeparture = useMutation(api.reviewerVenue.declareDeparture);
-  const confirmReturn = useMutation(api.reviewerVenue.confirmReturn);
   const acknowledge = useMutation(api.reviewerVenueWarning.acknowledgeWarning);
   const [now, setNow] = useState(Date.now);
   const [busy, setBusy] = useState(false);
@@ -180,30 +179,19 @@ export default function VenueScreen() {
                 {state.departure?.reason ?? "Your departure is recorded."}
               </Body>
               <Meta>
-                Departure reminders are stopped. When you return, enable venue
-                checks and confirm your location here.
+                You're off duty. When you're back, clock in from Reviews.
               </Meta>
               <Action
-                disabled={busy || !localTracking}
-                label="I'm back at the venue"
-                onPress={() =>
-                  run(async () => {
-                    await refreshVenueLocation();
-                    if (departureId && venue.installationId)
-                      await confirmReturn({
-                        eventSlug,
-                        installationId: venue.installationId,
-                        departureId,
-                      });
-                  })
-                }
+                label="Go to Reviews"
+                onPress={() => router.push("/duty/reviews")}
               />
             </Section>
           ) : (
             <Section title="Leaving the venue?">
               <Body>
-                Tell the review desk before you go. Your reason will be visible
-                to organizers. Arrange cover for any active review.
+                {state?.reviewInProgress
+                  ? "Finish this review and its scorecards before leaving."
+                  : "You’ll be taken off duty so your place can be covered. Your reason is visible to the desk."}
               </Body>
               {leaving ? (
                 <>
@@ -221,7 +209,11 @@ export default function VenueScreen() {
                   />
                   <Action
                     label={busy ? "Saving…" : "Inform desk I'm leaving"}
-                    disabled={busy || reason.trim().length < 3}
+                    disabled={
+                      busy ||
+                      state?.reviewInProgress ||
+                      reason.trim().length < 3
+                    }
                     onPress={() =>
                       run(async () => {
                         if (!venue.installationId) return;
@@ -247,8 +239,8 @@ export default function VenueScreen() {
                 </>
               ) : (
                 <Action
-                  label="Leaving venue"
-                  disabled={busy}
+                  label="Leave and end duty"
+                  disabled={busy || state?.reviewInProgress}
                   onPress={() => setLeaving(true)}
                 />
               )}

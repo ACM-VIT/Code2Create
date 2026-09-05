@@ -11,7 +11,7 @@ export function venuePresenceLabel(
   return {
     inside: "At venue",
     outside: "Outside venue",
-    left: "Left without informing",
+    left: "Outside venue — check needed",
     unknown: "Location unavailable",
   }[status];
 }

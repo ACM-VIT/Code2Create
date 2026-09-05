@@ -4,7 +4,11 @@ import { createContext, useContext, useState, type ReactNode } from "react";
 
 import { PagerAlert } from "@/components/PagerAlert";
 import { VenueNotificationRouting } from "@/components/VenueNotificationRouting";
-import { PrimaryAction, ReviewerBooting, ReviewerGate } from "@/components/ReviewerSessionGate";
+import {
+  PrimaryAction,
+  ReviewerBooting,
+  ReviewerGate,
+} from "@/components/ReviewerSessionGate";
 import type { DutyStatus } from "@/lib/duty-status";
 import { describeError } from "@/lib/errors";
 import { reviewerSurfaces, type Surface } from "@/lib/reviewer-surfaces";
@@ -30,7 +34,8 @@ type ReviewerSession = {
 const SessionContext = createContext<ReviewerSession | null>(null);
 export function useReviewerSession() {
   const session = useContext(SessionContext);
-  if (!session) throw new Error("useReviewerSession used outside the reviewer session provider.");
+  if (!session) throw new Error("useReviewerSession used outside the reviewer session provider.",
+    );
   return session;
 }
 
@@ -75,7 +80,8 @@ export function ReviewerSessionProvider({
           setAuthError("Google sign-in could not be completed. Try again.");
         }
       } catch (caught) {
-        setAuthError(describeError(caught, "Google sign-in could not be completed."));
+        setAuthError(describeError(caught, "Google sign-in could not be completed."),
+        );
       } finally {
         setAuthBusy(false);
       }

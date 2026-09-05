@@ -9,7 +9,10 @@ import type {
   OutboundCallEvent,
   OutboundCallEventType,
   OutboundCallRequest,
+  VenueCallResponse,
 } from "@code2create/domain";
+
+import { venueCallResponse } from "./venue-confirmation.js";
 
 import {
   outboundCallRequestSchema,
@@ -42,7 +45,7 @@ export interface VoiceEnvironment extends TelephonyEnvironment {
 }
 
 type SessionPhase =
-  | "accepted"
+  "accepted"
   | "dispatching"
   | "queued"
   | "ambiguous"
@@ -106,14 +109,18 @@ function sameRequest(left: OutboundCallRequest, right: OutboundCallRequest) {
     left.deliveryId === right.deliveryId &&
     left.destinationPhoneE164 === right.destinationPhoneE164 &&
     left.script === right.script &&
-    left.callbackUrl === right.callbackUrl
+    left.callbackUrl === right.callbackUrl &&
+    JSON.stringify(left.venueConfirmation) ===
+      JSON.stringify(right.venueConfirmation)
   );
 }
 
 function eventFor(
   session: CallSession,
   eventType: OutboundCallEventType,
-  options: { providerCallId?: string; providerErrorCode?: string } = {},
+  options: { providerCallId?: string; providerErrorCode?: string;
+    venueResponse?: VenueCallResponse;
+  } = {},
 ): OutboundCallEvent {
   return {
     protocolVersion: outboundCallProtocolVersion,
@@ -121,6 +128,7 @@ function eventFor(
     deliveryId: session.request.deliveryId,
     eventType,
     providerAt: Date.now(),
+    ...(options.venueResponse ? { venueResponse: options.venueResponse } : {}),
     ...(options.providerCallId !== undefined ? { providerCallId: options.providerCallId } : {}),
     ...(options.providerErrorCode !== undefined
       ? { providerErrorCode: options.providerErrorCode }
@@ -262,6 +270,7 @@ export class OutboundCallSession {
           token: session.token,
           destinationPhoneE164: session.request.destinationPhoneE164,
           script: session.request.script,
+          venueConfirmation: session.request.venueConfirmation,
         }),
       };
     } catch (error) {
@@ -388,7 +397,8 @@ export class OutboundCallSession {
       if (!sameRequest(existing.request, parsed.data)) {
         return noStoreJson({ error: "delivery_conflict" }, 409);
       }
-      return noStoreJson({ accepted: true, deliveryId: existing.request.deliveryId }, 202);
+      return noStoreJson({ accepted: true, deliveryId: existing.request.deliveryId }, 202,
+      );
     }
     const now = Date.now();
     const session: CallSession = {
@@ -405,7 +415,8 @@ export class OutboundCallSession {
     };
     await this.state.storage.put(sessionStorageKey, session);
     await this.state.storage.setAlarm(now);
-    return noStoreJson({ accepted: true, deliveryId: session.request.deliveryId }, 202);
+    return noStoreJson({ accepted: true, deliveryId: session.request.deliveryId }, 202,
+    );
   }
 
   private async voice(request: Request) {
@@ -413,6 +424,10 @@ export class OutboundCallSession {
     if (session === null) {
       return new Response("Not found.", { status: 404 });
     }
+    if (session.request.venueConfirmation)
+      return new Response("Conversation requires the configured agent.", {
+        status: 409,
+      });
     return new Response(twilioVoiceXml(session.request.script), {
       headers: {
         "content-type": "text/xml; charset=utf-8",
@@ -450,6 +465,7 @@ export class OutboundCallSession {
     const providerCallId = form.get("CallSid")?.trim() ?? "";
     const eventType = twilioStatusEvent(form.get("CallStatus") ?? "");
     if (
+      session.request.venueConfirmation !== undefined ||
       providerCallId.length === 0 ||
       providerCallId.length > 128 ||
       eventType === null ||
@@ -516,6 +532,12 @@ export class OutboundCallSession {
       eventType,
       204,
       parsed.data.status === "failed" ? "sarvam_failed" : undefined,
+      session.request.venueConfirmation && parsed.data.status === "connected"
+        ? venueCallResponse(
+            parsed.data.final_agent_variables,
+            parsed.data.interaction_transcript,
+          )
+        : undefined,
     );
   }
 
@@ -526,13 +548,14 @@ export class OutboundCallSession {
     eventType: OutboundCallEventType,
     successStatus: 200 | 204,
     providerErrorCode?: string,
+    venueResponse?: VenueCallResponse,
   ) {
     const current = await this.authorizedSession(request);
     if (!current) return new Response("Not found.", { status: 404 });
     if (
       (current.provider !== undefined && current.provider !== provider) ||
-      current.providerCallId !== undefined &&
-      current.providerCallId !== providerCallId
+      (current.providerCallId !== undefined &&
+      current.providerCallId !== providerCallId)
     ) {
       return new Response("Invalid status.", { status: 422 });
     }
@@ -559,6 +582,7 @@ export class OutboundCallSession {
         eventFor(current, eventType, {
           providerCallId,
           ...(providerErrorCode === undefined ? {} : { providerErrorCode }),
+          ...(venueResponse === undefined ? {} : { venueResponse }),
         }),
       ],
       reportedEventTypes: [...current.reportedEventTypes, eventType],
@@ -593,8 +617,7 @@ async function callStub(
   args: {
     deliveryId: string;
     token?: string;
-    route:
-      | "create"
+    route: "create"
       | "voice"
       | "fallback"
       | "status"
@@ -644,7 +667,8 @@ export default {
           ok: false,
           telephonyConfigured: false,
           configurationError: error.message,
-        }, 503);
+        }, 503,
+        );
       }
       const twilioIsConfigured = twilioConfigured(environment);
       const sarvamIsConfigured = sarvamConfigured(environment);

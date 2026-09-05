@@ -105,7 +105,11 @@ export const configure = mutation({
     };
     const policyId =
       current?._id ?? (await ctx.db.insert("reviewerVenuePolicies", fields));
-    if (current) await ctx.db.patch(current._id, fields);
+    if (current)
+      await ctx.db.patch(current._id, {
+        ...fields,
+        confirmationAgent: args.policy.confirmationAgent,
+      });
     await recordOperation(ctx, {
       ...operation,
       targetType: "reviewer_venue_policy",
@@ -150,7 +154,13 @@ export const roster = query({
         ]);
         const departure = presence?.departureId
           ? await ctx.db.get(presence.departureId)
-          : null;
+          : await ctx.db
+              .query("reviewerVenueDepartures")
+              .withIndex("by_eventId_personId_leftAt", (q) =>
+                q.eq("eventId", event._id).eq("personId", profile.personId),
+              )
+              .order("desc")
+              .first();
         const call = departure?.callDeliveryId
           ? await ctx.db.get(departure.callDeliveryId)
           : null;
@@ -169,9 +179,40 @@ export const roster = query({
           notificationState: departure?.notificationState,
           callState: call?.state,
           callError: call?.providerErrorCode,
+          callId: call?._id,
+          response: call?.venueResponse
+            ? {
+                outcome: call.venueResponse.outcome,
+                confirmed: call.venueResponse.confirmed,
+                summary: call.venueResponse.summary,
+                returnInMinutes: call.venueResponse.returnInMinutes,
+              }
+            : undefined,
+          responseEffect: call?.venueResponseEffect,
+          responseRecordedAt: call?.responseRecordedAt,
         };
       }),
     );
     return { ...profiles, page };
+  },
+});
+
+export const callResponse = query({
+  args: { eventSlug: v.string(), deliveryId: v.id("outboundCallDeliveries") },
+  handler: async (ctx, args) => {
+    const { event } = await operator(
+      ctx,
+      args.eventSlug,
+      "reviewer.profile.read",
+    );
+    const call = await ctx.db.get(args.deliveryId);
+    if (
+      !call ||
+      call.eventId !== event._id ||
+      call.sourceType !== "reviewer_venue_departure"
+    )
+      return null;
+    const responseEvent = call.responseEventId ? await ctx.db.get(call.responseEventId) : null;
+    return responseEvent?.venueResponse ?? null;
   },
 });

@@ -10,6 +10,7 @@ import {
   formatMonthDayTimeWindow as formatWindow,
 } from "../lib/dateTime";
 import { LoadingLabel, SkeletonList } from "../components/Skeleton";
+import { CombinedReviewResults } from "../components/ReviewAggregation";
 
 type Round = FunctionReturnType<typeof api.scoreGovernance.rounds>[number];
 
@@ -44,6 +45,8 @@ export function ScoreOverview() {
           </p>
         </div>
       </header>
+
+      <CombinedReviewResults />
 
       <div className="review-round-list">
         {rounds.map((round) => (

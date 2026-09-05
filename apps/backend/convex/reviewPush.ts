@@ -41,13 +41,22 @@ export const deliverPage = internalAction({
     const claim = await ctx.runMutation(internal.reviewPushState.claimDelivery, {
       deliveryId: args.deliveryId,
       attemptId,
-    });
+    },
+    );
     if (!claim) return null;
 
-    const outcome =
-      claim.provider === "fcm"
-        ? await sendFcmNotification(claim)
-        : await sendApnsNotification(claim);
+    const data = reviewerPagePushData({
+      pageId: claim.pageId,
+      roundName: claim.roundName,
+      expiresAt: claim.expiresAt,
+    });
+    const outcome = await sendReviewerPush({
+      ...claim,
+      title: "Substitute request",
+      body: data.body,
+      collapseKey: `reviewer-page-${claim.pageId}`,
+      data,
+    });
     if (outcome.ok) {
       await ctx.runMutation(internal.reviewPushState.recordProviderAcceptance, {
         deliveryId: args.deliveryId,
@@ -68,6 +77,12 @@ export const deliverPage = internalAction({
   },
 });
 
+export async function sendReviewerPush(claim: PushClaim): Promise<PushOutcome> {
+  return claim.provider === "fcm"
+    ? sendFcmNotification(claim)
+    : sendApnsNotification(claim);
+}
+
 async function sendFcmNotification(claim: PushClaim): Promise<PushOutcome> {
   try {
     const app = firebaseApp();
@@ -75,15 +90,17 @@ async function sendFcmNotification(claim: PushClaim): Promise<PushOutcome> {
     // Data-only FCM reaches PagerMessagingService for full-screen handling.
     const messageId = await getMessaging(app).send({
       token: claim.token,
-      data: reviewerPagePushData({
-        pageId: claim.pageId,
-        roundName: claim.roundName,
-        expiresAt: claim.expiresAt,
-      }),
+      ...(claim.data.kind === "reviewer_substitute_page"
+        ? {}
+        : { notification: { title: claim.title, body: claim.body } }),
+      data: claim.data,
       android: {
         priority: "high",
         ttl,
-        collapseKey: `reviewer-page-${claim.pageId}`,
+        collapseKey: claim.collapseKey,
+        ...(claim.notificationChannel
+          ? { notification: { channelId: claim.notificationChannel, sound: "default" } }
+          : {}),
       },
     });
     return { ok: true, messageId };
@@ -104,7 +121,8 @@ function firebaseApp() {
   const credentials = firebaseCredentialsSchema.parse({
     projectId: process.env.FIREBASE_PROJECT_ID?.trim(),
     clientEmail: process.env.FIREBASE_CLIENT_EMAIL?.trim(),
-    privateKey: process.env.FIREBASE_PRIVATE_KEY?.replaceAll("\\n", "\n").trim(),
+    privateKey: process.env.FIREBASE_PRIVATE_KEY?.replaceAll("\\n", "\n",
+    ).trim(),
   });
   return initializeApp({ credential: cert(credentials) }, firebaseAppName);
 }
@@ -132,21 +150,16 @@ function fcmFailure(code: string): PushFailure {
 async function sendApnsNotification(claim: PushClaim): Promise<PushOutcome> {
   return sendApnsAlert({
     ...claim,
-    collapseId: `reviewer-${claim.pageId}`,
+    collapseId: claim.collapseKey,
     payload: {
       aps: {
-        alert: {
-          title: "Substitute request",
-          body: reviewerPagePushData(claim).body,
-        },
+        alert: { title: claim.title, body: claim.body },
         "interruption-level": "time-sensitive",
         "relevance-score": 1,
         sound: "default",
-        "thread-id": "reviewer-pages",
+        "thread-id": claim.notificationChannel ?? "reviewer-pages",
       },
-      kind: "reviewer_substitute_page",
-      pageId: claim.pageId,
-      expiresAt: claim.expiresAt,
+      ...claim.data,
     },
   });
 }
@@ -215,9 +228,8 @@ async function sendApnsAlert(claim: {
     const retryable =
       response.status === 429 ||
       response.status >= 500 ||
-      new Set(["TooManyRequests", "InternalServerError", "ServiceUnavailable", "Shutdown"]).has(
-        reason,
-      );
+      new Set(["TooManyRequests", "InternalServerError", "ServiceUnavailable", "Shutdown",
+      ]).has(reason);
     return {
       ok: false,
       errorCode: normalizedProviderCode(`apns_${response.status}_${reason}`),
@@ -275,7 +287,8 @@ async function apnsRequest(args: {
     stream.once("error", (error) => finish(() => rejectPromise(error)));
     stream.once("end", () => {
       const body = Buffer.concat(chunks).toString("utf8");
-      finish(() => resolvePromise({ status, body, ...(apnsId ? { apnsId } : {}) }));
+      finish(() => resolvePromise({ status, body, ...(apnsId ? { apnsId } : {}) }),
+      );
     });
     stream.end(args.body);
   });
@@ -295,28 +308,28 @@ function normalizedProviderCode(value: string) {
 }
 
 type PushClaim = {
-  pageId: string;
+  title: string;
+  body: string;
+  collapseKey: string;
+  notificationChannel?: string;
+  data: Record<string, string>;
   token: string;
   provider: "fcm" | "apns";
   environment: "development" | "production";
-  roundName: string;
   expiresAt: number;
 };
 
-type NativeAlertPayload = {
-  aps: {
-    alert: { title: string; body: string };
-    sound: string;
-    "thread-id": string;
-    "interruption-level": "time-sensitive";
-    "relevance-score"?: number;
-  };
-  kind: "reviewer_substitute_page" | "reviewer_venue_absence";
-  expiresAt: number;
-  pageId?: string;
-  departureId?: string;
-  url?: string;
+type NativeAlertAps = {
+  alert: { title: string; body: string };
+  sound: string;
+  "thread-id": string;
+  "interruption-level": "time-sensitive";
+  "relevance-score"?: number;
 };
+type NativeAlertPayload = { aps: NativeAlertAps } & Record<
+  string,
+  string | number | NativeAlertAps
+>;
 
 export const deliverVenueReminder = internalAction({
   args: { departureId: v.id("reviewerVenueDepartures") },
@@ -328,56 +341,25 @@ export const deliverVenueReminder = internalAction({
       { ...args, attemptId },
     );
     if (!claim) return null;
-    let outcome: PushOutcome;
-    try {
-      if (claim.provider === "fcm") {
-        const messageId = await getMessaging(firebaseApp()).send({
-          token: claim.token,
-          notification: { title: claim.title, body: claim.body },
-          data: {
-            kind: "reviewer_venue_absence",
-            departureId: args.departureId,
-            url: "/venue",
-            expiresAt: String(claim.expiresAt),
-          },
-          android: {
-            priority: "high",
-            ttl: Math.max(1_000, claim.expiresAt - Date.now()),
-            collapseKey: `venue-${args.departureId}`,
-            notification: { channelId: "reviewer-venue", sound: "default" },
-          },
-        });
-        outcome = { ok: true, messageId };
-      } else {
-        outcome = await sendApnsAlert({
-          ...claim,
-          collapseId: `venue-${args.departureId}`,
-          payload: {
-            aps: {
-              alert: { title: claim.title, body: claim.body },
-              sound: "default",
-              "thread-id": "reviewer-venue",
-              "interruption-level": "time-sensitive",
-            },
-            kind: "reviewer_venue_absence",
-            departureId: args.departureId,
-            url: "/venue",
-            expiresAt: claim.expiresAt,
-          },
-        });
-      }
-    } catch {
-      outcome = {
-        ok: false,
-        errorCode: "venue_push_failed",
-        retryable: true,
-        invalidateToken: false,
-      };
-    }
+    const outcome = await sendReviewerPush({
+      ...claim,
+      collapseKey: `venue-${args.departureId}`,
+      notificationChannel: "reviewer-venue",
+      data: {
+        kind: "reviewer_venue_absence",
+        departureId: args.departureId,
+        url: "/venue",
+        expiresAt: String(claim.expiresAt),
+      },
+    });
     await ctx.runMutation(internal.reviewerVenueEscalation.recordNotification, {
       ...args,
       attemptId,
       sent: outcome.ok,
+      reviewerDeviceId: claim.reviewerDeviceId,
+      tokenFingerprint: claim.tokenFingerprint,
+      invalidateToken: !outcome.ok && outcome.invalidateToken,
+      retryable: !outcome.ok && outcome.retryable,
       ...(!outcome.ok ? { errorCode: outcome.errorCode } : {}),
     });
     return null;

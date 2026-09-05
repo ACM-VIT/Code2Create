@@ -1,4 +1,7 @@
-import { paginationOptsValidator, paginationResultValidator } from "convex/server";
+import {
+  paginationOptsValidator,
+  paginationResultValidator,
+} from "convex/server";
 import { ConvexError, v } from "convex/values";
 import { z } from "zod";
 
@@ -39,6 +42,11 @@ import { selfScopeKind } from "./lib/grantScopes";
 import { grantSupremeRolePermissions } from "./lib/rolePermissions";
 import { normalizeEmail, normalizedText } from "./lib/strings";
 import { eventRoleLabels } from "@code2create/domain";
+import {
+  reviewerPoolDetails,
+  normalizeReviewerPoolDetails,
+  type ReviewerPoolDetails,
+} from "./lib/reviewerPool";
 
 import { eventRole, rosterEntryStatus } from "./values";
 
@@ -85,6 +93,7 @@ const importRow = v.object({
   email: v.string(),
   displayName: v.string(),
   role: eventRole,
+  reviewerDetails: v.optional(reviewerPoolDetails),
 });
 
 const importRequestArgs = {
@@ -148,6 +157,7 @@ type ImportRequest = {
     email: string;
     displayName: string;
     role: Doc<"rosterEntries">["role"];
+    reviewerDetails?: ReviewerPoolDetails;
   }>;
   reason: string;
 };
@@ -163,7 +173,8 @@ function exactRosterEmail(value: string) {
   return email;
 }
 
-function checkedValidity(event: Doc<"events">, validFrom: number, validUntil: number, now: number) {
+function checkedValidity(event: Doc<"events">, validFrom: number, validUntil: number, now: number,
+) {
   if (event.endsAt === undefined) {
     throw new ConvexError({
       code: "EVENT_SCHEDULE_REQUIRED",
@@ -186,7 +197,8 @@ function checkedValidity(event: Doc<"events">, validFrom: number, validUntil: nu
   return { validFrom, validUntil };
 }
 
-function normalizeImportRequest(event: Doc<"events">, request: ImportRequest, now: number) {
+function normalizeImportRequest(event: Doc<"events">, request: ImportRequest, now: number,
+) {
   if (request.rows.length < 1 || request.rows.length > maximumRowsPerImport) {
     throw new ConvexError({
       code: "INVALID_ROSTER_SIZE",
@@ -202,12 +214,14 @@ function normalizeImportRequest(event: Doc<"events">, request: ImportRequest, no
       message: `Choose at most ${maximumBundlesPerImport} different permission bundles.`,
     });
   }
-  const sourceName = normalizedText(request.sourceName, "Roster source", 3, 100);
+  const sourceName = normalizedText(request.sourceName, "Roster source", 3, 100,
+  );
   const sourceFileName = request.sourceFileName
     ? normalizedText(request.sourceFileName, "Source file name", 1, 160)
     : undefined;
   const reason = normalizedText(request.reason, "Reason", 5, 300);
-  const validity = checkedValidity(event, request.validFrom, request.validUntil, now);
+  const validity = checkedValidity(event, request.validFrom, request.validUntil, now,
+  );
   const seenRows = new Set<number>();
   const seenEmails = new Set<string>();
   const rows = request.rows.map((row) => {
@@ -231,6 +245,9 @@ function normalizeImportRequest(event: Doc<"events">, request: ImportRequest, no
       email,
       displayName: normalizedText(row.displayName, "Roster name", 2, 100),
       role: row.role,
+      ...(row.reviewerDetails
+        ? { reviewerDetails: normalizeReviewerPoolDetails(row.reviewerDetails) }
+        : {}),
     };
   });
   rows.sort((left, right) => left.rowNumber - right.rowNumber);
@@ -263,7 +280,8 @@ async function effectivePermissionGrants(
     )
     .take(maximumPermissionGrantsPerKey + 1);
   if (grants.length > maximumPermissionGrantsPerKey) {
-    throw new Error("The account has more grants for one permission than the supported bound.");
+    throw new Error("The account has more grants for one permission than the supported bound.",
+    );
   }
   return grants.filter(
     (grant) => grant.validFrom <= now && (grant.validUntil === undefined || grant.validUntil > now),
@@ -305,7 +323,8 @@ function rosterConfigurationChecksum(args: {
 }) {
   const parts: OperationFingerprintPart[] = [args.validFrom, args.validUntil];
   for (const selection of args.bundleSelections) {
-    parts.push(selection.bundleId, selection.bundleVersionId, selection.bundleChecksum);
+    parts.push(selection.bundleId, selection.bundleVersionId, selection.bundleChecksum,
+    );
   }
   return operationFingerprint(parts);
 }
@@ -416,13 +435,16 @@ export const workspace = query({
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
-    const [readGrants, importGrants, revokeGrants, bundleReadGrants, bundleApplyGrants] =
+    const [readGrants, importGrants, revokeGrants, bundleReadGrants, bundleApplyGrants,
+    ] =
       await Promise.all([
         effectivePermissionGrants(ctx, subject._id, "access.roster.read"),
         effectivePermissionGrants(ctx, subject._id, "access.roster.import"),
         effectivePermissionGrants(ctx, subject._id, "access.roster.revoke"),
-        effectivePermissionGrants(ctx, subject._id, "access.permission_bundles.read"),
-        effectivePermissionGrants(ctx, subject._id, "access.permission_bundles.apply"),
+        effectivePermissionGrants(ctx, subject._id, "access.permission_bundles.read",
+      ),
+        effectivePermissionGrants(ctx, subject._id, "access.permission_bundles.apply",
+      ),
       ]);
     if (readGrants.length === 0 && importGrants.length === 0 && revokeGrants.length === 0) {
       throw new ConvexError({
@@ -442,7 +464,8 @@ export const workspace = query({
         if (id) exactIds.add(id);
       }
       if (exactIds.size > maximumExactVisibleEntries) {
-        throw new Error("The account has more exact roster rows than the supported bound.");
+        throw new Error("The account has more exact roster rows than the supported bound.",
+        );
       }
       const resolved = await Promise.all(
         [...exactIds].map((id) => ctx.db.get("rosterEntries", id)),
@@ -455,7 +478,8 @@ export const workspace = query({
       entries.sort((left, right) => right.createdAt - left.createdAt);
     }
     const now = Date.now();
-    const entryViews = await rosterEntryViews(ctx, event._id, entries, revokeGrants);
+    const entryViews = await rosterEntryViews(ctx, event._id, entries, revokeGrants,
+    );
 
     let bundles: Array<NonNullable<Awaited<ReturnType<typeof currentBundleOption>>>> = [];
     if (canImport && hasEventScope(bundleApplyGrants) && bundleReadGrants.length > 0) {
@@ -466,7 +490,8 @@ export const workspace = query({
         )
         .take(maximumBundlesPerEvent + 1);
       if (available.length > maximumBundlesPerEvent) {
-        throw new Error("The event has more permission bundles than the supported bound.");
+        throw new Error("The event has more permission bundles than the supported bound.",
+        );
       }
       const options = await Promise.all(
         available
@@ -486,7 +511,8 @@ export const workspace = query({
       recommendedValidFrom: event.startsAt ?? now,
       ...(event.endsAt !== undefined ? { recommendedValidUntil: event.endsAt } : {}),
       ...(hasImportPermission && event.endsAt === undefined
-        ? { importBlocker: "Set the event end time before importing roster access." }
+        ? { importBlocker: "Set the event end time before importing roster access.",
+          }
         : {}),
       bundles,
       entries: entryViews,
@@ -510,7 +536,8 @@ export const list = query({
       permissionKey: "access.roster.read",
       scopeType: "event",
     });
-    const revokeGrants = await effectivePermissionGrants(ctx, subject._id, "access.roster.revoke");
+    const revokeGrants = await effectivePermissionGrants(ctx, subject._id, "access.roster.revoke",
+    );
     const page = await ctx.db
       .query("rosterEntries")
       .withIndex("by_event_created", (index) => index.eq("eventId", event._id))
@@ -609,6 +636,7 @@ type PreparedRow = {
   email: string;
   displayName: string;
   role: RosterEntryDoc["role"];
+  reviewerDetails?: ReviewerPoolDetails;
   outcome:
     | "create"
     | "replace_pending"
@@ -637,6 +665,16 @@ async function prepareImport(
         eventId: event._id,
         eventAccessSubjectId: actorSubjectId,
         permissionKey: "access.permissions.grant_any",
+        scopeType: "event",
+      })
+    : [];
+  const reviewerPoolGrantIds = normalized.rows.some(
+    (row) => row.reviewerDetails !== undefined,
+  )
+    ? await requirePermission(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: actorSubjectId,
+        permissionKey: "reviewer.profile.manage",
         scopeType: "event",
       })
     : [];
@@ -672,14 +710,16 @@ async function prepareImport(
       ]);
       if (pending) {
         if (pending.validUntil <= now) {
-          return { ...row, outcome: "replace_expired", existingPending: pending };
+          return { ...row, outcome: "replace_expired", existingPending: pending,
+          };
         }
         if (
           pending.displayName === row.displayName &&
           pending.role === row.role &&
           pending.configurationChecksum === configurationChecksum
         ) {
-          return { ...row, outcome: "unchanged_pending", existingPending: pending };
+          return { ...row, outcome: "unchanged_pending", existingPending: pending,
+          };
         }
         return { ...row, outcome: "replace_pending", existingPending: pending };
       }
@@ -702,6 +742,7 @@ async function prepareImport(
       row.email,
       row.displayName,
       row.role,
+      JSON.stringify(row.reviewerDetails ?? null),
       row.outcome,
       row.existingPending?._id ?? null,
       row.existingPending?.version ?? null,
@@ -723,7 +764,9 @@ async function prepareImport(
     rows,
     counts,
     authorizingGrantIds: [
-      ...new Set([...rosterGrantIds, ...roleGrantIds, ...bundleContext.authorizingGrantIds]),
+      ...new Set([...rosterGrantIds, ...roleGrantIds, ...reviewerPoolGrantIds,
+        ...bundleContext.authorizingGrantIds,
+      ]),
     ],
   };
 }
@@ -780,11 +823,14 @@ export const confirmImport = mutation({
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
-    const operationId = normalizedText(args.clientOperationId, "Client operation ID", 10, 100);
+    const operationId = normalizedText(args.clientOperationId, "Client operation ID", 10, 100,
+    );
     const requestFingerprint = operationFingerprint([
       args.previewChecksum,
       operationFingerprint(
-        args.rows.flatMap((row) => [row.rowNumber, row.email, row.displayName, row.role]),
+        args.rows.flatMap((row) => [row.rowNumber, row.email, row.displayName, row.role,
+          JSON.stringify(row.reviewerDetails ?? null),
+        ]),
       ),
       args.sourceName,
       args.sourceFileName ?? null,
@@ -806,7 +852,8 @@ export const confirmImport = mutation({
         "roster import",
         rosterImportOperationResult,
       );
-      const rosterImportId = ctx.db.normalizeId("rosterImports", result.rosterImportId);
+      const rosterImportId = ctx.db.normalizeId("rosterImports", result.rosterImportId,
+      );
       if (!rosterImportId || rosterImportId !== prior.targetId) {
         throw new Error("The stored roster import is invalid.");
       }
@@ -839,7 +886,8 @@ export const confirmImport = mutation({
         bundleId: bundle._id,
         bundleVersionId: version._id,
         bundleChecksum: version.checksum,
-      })),
+      }),
+      ),
       configurationChecksum: prepared.configurationChecksum,
       previewChecksum: prepared.previewChecksum,
       rowCount: prepared.rows.length,
@@ -855,6 +903,31 @@ export const confirmImport = mutation({
     });
     let insertedCount = 0;
     for (const row of prepared.rows) {
+      if (row.reviewerDetails) {
+        if (row.role !== "board" && row.role !== "sc" && row.role !== "jc") {
+          throw new ConvexError({
+            code: "INVALID_REVIEWER_POOL_ROLE",
+            message:
+              "Reviewer survey rows must identify Board, SC, or JC seniority.",
+          });
+        }
+        const existing = await ctx.db
+          .query("reviewerPoolEntries")
+          .withIndex("by_eventId_and_emailNormalized", (q) =>
+            q.eq("eventId", event._id).eq("emailNormalized", row.email),
+          )
+          .unique();
+        const fields = {
+          eventId: event._id,
+          emailNormalized: row.email,
+          displayName: row.displayName,
+          seniority: row.role,
+          ...row.reviewerDetails,
+          importedAt: now,
+        };
+        if (existing) await ctx.db.replace(existing._id, fields);
+        else await ctx.db.insert("reviewerPoolEntries", fields);
+      }
       if (row.outcome === "unchanged_pending" || row.outcome === "already_claimed") {
         continue;
       }
@@ -943,10 +1016,12 @@ export const expireImportEntries = internalMutation({
     if (!rosterImport || rosterImport.validUntil > Date.now()) return null;
     const rows = await ctx.db
       .query("rosterEntries")
-      .withIndex("by_import_row", (index) => index.eq("rosterImportId", rosterImport._id))
+      .withIndex("by_import_row", (index) => index.eq("rosterImportId", rosterImport._id),
+      )
       .take(maximumRowsPerImport + 1);
     if (rows.length > maximumRowsPerImport) {
-      throw new Error("Roster import contains more rows than its supported bound.");
+      throw new Error("Roster import contains more rows than its supported bound.",
+      );
     }
     const now = Date.now();
     await Promise.all(
@@ -998,7 +1073,8 @@ export const mine = query({
       .unique();
     const now = Date.now();
     if (!entry || entry.validFrom > now || entry.validUntil <= now) return null;
-    const rosterImport = await ctx.db.get("rosterImports", entry.rosterImportId);
+    const rosterImport = await ctx.db.get("rosterImports", entry.rosterImportId,
+    );
     if (!rosterImport || rosterImport.eventId !== event._id) {
       throw new Error("Roster import provenance is missing.");
     }
@@ -1012,7 +1088,8 @@ export const mine = query({
         bundleSelections: rosterImport.bundleSelections,
       }) !== rosterImport.configurationChecksum
     ) {
-      throw new Error("Roster entry configuration is inconsistent with its import.");
+      throw new Error("Roster entry configuration is inconsistent with its import.",
+      );
     }
     const versions = await Promise.all(
       rosterImport.bundleSelections.map((selection) =>
@@ -1074,8 +1151,10 @@ export const claim = mutation({
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { user, person, googleIdentity } = await ensureGooglePerson(ctx);
-    const operationId = normalizedText(args.clientOperationId, "Client operation ID", 10, 100);
-    const requestFingerprint = operationFingerprint([args.rosterEntryId, args.expectedVersion]);
+    const operationId = normalizedText(args.clientOperationId, "Client operation ID", 10, 100,
+    );
+    const requestFingerprint = operationFingerprint([args.rosterEntryId, args.expectedVersion,
+    ]);
     const prior = await findOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -1089,7 +1168,8 @@ export const claim = mutation({
         "roster claim",
         rosterClaimOperationResult,
       );
-      const rosterEntryId = ctx.db.normalizeId("rosterEntries", result.rosterEntryId);
+      const rosterEntryId = ctx.db.normalizeId("rosterEntries", result.rosterEntryId,
+      );
       const personId = ctx.db.normalizeId("people", result.personId);
       const eventAccessSubjectId = ctx.db.normalizeId(
         "eventAccessSubjects",
@@ -1134,7 +1214,8 @@ export const claim = mutation({
       entry.claimedByPersonId === person._id &&
       entry.claimedEventAccessSubjectId !== undefined
     ) {
-      const subject = await ctx.db.get("eventAccessSubjects", entry.claimedEventAccessSubjectId);
+      const subject = await ctx.db.get("eventAccessSubjects", entry.claimedEventAccessSubjectId,
+      );
       if (!subject || subject.eventId !== event._id) {
         throw new Error("Claimed roster event account is missing.");
       }
@@ -1180,7 +1261,8 @@ export const claim = mutation({
         message: "This roster entry expired. Ask the roster owner to import it again.",
       });
     }
-    const rosterImport = await ctx.db.get("rosterImports", entry.rosterImportId);
+    const rosterImport = await ctx.db.get("rosterImports", entry.rosterImportId,
+    );
     if (!rosterImport || rosterImport.eventId !== event._id) {
       throw new Error("Roster import provenance is missing.");
     }
@@ -1288,7 +1370,8 @@ export const claim = mutation({
     }> = [];
     let totalCreatedGrants = 0;
     for (const selection of rosterImport.bundleSelections) {
-      const version = await ctx.db.get("permissionBundleVersions", selection.bundleVersionId);
+      const version = await ctx.db.get("permissionBundleVersions", selection.bundleVersionId,
+      );
       const bundle = await ctx.db.get("permissionBundles", selection.bundleId);
       const entries = version ? normalizeBundleEntries(version.entries) : null;
       const checksum = version
@@ -1364,7 +1447,8 @@ export const claim = mutation({
       const grantIds: Id<"permissionGrants">[] = [];
       let createdCount = 0;
       for (const planned of grants) {
-        const existing = existingSourceGrants.find((grant) => sameResolvedGrant(grant, planned));
+        const existing = existingSourceGrants.find((grant) => sameResolvedGrant(grant, planned),
+        );
         if (existing) {
           grantIds.push(existing._id);
           continue;
@@ -1500,7 +1584,8 @@ export const revoke = mutation({
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const reason = normalizedText(args.reason, "Reason", 5, 300);
-    const operationId = normalizedText(args.clientOperationId, "Client operation ID", 10, 100);
+    const operationId = normalizedText(args.clientOperationId, "Client operation ID", 10, 100,
+    );
     const requestFingerprint = operationFingerprint([
       args.rosterEntryId,
       args.expectedVersion,
@@ -1567,7 +1652,8 @@ export const revoke = mutation({
         status: entry.status,
         version: entry.version,
       }),
-      nextSummary: JSON.stringify({ status: "revoked", version: entry.version + 1 }),
+      nextSummary: JSON.stringify({ status: "revoked", version: entry.version + 1,
+      }),
       reason,
     });
     await recordOperation(ctx, {

@@ -1,5 +1,13 @@
+import {
+  applyVenueCallResponse,
+  venueConfirmationCall,
+  venueCallResponseValue,
+  venueCallResponseSchema,
+} from "./lib/venueCallResponse";
 import type { OutboundCallEventType } from "@code2create/domain";
 import { v } from "convex/values";
+
+import { activeRoundPause } from "./lib/reviewRoundPauses";
 
 import type { Doc } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
@@ -31,7 +39,8 @@ const activeStateRank = {
 
 type ActiveState = keyof typeof activeStateRank;
 
-function isActiveState(state: Doc<"outboundCallDeliveries">["state"]): state is ActiveState {
+function isActiveState(state: Doc<"outboundCallDeliveries">["state"],
+): state is ActiveState {
   return (
     state === "provider_accepted" ||
     state === "queued" ||
@@ -41,7 +50,8 @@ function isActiveState(state: Doc<"outboundCallDeliveries">["state"]): state is 
   );
 }
 
-function eventState(eventType: OutboundCallEventType, providerErrorCode: string | undefined) {
+function eventState(eventType: OutboundCallEventType, providerErrorCode: string | undefined,
+) {
   switch (eventType) {
     case "call.queued":
       return "queued" as const;
@@ -95,6 +105,8 @@ async function undispatchableReason(
   }
   const consent = await ctx.db.get(delivery.consentId);
   if (
+    (delivery.venueConfirmation &&
+      delivery.venueConfirmation.expiresAt <= now) ||
     !consent ||
     consent.eventId !== delivery.eventId ||
     consent.personId !== delivery.targetPersonId ||
@@ -135,6 +147,12 @@ async function undispatchableReason(
       : null;
     if (
       !active ||
+      !delivery.venueConfirmation ||
+      active.departure.callDeliveryId !== delivery._id ||
+      active.policy.confirmationAgent?.appId !==
+        delivery.venueConfirmation.appId ||
+      active.policy.confirmationAgent?.appVersion !==
+        delivery.venueConfirmation.appVersion ||
       active.presence.eventId !== delivery.eventId ||
       active.presence.personId !== delivery.targetPersonId ||
       active.departure.reminderStartedAt === undefined ||
@@ -157,6 +175,35 @@ async function undispatchableReason(
       return "reviewer_page_not_active";
     }
   }
+  if (delivery.sourceType === "review_team_notice") {
+    const noticeId = ctx.db.normalizeId("reviewTeamNotices", delivery.sourceId);
+    const notice = noticeId ? await ctx.db.get(noticeId) : null;
+    if (!notice || notice.eventId !== delivery.eventId)
+      return "review_notice_unavailable";
+    const [round, state, policy, team] = await Promise.all([
+      ctx.db.get(notice.roundId),
+      ctx.db.get(notice.teamRoundStateId),
+      ctx.db
+        .query("reviewQueuePolicies")
+        .withIndex("by_round", (q) => q.eq("roundId", notice.roundId))
+        .unique(),
+      ctx.db.get(notice.teamId),
+    ]);
+    const leader = team ? await ctx.db.get(team.leadMembershipId) : null;
+    if (
+      !round ||
+      round.status !== "open" ||
+      now >= round.endsAt ||
+      !policy?.voiceCalls ||
+      !state ||
+      state.panelId !== notice.panelId ||
+      state.version !== notice.queueVersion ||
+      state.state !== (notice.kind === "up_next" ? "queued" : "called") ||
+      leader?.personId !== delivery.targetPersonId ||
+      (await activeRoundPause(ctx, round._id))
+    )
+      return "review_notice_no_longer_current";
+  }
   return null;
 }
 
@@ -171,6 +218,7 @@ export const claimDelivery = internalMutation({
       deliveryId: v.id("outboundCallDeliveries"),
       destinationPhoneE164: v.string(),
       script: v.string(),
+      venueConfirmation: v.optional(venueConfirmationCall),
     }),
   ),
   handler: async (ctx, args) => {
@@ -216,6 +264,9 @@ export const claimDelivery = internalMutation({
       deliveryId: delivery._id,
       destinationPhoneE164: delivery.destinationPhoneE164,
       script: delivery.script,
+      ...(delivery.venueConfirmation
+        ? { venueConfirmation: delivery.venueConfirmation }
+        : {}),
     };
   },
 });
@@ -288,12 +339,14 @@ export const recordProviderEvent = internalMutation({
     providerAt: v.number(),
     providerCallId: v.optional(v.string()),
     providerErrorCode: v.optional(v.string()),
+    venueResponse: v.optional(venueCallResponseValue),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
     const duplicate = await ctx.db
       .query("outboundCallProviderEvents")
-      .withIndex("by_provider_event", (index) => index.eq("providerEventId", args.providerEventId))
+      .withIndex("by_provider_event", (index) => index.eq("providerEventId", args.providerEventId),
+      )
       .unique();
     if (duplicate) {
       if (
@@ -301,18 +354,39 @@ export const recordProviderEvent = internalMutation({
         duplicate.eventType !== args.eventType ||
         duplicate.providerAt !== args.providerAt ||
         duplicate.providerCallId !== args.providerCallId ||
-        duplicate.providerErrorCode !== args.providerErrorCode
+        duplicate.providerErrorCode !== args.providerErrorCode ||
+        JSON.stringify(duplicate.venueResponse) !==
+          JSON.stringify(args.venueResponse)
       ) {
-        throw new Error("An outbound call provider event ID was reused with different data.");
+        throw new Error(
+          "An outbound call provider event ID was reused with different data.",
+        );
       }
       return null;
     }
-    const deliveryId = ctx.db.normalizeId("outboundCallDeliveries", args.deliveryId);
+    const deliveryId = ctx.db.normalizeId("outboundCallDeliveries", args.deliveryId,
+    );
     if (!deliveryId) throw new Error("Outbound call delivery ID is invalid.");
     const delivery = await ctx.db.get(deliveryId);
     if (!delivery) throw new Error("Outbound call delivery is missing.");
     const now = Date.now();
-    await ctx.db.insert("outboundCallProviderEvents", {
+    if (
+      args.venueResponse &&
+      (args.eventType !== "call.completed" ||
+        delivery.sourceType !== "reviewer_venue_departure" ||
+        !delivery.venueConfirmation)
+    )
+      throw new Error("Unexpected call confirmation.");
+    const response = args.venueResponse
+      ? venueCallResponseSchema.parse(args.venueResponse)
+      : undefined;
+    if (
+      delivery.providerCallId &&
+      args.providerCallId &&
+      delivery.providerCallId !== args.providerCallId
+    )
+      throw new Error("Call ID does not match the delivery.");
+    const responseEventId = await ctx.db.insert("outboundCallProviderEvents", {
       eventId: delivery.eventId,
       deliveryId: delivery._id,
       providerEventId: args.providerEventId,
@@ -321,10 +395,21 @@ export const recordProviderEvent = internalMutation({
       ...(args.providerErrorCode !== undefined
         ? { providerErrorCode: args.providerErrorCode }
         : {}),
+      ...(response ? { venueResponse: response } : {}),
       providerAt: args.providerAt,
       receivedAt: now,
     });
     if (terminalState(delivery.state)) return null;
+    if (response) {
+      const effect = await applyVenueCallResponse(ctx, delivery, response, now);
+      const { transcript: _transcript, ...summary } = response;
+      await ctx.db.patch(delivery._id, {
+        responseEventId,
+        venueResponse: summary,
+        venueResponseEffect: effect,
+        responseRecordedAt: now,
+      });
+    }
     const nextState = eventState(args.eventType, args.providerErrorCode);
     if (delivery.state === "ambiguous" && isActiveState(nextState)) return null;
     const currentRank = isActiveState(delivery.state) ? activeStateRank[delivery.state] : -1;

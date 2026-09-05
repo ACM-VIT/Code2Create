@@ -10,6 +10,13 @@ export const venuePolicyFields = {
   endsAt: v.number(),
   absenceGraceMinutes: v.number(),
   callDelayMinutes: v.number(),
+  confirmationAgent: v.optional(
+    v.object({
+      appId: v.string(),
+      appVersion: v.number(),
+      responseWindowMinutes: v.number(),
+    }),
+  ),
 };
 
 export const reviewerVenueStatus = v.union(
@@ -22,8 +29,8 @@ export const reviewerVenueStatus = v.union(
 
 export const locationFreshnessMs = 180_000;
 export const venueCallPurpose = "reviewer_venue_absence" as const;
-export const venueCallConsentVersion = "reviewer-venue-absence-consent-v1";
-export const venueCallScriptVersion = "reviewer-venue-absence-v1";
+export const venueCallConsentVersion = "reviewer-venue-confirmation-consent-v2";
+export const venueCallScriptVersion = "reviewer-venue-confirmation-v2";
 
 type VenuePolicy = {
   enabled: boolean;
@@ -35,9 +42,28 @@ type VenuePolicy = {
   endsAt: number;
   absenceGraceMinutes: number;
   callDelayMinutes: number;
+  confirmationAgent?:
+    | { appId: string; appVersion: number; responseWindowMinutes: number }
+    | undefined;
 };
 
 export function validateVenuePolicy(policy: VenuePolicy) {
+  const agent = policy.confirmationAgent;
+  if (
+    agent &&
+    (!agent.appId.trim() ||
+      agent.appId.length > 128 ||
+      !Number.isSafeInteger(agent.appVersion) ||
+      agent.appVersion < 1 ||
+      !Number.isInteger(agent.responseWindowMinutes) ||
+      agent.responseWindowMinutes < 2 ||
+      agent.responseWindowMinutes > 30)
+  )
+    throw new ConvexError({
+      code: "INVALID_VENUE_AGENT",
+      message:
+        "Choose a published voice agent version and a response window of 2–30 minutes.",
+    });
   if (
     !policy.name.trim() ||
     policy.name.length > 100 ||
@@ -53,13 +79,13 @@ export function validateVenuePolicy(policy: VenuePolicy) {
     policy.absenceGraceMinutes < 2 ||
     policy.absenceGraceMinutes > 60 ||
     !Number.isInteger(policy.callDelayMinutes) ||
-    policy.callDelayMinutes < 2 ||
+    policy.callDelayMinutes < 0 ||
     policy.callDelayMinutes > 120
   )
     throw new ConvexError({
       code: "INVALID_VENUE_POLICY",
       message:
-        "Set a venue, a 100–5,000 metre radius, a window of up to seven days, a 2–60 minute absence grace and a 2–120 minute call delay.",
+        "Set a venue, a 100–5,000 metre radius, a window of up to seven days, a 2–60 minute absence grace and a 0–120 minute call delay.",
     });
 }
 

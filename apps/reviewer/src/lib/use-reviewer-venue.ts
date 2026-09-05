@@ -93,7 +93,7 @@ export function useReviewerVenue(
 
   useEffect(() => {
     if (!enabled || !ownerId) return;
-    return subscribeToForegroundVenueChecks(setIssue);
+    return subscribeToForegroundVenueChecks(ownerId, setIssue);
   }, [enabled, ownerId]);
 
   return {

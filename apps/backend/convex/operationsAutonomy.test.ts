@@ -41,7 +41,8 @@ const savedEnvironment = {
 process.env.AUTH_SITE_URL = "http://localhost:3211";
 process.env.PARTICIPANT_SITE_URL = "http://localhost:4173";
 process.env.OPERATIONS_SITE_URL = "http://localhost:4174";
-process.env.INTELLIGENCE_INGRESS_SECRET = "autonomy-ingress-test-secret".padEnd(48, "s");
+process.env.INTELLIGENCE_INGRESS_SECRET = "autonomy-ingress-test-secret".padEnd(48, "s",
+);
 process.env.INTELLIGENCE_WORKER_URL = "https://intelligence.example.test";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -81,7 +82,8 @@ describe("operations autonomy durable boundaries", () => {
     const schedulerId = await backend.run(async (ctx) => {
       const scheduler = await ctx.db
         .query("operationsAutonomyStates")
-        .withIndex("by_policy", (index) => index.eq("policyVersionId", fixture.policyId))
+        .withIndex("by_policy", (index) => index.eq("policyVersionId", fixture.policyId),
+        )
         .unique();
       if (!scheduler) throw new Error("The autonomy fixture scheduler is missing.");
       return scheduler._id;
@@ -91,11 +93,13 @@ describe("operations autonomy durable boundaries", () => {
         stateId: schedulerId,
         leaseId,
         now: fixture.now,
-      }),
+      },
+      ),
     ).resolves.toMatchObject({ enqueued: 1 });
     await expect(
       backend.mutation(internal.operationsAutonomyOperations.authorizeWork, {
-        request: workRequest(fixture, "applications-open-work", { kind: "model" }),
+        request: workRequest(fixture, "applications-open-work", { kind: "model",
+        }),
         now: fixture.now,
       }),
     ).resolves.toMatchObject({ state: "accepted" });
@@ -142,7 +146,8 @@ describe("operations autonomy durable boundaries", () => {
     const target = await backend.run(async (ctx) => {
       const state = await ctx.db
         .query("operationsAutonomyStates")
-        .withIndex("by_policy", (index) => index.eq("policyVersionId", fixture.policyId))
+        .withIndex("by_policy", (index) => index.eq("policyVersionId", fixture.policyId),
+        )
         .unique();
       if (!state) throw new Error("The autonomy fixture scheduler is missing.");
       const continuationId = await ctx.db.insert("operationsAutonomyContinuations", {
@@ -155,7 +160,8 @@ describe("operations autonomy durable boundaries", () => {
         attemptCount: 0,
         createdAt: fixture.now,
         updatedAt: fixture.now,
-      });
+      },
+      );
       return { state, continuationId };
     });
     const before = await autonomyTickEffectState(backend, target.state._id);
@@ -165,17 +171,20 @@ describe("operations autonomy durable boundaries", () => {
         stateId: target.state._id,
         leaseId: staleLeaseId,
         now: fixture.now + 1,
-      }),
+      },
+      ),
     ).resolves.toEqual({ leaseHeld: false, enqueued: 0, hasMore: false });
     await expect(
       backend.mutation(internal.operationsAutonomyScheduler.scheduleContinuation, {
         continuationId: target.continuationId,
         leaseId: staleLeaseId,
         now: fixture.now + 1,
-      }),
+      },
+      ),
     ).resolves.toBe(false);
 
-    expect(await autonomyTickEffectState(backend, target.state._id)).toEqual(before);
+    expect(await autonomyTickEffectState(backend, target.state._id)).toEqual(before,
+    );
   });
 
   test("registration status alone cannot extend autonomy past the application deadline", async () => {
@@ -203,7 +212,8 @@ describe("operations autonomy durable boundaries", () => {
     });
     await expect(
       backend.mutation(internal.operationsAutonomyOperations.authorizeWork, {
-        request: workRequest(fixture, "applications-closed-work", { kind: "model" }),
+        request: workRequest(fixture, "applications-closed-work", { kind: "model",
+        }),
         now: fixture.now,
       }),
     ).resolves.toEqual({ state: "rejected", code: "authority_revoked" });
@@ -212,27 +222,32 @@ describe("operations autonomy durable boundaries", () => {
   test("a lost work response replays byte-for-byte after later work", async () => {
     const backend = seededBackend();
     const fixture = await seedRun(backend);
-    const firstRequest = workRequest(fixture, "model-turn-0001", { kind: "model" as const });
+    const firstRequest = workRequest(fixture, "model-turn-0001", { kind: "model" as const,
+    });
     const first = await backend.mutation(internal.operationsAutonomyOperations.authorizeWork, {
       request: firstRequest,
       now: fixture.now,
-    });
+    },
+    );
     const second = await backend.mutation(internal.operationsAutonomyOperations.authorizeWork, {
       request: workRequest(fixture, "delegation-0001", {
         kind: "delegation" as const,
         area: "reviews" as const,
       }),
       now: fixture.now + 1,
-    });
+    },
+    );
     expect(second.state).toBe("accepted");
     const replay = await backend.mutation(internal.operationsAutonomyOperations.authorizeWork, {
       request: firstRequest,
       now: fixture.now + 2,
-    });
+    },
+    );
     expect(replay).toEqual(first);
     await expect(
       backend.mutation(internal.operationsAutonomyOperations.authorizeWork, {
-        request: { ...firstRequest, operation: { kind: "delegation", area: "reviews" } },
+        request: { ...firstRequest, operation: { kind: "delegation", area: "reviews" },
+        },
         now: fixture.now + 3,
       }),
     ).rejects.toThrow("already used");
@@ -252,7 +267,8 @@ describe("operations autonomy durable boundaries", () => {
     const prepared = await backend.mutation(internal.operationsAutonomyReads.prepareRead, {
       request,
       now: fixture.now,
-    });
+    },
+    );
     expect(prepared.state).toBe("execute");
     expect(
       await backend.mutation(internal.operationsAutonomyReads.prepareRead, {
@@ -274,7 +290,8 @@ describe("operations autonomy durable boundaries", () => {
       citationRows: [],
       isDone: true,
       now: fixture.now + 2,
-    });
+    },
+    );
     expect(responseJson.state).toBe("committed");
     if (responseJson.state !== "committed") throw new Error("Read commit was rejected.");
     expect(JSON.parse(responseJson.responseJson)).toMatchObject({
@@ -299,9 +316,11 @@ describe("operations autonomy durable boundaries", () => {
       now: fixture.now,
     });
     const workB = await backend.mutation(internal.operationsAutonomyOperations.authorizeWork, {
-      request: workRequest(fixture, "model-during-read-0001", { kind: "model" }),
+      request: workRequest(fixture, "model-during-read-0001", { kind: "model",
+        }),
       now: fixture.now + 1,
-    });
+    },
+    );
     expect(workB.state).toBe("accepted");
     const dataJson = JSON.stringify({
       generatedAt: fixture.now,
@@ -317,19 +336,24 @@ describe("operations autonomy durable boundaries", () => {
       citationRows: [],
       isDone: true,
       now: fixture.now + 2,
-    });
+    },
+    );
     expect(committed.state).toBe("committed");
     const workC = await backend.mutation(internal.operationsAutonomyOperations.authorizeWork, {
-      request: workRequest(fixture, "model-after-read-0001", { kind: "model" }),
+      request: workRequest(fixture, "model-after-read-0001", { kind: "model",
+        }),
       now: fixture.now + 3,
-    });
+    },
+    );
     expect(workC.state).toBe("accepted");
     const replay = await backend.mutation(internal.operationsAutonomyReads.prepareRead, {
       request,
       now: fixture.now + 4,
-    });
+    },
+    );
     if (committed.state !== "committed") throw new Error("Read commit was rejected.");
-    expect(replay).toEqual({ state: "replay", responseJson: committed.responseJson });
+    expect(replay).toEqual({ state: "replay", responseJson: committed.responseJson,
+    });
     const checkpoint = await backend.run((ctx) =>
       ctx.db
         .query("operationsAutonomyRunCheckpoints")
@@ -367,7 +391,8 @@ describe("operations autonomy durable boundaries", () => {
       request,
       now: fixture.now,
     });
-    await backend.run((ctx) => ctx.db.patch(fixture.ownerSubjectId, { status: "suspended" }));
+    await backend.run((ctx) => ctx.db.patch(fixture.ownerSubjectId, { status: "suspended" }),
+    );
     expect(
       await backend.mutation(internal.operationsAutonomyReads.prepareRead, {
         request,
@@ -410,7 +435,8 @@ describe("operations autonomy durable boundaries", () => {
   test("recommendation evidence seals more than eight exact citations and remains fully reachable", async () => {
     const backend = seededBackend();
     const fixture = await seedRun(backend);
-    const evidence = await seedRecommendationGroundingEvidence(backend, fixture);
+    const evidence = await seedRecommendationGroundingEvidence(backend, fixture,
+    );
     const targetId = String(evidence.teamRoundStateId);
     const targetVersion = String(evidence.expectedVersion);
     const proposalKey = "proposal-sealed-evidence-0001";
@@ -419,7 +445,8 @@ describe("operations autonomy durable boundaries", () => {
       .map((page, index) => ({
         read: "review_exceptions" as const,
         generatedAt: evidence.generatedAt,
-        keys: [targetId, targetVersion, `support-${String(index).padStart(2, "0")}`].sort(),
+        keys: [targetId, targetVersion, `support-${String(index).padStart(2, "0")}`,
+        ].sort(),
         operationId: page.operationId,
         snapshot: page.snapshot,
       }))
@@ -529,7 +556,8 @@ describe("operations autonomy durable boundaries", () => {
       },
     );
     expect(accepted.state).toBe("accepted");
-    const rows = await backend.run((ctx) => ctx.db.query("intelligenceRecommendations").collect());
+    const rows = await backend.run((ctx) => ctx.db.query("intelligenceRecommendations").collect(),
+    );
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
       arguments: {
@@ -573,18 +601,21 @@ describe("operations autonomy durable boundaries", () => {
         recommendationId,
         observationId,
         paginationOpts: { numItems: 5, cursor },
-      });
+      },
+      );
       leaves.push(...page.page.map((leaf) => leaf.identity));
       if (page.isDone) break;
       cursor = page.continueCursor;
     }
-    expect(leaves).toEqual(citations.map(autonomyRecommendationCitationIdentity));
+    expect(leaves).toEqual(citations.map(autonomyRecommendationCitationIdentity),
+    );
   });
 
   test("evidence chain gaps, reordering, row splicing, and seal drift are rejected", async () => {
     const backend = seededBackend();
     const fixture = await seedRun(backend);
-    const evidence = await seedRecommendationGroundingEvidence(backend, fixture);
+    const evidence = await seedRecommendationGroundingEvidence(backend, fixture,
+    );
     const targetId = String(evidence.teamRoundStateId);
     const targetVersion = String(evidence.expectedVersion);
     const exactCitation = {
@@ -691,7 +722,8 @@ describe("operations autonomy durable boundaries", () => {
           targetCitationIdentity: "e".repeat(64),
         }),
         now: fixture.now + 34,
-      }),
+      },
+      ),
     ).rejects.toThrow("absent from the sealed set");
     await expect(
       backend.mutation(internal.operationsAutonomyRecommendations.proposeRecommendation, {
@@ -704,7 +736,8 @@ describe("operations autonomy durable boundaries", () => {
           targetCitationIdentity: autonomyRecommendationCitationIdentity(exactCitation),
         }),
         now: fixture.now + 35,
-      }),
+      },
+      ),
     ).rejects.toThrow("exact current sealed evidence set");
   });
 
@@ -778,7 +811,8 @@ describe("operations autonomy durable boundaries", () => {
           lastObservedAt: fixture.now + 106,
         },
         createdAt: fixture.now + 106,
-      });
+      },
+      );
       await ctx.db.patch(factIds[1]!, { effectiveThroughSequence: 106 });
       await ctx.db.insert("operationsAutonomyReadFacts", {
         eventId: fixture.eventId,
@@ -883,7 +917,8 @@ describe("operations autonomy durable boundaries", () => {
         runId: fixture.runId,
         read: "operations_attention",
         cursorStateJson,
-      });
+      },
+      );
       const parsed: unknown = JSON.parse(page.dataJson);
       if (
         typeof parsed !== "object" ||
@@ -905,7 +940,8 @@ describe("operations autonomy durable boundaries", () => {
           typeof item.severity !== "string"
         )
           throw new Error("An attention fact row is invalid.");
-        rows.push({ itemId: item.itemId, version: item.version, severity: item.severity });
+        rows.push({ itemId: item.itemId, version: item.version, severity: item.severity,
+        });
       }
       if (page.isDone) break;
       if (page.nextCursorStateJson === undefined)
@@ -914,8 +950,10 @@ describe("operations autonomy durable boundaries", () => {
     }
     expect(rows).toHaveLength(104);
     expect(new Set(rows.map((row) => row.itemId)).size).toBe(104);
-    expect(rows).not.toContainEqual(expect.objectContaining({ itemId: seeded.itemIds[1] }));
-    expect(rows).not.toContainEqual(expect.objectContaining({ itemId: seeded.laterItemId }));
+    expect(rows).not.toContainEqual(expect.objectContaining({ itemId: seeded.itemIds[1] }),
+    );
+    expect(rows).not.toContainEqual(expect.objectContaining({ itemId: seeded.laterItemId }),
+    );
     expect(rows.filter((row) => row.itemId === seeded.itemIds[0])).toEqual([
       { itemId: seeded.itemIds[0], version: 2, severity: "attention" },
     ]);
@@ -991,13 +1029,16 @@ describe("operations autonomy durable boundaries", () => {
           )?.sequence,
         }))
         .filter(
-          (item): item is { inboxId: Id<"operationsAutonomyInbox">; sequence: number } =>
+          (item,
+          ): item is { inboxId: Id<"operationsAutonomyInbox">; sequence: number;
+          } =>
             item.sequence !== undefined,
         )
         .toSorted((left, right) => left.sequence - right.sequence);
       const firstIncident = await ctx.db
         .query("incidents")
-        .withIndex("by_event_opened", (index) => index.eq("eventId", fixture.eventId))
+        .withIndex("by_event_opened", (index) => index.eq("eventId", fixture.eventId),
+        )
         .order("asc")
         .first();
       if (!firstIncident) throw new Error("The first incident was not created.");
@@ -1057,16 +1098,19 @@ describe("operations autonomy durable boundaries", () => {
     const firstPrepared = await backend.mutation(internal.operationsAutonomyReads.prepareRead, {
       request: firstRequest,
       now: fixture.now + 202,
-    });
+    },
+    );
     if (firstPrepared.state !== "execute") throw new Error("The first deep read was not prepared.");
     const firstPage = await backend.query(internal.operationsAutonomyReadPages.executePage, {
       runId: firstRun._id,
       read: "incident_readiness",
       cursorStateJson: firstPrepared.cursorStateJson,
-    });
+    },
+    );
     const firstItems = pageRecords(firstPage.dataJson, "items");
     expect(firstItems).toHaveLength(1);
-    expect(firstItems[0]).toMatchObject({ kind: "incident", state: "open", version: 1 });
+    expect(firstItems[0]).toMatchObject({ kind: "incident", state: "open", version: 1,
+    });
     expect(firstPage.dataJson).not.toContain("incident-secret-title");
     expect(firstPage.dataJson).not.toContain("private-summary");
     expect(firstPage.dataJson).not.toContain("openedByPersonId");
@@ -1112,7 +1156,8 @@ describe("operations autonomy durable boundaries", () => {
         read: "incident_readiness",
       },
       now: fixture.now + 205,
-    });
+    },
+    );
     if (lastPrepared.state !== "execute") throw new Error("The final deep read was not prepared.");
     const observedRows = new Map<string, Record<string, unknown>>();
     let cursorStateJson = lastPrepared.cursorStateJson;
@@ -1121,14 +1166,14 @@ describe("operations autonomy durable boundaries", () => {
         runId: lastRun._id,
         read: "incident_readiness",
         cursorStateJson,
-      });
+      },
+      );
       for (const item of pageRecords(page.dataJson, "items")) {
         if (typeof item.incidentId !== "string") throw new Error("An incident fact ID is invalid.");
         observedRows.set(item.incidentId, item);
       }
-      expect(new TextEncoder().encode(page.dataJson).byteLength).toBeLessThanOrEqual(
-        operationsAutonomyReadPageMaximumBytes,
-      );
+      expect(new TextEncoder().encode(page.dataJson).byteLength,
+      ).toBeLessThanOrEqual(operationsAutonomyReadPageMaximumBytes);
       expect(page.dataJson).not.toContain("incident-secret-title");
       expect(page.dataJson).not.toContain("private-summary");
       if (page.isDone) break;
@@ -1293,17 +1338,18 @@ describe("operations autonomy durable boundaries", () => {
       }),
     );
 
-    let cursorStateJson = JSON.stringify({ kind: "frozen", snapshot, offset: 0 });
+    let cursorStateJson = JSON.stringify({ kind: "frozen", snapshot, offset: 0,
+    });
     const visited = new Map<string, Set<string>>();
     for (let pageNumber = 0; pageNumber < 8; pageNumber += 1) {
       const page = await backend.query(internal.operationsAutonomyReadPages.executePage, {
         runId: fixture.runId,
         read: "review_rounds",
         cursorStateJson,
-      });
-      expect(new TextEncoder().encode(page.dataJson).byteLength).toBeLessThanOrEqual(
-        operationsAutonomyReadPageMaximumBytes,
+      },
       );
+      expect(new TextEncoder().encode(page.dataJson).byteLength,
+      ).toBeLessThanOrEqual(operationsAutonomyReadPageMaximumBytes);
       const parsed: unknown = JSON.parse(page.dataJson);
       if (
         typeof parsed !== "object" ||
@@ -1342,7 +1388,8 @@ describe("operations autonomy durable boundaries", () => {
       cursorStateJson = page.nextCursorStateJson;
     }
     expect([...visited.keys()]).toEqual(rounds.map((round) => round.roundId));
-    expect([...visited.values()].every((panelIds) => panelIds.size === 100)).toBe(true);
+    expect([...visited.values()].every((panelIds) => panelIds.size === 100),
+    ).toBe(true);
   });
 
   test("a queued item is terminalized if its event leaves live before materialization", async () => {
@@ -1361,7 +1408,8 @@ describe("operations autonomy durable boundaries", () => {
       });
       const state = await ctx.db
         .query("operationsAutonomyStates")
-        .withIndex("by_policy", (index) => index.eq("policyVersionId", fixture.policyId))
+        .withIndex("by_policy", (index) => index.eq("policyVersionId", fixture.policyId),
+        )
         .unique();
       if (!state) throw new Error("The autonomy fixture state is missing.");
       await ctx.db.patch(state._id, { pendingWorkCount: 1 });
@@ -1395,11 +1443,13 @@ describe("operations autonomy durable boundaries", () => {
       run: runId ? await ctx.db.get(runId) : null,
       scheduler: await ctx.db
         .query("operationsAutonomyStates")
-        .withIndex("by_policy", (index) => index.eq("policyVersionId", fixture.policyId))
+        .withIndex("by_policy", (index) => index.eq("policyVersionId", fixture.policyId),
+        )
         .unique(),
     }));
     expect(state.inbox?.lifecycle).toMatchObject({ kind: "canceled" });
-    expect(state.run?.lifecycle).toMatchObject({ kind: "canceled", reason: "event_not_live" });
+    expect(state.run?.lifecycle).toMatchObject({ kind: "canceled", reason: "event_not_live",
+    });
     expect(state.scheduler?.pendingWorkCount).toBe(0);
     const history = await operator.query(api.operationsAutonomy.history, {
       eventSlug: fixture.slug,
@@ -1436,7 +1486,8 @@ describe("operations autonomy durable boundaries", () => {
       }
       const state = await ctx.db
         .query("operationsAutonomyStates")
-        .withIndex("by_policy", (index) => index.eq("policyVersionId", fixture.policyId))
+        .withIndex("by_policy", (index) => index.eq("policyVersionId", fixture.policyId),
+        )
         .unique();
       if (!state) throw new Error("The autonomy fixture state is missing.");
       await ctx.db.patch(state._id, { pendingWorkCount: 70 });
@@ -1451,7 +1502,8 @@ describe("operations autonomy durable boundaries", () => {
     for (let page = 0; page < 3 && hasMore; page += 1) {
       const canceled = await backend.mutation(
         internal.operationsAutonomyScheduler.cancelPendingInboxPage,
-        { policyVersionId: fixture.policyId, leaseId, now: fixture.now + 101 + page },
+        { policyVersionId: fixture.policyId, leaseId, now: fixture.now + 101 + page,
+        },
       );
       expect(canceled.leaseHeld).toBe(true);
       hasMore = canceled.hasMore;
@@ -1472,7 +1524,8 @@ describe("operations autonomy durable boundaries", () => {
         .collect(),
       state: await ctx.db
         .query("operationsAutonomyStates")
-        .withIndex("by_policy", (index) => index.eq("policyVersionId", fixture.policyId))
+        .withIndex("by_policy", (index) => index.eq("policyVersionId", fixture.policyId),
+        )
         .unique(),
     }));
     expect(result.pending).toHaveLength(0);
@@ -1484,7 +1537,8 @@ describe("operations autonomy durable boundaries", () => {
   test("continuing can re-enter reading and one prior submission owns one child", async () => {
     const backend = seededBackend();
     const fixture = await seedRun(backend);
-    const continuing = callback(fixture, "callback-continuing-0001", "continuing");
+    const continuing = callback(fixture, "callback-continuing-0001", "continuing",
+    );
     await backend.mutation(internal.operationsAutonomyCallbacks.applyCallback, {
       callback: continuing,
       now: fixture.now,
@@ -1525,7 +1579,8 @@ describe("operations autonomy durable boundaries", () => {
         failureCode: "policy_violation",
       },
       now: fixture.now + 1,
-    });
+    },
+    );
     expect(result.state).toBe("accepted");
     const settled = await backend.run((ctx) => ctx.db.get(fixture.runId));
     expect(settled?.lifecycle).toEqual({
@@ -1538,12 +1593,15 @@ describe("operations autonomy durable boundaries", () => {
   test("owner revocation persists cancellation and durable abort intent", async () => {
     const backend = seededBackend();
     const fixture = await seedRun(backend);
-    await backend.run((ctx) => ctx.db.patch(fixture.ownerSubjectId, { status: "suspended" }));
+    await backend.run((ctx) => ctx.db.patch(fixture.ownerSubjectId, { status: "suspended" }),
+    );
     expect(
       await backend.mutation(internal.operationsAutonomyOperations.authorizeWork, {
-        request: workRequest(fixture, "model-after-revoke", { kind: "model" }),
+        request: workRequest(fixture, "model-after-revoke", { kind: "model",
+          }),
         now: fixture.now,
-      }),
+      },
+      ),
     ).toEqual({ state: "rejected", code: "authority_revoked" });
     const state = await backend.run(async (ctx) => ({
       run: await ctx.db.get(fixture.runId),
@@ -1552,8 +1610,10 @@ describe("operations autonomy durable boundaries", () => {
         .withIndex("by_run", (index) => index.eq("runId", fixture.runId))
         .unique(),
     }));
-    expect(state.run?.lifecycle).toMatchObject({ kind: "canceled", reason: "owner_revoked" });
-    expect(state.supervision?.lifecycle).toMatchObject({ kind: "abort_pending" });
+    expect(state.run?.lifecycle).toMatchObject({ kind: "canceled", reason: "owner_revoked",
+    });
+    expect(state.supervision?.lifecycle).toMatchObject({ kind: "abort_pending",
+    });
   });
 
   test("manual start replays its original receipt after claim and cancellation", async () => {
@@ -1568,7 +1628,8 @@ describe("operations autonomy durable boundaries", () => {
       eventSlug: fixture.slug,
       clientOperationId: "manual-replay-after-claim",
     };
-    const first = await operator.mutation(api.operationsAutonomy.startManual, request);
+    const first = await operator.mutation(api.operationsAutonomy.startManual, request,
+    );
     expect(first.state).toBe("queued");
     await backend.run(async (ctx) => {
       await ctx.db.patch(fixture.runId, {
@@ -1590,7 +1651,8 @@ describe("operations autonomy durable boundaries", () => {
       },
     );
     expect(runId).not.toBeNull();
-    expect(await operator.mutation(api.operationsAutonomy.startManual, request)).toEqual(first);
+    expect(await operator.mutation(api.operationsAutonomy.startManual, request),
+    ).toEqual(first);
     await backend.run((ctx) =>
       revokeOperationsAutonomyPolicy(ctx, {
         eventId: fixture.eventId,
@@ -1599,7 +1661,8 @@ describe("operations autonomy durable boundaries", () => {
         now: fixture.now + 3,
       }),
     );
-    expect(await operator.mutation(api.operationsAutonomy.startManual, request)).toEqual(first);
+    expect(await operator.mutation(api.operationsAutonomy.startManual, request),
+    ).toEqual(first);
   });
 
   test("event completion revokes autonomy and exposes truthful status", async () => {
@@ -1614,7 +1677,8 @@ describe("operations autonomy durable boundaries", () => {
       if (!run) throw new Error("The autonomy fixture run is missing.");
       const state = await ctx.db
         .query("operationsAutonomyStates")
-        .withIndex("by_policy", (index) => index.eq("policyVersionId", fixture.policyId))
+        .withIndex("by_policy", (index) => index.eq("policyVersionId", fixture.policyId),
+        )
         .unique();
       if (!state) throw new Error("The autonomy fixture state is missing.");
       await ctx.db.patch(state._id, { pendingWorkCount: 1 });
@@ -1656,20 +1720,23 @@ describe("operations autonomy durable boundaries", () => {
       queued: await ctx.db.get(queuedId),
       scheduler: await ctx.db
         .query("operationsAutonomyStates")
-        .withIndex("by_policy", (index) => index.eq("policyVersionId", fixture.policyId))
+        .withIndex("by_policy", (index) => index.eq("policyVersionId", fixture.policyId),
+        )
         .unique(),
       supervision: await ctx.db
         .query("operationsAutonomyRunSupervision")
         .withIndex("by_run", (index) => index.eq("runId", fixture.runId))
         .unique(),
     }));
-    expect(state.run?.lifecycle).toMatchObject({ kind: "canceled", reason: "event_not_live" });
+    expect(state.run?.lifecycle).toMatchObject({ kind: "canceled", reason: "event_not_live",
+    });
     expect(state.queued?.lifecycle).toMatchObject({ kind: "canceled" });
     expect(state.scheduler).toMatchObject({
       lifecycle: { kind: "disabled" },
       pendingWorkCount: 0,
     });
-    expect(state.supervision?.lifecycle).toMatchObject({ kind: "abort_pending" });
+    expect(state.supervision?.lifecycle).toMatchObject({ kind: "abort_pending",
+    });
   });
 
   test("eligible autonomy owners page beyond one hundred event accounts", async () => {
@@ -1728,7 +1795,8 @@ describe("operations autonomy durable boundaries", () => {
       } = await operator.query(api.operationsAutonomyPolicyConfiguration.ownerOptionsPage, {
         eventSlug: fixture.slug,
         paginationOpts: { numItems: 20, cursor },
-      });
+      },
+      );
       actualIds.push(...page.page.map((owner) => owner.eventAccessSubjectId));
       if (page.isDone) break;
       cursor = page.continueCursor;
@@ -1750,7 +1818,8 @@ describe("operations autonomy durable boundaries", () => {
     });
     const dispatch = backend.action(internal.operationsAutonomyActions.dispatchRun, {
       runId: fixture.runId,
-    });
+    },
+    );
     await requestStarted.promise;
     await backend.run((ctx) =>
       revokeOperationsAutonomyPolicy(ctx, {
@@ -1760,7 +1829,9 @@ describe("operations autonomy durable boundaries", () => {
         now: fixture.now + 1,
       }),
     );
-    response.resolve(acceptedWorkerResponse(fixture.runId, "late-submission-initial", fixture.now));
+    response.resolve(acceptedWorkerResponse(fixture.runId, "late-submission-initial", fixture.now,
+      ),
+    );
     await dispatch;
     const state = await backend.run(async (ctx) => ({
       run: await ctx.db.get(fixture.runId),
@@ -1779,7 +1850,8 @@ describe("operations autonomy durable boundaries", () => {
       lifecycle: { kind: "abort_pending" },
     });
     expect(
-      state.scheduled.some((job) => job.name.includes("operationsAutonomyActions:abortRun")),
+      state.scheduled.some((job) => job.name.includes("operationsAutonomyActions:abortRun"),
+      ),
     ).toBe(true);
   });
 
@@ -1807,7 +1879,8 @@ describe("operations autonomy durable boundaries", () => {
     });
     const continuation = backend.action(internal.operationsAutonomyActions.continueRun, {
       continuationId,
-    });
+    },
+    );
     await requestStarted.promise;
     await backend.run((ctx) =>
       revokeOperationsAutonomyPolicy(ctx, {
@@ -1817,7 +1890,9 @@ describe("operations autonomy durable boundaries", () => {
         now: fixture.now + 1,
       }),
     );
-    response.resolve(acceptedWorkerResponse(fixture.runId, "late-submission-child", fixture.now));
+    response.resolve(acceptedWorkerResponse(fixture.runId, "late-submission-child", fixture.now,
+      ),
+    );
     await continuation;
     const state = await backend.run(async (ctx) => ({
       run: await ctx.db.get(fixture.runId),
@@ -1848,7 +1923,8 @@ describe("operations autonomy durable boundaries", () => {
     const prepared = await backend.mutation(internal.operationsAutonomyDispatch.prepareDispatch, {
       runId: fixture.runId,
       now: fixture.now,
-    });
+    },
+    );
     if (!prepared) throw new Error("The dispatch attempt was not prepared.");
     await backend.run((ctx) =>
       revokeOperationsAutonomyPolicy(ctx, {
@@ -1862,7 +1938,8 @@ describe("operations autonomy durable boundaries", () => {
       runId: fixture.runId,
       attemptId: prepared.attemptId,
       now: fixture.now + 20_000,
-    });
+    },
+    );
     const beforeExpiry = await backend.run((ctx) =>
       ctx.db
         .query("operationsAutonomyRunSupervision")
@@ -1881,7 +1958,8 @@ describe("operations autonomy durable boundaries", () => {
         runId: fixture.runId,
         operationId: beforeExpiry.lifecycle.operationId,
         now: fixture.now + 20_001,
-      }),
+      },
+      ),
     ).toBe(false);
     expect(
       await backend.mutation(internal.operationsAutonomyScheduler.reconcileSupervision, {
@@ -1891,7 +1969,8 @@ describe("operations autonomy durable boundaries", () => {
           beforeExpiry.outboundAttempt.kind === "in_flight"
             ? beforeExpiry.outboundAttempt.expiresAt - 1
             : fixture.now,
-      }),
+      },
+      ),
     ).toEqual({ leaseHeld: true, outcome: "unchanged" });
     const atExpiry = await backend.run((ctx) =>
       ctx.db
@@ -1907,7 +1986,8 @@ describe("operations autonomy durable boundaries", () => {
         supervisionId: atExpiry._id,
         leaseId,
         now: atExpiry.outboundAttempt.expiresAt,
-      }),
+      },
+      ),
     ).toEqual({ leaseHeld: true, outcome: "abort" });
   });
 
@@ -1949,9 +2029,11 @@ describe("operations autonomy durable boundaries", () => {
         supervisionId: supervision._id,
         leaseId,
         now: resumedAt,
-      });
+      },
+        );
       return Response.json({ error: "unauthorized" }, { status: 401 });
-    });
+    },
+    );
 
     await backend.action(internal.operationsAutonomyActions.dispatchRun, {
       runId: fixture.runId,
@@ -2026,11 +2108,14 @@ describe("operations autonomy durable boundaries", () => {
         supervisionId: supervision._id,
         leaseId,
         now: resumedAt,
-      });
+      },
+        );
       return Response.json({ error: "unauthorized" }, { status: 401 });
-    });
+    },
+    );
 
-    await backend.action(internal.operationsAutonomyActions.continueRun, { continuationId });
+    await backend.action(internal.operationsAutonomyActions.continueRun, { continuationId,
+    });
 
     expect(signedAt).toBe(fixture.now);
     expect(resumedAt - (signedAt ?? resumedAt)).toBeGreaterThan(
@@ -2108,10 +2193,12 @@ function workRequest(
 }
 
 function readRequest(fixture: Fixture, operationId: string) {
-  return { ...identity(fixture), operationId, read: "review_exceptions" as const };
+  return { ...identity(fixture), operationId, read: "review_exceptions" as const,
+  };
 }
 
-function callback(fixture: Fixture, operationId: string, phase: "continuing" | "reading") {
+function callback(fixture: Fixture, operationId: string, phase: "continuing" | "reading",
+) {
   return {
     ...identity(fixture),
     operationId,
@@ -2218,7 +2305,8 @@ async function storedRecommendationEvidenceSeal(
   return evidenceSet.lifecycle.seal;
 }
 
-async function seedRecommendationGroundingEvidence(backend: BackendTest, fixture: Fixture) {
+async function seedRecommendationGroundingEvidence(backend: BackendTest, fixture: Fixture,
+) {
   return backend.run(async (ctx) => {
     const rubricVersionId = await ctx.db.insert("reviewRubricVersions", {
       eventId: fixture.eventId,
@@ -2255,9 +2343,19 @@ async function seedRecommendationGroundingEvidence(backend: BackendTest, fixture
       substituteResponseSeconds: 60,
       missedReentryPolicy: "preserve_queue_time",
       requiredPanelSize: 3,
+      staffing: {
+        seniorSeats: 2,
+        juniorSeats: 0,
+        allowSeniorLeadFallback: true,
+        automaticReplacement: false,
+        juniorRotationReviews: 0,
+        reviewerArrivalSeconds: 90,
+        assignmentReminderSeconds: 300,
+      },
       minimumScorersPerCriterion: 1,
       minimumPresentParticipants: 1,
       requiresSharedCommitments: true,
+      requiresFinalComment: false,
       minimumReviewerBuild: 1,
       requiresCamera: false,
       requiresNotifications: false,
@@ -2337,7 +2435,8 @@ async function seedRecommendationGroundingEvidence(backend: BackendTest, fixture
       ...Array.from({ length: 11 }, (_, index) => ({
         operationId: `read-exact-support-${String(index + 2).padStart(4, "0")}`,
         snapshot: `snapshot:exact-support-${String(index + 2).padStart(4, "0")}`,
-        citationRows: [[targetId, version, `support-${String(index + 1).padStart(2, "0")}`]],
+        citationRows: [[targetId, version, `support-${String(index + 1).padStart(2, "0")}`],
+        ],
       })),
     ];
     for (const [pageIndex, page] of pages.entries()) {
@@ -2391,7 +2490,8 @@ async function seedRecommendationGroundingEvidence(backend: BackendTest, fixture
   });
 }
 
-function pageRecords(dataJson: string, key: string): Array<Record<string, unknown>> {
+function pageRecords(dataJson: string, key: string,
+): Array<Record<string, unknown>> {
   const parsed: unknown = JSON.parse(dataJson);
   if (typeof parsed !== "object" || parsed === null || !(key in parsed)) {
     throw new Error("The autonomy deep-read page is invalid.");
@@ -2492,7 +2592,8 @@ async function seedRun(backend: BackendTest) {
     });
     const sourceSnapshot = {
       generatedAt: now,
-      event: { slug, name: "Autonomy fixture", timezone: "Asia/Dubai", status: "live" as const },
+      event: { slug, name: "Autonomy fixture", timezone: "Asia/Dubai", status: "live" as const,
+      },
       summary: {
         status: "healthy" as const,
         signalCount: 0,
@@ -2502,7 +2603,8 @@ async function seedRun(backend: BackendTest) {
       },
       signals: [],
     };
-    const sourceChecksum = operationFingerprint([JSON.stringify(sourceSnapshot)]);
+    const sourceChecksum = operationFingerprint([JSON.stringify(sourceSnapshot),
+    ]);
     await ctx.db.insert("operationsHealthSnapshots", {
       eventId,
       eventVersion: 1,
@@ -2518,7 +2620,8 @@ async function seedRun(backend: BackendTest) {
       trigger: { kind: "schedule", scheduledFor: now },
       mode: "recommend",
       escalationSeverity: "critical",
-      allowedReadTools: ["operations_health", "review_exceptions", "incident_readiness"],
+      allowedReadTools: ["operations_health", "review_exceptions", "incident_readiness",
+      ],
       allowedRecommendationKinds: ["hold_review_team"],
       sourceSnapshot,
       sourceFactHighWatermarks: [],
@@ -2531,7 +2634,8 @@ async function seedRun(backend: BackendTest) {
         acceptedAt: now,
       },
       executor: { kind: "unknown" },
-      lifecycle: { kind: "active", leaseId: "lease-a", leaseExpiresAt: now + 90_000 },
+      lifecycle: { kind: "active", leaseId: "lease-a", leaseExpiresAt: now + 90_000,
+      },
       attemptCount: 1,
       version: 1,
       createdAt: now,
@@ -2597,11 +2701,13 @@ async function createAuthUser(backend: BackendTest, now: number) {
         updatedAt: now,
       },
     },
-  });
+  },
+  );
   return documentId(result, "Better Auth user");
 }
 
-async function createAuthSession(backend: BackendTest, userId: string, now: number) {
+async function createAuthSession(backend: BackendTest, userId: string, now: number,
+) {
   const result: unknown = await backend.mutation(components.betterAuth.adapter.create, {
     input: {
       model: "session",
@@ -2613,7 +2719,8 @@ async function createAuthSession(backend: BackendTest, userId: string, now: numb
         userId,
       },
     },
-  });
+  },
+  );
   return documentId(result, "Better Auth session");
 }
 
@@ -2656,7 +2763,8 @@ function deferredResponse() {
   };
 }
 
-function acceptedWorkerResponse(runId: string, submissionId: string, acceptedAt: number) {
+function acceptedWorkerResponse(runId: string, submissionId: string, acceptedAt: number,
+) {
   return new Response(
     JSON.stringify({
       state: "accepted",

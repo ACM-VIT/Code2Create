@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 import betterAuthSchema from "../node_modules/@convex-dev/better-auth/src/component/schema.ts";
 import { convexTest } from "convex-test";
+import { FirebaseMessagingError } from "firebase-admin/messaging";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { api, components, internal } from "./_generated/api";
 import {
@@ -148,7 +149,8 @@ async function fixture() {
       productDomains: [],
       languages: ["English"],
       criterionKeys: [],
-      availabilityWindows: [],
+      seniority: "sc",
+      strength: 2,
       trainingStatus: "complete",
       status: "active",
       version: 1,
@@ -184,6 +186,11 @@ async function fixture() {
       endsAt: now + 86_400_000,
       absenceGraceMinutes: 5,
       callDelayMinutes: 10,
+      confirmationAgent: {
+        appId: "venue-confirmation",
+        appVersion: 1,
+        responseWindowMinutes: 10,
+      },
     };
     const policyId = await ctx.db.insert("reviewerVenuePolicies", {
       eventId,
@@ -210,6 +217,7 @@ async function fixture() {
   const base = { eventSlug: "venue-test", installationId: "venue-phone" };
   const enabled = await reviewer.mutation(api.reviewerVenue.setMonitoring, {
     ...base,
+    ownerId: userId,
     enabled: true,
     clientOperationId: "enable-test",
   });
@@ -276,6 +284,7 @@ async function fixture() {
   };
   return {
     backend,
+    ownerId: userId,
     reviewer,
     base,
     ids,
@@ -291,6 +300,52 @@ async function fixture() {
 }
 
 describe("reviewer venue lifecycle", () => {
+  test("an opt-out queued by another account cannot change the current reviewer's monitoring", async () => {
+    const f = await fixture();
+    await expect(f.reviewer.mutation(api.reviewerVenue.setMonitoring, {
+      ...f.base,
+      ownerId: "a-different-signed-in-account",
+      enabled: false,
+      expectedGeneration: f.enabled.generation,
+      clientOperationId: "wrong-owner-disable",
+    })).rejects.toThrow("Sign in with the account that requested this venue check change");
+    expect((await f.mine()).presence).toMatchObject({
+      monitoringEnabled: true,
+      trackingGeneration: f.enabled.generation,
+    });
+  });
+
+  test("rejects a pre-generation GPS fix even when labelled with the current generation", async () => {
+    const f = await fixture();
+    const oldSampledAt = Date.now();
+    advance(1);
+    const next = await f.reviewer.mutation(api.reviewerVenue.setMonitoring, {
+      ...f.base,
+      ownerId: f.ownerId,
+      enabled: true,
+      clientOperationId: "enable-new-generation",
+    });
+    expect(next.startedAt).toBe(Date.now());
+    const result = await f.reviewer.mutation(api.reviewerVenue.reportLocation, {
+      ...f.base,
+      generation: next.generation,
+      sampledAt: oldSampledAt,
+      latitude: f.ids.policy.latitude,
+      longitude: f.ids.policy.longitude,
+      accuracy: 10,
+    });
+    expect(result).toEqual({ accepted: false, active: true });
+    expect((await f.mine()).presence?.sampledAt).toBeUndefined();
+    expect(
+      await f.reviewer.mutation(api.reviewerVenue.setMonitoring, {
+        ...f.base,
+        ownerId: f.ownerId,
+        enabled: true,
+        clientOperationId: "enable-new-generation",
+      }),
+    ).toEqual(next);
+  });
+
   test("a report after venue settings change stays visible without renewing old tracking", async () => {
     const f = await fixture();
     await f.backend.run((ctx) => ctx.db.patch(f.ids.policyId, { version: 2 }));
@@ -313,10 +368,11 @@ describe("reviewer venue lifecycle", () => {
     expect(roster.page[0]?.status).toBe("reported_left");
   });
 
-  test("departure reporting works with tracking disabled and return requires the current venue policy", async () => {
+  test("departure reporting works without location permission and remains off duty when location changes", async () => {
     const f = await fixture();
     await f.reviewer.mutation(api.reviewerVenue.setMonitoring, {
       ...f.base,
+      ownerId: f.ownerId,
       enabled: false,
       expectedGeneration: 1,
       clientOperationId: "off-for-break",
@@ -333,6 +389,7 @@ describe("reviewer venue lifecycle", () => {
     });
     const enabled = await f.reviewer.mutation(api.reviewerVenue.setMonitoring, {
       ...f.base,
+      ownerId: f.ownerId,
       enabled: true,
       clientOperationId: "check-return",
     });
@@ -345,13 +402,6 @@ describe("reviewer venue lifecycle", () => {
       sampledAt: Date.now(),
     });
     await f.backend.run((ctx) => ctx.db.patch(f.ids.policyId, { version: 2 }));
-    if (!reported.departure) throw new Error("Reported departure missing");
-    await expect(
-      f.reviewer.mutation(api.reviewerVenue.confirmReturn, {
-        ...f.base,
-        departureId: reported.departure._id,
-      }),
-    ).rejects.toThrow("Refresh your location");
     expect((await f.mine()).presence?.status).toBe("reported_left");
   });
 
@@ -411,7 +461,7 @@ describe("reviewer venue lifecycle", () => {
     expect(await f.calls()).toEqual([]);
   });
 
-  test("a declared departure is idempotent, suppresses reminders and requires a fresh inside fix to return", async () => {
+  test("a declared departure is idempotent and GPS cannot put a reviewer back on duty", async () => {
     const f = await fixture();
     const args = {
       ...f.base,
@@ -426,20 +476,9 @@ describe("reviewer venue lifecycle", () => {
     advance(6);
     await f.sample();
     expect((await f.mine()).presence?.status).toBe("reported_left");
-    await expect(
-      f.reviewer.mutation(api.reviewerVenue.confirmReturn, {
-        ...f.base,
-        departureId,
-      }),
-    ).rejects.toThrow("Refresh your location");
     advance(1);
     await f.sample("inside");
     expect((await f.mine()).presence?.status).toBe("reported_left");
-    await f.reviewer.mutation(api.reviewerVenue.confirmReturn, {
-      ...f.base,
-      departureId,
-    });
-    expect((await f.mine()).presence?.status).toBe("inside");
     expect(await f.calls()).toHaveLength(0);
     expect(
       await f.backend.run((ctx) =>
@@ -485,7 +524,9 @@ describe("reviewer venue lifecycle", () => {
       new URL("https://voice.example.test/v1/calls"),
       expect.objectContaining({
         method: "POST",
-        body: expect.stringContaining("You appear to have left Event hall"),
+        body: expect.stringContaining(
+          "Your phone suggests you may be outside Event hall",
+        ),
       }),
     );
     expect((await f.calls())[0]?.state).toBe("provider_accepted");
@@ -514,6 +555,61 @@ describe("reviewer venue lifecycle", () => {
     expect((await f.mine()).departure).toMatchObject({
       notificationState: "sent",
       notificationAttempts: 2,
+    });
+  });
+
+  test("retires an invalid FCM token and keeps the consented call fallback", async () => {
+    const f = await fixture();
+    await f.grantCall();
+    const departureId = await f.dwell();
+    sendPush.mockRejectedValueOnce(new FirebaseMessagingError({
+      code: "registration-token-not-registered",
+      message: "The device token is no longer registered.",
+    }));
+    await f.backend.action(internal.reviewPush.deliverVenueReminder, { departureId });
+    expect(await f.backend.run((ctx) => ctx.db.get(f.ids.deviceId))).toMatchObject({
+      pushTokenStatus: "invalid",
+      pushTokenInvalidatedAt: Date.now(),
+      pushTokenFailureCode: "messaging_registration-token-not-registered",
+    });
+    expect((await f.mine()).departure?.notificationState).toBe("unavailable");
+    await f.backend.action(internal.reviewPush.deliverVenueReminder, { departureId });
+    expect(sendPush).toHaveBeenCalledOnce();
+    await f.waitForCall();
+    expect((await f.calls())[0]?.state).toBe("pending");
+  });
+
+  test("a late push failure cannot retire a refreshed token or another notification attempt", async () => {
+    const f = await fixture();
+    const departureId = await f.dwell();
+    const claim = await f.backend.mutation(internal.reviewerVenueEscalation.claimNotification, {
+      departureId,
+      attemptId: "old-token-attempt",
+    });
+    if (!claim) throw new Error("Expected a venue notification claim.");
+    await f.backend.run((ctx) => ctx.db.patch(f.ids.deviceId, {
+      pushToken: "newly-registered-device-token",
+      pushTokenUpdatedAt: Date.now() + 1,
+    }));
+    const result = {
+      departureId,
+      attemptId: "old-token-attempt",
+      reviewerDeviceId: claim.reviewerDeviceId,
+      tokenFingerprint: claim.tokenFingerprint,
+      sent: false,
+      errorCode: "messaging_registration-token-not-registered",
+      invalidateToken: true,
+      retryable: false,
+    };
+    await f.backend.mutation(internal.reviewerVenueEscalation.recordNotification, {
+      ...result,
+      attemptId: "unrelated-attempt",
+    });
+    expect((await f.mine()).departure?.notificationState).toBe("sending");
+    await f.backend.mutation(internal.reviewerVenueEscalation.recordNotification, result);
+    expect(await f.backend.run((ctx) => ctx.db.get(f.ids.deviceId))).toMatchObject({
+      pushToken: "newly-registered-device-token",
+      pushTokenStatus: "active",
     });
   });
 
@@ -578,6 +674,7 @@ describe("reviewer venue lifecycle", () => {
     if (change === "stop")
       await f.reviewer.mutation(api.reviewerVenue.setMonitoring, {
         ...f.base,
+        ownerId: f.ownerId,
         enabled: false,
         expectedGeneration: 1,
         clientOperationId: "stop",
@@ -617,7 +714,7 @@ describe("reviewer venue lifecycle", () => {
     expect((await f.calls())[0]?.state).toBe("cancelled");
   });
 
-  test("call consent is purpose-specific and missing consent is visible as unavailable", async () => {
+  test("waits for venue-specific consent and calls once if it is granted after the reminder delay", async () => {
     const f = await fixture();
     await f.reviewer.mutation(api.outboundCallConsents.saveReviewerConsent, {
       eventSlug: f.base.eventSlug,
@@ -628,28 +725,37 @@ describe("reviewer venue lifecycle", () => {
     });
     await f.notify();
     await f.waitForCall();
-    expect((await f.calls())[0]).toMatchObject({
-      state: "unavailable",
-      providerErrorCode: "call_consent_not_granted",
-    });
+    expect(await f.calls()).toEqual([]);
+    expect((await f.mine()).departure?.callDeliveryId).toBeUndefined();
     expect(
       await f.reviewer.query(api.outboundCallConsents.mine, {
         eventSlug: f.base.eventSlug,
         purpose: venueCallPurpose,
       }),
     ).toMatchObject({ state: "not_configured" });
+    await f.grantCall();
+    advance(1);
+    await f.sample();
+    await f.backend.mutation(internal.reviewerVenueEscalation.sweep, {});
+    advance(1);
+    await f.sample();
+    await f.backend.mutation(internal.reviewerVenueEscalation.sweep, {});
+    expect(await f.calls()).toHaveLength(1);
+    expect((await f.calls())[0]).toMatchObject({ state: "pending", purpose: venueCallPurpose });
   });
 
   test("old tracking generations, foreign devices and unprivileged roster reads are rejected", async () => {
     const f = await fixture();
     await f.reviewer.mutation(api.reviewerVenue.setMonitoring, {
       ...f.base,
+      ownerId: f.ownerId,
       enabled: false,
       expectedGeneration: 1,
       clientOperationId: "off",
     });
     await f.reviewer.mutation(api.reviewerVenue.setMonitoring, {
       ...f.base,
+      ownerId: f.ownerId,
       enabled: true,
       clientOperationId: "new-session",
     });
@@ -657,6 +763,7 @@ describe("reviewer venue lifecycle", () => {
     await expect(
       f.reviewer.mutation(api.reviewerVenue.setMonitoring, {
         ...f.base,
+        ownerId: f.ownerId,
         enabled: false,
         expectedGeneration: 1,
         clientOperationId: "delayed-off",
@@ -758,7 +865,7 @@ describe("venue location classification", () => {
         startsAt: 0,
         endsAt: 1000,
         absenceGraceMinutes: 0,
-        callDelayMinutes: 1,
+        callDelayMinutes: -1,
       }),
     ).toThrow();
   });
@@ -774,3 +881,126 @@ function idOf(value: unknown) {
     throw new Error("Missing fixture ID");
   return value._id;
 }
+
+describe("venue voice responses", () => {
+  const response = {
+    outcome: "away" as const,
+    confirmed: true,
+    summary: "Away for 15 minutes",
+    returnInMinutes: 15,
+    transcript: [
+      {
+        role: "agent" as const,
+        text: "You are unavailable for fifteen minutes, correct?",
+      },
+      { role: "user" as const, text: "Yes, that's correct." },
+    ],
+  };
+  const { transcript: _transcript, ...responseSummary } = response;
+  async function confirmation() {
+    const f = await fixture();
+    await f.grantCall();
+    await f.notify();
+    await f.waitForCall();
+    const call = (await f.calls())[0];
+    if (!call) throw new Error("Missing confirmation call");
+    await f.backend.mutation(internal.outboundCallState.claimDelivery, {
+      deliveryId: call._id,
+      attemptId: "voice-test",
+    });
+    const event = {
+      providerEventId: crypto.randomUUID(),
+      deliveryId: call._id,
+      eventType: "call.completed" as const,
+      providerAt: Date.now(),
+      providerCallId: "sarvam-attempt",
+      venueResponse: response,
+    };
+    return { ...f, call, event };
+  }
+  test("a confirmed absence is applied once; altered replays are rejected", async () => {
+    const f = await confirmation();
+    await f.backend.mutation(
+      internal.outboundCallState.recordProviderEvent,
+      f.event,
+    );
+    const first = (await f.calls())[0];
+    expect(first).toMatchObject({
+      state: "completed",
+      venueResponseEffect: "clocked_out",
+      venueResponse: responseSummary,
+    });
+    expect((await f.mine()).presence?.status).toBe("reported_left");
+    expect(await f.reviewer.query(api.reviewerVenueOperations.callResponse, { eventSlug: f.base.eventSlug, deliveryId: f.call._id })).toEqual(response);
+    expect(first?.venueResponse).not.toHaveProperty("transcript");
+    await f.backend.mutation(
+      internal.outboundCallState.recordProviderEvent,
+      f.event,
+    );
+    expect((await f.calls())[0]?.version).toBe(first?.version);
+    await expect(
+      f.backend.mutation(internal.outboundCallState.recordProviderEvent, {
+        ...f.event,
+        venueResponse: { ...response, outcome: "available" },
+      }),
+    ).rejects.toThrow("reused with different data");
+  });
+  test.each(["expired", "revoked", "returned", "policy_changed"] as const)(
+    "a %s confirmation stays in history without changing duty",
+    async (change) => {
+      const f = await confirmation();
+      if (change === "expired") advance(11);
+      if (change === "returned") {
+        advance(1);
+        await f.sample("inside");
+      }
+      const consentId = f.call.consentId;
+      if (change === "revoked" && consentId)
+        await f.backend.run((ctx) =>
+          ctx.db.patch(consentId, { state: "revoked", version: 2 }),
+        );
+      if (change === "policy_changed")
+        await f.backend.run((ctx) =>
+          ctx.db.patch(f.ids.policyId, { version: 2 }),
+        );
+      await f.backend.mutation(
+        internal.outboundCallState.recordProviderEvent,
+        f.event,
+      );
+      expect((await f.calls())[0]).toMatchObject({
+        state: "completed",
+        venueResponseEffect: "stale",
+        venueResponse: responseSummary,
+      });
+      expect((await f.mine()).presence?.status).not.toBe("reported_left");
+    },
+  );
+  test.each(["available", "unclear", "needs_help"] as const)(
+    "records %s separately from phone GPS",
+    async (outcome) => {
+      const f = await confirmation();
+      await f.backend.mutation(internal.outboundCallState.recordProviderEvent, {
+        ...f.event,
+        venueResponse: {
+          ...response,
+          outcome,
+          confirmed: outcome !== "unclear",
+        },
+      });
+      expect((await f.calls())[0]?.venueResponseEffect).toBe(
+        outcome === "available" ? "confirmed" : "needs_ops",
+      );
+      expect((await f.mine()).presence?.status).toBe("left");
+    },
+  );
+  test("answered call with no structured response is never confirmed", async () => {
+    const f = await confirmation();
+    const { venueResponse: _response, ...event } = f.event;
+    await f.backend.mutation(
+      internal.outboundCallState.recordProviderEvent,
+      event,
+    );
+    expect((await f.calls())[0]?.venueResponseEffect).toBeUndefined();
+    expect((await f.mine()).presence?.status).toBe("left");
+  });
+});
