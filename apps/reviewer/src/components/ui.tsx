@@ -9,7 +9,6 @@ import {
   Text,
   TextInput,
   View,
-  useWindowDimensions,
 } from "react-native";
 
 import { scanGuideSize } from "@/lib/scan-surface-layout";
@@ -277,22 +276,18 @@ function swallowSheetRace() {}
 
 export function Sheet({
   children,
-  detents = ["auto"],
+  detents = [0.85],
   onClose,
   title,
   visible,
 }: {
   children: ReactNode;
-  detents?: SheetDetent[];
+  detents?: Extract<SheetDetent, number>[];
   onClose: () => void;
   title: string;
   visible: boolean;
 }) {
   const sheet = useRef<TrueSheet>(null);
-  // A sheet never reaches the top of the screen: the strip of dimmed
-  // background left above it is what says "tap here to close".
-  const { height: windowHeight } = useWindowDimensions();
-  const sheetCeiling = Math.round(windowHeight * 0.85);
   // Mount the native sheet only while it is needed: an idle mounted sheet
   // sits invisibly over the screen and swallows every touch beneath it.
   const [mounted, setMounted] = useState(visible);
@@ -317,12 +312,14 @@ export function Sheet({
         detents={detents}
         grabber
         initialDetentIndex={0}
-        maxContentHeight={sheetCeiling}
         onDidDismiss={() => {
           onClose();
           setMounted(false);
         }}
         ref={sheet}
+        // Native fitting keeps the ScrollView and focused input above the
+        // keyboard. TrueSheet cannot fit scrollable content with auto detents.
+        scrollable
       >
         <ScrollView
           contentContainerStyle={styles.sheetBody}
