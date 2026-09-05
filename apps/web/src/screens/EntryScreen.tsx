@@ -79,6 +79,11 @@ export function EntryScreen({
     );
   }
 
+  const vitOpen = publicState.event.registrationOpen &&
+    publicState.serverNow < publicState.event.applicationsCloseAt;
+  const externalOpen = publicState.event.registrationOpen &&
+    publicState.serverNow < publicState.event.externalApplicationsCloseAt;
+
   const authUnavailableMessage =
     participantClass === "vit_student"
       ? publicState.auth.googleConfigured
@@ -153,6 +158,16 @@ export function EntryScreen({
           />
         </h1>
 
+        {(!vitOpen || !externalOpen) && (
+          <p className="mb-5 text-[13px] text-fg/70">
+            {!vitOpen && !externalOpen
+              ? "Applications are closed."
+              : !vitOpen
+                ? "VIT student applications are closed."
+                : "External participant applications are closed."}
+            {" Existing participants can still select their type and sign in below."}
+          </p>
+        )}
         <div
           className="mb-7 flex w-full flex-col gap-3 sm:flex-row sm:justify-center sm:gap-4"
           role="group"

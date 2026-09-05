@@ -12,8 +12,13 @@ afterEach(() => vi.unstubAllEnvs());
 test("staging reset is unavailable in production", async () => {
   vi.stubEnv("C2C_DEPLOYMENT_ENVIRONMENT", "production");
   const t = convexTest(schema, modules);
+  const eventId = await t.run((ctx) => ctx.db.insert("events", {
+    slug: "production", name: "Production", timezone: "Asia/Kolkata",
+    status: "registration_closed", vitEmailDomains: [], applicationsCloseAt: 0,
+    startsAt: 1, endsAt: 2, version: 1, createdAt: 0, updatedAt: 0,
+  }));
   await expect(
-    t.mutation(internal.stagingInternalHack.clearOperationalRemainders, {}),
+    t.mutation(internal.stagingInternalHack.clearOperationalRemainders, { eventId }),
   ).rejects.toThrow("requires staging");
 });
 test.each([2, 5])(
@@ -95,10 +100,33 @@ test.each([2, 5])(
       if (!policy) throw new Error("Missing communications");
       await ctx.db.patch(policy._id, { emailTemplates: policy.emailTemplates.slice(0, 3) });
     });
+    const other = await t.run(async (ctx) => {
+      const event = await ctx.db.get(setup.eventId);
+      if (!event) throw new Error("Missing event");
+      const { _id, _creationTime, ...fields } = event;
+      const eventId = await ctx.db.insert("events", { ...fields, slug: "unrelated" });
+      const bucket = await ctx.db.query("admissionCapacityBuckets").first();
+      if (!bucket) throw new Error("Missing bucket");
+      const { _id: bucketId, _creationTime: _bucketTime, ...bucketFields } = bucket;
+      const policy = await ctx.db.get(bucket.admissionPolicyVersionId);
+      if (!policy) throw new Error("Missing admission policy");
+      const { _id: _policyId, _creationTime: _policyTime, ...policyFields } = policy;
+      const admissionPolicyVersionId = await ctx.db.insert("admissionPolicyVersions", { ...policyFields, eventId });
+      const otherBucketId = await ctx.db.insert("admissionCapacityBuckets", {
+        ...bucketFields, eventId, admissionPolicyVersionId, reserved: 17,
+      });
+      await ctx.db.patch(bucketId, { reserved: 9 });
+      return { eventId, bucketId: otherBucketId };
+    });
     await t.mutation(internal.stagingInternalHack.prepare, {
       eventId: setup.eventId,
       startsAt: now + 7200000,
       endsAt: now + 14400000,
+    });
+    await t.run(async (ctx) => {
+      expect((await ctx.db.get(other.bucketId))?.reserved).toBe(17);
+      expect((await ctx.db.query("admissionCapacityBuckets")
+        .withIndex("by_event", (q) => q.eq("eventId", setup.eventId)).unique())?.reserved).toBe(0);
     });
     const args = {
       ...setup,
@@ -198,6 +226,27 @@ test.each([2, 5])(
         createdAt: now,
       });
     });
+    const cleanup = await t.run(async (ctx) => {
+      const row = { source: "operations_attention" as const, sequence: 1, updatedAt: now };
+      const targetRow = await ctx.db.insert("operationsAutonomyReadFactStates", { ...row, eventId: setup.eventId });
+      const otherRow = await ctx.db.insert("operationsAutonomyReadFactStates", { ...row, eventId: other.eventId });
+      const targetJob = await ctx.scheduler.runAfter(3600000, internal.stagingInternalHack.start,
+        { eventId: setup.eventId, startsAt: now });
+      const otherJob = await ctx.scheduler.runAfter(3600000, internal.stagingInternalHack.start,
+        { eventId: other.eventId, startsAt: now });
+      const indirectJob = await ctx.scheduler.runAfter(3600000, internal.stagingInternalHack.openScheduledRound, { roundId });
+      return { targetRow, otherRow, targetJob, otherJob, indirectJob };
+    });
+    expect(await t.mutation(internal.stagingInternalHack.clearOperationalRemainders, { eventId: setup.eventId })).toBeGreaterThan(0);
+    expect(await t.mutation(internal.stagingInternalHack.clearOperationalRemainders, { eventId: setup.eventId })).toBe(0);
+    await t.mutation(internal.stagingInternalHack.cancelScheduled, { eventId: setup.eventId, cursor: null });
+    await t.run(async (ctx) => {
+      expect(await ctx.db.get(cleanup.targetRow)).toBeNull();
+      expect(await ctx.db.get(cleanup.otherRow)).not.toBeNull();
+      expect((await ctx.db.system.get(cleanup.targetJob))?.state.kind).toBe("canceled");
+      expect((await ctx.db.system.get(cleanup.otherJob))?.state.kind).toBe("pending");
+      expect((await ctx.db.system.get(cleanup.indirectJob))?.state.kind).toBe("pending");
+    });
     const startsAt = now + 11400000;
     await t.mutation(internal.stagingInternalHack.rescheduleRound, { roundId, startsAt });
     await t.mutation(internal.stagingInternalHack.rescheduleRound, { roundId, startsAt });
@@ -226,7 +275,7 @@ test.each([2, 5])(
       expect((await ctx.db.get(id))?.status).toBe("admitted");
       const reservations = await ctx.db.query("admissionCapacityReservations").collect();
       expect(reservations.filter((r) => r.state === "active")).toHaveLength(1);
-      expect((await ctx.db.query("admissionCapacityBuckets").first())?.reserved).toBe(size);
+      expect((await ctx.db.query("admissionCapacityBuckets").withIndex("by_event", (q) => q.eq("eventId", setup.eventId)).unique())?.reserved).toBe(size);
     });
   },
 );

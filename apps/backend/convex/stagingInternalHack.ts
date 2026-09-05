@@ -365,13 +365,19 @@ export const prepare = internalMutation({
       version: event.version + 1,
       updatedAt: Date.now(),
     });
-    for (const bucket of await ctx.db.query("admissionCapacityBuckets").collect())
+    for (const bucket of await ctx.db
+      .query("admissionCapacityBuckets")
+      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
+      .collect())
       await ctx.db.patch(bucket._id, {
         reserved: 0,
         version: bucket.version + 1,
         updatedAt: Date.now(),
       });
-    for (const rosterImport of await ctx.db.query("rosterImports").collect()) {
+    for (const rosterImport of await ctx.db
+      .query("rosterImports")
+      .withIndex("by_event_created", (q) => q.eq("eventId", args.eventId))
+      .collect()) {
       if (rosterImport.validUntil > Date.now())
         await ctx.scheduler.runAt(rosterImport.validUntil, internal.rosters.expireImportEntries, {
           rosterImportId: rosterImport._id,
@@ -487,9 +493,9 @@ export const provisionPerson = internalMutation({
 });
 
 export const clearOperationalRemainders = internalMutation({
-  args: {},
+  args: { eventId: v.id("events") },
   returns: v.number(),
-  handler: async (ctx) => {
+  handler: async (ctx, args) => {
     requireStaging();
     let count = 0;
     const tables = [
@@ -506,7 +512,9 @@ export const clearOperationalRemainders = internalMutation({
       "operationsIntelligenceFacts",
     ] as const;
     for (const table of tables) {
-      const rows = await ctx.db.query(table).take(200);
+      const rows = await ctx.db.query(table)
+        .filter((q) => q.eq(q.field("eventId"), args.eventId))
+        .take(200);
       for (const row of rows) await ctx.db.delete(row._id);
       count += rows.length;
     }
@@ -514,7 +522,7 @@ export const clearOperationalRemainders = internalMutation({
   },
 });
 export const cancelScheduled = internalMutation({
-  args: { cursor: v.union(v.string(), v.null()) },
+  args: { eventId: v.id("events"), cursor: v.union(v.string(), v.null()) },
   returns: v.object({ cursor: v.string(), done: v.boolean(), cancelled: v.number() }),
   handler: async (ctx, args) => {
     requireStaging();
@@ -522,11 +530,18 @@ export const cancelScheduled = internalMutation({
       .query("_scheduled_functions")
       .paginate({ cursor: args.cursor, numItems: 1000 });
     let cancelled = 0;
-    for (const fn of page.page)
-      if (fn.state.kind === "pending") {
+    for (const fn of page.page) {
+      const jobArgs: unknown = fn.args[0];
+      // Jobs without an explicit event owner must survive event cleanup.
+      if (
+        fn.state.kind === "pending" && fn.args.length === 1 &&
+        typeof jobArgs === "object" && jobArgs !== null &&
+        "eventId" in jobArgs && jobArgs.eventId === args.eventId
+      ) {
         await ctx.scheduler.cancel(fn._id);
         cancelled++;
       }
+    }
     return { cursor: page.continueCursor, done: page.isDone, cancelled };
   },
 });
