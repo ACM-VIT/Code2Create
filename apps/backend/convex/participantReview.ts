@@ -168,14 +168,25 @@ export const current = query({
       }
     }
     if (!selectedRound) return null;
-    const roundPause = await activeRoundPause(ctx, selectedRound._id);
-    const panel = selectedState?.panelId ? await ctx.db.get(selectedState.panelId) : null;
-    const sessions = await ctx.db
-      .query("reviewSessions")
-      .withIndex("by_round_team_status", (index) =>
-        index.eq("roundId", selectedRound._id).eq("teamId", teamContext.team._id),
-      )
-      .take(maximumReviewSessionsPerTeamRound + 1);
+    const [roundPause, panel, sessions, latestNotice] = await Promise.all([
+      activeRoundPause(ctx, selectedRound._id),
+      selectedState?.panelId ? ctx.db.get(selectedState.panelId) : null,
+      ctx.db
+        .query("reviewSessions")
+        .withIndex("by_round_team_status", (index) =>
+          index.eq("roundId", selectedRound._id).eq("teamId", teamContext.team._id),
+        )
+        .take(maximumReviewSessionsPerTeamRound + 1),
+      selectedState
+        ? ctx.db
+            .query("reviewTeamNotices")
+            .withIndex("by_round_team_created", (index) =>
+              index.eq("roundId", selectedRound._id).eq("teamId", teamContext.team._id),
+            )
+            .order("desc")
+            .first()
+        : null,
+    ]);
     if (sessions.length > maximumReviewSessionsPerTeamRound) {
       throw new Error("A team exceeds the review-attempt limit for this round.",
       );
@@ -221,8 +232,8 @@ export const current = query({
       if (panelId === undefined) {
         throw new Error("A queued team must have a panel and queue time.");
       }
-      teamsAhead = await participantQueuePosition(ctx, selectedState);
-      const [awaitingPresence, activeReview, scoringReview, completedReviews] = await Promise.all([
+      const [queuePosition, awaitingPresence, activeReview, scoringReview, completedReviews, queuePolicy] = await Promise.all([
+        participantQueuePosition(ctx, selectedState),
         ctx.db
           .query("reviewSessions")
           .withIndex("by_panel_status", (index) =>
@@ -248,12 +259,13 @@ export const current = query({
           )
           .order("desc")
           .take(9),
+        ctx.db
+          .query("reviewQueuePolicies")
+          .withIndex("by_round", (index) => index.eq("roundId", selectedRound._id))
+          .unique(),
       ]);
+      teamsAhead = queuePosition;
       const livePanelReview = activeReview ?? scoringReview ?? awaitingPresence;
-      const queuePolicy = await ctx.db
-        .query("reviewQueuePolicies")
-        .withIndex("by_round", (q) => q.eq("roundId", selectedRound._id))
-        .unique();
       const scoringBuffer = queuePolicy?.scoringBufferSeconds ?? 90;
       const estimatedWindow = roundPause
         ? null
@@ -285,17 +297,6 @@ export const current = query({
           }
         : null;
     }
-    const latestNotice = selectedState
-      ? await ctx.db
-          .query("reviewTeamNotices")
-          .withIndex("by_round_team_created", (q) =>
-            q
-              .eq("roundId", selectedRound._id)
-              .eq("teamId", teamContext.team._id),
-          )
-          .order("desc")
-          .first()
-      : null;
     const notice =
       latestNotice &&
       selectedState &&

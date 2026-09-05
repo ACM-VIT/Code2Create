@@ -59,11 +59,13 @@ export function HomeScreen({
   members,
   teamEditable,
   onSignOut,
+  onPrepareIntake,
 }: {
   team: CurrentTeam;
   members: CurrentTeamMember[];
   teamEditable: boolean;
   onSignOut: () => void;
+  onPrepareIntake: () => void;
 }) {
   const navigate = useNavigate();
   const intake = useQuery(api.intake.current, { eventSlug });
@@ -92,7 +94,12 @@ export function HomeScreen({
           <h1 className="mb-8 font-display font-light tracking-[-.01em] text-balance text-5xl leading-none text-shadow-[0_8px_50px_var(--scene-text-glow)] lg:text-7xl">
             {journey.headline}
           </h1>
-          <PortalButton type="button" onClick={() => navigate("/write", { viewTransition: true })}>
+          <PortalButton
+            type="button"
+            onPointerEnter={onPrepareIntake}
+            onFocus={onPrepareIntake}
+            onClick={() => navigate("/write", { viewTransition: true })}
+          >
             {journey.action}
           </PortalButton>
 

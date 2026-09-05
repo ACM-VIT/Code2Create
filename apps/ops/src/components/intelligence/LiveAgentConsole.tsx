@@ -3,6 +3,7 @@ import {
   type SubmitEvent,
   type KeyboardEvent,
   type ReactNode,
+  memo,
   useEffect,
   useId,
   useLayoutEffect,
@@ -229,7 +230,7 @@ export function LiveAgentConsole({
             />
           ) : null}
           {timeline.map((item) => (
-            <TimelineItem agentLabel={agentLabel} item={item} key={item.id} />
+            <TimelineItem {...item} agentLabel={agentLabel} key={item.id} />
           ))}
           {isStreaming ? <StreamingIndicator copy={workingCopy} /> : null}
           {terminalState !== "none" &&
@@ -367,7 +368,12 @@ function AgentEmptyState({
   );
 }
 
-function TimelineItem({ agentLabel, item }: { agentLabel: string; item: SafeAgentTimelineItem }) {
+// Primitive props let unchanged history skip renders even when a streamed update
+// produces new projected timeline objects.
+const TimelineItem = memo(function TimelineItem({
+  agentLabel,
+  ...item
+}: SafeAgentTimelineItem & { agentLabel: string }) {
   if (item.kind === "operator-text") {
     return (
       <article className="flex justify-end pl-14" data-timeline-id={item.id}>
@@ -406,7 +412,7 @@ function TimelineItem({ agentLabel, item }: { agentLabel: string; item: SafeAgen
       <span className="visually-hidden">{toolStateLabel(item.state)}</span>
     </div>
   );
-}
+});
 
 function ThinkingTrace({
   id,

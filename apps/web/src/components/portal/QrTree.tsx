@@ -1,5 +1,5 @@
 import { toQR } from "toqr";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useReducedMotion } from "../dashboard/useReducedMotion";
 
@@ -410,7 +410,7 @@ function stepPetals(petals: Petal[], scene: Scene, random: () => number, dt: num
   }
 }
 
-export function QrTree({
+export const QrTree = memo(function QrTree({
   value,
   size = 168,
   season = "spring",
@@ -444,7 +444,7 @@ export function QrTree({
 
   const observer = useRef<ResizeObserver | null>(null);
   // A callback ref measures the frame the moment it exists, then follows resizes.
-  const frameRef = (frame: HTMLDivElement | null) => {
+  const frameRef = useCallback((frame: HTMLDivElement | null) => {
     observer.current?.disconnect();
     observer.current = null;
     if (!frame) return;
@@ -452,7 +452,7 @@ export function QrTree({
     measure();
     observer.current = new ResizeObserver(measure);
     observer.current.observe(frame);
-  };
+  }, []);
 
   useEffect(() => {
     if (controlledFlat !== undefined) burstAt.current = (performance.now() - (clockStart.current ?? performance.now())) / 1000;
@@ -522,4 +522,4 @@ export function QrTree({
       {element}
     </div>
   );
-}
+});

@@ -21,7 +21,6 @@ import { DetailsScreen } from "./screens/DetailsScreen";
 import { HomeScreen } from "./screens/HomeScreen";
 import { ImportedTeamChoiceScreen } from "./screens/ImportedTeamChoiceScreen";
 import { MoreScreen } from "./screens/MoreScreen";
-import { IntakeScreen } from "./screens/IntakeScreen";
 import { SglangInterlude } from "./screens/SglangInterlude";
 import { TeamLobbyScreen } from "./screens/TeamLobbyScreen";
 import { TeamScreen } from "./screens/TeamScreen";
@@ -30,10 +29,16 @@ import type { CurrentTeam, ParticipantClass, PublicState } from "./types";
 const loadFigmaCallbackScreen = () => import("./screens/FigmaCallbackScreen");
 const loadGitHubCallbackScreen = () => import("./screens/GitHubCallbackScreen");
 const loadIntegrationsScreen = () => import("./screens/IntegrationsScreen");
+const loadIntakeScreen = () => import("./screens/IntakeScreen");
 const loadSubmittedScreen = () => import("./screens/SubmittedScreen");
 const loadSynesthesiaScreen = () => import("./screens/SynesthesiaScreen");
 const loadSupportScreen = () => import("./screens/SupportScreen");
 const loadUpdatesScreen = () => import("./screens/UpdatesScreen");
+
+function prepareIntakeScreen() {
+  // Let the lazy route report import failures when it is actually opened.
+  void loadIntakeScreen().catch(() => {});
+}
 
 const FigmaCallbackScreen = lazy(() =>
   loadFigmaCallbackScreen().then((module) => ({ default: module.FigmaCallbackScreen })),
@@ -43,6 +48,9 @@ const GitHubCallbackScreen = lazy(() =>
 );
 const IntegrationsScreen = lazy(() =>
   loadIntegrationsScreen().then((module) => ({ default: module.IntegrationsScreen })),
+);
+const IntakeScreen = lazy(() =>
+  loadIntakeScreen().then((module) => ({ default: module.IntakeScreen })),
 );
 const SubmittedScreen = lazy(() =>
   loadSubmittedScreen().then((module) => ({ default: module.SubmittedScreen })),
@@ -359,6 +367,7 @@ export function ParticipantApp({
         members={teamMembers.results}
         teamEditable={teamEditable}
         onSignOut={signOut}
+        onPrepareIntake={prepareIntakeScreen}
       />
     );
   }

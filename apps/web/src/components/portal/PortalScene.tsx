@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type PointerEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { Link } from "react-router-dom";
 import { DaybreakToggle } from "./DaybreakToggle";
 import { PortalSceneContext } from "./portalSceneContext";
@@ -9,7 +9,46 @@ type TreePlacement = "left" | "right" | "both" | "none";
 type CursorPetal = { id: number; x: number; y: number; variant: number };
 
 /** A restrained trail: one tiny blossom petal occasionally falls from the pointer. */
-function CursorPetalLayer({ petals }: { petals: readonly CursorPetal[] }) {
+function CursorPetalLayer({ sceneRef }: { sceneRef: RefObject<HTMLDivElement | null> }) {
+  const [petals, setPetals] = useState<readonly CursorPetal[]>([]);
+  const cursorPetalId = useRef(0);
+
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const timers = new Set<number>();
+    let last = { at: 0, x: -100, y: -100 };
+
+    const onMove = (event: PointerEvent) => {
+      // Only a real mouse sheds petals. Check the rate before reading layout;
+      // the media query's live matches value also follows preference changes.
+      if (event.pointerType !== "mouse") return;
+      const now = performance.now();
+      if (now - last.at < 105 || reducedMotion.matches) return;
+      const rect = scene.getBoundingClientRect();
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+      if (Math.hypot(x - last.x, y - last.y) < 16) return;
+
+      cursorPetalId.current += 1;
+      const petal = { id: cursorPetalId.current, x, y, variant: cursorPetalId.current % 8 };
+      last = { at: now, x, y };
+      setPetals((current) => [...current.slice(-9), petal]);
+      const timer = window.setTimeout(() => {
+        setPetals((current) => current.filter((item) => item.id !== petal.id));
+        timers.delete(timer);
+      }, 1_850);
+      timers.add(timer);
+    };
+
+    scene.addEventListener("pointermove", onMove, { passive: true });
+    return () => {
+      scene.removeEventListener("pointermove", onMove);
+      for (const timer of timers) window.clearTimeout(timer);
+    };
+  }, [sceneRef]);
+
   return (
     <div
       aria-hidden
@@ -76,53 +115,14 @@ export function PortalScene({
 }) {
   const showLeftTree = tree === "left" || tree === "both";
   const showRightTree = tree === "right" || tree === "both";
-  const [cursorPetals, setCursorPetals] = useState<readonly CursorPetal[]>([]);
-  const cursorPetalId = useRef(0);
-  const lastCursorPetal = useRef({ at: 0, x: -100, y: -100 });
-  const cursorPetalTimers = useRef(new Set<number>());
-
-  useEffect(
-    () => () => {
-      for (const timer of cursorPetalTimers.current) window.clearTimeout(timer);
-      cursorPetalTimers.current.clear();
-    },
-    [],
-  );
-
-  // Only a real mouse sheds petals: a finger fires synthetic mouse moves at
-  // each tap, and pointer events tell the two apart.
-  const onMove = useCallback((event: PointerEvent<HTMLDivElement>) => {
-    if (event.pointerType !== "mouse") return;
-    const rect = event.currentTarget.getBoundingClientRect();
-    const x = event.clientX - rect.left;
-    const y = event.clientY - rect.top;
-
-    const now = performance.now();
-    const last = lastCursorPetal.current;
-    const travelled = Math.hypot(x - last.x, y - last.y);
-    if (
-      now - last.at < 105 ||
-      travelled < 16 ||
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches
-    )
-      return;
-
-    cursorPetalId.current += 1;
-    const petal = { id: cursorPetalId.current, x, y, variant: cursorPetalId.current % 8 };
-    lastCursorPetal.current = { at: now, x, y };
-    setCursorPetals((current) => [...current.slice(-9), petal]);
-    const timer = window.setTimeout(() => {
-      setCursorPetals((current) => current.filter((item) => item.id !== petal.id));
-      cursorPetalTimers.current.delete(timer);
-    }, 1_850);
-    cursorPetalTimers.current.add(timer);
-  }, []);
+  const sceneRef = useRef<HTMLDivElement>(null);
+  const context = useMemo(() => ({ onSignOut: onSignOut ?? null }), [onSignOut]);
 
   return (
-    <PortalSceneContext.Provider value={{ onSignOut: onSignOut ?? null }}>
+    <PortalSceneContext.Provider value={context}>
       <div
+        ref={sceneRef}
         data-portal-scene
-        onPointerMove={onMove}
         className={`relative flex flex-col overflow-clip bg-wash bg-[image:var(--scene-sky)] font-ui text-fg ${
           fill ? "h-dvh" : "min-h-dvh"
         }`}
@@ -202,7 +202,7 @@ export function PortalScene({
           {children}
         </main>
 
-        <CursorPetalLayer petals={cursorPetals} />
+        <CursorPetalLayer sceneRef={sceneRef} />
 
         <div
           aria-hidden

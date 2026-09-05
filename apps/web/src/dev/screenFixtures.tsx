@@ -36,7 +36,7 @@ import type { UpdatesTileModel } from "../components/dashboard/UpdatesTile";
 import { DashboardScreen } from "../screens/DashboardScreen";
 import { SglangInterlude } from "../screens/SglangInterlude";
 import { ConfirmCard, RenameTeamCard } from "../screens/TeamLobbyScreen";
-import { NoveltyPill, NoveltyReviewRow, ReviewEditRow } from "../screens/IntakeScreen";
+import { NoveltyPill, NoveltyReviewRow, ReviewEditRow } from "../components/ProposalReview";
 import { IdeaPromptsLink } from "../components/portal/IdeaPromptsSheet";
 import { JoinCodeBar } from "../components/portal/JoinCodeBar";
 import {

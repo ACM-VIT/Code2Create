@@ -21,6 +21,7 @@ import { matchingPermissionGrantIds, requirePermission,
 } from "./lib/permissions";
 import { activeRoundPause } from "./lib/reviewRoundPauses";
 import { roundExportCsvRow } from "./lib/roundExportFormat";
+import { buildRoundCloseEntries } from "./lib/roundCloseEntries";
 import { normalizedText } from "./lib/strings";
 import { appendRoundExportJobReadFactById } from "./lib/operationsAutonomyReadFacts/roundExportJobs";
 import { reviewRoundStatus } from "./values";
@@ -103,7 +104,6 @@ const exportWorkspace = v.object({
 });
 
 type ReadCtx = QueryCtx | MutationCtx;
-type ClosePayload = Doc<"roundCloseEntries">["payload"];
 type ActiveExportState = "generating" | "uploaded" | "verified" | "failed";
 type StartResult = {
   roundExportId: Id<"roundExports">;
@@ -139,11 +139,6 @@ const roundExportVerificationOperationResult = z
 
 function unresolvedCorrection(state: Doc<"scorecardCorrectionCases">["state"]) {
   return state === "requested" || state === "open";
-}
-
-function closePayloadOrder(left: { teamId: Id<"teams"> }, right: { teamId: Id<"teams"> },
-) {
-  return String(left.teamId).localeCompare(String(right.teamId));
 }
 
 function sameNumber(left: number, right: number) {
@@ -532,87 +527,7 @@ export const start = mutation({
         message: "This round has no team outcomes to export.",
       });
     }
-    const entries: Array<{ teamId: Id<"teams">; payload: ClosePayload }> = [];
-    for (const state of states) {
-      if (state.state === "withdrawn") {
-        entries.push({ teamId: state.teamId, payload: { kind: "withdrawn" } });
-        continue;
-      }
-      const teamSessions = sessions.filter(
-        (session) => session.teamId === state.teamId && session.status === "completed",
-      );
-      const valid = teamSessions.flatMap((session) => {
-        const evaluation = evaluations.find(
-          (candidate) =>
-            candidate.reviewSessionId === session._id && candidate.state === "complete",
-        );
-        return evaluation ? [{ session, evaluation }] : [];
-      });
-      if (valid.length > 1) {
-        throw new ConvexError({
-          code: "DUPLICATE_VALID_RESULTS",
-          message:
-            "A team has more than one valid completed result. Void the duplicate explicitly.",
-        });
-      }
-      const result = valid[0];
-      if (result) {
-        entries.push({
-          teamId: state.teamId,
-          payload: {
-            kind: "result",
-            reviewSessionId: result.session._id,
-            evaluationId: result.evaluation._id,
-            evaluationInputChecksum: result.evaluation.inputChecksum,
-            criterionResults: result.evaluation.criterionResults.map((criterion) => ({
-              criterionId: criterion.criterionId,
-              scoreCount: criterion.scoreCount,
-              scoreSum: criterion.scoreSum,
-              meanScore: criterion.meanScore,
-              weightedPoints: criterion.weightedPoints,
-              spreadFlag: criterion.spreadFlag,
-            }),
-            ),
-            totalPoints: result.evaluation.totalPoints,
-          },
-        });
-        continue;
-      }
-      const excluded = teamSessions.flatMap((session) => {
-        const evaluation = evaluations.find(
-          (candidate) => candidate.reviewSessionId === session._id && candidate.state === "void",
-        );
-        if (!evaluation) return [];
-        const voidCase = cases
-          .filter(
-            (candidate) =>
-              candidate.reviewSessionId === session._id &&
-              candidate.kind === "void" &&
-              candidate.state === "closed" &&
-              candidate.voidDisposition === "exclude",
-          )
-          .sort((left, right) => right.requestedAt - left.requestedAt)[0];
-        return voidCase ? [{ session, voidCase }] : [];
-      });
-      if (excluded.length !== 1) {
-        throw new ConvexError({
-          code: "TEAM_RESULT_INCOMPLETE",
-          message: "A completed team needs one valid result or one approved exclusion.",
-        });
-      }
-      const excludedResult = excluded[0];
-      if (!excludedResult) throw new Error("Validated exclusion is missing.");
-      entries.push({
-        teamId: state.teamId,
-        payload: {
-          kind: "excluded",
-          reviewSessionId: excludedResult.session._id,
-          correctionCaseId: excludedResult.voidCase._id,
-          category: excludedResult.voidCase.category,
-        },
-      });
-    }
-    entries.sort(closePayloadOrder);
+    const entries = buildRoundCloseEntries({ states, sessions, evaluations, cases });
     const revision = (latestExport?.revision ?? 0) + 1;
     const now = Date.now();
     const snapshotChecksum = operationFingerprint([
@@ -940,14 +855,17 @@ async function teamExportContext(
   if (!team || team.eventId !== entry.eventId) {
     throw new Error("A close entry references an invalid team.");
   }
-  const application = await ctx.db
-    .query("applications")
-    .withIndex("by_team", (index) => index.eq("teamId", team._id))
-    .unique();
+  const [application, session] = await Promise.all([
+    ctx.db
+      .query("applications")
+      .withIndex("by_team", (index) => index.eq("teamId", team._id))
+      .unique(),
+    entry.payload.kind === "withdrawn" ? null : ctx.db.get(entry.payload.reviewSessionId),
+  ]);
   const projectVersionId =
     entry.payload.kind === "withdrawn"
       ? team.lockedProjectVersionId
-      : (await ctx.db.get(entry.payload.reviewSessionId))?.projectVersionId;
+      : session?.projectVersionId;
   const projectVersion = projectVersionId ? await ctx.db.get(projectVersionId) : null;
   if (
     projectVersion &&
@@ -1030,7 +948,6 @@ async function teamExportContext(
       },
     };
   }
-  const session = await ctx.db.get(entry.payload.reviewSessionId);
   if (!session || session.roundId !== round._id || session.teamId !== team._id) {
     throw new Error("A close entry references an invalid review session.");
   }
