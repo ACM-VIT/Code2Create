@@ -25,7 +25,7 @@
     "providers:check:staging": "node scripts/release/liveProviderChecks.ts",
     "keys:check": "node scripts/release/checkKeys.ts",
     "test:providers": "vitest run convex/providerContracts.test.ts convex/providerSecretRotation.test.ts convex/lib/boundedHttpBody.test.ts convex/lib/cloudflareEmailSending.test.ts convex/lib/externalEventPassWallet.test.ts convex/lib/figmaPreviewDownload.test.ts convex/lib/figmaPreviewStorage.test.ts convex/lib/openAiEmbeddings.test.ts convex/lib/posthog.test.ts convex/lib/providerSecrets.test.ts",
-    "test:identity": "vitest run convex/lib/vitStudentIdentity.test.ts convex/identityRefresh.test.ts convex/accessDiscovery.test.ts",
+    "test:identity": "vitest run convex/authLinking.test.ts convex/lib/vitStudentIdentity.test.ts convex/identityRefresh.test.ts convex/accessDiscovery.test.ts",
     "test:permissions": "vitest run convex/permissionDelegation.test.ts convex/storageContextVisibility.test.ts convex/accessCapabilities.test.ts",
     "test:permission-writes": "vitest run convex/permissionGrantWrites.test.ts convex/permissionGrantBatch.test.ts",
     "test:permission-lifecycle": "vitest run convex/permissionGrantLifecycle.test.ts",
