@@ -78,7 +78,6 @@ export function DashboardScreen({
   return (
     <PortalScene
       tree="both"
-      branch
       onSignOut={onSignOut}
       header={<TeamCluster team={team} members={members} editable={teamEditable} />}
     >
@@ -86,14 +85,8 @@ export function DashboardScreen({
         <h1 className="sr-only">Dashboard</h1>
         <div
           style={gridStyle}
-          className="relative grid h-[max(720px,calc(100dvh-176px))] grid-cols-[var(--dash-cols)] grid-rows-[var(--dash-rows)] gap-4 [grid-template-areas:var(--dash-areas)] md:h-[max(640px,calc(100dvh-176px))] md:grid-cols-[var(--dash-cols-md)] md:grid-rows-[var(--dash-rows-md)] md:[grid-template-areas:var(--dash-areas-md)] lg:h-[max(460px,min(880px,calc(100dvh-232px)))] lg:grid-cols-[var(--dash-cols-lg)] lg:grid-rows-[var(--dash-rows-lg)] lg:gap-[18px] lg:[grid-template-areas:var(--dash-areas-lg)]"
+          className="relative grid h-[max(1080px,calc(100dvh-176px))] grid-cols-[var(--dash-cols)] grid-rows-[var(--dash-rows)] gap-4 [grid-template-areas:var(--dash-areas)] md:h-[max(640px,calc(100dvh-176px))] md:grid-cols-[var(--dash-cols-md)] md:grid-rows-[var(--dash-rows-md)] md:[grid-template-areas:var(--dash-areas-md)] lg:h-[max(460px,min(880px,calc(100dvh-232px)))] lg:grid-cols-[var(--dash-cols-lg)] lg:grid-rows-[var(--dash-rows-lg)] lg:gap-[18px] lg:[grid-template-areas:var(--dash-areas-lg)]"
         >
-          <img
-            src="/assets/branch-plate.png"
-            alt=""
-            aria-hidden
-            className="pointer-events-none absolute -top-13 -left-16 z-0 w-[min(680px,70%)] max-w-none opacity-90 [filter:var(--scene-branch-filter)]"
-          />
           {seating.event ? <EventTile slot={seating.event} model={models.event} /> : null}
           {seating.squad ? <SquadTile slot={seating.squad} team={team} members={members} /> : null}
           {musicSlot ? (

@@ -38,7 +38,21 @@ export function EventTile({ slot, model }: {
     : 0;
 
   return (
-    <Tile slot={slot} open={open} onToggle={() => setOpen((value) => !value)}>
+    <Tile
+      slot={slot}
+      open={open}
+      onToggle={() => setOpen((value) => !value)}
+      backdrop={
+        <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
+          <img
+            src="/assets/branch-plate.png"
+            alt=""
+            className="absolute top-1/2 -left-[4%] h-[220%] min-h-[270px] w-auto max-w-none -translate-y-1/2 opacity-35 [filter:var(--scene-branch-filter)]"
+          />
+          <span className="absolute inset-0 bg-[linear-gradient(90deg,color-mix(in_srgb,var(--color-wash)_44%,transparent),transparent_72%)]" />
+        </div>
+      }
+    >
       <div className={tileBody}>
         <div className="flex items-baseline justify-between gap-3">
           <TileEyebrow>event</TileEyebrow>

@@ -72,6 +72,9 @@ export function BenefitsTile({ slot, model }: {
                     </a>
                   ) : null}
                 </div>
+                {benefit.description ? (
+                  <p className="m-0 text-[10.5px] leading-snug text-fg/50">{benefit.description}</p>
+                ) : null}
                 <CopyCode code={benefit.code} />
               </div>
             ))}
