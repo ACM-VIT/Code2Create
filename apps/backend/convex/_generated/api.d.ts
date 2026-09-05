@@ -106,6 +106,7 @@ import type * as lib_figmaMetadataSchedule from "../lib/figmaMetadataSchedule.js
 import type * as lib_figmaPreviewDownload from "../lib/figmaPreviewDownload.js";
 import type * as lib_figmaTeamMetrics from "../lib/figmaTeamMetrics.js";
 import type * as lib_githubClient from "../lib/githubClient.js";
+import type * as lib_githubInstallationContract from "../lib/githubInstallationContract.js";
 import type * as lib_githubTeamMetrics from "../lib/githubTeamMetrics.js";
 import type * as lib_grantScopes from "../lib/grantScopes.js";
 import type * as lib_ideaSubmissionAi from "../lib/ideaSubmissionAi.js";
@@ -384,6 +385,7 @@ declare const fullApi: ApiFromModules<{
   "lib/figmaPreviewDownload": typeof lib_figmaPreviewDownload;
   "lib/figmaTeamMetrics": typeof lib_figmaTeamMetrics;
   "lib/githubClient": typeof lib_githubClient;
+  "lib/githubInstallationContract": typeof lib_githubInstallationContract;
   "lib/githubTeamMetrics": typeof lib_githubTeamMetrics;
   "lib/grantScopes": typeof lib_grantScopes;
   "lib/ideaSubmissionAi": typeof lib_ideaSubmissionAi;
