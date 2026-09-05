@@ -1093,6 +1093,33 @@ describe("admission cohort query and decisions", () => {
     const changedOffers = await backend.run(ctx => ctx.db.query("admissionOffers").collect());
     expect(changedOffers).toHaveLength(1);
     expect(changedOffers[0]).toMatchObject({ state: "offered", expiresAt: rsvpArgs.closesAt + 60_000, reminderAt: rsvpArgs.reminderAt + 60_000, version: (offers[0]?.version ?? 0) + 1 });
+    const pendingOffer = changedOffers[0];
+    if (!pendingOffer) throw new Error("Missing pending RSVP");
+    await backend.run(async ctx => {
+      const team = await ctx.db.get(pendingOffer.teamId);
+      if (!team) throw new Error("Missing team");
+      await ctx.db.insert("participantProfiles", {
+        eventId: fixture.eventId, membershipId: team.leadMembershipId, participantClass: "vit_student",
+        fullName: "Team lead", phone: "+919876543210", gender: "male", institution: "VIT",
+        yearOfStudy: "first", profileVersion: 1, updatedAt: fixture.now,
+      });
+    });
+    const callArgs = { eventSlug: fixture.eventSlug, offerId: pendingOffer._id, clientOperationId: "call-rsvp-now" };
+    await expect(onlooker.mutation(api.admissionOfferCalls.sendNow, callArgs)).rejects.toThrow("permission");
+    const emailsBeforeCall = await backend.run(ctx => ctx.db.query("participantNotificationDeliveries").collect());
+    await operator.mutation(api.admissionOfferCalls.sendNow, callArgs);
+    await operator.mutation(api.admissionOfferCalls.sendNow, callArgs);
+    await backend.mutation(internal.admissionOfferCalls.remind, { offerId: pendingOffer._id });
+    await backend.mutation(internal.admissionOfferCalls.remind, { offerId: pendingOffer._id });
+    const immediate = await backend.run(async ctx => ({
+      offer: await ctx.db.get(pendingOffer._id), calls: await ctx.db.query("outboundCallDeliveries").collect(),
+      emails: await ctx.db.query("participantNotificationDeliveries").collect(),
+    }));
+    expect(immediate.offer?.expiresAt).toBe(pendingOffer.expiresAt);
+    expect(immediate.offer?.reminderAt).toBeLessThanOrEqual(Date.now());
+    expect(immediate.calls).toHaveLength(1);
+    expect(immediate.calls[0]?.script).not.toMatch(/test/i);
+    expect(immediate.emails).toHaveLength(emailsBeforeCall.length);
     const applications = await backend.run((ctx) =>
       Promise.all([
         ctx.db.get(fixture.decidableApplicationId),
