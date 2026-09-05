@@ -48,6 +48,7 @@ import type * as communicationsEmailAssetActions from "../communicationsEmailAss
 import type * as communicationsEmailAssets from "../communicationsEmailAssets.js";
 import type * as communicationsPolicyConfiguration from "../communicationsPolicyConfiguration.js";
 import type * as crons from "../crons.js";
+import type * as emailedAdmission from "../emailedAdmission.js";
 import type * as emergencyPackActions from "../emergencyPackActions.js";
 import type * as emergencyPacks from "../emergencyPacks.js";
 import type * as eventLifecycle from "../eventLifecycle.js";
@@ -330,10 +331,7 @@ import type {
   FunctionReference,
 } from "convex/server";
 
-import type * as emailedAdmission from "../emailedAdmission.js";
-
 declare const fullApi: ApiFromModules<{
-  emailedAdmission: typeof emailedAdmission;
   access: typeof access;
   accessInvitations: typeof accessInvitations;
   accessRoles: typeof accessRoles;
@@ -374,6 +372,7 @@ declare const fullApi: ApiFromModules<{
   communicationsEmailAssets: typeof communicationsEmailAssets;
   communicationsPolicyConfiguration: typeof communicationsPolicyConfiguration;
   crons: typeof crons;
+  emailedAdmission: typeof emailedAdmission;
   emergencyPackActions: typeof emergencyPackActions;
   emergencyPacks: typeof emergencyPacks;
   eventLifecycle: typeof eventLifecycle;
