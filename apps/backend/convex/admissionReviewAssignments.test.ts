@@ -942,6 +942,78 @@ describe("admission review assignments", () => {
     expect(state.reviewerSubject?.accessVersion).toBe(2);
   });
 
+  test.each([
+    { minimumHumanReviews: 1, completedReviews: 1 },
+    { minimumHumanReviews: 2, completedReviews: 2 },
+    { minimumHumanReviews: 1, completedReviews: 2 },
+  ])("rejects assignments after $completedReviews reviews meet a minimum of $minimumHumanReviews", async ({ minimumHumanReviews, completedReviews }) => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const authUserId = await createAuthUser(backend);
+    const authSessionId = await createAuthSession(backend, authUserId);
+    const fixture = await seedAssignmentFixture(backend, { managerAuthUserId: authUserId });
+    await backend.run(async (ctx) => {
+      const application = await ctx.db.get(fixture.applicationId);
+      if (!application) throw new Error("Assignment fixture is incomplete.");
+      await ctx.db.patch(application.admissionPolicyVersionId, { minimumHumanReviews });
+      await insertPermissionGrant(ctx, {
+        eventId: fixture.eventId,
+        personId: fixture.managerPersonId,
+        eventAccessSubjectId: fixture.managerSubjectId,
+        permissionKey: "application.assign",
+        scopeType: "application",
+        scopeId: fixture.applicationId,
+        sourceType: "manual",
+        sourceId: "review-coverage-test",
+        grantedByPersonId: fixture.managerPersonId,
+        reason: "Assign review coverage fixtures",
+      });
+    });
+    for (const reviewer of [fixture.secondReviewerPersonId, fixture.managerPersonId].slice(0, completedReviews)) {
+      await saveFixtureReview(backend, fixture, reviewer, "accept");
+    }
+    const manager = backend.withIdentity({ subject: authUserId, sessionId: authSessionId });
+    const before = await backend.run((ctx) => ctx.db.get(fixture.applicationId));
+    if (!before) throw new Error("Assignment fixture is incomplete.");
+
+    await expect(manager.mutation(api.admissions.assignReview, {
+      eventSlug: fixture.eventSlug,
+      applicationId: fixture.applicationId,
+      expectedApplicationVersion: before.version,
+      reviewerEmail: "reviewer@example.test",
+      clientOperationId: crypto.randomUUID(),
+    })).rejects.toThrow("This application has already met its human review minimum.");
+
+    const after = await backend.run(async (ctx) => ({
+      application: await ctx.db.get(fixture.applicationId),
+      assignments: await ctx.db.query("admissionReviewAssignments").collect(),
+      grants: await ctx.db.query("permissionGrants")
+        .withIndex("by_source", (index) => index.eq("eventId", fixture.eventId).eq("sourceType", "application_assignment"))
+        .collect(),
+      reviewer: await ctx.db.get(fixture.reviewerSubjectId),
+    }));
+    expect(after.application).toEqual(before);
+    expect(after.assignments).toEqual([]);
+    expect(after.grants).toEqual([]);
+    expect(after.reviewer?.accessVersion).toBe(1);
+  });
+
+  test("allows assigning the remaining review required by the application policy", async () => {
+    const backend = convexTest(schema, modules);
+    const fixture = await seedAssignmentFixture(backend);
+    await backend.run(async (ctx) => {
+      const application = await ctx.db.get(fixture.applicationId);
+      if (!application) throw new Error("Assignment fixture is incomplete.");
+      await ctx.db.patch(application.admissionPolicyVersionId, { minimumHumanReviews: 2 });
+    });
+    await saveFixtureReview(backend, fixture, fixture.secondReviewerPersonId, "accept");
+
+    const result = await assignFixtureReviewer(backend, fixture, fixture.reviewerSubjectId, 2);
+    const state = await assignmentState(backend, fixture, result.assignmentId);
+    expect(state.assignment).toMatchObject({ state: "active" });
+    expect(state.application).toMatchObject({ completedReviewCount: 1, assignedReviewCount: 1 });
+  });
+
   test("cancelling pending work revokes only assignment-sourced grants", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedAssignmentFixture(backend);

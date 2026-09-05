@@ -91,6 +91,11 @@ const maximumAdmissionPageSize = 100;
 export const admissionReviewClaimMs = 30 * 60 * 1_000;
 const admissionTeamOrigin = v.union(v.literal("internal"), v.literal("external"));
 const admissionQueueStage = v.union(applicationState, v.literal("recorded"));
+const admissionReviewProgress = v.union(
+  v.literal("unreviewed"),
+  v.literal("partial"),
+  v.literal("complete"),
+);
 const recommendationOutcome = v.union(v.literal("accepted"), v.literal("waitlisted"), v.literal("rejected"));
 const recommendationFilter = v.union(
   v.object({ source: v.literal("idea"), outcome: v.union(recommendationOutcome, v.literal("unavailable")) }),
@@ -101,6 +106,14 @@ function applicationQueueStage(application: Doc<"applications">): Doc<"applicati
   return application.decisionStage === "recorded" && application.state !== "withdrawn"
     ? "recorded"
     : application.state;
+}
+
+function applicationReviewProgress(
+  application: Pick<Doc<"applications">, "completedReviewCount">,
+  minimumHumanReviews: number,
+): Infer<typeof admissionReviewProgress> {
+  if (application.completedReviewCount === 0) return "unreviewed";
+  return application.completedReviewCount < minimumHumanReviews ? "partial" : "complete";
 }
 
 type HumanReviewScoreSource = Pick<
@@ -205,6 +218,22 @@ async function applicationMatchesOrigin(
   return team !== null && teamMatchesOrigin(team, origin);
 }
 
+async function applicationMatchesReviewProgress(
+  ctx: QueryCtx,
+  application: Doc<"applications">,
+  progress: Infer<typeof admissionReviewProgress> | undefined,
+) {
+  if (progress === undefined) return true;
+  if (application.state === "withdrawn") return false;
+  if (application.completedReviewCount === 0) return progress === "unreviewed";
+  if (progress === "unreviewed") return false;
+  const policy = await ctx.db.get(application.admissionPolicyVersionId);
+  if (!policy || policy.eventId !== application.eventId) {
+    throw new Error("An application admission policy is missing.");
+  }
+  return applicationReviewProgress(application, policy.minimumHumanReviews) === progress;
+}
+
 async function rosterCohort(ctx: QueryCtx, project: Doc<"projectVersions">) {
   const members = await ctx.db
     .query("teamSubmissionMembers")
@@ -230,19 +259,7 @@ export const stageCounts = query({
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
-    const eventGrantIds = await matchingPermissionGrantIds(ctx, {
-      eventId: event._id,
-      eventAccessSubjectId: subject._id,
-      permissionKey: "application.read",
-      scopeType: "event",
-    });
-    const applications =
-      eventGrantIds.length > 0
-        ? await ctx.db
-            .query("applications")
-            .withIndex("by_event_state_submitted", (index) => index.eq("eventId", event._id))
-            .collect()
-        : await scopedApplicationsForStageCounts(ctx, event._id, subject._id);
+    const applications = await readableApplicationsForCounts(ctx, event._id, subject._id);
     const counts = new Map<ReturnType<typeof applicationQueueStage>, number>();
     for (const application of applications) {
       if (!(await applicationMatchesOrigin(ctx, application, args.origin))) continue;
@@ -256,6 +273,46 @@ export const stageCounts = query({
       counts.set(stage, (counts.get(stage) ?? 0) + 1);
     }
     return [...counts.entries()].map(([state, count]) => ({ state, count }));
+  },
+});
+
+/** Returns mutually exclusive human-review coverage counts for readable active applications. */
+export const reviewProgressCounts = query({
+  args: {
+    eventSlug: v.string(),
+    origin: v.optional(admissionTeamOrigin),
+  },
+  returns: v.object({
+    total: v.number(),
+    unreviewed: v.number(),
+    partial: v.number(),
+    complete: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    const readable = await readableApplicationsForCounts(ctx, event._id, subject._id);
+    const active = [];
+    for (const application of readable) {
+      if (application.state === "withdrawn") continue;
+      if (!(await applicationMatchesOrigin(ctx, application, args.origin))) continue;
+      active.push(application);
+    }
+    const policyIds = [...new Set(active.map((application) => application.admissionPolicyVersionId))];
+    const policies = await getAll(ctx.db, "admissionPolicyVersions", policyIds);
+    const policiesById = new Map(
+      policies.filter((policy) => policy !== null).map((policy) => [policy._id, policy]),
+    );
+    const counts = { total: active.length, unreviewed: 0, partial: 0, complete: 0 };
+    for (const application of active) {
+      const policy = policiesById.get(application.admissionPolicyVersionId);
+      if (!policy || policy.eventId !== event._id) {
+        throw new Error("An application admission policy is missing.");
+      }
+      counts[applicationReviewProgress(application, policy.minimumHumanReviews)] += 1;
+    }
+    return counts;
   },
 });
 
@@ -613,6 +670,32 @@ async function scopedApplicationsForStageCounts(
   return applications.filter((application) => application !== null);
 }
 
+async function readableApplicationsForCounts(
+  ctx: QueryCtx,
+  eventId: Id<"events">,
+  eventAccessSubjectId: Id<"eventAccessSubjects">,
+) {
+  const eventGrantIds = await matchingPermissionGrantIds(ctx, {
+    eventId,
+    eventAccessSubjectId,
+    permissionKey: "application.read",
+    scopeType: "event",
+  });
+  if (eventGrantIds.length === 0) {
+    return scopedApplicationsForStageCounts(ctx, eventId, eventAccessSubjectId);
+  }
+  const applications = await ctx.db
+    .query("applications")
+    .withIndex("by_event_state_submitted", (index) => index.eq("eventId", eventId))
+    .take(maximumApplicantTeamsPerEvent + 1);
+  if (applications.length > maximumApplicantTeamsPerEvent) {
+    throw new Error(
+      `Admission counts support at most ${maximumApplicantTeamsPerEvent} applicant teams.`,
+    );
+  }
+  return applications;
+}
+
 async function applicationListProjection(
   ctx: QueryCtx,
   eventId: Id<"events">,
@@ -701,6 +784,7 @@ export const list = query({
     eventSlug: v.string(),
     state: v.optional(admissionQueueStage),
     origin: v.optional(admissionTeamOrigin),
+    reviewProgress: v.optional(admissionReviewProgress),
     completedReviewCount: v.optional(v.literal(1)),
     needsReview: v.optional(v.literal(true)),
     recommendationFilter: v.optional(recommendationFilter),
@@ -718,7 +802,12 @@ export const list = query({
       throw new ConvexError({ code: "ACCESS_DENIED", message: "This account lacks AI recommendation read permission." });
     }
     const state = args.state;
-    if (args.origin !== undefined || args.needsReview || args.recommendationFilter) {
+    if (
+      args.origin !== undefined ||
+      args.reviewProgress !== undefined ||
+      args.needsReview ||
+      args.recommendationFilter
+    ) {
       const applications = paginator(ctx.db, schema).query("applications");
       const applicationQuery = state === "recorded"
         ? applications.withIndex("by_event_decision_stage", (index) =>
@@ -740,6 +829,9 @@ export const list = query({
             return null;
           }
           if (!(await applicationMatchesOrigin(ctx, application, args.origin))) return null;
+          if (!(await applicationMatchesReviewProgress(ctx, application, args.reviewProgress))) {
+            return null;
+          }
           if (args.recommendationFilter &&
             !(await applicationMatchesRecommendation(ctx, application, args.recommendationFilter))) return null;
           const projected = await visibleApplicationListProjection(
@@ -803,6 +895,7 @@ export const searchApplications = query({
     state: v.optional(admissionQueueStage),
     search: v.string(),
     origin: v.optional(admissionTeamOrigin),
+    reviewProgress: v.optional(admissionReviewProgress),
     completedReviewCount: v.optional(v.literal(1)),
     needsReview: v.optional(v.literal(true)),
     recommendationFilter: v.optional(recommendationFilter),
@@ -868,7 +961,7 @@ export const searchApplications = query({
         .map(async (application) => {
           const [team, policy] = await Promise.all([
             ctx.db.get(application.teamId),
-            args.needsReview
+            args.needsReview || args.reviewProgress !== undefined
               ? ctx.db.get(application.admissionPolicyVersionId)
               : Promise.resolve(null),
           ]);
@@ -882,7 +975,12 @@ export const searchApplications = query({
           !searchTerms.every((term) => team.name.toLowerCase().includes(term)) ||
           (args.origin !== undefined && !teamMatchesOrigin(team, args.origin)) ||
           (args.needsReview &&
-            (!policy || application.completedReviewCount >= policy.minimumHumanReviews))
+            (!policy || application.completedReviewCount >= policy.minimumHumanReviews)) ||
+          (args.reviewProgress !== undefined &&
+            (!policy ||
+              policy.eventId !== event._id ||
+              application.state === "withdrawn" ||
+              applicationReviewProgress(application, policy.minimumHumanReviews) !== args.reviewProgress))
         ) {
           return [];
         }
@@ -2149,7 +2247,8 @@ export async function createAdmissionReviewAssignment(
       message: "Choose an active account in this event.",
     });
   }
-  const [activeAssignment, activeReview] = await Promise.all([
+  const [policy, activeAssignment, activeReview] = await Promise.all([
+    ctx.db.get(args.application.admissionPolicyVersionId),
     ctx.db
       .query("admissionReviewAssignments")
       .withIndex("by_application_reviewer_state", (index) =>
@@ -2169,6 +2268,15 @@ export async function createAdmissionReviewAssignment(
       )
       .unique(),
   ]);
+  if (!policy || policy.eventId !== args.application.eventId) {
+    throw new Error("An application admission policy is missing.");
+  }
+  if (args.application.completedReviewCount >= policy.minimumHumanReviews) {
+    throw new ConvexError({
+      code: "REVIEW_COVERAGE_COMPLETE",
+      message: "This application has already met its human review minimum.",
+    });
+  }
   if (activeAssignment) {
     throw new ConvexError({
       code: "REVIEW_ALREADY_ASSIGNED",

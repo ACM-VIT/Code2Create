@@ -5,17 +5,16 @@ import {
   aiStateTag,
   applicationQueueStageLabels,
   assignmentOutcomeSummary,
-  busiestStage,
+  canAssignApplicationReview,
   cohortSummary,
-  completedReviewCountQueryArgs,
   memberContextLine,
   needsReview,
   ownReviewLine,
   prioritizeReviewQueue,
-  queueLeadSentence,
   remainingAssignmentsLine,
   reviewAssignmentStatusLine,
   reviewAssignmentSummary,
+  reviewProgressLeadSentence,
   reviewStatus,
   reviewerLeadSentence,
   reviewerWorkloadLabel,
@@ -96,7 +95,6 @@ test("stage chips keep recorded decisions discoverable beside the review stages"
     { state: "submitted", count: 18 },
     { state: "waitlisted", count: 2 },
   ]);
-  assert.equal(busiestStage(counts), "submitted");
   assert.deepEqual(visibleStages(counts, "submitted"), ["submitted", "recorded", "waitlisted"]);
   assert.deepEqual(visibleStages(counts, "confirmed"), [
     "submitted",
@@ -104,8 +102,8 @@ test("stage chips keep recorded decisions discoverable beside the review stages"
     "confirmed",
     "waitlisted",
   ]);
-  assert.equal(busiestStage(new Map()), null);
-  assert.equal(busiestStage(stageCountMap([{ state: "recorded", count: 2 }])), "recorded");
+  assert.equal(applicationQueueStageLabels.submitted, "Not started");
+  assert.equal(applicationQueueStageLabels.under_review, "Review started");
   assert.equal(applicationQueueStageLabels.recorded, "Recorded decisions");
   assert.equal(stageAcceptsReviews("recorded"), false);
 });
@@ -120,35 +118,25 @@ test("queue pages stay bounded and return to the last page when live results shr
   assert.deepEqual(queuePageBounds(2, 0, true), { page: 0, start: 0, end: 0 });
 });
 
-test("the queue opens with one sentence about where applications are", () => {
-  assert.equal(queueLeadSentence(new Map()), "No team has applied yet.");
-  assert.equal(queueLeadSentence(new Map(), "all", true), "No team has exactly 1 review in.");
+test("the queue summary reports mutually exclusive review coverage", () => {
   assert.equal(
-    queueLeadSentence(new Map(), "internal"),
+    reviewProgressLeadSentence({ total: 0, unreviewed: 0, partial: 0, complete: 0 }, "internal"),
     "No internal team has applied yet.",
   );
   assert.equal(
-    queueLeadSentence(new Map(), "external"),
+    reviewProgressLeadSentence({ total: 0, unreviewed: 0, partial: 0, complete: 0 }, "external"),
     "No external team has applied yet.",
   );
   assert.equal(
-    queueLeadSentence(
-      stageCountMap([
-        { state: "submitted", count: 18 },
-        { state: "under_review", count: 3 },
-        { state: "waitlisted", count: 1 },
-      ]),
-    ),
-    "18 need a first review and 3 are being reviewed.",
+    reviewProgressLeadSentence({ total: 22, unreviewed: 18, partial: 3, complete: 1 }),
+    "18 without a review, 3 partially reviewed and 1 at the review minimum.",
   );
   assert.equal(
-    queueLeadSentence(
-      stageCountMap([
-        { state: "confirmed", count: 5 },
-        { state: "declined", count: 2 },
-      ]),
+    reviewProgressLeadSentence(
+      { total: 7, unreviewed: 0, partial: 0, complete: 7 },
+      "internal",
     ),
-    "7 applications, all decided.",
+    "0 without a review, 0 partially reviewed and 7 at the review minimum.",
   );
   assert.equal(
     reviewerLeadSentence({ active: 6, completed: 12 }),
@@ -175,11 +163,6 @@ test("the origin filter omits its query argument until internals or externals ar
   assert.equal(teamOriginNoun("all"), "teams");
   assert.equal(teamOriginNoun("internal", false), "internal team");
   assert.equal(teamOriginNoun("external"), "external teams");
-});
-
-test("the one-review filter only sends its exact count when selected", () => {
-  assert.deepEqual(completedReviewCountQueryArgs(false), {});
-  assert.deepEqual(completedReviewCountQueryArgs(true), { completedReviewCount: 1 });
 });
 
 test("short tags replace the AI sentences in the list", () => {
@@ -303,6 +286,19 @@ test("unfinished reviews stay prioritized even while assigned", () => {
     prioritized.map((application) => application.id),
     ["claimed", "partly-reviewed", "done"],
   );
+});
+
+test("only applications with remaining review coverage can be assigned", () => {
+  for (const state of ["submitted", "under_review"] as const) {
+    assert.equal(canAssignApplicationReview({ state, completedReviewCount: 0, minimumHumanReviews: 2 }), true);
+    assert.equal(canAssignApplicationReview({ state, completedReviewCount: 1, minimumHumanReviews: 2 }), true);
+    assert.equal(canAssignApplicationReview({ state, completedReviewCount: 1, minimumHumanReviews: 1 }), false);
+    assert.equal(canAssignApplicationReview({ state, completedReviewCount: 2, minimumHumanReviews: 2 }), false);
+    assert.equal(canAssignApplicationReview({ state, completedReviewCount: 3, minimumHumanReviews: 2 }), false);
+  }
+  for (const state of ["accepted", "offer_sent", "confirmed", "waitlisted", "declined", "offer_expired", "withdrawn"] as const) {
+    assert.equal(canAssignApplicationReview({ state, completedReviewCount: 0, minimumHumanReviews: 2 }), false);
+  }
 });
 
 test("reviewer workload is readable at a glance", () => {

@@ -292,6 +292,40 @@ describe("admission cohort query and decisions", () => {
     expect(continuation.isDone).toBe(true);
   });
 
+  test("reports and filters mutually exclusive review coverage", async () => {
+    const backend = seededBackend();
+    const fixture = await seedCohortFixture(backend, { extraTeams: 1 });
+    const operator = backend.withIdentity({
+      subject: fixture.operatorAuthUserId,
+      sessionId: fixture.operatorAuthSessionId,
+    });
+
+    expect(await operator.query(api.admissions.reviewProgressCounts, {
+      eventSlug: fixture.eventSlug,
+    })).toEqual({ total: 4, unreviewed: 1, partial: 1, complete: 2 });
+
+    const list = async (reviewProgress: "unreviewed" | "partial" | "complete") =>
+      (await operator.query(api.admissions.list, {
+        eventSlug: fixture.eventSlug,
+        reviewProgress,
+        paginationOpts: { cursor: null, numItems: 10 },
+      })).page.map((application) => application.teamName);
+    expect(await list("unreviewed")).toEqual(["Additional Team 1"]);
+    expect(await list("partial")).toEqual(["Night Kiln"]);
+    expect(await list("complete")).toEqual(["Steady Loom", "Split Signal"]);
+
+    expect((await operator.query(api.admissions.searchApplications, {
+      eventSlug: fixture.eventSlug,
+      reviewProgress: "unreviewed",
+      search: "additional",
+    })).applications.map((application) => application.teamName)).toEqual(["Additional Team 1"]);
+    expect((await operator.query(api.admissions.searchApplications, {
+      eventSlug: fixture.eventSlug,
+      reviewProgress: "complete",
+      search: "additional",
+    })).applications).toEqual([]);
+  });
+
   test("keeps claimed applications visible until their required reviews are submitted", async () => {
     const backend = seededBackend();
     const fixture = await seedCohortFixture(backend);
