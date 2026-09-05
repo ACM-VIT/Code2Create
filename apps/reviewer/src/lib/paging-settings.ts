@@ -1,4 +1,4 @@
-import Constants from "expo-constants";
+import { applicationId } from "expo-application";
 import { Linking, Platform } from "react-native";
 
 import type { PagingReadinessCheck } from "@/lib/push-notifications";
@@ -10,14 +10,11 @@ export async function openPagingSetting(fix: NonNullable<PagingReadinessCheck["f
   }
 
   // Android settings intents require the active application package.
-  const packageName = Constants.expoConfig?.android?.package;
+  const packageName = applicationId;
   if (!packageName) {
     await Linking.openSettings();
     return;
   }
-  // Load the Android-only native module only on Android.
-  const IntentLauncher = await import("expo-intent-launcher");
-
   const intents: Record<
     NonNullable<PagingReadinessCheck["fix"]>,
     {
@@ -45,6 +42,8 @@ export async function openPagingSetting(fix: NonNullable<PagingReadinessCheck["f
 
   const intent = intents[fix];
   try {
+    // Android-only module loading can also fail; keep it inside the settings fallback.
+    const IntentLauncher = await import("expo-intent-launcher");
     await IntentLauncher.startActivityAsync(intent.action, intent.params ?? {});
   } catch {
     await Linking.openSettings();

@@ -13,7 +13,6 @@ import { randomUUID } from "expo-crypto";
 import * as Network from "expo-network";
 import {
   CameraView,
-  useCameraPermissions,
   type BarcodeScanningResult,
   type BarcodeType,
 } from "expo-camera";
@@ -21,6 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 
 import { DutyIcon } from "@/components/DutyIcon";
+import { useCameraAccess } from "@/lib/use-camera-access";
 import {
   AppState,
   Dimensions,
@@ -431,7 +431,7 @@ function ScannerSurface({
   onDeviceRecord: (record: ScannerDeviceRecord) => void;
 }) {
   const staffedOperations = usePersistentClientOperations(eventSlug, staffedOperationSlots);
-  const [permission, requestPermission] = useCameraPermissions();
+  const { permission, requestPermission } = useCameraAccess();
   const recordScan = useAction(api.attendanceActions.recordScan);
   const scannerHeartbeat = useAction(api.attendanceActions.scannerHeartbeat);
   const resolveExternalPass = useAction(api.attendanceActions.resolveExternalPass);

@@ -1,6 +1,8 @@
 import { CryptoDigestAlgorithm, digestStringAsync } from "expo-crypto";
 import * as Notifications from "expo-notifications";
-import { Platform } from "react-native";
+import { Linking, Platform } from "react-native";
+
+import { androidPagingReadiness } from "./pager-alarm";
 
 export type ReviewerPushRegistration =
   | { status: "not_granted" }
@@ -26,8 +28,7 @@ export type PagingReadinessCheck = {
   key: "permission" | "critical" | "full_screen" | "battery";
   title: string;
   consequence: string;
-  /** `unknown` means Android exposes the switch but no read API. */
-  met: boolean | "unknown";
+  met: boolean;
   fix?:
     | "app_settings" | "notification_settings" | "full_screen_settings" | "battery_settings";
 };
@@ -45,31 +46,31 @@ export async function pagingReadiness(): Promise<PagingReadinessCheck[]> {
     },
   ];
 
-  if (Platform.OS === "ios") {
+  if (Platform.OS === "ios" && typeof permission.ios?.allowsCriticalAlerts === "boolean") {
     checks.push({
       key: "critical",
       title: "Critical alerts",
       consequence: "A page will stay silent while your phone is on silent",
-      // Apple grants this entitlement manually; no settings link exists without it.
       met: permission.ios?.allowsCriticalAlerts === true,
+      fix: "notification_settings",
     });
   }
 
   if (Platform.OS === "android") {
+    const native = await androidPagingReadiness();
     checks.push(
       {
         key: "full_screen",
         title: "Full-screen alerts",
         consequence: "Lets a page take the screen instead of sitting in the shade",
-        // Android 14 exposes this switch but no read API.
-        met: "unknown",
+        met: native.fullScreenAllowed,
         fix: "full_screen_settings",
       },
       {
         key: "battery",
-        title: "Battery optimisation",
+        title: "Unrestricted battery",
         consequence: "Stops Android holding a page back for minutes",
-        met: "unknown",
+        met: native.batteryUnrestricted,
         fix: "battery_settings",
       },
     );
@@ -95,12 +96,23 @@ export async function currentReviewerPushRegistration(
 
 export async function requestReviewerPushRegistration(
   apnsEnvironment: "development" | "production",
+  onPermissionChecked?: () => void,
 ) {
   try {
     await prepareAndroidChannel();
-    const permission = await Notifications.requestPermissionsAsync({
-      ios: { allowAlert: true, allowBadge: true, allowSound: true },
-    });
+    let permission = await Notifications.getPermissionsAsync();
+    if (!allowsNotifications(permission)) {
+      if (permission.canAskAgain) {
+        permission = await Notifications.requestPermissionsAsync({
+          ios: { allowAlert: true, allowBadge: true, allowSound: true },
+        });
+      } else {
+        await Linking.openSettings();
+        permission = await Notifications.getPermissionsAsync();
+      }
+    }
+    // The checkbox must not wait for APNs/FCM registration to finish online.
+    onPermissionChecked?.();
     return await registrationForPermission(permission, apnsEnvironment);
   } catch {
     return {
@@ -111,12 +123,10 @@ export async function requestReviewerPushRegistration(
 }
 
 export function subscribeToReviewerPushTokenChanges(
-  apnsEnvironment: "development" | "production",
-  onChange: (registration: ReviewerPushRegistration) => void,
+  onChange: () => void,
 ) {
-  const subscription = Notifications.addPushTokenListener((devicePushToken) => {
-    void nativeRegistration(apnsEnvironment, devicePushToken).then(onChange);
-  });
+  // Re-read permission too: a rotated token alone does not prove notifications are allowed.
+  const subscription = Notifications.addPushTokenListener(onChange);
   return () => subscription.remove();
 }
 
@@ -130,10 +140,10 @@ async function registrationForPermission(
 
 async function nativeRegistration(
   apnsEnvironment: "development" | "production",
-  devicePushToken?: Notifications.DevicePushToken,
 ): Promise<ReviewerPushRegistration> {
   try {
-    const result = devicePushToken ?? (await Notifications.getDevicePushTokenAsync());
+    const result = await Notifications.getDevicePushTokenAsync();
+    if (!allowsNotifications(await Notifications.getPermissionsAsync())) return { status: "not_granted" };
     if (typeof result.data !== "string") {
       return {
         status: "unavailable",

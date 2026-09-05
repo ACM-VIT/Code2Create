@@ -262,13 +262,13 @@ export default function VenueScreen() {
                 {!venue.backgroundEnabled ? (
                   <>
                     <Meta>
-                      For checks with the app closed, choose “Allow all the
-                      time” or “Always” in the next permission screen. A
-                      location indicator stays visible during checks.
+                      {venue.backgroundGranted
+                        ? "Location is allowed in the background. Start checks to monitor the venue with the app closed."
+                        : "For checks with the app closed, choose ‘Allow all the time’ or ‘Always’ in the next permission screen. A location indicator stays visible during checks."}
                     </Meta>
                     <Action
                       disabled={busy}
-                      label="Allow background checks"
+                      label={venue.backgroundGranted ? "Start background checks" : "Allow background checks"}
                       onPress={() => run(enableBackgroundVenueTracking)}
                     />
                   </>
@@ -286,7 +286,7 @@ export default function VenueScreen() {
             ) : (
               <Action
                 disabled={busy}
-                label="Allow location and check venue"
+                label={venue.foregroundGranted ? "Enable venue checks" : "Allow location and check venue"}
                 onPress={() =>
                   run(async () => {
                     if (!venue.installationId || !venue.ownerId) return;

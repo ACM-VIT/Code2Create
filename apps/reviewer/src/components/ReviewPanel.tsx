@@ -4,7 +4,7 @@ import type { FunctionReturnType } from "convex/server";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import { randomUUID } from "expo-crypto";
-import { CameraView, useCameraPermissions, type BarcodeScanningResult,
+import { CameraView, type BarcodeScanningResult,
 } from "expo-camera";
 import { Stack, useRouter } from "expo-router";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState,
@@ -57,12 +57,9 @@ import {
 import { createLatestDraftWriter } from "@/lib/latest-draft-writer";
 import { reviewerPanelMode } from "@/lib/judging-status";
 import { useMutationAttempt } from "@/lib/mutation-attempt";
-import {
-  currentReviewerPushRegistration,
-  requestReviewerPushRegistration,
-  subscribeToReviewerPushTokenChanges,
-  type ReviewerPushRegistration,
-} from "@/lib/push-notifications";
+import type { ReviewerPushRegistration } from "@/lib/push-notifications";
+import { useCameraAccess } from "@/lib/use-camera-access";
+import { useReviewerPush } from "@/lib/use-reviewer-push";
 import {
   clearReviewerDevice,
   clearReviewerRegistration,
@@ -113,11 +110,13 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
   const eventSlug = runtime.configuration.eventSlug;
   const { reviewHeartbeatIssue } = useReviewerSession();
   const platform = reviewerPlatform();
-  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
-  const [notificationState, setNotificationState] = useState<NotificationState>({
-    status: "loading",
-  },
-  );
+  const {
+    permission: cameraPermission,
+    requestPermission: requestCameraPermission,
+    error: cameraError,
+  } = useCameraAccess();
+  const { state: notificationState, requestPermission: requestNotifications } =
+    useReviewerPush(runtime.configuration.apnsEnvironment);
   const [draftStorageState, setDraftStorageState] = useState<DraftStorageState>({
     status: "loading",
   },
@@ -163,27 +162,6 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
       active = false;
     };
   }, [eventSlug, platform]);
-
-  useEffect(() => {
-    if (!platform) return;
-    let active = true;
-    void currentReviewerPushRegistration(runtime.configuration.apnsEnvironment,
-    ).then(
-      (registration) => {
-        if (active) setNotificationState(registration);
-      });
-    return () => {
-      active = false;
-    };
-  }, [platform, runtime.configuration.apnsEnvironment]);
-
-  useEffect(() => {
-    if (!platform) return;
-    return subscribeToReviewerPushTokenChanges(
-      runtime.configuration.apnsEnvironment,
-      setNotificationState,
-    );
-  }, [platform, runtime.configuration.apnsEnvironment]);
 
   useEffect(() => {
     if (!platform) return;
@@ -401,16 +379,6 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
     hasAssignment: assignment !== null && assignment !== undefined,
     hasReview: current.review !== null && current.review !== undefined,
   });
-
-  const requestNotifications = async () => {
-    setError(null);
-    setNotificationState({ status: "loading" });
-    const registration = await requestReviewerPushRegistration(
-      runtime.configuration.apnsEnvironment,
-    );
-    setNotificationState(registration);
-    if (registration.status === "unavailable") setError(registration.message);
-  };
 
   const saveDeviceRegistration = async () => {
     if (busy) return;
@@ -641,7 +609,8 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
         />
       </Sheet>
 
-      {notificationState.status === "unavailable" && round?.requiresNotifications ? (
+      {cameraError ? <Problem>{cameraError}</Problem> : null}
+      {notificationState.status === "unavailable" ? (
         <Problem>{notificationState.message}</Problem>
       ) : null}
       {draftStorageState.status === "unavailable" ? (
@@ -1073,7 +1042,7 @@ function ReviewQrScanner({
   installationId: string;
   reviewSessionId: ActiveReview["id"];
 }) {
-  const [permission, requestPermission] = useCameraPermissions();
+  const { permission, requestPermission } = useCameraAccess();
   const confirmPresence = useMutation(api.reviewer.confirmPresence);
   const busyRef = useRef(false);
   const [busy, setBusy] = useState(false);
