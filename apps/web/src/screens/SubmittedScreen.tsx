@@ -95,8 +95,8 @@ const applicationCopy: Record<
   },
   declined: {
     status: "Decision published",
-    heading: "Application update.",
-    message: "Your team was not selected for this event. Thank you for sharing your idea.",
+    heading: "Unfortunately you didn’t make the cut.",
+    message: "But hey, that’s no reason to stop building your project :)",
   },
   offer_sent: {
     status: "Selected",
@@ -181,6 +181,7 @@ function SubmittedWorkspace({
   members: CurrentTeamMember[];
   onSignOut: () => void;
 }) {
+  const navigate = useNavigate();
   const application = intake.application;
   const copy = applicationCopy[application.state];
   const selected = ["accepted", "offer_sent", "confirmed"].includes(application.state);
@@ -662,16 +663,38 @@ function SubmittedWorkspace({
       }
     >
       <div className="flex w-full max-w-[760px] flex-col items-center text-center">
-        <h1 className="mb-3.5 font-display font-light tracking-[-.01em] text-5xl leading-none text-shadow-[0_8px_50px_var(--scene-text-glow)] lg:text-[64px]">
+        <h1 className="mb-3.5 text-balance font-display font-light tracking-[-.01em] text-[clamp(2rem,7vw,3rem)] leading-tight text-shadow-[0_8px_50px_var(--scene-text-glow)] lg:text-[64px]">
           {copy.heading}
         </h1>
         <p className="mb-6 max-w-[520px] font-ui text-base text-rose-light lg:text-[19px]">
           {copy.message}
         </p>
-        <p className="m-0 text-[13px] text-fg/65">
-          status <span className="text-fg">{copy.status.toLowerCase()}</span>
-        </p>
-        {proposalLink}
+        {application.state === "declined" ? (
+          <>
+            <p className="mb-8 max-w-[520px] text-sm leading-relaxed text-fg/70 sm:text-base">
+              You can keep building and share updates with the community on our Discord server.
+            </p>
+            <div className="flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-4">
+              <PortalButton
+                type="button"
+                onClick={() => window.open("https://discord.gg/xWyjKPe3S", "_blank", "noopener,noreferrer")}
+              >
+                Join our Discord
+              </PortalButton>
+              <PortalButton type="button" onClick={() => navigate("/")}>
+                Return Home
+              </PortalButton>
+            </div>
+            {deliveryNotice}
+          </>
+        ) : (
+          <>
+            <p className="m-0 text-[13px] text-fg/65">
+              status <span className="text-fg">{copy.status.toLowerCase()}</span>
+            </p>
+            {proposalLink}
+          </>
+        )}
       </div>
     </PortalScene>
   );
