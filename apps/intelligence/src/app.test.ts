@@ -1,4 +1,6 @@
 import {
+  reviewQuestionIngressContext,
+  reviewQuestionProtocolVersion,
   encodeOperationsIntelligenceStreamTicket,
   operationsAutonomyAdmissionSignatureMaximumAgeMs,
   operationsAutonomyAbortSignatureContext,
@@ -19,7 +21,8 @@ import {
   type OperationsIntelligenceStreamTicket,
 } from "@code2create/domain";
 import type { DispatchReceipt } from "@flue/runtime";
-import { AgentInstanceExistsError, AgentRunError, SubmissionConflictError } from "@flue/runtime";
+import { AgentInstanceExistsError, AgentRunError, SubmissionConflictError,
+} from "@flue/runtime";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import {
   intelligenceHistoryPageHeaders,
@@ -49,7 +52,8 @@ type AutonomyDispatchRequest = {
 
 const runtime = vi.hoisted(() => {
   const dispatchBrief =
-    vi.fn<(agent: unknown, request: Record<string, unknown>) => Promise<DispatchReceipt>>();
+    vi.fn<(agent: unknown, request: Record<string, unknown>,
+      ) => Promise<DispatchReceipt>>();
   const dispatchTurn = vi.fn<(request: CopilotDispatchRequest) => Promise<DispatchReceipt>>();
   const dispatchAutonomy = vi.fn<(request: AutonomyDispatchRequest) => Promise<DispatchReceipt>>();
   const abortAutonomy = vi.fn<() => Promise<void>>();
@@ -70,7 +74,8 @@ const runtime = vi.hoisted(() => {
     autopilotAgent,
     init: vi.fn((agent: unknown, options: { id?: string }) =>
       agent === autopilotAgent
-        ? { dispatch: dispatchAutonomy, abort: abortAutonomy, read: readAutonomy, options }
+        ? { dispatch: dispatchAutonomy, abort: abortAutonomy, read: readAutonomy, options,
+          }
         : { dispatch: dispatchTurn, abort: vi.fn(), options },
     ),
   };
@@ -122,6 +127,7 @@ vi.mock("./agents/operations-autopilot.ts", () => ({
 }));
 vi.mock("./agents/operations-episode.ts", () => ({ OperationsEpisode: {} }));
 vi.mock("./agents/idea-submission.ts", () => ({ IdeaSubmission: {} }));
+vi.mock("./agents/review-questions.ts", () => ({ ReviewQuestions: {} }));
 
 import app from "./app.ts";
 
@@ -323,7 +329,8 @@ describe("operations copilot ingress", () => {
     expect(response.status).toBe(413);
     expect(await response.json()).toEqual({ error: "payload_too_large" });
     expect(runtime.dispatchTurn).not.toHaveBeenCalled();
-  });
+  },
+  );
 
   test("fails closed when the configured ingress HMAC key is too short", async () => {
     const body = JSON.stringify({
@@ -453,7 +460,8 @@ describe("operations episode ingress", () => {
       expect.anything(),
       expect.objectContaining({
         id: "episode-1",
-        initialData: expect.objectContaining({ episodeId: "episode-1", eventId: "event-1" }),
+        initialData: expect.objectContaining({ episodeId: "episode-1", eventId: "event-1",
+        }),
         message: expect.objectContaining({
           kind: "signal",
           type: "operations.episode.changed",
@@ -511,7 +519,8 @@ describe("idea submission ingress", () => {
         message: expect.objectContaining({
           kind: "signal",
           type: "idea.submission.changed",
-          attributes: { recommendationId: "recommendation-1", contentVersion: "2" },
+          attributes: { recommendationId: "recommendation-1", contentVersion: "2",
+          },
         }),
       }),
     );
@@ -569,7 +578,8 @@ describe("operations autonomy service routes", () => {
     runtime.dispatchAutonomy.mockRejectedValueOnce(
       new SubmissionConflictError({ submissionId: "autonomy-submission-1" }),
     );
-    const response = await signedAutonomyRequest(autonomyRequestBody("autonomy-run-1"));
+    const response = await signedAutonomyRequest(autonomyRequestBody("autonomy-run-1"),
+    );
 
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({
@@ -604,7 +614,8 @@ describe("operations autonomy service routes", () => {
   });
 
   test("rejects obsolete cognitive budgets and deadlines instead of silently accepting them", async () => {
-    const current = JSON.parse(autonomyRequestBody("autonomy-obsolete-fields")) as Record<
+    const current = JSON.parse(autonomyRequestBody("autonomy-obsolete-fields"),
+    ) as Record<
       string,
       unknown
     >;
@@ -647,8 +658,10 @@ describe("operations autonomy service routes", () => {
       workItemId: "autonomy-run-1:work:2",
     });
 
-    const first = await signedAutonomyContinuationRequest("autonomy-run-1", body);
-    const retry = await signedAutonomyContinuationRequest("autonomy-run-1", body);
+    const first = await signedAutonomyContinuationRequest("autonomy-run-1", body,
+    );
+    const retry = await signedAutonomyContinuationRequest("autonomy-run-1", body,
+    );
 
     expect(first.status).toBe(202);
     expect(retry.status).toBe(202);
@@ -660,7 +673,8 @@ describe("operations autonomy service routes", () => {
       acceptedAt: receipt.acceptedAt,
       uid: receipt.uid,
     });
-    expect(runtime.readAutonomy).toHaveBeenNthCalledWith(1, "autonomy-submission-1");
+    expect(runtime.readAutonomy).toHaveBeenNthCalledWith(1, "autonomy-submission-1",
+    );
     expect(runtime.dispatchAutonomy).toHaveBeenCalledTimes(1);
     for (const [request] of runtime.dispatchAutonomy.mock.calls) {
       expect(request.idempotencyKey).toBe("autonomy-run-1:work:2");
@@ -682,7 +696,8 @@ describe("operations autonomy service routes", () => {
       priorSubmissionId: "autonomy-submission-busy",
       workItemId: "autonomy-run-1:work:busy",
     });
-    const response = await signedAutonomyContinuationRequest("autonomy-run-1", body);
+    const response = await signedAutonomyContinuationRequest("autonomy-run-1", body,
+    );
 
     expect(response.status).toBe(503);
     expect(runtime.dispatchAutonomy).not.toHaveBeenCalled();
@@ -707,8 +722,10 @@ describe("operations autonomy service routes", () => {
       priorSubmissionId: "autonomy-submission-failed",
       workItemId: "autonomy-run-1:work:retry",
     });
-    const accepted = await signedAutonomyContinuationRequest("autonomy-run-1", body);
-    const mismatch = await signedAutonomyContinuationRequest("another-run", body);
+    const accepted = await signedAutonomyContinuationRequest("autonomy-run-1", body,
+    );
+    const mismatch = await signedAutonomyContinuationRequest("another-run", body,
+    );
 
     expect(accepted.status).toBe(202);
     expect(mismatch.status).toBe(422);
@@ -731,7 +748,8 @@ describe("operations autonomy service routes", () => {
       workItemId: "autonomy-run-1:work:2",
     });
 
-    const conflict = await signedAutonomyContinuationRequest("autonomy-run-1", body);
+    const conflict = await signedAutonomyContinuationRequest("autonomy-run-1", body,
+    );
     expect(conflict.status).toBe(409);
     expect(await conflict.json()).toEqual({
       error: "continuation_conflict",
@@ -807,7 +825,8 @@ describe("read-only intelligence streams", () => {
     });
 
     expect(response.status).toBe(200);
-    expect(response.headers.get("access-control-allow-origin")).toBe(environment.OPS_ORIGIN);
+    expect(response.headers.get("access-control-allow-origin")).toBe(environment.OPS_ORIGIN,
+    );
     expect(response.headers.get("access-control-allow-credentials")).toBeNull();
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(await response.json()).toMatchObject({
@@ -818,12 +837,13 @@ describe("read-only intelligence streams", () => {
     const internalRequest = routers.copilotFetch.mock.calls[0]?.[0];
     expect(internalRequest?.method).toBe("GET");
     expect(
-      internalRequest?.headers.get(operationsIntelligenceStreamTicketHeaders.ticket),
+      internalRequest?.headers.get(operationsIntelligenceStreamTicketHeaders.ticket,
+      ),
     ).toBeNull();
-    expect(internalRequest?.headers.get("x-flue-history-message-limit")).toBe("6");
-    expect(new URL(internalRequest?.url ?? "https://invalid.test").pathname).toBe(
-      `/${encodeURIComponent(copilotInstanceId)}`,
+    expect(internalRequest?.headers.get("x-flue-history-message-limit")).toBe("6",
     );
+    expect(new URL(internalRequest?.url ?? "https://invalid.test").pathname,
+    ).toBe(`/${encodeURIComponent(copilotInstanceId)}`);
   });
 
   test("serves brief runs through their distinct ticket and hides dispatch text", async () => {
@@ -841,7 +861,8 @@ describe("read-only intelligence streams", () => {
             display: "visible",
             submissionId: "brief-submission",
             turnId: "brief-turn",
-            parts: [{ type: "text", text: "private frozen dispatch", state: "done" }],
+            parts: [{ type: "text", text: "private frozen dispatch", state: "done" },
+            ],
           },
           {
             id: "brief-answer",
@@ -853,7 +874,8 @@ describe("read-only intelligence streams", () => {
             parts: [{ type: "text", text: "Brief prepared.", state: "done" }],
           },
         ],
-        settlements: [{ submissionId: "brief-submission", outcome: "completed" }],
+        settlements: [{ submissionId: "brief-submission", outcome: "completed" },
+        ],
       }),
     );
     const response = await briefStreamRequest(briefId);
@@ -865,7 +887,8 @@ describe("read-only intelligence streams", () => {
     expect(body).not.toContain("private frozen dispatch");
     expect(routers.briefFetch).toHaveBeenCalledOnce();
     expect(
-      new URL(routers.briefFetch.mock.calls[0]?.[0].url ?? "https://invalid.test").pathname,
+      new URL(routers.briefFetch.mock.calls[0]?.[0].url ?? "https://invalid.test",
+      ).pathname,
     ).toBe(`/${briefId}`);
   });
 
@@ -882,9 +905,11 @@ describe("read-only intelligence streams", () => {
     const response = await autonomyStreamRequest("autonomy-run-1");
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ conversationId: "autonomy-run-1" });
+    expect(await response.json()).toMatchObject({ conversationId: "autonomy-run-1",
+    });
     expect(
-      new URL(routers.autopilotFetch.mock.calls[0]?.[0].url ?? "https://invalid.test").pathname,
+      new URL(routers.autopilotFetch.mock.calls[0]?.[0].url ?? "https://invalid.test",
+      ).pathname,
     ).toBe("/autonomy-run-1");
   });
 
@@ -910,7 +935,8 @@ describe("read-only intelligence streams", () => {
       ],
     }));
     routers.autopilotFetch.mockImplementation(async (request) => {
-      const nativeBefore = request.headers.get(internalFlueHistoryPageHeaders.beforeMessageKey);
+      const nativeBefore = request.headers.get(internalFlueHistoryPageHeaders.beforeMessageKey,
+      );
       const end =
         nativeBefore === null
           ? messages.length
@@ -941,23 +967,28 @@ describe("read-only intelligence streams", () => {
     const recoveredIds: string[] = [];
     let before: string | undefined;
     for (let pageIndex = 0; pageIndex < 10; pageIndex += 1) {
-      const response = await autonomyStreamRequest("autonomy-run-history", before);
+      const response = await autonomyStreamRequest("autonomy-run-history", before,
+      );
       expect(response.status).toBe(200);
       const body = await response.text();
-      expect(new TextEncoder().encode(body).byteLength).toBeLessThanOrEqual(256 * 1_024);
+      expect(new TextEncoder().encode(body).byteLength).toBeLessThanOrEqual(256 * 1_024,
+      );
       expect(body).not.toContain("PRIVATE_");
-      const snapshot = JSON.parse(body) as { messages?: Array<{ id?: string }> };
+      const snapshot = JSON.parse(body) as { messages?: Array<{ id?: string }>;
+      };
       for (const message of snapshot.messages ?? []) {
         if (message.id !== undefined) recoveredIds.push(message.id);
       }
-      const hasEarlier = response.headers.get(intelligenceHistoryPageHeaders.hasEarlier);
+      const hasEarlier = response.headers.get(intelligenceHistoryPageHeaders.hasEarlier,
+      );
       if (hasEarlier === "false") break;
       expect(hasEarlier).toBe("true");
       before = response.headers.get(intelligenceHistoryPageHeaders.before) ?? undefined;
       expect(before).toBeDefined();
     }
 
-    expect(new Set(recoveredIds)).toEqual(new Set(messages.map((message) => message.id)));
+    expect(new Set(recoveredIds)).toEqual(new Set(messages.map((message) => message.id)),
+    );
     expect(routers.autopilotFetch).toHaveBeenCalledTimes(7);
     for (const [request] of routers.autopilotFetch.mock.calls) {
       expect(new URL(request.url).searchParams.has("before")).toBe(false);
@@ -1032,7 +1063,8 @@ describe("read-only intelligence streams", () => {
     );
 
     expect(response.status).toBe(204);
-    expect(response.headers.get("access-control-allow-methods")).toBe("GET, HEAD");
+    expect(response.headers.get("access-control-allow-methods")).toBe("GET, HEAD",
+    );
     expect(response.headers.get("access-control-allow-headers")).toBe(
       Object.values(operationsIntelligenceStreamTicketHeaders).join(", "),
     );
@@ -1052,14 +1084,16 @@ describe("read-only intelligence streams", () => {
   });
 
   test("returns a content-free CORS error when the native projection is invalid", async () => {
-    routers.copilotFetch.mockResolvedValueOnce(Response.json({ private: "native failure" }));
+    routers.copilotFetch.mockResolvedValueOnce(Response.json({ private: "native failure" }),
+    );
     const response = await streamRequest({
       method: "GET",
       instanceId: copilotInstanceId,
     });
 
     expect(response.status).toBe(502);
-    expect(response.headers.get("access-control-allow-origin")).toBe(environment.OPS_ORIGIN);
+    expect(response.headers.get("access-control-allow-origin")).toBe(environment.OPS_ORIGIN,
+    );
     expect(response.headers.get("retry-after")).toBe("1");
     expect(await response.json()).toEqual({ error: "stream_unavailable" });
   });
@@ -1331,7 +1365,8 @@ async function signedAutonomyContinuationRequest(runId: string, body: string) {
   return signedAutonomyContinuationRequestAt(runId, body, Date.now());
 }
 
-async function signedAutonomyContinuationRequestAt(runId: string, body: string, signedAt: number) {
+async function signedAutonomyContinuationRequestAt(runId: string, body: string, signedAt: number,
+) {
   const timestamp = signedAt.toString();
   const signature = await signServiceBody({
     context: operationsAutonomyContinuationSignatureContext,
@@ -1392,3 +1427,117 @@ async function autonomyStreamRequest(runId: string, before?: string) {
     environment,
   );
 }
+
+describe("review question ingress", () => {
+  beforeEach(() => runtime.dispatchBrief.mockReset());
+  const input = {
+    protocolVersion: reviewQuestionProtocolVersion,
+    jobId: "question-set-1",
+    attempt: 1,
+    stage: "questions",
+    partId: "final",
+    partAttempt: 1,
+    references: [
+      {
+        id: "project",
+        kind: "project",
+        title: "Submitted idea",
+        coverage: "captured",
+      },
+    ],
+    sourceChecksum: "a".repeat(64),
+    payloadChecksum: "b".repeat(64),
+    model: "openai/gpt-5.6-terra",
+    maximumQuestions: 6,
+    instructions: "",
+    criteria: [
+      {
+        key: "technical_execution",
+        label: "Technical execution",
+        question: "Explain the architecture",
+        guidance: "Use the evidence",
+      },
+    ],
+    sources: [
+      {
+        id: "project",
+        kind: "project",
+        title: "Submitted idea",
+        text: "A prototype for event queues.",
+        coverage: "captured",
+      },
+    ],
+  };
+  async function send(
+    body: string,
+    signatureContext = reviewQuestionIngressContext,
+  ) {
+    const timestamp = String(Date.now());
+    const signature = await signServiceBody({
+      context: signatureContext,
+      secret,
+      timestamp,
+      body,
+    });
+    return app.request(
+      "/v1/review-questions",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-c2c-timestamp": timestamp,
+          "x-c2c-signature": signature,
+        },
+        body,
+      },
+      environment,
+    );
+  }
+  test("uses one create-only identity for each frozen attempt", async () => {
+    const receipt: DispatchReceipt = {
+      submissionId: "question-submission-1",
+      acceptedAt: "2026-09-05T00:00:00.000Z",
+      uid: "question-agent",
+    };
+    runtime.dispatchBrief
+      .mockResolvedValueOnce(receipt)
+      .mockRejectedValueOnce(
+        new AgentInstanceExistsError({
+          id: "question-set-1:1:final:1",
+          uid: receipt.uid,
+        }),
+      );
+    expect(await (await send(JSON.stringify(input))).json()).toEqual({
+      state: "accepted",
+    });
+    expect(await (await send(JSON.stringify(input))).json()).toEqual({
+      state: "already_exists",
+    });
+    expect(runtime.dispatchBrief.mock.calls.map((call) => call[1])).toEqual([
+      expect.objectContaining({
+        id: "question-set-1:1:final:1",
+        uid: null,
+        initialData: input,
+      }),
+      expect.objectContaining({
+        id: "question-set-1:1:final:1",
+        uid: null,
+        initialData: input,
+      }),
+    ]);
+  });
+  test("rejects signatures for another purpose and unexpected grading input", async () => {
+    expect(
+      (
+        await send(
+          JSON.stringify(input),
+          operationsIntelligenceIngressSignatureContext,
+        )
+      ).status,
+    ).toBe(401);
+    expect((await send(JSON.stringify({ ...input, score: 4 }))).status).toBe(
+      422,
+    );
+    expect(runtime.dispatchBrief).not.toHaveBeenCalled();
+  });
+});

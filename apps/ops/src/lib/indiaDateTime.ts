@@ -28,3 +28,23 @@ export function indiaDateTimeToTimestamp(value: string) {
 export function optionalIndiaDateTimeToTimestamp(value: string) {
   return value ? indiaDateTimeToTimestamp(value) : undefined;
 }
+
+export function timestampToIndiaDateTime(value: number) {
+  return new Date(value + indiaOffsetMinutes * 60_000)
+    .toISOString()
+    .slice(0, 16);
+}
+
+export function reviewConfirmationOpening(roundStart: string) {
+  const startsAt = indiaDateTimeToTimestamp(roundStart);
+  if (startsAt === null) return "";
+  const indiaDate = new Date(startsAt + indiaOffsetMinutes * 60_000);
+  let opensAt = Date.UTC(
+    indiaDate.getUTCFullYear(),
+    indiaDate.getUTCMonth(),
+    indiaDate.getUTCDate(),
+    23,
+  );
+  if (opensAt >= indiaDate.getTime()) opensAt -= 86_400_000;
+  return new Date(opensAt).toISOString().slice(0, 16);
+}

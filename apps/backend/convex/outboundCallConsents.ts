@@ -13,14 +13,42 @@ import {
 } from "./lib/operations";
 import { normalizedE164Phone } from "./lib/outboundCalls";
 import { requirePermission } from "./lib/permissions";
+import {
+  venueCallConsentVersion,
+  venueCallPurpose,
+  venueCallScriptVersion,
+} from "./lib/reviewerVenuePolicy";
 
 export const reviewerCallConsentPolicyVersion = "reviewer-page-call-consent-v1";
 export const reviewerCallScriptPolicyVersion = "reviewer-substitute-page-v1";
 
-const reviewerCallPurpose = "reviewer_substitute_page" as const;
+const reviewerPurpose = v.optional(
+  v.union(
+    v.literal("reviewer_substitute_page"),
+    v.literal("reviewer_venue_absence"),
+  ),
+);
+
+function callPolicies(
+  purpose:
+    | "reviewer_substitute_page"
+    | "reviewer_venue_absence" = "reviewer_substitute_page",
+) {
+  return {
+    reviewerCallPurpose: purpose,
+    reviewerCallConsentPolicyVersion:
+      purpose === venueCallPurpose
+        ? venueCallConsentVersion
+        : reviewerCallConsentPolicyVersion,
+    reviewerCallScriptPolicyVersion:
+      purpose === venueCallPurpose
+        ? venueCallScriptVersion
+        : reviewerCallScriptPolicyVersion,
+  };
+}
 
 export const mine = query({
-  args: { eventSlug: v.string() },
+  args: { eventSlug: v.string(), purpose: reviewerPurpose },
   returns: v.object({
     state: v.union(
       v.literal("not_configured"),
@@ -35,6 +63,11 @@ export const mine = query({
     version: v.number(),
   }),
   handler: async (ctx, args) => {
+    const {
+      reviewerCallPurpose,
+      reviewerCallConsentPolicyVersion,
+      reviewerCallScriptPolicyVersion,
+    } = callPolicies(args.purpose);
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
@@ -86,6 +119,7 @@ export const mine = query({
 export const saveReviewerConsent = mutation({
   args: {
     eventSlug: v.string(),
+    purpose: reviewerPurpose,
     state: v.union(v.literal("granted"), v.literal("revoked")),
     destinationPhone: v.optional(v.string()),
     expectedVersion: v.number(),
@@ -97,6 +131,11 @@ export const saveReviewerConsent = mutation({
     version: v.number(),
   }),
   handler: async (ctx, args) => {
+    const {
+      reviewerCallPurpose,
+      reviewerCallConsentPolicyVersion,
+      reviewerCallScriptPolicyVersion,
+    } = callPolicies(args.purpose);
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
@@ -108,6 +147,7 @@ export const saveReviewerConsent = mutation({
       });
     }
     const requestFingerprint = operationFingerprint([
+      reviewerCallPurpose,
       args.state,
       destinationPhoneE164,
       args.expectedVersion,
@@ -122,12 +162,14 @@ export const saveReviewerConsent = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const consentId = ctx.db.normalizeId("outboundCallConsents", prior.targetId);
+      const consentId = ctx.db.normalizeId("outboundCallConsents", prior.targetId,
+      );
       if (!consentId) throw new Error("Stored call-consent result is invalid.");
       return {
         consentId,
         state: args.state,
-        version: storedOperationVersion(prior.resultJson, "outbound call consent"),
+        version: storedOperationVersion(prior.resultJson, "outbound call consent",
+        ),
       };
     }
     const grantIds = await requirePermission(ctx, {
@@ -242,7 +284,9 @@ export const saveReviewerConsent = mutation({
       targetType: "outbound_call_consent",
       targetId: consentId,
       ...(current
-        ? { previousSummary: JSON.stringify({ state: current.state, version: current.version }) }
+        ? { previousSummary: JSON.stringify({ state: current.state, version: current.version,
+            }),
+          }
         : {}),
       nextSummary: JSON.stringify({ state: args.state, version }),
       reason:

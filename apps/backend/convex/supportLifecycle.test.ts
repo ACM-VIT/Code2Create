@@ -1,4 +1,9 @@
 import betterAuthSchema from "../node_modules/@convex-dev/better-auth/src/component/schema.ts";
+import {
+  discordSupportBridgeProtocolVersion,
+  discordSupportPullSignatureContext,
+  signServiceBody,
+} from "@code2create/domain";
 import { convexTest, type TestConvex } from "convex-test";
 import { describe, expect, test } from "vitest";
 
@@ -15,6 +20,150 @@ const betterAuthModules = import.meta.glob(
 type BackendTest = TestConvex<typeof schema>;
 
 describe("support projections", () => {
+  test("the Discord bridge rejects unsigned pulls", async () => {
+    const backend = seededBackend();
+    const fixture = await seedOperator(backend);
+    const body = JSON.stringify({
+      protocolVersion: discordSupportBridgeProtocolVersion,
+      eventSlug: fixture.eventSlug,
+    });
+    const previousEnvironment = {
+      AUTH_SITE_URL: process.env.AUTH_SITE_URL,
+      PARTICIPANT_SITE_URL: process.env.PARTICIPANT_SITE_URL,
+      OPERATIONS_SITE_URL: process.env.OPERATIONS_SITE_URL,
+      DISCORD_SUPPORT_BRIDGE_SECRET: process.env.DISCORD_SUPPORT_BRIDGE_SECRET,
+    };
+    const secret = `test-${crypto.randomUUID()}-${crypto.randomUUID()}`;
+    process.env.AUTH_SITE_URL = "http://localhost:3211";
+    process.env.PARTICIPANT_SITE_URL = "http://localhost:4173";
+    process.env.OPERATIONS_SITE_URL = "http://localhost:4174";
+    process.env.DISCORD_SUPPORT_BRIDGE_SECRET = secret;
+    try {
+      const unsigned = await backend.fetch("/integrations/discord/support/pull", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body,
+      });
+      expect(unsigned.status).toBe(401);
+      const timestamp = Date.now().toString();
+      const signature = await signServiceBody({
+        context: discordSupportPullSignatureContext,
+        secret,
+        timestamp,
+        body,
+      });
+      const signed = await backend.fetch("/integrations/discord/support/pull", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-c2c-signature": signature,
+          "x-c2c-timestamp": timestamp,
+        },
+        body,
+      });
+      expect(signed.status).toBe(200);
+      await expect(signed.json()).resolves.toEqual({ state: "idle" });
+    } finally {
+      for (const [name, value] of Object.entries(previousEnvironment)) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    }
+  });
+
+  test("Discord delivery and replies stay idempotent and use normal support actions", async () => {
+    const backend = seededBackend();
+    const fixture = await seedOperator(backend);
+    const operator = backend.withIdentity({
+      subject: fixture.authUserId,
+      sessionId: fixture.authSessionId,
+    });
+    const created = await operator.mutation(api.support.createStaff, {
+      eventSlug: fixture.eventSlug,
+      category: "queue",
+      description: "The participant needs the correct queue location.",
+      clientOperationId: crypto.randomUUID(),
+    });
+    const claimed = await backend.mutation(internal.supportDiscordBridge.claimNext, {
+      eventSlug: fixture.eventSlug,
+    });
+    expect(claimed).toMatchObject({
+      state: "work",
+      delivery: {
+        action: { kind: "opened" },
+        supportCase: { id: created.id, publicCode: created.publicCode },
+      },
+    });
+    if (claimed.state !== "work") throw new Error("The Discord delivery was not claimed.");
+    await expect(
+      backend.mutation(internal.supportDiscordBridge.acknowledgeDelivery, {
+        deliveryId: claimed.delivery.id,
+        claimId: claimed.delivery.claimId,
+        discordGuildId: "1411784063571988722",
+        discordChannelId: "1555555555555555555",
+        discordMessageId: "1666666666666666666",
+      }),
+    ).resolves.toBe("accepted");
+
+    const previousActorEmail = process.env.DISCORD_SUPPORT_ACTOR_EMAIL;
+    process.env.DISCORD_SUPPORT_ACTOR_EMAIL = fixture.email;
+    try {
+      const reply = {
+        eventSlug: fixture.eventSlug,
+        discordGuildId: "1411784063571988722",
+        discordChannelId: "1555555555555555555",
+        discordMessageId: "1777777777777777777",
+        discordUserId: "1888888888888888888",
+        discordDisplayName: "Discord operator",
+        message: "Use the north registration queue beside the auditorium.",
+      };
+      await expect(
+        backend.mutation(internal.supportDiscordBridge.recordReply, reply),
+      ).resolves.toMatchObject({
+        state: "accepted",
+        publicCode: created.publicCode,
+        version: 2,
+      });
+      await expect(
+        backend.mutation(internal.supportDiscordBridge.recordReply, reply),
+      ).resolves.toMatchObject({
+        state: "already_recorded",
+        publicCode: created.publicCode,
+        version: 2,
+      });
+    } finally {
+      if (previousActorEmail === undefined) {
+        delete process.env.DISCORD_SUPPORT_ACTOR_EMAIL;
+      } else {
+        process.env.DISCORD_SUPPORT_ACTOR_EMAIL = previousActorEmail;
+      }
+    }
+
+    await expect(
+      operator.query(api.support.detail, {
+        eventSlug: fixture.eventSlug,
+        supportCaseId: created.id,
+      }),
+    ).resolves.toMatchObject({
+      supportCase: { version: 2, awaitingStaffReply: false },
+      actions: expect.arrayContaining([
+        expect.objectContaining({
+          kind: "public_note",
+          actorName: "Discord operator",
+          source: "discord",
+          body: "Use the north registration queue beside the auditorium.",
+        }),
+      ]),
+    });
+    const bridgeRows = await backend.run(async (ctx) => ({
+      outbound: await ctx.db.query("supportDiscordOutbox").collect(),
+      inbound: await ctx.db.query("supportDiscordInboundMessages").collect(),
+    }));
+    expect(bridgeRows.outbound).toHaveLength(1);
+    expect(bridgeRows.outbound[0]?.state).toBe("delivered");
+    expect(bridgeRows.inbound).toHaveLength(1);
+  });
+
   test("case mutations update the event counters in the same transaction", async () => {
     const backend = seededBackend();
     const fixture = await seedOperator(backend);

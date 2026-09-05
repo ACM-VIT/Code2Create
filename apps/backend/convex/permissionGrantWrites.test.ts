@@ -84,19 +84,24 @@ describe("permission grant writes", () => {
       grants,
     };
 
-    const first = await backend.run((ctx) => insertPermissionGrantGroup(ctx, args));
+    const first = await backend.run((ctx) => insertPermissionGrantGroup(ctx, args),
+    );
     expect(first.createdCount).toBe(2);
-    expect(first.results.map((result) => result.created)).toEqual([true, true, false]);
+    expect(first.results.map((result) => result.created)).toEqual([true, true, false,
+    ]);
     expect(first.results[2]?.grantId).toBe(first.results[0]?.grantId);
 
-    const retry = await backend.run((ctx) => insertPermissionGrantGroup(ctx, args));
+    const retry = await backend.run((ctx) => insertPermissionGrantGroup(ctx, args),
+    );
     expect(retry.createdCount).toBe(0);
-    expect(retry.results.map((result) => result.created)).toEqual([false, false, false]);
+    expect(retry.results.map((result) => result.created)).toEqual([false, false, false,
+    ]);
     expect(retry.results.map((result) => result.grantId)).toEqual(
       first.results.map((result) => result.grantId),
     );
     expect(
-      await activeSourceGrantCount(backend, fixture.eventId, "production_seed", args.sourceId),
+      await activeSourceGrantCount(backend, fixture.eventId, "production_seed", args.sourceId,
+      ),
     ).toBe(2);
     await expect(
       backend.run((ctx) =>
@@ -160,7 +165,8 @@ describe("permission grant writes", () => {
       ),
     ).rejects.toThrow("exceeds the current-grant source limit");
     expect(
-      await activeSourceGrantCount(backend, fixture.eventId, "production_seed", "oversized-group"),
+      await activeSourceGrantCount(backend, fixture.eventId, "production_seed", "oversized-group",
+      ),
     ).toBe(0);
   });
 
@@ -182,12 +188,16 @@ describe("permission grant writes", () => {
     };
 
     await backend.run((ctx) => grantPanelMemberAccess(ctx, args));
-    expect(await subjectAccessVersion(backend, fixture.reviewerSubjectId)).toBe(2);
-    expect(await sourceGrantCount(backend, fixture.eventId, review.panelMemberId)).toBe(5);
+    expect(await subjectAccessVersion(backend, fixture.reviewerSubjectId)).toBe(2,
+    );
+    expect(await sourceGrantCount(backend, fixture.eventId, review.panelMemberId),
+    ).toBe(5);
 
     await backend.run((ctx) => grantPanelMemberAccess(ctx, args));
-    expect(await subjectAccessVersion(backend, fixture.reviewerSubjectId)).toBe(2);
-    expect(await sourceGrantCount(backend, fixture.eventId, review.panelMemberId)).toBe(5);
+    expect(await subjectAccessVersion(backend, fixture.reviewerSubjectId)).toBe(2,
+    );
+    expect(await sourceGrantCount(backend, fixture.eventId, review.panelMemberId),
+    ).toBe(5);
   });
 
   test("enforces exact-scope ownership and bounded scoped reads", async () => {
@@ -295,7 +305,8 @@ async function activeSourceGrantCount(
   });
 }
 
-async function subjectAccessVersion(backend: BackendTest, subjectId: Id<"eventAccessSubjects">) {
+async function subjectAccessVersion(backend: BackendTest, subjectId: Id<"eventAccessSubjects">,
+) {
   const subject = await backend.run((ctx) => ctx.db.get(subjectId));
   if (!subject) throw new Error("Fixture event access subject is missing.");
   return subject.accessVersion;
@@ -329,7 +340,8 @@ async function seedWriteFixture(backend: BackendTest, now: number) {
   });
 }
 
-async function seedReviewAssignment(backend: BackendTest, fixture: WriteFixture, now: number) {
+async function seedReviewAssignment(backend: BackendTest, fixture: WriteFixture, now: number,
+) {
   return backend.run(async (ctx) => {
     const rubricVersionId = await ctx.db.insert("reviewRubricVersions", {
       eventId: fixture.eventId,
@@ -366,9 +378,19 @@ async function seedReviewAssignment(backend: BackendTest, fixture: WriteFixture,
       substituteResponseSeconds: 60,
       missedReentryPolicy: "preserve_queue_time",
       requiredPanelSize: 3,
+      staffing: {
+        seniorSeats: 2,
+        juniorSeats: 0,
+        allowSeniorLeadFallback: true,
+        automaticReplacement: false,
+        juniorRotationReviews: 0,
+        reviewerArrivalSeconds: 90,
+        assignmentReminderSeconds: 300,
+      },
       minimumScorersPerCriterion: 1,
       minimumPresentParticipants: 1,
       requiresSharedCommitments: true,
+      requiresFinalComment: false,
       minimumReviewerBuild: 1,
       requiresCamera: true,
       requiresNotifications: true,
@@ -399,6 +421,7 @@ async function seedReviewAssignment(backend: BackendTest, fixture: WriteFixture,
       isCoordinator: false,
       status: "active",
       assignedAt: now,
+      seatSeniority: "sc",
     });
     return { roundId, panelId, panelMemberId };
   });

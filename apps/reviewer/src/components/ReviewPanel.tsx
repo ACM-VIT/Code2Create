@@ -1,11 +1,14 @@
+import { ReviewQuestions } from "@/components/ReviewQuestions";
 import { api } from "@code2create/backend/api";
 import type { FunctionReturnType } from "convex/server";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import { randomUUID } from "expo-crypto";
-import { CameraView, useCameraPermissions, type BarcodeScanningResult } from "expo-camera";
+import { CameraView, useCameraPermissions, type BarcodeScanningResult,
+} from "expo-camera";
 import { Stack, useRouter } from "expo-router";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState,
+} from "react";
 import {
   Alert,
   Animated,
@@ -22,6 +25,7 @@ import Svg, { Path } from "react-native-svg";
 
 import { PagingSetup } from "@/components/PagingSetup";
 import { ProjectEvidence } from "@/components/ProjectEvidence";
+import { ReviewAvailability } from "@/components/ReviewAvailability";
 import { useReviewerSession } from "@/components/ReviewerSession";
 import { JudgingSkeleton } from "@/components/skeletons";
 import { ReviewerSetup } from "@/components/ReviewerSetup";
@@ -85,8 +89,8 @@ type ReviewWorkspaceSnapshot = FunctionReturnType<typeof api.reviewer.reviewWork
 type ScorecardSnapshot = FunctionReturnType<typeof api.reviewer.scorecard>;
 type WorkspaceReview = ActiveReview & ReviewWorkspaceSnapshot & { scorecard: ScorecardSnapshot };
 type WorkspaceLoadState =
-  | { reviewSessionId: ActiveReview["id"]; value: ReviewWorkspaceSnapshot }
-  | { reviewSessionId: ActiveReview["id"]; error: string };
+  | { key: string; value: ReviewWorkspaceSnapshot }
+  | { key: string; error: string };
 type Rating = ScorecardSnapshot["ratings"][number];
 type Criterion = ReviewWorkspaceSnapshot["criteria"][number];
 type DeviceState =
@@ -112,10 +116,12 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [notificationState, setNotificationState] = useState<NotificationState>({
     status: "loading",
-  });
+  },
+  );
   const [draftStorageState, setDraftStorageState] = useState<DraftStorageState>({
     status: "loading",
-  });
+  },
+  );
   const [deviceState, setDeviceState] = useState<DeviceState>(() =>
     platform ? { status: "loading" } : { status: "ready", record: null },
   );
@@ -134,8 +140,9 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
   const clockIn = useMutation(api.reviewer.clockIn);
   const startReview = useMutation(api.reviewOperations.startReview);
   const loadReviewWorkspace = useAction(api.reviewer.reviewWorkspace);
-  const [workspaceLoad, setWorkspaceLoad] = useState<WorkspaceLoadState | null>(null);
-  const workspaceRequestRef = useRef<ActiveReview["id"] | null>(null);
+  const [workspaceLoad, setWorkspaceLoad] = useState<WorkspaceLoadState | null>(null,
+  );
+  const workspaceRequestRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!platform) return;
@@ -160,11 +167,11 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
   useEffect(() => {
     if (!platform) return;
     let active = true;
-    void currentReviewerPushRegistration(runtime.configuration.apnsEnvironment).then(
+    void currentReviewerPushRegistration(runtime.configuration.apnsEnvironment,
+    ).then(
       (registration) => {
         if (active) setNotificationState(registration);
-      },
-    );
+      });
     return () => {
       active = false;
     };
@@ -205,25 +212,27 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
     deviceRecord ? { eventSlug, installationId: deviceRecord.installationId } : "skip",
   );
   const reviewSessionId = current?.review?.id;
+  const evidenceKey = `${reviewSessionId ?? "none"}:${current?.review?.startedAt ?? "preparation"}`;
   useEffect(() => {
     if (
       !reviewSessionId ||
-      workspaceLoad?.reviewSessionId === reviewSessionId ||
-      workspaceRequestRef.current === reviewSessionId
+      workspaceLoad?.key === evidenceKey ||
+      workspaceRequestRef.current === evidenceKey
     ) {
       return;
     }
-    workspaceRequestRef.current = reviewSessionId;
+    workspaceRequestRef.current = evidenceKey;
     let active = true;
     void loadReviewWorkspace({ eventSlug, reviewSessionId }).then(
       (value) => {
-        if (active) setWorkspaceLoad({ reviewSessionId, value });
+        if (active) setWorkspaceLoad({ key: evidenceKey, value });
       },
       (caught: unknown) => {
         if (active) {
           setWorkspaceLoad({
-            reviewSessionId,
-            error: errorMessage(caught, "The fixed review evidence could not be loaded."),
+            key: evidenceKey,
+            error: errorMessage(caught, "The fixed review evidence could not be loaded.",
+            ),
           });
         }
       },
@@ -231,13 +240,16 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
     return () => {
       active = false;
     };
-  }, [eventSlug, loadReviewWorkspace, reviewSessionId, workspaceLoad?.reviewSessionId]);
+  }, [eventSlug, loadReviewWorkspace, reviewSessionId,
+    evidenceKey,
+    workspaceLoad?.key,
+  ]);
   const workspace =
-    workspaceLoad && workspaceLoad.reviewSessionId === reviewSessionId && "value" in workspaceLoad
+    workspaceLoad && workspaceLoad.key === evidenceKey && "value" in workspaceLoad
       ? workspaceLoad.value
       : null;
   const workspaceError =
-    workspaceLoad && workspaceLoad.reviewSessionId === reviewSessionId && "error" in workspaceLoad
+    workspaceLoad && workspaceLoad.key === evidenceKey && "error" in workspaceLoad
       ? workspaceLoad.error
       : null;
   const retryWorkspace = () => {
@@ -255,7 +267,8 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
   const heartbeatStatus = current?.panel?.clockIn?.status ?? current?.reserve?.clockIn?.status;
 
   const setError = (message: string | null) => {
-    setErrorState(message === null ? null : { message, raisedWhile: heartbeatStatus });
+    setErrorState(message === null ? null : { message, raisedWhile: heartbeatStatus },
+    );
   };
   const visibleError = error && error.raisedWhile === heartbeatStatus ? error.message : null;
   const presenceNeedsRetry =
@@ -272,7 +285,8 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
     }).catch((caught: unknown) => {
       if (active) {
         setErrorState({
-          message: errorMessage(caught, "The saved presence confirmation could not be cleared."),
+          message: errorMessage(caught, "The saved presence confirmation could not be cleared.",
+          ),
           raisedWhile: heartbeatStatus,
         });
       }
@@ -418,7 +432,8 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
           : {}),
         encryptedDraftReady,
         expectedVersion: current.device?.version ?? 0,
-      });
+      },
+      );
       attemptedRecord = prepared.record;
       setDeviceState({ status: "ready", record: prepared.record });
       const command = prepared.attempt;
@@ -508,6 +523,7 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
   if (panelMode === "empty") {
     return (
       <Panel>
+        <ReviewAvailability eventSlug={eventSlug} />
         <Nothing>No current review duty</Nothing>
         {visibleError ? <Problem>{visibleError}</Problem> : null}
       </Panel>
@@ -524,7 +540,7 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
     review &&
     workspaceReview &&
     (review.status === "active" ||
-      review.status === "overdue" ||
+      review.status === "scoring" ||
       workspaceReview.scorecard.status === "correction_open"),
   );
 
@@ -535,7 +551,7 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
     review &&
     !workspaceReview &&
     !workspaceError &&
-    (review.status === "active" || review.status === "overdue")
+    (review.status === "active" || review.status === "scoring")
   ) {
     return (
       <Panel>
@@ -632,6 +648,8 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
         <Problem>{draftStorageState.message}</Problem>
       ) : null}
 
+      {!review ? <ReviewAvailability eventSlug={eventSlug} /> : null}
+
       {deviceIsCurrent && assignment && !review ? (
         <ClockInControl
           assignment={assignment}
@@ -700,7 +718,7 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
               ) : null}
             </View>
           ) : null}
-          {workspaceReview && (review.status === "active" || review.status === "overdue") ? (
+          {workspaceReview && (review.status === "active" || review.status === "scoring") ? (
             <ReviewWorkspace
               key={reviewWorkspaceKey(workspaceReview)}
               eventSlug={eventSlug}
@@ -728,9 +746,11 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
 }
 
 function CorrectionRequests({ eventSlug }: { eventSlug: string }) {
-  const options = useQuery(api.scoreGovernance.myCorrectionOptions, { eventSlug });
+  const options = useQuery(api.scoreGovernance.myCorrectionOptions, { eventSlug,
+  });
   const requestCorrection = useMutation(api.scoreGovernance.requestCorrection);
-  const [selectedScorecardId, setSelectedScorecardId] = useState<string | null>(null);
+  const [selectedScorecardId, setSelectedScorecardId] = useState<string | null>(null,
+  );
   const [category, setCategory] = useState<CorrectionCategory>("reviewer_error");
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
@@ -742,7 +762,8 @@ function CorrectionRequests({ eventSlug }: { eventSlug: string }) {
   if (options === undefined || options.length === 0) return null;
 
   const submit = async () => {
-    const option = options.find((candidate) => candidate.scorecardId === selectedScorecardId);
+    const option = options.find((candidate) => candidate.scorecardId === selectedScorecardId,
+    );
     if (!option || !option.canRequest || reason.trim().length < 5 || busy) return;
     setBusy(true);
     setError(null);
@@ -761,7 +782,8 @@ function CorrectionRequests({ eventSlug }: { eventSlug: string }) {
       setSelectedScorecardId(null);
       setReason("");
     } catch (caught) {
-      setError(errorMessage(caught, "The correction request could not be sent."));
+      setError(errorMessage(caught, "The correction request could not be sent."),
+      );
     } finally {
       setBusy(false);
     }
@@ -864,20 +886,22 @@ function AvailabilityControl({
 }) {
   const setAvailability = useMutation(api.reviewer.setAvailability);
   const [open, setOpen] = useState(false);
+  const [endingShift, setEndingShift] = useState(false);
   const [reason, setReason] = useState("");
   const [returnMinutes, setReturnMinutes] = useState<number>(10);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const availabilityAttempt =
     useMutationAttempt<FunctionReturnType<typeof api.reviewer.setAvailability>>();
-  const availabilityPending = availabilityAttempt.hasPending("reviewer-availability");
+  const availabilityPending = availabilityAttempt.hasPending("reviewer-availability",
+  );
 
   const clockIn = assignment.clockIn;
   if (!clockIn) return null;
 
   const stepAway = async () => {
     const minutes = returnMinutes;
-    if (!Number.isSafeInteger(minutes) || minutes < 1) {
+    if (!endingShift && (!Number.isSafeInteger(minutes) || minutes < 1)) {
       setError("Expected return must be a positive whole number of minutes.");
       return;
     }
@@ -889,9 +913,11 @@ function AvailabilityControl({
           eventSlug,
           roundId: assignment.round.id,
           installationId,
-          status: "temporarily_unavailable" as const,
+          status: endingShift
+            ? ("clocked_out" as const)
+            : ("temporarily_unavailable" as const),
           reason,
-          expectedReturnMinutes: minutes,
+          ...(endingShift ? {} : { expectedReturnMinutes: minutes }),
           expectedVersion: clockIn.version,
           clientOperationId: randomUUID(),
         };
@@ -906,9 +932,22 @@ function AvailabilityControl({
 
   return (
     <>
-      <QuietAction label="Step away briefly" onPress={() => setOpen(true)} />
-      <Sheet onClose={() => setOpen(false)} title="Step away" visible={open}>
-        <Text style={styles.label}>Short operational reason</Text>
+      <QuietAction label="Change duty status" onPress={() => setOpen(true)} />
+      <Sheet onClose={() => setOpen(false)} title={endingShift ? "End my shift" : "Step away"}
+        visible={open}
+      >
+        <ChipRow
+          accent={palette.judging}
+          selected={endingShift ? "end" : "break"}
+          options={[
+            ["break", "Short break"],
+            ["end", "End shift"],
+          ]}
+          onSelect={(value) => {
+            if (!busy && !availabilityPending) setEndingShift(value === "end");
+          }}
+        />
+        <Text style={styles.label}>Reason</Text>
         <TextInput
           editable={!busy && !availabilityPending}
           onChangeText={(value) => {
@@ -920,6 +959,8 @@ function AvailabilityControl({
           style={styles.input}
           value={reason}
         />
+        {!endingShift ? (
+          <>
         <Text style={styles.label}>Expected return in minutes</Text>
         <ChipRow
           accent={palette.judging}
@@ -928,9 +969,12 @@ function AvailabilityControl({
             setReturnMinutes(Number(value));
             setError(null);
           }}
-          options={returnChoices.map((minutes) => [String(minutes), String(minutes)] as const)}
+          options={returnChoices.map((minutes) => [String(minutes), String(minutes)] as const,
+              )}
           selected={String(returnMinutes)}
         />
+          </>
+        ) : null}
         <Action
           disabled={busy || reason.trim().length < 3}
           label={
@@ -938,7 +982,9 @@ function AvailabilityControl({
               ? "Updating…"
               : availabilityPending
                 ? "Confirm earlier update"
-                : "Confirm step away"
+                : endingShift
+                  ? "Confirm end of shift"
+                  : "Confirm step away"
           }
           onPress={stepAway}
         />
@@ -948,7 +994,9 @@ function AvailabilityControl({
   );
 }
 
-function ConflictReport({ eventSlug, review }: { eventSlug: string; review: ActiveReview }) {
+function ConflictReport({ eventSlug, review,
+}: { eventSlug: string; review: ActiveReview;
+}) {
   const reportConflict = useMutation(api.reviewer.reportConflict);
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState("");
@@ -1152,7 +1200,26 @@ function ClockInControl({
   current: ReviewerNow;
   onPress: () => Promise<void>;
 }) {
+  const { eventSlug } = useReviewerSession();
+  const confirmations = useQuery(api.reviewConfirmations.mine, { eventSlug });
   const estimatedServerNow = useEstimatedServerNow(current.serverNow);
+  const confirmation = confirmations?.find(
+    (candidate) => candidate.roundId === assignment.round.id,
+  );
+  const reviewStartsAt = Math.max(
+    estimatedServerNow,
+    assignment.round.startsAt,
+  );
+  const confirmedForReview =
+    confirmation?.response.status === "confirmed" &&
+    confirmation.response.windows.some(
+      (window) =>
+        window.startsAt <=
+          reviewStartsAt + confirmation.assignmentReminderSeconds * 1000 &&
+        window.endsAt >=
+          Math.max(reviewStartsAt, window.startsAt) +
+            confirmation.reviewDurationSeconds * 1_000,
+    );
   const clockInOpen =
     estimatedServerNow >= assignment.round.clockInOpensAt &&
     estimatedServerNow < assignment.round.endsAt;
@@ -1160,27 +1227,35 @@ function ClockInControl({
     <View style={styles.waiting}>
       {!clockedIn ? (
         <Text style={styles.meta}>
-          Report {formatDeviceTime(assignment.round.reviewerReportAt)} · clock-in opens{" "}
-          {formatDeviceTime(assignment.round.clockInOpensAt)}
+          Report {formatDeviceTime(assignment.round.reviewerReportAt)} · clock-in opens {formatDeviceTime(assignment.round.clockInOpensAt)}
         </Text>
       ) : null}
       <DutyRing
         accent={palette.judging}
         busy={busy === "clock_in"}
         {...(clockedIn ? { detail: dutyStateDetail(current) } : {})}
-        disabled={busy !== null || !checksMeetRound || (!clockedIn && !clockInOpen)}
+        disabled={busy !== null || !checksMeetRound ||
+          !confirmedForReview ||
+          (!clockedIn && !clockInOpen)}
         label={clockedIn ? "On duty" : assignment.clockIn ? "Return to duty" : "Clock in"}
         on={clockedIn}
         onPress={onPress}
       />
+      {!confirmedForReview ? (
+        <Text style={styles.meta}>
+          Confirm hours covering your next review before clocking in.
+        </Text>
+      ) : null}
     </View>
   );
 }
 
-function ReviewHeading({ review, serverNow }: { review: WorkspaceReview; serverNow: number }) {
+function ReviewHeading({ review, serverNow,
+}: { review: WorkspaceReview; serverNow: number;
+}) {
   const scoring =
     review.status === "active" ||
-    review.status === "overdue" ||
+    review.status === "scoring" ||
     review.scorecard.status === "correction_open";
   if (scoring) {
     return (
@@ -1196,7 +1271,7 @@ function ReviewHeading({ review, serverNow }: { review: WorkspaceReview; serverN
         {review.plannedEndAt ? (
           <ReviewClock
             key={serverNow}
-            overdue={review.status === "overdue"}
+            discussionEnded={review.status === "scoring"}
             plannedEndAt={review.plannedEndAt}
             serverNow={serverNow}
           />
@@ -1214,15 +1289,16 @@ function ReviewHeading({ review, serverNow }: { review: WorkspaceReview; serverN
 function ReviewClock({
   plannedEndAt,
   serverNow,
-  overdue,
+  discussionEnded,
 }: {
   plannedEndAt: number;
   serverNow: number;
-  overdue: boolean;
+  discussionEnded: boolean;
 }) {
   const estimatedServerNow = useEstimatedServerNow(serverNow);
-  const remainingSeconds = Math.ceil((plannedEndAt - estimatedServerNow) / 1_000);
-  const absoluteSeconds = Math.abs(remainingSeconds);
+  const remainingSeconds = Math.ceil((plannedEndAt - estimatedServerNow) / 1_000,
+  );
+  const absoluteSeconds = Math.max(0, remainingSeconds);
   const hours = Math.floor(absoluteSeconds / 3_600);
   const minutes = Math.floor((absoluteSeconds % 3_600) / 60);
   const seconds = absoluteSeconds % 60;
@@ -1230,13 +1306,89 @@ function ReviewClock({
     hours > 0
       ? `${hours}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`
       : `${minutes}:${seconds.toString().padStart(2, "0")}`;
-  const late = overdue || remainingSeconds < 0;
+  const late = discussionEnded || remainingSeconds <= 0;
   return (
     <View style={styles.clockChip}>
       <Text style={[styles.clockText, late ? styles.clockLate : null]}>
-        {remainingSeconds < 0 ? "+" : ""}
-        {display}
+        {late ? "Finish scores" : display}
       </Text>
+    </View>
+  );
+}
+
+function ReviewDiscussionControls({
+  eventSlug,
+  review,
+}: {
+  eventSlug: string;
+  review: WorkspaceReview;
+}) {
+  const end = useMutation(api.reviewOperations.endDiscussion);
+  const complete = useMutation(api.reviewOperations.completeReview);
+  const attempt = useMutationAttempt<
+    | FunctionReturnType<typeof api.reviewOperations.endDiscussion>
+    | FunctionReturnType<typeof api.reviewOperations.completeReview>
+  >();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const isDiscussion = review.status === "active";
+  const finishedScores =
+    review.submittedScorecardCount === review.assignment.reviewerCount;
+  if (
+    !review.assignment.isCoordinator ||
+    review.scorecard.status === "correction_open"
+  )
+    return null;
+  const run = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await attempt.run("review-phase", () => {
+        const args = {
+          eventSlug,
+          reviewSessionId: review.id,
+          expectedVersion: review.version,
+          clientOperationId: randomUUID(),
+        };
+        return isDiscussion
+          ? () => end(args)
+          : () =>
+              complete({
+                ...args,
+                reason:
+                  "Coordinator completed the review after all scores and comments were submitted",
+              });
+      });
+    } catch (caught) {
+      setError(errorMessage(caught, "The review changed. Please try again."));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <View style={styles.waiting}>
+      <Text style={styles.meta}>
+        {isDiscussion
+          ? "End the discussion when the team has finished. Everyone can then submit their scores and final comments."
+          : `Discussion finished · ${review.submittedScorecardCount} of ${review.assignment.reviewerCount} scorecards submitted`}
+      </Text>
+      {isDiscussion || (finishedScores && review.sharedNotesComplete) ? (
+        <QuietAction
+          disabled={busy}
+          label={
+            busy
+              ? "Saving…"
+              : attempt.hasPending("review-phase")
+                ? "Retry review update"
+                : isDiscussion
+                  ? "End discussion"
+                  : "Complete review"
+          }
+          onPress={() => void run()}
+        />
+      ) : null}
+      {error ? <Problem>{error}</Problem> : null}
     </View>
   );
 }
@@ -1257,11 +1409,14 @@ function ReviewWorkspace({
         accessibilityRole="button"
         hitSlop={8}
         onPress={() => setEvidenceOpen(true)}
-        style={({ pressed }) => [styles.evidenceLink, pressed ? styles.disabled : null]}
+        style={({ pressed }) => [styles.evidenceLink, pressed ? styles.disabled : null,
+        ]}
       >
         <Text style={styles.evidenceLinkText}>Project details</Text>
         <Text style={styles.evidenceLinkChevron}>›</Text>
       </Pressable>
+      <ReviewQuestions eventSlug={eventSlug} reviewSessionId={review.id} />
+      <ReviewDiscussionControls eventSlug={eventSlug} review={review} />
       <ScorecardEditor eventSlug={eventSlug} installationId={installationId} review={review} />
       {review.assignment.isCoordinator && review.scorecard.status !== "correction_open" ? (
         <CoordinatorNotes eventSlug={eventSlug} review={review} />
@@ -1275,7 +1430,9 @@ function ReviewWorkspace({
   );
 }
 
-function CoordinatorNotes({ eventSlug, review }: { eventSlug: string; review: WorkspaceReview }) {
+function CoordinatorNotes({ eventSlug, review,
+}: { eventSlug: string; review: WorkspaceReview;
+}) {
   const saveSharedNotes = useMutation(api.reviewOperations.saveSharedNotes);
   const [initialNotes] = useState(() => ({
     reviewSessionId: review.id,
@@ -1284,7 +1441,8 @@ function CoordinatorNotes({ eventSlug, review }: { eventSlug: string; review: Wo
     commitments: review.sharedCommitments ?? "",
   }));
   const [findings, setFindings] = useState(review.sharedFindings ?? "");
-  const [commitments, setCommitments] = useState(review.sharedCommitments ?? "");
+  const [commitments, setCommitments] = useState(review.sharedCommitments ?? "",
+  );
   const [notesVersion, setNotesVersion] = useState(review.sharedNotesVersion);
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -1293,9 +1451,12 @@ function CoordinatorNotes({ eventSlug, review }: { eventSlug: string; review: Wo
   const [localState, setLocalState] = useState<"loading" | "ready" | "restored">("loading");
   const editRevisionRef = useRef(0);
   const mountedRef = useRef(true);
-  const saveAttempt = useMutationAttempt<{ sharedNotesVersion: number; editRevision: number }>();
-  const [localDraftWriter] = useState(() => createLatestDraftWriter(saveLocalCoordinatorNotes));
-  const effectiveNotesVersion = Math.max(notesVersion, review.sharedNotesVersion);
+  const saveAttempt = useMutationAttempt<{ sharedNotesVersion: number; editRevision: number;
+  }>();
+  const [localDraftWriter] = useState(() => createLatestDraftWriter(saveLocalCoordinatorNotes),
+  );
+  const effectiveNotesVersion = Math.max(notesVersion, review.sharedNotesVersion,
+  );
 
   useLayoutEffect(() => {
     localDraftWriter.update(
@@ -1327,7 +1488,9 @@ function CoordinatorNotes({ eventSlug, review }: { eventSlug: string; review: Wo
       },
       (caught: unknown) => {
         if (mountedRef.current) {
-          setLocalError(errorMessage(caught, "The encrypted panel notes could not be updated."));
+          setLocalError(errorMessage(caught, "The encrypted panel notes could not be updated.",
+            ),
+          );
         }
       },
     );
@@ -1341,7 +1504,9 @@ function CoordinatorNotes({ eventSlug, review }: { eventSlug: string; review: Wo
         if (stored) {
           setFindings(stored.findings);
           setCommitments(stored.commitments);
-          setNotesVersion(Math.max(stored.serverNotesVersion, initialNotes.serverNotesVersion));
+          setNotesVersion(Math.max(stored.serverNotesVersion, initialNotes.serverNotesVersion,
+            ),
+          );
           editRevisionRef.current += 1;
           setDirty(true);
           setLocalState("restored");
@@ -1351,7 +1516,8 @@ function CoordinatorNotes({ eventSlug, review }: { eventSlug: string; review: Wo
       })
       .catch((caught: unknown) => {
         if (!active) return;
-        setLocalError(errorMessage(caught, "Encrypted panel-note storage is unavailable."));
+        setLocalError(errorMessage(caught, "Encrypted panel-note storage is unavailable."),
+        );
         setLocalState("ready");
       });
     return () => {
@@ -1363,7 +1529,8 @@ function CoordinatorNotes({ eventSlug, review }: { eventSlug: string; review: Wo
     if (!dirty || localState === "loading") return;
     const timer = setTimeout(() => void persistLocalNotes(), 250);
     return () => clearTimeout(timer);
-  }, [commitments, dirty, effectiveNotesVersion, findings, localState, persistLocalNotes]);
+  }, [commitments, dirty, effectiveNotesVersion, findings, localState, persistLocalNotes,
+  ]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -1411,7 +1578,9 @@ function CoordinatorNotes({ eventSlug, review }: { eventSlug: string; review: Wo
           await clearLocalCoordinatorNotes(eventSlug, review.id);
           setLocalError(null);
         } catch (caught) {
-          setLocalError(errorMessage(caught, "The saved local panel notes could not be cleared."));
+          setLocalError(errorMessage(caught, "The saved local panel notes could not be cleared.",
+            ),
+          );
         }
       } else {
         setError(
@@ -1489,10 +1658,16 @@ function ScorecardEditor({
   const [step, setStep] = useState(() =>
     firstUnratedStep(review.criteria, review.scorecard.ratings),
   );
-  const [privateNote, setPrivateNote] = useState(review.scorecard.privateNote ?? "");
-  const [draftVersion, setDraftVersion] = useState(review.scorecard.draftVersion);
+  const [privateNote, setPrivateNote] = useState(review.scorecard.privateNote ?? "",
+  );
+  const [finalComment, setFinalComment] = useState(
+    review.scorecard.finalComment ?? "",
+  );
+  const [draftVersion, setDraftVersion] = useState(review.scorecard.draftVersion,
+  );
   const [dirty, setDirty] = useState(false);
-  const [submitted, setSubmitted] = useState(review.scorecard.status === "submitted");
+  const [submitted, setSubmitted] = useState(review.scorecard.status === "submitted",
+  );
   const [busy, setBusy] = useState<"save" | "submit" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [localState, setLocalState] = useState<"loading" | "ready" | "restored">("loading");
@@ -1500,12 +1675,15 @@ function ScorecardEditor({
   const [submitUncertain, setSubmitUncertain] = useState(false);
   const [submitFailed, setSubmitFailed] = useState(false);
   const editRevisionRef = useRef(0);
-  const saveAttempt = useMutationAttempt<{ draftVersion: number; editRevision: number }>();
+  const saveAttempt = useMutationAttempt<{ draftVersion: number; editRevision: number;
+  }>();
   const submitAttempt =
     useMutationAttempt<FunctionReturnType<typeof api.reviewer.submitScorecard>>();
-  const [localDraftWriter] = useState(() => createLatestDraftWriter(saveLocalScorecardDraft));
+  const [localDraftWriter] = useState(() => createLatestDraftWriter(saveLocalScorecardDraft),
+  );
   const mountedRef = useRef(true);
-  const effectiveDraftVersion = Math.max(draftVersion, review.scorecard.draftVersion);
+  const effectiveDraftVersion = Math.max(draftVersion, review.scorecard.draftVersion,
+  );
 
   useLayoutEffect(() => {
     localDraftWriter.update(
@@ -1520,6 +1698,7 @@ function ScorecardEditor({
               ...(rating.evidenceNote !== undefined ? { evidenceNote: rating.evidenceNote } : {}),
             })),
             privateNote,
+            finalComment,
           }
         : null,
     );
@@ -1530,6 +1709,7 @@ function ScorecardEditor({
     localDraftWriter,
     localState,
     privateNote,
+    finalComment,
     ratings,
     review.scorecard.id,
     submitted,
@@ -1542,7 +1722,9 @@ function ScorecardEditor({
       },
       (caught: unknown) => {
         if (mountedRef.current) {
-          setLocalError(errorMessage(caught, "The encrypted local draft could not be updated."));
+          setLocalError(errorMessage(caught, "The encrypted local draft could not be updated.",
+            ),
+          );
         }
       },
     );
@@ -1552,7 +1734,8 @@ function ScorecardEditor({
     let active = true;
     const restore = async () => {
       try {
-        const stored = await loadLocalScorecardDraft(eventSlug, initialDraft.scorecardId);
+        const stored = await loadLocalScorecardDraft(eventSlug, initialDraft.scorecardId,
+        );
         if (!active) return;
         if (initialDraft.submitted) {
           await clearLocalScorecardDraft(eventSlug, initialDraft.scorecardId);
@@ -1574,11 +1757,15 @@ function ScorecardEditor({
                   : {}),
               },
             ];
-          });
+          },
+          );
           setRatings(restoredRatings);
           setStep(firstUnratedStep(initialDraft.criteria, restoredRatings));
           setPrivateNote(stored.privateNote);
-          setDraftVersion(Math.max(stored.serverDraftVersion, initialDraft.serverDraftVersion));
+          setFinalComment(stored.finalComment);
+          setDraftVersion(Math.max(stored.serverDraftVersion, initialDraft.serverDraftVersion,
+            ),
+          );
           editRevisionRef.current += 1;
           setDirty(true);
           setLocalState("restored");
@@ -1587,7 +1774,8 @@ function ScorecardEditor({
         if (active) setLocalState("ready");
       } catch (caught) {
         if (!active) return;
-        setLocalError(errorMessage(caught, "Encrypted local draft storage is unavailable."));
+        setLocalError(errorMessage(caught, "Encrypted local draft storage is unavailable."),
+        );
         setLocalState("ready");
       }
     };
@@ -1610,6 +1798,7 @@ function ScorecardEditor({
     localState,
     persistLocalDraft,
     privateNote,
+    finalComment,
     ratings,
     review.scorecard.id,
     submitted,
@@ -1637,7 +1826,12 @@ function ScorecardEditor({
       void saveRef.current();
     }, 1_200);
     return () => clearTimeout(timer);
-  }, [busy, dirty, localState, privateNote, ratings, submitUncertain, submitted]);
+  }, [busy, dirty, localState, privateNote,
+    finalComment,
+    ratings,
+    submitUncertain,
+    submitted,
+  ]);
 
   const edit = () => {
     editRevisionRef.current += 1;
@@ -1647,7 +1841,8 @@ function ScorecardEditor({
 
   const setScore = (criterionId: Criterion["id"], score: number) => {
     setRatings((current) => {
-      const existing = current.find((rating) => rating.criterionId === criterionId);
+      const existing = current.find((rating) => rating.criterionId === criterionId,
+      );
       if (!existing) return [...current, { criterionId, score }];
       return current.map((rating) =>
         rating.criterionId === criterionId ? { ...rating, score } : rating,
@@ -1656,7 +1851,8 @@ function ScorecardEditor({
     edit();
   };
 
-  const setEvidenceNote = (criterionId: Criterion["id"], evidenceNote: string) => {
+  const setEvidenceNote = (criterionId: Criterion["id"], evidenceNote: string,
+  ) => {
     setRatings((current) =>
       current.map((rating) =>
         rating.criterionId === criterionId ? { ...rating, evidenceNote } : rating,
@@ -1678,6 +1874,7 @@ function ScorecardEditor({
           scorecardId: review.scorecard.id,
           ratings: ratings.map((rating) => ({ ...rating })),
           ...(privateNote.trim() ? { privateNote } : {}),
+          ...(finalComment.trim() ? { finalComment } : {}),
           expectedDraftVersion: effectiveDraftVersion,
           clientOperationId: randomUUID(),
         };
@@ -1694,7 +1891,8 @@ function ScorecardEditor({
           await clearLocalScorecardDraft(eventSlug, review.scorecard.id);
           setLocalError(null);
         } catch (caught) {
-          setLocalError(errorMessage(caught, "The saved local draft could not be cleared."));
+          setLocalError(errorMessage(caught, "The saved local draft could not be cleared."),
+          );
         }
         return result.draftVersion;
       }
@@ -1736,7 +1934,9 @@ function ScorecardEditor({
         await clearLocalScorecardDraft(eventSlug, review.scorecard.id);
         setLocalError(null);
       } catch (caught) {
-        setLocalError(errorMessage(caught, "The submitted local draft could not be cleared."));
+        setLocalError(errorMessage(caught, "The submitted local draft could not be cleared.",
+          ),
+        );
       }
     } catch (caught) {
       setSubmitUncertain(!(caught instanceof ConvexError));
@@ -1752,7 +1952,10 @@ function ScorecardEditor({
       await submit(effectiveDraftVersion);
       return;
     }
-    const problem = submissionProblem(review.criteria, ratings);
+    const problem = submissionProblem(review.criteria, ratings) ??
+      (review.scorecard.requiresFinalComment && finalComment.trim().length < 3
+        ? "Leave a final comment about the review before submitting."
+        : null);
     if (problem) {
       setError(problem);
       return;
@@ -1764,7 +1967,8 @@ function ScorecardEditor({
       "Your scores become fixed. Only an audited correction opened by operations can change them.",
       [
         { text: "Keep editing", style: "cancel" },
-        { text: "Submit", style: "destructive", onPress: () => void submit(version) },
+        { text: "Submit", style: "destructive", onPress: () => void submit(version),
+        },
       ],
     );
   };
@@ -1803,7 +2007,8 @@ function ScorecardEditor({
     <View style={styles.scorecard}>
       <View style={styles.stepMeter}>
         {review.criteria.map((candidate, index) => {
-          const rated = ratings.some((entry) => entry.criterionId === candidate.id);
+          const rated = ratings.some((entry) => entry.criterionId === candidate.id,
+          );
           return (
             <Pressable
               hitSlop={8}
@@ -1859,7 +2064,9 @@ function ScorecardEditor({
               label={step + 1 === summaryStep ? "Review scores" : "Next"}
               onPress={() => setStep(step + 1)}
             />
-            {step > 0 ? <QuietAction label="Back" onPress={() => setStep(step - 1)} /> : null}
+            {step > 0 ? (
+              <QuietAction label="Back" onPress={() => setStep(step - 1)} />
+            ) : null}
           </View>
         </View>
       ) : (
@@ -1867,7 +2074,8 @@ function ScorecardEditor({
           <Meta>Every score, before it locks</Meta>
           <View>
             {review.criteria.map((candidate, index) => {
-              const entry = ratings.find((found) => found.criterionId === candidate.id);
+              const entry = ratings.find((found) => found.criterionId === candidate.id,
+              );
               return (
                 <Pressable
                   key={candidate.id}
@@ -1886,6 +2094,23 @@ function ScorecardEditor({
               );
             })}
           </View>
+
+          <Field
+            editable={!locked}
+            label={
+              review.scorecard.requiresFinalComment
+                ? "Final comment (required)"
+                : "Final comment"
+            }
+            maxLength={2_000}
+            multiline
+            onChangeText={(value) => {
+              setFinalComment(value);
+              edit();
+            }}
+            placeholder="What worked, what needs improvement, and your main takeaway."
+            value={finalComment}
+          />
 
           <Field
             editable={!locked}
@@ -1911,13 +2136,17 @@ function ScorecardEditor({
             <Problem>{error}</Problem>
           ) : null}
           <Action
-            disabled={busy === "submit" || localState === "loading"}
+            disabled={busy === "submit" || localState === "loading" ||
+              review.status === "active"
+            }
             label={
               busy === "submit"
                 ? "Submitting…"
                 : submitUncertain
                   ? "Confirm submission"
-                  : "Submit scorecard"
+                  : review.status === "active"
+                    ? "Submit after discussion"
+                    : "Submit scorecard"
             }
             onPress={prepareSubmission}
           />
@@ -1934,7 +2163,9 @@ const drawnMarkPaths = {
 } as const;
 
 /** A verdict disc that springs in, then draws its stroke. */
-function DrawnMark({ kind, size = 84 }: { kind: "check" | "cross"; size?: number }) {
+function DrawnMark({ kind, size = 84,
+}: { kind: "check" | "cross"; size?: number;
+}) {
   const [pop] = useState(() => new Animated.Value(0));
   const [draw] = useState(() => new Animated.Value(0));
 
@@ -1966,7 +2197,10 @@ function DrawnMark({ kind, size = 84 }: { kind: "check" | "cross"; size?: number
           borderRadius: size / 2,
           backgroundColor: kind === "check" ? palette.judging : palette.urgent,
           opacity: pop,
-          transform: [{ scale: pop.interpolate({ inputRange: [0, 1], outputRange: [0.4, 1] }) }],
+          transform: [{ scale: pop.interpolate({ inputRange: [0, 1], outputRange: [0.4, 1],
+              }),
+            },
+          ],
         },
       ]}
     >
@@ -1975,7 +2209,8 @@ function DrawnMark({ kind, size = 84 }: { kind: "check" | "cross"; size?: number
           d={mark.d}
           stroke={kind === "check" ? palette.onJudging : palette.onUrgent}
           strokeDasharray={mark.length}
-          strokeDashoffset={draw.interpolate({ inputRange: [0, 1], outputRange: [mark.length, 0] })}
+          strokeDashoffset={draw.interpolate({ inputRange: [0, 1], outputRange: [mark.length, 0],
+          })}
           strokeLinecap="round"
           strokeLinejoin="round"
           strokeWidth={2.6}
@@ -2034,7 +2269,8 @@ function anchorText(criterion: Criterion, score: number) {
 function submissionProblem(criteria: Criterion[], ratings: Rating[]) {
   if (ratings.length !== criteria.length) return "Rate every assigned criterion before submitting.";
   for (const criterion of criteria) {
-    const rating = ratings.find((candidate) => candidate.criterionId === criterion.id);
+    const rating = ratings.find((candidate) => candidate.criterionId === criterion.id,
+    );
     if (!rating) return "Rate every assigned criterion before submitting.";
     if (
       (rating.score === 0 || rating.score === 4) &&
@@ -2092,7 +2328,8 @@ const styles = StyleSheet.create({
   body: { color: palette.muted, fontSize: 15, lineHeight: 22 },
   value: { color: palette.text, fontSize: 16, lineHeight: 22 },
   idea: { color: palette.text, fontSize: 18, lineHeight: 26 },
-  question: { color: palette.muted, fontSize: 14, lineHeight: 21, marginTop: 8 },
+  question: { color: palette.muted, fontSize: 14, lineHeight: 21, marginTop: 8,
+  },
   guidance: { color: palette.faint, fontSize: 13, lineHeight: 19 },
   meta: { color: palette.faint, fontSize: 13, lineHeight: 18 },
   label: { color: palette.faint, fontSize: 13 },
@@ -2129,8 +2366,10 @@ const styles = StyleSheet.create({
     borderColor: palette.urgent,
     borderRadius: radius.tile,
   },
-  textButton: { color: palette.muted, fontSize: 14, textDecorationLine: "underline" },
-  camera: { width: "100%", height: 330, borderRadius: radius.tile, overflow: "hidden" },
+  textButton: { color: palette.muted, fontSize: 14, textDecorationLine: "underline",
+  },
+  camera: { width: "100%", height: 330, borderRadius: radius.tile, overflow: "hidden",
+  },
   contextBar: {
     flexDirection: "row",
     alignItems: "center",
@@ -2138,7 +2377,8 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   contextText: { flex: 1, gap: 3 },
-  contextTeam: { color: palette.text, fontSize: 18, fontWeight: "600", letterSpacing: -0.3 },
+  contextTeam: { color: palette.text, fontSize: 18, fontWeight: "600", letterSpacing: -0.3,
+  },
   contextDetail: { color: palette.muted, fontSize: 13 },
   clockChip: {
     height: 36,
@@ -2180,14 +2420,17 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 12,
   },
-  evidenceRow: { borderTopWidth: 1, borderTopColor: palette.tile, paddingTop: 10, gap: 3 },
+  evidenceRow: { borderTopWidth: 1, borderTopColor: palette.tile, paddingTop: 10, gap: 3,
+  },
   criterion: { paddingTop: 6, gap: 10 },
   stepMeter: { flexDirection: "row", gap: 6 },
-  stepSegment: { flex: 1, height: 4, borderRadius: 2, backgroundColor: palette.tile },
+  stepSegment: { flex: 1, height: 4, borderRadius: 2, backgroundColor: palette.tile,
+  },
   stepSegmentDone: { backgroundColor: palette.judging },
   stepSegmentCurrent: { backgroundColor: palette.strong },
   scorecard: { gap: 12, paddingTop: 4 },
-  outcome: { alignItems: "center", gap: 10, paddingVertical: 36, paddingHorizontal: 12 },
+  outcome: { alignItems: "center", gap: 10, paddingVertical: 36, paddingHorizontal: 12,
+  },
   outcomeTitle: {
     marginTop: 10,
     color: palette.text,
@@ -2195,7 +2438,8 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     letterSpacing: -0.4,
   },
-  outcomeBody: { color: palette.muted, fontSize: 15, lineHeight: 21, textAlign: "center" },
+  outcomeBody: { color: palette.muted, fontSize: 15, lineHeight: 21, textAlign: "center",
+  },
   outcomeNext: {
     marginTop: 14,
     color: palette.faint,
@@ -2204,7 +2448,8 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   drawnDisc: { alignItems: "center", justifyContent: "center" },
-  failBlock: { flexDirection: "row", alignItems: "center", gap: 14, paddingVertical: 6 },
+  failBlock: { flexDirection: "row", alignItems: "center", gap: 14, paddingVertical: 6,
+  },
   failText: { flex: 1, gap: 3 },
   failTitle: { color: palette.text, fontSize: 16, fontWeight: "600" },
   stepDock: { gap: 10, marginTop: 10 },
@@ -2215,7 +2460,8 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 16,
   },
-  summaryRowRule: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.strong },
+  summaryRowRule: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.strong,
+  },
   summaryPressed: { opacity: 0.6 },
   summaryLabel: { flex: 1, color: palette.text, fontSize: 16 },
   summaryScore: {
@@ -2225,7 +2471,8 @@ const styles = StyleSheet.create({
     fontVariant: ["tabular-nums"],
   },
   summaryMissing: { color: palette.faint, fontSize: 20 },
-  criterionLabel: { color: palette.text, fontSize: 19, fontWeight: "600", letterSpacing: -0.3 },
+  criterionLabel: { color: palette.text, fontSize: 19, fontWeight: "600", letterSpacing: -0.3,
+  },
   criterionQuestion: { color: palette.muted, fontSize: 16, lineHeight: 22 },
   scoreRow: { flexDirection: "row", gap: 8, marginTop: 4 },
   scoreButton: {

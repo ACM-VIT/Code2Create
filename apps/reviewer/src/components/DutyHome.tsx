@@ -1,9 +1,12 @@
 import { useState } from "react";
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View,
+} from "react-native";
+import { SafeAreaView, useSafeAreaInsets,
+} from "react-native-safe-area-context";
 
 import { androidNativeTabBarHeight } from "@/lib/navigation-layout";
-import { duty, palette, radius, space, tileAspectRatio, type, type DutyKey } from "@/theme";
+import { duty, palette, radius, space, tileAspectRatio, type, type DutyKey,
+} from "@/theme";
 
 export type DutyTile = {
   key: DutyKey;
@@ -49,7 +52,8 @@ export function DutyHome({
           contentContainerStyle={[
             styles.scroll,
             Platform.OS === "android" && overflows
-              ? { paddingBottom: 18 + androidNativeTabBarHeight + insets.bottom }
+              ? { paddingBottom: 18 + androidNativeTabBarHeight + insets.bottom,
+                }
               : null,
           ]}
           contentInsetAdjustmentBehavior="automatic"
@@ -123,7 +127,8 @@ function Tile({ tile }: { tile: DutyTile }) {
       <Text numberOfLines={2} style={[styles.tileStatus, { color: statusColour }]}>
         {tile.status}
       </Text>
-      <View style={[styles.tileIcon, filled || tile.resting !== true ? null : styles.dim]}>
+      <View style={[styles.tileIcon, filled || tile.resting !== true ? null : styles.dim,
+        ]}>
         {tile.icon}
       </View>
     </Pressable>

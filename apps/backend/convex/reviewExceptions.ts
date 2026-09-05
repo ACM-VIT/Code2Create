@@ -60,7 +60,8 @@ async function requireTeamRoundState(
       message: "That team queue state is unavailable.",
     });
   }
-  const [round, team] = await Promise.all([ctx.db.get(state.roundId), ctx.db.get(state.teamId)]);
+  const [round, team] = await Promise.all([ctx.db.get(state.roundId), ctx.db.get(state.teamId),
+  ]);
   if (!round || !team || round.eventId !== eventId || team.eventId !== eventId) {
     throw new Error("A team queue state has an invalid event context.");
   }
@@ -84,7 +85,8 @@ async function requireQueueExceptionPermission(
     scopeId: args.state.teamId,
   });
   if (teamGrantIds.length > 0) {
-    return { grantIds: teamGrantIds, scopeType: "team" as const, scopeId: args.state.teamId };
+    return { grantIds: teamGrantIds, scopeType: "team" as const, scopeId: args.state.teamId,
+    };
   }
   const roundGrantIds = await matchingPermissionGrantIds(ctx, {
     eventId: args.eventId,
@@ -94,7 +96,8 @@ async function requireQueueExceptionPermission(
     scopeId: args.state.roundId,
   });
   if (roundGrantIds.length > 0) {
-    return { grantIds: roundGrantIds, scopeType: "round" as const, scopeId: args.state.roundId };
+    return { grantIds: roundGrantIds, scopeType: "round" as const, scopeId: args.state.roundId,
+    };
   }
   if (args.state.panelId) {
     const panelGrantIds = await matchingPermissionGrantIds(ctx, {
@@ -105,7 +108,8 @@ async function requireQueueExceptionPermission(
       scopeId: args.state.panelId,
     });
     if (panelGrantIds.length > 0) {
-      return { grantIds: panelGrantIds, scopeType: "panel" as const, scopeId: args.state.panelId };
+      return { grantIds: panelGrantIds, scopeType: "panel" as const, scopeId: args.state.panelId,
+      };
     }
   }
   throw new ConvexError({
@@ -174,9 +178,11 @@ async function cancelPendingReview(
       index.eq("roundId", args.roundId).eq("teamId", args.teamId),
     )
     .collect();
-  const pending = sessions.filter((session) => session.status === "awaiting_presence");
+  const pending = sessions.filter((session) => session.status === "awaiting_presence",
+  );
   if (pending.length > 1) throw new Error("A team has more than one pending review session.");
-  if (sessions.some((session) => session.status === "active" || session.status === "overdue")) {
+  if (sessions.some((session) => session.status === "active" || session.status === "scoring",
+    )) {
     throw new ConvexError({
       code: "REVIEW_ALREADY_STARTED",
       message:
@@ -188,19 +194,24 @@ async function cancelPendingReview(
   const [assignments, scorecards, tokens] = await Promise.all([
     ctx.db
       .query("reviewAssignments")
-      .withIndex("by_session_person", (index) => index.eq("reviewSessionId", session._id))
+      .withIndex("by_session_person", (index) => index.eq("reviewSessionId", session._id),
+      )
       .collect(),
     ctx.db
       .query("scorecards")
-      .withIndex("by_session_status", (index) => index.eq("reviewSessionId", session._id))
+      .withIndex("by_session_status", (index) => index.eq("reviewSessionId", session._id),
+      )
       .collect(),
     ctx.db
       .query("reviewTeamQrTokens")
-      .withIndex("by_session_state", (index) => index.eq("reviewSessionId", session._id))
+      .withIndex("by_session_state", (index) => index.eq("reviewSessionId", session._id),
+      )
       .collect(),
   ]);
-  for (const assignment of assignments.filter((row) => row.status === "assigned")) {
-    await ctx.db.patch(assignment._id, { status: "removed", endedAt: args.now });
+  for (const assignment of assignments.filter((row) => row.status === "assigned",
+  )) {
+    await ctx.db.patch(assignment._id, { status: "removed", endedAt: args.now,
+    });
     await revokeSourceGrants(ctx, {
       eventId: args.eventId,
       sourceType: "panel_assignment",
@@ -239,7 +250,8 @@ export const holdTeam = mutation({
     reason: v.string(),
     clientOperationId: v.string(),
   },
-  returns: v.object({ teamRoundStateId: v.id("teamRoundStates"), version: v.number() }),
+  returns: v.object({ teamRoundStateId: v.id("teamRoundStates"), version: v.number(),
+  }),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
@@ -328,7 +340,8 @@ export const holdTeam = mutation({
       action: "review.queue_team_held",
       targetType: "team_round_state",
       targetId: state._id,
-      previousSummary: JSON.stringify({ state: state.state, version: state.version }),
+      previousSummary: JSON.stringify({ state: state.state, version: state.version,
+      }),
       nextSummary: JSON.stringify({
         state: "held",
         stateBeforeHold,
@@ -376,10 +389,12 @@ export const resumeTeam = mutation({
       if (!stateId) throw new Error("Prior queue-resume result is invalid.");
       return {
         teamRoundStateId: stateId,
-        ...storedOperationResult(prior.resultJson, "queue resume", queueResumeOperationResult),
+        ...storedOperationResult(prior.resultJson, "queue resume", queueResumeOperationResult,
+        ),
       };
     }
-    const { state, round } = await requireTeamRoundState(ctx, event._id, args.teamRoundStateId);
+    const { state, round } = await requireTeamRoundState(ctx, event._id, args.teamRoundStateId,
+    );
     if (
       round.status !== "open" ||
       state.version !== args.expectedVersion ||
@@ -438,7 +453,8 @@ export const resumeTeam = mutation({
       requestFingerprint,
       targetType: "team_round_state",
       targetId: state._id,
-      resultJson: JSON.stringify({ state: nextState, version: state.version + 1 }),
+      resultJson: JSON.stringify({ state: nextState, version: state.version + 1,
+      }),
       createdAt: now,
     });
     await writeAuditEvent(ctx, {
@@ -451,7 +467,8 @@ export const resumeTeam = mutation({
       action: "review.queue_team_resumed",
       targetType: "team_round_state",
       targetId: state._id,
-      previousSummary: JSON.stringify({ state: state.state, version: state.version }),
+      previousSummary: JSON.stringify({ state: state.state, version: state.version,
+      }),
       nextSummary: JSON.stringify({
         state: nextState,
         preservedQueueTime: preserveQueueTime,
@@ -459,7 +476,8 @@ export const resumeTeam = mutation({
       }),
       reason,
     });
-    return { teamRoundStateId: state._id, state: nextState, version: state.version + 1 };
+    return { teamRoundStateId: state._id, state: nextState, version: state.version + 1,
+    };
   },
 });
 
@@ -502,7 +520,8 @@ export const recordCallAttempt = mutation({
         callAttemptOperationResult,
       );
     }
-    const { state, round } = await requireTeamRoundState(ctx, event._id, args.teamRoundStateId);
+    const { state, round } = await requireTeamRoundState(ctx, event._id, args.teamRoundStateId,
+    );
     if (
       round.status !== "open" ||
       state.version !== args.expectedVersion ||
@@ -579,7 +598,8 @@ export const markMissed = mutation({
     reason: v.string(),
     clientOperationId: v.string(),
   },
-  returns: v.object({ teamRoundStateId: v.id("teamRoundStates"), version: v.number() }),
+  returns: v.object({ teamRoundStateId: v.id("teamRoundStates"), version: v.number(),
+  }),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
@@ -694,7 +714,8 @@ export const moveQueuedTeam = mutation({
     reason: v.string(),
     clientOperationId: v.string(),
   },
-  returns: v.object({ teamRoundStateId: v.id("teamRoundStates"), version: v.number() }),
+  returns: v.object({ teamRoundStateId: v.id("teamRoundStates"), version: v.number(),
+  }),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
@@ -721,7 +742,8 @@ export const moveQueuedTeam = mutation({
         version: storedOperationVersion(prior.resultJson, "queue move"),
       };
     }
-    const { state, round } = await requireTeamRoundState(ctx, event._id, args.teamRoundStateId);
+    const { state, round } = await requireTeamRoundState(ctx, event._id, args.teamRoundStateId,
+    );
     const targetPanel = await ctx.db.get(args.targetPanelId);
     if (
       round.status !== "open" ||
@@ -783,7 +805,8 @@ export const moveQueuedTeam = mutation({
       action: "review.queue_team_moved",
       targetType: "team_round_state",
       targetId: state._id,
-      previousSummary: JSON.stringify({ panelId: sourcePanelId, version: state.version }),
+      previousSummary: JSON.stringify({ panelId: sourcePanelId, version: state.version,
+      }),
       nextSummary: JSON.stringify({
         panelId: targetPanel._id,
         version: state.version + 1,
@@ -803,7 +826,8 @@ export const setPanelAvailability = mutation({
     reason: v.string(),
     clientOperationId: v.string(),
   },
-  returns: v.object({ panelId: v.id("reviewPanels"), status: v.string(), version: v.number() }),
+  returns: v.object({ panelId: v.id("reviewPanels"), status: v.string(), version: v.number(),
+  }),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
@@ -894,11 +918,14 @@ export const setPanelAvailability = mutation({
       action: args.status === "paused" ? "review.panel_paused" : "review.panel_resumed",
       targetType: "review_panel",
       targetId: panel._id,
-      previousSummary: JSON.stringify({ status: panel.status, version: panel.version }),
-      nextSummary: JSON.stringify({ status: args.status, version: panel.version + 1 }),
+      previousSummary: JSON.stringify({ status: panel.status, version: panel.version,
+      }),
+      nextSummary: JSON.stringify({ status: args.status, version: panel.version + 1,
+      }),
       reason,
     });
-    return { panelId: panel._id, status: args.status, version: panel.version + 1 };
+    return { panelId: panel._id, status: args.status, version: panel.version + 1,
+    };
   },
 });
 
@@ -916,7 +943,8 @@ export const waivePresence = mutation({
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
-    const reason = normalizedText(args.reason, "Presence-waiver reason", 5, 500);
+    const reason = normalizedText(args.reason, "Presence-waiver reason", 5, 500,
+    );
     const uniqueReviewerIds = [...new Set(args.reviewerPersonIds)];
     if (
       uniqueReviewerIds.length === 0 ||
@@ -969,7 +997,8 @@ export const waivePresence = mutation({
     });
     const assignments = await ctx.db
       .query("reviewAssignments")
-      .withIndex("by_session_person", (index) => index.eq("reviewSessionId", session._id))
+      .withIndex("by_session_person", (index) => index.eq("reviewSessionId", session._id),
+      )
       .collect();
     const assignedReviewerIds = new Set(
       assignments
@@ -1039,7 +1068,8 @@ export const waivePresence = mutation({
       }),
       reason,
     });
-    return { waivedCount: uniqueReviewerIds.length, version: session.version + 1 };
+    return { waivedCount: uniqueReviewerIds.length, version: session.version + 1,
+    };
   },
 });
 
@@ -1059,7 +1089,8 @@ export const waiveParticipantAvailability = mutation({
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
-    const reason = normalizedText(args.reason, "Participant-availability exception reason", 5, 500);
+    const reason = normalizedText(args.reason, "Participant-availability exception reason", 5, 500,
+    );
     const requestFingerprint = operationFingerprint([
       args.reviewSessionId,
       args.expectedVersion,
@@ -1073,13 +1104,16 @@ export const waiveParticipantAvailability = mutation({
       requestFingerprint,
     });
     if (prior) {
-      const waiverId = ctx.db.normalizeId("reviewParticipantAvailabilityWaivers", prior.targetId);
+      const waiverId = ctx.db.normalizeId("reviewParticipantAvailabilityWaivers", prior.targetId,
+      );
       if (!waiverId) {
-        throw new Error("Prior participant-availability waiver result is invalid.");
+        throw new Error("Prior participant-availability waiver result is invalid.",
+        );
       }
       return {
         waiverId,
-        version: storedOperationVersion(prior.resultJson, "participant-availability waiver"),
+        version: storedOperationVersion(prior.resultJson, "participant-availability waiver",
+        ),
       };
     }
     const session = await ctx.db.get(args.reviewSessionId);
@@ -1112,11 +1146,13 @@ export const waiveParticipantAvailability = mutation({
       eventAccessSubjectId: subject._id,
       reviewSessionId: session._id,
       teamId: session.teamId,
-    });
+    },
+    );
     const participantAvailability = await readReviewParticipantAvailability(ctx, {
       eventId: event._id,
       teamId: session.teamId,
-    });
+    },
+    );
     if (participantAvailability.availableCount >= round.minimumPresentParticipants) {
       throw new ConvexError({
         code: "PARTICIPANT_AVAILABILITY_EXCEPTION_NOT_NEEDED",

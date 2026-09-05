@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from "react";
 
 import { readableError } from "../../lib/errors";
 import { QrTree } from "../portal/QrTree";
-import { Reveal, Tile, TileEyebrow } from "./Tile";
+import { Tile, TileEyebrow } from "./Tile";
 import type { Slot } from "./dashboardLayout";
-import { hiddenWhenShort, tileBody } from "./tileClasses";
+import { tileBody } from "./tileClasses";
 
 export type TeamReviewCode = {
   payload: string;
@@ -13,20 +13,94 @@ export type TeamReviewCode = {
   serverNow: number;
 };
 
+export type ServiceQueueKind = "outing_permission";
+
+export type ServiceQueueView = {
+  kind: ServiceQueueKind;
+  joined: boolean;
+  position: number | null;
+  waitingCount: number;
+};
+
 export type ReviewTileModel = {
   available: boolean;
   queue: {
     round: string;
-    /** The participant-facing state label. */
-    state: string;
-    /** Teams ahead, the panel, the table: one short line. */
+    status: string;
+    active: boolean;
+    /** The team's one-based position while queued. */
+    rank: number | null;
     detail: string | null;
     wait: string | null;
     reviewers: { present: number; total: number } | null;
   } | null;
   /** Mints the team's review code; present only while reviewers are due. */
   showCode: { sessionId: string; mint: () => Promise<TeamReviewCode> } | null;
+  services: readonly ServiceQueueView[];
+  setServiceQueue: (kind: ServiceQueueKind, joined: boolean) => Promise<void>;
 };
+
+function ServiceQueueRow({
+  service,
+  busy,
+  onChange,
+}: {
+  service: ServiceQueueView;
+  busy: boolean;
+  onChange: (joined: boolean) => void;
+}) {
+  const detail = service.joined
+    ? service.position === 1
+      ? "You're next"
+      : `Position ${service.position ?? "—"}`
+    : service.waitingCount === 0
+      ? "No wait"
+      : `${service.waitingCount} waiting`;
+  return (
+    <div className="service-queue-row flex min-w-0 items-center justify-between gap-2 border-t border-fg/10 pt-2 first:border-t-0 first:pt-0">
+      <span className="min-w-0">
+        <span className="block truncate text-[12.5px] text-fg/90">Outing permission</span>
+        <span className="service-queue-meta block truncate text-[10.5px] text-fg/45">{detail}</span>
+      </span>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => onChange(!service.joined)}
+        aria-label={`${service.joined ? "Leave" : "Join"} outing permission queue`}
+        className="service-queue-action h-8 shrink-0 rounded-full border border-rose/50 px-3 text-[11px] text-fg/80 transition-colors hover:border-rose-light hover:text-fg disabled:cursor-wait disabled:opacity-50"
+      >
+        {busy ? "…" : service.joined ? "Leave" : "Join"}
+      </button>
+    </div>
+  );
+}
+
+function ReviewQueueRow({ queue }: { queue: NonNullable<ReviewTileModel["queue"]> }) {
+  const { rank, status, detail, wait, reviewers } = queue;
+  const summary = [rank === null ? status : `${status} · Position ${rank}`, wait]
+    .filter((part) => part !== null)
+    .join(" · ");
+  const title = rank === null ? "Project review" : "Review queue";
+  return (
+    <div className="service-queue-row flex min-w-0 items-center border-t border-fg/10 pt-2 first:border-t-0 first:pt-0">
+      <span className="min-w-0">
+        <span className="block truncate text-[12.5px] text-fg/90">{title}</span>
+        <span
+          aria-label={rank === null ? `Review status ${status}` : `Review status ${status}, rank ${rank}`}
+          className="block text-[10.5px] text-fg/65"
+        >
+          {summary}
+        </span>
+        {detail ? <span className="block text-[10.5px] text-fg/45">{detail}</span> : null}
+        {reviewers ? (
+          <span className="block text-[10.5px] text-fg/45">
+            {reviewers.present} of {reviewers.total} reviewers checked in
+          </span>
+        ) : null}
+      </span>
+    </div>
+  );
+}
 
 function useSecondsLeft(code: TeamReviewCode | null) {
   const [now, setNow] = useState(() => Date.now());
@@ -128,12 +202,12 @@ function ReviewCodeCard({
 }
 
 /**
- * The review tile: where the team stands in the round. While reviewers are
- * due it becomes the team's code; otherwise a tap shows the wait and who has
- * checked in.
+ * The review tile: a read-only view of the team's position in the round.
+ * While reviewers are due it becomes the team's review code.
  */
 export function ReviewTile({ slot, model }: { slot: Slot; model: ReviewTileModel }) {
-  const [open, setOpen] = useState(false);
+  const [busyKind, setBusyKind] = useState<ServiceQueueKind | null>(null);
+  const [serviceError, setServiceError] = useState<string | null>(null);
   const queue = model.queue;
   if (queue && model.showCode) {
     return (
@@ -145,31 +219,44 @@ export function ReviewTile({ slot, model }: { slot: Slot; model: ReviewTileModel
       />
     );
   }
-  const hasMore = queue !== null && (queue.wait !== null || queue.reviewers !== null);
+  const hasQueueRows = model.services.length > 0 || queue !== null;
+  const changeServiceQueue = async (kind: ServiceQueueKind, joined: boolean) => {
+    setBusyKind(kind);
+    setServiceError(null);
+    try {
+      await model.setServiceQueue(kind, joined);
+    } catch (caught) {
+      setServiceError(readableError(caught));
+    } finally {
+      setBusyKind(null);
+    }
+  };
 
   return (
-    <Tile slot={slot} open={open && hasMore} onToggle={() => setOpen((value) => !value)}>
-      <div className={tileBody}>
-        <div className="flex items-baseline justify-between gap-3">
-          <TileEyebrow>review</TileEyebrow>
+    <Tile slot={slot}>
+      <div className={`${tileBody} !gap-2`}>
+        <div className="flex shrink-0 items-baseline justify-between gap-3">
+          <TileEyebrow>queues</TileEyebrow>
           {queue ? <span className="truncate text-[11px] text-fg/50">{queue.round}</span> : null}
         </div>
-        {!model.available ? (
-          <p className="m-0 text-[13px] leading-snug text-fg/65">Reviews open once your place is confirmed.</p>
-        ) : queue === null ? (
-          <p className="m-0 text-[13px] leading-snug text-fg/65">No review round is open. This card fills in when one starts.</p>
+        {hasQueueRows ? (
+          <div className="service-queue-list grid min-h-0 shrink-0 gap-2">
+            {queue ? <ReviewQueueRow queue={queue} /> : null}
+            {model.services.map((service) => (
+              <ServiceQueueRow
+                key={service.kind}
+                service={service}
+                busy={busyKind === service.kind}
+                onChange={(joined) => void changeServiceQueue(service.kind, joined)}
+              />
+            ))}
+          </div>
+        ) : !model.available ? (
+          <p className="m-0 text-[13px] leading-snug text-fg/65">Queues open once your place is confirmed.</p>
         ) : (
-          <Reveal key={open ? "facts" : "summary"} className="flex min-h-0 flex-col gap-1">
-            <p className="m-0 font-display text-[19px] leading-tight text-shadow-[0_6px_30px_var(--scene-text-glow)]">{queue.state}</p>
-            {queue.detail ? <p className={`m-0 text-[12.5px] text-fg/65 ${hiddenWhenShort}`}>{queue.detail}</p> : null}
-            {open && queue.wait ? <p className="m-0 text-[12.5px] text-fg/65">{queue.wait}</p> : null}
-            {open && queue.reviewers ? (
-              <p className="m-0 text-[12.5px] text-fg/65">
-                {queue.reviewers.present} of {queue.reviewers.total} reviewers checked in
-              </p>
-            ) : null}
-          </Reveal>
+          <p className="m-0 text-[13px] leading-snug text-fg/65">No queues are open right now.</p>
         )}
+        {serviceError ? <p role="status" className="m-0 text-[11px] text-rose-light">{serviceError}</p> : null}
       </div>
     </Tile>
   );

@@ -19,8 +19,8 @@ type DashboardGridStyle = CSSProperties & Record<`--dash-${string}`, string>;
 
 /**
  * The dashboard bento: the mockup's seven slots, filled by whichever tiles
- * matter most right now. Every tile answers a tap in place; only music takes
- * the big slot, and the grid remaps around it. Tiles take plain data and
+ * matter most right now. Music can take the big slot; a due review code uses
+ * that space by default so it stays scannable. Tiles take plain data and
  * callbacks, so the live app and the gallery render the same screen.
  */
 export function DashboardScreen({
@@ -39,7 +39,9 @@ export function DashboardScreen({
   const reducedMotion = useReducedMotion();
   const seating = composeDashboard(tileRelevance(models));
   const musicSlot = seating.music ?? null;
-  const focus = musicOpen && musicSlot ? musicSlot : null;
+  const focus = musicOpen && musicSlot
+    ? musicSlot
+    : models.review.showCode ? seating.review ?? null : null;
 
   const setMusic = (next: boolean) => {
     if (next === musicOpen) return;

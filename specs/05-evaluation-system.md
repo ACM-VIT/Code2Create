@@ -1,21 +1,34 @@
 # Evaluation
 
-## 1. Working rubric
+## 1. Event rubric
 
 Each criterion is scored from 0 to 4.
 
-| Criterion                |  Weight | Question                                                                              |
-| ------------------------ | ------: | ------------------------------------------------------------------------------------- |
-| Problem & User Fit       |      15 | Is the problem specific, evidenced, and relevant to a clear user?                     |
-| Working Solution         |      20 | Does the demonstrated solution perform the important flow?                            |
-| Event Build Contribution |      15 | What did this team build during Code2Create from the official event baseline?         |
-| Technical Execution      |      15 | Are the implementation choices sound for the problem and current stage?               |
-| User Readiness           |      10 | Can the intended user understand and use the current experience?                      |
-| Trust & Responsible Use  |      15 | Has the team handled privacy, security, safety, data, accessibility, and misuse risk? |
-| Communication & Evidence |      10 | Did the team explain its decisions and support claims with a demo or other evidence?  |
-| **Total**                | **100** |                                                                                       |
+The rubric names, fixed questions, criterion guidance and weights, coverage requirements, final-comment requirement, and round weights must be configurable in ops. The following tables are the event defaults. Each review and submitted result pins the published policy version so a later configuration edit cannot silently change earlier judging.
 
-Board must approve wording and round applicability before the rubric is published.
+Round 1 contributes 30% of the combined result.
+
+| Criterion                 |  Weight | Fixed review question                                                                    |
+| ------------------------- | ------: | ---------------------------------------------------------------------------------------- |
+| Research & Scope          |      30 | What research validates the problem, and who and what are in scope?                      |
+| User Readiness            |      20 | Can the intended user follow the current experience, and what is ready to use?           |
+| Idea Novelty & Uniqueness |      15 | How does the idea differ from existing approaches, and why is that difference useful?    |
+| Technical Execution       |      25 | What is the architecture, why was it chosen, and how does the implementation support it? |
+| Presentation              |      10 | Can the team clearly pitch its deliverables and explain each member's contribution?      |
+| **Total**                 | **100** |                                                                                          |
+
+Round 2 contributes 70% of the combined result.
+
+| Criterion                       |  Weight | Fixed review question                                                                          |
+| ------------------------------- | ------: | ---------------------------------------------------------------------------------------------- |
+| Technical Completion            |      30 | How completely did the team implement the architecture and technical commitments from Round 1? |
+| Demo                            |      15 | Can the team demonstrate the main flow and clearly communicate how it works?                   |
+| Reproducibility & Deployment    |      20 | Can the submitted project be run from its instructions and used in its deployed form?          |
+| Design & UX                     |      25 | What design decisions support the user journey, and how does the team justify them?            |
+| Growth, Progress & Future Scope |      10 | What improved since Round 1, what remains weak, and what are the next realistic improvements?  |
+| **Total**                       | **100** |                                                                                                |
+
+Operations provides both rubric presets and a separately published round-weight policy. The combined result uses only closed-round canonical outcomes and keeps missing or excluded rounds explicit; see [Event review readiness](15-event-review-readiness.md).
 
 ## 2. Shared score anchors
 
@@ -31,33 +44,23 @@ Each rubric criterion also has examples for 0, 2, and 4. Reviewer training uses 
 
 ## 3. Criterion guidance
 
-### Problem and user fit
+### Round 1
 
-Review the user definition, observed need, urgency, alternatives, and evidence. A broad market statement without a specific user or observation does not earn a high score.
+- **Research & Scope:** 0 means no research or defined scope, only unsupported generic claims. 4 means researched validation examples, a complete understanding of the problem, and a defined scope and target audience.
+- **User Readiness:** 0 means no usable flow or deliverables. 4 means a coherent, ready flow with UX appropriate to its intended user.
+- **Idea Novelty & Uniqueness:** 0 means a common idea with no demonstrated distinction. 4 means a clearly differentiated idea with a strong use case. This is a human rubric judgment; the intake novelty number never becomes a judging input.
+- **Technical Execution:** prioritize architecture, then explanation of the architecture, implementation justification, and finally necessary complexity. 0 means an unsupported simple implementation proposal with no architecture or justification. 4 means all these elements are demonstrated. Complexity alone does not earn points.
+- **Presentation:** prioritize concrete deliverables and the pitch, supported by clear roles and contribution. 0 means no coherent presentation, deliverables, or demonstrated teamwork. 4 means a clear pitch, demonstrated deliverables, and a credible role distribution.
 
-### Working solution
+### Round 2
 
-Score what the team demonstrates. Separate a functioning flow from a slide, video, static mock-up, or verbal promise. The evidence checklist records what was shown.
+- **Technical Completion:** follow up on the architecture and implementation promised in Round 1. Inspect what actually works and the remaining gaps.
+- **Demo:** assess the live walkthrough, presentation, and communication of the idea. A promise is not a working demonstration.
+- **Reproducibility & Deployment:** inspect setup instructions, dependencies, configuration, reproducible execution, and deployment appropriate to the project.
+- **Design & UX:** require a clear explanation of design decisions, task flow, usability, error handling, and accessibility. The interface may be a GUI, CLI, API, hardware control, or another form suited to the project.
+- **Growth, Progress & Future Scope:** compare the pinned Round 1 and Round 2 evidence and commitments. Assess demonstrated improvement and realistic next steps.
 
-### Event build contribution
-
-Consider the official event baseline, disclosed general-purpose starting resources, repository/design checkpoints, third-party services, generated code, templates, datasets, and what changed during Code2Create. Using tools is allowed. Admissions handles any project-specific implementation or design from before the baseline; reviewers do not offset it with a lower or higher score.
-
-### Technical execution
-
-Review architecture, implementation depth, reliability, security, and fit to the problem. Do not reward complexity by itself.
-
-### User readiness
-
-Review task clarity, interaction, accessibility, error handling, and whether an intended user could complete the main flow. The “interface” may be a GUI, CLI, API, hardware control, data output, or another form appropriate to the project. Do not turn this into a visual-design score.
-
-### Trust and responsible use
-
-Review data collection, consent, permissions, model/tool disclosure, unsafe failure modes, abuse prevention, and accessibility concerns relevant to the project.
-
-### Communication and evidence
-
-Review whether the team explained the problem, decisions, limitations, and progress with evidence. Presentation polish cannot replace a working result.
+Scores 1–3 use the published criterion anchors and the evidence shown. Dynamic agent questions never change those anchors. Tool use, provider activity counts, and presentation polish do not establish quality or contribution on their own.
 
 ## 4. Independent scoring
 
@@ -65,29 +68,17 @@ Review whether the team explained the problem, decisions, limitations, and progr
 - A reviewer receives only criteria assigned before the session starts.
 - Peer score values remain hidden until the event policy permits reveal.
 - Discussion may clarify evidence, but the panel does not negotiate one shared score.
-- The panel coordinator cannot edit another External Judge’s scorecard.
+- The panel coordinator cannot edit another reviewer's scorecard.
 - Reviewer designation and seniority do not change weight.
 - A reviewer with a conflict cannot submit.
 
-The working panel has three reviewers. The working coverage rule requires at least two independent scores for each criterion. That gives each criterion more than one opinion without asking every reviewer to score all seven criteria.
+The panel defaults to five reviewers. Criterion coverage and the final-comment requirement are explicitly published with the round. By default, each required reviewer must submit a scorecard with a final comment, even when they score only part of the rubric.
 
-The final minimum scorer count remains an open event decision and is stored with the rubric version.
+The minimum scorer count is explicitly selected and stored with the round configuration.
 
 ## 5. Criterion assignment
 
-Before routing opens, the panel plan creates a coverage matrix:
-
-| Criterion                | Reviewer A | Reviewer B | Reviewer C |
-| ------------------------ | :--------: | :--------: | :--------: |
-| Problem & User Fit       |     ✓      |     ✓      |            |
-| Working Solution         |     ✓      |            |     ✓      |
-| Event Build Contribution |            |     ✓      |     ✓      |
-| Technical Execution      |     ✓      |            |     ✓      |
-| User Readiness           |     ✓      |     ✓      |            |
-| Trust & Responsible Use  |            |     ✓      |     ✓      |
-| Communication & Evidence |     ✓      |     ✓      |            |
-
-This is an example, not a fixed mapping. The planner uses reviewer expertise and ensures the configured minimum.
+Before routing opens, the panel plan creates a coverage matrix for that round's configured criteria and reviewers. The planner uses reviewer expertise and ensures the published minimum for every criterion. Seniority determines panel composition, not score weight.
 
 If a substitute joins before review start, the server recomputes assignments and freezes a new coverage version. After start, changing criterion ownership requires a review-operations correction and cannot erase submitted work.
 
@@ -113,7 +104,7 @@ The following do not occur:
 
 If a criterion lacks its minimum scorer count, the review is incomplete and no total is published.
 
-Tie-breaks, round weighting, and final-round aggregation remain open decisions.
+Once both round results are complete, the combined result is `0.30 × Round 1 total + 0.70 × Round 2 total`, out of 100. A missing or unresolved round is incomplete, never an automatic zero and never a reason to silently renormalize the other round. Tie-break and award eligibility rules remain separate decisions.
 
 ## 7. Score spread
 
@@ -144,7 +135,7 @@ Before Review 2, the team records what changed. Review 2 receives:
 - old and new evidence checkpoint sets fixed by ID;
 - current demonstration evidence.
 
-Progress is required evidence. The current rubric has no separate progress weight, so reviewers apply it only where it supports Working Solution, Event Build Contribution, Technical Execution, or another relevant criterion.
+Progress is required evidence and has a dedicated 10-point Round 2 criterion. It also informs the follow-up on Technical Completion without creating additional bonus points.
 
 Provider statistics do not calculate or suggest a score. Commit, line, file, node, version, and comment counts can help a reviewer locate change, but they cannot establish quality, effort, originality, or individual contribution. GitHub authors and Figma version/comment handles are observations from provider records, not a member-attribution system.
 
@@ -156,9 +147,11 @@ Attendance confirmations, present duration, temporary exits, missed scans, and e
 
 The evidence context is immutable after the review starts. The app can show a later push, Figma refresh, or repository-set change as newer available evidence. Scoring remains tied to the recorded checkpoint-set ID. Only `review.evidence_context.replace` for that review can replace it, and the command must record a reason.
 
-Adding a separate weighted progress criterion is an open decision. The system does not create bonus points without that decision.
+The system does not create progress bonuses outside the published weights.
 
 ## 9. AI boundary
+
+Review preparation continuously reads the team's submitted idea and declared project evidence, including every connected GitHub repository and Figma file. It may suggest team-specific verbal questions with exact source references. Those questions appear separately from the fixed rubric, are optional reviewer references, and are never graded or used to recommend scores. Missing or inaccessible material remains explicit. Review-start snapshots bind the questions to the evidence actually used for that review; ongoing ingestion can continue without rewriting it. Operations enables and configures question preparation. Repository text sampling and bounded Figma outlines carry explicit coverage; the model cannot change scores or event state.
 
 The intake interpretation layer may identify covered purposes in team-written answers and generate one bounded follow-up question.
 
@@ -215,11 +208,11 @@ A draft or submitted paper review blocks ordinary review completion, incident re
 
 The system can prepare a ranked view after Board approves:
 
-- which reviews contribute;
-- round weights;
 - minimum eligibility;
 - tie-break order;
-- whether the final is cumulative or a clean slate.
+- finalist and award publication rules.
+
+The cumulative score uses Round 1 at 30% and Round 2 at 70% as specified above.
 
 The ranking view always shows the underlying criterion totals and any missing/exception state. A board decision that departs from the configured ranking requires a recorded reason.
 

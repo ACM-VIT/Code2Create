@@ -1,5 +1,6 @@
 import { api } from "@code2create/backend/api";
-import { teamRoundStateParticipantLabels, type TeamRoundState } from "@code2create/domain";
+import { teamRoundStateParticipantLabels, type TeamRoundState,
+} from "@code2create/domain";
 import type { FunctionReturnType } from "convex/server";
 import { useMutation, useQuery } from "convex/react";
 import { QRCodeSVG } from "qrcode.react";
@@ -103,6 +104,7 @@ export function ReviewQueuePanel() {
         </p>
       ) : null}
 
+      {queue.notice ? <p role="status">{queue.notice.message}</p> : null}
       <dl className="detail-list compact-details">
         <div>
           <dt>Status</dt>
@@ -135,7 +137,8 @@ export function ReviewQueuePanel() {
           <div>
             <dt>Reviewer check-in</dt>
             <dd>
-              {queue.review.reviewerPresenceCount} of {queue.review.reviewerCount}
+              {queue.review.reviewerPresenceCount} of{" "}
+              {queue.review.reviewerCount}
             </dd>
           </div>
         ) : null}

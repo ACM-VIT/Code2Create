@@ -978,6 +978,12 @@ p {
   gap: 12px;
   padding: 18px;
 }
+/* Service queues use the available tile width before falling back to rows. */
+@container (min-width: 300px) {
+  .service-queue-list { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+  .service-queue-row { border-top: 0; padding-top: 0; }
+}
+
 .dashboard-tile-scroll {
   scrollbar-width: thin;
   scrollbar-color: transparent transparent;
@@ -1013,4 +1019,8 @@ p {
   .tile-body { gap: 6px; padding: 12px; }
   .tile-short-hidden { display: none; }
   .tile-short-clamp { -webkit-line-clamp: 1; }
+  .service-queue-list { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .service-queue-row { border-top: 0; padding-top: 0; }
+  .service-queue-meta { display: none; }
+  .service-queue-action { height: 28px; padding-inline: 8px; }
 }
