@@ -49,6 +49,8 @@ Each command requires a clean commit, derives its release ID from that commit, r
 
 Reviewer paging uses native device tokens. Android messages go directly through Firebase Cloud Messaging; iOS messages go directly through APNs. Push attracts attention only. Convex remains the source of truth for the live page and assignment.
 
+Version 1.1.1 adds native reads of Android full-screen alert and battery-exemption settings. Rebuild/sign the Android fleet before distributing this runtime; do not publish it to 1.1.0 binaries. Camera and paging checks refresh after permission prompts and when returning from Settings on both Android and iOS. Notification permission and push-token registration are shown separately, and optional call-consent failures stay inside paging setup.
+
 ## Reviewer venue checks
 
 The Venue entry in Account opens location setup and departure reporting. Returning to duty uses normal clock-in from Reviews. A reviewer registers this phone in Judging, then explicitly allows location. Background checks request a separate Always/Allow all the time permission and use a visible native location indicator or Android foreground-service notification. Foreground checks continue while the app is active if background permission is declined. A reviewer can report leaving without enabling location, or stop checks at any time. Check-in calls require their own phone number and consent to an automated conversation and saved transcript, separate from substitute-reviewer calls. GPS triggers confirmation and never automatically changes duty. A confirmed absence ends duty between reviews; an active review and unfinished scorecards remain locked.

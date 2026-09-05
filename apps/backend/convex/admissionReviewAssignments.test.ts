@@ -198,6 +198,27 @@ async function cloneDeckApplications(backend: BackendTest, fixture: AssignmentFi
   });
 }
 
+async function managerAssignmentFixture(minimumHumanReviews: number) {
+  const context = await deckFixture();
+  const { backend, fixture } = context;
+  await backend.run(async (ctx) => {
+    const application = await ctx.db.get(fixture.applicationId);
+    if (!application) throw new Error("Assignment fixture is incomplete.");
+    await ctx.db.patch(application.admissionPolicyVersionId, { minimumHumanReviews });
+    await insertPermissionGrant(ctx, {
+      eventId: fixture.eventId,
+      personId: fixture.managerPersonId,
+      eventAccessSubjectId: fixture.managerSubjectId,
+      permissionKey: "application.assign",
+      scopeType: "event",
+      sourceType: "manual",
+      sourceId: "manager-reservation-test",
+      reason: "Assign review coverage fixtures",
+    });
+  });
+  return context;
+}
+
 async function emergencyReviewsFixture() {
   const context = await deckFixture("empty");
   const { backend, fixture, manager } = context;
@@ -942,6 +963,198 @@ describe("admission review assignments", () => {
     expect(state.reviewerSubject?.accessVersion).toBe(2);
   });
 
+  test.each([
+    { minimumHumanReviews: 1, completedReviews: 1 },
+    { minimumHumanReviews: 2, completedReviews: 2 },
+    { minimumHumanReviews: 1, completedReviews: 2 },
+  ])("rejects assignments after $completedReviews reviews meet a minimum of $minimumHumanReviews", async ({ minimumHumanReviews, completedReviews }) => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const authUserId = await createAuthUser(backend);
+    const authSessionId = await createAuthSession(backend, authUserId);
+    const fixture = await seedAssignmentFixture(backend, { managerAuthUserId: authUserId });
+    await backend.run(async (ctx) => {
+      const application = await ctx.db.get(fixture.applicationId);
+      if (!application) throw new Error("Assignment fixture is incomplete.");
+      await ctx.db.patch(application.admissionPolicyVersionId, { minimumHumanReviews });
+      await insertPermissionGrant(ctx, {
+        eventId: fixture.eventId,
+        personId: fixture.managerPersonId,
+        eventAccessSubjectId: fixture.managerSubjectId,
+        permissionKey: "application.assign",
+        scopeType: "application",
+        scopeId: fixture.applicationId,
+        sourceType: "manual",
+        sourceId: "review-coverage-test",
+        grantedByPersonId: fixture.managerPersonId,
+        reason: "Assign review coverage fixtures",
+      });
+    });
+    for (const reviewer of [fixture.secondReviewerPersonId, fixture.managerPersonId].slice(0, completedReviews)) {
+      await saveFixtureReview(backend, fixture, reviewer, "accept");
+    }
+    const manager = backend.withIdentity({ subject: authUserId, sessionId: authSessionId });
+    const before = await backend.run((ctx) => ctx.db.get(fixture.applicationId));
+    if (!before) throw new Error("Assignment fixture is incomplete.");
+
+    await expect(manager.mutation(api.admissions.assignReview, {
+      eventSlug: fixture.eventSlug,
+      applicationId: fixture.applicationId,
+      expectedApplicationVersion: before.version,
+      reviewerEmail: "reviewer@example.test",
+      clientOperationId: crypto.randomUUID(),
+    })).rejects.toThrow("This application has already met its human review minimum.");
+
+    const after = await backend.run(async (ctx) => ({
+      application: await ctx.db.get(fixture.applicationId),
+      assignments: await ctx.db.query("admissionReviewAssignments").collect(),
+      grants: await ctx.db.query("permissionGrants")
+        .withIndex("by_source", (index) => index.eq("eventId", fixture.eventId).eq("sourceType", "application_assignment"))
+        .collect(),
+      reviewer: await ctx.db.get(fixture.reviewerSubjectId),
+    }));
+    expect(after.application).toEqual(before);
+    expect(after.assignments).toEqual([]);
+    expect(after.grants).toEqual([]);
+    expect(after.reviewer?.accessVersion).toBe(1);
+  });
+
+  test("allows assigning the remaining review required by the application policy", async () => {
+    const backend = convexTest(schema, modules);
+    const fixture = await seedAssignmentFixture(backend);
+    await backend.run(async (ctx) => {
+      const application = await ctx.db.get(fixture.applicationId);
+      if (!application) throw new Error("Assignment fixture is incomplete.");
+      await ctx.db.patch(application.admissionPolicyVersionId, { minimumHumanReviews: 2 });
+    });
+    await saveFixtureReview(backend, fixture, fixture.secondReviewerPersonId, "accept");
+
+    const result = await assignFixtureReviewer(backend, fixture, fixture.reviewerSubjectId, 2);
+    const state = await assignmentState(backend, fixture, result.assignmentId);
+    expect(state.assignment).toMatchObject({ state: "active" });
+    expect(state.application).toMatchObject({ completedReviewCount: 1, assignedReviewCount: 1 });
+  });
+
+  test.each([
+    { minimumHumanReviews: 1, completed: 0, reserved: 1 },
+    { minimumHumanReviews: 2, completed: 1, reserved: 1 },
+    { minimumHumanReviews: 2, completed: 0, reserved: 2 },
+  ])("manager assignments respect $completed completed and $reserved reserved reviews at a minimum of $minimumHumanReviews", async ({ minimumHumanReviews, completed, reserved }) => {
+    const { backend, fixture, manager } = await managerAssignmentFixture(minimumHumanReviews);
+    if (completed > 0) {
+      await saveFixtureReview(backend, fixture, fixture.secondReviewerPersonId, "accept");
+    }
+    for (const [index, subjectId] of [fixture.managerSubjectId, fixture.secondReviewerSubjectId].slice(0, reserved).entries()) {
+      await assignFixtureReviewer(backend, fixture, subjectId, 1 + completed + index);
+    }
+    const readState = () => backend.run(async (ctx) => ({
+      application: await ctx.db.get(fixture.applicationId),
+      assignments: await ctx.db.query("admissionReviewAssignments").collect(),
+      grants: await ctx.db.query("permissionGrants").collect(),
+      reviewer: await ctx.db.get(fixture.reviewerSubjectId),
+      operations: await ctx.db.query("operationResults").collect(),
+      audit: await ctx.db.query("auditEvents").collect(),
+    }));
+    const before = await readState();
+    if (!before.application) throw new Error("Assignment fixture is incomplete.");
+
+    await expect(manager.mutation(api.admissions.assignReview, {
+      eventSlug: fixture.eventSlug,
+      applicationId: fixture.applicationId,
+      expectedApplicationVersion: before.application.version,
+      reviewerEmail: "reviewer@example.test",
+      clientOperationId: "covered-by-active-assignments",
+    })).rejects.toThrow("The remaining reviews were just claimed. Choose another submission.");
+
+    expect(await readState()).toEqual(before);
+  });
+
+  test.each(["expired", "cancelled", "previous_version", "completed"] as const)(
+    "manager assignments do not reserve a second slot for %s work",
+    async (previousState) => {
+      const { backend, fixture, manager } = await managerAssignmentFixture(2);
+      const previous = await assignFixtureReviewer(backend, fixture, fixture.secondReviewerSubjectId);
+      await saveFixtureReview(
+        backend,
+        fixture,
+        previousState === "completed" ? fixture.secondReviewerPersonId : fixture.managerPersonId,
+        "accept",
+      );
+      await backend.run(async (ctx) => {
+        if (previousState === "expired") {
+          await ctx.db.patch(previous.assignmentId, { assignedAt: Date.now() - admissionReviewClaimMs });
+        } else if (previousState === "previous_version") {
+          await ctx.db.patch(previous.assignmentId, { applicationContentVersion: 0 });
+        } else if (previousState === "cancelled") {
+          const application = await ctx.db.get(fixture.applicationId);
+          const assignment = await ctx.db.get(previous.assignmentId);
+          if (!application || !assignment) throw new Error("Assignment fixture is incomplete.");
+          await cancelAdmissionReviewAssignment(ctx, {
+            application,
+            expectedApplicationVersion: application.version,
+            assignment,
+            expectedAssignmentVersion: assignment.version,
+            cancelledByPersonId: fixture.managerPersonId,
+            reason: "Make the review slot available",
+            now: fixture.now + 2,
+          });
+        }
+      });
+      const application = await backend.run((ctx) => ctx.db.get(fixture.applicationId));
+      if (!application) throw new Error("Assignment fixture is incomplete.");
+      const command = {
+        eventSlug: fixture.eventSlug,
+        applicationId: fixture.applicationId,
+        expectedApplicationVersion: application.version,
+        reviewerEmail: "reviewer@example.test",
+        clientOperationId: "assign-remaining-slot",
+      };
+
+      const assigned = await manager.mutation(api.admissions.assignReview, command);
+      expect(assigned.assignmentState).toBe("active");
+      expect(await manager.mutation(api.admissions.assignReview, command)).toEqual(assigned);
+      const state = await assignmentState(backend, fixture, assigned.assignmentId);
+      expect(state.assignment).toMatchObject({ reviewerPersonId: fixture.reviewerPersonId });
+      expect(state.assignmentGrants).toHaveLength(2);
+      expect(state.application?.completedReviewCount).toBe(1);
+    },
+  );
+
+  test("a manager assignment and a deck claim cannot both reserve the final slot", async () => {
+    const { backend, fixture, manager, reviewer } = await managerAssignmentFixture(1);
+    const attempts = await Promise.allSettled([
+      manager.mutation(api.admissions.assignReview, {
+        eventSlug: fixture.eventSlug,
+        applicationId: fixture.applicationId,
+        expectedApplicationVersion: 1,
+        reviewerEmail: "reviewer-two@example.test",
+        clientOperationId: "manager-final-slot",
+      }),
+      reviewer.mutation(api.admissions.claimReview, {
+        eventSlug: fixture.eventSlug,
+        applicationId: fixture.applicationId,
+        clientOperationId: "deck-final-slot",
+      }),
+    ]);
+    expect(attempts.filter((attempt) => attempt.status === "fulfilled")).toHaveLength(1);
+    expect(attempts.filter((attempt) => attempt.status === "rejected")).toHaveLength(1);
+    const application = await backend.run((ctx) => ctx.db.get(fixture.applicationId));
+    const assignments = await backend.run((ctx) => ctx.db.query("admissionReviewAssignments").collect());
+    expect(application).toMatchObject({ assignedReviewCount: 1, completedReviewCount: 0, version: 2 });
+    expect(assignments).toHaveLength(1);
+    const winner = assignments[0];
+    if (!winner) throw new Error("The winning assignment is missing.");
+
+    await expect(manager.mutation(api.admissions.assignReview, {
+      eventSlug: fixture.eventSlug,
+      applicationId: fixture.applicationId,
+      expectedApplicationVersion: 2,
+      reviewerEmail: winner.reviewerPersonId === fixture.reviewerPersonId
+        ? "reviewer-two@example.test" : "reviewer@example.test",
+      clientOperationId: "retry-after-refresh",
+    })).rejects.toThrow("The remaining reviews were just claimed.");
+  });
+
   test("cancelling pending work revokes only assignment-sourced grants", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedAssignmentFixture(backend);
@@ -1116,8 +1329,7 @@ describe("admission review assignments", () => {
   });
 
   test("independent reviewers can submit together without losing a completion", async () => {
-    const backend = convexTest(schema, modules);
-    const fixture = await seedAssignmentFixture(backend);
+    const { backend, fixture } = await managerAssignmentFixture(2);
     await assignFixtureReviewer(backend, fixture, fixture.reviewerSubjectId, 1);
     await assignFixtureReviewer(backend, fixture, fixture.secondReviewerSubjectId, 2);
 

@@ -18,13 +18,14 @@ import {
   aiStateTag,
   applicationQueueStageLabels,
   assignmentOutcomeSummary,
-  busiestStage,
-  completedReviewCountQueryArgs,
+  canAssignApplicationReview,
   ownReviewLine,
   prioritizeReviewQueue,
-  queueLeadSentence,
   recommendationFilterLabel,
   recommendationOutcomeLabels,
+  reviewProgressLabels,
+  reviewProgressLeadSentence,
+  reviewProgresses,
   reviewStatus,
   reviewerLeadSentence,
   reviewerWorkloadLabel,
@@ -42,6 +43,7 @@ import {
   type QueueAssignment,
   type ReviewerWorkload,
   type RecommendationFilter,
+  type ReviewProgress,
   type TeamOriginFilter,
 } from "../lib/admissionsPresentation";
 import { eventSlug } from "../lib/config";
@@ -370,28 +372,35 @@ function ApplicationList({
   onClearRecommendationFilter: () => void;
 }) {
   const originArgs = teamOriginQueryArgs(origin);
-  const [oneReviewOnly, setOneReviewOnly] = useState(false);
-  const reviewCountArgs = completedReviewCountQueryArgs(oneReviewOnly);
-  const counts = useQuery(api.admissions.stageCounts, {
+  const stageCounts = useQuery(api.admissions.stageCounts, { eventSlug, ...originArgs });
+  const progressCounts = useQuery(api.admissions.reviewProgressCounts, {
     eventSlug,
     ...originArgs,
-    ...reviewCountArgs,
   });
-  const countByState = stageCountMap(counts ?? []);
-  const [chosen, setChosen] = useState<ApplicationQueueStage | null>(null);
-  const stage = chosen ?? busiestStage(countByState) ?? "submitted";
-  const reviewable = recommendationFilter === null && stageAcceptsReviews(stage);
-  const [needsReviewOnly, setNeedsReviewOnly] = useState(true);
-  const reviewNeededArgs = needsReviewOnly && reviewable ? { needsReview: true as const } : {};
+  const countByState = stageCountMap(stageCounts ?? []);
+  const totalApplications = [...countByState.values()].reduce((sum, count) => sum + count, 0);
+  const [stage, setStage] = useState<ApplicationQueueStage | null>(null);
+  const [reviewProgress, setReviewProgress] = useState<ReviewProgress | null>("unreviewed");
+  const reviewable = recommendationFilter === null && (
+    reviewProgress === "unreviewed" ||
+    reviewProgress === "partial" ||
+    (reviewProgress === null && stage !== null && stageAcceptsReviews(stage))
+  );
   const [search, setSearch] = useState("");
   const searchQuery = search.trim().replace(/\s+/g, " ");
   const searching = searchQuery.length > 0;
-  const scopeArgs = recommendationFilter ? { recommendationFilter } : { state: stage };
+  const scopeArgs = recommendationFilter
+    ? { recommendationFilter }
+    : reviewProgress !== null
+      ? { reviewProgress }
+      : stage !== null
+        ? { state: stage }
+        : {};
   const applicationPage = usePaginatedQuery(
     api.admissions.list,
     searching
       ? "skip"
-      : { eventSlug, ...scopeArgs, ...originArgs, ...reviewCountArgs, ...reviewNeededArgs },
+      : { eventSlug, ...scopeArgs, ...originArgs },
     { initialNumItems: admissionPageSize },
   );
   const searchResult = useQuery(
@@ -402,8 +411,6 @@ function ApplicationList({
           ...scopeArgs,
           search: searchQuery,
           ...originArgs,
-          ...reviewCountArgs,
-          ...reviewNeededArgs,
         }
       : "skip",
   );
@@ -416,12 +423,14 @@ function ApplicationList({
     applications,
     searching ? searchResult === undefined ? "LoadingFirstPage" : "Exhausted" : applicationPage.status,
     applicationPage.loadMore,
-    JSON.stringify([stage, origin, oneReviewOnly, needsReviewOnly, searchQuery, recommendationFilter]),
+    JSON.stringify([stage, reviewProgress, origin, searchQuery, recommendationFilter]),
   );
   const shown = reviewable ? prioritizeReviewQueue(pagination.items) : pagination.items;
-  const chosenApplications = shown.filter((application) => selected.has(application.id));
+  const chosenApplications = shown.filter(
+    (application) => selected.has(application.id) && canAssignApplicationReview(application),
+  );
   const loading = pagination.loading;
-  const filtersActive = searching || oneReviewOnly || (reviewable && !needsReviewOnly) || recommendationFilter !== null;
+  const filtersActive = searching || reviewProgress !== null || stage !== null || recommendationFilter !== null;
 
   useEffect(() => {
     setSelected(new Set());
@@ -438,8 +447,8 @@ function ApplicationList({
 
   const clearFilters = () => {
     setSearch("");
-    setOneReviewOnly(false);
-    setNeedsReviewOnly(true);
+    setReviewProgress(null);
+    setStage(null);
     setSelected(new Set());
     onClearRecommendationFilter();
   };
@@ -449,11 +458,11 @@ function ApplicationList({
       <div className="admissions-overview">
         <div>
           <span className="admissions-control-label">Queue summary</span>
-          {counts === undefined ? (
+          {progressCounts === undefined ? (
             <SkeletonLine width="48%" />
           ) : (
             <p className="muted admissions-lead">
-              {queueLeadSentence(countByState, origin, oneReviewOnly)}
+              {reviewProgressLeadSentence(progressCounts, origin)}
             </p>
           )}
         </div>
@@ -469,26 +478,77 @@ function ApplicationList({
           <div className="admissions-stage-control">
             <p>{recommendationFilterLabel(recommendationFilter)}</p>
           </div>
-        ) : <div className="admissions-stage-control">
-          <span className="admissions-control-label">Application status</span>
-          <div className="stage-filter admissions-stages">
-            {visibleStages(countByState, stage).map((candidate) => (
-              <button
-                aria-pressed={candidate === stage}
-                className={candidate === stage ? "stage-chip active" : "stage-chip"}
-                key={candidate}
-                type="button"
-                onClick={() => {
-                  setChosen(candidate);
-                  setSelected(new Set());
-                }}
-              >
-                {applicationQueueStageLabels[candidate]}
-                <span><LiveNumber value={countByState.get(candidate) ?? 0} /></span>
-              </button>
-            ))}
-          </div>
-        </div>}
+        ) : (
+          <>
+            <div className="admissions-stage-control">
+              <span className="admissions-control-label">Review coverage</span>
+              <div className="stage-filter admissions-stages">
+                <button
+                  aria-pressed={reviewProgress === null && stage === null}
+                  className={
+                    reviewProgress === null && stage === null
+                      ? "stage-chip active"
+                      : "stage-chip"
+                  }
+                  type="button"
+                  onClick={() => {
+                    setReviewProgress(null);
+                    setStage(null);
+                    setSelected(new Set());
+                  }}
+                >
+                  All applications
+                  {stageCounts === undefined ? null : (
+                    <span><LiveNumber value={totalApplications} /></span>
+                  )}
+                </button>
+                {reviewProgresses.map((progress) => (
+                  <button
+                    aria-pressed={reviewProgress === progress}
+                    className={reviewProgress === progress ? "stage-chip active" : "stage-chip"}
+                    key={progress}
+                    type="button"
+                    onClick={() => {
+                      setReviewProgress(progress);
+                      setStage(null);
+                      setSelected(new Set());
+                    }}
+                  >
+                    {reviewProgressLabels[progress]}
+                    {progressCounts === undefined ? null : (
+                      <span><LiveNumber value={progressCounts[progress]} /></span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="admissions-stage-control">
+              <span className="admissions-control-label">Application lifecycle</span>
+              <div className="stage-filter admissions-stages">
+                {visibleStages(countByState, stage).map((candidate) => (
+                  <button
+                    aria-pressed={reviewProgress === null && candidate === stage}
+                    className={
+                      reviewProgress === null && candidate === stage
+                        ? "stage-chip active"
+                        : "stage-chip"
+                    }
+                    key={candidate}
+                    type="button"
+                    onClick={() => {
+                      setStage(candidate);
+                      setReviewProgress(null);
+                      setSelected(new Set());
+                    }}
+                  >
+                    {applicationQueueStageLabels[candidate]}
+                    <span><LiveNumber value={countByState.get(candidate) ?? 0} /></span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
         <div className="admissions-toolbar">
           <label className="field compact-search admissions-search">
             <span>Search teams</span>
@@ -503,36 +563,6 @@ function ApplicationList({
               }}
             />
           </label>
-          <fieldset className="admissions-filter-set">
-            <legend>{recommendationFilter ? "Filters" : "Filter this status"}</legend>
-            <div>
-              <label className="check-filter">
-                <input
-                  checked={oneReviewOnly}
-                  type="checkbox"
-                  onChange={(event) => {
-                    setOneReviewOnly(event.target.checked);
-                    setChosen(null);
-                    setSelected(new Set());
-                  }}
-                />
-                Exactly one review completed
-              </label>
-              {reviewable ? (
-                <label className="check-filter">
-                  <input
-                    checked={needsReviewOnly}
-                    type="checkbox"
-                    onChange={(event) => {
-                      setNeedsReviewOnly(event.target.checked);
-                      setSelected(new Set());
-                    }}
-                  />
-                  Reviews still needed
-                </label>
-              ) : null}
-            </div>
-          </fieldset>
           <div className="admissions-toolbar-buttons">
             {filtersActive ? (
               <button className="text-button" type="button" onClick={clearFilters}>
@@ -572,7 +602,7 @@ function ApplicationList({
           <ApplicationRow
             application={application}
             key={application.id}
-            selectable={selecting}
+            selectable={selecting && canAssignApplicationReview(application)}
             selected={selected.has(application.id)}
             onToggle={() => toggle(application.id)}
           />
@@ -588,20 +618,18 @@ function ApplicationList({
             {recommendationFilter
               ? "No matching teams."
               : searching
-              ? needsReviewOnly && reviewable
-                ? `No matching ${teamOriginNoun(origin)} at ${applicationQueueStageLabels[stage]} still need reviews.`
-                : `No ${teamOriginNoun(origin)} match “${searchQuery}” at ${applicationQueueStageLabels[stage]}.`
-              : countByState.size === 0
-                ? oneReviewOnly
-                  ? `No ${teamOriginNoun(origin, false)} has exactly 1 review in.`
-                  : origin === "all"
-                    ? "No team has applied yet."
-                    : `No ${teamOriginNoun(origin, false)} has applied yet.`
-                : needsReviewOnly && reviewable
-                  ? `No ${teamOriginNoun(origin)} at ${applicationQueueStageLabels[stage]} still need reviews.`
-                  : origin === "all"
-                    ? `Nothing at ${applicationQueueStageLabels[stage]} right now.`
-                    : `No ${teamOriginNoun(origin)} at ${applicationQueueStageLabels[stage]} right now.`}
+                ? `No ${teamOriginNoun(origin)} match “${searchQuery}” in this view.`
+                : reviewProgress !== null
+                  ? reviewProgress === "unreviewed"
+                    ? `No ${teamOriginNoun(origin)} have zero completed reviews.`
+                    : reviewProgress === "partial"
+                      ? `No ${teamOriginNoun(origin)} are partially reviewed.`
+                      : `No ${teamOriginNoun(origin)} have met the review minimum.`
+                  : stage !== null
+                    ? `No ${teamOriginNoun(origin)} are at ${applicationQueueStageLabels[stage]}.`
+                    : origin === "all"
+                      ? "No applications right now."
+                      : `No ${teamOriginNoun(origin)} have applied.`}
           </p>
         ) : null}
       </div>

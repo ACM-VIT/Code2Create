@@ -292,6 +292,40 @@ describe("admission cohort query and decisions", () => {
     expect(continuation.isDone).toBe(true);
   });
 
+  test("reports and filters mutually exclusive review coverage", async () => {
+    const backend = seededBackend();
+    const fixture = await seedCohortFixture(backend, { extraTeams: 1 });
+    const operator = backend.withIdentity({
+      subject: fixture.operatorAuthUserId,
+      sessionId: fixture.operatorAuthSessionId,
+    });
+
+    expect(await operator.query(api.admissions.reviewProgressCounts, {
+      eventSlug: fixture.eventSlug,
+    })).toEqual({ total: 4, unreviewed: 1, partial: 1, complete: 2 });
+
+    const list = async (reviewProgress: "unreviewed" | "partial" | "complete") =>
+      (await operator.query(api.admissions.list, {
+        eventSlug: fixture.eventSlug,
+        reviewProgress,
+        paginationOpts: { cursor: null, numItems: 10 },
+      })).page.map((application) => application.teamName);
+    expect(await list("unreviewed")).toEqual(["Additional Team 1"]);
+    expect(await list("partial")).toEqual(["Night Kiln"]);
+    expect(await list("complete")).toEqual(["Steady Loom", "Split Signal"]);
+
+    expect((await operator.query(api.admissions.searchApplications, {
+      eventSlug: fixture.eventSlug,
+      reviewProgress: "unreviewed",
+      search: "additional",
+    })).applications.map((application) => application.teamName)).toEqual(["Additional Team 1"]);
+    expect((await operator.query(api.admissions.searchApplications, {
+      eventSlug: fixture.eventSlug,
+      reviewProgress: "complete",
+      search: "additional",
+    })).applications).toEqual([]);
+  });
+
   test("keeps claimed applications visible until their required reviews are submitted", async () => {
     const backend = seededBackend();
     const fixture = await seedCohortFixture(backend);
@@ -326,6 +360,55 @@ describe("admission cohort query and decisions", () => {
       "Night Kiln",
     ]);
     expect(completedSearch.applications).toEqual([]);
+  });
+
+  test("paginates review shortfalls within transaction limits across completed applications", async () => {
+    const backend = convexTest({ schema, modules, transactionLimits: true });
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedCohortFixture(backend);
+    // Keep the one matching application after a long run of completed reviews.
+    await backend.run(async (ctx) => {
+      await ctx.db.patch(fixture.shortApplicationId, { submittedAt: fixture.now + 1_000 });
+    });
+    for (let batch = 0; batch < 15; batch += 1) {
+      await backend.run(async (ctx) => {
+        const source = await ctx.db.get(fixture.decidableApplicationId);
+        if (!source) throw new Error("Missing fixture application");
+        const { _id, _creationTime, ...application } = source;
+        for (let index = 0; index < 20; index += 1) {
+          await ctx.db.insert("applications", {
+            ...application,
+            submittedAt: fixture.now + batch * 20 + index,
+          });
+        }
+      });
+    }
+    const operator = backend.withIdentity({
+      subject: fixture.operatorAuthUserId,
+      sessionId: fixture.operatorAuthSessionId,
+    });
+    const ids: Id<"applications">[] = [];
+    let cursor: string | null = null;
+    let pages = 0;
+    for (;;) {
+      const result: FunctionReturnType<typeof api.admissions.list> = await operator.query(
+        api.admissions.list,
+        {
+          eventSlug: fixture.eventSlug,
+          state: "under_review",
+          needsReview: true,
+          paginationOpts: { cursor, numItems: 30 },
+        },
+      );
+      ids.push(...result.page.map((application) => application.id));
+      pages += 1;
+      if (result.isDone) break;
+      expect(result.continueCursor).not.toBe(cursor);
+      expect(pages).toBeLessThan(20);
+      cursor = result.continueCursor;
+    }
+    expect(ids).toEqual([fixture.shortApplicationId]);
+    expect(pages).toBeGreaterThan(1);
   });
 
   test("ranks candidates, spends capacity in people, and marks review shortfalls", async () => {

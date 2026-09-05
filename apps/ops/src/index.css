@@ -9346,20 +9346,10 @@ textarea:focus {
 }
 .admissions-toolbar {
   display: grid;
-  grid-template-columns: minmax(240px, 1fr) minmax(320px, auto) auto;
+  grid-template-columns: minmax(240px, 1fr) auto;
   align-items: end;
   gap: 14px 24px;
 }
-.admissions-filter-set {
-  display: grid;
-  gap: 8px;
-}
-.admissions-filter-set legend {
-  color: var(--faint);
-  font-size: 0.7rem;
-  font-weight: 500;
-}
-.admissions-filter-set > div,
 .admissions-toolbar-buttons {
   display: flex;
   flex-wrap: wrap;
@@ -9672,10 +9662,6 @@ textarea:focus {
   .admissions-toolbar {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
-  }
-  .admissions-filter-set > div {
-    display: grid;
-    justify-items: start;
   }
   .admissions-toolbar-buttons {
     justify-content: flex-start;
