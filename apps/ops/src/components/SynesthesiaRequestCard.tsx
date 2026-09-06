@@ -1,9 +1,9 @@
 import { LiveNumber } from "./LiveNumber";
 import { api } from "@code2create/backend/api";
 import { songRequestStateLabels } from "@code2create/domain";
-import type { FunctionReturnType } from "convex/server";
+import type { FunctionArgs, FunctionReference, FunctionReturnType } from "convex/server";
 import { useMutation, usePaginatedQuery } from "convex/react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { eventSlug } from "../lib/config";
 import { readableError } from "../lib/errors";
@@ -15,9 +15,20 @@ type ReportPage = FunctionReturnType<typeof api.synesthesiaOperations.reports>;
 type OpenReport = ReportPage["page"][number];
 const reportPageSize = 12;
 
+type MutationCommand<Reference extends FunctionReference<"mutation">> =
+  (args: FunctionArgs<Reference>) => Promise<FunctionReturnType<Reference>>;
+
+type RequestCommands = {
+  moderate: MutationCommand<typeof api.synesthesiaOperations.moderateRequest>;
+  schedule: MutationCommand<typeof api.synesthesiaOperations.scheduleRequest>;
+  acknowledge: MutationCommand<typeof api.synesthesiaOperations.acknowledgePlayback>;
+  resolveReport: MutationCommand<typeof api.synesthesiaOperations.resolveReport>;
+  setAccess: MutationCommand<typeof api.synesthesiaOperations.setRequesterAccess>;
+};
+
+type RequestCardProps = { request: QueueRequest; startAvailable: boolean };
+
 type RequestActionKind =
-  | "approve"
-  | "reject"
   | "hide"
   | "queue"
   | "pin"
@@ -50,8 +61,6 @@ function timestampFromLocal(value: string) {
 }
 
 function actionLabel(kind: RequestActionKind) {
-  if (kind === "approve") return "Approve request";
-  if (kind === "reject") return "Decline request";
   if (kind === "hide") return "Hide request";
   if (kind === "queue") return "Add to queue";
   if (kind === "pin") return "Pin in queue";
@@ -66,15 +75,27 @@ function actionLabel(kind: RequestActionKind) {
 export function SynesthesiaRequestCard({
   request,
   startAvailable,
-}: {
-  request: QueueRequest;
-  startAvailable: boolean;
-}) {
+}: RequestCardProps) {
   const moderate = useMutation(api.synesthesiaOperations.moderateRequest);
   const schedule = useMutation(api.synesthesiaOperations.scheduleRequest);
   const acknowledge = useMutation(api.synesthesiaOperations.acknowledgePlayback);
   const resolveReport = useMutation(api.synesthesiaOperations.resolveReport);
   const setAccess = useMutation(api.synesthesiaOperations.setRequesterAccess);
+  return (
+    <SynesthesiaRequestCardContent
+      request={request}
+      startAvailable={startAvailable}
+      commands={{ moderate, schedule, acknowledge, resolveReport, setAccess }}
+    />
+  );
+}
+
+export function SynesthesiaRequestCardContent({
+  request,
+  startAvailable,
+  commands,
+}: RequestCardProps & { commands: RequestCommands }) {
+  const { moderate, schedule, acknowledge, resolveReport, setAccess } = commands;
   const operations = useOperationRunner();
   const [action, setAction] = useState<RequestAction | null>(null);
   const [reportAction, setReportAction] = useState<ReportAction | null>(null);
@@ -85,10 +106,44 @@ export function SynesthesiaRequestCard({
   const [scheduledFor, setScheduledFor] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const quickDecisionInFlight = useRef(false);
+  const quickSlot = "synesthesia-request-decision";
+  const quickPending = operations.hasPending(quickSlot);
   const actionSlot = action ? `synesthesia-request-${action.kind}` : null;
   const actionPending = actionSlot !== null && operations.hasPending(actionSlot);
   const reportPending = operations.hasPending("synesthesia-report-resolve");
-  const operationPending = actionPending || reportPending;
+  const operationPending = actionPending || reportPending || quickPending;
+
+  const decide = async (decision: "approve" | "reject" | "retry") => {
+    if (quickDecisionInFlight.current || busy || actionPending || reportPending) return;
+    if (decision !== "retry" && operations.hasPending(quickSlot)) return;
+    quickDecisionInFlight.current = true;
+    setBusy(true);
+    setError(null);
+    setAction(null);
+    setReportAction(null);
+    try {
+      if (decision === "retry") {
+        await operations.retryPending(quickSlot);
+      } else {
+        const expectedVersion = request.version;
+        await operations.run(quickSlot, (clientOperationId) => () =>
+          moderate({
+            eventSlug,
+            requestId: request.id,
+            decision,
+            expectedVersion,
+            clientOperationId,
+          }),
+        );
+      }
+    } catch (caught) {
+      setError(readableError(caught));
+    } finally {
+      quickDecisionInFlight.current = false;
+      setBusy(false);
+    }
+  };
 
   const chooseAction = (kind: RequestActionKind) => {
     if (operationPending || busy) return;
@@ -135,7 +190,7 @@ export function SynesthesiaRequestCard({
     setBusy(true);
     setError(null);
     try {
-      if (actionKind === "approve" || actionKind === "reject" || actionKind === "hide") {
+      if (actionKind === "hide") {
         await operations.run(
           `synesthesia-request-${actionKind}`,
           (clientOperationId) => () =>
@@ -245,6 +300,7 @@ export function SynesthesiaRequestCard({
             {request.artist} · {durationLabel(request.durationSeconds)} · {request.energyTag}
             {request.isExplicit ? " · explicit" : ""}
           </span>
+          <span>Requested by {request.requesterName}</span>
         </div>
         <div className="synesthesia-request-state">
           <span>{songRequestStateLabels[request.state]}</span>
@@ -267,35 +323,35 @@ export function SynesthesiaRequestCard({
       ) : null}
 
       <div className="synesthesia-request-actions">
-        {request.canModerate && request.state === "pending" ? (
+        {request.canDecide && request.state === "pending" ? (
           <button
             type="button"
             className="text-button"
             disabled={operationPending || busy}
-            onClick={() => chooseAction("approve")}
+            onClick={() => void decide("approve")}
           >
-            Approve
+            Accept
+          </button>
+        ) : null}
+        {request.canDecide && ["pending", "approved", "queued"].includes(request.state) ? (
+          <button
+            type="button"
+            className="text-button"
+            disabled={operationPending || busy}
+            onClick={() => void decide("reject")}
+          >
+            Reject
           </button>
         ) : null}
         {request.canModerate && ["pending", "approved", "queued"].includes(request.state) ? (
-          <>
-            <button
-              type="button"
-              className="text-button"
-              disabled={operationPending || busy}
-              onClick={() => chooseAction("reject")}
-            >
-              Decline
-            </button>
-            <button
-              type="button"
-              className="text-button"
-              disabled={operationPending || busy}
-              onClick={() => chooseAction("hide")}
-            >
-              Hide
-            </button>
-          </>
+          <button
+            type="button"
+            className="text-button"
+            disabled={operationPending || busy}
+            onClick={() => chooseAction("hide")}
+          >
+            Hide
+          </button>
         ) : null}
         {request.canSchedule && (request.state === "approved" || request.state === "queued") ? (
           <>
@@ -379,6 +435,13 @@ export function SynesthesiaRequestCard({
         ) : null}
       </div>
 
+      {quickPending && !busy ? (
+        <button type="button" className="secondary compact" onClick={() => void decide("retry")}>
+          Retry earlier decision
+        </button>
+      ) : null}
+      {error && !action && !reportAction ? <p className="notice error" role="alert">{error}</p> : null}
+
       {action ? (
         <form
           className="synesthesia-command"
@@ -388,7 +451,7 @@ export function SynesthesiaRequestCard({
           }}
         >
           <strong>{actionLabel(action.kind)}</strong>
-          {action.kind === "reject" || action.kind === "hide" ? (
+          {action.kind === "hide" ? (
             <label className="field">
               <span>Participant message</span>
               <input
@@ -401,7 +464,7 @@ export function SynesthesiaRequestCard({
               />
             </label>
           ) : null}
-          {action.kind === "approve" || action.kind === "reject" || action.kind === "hide" ? (
+          {action.kind === "hide" ? (
             <label className="field">
               <span>Internal note, if useful</span>
               <input

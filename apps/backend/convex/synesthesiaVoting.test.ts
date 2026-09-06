@@ -205,6 +205,162 @@ describe("Synesthesia vote ownership", () => {
   });
 });
 
+describe("Synesthesia quick Ops decisions", () => {
+  for (const scopeType of ["event", "synesthesia_window"] as const) {
+    for (const decision of ["approve", "reject"] as const) {
+      test(`${scopeType} queue access permits ${decision} without hosting or typed reasons`, async () => {
+        const backend = seededBackend();
+        const fixture = await seedVotingFixture(backend);
+        await grantQueueAccess(backend, fixture, scopeType);
+        const operator = asAccount(backend, fixture.second);
+        const before = await operator.query(api.synesthesiaOperations.queue, {
+          eventSlug: fixture.eventSlug, windowId: fixture.windowId,
+        });
+        expect(before.requests[0]).toMatchObject({
+          canDecide: true, canModerate: false, canSchedule: false,
+          canAcknowledgePlayback: false, canReadReports: false,
+          canSuspendRequester: false, canRestoreRequester: false,
+        });
+        const args = {
+          eventSlug: fixture.eventSlug, requestId: fixture.requestId,
+          decision, expectedVersion: 1, clientOperationId: crypto.randomUUID(),
+        };
+        expect(await operator.mutation(api.synesthesiaOperations.moderateRequest, args)).toEqual({ requestId: fixture.requestId, version: 2 });
+        expect(await operator.mutation(api.synesthesiaOperations.moderateRequest, args)).toEqual({ requestId: fixture.requestId, version: 2 });
+        await backend.run(async (ctx) => {
+          const request = await ctx.db.get(fixture.requestId);
+          expect(request).toMatchObject({ state: decision === "approve" ? "approved" : "rejected", version: 2, moderatedByPersonId: fixture.second.personId });
+          expect(request?.publicReason).toBe(decision === "reject" ? "This request was declined by the music desk." : undefined);
+          const audit = await ctx.db.query("auditEvents").withIndex("by_target_time", q => q.eq("targetType", "song_request").eq("targetId", fixture.requestId)).collect();
+          expect(audit).toHaveLength(1);
+          expect(audit[0]).toMatchObject({
+            actorPersonId: fixture.second.personId,
+            authorizingPermissionKey: "synesthesia.queue.read",
+            resolvedScopeType: "synesthesia_window", resolvedScopeId: fixture.windowId,
+            reason: decision === "approve" ? "Approved from the music desk." : "Rejected from the music desk.",
+          });
+        });
+      });
+    }
+  }
+
+  test("queue readers see requester names but not contact details or internal notes", async () => {
+    const backend = seededBackend();
+    const fixture = await seedVotingFixture(backend);
+    await grantQueueAccess(backend, fixture);
+    await backend.run(async ctx => {
+      await ctx.db.patch(fixture.first.personId, { displayName: "Song Requester" });
+      await ctx.db.patch(fixture.requestId, { internalNote: "Private moderation note" });
+    });
+    const operator = asAccount(backend, fixture.second);
+    const queue = await operator.query(api.synesthesiaOperations.queue, { eventSlug: fixture.eventSlug, windowId: fixture.windowId });
+    expect(queue.requests[0]?.requesterName).toBe("Song Requester");
+    expect(queue.requests[0]).not.toHaveProperty("internalNote");
+    expect(JSON.stringify(queue.requests)).not.toContain(fixture.first.email);
+    await operator.mutation(api.synesthesiaOperations.moderateRequest, {
+      eventSlug: fixture.eventSlug, requestId: fixture.requestId,
+      decision: "approve", expectedVersion: 1, clientOperationId: crypto.randomUUID(),
+    });
+    expect(await backend.run(ctx => ctx.db.get(fixture.requestId))).toMatchObject({ internalNote: "Private moderation note" });
+  });
+
+  test("queue access does not permit hiding requests or changing internal notes", async () => {
+    const backend = seededBackend();
+    const fixture = await seedVotingFixture(backend);
+    await grantQueueAccess(backend, fixture);
+    const operator = asAccount(backend, fixture.second);
+    const args = { eventSlug: fixture.eventSlug, requestId: fixture.requestId, expectedVersion: 1 };
+    await expect(operator.mutation(api.synesthesiaOperations.moderateRequest, {
+      ...args, decision: "hide", reason: "Hide for review", publicReason: "Not suitable for this session", clientOperationId: crypto.randomUUID(),
+    })).rejects.toThrow();
+    await expect(operator.mutation(api.synesthesiaOperations.moderateRequest, {
+      ...args, decision: "approve", internalNote: "Overwrite a moderator note", clientOperationId: crypto.randomUUID(),
+    })).rejects.toThrow("Internal notes require song-moderation permission");
+    expect(await backend.run(ctx => ctx.db.get(fixture.requestId))).toMatchObject({ state: "pending", version: 1 });
+  });
+
+  test("ordinary participants and grants for another queue cannot make decisions", async () => {
+    const backend = seededBackend();
+    const fixture = await seedVotingFixture(backend);
+    const operator = asAccount(backend, fixture.second);
+    const args = { eventSlug: fixture.eventSlug, requestId: fixture.requestId, decision: "approve" as const, expectedVersion: 1, clientOperationId: crypto.randomUUID() };
+    await expect(operator.mutation(api.synesthesiaOperations.moderateRequest, args)).rejects.toThrow();
+    const otherWindowId = await backend.run(async ctx => {
+      const source = await ctx.db.get(fixture.windowId);
+      if (!source) throw new Error("Missing fixture window");
+      const { _id, _creationTime, ...fields } = source;
+      return ctx.db.insert("synesthesiaWindows", { ...fields, name: "Other queue" });
+    });
+    await grantQueueAccess(backend, fixture, "synesthesia_window", otherWindowId);
+    await expect(operator.mutation(api.synesthesiaOperations.moderateRequest, args)).rejects.toThrow();
+    await expect(operator.query(api.synesthesiaOperations.queue, { eventSlug: fixture.eventSlug, windowId: fixture.windowId })).rejects.toThrow();
+  });
+
+  test("stale competing decisions cannot overwrite a newer decision", async () => {
+    const backend = seededBackend();
+    const fixture = await seedVotingFixture(backend);
+    await grantQueueAccess(backend, fixture);
+    const operator = asAccount(backend, fixture.second);
+    const args = { eventSlug: fixture.eventSlug, requestId: fixture.requestId, expectedVersion: 1 };
+    await operator.mutation(api.synesthesiaOperations.moderateRequest, { ...args, decision: "approve", clientOperationId: crypto.randomUUID() });
+    await expect(operator.mutation(api.synesthesiaOperations.moderateRequest, { ...args, decision: "reject", clientOperationId: crypto.randomUUID() })).rejects.toThrow("The song request changed");
+    expect(await backend.run(ctx => ctx.db.get(fixture.requestId))).toMatchObject({ state: "approved", version: 2 });
+  });
+
+  test("an explicit moderator can still act without queue or playback grants", async () => {
+    const backend = seededBackend();
+    const fixture = await seedVotingFixture(backend);
+    await backend.run(ctx => insertPermissionGrant(ctx, {
+      eventId: fixture.eventId, personId: fixture.second.personId,
+      eventAccessSubjectId: fixture.second.subjectId,
+      permissionKey: "synesthesia.request.moderate", scopeType: "song_request", scopeId: fixture.requestId,
+      sourceType: "manual", sourceId: "moderator-test", reason: "Moderator test",
+    }));
+    const operator = asAccount(backend, fixture.second);
+    const args = { eventSlug: fixture.eventSlug, requestId: fixture.requestId, expectedVersion: 1, decision: "hide" as const, clientOperationId: crypto.randomUUID() };
+    await expect(operator.mutation(api.synesthesiaOperations.moderateRequest, args)).rejects.toThrow();
+    await expect(operator.mutation(api.synesthesiaOperations.moderateRequest, { ...args, reason: "Hide for review" })).rejects.toThrow("participant-facing reason");
+    await operator.mutation(api.synesthesiaOperations.moderateRequest, { ...args, reason: "Hide for review", publicReason: "Not suitable for this session" });
+    expect(await backend.run(ctx => ctx.db.get(fixture.requestId))).toMatchObject({ state: "hidden", version: 2 });
+  });
+
+  test("one-click moderator decisions preserve earlier internal notes", async () => {
+    const backend = seededBackend();
+    const fixture = await seedVotingFixture(backend);
+    await backend.run(async ctx => {
+      await insertPermissionGrant(ctx, {
+        eventId: fixture.eventId, personId: fixture.second.personId,
+        eventAccessSubjectId: fixture.second.subjectId,
+        permissionKey: "synesthesia.request.moderate", scopeType: "song_request", scopeId: fixture.requestId,
+        sourceType: "manual", sourceId: "moderator-test", reason: "Moderator test",
+      });
+      await ctx.db.patch(fixture.requestId, { internalNote: "Keep the original context" });
+    });
+    await asAccount(backend, fixture.second).mutation(api.synesthesiaOperations.moderateRequest, {
+      eventSlug: fixture.eventSlug, requestId: fixture.requestId, expectedVersion: 1,
+      decision: "reject", clientOperationId: crypto.randomUUID(),
+    });
+    expect(await backend.run(ctx => ctx.db.get(fixture.requestId))).toMatchObject({
+      state: "rejected", version: 2, internalNote: "Keep the original context",
+    });
+  });
+});
+
+async function grantQueueAccess(
+  backend: BackendTest,
+  fixture: Awaited<ReturnType<typeof seedVotingFixture>>,
+  scopeType: "event" | "synesthesia_window" = "synesthesia_window",
+  windowId = fixture.windowId,
+) {
+  await backend.run(ctx => insertPermissionGrant(ctx, {
+    eventId: fixture.eventId, personId: fixture.second.personId,
+    eventAccessSubjectId: fixture.second.subjectId,
+    permissionKey: "synesthesia.queue.read",
+    ...(scopeType === "event" ? { scopeType } : { scopeType, scopeId: windowId }),
+    sourceType: "manual", sourceId: "queue-decision-test", reason: "Queue decision test",
+  }));
+}
+
 function seededBackend() {
   const backend = convexTest({ schema, modules });
   backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);

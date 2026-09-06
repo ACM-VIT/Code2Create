@@ -13,7 +13,7 @@ import {
   recordOperation,
   storedOperationVersion,
 } from "./lib/operations";
-import { requirePermission } from "./lib/permissions";
+import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
 import { normalizedText, optionalNormalizedText } from "./lib/strings";
 import { activeGrantScopes, maximumRequestsPerWindow, scopeAllows } from "./lib/synesthesia";
 import { songRequestVoteCounts } from "./lib/synesthesiaVotes";
@@ -49,10 +49,12 @@ const queueRequestView = v.object({
   scheduledFor: v.optional(v.number()),
   publicReason: v.optional(v.string()),
   internalNote: v.optional(v.string()),
+  requesterName: v.string(),
   requesterAccessState: v.union(v.literal("active"), v.literal("suspended")),
   requesterAccessVersion: v.number(),
   version: v.number(),
   createdAt: v.number(),
+  canDecide: v.boolean(),
   canModerate: v.boolean(),
   canSchedule: v.boolean(),
   canAcknowledgePlayback: v.boolean(),
@@ -161,14 +163,21 @@ export const queue = query({
     const membershipIds = [
       ...new Set(visibleRequests.map((request) => request.requestedByMembershipId)),
     ];
-    const accessStates = await Promise.all(
-      membershipIds.map(async (membershipId) => ({
-        membershipId,
-        state: await ctx.db
-          .query("synesthesiaAccessStates")
-          .withIndex("by_membership", (index) => index.eq("membershipId", membershipId))
-          .unique(),
-      })),
+    const personIds = [...new Set(visibleRequests.map((request) => request.requestedByPersonId))];
+    const [accessStates, people] = await Promise.all([
+      Promise.all(
+        membershipIds.map(async (membershipId) => ({
+          membershipId,
+          state: await ctx.db
+            .query("synesthesiaAccessStates")
+            .withIndex("by_membership", (index) => index.eq("membershipId", membershipId))
+            .unique(),
+        })),
+      ),
+      Promise.all(personIds.map((personId) => ctx.db.get("people", personId))),
+    ]);
+    const requesterNames = new Map(
+      people.flatMap((person) => person ? [[person._id, person.displayName] as const] : []),
     );
     const accessByMembership = new Map(
       accessStates.map((entry) => [entry.membershipId, entry.state]),
@@ -209,10 +218,13 @@ export const queue = query({
           ...(canModerate && request.internalNote !== undefined
             ? { internalNote: request.internalNote }
             : {}),
+          requesterName: requesterNames.get(request.requestedByPersonId)?.trim() || "Unknown participant",
           requesterAccessState: accessState?.state ?? "active",
           requesterAccessVersion: accessState?.version ?? 0,
           version: request.version,
           createdAt: request.createdAt,
+          // Queue access is sufficient for Accept/Reject, but not Hide or notes.
+          canDecide: true,
           canModerate,
           canSchedule: scopeAllows(schedule, request._id),
           canAcknowledgePlayback: scopeAllows(playback, request._id),
@@ -322,16 +334,23 @@ export const moderateRequest = mutation({
     publicReason: v.optional(v.string()),
     internalNote: v.optional(v.string()),
     expectedVersion: v.number(),
-    reason: v.string(),
+    reason: v.optional(v.string()),
     clientOperationId: v.string(),
   },
   returns: v.object({ requestId: v.id("songRequests"), version: v.number() }),
   handler: async (ctx, args) => {
     const { event, person, subject } = await staffContext(ctx, args.eventSlug);
-    const publicReason = optionalNormalizedText(args.publicReason, "Public reason", 160);
+    const publicReason =
+      optionalNormalizedText(args.publicReason, "Public reason", 160) ??
+      (args.decision === "reject" ? "This request was declined by the music desk." : undefined);
     const internalNote = optionalNormalizedText(args.internalNote, "Internal note", 300);
-    const reason = normalizedText(args.reason, "Moderation reason", 5, 200);
-    if ((args.decision === "reject" || args.decision === "hide") && !publicReason) {
+    const reason =
+      args.decision === "hide" || args.reason?.trim()
+        ? normalizedText(args.reason ?? "", "Moderation reason", 5, 200)
+        : args.decision === "approve"
+          ? "Approved from the music desk."
+          : "Rejected from the music desk.";
+    if (args.decision === "hide" && !publicReason) {
       throw new ConvexError({
         code: "PUBLIC_REASON_REQUIRED",
         message: "A short participant-facing reason is required.",
@@ -386,13 +405,37 @@ export const moderateRequest = mutation({
         message: "That moderation action is not valid from the current request state.",
       });
     }
-    const grantIds = await requirePermission(ctx, {
+    const moderationPermission = {
       eventId: event._id,
       eventAccessSubjectId: subject._id,
-      permissionKey: "synesthesia.request.moderate",
-      scopeType: "song_request",
+      permissionKey: "synesthesia.request.moderate" as const,
+      scopeType: "song_request" as const,
       scopeId: request._id,
-    });
+    };
+    const moderationGrants = await matchingPermissionGrantIds(ctx, moderationPermission);
+    const queueDecision = args.decision !== "hide" && moderationGrants.length === 0;
+    let grantIds = moderationGrants;
+    if (queueDecision) {
+      const window = await ctx.db.get("synesthesiaWindows", request.windowId);
+      if (!window || window.eventId !== event._id) {
+        throw new ConvexError({ code: "WINDOW_NOT_FOUND", message: "Window not found." });
+      }
+      grantIds = await requirePermission(ctx, {
+        eventId: event._id,
+        eventAccessSubjectId: subject._id,
+        permissionKey: "synesthesia.queue.read",
+        scopeType: "synesthesia_window",
+        scopeId: window._id,
+      });
+      if (internalNote !== undefined) {
+        throw new ConvexError({
+          code: "PERMISSION_DENIED",
+          message: "Internal notes require song-moderation permission.",
+        });
+      }
+    } else if (grantIds.length === 0) {
+      grantIds = await requirePermission(ctx, moderationPermission);
+    }
     const now = Date.now();
     const version = request.version + 1;
     await ctx.db.patch("songRequests", request._id, {
@@ -400,7 +443,7 @@ export const moderateRequest = mutation({
       queueMode: "normal",
       scheduledFor: undefined,
       publicReason,
-      internalNote,
+      ...(queueDecision || args.internalNote === undefined ? {} : { internalNote }),
       moderatedByPersonId: person._id,
       moderatedAt: now,
       version,
@@ -421,10 +464,10 @@ export const moderateRequest = mutation({
     await writeAuditEvent(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
-      permissionKey: "synesthesia.request.moderate",
+      permissionKey: queueDecision ? "synesthesia.queue.read" : "synesthesia.request.moderate",
       grantIds,
-      scopeType: "song_request",
-      scopeId: request._id,
+      scopeType: queueDecision ? "synesthesia_window" : "song_request",
+      scopeId: queueDecision ? request.windowId : request._id,
       action: `synesthesia.request_${args.decision}`,
       targetType: "song_request",
       targetId: request._id,
