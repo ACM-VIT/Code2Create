@@ -402,11 +402,6 @@ export const current = query({
       policy && policy.eventId === event._id && policy.status === "published"
         ? policy.requiredGitHubTopic
         : null;
-    const topicVerificationPending =
-      currentRequiredTopic !== null &&
-      visibleBindings.some(
-        (binding) => !githubTopicVerificationIsCurrent(binding, currentRequiredTopic),
-      );
     const personalAuthorizations = await Promise.all(connections.map((connection) =>
       ctx.db.query("githubRepositoryAuthorizations")
         .withIndex("by_connection_person", (index) => index.eq("connectionId", connection._id).eq("personId", person._id))
@@ -508,17 +503,13 @@ export const current = query({
       }),
       summary: teamMetric
         ? {
-            health: topicVerificationPending ? ("needs_attention" as const) : teamMetric.health,
+            health: teamMetric.health,
             installationCount: teamMetric.installationCount,
             repositoryCount: teamMetric.repositoryCount,
-            completeRepositoryCount: topicVerificationPending
-              ? 0
-              : teamMetric.completeRepositoryCount,
-            topicPresentCount: topicVerificationPending ? 0 : teamMetric.topicPresentCount,
-            topicMissingCount: topicVerificationPending ? 0 : teamMetric.topicMissingCount,
-            topicUnknownCount: topicVerificationPending
-              ? teamMetric.repositoryCount
-              : teamMetric.topicUnknownCount,
+            completeRepositoryCount: teamMetric.completeRepositoryCount,
+            topicPresentCount: teamMetric.topicPresentCount,
+            topicMissingCount: teamMetric.topicMissingCount,
+            topicUnknownCount: teamMetric.topicUnknownCount,
             kindCounts: teamMetric.kindCounts,
             pushCount: teamMetric.pushCount,
             uniqueObservedCommitCount: teamMetric.uniqueObservedCommitCount,
@@ -528,10 +519,8 @@ export const current = query({
             deletions: teamMetric.deletions,
             changedFiles: teamMetric.changedFiles,
             languageBytes: teamMetric.languageBytes,
-            completeness: topicVerificationPending ? ("partial" as const) : teamMetric.completeness,
-            incompleteRepositoryCount: topicVerificationPending
-              ? teamMetric.repositoryCount
-              : teamMetric.incompleteRepositoryCount,
+            completeness: teamMetric.completeness,
+            incompleteRepositoryCount: teamMetric.incompleteRepositoryCount,
             ...(teamMetric.lastActivityAt !== undefined
               ? { lastActivityAt: teamMetric.lastActivityAt }
               : {}),
@@ -1503,83 +1492,18 @@ export const archiveRepository = mutation({
   },
 });
 
-const requiredTopicRevalidationPageSize = 32;
-
-export const revalidateRequiredTopic = internalMutation({
-  args: {
-    eventId: v.id("events"),
-    cursor: v.union(v.string(), v.null()),
-  },
+// Rebuild one materialized summary from its source records without contacting
+// GitHub or changing repository baselines, snapshots, or participant choices.
+export const refreshTeamMetrics = internalMutation({
+  args: { eventSlug: v.string(), teamId: v.id("teams") },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const event = await ctx.db.get(args.eventId);
-    if (!event) return null;
-    const { policy } = await loadPublishedIntegrationPolicy(ctx, event);
-    const page = await ctx.db
-      .query("githubRepositoryBindings")
-      .withIndex("by_event_repository", (index) => index.eq("eventId", event._id))
-      .paginate({ cursor: args.cursor, numItems: requiredTopicRevalidationPageSize });
-    const now = Date.now();
-    const affectedTeamIds = new Set<Id<"teams">>();
-    for (const binding of page.page) {
-      if (binding.state === "archived" || binding.requiredTopic === policy.requiredGitHubTopic) {
-        continue;
-      }
-      const canSync = binding.state === "active" && binding.baselineSha !== undefined;
-      await ctx.db.patch(binding._id, {
-        requiredTopic: policy.requiredGitHubTopic,
-        topicState: "unknown",
-        ...(canSync
-          ? {
-              syncRevision: binding.syncRevision + 1,
-              syncState: binding.syncState === "running" ? "running" : "pending",
-              syncErrorCode: undefined,
-            }
-          : {}),
-        version: binding.version + 1,
-        updatedAt: now,
-      });
-      await appendGithubIntegrationReadFactById(ctx, binding._id, now);
-      affectedTeamIds.add(binding.teamId);
-      if (canSync) {
-        const runAfter =
-          binding.syncState === "running"
-            ? Math.max(0, (binding.syncLeaseExpiresAt ?? now) - now) + 1_000
-            : 0;
-        await integrationWorkpool.enqueueAction(
-          ctx,
-          internal.githubActions.reconcileRepository,
-          { bindingId: binding._id },
-          { retry: false, ...(runAfter > 0 ? { runAfter } : {}) },
-        );
-      }
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const team = await ctx.db.get(args.teamId);
+    if (!team || team.eventId !== event._id) {
+      throw new ConvexError({ code: "TEAM_UNAVAILABLE", message: "This team is unavailable." });
     }
-    for (const teamId of affectedTeamIds) {
-      const metric = await ctx.db
-        .query("githubTeamMetrics")
-        .withIndex("by_team", (index) => index.eq("teamId", teamId))
-        .unique();
-      if (!metric || metric.eventId !== event._id) {
-        throw new Error("A GitHub team awaiting topic revalidation has no summary.");
-      }
-      await ctx.db.patch(metric._id, {
-        health: metric.repositoryCount === 0 ? "not_connected" : "needs_attention",
-        completeRepositoryCount: 0,
-        topicPresentCount: 0,
-        topicMissingCount: 0,
-        topicUnknownCount: metric.repositoryCount,
-        completeness: metric.repositoryCount === 0 ? "unknown" : "partial",
-        incompleteRepositoryCount: metric.repositoryCount,
-        version: metric.version + 1,
-        updatedAt: now,
-      });
-    }
-    if (!page.isDone) {
-      await ctx.scheduler.runAfter(0, internal.githubIntegrations.revalidateRequiredTopic, {
-        eventId: event._id,
-        cursor: page.continueCursor,
-      });
-    }
+    await refreshGithubTeamMetrics(ctx, { eventId: event._id, teamId: team._id, now: Date.now() });
     return null;
   },
 });

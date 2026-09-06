@@ -8012,6 +8012,13 @@ textarea:focus {
 .compact-search input {
   width: min(240px, 100%);
 }
+.integration-filter-toolbar .compact-search {
+  flex: 1;
+  width: 100%;
+}
+.integration-filter-toolbar .compact-search input {
+  width: 100%;
+}
 .integration-search-only {
   margin-top: 18px;
 }

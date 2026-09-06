@@ -8,7 +8,6 @@ export type LiveProviderConfiguration = {
   githubOwner: string;
   githubRepository: string;
   githubRepositoryId: string;
-  githubRequiredTopic: string;
   intelligenceUrl: string;
   openAiApiKey: string;
 };
@@ -83,12 +82,6 @@ export function readLiveProviderConfiguration(
       100,
     ),
     githubRepositoryId: positiveInteger(environment, "C2C_PROVIDER_GITHUB_REPOSITORY_ID"),
-    githubRequiredTopic: identifier(
-      environment,
-      "C2C_PROVIDER_GITHUB_REQUIRED_TOPIC",
-      /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
-      50,
-    ),
     intelligenceUrl: httpsOrigin(environment, "C2C_PROVIDER_INTELLIGENCE_URL"),
     openAiApiKey: requiredValue(environment, "OPENAI_API_KEY"),
   };

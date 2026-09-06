@@ -10,7 +10,6 @@ function validEnvironment(): NodeJS.ProcessEnv {
     C2C_PROVIDER_GITHUB_OWNER: "acm-vit",
     C2C_PROVIDER_GITHUB_REPOSITORY: "code2create-provider-fixture",
     C2C_PROVIDER_GITHUB_REPOSITORY_ID: "202",
-    C2C_PROVIDER_GITHUB_REQUIRED_TOPIC: "code2create-7-0",
     C2C_PROVIDER_INTELLIGENCE_URL: "https://intelligence-staging.example.test",
     GITHUB_APP_CLIENT_ID: "client-id",
     GITHUB_APP_CLIENT_SECRET: "client-secret",
@@ -24,7 +23,6 @@ test("live provider configuration accepts staging-only read targets", () => {
   const configuration = readLiveProviderConfiguration(validEnvironment());
   assert.equal(configuration.environment, "staging");
   assert.equal(configuration.githubOwner, "acm-vit");
-  assert.equal(configuration.githubRequiredTopic, "code2create-7-0");
   assert.equal(configuration.intelligenceUrl, "https://intelligence-staging.example.test");
 });
 
@@ -43,7 +41,4 @@ test("live provider configuration rejects unsafe provider identifiers and URLs",
   url.C2C_PROVIDER_INTELLIGENCE_URL = "https://intelligence-staging.example.test/health";
   assert.throws(() => readLiveProviderConfiguration(url), /HTTPS origin/);
 
-  const topic = validEnvironment();
-  topic.C2C_PROVIDER_GITHUB_REQUIRED_TOPIC = "Code2Create 7.0";
-  assert.throws(() => readLiveProviderConfiguration(topic), /unsupported value/);
 });

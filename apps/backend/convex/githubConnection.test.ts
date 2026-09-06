@@ -75,6 +75,46 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("GitHub installation connection", () => {
+  test("a missing optional topic counts fully in participant and operations summaries", async () => {
+    const f = await connectedFixture();
+    provider.topics.mockResolvedValue({ data: { names: [] } });
+    await f.add();
+    expect((await f.view())?.summary).toMatchObject({
+      health: "ready", repositoryCount: 1, completeRepositoryCount: 1,
+      completeness: "complete", incompleteRepositoryCount: 0,
+    });
+    const state = await f.backend.run(async ctx => {
+      const binding = await ctx.db.query("githubRepositoryBindings").unique();
+      if (!binding) throw new Error("Missing repository");
+      // A changed suggestion must not hide otherwise valid evidence on reads.
+      await ctx.db.patch(binding._id, { requiredTopic: "previous-event-topic", topicState: "unknown" });
+      return { eventId: binding.eventId, teamId: binding.teamId };
+    });
+    expect((await f.view())?.summary).toMatchObject({ health: "ready", completeness: "complete" });
+    const health = await f.backend.query(internal.operationsHealth.computeSnapshot, { eventId: state.eventId });
+    expect(health.snapshot.signals.some(signal => signal.key === "github_unverified_topics")).toBe(false);
+    await f.backend.run(async ctx => {
+      const metric = await ctx.db.query("githubTeamMetrics").unique();
+      if (!metric) throw new Error("Missing metric");
+      await ctx.db.patch(metric._id, { health: "needs_attention", completeness: "partial", completeRepositoryCount: 0, incompleteRepositoryCount: 1 });
+    });
+    const before = await f.backend.run(async ctx => ({
+      bindings: await ctx.db.query("githubRepositoryBindings").collect(),
+      snapshots: await ctx.db.query("githubRepositorySnapshots").collect(),
+    }));
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await f.backend.mutation(internal.githubIntegrations.refreshTeamMetrics, { eventSlug: "github-test", teamId: state.teamId });
+    }
+    expect((await f.view())?.summary).toMatchObject({ health: "ready", completeness: "complete", completeRepositoryCount: 1, incompleteRepositoryCount: 0 });
+    const operations = await f.lead.query(api.integrationOperations.teams, { eventSlug: "github-test" });
+    expect(operations.summary.attentionCount).toBe(0);
+    expect(operations.teams[0]?.github).toMatchObject({ health: "ready", repositoryCount: 1, incompleteCount: 0 });
+    expect(await f.backend.run(async ctx => ({
+      bindings: await ctx.db.query("githubRepositoryBindings").collect(),
+      snapshots: await ctx.db.query("githubRepositorySnapshots").collect(),
+    }))).toEqual(before);
+  });
+
   test.each(["registration_closed", "live"] as const)("adds an accepted team's repository during %s and captures its baseline once", async status => {
     const f = await connectedFixture();
     await f.backend.run(async ctx => {

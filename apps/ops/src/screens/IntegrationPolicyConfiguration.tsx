@@ -140,7 +140,7 @@ export function IntegrationPolicyConfiguration({ tabs }: { tabs: ConfigurationTa
         <div>
           <h1>Code and design rules</h1>
           <p className="muted">
-            The required GitHub topic, how many repositories and files each team can connect, and
+            The optional GitHub topic, how many repositories and files each team can connect, and
             when changes freeze.
           </p>
         </div>
@@ -152,8 +152,8 @@ export function IntegrationPolicyConfiguration({ tabs }: { tabs: ConfigurationTa
           <dd>{published.policyVersion}</dd>
         </div>
         <div>
-          <dt>Required topic</dt>
-          <dd>{published.requiredGitHubTopic}</dd>
+          <dt>Suggested topic (optional)</dt>
+          <dd>{published.requiredGitHubTopic || "None"}</dd>
         </div>
         <div>
           <dt>Per team</dt>
@@ -224,8 +224,8 @@ export function IntegrationPolicyConfiguration({ tabs }: { tabs: ConfigurationTa
         <section className="publish-confirmation catalog-publish">
           <h2>Publish these code and design rules?</h2>
           <p className="muted">
-            Limits and freezes take effect as soon as this is published. Changing the required
-            GitHub topic rechecks every active repository in the background.
+            Limits and freezes take effect as soon as this is published. Changing the optional
+            GitHub topic does not affect repository counting or review evidence.
           </p>
           <label className="field">
             <span>Why this changed</span>
@@ -264,7 +264,7 @@ export function IntegrationPolicyConfiguration({ tabs }: { tabs: ConfigurationTa
       {!operationPending && configuration.canDraft ? (
         <ConfigurationEditorDisclosure
           defaultOpen={Boolean(configuration.draftPolicy)}
-          description="GitHub repository limits, required topic and freeze time. Figma uses a shared file link."
+          description="GitHub repository limits, optional topic and freeze time. Figma uses a shared file link."
           title={
             configuration.draftPolicy
               ? "Continue code-and-design draft"
@@ -275,7 +275,7 @@ export function IntegrationPolicyConfiguration({ tabs }: { tabs: ConfigurationTa
             <fieldset disabled={draftPending} style={{ display: "contents" }}>
               <PolicySection
                 title="GitHub"
-                description="The topic is checked against every connected repository. Existing repositories are rechecked after a topic change."
+                description="The topic is optional. Repositories count fully without it, and changing it does not invalidate existing evidence."
               >
                 <div className="intake-policy-grid">
                   <label className="field">
@@ -289,9 +289,8 @@ export function IntegrationPolicyConfiguration({ tabs }: { tabs: ConfigurationTa
                     />
                   </label>
                   <label className="field">
-                    <span>Required repository topic</span>
+                    <span>Suggested repository topic (optional)</span>
                     <input
-                      required
                       maxLength={50}
                       pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
                       value={policy.requiredGitHubTopic}
@@ -299,7 +298,7 @@ export function IntegrationPolicyConfiguration({ tabs }: { tabs: ConfigurationTa
                         updatePolicy("requiredGitHubTopic", event.currentTarget.value)
                       }
                     />
-                    <small>Lowercase letters, numbers, and single hyphens.</small>
+                    <small>Lowercase letters, numbers, and single hyphens. Leave blank for no suggestion.</small>
                   </label>
                   <label className="field">
                     <span>Active repositories per team</span>

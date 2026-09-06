@@ -1,6 +1,5 @@
 import { ConvexError, v } from "convex/values";
 
-import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
@@ -178,7 +177,9 @@ function describeChanges(published: IntegrationPolicy, draft: IntegrationPolicy)
   }
   if (published.requiredGitHubTopic !== draft.requiredGitHubTopic) {
     changes.push(
-      `Require the GitHub topic ${draft.requiredGitHubTopic} and recheck every active repository.`,
+      draft.requiredGitHubTopic
+        ? `Suggest the optional GitHub topic ${draft.requiredGitHubTopic}. Repository counting is unchanged.`
+        : "Remove the suggested GitHub topic. Repository counting is unchanged.",
     );
   }
   if (published.maxActiveGitHubRepositoriesPerTeam !== draft.maxActiveGitHubRepositoriesPerTeam) {
@@ -399,12 +400,6 @@ export const publish = mutation({
       }),
       reason,
     });
-    if (result.requiredGitHubTopicChanged) {
-      await ctx.scheduler.runAfter(0, internal.githubIntegrations.revalidateRequiredTopic, {
-        eventId: event._id,
-        cursor: null,
-      });
-    }
     return {
       policyVersionId: result.policyVersionId,
       policyVersion: result.policyVersion,

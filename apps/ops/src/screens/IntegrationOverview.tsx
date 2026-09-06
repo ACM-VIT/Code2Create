@@ -3,12 +3,11 @@ import { api } from "@code2create/backend/api";
 import {
   githubRepositoryCoverageLabels,
   githubRepositorySyncStateLabels,
-  githubRepositoryTopicStateLabels,
   integrationProviderHealthLabels,
   repositoryKindLabels,
   teamStatusLabels,
 } from "@code2create/domain";
-import { usePaginatedQuery, useQuery } from "convex/react";
+import { useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
 
@@ -17,9 +16,10 @@ import { Icon } from "../components/Icon";
 import type { IconName } from "../components/Icon";
 import { LoadingLabel, SkeletonList } from "../components/Skeleton";
 
-type IntegrationTeam = FunctionReturnType<typeof api.integrationOperations.teams>["page"][number];
+type IntegrationData = FunctionReturnType<typeof api.integrationOperations.teams>;
+type IntegrationTeam = IntegrationData["teams"][number];
 type ProviderHealth = IntegrationTeam["github"]["health"];
-type IntegrationView = "attention" | "all";
+type IntegrationView = "attention" | "disconnected" | "ready" | "all";
 function activityTime(value: number | undefined) {
   if (value === undefined) return null;
   return new Date(value).toLocaleString([], {
@@ -84,11 +84,6 @@ function ProviderCount({
 
 function teamNote(team: IntegrationTeam) {
   const notes: string[] = [];
-  if (team.github.topicMissingCount > 0) {
-    notes.push(
-      `${plural(team.github.topicMissingCount, "repository", "repositories")} missing the event topic`,
-    );
-  }
   if (team.github.incompleteCount > 0) {
     notes.push(
       `${plural(team.github.incompleteCount, "repository", "repositories")} only partly counted`,
@@ -106,31 +101,38 @@ function teamNote(team: IntegrationTeam) {
 }
 
 export function IntegrationOverview() {
-  const [chosen, setView] = useState<IntegrationView | null>(null);
+  const data = useQuery(api.integrationOperations.teams, { eventSlug });
+  if (data === undefined) {
+    return <section className="integration-health-shell">
+      <LoadingLabel>Loading selected teams’ code and design</LoadingLabel>
+      <SkeletonList rows={5} />
+    </section>;
+  }
+  return <IntegrationOverviewContent data={data} />;
+}
+
+export function IntegrationOverviewContent({ data }: { data: IntegrationData }) {
+  const [view, setView] = useState<IntegrationView>("all");
   const [expandedTeamId, setExpandedTeamId] = useState<IntegrationTeam["teamId"] | null>(null);
   const [search, setSearch] = useState("");
-  const { results, status, loadMore } = usePaginatedQuery(
-    api.integrationOperations.teams,
-    { eventSlug },
-    { initialNumItems: 30 },
-  );
-  const summary = useQuery(api.integrationOperations.summary, { eventSlug });
-  const outstanding =
-    summary === undefined ? 0 : summary.disconnectedCount + summary.attentionCount;
-  const view = chosen ?? (outstanding > 0 ? "attention" : "all");
+  const [visibleCount, setVisibleCount] = useState(30);
+  const { teams, summary } = data;
+  const outstanding = summary.disconnectedCount + summary.attentionCount;
+  const readyCount = summary.totalTeamCount - outstanding;
   const normalizedSearch = search.trim().toLocaleLowerCase();
-  const visible = [
-    ...(view === "attention" ? results.filter((team) => teamRank(team) < 2) : results),
-  ]
-    .filter(
-      (team) =>
-        normalizedSearch.length === 0 ||
-        team.teamName.toLocaleLowerCase().includes(normalizedSearch),
-    )
-    .sort(
-      (left, right) =>
-        teamRank(left) - teamRank(right) || left.teamName.localeCompare(right.teamName),
-    );
+  const matching = teams.filter(team => {
+    if (view === "attention" && teamRank(team) >= 2) return false;
+    if (view === "disconnected" && !isDisconnected(team)) return false;
+    if (view === "ready" && teamRank(team) !== 2) return false;
+    return normalizedSearch.length === 0 ||
+      team.teamName.toLocaleLowerCase().includes(normalizedSearch) ||
+      team.teamCode.toLocaleLowerCase().includes(normalizedSearch);
+  }).sort((left, right) =>
+    teamRank(left) - teamRank(right) || left.teamName.localeCompare(right.teamName),
+  );
+  const visible = matching.slice(0, visibleCount);
+  const hasFilters = view !== "all" || normalizedSearch.length > 0;
+  const clearFilters = () => { setSearch(""); setView("all"); setVisibleCount(30); };
 
   return (
     <section className="integration-health-shell">
@@ -139,72 +141,42 @@ export function IntegrationOverview() {
           <p className="eyebrow">Connected project work</p>
           <h1>Code and design</h1>
           <p className="muted">
-            {summary === undefined
-              ? "Loading connection health for every team you can read."
-              : summary.totalTeamCount === 0
-                ? "Repositories and design files each team connects, with how well they are reading."
-                : summary.disconnectedCount > 0
-                  ? summary.disconnectedCount === summary.totalTeamCount
-                    ? `None of the ${summary.totalTeamCount} teams have connected code or design yet. Reviewers have no project work to open.`
-                    : `${summary.disconnectedCount} of ${summary.totalTeamCount} teams have not connected code or design. Reviewers have no project work to open for those teams.`
-                  : summary.attentionCount > 0
-                    ? `Every team has connected something, but ${summary.attentionCount} ${summary.attentionCount === 1 ? "connection is" : "connections are"} not reading properly. Their recent work will look emptier than it is.`
-                    : `All ${summary.totalTeamCount} teams have code or design connected and reading normally.`}
+            Accepted teams only, including teams awaiting RSVP and those already participating.
+            {" "}{summary.totalTeamCount} selected teams · {summary.disconnectedCount} not connected · {summary.attentionCount} with connection issues.
           </p>
         </div>
       </div>
 
-      {summary !== undefined && outstanding > 0 && outstanding < summary.totalTeamCount ? (
-        <div className="integration-toolbar">
-          <div className="configuration-tabs" role="tablist" aria-label="Which teams to show">
-            <button
-              aria-selected={view === "attention"}
-              className={view === "attention" ? "active" : ""}
-              role="tab"
-              type="button"
-              onClick={() => setView("attention")}
-            >
-              Needs a look · {outstanding}
-            </button>
-            <button
-              aria-selected={view === "all"}
-              className={view === "all" ? "active" : ""}
-              role="tab"
-              type="button"
-              onClick={() => setView("all")}
-            >
-              Every team · {summary.totalTeamCount}
-            </button>
-          </div>
-          <label className="compact-search">
-            <span className="visually-hidden">Find a team</span>
-            <input
-              type="search"
-              placeholder="Find a team"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-            />
-          </label>
-        </div>
-      ) : summary !== undefined && summary.totalTeamCount > 6 ? (
-        <label className="compact-search integration-search-only">
-          <span className="visually-hidden">Find a team</span>
+      <div className="integration-toolbar integration-filter-toolbar">
+        <label className="compact-search">
+          <span className="visually-hidden">Search selected teams</span>
           <input
             type="search"
-            placeholder="Find a team"
+            placeholder="Search team name or code"
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            onChange={event => { setSearch(event.target.value); setVisibleCount(30); }}
           />
         </label>
-      ) : null}
-
-      {status === "LoadingFirstPage" ? (
-        <>
-          <LoadingLabel>Loading connected code and design</LoadingLabel>
-          <SkeletonList rows={5} />
-        </>
-      ) : (
-        <div className="integration-health-list">
+        <label className="field">
+          <span>Connection status</span>
+          <select value={view} onChange={event => {
+            const value = event.target.value;
+            if (value === "all" || value === "attention" || value === "disconnected" || value === "ready") {
+              setView(value); setVisibleCount(30);
+            }
+          }}>
+            <option value="all">All selected ({summary.totalTeamCount})</option>
+            <option value="attention">Needs a look ({outstanding})</option>
+            <option value="disconnected">Not connected ({summary.disconnectedCount})</option>
+            <option value="ready">Connected, no issues ({readyCount})</option>
+          </select>
+        </label>
+        {hasFilters ? <button className="secondary" type="button" onClick={clearFilters}>Clear filters</button> : null}
+      </div>
+      <p className="muted" role="status">
+        Showing {visible.length} of {matching.length} matching selected teams
+      </p>
+      <div className="integration-health-list">
           {visible.map((team) => {
             const note = teamNote(team);
             const connected = team.github.repositoryCount + (team.figmaFileUrl ? 1 : 0);
@@ -219,6 +191,7 @@ export function IntegrationOverview() {
                 <div className="row-text">
                   <strong>
                     {team.teamName}
+                    <span className="row-context"> · {team.teamCode}</span>
                     {team.teamStatus === "confirmed" ? null : (
                       <span className="row-context"> · {teamStatusLabels[team.teamStatus]}</span>
                     )}
@@ -263,20 +236,15 @@ export function IntegrationOverview() {
           })}
           {visible.length === 0 ? (
             <p className="empty">
-              {summary?.totalTeamCount === 0
-                ? "No teams are available in this workspace."
-                : normalizedSearch.length > 0
-                  ? `No team matches “${search.trim()}”.`
-                  : view === "attention"
-                    ? "No affected teams are in the rows loaded so far."
-                    : "No team rows have been loaded."}
+              {summary.totalTeamCount === 0
+                ? "No selected teams are available in this workspace."
+                : "No selected teams match your search and connection filter."}
             </p>
           ) : null}
-        </div>
-      )}
-      {status === "CanLoadMore" ? (
-        <button className="secondary" type="button" onClick={() => loadMore(30)}>
-          Load more teams
+      </div>
+      {visible.length < matching.length ? (
+        <button className="secondary" type="button" onClick={() => setVisibleCount(count => count + 30)}>
+          Show more teams ({matching.length - visible.length} remaining)
         </button>
       ) : null}
     </section>
@@ -318,9 +286,6 @@ function IntegrationDetails({ team }: { team: IntegrationTeam }) {
                   <small>
                     {repository.trackedBranch}
                     {repository.rootPath ? ` / ${repository.rootPath}` : ""}
-                    {repository.topicState === "present"
-                      ? ""
-                      : ` · ${githubRepositoryTopicStateLabels[repository.topicState]}`}
                     {repository.syncState === "ready"
                       ? ""
                       : ` · ${githubRepositorySyncStateLabels[repository.syncState]}`}

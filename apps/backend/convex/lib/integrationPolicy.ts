@@ -45,8 +45,8 @@ function optionalTimestamp(value: number | undefined, label: string) {
 
 export function normalizeIntegrationPolicy(input: IntegrationPolicy): IntegrationPolicy {
   const requiredGitHubTopic = input.requiredGitHubTopic.trim().toLocaleLowerCase("en");
-  if (requiredGitHubTopic.length > 50 || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(requiredGitHubTopic)) {
-    invalidPolicy("Required GitHub topic must use lowercase letters, numbers, and single hyphens.");
+  if (requiredGitHubTopic !== "" && (requiredGitHubTopic.length > 50 || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(requiredGitHubTopic))) {
+    invalidPolicy("Suggested GitHub topic must use lowercase letters, numbers, and single hyphens, or be left blank.");
   }
   const githubFreezeAt = optionalTimestamp(input.githubFreezeAt, "GitHub freeze time");
   return {
@@ -264,6 +264,5 @@ export async function publishIntegrationPolicy(
   return {
     policyVersionId: draft._id,
     policyVersion: draft.version,
-    requiredGitHubTopicChanged: previous.requiredGitHubTopic !== normalized.requiredGitHubTopic,
   };
 }

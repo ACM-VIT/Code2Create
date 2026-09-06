@@ -3,6 +3,48 @@ import { expect, test } from "@playwright/test";
 const fixtureUrl = "/src/dev/synesthesiaDecisions.html";
 
 for (const width of [1440, 390]) {
+  test(`selected team integrations search the full cohort and filter at ${width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/src/dev/integrationOverview.html");
+    const rows = page.locator(".integration-health-row");
+    const search = page.getByRole("searchbox", { name: "Search selected teams" });
+    await expect(rows).toHaveCount(30);
+    await expect(page.getByRole("status")).toHaveText("Showing 30 of 42 matching selected teams");
+    await search.fill("  selected TEAM 39  ");
+    await expect(rows).toHaveCount(1);
+    await expect(rows.first()).toContainText("Selected Team 39");
+    await search.fill("sel41");
+    await expect(rows).toHaveCount(1);
+    await expect(rows.first()).toContainText("Selected Team 41");
+    await expect(rows.first()).not.toContainText("missing the event topic");
+    await expect(rows.first()).not.toContainText("only partly counted");
+    await page.getByRole("combobox", { name: "Connection status" }).selectOption("disconnected");
+    await expect(rows).toHaveCount(0);
+    await expect(page.getByText("No selected teams match your search and connection filter.")).toBeVisible();
+    await page.getByRole("button", { name: "Clear filters" }).click();
+    await expect(search).toHaveValue("");
+    await expect(rows).toHaveCount(30);
+    await page.getByRole("combobox", { name: "Connection status" }).selectOption("ready");
+    await expect(rows).toHaveCount(1);
+    await expect(rows.first()).toContainText("Selected Team 41");
+    await expect(page.getByRole("status")).toHaveText("Showing 1 of 1 matching selected teams");
+    await page.screenshot({ path: testInfo.outputPath(`selected-integrations-${width}.png`) });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.getByRole("button", { name: "Clear filters" }).click();
+    await page.getByRole("button", { name: "Show more teams (12 remaining)" }).click();
+    await expect(rows).toHaveCount(42);
+    await expect(page.getByRole("button", { name: /Show more teams/ })).toHaveCount(0);
+  });
+}
+
+test("selected team integrations keep search available in an empty workspace", async ({ page }) => {
+  await page.goto("/src/dev/integrationOverview.html?empty");
+  await expect(page.getByRole("searchbox", { name: "Search selected teams" })).toBeVisible();
+  await expect(page.getByText("No selected teams are available in this workspace.")).toBeVisible();
+  await expect(page.getByRole("status")).toHaveText("Showing 0 of 0 matching selected teams");
+});
+
+for (const width of [1440, 390]) {
   test(`queue-only operators can accept once without a form at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await page.goto(fixtureUrl);

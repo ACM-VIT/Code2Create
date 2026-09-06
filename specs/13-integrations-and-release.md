@@ -18,13 +18,13 @@ OpenAI, GitHub, Figma, Expo, S3, and Google calls happen outside Convex mutation
 
 ### Published integration policy
 
-The event owns one immutable published integration policy and at most one replaceable draft. A policy explicitly names its release label, required GitHub topic, active GitHub-repository cap per team, active Figma-file cap per team, and optional GitHub and Figma freeze timestamps. The first-run form exposes every field and starts with the canonical `code2create-7-0` topic; no event-specific topic, cap, or freeze is hidden in participant or provider code.
+The event owns one immutable published integration policy and at most one replaceable draft. A policy explicitly names its release label, optional suggested GitHub topic, active GitHub-repository cap per team, and optional GitHub freeze timestamp. The first-run form suggests `code2create-7-0`, which may be left blank. The topic is descriptive metadata, never an eligibility, counting, health, or review-evidence requirement.
 
 `configuration.integration.read`, `.draft.create`, `.validate`, and `.publish` are independent event-scoped permissions. Draft creation and publication require recent authentication, a reason, a stable client-operation ID, the expected event version, and the exact current draft ID or checksum. A retry returns its first result, a competing writer loses cleanly, every new draft row is immutable, and publication moves the event pointer and supersedes the prior release in one mutation.
 
 Validation and publication reject a GitHub or Figma cap below the largest active team binding count already present in the bounded materialized team projections. Code-owned ceilings still bound request and transaction size; operations chooses the event policy inside those ceilings.
 
-A changed required topic is authoritative as soon as the new release publishes. Existing bindings with the prior topic become `unknown` in current participant, operations, and new-review evidence reads. A bounded continuation job updates binding policy labels, marks team summaries conservatively incomplete, and queues provider reconciliation without scanning all resources in a foreground request. A review checkpoint never reuses an old-topic snapshot as current evidence.
+A changed topic suggestion applies to new repository metadata checks. Existing baselines and snapshots remain valid, including those captured with an absent, unknown, or previous-policy topic. Publishing a topic change does not invalidate summaries, interrupt syncs, or queue a topic-only reconciliation.
 
 Provider change commands use server time and reject when `serverNow >= freezeAt`. Actions pass a server timestamp into read preparation and the committing mutation rechecks after provider I/O, so a request that crosses the exact freeze boundary cannot commit a late repository or file change.
 
@@ -173,9 +173,9 @@ Subscribe only to:
 - `installation`;
 - `installation_repositories`.
 
-The published integration policy supplies the required repository topic; the first release starts with `code2create-7-0`. `GET /repos/{owner}/{repo}/topics` needs only Metadata read, so the production App checks the current published value for every active repository at connection, readiness, and reconciliation.
+The published integration policy supplies an optional suggested repository topic. `GET /repos/{owner}/{repo}/topics` needs only Metadata read; observed topic state is descriptive metadata and does not affect repository completeness or readiness.
 
-GitHub's topic write endpoint is not a narrow “add topic” operation. `PUT /repos/{owner}/{repo}/topics` replaces the complete topic list and requires **Administration: write**. The selected production App therefore does not auto-write the topic. When it is missing, the portal shows the exact topic, asks a repository administrator to add it in GitHub, and rechecks without reinstalling the App.
+GitHub's topic write endpoint is not a narrow “add topic” operation. `PUT /repos/{owner}/{repo}/topics` replaces the complete topic list and requires **Administration: write**. The production App does not auto-write the topic, request elevated permissions, or ask participants to repair missing topics.
 
 If the board later requires automatic topic repair, ship it as a separate elevated App registration after security approval. That path must fetch the current list, merge the exact topic from the published integration policy, replace the list, and read it back. Do not add Administration write to the read-only evidence App.
 
@@ -262,7 +262,7 @@ Invalid signatures, unknown repositories, repeated deliveries, unsupported event
 
 For each repository’s tracked branch and optional project root, the worker uses the Commits, Compare, Git Trees, Contents, repository, topic, and language endpoints. It records:
 
-- required-topic state and first/last verified time;
+- optional topic metadata;
 - baseline SHA, current head SHA, head commit time, and ahead/behind state;
 - push count, commit count, and active-hour buckets since baseline;
 - additions, deletions, changed-file count, file-type mix, and top changed directories;
@@ -638,7 +638,7 @@ The checked-in `Product checks` workflow uses a pinned TruffleHog scan and a fro
 
 The manually triggered `Staging release verification` workflow is also checked in. Before it opens a browser, an internal read-only Convex query verifies the exact staging event, Google configuration, published participant and communications policies, a current operations-health snapshot, one eligible participant with a complete accepted-team home, that participant's exact profile/team/integration read grants, and the operations account's event-scoped health and rehearsal grants. The query refuses a Convex deployment that does not set `C2C_DEPLOYMENT_ENVIRONMENT=staging`. A role does not satisfy a missing grant. Playwright then checks anonymous and authenticated participant/operations surfaces with protected storage states. A parallel read-only job uses only controlled synthetic fixtures to verify native-width OpenAI embeddings, one GitHub App repository/topic, one Figma file, and the intelligence Worker health route. Neither job prints a cookie, token, participant project, or provider body. The first controlled staging run, broader multi-client flow coverage, signed native artifacts, and physical-device camera checks remain release blockers.
 
-The staging GitHub provider fixture receives `RELEASE_GITHUB_REQUIRED_TOPIC` from the protected environment and must match the staging event's published integration topic. The check does not embed an event-specific topic in release code.
+The staging GitHub provider fixture verifies repository and topic-metadata access without requiring any particular topic to be present.
 
 Production candidates merged to `main` must also run:
 
@@ -859,9 +859,9 @@ Intelligence HMAC rotation uses the autonomy kill switch, pauses manual generati
 - A team can add repositories from different App installations and give each a required kind, purpose, branch/root, and order.
 - Retrying one repository or Figma-file add with the same operation ID and participant input returns the original binding before provider I/O. A newer repository head, Figma version, or published integration policy cannot turn that retry into a different request or create another baseline artifact.
 - Repository reordering checks the complete current binding set and all row versions; duplicate, missing, stale, and competing orders change nothing.
-- The portal verifies the current published topic on every active repository, beginning with canonical `code2create-7-0`; a missing topic does not cause an Administration permission request.
+- Missing or unknown event topics do not reduce repository counts, create health warnings, or exclude review snapshots. The optional suggestion may be blank and never causes an Administration permission request.
 - Operations can independently read, draft, validate, and publish the integration policy. Stale event versions, stale draft IDs/checksums, reused operation IDs with different input, and cap reductions below active binding counts change nothing.
-- Publishing a required-topic change makes old-topic bindings unknown immediately, resumes through bounded reconciliation, and prevents new review evidence from treating an old-topic snapshot as current.
+- Publishing a topic suggestion change leaves existing evidence and in-flight syncs valid. At rollout, `githubIntegrations:refreshTeamMetrics` can rebuild each existing team's materialized summary from source records without provider calls or changes to baselines and snapshots.
 - GitHub and Figma change commands succeed immediately before their configured server-time freeze and fail at or after it, including when provider I/O began before the boundary.
 - Invalid, repeated, or out-of-order GitHub webhook deliveries do not double-count activity.
 - Per-repository and combined metrics agree, duplicate fork commits are marked, and an inaccessible repository makes the combined view incomplete.

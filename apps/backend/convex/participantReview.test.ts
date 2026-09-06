@@ -13,6 +13,7 @@ import type { Id } from "./_generated/dataModel";
 import { initializeAttendanceTeamAvailability } from "./lib/attendanceTeamAvailability.ts";
 import { insertPermissionGrant } from "./lib/permissions.ts";
 import { createTestSubmissionSnapshot } from "./lib/testSubmissionSnapshot.ts";
+import { buildEvidenceCheckpoint } from "./lib/reviewEvidenceCheckpoint.ts";
 import {
   nextQueuedTeam,
   insertTeamRoundState,
@@ -48,6 +49,45 @@ afterAll(() => {
 });
 
 describe("participant review queue projection", () => {
+  test.each(["missing", "unknown"] as const)("captures repository evidence when the optional topic is %s or from a previous policy", async topicState => {
+    const backend = seededBackend();
+    const fixture = await seedQueueFixture(backend);
+    await seedAwaitingReview(backend, fixture);
+    await prepareAutomaticQueue(backend, fixture);
+    await backend.run(async ctx => {
+      const connectionId = await ctx.db.insert("githubInstallationConnections", {
+        eventId: fixture.eventId, teamId: fixture.teamId, installationId: "topic-fixture",
+        accountId: "topic-fixture", accountLogin: "topic-fixture", targetType: "User",
+        repositorySelection: "selected", state: "active", connectedByPersonId: fixture.personId,
+        connectedAt: fixture.now, lastVerifiedAt: fixture.now, version: 1,
+      });
+      const bindingId = await ctx.db.insert("githubRepositoryBindings", {
+        eventId: fixture.eventId, teamId: fixture.teamId, installationConnectionId: connectionId,
+        repositoryId: "topic-repo", repositoryNodeId: "topic-repo", owner: "fixture", name: "product",
+        fullName: "fixture/product", url: "https://github.com/fixture/product", isPrivate: true,
+        isFork: false, defaultBranch: "main", kind: "full_product", purpose: "Product",
+        trackedBranch: "main", displayOrder: 1, requiredTopic: "old-suggestion", topicState,
+        state: "active", baselineSha: "abc", currentHeadSha: "abc", syncRevision: 1,
+        syncedRevision: 1, syncState: "ready", version: 1, providerCreatedAt: fixture.now,
+        connectedAt: fixture.now, updatedAt: fixture.now,
+      });
+      const snapshotId = await ctx.db.insert("githubRepositorySnapshots", {
+        eventId: fixture.eventId, teamId: fixture.teamId, repositoryBindingId: bindingId,
+        reason: "baseline", headSha: "abc", topicState, commitCount: 0, additions: 0,
+        deletions: 0, changedFiles: 0, observedCommitShas: [], commitIdentityComplete: true,
+        languageBytes: [], completeness: "complete", compareTruncated: false, capturedAt: fixture.now,
+      });
+      const team = await ctx.db.get(fixture.teamId);
+      const round = await ctx.db.get(fixture.roundId);
+      if (!team || !round) throw new Error("Missing review fixture");
+      const checkpoint = await buildEvidenceCheckpoint(ctx, {
+        eventId: fixture.eventId, team, round, actorPersonId: fixture.personId, createdAt: fixture.now + 1,
+      });
+      expect(checkpoint).toMatchObject({ completeness: "complete", expectedResourceCount: 1, capturedResourceCount: 1 });
+      expect(checkpoint.githubEntries[0]).toMatchObject({ bindingId, snapshotId });
+    });
+  });
+
   test("Figma links are versioned, permissioned and excluded from agent evidence", async () => {
     const backend = seededBackend();
     const fixture = await seedQueueFixture(backend);

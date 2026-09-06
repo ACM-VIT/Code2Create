@@ -533,7 +533,6 @@ async function communicationsHealth(ctx: QueryCtx, eventId: Id<"events">, genera
 
 type CurrentGithubState = "setup" | "active";
 type GithubSyncState = "pending" | "running" | "rate_limited" | "error";
-type GithubTopicState = "missing" | "unknown";
 
 function githubSyncRows(
   ctx: QueryCtx,
@@ -569,20 +568,6 @@ function githubLeaseRows(
     .take(queryLimit);
 }
 
-function githubTopicRows(
-  ctx: QueryCtx,
-  eventId: Id<"events">,
-  state: CurrentGithubState,
-  topicState: GithubTopicState,
-) {
-  return ctx.db
-    .query("githubRepositoryBindings")
-    .withIndex("by_event_state_topic_updated", (index) =>
-      index.eq("eventId", eventId).eq("state", state).eq("topicState", topicState),
-    )
-    .take(queryLimit);
-}
-
 async function integrationHealth(ctx: QueryCtx, event: Doc<"events">, generatedAt: number,
 ) {
   const eventId = event._id;
@@ -593,35 +578,25 @@ async function integrationHealth(ctx: QueryCtx, event: Doc<"events">, generatedA
     .take(queryLimit);
   const githubGroups = await Promise.all(
     currentGithubStates.map(async (state) => {
-      const [errors, pending, running, rateLimited, missingTopics, unknownTopics,
-      ] =
+      const [errors, pending, running, rateLimited] =
         await Promise.all([
           githubSyncRows(ctx, eventId, state, "error"),
           githubSyncRows(ctx, eventId, state, "pending", stalledBefore),
           githubLeaseRows(ctx, eventId, state, generatedAt),
           githubSyncRows(ctx, eventId, state, "rate_limited"),
-          githubTopicRows(ctx, eventId, state, "missing"),
-          githubTopicRows(ctx, eventId, state, "unknown"),
         ]);
-      return { errors, pending, running, rateLimited, missingTopics, unknownTopics,
-      };
+      return { errors, pending, running, rateLimited };
     }),
   );
   const githubErrors = githubGroups.flatMap((group) => group.errors);
   const githubPending = githubGroups.flatMap((group) => group.pending);
   const githubRunning = githubGroups.flatMap((group) => group.running);
   const githubRateLimited = githubGroups.flatMap((group) => group.rateLimited);
-  const githubTopics = githubGroups.flatMap((group) => [
-    ...group.missingTopics,
-    ...group.unknownTopics,
-  ]);
   const githubCoverage = githubGroups.flatMap((group) => [
     ...coverageMarker(group.errors, generatedAt),
     ...coverageMarker(group.pending, generatedAt),
     ...coverageMarker(group.running, generatedAt),
     ...coverageMarker(group.rateLimited, generatedAt),
-    ...coverageMarker(group.missingTopics, generatedAt),
-    ...coverageMarker(group.unknownTopics, generatedAt),
   ]);
   return {
     counts: {
@@ -635,8 +610,6 @@ async function integrationHealth(ctx: QueryCtx, event: Doc<"events">, generatedA
         ),
       ),
       github_rate_limits: boundedCount(githubRateLimited.map((binding) => binding.updatedAt),
-      ),
-      github_unverified_topics: boundedCount(githubTopics.map((binding) => binding.updatedAt),
       ),
     },
     coverage: [

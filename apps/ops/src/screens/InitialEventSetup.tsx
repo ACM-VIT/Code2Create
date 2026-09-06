@@ -394,9 +394,8 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
                 />
               </label>
               <label className="field span-two">
-                <span>Required GitHub topic</span>
+                <span>Suggested GitHub topic (optional)</span>
                 <input
-                  required
                   maxLength={50}
                   pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
                   value={requiredGitHubTopic}

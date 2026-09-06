@@ -1,5 +1,4 @@
 import { convexTest, type TestConvex } from "convex-test";
-import workpoolTest from "@convex-dev/workpool/test";
 import { describe, expect, test } from "vitest";
 
 import { internal } from "./_generated/api.js";
@@ -99,6 +98,7 @@ describe("integration policy configuration", () => {
       githubFreezeAt: freezeAt,
     });
     expect(normalized.requiredGitHubTopic).toBe("code2create-7-0");
+    expect(normalizeIntegrationPolicy({ ...policy("no-topic"), requiredGitHubTopic: "  " }).requiredGitHubTopic).toBe("");
     expect(githubIntegrationFrozenAt(normalized, freezeAt - 1)).toBe(false);
     expect(githubIntegrationFrozenAt(normalized, freezeAt)).toBe(true);
     expect(githubIntegrationFrozenAt(normalized, freezeAt + 1)).toBe(true);
@@ -192,9 +192,8 @@ describe("integration policy configuration", () => {
     expect(event?.publishedIntegrationPolicyId).toBe(fixture.policyId);
   });
 
-  test("a delayed topic job follows the newest immutable policy release", async () => {
+  test("changing the optional topic does not invalidate an in-flight sync or repository evidence", async () => {
     const backend = convexTest(schema, modules);
-    workpoolTest.register(backend, "integrationWorkpool");
     const fixture = await seedFixture(backend, "topic-change");
     const bindingId = await backend.run(async (ctx) => {
       const connectionId = await ctx.db.insert("githubInstallationConnections", {
@@ -300,10 +299,6 @@ describe("integration policy configuration", () => {
         now: fixture.now + 4,
       }),
     );
-    await backend.mutation(internal.githubIntegrations.revalidateRequiredTopic, {
-      eventId: fixture.event._id,
-      cursor: null,
-    });
     await backend.mutation(internal.githubIntegrations.finishRepositorySync, {
       bindingId,
       leaseId: "old-topic-lease",
@@ -344,15 +339,15 @@ describe("integration policy configuration", () => {
     expect(result.firstPublication?.status).toBe("superseded");
     expect(result.published?.status).toBe("published");
     expect(result.binding).toMatchObject({
-      requiredTopic: "code2create-7-0",
-      topicState: "unknown",
-      syncRevision: 2,
-      syncState: "pending",
+      requiredTopic: "code2create-7",
+      topicState: "present",
+      syncRevision: 1,
+      syncState: "ready",
     });
     expect(result.metric).toMatchObject({
-      health: "needs_attention",
-      topicUnknownCount: 1,
-      completeRepositoryCount: 0,
+      health: "ready",
+      topicUnknownCount: 0,
+      completeRepositoryCount: 1,
     });
   });
 });

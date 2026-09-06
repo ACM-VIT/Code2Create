@@ -67,7 +67,7 @@ async function checkGitHub(configuration: LiveProviderConfiguration): Promise<Pr
     request: { signal: AbortSignal.timeout(20_000) },
   });
   const client = new GitHubOctokit({ auth: access.data.token });
-  const [repository, topics] = await Promise.all([
+  const [repository] = await Promise.all([
     client.rest.repos.get({
       owner: configuration.githubOwner,
       repo: configuration.githubRepository,
@@ -82,13 +82,10 @@ async function checkGitHub(configuration: LiveProviderConfiguration): Promise<Pr
   if (repository.data.id !== repositoryId) {
     throw new Error("GitHub returned a different repository than the configured fixture.");
   }
-  if (!topics.data.names.includes(configuration.githubRequiredTopic)) {
-    throw new Error(`The staging GitHub fixture is missing ${configuration.githubRequiredTopic}.`);
-  }
   return {
     check: "github",
     latencyMs: elapsed(startedAt),
-    result: "installation, repository, and required topic verified",
+    result: "installation, repository, and topic metadata access verified",
   };
 }
 

@@ -68,7 +68,6 @@ export async function refreshGithubTeamMetrics(
     return (
       binding.state === "active" &&
       binding.syncState === "ready" &&
-      binding.topicState === "present" &&
       metric.completeness === "complete" &&
       metric.commitIdentityComplete
     );
@@ -81,7 +80,6 @@ export async function refreshGithubTeamMetrics(
       binding.state !== "active" ||
       binding.syncState === "error" ||
       binding.syncState === "rate_limited" ||
-      binding.topicState !== "present" ||
       metric.completeness !== "complete" ||
       !metric.commitIdentityComplete
     );

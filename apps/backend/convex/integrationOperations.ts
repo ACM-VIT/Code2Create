@@ -1,4 +1,3 @@
-import { paginationOptsValidator, paginationResultValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 
 import { query } from "./_generated/server";
@@ -25,6 +24,7 @@ import {
 const integrationTeam = v.object({
   teamId: v.id("teams"),
   teamName: v.string(),
+  teamCode: v.string(),
   teamStatus,
   github: v.object({
     health: integrationProviderHealth,
@@ -91,6 +91,7 @@ function integrationTeamView(
   return {
     teamId: team._id,
     teamName: team.name,
+    teamCode: team.publicCode,
     teamStatus: team.status,
     github: {
       health: githubMetric?.health ?? ("not_connected" as const),
@@ -137,85 +138,57 @@ const teamDetail = v.object({
   figmaFileUrl: v.union(v.string(), v.null()),
 });
 
+const selectedTeamStatuses: readonly Doc<"teams">["status"][] = [
+  "admitted", "confirmed", "checked_in", "active", "completed",
+];
+
 export const teams = query({
-  args: {
-    eventSlug: v.string(),
-    paginationOpts: paginationOptsValidator,
-  },
-  returns: paginationResultValidator(integrationTeam),
+  args: { eventSlug: v.string() },
+  returns: v.object({ teams: v.array(integrationTeam), summary: integrationSummary }),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const scope = await readableTeamScope(ctx, event._id, subject._id);
-    const eventTeams = ctx.db
-      .query("teams")
-      .withIndex("by_event_status", (index) => index.eq("eventId", event._id));
-    const readableTeams = scope.eventWide
-      ? eventTeams
-      : scope.teamIds.length === 0
-        ? eventTeams.filter((filter) => filter.neq(filter.field("eventId"), event._id))
-        : eventTeams.filter((filter) =>
-            filter.or(...scope.teamIds.map((teamId) => filter.eq(filter.field("_id"), teamId))),
+    // The selected review cohort is bounded. Load it in full so search and
+    // connection filters cannot miss teams beyond a partially loaded page.
+    const selectedTeams = scope.eventWide
+      ? (await Promise.all(selectedTeamStatuses.map(status =>
+          ctx.db.query("teams")
+            .withIndex("by_event_status", index => index.eq("eventId", event._id).eq("status", status))
+            .take(maximumReviewTeamsPerEvent + 1),
+        ))).flat()
+      : (await Promise.all(scope.teamIds.map(teamId => ctx.db.get("teams", teamId))))
+          .filter((team): team is Doc<"teams"> =>
+            team !== null && team.eventId === event._id && selectedTeamStatuses.includes(team.status),
           );
-    const page = await readableTeams.paginate(args.paginationOpts);
-    const visible = [];
-    for (const team of page.page) {
+    if (selectedTeams.length > maximumReviewTeamsPerEvent) {
+      throw new ConvexError({
+        code: "INTEGRATION_COHORT_LIMIT",
+        message: "The selected team cohort exceeds the supported operations limit.",
+      });
+    }
+    const visible = await Promise.all(selectedTeams.map(async team => {
       const [githubMetric, figmaLink] = await Promise.all([
-        ctx.db
-          .query("githubTeamMetrics")
-          .withIndex("by_team", (index) => index.eq("teamId", team._id))
-          .unique(),
-        ctx.db
-          .query("teamFigmaLinks")
-          .withIndex("by_event_team", index => index.eq("eventId", event._id).eq("teamId", team._id))
-          .unique(),
+        ctx.db.query("githubTeamMetrics")
+          .withIndex("by_team", index => index.eq("teamId", team._id)).unique(),
+        ctx.db.query("teamFigmaLinks")
+          .withIndex("by_event_team", index => index.eq("eventId", event._id).eq("teamId", team._id)).unique(),
       ]);
-      if (
-        githubMetric &&
-        (githubMetric.eventId !== event._id || githubMetric.teamId !== team._id)
-      ) {
+      if (githubMetric && githubMetric.eventId !== event._id) {
         throw new Error("GitHub team metrics do not match the operations row.");
       }
-      if (figmaLink && (figmaLink.eventId !== event._id || figmaLink.teamId !== team._id)) {
-        throw new Error("The Figma link does not match the operations row.");
-      }
-      visible.push(integrationTeamView(team, githubMetric, figmaLink));
-    }
-    return { ...page, page: visible };
-  },
-});
-
-export const summary = query({
-  args: { eventSlug: v.string() },
-  returns: integrationSummary,
-  handler: async (ctx, args) => {
-    const event = await requireEventBySlug(ctx, args.eventSlug);
-    const { person } = await requireCurrentPerson(ctx);
-    const subject = await requireEventSubject(ctx, event._id, person._id);
-    const scope = await readableTeamScope(ctx, event._id, subject._id);
-    const eventTeams = await ctx.db
-      .query("teams")
-      .withIndex("by_event_status", (index) => index.eq("eventId", event._id))
-      .collect();
-    const visibleTeams = scope.eventWide
-      ? eventTeams
-      : eventTeams.filter((team) => scope.teamIds.some((teamId) => teamId === team._id));
-    const [githubMetrics, figmaLinks] = await Promise.all([
-      ctx.db
-        .query("githubTeamMetrics")
-        .withIndex("by_event_updated", (index) => index.eq("eventId", event._id))
-        .collect(),
-      ctx.db
-        .query("teamFigmaLinks")
-        .withIndex("by_event_team", (index) => index.eq("eventId", event._id))
-        .collect(),
-    ]);
-    return integrationSummaryCounts(
-      visibleTeams.map((team) => team._id),
-      new Map(githubMetrics.map((metric) => [metric.teamId, metric])),
-      new Set(figmaLinks.filter(link => link.fileUrl).map(link => link.teamId)),
-    );
+      return integrationTeamView(team, githubMetric, figmaLink);
+    }));
+    visible.sort((left, right) => left.teamName.localeCompare(right.teamName));
+    return {
+      teams: visible,
+      summary: integrationSummaryCounts(
+        visible.map(team => team.teamId),
+        new Map(visible.map(team => [team.teamId, team.github])),
+        new Set(visible.filter(team => team.figmaFileUrl).map(team => team.teamId)),
+      ),
+    };
   },
 });
 

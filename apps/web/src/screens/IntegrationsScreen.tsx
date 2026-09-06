@@ -733,12 +733,7 @@ function ConnectedIntegrations({
                           <>
                             {repository.trackedBranch}
                             {repository.rootPath ? ` / ${repository.rootPath}` : ""} ·{" "}
-                            <LiveNumber value={repository.metrics.commitCount} /> commits ·{" "}
-                            {repository.topicState === "missing"
-                              ? "topic missing"
-                              : repository.topicState === "present"
-                                ? "topic set"
-                                : "topic unchecked"}
+                            <LiveNumber value={repository.metrics.commitCount} /> commits
                           </>
                         }
                         status={githubRepositorySyncStateLabels[repository.syncState].toLowerCase()}
@@ -749,12 +744,6 @@ function ConnectedIntegrations({
                         }
                         notes={
                           <>
-                            {repository.topicState === "missing" ? (
-                              <RowNote>
-                                Add <code className="text-fg/75">{repository.requiredTopic}</code> in
-                                GitHub, then refresh here.
-                              </RowNote>
-                            ) : null}
                             {repository.metrics.completeness === "partial" ? (
                               <RowNote>
                                 GitHub returned only part of this repository's history; these counts

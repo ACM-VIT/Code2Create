@@ -1,9 +1,5 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
-import {
-  githubTopicVerificationIsCurrent,
-  loadPublishedIntegrationPolicy,
-} from "./integrationPolicy";
 import { operationFingerprint } from "./operations";
 
 export type EvidenceCompleteness = "complete" | "partial" | "missing";
@@ -36,8 +32,6 @@ export async function buildEvidenceCheckpoint(
     throw new Error("Validated review team has no project version.");
   const event = await ctx.db.get(args.eventId);
   if (!event) throw new Error("The review event no longer resolves.");
-  const { normalized: integrationPolicy } =
-    await loadPublishedIntegrationPolicy(ctx, event);
   const [
     githubBindings,
     figmaLink,
@@ -77,13 +71,7 @@ export async function buildEvidenceCheckpoint(
     .sort((left, right) => left.displayOrder - right.displayOrder);
   const githubEntries = await Promise.all(
     activeGithub.map(async (binding) => {
-      const requiredTopicIsCurrent = githubTopicVerificationIsCurrent(
-        binding,
-        integrationPolicy.requiredGitHubTopic,
-      );
-      const snapshot = requiredTopicIsCurrent
-        ? await latestGithubSnapshot(ctx, binding._id)
-        : null;
+      const snapshot = await latestGithubSnapshot(ctx, binding._id);
       return {
         bindingId: binding._id,
         ...(snapshot ? { snapshotId: snapshot._id } : {}),
@@ -95,7 +83,7 @@ export async function buildEvidenceCheckpoint(
         ...(binding.rootPath !== undefined
           ? { rootPath: binding.rootPath }
           : {}),
-        requiredTopic: integrationPolicy.requiredGitHubTopic,
+        requiredTopic: binding.requiredTopic,
         stateAtCapture: binding.state,
       };
     }),

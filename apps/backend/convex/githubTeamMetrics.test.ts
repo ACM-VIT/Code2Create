@@ -10,6 +10,22 @@ const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
 type BackendTest = TestConvex<typeof schema>;
 
 describe("GitHub team metrics", () => {
+  test.each(["missing", "unknown"] as const)("counts repositories fully when the optional topic is %s", async (topicState) => {
+    const backend = convexTest(schema, modules);
+    const fixture = await seedFixture(backend);
+    await backend.run(async (ctx) => {
+      await ctx.db.patch(fixture.apiRepositoryId, { topicState });
+    });
+    const summary = await backend.run(ctx => refreshGithubTeamMetrics(ctx, {
+      eventId: fixture.eventId, teamId: fixture.teamId, now: fixture.now + 1,
+    }));
+    expect(summary).toMatchObject({
+      health: "ready", repositoryCount: 2, completeRepositoryCount: 2,
+      completeness: "complete", incompleteRepositoryCount: 0,
+      uniqueObservedCommitCount: 3, additions: 170, deletions: 13,
+    });
+  });
+
   test("deduplicates observed commits across repositories and materializes one team row", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedFixture(backend);

@@ -30,7 +30,64 @@ describe("integration operations totals", () => {
     });
   });
 
-  test("filters scoped teams before pagination and reports totals beyond the loaded page", async () => {
+  test("returns the full selected cohort within exact team grants", async () => {
+    const { backend, operator, fixture } = await seedOverview();
+    const result = await operator.query(api.integrationOperations.teams, { eventSlug: fixture.eventSlug });
+    expect(result.teams.map(team => team.teamName)).toEqual(["Team 2", "Team 5"]);
+    expect(result.teams.map(team => team.teamCode)).toEqual(["IPAGE1", "IPAGE4"]);
+    expect(result.summary).toEqual({ totalTeamCount: 2, disconnectedCount: 2, attentionCount: 0 });
+    const teamId = fixture.teamIds[1];
+    if (!teamId) throw new Error("Missing scoped team");
+    await backend.run(ctx => ctx.db.patch("teams", teamId, { status: "withdrawn" }));
+    const afterWithdrawal = await operator.query(api.integrationOperations.teams, { eventSlug: fixture.eventSlug });
+    expect(afterWithdrawal.teams.map(team => team.teamName)).toEqual(["Team 5"]);
+    expect(afterWithdrawal.summary.totalTeamCount).toBe(1);
+  });
+
+  test("excludes every unselected status from event-wide rows and totals", async () => {
+    const { backend, operator, fixture } = await seedOverview();
+    const statuses = [
+      "admitted", "confirmed", "checked_in", "active", "completed",
+      "forming", "profile_in_progress", "submitted", "withdrawn", "disqualified",
+    ] as const;
+    await backend.run(async ctx => {
+      await insertPermissionGrant(ctx, {
+        eventId: fixture.eventId, personId: fixture.personId,
+        eventAccessSubjectId: fixture.subjectId,
+        permissionKey: "integration.read", scopeType: "event",
+        sourceType: "event_subject", sourceId: fixture.subjectId, reason: "Event overview test",
+      });
+      for (const [index, status] of statuses.entries()) {
+        const teamId = fixture.teamIds[index];
+        if (!teamId) throw new Error("Missing status fixture");
+        await ctx.db.patch("teams", teamId, { status });
+        if (status === "admitted" || status === "withdrawn") {
+          await ctx.db.insert("teamFigmaLinks", {
+            eventId: fixture.eventId, teamId, fileUrl: "https://www.figma.com/design/fixture",
+            version: 1, updatedByPersonId: fixture.personId, updatedAt: Date.now(),
+          });
+        }
+      }
+    });
+    const result = await operator.query(api.integrationOperations.teams, { eventSlug: fixture.eventSlug });
+    expect(result.teams.map(team => team.teamStatus)).toEqual(statuses.slice(0, 5));
+    expect(result.summary).toEqual({ totalTeamCount: 5, disconnectedCount: 4, attentionCount: 0 });
+  });
+
+  test("returns no rows without integration access and rejects anonymous reads", async () => {
+    const { backend, operator, fixture } = await seedOverview();
+    await backend.run(async ctx => {
+      const grants = await ctx.db.query("permissionGrants").take(10);
+      for (const grant of grants) await ctx.db.patch("permissionGrants", grant._id, { status: "revoked" });
+    });
+    expect(await operator.query(api.integrationOperations.teams, { eventSlug: fixture.eventSlug })).toEqual({
+      teams: [], summary: { totalTeamCount: 0, disconnectedCount: 0, attentionCount: 0 },
+    });
+    await expect(backend.query(api.integrationOperations.teams, { eventSlug: fixture.eventSlug })).rejects.toThrow();
+  });
+});
+
+async function seedOverview() {
     const backend = convexTest(schema, modules);
     backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
     const now = Date.now();
@@ -81,7 +138,7 @@ describe("integration operations totals", () => {
         updatedAt: now,
       });
       const teamIds = [];
-      for (let index = 0; index < 5; index += 1) {
+      for (let index = 0; index < 10; index += 1) {
         teamIds.push(
           await ctx.db.insert("teams", {
             eventId,
@@ -116,31 +173,11 @@ describe("integration operations totals", () => {
           validFrom: now - 1,
         });
       }
-      return { eventSlug: `integration-page-${now}` };
+      return { eventSlug: `integration-page-${now}`, eventId, personId, subjectId, membershipId, teamIds };
     });
     const operator = backend.withIdentity({ subject: authUserId, sessionId: authSessionId });
-
-    const first = await operator.query(api.integrationOperations.teams, {
-      eventSlug: fixture.eventSlug,
-      paginationOpts: { cursor: null, numItems: 1 },
-    });
-    expect(first.page).toHaveLength(1);
-    expect(first.isDone).toBe(false);
-    const second = await operator.query(api.integrationOperations.teams, {
-      eventSlug: fixture.eventSlug,
-      paginationOpts: { cursor: first.continueCursor, numItems: 1 },
-    });
-    expect(second.page).toHaveLength(1);
-    expect(new Set([...first.page, ...second.page].map((team) => team.teamName))).toEqual(
-      new Set(["Team 2", "Team 5"]),
-    );
-    expect(
-      await operator.query(api.integrationOperations.summary, {
-        eventSlug: fixture.eventSlug,
-      }),
-    ).toEqual({ totalTeamCount: 2, disconnectedCount: 2, attentionCount: 0 });
-  });
-});
+    return { backend, operator, fixture };
+}
 
 async function createAuthUser(backend: BackendTest, now: number) {
   const result: unknown = await backend.mutation(components.betterAuth.adapter.create, {
