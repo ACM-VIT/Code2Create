@@ -31,6 +31,50 @@ afterAll(() => {
 });
 
 describe("attendance scan direction", () => {
+  test.each([
+    { onboardingStatus: "submitted", eligibilityStatus: "eligible" },
+    { onboardingStatus: "selected", eligibilityStatus: "eligible" },
+    { onboardingStatus: "offer_pending", eligibilityStatus: "eligible" },
+    { onboardingStatus: "accepted", eligibilityStatus: "rejected" },
+    { onboardingStatus: "accepted", eligibilityStatus: "suspended" },
+  ] as const)(
+    "rejects $onboardingStatus / $eligibilityStatus participants online and on replay",
+    async ({ onboardingStatus, eligibilityStatus }) => {
+      const backend = seededBackend();
+      const fixture = await seedScannerFixture(backend);
+      const operator = asOperator(backend, fixture);
+      await backend.run((ctx) =>
+        ctx.db.patch(fixture.membershipId, { onboardingStatus, eligibilityStatus }),
+      );
+
+      for (const isOfflineReplay of [false, true]) {
+        const receipt = await operator.mutation(internal.attendanceScan.recordScan, {
+          ...scanArguments(fixture),
+          rovingTransition: "venue_entry",
+          clientOperationId: `unaccepted-entry-${isOfflineReplay}`,
+          deviceSequence: isOfflineReplay ? 2 : 1,
+          isOfflineReplay,
+        });
+        expect(receipt).toMatchObject({
+          outcome: "rejected",
+          reasonCode: "participant_not_active",
+        });
+        const presenceEvent = await backend.run((ctx) => ctx.db.get(receipt.presenceEventId));
+        expect(presenceEvent).toMatchObject({
+          membershipId: fixture.membershipId,
+          outcome: "rejected",
+          isOfflineReplay,
+        });
+      }
+
+      const presence = await backend.run(async (ctx) => ({
+        venueState: await ctx.db.query("attendanceVenueStates").first(),
+        interval: await ctx.db.query("attendancePresenceIntervals").first(),
+      }));
+      expect(presence).toEqual({ venueState: null, interval: null });
+    },
+  );
+
   test("a fixed venue station derives its transition and rejects a client override", async () => {
     const backend = seededBackend();
     const fixture = await seedScannerFixture(backend);

@@ -61,10 +61,10 @@ export default defineConfig({
       },
     },
     {
-      files: ["apps/reviewer/src/lib/*.test.{ts,tsx}"],
+      files: ["apps/reviewer/src/{lib,components}/*.test.{ts,tsx}"],
       rules: {
         // Native-host unit tests use the pinned headless renderer to exercise real
-        // hooks/subscriptions. Keep this exception scoped to its two test APIs.
+        // components/hooks/subscriptions. Keep this exception scoped to its two test APIs.
         "typescript/no-deprecated": ["error", {
           allow: [{
             from: "package",

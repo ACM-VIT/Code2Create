@@ -3,7 +3,7 @@ import {
   reviewerCallScriptPolicyVersion,
   venueCallConsentVersion,
 } from "@code2create/domain";
-import { scheduleShiftReminders } from "./reviewConfirmations";
+import { scheduleShiftReminders } from "./lib/reviewConfirmation";
 import { ConvexError, v } from "convex/values";
 
 import type { Id } from "./_generated/dataModel";

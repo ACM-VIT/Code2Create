@@ -116,7 +116,7 @@ export const releaseRehearsalTemplate = [
   scenario(
     13,
     "integrations",
-    "GitHub or Figma checkpoint is stale",
+    "GitHub checkpoint is stale",
     "Reviewer context labels the evidence stale or incomplete without inventing progress or a score.",
     "Reauthorise or refresh within provider limits, then capture a new checkpoint before review start.",
   ),
@@ -144,16 +144,16 @@ export const releaseRehearsalTemplate = [
   scenario(
     17,
     "integrations",
-    "Figma authorizer is revoked and replaced",
-    "Earlier snapshots remain readable while current capture waits for a valid team authorizer.",
-    "Have an authorised team lead reconnect Figma, then resume capture without rewriting old evidence.",
+    "Figma file link is updated after a review",
+    "The earlier review retains the submitted link and later reviews use the new link.",
+    "Update the team link in the portal. Reviewers can open the original link from the earlier review.",
   ),
   scenario(
     18,
     "integrations",
-    "Figma plan permits metadata but defers full content",
-    "Metadata freshness advances independently and full capture shows its rate-limit gate.",
-    "Wait until the recorded provider retry time or use the next explicit checkpoint budget.",
+    "Shared Figma file is not accessible to a reviewer",
+    "No capture or AI inspection is attempted. The team must grant human reviewers access or demonstrate the design.",
+    "Ask the team to share view access or walk through the file during the review.",
   ),
   scenario(
     19,

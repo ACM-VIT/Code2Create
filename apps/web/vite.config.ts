@@ -6,6 +6,10 @@ import react from "@vitejs/plugin-react";
 export default defineConfig(({ command }) => {
   return {
     build: { sourcemap: true },
+    optimizeDeps: {
+      entries: ["index.html", "src/**/*.{ts,tsx}", "!src/**/*.test.{ts,tsx}"],
+      include: ["toqr", "streamdown"],
+    },
     plugins: [
       tailwindcss(),
       react(),

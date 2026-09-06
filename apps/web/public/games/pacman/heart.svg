@@ -1,0 +1,9 @@
+<svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+<!-- The body is one path rather than a stack of same-coloured bands. Adjacent
+     bands are antialiased separately, and two touching 50%-coverage edges do not
+     composite back to 100%, so every row boundary showed as a dark hairline once
+     the sprite was scaled to a fractional cell size. A single path is rasterised
+     once, so those interior edges do not exist to be seamed. -->
+<path fill="#B13F55" d="M12 6H6V9H12V6Z M27 6H21V9H27V6Z M15 9H3V12H15V9Z M30 9H18V12H30V9Z M30 12H3V18H30V12Z M27 18H6V21H27V18Z M24 21H9V24H24V21Z M21 24H12V27H21V24Z M18 27H15V30H18V27Z"/>
+<path fill="#FCA3CB" d="M9 9H6V12H9V9Z"/>
+</svg>

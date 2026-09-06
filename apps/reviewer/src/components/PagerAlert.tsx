@@ -1,11 +1,19 @@
 import { api } from "@code2create/backend/api";
 import { useMutation } from "convex/react";
 import { randomUUID } from "expo-crypto";
+import { useRouter } from "expo-router";
 
 import { startPagerAlarm, stopPagerAlarm } from "@/lib/pager-alarm";
 import type { FunctionReturnType } from "convex/server";
 import { useEffect, useRef, useState } from "react";
-import { Modal, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Svg, { Circle } from "react-native-svg";
 
@@ -28,17 +36,25 @@ export function PagerAlert({
   installationId: string | undefined;
   page: SubstitutePage;
 }) {
+  const router = useRouter();
   const openPage = useMutation(api.reviewSubstitutions.openPage);
   const respondToPage = useMutation(api.reviewSubstitutions.respondToPage);
   const [declining, setDeclining] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState<"accept" | "decline" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [openAttempt, setOpenAttempt] = useState(0);
   const responseAttempt =
-    useMutationAttempt<FunctionReturnType<typeof api.reviewSubstitutions.respondToPage>>();
-  const [pendingResponse, setPendingResponse] = useState<"accept" | "decline" | null>(null);
-  const responsePending = responseAttempt.hasPending(`page-response:${page.id}`);
+    useMutationAttempt<
+      FunctionReturnType<typeof api.reviewSubstitutions.respondToPage>
+    >();
+  const [pendingResponse, setPendingResponse] = useState<
+    "accept" | "decline" | null
+  >(null);
+  const responsePending = responseAttempt.hasPending(
+    `page-response:${page.id}`,
+  );
   const openedPageRef = useRef<string | null>(null);
   const remaining = useSecondsRemaining(page.expiresAt, page.serverNow);
 
@@ -58,15 +74,26 @@ export function PagerAlert({
   }, [expired]);
 
   useEffect(() => {
-    if (page.state !== "sent" || openedPageRef.current === page.id) return;
+    if (expired || page.state !== "sent" || openedPageRef.current === page.id)
+      return;
     openedPageRef.current = page.id;
-    void openPage({ eventSlug, pageId: page.id, expectedVersion: page.version }).catch(
-      (caught: unknown) => {
+    void openPage({
+      eventSlug,
+      pageId: page.id,
+      expectedVersion: page.version,
+    }).catch((caught: unknown) => {
       openedPageRef.current = null;
       setError(errorMessage(caught, "The request could not be acknowledged."));
-      },
-    );
-  }, [eventSlug, openAttempt, openPage, page.id, page.state, page.version]);
+    });
+  }, [
+    eventSlug,
+    expired,
+    openAttempt,
+    openPage,
+    page.id,
+    page.state,
+    page.version,
+  ]);
 
   const respond = async (response: "accept" | "decline") => {
     if (page.state !== "opened" || busy !== null || expired) return;
@@ -80,22 +107,27 @@ export function PagerAlert({
     setError(null);
     if (!responsePending) setPendingResponse(response);
     try {
-      await responseAttempt.run(`page-response:${page.id}`, () => {
-        const args = {
-          eventSlug,
-          pageId: page.id,
-          response,
-          ...(response === "decline" ? { reason } : {}),
-          installationId,
-          expectedVersion: page.version,
-          clientOperationId: randomUUID(),
-        };
-        return () => respondToPage(args);
-      });
+      const result = await responseAttempt.run(
+        `page-response:${page.id}`,
+        () => {
+          const args = {
+            eventSlug,
+            pageId: page.id,
+            response,
+            ...(response === "decline" ? { reason } : {}),
+            installationId,
+            expectedVersion: page.version,
+            clientOperationId: randomUUID(),
+          };
+          return () => respondToPage(args);
+        },
+      );
       setPendingResponse(null);
       stopPagerAlarm();
+      if (result.state === "accepted") router.navigate("/duty/reviews");
     } catch (caught) {
-      if (!responseAttempt.hasPending(`page-response:${page.id}`)) setPendingResponse(null);
+      if (!responseAttempt.hasPending(`page-response:${page.id}`))
+        setPendingResponse(null);
       setError(errorMessage(caught, "The answer could not be saved."));
     } finally {
       setBusy(null);
@@ -103,19 +135,34 @@ export function PagerAlert({
   };
 
   const answerable =
-    page.state === "opened" && !expired && busy === null && pendingResponse === null;
+    page.state === "opened" &&
+    !expired &&
+    busy === null &&
+    pendingResponse === null;
 
   const destination = page.team?.name ?? page.panel.name;
   const beneath = page.team
     ? `${page.panel.name} · ${page.round.name}`
     : `A seat on ${page.panel.name} · ${page.round.name}`;
 
+  if (dismissed) return null;
+
   return (
-    <Modal animationType="fade" statusBarTranslucent transparent={false} visible>
+    <Modal
+      animationType="fade"
+      statusBarTranslucent
+      transparent={false}
+      visible
+      onRequestClose={() => {
+        if (expired) setDismissed(true);
+      }}
+    >
       <View style={styles.root}>
         <SafeAreaView edges={["top", "bottom"]} style={styles.safe}>
           <View style={styles.eyebrowRow}>
-            <View style={[styles.eyebrowPill, { backgroundColor: `${accent}1F` }]}>
+            <View
+              style={[styles.eyebrowPill, { backgroundColor: `${accent}1F` }]}
+            >
               <View style={[styles.eyebrowDot, { backgroundColor: accent }]} />
               <Text style={[styles.eyebrow, { color: accent }]}>
                 {expired ? "Request expired" : "You are needed"}
@@ -128,7 +175,11 @@ export function PagerAlert({
             showsVerticalScrollIndicator={false}
             style={styles.middle}
           >
-            <CountdownRing accent={accent} fraction={fraction} label={countdownLabel(remaining)} />
+            <CountdownRing
+              accent={accent}
+              fraction={fraction}
+              label={countdownLabel(remaining)}
+            />
 
             <Text numberOfLines={1} style={styles.table}>
               {destination}
@@ -146,7 +197,9 @@ export function PagerAlert({
                 <View style={styles.detailRow}>
                   <Text style={styles.detailLabel}>You score</Text>
                   <Text style={styles.detailValue}>
-                    {page.criteria.map((criterion) => criterion.label).join(", ")}
+                    {page.criteria
+                      .map((criterion) => criterion.label)
+                      .join(", ")}
                   </Text>
                 </View>
               ) : null}
@@ -154,7 +207,12 @@ export function PagerAlert({
           </ScrollView>
 
           <View style={styles.answers}>
-            {page.state === "sent" && !expired ? (
+            {expired ? (
+              <Action
+                label="Back to duties"
+                onPress={() => setDismissed(true)}
+              />
+            ) : page.state === "sent" ? (
               <QuietAction
                 disabled={error === null}
                 label={error ? "Try again" : "Connecting to the panel…"}
@@ -165,7 +223,9 @@ export function PagerAlert({
               />
             ) : declining ? (
               <>
-                <Text style={styles.label}>Why not? The coordinator sees this.</Text>
+                <Text style={styles.label}>
+                  Why not? The coordinator sees this.
+                </Text>
                 <TextInput
                   autoFocus
                   editable={busy === null && !responsePending}
@@ -181,7 +241,9 @@ export function PagerAlert({
                 <Action
                   destructive
                   disabled={
-                    busy !== null || reason.trim().length < 3 || pendingResponse === "accept"
+                    busy !== null ||
+                    reason.trim().length < 3 ||
+                    pendingResponse === "accept"
                   }
                   label={
                     busy === "decline"
@@ -216,7 +278,7 @@ export function PagerAlert({
                 />
                 <QuietAction
                   disabled={!answerable}
-                  label={expired ? "The panel has moved on" : "I can't"}
+                  label="I can't"
                   onPress={() => setDeclining(true)}
                 />
               </>
@@ -224,7 +286,10 @@ export function PagerAlert({
           </View>
         </SafeAreaView>
 
-        <ErrorSheet message={error} onClose={() => setError(null)} />
+        <ErrorSheet
+          message={expired ? null : error}
+          onClose={() => setError(null)}
+        />
       </View>
     </Modal>
   );
@@ -232,7 +297,10 @@ export function PagerAlert({
 
 function useSecondsRemaining(expiresAt: number, serverNow: number) {
   const estimated = useEstimatedServerNow(serverNow);
-  return Math.max(0, Math.ceil((expiresAt - Math.max(estimated, serverNow)) / 1_000));
+  return Math.max(
+    0,
+    Math.ceil((expiresAt - Math.max(estimated, serverNow)) / 1_000),
+  );
 }
 
 function countdownLabel(seconds: number) {
@@ -282,7 +350,10 @@ function CountdownRing({
         />
       </Svg>
       <View style={styles.ringCentre} pointerEvents="none">
-        <Text allowFontScaling={false} style={[styles.ringLabel, { color: accent }]}>
+        <Text
+          allowFontScaling={false}
+          style={[styles.ringLabel, { color: accent }]}
+        >
           {label}
         </Text>
       </View>
@@ -316,7 +387,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingVertical: 8,
   },
-  ring: { width: ringSize, height: ringSize, alignItems: "center", justifyContent: "center" },
+  ring: {
+    width: ringSize,
+    height: ringSize,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   ringCentre: {
     position: "absolute",
     top: 0,
@@ -333,7 +409,13 @@ const styles = StyleSheet.create({
     fontVariant: ["tabular-nums"],
   },
 
-  table: { marginTop: 24, color: palette.text, fontSize: 38, fontWeight: "700", letterSpacing: -1 },
+  table: {
+    marginTop: 24,
+    color: palette.text,
+    fontSize: 38,
+    fontWeight: "700",
+    letterSpacing: -1,
+  },
   where: { marginTop: 6, color: palette.muted, fontSize: 16 },
 
   detail: {
@@ -355,7 +437,12 @@ const styles = StyleSheet.create({
     lineHeight: 24,
     textAlign: "center",
   },
-  criteria: { marginTop: 8, color: palette.muted, fontSize: 15, textAlign: "center" },
+  criteria: {
+    marginTop: 8,
+    color: palette.muted,
+    fontSize: 15,
+    textAlign: "center",
+  },
 
   answers: { alignSelf: "stretch", paddingTop: 14, paddingBottom: 8 },
   control: { alignSelf: "stretch", height: 66 },

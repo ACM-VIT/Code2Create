@@ -11,24 +11,18 @@ export const integrationPolicyInput = v.object({
   policyVersion: v.string(),
   requiredGitHubTopic: v.string(),
   maxActiveGitHubRepositoriesPerTeam: v.number(),
-  maxActiveFigmaFilesPerTeam: v.number(),
   githubFreezeAt: v.optional(v.number()),
-  figmaFreezeAt: v.optional(v.number()),
 });
 
 export type IntegrationPolicy = {
   policyVersion: string;
   requiredGitHubTopic: string;
   maxActiveGitHubRepositoriesPerTeam: number;
-  maxActiveFigmaFilesPerTeam: number;
   githubFreezeAt?: number;
-  figmaFreezeAt?: number;
 };
 
-export type IntegrationProvider = "github" | "figma";
 
 const maximumGitHubRepositoriesPerTeam = 20;
-const maximumFigmaFilesPerTeam = 10;
 
 function invalidPolicy(message: string): never {
   throw new ConvexError({ code: "INVALID_INTEGRATION_POLICY", message });
@@ -55,7 +49,6 @@ export function normalizeIntegrationPolicy(input: IntegrationPolicy): Integratio
     invalidPolicy("Required GitHub topic must use lowercase letters, numbers, and single hyphens.");
   }
   const githubFreezeAt = optionalTimestamp(input.githubFreezeAt, "GitHub freeze time");
-  const figmaFreezeAt = optionalTimestamp(input.figmaFreezeAt, "Figma freeze time");
   return {
     policyVersion: normalizedText(input.policyVersion, "Integration policy version", 1, 80),
     requiredGitHubTopic,
@@ -64,13 +57,7 @@ export function normalizeIntegrationPolicy(input: IntegrationPolicy): Integratio
       "GitHub repository limit",
       maximumGitHubRepositoriesPerTeam,
     ),
-    maxActiveFigmaFilesPerTeam: boundedInteger(
-      input.maxActiveFigmaFilesPerTeam,
-      "Figma file limit",
-      maximumFigmaFilesPerTeam,
-    ),
     ...(githubFreezeAt !== undefined ? { githubFreezeAt } : {}),
-    ...(figmaFreezeAt !== undefined ? { figmaFreezeAt } : {}),
   };
 }
 
@@ -85,18 +72,15 @@ export function integrationPolicyFromDocument(
     policyVersion: policy.policyVersion,
     requiredGitHubTopic: policy.requiredGitHubTopic,
     maxActiveGitHubRepositoriesPerTeam: policy.maxActiveGitHubRepositoriesPerTeam,
-    maxActiveFigmaFilesPerTeam: policy.maxActiveFigmaFilesPerTeam,
     ...(policy.githubFreezeAt !== undefined ? { githubFreezeAt: policy.githubFreezeAt } : {}),
-    ...(policy.figmaFreezeAt !== undefined ? { figmaFreezeAt: policy.figmaFreezeAt } : {}),
   };
 }
 
-export function integrationProviderFrozenAt(
-  policy: Pick<IntegrationPolicy, "githubFreezeAt" | "figmaFreezeAt">,
-  provider: IntegrationProvider,
+export function githubIntegrationFrozenAt(
+  policy: Pick<IntegrationPolicy, "githubFreezeAt">,
   serverNow: number,
 ) {
-  const freezeAt = provider === "github" ? policy.githubFreezeAt : policy.figmaFreezeAt;
+  const freezeAt = policy.githubFreezeAt;
   return freezeAt !== undefined && serverNow >= freezeAt;
 }
 
@@ -134,41 +118,18 @@ export async function integrationPolicyPublicationIssues(
   },
 ) {
   const normalized = normalizeIntegrationPolicy(args.policy);
-  const [githubMetrics, figmaMetrics] = await Promise.all([
-    ctx.db
-      .query("githubTeamMetrics")
-      .withIndex("by_event_updated", (index) => index.eq("eventId", args.eventId))
-      .take(maximumReviewTeamsPerEvent + 1),
-    ctx.db
-      .query("figmaTeamMetrics")
-      .withIndex("by_event_updated", (index) => index.eq("eventId", args.eventId))
-      .take(maximumReviewTeamsPerEvent + 1),
-  ]);
-  if (
-    githubMetrics.length > maximumReviewTeamsPerEvent ||
-    figmaMetrics.length > maximumReviewTeamsPerEvent
-  ) {
-    throw new Error(
-      `Integration policy validation supports at most ${maximumReviewTeamsPerEvent} event teams.`,
-    );
-  }
+  const githubMetrics = await ctx.db.query("githubTeamMetrics")
+    .withIndex("by_event_updated", index => index.eq("eventId", args.eventId))
+    .take(maximumReviewTeamsPerEvent + 1);
+  if (githubMetrics.length > maximumReviewTeamsPerEvent) throw new Error(`Integration policy validation supports at most ${maximumReviewTeamsPerEvent} event teams.`);
   const largestRepositorySet = githubMetrics.reduce(
     (largest, metric) => Math.max(largest, metric.repositoryCount),
-    0,
-  );
-  const largestFileSet = figmaMetrics.reduce(
-    (largest, metric) => Math.max(largest, metric.fileCount),
     0,
   );
   const issues: string[] = [];
   if (largestRepositorySet > normalized.maxActiveGitHubRepositoriesPerTeam) {
     issues.push(
       `At least one team already has ${largestRepositorySet} active GitHub repositories. Archive repositories before lowering the limit.`,
-    );
-  }
-  if (largestFileSet > normalized.maxActiveFigmaFilesPerTeam) {
-    issues.push(
-      `At least one team already has ${largestFileSet} active Figma files. Archive files before lowering the limit.`,
     );
   }
   return issues;

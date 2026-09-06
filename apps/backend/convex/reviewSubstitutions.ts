@@ -1,3 +1,4 @@
+import { hasReviewConflict } from "./lib/reviewConflict";
 import { ConvexError, v } from "convex/values";
 import {
   reviewerCallConsentPolicyVersion,
@@ -72,7 +73,6 @@ type SentPage = {
   targetPersonId: Id<"people">;
   expiresAt: number;
 } | null;
-const reviewerLivenessWindowMs = 120_000;
 const activeChainState = "active" as const;
 const exhaustedChainState = "exhausted" as const;
 const sentPageState = "sent" as const;
@@ -301,11 +301,10 @@ export async function eligibleReserve(
     subject.status !== "active" ||
     !profile ||
     profile.status !== "active" ||
-    profile.trainingStatus !== "complete" ||
+
     !confirmedWindow ||
     !clockIn ||
     clockIn.status !== "present" ||
-    args.now - clockIn.lastHeartbeatAt > reviewerLivenessWindowMs ||
     overlappingPanel
   ) {
     return null;
@@ -338,11 +337,13 @@ export async function eligibleReserve(
     !device.encryptedDraftReady ||
     (args.round.requiresCamera && !device.cameraReady) ||
     (args.round.requiresNotifications && device.pushTokenStatus !== "active") ||
-    args.now - device.lastSeenAt > reviewerLivenessWindowMs ||
     (args.installationId !== undefined && device.installationId !== args.installationId)
   ) {
     return null;
   }
+  // A locked phone stops foreground heartbeats but can still receive a page.
+  // Confirmed availability and clock-in make a reserve pageable; acceptance
+  // before the page expires establishes that they can take the seat now.
   const participation = await reviewerParticipation(
     ctx,
     args.round.eventId,
@@ -351,12 +352,7 @@ export async function eligibleReserve(
   if (participation.hasLiveReview) return null;
   const teamId = args.teamId;
   if (teamId !== undefined) {
-    const conflict = await ctx.db
-      .query("reviewerConflicts")
-      .withIndex("by_reviewer_team_status", (index) =>
-        index.eq("reviewerPersonId", person._id).eq("teamId", teamId).eq("status", "active"),
-      )
-      .first();
+    const conflict = await hasReviewConflict(ctx, args.round.eventId, person._id, teamId);
     if (conflict) return null;
   }
   return { reserve: args.reserve, person, subject, clockIn, device,
@@ -1915,13 +1911,74 @@ export const expirePage = internalMutation({
   },
 });
 
+const rosterSeatView = v.object({
+  seniority: v.union(v.literal("lead"), v.literal("sc"), v.literal("jc")),
+  criterionKeys: v.array(v.string()),
+});
+const rosterProfileView = v.union(
+  v.null(),
+  v.object({
+    seniority: v.union(v.literal("board"), v.literal("sc"), v.literal("jc")),
+    criterionKeys: v.array(v.string()),
+    canJoin: v.boolean(),
+  }),
+);
+
+async function rosterSeat(ctx: QueryCtx, member: Doc<"reviewPanelMembers">) {
+  const criteria = await Promise.all(
+    member.assignedCriterionIds.map((id) => ctx.db.get(id)),
+  );
+  return {
+    seniority: member.seatSeniority,
+    criterionKeys: criteria.map((c) => {
+      if (!c) throw new Error("Panel criterion missing");
+      return c.stableKey;
+    }),
+  };
+}
+
+async function rosterProfile(
+  ctx: QueryCtx,
+  round: Doc<"reviewRounds">,
+  person: Doc<"people">,
+) {
+  const [profile, subject, confirmed] = await Promise.all([
+    ctx.db
+      .query("reviewerProfiles")
+      .withIndex("by_event_person", (q) =>
+        q.eq("eventId", round.eventId).eq("personId", person._id),
+      )
+      .unique(),
+    ctx.db
+      .query("eventAccessSubjects")
+      .withIndex("by_event_person", (q) =>
+        q.eq("eventId", round.eventId).eq("personId", person._id),
+      )
+      .unique(),
+    reviewerConfirmedWindow(ctx, round, person._id, Date.now()),
+  ]);
+  if (!profile) return null;
+  const planning = round.status === "published" && Date.now() < round.startsAt;
+  return {
+    seniority: profile.seniority,
+    criterionKeys: profile.criterionKeys,
+    canJoin:
+      person.status === "active" &&
+      subject?.status === "active" &&
+      profile.status === "active" &&
+      (planning || confirmed !== null),
+  };
+}
+
 export const roundStatus = query({
   args: { eventSlug: v.string(), roundId: v.id("reviewRounds") },
   returns: v.object({
     serverNow: v.number(),
+    allowSeniorLeadFallback: v.boolean(),
     panels: v.array(
       v.object({
         panelId: v.id("reviewPanels"),
+        name: v.string(),
         panelVersion: v.number(),
         activeMembers: v.array(
           v.object({
@@ -1929,6 +1986,8 @@ export const roundStatus = query({
             personId: v.id("people"),
             displayName: v.string(),
             isCoordinator: v.boolean(),
+            seat: rosterSeatView,
+            profile: rosterProfileView,
             canMarkNoShow: v.boolean(),
           }),
         ),
@@ -1939,6 +1998,7 @@ export const roundStatus = query({
             displayName: v.string(),
             isCoordinator: v.boolean(),
             criterionLabels: v.array(v.string()),
+            seat: rosterSeatView,
           }),
         ),
         pageChain: v.union(
@@ -1960,7 +2020,9 @@ export const roundStatus = query({
                     state: reviewerPushDeliveryState,
                   }),
                 ),
-                call: v.union(v.null(), v.object({ state: outboundCallDeliveryState }),
+                call: v.union(
+                  v.null(),
+                  v.object({ state: outboundCallDeliveryState }),
                 ),
               }),
             ),
@@ -1968,6 +2030,7 @@ export const roundStatus = query({
         ),
         canStartPage: v.boolean(),
         canSwapMembers: v.boolean(),
+        membershipBlockedReason: v.union(v.null(), v.string()),
       }),
     ),
     reserves: v.array(
@@ -1977,6 +2040,7 @@ export const roundStatus = query({
         displayName: v.string(),
         status: reviewRoundReserveStatus,
         pageCount: v.number(),
+        profile: rosterProfileView,
       }),
     ),
   }),
@@ -1998,32 +2062,37 @@ export const roundStatus = query({
       scopeType: "round",
       scopeId: round._id,
     });
-    const [panels, availableReserves, pagedReserves, assignedReserves] = await Promise.all([
-      ctx.db
-        .query("reviewPanels")
-        .withIndex("by_round_status", (index) => index.eq("roundId", round._id),
+    const [panels, availableReserves, pagedReserves, assignedReserves] =
+      await Promise.all([
+        ctx.db
+          .query("reviewPanels")
+          .withIndex("by_round_status", (index) =>
+            index.eq("roundId", round._id),
           )
-        .take(maximumReviewPanelsPerRound + 1),
-      ctx.db
-        .query("reviewRoundReserves")
-        .withIndex("by_round_status", (index) =>
-          index.eq("roundId", round._id).eq("status", "available"),
-        )
-        .take(maximumReviewReservesPerRound + 1),
-      ctx.db
-        .query("reviewRoundReserves")
-        .withIndex("by_round_status", (index) =>
-          index.eq("roundId", round._id).eq("status", "paged"),
-        )
-        .take(maximumReviewReservesPerRound + 1),
-      ctx.db
-        .query("reviewRoundReserves")
-        .withIndex("by_round_status", (index) =>
-          index.eq("roundId", round._id).eq("status", "assigned"),
-        )
-        .take(maximumReviewReservesPerRound + 1),
-    ]);
-    const reserves = [...availableReserves, ...pagedReserves, ...assignedReserves,
+          .take(maximumReviewPanelsPerRound + 1),
+        ctx.db
+          .query("reviewRoundReserves")
+          .withIndex("by_round_status", (index) =>
+            index.eq("roundId", round._id).eq("status", "available"),
+          )
+          .take(maximumReviewReservesPerRound + 1),
+        ctx.db
+          .query("reviewRoundReserves")
+          .withIndex("by_round_status", (index) =>
+            index.eq("roundId", round._id).eq("status", "paged"),
+          )
+          .take(maximumReviewReservesPerRound + 1),
+        ctx.db
+          .query("reviewRoundReserves")
+          .withIndex("by_round_status", (index) =>
+            index.eq("roundId", round._id).eq("status", "assigned"),
+          )
+          .take(maximumReviewReservesPerRound + 1),
+      ]);
+    const reserves = [
+      ...availableReserves,
+      ...pagedReserves,
+      ...assignedReserves,
     ];
     if (panels.length > maximumReviewPanelsPerRound) {
       throw new Error("A review round exceeds the published panel limit.");
@@ -2063,7 +2132,8 @@ export const roundStatus = query({
             .unique(),
           ctx.db
             .query("reviewerPageChains")
-            .withIndex("by_panel_created", (index) => index.eq("panelId", panel._id),
+            .withIndex("by_panel_created", (index) =>
+              index.eq("panelId", panel._id),
             )
             .order("desc")
             .first(),
@@ -2087,16 +2157,21 @@ export const roundStatus = query({
             .take(2),
         ]);
         if (members.length > maximumReviewersPerPanel) {
-          throw new Error("A review panel exceeds the published reviewer limit.",
+          throw new Error(
+            "A review panel exceeds the published reviewer limit.",
           );
         }
-        const liveSessions = [...awaitingSessions, ...activeSessions, ...scoringSessions,
+        const liveSessions = [
+          ...awaitingSessions,
+          ...activeSessions,
+          ...scoringSessions,
         ];
         if (liveSessions.length > 1) {
           throw new Error("A review panel has more than one live review.");
         }
         const pendingSession = awaitingSessions[0];
-        const reviewIsRunning = activeSessions.length > 0 || scoringSessions.length > 0;
+        const reviewIsRunning =
+          activeSessions.length > 0 || scoringSessions.length > 0;
         const activeMembers = await Promise.all(
           members.map(async (member) => {
             const [reviewer, permission] = await Promise.all([
@@ -2108,13 +2183,19 @@ export const roundStatus = query({
                 reviewerPersonId: member.personId,
               }),
             ]);
-            if (!reviewer) throw new Error("A panel member no longer resolves to a person.");
+            if (!reviewer)
+              throw new Error("A panel member no longer resolves to a person.");
             return {
               panelMemberId: member._id,
               personId: reviewer._id,
               displayName: reviewer.displayName,
               isCoordinator: member.isCoordinator,
-              canMarkNoShow: permission !== null && panel.status === "ready" && !reviewIsRunning,
+              seat: await rosterSeat(ctx, member),
+              profile: await rosterProfile(ctx, round, reviewer),
+              canMarkNoShow:
+                permission !== null &&
+                panel.status === "ready" &&
+                !reviewIsRunning,
             };
           }),
         );
@@ -2123,14 +2204,18 @@ export const roundStatus = query({
           displayName: string;
           isCoordinator: boolean;
           criterionLabels: string[];
+          seat: Awaited<ReturnType<typeof rosterSeat>>;
         } | null = null;
         if (removed) {
           const missingPerson = await ctx.db.get(removed.personId);
-          if (!missingPerson) throw new Error("A removed panel member no longer resolves.");
+          if (!missingPerson)
+            throw new Error("A removed panel member no longer resolves.");
           const labels: string[] = [];
           for (const criterionId of removed.assignedCriterionIds) {
             const criterion = await ctx.db.get(criterionId);
-            if (!criterion) throw new Error("A removed panel member has an invalid criterion.",
+            if (!criterion)
+              throw new Error(
+                "A removed panel member has an invalid criterion.",
               );
             labels.push(criterion.label);
           }
@@ -2139,6 +2224,7 @@ export const roundStatus = query({
             displayName: missingPerson.displayName,
             isCoordinator: removed.isCoordinator,
             criterionLabels: labels,
+            seat: await rosterSeat(ctx, removed),
           };
         }
         const displayedChain = activeChain ?? (vacancy ? latestChain : null);
@@ -2170,13 +2256,16 @@ export const roundStatus = query({
             ctx.db
               .query("reviewerPages")
               .withIndex("by_chain_state_rank", (index) =>
-                index.eq("pageChainId", displayedChain._id).eq("state", "opened"),
+                index
+                  .eq("pageChainId", displayedChain._id)
+                  .eq("state", "opened"),
               )
               .take(2),
           ]);
           const currentPages = [...sentPages, ...openedPages];
           if (currentPages.length > 1) {
-            throw new Error("A substitute page chain has more than one active page.",
+            throw new Error(
+              "A substitute page chain has more than one active page.",
             );
           }
           const currentPage = currentPages[0];
@@ -2197,7 +2286,8 @@ export const roundStatus = query({
               ctx.db.get(currentPage.targetPersonId),
               ctx.db
                 .query("reviewerPushDeliveries")
-                .withIndex("by_page", (index) => index.eq("pageId", currentPage._id),
+                .withIndex("by_page", (index) =>
+                  index.eq("pageId", currentPage._id),
                 )
                 .order("desc")
                 .first(),
@@ -2212,7 +2302,8 @@ export const roundStatus = query({
                 )
                 .unique(),
             ]);
-            if (!target) throw new Error("A substitute page target no longer resolves.");
+            if (!target)
+              throw new Error("A substitute page target no longer resolves.");
             currentPageView = {
               id: currentPage._id,
               targetName: target.displayName,
@@ -2248,8 +2339,23 @@ export const roundStatus = query({
             scopeId: panel._id,
           }),
         ]);
+        const membershipBlockedReason =
+          assignGrantIds.length === 0
+            ? "You need panel management access to change reviewers."
+            : !["published", "open"].includes(round.status)
+              ? "Roster editing is closed for this round."
+              : liveSessions.length > 0
+                ? "Finish this review and its scorecards before changing reviewers."
+                : activeChain !== null
+                  ? "A replacement is being paged. Wait for their response."
+                  : !["ready", "needs_reviewer", "paused"].includes(
+                        panel.status,
+                      )
+                    ? "This panel is not available for roster changes."
+                    : null;
         return {
           panelId: panel._id,
+          name: panel.name,
           panelVersion: panel.version,
           activeMembers,
           vacancy,
@@ -2258,31 +2364,30 @@ export const roundStatus = query({
             permission !== null &&
             panel.status === "needs_reviewer" &&
             vacancy !== null &&
-            activeChain === undefined,
-          canSwapMembers:
-            assignGrantIds.length > 0 &&
-            ["ready", "needs_reviewer", "paused"].includes(panel.status) &&
-            ["published", "open"].includes(round.status) &&
-            activeChain === undefined &&
-            liveSessions.length === 0,
+            activeChain === null,
+          canSwapMembers: membershipBlockedReason === null,
+          membershipBlockedReason,
         };
       }),
     );
     const reserveRows = await Promise.all(
       reserves.map(async (reserve) => {
         const reviewer = await ctx.db.get(reserve.personId);
-        if (!reviewer) throw new Error("A reserve reviewer no longer resolves to a person.");
+        if (!reviewer)
+          throw new Error("A reserve reviewer no longer resolves to a person.");
         return {
           reserveId: reserve._id,
           personId: reviewer._id,
           displayName: reviewer.displayName,
           status: reserve.status,
           pageCount: reserve.pageCount,
+          profile: await rosterProfile(ctx, round, reviewer),
         };
       }),
     );
     return {
       serverNow: Date.now(),
+      allowSeniorLeadFallback: round.staffing.allowSeniorLeadFallback,
       panels: panelRows,
       reserves: reserveRows.sort((left, right) =>
         left.displayName.localeCompare(right.displayName),

@@ -1,3 +1,5 @@
+import { maximumApplicantTeamsPerEvent } from "./lib/reviewLimits";
+import { reviewProgressionBlocker } from "./lib/reviewProgression";
 import { paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import { z } from "zod";
@@ -495,6 +497,17 @@ export const start = mutation({
         message: "Cancel, reject, or import every pending paper review before closing this round.",
       });
     }
+    const plans = await ctx.db.query("reviewTeamPlans")
+      .withIndex("by_round_team", q => q.eq("roundId", round._id)).take(maximumApplicantTeamsPerEvent + 1);
+    if (plans.length > maximumApplicantTeamsPerEvent) throw new Error("Review planning limit exceeded.");
+    const teamsWithOutcomes = new Set(states.map(state => state.teamId));
+    let unresolvedPlans = 0;
+    for (const plan of plans) {
+      if (teamsWithOutcomes.has(plan.teamId)) continue;
+      const team = await ctx.db.get(plan.teamId);
+      if (team && team.competitionCategory !== "oc" && !await reviewProgressionBlocker(ctx, round, team._id)) unresolvedPlans++;
+    }
+    if (unresolvedPlans) throw new ConvexError({ code: "PLANNED_TEAMS_UNRESOLVED", message: `${unresolvedPlans} planned teams have no review outcome. Review them or explicitly skip them before closing.` });
     const unresolvedStates = states.filter(
       (state) => !["completed", "withdrawn", "skipped"].includes(state.state),
     );

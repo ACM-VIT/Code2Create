@@ -160,7 +160,7 @@ export const intelligenceAgentDefinitions: readonly IntelligenceAgentDefinition[
         "Published round policy, changed source evidence, or review start",
       memory: [
         "Frozen, redacted idea and progress updates",
-        "Pinned repository samples and Figma design outlines",
+        "All eligible text files from pinned repositories, processed in batches",
         "Publish reminder state",
       ],
       authority: [

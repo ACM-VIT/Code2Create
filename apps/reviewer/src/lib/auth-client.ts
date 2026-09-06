@@ -10,7 +10,16 @@ export function createReviewerAuthClient(baseURL: string, scheme: string) {
       expoClient({
         scheme,
         storagePrefix: scheme,
-        storage: SecureStore,
+        storage: {
+          getItem: (key) => SecureStore.getItem(key),
+          // Background location must be able to refresh auth while the phone is locked.
+          // Keep these credentials on this device when restoring a backup.
+          setItem: (key, value) =>
+            SecureStore.setItem(key, value, {
+              keychainAccessible:
+                SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY,
+            }),
+        },
       }),
       convexClient(),
     ],

@@ -95,13 +95,13 @@ Before clock-in, the app checks:
 - camera permission;
 - local encrypted database can open;
 - current Convex connection;
-- reviewer profile and training acknowledgment.
+- active reviewer profile. There is no training acknowledgment or tutorial gate.
 
 The device record stores no Google password or raw OAuth token.
 
 ## 5. Clock-in
 
-Before the round, an availability card opens at the scheduled confirmation time, normally 23:00 IST. It offers all of the round's time windows, a whole-round selection, and an explicit unavailable response. There is no three-selection limit. Form-export hours are never prefilled as promises. Operations sees pending, confirmed, and unavailable responses separately. Only qualified reviewers with confirmed coverage may clock in for a review.
+Before the round, an availability card opens at the scheduled confirmation time, normally 22:00–23:00 IST the evening before the review. It offers all of the round's time windows, a whole-round selection, and an explicit unavailable response. There is no three-selection limit. Form-export hours are never prefilled as promises. Operations sees pending, confirmed, and unavailable responses separately. Only qualified reviewers with confirmed coverage may clock in for a review.
 
 The clock-in screen shows:
 
@@ -110,7 +110,7 @@ The clock-in screen shows:
 - assigned panel and venue zone, when published;
 - availability end time;
 - declared criterion coverage;
-- unresolved conflict or training block.
+- active reviewer profile and any declared conflict.
 
 Clock-in is one server write. The server, not the phone clock, enforces the published opening and round end and rechecks round-confirmed coverage for a complete review. The app keeps the control unavailable before the published opening and treats the server refusal as authoritative. It then subscribes to `reviewer.now`, which contains the reviewer’s current panel, page, assignment, and review.
 
@@ -168,7 +168,8 @@ When the review starts, the app caches the context required to finish that activ
 - problem, user, and evidence;
 - disclosed general-purpose starting resources and allowed pre-start setup;
 - current demo state;
-- one GitHub/Figma evidence checkpoint set fixed to this review;
+- a GitHub evidence checkpoint set fixed to this review;
+- the team’s Figma link, opened through its existing icon;
 - previous review findings and commitments;
 - changes claimed since the previous review;
 - active rubric and the reviewer’s criteria;
@@ -182,16 +183,12 @@ The evidence tab can open:
 
 - the ordered GitHub repository index with kind, purpose, topic, branch/root, baseline/head, freshness, and completeness;
 - per-repository activity charts, changed paths, commit facts, captured tree, and an authorized text file at that repository’s fixed SHA;
-- the Figma page/frame index, captured previews, layer properties, components, prototype flows, named versions, comment state, and changed-screen list;
+- the participant-provided Figma link;
 - freshness, completeness, truncation, rate-limit, and provider-access warnings.
 
 The review keeps the checkpoint-set ID chosen at start. If a repository is added, removed, reclassified, reordered, or refreshed later, the app may show **Newer evidence available** but cannot swap the scoring context. `review.evidence_context.replace` for that review must explicitly restart or replace the context when policy requires it.
 
-The current milestone implements exact-SHA GitHub browsing plus checksummed Figma artifact access. An assigned reviewer can page through the complete tree in the pinned raw snapshot. The reviewer can open any layer. The reviewer can inspect bounded dimensions, position, layout, sizing, constraints, appearance counts, text preview, style references, component metadata, flow starting points, and prototype interactions. The reviewer can filter the captured frame set to new or changed screens. Available frame previews use one-minute URLs for the exact captured version. The layer action reads the immutable private artifact instead of spending another Figma Tier 1 request.
-
-The same boundary exposes the bounded named-version and comment facts stored with that exact snapshot. The system never calls Figma while a reviewer opens the activity view. Version history is ordered by provider creation time and carries an explicit completeness flag. Comments record the state observed when the snapshot was captured because Figma's comment endpoint is not version-addressable. The UI does not imply that a later comment belonged to an earlier file version. Handles and comment text are collaboration context. They do not prove authorship or effort.
-
-The visual comparison follows the current checkpoint set's `previousCheckpointSetId`. It compares the two judging contexts. It does not use the webhook or manual provider snapshot that happened immediately before the current one. The comparison joins stored frame facts by Figma node ID. It uses semantic hashes for changed or unchanged state. It opens only the stored renders on each side. If either 48-frame selection was truncated, an absent frame is **Uncertain**. The system does not report a false addition or removal.
+Repository browsing uses the SHA fixed for the review. Figma is a link only: no OAuth connection, artifact capture, frame comparison, or automated design analysis is required. Reviewers open the linked design themselves.
 
 If the reviewer notices a conflict that was not declared, **Report conflict** freezes that reviewer’s scorecard and alerts operations.
 
@@ -356,11 +353,7 @@ On a device handover, operations revokes the old device, registers the spare, an
 - Logout or device revocation removes access and prevents queued operations from gaining authority.
 - The support surface can create, list, open, and reply to only the signed-in person's cases; retrying after an ambiguous response adds no duplicate, and internal support actions never appear.
 - A provider credential never enters the mobile cache, logs, or an evidence response.
-- An assigned reviewer can inspect only repository files and Figma artifacts listed in that review’s evidence checkpoint set.
-- A Figma layer page is returned only after the compressed size, decoded size, SHA-256, recorded provider version, assignment, evidence grant, checkpoint, binding, snapshot, and artifact manifest all agree.
-- More than 60 direct Figma children paginate without changing the selected node or mixing a newer file version into the review.
-- Named-version and comment activity comes only from the snapshot pinned by that review, reports bounded/incomplete capture honestly, and never becomes a contribution or effort score.
-- A side-by-side Figma comparison follows the previous judging checkpoint set, never an intervening provider refresh, and returns **Uncertain** instead of claiming an addition or removal outside an incomplete frame set.
+- An assigned reviewer can inspect only repository files listed in that review’s evidence checkpoint set.
 - A newer provider snapshot or changed repository set cannot silently replace the evidence fixed when the review started.
 - A round pause removes the start control on every connected reviewer device without interrupting an already-active review or its draft.
 
@@ -369,4 +362,6 @@ On a device handover, operations revokes the old device, registers the spare, an
 
 GPS is advisory. Sustained outside readings prompt an app reminder and, when configured and consented, a conversational check-in call. Ops selects the published voice agent/version and timing; the response and transcript are recorded separately from GPS and call delivery status. A current explicit unavailable answer can end duty and request a substitute between reviews. Active discussion and unfinished scorecards remain locked; unclear answers or requests for help need ops follow-up. No answer never becomes confirmation. Normal clock-in is the return-to-duty action and cancels an older unresolved check.
 
-The review brief is optional: complete eligible repository text and stored Figma structure are analysed in resumable batches before synthesis. The default is up to three grounded follow-ups, including none when the fixed rubric is enough. The reviewer sees a concise brief in the existing app style. Ops can also enable inspection of captured Figma renders with exact frame/checksum references. Binary repository assets, inaccessible resources, preview capture limits and runtime verification remain explicit limitations. See [current implementation and rehearsal](15-event-review-readiness.md).
+The review brief is optional. Eligible repository text and the team's submitted idea inform ungraded follow-up questions. Figma stays a link for the reviewer. Suggested questions cannot change the published rubric or add graded criteria. Binary assets, inaccessible repositories, and runtime verification remain explicit limitations. See [current implementation and rehearsal](15-event-review-readiness.md).
+
+Between reviews, the app shows the assigned panel or an on-call reserve state. Breaks and clock-out are available from duty controls. The break sheet dismisses before those controls disappear. An accepted substitute page opens Reviews; an expired page can be dismissed even when the live query is offline. The team code confirms arrival before the coordinator starts. Paging settings, duty changes, and availability editors are absent while a review is assigned.

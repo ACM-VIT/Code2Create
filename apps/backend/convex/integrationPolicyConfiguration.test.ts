@@ -7,7 +7,7 @@ import type { Doc, Id } from "./_generated/dataModel.ts";
 import {
   githubTopicVerificationIsCurrent,
   integrationPolicyChecksum,
-  integrationProviderFrozenAt,
+  githubIntegrationFrozenAt,
   normalizeIntegrationPolicy,
   publishIntegrationPolicy,
   saveIntegrationPolicyDraft,
@@ -39,10 +39,9 @@ describe("integration policy configuration", () => {
       githubFreezeAt: freezeAt,
     });
     expect(normalized.requiredGitHubTopic).toBe("code2create-7-0");
-    expect(integrationProviderFrozenAt(normalized, "github", freezeAt - 1)).toBe(false);
-    expect(integrationProviderFrozenAt(normalized, "github", freezeAt)).toBe(true);
-    expect(integrationProviderFrozenAt(normalized, "github", freezeAt + 1)).toBe(true);
-    expect(integrationProviderFrozenAt(normalized, "figma", freezeAt + 1)).toBe(false);
+    expect(githubIntegrationFrozenAt(normalized, freezeAt - 1)).toBe(false);
+    expect(githubIntegrationFrozenAt(normalized, freezeAt)).toBe(true);
+    expect(githubIntegrationFrozenAt(normalized, freezeAt + 1)).toBe(true);
     expect(() =>
       normalizeIntegrationPolicy({
         ...policy("integrations-v2"),
@@ -107,7 +106,6 @@ describe("integration policy configuration", () => {
     const fixture = await seedFixture(backend, "cap-reduction");
     await backend.run(async (ctx) => {
       await ctx.db.insert("githubTeamMetrics", githubMetric(fixture, 4));
-      await ctx.db.insert("figmaTeamMetrics", figmaMetric(fixture, 3));
     });
     const draft = await backend.run((ctx) =>
       saveIntegrationPolicyDraft(ctx, {
@@ -116,8 +114,7 @@ describe("integration policy configuration", () => {
         policy: {
           ...policy("integrations-v2"),
           maxActiveGitHubRepositoriesPerTeam: 3,
-          maxActiveFigmaFilesPerTeam: 2,
-        },
+          },
         now: fixture.now + 1,
       }),
     );
@@ -305,8 +302,7 @@ function policy(policyVersion: string): IntegrationPolicy {
     policyVersion,
     requiredGitHubTopic: "code2create-7-0",
     maxActiveGitHubRepositoriesPerTeam: 10,
-    maxActiveFigmaFilesPerTeam: 10,
-  };
+    };
 }
 
 async function seedFixture(backend: BackendTest, slug: string) {
@@ -415,43 +411,6 @@ function githubMetric(
     languageBytes: [],
     completeness: repositoryCount === 0 ? "unknown" : "complete",
     incompleteRepositoryCount: 0,
-    version: 1,
-    updatedAt: fixture.now,
-  };
-}
-
-function figmaMetric(
-  fixture: { event: Doc<"events">; teamId: Id<"teams">; now: number },
-  fileCount: number,
-): Omit<Doc<"figmaTeamMetrics">, "_id" | "_creationTime"> {
-  return {
-    eventId: fixture.event._id,
-    teamId: fixture.teamId,
-    health: fileCount === 0 ? "not_connected" : "ready",
-    authorizationCount: fileCount === 0 ? 0 : 1,
-    fileCount,
-    completeFileCount: fileCount,
-    incompleteFileCount: 0,
-    dirtyCount: 0,
-    webhookActiveCount: fileCount,
-    webhookUnavailableCount: 0,
-    rateLimitedCount: 0,
-    previewReadyCount: fileCount,
-    previewPendingCount: 0,
-    previewAttentionCount: 0,
-    selectedPreviewCount: 0,
-    availablePreviewCount: 0,
-    pageCount: 0,
-    frameCount: 0,
-    componentCount: 0,
-    componentSetCount: 0,
-    styleCount: 0,
-    nodeCount: 0,
-    prototypeInteractionCount: 0,
-    commentCount: 0,
-    unresolvedCommentCount: 0,
-    versionCount: 0,
-    completeness: fileCount === 0 ? "unknown" : "complete",
     version: 1,
     updatedAt: fixture.now,
   };

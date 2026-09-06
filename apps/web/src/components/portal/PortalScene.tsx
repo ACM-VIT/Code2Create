@@ -89,6 +89,7 @@ function CursorPetalLayer({ sceneRef }: { sceneRef: RefObject<HTMLDivElement | n
 export function PortalScene({
   children,
   header,
+  nav,
   onSignOut,
   tree = "left",
   branch = false,
@@ -98,6 +99,8 @@ export function PortalScene({
 }: {
   children: ReactNode;
   header?: ReactNode;
+  /** The room pill, centred between the wordmark and the header slot. */
+  nav?: ReactNode;
   /**
    * Pins the scene to the viewport height and lets the content own its own
    * scrolling — the conversation screens, where the thread scrolls inside
@@ -186,6 +189,11 @@ export function PortalScene({
           ) : (
             <span />
           )}
+          {nav ? (
+            <div className="pointer-events-auto absolute top-[76px] left-1/2 -translate-x-1/2 lg:top-9">
+              {nav}
+            </div>
+          ) : null}
           <div className="pointer-events-auto flex items-start gap-2.5">
             {header}
             <DaybreakToggle />
@@ -195,8 +203,12 @@ export function PortalScene({
         <main
           className={`relative z-[3] flex flex-1 flex-col items-center px-5 lg:px-12 ${
             fill
-              ? "min-h-0 justify-start pt-[84px] pb-4 lg:pt-[100px] lg:pb-6 xl:pt-9"
-              : "justify-center-safe pt-28 pb-16"
+              ? nav
+                ? "min-h-0 justify-start pt-[140px] pb-4 lg:pt-[100px] lg:pb-6"
+                : "min-h-0 justify-start pt-[84px] pb-4 lg:pt-[100px] lg:pb-6 xl:pt-9"
+              : nav
+                ? "justify-center-safe pt-[150px] pb-16 lg:pt-28"
+                : "justify-center-safe pt-28 pb-16"
           }`}
         >
           {children}

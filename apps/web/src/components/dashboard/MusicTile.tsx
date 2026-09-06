@@ -3,7 +3,6 @@ import { useEffect, useRef, useState, type SubmitEvent } from "react";
 
 import { readableError } from "../../lib/errors";
 import { useSceneryPlayer } from "../../lib/useYouTubePlayer";
-import { PortalButton } from "../portal/PortalButton";
 import { Tile, TileEyebrow } from "./Tile";
 import { clampWhenShort, tileBody } from "./tileClasses";
 import type { Slot } from "./dashboardLayout";
@@ -33,6 +32,9 @@ export type MusicRequestView = {
   publicReason?: string;
   /** Server time the desk marked it playing; drives the progress bar. */
   playbackStartedAt?: number;
+  /** The full room lets a participant flag a request for the desk. */
+  canReport?: boolean;
+  hasReported?: boolean;
 };
 
 export type MusicSearchResult = {
@@ -142,7 +144,7 @@ function VideoBackdrop({ videoId, still, resizeKey }: { videoId: string; still: 
       <img
         src={`https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`}
         alt=""
-        className={`absolute inset-0 size-full object-cover opacity-70 saturate-[.85] transition-opacity duration-700 ${veiled ? "" : "opacity-0"}`}
+        className={`absolute inset-0 size-full object-cover saturate-[.85] transition-opacity duration-700 ${veiled ? "opacity-70" : "opacity-0"}`}
       />
       <div className="absolute inset-0 bg-[linear-gradient(to_top,var(--color-wash)_0%,color-mix(in_srgb,var(--color-wash)_55%,transparent)_42%,color-mix(in_srgb,var(--color-wash)_12%,transparent)_100%)]" />
     </div>
@@ -280,7 +282,13 @@ type SearchOutcome =
 
 type Panel = "queue" | "search";
 
-function OpenMusic({ model }: { model: MusicTileModel }) {
+function OpenMusic({
+  model,
+  onQuietChange,
+}: {
+  model: MusicTileModel;
+  onQuietChange: (quiet: boolean) => void;
+}) {
   const [panel, setPanel] = useState<Panel | null>(null);
   const [query, setQuery] = useState("");
   const [outcome, setOutcome] = useState<SearchOutcome | null>(null);
@@ -357,10 +365,56 @@ function OpenMusic({ model }: { model: MusicTileModel }) {
 
   const message = error ?? notice;
 
+  // Like any player, the words step back once the pointer rests on a playing
+  // video, and come back on the first move, tap, or keystroke. The sheet
+  // never hides; nor does anything while there is no video to show.
+  const hideable = panel === null && typeof nowPlaying?.videoId === "string";
+  const [idle, setIdle] = useState(false);
+  const resetIdle = useRef<() => void>(() => {});
+  useEffect(() => {
+    if (!hideable) {
+      resetIdle.current = () => {};
+      return;
+    }
+    let timer: number | null = null;
+    const arm = () => {
+      if (timer !== null) window.clearTimeout(timer);
+      timer = window.setTimeout(() => setIdle(true), 3_000);
+    };
+    resetIdle.current = arm;
+    arm();
+    return () => {
+      if (timer !== null) window.clearTimeout(timer);
+      resetIdle.current = () => {};
+    };
+  }, [hideable]);
+  const quiet = hideable && idle;
+  useEffect(() => {
+    onQuietChange(quiet);
+  }, [quiet, onQuietChange]);
+  const wake = () => {
+    setIdle(false);
+    resetIdle.current();
+  };
+  const rest = () => {
+    if (hideable) setIdle(true);
+  };
+
   return (
-    <div className="relative flex min-h-0 flex-1 flex-col">
+    <div
+      className={`relative flex min-h-0 flex-1 flex-col ${quiet ? "cursor-none" : ""}`}
+      onPointerMove={wake}
+      onPointerDown={wake}
+      onKeyDown={wake}
+      onFocus={wake}
+      onPointerLeave={rest}
+    >
       {/* The player, over the video. */}
-      <div className="flex min-h-0 flex-1 flex-col justify-between gap-4 p-5 pr-14">
+      <div
+        className={`flex min-h-0 flex-1 flex-col justify-between gap-4 p-5 pr-14 transition-opacity duration-500 ${
+          quiet ? "pointer-events-none opacity-0" : "opacity-100"
+        }`}
+      >
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
           <TileEyebrow>music</TileEyebrow>
           <span className="text-[12px] text-fg/55">
@@ -466,7 +520,7 @@ function OpenMusic({ model }: { model: MusicTileModel }) {
             </form>
           ) : null}
 
-          <div className="min-h-0 flex-1 px-5 pb-3">
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-3">
             {panel === "search" ? (
               searchFailure ? (
                 <p className="m-0 text-[13px] text-rose-light">{searchFailure}</p>
@@ -495,18 +549,19 @@ function OpenMusic({ model }: { model: MusicTileModel }) {
                           <span className="block truncate text-[13.5px] text-fg">
                             {video.title}
                           </span>
-                          <span className="block truncate text-[11.5px] text-fg/55">
-                            {video.channelTitle} · {durationLabel(video.durationSeconds)}
+                          <span className="block truncate text-[11.5px] tabular-nums text-fg/55">
+                            {durationLabel(video.durationSeconds)}
                           </span>
                         </span>
-                        <PortalButton
-                          size="sm"
-                          variant="solid"
+                        <button
+                          type="button"
                           disabled={busy !== null}
                           onClick={() => void request(video.videoId, video.title)}
+                          aria-label={`Request ${video.title}`}
+                          className="flex size-8 shrink-0 items-center justify-center rounded-full border border-rose/55 font-display text-[20px] font-light leading-none text-rose-light transition-colors hover:bg-rose hover:text-wash disabled:opacity-45"
                         >
-                          {busy === `request:${video.videoId}` ? "Adding…" : "Request"}
-                        </PortalButton>
+                          {busy === `request:${video.videoId}` ? "…" : "+"}
+                        </button>
                       </li>
                     ))}
                   </ul>
@@ -614,6 +669,7 @@ export function MusicTile({
   onRelease: () => void;
 }) {
   const reducedMotion = useReducedMotion();
+  const [quiet, setQuiet] = useState(false);
   const { nowPlaying } = model;
   const status = statusLine(model);
   const waiting = model.queue.filter(
@@ -633,9 +689,10 @@ export function MusicTile({
       onToggle={onFocus}
       onRelease={onRelease}
       backdrop={backdrop}
+      quiet={focused && quiet}
     >
       {focused ? (
-        <OpenMusic model={model} />
+        <OpenMusic model={model} onQuietChange={setQuiet} />
       ) : (
         <div className={tileBody}>
           <TileEyebrow>music</TileEyebrow>

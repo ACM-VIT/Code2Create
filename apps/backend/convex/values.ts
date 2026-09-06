@@ -705,6 +705,16 @@ export const attendanceExportSnapshotRow = v.object({
 
 export type AttendanceExportSnapshotRow = Infer<typeof attendanceExportSnapshotRow>;
 
+export const reviewProgressionScoreReference = v.object({
+  policyVersion: v.number(),
+  rounds: v.array(
+    v.object({
+      roundId: v.id("reviewRounds"),
+      closeSnapshotId: v.id("roundCloseSnapshots"),
+    }),
+  ),
+});
+
 export const reviewRoundStatus = v.union(
   v.literal("draft"),
   v.literal("published"),
@@ -722,6 +732,10 @@ export const eventStatus = v.union(
   v.literal("complete"),
 );
 export type EventStatus = Infer<typeof eventStatus>;
+
+/** The room's ambience, flipped from the desk: the disco ball is down or up. */
+export const ambienceMode = v.union(v.literal("off"), v.literal("chill"));
+export type AmbienceMode = Infer<typeof ambienceMode>;
 
 export const reviewPanelStatus = v.union(
   v.literal("draft"),
@@ -884,46 +898,6 @@ export const githubRepositoryCoverage = v.union(
   v.literal("unknown"),
 );
 
-export const figmaFileSyncState = v.union(
-  v.literal("pending"),
-  v.literal("running"),
-  v.literal("ready"),
-  v.literal("rate_limited"),
-  v.literal("error"),
-);
-
-export const figmaCredentialState = v.union(
-  v.literal("active"),
-  v.literal("revoked"),
-  v.literal("error"),
-);
-
-export const figmaCredentialConnectionState = v.union(v.literal("active"), v.literal("revoked"),
-);
-
-export const figmaFileBindingState = v.union(
-  v.literal("active"),
-  v.literal("inaccessible"),
-  v.literal("revoked"),
-  v.literal("archived"),
-);
-
-export const figmaWebhookState = v.union(
-  v.literal("pending"),
-  v.literal("active"),
-  v.literal("unavailable"),
-  v.literal("error"),
-);
-
-export const figmaPreviewState = v.union(
-  v.literal("pending"),
-  v.literal("running"),
-  v.literal("ready"),
-  v.literal("partial"),
-  v.literal("rate_limited"),
-  v.literal("failed"),
-);
-
 export const rosterEntryStatus = v.union(
   v.literal("pending"),
   v.literal("claimed"),
@@ -1063,6 +1037,7 @@ export const reviewEvidenceCheckpointFields = {
   roundSequence: v.number(),
   teamId: v.id("teams"),
   projectVersionId: v.id("projectVersions"),
+  eventStartsAt: v.optional(v.number()),
   teamCheckpointSubmissionId: v.optional(v.id("teamCheckpointSubmissions")),
   previousCheckpointSetId: v.optional(v.id("reviewEvidenceCheckpointSets")),
   githubEntries: v.array(
@@ -1079,21 +1054,7 @@ export const reviewEvidenceCheckpointFields = {
       stateAtCapture: v.string(),
     }),
   ),
-  figmaEntries: v.array(
-    v.object({
-      bindingId: v.id("figmaFileBindings"),
-      snapshotId: v.optional(v.id("figmaFileSnapshots")),
-      preview: v.optional(v.object({
-        state: v.string(), discoveredNodes: v.number(), selectedNodes: v.number(), truncated: v.boolean(),
-        renders: v.array(v.object({ factId: v.id("figmaNodeFacts"), sha256: v.string() })),
-      })),
-      fileName: v.string(),
-      fileUrl: v.string(),
-      role: v.string(),
-      editorType: v.string(),
-      stateAtCapture: v.string(),
-    }),
-  ),
+  figmaFileUrl: v.optional(v.string()),
   expectedResourceCount: v.number(),
   capturedResourceCount: v.number(),
   completeness: v.union(
@@ -1108,7 +1069,6 @@ export const reviewEvidenceCheckpointFields = {
 
 export const reviewQuestionPolicy = v.object({
   enabled: v.boolean(),
-  visualAnalysis: v.boolean(),
   refreshSeconds: v.number(),
   maximumQuestions: v.number(),
   parallelAnalyses: v.number(),
@@ -1118,15 +1078,12 @@ export const reviewQuestionPolicy = v.object({
   model: v.string(),
   instructions: v.string(),
 });
-export const reviewQuestionImage = v.object({ factId: v.string(), sha256: v.string() });
 export const reviewQuestionSource = v.object({
-  image: v.optional(reviewQuestionImage),
   id: v.string(),
   kind: v.union(
     v.literal("project"),
     v.literal("checkpoint"),
     v.literal("github"),
-    v.literal("figma"),
   ),
   title: v.string(),
   url: v.optional(v.string()),

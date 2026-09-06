@@ -1182,6 +1182,44 @@ describe("admission cohort query and decisions", () => {
       deliveryId: queued._id, attemptId: "duplicate-dispatch",
     })).toBeNull();
 
+    const repeatArgs = {
+      eventSlug: fixture.eventSlug, offerId: pendingOffer._id, previousDeliveryId: queued._id,
+      reason: "Call the still-unanswered team again", clientOperationId: "repeat-rsvp-call",
+    };
+    await expect(onlooker.mutation(api.admissionOfferCalls.repeat, repeatArgs)).rejects.toThrow("permission");
+    await expect(operator.mutation(api.admissionOfferCalls.repeat, repeatArgs)).rejects.toThrow("definite call outcome");
+    await backend.run(ctx => ctx.db.patch(queued._id, { state: "completed", completedAt: Date.now() }));
+    await expect(operator.mutation(api.admissionOfferCalls.repeat, repeatArgs)).rejects.toThrow("five minutes");
+    await backend.run(ctx => ctx.db.patch(queued._id, { createdAt: Date.now() - 6 * 60_000 }));
+    const originalCall = await backend.run(ctx => ctx.db.get(queued._id));
+    await operator.mutation(api.admissionOfferCalls.repeat, repeatArgs);
+    await operator.mutation(api.admissionOfferCalls.repeat, repeatArgs);
+    await expect(operator.mutation(api.admissionOfferCalls.repeat, {
+      ...repeatArgs, clientOperationId: "competing-repeat-rsvp-call",
+    })).rejects.toThrow("Refresh the previous RSVP call");
+    await backend.mutation(internal.admissionOfferCalls.remind, { offerId: pendingOffer._id });
+    await operator.mutation(api.admissionOfferCalls.sendNow, { ...callArgs, clientOperationId: "after-repeat-send-now" });
+    const repeated = await backend.run(async ctx => ({
+      calls: await ctx.db.query("outboundCallDeliveries").collect(),
+      original: await ctx.db.get(queued._id),
+      emails: await ctx.db.query("participantNotificationDeliveries").collect(),
+    }));
+    expect(repeated.calls).toHaveLength(2);
+    expect(repeated.original).toEqual(originalCall);
+    expect(repeated.emails).toEqual(immediate.emails);
+    const newCall = repeated.calls.find(call => call._id !== queued._id);
+    if (!newCall) throw new Error("Missing repeat call");
+    expect(newCall).toMatchObject({ state: "pending", attemptCount: 0, sourceId: pendingOffer._id });
+    // A response arriving after enqueue cancels the new dispatch rather than calling a confirmed team.
+    await backend.run(ctx => ctx.db.patch(pendingOffer._id, { state: "confirmed" }));
+    expect(await backend.mutation(internal.outboundCallState.claimDelivery, {
+      deliveryId: newCall._id, attemptId: "response-before-redial",
+    })).toBeNull();
+    await expect(operator.mutation(api.admissionOfferCalls.repeat, {
+      ...repeatArgs, previousDeliveryId: newCall._id, clientOperationId: "repeat-after-rsvp",
+    })).rejects.toThrow("no current unanswered RSVP");
+    await backend.run(ctx => ctx.db.patch(pendingOffer._id, { state: "offered" }));
+
     const applications = await backend.run((ctx) =>
       Promise.all([
         ctx.db.get(fixture.decidableApplicationId),

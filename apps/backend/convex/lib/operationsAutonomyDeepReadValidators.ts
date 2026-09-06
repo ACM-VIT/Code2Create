@@ -8,7 +8,6 @@ import {
   operationsAutonomyAttendanceStationStates,
   operationsAutonomyEmergencyPackStates,
   operationsAutonomyFailureClasses,
-  operationsAutonomyFigmaWebhookStates,
   operationsAutonomyGithubTopicStates,
   operationsAutonomyIncidentManualModeStates,
   operationsAutonomyIncidentServices,
@@ -95,22 +94,12 @@ const integrationCommon = {
   failureClass: v.optional(operationsAutonomyFailureClass),
 };
 
-export const operationsAutonomyIntegrationJobFact = v.union(
-  v.object({
-    provider: v.literal("github"),
-    ...integrationCommon,
-    bindingId: v.id("githubRepositoryBindings"),
-    topicState: v.union(...operationsAutonomyGithubTopicStates.map((value) => v.literal(value))),
-  }),
-  v.object({
-    provider: v.literal("figma"),
-    ...integrationCommon,
-    bindingId: v.id("figmaFileBindings"),
-    webhookState: v.union(...operationsAutonomyFigmaWebhookStates.map((value) => v.literal(value))),
-    lastMetadataCheckAt: v.number(),
-    lastFullCaptureAt: v.number(),
-  }),
-);
+export const operationsAutonomyIntegrationJobFact = v.object({
+  provider: v.literal("github"),
+  ...integrationCommon,
+  bindingId: v.id("githubRepositoryBindings"),
+  topicState: v.union(...operationsAutonomyGithubTopicStates.map(value => v.literal(value))),
+});
 
 export const operationsAutonomyRoundExportJobFact = v.object({
   exportId: v.id("roundExports"),

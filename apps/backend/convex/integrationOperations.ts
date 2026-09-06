@@ -6,7 +6,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { requireEventBySlug } from "./lib/events";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
-import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
+import { requirePermission } from "./lib/permissions";
 import {
   githubTopicVerificationIsCurrent,
   loadPublishedIntegrationPolicy,
@@ -14,7 +14,6 @@ import {
 import { activeGrantScopes } from "./lib/synesthesia";
 import { maximumReviewTeamsPerEvent } from "./lib/reviewLimits";
 import {
-  figmaPreviewState,
   githubRepositoryCoverage,
   githubRepositorySyncState,
   githubRepositoryTopicState,
@@ -35,20 +34,7 @@ const integrationTeam = v.object({
     incompleteCount: v.number(),
     lastActivityAt: v.optional(v.number()),
   }),
-  figma: v.object({
-    health: integrationProviderHealth,
-    fileCount: v.number(),
-    authorizationCount: v.number(),
-    completeCount: v.number(),
-    incompleteCount: v.number(),
-    dirtyCount: v.number(),
-    webhookUnavailableCount: v.number(),
-    rateLimitedCount: v.number(),
-    previewAttentionCount: v.number(),
-    oldestMetadataCheckAt: v.optional(v.number()),
-    lastCaptureAt: v.optional(v.number()),
-    lastActivityAt: v.optional(v.number()),
-  }),
+  figmaFileUrl: v.union(v.string(), v.null()),
 });
 
 const integrationSummary = v.object({
@@ -62,16 +48,15 @@ type ProviderMetric = { health: Doc<"githubTeamMetrics">["health"] };
 export function integrationSummaryCounts(
   teamIds: readonly string[],
   githubMetrics: ReadonlyMap<string, ProviderMetric>,
-  figmaMetrics: ReadonlyMap<string, ProviderMetric>,
+  teamsWithFigmaLink: ReadonlySet<string>,
 ) {
   let disconnectedCount = 0;
   let attentionCount = 0;
   for (const teamId of teamIds) {
     const githubHealth = githubMetrics.get(teamId)?.health ?? "not_connected";
-    const figmaHealth = figmaMetrics.get(teamId)?.health ?? "not_connected";
-    if (githubHealth === "not_connected" && figmaHealth === "not_connected") {
+    if (githubHealth === "not_connected" && !teamsWithFigmaLink.has(teamId)) {
       disconnectedCount += 1;
-    } else if (githubHealth === "needs_attention" || figmaHealth === "needs_attention") {
+    } else if (githubHealth === "needs_attention") {
       attentionCount += 1;
     }
   }
@@ -101,7 +86,7 @@ async function readableTeamScope(
 function integrationTeamView(
   team: Doc<"teams">,
   githubMetric: Doc<"githubTeamMetrics"> | null,
-  figmaMetric: Doc<"figmaTeamMetrics"> | null,
+  figmaLink: Doc<"teamFigmaLinks"> | null,
 ) {
   return {
     teamId: team._id,
@@ -117,31 +102,11 @@ function integrationTeamView(
         ? { lastActivityAt: githubMetric.lastActivityAt }
         : {}),
     },
-    figma: {
-      health: figmaMetric?.health ?? ("not_connected" as const),
-      fileCount: figmaMetric?.fileCount ?? 0,
-      authorizationCount: figmaMetric?.authorizationCount ?? 0,
-      completeCount: figmaMetric?.completeFileCount ?? 0,
-      incompleteCount: figmaMetric?.incompleteFileCount ?? 0,
-      dirtyCount: figmaMetric?.dirtyCount ?? 0,
-      webhookUnavailableCount: figmaMetric?.webhookUnavailableCount ?? 0,
-      rateLimitedCount: figmaMetric?.rateLimitedCount ?? 0,
-      previewAttentionCount: figmaMetric?.previewAttentionCount ?? 0,
-      ...(figmaMetric?.oldestMetadataCheckAt !== undefined
-        ? { oldestMetadataCheckAt: figmaMetric.oldestMetadataCheckAt }
-        : {}),
-      ...(figmaMetric?.lastCaptureAt !== undefined
-        ? { lastCaptureAt: figmaMetric.lastCaptureAt }
-        : {}),
-      ...(figmaMetric?.lastActivityAt !== undefined
-        ? { lastActivityAt: figmaMetric.lastActivityAt }
-        : {}),
-    },
+    figmaFileUrl: figmaLink?.fileUrl ?? null,
   };
 }
 
 const teamDetail = v.object({
-  canReadFigmaArtifacts: v.boolean(),
   githubRepositories: v.array(
     v.object({
       bindingId: v.id("githubRepositoryBindings"),
@@ -169,31 +134,7 @@ const teamDetail = v.object({
       compareTruncated: v.boolean(),
     }),
   ),
-  figmaFiles: v.array(
-    v.object({
-      bindingId: v.id("figmaFileBindings"),
-      name: v.string(),
-      url: v.string(),
-      role: v.string(),
-      lastProviderEventAt: v.optional(v.number()),
-      lastMetadataCheckAt: v.number(),
-      nextMetadataCheckAt: v.optional(v.number()),
-      lastFullCaptureAt: v.number(),
-      contentDirty: v.boolean(),
-      rateLimitRetryAt: v.optional(v.number()),
-      metadataRateLimitRetryAt: v.optional(v.number()),
-      metadataErrorCode: v.optional(v.string()),
-      hasFullArtifact: v.boolean(),
-      artifactCapturedAt: v.optional(v.number()),
-      preview: v.object({
-        state: figmaPreviewState,
-        selectedNodeCount: v.number(),
-        availableCount: v.number(),
-        failedCount: v.number(),
-        truncated: v.boolean(),
-      }),
-    }),
-  ),
+  figmaFileUrl: v.union(v.string(), v.null()),
 });
 
 export const teams = query({
@@ -220,14 +161,14 @@ export const teams = query({
     const page = await readableTeams.paginate(args.paginationOpts);
     const visible = [];
     for (const team of page.page) {
-      const [githubMetric, figmaMetric] = await Promise.all([
+      const [githubMetric, figmaLink] = await Promise.all([
         ctx.db
           .query("githubTeamMetrics")
           .withIndex("by_team", (index) => index.eq("teamId", team._id))
           .unique(),
         ctx.db
-          .query("figmaTeamMetrics")
-          .withIndex("by_team", (index) => index.eq("teamId", team._id))
+          .query("teamFigmaLinks")
+          .withIndex("by_event_team", index => index.eq("eventId", event._id).eq("teamId", team._id))
           .unique(),
       ]);
       if (
@@ -236,10 +177,10 @@ export const teams = query({
       ) {
         throw new Error("GitHub team metrics do not match the operations row.");
       }
-      if (figmaMetric && (figmaMetric.eventId !== event._id || figmaMetric.teamId !== team._id)) {
-        throw new Error("Figma team metrics do not match the operations row.");
+      if (figmaLink && (figmaLink.eventId !== event._id || figmaLink.teamId !== team._id)) {
+        throw new Error("The Figma link does not match the operations row.");
       }
-      visible.push(integrationTeamView(team, githubMetric, figmaMetric));
+      visible.push(integrationTeamView(team, githubMetric, figmaLink));
     }
     return { ...page, page: visible };
   },
@@ -260,20 +201,20 @@ export const summary = query({
     const visibleTeams = scope.eventWide
       ? eventTeams
       : eventTeams.filter((team) => scope.teamIds.some((teamId) => teamId === team._id));
-    const [githubMetrics, figmaMetrics] = await Promise.all([
+    const [githubMetrics, figmaLinks] = await Promise.all([
       ctx.db
         .query("githubTeamMetrics")
         .withIndex("by_event_updated", (index) => index.eq("eventId", event._id))
         .collect(),
       ctx.db
-        .query("figmaTeamMetrics")
-        .withIndex("by_event_updated", (index) => index.eq("eventId", event._id))
+        .query("teamFigmaLinks")
+        .withIndex("by_event_team", (index) => index.eq("eventId", event._id))
         .collect(),
     ]);
     return integrationSummaryCounts(
       visibleTeams.map((team) => team._id),
       new Map(githubMetrics.map((metric) => [metric.teamId, metric])),
-      new Map(figmaMetrics.map((metric) => [metric.teamId, metric])),
+      new Set(figmaLinks.filter(link => link.fileUrl).map(link => link.teamId)),
     );
   },
 });
@@ -296,23 +237,13 @@ export const details = query({
       scopeType: "team",
       scopeId: team._id,
     });
-    const [integrationPolicy, githubBindings, figmaBindings, artifactGrantIds] = await Promise.all([
+    const [integrationPolicy, githubBindings, figmaLink] = await Promise.all([
       loadPublishedIntegrationPolicy(ctx, event),
       ctx.db
         .query("githubRepositoryBindings")
         .withIndex("by_team_state", (index) => index.eq("teamId", team._id))
         .collect(),
-      ctx.db
-        .query("figmaFileBindings")
-        .withIndex("by_team_state", (index) => index.eq("teamId", team._id))
-        .collect(),
-      matchingPermissionGrantIds(ctx, {
-        eventId: event._id,
-        eventAccessSubjectId: subject._id,
-        permissionKey: "integration.artifact.read",
-        scopeType: "team",
-        scopeId: team._id,
-      }),
+      ctx.db.query("teamFigmaLinks").withIndex("by_event_team", index => index.eq("eventId", event._id).eq("teamId", team._id)).unique(),
     ]);
     const activeGithubBindings = githubBindings
       .filter((binding) => binding.state !== "archived")
@@ -370,77 +301,9 @@ export const details = query({
         };
       }),
     );
-    const activeFigmaBindings = figmaBindings.filter((binding) => binding.state !== "archived");
-    const figmaFiles = await Promise.all(
-      activeFigmaBindings.map(async (binding) => {
-        if (binding.eventId !== event._id || binding.teamId !== team._id) {
-          throw new Error("A Figma operations detail crossed an ownership boundary.");
-        }
-        const snapshot = await ctx.db
-          .query("figmaFileSnapshots")
-          .withIndex("by_binding_time", (index) => index.eq("figmaFileBindingId", binding._id))
-          .order("desc")
-          .first();
-        if (
-          !snapshot ||
-          snapshot.eventId !== event._id ||
-          snapshot.teamId !== team._id ||
-          snapshot.figmaFileBindingId !== binding._id
-        ) {
-          throw new Error("A Figma operations detail has no valid snapshot.");
-        }
-        const preview = await ctx.db
-          .query("figmaPreviewSets")
-          .withIndex("by_snapshot", (index) => index.eq("snapshotId", snapshot._id))
-          .unique();
-        if (
-          !preview ||
-          preview.eventId !== event._id ||
-          preview.teamId !== team._id ||
-          preview.figmaFileBindingId !== binding._id ||
-          preview.providerVersionId !== snapshot.providerVersionId
-        ) {
-          throw new Error("A Figma operations detail has no valid preview projection.");
-        }
-        return {
-          bindingId: binding._id,
-          name: binding.name,
-          url: binding.url,
-          role: binding.role,
-          ...(binding.lastProviderEventAt !== undefined
-            ? { lastProviderEventAt: binding.lastProviderEventAt }
-            : {}),
-          lastMetadataCheckAt: binding.lastMetadataCheckAt,
-          ...(binding.nextMetadataCheckAt !== undefined
-            ? { nextMetadataCheckAt: binding.nextMetadataCheckAt }
-            : {}),
-          lastFullCaptureAt: binding.lastFullCaptureAt,
-          contentDirty: binding.contentDirty,
-          ...(binding.rateLimitRetryAt !== undefined
-            ? { rateLimitRetryAt: binding.rateLimitRetryAt }
-            : {}),
-          ...(binding.metadataRateLimitRetryAt !== undefined
-            ? { metadataRateLimitRetryAt: binding.metadataRateLimitRetryAt }
-            : {}),
-          ...(binding.metadataErrorCode !== undefined
-            ? { metadataErrorCode: binding.metadataErrorCode }
-            : {}),
-          hasFullArtifact: snapshot.artifactId !== undefined,
-          ...(snapshot.artifactId !== undefined ? { artifactCapturedAt: snapshot.capturedAt } : {}),
-          preview: {
-            state: preview.state,
-            selectedNodeCount: preview.selectedNodeCount,
-            availableCount: preview.availableCount,
-            failedCount: preview.failedCount,
-            truncated: preview.truncated,
-          },
-        };
-      }),
-    );
     return {
-      canReadFigmaArtifacts: artifactGrantIds.length > 0,
       githubRepositories,
-      figmaFiles,
+      figmaFileUrl: figmaLink?.fileUrl ?? null,
     };
   },
 });

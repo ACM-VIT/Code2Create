@@ -60,17 +60,6 @@ export const mixedSeveritySnapshot = snapshotOf([
     atLeast: false,
     oldestAt: 1_786_093_200_000,
   },
-  {
-    key: "figma_metadata_stale",
-    area: "integrations",
-    severity: "watch",
-    title: "Figma metadata stale",
-    detail: "Four linked Figma files have metadata older than the configured freshness window.",
-    owner: "Integrations owner",
-    nextAction: "Re-run the Figma metadata sync for the stale files.",
-    count: 4,
-    atLeast: true,
-  },
 ]);
 
 export const crowdedSnapshot = snapshotOf([

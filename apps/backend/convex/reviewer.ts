@@ -657,10 +657,10 @@ export const clockIn = mutation({
         message: "An active panel or reserve assignment is required before clock-in.",
       });
     }
-    if (!profile || profile.status !== "active" || profile.trainingStatus !== "complete") {
+    if (!profile || profile.status !== "active") {
       throw new ConvexError({
         code: "REVIEWER_NOT_READY",
-        message: "Complete reviewer training before clock-in.",
+        message: "Ask ops to activate your reviewer profile before clocking in.",
       });
     }
     await requireConfirmedClockIn(ctx, round, person._id, now);
@@ -1058,54 +1058,7 @@ const reviewerEvidenceView = v.object({
       ),
     }),
   ),
-  figma: v.array(
-    v.object({
-      bindingId: v.id("figmaFileBindings"),
-      fileName: v.string(),
-      fileUrl: v.string(),
-      role: v.string(),
-      editorType: v.string(),
-      stateAtCapture: v.string(),
-      snapshot: v.union(
-        v.null(),
-        v.object({
-          id: v.id("figmaFileSnapshots"),
-          providerVersionId: v.string(),
-          providerLastTouchedAt: v.number(),
-          pageCount: v.number(),
-          frameCount: v.number(),
-          componentCount: v.number(),
-          componentSetCount: v.number(),
-          styleCount: v.number(),
-          nodeCount: v.number(),
-          prototypeInteractionCount: v.number(),
-          commentCount: v.number(),
-          unresolvedCommentCount: v.number(),
-          versionCount: v.number(),
-          completeness: v.string(),
-          hasFullArtifact: v.boolean(),
-          preview: v.union(
-            v.null(),
-            v.object({
-              state: v.union(
-                v.literal("pending"),
-                v.literal("running"),
-                v.literal("ready"),
-                v.literal("partial"),
-                v.literal("rate_limited"),
-                v.literal("failed"),
-              ),
-              selectedNodeCount: v.number(),
-              availableCount: v.number(),
-              failedCount: v.number(),
-              truncated: v.boolean(),
-            }),
-          ),
-          capturedAt: v.number(),
-        }),
-      ),
-    }),
-  ),
+  figmaFileUrl: v.optional(v.string()),
 });
 
 const reviewerWorkspaceDataView = v.object({
@@ -1151,7 +1104,7 @@ export const dutyStatus = query({
   args: { eventSlug: v.string(), installationId: v.string() },
   returns: v.object({
     deviceRegistered: v.boolean(),
-    panelAssigned: v.boolean(),
+    assignment: v.union(v.literal("panel"), v.literal("reserve"), v.null()),
     clockInStatus: v.union(v.null(), v.string()),
     heartbeat: v.union(
       v.null(),
@@ -1251,7 +1204,7 @@ export const dutyStatus = query({
         : null;
     return {
       deviceRegistered: device !== null,
-      panelAssigned: panelContext !== null,
+      assignment: panelContext ? "panel" as const : reserveContext ? "reserve" as const : null,
       clockInStatus: clockIn?.status ?? null,
       heartbeat:
         device && dutyRound && heartbeatStatus
@@ -1827,78 +1780,6 @@ export const reviewWorkspaceData = internalQuery({
         };
       }),
     );
-    const figmaEvidence = await Promise.all(
-      evidence.figmaEntries.map(async (entry) => {
-        const snapshot = entry.snapshotId ? await ctx.db.get(entry.snapshotId) : null;
-        if (entry.snapshotId !== undefined && !snapshot) {
-          throw new Error("A pinned Figma snapshot no longer resolves.");
-        }
-        if (
-          snapshot &&
-          (snapshot.eventId !== event._id ||
-            snapshot.teamId !== team._id ||
-            snapshot.figmaFileBindingId !== entry.bindingId)
-        ) {
-          throw new Error("A pinned Figma snapshot does not match its evidence entry.",
-          );
-        }
-        const preview = snapshot
-          ? await ctx.db
-              .query("figmaPreviewSets")
-              .withIndex("by_snapshot", (index) => index.eq("snapshotId", snapshot._id),
-              )
-              .unique()
-          : null;
-        if (
-          preview &&
-          (!snapshot ||
-            preview.eventId !== event._id ||
-            preview.teamId !== team._id ||
-            preview.figmaFileBindingId !== entry.bindingId ||
-            preview.providerVersionId !== snapshot.providerVersionId)
-        ) {
-          throw new Error("A pinned Figma preview set does not match its evidence entry.",
-          );
-        }
-        return {
-          bindingId: entry.bindingId,
-          fileName: entry.fileName,
-          fileUrl: entry.fileUrl,
-          role: entry.role,
-          editorType: entry.editorType,
-          stateAtCapture: entry.stateAtCapture,
-          snapshot: snapshot
-            ? {
-                id: snapshot._id,
-                providerVersionId: snapshot.providerVersionId,
-                providerLastTouchedAt: snapshot.providerLastTouchedAt,
-                pageCount: snapshot.pageCount,
-                frameCount: snapshot.frameCount,
-                componentCount: snapshot.componentCount,
-                componentSetCount: snapshot.componentSetCount,
-                styleCount: snapshot.styleCount,
-                nodeCount: snapshot.nodeCount,
-                prototypeInteractionCount: snapshot.prototypeInteractionCount,
-                commentCount: snapshot.commentCount,
-                unresolvedCommentCount: snapshot.unresolvedCommentCount,
-                versionCount: snapshot.versionCount,
-                completeness: snapshot.completeness,
-                hasFullArtifact: snapshot.artifactId !== undefined,
-                preview: preview
-                  ? {
-                      state: preview.state,
-                      selectedNodeCount: preview.selectedNodeCount,
-                      availableCount: preview.availableCount,
-                      failedCount: preview.failedCount,
-                      truncated: preview.truncated,
-                    }
-                  : null,
-                capturedAt: snapshot.capturedAt,
-              }
-            : null,
-        };
-      }),
-    );
     const criteria: Doc<"reviewRubricCriteria">[] = [];
     for (const criterionId of assignment.assignedCriterionIds) {
       const criterion = await ctx.db.get(criterionId);
@@ -1939,7 +1820,7 @@ export const reviewWorkspaceData = internalQuery({
         capturedResourceCount: evidence.capturedResourceCount,
         expectedResourceCount: evidence.expectedResourceCount,
         github: githubEvidence,
-        figma: figmaEvidence,
+        ...(evidence.figmaFileUrl ? { figmaFileUrl: evidence.figmaFileUrl } : {}),
       },
       criteria: criteria.map((criterion) => ({
         id: criterion._id,

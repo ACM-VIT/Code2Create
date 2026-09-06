@@ -1,7 +1,8 @@
 import { ConvexError, v } from "convex/values";
 
+import { internal } from "./_generated/api";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
@@ -750,6 +751,15 @@ export const publishWindow = mutation({
       updatedByPersonId: person._id,
       updatedAt: now,
     });
+    // Participants' queries only re-run on writes, so the window's opening
+    // and closing moments each get one.
+    for (const at of [window.startsAt, window.endsAt]) {
+      if (at > now) {
+        await ctx.scheduler.runAt(at, internal.synesthesiaConfiguration.refreshWindowClock, {
+          windowId: window._id,
+        });
+      }
+    }
     await appendSynesthesiaWindowReadFactById(ctx, window._id, Date.now());
     await recordOperation(ctx, {
       eventId: event._id,
@@ -777,6 +787,23 @@ export const publishWindow = mutation({
       reason,
     });
     return { windowId: window._id, version };
+  },
+});
+
+/**
+ * Fires at a published window's start and end. Time is not part of a query's
+ * read set, so participant subscriptions would not notice a window opening
+ * or closing on the clock; touching the window is the write that wakes them.
+ * A window closed early is left alone.
+ */
+export const refreshWindowClock = internalMutation({
+  args: { windowId: v.id("synesthesiaWindows") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const window = await ctx.db.get("synesthesiaWindows", args.windowId);
+    if (!window || window.status !== "published") return null;
+    await ctx.db.patch("synesthesiaWindows", window._id, { updatedAt: Date.now() });
+    return null;
   },
 });
 

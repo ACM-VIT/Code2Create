@@ -24,6 +24,7 @@ import { useEstimatedServerNow } from "../lib/useEstimatedServerNow";
 import { LoadingLabel, SkeletonList, SkeletonStats,
 } from "../components/Skeleton";
 import { RoundExportControl } from "../components/RoundExportControl";
+import { ReviewProgression } from "../components/ReviewProgression";
 
 type Completeness = FunctionReturnType<typeof api.scoreGovernance.completeness>;
 type Review = FunctionReturnType<typeof api.scoreGovernance.completenessReviews>["page"][number];
@@ -248,6 +249,7 @@ export function ScoreRound() {
       ) : null}
 
       <RoundExportControl roundId={completeness.round.id} />
+      <ReviewProgression roundId={completeness.round.id} />
     </section>
   );
 }

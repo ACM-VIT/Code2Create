@@ -92,7 +92,7 @@ export const bootstrapConfiguration = internalQuery({
         discordUrl: "https://discord.gg/code2create", discordLabel: "Event Discord",
         notificationProvider: "cloudflare_email", emailTemplates: defaultParticipantEmailTemplates(),
       },
-      integrationPolicy: { version: "local-v1", requiredGitHubTopic: "code2create-7", maxActiveGitHubRepositoriesPerTeam: 10, maxActiveFigmaFilesPerTeam: 10 },
+      integrationPolicy: { version: "local-v1", requiredGitHubTopic: "code2create-7", maxActiveGitHubRepositoriesPerTeam: 10, },
     };
   },
 });

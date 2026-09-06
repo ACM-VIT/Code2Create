@@ -186,21 +186,11 @@ function describeChanges(published: IntegrationPolicy, draft: IntegrationPolicy)
       `Allow up to ${draft.maxActiveGitHubRepositoriesPerTeam} active GitHub repositories per team.`,
     );
   }
-  if (published.maxActiveFigmaFilesPerTeam !== draft.maxActiveFigmaFilesPerTeam) {
-    changes.push(`Allow up to ${draft.maxActiveFigmaFilesPerTeam} active Figma files per team.`);
-  }
   if (published.githubFreezeAt !== draft.githubFreezeAt) {
     changes.push(
       draft.githubFreezeAt === undefined
         ? "Remove the GitHub change freeze."
         : "Change the exact GitHub freeze time.",
-    );
-  }
-  if (published.figmaFreezeAt !== draft.figmaFreezeAt) {
-    changes.push(
-      draft.figmaFreezeAt === undefined
-        ? "Remove the Figma change freeze."
-        : "Change the exact Figma freeze time.",
     );
   }
   return changes.length > 0 ? changes : ["No integration-policy changes."];

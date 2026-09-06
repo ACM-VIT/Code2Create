@@ -30,7 +30,7 @@ export function ReviewAvailability({ eventSlug }: { eventSlug: string }) {
     <>
       {rounds?.map((round) => (
         <AvailabilityCard
-          key={`${round.roundId}:${round.response.version}`}
+          key={round.roundId}
           eventSlug={eventSlug}
           round={round}
         />
@@ -68,20 +68,24 @@ function AvailabilityCard({
       endsAt: Math.min(startsAt + 30 * 60_000, round.endsAt),
     });
   }
-  const [selected, setSelected] = useState(
-    () =>
-      new Set(
-        slots
-          .filter((slot) =>
-            round.response.windows.some(
-              (window) =>
-                window.startsAt <= slot.startsAt &&
-                window.endsAt >= slot.endsAt,
-            ),
-          )
-          .map((slot) => slot.startsAt),
-      ),
-  );
+  const confirmedSlots = () =>
+    new Set(
+      slots
+        .filter((slot) =>
+          round.response.windows.some(
+            (window) =>
+              window.startsAt <= slot.startsAt && window.endsAt >= slot.endsAt,
+          ),
+        )
+        .map((slot) => slot.startsAt),
+    );
+  const [selected, setSelected] = useState(confirmedSlots);
+  const openEditor = () => {
+    setSelected(confirmedSlots());
+    setCustomHours(false);
+    setError(null);
+    setEditing(true);
+  };
 
   const save = async (choice: "selected" | "whole" | "unavailable") => {
     if (busy) return;
@@ -96,7 +100,7 @@ function AvailabilityCard({
             choice === "unavailable"
               ? []
               : choice === "whole"
-                ? slots
+                ? [{ startsAt: round.startsAt, endsAt: round.endsAt }]
                 : slots.filter((slot) => selected.has(slot.startsAt)),
           expectedVersion: round.response.version,
           clientOperationId: randomUUID(),
@@ -121,15 +125,23 @@ function AvailabilityCard({
       {round.state === "scheduled" ? (
         <Text style={styles.body}>
           Confirm in the app from {time.format(round.opensAt)} on{" "}
-          {date.format(round.opensAt)}.
+          {date.format(round.opensAt)} until {time.format(round.closesAt)}.
+        </Text>
+      ) : round.state === "closed" ? (
+        <Text style={styles.body}>
+          {round.response.status === "pending"
+            ? "Confirmation closed. Contact ops if you can review."
+            : round.response.status === "unavailable"
+              ? "Unavailable for this round"
+              : `Confirmed: ${round.response.windows.map((window) => `${time.format(window.startsAt)}–${time.format(window.endsAt)}`).join(", ")} IST`}
         </Text>
       ) : (
         <>
+          <Text style={styles.body}>
+            Confirm by {time.format(round.closesAt)} IST.
+          </Text>
           {round.response.status === "pending" ? (
-            <Action
-              label="Confirm availability"
-              onPress={() => setEditing(true)}
-            />
+            <Action label="Confirm availability" onPress={openEditor} />
           ) : (
             <>
               <Text style={styles.body}>
@@ -142,10 +154,7 @@ function AvailabilityCard({
                       )
                       .join(", ")}
               </Text>
-              <QuietAction
-                label="Change hours"
-                onPress={() => setEditing(true)}
-              />
+              <QuietAction label="Change hours" onPress={openEditor} />
             </>
           )}
           <Sheet

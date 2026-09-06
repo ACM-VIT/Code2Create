@@ -695,33 +695,6 @@ export const githubRepositoryCoverageLabels: Record<GithubRepositoryCoverage, st
   unknown: "Changes not counted yet",
 };
 
-export type FigmaFileSyncState = "pending" | "running" | "ready" | "rate_limited" | "error";
-
-export const figmaFileSyncStateLabels: Record<FigmaFileSyncState, string> = {
-  pending: "Waiting to read",
-  running: "Reading now",
-  ready: "Up to date",
-  rate_limited: "Paused by Figma's rate limit",
-  error: "Could not be read",
-};
-
-export type FigmaPreviewState =
-  "pending"
-  | "running"
-  | "ready"
-  | "partial"
-  | "rate_limited"
-  | "failed";
-
-export const figmaPreviewStateLabels: Record<FigmaPreviewState, string> = {
-  pending: "Waiting to render",
-  running: "Rendering now",
-  ready: "Ready to look at",
-  partial: "Some frames missing",
-  rate_limited: "Paused by Figma's rate limit",
-  failed: "Could not be rendered",
-};
-
 export const repositoryKindLabels: Record<RepositoryKind, string> = {
   full_product: "Whole product",
   frontend: "Front end",

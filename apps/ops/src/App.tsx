@@ -92,6 +92,9 @@ const Synesthesia = lazy(() =>
 const Benefits = lazy(() =>
   import("./screens/Benefits").then((module) => ({ default: module.Benefits })),
 );
+const Ambience = lazy(() =>
+  import("./screens/Ambience").then((module) => ({ default: module.Ambience })),
+);
 const ProjectCheckpointOverview = lazy(() =>
   import("./screens/ProjectCheckpointOverview").then((module) => ({
     default: module.ProjectCheckpointOverview,
@@ -343,6 +346,9 @@ function Operations({
           ? [{ label: "Music desk", to: "/synesthesia", icon: "music" as const }]
           : []),
         ...(canViewBenefits ? [{ label: "Benefits", to: "/benefits", icon: "inbox" as const }] : []),
+        ...(canViewEventLifecycle
+          ? [{ label: "Chill mode", to: "/ambience", icon: "pulse" as const }]
+          : []),
       ],
     },
     {
@@ -610,6 +616,7 @@ function Operations({
           ) : null}
           {canViewSynesthesia ? <Route path="/synesthesia" element={<Synesthesia />} /> : null}
           {canViewBenefits ? <Route path="/benefits" element={<Benefits />} /> : null}
+          {canViewEventLifecycle ? <Route path="/ambience" element={<Ambience />} /> : null}
           {canSetupAttendance ? (
             <Route
               path="/attendance-setup"

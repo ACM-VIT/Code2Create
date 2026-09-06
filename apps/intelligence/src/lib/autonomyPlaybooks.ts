@@ -153,7 +153,7 @@ export const autonomyPlaybooks = {
     areas: ["integrations"],
     reads: ["integration_jobs"],
     instructions: [
-      "Traverse every sanitized GitHub and Figma binding page and keep provider-specific sync, webhook, and topic states separate.",
+      "Traverse every sanitized GitHub binding page and check repository access, sync and required-topic states.",
       "Compare binding version, revision, and timestamps before treating a failure class as current.",
       "Do not invent repository, file, resource, URL, or credential details omitted by the projection.",
     ],

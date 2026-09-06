@@ -24,11 +24,10 @@ export function ReviewQuestions({
   );
   return (
     <>
-      <QuietAction label="Review brief" onPress={() => setOpen(true)} />
-      <Sheet title="Review brief" visible={open} onClose={() => setOpen(false)}>
+      <QuietAction label="Suggested questions" onPress={() => setOpen(true)} />
+      <Sheet title="Suggested questions" visible={open} onClose={() => setOpen(false)}>
         <Text style={styles.help}>
-          Use a follow-up when it helps the conversation. These prompts are not
-          scored.
+          Optional follow-ups · ungraded
         </Text>
         {linkError ? (
           <Text style={styles.help}>

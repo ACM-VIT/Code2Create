@@ -1,7 +1,5 @@
-import type { ReviewQuestionSource } from "@code2create/domain";
 import { describe, expect, test } from "vitest";
 import {
-  figmaQuestionNodes,
   reviewableSourcePath,
   reviewSourceText,
   reviewSourceBatches,
@@ -9,17 +7,6 @@ import {
 import { reviewQuestionCallbackSchema } from "./reviewQuestionProtocol";
 
 describe("review question source preparation", () => {
-  test("processes every captured image separately without dropping surrounding text", () => {
-    const sources: ReviewQuestionSource[] = Array.from({ length: 48 }, (_, i) => ({
-      id: `frame-${i}`, kind: "figma", title: `Frame ${i}`, text: "Captured screen",
-      coverage: "captured", image: { factId: `fact-${i}`, sha256: "a".repeat(64) },
-    }));
-    sources.splice(20, 0, { id: "structure", kind: "figma", title: "Structure", text: "Complete node data", coverage: "captured" });
-    const batches = reviewSourceBatches(sources, 80000);
-    expect(batches.flat()).toEqual(sources);
-    expect(batches.filter((batch) => batch.some((source) => source.image))).toHaveLength(48);
-    expect(batches.every((batch) => !batch.some((source) => source.image) || batch.length === 1)).toBe(true);
-  });
 
   test("omits credential, generated and dependency files", () => {
     for (const path of [
@@ -51,33 +38,6 @@ describe("review question source preparation", () => {
     expect(reviewSourceText("ghp_1234567890abcdefghijklmnop")).toBe(
       "[credential removed]",
     );
-  });
-  test("retains complete Figma text and every node without claiming visual inspection", () => {
-    const nodes = figmaQuestionNodes(
-      JSON.stringify({
-        document: {
-          id: "0:0",
-          type: "DOCUMENT",
-          name: "Product",
-          children: [
-            {
-              id: "1:0",
-              type: "FRAME",
-              name: "Checkout",
-              children: [
-                { id: "2:0", type: "TEXT", characters: "private@example.com" },
-              ],
-            },
-          ],
-        },
-      }),
-      { id: "figma:file", kind: "figma", title: "Design" },
-    );
-    expect(nodes).toHaveLength(4);
-    const text = JSON.stringify(nodes);
-    expect(text).toContain("Checkout");
-    expect(text).toContain("Rendered visual appearance");
-    expect(text).not.toContain("private@example.com");
   });
   test("all files and long content survive request batching, including Unicode", () => {
     const texts = Array.from({ length: 240 }, (_, i) => ({
@@ -111,30 +71,10 @@ describe("review question source preparation", () => {
       ),
     ).toContain("1800000000000");
   });
-  test("traverses more than 200 Figma nodes and preserves prototype destinations", () => {
-    const nodes = figmaQuestionNodes(
-      JSON.stringify({
-        document: {
-          id: "0:0",
-          type: "DOCUMENT",
-          children: Array.from({ length: 450 }, (_, i) => ({
-            id: `1:${i}`,
-            type: "TEXT",
-            characters: "a".repeat(700),
-            interactions: [{ actions: [{ destinationId: "target" }] }],
-          })),
-        },
-      }),
-      { id: "figma:file", kind: "figma", title: "Design" },
-    );
-    expect(nodes).toHaveLength(452);
-    expect(nodes.at(-1)?.text).toContain("a".repeat(700));
-    expect(nodes.at(-1)?.text).toContain("target");
-  });
   test("callback contract has no grading fields", () => {
     const payload = {
-      protocolVersion: "review-questions-v2",
-      agentVersion: "review-questions-v2",
+      protocolVersion: "review-questions-v3",
+      agentVersion: "review-questions-v3",
       jobId: "job",
       attempt: 1,
       sourceChecksum: "a".repeat(64),

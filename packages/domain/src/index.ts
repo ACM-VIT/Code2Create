@@ -137,3 +137,4 @@ export * from "./participantProfile.ts";
 export * from "./discordSupport.ts";
 export * from "./reviewPanelPlanning.ts";
 export * from "./reviewQuestions.ts";
+export * from "./games.ts";

@@ -13,7 +13,7 @@ import { ReviewerVenuePanel } from "../components/ReviewerVenuePanel";
 
 import {
   indiaDateTimeToTimestamp,
-  reviewConfirmationOpening,
+  reviewConfirmationWindow,
 } from "../lib/indiaDateTime";
 import { eventSlug } from "../lib/config";
 import { readableError } from "../lib/errors";
@@ -25,7 +25,6 @@ import {
 import { ReviewAggregationConfiguration } from "../components/ReviewAggregation";
 
 type Candidate = FunctionReturnType<typeof api.reviewConfiguration.candidates>[number];
-type TrainingStatus = "pending" | "complete" | "blocked";
 type ProfileStatus = "active" | "inactive";
 type PersonId = Candidate["personId"];
 type Anchors = {
@@ -53,6 +52,7 @@ type RoundDraft = {
   name: string;
   sequence: string;
   confirmationOpensAt: string;
+  confirmationClosesAt: string;
   clockInOpensAt: string;
   reviewerReportAt: string;
   startsAt: string;
@@ -212,8 +212,8 @@ function ReviewerProfiles({ candidates }: { candidates: Candidate[] }) {
   const ready = candidates.filter(reviewerIsReady).length;
   const outstanding = candidates.length - ready;
   const ordered = [...candidates].sort((left, right) => {
-    const leftReady = left.profile?.trainingStatus === "complete";
-    const rightReady = right.profile?.trainingStatus === "complete";
+    const leftReady = reviewerIsReady(left);
+    const rightReady = reviewerIsReady(right);
     if (leftReady !== rightReady) return leftReady ? 1 : -1;
     return left.displayName.localeCompare(right.displayName);
   });
@@ -274,17 +274,14 @@ function ReviewerProfiles({ candidates }: { candidates: Candidate[] }) {
         ) : null}
       </div>
       {candidates.length === 0 ? (
-        <p className="notice">Add reviewers to the event team before setting up their training.</p>
+        <p className="notice">Add reviewers to the event team to set up their profiles.</p>
       ) : null}
     </section>
   );
 }
 
 function reviewerIsReady(candidate: Candidate) {
-  return (
-    candidate.profile?.status === "active" &&
-    candidate.profile.trainingStatus === "complete"
-  );
+  return candidate.profile?.status === "active";
 }
 
 function ReviewerProfileRow({
@@ -314,9 +311,6 @@ function ReviewerProfileRow({
   );
   const [criterionKeys, setCriterionKeys] = useState(
     candidate.profile?.criterionKeys.join(", ") ?? "",
-  );
-  const [trainingStatus, setTrainingStatus] = useState<TrainingStatus>(
-    candidate.profile?.trainingStatus ?? "pending",
   );
   const [status, setStatus] = useState<ProfileStatus>(candidate.profile?.status ?? "active",
   );
@@ -357,7 +351,6 @@ function ReviewerProfileRow({
           productDomains: commaList(productDomains),
           languages: commaList(languages),
           criterionKeys: commaList(criterionKeys),
-          trainingStatus,
           status,
           expectedVersion: candidate.profile?.version ?? 0,
           reason,
@@ -407,8 +400,7 @@ function ReviewerProfileRow({
         </div>
         <div className="reviewer-profile-state">
           <span>
-            {trainingStatusName(candidate.profile?.trainingStatus)} ·
-            Availability confirmed in the app for each round
+            {candidate.profile ? (candidate.profile.status === "active" ? "Active" : "Inactive") : "Not set up"}
           </span>
           {canManage ? (
             <button
@@ -544,21 +536,6 @@ function ReviewerProfileRow({
               </details>
             </fieldset>
             <label className="field">
-              <span>Training</span>
-              <select
-                value={trainingStatus}
-                onChange={(event) => {
-                  setTrainingStatus(trainingStatusValue(event.target.value, trainingStatus),
-                  );
-                  changed();
-                }}
-              >
-                <option value="pending">Pending</option>
-                <option value="complete">Complete</option>
-                <option value="blocked">Blocked</option>
-              </select>
-            </label>
-            <label className="field">
               <span>Status</span>
               <select
                 value={status}
@@ -643,6 +620,7 @@ function RoundPublisher({
     name: `Project review ${nextSequence}`,
     sequence: `${nextSequence}`,
     confirmationOpensAt: "",
+    confirmationClosesAt: "",
     clockInOpensAt: "",
     reviewerReportAt: "",
     startsAt: "",
@@ -682,7 +660,6 @@ function RoundPublisher({
   const readyCandidates = candidates.filter(
     (candidate) =>
       candidate.profile?.status === "active" &&
-      candidate.profile.trainingStatus === "complete" &&
       candidate.profile.criterionKeys.length > 0,
   );
 
@@ -834,7 +811,7 @@ function RoundPublisher({
           reviewerIds.some((personId) => !personId) ||
           new Set(reviewerIds).size !== reviewerIds.length
         ) {
-          throw new Error("Choose a different trained reviewer for every panel seat.",
+          throw new Error("Choose a different reviewer for every panel seat.",
           );
         }
         if (reservePersonIds.some((personId) => reviewerIds.includes(personId))) {
@@ -848,7 +825,7 @@ function RoundPublisher({
             const candidate = readyCandidates.find((item) => item.personId === member.personId,
             );
             if (!candidate)
-              throw new Error("A selected reviewer is no longer active, or has not finished training.",
+              throw new Error("A selected reviewer no longer has an active profile.",
               );
             const criterionKeys = member.criterionIds.map((criterionId) => {
               const criterion = criteria.find((item) => item.id === criterionId,
@@ -871,6 +848,7 @@ function RoundPublisher({
             round.confirmationOpensAt,
             "Availability confirmation opening",
           ),
+          confirmationClosesAt: timestamp(round.confirmationClosesAt, "Availability confirmation closing"),
           rubric: {
             name: rubricName,
             spreadThreshold: boundedInteger(spreadThreshold, "How far scores may differ", 1, 4,
@@ -995,7 +973,7 @@ function RoundPublisher({
             <label className="field">
               <span>
                 Confirm availability from{" "}
-                <small>Event local time · usually 11pm</small>
+                <small>Event local time · IST</small>
               </span>
               <input
                 type="datetime-local"
@@ -1008,6 +986,9 @@ function RoundPublisher({
                   changed();
                 }}
               />
+            </label>
+            <label className="field"><span>Confirm availability until <small>Event local time · IST</small></span>
+              <input type="datetime-local" value={round.confirmationClosesAt} onChange={event => { setRound(current => ({ ...current, confirmationClosesAt: event.target.value })); changed(); }} />
             </label>
             <label className="field">
               <span>
@@ -1045,10 +1026,13 @@ function RoundPublisher({
                 type="datetime-local"
                 value={round.startsAt}
                 onChange={(event) => {
+                  const confirmation = reviewConfirmationWindow(event.target.value);
                   setRound((current) => ({ ...current, startsAt: event.target.value,
                     confirmationOpensAt:
                       current.confirmationOpensAt ||
-                      reviewConfirmationOpening(event.target.value),
+                      confirmation.opensAt,
+                    confirmationClosesAt:
+                      current.confirmationClosesAt || confirmation.closesAt,
                   }));
                   changed();
                 }}
@@ -1433,7 +1417,7 @@ function RoundPublisher({
               </button>
             </div>
             {readyCandidates.length === 0 ? (
-              <p className="notice">No trained, active reviewer is available.</p>
+              <p className="notice">No active, unblocked reviewer profile is available.</p>
             ) : null}
             <div className="form-grid">
               <label className="field">
@@ -1727,7 +1711,7 @@ function RoundPublisher({
               })}
               {readyCandidates.length === 0 ? (
                 <p className="notice">
-                  Set up at least one trained reviewer and choose what they can judge.
+                  Add reviewer profiles and choose their scoring criteria.
                 </p>
               ) : null}
             </div>
@@ -2107,19 +2091,6 @@ function commaList(value: string) {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
-}
-
-function trainingStatusValue(value: string, fallback: TrainingStatus,
-): TrainingStatus {
-  if (value === "pending" || value === "complete" || value === "blocked") return value;
-  return fallback;
-}
-
-function trainingStatusName(value: TrainingStatus | undefined) {
-  if (value === "complete") return "Ready";
-  if (value === "pending") return "Training pending";
-  if (value === "blocked") return "Unavailable";
-  return "Not set up";
 }
 
 function numericValue(value: string) {

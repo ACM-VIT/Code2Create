@@ -370,7 +370,7 @@ The stored rehearsal must include these cases:
 
 ### External Judge
 
-Training covers sign-in, clock-in, pages, call consent, review-presence scan, evidence, score draft recovery, submission, conflict reporting, and support.
+Rehearsal covers sign-in, clock-in, pages, call consent, review-presence scan, evidence, score draft recovery, submission, conflict reporting, and support. The app uses contextual actions and has no training-completion prerequisite.
 
 ### SC and JC
 

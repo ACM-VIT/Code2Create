@@ -1,3 +1,4 @@
+import { reviewProgressionBlocker } from "./lib/reviewProgression";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
 import { ConvexError, v } from "convex/values";
@@ -18,6 +19,7 @@ import { matchingPermissionGrantIds, requirePermission,
 import { estimateQueueWindow } from "./lib/queueEstimate";
 import { participantQueuePosition } from "./lib/reviewQueueProjection";
 import {
+  defaultReviewScoringBufferSeconds,
   maximumReviewRoundsPerEvent,
   maximumReviewersPerPanel,
   maximumReviewSessionsPerTeamRound,
@@ -62,6 +64,7 @@ function randomManualCode() {
   ).join("");
   return `${compact.slice(0, 4)}-${compact.slice(4, 8)}-${compact.slice(8, 12)}`;
 }
+
 
 function tokenDigest(value: string) {
   return bytesToHex(sha256(utf8ToBytes(value)));
@@ -155,6 +158,7 @@ export const current = query({
     let selectedRound: Doc<"reviewRounds"> | null = null;
     let selectedState: Doc<"teamRoundStates"> | null = null;
     for (const round of openRounds) {
+      if (await reviewProgressionBlocker(ctx, round, teamContext.team._id)) continue;
       const state = await ctx.db
         .query("teamRoundStates")
         .withIndex("by_round_team", (index) =>
@@ -266,7 +270,7 @@ export const current = query({
       ]);
       teamsAhead = queuePosition;
       const livePanelReview = activeReview ?? scoringReview ?? awaitingPresence;
-      const scoringBuffer = queuePolicy?.scoringBufferSeconds ?? 90;
+      const scoringBuffer = queuePolicy?.scoringBufferSeconds ?? defaultReviewScoringBufferSeconds;
       const estimatedWindow = roundPause
         ? null
         : estimateQueueWindow({

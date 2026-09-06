@@ -2,7 +2,21 @@
 
 Updated 5 September 2026 after reviewing `main` at `1e3f0a32`, then integrating `main` at `261d2d9b` and `staging` at `058ff764`. This is the current work list. [Event review readiness](15-event-review-readiness.md) describes implemented behavior; this file records what remains and the evidence needed to close it.
 
-The event is tomorrow. Roster import, policy publication, device registration, and opening reviews are planned operational tasks. An empty live event configuration today is not a missing software feature. This review did not change live configuration or send notifications/calls.
+The event starts on 6 September 2026. The update below supersedes the earlier preparation status; physical training, device registration and rehearsal remain operational work.
+
+## 6 September panel-planning update
+
+The supplied workbook was assessed once, with old availability selections discarded. Production now has 84 unique reviewer profiles (9 Board, 22 SC, 53 JC). Five workbook reviewers still need to claim accounts (1 SC, 4 JC); their imported roster access and evidence references are retained. After claim, ops must apply the prepared assessment and add the person to the round reserve pool. One duplicate Board identity was excluded from planning without revoking either account's existing access.
+
+Accepted Board-member teams were reconciled to OC, leaving 191 accepted competitors and 25 accepted OC teams at preparation time. Every competitor's submitted project and all intake answers were analyzed for project-specific panel fit. The private output includes source-cited briefs, seven-panel comparisons, balanced primary/backup assignments and disclosed specialist gaps. No participant or reviewer personal material is committed to the repository.
+
+The seven-panel plan has one Board chair, two SC and two JC per panel, with the remaining account holders as reserves. Review 2 starts with different JCs; live rotation still follows actual qualified availability and completed-review counts. A planned seat does not imply that its holder has confirmed or arrived.
+
+Confirmed timetable (IST): Review 1 on 7 September, 1–5 AM; Review 2 on 8 September, 1–5 AM. Confirmation opens 10 PM and closes 11 PM the evening before each. Final pitches are 8 September, 10 AM–3 PM; closing is at 5 PM. Both reviews are eliminatory with no outcomes chosen during preparation. The final-pitch jury/rubric is not inferred from the two review rubrics.
+
+At seven minutes plus a two-minute scoring allowance, 28 teams on a panel need approximately 4 hours 12 minutes. Ops sees the expected finish and can extend the nominal 5 AM end. Training, explicit confirmation of any extended personal hours, physical device checks, connected implementation repositories and the multi-account rehearsal remain necessary.
+
+Implementation adds project planning and skip/restore controls, confirmation closing/reopening, extendible end times, and a three-step progression workspace. The [reviewer briefing](../docs/reviewer-briefing.md) covers actual training. Use the private production receipts for applied configuration and deployment evidence; earlier undeployed-status notes below describe the historical review.
 
 ## Agreed simplification
 
@@ -25,11 +39,11 @@ The mistaken form hours remain discarded. The app owns availability confirmation
 | ID | Status | Behavior | Completion evidence |
 | --- | --- | --- | --- |
 | E-01 | Implemented | Ops configures the reminder lead time from 0–3600 seconds (default 300; 0 disables) and whether to also call. Push and calls share that lead time. The reviewer app has one consent setting for shift reminders and substitute calls. | Lifecycle tests cover timing changes, one call per shift, late consent after push delivery, clock-in, changed hours, revoked consent/access, disabled calls, closed rounds and expired reminders. A queued call moved later does not consume an attempt early; bringing it forward again immediately reschedules the same unsent call. |
-| E-02 | Implemented | Ops can enable visual inspection of captured Figma screens. All captured accessible renders enter the existing resumable pipeline, one image per inspection batch, with exact frame/checksum references. | Lifecycle tests cover newly ready renders, preserved earlier snapshots, changed-byte rejection and disabling visual analysis. The signed service attaches actual PNGs and rejects missing/mismatched images and models without image support. Model questions remain ungraded. |
+| E-02 | Simplified on 6 September | Accepted teams save one Figma file link. Reviewers open it using the Figma icon. OAuth, capture and agent inspection are removed. | Tests cover URL validation, team permissions, concurrent edits, retries, clearing the link, review pinning and exclusion from agent inputs. Changing only the link reuses the question set. |
 
-Project preparation covers submitted ideas, answers and progress updates, connected GitHub repositories, and Figma files. Teams will not be asked for project documents, PDFs or slide decks; no ingestion pipeline for those materials is planned. Reviewer resumes remain part of the separate one-time assessment above.
+Agent preparation covers submitted ideas, answers and progress updates, and connected GitHub repositories. Figma links are supplied for human review only. Teams will not be asked for project documents, PDFs or slide decks; no ingestion pipeline for those materials is planned. Reviewer resumes remain part of the separate one-time assessment above.
 
-Do not replace the existing question pipeline or reintroduce file sampling. It already inventories all eligible repository text and stored Figma nodes, processes resumable batches, tracks coverage, reuses unchanged work and synthesizes source-linked questions. Figma visual analysis extends that existing path. Captured renders have the existing preview capture limits, which remain visible through coverage; inspecting those renders does not claim complete visual coverage of every possible screen or prove runtime behavior.
+Do not replace the existing question pipeline or reintroduce file sampling. It inventories all eligible repository text, processes resumable batches, tracks coverage, reuses unchanged work and synthesizes source-linked, ungraded questions. The fixed rubric supplies every graded question. Suggested follow-ups should be concise and understandable aloud; exact file paths and symbols belong in the supporting notes. Potential pre-event implementation is a neutral question for verification, never an automatic violation or score.
 
 ## Preparation and event-day operation
 
@@ -50,7 +64,7 @@ Reviewer profiles and reserves are not promises of attendance. Every assignment 
 | V-01 | Before using the flow live | Exercise one complete staging journey with a team, five reviewers and a reserve: entry, staff placement, next-team heads-up, review QR, start, deadline, five comments/scorecards, completion and the next team. Extend browser coverage around the real participant and ops surfaces. | Accepted state agrees across clients; one completed review and one next-team call-up exist. Current Playwright tests check entry and signed-in screens, not this entire journey. |
 | V-02 | Before using the flow live | Use physical Android/iOS phones for locked-screen pages, acceptance/no-show, replacement arrival timeout, JC rotation, active-review locks, app restart and offline score recovery. | Each failure converges to one accepted state, with no lost score, duplicate seat, silent replacement or unacknowledged page treated as attendance. |
 | V-03 | Before conversational absence handling | Test the dedicated venue agent with available, unavailable, unclear, no-answer and help-needed responses, including a response during active/scoring review. | Ops receives the explicit answer, timestamp and transcript; only a current confirmed absence between reviews can end duty and request substitution. The earlier audible Sarvam announcement did not establish two-way response capture. |
-| V-04 | Before relying on evidence questions | Run preparation on a representative multi-repository/Figma project, change its evidence, and inspect the new brief and active-review pinning. Include provider failure and recovery. | Coverage accounts for every eligible source, questions cite actual evidence, updated work produces a new version, and fixed questions remain usable while preparation is unavailable. |
+| V-04 | Before relying on evidence questions | Run preparation on a representative multi-repository project with a Figma link for human review, change its evidence, and inspect the new brief and active-review pinning. Include provider failure and recovery. | Coverage accounts for every eligible source, questions cite actual evidence, updated work produces a new version, and fixed questions remain usable while preparation is unavailable. |
 | V-05 | Before final judging | Rehearse score-entry delay, a correction, an export retry and independent export verification. Check concurrent panel call-up load against actual provider capacity. | Late score entry remains possible without extending discussion, results reproduce from immutable inputs, and delayed calls expire instead of reaching people after their task has passed. |
 
 No live rehearsal should create synthetic production judging records. Use staging for the multi-account exercise; physical event setup can be completed at the planned time.
@@ -67,7 +81,7 @@ This review covered the workspace manifests, mounted participant/reviewer/ops pa
 | Ops, roster and panel setup | `apps/ops`, roster parser, profile and publication commands | P-01 through P-04, with no new resume/import subsystem. |
 | Staffing, queue and timing | Backend staffing, substitutions, confirmations, queue automation and lifecycle tests | Arrival/no-show/rotation rehearsal; configurable shift calls are implemented. |
 | Judging and aggregation | Rubric presets, score governance, review aggregation and round exports | P-04 and V-05; retain independent reviewers, required comments and exact weights. |
-| GitHub/Figma evidence | Bindings, refresh jobs, captured evidence, question batches and reviewer browsing | V-04; captured-render inspection is implemented. No arbitrary four-file sampling. |
+| Project evidence | GitHub bindings, refresh jobs, captured evidence, question batches, reviewer browsing and a Figma file link | V-04; no arbitrary four-file sampling. Figma contents are not fetched or analyzed. |
 | Intelligence | `apps/intelligence` signed routes, six agent surfaces, callback boundaries and deterministic tests | Live preparation quality/coverage in V-04; reviewer assessment stays outside the Worker. |
 | Voice and GPS | `apps/voice`, venue responses, native venue state and backend escalation | V-03. Audible delivery and recorded confirmation are separate outcomes. |
 | Support and Discord | Shared support cases, Discord permissions/bridge, backend and bot tests | Include actual operator/support handling in rehearsal; reuse the current service. |
@@ -83,7 +97,7 @@ This review covered the workspace manifests, mounted participant/reviewer/ops pa
 
 The reviewer call notice now explicitly includes shift reminders. Existing substitute-only consent does not authorize the expanded notice; reviewers confirm the updated notice once in the app. The app submits the version of the notice compiled into its UI, and the backend rejects outdated approvals. Turning calls off remains available from older apps. GPS confirmation consent remains separate.
 
-No new resume service, document ingestion, agent-controlled scores, or participant controls were added. The backend and intelligence service use review-question protocol v2 for image attachments and must be released together. These follow-up changes have not been deployed during this work.
+No new resume service, document ingestion, agent-controlled scores, or participant controls were added. The backend and intelligence service use the text-only review-question protocol v3 and must be released together. These follow-up changes have not been deployed during this work.
 
 ## Changes made during this review
 
@@ -101,8 +115,16 @@ After integrating the incoming admission recovery and dashboard changes, the ful
 
 The first combined build/test run hit a five-second lifecycle test timeout under concurrent load and a follow-on authentication assertion. The complete rerun after builds finished passed without relaxing test timeouts or changing those lifecycle tests.
 
-New checks cover reminder timing, rescheduling and stale dispatch; Figma snapshot refresh and pinned images; every captured render entering its own analysis batch; private PNG size/checksum validation; native image attachment dispatch; and rejection of mismatched images or unsupported models. Existing staffing, active-review locks, late score entry, required comments, queue progression, exports and offline behavior remain covered by the regression suite.
+The earlier checks covered reminder timing and the now-retired Figma image-analysis path. The current replacement checks cover versioned Figma links, scoped access, retries, review pinning and exclusion of links/images from the question protocol. Existing staffing, active-review locks, late score entry, required comments, queue progression, exports and offline behavior remain covered by the regression suite.
 
-A live `gpt-5.6-terra` check inspected one synthetic static queue screen using the production evidence-analysis instructions. It cited only the supplied frame, identified the competing “review is next”/“queue paused” states, and distinguished the visible design from working application behavior. This used 1,656 tokens. It validates a synthetic image-analysis case, not the complete Figma capture/Worker callback path or quality on real team projects.
+Before the Figma feature was removed, a live `gpt-5.6-terra` check inspected one synthetic static queue screen using the production evidence-analysis instructions. It cited only the supplied frame, identified the competing “review is next”/“queue paused” states, and distinguished the visible design from working application behavior. This used 1,656 tokens. It validates a synthetic image-analysis case, not the complete Figma capture/Worker callback path or quality on real team projects.
 
 Local results are under ignored `outputs/event-flow/follow-up-*`, with the synthetic frame and result in `synthetic-review-frame.png` and `visual-model-check.json`. No authenticated multi-account staging journey, physical device exercise, additional phone call, or event-day setup was performed. The configured environment does not contain the saved participant/ops browser states required by the staging browser suite. Those checks remain V-01 through V-05, at the planned time. These follow-up changes have not been deployed.
+
+### 6 September local verification
+
+The Figma link simplification and review-planning changes passed the full backend suite (979 tests), the intelligence suite (141 tests), root lint and all 16 package typechecks. Participant, ops and intelligence production builds passed; the reviewer exported iOS and Android bundles. The corrected 10–11 PM confirmation default passed its four date/time tests.
+
+In Brave, the participant homepage, screen gallery, Figma link editor, local review board, availability disclosure and progression stepper rendered successfully. Vite's homepage/gallery import graph returned 204 successful module responses after the dependency-scan correction. A dangling CSS selector was removed after the production build identified it. These checks do not establish provider delivery or physical device behavior.
+
+All 191 competitive project briefs received a second full-source audit for the pre-event rule and concise, ungraded verbal prompts. The private plan contains seven five-person panels, primary/backup assignments and 84 reviewers across seats/reserves. The production inspection still showed no published review rounds. Round publication, project-brief/assignment application and service deployment remain separate from the verified local implementation.

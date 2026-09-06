@@ -39,7 +39,7 @@ import { addEventSubjectSelfGrants } from "./lib/permissions";
 import { grantSupremeRolePermissions } from "./lib/rolePermissions";
 import { normalizeEmail, normalizedText } from "./lib/strings";
 import { loadPublishedPhaseSchedule } from "./lib/phaseSchedule";
-import { eventPhaseKey, eventStatus } from "./values";
+import { ambienceMode, eventPhaseKey, eventStatus } from "./values";
 
 const publicEventPhase = v.object({
   phaseKey: eventPhaseKey,
@@ -141,6 +141,7 @@ export const getPublicState = query({
         teamMinSize: v.number(),
         teamMaxSize: v.number(),
         phases: v.array(publicEventPhase),
+        ambience: ambienceMode,
       }),
     ),
   }),
@@ -182,6 +183,7 @@ export const getPublicState = query({
         applicationsCloseAt: event.applicationsCloseAt,
         teamMinSize: participantPolicy.normalized.teamMinimumSize,
         teamMaxSize: participantPolicy.normalized.teamMaximumSize,
+        ambience: event.ambience?.mode ?? "off",
         phases: phaseSchedule
           ? phaseSchedule.windows.map((phase) => ({
               phaseKey: phase.phaseKey,
@@ -247,9 +249,7 @@ export const bootstrapEventInput = v.object({
     version: v.string(),
     requiredGitHubTopic: v.string(),
     maxActiveGitHubRepositoriesPerTeam: v.number(),
-    maxActiveFigmaFilesPerTeam: v.number(),
     githubFreezeAt: v.optional(v.number()),
-    figmaFreezeAt: v.optional(v.number()),
   }),
 });
 
@@ -312,12 +312,8 @@ export async function createInitialEvent(
     policyVersion: args.integrationPolicy.version,
     requiredGitHubTopic: args.integrationPolicy.requiredGitHubTopic,
     maxActiveGitHubRepositoriesPerTeam: args.integrationPolicy.maxActiveGitHubRepositoriesPerTeam,
-    maxActiveFigmaFilesPerTeam: args.integrationPolicy.maxActiveFigmaFilesPerTeam,
     ...(args.integrationPolicy.githubFreezeAt !== undefined
       ? { githubFreezeAt: args.integrationPolicy.githubFreezeAt }
-      : {}),
-    ...(args.integrationPolicy.figmaFreezeAt !== undefined
-      ? { figmaFreezeAt: args.integrationPolicy.figmaFreezeAt }
       : {}),
   });
 

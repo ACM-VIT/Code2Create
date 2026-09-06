@@ -4,7 +4,7 @@ import { useMutation, useQuery } from "convex/react";
 import { randomUUID } from "expo-crypto";
 import { useRef, useState } from "react";
 import { StyleSheet, Text, TextInput } from "react-native";
-import { Action, Body, Meta, Problem, QuietAction, Section } from "./ui";
+import { Action, Meta, Problem, QuietAction, Section } from "./ui";
 import { describeError } from "@/lib/errors";
 import { palette } from "@/theme";
 
@@ -62,13 +62,10 @@ export function VenueCallSetting({ eventSlug }: { eventSlug: string }) {
   };
   return (
     <Section title="Check-in calls">
-      <Body>
-        Allow an automated assistant to call when your phone suggests you may
-        have left the venue. You can explain whether you are available and when
-        you will return. Your answers and a transcript are saved for organizers.
-        A confirmed absence ends your duty between reviews.
-      </Body>
-      <Text style={styles.label}>Phone number with country code</Text>
+      <Meta>
+        Automated calls confirm availability. Ops can read the transcript.
+      </Meta>
+      <Text style={styles.label}>Phone number</Text>
       <TextInput
         accessibilityLabel="Departure call phone number"
         style={styles.input}
@@ -97,9 +94,7 @@ export function VenueCallSetting({ eventSlug }: { eventSlug: string }) {
           disabled={busy}
           onPress={() => change("revoked")}
         />
-      ) : (
-        <Meta>Check-in calls are off.</Meta>
-      )}
+      ) : null}
     </Section>
   );
 }

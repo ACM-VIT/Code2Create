@@ -203,7 +203,7 @@ const permissionSubjectNames: Readonly<Record<string, string>> = {
   "configuration phase draft": "event schedule draft",
   "emergency pack": "paper backup",
   "integration artifact": "code and design evidence",
-  "integration figma": "Figma connection",
+  "integration figma": "Figma file link",
   "integration github": "GitHub connection",
   "operations intelligence": "operations briefs",
   "project checkpoint": "team update",

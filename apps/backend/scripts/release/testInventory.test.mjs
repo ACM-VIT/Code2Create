@@ -35,8 +35,11 @@ const mainTests = new Set(
 );
 const testFiles = ["convex", "scripts"]
   .flatMap((directory) => testFilesBelow(join(backendRoot, directory)))
-  .map((file) => relative(backendRoot, file))
-  .toSorted((left, right) => left.localeCompare(right));
+  // Posix separators: the commands these are matched against are written with
+  // forward slashes, while `relative` follows the host and gives backslashes on
+  // Windows.
+  .map((file) => relative(backendRoot, file).replaceAll("\\", "/"))
+  .toSorted();
 
 test("every backend test file is owned by the main test command", () => {
   const unowned = testFiles.filter((file) => !mainTests.has(file));

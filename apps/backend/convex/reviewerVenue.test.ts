@@ -152,7 +152,6 @@ async function fixture() {
       criterionKeys: [],
       seniority: "sc",
       strength: 2,
-      trainingStatus: "complete",
       status: "active",
       version: 1,
       createdAt: now,

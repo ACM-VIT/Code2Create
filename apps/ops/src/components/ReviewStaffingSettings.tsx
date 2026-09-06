@@ -54,7 +54,7 @@ function JuniorParticipation({ roundId }: { roundId: RoundId }) {
     off_duty: "Off duty",
     outside_window: "Outside confirmed hours",
     unconfirmed: "Availability not confirmed",
-    training_needed: "Training or profile needed",
+    profile_inactive: "Profile inactive",
   };
   return (
     <details className="workspace-disclosure">

@@ -11,6 +11,7 @@ import { PetalCard } from "./components/portal/PetalCard";
 import { PortalButton, PortalTextButton } from "./components/portal/PortalButton";
 import { PortalError } from "./components/portal/PortalField";
 import { PortalScene } from "./components/portal/PortalScene";
+import { showcaseSamples } from "./lib/showcaseSamples";
 import { clientConfiguration, eventSlug } from "./lib/config";
 import { readableError } from "./lib/errors";
 import { useOperationRunner } from "./lib/operations";
@@ -26,7 +27,6 @@ import { TeamLobbyScreen } from "./screens/TeamLobbyScreen";
 import { TeamScreen } from "./screens/TeamScreen";
 import type { CurrentTeam, ParticipantClass, PublicState } from "./types";
 
-const loadFigmaCallbackScreen = () => import("./screens/FigmaCallbackScreen");
 const loadGitHubCallbackScreen = () => import("./screens/GitHubCallbackScreen");
 const loadIntegrationsScreen = () => import("./screens/IntegrationsScreen");
 const loadIntakeScreen = () => import("./screens/IntakeScreen");
@@ -40,9 +40,7 @@ function prepareIntakeScreen() {
   void loadIntakeScreen().catch(() => {});
 }
 
-const FigmaCallbackScreen = lazy(() =>
-  loadFigmaCallbackScreen().then((module) => ({ default: module.FigmaCallbackScreen })),
-);
+
 const GitHubCallbackScreen = lazy(() =>
   loadGitHubCallbackScreen().then((module) => ({ default: module.GitHubCallbackScreen })),
 );
@@ -58,11 +56,17 @@ const SubmittedScreen = lazy(() =>
 const SynesthesiaScreen = lazy(() =>
   loadSynesthesiaScreen().then((module) => ({ default: module.SynesthesiaScreen })),
 );
+const ShowcaseScreen = lazy(() =>
+  import("./screens/ShowcaseScreen").then((module) => ({ default: module.ShowcaseScreen })),
+);
 const SupportScreen = lazy(() =>
   loadSupportScreen().then((module) => ({ default: module.SupportScreen })),
 )
 const UpdatesScreen = lazy(() =>
   loadUpdatesScreen().then((module) => ({ default: module.UpdatesScreen })),
+);
+const GamesScreen = lazy(() =>
+  import("./screens/GamesScreen").then((module) => ({ default: module.GamesScreen })),
 );
 
 export function ParticipantApp({
@@ -162,13 +166,27 @@ export function ParticipantApp({
   }
 
   const accountHeader = (
-    <AccountBadge
-      name={me.person.displayName}
-      seed={me.membership.id}
-      email={me.person.verifiedEmail}
-      onSignOut={signOut}
-    />
+    <>
+      <AccountBadge
+        name={me.person.displayName}
+        seed={me.membership.id}
+        email={me.person.verifiedEmail}
+        onSignOut={signOut}
+      />
+    </>
   );
+  // ---- the arcade ---------------------------------------------------------
+  // Ahead of the onboarding gates on purpose: the games are a diversion for
+  // anyone signed in, and the leaderboard is per person, so neither a team nor
+  // the SGLang step is a prerequisite for playing.
+  if (location.pathname === "/games") {
+    return (
+      <Suspense fallback={<PortalLoading />}>
+        <GamesScreen header={accountHeader} />
+      </Suspense>
+    );
+  }
+
   // ---- one participant conversation with the Guide and event team ---------
   if (location.pathname === "/support") {
     if (!canReadSupport) return <Navigate replace to="/" />;
@@ -239,12 +257,14 @@ export function ParticipantApp({
 
   // ---- f12 · everything else, one quiet list -------------------------------
   const moreHeader = team ? (
-    <TeamCluster
-      team={team}
-      members={teamMembers.results}
-      editable={!teamDeadlineReached}
-      canManage={team.currentRole === "lead" && !teamDeadlineReached}
-    />
+    <>
+      <TeamCluster
+        team={team}
+        members={teamMembers.results}
+        editable={!teamDeadlineReached}
+        canManage={team.currentRole === "lead" && !teamDeadlineReached}
+      />
+    </>
   ) : (
     accountHeader
   );
@@ -421,6 +441,37 @@ export function ParticipantApp({
     );
   }
 
+  // ---- synesthesia · the music room, on its own scene ----------------------
+  if (location.pathname === "/music") {
+    if (!acceptedFeatures) return <Navigate replace to="/" />;
+    return (
+      <Suspense fallback={<PortalLoading />}>
+        <SynesthesiaScreen
+          team={team}
+          members={teamMembers.results}
+          teamEditable={teamEditable}
+          onSignOut={signOut}
+        />
+      </Suspense>
+    );
+  }
+
+  // ---- showcase: the project wall (sample projects until submissions feed it)
+  if (location.pathname === "/showcase") {
+    if (!acceptedFeatures) return <Navigate replace to="/" />;
+    return (
+      <Suspense fallback={<PortalLoading />}>
+        <ShowcaseScreen
+          team={team}
+          members={teamMembers.results}
+          teamEditable={teamEditable}
+          onSignOut={signOut}
+          projects={showcaseSamples}
+        />
+      </Suspense>
+    );
+  }
+
   // ---- team updates: the checkpoint forms, on the scene --------------------
   if (location.pathname === '/updates') {
     if (!acceptedFeatures || !(access?.projectCheckpoints ?? false) || !publicState.event) {
@@ -442,9 +493,7 @@ export function ParticipantApp({
   // ---- f8 / f9 / closed states, full-bleed ---------------------------------
   if (
     intakeStatus.applicationState !== null &&
-    !["/integrations/github/callback", "/integrations/figma/callback", "/music"].includes(
-      location.pathname,
-    )
+    location.pathname !== "/integrations/github/callback"
   ) {
     return (
       <Suspense fallback={<PortalLoading />}>
@@ -459,19 +508,11 @@ export function ParticipantApp({
     );
   }
 
-  // ---- callbacks and music: on the scene, not a separate shell ----------
+  // ---- oauth callbacks: on the scene, not a separate shell -----------------
   const tenant =
     location.pathname === "/integrations/github/callback" ? (
       canOpenIntegrations ? (
         <GitHubCallbackScreen />
-      ) : null
-    ) : location.pathname === "/integrations/figma/callback" ? (
-      canOpenIntegrations ? (
-        <FigmaCallbackScreen />
-      ) : null
-    ) : location.pathname === "/music" ? (
-      acceptedFeatures ? (
-        <SynesthesiaScreen />
       ) : null
     ) : null;
   if (!tenant) return <Navigate replace to="/" />;
@@ -480,12 +521,14 @@ export function ParticipantApp({
       tree="left"
       onSignOut={signOut}
       header={
-        <TeamCluster
-          team={team}
-          members={teamMembers.results}
-          editable={teamEditable}
-          canManage={team.currentRole === "lead" && teamEditable}
-        />
+        <>
+              <TeamCluster
+            team={team}
+            members={teamMembers.results}
+            editable={teamEditable}
+            canManage={team.currentRole === "lead" && teamEditable}
+          />
+        </>
       }
     >
       <div className="w-full max-w-[720px] text-left">

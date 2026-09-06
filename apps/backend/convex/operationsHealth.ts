@@ -583,123 +583,14 @@ function githubTopicRows(
     .take(queryLimit);
 }
 
-type FigmaSyncState = "pending" | "running" | "rate_limited" | "error";
-type FigmaWebhookState = "pending" | "unavailable" | "error";
-
-function figmaSyncRows(
-  ctx: QueryCtx,
-  eventId: Id<"events">,
-  syncState: FigmaSyncState,
-  updatedBefore?: number,
-) {
-  return ctx.db
-    .query("figmaFileBindings")
-    .withIndex("by_event_state_sync_updated", (index) => {
-      const range = index.eq("eventId", eventId).eq("state", "active").eq("syncState", syncState);
-      return updatedBefore === undefined ? range : range.lt("updatedAt", updatedBefore);
-    })
-    .take(queryLimit);
-}
-
-function figmaLeaseRows(ctx: QueryCtx, eventId: Id<"events">, expiresBefore: number,
-) {
-  return ctx.db
-    .query("figmaFileBindings")
-    .withIndex("by_event_state_sync_lease", (index) =>
-      index
-        .eq("eventId", eventId)
-        .eq("state", "active")
-        .eq("syncState", "running")
-        .lt("syncLeaseExpiresAt", expiresBefore),
-    )
-    .take(queryLimit);
-}
-
-function figmaWebhookRows(
-  ctx: QueryCtx,
-  eventId: Id<"events">,
-  webhookState: FigmaWebhookState,
-  updatedBefore?: number,
-) {
-  return ctx.db
-    .query("figmaFileBindings")
-    .withIndex("by_event_state_webhook_updated", (index) => {
-      const range = index
-        .eq("eventId", eventId)
-        .eq("state", "active")
-        .eq("webhookState", webhookState);
-      return updatedBefore === undefined ? range : range.lt("updatedAt", updatedBefore);
-    })
-    .take(queryLimit);
-}
-
 async function integrationHealth(ctx: QueryCtx, event: Doc<"events">, generatedAt: number,
 ) {
   const eventId = event._id;
   const stalledBefore = generatedAt - shortJobWindowMs;
-  const metadataStaleBefore =
-    event.status === "live" ? generatedAt - 4 * 60 * 1_000 : generatedAt - 45 * 60 * 1_000;
   const currentGithubStates: CurrentGithubState[] = ["setup", "active"];
-  const [
-    githubInaccessible,
-    figmaInaccessible,
-    figmaErrors,
-    figmaPending,
-    figmaRunning,
-    figmaRateLimited,
-    figmaRateLimitWaits,
-    figmaMetadataRateLimitWaits,
-    figmaMetadataStale,
-    figmaWebhookError,
-    figmaWebhookPending,
-    figmaWebhookUnavailable,
-  ] = await Promise.all([
-    ctx.db
-      .query("githubRepositoryBindings")
-      .withIndex("by_event_state_updated", (index) =>
-        index.eq("eventId", eventId).eq("state", "inaccessible"),
-      )
-      .take(queryLimit),
-    ctx.db
-      .query("figmaFileBindings")
-      .withIndex("by_event_state_updated", (index) =>
-        index.eq("eventId", eventId).eq("state", "inaccessible"),
-      )
-      .take(queryLimit),
-    figmaSyncRows(ctx, eventId, "error"),
-    figmaSyncRows(ctx, eventId, "pending", stalledBefore),
-    figmaLeaseRows(ctx, eventId, generatedAt),
-    figmaSyncRows(ctx, eventId, "rate_limited"),
-    ctx.db
-      .query("figmaFileBindings")
-      .withIndex("by_event_state_rate_limit", (index) =>
-        index.eq("eventId", eventId).eq("state", "active").gt("rateLimitRetryAt", generatedAt),
-      )
-      .take(queryLimit),
-    ctx.db
-      .query("figmaFileBindings")
-      .withIndex("by_event_state_metadata_rate_limit", (index) =>
-        index
-          .eq("eventId", eventId)
-          .eq("state", "active")
-          .gt("metadataRateLimitRetryAt", generatedAt),
-      )
-      .take(queryLimit),
-    event.status === "draft" || event.status === "complete"
-      ? Promise.resolve([])
-      : ctx.db
-          .query("figmaFileBindings")
-          .withIndex("by_event_state_metadata_check", (index) =>
-            index
-              .eq("eventId", eventId)
-              .eq("state", "active")
-              .lt("lastMetadataCheckAt", metadataStaleBefore),
-          )
-          .take(queryLimit),
-    figmaWebhookRows(ctx, eventId, "error"),
-    figmaWebhookRows(ctx, eventId, "pending", stalledBefore),
-    figmaWebhookRows(ctx, eventId, "unavailable"),
-  ]);
+  const githubInaccessible = await ctx.db.query("githubRepositoryBindings")
+    .withIndex("by_event_state_updated", index => index.eq("eventId", eventId).eq("state", "inaccessible"))
+    .take(queryLimit);
   const githubGroups = await Promise.all(
     currentGithubStates.map(async (state) => {
       const [errors, pending, running, rateLimited, missingTopics, unknownTopics,
@@ -732,12 +623,6 @@ async function integrationHealth(ctx: QueryCtx, event: Doc<"events">, generatedA
     ...coverageMarker(group.missingTopics, generatedAt),
     ...coverageMarker(group.unknownTopics, generatedAt),
   ]);
-  const figmaRateLimitedById = new Map(
-    [...figmaRateLimited, ...figmaRateLimitWaits, ...figmaMetadataRateLimitWaits,
-    ].map((binding) => [
-      binding._id,
-      binding]),
-  );
   return {
     counts: {
       github_inaccessible_repositories: boundedCount(
@@ -753,40 +638,9 @@ async function integrationHealth(ctx: QueryCtx, event: Doc<"events">, generatedA
       ),
       github_unverified_topics: boundedCount(githubTopics.map((binding) => binding.updatedAt),
       ),
-      figma_inaccessible_files: boundedCount(figmaInaccessible.map((binding) => binding.updatedAt),
-      ),
-      figma_sync_errors: boundedCount(figmaErrors.map((binding) => binding.updatedAt),
-      ),
-      figma_sync_stalls: boundedCount(
-        [...figmaPending, ...figmaRunning].map((binding) => binding.updatedAt),
-      ),
-      figma_rate_limits: boundedCount(
-        [...figmaRateLimitedById.values()].map((binding) => binding.updatedAt),
-      ),
-      figma_metadata_stale: boundedCount(
-        figmaMetadataStale.map((binding) => binding.lastMetadataCheckAt),
-      ),
-      figma_webhook_errors: boundedCount(
-        [...figmaWebhookError, ...figmaWebhookPending].map((binding) => binding.updatedAt,
-        ),
-      ),
-      figma_webhook_unavailable: boundedCount(
-        figmaWebhookUnavailable.map((binding) => binding.updatedAt),
-      ),
     },
     coverage: [
       ...coverageMarker(githubInaccessible, generatedAt),
-      ...coverageMarker(figmaInaccessible, generatedAt),
-      ...coverageMarker(figmaErrors, generatedAt),
-      ...coverageMarker(figmaPending, generatedAt),
-      ...coverageMarker(figmaRunning, generatedAt),
-      ...coverageMarker(figmaRateLimited, generatedAt),
-      ...coverageMarker(figmaRateLimitWaits, generatedAt),
-      ...coverageMarker(figmaMetadataRateLimitWaits, generatedAt),
-      ...coverageMarker(figmaMetadataStale, generatedAt),
-      ...coverageMarker(figmaWebhookError, generatedAt),
-      ...coverageMarker(figmaWebhookPending, generatedAt),
-      ...coverageMarker(figmaWebhookUnavailable, generatedAt),
       ...githubCoverage,
     ],
   };

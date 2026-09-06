@@ -1,0 +1,137 @@
+/*
+ * The Pac-Man board's own styles, ported from the standalone game's
+ * `globals.css`.
+ *
+ * Everything is scoped under `.pacman-game` and the keyframes are prefixed:
+ * the upstream names (`.sprite`, `.play`, `.power`, `.volume`) are generic, and
+ * the portal keeps its base styles in one global sheet where an unscoped rule
+ * would eventually collide with an unrelated screen.
+ *
+ * Artwork paths are literal because a stylesheet cannot read `ASSET_BASE`; they
+ * must stay in step with it.
+ */
+
+/* Mouth open/closed, swapping every 0.5s. */
+@keyframes pacman-chomp {
+  from {
+    background-image: url("/games/pacman/pacman-open.svg");
+  }
+  50% {
+    background-image: url("/games/pacman/pacman-closed.svg");
+  }
+}
+
+/* A ghost waiting in the house: drifts to --bob and back, swapping its face (and legs) at each turn. */
+@keyframes pacman-bob {
+  50% {
+    translate: 0 var(--bob);
+  }
+}
+@keyframes pacman-bob-face {
+  from {
+    background-image: var(--go);
+  }
+  50% {
+    background-image: var(--back);
+  }
+}
+
+/* One maze cell, absolutely placed over the board; the image comes from inline style or an animation. */
+.pacman-game .sprite {
+  position: absolute;
+  width: var(--maze-cell);
+  height: var(--maze-cell);
+  background: no-repeat center / contain;
+}
+
+/*
+ * A teleport mouth. The artwork is a small stroked square inside a large glow
+ * box: it spans about a third of the SVG's 169px viewBox and the rest is room
+ * for the drop-shadow bloom. Drawing the box two cells wide therefore lands the
+ * square at roughly two thirds of a tile, about the size the old canvas ring
+ * was, and lets the glow spill into the corridor the way a portal should. The
+ * negative margin re-centres that two-cell box on the one-cell tile `at()`
+ * positions it on.
+ */
+.pacman-game .portal {
+  position: absolute;
+  width: calc(var(--maze-cell) * 2);
+  height: calc(var(--maze-cell) * 2);
+  margin: calc(var(--maze-cell) * -0.5);
+  background: no-repeat center / contain;
+}
+
+/* Arcade dot is 2px of an 8px tile; this sits a quarter under that so it reads as a small speck. */
+.pacman-game .pellet {
+  background-size: 33.75%;
+}
+
+/* The arcade energizer fills its tile; shown at 66% so it doesn't crowd the walls. */
+.pacman-game .power {
+  background-size: 66%;
+}
+
+.pacman-game .cherry {
+  background-size: 80%;
+}
+
+.pacman-game .pacman {
+  animation: pacman-chomp 1s steps(1) infinite;
+}
+
+.pacman-game .bob {
+  animation:
+    pacman-bob 1s ease-in-out infinite,
+    pacman-bob-face 1s steps(1) infinite;
+}
+
+/*
+ * The volume slider: a chunky arcade meter rather than a rounded OS control.
+ * A native range input brings dragging, keyboard control and a screen-reader
+ * story for free; restyling its chrome is cheaper than rebuilding those three
+ * over a row of divs. `appearance: none` strips the OS look, then the track and
+ * thumb are redrawn per engine — the WebKit and Firefox rules cannot be merged,
+ * since an unknown selector voids the whole list. The track is a hard two-colour
+ * gradient with its stop at `--fill`, set inline from the current value.
+ */
+.pacman-game .volume {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+.pacman-game .volume::-webkit-slider-runnable-track {
+  height: 6px;
+  background: linear-gradient(to right, #ffff00 var(--fill), #2121ff var(--fill));
+}
+.pacman-game .volume::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 6px;
+  height: 14px;
+  margin-top: -4px; /* centre the 14px thumb on the 6px track */
+  background: #ffff00;
+}
+.pacman-game .volume::-moz-range-track {
+  height: 6px;
+  background: linear-gradient(to right, #ffff00 var(--fill), #2121ff var(--fill));
+}
+.pacman-game .volume::-moz-range-thumb {
+  width: 6px;
+  height: 14px;
+  border: 0;
+  border-radius: 0;
+  background: #ffff00;
+}
+
+/*
+ * The play disc on the start overlay: the artwork is a bare triangle, so the
+ * disc itself is drawn here and the SVG sits inside it at 40%, nudged right of
+ * centre because a triangle's visual centre sits left of its box.
+ */
+.pacman-game .play {
+  /* Longhands, not the `background` shorthand: that would reset the disc's own colour. */
+  background-image: url("/games/pacman/playButton.svg");
+  background-repeat: no-repeat;
+  background-position: 60% center; /* a triangle's visual centre sits left of its box */
+  background-size: 40%;
+}

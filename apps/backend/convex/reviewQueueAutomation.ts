@@ -27,7 +27,7 @@ import { checkPanelStaffing } from "./reviewStaffing";
 import { activeRoundPause } from "./lib/reviewRoundPauses";
 import { nextQueuedTeam } from "./lib/reviewQueueProjection";
 import { notifyReviewTeam } from "./lib/reviewTeamNotices";
-import { maximumReviewPanelsPerRound } from "./lib/reviewLimits";
+import { defaultReviewScoringBufferSeconds, maximumReviewPanelsPerRound } from "./lib/reviewLimits";
 
 const policyFields = {
   routingPreference: v.union(
@@ -96,7 +96,7 @@ export const settings = query({
       automaticCallUp: policy?.automaticCallUp ?? false,
       teamHeadsUpSeconds: policy?.teamHeadsUpSeconds ?? 300,
       voiceCalls: policy?.voiceCalls ?? false,
-      scoringBufferSeconds: policy?.scoringBufferSeconds ?? 90,
+      scoringBufferSeconds: policy?.scoringBufferSeconds ?? defaultReviewScoringBufferSeconds,
       panels: await Promise.all(
         panels.map(async (panel) => {
           const check = await ctx.db

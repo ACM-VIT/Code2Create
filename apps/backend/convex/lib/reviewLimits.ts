@@ -11,3 +11,6 @@ export const maximumApplicantTeamsPerEvent = 1_000;
 export const maximumReviewTeamsPerEvent = 400;
 export const maximumReviewSessionsPerTeamRound = 20;
 export const maximumActiveReviewGrantsPerPermission = 2_000;
+
+/** Planning allowance after each discussion; operators can adjust it per round. */
+export const defaultReviewScoringBufferSeconds = 120;

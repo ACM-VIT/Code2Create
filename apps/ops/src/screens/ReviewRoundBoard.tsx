@@ -1,4 +1,9 @@
+import { ReviewPanelMembership } from "../components/ReviewPanelMembership";
+import { ReviewReservePool } from "../components/ReviewReservePool";
 import { ReviewSkip } from "../components/ReviewSkip";
+import { ReviewProgression } from "../components/ReviewProgression";
+import { ReviewTiming } from "../components/ReviewTiming";
+import { ReviewPlanning } from "../components/ReviewPlanning";
 import { LiveNumber } from "../components/LiveNumber";
 import { api } from "@code2create/backend/api";
 import {
@@ -45,7 +50,6 @@ type OverviewPanel = NonNullable<
 type Substitutions = FunctionReturnType<typeof api.reviewSubstitutions.roundStatus>;
 type SubstitutionPanel = Substitutions["panels"][number];
 type SubstituteMember = SubstitutionPanel["activeMembers"][number];
-type Reserve = Substitutions["reserves"][number];
 type ActiveIncident = FunctionReturnType<typeof api.incidents.active>[number];
 type Command = "queue" | "call" | "start" | "complete";
 type TeamView = "desk" | "in_motion" | "done" | "all";
@@ -72,6 +76,7 @@ export function ReviewRoundBoard() {
   }, []);
   const { roundId } = useParams<{ roundId: string }>();
   const [teamView, setTeamView] = useState<TeamView>("desk");
+  const [workspace, setWorkspace] = useState<"live" | "planning" | "settings">("live");
   const overview = useQuery(api.reviewOperations.overview, { eventSlug });
   const visibleRound = overview?.rounds.find((round) => round.id === roundId);
   const board = useQuery(
@@ -189,12 +194,25 @@ export function ReviewRoundBoard() {
         </div>
       </dl>
 
-      <RoundPauseControl key={board.round.id} incidents={reviewIncidents} round={board.round} />
-
-      <ReviewConfirmations roundId={board.round.id} />
-      <ReviewStaffingSettings roundId={board.round.id} />
-      <ReviewQueueSettings roundId={board.round.id} />
-      <ReviewQuestionSettings roundId={board.round.id} />
+      <div className="configuration-tabs flex flex-wrap gap-2" role="group" aria-label="Review workspace">
+        {([['live', 'Live desk'], ['planning', 'People & planning'], ['settings', 'Settings & results']] as const).map(([key, label]) => (
+          <button key={key} type="button" className={workspace === key ? 'active min-h-11' : 'min-h-11'} aria-pressed={workspace === key} onClick={() => setWorkspace(key)}>{label}</button>
+        ))}
+      </div>
+      <div className={workspace === "planning" ? "grid gap-5" : "hidden"}>
+        <ReviewReservePool roundId={board.round.id} />
+        <ReviewConfirmations roundId={board.round.id} />
+        {visibleRound.canManage ? <ReviewPlanning roundId={board.round.id} /> : null}
+      </div>
+      <div className={workspace === "settings" ? "grid gap-5" : "hidden"}>
+        <ReviewTiming roundId={board.round.id} />
+        <ReviewStaffingSettings roundId={board.round.id} />
+        <ReviewQueueSettings roundId={board.round.id} />
+        <ReviewQuestionSettings roundId={board.round.id} />
+        <ReviewProgression roundId={board.round.id} />
+      </div>
+      <div className={workspace === "live" ? "grid gap-5" : "hidden"}>
+      <div className="justify-self-start"><RoundPauseControl key={board.round.id} incidents={reviewIncidents} round={board.round} /></div>
 
       <p className="board-section-label">Panels</p>
       <div className="panel-list">
@@ -212,11 +230,11 @@ export function ReviewRoundBoard() {
         ))}
       </div>
 
-      {substitutions.reserves.length > 0 ? (
+      {substitutions.reserves.some(r => r.status === "available" || r.status === "paged") ? (
         <section className="setup-section reserve-status-block">
           <h2>Reserve reviewers</h2>
           <div className="published-rounds">
-            {substitutions.reserves.map((reserve) => (
+            {substitutions.reserves.filter(r => r.status === "available" || r.status === "paged").map((reserve) => (
               <div key={reserve.reserveId}>
                 <strong>{reserve.displayName}</strong>
                 <span>
@@ -315,6 +333,7 @@ export function ReviewRoundBoard() {
         <summary>If the system goes down: paper recovery</summary>
         <ReviewManualRecovery roundId={board.round.id} />
       </details>
+      </div>
     </section>
   );
 }
@@ -418,6 +437,21 @@ function PanelRow({
 
       {open ? (
         <div className="panel-detail">
+          <div className="panel-row-actions">
+            {substitutionPanel ? (
+              <SubstitutionControl panel={substitutionPanel} serverNow={substitutions.serverNow} />
+            ) : null}
+            {substitutionPanel ? (
+              <ReviewPanelMembership
+                key={substitutionPanel.panelVersion}
+                panel={substitutionPanel}
+                reserves={substitutions.reserves}
+                panels={substitutions.panels}
+                allowSeniorLeadFallback={substitutions.allowSeniorLeadFallback}
+              />
+            ) : null}
+            {panel.canPause ? <PanelAvailability panel={panel} /> : null}
+          </div>
           <div className="panel-detail-block">
             <p className="board-section-label">Reviewers</p>
             <ul className="panel-reviewers">
@@ -471,19 +505,7 @@ function PanelRow({
             )}
           </div>
 
-          <div className="panel-row-actions">
-            {substitutionPanel ? (
-              <SubstitutionControl panel={substitutionPanel} serverNow={substitutions.serverNow} />
-            ) : null}
-            {substitutionPanel ? (
-              <PanelMembership
-                key={substitutionPanel.panelVersion}
-                panel={substitutionPanel}
-                reserves={substitutions.reserves}
-              />
-            ) : null}
-            {panel.canPause ? <PanelAvailability panel={panel} /> : null}
-          </div>
+
         </div>
       ) : null}
     </article>
@@ -998,166 +1020,6 @@ function SubstitutionControl({
   );
 }
 
-function PanelMembership({ panel, reserves,
-}: { panel: SubstitutionPanel; reserves: Reserve[];
-}) {
-  const swapPanelMember = useMutation(api.reviewPanelMembership.swapPanelMember,
-  );
-  const [open, setOpen] = useState(false);
-  const [leavingPersonId, setLeavingPersonId] = useState("");
-  const [joiningPersonId, setJoiningPersonId] = useState("");
-  const [reason, setReason] = useState("");
-  const [confirmed, setConfirmed] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const operationAttempt =
-    useMutationAttempt<FunctionReturnType<typeof api.reviewPanelMembership.swapPanelMember>>();
-  const operationSlot = `review-panel-membership:${panel.panelId}`;
-  const operationPending = operationAttempt.hasPending(operationSlot);
-
-  if (!panel.canSwapMembers) return null;
-
-  const candidates = reserves.filter((reserve) => reserve.status === "available",
-  );
-  const leaving = panel.activeMembers.find((member) => member.personId === leavingPersonId,
-  );
-  const joining = candidates.find((reserve) => reserve.personId === joiningPersonId,
-  );
-
-  const changed = () => {
-    setConfirmed(false);
-    setError(null);
-  };
-
-  const submit = async () => {
-    if (busy || !confirmed || reason.trim().length < 5 || (!leaving && !joining)) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await operationAttempt.run(operationSlot, () => {
-        const args = {
-          eventSlug,
-          panelId: panel.panelId,
-          ...(leaving ? { leavingPersonId: leaving.personId } : {}),
-          ...(joining ? { joiningPersonId: joining.personId } : {}),
-          expectedPanelVersion: panel.panelVersion,
-          reason,
-          clientOperationId: crypto.randomUUID(),
-        };
-        return () => swapPanelMember(args);
-      });
-      setOpen(false);
-      setLeavingPersonId("");
-      setJoiningPersonId("");
-      setReason("");
-      setConfirmed(false);
-    } catch (caught) {
-      setError(readableError(caught));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  if (!open) {
-    return (
-      <button className="text-button" type="button" onClick={() => setOpen(true)}>
-        Swap a reviewer
-      </button>
-    );
-  }
-  return (
-    <div className="panel-command">
-      <label className="field compact-select">
-        <span>Reviewer leaving</span>
-        <select
-          disabled={operationPending}
-          value={leavingPersonId}
-          onChange={(event) => {
-            setLeavingPersonId(event.target.value);
-            changed();
-          }}
-        >
-          <option value="">Nobody leaves</option>
-          {panel.activeMembers.map((member) => (
-            <option key={member.personId} value={member.personId}>
-              {member.displayName}
-              {member.isCoordinator ? " · runs this panel" : ""}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="field compact-select">
-        <span>Reviewer joining</span>
-        <select
-          disabled={operationPending}
-          value={joiningPersonId}
-          onChange={(event) => {
-            setJoiningPersonId(event.target.value);
-            changed();
-          }}
-        >
-          <option value="">Nobody joins</option>
-          {candidates.map((reserve) => (
-            <option key={reserve.personId} value={reserve.personId}>
-              {reserve.displayName}
-            </option>
-          ))}
-        </select>
-      </label>
-      {candidates.length === 0 ? (
-        <p className="muted">No reserve reviewer is free for this round right now.</p>
-      ) : null}
-      {leaving?.isCoordinator ? (
-        <p className="muted">Whoever takes this seat runs the panel.</p>
-      ) : null}
-      <label className="field">
-        <span>Reason</span>
-        <input
-          disabled={operationPending}
-          value={reason}
-          onChange={(event) => {
-            setReason(event.target.value);
-            changed();
-          }}
-        />
-      </label>
-      <label className="check-filter">
-        <input
-          checked={confirmed}
-          disabled={operationPending}
-          type="checkbox"
-          onChange={(event) => {
-            setConfirmed(event.target.checked);
-          }}
-        />
-        I confirm this seat change with the panel. A running review is never interrupted.
-      </label>
-      <div className="button-row">
-        <button
-          className="primary"
-          disabled={busy || !confirmed || reason.trim().length < 5 || (!leaving && !joining)}
-          type="button"
-          onClick={() => void submit()}
-        >
-          {busy
-            ? "Saving…"
-            : operationPending
-              ? "Confirm earlier panel change"
-              : "Change the panel"}
-        </button>
-        <button
-          className="secondary compact-link"
-          disabled={busy || operationPending}
-          type="button"
-          onClick={() => setOpen(false)}
-        >
-          Cancel
-        </button>
-      </div>
-      {error ? <p className="notice error">{error}</p> : null}
-    </div>
-  );
-}
 
 function TeamRow({ board, team }: { board: Board; team: Team }) {
   const queueTeam = useMutation(api.reviewOperations.queueTeam);

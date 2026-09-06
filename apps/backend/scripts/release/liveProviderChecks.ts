@@ -9,25 +9,13 @@ import {
 } from "./providerEnvironment.ts";
 
 const nativeEmbeddingDimensions = 1_536;
-const maximumFigmaResponseBytes = 5 * 1_024 * 1_024;
 
 type ProviderCheckResult = {
-  check: "figma" | "github" | "intelligence" | "openai";
+  check: "github" | "intelligence" | "openai";
   latencyMs: number;
   result: string;
 };
 
-const figmaFileSchema = z.object({
-  document: z.object({
-    children: z.array(z.object({ id: z.string(), name: z.string(), type: z.string() })),
-    id: z.string(),
-    name: z.string(),
-    type: z.literal("DOCUMENT"),
-  }),
-  lastModified: z.iso.datetime(),
-  name: z.string().min(1),
-  version: z.string().min(1),
-});
 
 const intelligenceHealthSchema = z.object({ ok: z.literal(true) }).strict();
 
@@ -104,37 +92,6 @@ async function checkGitHub(configuration: LiveProviderConfiguration): Promise<Pr
   };
 }
 
-async function checkFigma(configuration: LiveProviderConfiguration): Promise<ProviderCheckResult> {
-  const startedAt = Date.now();
-  const endpoint = new URL(
-    `/v1/files/${encodeURIComponent(configuration.figmaFileKey)}`,
-    "https://api.figma.com",
-  );
-  endpoint.searchParams.set("depth", "1");
-  const response = await fetch(endpoint, {
-    headers: {
-      Accept: "application/json",
-      Authorization: `Bearer ${configuration.figmaAccessToken}`,
-    },
-    signal: AbortSignal.timeout(20_000),
-  });
-  if (!response.ok) {
-    throw new Error(`Figma release check failed with HTTP ${response.status}.`);
-  }
-  let json: unknown;
-  try {
-    json = await readBoundedJsonResponse(response, maximumFigmaResponseBytes);
-  } catch {
-    throw new Error("Figma returned invalid JSON for the release fixture.");
-  }
-  const file = figmaFileSchema.parse(json);
-  return {
-    check: "figma",
-    latencyMs: elapsed(startedAt),
-    result: `${file.document.children.length} top-level pages visible`,
-  };
-}
-
 async function checkIntelligence(
   configuration: LiveProviderConfiguration,
 ): Promise<ProviderCheckResult> {
@@ -164,7 +121,6 @@ export async function runLiveProviderChecks(configuration: LiveProviderConfigura
   return Promise.all([
     checkOpenAi(configuration),
     checkGitHub(configuration),
-    checkFigma(configuration),
     checkIntelligence(configuration),
   ]);
 }

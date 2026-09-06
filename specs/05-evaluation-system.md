@@ -40,7 +40,7 @@ Operations provides both rubric presets and a separately published round-weight 
 |     3 | Strong or clearly shown                           |
 |     4 | Excellent; the reviewer can confidently verify it |
 
-Each rubric criterion also has examples for 0, 2, and 4. Reviewer training uses the same examples as the app.
+Each rubric criterion also has examples for 0, 2, and 4. The app shows the relevant anchor as the reviewer selects a score.
 
 ## 3. Criterion guidance
 

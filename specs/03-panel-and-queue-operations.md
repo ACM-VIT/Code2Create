@@ -26,7 +26,7 @@ A caller with `reviewer.profile.manage` prepares each reviewer record before the
 - current round availability confirmations;
 - conflicts and restricted teams;
 - accessibility or scheduling needs;
-- app and training status.
+- app readiness and active profile status.
 
 Reviewer type or seniority never changes score weight.
 
@@ -56,7 +56,7 @@ The planner shows gaps before a panel can be published. It also estimates how ma
 
 Publishing a plan creates a version. Later edits keep the previous version and record who changed which seat.
 
-Round publication schedules the app confirmation request and includes the complete selected pool as seats or reserves. Initial seats are provisional until people confirm. Reserves can confirm while profile and training preparation is still in progress; actual clock-in and substitution still require completed qualifications and a registered device. Clock-in, joining a panel, paging a substitute, calling a team, and starting a review recheck the person's confirmed coverage for the next complete review. No profile must promise availability for the whole round.
+Round publication schedules the app confirmation request and includes the complete selected pool as seats or reserves. Initial seats are provisional until people confirm. Reserves can confirm while profile assessment is still in progress; actual clock-in and substitution still require completed qualifications and a registered device. Clock-in, joining a panel, paging a substitute, calling a team, and starting a review recheck the person's confirmed coverage for the next complete review. No profile must promise availability for the whole round.
 
 Round configuration records clock-in opening, initial report time, and no-show grace. Shift rotation must use each person's confirmed hours, page them five minutes before their assignment, and replace departing or nonresponding people promptly. A later confirmed shift must not be treated as a round-start no-show. The staffing scheduler rechecks confirmed shifts and starts replacement pages when needed; a native reminder precedes a confirmed shift.
 

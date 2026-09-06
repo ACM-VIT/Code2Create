@@ -9,7 +9,7 @@ import { requireEventBySlug } from "./lib/events";
 import { refreshGithubTeamMetrics } from "./lib/githubTeamMetrics";
 import {
   githubTopicVerificationIsCurrent,
-  integrationProviderFrozenAt,
+  githubIntegrationFrozenAt,
   loadPublishedIntegrationPolicy,
 } from "./lib/integrationPolicy";
 import {
@@ -201,7 +201,7 @@ function requireGitHubWindow(
       message: "Repositories can be added after the official build start.",
     });
   }
-  if (integrationProviderFrozenAt(policy, "github", serverNow)) {
+  if (githubIntegrationFrozenAt(policy, serverNow)) {
     throw new ConvexError({
       code: "GITHUB_FROZEN",
       message: "GitHub repository changes are frozen for this event.",

@@ -1,5 +1,6 @@
 import { api } from "@code2create/backend/api";
 import { ClientObservabilityIdentity } from "@code2create/client-observability";
+import { ChillMode } from "./components/chill/ChillMode";
 import { ConnectionNotice } from "./components/portal/ConnectionNotice";
 import type { Code2CreateAuthClient } from "@code2create/web-auth";
 import { AuthLoading, Authenticated, Unauthenticated, useQuery } from "convex/react";
@@ -38,6 +39,7 @@ export default function App({ authClient }: { authClient: Code2CreateAuthClient 
     <>
       <ClientObservabilityIdentity distinctId={session?.user.id ?? null} />
       <ConnectionNotice />
+      <ChillMode active={publicState?.event?.ambience === "chill"} />
       {gallery}
       <StartupCover ready={startupReady} />
       {publicState === undefined ? (

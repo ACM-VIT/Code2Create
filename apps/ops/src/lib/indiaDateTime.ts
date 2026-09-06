@@ -5,7 +5,8 @@ export function indiaDateTimeToTimestamp(value: string) {
   const match = localDateTimePattern.exec(value);
   if (!match) return null;
   const [, yearText, monthText, dayText, hourText, minuteText] = match;
-  if (!yearText || !monthText || !dayText || !hourText || !minuteText) return null;
+  if (!yearText || !monthText || !dayText || !hourText || !minuteText)
+    return null;
   const year = Number(yearText);
   const month = Number(monthText);
   const day = Number(dayText);
@@ -35,16 +36,33 @@ export function timestampToIndiaDateTime(value: number) {
     .slice(0, 16);
 }
 
-export function reviewConfirmationOpening(roundStart: string) {
+export function rescheduleReviewConfirmationWindow(
+  current: { state: "scheduled" | "open" | "closed"; opensAt: number },
+  opening: string,
+  closing: string,
+) {
+  return {
+    // A locked opening keeps its exact stored timestamp, including seconds.
+    opensAt: current.state === "scheduled"
+      ? indiaDateTimeToTimestamp(opening)
+      : current.opensAt,
+    closesAt: indiaDateTimeToTimestamp(closing),
+  };
+}
+
+export function reviewConfirmationWindow(roundStart: string) {
   const startsAt = indiaDateTimeToTimestamp(roundStart);
-  if (startsAt === null) return "";
+  if (startsAt === null) return { opensAt: "", closesAt: "" };
   const indiaDate = new Date(startsAt + indiaOffsetMinutes * 60_000);
-  let opensAt = Date.UTC(
+  let closesAt = Date.UTC(
     indiaDate.getUTCFullYear(),
     indiaDate.getUTCMonth(),
     indiaDate.getUTCDate(),
     23,
   );
-  if (opensAt >= indiaDate.getTime()) opensAt -= 86_400_000;
-  return new Date(opensAt).toISOString().slice(0, 16);
+  if (closesAt >= indiaDate.getTime()) closesAt -= 86_400_000;
+  return {
+    opensAt: new Date(closesAt - 3_600_000).toISOString().slice(0, 16),
+    closesAt: new Date(closesAt).toISOString().slice(0, 16),
+  };
 }

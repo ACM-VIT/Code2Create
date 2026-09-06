@@ -122,8 +122,7 @@ describe("event bootstrap", () => {
         version: "integrations-v1",
         requiredGitHubTopic: "code2create-7",
         maxActiveGitHubRepositoriesPerTeam: 10,
-        maxActiveFigmaFilesPerTeam: 10,
-      },
+        },
     });
 
     const operationsAccess = await owner.query(api.access.operationsCapabilities, {
@@ -333,8 +332,7 @@ describe("event bootstrap", () => {
           version: "integrations-v1",
           requiredGitHubTopic: "code2create-7",
           maxActiveGitHubRepositoriesPerTeam: 10,
-          maxActiveFigmaFilesPerTeam: 10,
-        },
+          },
       }),
     ).rejects.toThrow("already has an event");
   });
@@ -744,8 +742,7 @@ describe("event bootstrap", () => {
           version: "integrations-v1",
           requiredGitHubTopic: "code2create-7",
           maxActiveGitHubRepositoriesPerTeam: 10,
-          maxActiveFigmaFilesPerTeam: 10,
-        },
+          },
       }),
     ).rejects.toThrow("not configured to create that event");
   });
@@ -796,8 +793,7 @@ describe("event bootstrap", () => {
         version: "integrations-v1",
         requiredGitHubTopic: "code2create-7",
         maxActiveGitHubRepositoriesPerTeam: 10,
-        maxActiveFigmaFilesPerTeam: 10,
-      },
+        },
     });
     const rejection = "external must close no later than VIT";
 

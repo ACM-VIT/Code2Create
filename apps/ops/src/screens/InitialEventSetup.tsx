@@ -186,7 +186,6 @@ export function InitialEventSetup({ authClient }: { authClient: Code2CreateAuthC
           version: integrationPolicyVersion,
           requiredGitHubTopic,
           maxActiveGitHubRepositoriesPerTeam: Number(maximumGitHubRepositories),
-          maxActiveFigmaFilesPerTeam: Number(maximumFigmaFiles),
           ...(githubFreezeAt !== undefined ? { githubFreezeAt } : {}),
           ...(figmaFreezeAt !== undefined ? { figmaFreezeAt } : {}),
         },

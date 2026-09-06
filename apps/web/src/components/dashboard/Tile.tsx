@@ -21,6 +21,7 @@ export function Tile({
   onToggle,
   onRelease,
   backdrop,
+  quiet = false,
   className = "",
   children,
 }: {
@@ -30,6 +31,8 @@ export function Tile({
   onToggle?: () => void;
   onRelease?: () => void;
   backdrop?: ReactNode;
+  /** The card's chrome has stepped back (a resting video); the close control goes with it. */
+  quiet?: boolean;
   className?: string;
   children: ReactNode;
 }) {
@@ -93,7 +96,9 @@ export function Tile({
           type="button"
           onClick={onRelease}
           aria-label="Close"
-          className="absolute top-3 right-3 z-20 flex size-8 items-center justify-center rounded-full border border-rose/50 bg-wash/60 text-fg/80 backdrop-blur-md transition-colors hover:border-rose-light hover:text-fg"
+          className={`absolute top-3 right-3 z-20 flex size-8 items-center justify-center rounded-full border border-rose/50 bg-wash/60 text-fg/80 backdrop-blur-md transition-[color,border-color,opacity] duration-500 hover:border-rose-light hover:text-fg ${
+            quiet ? "pointer-events-none opacity-0" : ""
+          }`}
         >
           <svg viewBox="0 0 16 16" className="size-3.5" aria-hidden>
             <path

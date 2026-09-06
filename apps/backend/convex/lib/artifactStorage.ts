@@ -1,18 +1,12 @@
 "use node";
 
 import { createHash } from "node:crypto";
-import { promisify } from "node:util";
-import { gunzip, gzip } from "node:zlib";
 
 import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { ConvexError } from "convex/values";
 
-const gzipAsync = promisify(gzip);
-const gunzipAsync = promisify(gunzip);
 const artifactRegion = "ap-south-1";
-const maximumArtifactBytes = 100 * 1024 * 1024;
-const maximumFigmaPreviewBytes = 8 * 1024 * 1024;
 const maximumAttendanceExportBytes = 10 * 1024 * 1024;
 const maximumEmergencyPackBytes = 25 * 1024 * 1024;
 const maximumRoundExportBytes = 50 * 1024 * 1024;
@@ -32,17 +26,6 @@ export type StoredArtifact = {
   uncompressedBytes: number;
   storedBytes: number;
   sha256: string;
-};
-
-export type StoredFigmaPreviewArtifact = {
-  objectKey: string;
-  storageRegion: string;
-  storageBucket: string;
-  contentType: "image/png";
-  byteCount: number;
-  sha256: string;
-  width: number;
-  height: number;
 };
 
 export type StoredRoundExportFile = {
@@ -118,141 +101,6 @@ export function artifactStorageConfigured() {
     process.env.ARTIFACT_S3_SECRET_ACCESS_KEY?.trim() &&
     process.env.ARTIFACT_S3_KMS_KEY_ID?.trim(),
   );
-}
-
-export async function storeFigmaFileArtifact(args: {
-  eventId: string;
-  teamId: string;
-  fileKey: string;
-  providerVersionId: string;
-  rawJson: string;
-}): Promise<StoredArtifact> {
-  const uncompressedBytes = Buffer.byteLength(args.rawJson, "utf8");
-  if (uncompressedBytes < 1 || uncompressedBytes > maximumArtifactBytes) {
-    throw new ConvexError({
-      code: "FIGMA_ARTIFACT_TOO_LARGE",
-      message: "This Figma file is too large for the current checkpoint limit.",
-    });
-  }
-  const config = configuration();
-  const sha256 = digest(args.rawJson, "hex");
-  const compressed = await gzipAsync(Buffer.from(args.rawJson, "utf8"), { level: 9 });
-  const objectKey = [
-    "events",
-    opaqueKeyPart(args.eventId),
-    "teams",
-    opaqueKeyPart(args.teamId),
-    "figma",
-    opaqueKeyPart(args.fileKey),
-    `${opaqueKeyPart(`${args.providerVersionId}:${sha256}`)}.json.gz`,
-  ].join("/");
-  await client(config).send(
-    new PutObjectCommand({
-      Bucket: config.bucket,
-      Key: objectKey,
-      Body: compressed,
-      ContentType: "application/json",
-      ContentEncoding: "gzip",
-      ContentLength: compressed.byteLength,
-      ChecksumSHA256: digest(compressed, "base64"),
-      ServerSideEncryption: "aws:kms",
-      SSEKMSKeyId: config.kmsKeyId,
-      BucketKeyEnabled: true,
-      Metadata: {
-        source: "figma",
-        sha256,
-      },
-    }),
-  );
-  return {
-    objectKey,
-    storageRegion: config.region,
-    storageBucket: config.bucket,
-    uncompressedBytes,
-    storedBytes: compressed.byteLength,
-    sha256,
-  };
-}
-
-function pngDimensions(bytes: Buffer) {
-  const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
-  if (
-    bytes.byteLength < 24 ||
-    !bytes.subarray(0, signature.byteLength).equals(signature) ||
-    bytes.toString("ascii", 12, 16) !== "IHDR"
-  ) {
-    throw new ConvexError({
-      code: "FIGMA_PREVIEW_INVALID",
-      message: "Figma returned an invalid frame preview.",
-    });
-  }
-  const width = bytes.readUInt32BE(16);
-  const height = bytes.readUInt32BE(20);
-  if (width < 1 || height < 1 || width > 32_768 || height > 32_768 || width * height > 32_000_000) {
-    throw new ConvexError({
-      code: "FIGMA_PREVIEW_DIMENSIONS_INVALID",
-      message: "Figma returned an unsupported frame-preview size.",
-    });
-  }
-  return { width, height };
-}
-
-export async function storeFigmaPreviewArtifact(args: {
-  eventId: string;
-  teamId: string;
-  fileKey: string;
-  providerVersionId: string;
-  nodeId: string;
-  png: Uint8Array;
-}): Promise<StoredFigmaPreviewArtifact> {
-  const body = Buffer.from(args.png);
-  if (body.byteLength < 1 || body.byteLength > maximumFigmaPreviewBytes) {
-    throw new ConvexError({
-      code: "FIGMA_PREVIEW_TOO_LARGE",
-      message: "This Figma frame preview exceeds the private preview limit.",
-    });
-  }
-  const { width, height } = pngDimensions(body);
-  const config = configuration();
-  const sha256 = digest(body, "hex");
-  const objectKey = [
-    "events",
-    opaqueKeyPart(args.eventId),
-    "teams",
-    opaqueKeyPart(args.teamId),
-    "figma",
-    opaqueKeyPart(args.fileKey),
-    "previews",
-    opaqueKeyPart(args.providerVersionId),
-    `${opaqueKeyPart(`${args.nodeId}:${sha256}`)}.png`,
-  ].join("/");
-  await client(config).send(
-    new PutObjectCommand({
-      Bucket: config.bucket,
-      Key: objectKey,
-      Body: body,
-      ContentType: "image/png",
-      ContentLength: body.byteLength,
-      ChecksumSHA256: digest(body, "base64"),
-      ServerSideEncryption: "aws:kms",
-      SSEKMSKeyId: config.kmsKeyId,
-      BucketKeyEnabled: true,
-      Metadata: {
-        source: "figma-preview",
-        sha256,
-      },
-    }),
-  );
-  return {
-    objectKey,
-    storageRegion: config.region,
-    storageBucket: config.bucket,
-    contentType: "image/png",
-    byteCount: body.byteLength,
-    sha256,
-    width,
-    height,
-  };
 }
 
 export async function storeAttendanceExport(args: {
@@ -552,54 +400,6 @@ export async function signRoundExportDownload(args: {
   );
 }
 
-export async function signArtifactDownload(args: {
-  objectKey: string;
-  storageRegion: string;
-  storageBucket: string;
-}) {
-  const config = configuration();
-  if (args.storageRegion !== config.region || args.storageBucket !== config.bucket) {
-    throw new ConvexError({
-      code: "ARTIFACT_STORE_MISMATCH",
-      message: "This project artifact belongs to another storage configuration.",
-    });
-  }
-  return getSignedUrl(
-    client(config),
-    new GetObjectCommand({
-      Bucket: config.bucket,
-      Key: args.objectKey,
-      ResponseContentDisposition: 'inline; filename="figma-checkpoint.json"',
-      ResponseContentType: "application/json",
-    }),
-    { expiresIn: 60 },
-  );
-}
-
-export async function signFigmaPreview(args: {
-  objectKey: string;
-  storageRegion: string;
-  storageBucket: string;
-}) {
-  const config = configuration();
-  if (args.storageRegion !== config.region || args.storageBucket !== config.bucket) {
-    throw new ConvexError({
-      code: "ARTIFACT_STORE_MISMATCH",
-      message: "This Figma preview belongs to another storage configuration.",
-    });
-  }
-  return getSignedUrl(
-    client(config),
-    new GetObjectCommand({
-      Bucket: config.bucket,
-      Key: args.objectKey,
-      ResponseContentDisposition: 'inline; filename="figma-preview.png"',
-      ResponseContentType: "image/png",
-    }),
-    { expiresIn: 60 },
-  );
-}
-
 export async function signAttendanceExportDownload(args: {
   objectKey: string;
   storageRegion: string;
@@ -671,103 +471,4 @@ export async function signEmergencyPackDownload(args: {
     }),
     { expiresIn: args.expiresInSeconds },
   );
-}
-
-export async function readStoredArtifactText(args: {
-  objectKey: string;
-  storageRegion: string;
-  storageBucket: string;
-  storedBytes: number;
-  uncompressedBytes: number;
-  sha256: string;
-}) {
-  const config = configuration();
-  if (args.storageRegion !== config.region || args.storageBucket !== config.bucket) {
-    throw new ConvexError({
-      code: "ARTIFACT_STORE_MISMATCH",
-      message: "This project artifact belongs to another storage configuration.",
-    });
-  }
-  if (
-    !Number.isSafeInteger(args.storedBytes) ||
-    !Number.isSafeInteger(args.uncompressedBytes) ||
-    args.storedBytes < 1 ||
-    args.storedBytes > maximumArtifactBytes ||
-    args.uncompressedBytes < 1 ||
-    args.uncompressedBytes > maximumArtifactBytes ||
-    !/^[a-f0-9]{64}$/.test(args.sha256)
-  ) {
-    throw new ConvexError({
-      code: "ARTIFACT_MANIFEST_INVALID",
-      message: "This project artifact has an invalid storage manifest.",
-    });
-  }
-  const response = await client(config).send(
-    new GetObjectCommand({ Bucket: config.bucket, Key: args.objectKey }),
-  );
-  if (!response.Body) {
-    throw new ConvexError({
-      code: "ARTIFACT_UNAVAILABLE",
-      message: "This project artifact could not be read.",
-    });
-  }
-  if (response.ContentLength !== args.storedBytes) {
-    throw new ConvexError({
-      code: "ARTIFACT_SIZE_MISMATCH",
-      message: "This project artifact does not match its stored manifest.",
-    });
-  }
-  const compressed = await response.Body.transformToByteArray();
-  if (compressed.byteLength !== args.storedBytes) {
-    throw new ConvexError({
-      code: "ARTIFACT_SIZE_MISMATCH",
-      message: "This project artifact does not match its stored manifest.",
-    });
-  }
-  let uncompressed: Buffer;
-  try {
-    uncompressed = await gunzipAsync(Buffer.from(compressed));
-  } catch {
-    throw new ConvexError({
-      code: "ARTIFACT_ENCODING_INVALID",
-      message: "This project artifact could not be decoded.",
-    });
-  }
-  if (
-    uncompressed.byteLength !== args.uncompressedBytes ||
-    digest(uncompressed, "hex") !== args.sha256
-  ) {
-    throw new ConvexError({
-      code: "ARTIFACT_CHECKSUM_MISMATCH",
-      message: "This project artifact does not match its recorded checksum.",
-    });
-  }
-  return uncompressed.toString("utf8");
-}
-
-/** Read only a captured private PNG whose bytes match its immutable manifest. */
-export async function readStoredFigmaPreview(args: {
-  objectKey: string;
-  storageRegion: string;
-  storageBucket: string;
-  byteCount: number;
-  sha256: string;
-}) {
-  const config = configuration();
-  if (args.storageRegion !== config.region || args.storageBucket !== config.bucket)
-    throw new Error("Figma preview belongs to another artifact store.");
-  if (!Number.isSafeInteger(args.byteCount) || args.byteCount < 8 ||
-      args.byteCount > maximumFigmaPreviewBytes || !/^[a-f0-9]{64}$/u.test(args.sha256))
-    throw new Error("Invalid Figma preview manifest.");
-  const response = await client(config).send(
-    new GetObjectCommand({ Bucket: config.bucket, Key: args.objectKey }),
-    { abortSignal: AbortSignal.timeout(20_000) },
-  );
-  if (!response.Body || response.ContentLength !== args.byteCount)
-    throw new Error("Figma preview does not match its manifest size.");
-  const bytes = await response.Body.transformToByteArray();
-  if (bytes.byteLength !== args.byteCount || digest(bytes, "hex") !== args.sha256 ||
-      Buffer.from(bytes.subarray(0, 8)).toString("hex") !== "89504e470d0a1a0a")
-    throw new Error("Figma preview does not match its captured PNG checksum.");
-  return Buffer.from(bytes).toString("base64");
 }

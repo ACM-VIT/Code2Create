@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 220">
+  <defs>
+    <mask id="cutout"><rect width="220" height="220" fill="white"/><circle cx="110" cy="110" r="22" fill="black"/></mask>
+  </defs>
+  <g fill="#d37fa2" mask="url(#cutout)">
+    <ellipse cx="110" cy="55" rx="39" ry="57"/>
+    <ellipse cx="162" cy="91" rx="39" ry="57" transform="rotate(72 162 91)"/>
+    <ellipse cx="142" cy="153" rx="39" ry="57" transform="rotate(144 142 153)"/>
+    <ellipse cx="78" cy="153" rx="39" ry="57" transform="rotate(216 78 153)"/>
+    <ellipse cx="58" cy="91" rx="39" ry="57" transform="rotate(288 58 91)"/>
+  </g>
+</svg>

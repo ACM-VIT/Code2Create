@@ -40,14 +40,10 @@ const operationDescriptors = [
 type EditorPolicy = Omit<
   Policy,
   | "maxActiveGitHubRepositoriesPerTeam"
-  | "maxActiveFigmaFilesPerTeam"
   | "githubFreezeAt"
-  | "figmaFreezeAt"
 > & {
   maxActiveGitHubRepositoriesPerTeam: string;
-  maxActiveFigmaFilesPerTeam: string;
   githubFreezeAt: string;
-  figmaFreezeAt: string;
 };
 
 export function IntegrationPolicyConfiguration({ tabs }: { tabs: ConfigurationTabsVisibility }) {
@@ -162,17 +158,12 @@ export function IntegrationPolicyConfiguration({ tabs }: { tabs: ConfigurationTa
         <div>
           <dt>Per team</dt>
           <dd>
-            {published.maxActiveGitHubRepositoriesPerTeam} GitHub ·{" "}
-            {published.maxActiveFigmaFilesPerTeam} Figma
+            {published.maxActiveGitHubRepositoriesPerTeam} GitHub repositories
           </dd>
         </div>
         <div>
           <dt>GitHub changes</dt>
           <dd>{freezeLabel(published.githubFreezeAt, configuration.timezone)}</dd>
-        </div>
-        <div>
-          <dt>Figma changes</dt>
-          <dd>{freezeLabel(published.figmaFreezeAt, configuration.timezone)}</dd>
         </div>
       </dl>
 
@@ -273,7 +264,7 @@ export function IntegrationPolicyConfiguration({ tabs }: { tabs: ConfigurationTa
       {!operationPending && configuration.canDraft ? (
         <ConfigurationEditorDisclosure
           defaultOpen={Boolean(configuration.draftPolicy)}
-          description="GitHub repositories, Figma files, per-team limits, and freeze times."
+          description="GitHub repository limits, required topic and freeze time. Figma uses a shared file link."
           title={
             configuration.draftPolicy
               ? "Continue code-and-design draft"
@@ -340,35 +331,7 @@ export function IntegrationPolicyConfiguration({ tabs }: { tabs: ConfigurationTa
                 </div>
               </PolicySection>
 
-              <PolicySection
-                title="Figma"
-                description="Leave a freeze empty to let teams keep changing things. From the chosen minute, further changes are rejected."
-              >
-                <div className="intake-policy-grid">
-                  <label className="field">
-                    <span>Active files per team</span>
-                    <input
-                      required
-                      type="number"
-                      min="1"
-                      max="10"
-                      step="1"
-                      value={policy.maxActiveFigmaFilesPerTeam}
-                      onChange={(event) =>
-                        updatePolicy("maxActiveFigmaFilesPerTeam", event.currentTarget.value)
-                      }
-                    />
-                  </label>
-                  <label className="field">
-                    <span>Figma freeze · {configuration.timezone}</span>
-                    <input
-                      type="datetime-local"
-                      value={policy.figmaFreezeAt}
-                      onChange={(event) => updatePolicy("figmaFreezeAt", event.currentTarget.value)}
-                    />
-                  </label>
-                </div>
-              </PolicySection>
+
             </fieldset>
 
             <section className="configuration-save">
@@ -435,11 +398,8 @@ function toEditorPolicy(policy: Policy, timezone: string): EditorPolicy {
     policyVersion: policy.policyVersion,
     requiredGitHubTopic: policy.requiredGitHubTopic,
     maxActiveGitHubRepositoriesPerTeam: String(policy.maxActiveGitHubRepositoriesPerTeam),
-    maxActiveFigmaFilesPerTeam: String(policy.maxActiveFigmaFilesPerTeam),
     githubFreezeAt:
       policy.githubFreezeAt === undefined ? "" : timestampInput(policy.githubFreezeAt, timezone),
-    figmaFreezeAt:
-      policy.figmaFreezeAt === undefined ? "" : timestampInput(policy.figmaFreezeAt, timezone),
   };
 }
 
@@ -451,15 +411,8 @@ function fromEditorPolicy(policy: EditorPolicy, timezone: string): Policy {
       policy.maxActiveGitHubRepositoriesPerTeam,
       "Active GitHub repositories per team",
     ),
-    maxActiveFigmaFilesPerTeam: wholeNumber(
-      policy.maxActiveFigmaFilesPerTeam,
-      "Active Figma files per team",
-    ),
     ...(policy.githubFreezeAt
       ? { githubFreezeAt: zonedTimestamp(policy.githubFreezeAt, timezone, "GitHub freeze time") }
-      : {}),
-    ...(policy.figmaFreezeAt
-      ? { figmaFreezeAt: zonedTimestamp(policy.figmaFreezeAt, timezone, "Figma freeze time") }
       : {}),
   };
 }

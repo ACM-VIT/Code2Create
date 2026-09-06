@@ -1,3 +1,4 @@
+import { isRoundReviewer } from "./lib/reviewRoster";
 import { currentShiftReminder } from "./lib/reviewShiftReminders";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
@@ -51,13 +52,24 @@ export const claim = internalMutation({
           )) ||
       !round ||
       !["published", "open"].includes(round.status) ||
-      round.endsAt <= now
+      round.endsAt <= now ||
+      !(await isRoundReviewer(ctx, round._id, confirmation.personId))
     ) {
       await ctx.db.patch(notification._id, {
         state: "cancelled",
         updatedAt: now,
       });
       return null;
+    }
+    let expiresAt = notification.shiftStartsAt ?? round.endsAt;
+    if (notification.purpose === "availability") {
+      const request = await ctx.db.query("reviewConfirmationRequests")
+        .withIndex("by_roundId", q => q.eq("roundId", round._id)).unique();
+      if (!request || request.state !== "open" || now < request.opensAt || now >= request.closesAt) {
+        await ctx.db.patch(notification._id, { state: "cancelled", updatedAt: now });
+        return null;
+      }
+      expiresAt = request.closesAt;
     }
     if (notification.purpose === "shift_reminder") {
       const current = notification.shiftStartsAt === undefined ? null :
@@ -128,7 +140,7 @@ export const claim = internalMutation({
       });
       return null;
     }
-    const claimExpiresAt = Math.min(now + 30_000, round.endsAt);
+    const claimExpiresAt = Math.min(now + 30_000, expiresAt);
     await ctx.db.patch(notification._id, {
       state: "sending",
       attemptId: args.attemptId,
@@ -149,7 +161,7 @@ export const claim = internalMutation({
       token: device.pushToken,
       provider: device.pushProvider,
       environment: device.pushEnvironment,
-      expiresAt: notification.shiftStartsAt ?? round.endsAt,
+      expiresAt,
       roundName: round.name,
       roundId: round._id,
       purpose: notification.purpose,

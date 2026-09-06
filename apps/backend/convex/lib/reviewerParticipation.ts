@@ -8,6 +8,7 @@ export async function reviewerHasOverlappingPanel(
   eventId: Id<"events">,
   personId: Id<"people">,
   window: Pick<Doc<"reviewRounds">, "startsAt" | "endsAt">,
+  transferringFrom?: Id<"reviewPanels">,
 ) {
   const memberships = await ctx.db
     .query("reviewPanelMembers")
@@ -18,6 +19,7 @@ export async function reviewerHasOverlappingPanel(
   if (memberships.length > maximumReviewRoundsPerEvent)
     throw new Error("A reviewer exceeds the event panel membership limit.");
   for (const membership of memberships) {
+    if (membership.panelId === transferringFrom) continue;
     const round = await ctx.db.get(membership.roundId);
     if (!round || round.eventId !== eventId)
       throw new Error("Reviewer panel membership has an invalid round.");

@@ -3,7 +3,6 @@ import { useConvexAuth, useQuery } from "convex/react";
 import { createContext, useContext, useState, type ReactNode } from "react";
 
 import { PagerAlert } from "@/components/PagerAlert";
-import { VenueNotificationRouting } from "@/components/VenueNotificationRouting";
 import {
   PrimaryAction,
   ReviewerBooting,
@@ -34,7 +33,9 @@ type ReviewerSession = {
 const SessionContext = createContext<ReviewerSession | null>(null);
 export function useReviewerSession() {
   const session = useContext(SessionContext);
-  if (!session) throw new Error("useReviewerSession used outside the reviewer session provider.",
+  if (!session)
+    throw new Error(
+      "useReviewerSession used outside the reviewer session provider.",
     );
   return session;
 }
@@ -47,7 +48,8 @@ export function ReviewerSessionProvider({
   runtime: ReviewerRuntime;
 }) {
   const eventSlug = runtime.configuration.eventSlug;
-  const { data: session, isPending: sessionPending } = runtime.authClient.useSession();
+  const { data: session, isPending: sessionPending } =
+    runtime.authClient.useSession();
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
   const publicState = useQuery(api.system.getPublicShellState, { eventSlug });
   const access = useQuery(
@@ -64,7 +66,8 @@ export function ReviewerSessionProvider({
     session?.user.id ?? null,
   );
 
-  if (sessionPending || authLoading || publicState === undefined) return <ReviewerBooting />;
+  if (sessionPending || authLoading || publicState === undefined)
+    return <ReviewerBooting />;
   if (isAuthenticated && access === undefined) return <ReviewerBooting />;
 
   if (!session?.session || !isAuthenticated) {
@@ -80,7 +83,8 @@ export function ReviewerSessionProvider({
           setAuthError("Google sign-in could not be completed. Try again.");
         }
       } catch (caught) {
-        setAuthError(describeError(caught, "Google sign-in could not be completed."),
+        setAuthError(
+          describeError(caught, "Google sign-in could not be completed."),
         );
       } finally {
         setAuthBusy(false);
@@ -129,7 +133,11 @@ export function ReviewerSessionProvider({
 
   if (surfaces.length === 0) {
     return (
-      <ReviewerGate error={null} title="Nothing assigned yet" who={session.user.email}>
+      <ReviewerGate
+        error={null}
+        title="Nothing assigned yet"
+        who={session.user.email}
+      >
         <PrimaryAction label="Sign out" onPress={signOut} secondary />
       </ReviewerGate>
     );
@@ -152,9 +160,9 @@ export function ReviewerSessionProvider({
       }}
     >
       {children}
-      {access.reviews ? <VenueNotificationRouting /> : null}
       {reviewerDuty.page ? (
         <PagerAlert
+          key={reviewerDuty.page.id}
           eventSlug={eventSlug}
           installationId={reviewerDuty.installationId}
           page={reviewerDuty.page}

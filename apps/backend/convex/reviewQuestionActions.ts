@@ -14,11 +14,6 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { internalAction, type ActionCtx } from "./_generated/server";
 import {
-  readStoredArtifactText,
-  readStoredFigmaPreview,
-} from "./lib/artifactStorage";
-import {
-  figmaQuestionNodes,
   excludedSourceReason,
   reviewSourceText,
   reviewSourceBatches,
@@ -42,16 +37,9 @@ import { operationFingerprint } from "./lib/operations";
 type SourceContext = NonNullable<
   FunctionReturnType<typeof internal.reviewQuestions.sourceContext>
 >;
-const manifestSchema = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("github"),
-    entries: z.array(repositoryInventoryEntry),
-  }),
-  z.object({
-    kind: z.literal("figma"),
-    sources: z.array(reviewQuestionRequestSchema.shape.sources.element),
-  }),
-]);
+const manifestSchema = z
+  .object({ entries: z.array(repositoryInventoryEntry) })
+  .strict();
 export const prepare = internalAction({
   args: { jobId: v.id("reviewQuestionSets") },
   returns: v.null(),
@@ -89,10 +77,6 @@ export const prepare = internalAction({
             sourceId: r.id,
             kind: "github" as const,
           })),
-          ...context.figma.map((f) => ({
-            sourceId: f.id,
-            kind: "figma" as const,
-          })),
         ],
       });
     } catch {
@@ -124,8 +108,7 @@ export const collect = internalAction({
       const repository = context.github.find(
         (r) => r.id === collection.sourceId,
       );
-      const figma = context.figma.find((f) => f.id === collection.sourceId);
-      const source = repository ?? figma;
+      const source = repository;
       if (!source) throw new Error("Source missing from the fixed checkpoint.");
       let pending: ReviewQuestionSource[] = [];
       let ordinal = 0;
@@ -160,7 +143,7 @@ export const collect = internalAction({
           if (source.text.length >= collection.batchCharacters) await flush();
         }
       };
-      if ((repository && !repository.access) || (figma && !figma.artifact)) {
+      if (!source.access) {
         if (collection.offset > 0)
           throw new Error("Content access ended during collection.");
         await append([
@@ -191,48 +174,7 @@ export const collect = internalAction({
         if (!blob) throw new Error("Private inventory unavailable.");
         manifest = manifestSchema.parse(JSON.parse(await blob.text()));
       } else {
-        if (repository?.access)
-          manifest = {
-            kind: "github",
-            entries: await repositoryInventory(repository.access),
-          };
-        else if (figma?.artifact)
-          manifest = {
-            kind: "figma",
-            sources: [
-              ...figmaQuestionNodes(
-                await readStoredArtifactText(figma.artifact),
-                {
-                  id: figma.id,
-                  kind: "figma",
-                  title: figma.title,
-                  url: figma.url,
-                },
-              ),
-              ...figma.previews.map(
-                (preview): ReviewQuestionSource => ({
-                  id: `${figma.id}:render:${preview.factId}`,
-                  kind: "figma",
-                  title: reviewSourceText(
-                    `${figma.title} · captured screen ${preview.nodeName}`,
-                  ).slice(0, 500),
-                  url: `${figma.url}${figma.url.includes("?") ? "&" : "?"}node-id=${encodeURIComponent(preview.nodeId)}`,
-                  text: reviewSourceText(
-                    JSON.stringify({
-                      nodeId: preview.nodeId,
-                      nodeName: preview.nodeName,
-                      capturedSha256: preview.sha256,
-                      scope:
-                        "Inspect the attached captured PNG. Static visual evidence only; no runtime or interaction verification.",
-                    }),
-                  ),
-                  image: { factId: preview.factId, sha256: preview.sha256 },
-                  coverage: "captured",
-                }),
-              ),
-            ],
-          };
-        else throw new Error("No readable source.");
+        manifest = { entries: await repositoryInventory(source.access) };
         const manifestId = await ctx.storage.store(
           new Blob([JSON.stringify(manifest)], { type: "application/json" }),
         );
@@ -260,79 +202,62 @@ export const collect = internalAction({
             coverage: "captured",
           },
         ]);
-      let nextOffset: number;
-      let done: boolean;
-      if (manifest.kind === "github") {
-        if (!repository?.access) throw new Error("Repository access ended.");
-        const access = repository.access;
-        const github = await repositoryOctokit(
-          access.installationId,
-          access.repositoryId,
-        );
-        const entries = manifest.entries.slice(
-          collection.offset,
-          collection.offset + 12,
-        );
-        for (const entry of entries) {
-          const id = `${repository.id}:file:${operationFingerprint([entry.path]).slice(0, 32)}`;
-          const path = [access.rootPath, entry.path].filter(Boolean).join("/");
-          const url = `https://github.com/${encodeURIComponent(access.owner)}/${encodeURIComponent(access.name)}/blob/${access.headSha}/${path.split("/").map(encodeURIComponent).join("/")}`;
-          const base = {
-            id,
-            kind: "github" as const,
-            title: `${repository.title} · ${entry.path}`.slice(0, 500),
-            url,
-          };
-          const reason =
-            excludedSourceReason(entry.path) ??
-            (entry.type === "commit"
-              ? "submodule; connect this repository separately to inspect its contents"
-              : entry.mode === "120000"
-                ? "symbolic link; not followed"
-                : null);
-          if (reason) {
-            excluded++;
-            await append([
-              {
-                ...base,
-                text: `Inventory entry: ${entry.path}. Excluded: ${reason}.`,
-                coverage: "unavailable",
-              },
-            ]);
-            continue;
-          }
-          const text = await repositoryBlob(access, entry, github);
-          if (text === null) {
-            excluded++;
-            await append([
-              {
-                ...base,
-                text: `Inventory entry: ${entry.path}. Binary or non-UTF-8 file; contents were not inspected.`,
-                coverage: "unavailable",
-              },
-            ]);
-            continue;
-          }
-          captured++;
+      const access = source.access;
+      const github = await repositoryOctokit(
+        access.installationId,
+        access.repositoryId,
+      );
+      const entries = manifest.entries.slice(
+        collection.offset,
+        collection.offset + 12,
+      );
+      for (const entry of entries) {
+        const id = `${source.id}:file:${operationFingerprint([entry.path]).slice(0, 32)}`;
+        const path = [access.rootPath, entry.path].filter(Boolean).join("/");
+        const url = `https://github.com/${encodeURIComponent(access.owner)}/${encodeURIComponent(access.name)}/blob/${access.headSha}/${path.split("/").map(encodeURIComponent).join("/")}`;
+        const base = {
+          id,
+          kind: "github" as const,
+          title: `${source.title} · ${entry.path}`.slice(0, 500),
+          url,
+        };
+        const reason =
+          excludedSourceReason(entry.path) ??
+          (entry.type === "commit"
+            ? "submodule; connect this repository separately to inspect its contents"
+            : entry.mode === "120000"
+              ? "symbolic link; not followed"
+              : null);
+        if (reason) {
+          excluded++;
           await append([
-            { ...base, text: reviewSourceText(text), coverage: "captured" },
+            {
+              ...base,
+              text: `Inventory entry: ${entry.path}. Excluded: ${reason}.`,
+              coverage: "unavailable",
+            },
           ]);
+          continue;
         }
-        nextOffset = collection.offset + entries.length;
-        done = nextOffset >= manifest.entries.length;
-      } else {
-        const nodes = manifest.sources
-          .slice(collection.offset, collection.offset + 80)
-          .map(({ url, image, ...node }) => ({
-            ...node,
-            ...(url ? { url } : {}),
-            ...(image ? { image } : {}),
-          }));
-        captured = nodes.length;
-        await append(nodes);
-        nextOffset = collection.offset + nodes.length;
-        done = nextOffset >= manifest.sources.length;
+        const text = await repositoryBlob(access, entry, github);
+        if (text === null) {
+          excluded++;
+          await append([
+            {
+              ...base,
+              text: `Inventory entry: ${entry.path}. Binary or non-UTF-8 file; contents were not inspected.`,
+              coverage: "unavailable",
+            },
+          ]);
+          continue;
+        }
+        captured++;
+        await append([
+          { ...base, text: reviewSourceText(text), coverage: "captured" },
+        ]);
       }
+      const nextOffset = collection.offset + entries.length;
+      const done = nextOffset >= manifest.entries.length;
       await flush();
       await ctx.runMutation(internal.reviewQuestionParts.collected, {
         ...args,
@@ -374,7 +299,6 @@ function requestBody(
   stage: ReviewQuestionRequest["stage"],
   sources: ReviewQuestionSource[],
   references: ReviewQuestionRequest["references"],
-  images: ReviewQuestionRequest["images"] = [],
 ) {
   const body: Omit<ReviewQuestionRequest, "payloadChecksum"> = {
     protocolVersion: reviewQuestionProtocolVersion,
@@ -387,7 +311,6 @@ function requestBody(
     criteria: context.criteria,
     sources,
     references,
-    images,
   };
   return reviewQuestionRequestSchema.parse({
     ...body,
@@ -408,34 +331,12 @@ export const analyse = internalAction({
       attempt: state.job.attempt,
     });
     if (!context) return null;
-    const images: ReviewQuestionRequest["images"] = [];
-    for (const source of state.part.sources) {
-      if (!source.image) continue;
-      if (state.part.level !== 0 || source.kind !== "figma")
-        throw new Error(
-          "Images are only allowed in captured Figma inspection batches.",
-        );
-      const preview = context.figma
-        .flatMap((file) => file.previews)
-        .find(
-          (candidate) =>
-            candidate.factId === source.image?.factId &&
-            candidate.sha256 === source.image.sha256,
-        );
-      if (!preview) throw new Error("Captured Figma image access ended.");
-      images.push({
-        sourceId: source.id,
-        sha256: preview.sha256,
-        data: await readStoredFigmaPreview(preview),
-      });
-    }
     const body = requestBody(
       context,
       { jobId: state.job._id, attempt: state.job.attempt, ...args },
       state.part.level === 0 ? "inspect" : "reduce",
       state.part.sources,
       state.part.references,
-      images,
     );
     if (
       await ctx.runMutation(internal.reviewQuestionParts.saveRequest, {

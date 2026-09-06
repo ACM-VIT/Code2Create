@@ -395,7 +395,7 @@ describe("participant onboarding lifecycle", () => {
       }),
     ).resolves.toBeNull();
     await expect(
-      participant.query(api.figmaIntegrations.current, {
+      participant.query(api.figmaLinks.current, {
         eventSlug: fixture.eventSlug,
       }),
     ).resolves.toBeNull();

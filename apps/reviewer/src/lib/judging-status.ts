@@ -57,7 +57,10 @@ export function helpStatus(
     active: true,
     headline: {
       value: count,
-      unit: summary.openCount === 1 && !summary.countIsLowerBound ? "case open" : "cases open",
+      unit:
+        summary.openCount === 1 && !summary.countIsLowerBound
+          ? "case open"
+          : "cases open",
     },
   };
 }
@@ -73,11 +76,21 @@ export function judgingStatus(
   if (pageActive) return { status: "Needed at a table", active: true };
   if (duty === undefined) return { status: "—", active: false };
   if (!duty.deviceRegistered) return { status: "Set up phone", active: false };
-  if (!duty.panelAssigned) return { status: "No panel yet", active: false };
-  if (duty.clockInStatus === "clocked_out") return { status: "Clocked out", active: false };
-  if (duty.clockInStatus === "no_show") return { status: "Off panel", active: false };
-  if (duty.clockInStatus !== "present") return { status: "Not clocked in", active: false };
-  if (!duty.review) return { status: "Waiting", active: false };
+  if (!duty.review) {
+    if (!duty.assignment) return { status: "No review duty", active: false };
+    if (duty.clockInStatus === "clocked_out")
+      return { status: "Clocked out", active: false };
+    if (duty.clockInStatus === "no_show")
+      return { status: "Off duty", active: false };
+    if (duty.clockInStatus === "temporarily_unavailable")
+      return { status: "On break", active: false };
+    if (duty.clockInStatus !== "present")
+      return { status: "Not clocked in", active: false };
+    return {
+      status: duty.assignment === "reserve" ? "On call" : "Waiting",
+      active: false,
+    };
+  }
   if (!duty.review.reviewerPresenceConfirmed) {
     return { status: "Scan to start", active: true };
   }

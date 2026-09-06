@@ -64,7 +64,6 @@ describe("reviewer outbound-call consent", () => {
         productDomains: [],
         languages: ["english"],
         criterionKeys: [],
-        trainingStatus: "pending",
         status: "active",
         version: 1,
         createdAt: now,

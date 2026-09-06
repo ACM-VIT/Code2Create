@@ -22,6 +22,7 @@ import {
 } from "../components/portal/PortalField";
 import { GpuSky } from "../components/portal/GpuSky";
 import { Flower } from "../components/portal/FlowerAvatar";
+import { games as gameCatalogue } from "../games/catalog";
 import { PortalScene } from "../components/portal/PortalScene";
 import { StackedSheet } from "../components/portal/StackedSheet";
 import { TreeLoader } from "../components/portal/TreeLoader";
@@ -30,11 +31,34 @@ import type { BenefitsTileModel } from "../components/dashboard/BenefitsTile";
 import type { EventTileModel } from "../components/dashboard/EventTile";
 import type { HelpTileModel } from "../components/dashboard/HelpTile";
 import type { IntegrationsTileModel } from "../components/dashboard/IntegrationsTile";
-import type { MusicTileModel } from "../components/dashboard/MusicTile";
+import type { MusicRequestView, MusicTileModel } from "../components/dashboard/MusicTile";
 import type { ReviewTileModel } from "../components/dashboard/ReviewTile";
 import type { ServiceQueuesTileModel } from "../components/dashboard/ServiceQueuesTile";
 import type { UpdatesTileModel } from "../components/dashboard/UpdatesTile";
 import { DashboardScreen } from "../screens/DashboardScreen";
+import { MusicRoom } from "../screens/SynesthesiaScreen";
+import { ShowcaseScreen } from "../screens/ShowcaseScreen";
+import { showcaseSamples } from "../lib/showcaseSamples";
+import { ChillMode } from "../components/chill/ChillMode";
+import { IntegrationsScene } from "../screens/IntegrationsScreen";
+import { FigmaMark, GitHubMark } from "../components/dashboard/IntegrationsTile";
+import {
+  ItemList,
+  ItemRow,
+  RowAction,
+  RowNote,
+  SectionLabel,
+  ToolNotice,
+  ToolSheet,
+} from "../components/integrations/ToolKit";
+import {
+  ArcadeView,
+  boardsOf,
+  GameTile,
+  StandingsColumn,
+  standingOf,
+  type BoardView,
+} from "../screens/GamesScreen";
 import { SglangInterlude } from "../screens/SglangInterlude";
 import { ConfirmCard, RenameTeamCard } from "../screens/TeamLobbyScreen";
 import { NoveltyPill, NoveltyReviewRow, ReviewEditRow } from "../components/ProposalReview";
@@ -72,6 +96,9 @@ import {
 } from "../components/portal/TeamCluster";
 import { SubmitCelebration } from "../components/portal/SubmitCelebration";
 import { ImportedTeamChoiceView } from "../components/portal/ImportedTeamChoiceView";
+import PacmanBoard from "../games/pacman/Map.tsx";
+import MemoryBoard from "../games/memory/Board.tsx";
+import StackBoard from "../games/stack/Board.tsx";
 
 const team: ClusterTeam = {
   name: "Paper Cranes",
@@ -830,6 +857,103 @@ const reviewVariants = {
   scoring: { ...dashboardReview, state: "in_review", session: { status: "scoring", present: 5, total: 5 }, showCode: null },
 } satisfies Record<string, ReviewTileModel>;
 
+function IntegrationsFixture({ connected }: { connected: boolean }) {
+  return (
+    <IntegrationsScene team={team} members={members} onSignOut={noop}>
+      <div className="grid gap-5 lg:grid-cols-2 lg:items-start">
+        <ToolSheet
+          mark={<GitHubMark className="size-7" />}
+          name="GitHub"
+          meta={connected ? "2 repositories · 128 commits · 41 pushes · +2,340 −812" : "the code your team is shipping"}
+          action={<PortalButton size="xs">Connect GitHub</PortalButton>}
+        >
+          {connected ? (
+            <ul className="m-0 flex list-none flex-col divide-y divide-petal-line p-0">
+              <li className="flex items-center justify-between gap-4 py-2.5">
+                <span className="min-w-0 truncate text-[12.5px] text-fg/70">ACM-VIT · organization · all repositories</span>
+                <RowAction className="text-rose-light!">Choose repositories</RowAction>
+              </li>
+            </ul>
+          ) : null}
+          <div className="flex flex-col gap-1">
+            <SectionLabel aside={<>{connected ? 2 : 0} / 10</>}>team repositories</SectionLabel>
+            {connected ? (
+              <ItemList>
+                <ItemRow
+                  title="ACM-VIT/Code2Create"
+                  href="https://github.com/ACM-VIT/Code2Create"
+                  meta="main · 96 commits · topic set"
+                  status="up to date"
+                  actions={<><RowAction disabled>Up</RowAction><RowAction>Down</RowAction><RowAction>Refresh</RowAction><RowAction tone="danger">Archive</RowAction></>}
+                />
+                <ItemRow
+                  title="ACM-VIT/landing-page"
+                  href="https://github.com/ACM-VIT/landing-page"
+                  meta="main / apps/landing · 32 commits · topic missing"
+                  status="waiting to read"
+                  notes={<RowNote>Add <code className="text-fg/75">code2create-7</code> in GitHub, then refresh here.</RowNote>}
+                  actions={<><RowAction>Up</RowAction><RowAction disabled>Down</RowAction><RowAction>Refresh</RowAction><RowAction tone="danger">Archive</RowAction></>}
+                />
+              </ItemList>
+            ) : (
+              <p className="m-0 mt-2 text-[12.5px] text-fg/55">No repositories have been added.</p>
+            )}
+          </div>
+        </ToolSheet>
+        <ToolSheet mark={connected ? <a href="https://www.figma.com/design/Example/Project" aria-label="View Figma design" target="_blank" rel="noopener noreferrer"><FigmaMark className="size-6" /></a> : <FigmaMark className="size-6" />} name="Figma" meta="your team's design file">
+          <PortalField label="Figma file link">
+            {id => <PortalInput id={id} type="url" placeholder="https://www.figma.com/design/…" defaultValue={connected ? "https://www.figma.com/design/Example/Project" : ""} />}
+          </PortalField>
+          <ToolNotice>Give reviewers access to view the file.</ToolNotice>
+          <PortalButton size="xs" className="self-start">Save link</PortalButton>
+        </ToolSheet>
+      </div>
+    </IntegrationsScene>
+  );
+}
+
+function MusicRoomFixture({ quiet = false }: { quiet?: boolean }) {
+  const [model, setModel] = useState(() => (quiet ? quietMusic : dashboardMusic));
+  const room = {
+    ...model,
+    loaded: true,
+    queue: model.queue.map((request, index) => ({
+      ...request,
+      canReport: !request.isMine,
+      hasReported: index === 2,
+    })),
+    search: async (query: string) => {
+      await wait(400);
+      return dashboardMusic.search(query);
+    },
+    request: async (video: string) => {
+      await wait(500);
+      const created = !model.queue.some((request) => request.videoId === video);
+      return { created };
+    },
+    toggleVote: async (request: MusicRequestView) => {
+      await wait(250);
+      setModel((current) => ({
+        ...current,
+        queue: current.queue.map((candidate) =>
+          candidate.id === request.id
+            ? {
+                ...candidate,
+                hasVoted: !candidate.hasVoted,
+                voteCount: candidate.voteCount + (candidate.hasVoted ? -1 : 1),
+              }
+            : candidate,
+        ),
+      }));
+    },
+    report: async () => {
+      await wait(400);
+    },
+    confirmPendingRequest: null,
+  };
+  return <MusicRoom team={team} members={members} teamEditable onSignOut={noop} model={room} />;
+}
+
 type DashboardVariant = "build" | "quiet" | keyof typeof reviewVariants;
 
 function DashboardFixture({ variant = "build" }: { variant?: DashboardVariant }) {
@@ -838,7 +962,7 @@ function DashboardFixture({ variant = "build" }: { variant?: DashboardVariant })
   const review = variant === "build" || variant === "quiet" ? null : reviewVariants[variant];
   const now = review?.now ?? eventClock(10, 2);
   const [services, setServices] = useState<ServiceQueuesTileModel["services"]>([
-    { kind: "outing_permission", joined: false, position: null, waitingCount: 2 },
+    { kind: "outing_permission", joined: false, position: null, waitingCount: variant === "quiet" ? 0 : 7 },
   ]);
   const queues: ServiceQueuesTileModel = {
     available: true,
@@ -1091,6 +1215,13 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries([
   ["dashboardPaused", () => <DashboardFixture variant="paused" />],
   ["dashboardScoring", () => <DashboardFixture variant="scoring" />],
   ["dashboardQuiet", () => <DashboardFixture variant="quiet" />],
+  ["music", () => <MusicRoomFixture key="playing" />],
+  ["musicQuiet", () => <MusicRoomFixture key="quiet" quiet />],
+  ["showcase", () => <ShowcaseScreen team={team} members={members} teamEditable onSignOut={noop} projects={showcaseSamples} />],
+  ["showcaseEmpty", () => <ShowcaseScreen team={team} members={members} teamEditable onSignOut={noop} projects={[]} />],
+  ["integrations", () => <IntegrationsFixture key="linked" connected />],
+  ["integrationsEmpty", () => <IntegrationsFixture key="empty" connected={false} />],
+  ["chill", () => <><DashboardFixture variant="build" /><ChillMode active /></>],
   [
     "f2",
     () => (
@@ -1860,7 +1991,123 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries([
   ],
   ["f13", () => <HelpThreadFixture />],
   ["f13b", () => <HelpEmptyFixture />],
+  // The board on its own, with no round recorded: the arcade screen around it
+  // needs the leaderboard query, and the gallery is meant to run offline.
+  [
+    "arcade",
+    () => (
+      <div className="flex min-h-dvh flex-1 bg-black p-4"><div className="m-auto flex w-full justify-center">
+        <PacmanBoard onRoundEnd={noop} />
+      </div></div>
+    ),
+  ],
+  [
+    "arcade-stack",
+    () => (
+      <div className="flex min-h-dvh flex-1 bg-black p-4"><div className="m-auto flex w-full justify-center">
+        <StackBoard onRoundStart={noop} onRoundEnd={noop} />
+      </div></div>
+    ),
+  ],
+  // The arcade, full of standings. The live screen reads these from the backend;
+  // the names here are invented and reach nothing.
+  ["arcade-screen", () => <ArcadeFixture />],
+  // One screen with the mode switch on it, the way the arcade shows it.
+  ["arcade-memory", () => <MemoryFixture />],
 ] as const);
+
+/** The memory board with its own mode switch, as the arcade wires it. */
+function MemoryFixture() {
+  // The modes come from the catalogue, so the fixture opens on whichever one the
+  // arcade opens on rather than a copy that can drift from it.
+  const memory = gameCatalogue.find((game) => game.key === "memory");
+  const modes = memory?.modes ?? [];
+  const [mode, setMode] = useState(modes[0]?.key ?? "memory");
+  return (
+    <div className="flex min-h-dvh flex-1 bg-black p-4"><div className="m-auto flex w-full justify-center">
+      <MemoryBoard
+        key={mode}
+        mode={mode}
+        modes={modes}
+        onModeChange={setMode}
+        onRoundStart={noop}
+        onRoundEnd={noop}
+      />
+    </div></div>
+  );
+}
+
+/**
+ * The arcade with standings behind it, so the screen can be read without a
+ * backend or a played round. The names are invented; nothing here reaches the
+ * database, and the live screen carries none of it.
+ */
+// oxlint-disable-next-line anti-slop/no-chained-type-assertions, typescript/no-unsafe-type-assertion -- Convex ids are branded strings minted by the database; the gallery has none, so its invented rows need one made up.
+const asPersonId = (value: string) => value as unknown as BoardView["entries"][number]["personId"];
+
+const sampleBoards: Record<string, BoardView> = {
+  pacman: {
+    entries: [
+      { personId: asPersonId("p1"), displayName: "Ananya Iyer", bestScore: 18_240, playedAt: 0, isYou: false },
+      { personId: asPersonId("p2"), displayName: "Rahul Menon", bestScore: 15_110, playedAt: 0, isYou: true },
+      { personId: asPersonId("p3"), displayName: "Sneha Kulkarni", bestScore: 12_980, playedAt: 0, isYou: false },
+      { personId: asPersonId("p4"), displayName: "Vikram Rao", bestScore: 9_450, playedAt: 0, isYou: false },
+      { personId: asPersonId("p5"), displayName: "Priya Nair", bestScore: 6_310, playedAt: 0, isYou: false },
+    ],
+    yourBestScore: 15_110,
+  },
+  stack: {
+    entries: [
+      { personId: asPersonId("p6"), displayName: "Kabir Shah", bestScore: 4_200, playedAt: 0, isYou: false },
+      { personId: asPersonId("p7"), displayName: "Meera Pillai", bestScore: 3_900, playedAt: 0, isYou: false },
+      { personId: asPersonId("p8"), displayName: "Arjun Deshpande", bestScore: 3_100, playedAt: 0, isYou: false },
+      { personId: asPersonId("p2"), displayName: "Rahul Menon", bestScore: 2_750, playedAt: 0, isYou: true },
+    ],
+    yourBestScore: 2_750,
+  },
+  memory: {
+    entries: [
+      { personId: asPersonId("p3"), displayName: "Sneha Kulkarni", bestScore: 4_615, playedAt: 0, isYou: false },
+      { personId: asPersonId("p8"), displayName: "Arjun Deshpande", bestScore: 3_940, playedAt: 0, isYou: false },
+      { personId: asPersonId("p1"), displayName: "Ananya Iyer", bestScore: 3_205, playedAt: 0, isYou: false },
+    ],
+    yourBestScore: 0,
+  },
+  "memory-grid": {
+    entries: [
+      { personId: asPersonId("p5"), displayName: "Priya Nair", bestScore: 17, playedAt: 0, isYou: false },
+      { personId: asPersonId("p8"), displayName: "Arjun Deshpande", bestScore: 14, playedAt: 0, isYou: false },
+      { personId: asPersonId("p2"), displayName: "Rahul Menon", bestScore: 11, playedAt: 0, isYou: true },
+    ],
+    yourBestScore: 11,
+  },
+};
+
+function ArcadeFixture() {
+  const boards = boardsOf(gameCatalogue);
+  const [active, setActive] = useState(boards[0]?.key ?? "pacman");
+  return (
+    <ArcadeView
+      header={account}
+      tiles={gameCatalogue.map((game) => (
+        <GameTile
+          key={game.key}
+          game={game}
+          standing={standingOf(sampleBoards[game.modes?.[0]?.key ?? game.key])}
+          onPlay={() => {}}
+        />
+      ))}
+      standings={
+        <StandingsColumn
+          boards={boards}
+          active={active}
+          onSelect={setActive}
+          board={sampleBoards[active]}
+        />
+      }
+    />
+  );
+}
 
 /** Renders one gallery screen's fixture content. */
 export function ScreenFixture({ id }: { id: string }) {
