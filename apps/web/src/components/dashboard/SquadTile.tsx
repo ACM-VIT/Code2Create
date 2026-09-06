@@ -34,7 +34,7 @@ export function SquadTile({ slot, team,
                 className="flex items-center gap-2.5 border-b border-rose/20 py-1.5 text-[12.5px] last:border-b-0"
               >
                 <span
-                  className={`flex size-6 flex-none items-center justify-center rounded-full ${member.role === "lead" ? "border border-ring-lead bg-avatar-lead" : "border border-rose/60 bg-avatar"}`}
+                  className={`relative flex size-6 flex-none items-center justify-center overflow-hidden rounded-full ${member.role === "lead" ? "border border-ring-lead bg-avatar-lead" : "border border-rose/60 bg-avatar"}`}
                 >
                   <MemberAvatarVisual
                     displayName={member.displayName}
@@ -50,13 +50,22 @@ export function SquadTile({ slot, team,
                 ) : null}
               </div>
             ))}
-            <Link
-              to="/team"
-              viewTransition
-              className="mt-2 self-start text-[12px] text-rose-light underline-offset-4 hover:underline"
-            >
-              view team
-            </Link>
+            <span className="mt-2 flex gap-4 self-start text-[12px]">
+              <Link
+                to="/team"
+                viewTransition
+                className="text-rose-light underline-offset-4 hover:underline"
+              >
+                view team
+              </Link>
+              <Link
+                to="/idea"
+                viewTransition
+                className="text-rose-light underline-offset-4 hover:underline"
+              >
+                your idea
+              </Link>
+            </span>
           </Reveal>
         ) : (
           <Reveal key="cluster" className="flex min-w-0 items-center gap-3">
@@ -65,7 +74,7 @@ export function SquadTile({ slot, team,
                 <span
                   key={member.teamMemberId}
                   title={member.displayName}
-                  className={`relative flex size-8 items-center justify-center rounded-full ${
+                  className={`relative flex size-8 items-center justify-center overflow-hidden rounded-full ${
                     member.role === "lead" ? "border-[1.5px] border-ring-lead bg-avatar-lead" : "border-[1.5px] border-rose/70 bg-avatar"
                   } ${index > 0 ? "-ml-2" : ""}`}
                   style={{ zIndex: 5 - index }}

@@ -427,6 +427,22 @@ export function ParticipantApp({
     );
   }
 
+  // ---- the team's idea, on its own route, before and during the event ------
+  if (intakeStatus.applicationState !== null && location.pathname === "/idea") {
+    return (
+      <Suspense fallback={<PortalLoading />}>
+        <SubmittedScreen
+          capabilities={access}
+          publicState={publicState}
+          team={team}
+          members={teamMembers.results}
+          onSignOut={signOut}
+          view="proposal"
+        />
+      </Suspense>
+    );
+  }
+
   const acceptedFeatures = acceptedPortal;
   const canOpenIntegrations = acceptedFeatures && canReadIntegrations;
 

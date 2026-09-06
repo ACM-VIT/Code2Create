@@ -132,12 +132,15 @@ export function SubmittedScreen({
   team,
   members,
   onSignOut,
+  view,
 }: {
   capabilities: ParticipantCapabilities;
   publicState: PublicState;
   team: CurrentTeam;
   members: CurrentTeamMember[];
   onSignOut: () => void;
+  /** Open straight on the proposal (the /idea route); "back" then returns home. */
+  view?: "proposal";
 }) {
   const intake = useQuery(api.intake.submitted, { eventSlug });
   if (intake === undefined) {
@@ -162,6 +165,7 @@ export function SubmittedScreen({
       team={team}
       members={members}
       onSignOut={onSignOut}
+      {...(view ? { view } : {})}
     />
   );
 }
@@ -173,6 +177,7 @@ function SubmittedWorkspace({
   team,
   members,
   onSignOut,
+  view,
 }: {
   capabilities: ParticipantCapabilities;
   publicState: PublicState;
@@ -180,6 +185,7 @@ function SubmittedWorkspace({
   team: CurrentTeam;
   members: CurrentTeamMember[];
   onSignOut: () => void;
+  view?: "proposal";
 }) {
   const navigate = useNavigate();
   const application = intake.application;
@@ -200,7 +206,7 @@ function SubmittedWorkspace({
   const responsePending = responseAttempt.hasPending("offer-response");
   const [busy, setBusy] = useState<"confirm" | "decline" | null>(null);
   const [confirmDecline, setConfirmDecline] = useState(false);
-  const [viewingProposal, setViewingProposal] = useState(false);
+  const [viewingProposal, setViewingProposal] = useState(view === "proposal");
   // Set by the submit button; consumed here so the bloom plays exactly once.
   const [celebrating, setCelebrating] = useState(consumeSubmissionCelebration);
   const [error, setError] = useState<string | null>(null);
@@ -329,7 +335,10 @@ function SubmittedWorkspace({
             {proposalEditStatus} ·{" "}
             <button
               type="button"
-              onClick={() => setViewingProposal(false)}
+              onClick={() => {
+                if (view === "proposal") void navigate("/", { viewTransition: true });
+                else setViewingProposal(false);
+              }}
               className="text-rose-light underline-offset-4 hover:underline"
             >
               back
