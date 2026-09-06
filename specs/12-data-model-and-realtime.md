@@ -1956,7 +1956,7 @@ Event, normalized provider and provider track ID, participant display metadata, 
 
 ### `synesthesiaWindows`
 
-Event, name/kind, start/end, `draft | published | closed` state, request/vote flags, playback-pause state/reason, licensed-source label, automatic-approval flag, per-person and total limits, duration/explicit/energy policy, version, actors, and publish/close evidence.
+Event, name/kind, start/end, `draft | published | closed` state, request/vote flags, playback-pause state/reason, licensed-source label, automatic-approval flag, per-person and total request limits, duration/explicit/energy policy, version, actors, and publish/close evidence. Voting has no per-person quota; each person can vote once per song.
 
 ### `songRequests`
 
@@ -2280,7 +2280,7 @@ The rehearsal result stores its source manifest/archive, exact staging target, o
 | `songRequests.by_window_requester_created`                                     | Enforce and display one participant's request limit                                                            |
 | `songRequests.by_event_created`                                                | Bound event-level support/history reads                                                                        |
 | `songVotes.by_request_member`                                                  | Enforce one vote row per participant/request                                                                   |
-| `songVotes.by_window_member_state`                                             | Enforce and display one participant's active vote limit                                                        |
+| `songVotes.by_window_member_state`                                             | Read one participant's active votes and display their vote count                                               |
 | `synesthesiaReports.by_request_reporter`                                       | Enforce one report per participant/request                                                                     |
 | `synesthesiaReports.by_request_state_created`                                  | Page one request's report history/state                                                                        |
 | `synesthesiaReports.by_window_state_created`                                   | Return bounded open report work for a window                                                                   |

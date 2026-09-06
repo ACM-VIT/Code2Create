@@ -23,6 +23,138 @@ type Account = Identity & {
 };
 
 describe("Synesthesia vote ownership", () => {
+  test("creates and edits voting windows without a vote quota", async () => {
+    const backend = seededBackend();
+    const fixture = await seedVotingFixture(backend);
+    await backend.run(ctx => insertPermissionGrant(ctx, {
+      eventId: fixture.eventId, personId: fixture.first.personId,
+      eventAccessSubjectId: fixture.first.subjectId,
+      permissionKey: "synesthesia.window.manage", scopeType: "event",
+      sourceType: "manual", sourceId: "window-policy-test", reason: "Window policy test",
+    }));
+    const first = asAccount(backend, fixture.first);
+    const fields = {
+      eventSlug: fixture.eventSlug,
+      name: "Evening session",
+      kind: "working_session" as const,
+      startsAt: fixture.now + 3_600_000,
+      endsAt: fixture.now + 7_200_000,
+      requestsOpen: true,
+      votingOpen: true,
+      catalogSourceLabel: "Fixture catalog",
+      autoApproveRequests: false,
+      maxRequestsPerParticipant: 3,
+      maxRequestsTotal: 200,
+      maxTrackDurationSeconds: 480,
+      allowExplicit: false,
+      allowedEnergyTags: ["focused"],
+      reason: "Configure voting without a quota",
+    };
+    const created = await first.mutation(api.synesthesiaConfiguration.createWindow, {
+      ...fields, clientOperationId: crypto.randomUUID(),
+    });
+    expect(created.version).toBe(1);
+    const updated = await first.mutation(api.synesthesiaConfiguration.updateWindow, {
+      ...fields, name: "Updated evening session", windowId: created.windowId,
+      expectedVersion: created.version, clientOperationId: crypto.randomUUID(),
+    });
+    expect(updated.version).toBe(2);
+    expect(await backend.run(ctx => ctx.db.get(created.windowId))).toMatchObject({
+      name: "Updated evening session", votingOpen: true, maxRequestsPerParticipant: 3, maxRequestsTotal: 200,
+    });
+  });
+
+  test("allows voting past the former cap and reads every vote without duplicates", async () => {
+    const backend = seededBackend();
+    const fixture = await seedVotingFixture(backend);
+    const first = asAccount(backend, fixture.first);
+    const requestIds = await backend.run(async (ctx) => {
+      const ids = [fixture.requestId];
+      for (let index = 1; index < 60; index += 1) {
+        const track = {
+          eventId: fixture.eventId,
+          provider: "fixture",
+          providerTrackId: `track-${index}`,
+          title: `Fixture track ${index}`,
+          artist: "Fixture artist",
+          durationSeconds: 180,
+          isExplicit: false,
+          energyTag: "focused",
+          version: 1,
+          createdAt: fixture.now,
+          updatedAt: fixture.now,
+        };
+        const catalogTrackId = await ctx.db.insert("synesthesiaCatalogTracks", {
+          ...track,
+          searchText: track.title.toLowerCase(),
+          status: "active",
+          createdByPersonId: fixture.first.personId,
+          updatedByPersonId: fixture.first.personId,
+        });
+        ids.push(await ctx.db.insert("songRequests", {
+          ...track,
+          windowId: fixture.windowId,
+          catalogTrackId,
+          requestedByMembershipId: fixture.second.membershipId,
+          requestedByPersonId: fixture.second.personId,
+          state: "approved",
+          openReportCount: 0,
+          queueMode: "normal",
+        }));
+      }
+      return ids;
+    });
+    for (const requestId of requestIds) {
+      await first.mutation(api.synesthesiaParticipant.vote, {
+        eventSlug: fixture.eventSlug, requestId, clientOperationId: crypto.randomUUID(),
+      });
+    }
+    const state = await first.query(api.synesthesiaParticipant.state, { eventSlug: fixture.eventSlug });
+    expect(state.usage.votes).toBe(60);
+    expect(state.requests).toHaveLength(60);
+    expect(state.requests.every(request => request.hasVoted && request.canVote)).toBe(true);
+
+    // A new operation ID is still the same person's single vote on this song.
+    await first.mutation(api.synesthesiaParticipant.vote, {
+      eventSlug: fixture.eventSlug, requestId: fixture.requestId, clientOperationId: crypto.randomUUID(),
+    });
+    expect((await first.query(api.synesthesiaParticipant.state, { eventSlug: fixture.eventSlug })).usage.votes).toBe(60);
+    const counts = await first.query(api.synesthesiaParticipant.voteCounts, { eventSlug: fixture.eventSlug });
+    expect(counts?.counts).toHaveLength(60);
+    expect(counts?.counts.every(request => request.voteCount === 1)).toBe(true);
+
+    await first.mutation(api.synesthesiaParticipant.removeVote, {
+      eventSlug: fixture.eventSlug, requestId: fixture.requestId, clientOperationId: crypto.randomUUID(),
+    });
+    const afterRemoval = await first.query(api.synesthesiaParticipant.state, { eventSlug: fixture.eventSlug });
+    expect(afterRemoval.usage.votes).toBe(59);
+    expect(afterRemoval.requests.find(request => request.id === fixture.requestId)?.hasVoted).toBe(false);
+    await first.mutation(api.synesthesiaParticipant.vote, {
+      eventSlug: fixture.eventSlug, requestId: fixture.requestId, clientOperationId: crypto.randomUUID(),
+    });
+    expect((await first.query(api.synesthesiaParticipant.state, { eventSlug: fixture.eventSlug })).usage.votes).toBe(60);
+    const second = asAccount(backend, fixture.second);
+    expect((await second.query(api.synesthesiaParticipant.state, { eventSlug: fixture.eventSlug })).usage.votes).toBe(0);
+  });
+
+  test("still rejects votes when voting is closed or the request is rejected", async () => {
+    const backend = seededBackend();
+    const fixture = await seedVotingFixture(backend);
+    const first = asAccount(backend, fixture.first);
+    await backend.run(ctx => ctx.db.patch(fixture.windowId, { votingOpen: false }));
+    await expect(first.mutation(api.synesthesiaParticipant.vote, {
+      eventSlug: fixture.eventSlug, requestId: fixture.requestId, clientOperationId: crypto.randomUUID(),
+    })).rejects.toThrow("Voting is closed");
+    await backend.run(async (ctx) => {
+      await ctx.db.patch(fixture.windowId, { votingOpen: true });
+      await ctx.db.patch(fixture.requestId, { state: "rejected" });
+    });
+    await expect(first.mutation(api.synesthesiaParticipant.vote, {
+      eventSlug: fixture.eventSlug, requestId: fixture.requestId, clientOperationId: crypto.randomUUID(),
+    })).rejects.toThrow("Voting is closed");
+    expect((await first.query(api.synesthesiaParticipant.state, { eventSlug: fixture.eventSlug })).usage.votes).toBe(0);
+  });
+
   test("keeps vote-derived state out of the moderated request version", async () => {
     const backend = seededBackend();
     const fixture = await seedVotingFixture(backend);
@@ -418,7 +550,6 @@ async function seedVotingFixture(backend: BackendTest) {
       catalogSourceLabel: "Fixture catalog",
       autoApproveRequests: false,
       maxRequestsPerParticipant: 3,
-      maxVotesPerParticipant: 8,
       maxRequestsTotal: 200,
       maxTrackDurationSeconds: 480,
       allowExplicit: false,

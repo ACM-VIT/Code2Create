@@ -200,7 +200,6 @@ describe("surface capability projections", () => {
         catalogSourceLabel: "Capability fixture catalog",
         autoApproveRequests: false,
         maxRequestsPerParticipant: 3,
-        maxVotesPerParticipant: 8,
         maxRequestsTotal: 200,
         maxTrackDurationSeconds: 480,
         allowExplicit: false,

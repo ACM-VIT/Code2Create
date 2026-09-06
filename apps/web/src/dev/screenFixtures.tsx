@@ -597,7 +597,6 @@ const dashboardMusic: MusicTileModel = {
     requestsUsed: 1,
     requestsAllowed: 5,
     votesUsed: 2,
-    votesAllowed: 10,
   },
   nowPlaying: {
     id: "r1",
