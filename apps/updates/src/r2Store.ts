@@ -3,10 +3,14 @@ import type { ImmutableWriteResult, StoredAsset, StoredText, UpdateStore } from 
 const immutableCacheControl = "public, max-age=31536000, immutable";
 const privateCacheControl = "private, no-store";
 
-export class R2UpdateStore implements UpdateStore {
-  private readonly bucket: R2Bucket;
+type UpdateBucket = Pick<R2Bucket, "get" | "head"> & {
+  put(key: string, value: string | ArrayBuffer, options: R2PutOptions): Promise<R2Object | null>;
+};
 
-  constructor(bucket: R2Bucket) {
+export class R2UpdateStore implements UpdateStore {
+  private readonly bucket: UpdateBucket;
+
+  constructor(bucket: UpdateBucket) {
     this.bucket = bucket;
   }
 
@@ -42,6 +46,14 @@ export class R2UpdateStore implements UpdateStore {
     bytes: ArrayBuffer,
     contentType: string,
   ): Promise<ImmutableWriteResult> {
+    const stored = await this.bucket.head(assetPath(key));
+    if (stored !== null) {
+      return stored.customMetadata?.sha256 === key &&
+        stored.size === bytes.byteLength && stored.httpMetadata?.contentType === contentType
+        ? "unchanged"
+        : "conflict";
+    }
+
     const written = await this.bucket.put(assetPath(key), bytes, {
       onlyIf: { etagDoesNotMatch: "*" },
       httpMetadata: {
@@ -53,7 +65,8 @@ export class R2UpdateStore implements UpdateStore {
     if (written !== null) return "created";
 
     const existing = await this.bucket.head(assetPath(key));
-    return existing?.customMetadata?.sha256 === key && existing.size === bytes.byteLength
+    return existing?.customMetadata?.sha256 === key && existing.size === bytes.byteLength &&
+      existing.httpMetadata?.contentType === contentType
       ? "unchanged"
       : "conflict";
   }
