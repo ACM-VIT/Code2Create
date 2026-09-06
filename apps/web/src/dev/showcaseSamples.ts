@@ -1,8 +1,8 @@
 import type { ShowcaseProject } from "../screens/ShowcaseScreen";
 
 /**
- * Sample projects for the showcase while the gallery has no backend feed.
- * The live route renders these too until submissions are wired through.
+ * Fictional projects for the development-only screen gallery.
+ * Never import this fixture into participant routes or production data sources.
  */
 export const showcaseSamples: readonly ShowcaseProject[] = [
   {

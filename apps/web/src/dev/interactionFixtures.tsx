@@ -9,6 +9,7 @@ import { MusicRoom } from "../screens/SynesthesiaScreen";
 import MemoryBoard from "../games/memory/Board";
 import Pacman from "../games/pacman/Map";
 import Stack from "../games/stack/Board";
+import { DashboardVisibilityFixture } from "./DashboardVisibilityFixture";
 import "../App.css";
 import "../index.css";
 
@@ -101,7 +102,8 @@ function StackFixture() {
 function Fixture() {
   const fixture = new URLSearchParams(location.search).get("fixture");
   return <main className="min-h-dvh bg-wash p-4 text-fg">
-    {fixture === "review" ? <ReviewFixture />
+    {fixture === "dashboard" ? <DashboardVisibilityFixture />
+      : fixture === "review" ? <ReviewFixture />
       : fixture === "music" ? <MusicFixture />
       : fixture === "memory" ? <MemoryBoard mode="memory-pairs" />
       : fixture === "pattern" ? <MemoryBoard mode="memory-grid" />

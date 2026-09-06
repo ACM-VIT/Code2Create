@@ -25,14 +25,60 @@ test("a quiet dashboard keeps the outing queue and the schedule on top", () => {
   const seating = composeDashboard(tileRelevance(quiet));
   assert.notEqual(seating.queues, undefined);
   assert.equal(seating.review, undefined);
+  assert.equal(seating.benefits, undefined);
   assert.equal(seating.event, "hero");
   assert.equal(Object.keys(seating).length, 7);
+});
+
+test("empty and unavailable benefits never occupy a dashboard seat", () => {
+  for (const available of [false, true]) {
+    const candidates = tileRelevance({ ...quiet, benefits: { available, benefits: [] } });
+    assert.equal(candidates.some((candidate) => candidate.key === "benefits"), false);
+    assert.equal(composeDashboard(candidates).benefits, undefined);
+  }
+});
+
+const perk = { id: "perk-1", name: "Team credit", scope: "team" as const, code: "TEST-CREDIT" };
+
+test("benefits appear when issued and disappear when the last benefit is removed", () => {
+  const withBenefits = { ...quiet, benefits: { available: true, benefits: [perk] } };
+  assert.notEqual(composeDashboard(tileRelevance(withBenefits)).benefits, undefined);
+  assert.equal(composeDashboard(tileRelevance(quiet)).benefits, undefined);
+  assert.equal(composeDashboard(tileRelevance({
+    ...withBenefits, benefits: { available: false, benefits: [perk] },
+  })).benefits, undefined);
+});
+
+test("request queues remain visible with no open services or while unavailable", () => {
+  for (const available of [false, true]) {
+    const seating = composeDashboard(tileRelevance({
+      ...quiet, queues: { ...quiet.queues, available, services: [] },
+    }));
+    assert.notEqual(seating.queues, undefined);
+    assert.equal(seating.benefits, undefined);
+    assert.equal(Object.keys(seating).length, 7);
+  }
 });
 
 const review: ReviewTileModel = {
   round: "Midpoint review", state: "queued", paused: false, upNext: false,
   rank: 3, panel: "Panel 3", notice: null, estimate: null, now, session: null, showCode: null,
 };
+
+test("a closed request queue cannot be displaced by reviews, benefits, or other busy tiles", () => {
+  const seating = composeDashboard(tileRelevance({
+    ...quiet,
+    review,
+    queues: { ...quiet.queues, services: [] },
+    benefits: { available: true, benefits: [perk] },
+    updates: { ...quiet.updates, checkpoints: [{ key: "idea", name: "Idea", state: "open", opensAt: now - 1, dueAt: now + 1 }] },
+    help: { ...quiet.help, support: { open: 2 } },
+  }));
+  assert.notEqual(seating.queues, undefined);
+  assert.notEqual(seating.benefits, undefined);
+  assert.equal(seating.review, "hero");
+  assert.equal(Object.keys(seating).length, 7);
+});
 
 test("a queued team owns the hero while service queues remain separate", () => {
   const live: DashboardModels = {

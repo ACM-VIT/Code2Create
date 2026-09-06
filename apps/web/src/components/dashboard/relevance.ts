@@ -20,9 +20,9 @@ export type DashboardModels = {
 };
 
 /**
- * How much each tile matters right now, 0 to 100. The seven highest are
- * shown; a tile with nothing to say (no review round, no perks) scores low
- * and gives its slot to one that has.
+ * How much each tile matters right now, 0 to 100. Request queues always
+ * keep a seat; the other seats go to the highest-scoring eligible tiles.
+ * Empty or unavailable benefits are not candidates at all.
  */
 export function tileRelevance(models: DashboardModels): Candidate[] {
   const { event, music, integrations, updates, review, queues, help, benefits } = models;
@@ -47,10 +47,12 @@ export function tileRelevance(models: DashboardModels): Candidate[] {
     { key: "integrations", score: !integrations.available ? 10 : bothConnected ? 30 : 60, prefer: ["box", "wide"] },
     { key: "updates", score: !updates.available ? 10 : openCheckpoint ? 92 : upcomingCheckpoint ? 55 : 15, prefer: ["tall", "box"] },
     ...(reviewScore > 0 ? [{ key: "review" as const, score: reviewScore, prefer: ["wide", "box"] as const }] : []),
-    { key: "queues", score: queuesScore, prefer: ["box", "tall"] },
+    { key: "queues", score: queuesScore, required: true, prefer: ["box", "tall"] },
     // Help earns a seat only while a support thread is open; otherwise it
     // waits behind every tile that has something of the night to show.
     { key: "help", score: help.support && help.support.open > 0 ? 50 : 8, prefer: ["box", "wide"] },
-    { key: "benefits", score: !benefits.available ? 5 : benefits.benefits.length > 0 ? 70 : 8, prefer: ["box", "tall"] },
+    ...(benefits.available && benefits.benefits.length > 0
+      ? [{ key: "benefits" as const, score: 70, prefer: ["box", "tall"] as const }]
+      : []),
   ];
 }

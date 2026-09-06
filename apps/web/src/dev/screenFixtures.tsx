@@ -38,7 +38,7 @@ import type { UpdatesTileModel } from "../components/dashboard/UpdatesTile";
 import { DashboardScreen } from "../screens/DashboardScreen";
 import { MusicRoom } from "../screens/SynesthesiaScreen";
 import { ShowcaseScreen } from "../screens/ShowcaseScreen";
-import { showcaseSamples } from "../lib/showcaseSamples";
+import { showcaseSamples } from "./showcaseSamples";
 import { ChillMode } from "../components/chill/ChillMode";
 import { IntegrationsScene } from "../screens/IntegrationsScreen";
 import { FigmaMark, GitHubMark } from "../components/dashboard/IntegrationsTile";

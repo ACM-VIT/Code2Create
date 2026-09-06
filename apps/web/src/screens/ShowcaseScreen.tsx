@@ -263,7 +263,7 @@ export function ShowcaseScreen({
             <p className="m-0 text-[13px] text-fg/60">
               {projects.length === 0
                 ? "Nothing on the wall yet."
-                : `${projects.length} builds from this year's teams.`}
+                : `${projects.length} ${projects.length === 1 ? "build" : "builds"} from this year's teams.`}
             </p>
             {tracks.length > 1 ? (
               <div role="group" aria-label="Track" className="flex flex-wrap gap-1.5">
@@ -294,7 +294,7 @@ export function ShowcaseScreen({
           <div className="mt-10 rounded-[18px] border border-dashed border-petal-edge/60 px-8 py-16 text-center">
             <p className="m-0 font-display text-xl text-fg/80">The wall is bare for now.</p>
             <p className="m-0 mt-2 text-[13px] text-fg/55">
-              Projects appear here once submissions close and the desk opens the showcase.
+              No projects have been published to the showcase yet.
             </p>
           </div>
         ) : (
