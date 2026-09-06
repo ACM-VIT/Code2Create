@@ -118,7 +118,7 @@ export function AdmissionResultReveal({
   }, [clearRevealTimer, outcome, showsChest]);
 
   useEffect(() => {
-    if (!showsChest || revealed) return;
+    if (!showsChest) return;
     const canvas = canvasRef.current;
     const chestArt = chestArtRef.current;
     if (!canvas || !chestArt) return;
@@ -178,7 +178,7 @@ export function AdmissionResultReveal({
       window.clearTimeout(startupTimer);
       cleanup?.();
     };
-  }, [reveal, revealed, showsChest]);
+  }, [reveal, showsChest]);
 
   const handleVideoPlaying = () => {
     setVideoPlaying(true);
@@ -200,7 +200,8 @@ export function AdmissionResultReveal({
         }`}
         aria-label={`Admission result for ${teamName}`}
       >
-        {showsChest && !revealed ? (
+        {showsChest &&
+        (!revealed || animationMode === "webgpu" || animationMode === "video") ? (
           <>
             <canvas ref={canvasRef} aria-hidden className="admission-result-reveal__canvas" />
             {animationMode === "video" ? (
