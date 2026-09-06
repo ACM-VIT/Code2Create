@@ -2,7 +2,7 @@ import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./tests",
-  testMatch: /operations-interactions\.spec\.ts/u,
+  testMatch: /operations-(?:interactions|panel-membership)\.spec\.ts/u,
   outputDir: "../../outputs/playwright/ops-interactions",
   forbidOnly: true,
   workers: 1,

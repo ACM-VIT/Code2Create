@@ -1,5 +1,5 @@
 import { ConvexError, v } from "convex/values";
-import { reviewerFitsSeat } from "@code2create/domain";
+import { reviewerSeatWarnings } from "@code2create/domain";
 import { z } from "zod";
 
 import type { Doc, Id } from "./_generated/dataModel";
@@ -16,7 +16,7 @@ import {
 } from "./lib/operations";
 import { appendReviewPanelVacancyReadFactById } from "./lib/operationsAutonomyReadFacts";
 import { requirePermission, revokeSourceGrants } from "./lib/permissions";
-import { grantPanelMemberAccess } from "./lib/reviewAccess";
+import { canManagePanelRoster, grantPanelMemberAccess } from "./lib/reviewAccess";
 import { requireConfirmedReviewer } from "./lib/reviewConfirmation";
 import { reviewerHasOverlappingPanel } from "./lib/reviewerParticipation";
 import { putInRoundReserve } from "./lib/reviewRoster";
@@ -39,6 +39,7 @@ type JoiningReviewer = {
   reserve: Doc<"reviewRoundReserves"> | null;
   /** The seat whose criteria and coordinator duty the new member takes over. */
   seat: Doc<"reviewPanelMembers">;
+  warnings: string[];
 };
 
 /**
@@ -127,30 +128,14 @@ async function resolveJoiningReviewer(
   if (Date.now() >= args.round.startsAt || args.round.status !== "published") {
     await requireConfirmedReviewer(ctx, args.round, args.personId, Date.now());
   }
-  if (
-    !reviewerFitsSeat(
-      profile.seniority,
-      seat.seatSeniority,
-      args.round.staffing.allowSeniorLeadFallback,
-    )
-  ) {
-    throw new ConvexError({
-      code: "REVIEWER_COMPOSITION_MISMATCH",
-      message: "Choose a replacement with the seniority required by this seat.",
-    });
-  }
-  const qualifiedKeys = new Set(profile.criterionKeys);
-  for (const criterionId of seat.assignedCriterionIds) {
-    const criterion = await ctx.db.get(criterionId);
-    if (!criterion)
-      throw new Error("A panel seat references a missing criterion.");
-    if (!qualifiedKeys.has(criterion.stableKey)) {
-      throw new ConvexError({
-        code: "REVIEWER_NOT_QUALIFIED",
-        message: `That reviewer is not qualified to score ${criterion.label}.`,
-      });
-    }
-  }
+  const criteria = await Promise.all(seat.assignedCriterionIds.map(id => ctx.db.get(id)));
+  const warnings = reviewerSeatWarnings(profile, {
+    seniority: seat.seatSeniority,
+    criterionKeys: criteria.map(criterion => {
+      if (!criterion) throw new Error("A panel seat references a missing criterion.");
+      return criterion.stableKey;
+    }),
+  }, args.round.staffing.allowSeniorLeadFallback);
   const plans = await ctx.db
     .query("reviewTeamPlans")
     .withIndex("by_round_team", (q) => q.eq("roundId", args.round._id))
@@ -193,7 +178,7 @@ async function resolveJoiningReviewer(
       });
     }
   }
-  return { person, subject, reserve, seat };
+  return { person, subject, reserve, seat, warnings };
 }
 
 async function requireIdlePanel(
@@ -337,6 +322,9 @@ export const swapPanelMember = mutation({
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
+    if (!(await canManagePanelRoster(ctx, event._id, person._id))) {
+      throw new ConvexError({ code: "BOARD_REQUIRED", message: "Only Board members can change panel reviewers." });
+    }
     const reason = normalizedText(
       args.reason,
       "Panel membership reason",
@@ -571,6 +559,7 @@ export const swapPanelMember = mutation({
           version: sourcePanel.version + 1,
           memberPersonIds: sourcePeople,
           transferredTo: panel._id,
+          reviewerFitWarnings: returning?.warnings ?? [],
         }),
         reason,
       });
@@ -631,6 +620,7 @@ export const swapPanelMember = mutation({
         memberPersonIds: nextMemberPersonIds,
         leavingPersonId: leaving?.personId ?? null,
         joiningPersonId: joining?.person._id ?? null,
+        reviewerFitWarnings: joining?.warnings ?? [],
       }),
       reason,
     });

@@ -30,7 +30,7 @@ import {
   revokeSourceGrants,
 } from "./lib/permissions";
 import { pushTokenFingerprint } from "./lib/pushTokens";
-import { grantPanelMemberAccess, grantReviewAssignmentAccess,
+import { canManagePanelRoster, grantPanelMemberAccess, grantReviewAssignmentAccess,
 } from "./lib/reviewAccess";
 import { reviewerNoShowBoundary } from "./lib/reviewerAvailability";
 import { reviewerConfirmedWindow } from "./lib/reviewConfirmation";
@@ -946,6 +946,9 @@ export const startPageChain = mutation({
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
+    if (!(await canManagePanelRoster(ctx, event._id, person._id))) {
+      throw new ConvexError({ code: "BOARD_REQUIRED", message: "Only Board members can change panel reviewers." });
+    }
     const reason = normalizedText(args.reason, "Substitute reason", 5, 500);
     const requestFingerprint = operationFingerprint([
       args.missingPanelMemberId,
@@ -2029,6 +2032,7 @@ export const roundStatus = query({
           }),
         ),
         canStartPage: v.boolean(),
+        canManageMembers: v.boolean(),
         canSwapMembers: v.boolean(),
         membershipBlockedReason: v.union(v.null(), v.string()),
       }),
@@ -2062,6 +2066,7 @@ export const roundStatus = query({
       scopeType: "round",
       scopeId: round._id,
     });
+    const hasManagementRole = await canManagePanelRoster(ctx, event._id, person._id);
     const [panels, availableReserves, pagedReserves, assignedReserves] =
       await Promise.all([
         ctx.db
@@ -2340,8 +2345,8 @@ export const roundStatus = query({
           }),
         ]);
         const membershipBlockedReason =
-          assignGrantIds.length === 0
-            ? "You need panel management access to change reviewers."
+          !hasManagementRole || assignGrantIds.length === 0
+            ? "Only Board members can change panel reviewers."
             : !["published", "open"].includes(round.status)
               ? "Roster editing is closed for this round."
               : liveSessions.length > 0
@@ -2361,10 +2366,12 @@ export const roundStatus = query({
           vacancy,
           pageChain,
           canStartPage:
+            hasManagementRole &&
             permission !== null &&
             panel.status === "needs_reviewer" &&
             vacancy !== null &&
             activeChain === null,
+          canManageMembers: hasManagementRole && assignGrantIds.length > 0,
           canSwapMembers: membershipBlockedReason === null,
           membershipBlockedReason,
         };

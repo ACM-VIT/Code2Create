@@ -24,6 +24,21 @@ export function reviewerFitsSeat(
     : seniority === seat;
 }
 
+/** Manual Board choices can override assessed fit while retaining an explicit warning. */
+export function reviewerSeatWarnings(
+  profile: Pick<PanelCandidate, "seniority" | "criterionKeys">,
+  seat: { seniority: "lead" | "sc" | "jc"; criterionKeys: readonly string[] },
+  allowSeniorLeadFallback: boolean,
+) {
+  const warnings: string[] = [];
+  if (!reviewerFitsSeat(profile.seniority, seat.seniority, allowSeniorLeadFallback)) {
+    warnings.push(`${profile.seniority.toUpperCase()} reviewer in a ${seat.seniority === "lead" ? "panel lead" : seat.seniority.toUpperCase()} seat.`);
+  }
+  const missing = seat.criterionKeys.filter(key => !profile.criterionKeys.includes(key));
+  if (missing.length > 0) warnings.push(`Not assessed for ${missing.map(key => key.replaceAll("_", " ")).join(", ")}. They will inherit this seat’s scoring responsibilities.`);
+  return warnings;
+}
+
 export function validatePanelComposition(
   members: readonly { seniority: ReviewerSeniority; isCoordinator: boolean }[],
   policy: PanelComposition,
