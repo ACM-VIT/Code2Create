@@ -221,7 +221,7 @@ describe("Cloudflare participant-email contract", () => {
     );
   });
 
-  test("keeps the external pass email usable when a wallet provider is not configured", () => {
+  test("keeps the external pass email QR-only even when wallet providers are configured", () => {
     const template = defaultParticipantEmailTemplates().find(
       (candidate) => candidate.templateKey === "external_event_pass",
     );
@@ -239,8 +239,11 @@ describe("Cloudflare participant-email contract", () => {
       google_wallet_url: "https://pay.google.com/example",
       apple_wallet_url: "https://example.test/apple-pass",
     });
-    expect(withWallets).toContain("Add to Google Wallet");
-    expect(withWallets).toContain("Add to Apple Wallet");
+    expect(withWallets).toContain("event-pass-qr.png");
+    expect(withWallets).not.toContain("Add to Google Wallet");
+    expect(withWallets).not.toContain("Add to Apple Wallet");
+    expect(withWallets).not.toContain("https://pay.google.com/example");
+    expect(withWallets).not.toContain("https://example.test/apple-pass");
   });
 
   test.each([
