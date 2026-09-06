@@ -418,6 +418,7 @@ export async function queueOutboundCall(
     token: string;
     destinationPhoneE164: string;
     script: string;
+    requiredProvider?: "sarvam" | undefined;
     venueConfirmation?: VenueConfirmationCall | undefined;
   },
 ) {
@@ -428,6 +429,7 @@ export async function queueOutboundCall(
       );
     return queueSarvamCall(environment, args);
   }
+  if (args.requiredProvider === "sarvam") return queueSarvamCall(environment, args);
   const providerOrder = outboundCallProviderOrder(environment);
   let lastRejection: RejectedCallDispatchError | null = null;
   for (const provider of providerOrder) {

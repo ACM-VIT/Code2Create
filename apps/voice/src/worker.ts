@@ -270,6 +270,7 @@ export class OutboundCallSession {
           token: session.token,
           destinationPhoneE164: session.request.destinationPhoneE164,
           script: session.request.script,
+          requiredProvider: session.request.requiredProvider,
           venueConfirmation: session.request.venueConfirmation,
         }),
       };

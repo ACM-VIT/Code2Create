@@ -32,6 +32,32 @@ const sarvamEnvironment = {
 afterEach(() => vi.restoreAllMocks());
 
 describe("outbound voice transport", () => {
+  test.each([429, 503])("a required Sarvam agent never falls back after HTTP %s", async (status) => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json({ detail: "Provider unavailable" }, { status }),
+    );
+    await expect(queueOutboundCall({
+      ...sarvamEnvironment, OUTBOUND_CALL_PRIMARY_PROVIDER: "twilio",
+      TWILIO_ACCOUNT_SID: "AC123", TWILIO_AUTH_TOKEN: "secret", TWILIO_FROM_NUMBER: "+12025550123",
+    }, {
+      deliveryId: "outing-1", token: "token", destinationPhoneE164: "+919876543210",
+      script: "Your outing is overdue. Please return and scan your ID.", requiredProvider: "sarvam",
+    })).rejects.toBeInstanceOf(status === 429 ? RejectedCallDispatchError : AmbiguousCallDispatchError);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0]![0])).toContain("https://apps.sarvam.ai/");
+  });
+
+  test("a required Sarvam agent reports missing configuration without calling Twilio", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    await expect(queueOutboundCall({
+      ...environment, TWILIO_ACCOUNT_SID: "AC123", TWILIO_AUTH_TOKEN: "secret", TWILIO_FROM_NUMBER: "+12025550123",
+    }, {
+      deliveryId: "outing-1", token: "token", destinationPhoneE164: "+919876543210",
+      script: "Your outing is overdue. Please return and scan your ID.", requiredProvider: "sarvam",
+    })).rejects.toBeInstanceOf(TelephonyConfigurationError);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   test("builds capability-bound Sarvam webhooks and escaped TwiML", () => {
     expect(sarvamWebhookUrl(environment, "delivery/1", "token+1")).toBe(
       "https://voice.example.com/sarvam/status/delivery%2F1/token%2B1",

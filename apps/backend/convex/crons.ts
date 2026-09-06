@@ -4,6 +4,12 @@ import { internal } from "./_generated/api";
 
 const crons = cronJobs();
 crons.interval(
+  "call overdue outing participants",
+  { minutes: 1 },
+  internal.serviceQueues.sweepOverdueCalls,
+  { cursor: null },
+);
+crons.interval(
   "prepare published review questions",
   { seconds: 30 },
   internal.reviewQuestions.dispatch,

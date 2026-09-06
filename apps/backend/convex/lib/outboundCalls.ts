@@ -33,6 +33,7 @@ export async function enqueueOutboundCall(
       | "participant_notification"
       | "admission_offer_reminder"
       | "review_team_notice"
+      | "participant_outing"
       | "reviewer_venue_departure";
     sourceId: string;
     shiftReminder?: { confirmationVersion: number; shiftStartsAt: number };
@@ -105,7 +106,9 @@ export async function enqueueOutboundCall(
     ...(destinationPhoneE164 === null
       ? {
           providerErrorCode:
-            args.destinationPhone === undefined ? "call_consent_not_granted" : "phone_not_e164",
+            args.destinationPhone === undefined
+              ? args.purpose === "participant_event_update" ? "participant_phone_missing" : "call_consent_not_granted"
+              : "phone_not_e164",
           completedAt: args.now,
         }
       : {}),

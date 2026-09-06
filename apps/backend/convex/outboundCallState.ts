@@ -18,6 +18,7 @@ import type { Doc } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
 import { openVenueDeparture } from "./lib/reviewerVenue";
 import { venueCallPurpose } from "./lib/reviewerVenuePolicy";
+import { outingCallBlockedReason } from "./lib/outingCalls";
 
 const claimLifetimeMs = 30 * 1_000;
 const maximumDispatchAttempts = 3;
@@ -102,6 +103,7 @@ async function undispatchableReason(
   now: number,
 ) {
   if (delivery.destinationPhoneE164 === undefined) return "phone_not_e164";
+  if (delivery.sourceType === "participant_outing") return outingCallBlockedReason(ctx, delivery, now);
   if (delivery.purpose === "participant_event_update") {
     if (delivery.sourceType !== "admission_offer_reminder" && delivery.sourceType !== "review_team_notice") {
       return "participant_call_source_invalid";
@@ -248,6 +250,7 @@ export const claimDelivery = internalMutation({
       deliveryId: v.id("outboundCallDeliveries"),
       destinationPhoneE164: v.string(),
       script: v.string(),
+      requiredProvider: v.optional(v.literal("sarvam")),
       venueConfirmation: v.optional(venueConfirmationCall),
     }),
   ),
@@ -342,6 +345,7 @@ export const claimDelivery = internalMutation({
       deliveryId: delivery._id,
       destinationPhoneE164: delivery.destinationPhoneE164,
       script,
+      ...(delivery.sourceType === "participant_outing" ? { requiredProvider: "sarvam" as const } : {}),
       ...(delivery.venueConfirmation
         ? { venueConfirmation: delivery.venueConfirmation }
         : {}),

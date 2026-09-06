@@ -11,6 +11,16 @@ import { useMutationAttempt } from "../lib/operations";
 const rosterStatuses = ["waiting", "permitted", "out", "overdue"] as const;
 type RosterStatus = (typeof rosterStatuses)[number];
 const labels: Record<RosterStatus, string> = { waiting: "Waiting", permitted: "Can go", out: "Out now", overdue: "Overdue" };
+type CallState = NonNullable<FunctionReturnType<typeof api.serviceQueues.roster>["page"][number]["callState"]>;
+const callLabels: Record<CallState, string> = {
+  pending: "Call queued", retry_wait: "Call queued", sending: "Starting call",
+  provider_accepted: "Call accepted", queued: "Call queued", initiated: "Calling",
+  ringing: "Ringing", answered: "Connected", completed: "Call ended; return scan still required",
+  busy: "Phone busy; staff follow-up needed", no_answer: "No answer; staff follow-up needed",
+  unavailable: "No usable phone number; staff follow-up needed",
+  failed: "Call failed; staff follow-up needed", ambiguous: "Call outcome unknown; staff follow-up needed",
+  cancelled: "Call cancelled; staff follow-up needed",
+};
 
 export function OutingCapacity() {
   const configuration = useQuery(api.serviceQueues.configuration, { eventSlug });
@@ -58,6 +68,7 @@ export function OutingCapacityContent({ configuration, configure, status, setSta
 
   return <section className="configuration-card" aria-label="Washroom outings">
     <h2>Washroom outings</h2>
+    <p className="muted">After 15 minutes outside, Sarvam calls the participant’s registered number once to ask them to return. A phone call does not record a return or release capacity.</p>
     <p className="muted">Each outing lasts 15 minutes from the exit scan. Permission reserves a slot immediately and expires if unused for 15 minutes. Scan the same ID on return to release the slot.</p>
     <p role="status">
       {configuration.capacity === null ? "Capacity has not been set. Outing permission cannot be granted yet." : `${configuration.occupiedCount} of ${configuration.capacity} slots occupied · ${configuration.waitingCount} waiting`}
@@ -84,6 +95,7 @@ export function OutingCapacityContent({ configuration, configure, status, setSta
         {entry.phase.status === "permitted" ? `— leave before ${clock(entry.phase.expiresAt)}`
           : entry.phase.status === "out" || entry.phase.status === "overdue" ? `— return by ${clock(entry.phase.returnBy)}`
           : `— requested at ${clock(entry.joinedAt)}`}
+        {entry.phase.status === "overdue" ? <p className="muted">{entry.callState ? callLabels[entry.callState] : "Waiting for the automatic reminder"}</p> : null}
       </li>)}</ul>}
     {roster.status === "CanLoadMore" ? <button type="button" className="secondary" onClick={() => roster.loadMore(25)}>Load more participants</button> : null}
   </section>;

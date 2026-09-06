@@ -90,6 +90,7 @@ export const deliver = internalAction({
       deliveryId: claim.deliveryId,
       destinationPhoneE164: claim.destinationPhoneE164,
       script: claim.script,
+      ...(claim.requiredProvider ? { requiredProvider: claim.requiredProvider } : {}),
       ...(claim.venueConfirmation
         ? { venueConfirmation: claim.venueConfirmation }
         : {}),

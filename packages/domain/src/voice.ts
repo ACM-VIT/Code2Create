@@ -28,6 +28,7 @@ export type OutboundCallRequest = {
   destinationPhoneE164: string;
   script: string;
   callbackUrl: string;
+  requiredProvider?: "sarvam" | undefined;
   venueConfirmation?: VenueConfirmationCall | undefined;
 };
 
