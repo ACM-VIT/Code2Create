@@ -1,8 +1,9 @@
 /// <reference types="vite/client" />
 import betterAuthSchema from "../node_modules/@convex-dev/better-auth/src/component/schema.ts";
+import { Buffer } from "node:buffer";
 import { convexTest } from "convex-test";
 import { beforeEach, afterEach, describe, expect, test, vi } from "vitest";
-import { api, components } from "./_generated/api";
+import { api, components, internal } from "./_generated/api";
 import { integrationPolicyChecksum } from "./lib/integrationPolicy";
 import { insertPermissionGrant } from "./lib/permissions";
 import schema from "./schema";
@@ -14,7 +15,9 @@ const provider = vi.hoisted(() => ({
   install: vi.fn(async ({ state }: { state: string }) => `https://github.com/apps/code2create/installations/new?state=${state}`),
   token: vi.fn(async () => ({ authentication: { token: "fixture-user-token" } })),
   list: vi.fn(),
-  repositories: vi.fn(async () => ({ data: { repositories: [] } })),
+  repositories: vi.fn(async () => ({ data: { repositories: [], total_count: 0 } })),
+  userClient: vi.fn(),
+  user: vi.fn(async () => ({ data: { id: 789, login: "project-owner" } })),
   installation: vi.fn(),
 }));
 
@@ -29,7 +32,8 @@ vi.mock("./lib/githubClient", async (original) => {
       octokit: { rest: { apps: { getInstallation: provider.installation } } },
     }),
     GitHubOctokit: class {
-      rest = { apps: {
+      constructor(options: { auth: string }) { provider.userClient(options.auth); }
+      rest = { users: { getAuthenticated: provider.user }, apps: {
         listInstallationsForAuthenticatedUser: provider.list,
         listInstallationReposForAuthenticatedUser: provider.repositories,
       } };
@@ -49,6 +53,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv("PARTICIPANT_SITE_URL", "https://c2c.sh");
   vi.stubEnv("C2C_DEPLOYMENT_ENVIRONMENT", "local");
+  vi.stubEnv("PROVIDER_TOKEN_ENCRYPTION_KEY_VERSION", "fixture-k1");
+  vi.stubEnv("PROVIDER_TOKEN_ENCRYPTION_KEY", Buffer.alloc(32, 1).toString("base64url"));
   provider.list.mockResolvedValue({ data: { total_count: 1, installations: [account()] } });
   provider.installation.mockResolvedValue({ data: account() });
 });
@@ -158,6 +164,79 @@ describe("GitHub installation connection", () => {
     await expect(f.start()).rejects.toThrow();
     expect(await f.backend.run(ctx => ctx.db.query("githubSetupIntents").collect())).toEqual([]);
   });
+
+  test("only offers the caller's personal installation and rejects another person's personal account", async () => {
+    const f = await fixture();
+    const own = { ...account(), target_type: "User" };
+    const other = { ...account(999, "other-person"), target_type: "User", account: { id: 222, login: "other-person" } };
+    provider.list.mockResolvedValueOnce({ data: { total_count: 2, installations: [own, other] } });
+    expect(await f.complete(await f.start())).toEqual({ kind: "choose_installation", installations: [{ installationId: "456", accountLogin: "project-owner" }] });
+    provider.installation.mockResolvedValueOnce({ data: other });
+    await expect(f.complete(await f.start({ installationId: "999" }))).rejects.toThrow("Connect your own personal GitHub account");
+    expect(await f.connections()).toEqual([]);
+  });
+
+  test("repository browsing uses the participant's encrypted user authorization, not installation-wide access", async () => {
+    const f = await fixture();
+    const result = await f.complete(await f.start({ installationId: "456" }));
+    if (result.kind !== "connected") throw new Error("Expected connection");
+    provider.repositories.mockClear();
+    expect(await f.lead.action(api.githubActions.listAvailableRepositories, { eventSlug: "github-test", connectionId: result.connectionId, page: 1 })).toEqual({ repositories: [], totalCount: 0 });
+    expect(provider.repositories).toHaveBeenCalledWith({ installation_id: 456, per_page: 50, page: 1 });
+    expect(provider.userClient).toHaveBeenLastCalledWith("fixture-user-token");
+    const authorization = await f.backend.run(ctx => ctx.db.query("githubRepositoryAuthorizations").unique());
+    expect(authorization?.accessTokenCiphertext).not.toContain("fixture-user-token");
+  });
+
+  test("legacy, expired and another person's authorizations fail closed without provider calls", async () => {
+    for (const mode of ["missing", "expired", "other_person"] as const) {
+      const f = await fixture();
+      const result = await f.complete(await f.start({ installationId: "456" }));
+      if (result.kind !== "connected") throw new Error("Expected connection");
+      await f.backend.run(async ctx => {
+        const authorization = await ctx.db.query("githubRepositoryAuthorizations").unique();
+        if (!authorization) throw new Error("Missing authorization");
+        if (mode === "missing") await ctx.db.delete(authorization._id);
+        else if (mode === "expired") await ctx.db.patch(authorization._id, { expiresAt: 1 });
+        else {
+          const person = await ctx.db.get(authorization.personId);
+          if (!person) throw new Error("Missing person");
+          const { _id, _creationTime, ...fields } = person;
+          const otherId = await ctx.db.insert("people", { ...fields, authUserId: "other-user", verifiedEmail: "other@example.test" });
+          await ctx.db.patch(authorization._id, { personId: otherId });
+        }
+      });
+      provider.repositories.mockClear();
+      await expect(f.lead.action(api.githubActions.listAvailableRepositories, { eventSlug: "github-test", connectionId: result.connectionId, page: 1 })).rejects.toThrow("Connect your own GitHub account");
+      expect(provider.repositories).not.toHaveBeenCalled();
+    }
+  });
+
+  test("cross-team connections are rejected even when an authorization exists", async () => {
+    const f = await fixture();
+    const result = await f.complete(await f.start({ installationId: "456" }));
+    if (result.kind !== "connected") throw new Error("Expected connection");
+    await f.backend.run(async ctx => {
+      const connection = await ctx.db.get(result.connectionId);
+      const team = connection ? await ctx.db.get(connection.teamId) : null;
+      if (!team) throw new Error("Missing team");
+      const { _id, _creationTime, ...fields } = team;
+      const otherTeamId = await ctx.db.insert("teams", { ...fields, name: "Other team", publicCode: "OTHER" });
+      await ctx.db.patch(result.connectionId, { teamId: otherTeamId });
+    });
+    provider.repositories.mockClear();
+    await expect(f.lead.action(api.githubActions.listAvailableRepositories, { eventSlug: "github-test", connectionId: result.connectionId, page: 1 })).rejects.toThrow("Reconnect this GitHub account");
+    expect(provider.repositories).not.toHaveBeenCalled();
+  });
+
+  test("an old expiration job cannot delete refreshed consent", async () => {
+    const f = await fixture();
+    await f.complete(await f.start({ installationId: "456" }));
+    const authorization = await f.backend.run(ctx => ctx.db.query("githubRepositoryAuthorizations").unique());
+    if (!authorization) throw new Error("Missing authorization");
+    await f.backend.mutation(internal.githubIntegrations.expireRepositoryAuthorization, { authorizationId: authorization._id, expiresAt: 1 });
+    expect(await f.backend.run(ctx => ctx.db.get(authorization._id))).not.toBeNull();
+  });
 });
 
 async function fixture(grant = true) {
@@ -187,6 +266,7 @@ async function fixture(grant = true) {
   const lead = backend.withIdentity({ subject: userId, sessionId });
   return {
     backend,
+    lead,
     async start(options: { installationId?: string; install?: boolean } = {}) {
       const result = await lead.action(api.githubActions.beginConnection, { eventSlug, ...options });
       const state = new URL(result.installUrl).searchParams.get("state");

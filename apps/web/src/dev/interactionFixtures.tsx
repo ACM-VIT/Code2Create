@@ -10,6 +10,7 @@ import MemoryBoard from "../games/memory/Board";
 import Pacman from "../games/pacman/Map";
 import Stack from "../games/stack/Board";
 import { DashboardVisibilityFixture } from "./DashboardVisibilityFixture";
+import { IntegrationsTile } from "../components/dashboard/IntegrationsTile";
 import "../App.css";
 import "../index.css";
 
@@ -99,10 +100,27 @@ function StackFixture() {
   </>;
 }
 
+function GitHubNavigationFixture() {
+  const [opened, setOpened] = useState("");
+  const existing = new URLSearchParams(location.search).has("existing");
+  return <>
+    <output aria-label="Integration destination">{opened}</output>
+    <div className="grid h-[400px] w-[340px]">
+      <IntegrationsTile slot="garden" model={{
+        available: true,
+        github: { connected: true, detail: "Connected", repositories: existing ? [{ id: "fixture-repo", fullName: "fixture/project", url: "https://github.com/fixture/project" }] : [] },
+        figma: { connected: false, detail: "No design" },
+        open: (target, repository) => setOpened(repository ? `${target}:${repository.id}` : target),
+      }} />
+    </div>
+  </>;
+}
+
 function Fixture() {
   const fixture = new URLSearchParams(location.search).get("fixture");
   return <main className="min-h-dvh bg-wash p-4 text-fg">
-    {fixture === "dashboard" ? <DashboardVisibilityFixture />
+    {fixture === "github-navigation" ? <GitHubNavigationFixture />
+      : fixture === "dashboard" ? <DashboardVisibilityFixture />
       : fixture === "review" ? <ReviewFixture />
       : fixture === "music" ? <MusicFixture />
       : fixture === "memory" ? <MemoryBoard mode="memory-pairs" />

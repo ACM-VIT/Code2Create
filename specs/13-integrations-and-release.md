@@ -221,14 +221,16 @@ Versioned event configuration supplies `maxActiveGitHubRepositoriesPerTeam` afte
 
 1. A team lead selects **Connect GitHub**.
 2. The portal creates a one-use setup intent bound to event, team, person, and return route.
-3. GitHub opens user authorization, including for an already-installed App. The callback lists accessible, non-suspended installations of this App and offers installation on another account.
-4. The lead selects an account. A fresh account-bound authorization verifies their current access to that exact installation before connecting it. New installations use the installation callback. OAuth user tokens remain only in action memory, never browser storage or the database.
-5. The portal lists only repositories currently granted to that installation.
+3. GitHub opens user authorization, including for an already-installed App. The callback lists accessible, non-suspended installations of this App and offers installation on another account. Personal installations must belong to the authenticated GitHub user; organization installations still require that user's GitHub access. Both discovery and connection enforce personal-account ownership.
+4. The lead selects an account. A fresh account-bound authorization verifies their current access to that exact installation before connecting it. New installations use the installation callback. Repository-browser OAuth tokens are encrypted with the provider encryption key, bound to the exact person, team, event and connection, and expire after at most eight hours (or GitHub's earlier expiry). A scheduled, version-checked expiration removes the ciphertext. No user token is returned to the browser. Missing or expired authorization requires reconnecting; a teammate's consent never grants personal browsing access.
+5. The portal lists the intersection of that participant's current GitHub access and the selected installation's repository access, using the user-authenticated installation repository endpoint. An installation-wide token must not enumerate the participant's picker. Add verifies both the user's current access and the selected installation's access to the exact repository; background jobs remain repository-scoped installation jobs.
 6. **Add repository** asks for repository, tracked branch, optional project root, kind, custom kind when needed, purpose, and display order.
 7. The backend verifies the event cap and that the repository is not already bound to another team in the event.
 8. The backend reads repository metadata, topics, languages, the tracked head, and the commit/tree at that head.
 9. It records the repository baseline SHA, topic state, repository creation/fork metadata, and first immutable snapshot.
 10. The lead repeats the flow for every submitted repository and can start another App installation flow when the next repository belongs to a different account or organization.
+
+The dashboard opens the same integrations-page picker instead of caching a second repository list. Selecting a repository focuses its details immediately; loading another page does not erase a draft. Before the official build is live, details can be previewed but are not persisted and **Add repository** explains the build gate. The repository cap and freeze gate are also explained beside the draft. Cached picker data is discarded when the person, team, connection version, or authorization availability changes.
 
 One `teamIntegration` owns the ordered repository set. A GitHub installation can serve several repositories and several Code2Create teams, while one team can reference several installations. The application never asks for a personal access token.
 

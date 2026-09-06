@@ -2,6 +2,21 @@ import { expect, test, type Page } from "@playwright/test";
 
 const fixtureUrl = "/src/dev/interactionFixtures.html";
 
+test("GitHub dashboard navigation uses the canonical picker without caching available repositories", async ({ page }) => {
+  await page.goto(`${fixtureUrl}?fixture=github-navigation`);
+  await page.getByRole("button", { name: "Manage GitHub", exact: true }).click();
+  await expect(page.getByRole("status", { name: "Integration destination" })).toHaveText("github");
+  await expect(page.getByRole("searchbox")).toHaveCount(0);
+
+  await page.goto(`${fixtureUrl}?fixture=github-navigation&existing`);
+  await page.getByRole("button", { name: "Manage GitHub", exact: true }).click();
+  await expect(page.getByRole("link", { name: "fixture/project" })).toBeVisible();
+  await page.getByRole("button", { name: "Choose repositories", exact: true }).click();
+  await expect(page.getByRole("status", { name: "Integration destination" })).toHaveText("github");
+  await page.getByRole("button", { name: "Remove", exact: true }).click();
+  await expect(page.getByRole("status", { name: "Integration destination" })).toHaveText("github:fixture-repo");
+});
+
 async function stopClock(page: Page, time = 1_700_000_000_000) {
   await page.clock.install({ time });
   await page.clock.pauseAt(time);

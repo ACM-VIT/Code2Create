@@ -4221,6 +4221,15 @@ export default defineSchema({
     .index("by_event_membership", ["eventId", "membershipId"])
     .index("by_event_github_user", ["eventId", "githubUserId"]),
 
+  githubRepositoryAuthorizations: defineTable({
+    eventId: v.id("events"),
+    teamId: v.id("teams"),
+    connectionId: v.id("githubInstallationConnections"),
+    personId: v.id("people"),
+    accessTokenCiphertext: v.string(),
+    expiresAt: v.number(),
+  }).index("by_connection_person", ["connectionId", "personId"]),
+
   githubInstallationConnections: defineTable({
     eventId: v.id("events"),
     teamId: v.id("teams"),
