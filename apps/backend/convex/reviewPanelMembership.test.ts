@@ -8,7 +8,7 @@ import {
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
 import { convexTest, type TestConvex } from "convex-test";
-import type { FunctionArgs } from "convex/server";
+import { makeFunctionReference, type FunctionArgs } from "convex/server";
 import { afterAll, describe, expect, test, vi } from "vitest";
 
 import { api, components, internal } from "./_generated/api";
@@ -19,6 +19,7 @@ import { defaultParticipantPolicy, participantPolicyChecksum } from "./lib/parti
 import { maximumReviewTeamsPerEvent } from "./lib/reviewLimits.ts";
 import { insertTeamRoundState } from "./lib/reviewQueueProjection.ts";
 import { createTestSubmissionSnapshot } from "./lib/testSubmissionSnapshot.ts";
+import { phaseScheduleChecksum, phaseWindowInput } from "./lib/phaseSchedule.ts";
 import schema from "./schema.ts";
 
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
@@ -3434,6 +3435,93 @@ describe("organizer review confirmation", () => {
     }
     await expect(f.operator.mutation(api.reviewConfirmations.recordForReviewer, args)).rejects.toThrow(message);
     expect(await f.backend.run(ctx => ctx.db.get(f.before.confirmationId))).toMatchObject({ status: "pending", version: 1 });
+  });
+});
+
+describe("pre-start roster recovery", () => {
+  const restore = makeFunctionReference<"mutation", {
+    eventSlug: string; roundId: Id<"reviewRounds">; snapshotAt: number; startsAt: number;
+    expectedRoundVersion: number; panels: { panelId: Id<"reviewPanels">; expectedVersion: number }[];
+    reason: string; clientOperationId: string;
+  }, { version: number }>("reviewRecovery:restoreBeforeStart");
+
+  test.each(["restore", "role", "version", "incomplete", "round-open"])("handles %s without rewriting review history", async mode => {
+    const backend = seededBackend();
+    const fixture = await seedPanel(backend);
+    const operator = asOperator(backend, fixture);
+    const now = Date.now();
+    const args = { eventSlug: fixture.eventSlug, roundId: fixture.roundId, snapshotAt: now - 500,
+      startsAt: now + 30 * 60_000, expectedRoundVersion: 1,
+      panels: [{ panelId: fixture.panelId, expectedVersion: 1 }],
+      reason: "Restore finalized panels before automatic removals", clientOperationId: "restore-finalized-panels" };
+    const original = await backend.run(async ctx => {
+      await ctx.db.patch(fixture.roundId, { status: "published", createdAt: now - 2000 });
+      const members = await ctx.db.query("reviewPanelMembers").withIndex("by_round_person_status", q => q.eq("roundId", fixture.roundId)).collect();
+      for (const member of members) await ctx.db.patch(member._id, { assignedAt: now - 1000 });
+      await insertPermissionGrant(ctx, { eventId: fixture.eventId, personId: fixture.operatorPersonId,
+        eventAccessSubjectId: fixture.operatorSubjectId, permissionKey: "round.manage", scopeType: "event",
+        sourceType: "manual", sourceId: "restore-test", reason: "Restore finalized panels" });
+      const seat = await ctx.db.get(fixture.memberId);
+      if (!seat) throw new Error("Missing seat");
+      if (mode === "restore") {
+        await ctx.db.patch(fixture.roundId, { stableKey: "review_1" });
+        const round = await ctx.db.get(fixture.roundId);
+        if (!round) throw new Error("Missing round");
+        const scheduleId = await ctx.db.insert("eventPhaseScheduleVersions", { eventId: fixture.eventId,
+          version: 1, status: "published", checksum: "fixture", createdByPersonId: fixture.operatorPersonId,
+          createdAt: now - 1000, publishedAt: now - 1000 });
+        const phaseKeys = ["introduction", "ideation", "intermediate_update", "review_1", "build", "final_update"] as const;
+        const boundaries = [round.startsAt - 180_000, round.startsAt - 120_000, round.startsAt - 60_000,
+          round.startsAt, round.endsAt, round.endsAt + 60_000, round.endsAt + 120_000];
+        for (const [index, phaseKey] of phaseKeys.entries()) await ctx.db.insert("eventPhaseWindows", {
+          eventId: fixture.eventId, scheduleVersionId: scheduleId, phaseKey, displayName: phaseKey,
+          description: "Fixture phase", startsAt: boundaries[index]!, endsAt: boundaries[index + 1]!,
+          displayOrder: index, status: "published", createdAt: now - 1000 });
+        const publishedWindows = await ctx.db.query("eventPhaseWindows").withIndex("by_schedule_order", q => q.eq("scheduleVersionId", scheduleId)).collect();
+        await ctx.db.patch(scheduleId, { checksum: phaseScheduleChecksum(publishedWindows.map(phaseWindowInput)) });
+        await ctx.db.patch(fixture.eventId, { publishedEventPhaseScheduleId: scheduleId });
+        await insertPermissionGrant(ctx, { eventId: fixture.eventId, personId: fixture.operatorPersonId,
+          eventAccessSubjectId: fixture.operatorSubjectId, permissionKey: "configuration.phase.publish", scopeType: "event",
+          sourceType: "manual", sourceId: "restore-phase-test", reason: "Restore review timing" });
+        await ctx.db.patch(seat._id, { status: "removed", endedAt: now - 1 });
+        const reserve = await ctx.db.query("eventAccessSubjects").withIndex("by_event_person", q => q.eq("eventId", fixture.eventId).eq("personId", fixture.reservePersonId)).unique();
+        if (!reserve) throw new Error("Missing reserve account");
+        await ctx.db.insert("reviewPanelMembers", { eventId: seat.eventId, roundId: seat.roundId, panelId: seat.panelId,
+          personId: fixture.reservePersonId, eventAccessSubjectId: reserve._id,
+          assignedCriterionIds: seat.assignedCriterionIds, seatSeniority: seat.seatSeniority,
+          isCoordinator: seat.isCoordinator, status: "active", assignedAt: now });
+      } else if (mode === "role") {
+        const role = await ctx.db.query("eventRoles").withIndex("by_event_person_status", q => q.eq("eventId", fixture.eventId).eq("personId", fixture.operatorPersonId).eq("status", "active")).unique();
+        if (!role) throw new Error("Missing role");
+        await ctx.db.patch(role._id, { role: "sc" });
+      } else if (mode === "version") await ctx.db.patch(fixture.panelId, { version: 2 });
+      else if (mode === "round-open") await ctx.db.patch(fixture.roundId, { status: "open" });
+      else await ctx.db.patch(fixture.memberId, { assignedAt: now });
+      return seat;
+    });
+    if (mode !== "restore") {
+      await expect(operator.mutation(restore, args)).rejects.toThrow();
+      expect(await backend.run(ctx => ctx.db.get(fixture.roundId))).not.toMatchObject({ startsAt: args.startsAt });
+      return;
+    }
+    const result = await operator.mutation(restore, args);
+    expect(await operator.mutation(restore, args)).toEqual(result);
+    await backend.run(async ctx => {
+      expect(await ctx.db.get(fixture.roundId)).toMatchObject({ startsAt: args.startsAt, reviewerReportAt: args.startsAt - 30_000, version: 2 });
+      const event = await ctx.db.get(fixture.eventId);
+      if (!event?.publishedEventPhaseScheduleId) throw new Error("Missing published timetable");
+      const phases = await ctx.db.query("eventPhaseWindows").withIndex("by_schedule_order", q => q.eq("scheduleVersionId", event.publishedEventPhaseScheduleId!)).collect();
+      expect(phases.find(p => p.phaseKey === "review_1")).toMatchObject({ startsAt: args.startsAt });
+      expect(phases.find(p => p.phaseKey === "intermediate_update")).toMatchObject({ endsAt: args.startsAt });
+      const schedules = await ctx.db.query("eventPhaseScheduleVersions").withIndex("by_event_version", q => q.eq("eventId", fixture.eventId)).collect();
+      expect(schedules.map(s => s.status)).toEqual(["superseded", "published"]);
+      const members = await ctx.db.query("reviewPanelMembers").withIndex("by_panel_status", q => q.eq("panelId", fixture.panelId).eq("status", "active")).collect();
+      expect(members).toHaveLength(3);
+      expect(members.find(m => m.personId === fixture.memberPersonId)).toMatchObject({ assignedCriterionIds: original.assignedCriterionIds, isCoordinator: original.isCoordinator, seatSeniority: original.seatSeniority });
+      expect(members.some(m => m.personId === fixture.reservePersonId)).toBe(false);
+      expect(await ctx.db.get(original._id)).toMatchObject({ status: "removed" });
+      expect(await ctx.db.query("reviewerClockIns").withIndex("by_round_person", q => q.eq("roundId", fixture.roundId)).collect()).toHaveLength(0);
+    });
   });
 });
 

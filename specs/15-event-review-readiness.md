@@ -62,6 +62,8 @@ Before a published round starts, ops can plan seats while confirmations are stil
 
 Team assignments are managed separately in **Project planning** (primary and backup panels) and the live queue (move, skip and restore). Roster editing does not silently redistribute teams or rewrite past scores.
 
+Before a published round has been used, Board-authorized recovery can restore a complete historical roster and postpone its start in one audited transaction. Every panel version must still match. The restore preserves original membership history, scoring duties, leads, actual clock-ins and availability responses; it updates the public timetable and moves the no-show deadline to the new start. Existing reviews or active substitute pages block recovery.
+
 Roster import, confirmation timing, round publication and phone registration are event setup tasks for the planned time. Their absence before that setup is not an implementation gap.
 
 ## Staffing capacity
