@@ -222,7 +222,7 @@ export const sweepOverdueCalls = internalMutation({
   args: { cursor: v.union(v.string(), v.null()) }, returns: v.null(),
   handler: async (ctx, args) => {
     const page = await ctx.db.query("participantServiceQueueEntries")
-      .withIndex("by_phase", (q) => q.eq("phase.status", "overdue"))
+      .filter((q) => q.eq(q.field("phase.status"), "overdue"))
       .paginate({ cursor: args.cursor, numItems: 25 });
     const now = Date.now();
     for (const entry of page.page) await enqueueOverdueOutingCall(ctx, entry._id, now);

@@ -1342,7 +1342,6 @@ export default defineSchema({
     phase: outingPhase,
   })
     .index("by_membership_kind", ["membershipId", "kind"])
-    .index("by_phase", ["phase.status"])
     .index("by_event_phase_joinedAt", ["eventId", "phase.status", "joinedAt"]),
 
   supportCases: defineTable({
