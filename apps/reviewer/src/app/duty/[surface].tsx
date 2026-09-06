@@ -10,6 +10,8 @@ import { useReviewerSession } from "@/components/ReviewerSession";
 import { dutyMeta } from "@/lib/duties";
 import type { Surface } from "@/lib/reviewer-surfaces";
 
+export { DutyErrorBoundary as ErrorBoundary } from "@/components/DutyErrorBoundary";
+
 export default function DutyRoute() {
   const { surface } = useLocalSearchParams<{ surface: string }>();
   const { canCreateSupport, canManageAttention, runtime, surfaces } = useReviewerSession();
@@ -33,7 +35,7 @@ function panelFor(
   canManageAttention: boolean,
 ) {
   if (surface === "reviews") return <ReviewPanel runtime={runtime} />;
-  if (surface === "attendance") return <ScannerPanel runtime={runtime} />;
+  if (surface === "attendance") return <ScannerPanel eventSlug={runtime.configuration.eventSlug} />;
   if (surface === "operations")
     return <PulsePanel canManage={canManageAttention} runtime={runtime} />;
   if (surface === "incidents") return <IncidentPanel runtime={runtime} />;
