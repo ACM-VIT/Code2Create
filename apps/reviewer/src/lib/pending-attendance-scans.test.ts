@@ -102,7 +102,7 @@ vi.mock("expo-sqlite", () => ({
   deleteDatabaseAsync: sqlite.deleteDatabaseAsync,
 }));
 
-import { enqueuePendingAttendanceScan, pendingAttendanceSummary } from "./pending-attendance-scans";
+import { enqueuePendingAttendanceScan, loadPendingAttendanceScans, pendingAttendanceSummary } from "./pending-attendance-scans";
 
 describe("pending attendance scan concurrency", () => {
   test("queues heartbeat reads and a second scan behind an in-flight insert", async () => {
@@ -134,6 +134,10 @@ describe("pending attendance scan concurrency", () => {
     expect(observedSummary.count).toBe(1);
     expect(sqlite.payloadCount()).toBe(2);
     expect(sqlite.maximumConcurrentTransactions()).toBe(1);
+    expect(await loadPendingAttendanceScans({ eventSlug, installationId, now })).toEqual([
+      expect.objectContaining({ deviceSequence: 1, rovingTransition: "venue_exit", movementReason: "meal" }),
+      expect.objectContaining({ deviceSequence: 2, rovingTransition: "venue_exit", movementReason: "meal" }),
+    ]);
   });
 });
 
@@ -144,6 +148,8 @@ function scanInput(args: { eventSlug: string; installationId: string; deviceSequ
     stationStableKey: "main_gate",
     expectedConfigurationVersion: 1,
     credential: { kind: "badge_qr" as const, bearer: "A".repeat(43) },
+    rovingTransition: "venue_exit" as const,
+    movementReason: "meal" as const,
     clientOperationId: `00000000-0000-4000-8000-${String(args.deviceSequence).padStart(12, "0")}`,
     deviceSequence: args.deviceSequence,
     capturedAt: 1_800_000_000_000 + args.deviceSequence,

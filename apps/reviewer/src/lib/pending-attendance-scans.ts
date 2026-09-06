@@ -1,4 +1,4 @@
-import { barcodeSymbologies } from "@code2create/domain";
+import { attendanceMovementReasons, barcodeSymbologies } from "@code2create/domain";
 import * as SQLite from "expo-sqlite";
 import { z } from "zod";
 
@@ -32,6 +32,7 @@ const pendingAttendanceScanSchema = z
     expectedConfigurationVersion: z.number().int().positive(),
     credential: pendingCredentialSchema,
     rovingTransition: scanTransitionSchema.optional(),
+    movementReason: z.enum(attendanceMovementReasons).optional(),
     clientOperationId: z.uuid(),
     deviceSequence: z.number().int().positive(),
     capturedAt: z.number().int().positive(),

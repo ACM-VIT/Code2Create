@@ -33,6 +33,59 @@ afterAll(() => {
 });
 
 describe("attendance scan direction", () => {
+  test("a dinner return after backfilled check-in succeeds without capacity or an exit scan", async () => {
+    const backend = seededBackend(); const fixture = await seedScannerFixture(backend, false);
+    await backend.run(async (ctx) => {
+      const policy = await ctx.db.query("outingPolicies").first();
+      if (!policy) throw new Error("Missing fixture policy");
+      await ctx.db.delete(policy._id);
+    });
+    const operator = asOperator(backend, fixture);
+    const request = { ...scanArguments(fixture), rovingTransition: "venue_entry" as const, movementReason: "meal" as const,
+      clientOperationId: "dinner-return", deviceSequence: 1 };
+    const result = await operator.mutation(internal.attendanceScan.recordScan, request);
+    expect(result).toMatchObject({ outcome: "accepted", transition: "venue_entry", nextState: "inside", movementReason: "meal" });
+    expect(result.outing).toBeUndefined();
+    expect(await operator.mutation(internal.attendanceScan.recordScan, request)).toEqual(result);
+    expect(await operator.mutation(internal.attendanceScan.recordScan, { ...request, clientOperationId: "rescan-return", deviceSequence: 2 }))
+      .toMatchObject({ outcome: "duplicate", nextState: "inside" });
+    expect(await backend.run((ctx) => ctx.db.query("participantServiceQueueEntries").collect())).toEqual([]);
+    expect(await backend.run((ctx) => ctx.db.query("attendancePresenceIntervals").collect())).toHaveLength(1);
+  });
+
+  test.each(["meal", "organizer_task", "other"] as const)("%s permits a general departure and a later return without a timer", async (movementReason) => {
+    const backend = seededBackend(); const fixture = await seedScannerFixture(backend, false);
+    await backend.run(async (ctx) => {
+      const policy = await ctx.db.query("outingPolicies").first();
+      if (!policy) throw new Error("Missing fixture policy");
+      await ctx.db.delete(policy._id);
+    });
+    const operator = asOperator(backend, fixture);
+    const request = { ...scanArguments(fixture), movementReason, rovingTransition: "venue_exit" as const,
+      clientOperationId: "general-departure", deviceSequence: 1 };
+    expect(await operator.mutation(internal.attendanceScan.recordScan, request)).toMatchObject({ outcome: "accepted", nextState: "temporarily_out", movementReason });
+    const clock = vi.spyOn(Date, "now").mockReturnValue(fixture.now + 90 * 60_000);
+    try {
+      const result = await operator.mutation(internal.attendanceScan.recordScan, { ...request, rovingTransition: "venue_entry",
+        capturedAt: Date.now(), deviceSequence: 2, clientOperationId: "later-return" });
+      expect(result).toMatchObject({ outcome: "accepted", nextState: "inside" });
+      expect(result.outing).toBeUndefined();
+      expect(await backend.run((ctx) => ctx.db.query("outboundCallDeliveries").collect())).toEqual([]);
+    } finally { clock.mockRestore(); }
+  });
+
+  test("an exit must explicitly identify its reason", async () => {
+    const backend = seededBackend(); const fixture = await seedScannerFixture(backend);
+    const { movementReason: _movementReason, ...base } = scanArguments(fixture);
+    for (const movementReason of [undefined, "general"] as const) {
+      await expect(asOperator(backend, fixture).mutation(internal.attendanceScan.recordScan, {
+        ...base, rovingTransition: "venue_exit", ...(movementReason ? { movementReason } : {}),
+        deviceSequence: 1, clientOperationId: "unspecified-reason",
+      })).rejects.toThrow("Choose a reason");
+    }
+    expect(await backend.run((ctx) => ctx.db.query("attendancePresenceEvents").collect())).toEqual([]);
+  });
+
   test("a scanner uses its automatic event policy without occupying a station", async () => {
     const backend = seededBackend();
     const fixture = await seedScannerFixture(backend);
@@ -95,9 +148,8 @@ describe("attendance scan direction", () => {
   test("a washroom scan without permission leaves attendance unchanged", async () => {
     const backend = seededBackend();
     const fixture = await seedScannerFixture(backend, false);
-    await seedCheckIn(backend, fixture);
     const operator = asOperator(backend, fixture);
-    const request = { ...scanArguments(fixture), clientOperationId: "no-permission", deviceSequence: 1 };
+    const request = { ...scanArguments(fixture), rovingTransition: "venue_exit" as const, clientOperationId: "no-permission", deviceSequence: 1 };
     const receipt = await operator.mutation(internal.attendanceScan.recordScan, request);
     expect(receipt).toMatchObject({ outcome: "rejected", reasonCode: "outing_required", outing: { status: "required" }, nextState: "inside" });
     expect(await backend.run((ctx) => ctx.db.query("attendanceVenueStates").first())).toBeNull();
@@ -112,7 +164,6 @@ describe("attendance scan direction", () => {
   test("scanning a queued person shows their position without marking them outside", async () => {
     const backend = seededBackend();
     const fixture = await seedScannerFixture(backend, false);
-    await seedCheckIn(backend, fixture);
     await backend.run(async (ctx) => {
       const membership = await ctx.db.get(fixture.membershipId);
       if (!membership) throw new Error("Missing participant");
@@ -122,7 +173,7 @@ describe("attendance scan direction", () => {
       });
     });
     const receipt = await asOperator(backend, fixture).mutation(internal.attendanceScan.recordScan, {
-      ...scanArguments(fixture), clientOperationId: "waiting", deviceSequence: 1,
+      ...scanArguments(fixture), rovingTransition: "venue_exit", clientOperationId: "waiting", deviceSequence: 1,
     });
     expect(receipt).toMatchObject({ outcome: "rejected", outing: { status: "waiting", position: 1 } });
     expect(await backend.run((ctx) => ctx.db.query("attendanceVenueStates").first())).toBeNull();
@@ -214,13 +265,14 @@ describe("attendance scan direction", () => {
     ).rejects.toThrow("transition is fixed");
   });
 
-  test("automatic presence requires a staffed check-in", async () => {
+  test("presence entry requires a staffed check-in", async () => {
     const backend = seededBackend();
-    const fixture = await seedScannerFixture(backend);
+    const fixture = await seedScannerFixture(backend, true, false);
     const result = await asOperator(backend, fixture).mutation(
       internal.attendanceScan.recordScan,
       {
         ...scanArguments(fixture),
+        rovingTransition: "venue_entry",
         clientOperationId: "roving-without-checkin",
         deviceSequence: 1,
       },
@@ -238,7 +290,6 @@ describe("attendance scan direction", () => {
     const backend = seededBackend();
     const fixture = await seedScannerFixture(backend);
     const operator = asOperator(backend, fixture);
-    await seedCheckIn(backend, fixture);
     expect(
       await operator.query(api.serviceQueues.forStation, {
         eventSlug: fixture.eventSlug,
@@ -247,7 +298,8 @@ describe("attendance scan direction", () => {
     ).toMatchObject({ waitingCount: 0, occupiedCount: 1, capacity: 15 });
     const request = {
       ...scanArguments(fixture),
-      clientOperationId: "automatic-departure",
+      clientOperationId: "deliberate-departure",
+      rovingTransition: "venue_exit" as const,
       deviceSequence: 1,
     };
     const departure = await operator.mutation(
@@ -283,7 +335,8 @@ describe("attendance scan direction", () => {
       const back = await operator.mutation(internal.attendanceScan.recordScan, {
         ...request,
         capturedAt: Date.now(),
-        clientOperationId: "automatic-return",
+        clientOperationId: "deliberate-return",
+        rovingTransition: "venue_entry",
         deviceSequence: 3,
       });
       expect(back).toMatchObject({
@@ -301,10 +354,9 @@ describe("attendance scan direction", () => {
     }
   });
 
-  test("automatic movement is never guessed from an unsent offline scan", async () => {
+  test("missing direction is never guessed from an unsent scan", async () => {
     const backend = seededBackend();
     const fixture = await seedScannerFixture(backend);
-    await seedCheckIn(backend, fixture);
     await expect(
       asOperator(backend, fixture).mutation(
         internal.attendanceScan.recordScan,
@@ -315,7 +367,7 @@ describe("attendance scan direction", () => {
           isOfflineReplay: true,
         },
       ),
-    ).rejects.toThrow("live connection");
+    ).rejects.toThrow("Choose Coming in or Going out");
     expect(
       await backend.run((ctx) => ctx.db.query("attendanceVenueStates").first()),
     ).toBeNull();
@@ -324,7 +376,6 @@ describe("attendance scan direction", () => {
   test("external physical cards resolve only through their active binding", async () => {
     const backend = seededBackend();
     const fixture = await seedScannerFixture(backend);
-    await seedCheckIn(backend, fixture);
     const operator = asOperator(backend, fixture);
     const request = {
       ...scanArguments(fixture),
@@ -332,6 +383,7 @@ describe("attendance scan direction", () => {
       lookupHash: "external-card-hmac",
       deviceSequence: 1,
       clientOperationId: "unlinked-card",
+      rovingTransition: "venue_exit" as const,
     };
     expect(
       await operator.mutation(internal.attendanceScan.recordScan, request),
@@ -881,6 +933,7 @@ function scanArguments(fixture: Fixture) {
     deviceSecretHash: fixture.deviceSecretHash,
     credentialKind: "vit_id_barcode" as const,
     lookupHash: fixture.lookupHash,
+    movementReason: "short_break" as const,
     capturedAt: fixture.now,
     isOfflineReplay: false,
   };
@@ -993,7 +1046,7 @@ async function insertExternalIdentityBinding(backend: BackendTest, fixture: Fixt
   );
 }
 
-async function seedScannerFixture(backend: BackendTest, withPermission = true) {
+async function seedScannerFixture(backend: BackendTest, withPermission = true, checkedIn = true) {
   // recordScan compares capture times with the current clock.
   const now = Date.now();
   const eventSlug = `attendance-scan-${crypto.randomUUID()}`;
@@ -1161,15 +1214,9 @@ async function seedScannerFixture(backend: BackendTest, withPermission = true) {
       operatorPersonId: operator.personId,
     };
   });
-  return {
-    ...seeded,
-    authSessionId,
-    authUserId,
-    deviceSecretHash,
-    eventSlug,
-    lookupHash,
-    now,
-  };
+  const fixture = { ...seeded, authSessionId, authUserId, deviceSecretHash, eventSlug, lookupHash, now };
+  if (checkedIn) await seedCheckIn(backend, fixture);
+  return fixture;
 }
 
 async function insertAccount(

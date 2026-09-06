@@ -26,7 +26,9 @@ The development client uses Metro, so it does not prove an over-the-air install 
 
 ## Washroom outings
 
-Set the maximum simultaneous outings in Ops → Check-in plan → Washroom outings before opening the door. The native Presence scanner checks the same permission shown on the participant dashboard. A free slot grants a 15-minute outing immediately; excess requests wait. ID scans show permission, queue position, or expiry and record the departure/return together with attendance. An outing starts at the exit scan. The matching return scan releases capacity; overdue participants remain counted. Automatic presence requires a live connection, and an unsent offline departure never authorizes an outing.
+In Presence, choose Coming in or Going out and a movement reason before scanning. The selection stays ready for the next person. Meals, organizer tasks and other general movements have no outing capacity requirement or return cutoff; Coming in also works when an earlier departure was not recorded. Staffed check-in and participant eligibility remain required.
+
+Set the maximum simultaneous short breaks in Ops → Check-in plan → Washroom outings. Only a departure explicitly marked Washroom / short break checks the permission shown on the participant dashboard and starts the 15-minute outing. A free slot grants permission immediately; excess requests wait. Short-break departures require a live connection. The matching return scan releases capacity; overdue participants remain counted and can receive the Sarvam return reminder. General departures never trigger that reminder.
 
 Rehearse with a small capacity: fill the slots, request one more outing, scan that waiting participant, return one permitted participant, and verify the next person is granted permission. Also check unused permission expiry, a late return, duplicate scans, and a lost scan response.
 

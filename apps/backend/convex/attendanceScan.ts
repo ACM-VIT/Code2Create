@@ -1,3 +1,4 @@
+import { attendanceMovementReasons, type AttendanceMovementReason } from "@code2create/domain";
 import { ConvexError, type Infer, v } from "convex/values";
 import { z } from "zod";
 
@@ -33,7 +34,7 @@ import {
   recordOperation,
   storedOperationResult,
 } from "./lib/operations";
-import { attendanceScanTransition, attendanceStationMode } from "./values";
+import { attendanceMovementReason, attendanceScanTransition, attendanceStationMode } from "./values";
 
 type Transition = Infer<typeof attendanceScanTransition>;
 type StationMode = Infer<typeof attendanceStationMode>;
@@ -66,6 +67,7 @@ type CredentialResolution =
   | { resolved: false; reasonCode: string };
 
 const receipt = v.object({
+  movementReason: v.optional(attendanceMovementReason),
   outing: v.optional(outingScanDecision),
   presenceEventId: v.id("attendancePresenceEvents"),
   outcome: v.union(
@@ -92,6 +94,7 @@ const receipt = v.object({
 });
 
 type Receipt = {
+  movementReason?: AttendanceMovementReason;
   outing?: Infer<typeof outingScanDecision>;
   presenceEventId: Id<"attendancePresenceEvents">;
   outcome: Outcome;
@@ -110,6 +113,7 @@ type Receipt = {
 
 const scanReceiptOperationResult = z
   .object({
+    movementReason: z.enum(attendanceMovementReasons).optional(),
     outcome: z.enum(["accepted", "duplicate", "rejected", "needs_review"]),
     reasonCode: z.string(),
     serverTime: z.number().int().nonnegative(),
@@ -133,6 +137,7 @@ const scanReceiptOperationResult = z
 
 function scanReceiptResultJson(result: Receipt) {
   return JSON.stringify({
+    ...(result.movementReason ? { movementReason: result.movementReason } : {}),
     outcome: result.outcome,
     reasonCode: result.reasonCode,
     serverTime: result.serverTime,
@@ -173,6 +178,7 @@ async function storedScanReceipt(
     : null;
   return {
     presenceEventId,
+    ...(stored.movementReason ? { movementReason: stored.movementReason } : {}),
     ...(stored.outing ? { outing: stored.outing } : {}),
     outcome: stored.outcome,
     reasonCode: stored.reasonCode,
@@ -256,7 +262,10 @@ function stationTransition(
   rovingTransition: Transition | undefined,
 ): Transition {
   if (mode === "roving") {
-    return rovingTransition ?? "venue_entry";
+    if (rovingTransition === undefined) {
+      throw new ConvexError({ code: "MOVEMENT_DIRECTION_REQUIRED", message: "Choose Coming in or Going out in the scanner. Update the app if these choices are missing." });
+    }
+    return rovingTransition;
   }
   if (rovingTransition !== undefined) {
     throw new ConvexError({
@@ -397,6 +406,7 @@ async function receiptForEvent(
   }
   return {
     presenceEventId: event._id,
+    ...(event.movementReason ? { movementReason: event.movementReason } : {}),
     ...(event.outing ? { outing: event.outing } : {}),
     outcome: event.outcome,
     reasonCode: event.reasonCode,
@@ -414,6 +424,7 @@ async function receiptForEvent(
 
 export const recordScan = internalMutation({
   args: {
+    movementReason: v.optional(attendanceMovementReason),
     eventSlug: v.string(),
     stationId: v.id("attendanceStations"),
     expectedConfigurationVersion: v.number(),
@@ -446,6 +457,7 @@ export const recordScan = internalMutation({
       args.rovingTransition ?? null,
       args.deviceSequence,
       args.capturedAt,
+      ...(args.movementReason !== undefined ? [args.movementReason] : []),
     ]);
     const prior = await findOperation(ctx, {
       eventId: event._id,
@@ -555,23 +567,11 @@ export const recordScan = internalMutation({
         message: "This credential method is not enabled at this station.",
       });
     }
-    const automaticMovement =
-      station.mode === "roving" && args.rovingTransition === undefined;
-    if (automaticMovement && args.isOfflineReplay) {
-      throw new ConvexError({
-        code: "AUTOMATIC_PRESENCE_ONLINE_REQUIRED",
-        message:
-          "Automatic presence needs a live connection. Scan the card again when online.",
-      });
+    const transition = stationTransition(station.mode, args.rovingTransition);
+    if (args.movementReason === undefined ||
+      ((transition === "venue_exit" || transition === "zone_exit") && args.movementReason === "general")) {
+      throw new ConvexError({ code: "MOVEMENT_REASON_REQUIRED", message: "Choose a reason for this movement. Update the app if the reason choices are missing." });
     }
-    if (automaticMovement && now - args.capturedAt > 15_000) {
-      throw new ConvexError({
-        code: "AUTOMATIC_PRESENCE_STALE",
-        message:
-          "This scan is too old to determine movement. Scan the card again.",
-      });
-    }
-    let transition = stationTransition(station.mode, args.rovingTransition);
     const usesSession =
       transition === "session_confirm" ||
       transition === "zone_entry" ||
@@ -602,8 +602,7 @@ export const recordScan = internalMutation({
       if (
         !membership ||
         membership.eventId !== event._id ||
-        membership.eligibilityStatus === "suspended" ||
-        membership.eligibilityStatus === "rejected" ||
+        membership.eligibilityStatus !== "eligible" ||
         membership.onboardingStatus !== "accepted"
       ) {
         rejectionReason = "participant_not_active";
@@ -663,48 +662,18 @@ export const recordScan = internalMutation({
               .eq("membershipId", activeMembership._id),
           )
           .unique();
-        const checkIn = automaticMovement
-          ? await latestVenueCheckIn(ctx, membership._id)
-          : null;
-        const initialDeparture =
-          automaticMovement &&
+        const checkIn = await latestVenueCheckIn(ctx, membership._id);
+        const initialDeparture = transition === "venue_exit" &&
           (!venueState || venueState.state === "not_arrived") &&
           checkIn?.status === "checked_in";
-        if (automaticMovement) {
-          transition =
-            venueState?.state === "inside" || initialDeparture
-              ? "venue_exit"
-              : "venue_entry";
-        }
         const previousState = initialDeparture
           ? "inside"
           : (venueState?.state ?? "not_arrived");
         decision = venueDecision(previousState, transition);
-        if (automaticMovement && checkIn?.status !== "checked_in") {
+        if (checkIn?.status !== "checked_in") {
           decision = {
             outcome: "rejected",
             reasonCode: "staffed_check_in_required",
-            previousState,
-            nextState: previousState,
-          };
-        }
-        const lastMovement =
-          automaticMovement && venueState?.lastEventId
-            ? await ctx.db.get(venueState.lastEventId)
-            : null;
-        if (
-          automaticMovement &&
-          decision.outcome === "accepted" &&
-          lastMovement &&
-          now - lastMovement.receivedAt < 15_000
-        ) {
-          transition =
-            lastMovement.transition === "venue_exit"
-              ? "venue_exit"
-              : "venue_entry";
-          decision = {
-            outcome: "duplicate",
-            reasonCode: "movement_already_recorded",
             previousState,
             nextState: previousState,
           };
@@ -772,6 +741,7 @@ export const recordScan = internalMutation({
     if (membership && decision?.outcome === "accepted" && !offlineReplayConflict) {
       const checked = await applyOutingScan(ctx, {
         eventId: event._id, membershipId: membership._id, transition,
+        movementReason: args.movementReason,
         isOfflineReplay: args.isOfflineReplay, now,
         ...(attendanceSession ? { sessionId: attendanceSession._id } : {}),
       });
@@ -801,6 +771,7 @@ export const recordScan = internalMutation({
         : undefined;
     const presenceEventId = await ctx.db.insert("attendancePresenceEvents", {
       eventId: event._id,
+      movementReason: args.movementReason,
       ...(outing ? { outing } : {}),
       sourceKind: "scanner",
       stationId: station._id,
