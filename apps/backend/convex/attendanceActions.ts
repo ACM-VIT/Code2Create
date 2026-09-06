@@ -591,7 +591,7 @@ async function barcodeLookupHash(args: {
   if (!args.allowedSymbologies.some((symbology) => symbology === args.symbology)) {
     throw new ConvexError({
       code: "BARCODE_NOT_ALLOWED",
-      message: "This VIT ID barcode format is not enabled for the event.",
+      message: "This ID barcode format is not enabled for the event.",
     });
   }
   if (args.normalizationVersion !== "trim-v1") {
@@ -605,7 +605,7 @@ async function barcodeLookupHash(args: {
   if (normalized.length === 0 || normalized.length > 512) {
     throw new ConvexError({
       code: "BARCODE_INVALID",
-      message: "The VIT ID barcode could not be read.",
+      message: "The ID barcode could not be read.",
     });
   }
   const key = await crypto.subtle.importKey(
@@ -1015,6 +1015,42 @@ export const resolveVitBarcode = action({
       lookupHash,
       symbology: args.symbology,
     });
+  },
+});
+
+export const resolveExternalIdBarcode = action({
+  args: {
+    ...staffedParticipantActionArgs,
+    rawBarcodeValue: v.string(),
+    symbology: barcodeSymbology,
+  },
+  returns: staffedParticipantResultValidator,
+  handler: async (ctx, args): Promise<StaffedParticipantResult> => {
+    const secretHash = await deviceSecretHash(args.deviceSecret);
+    const credential = await credentialKey(ctx, {
+      ...args,
+      deviceSecretHash: secretHash,
+      purpose: "setup",
+    });
+    const lookupHash = await barcodeLookupHash({
+      eventKey: credential.key,
+      kind: "external_id_barcode",
+      rawValue: args.rawBarcodeValue,
+      symbology: args.symbology,
+      allowedSymbologies: credential.barcodeSymbologies,
+      normalizationVersion: credential.barcodeNormalizationVersion,
+    });
+    return ctx.runMutation(
+      internal.attendanceCredentials.resolveExternalIdBarcode,
+      {
+        eventSlug: args.eventSlug,
+        stationId: args.stationId,
+        expectedConfigurationVersion: args.expectedConfigurationVersion,
+        deviceInstallationId: args.deviceInstallationId,
+        deviceSecretHash: secretHash,
+        lookupHash,
+      },
+    );
   },
 });
 
@@ -1688,7 +1724,7 @@ export const recordScan = action({
     deviceSecret: v.string(),
     credential: v.union(
       v.object({
-        kind: v.literal("vit_id_barcode"),
+        kind: v.union(v.literal("vit_id_barcode"), v.literal("external_id_barcode")),
         rawBarcodeValue: v.string(),
         symbology: barcodeSymbology,
       }),
@@ -1735,10 +1771,10 @@ export const recordScan = action({
       purpose: "scan",
     });
     const lookupHash =
-      args.credential.kind === "vit_id_barcode"
+      "rawBarcodeValue" in args.credential
         ? await barcodeLookupHash({
             eventKey: key.key,
-            kind: "vit_id_barcode",
+            kind: args.credential.kind,
             rawValue: args.credential.rawBarcodeValue,
             symbology: args.credential.symbology,
             allowedSymbologies: key.barcodeSymbologies,

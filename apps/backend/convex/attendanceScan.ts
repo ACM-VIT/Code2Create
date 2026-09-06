@@ -4,7 +4,10 @@ import { z } from "zod";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { internalMutation } from "./_generated/server";
-import { requireAssignedDevice, requireStationPermission } from "./lib/attendance";
+import {
+  requireAssignedDevice,
+  requireStationPermission,
+} from "./lib/attendance";
 import { appendAttendanceDeviceReadFactById } from "./lib/operationsAutonomyReadFacts/attendanceOperations";
 import { moveZoneCounter } from "./lib/attendanceCounters";
 import { moveAttendanceTeamAvailability } from "./lib/attendanceTeamAvailability";
@@ -13,6 +16,8 @@ import {
   offlineReplayTimeRejection,
   scannerCaptureFutureToleranceMs,
 } from "./lib/attendanceOfflineReplay";
+import { latestVenueCheckIn } from "./lib/venueCheckInLifecycle";
+import { deleteParticipantServiceQueueEntry } from "./lib/participantServiceQueue";
 import { updateActiveRollCallsForVenueChange } from "./lib/attendanceRollCalls";
 import {
   applySessionTransitionProjection,
@@ -32,6 +37,15 @@ import { attendanceScanTransition, attendanceStationMode } from "./values";
 type Transition = Infer<typeof attendanceScanTransition>;
 type StationMode = Infer<typeof attendanceStationMode>;
 type VenueTransition = Extract<Transition, "venue_entry" | "venue_exit">;
+function isSessionTransition(
+  transition: Transition,
+): transition is Exclude<Transition, VenueTransition> {
+  return (
+    transition === "session_confirm" ||
+    transition === "zone_entry" ||
+    transition === "zone_exit"
+  );
+}
 type Outcome = "accepted" | "duplicate" | "rejected" | "needs_review";
 type VenueState = Doc<"attendanceVenueStates">["state"];
 type SessionState = Doc<"attendanceSessionParticipants">["state"];
@@ -96,7 +110,13 @@ const scanReceiptOperationResult = z
     outcome: z.enum(["accepted", "duplicate", "rejected", "needs_review"]),
     reasonCode: z.string(),
     serverTime: z.number().int().nonnegative(),
-    transition: z.enum(["venue_entry", "venue_exit", "session_confirm", "zone_entry", "zone_exit"]),
+    transition: z.enum([
+      "venue_entry",
+      "venue_exit",
+      "session_confirm",
+      "zone_entry",
+      "zone_exit",
+    ]),
     previousState: z.string().optional(),
     nextState: z.string().optional(),
     participantMembershipId: z.string().min(1).nullable(),
@@ -109,7 +129,9 @@ function scanReceiptResultJson(result: Receipt) {
     reasonCode: result.reasonCode,
     serverTime: result.serverTime,
     transition: result.transition,
-    ...(result.previousState !== undefined ? { previousState: result.previousState } : {}),
+    ...(result.previousState !== undefined
+      ? { previousState: result.previousState }
+      : {}),
     ...(result.nextState !== undefined ? { nextState: result.nextState } : {}),
     participantMembershipId: result.participant?.membershipId ?? null,
   });
@@ -120,29 +142,44 @@ async function storedScanReceipt(
   targetId: string,
   resultJson: string | undefined,
 ): Promise<Receipt> {
-  const presenceEventId = ctx.db.normalizeId("attendancePresenceEvents", targetId);
-  if (!presenceEventId) throw new Error("The stored attendance scan result is invalid.");
-  const stored = storedOperationResult(resultJson, "attendance scan", scanReceiptOperationResult);
+  const presenceEventId = ctx.db.normalizeId(
+    "attendancePresenceEvents",
+    targetId,
+  );
+  if (!presenceEventId)
+    throw new Error("The stored attendance scan result is invalid.");
+  const stored = storedOperationResult(
+    resultJson,
+    "attendance scan",
+    scanReceiptOperationResult,
+  );
   const membershipId = stored.participantMembershipId
     ? ctx.db.normalizeId("eventMemberships", stored.participantMembershipId)
     : null;
   if (stored.participantMembershipId && !membershipId) {
     throw new Error("The stored attendance scan result is invalid.");
   }
-  const participant = membershipId ? await participantForReceipt(ctx, membershipId) : null;
+  const participant = membershipId
+    ? await participantForReceipt(ctx, membershipId)
+    : null;
   return {
     presenceEventId,
     outcome: stored.outcome,
     reasonCode: stored.reasonCode,
     serverTime: stored.serverTime,
     transition: stored.transition,
-    ...(stored.previousState !== undefined ? { previousState: stored.previousState } : {}),
+    ...(stored.previousState !== undefined
+      ? { previousState: stored.previousState }
+      : {}),
     ...(stored.nextState !== undefined ? { nextState: stored.nextState } : {}),
     participant,
   };
 }
 
-function venueDecision(state: VenueState, transition: VenueTransition): Decision {
+function venueDecision(
+  state: VenueState,
+  transition: VenueTransition,
+): Decision {
   if (transition === "venue_entry") {
     if (state === "inside") {
       return {
@@ -209,13 +246,7 @@ function stationTransition(
   rovingTransition: Transition | undefined,
 ): Transition {
   if (mode === "roving") {
-    if (rovingTransition === undefined) {
-      throw new ConvexError({
-        code: "ROVING_TRANSITION_REQUIRED",
-        message: "Choose the roving station's transition before scanning.",
-      });
-    }
-    return rovingTransition;
+    return rovingTransition ?? "venue_entry";
   }
   if (rovingTransition !== undefined) {
     throw new ConvexError({
@@ -230,10 +261,23 @@ async function resolveCredential(
   ctx: MutationCtx,
   args: {
     eventId: Id<"events">;
-    credentialKind: "vit_id_barcode" | "badge_qr" | "external_pass";
+    credentialKind:
+      "vit_id_barcode" | "external_id_barcode" | "badge_qr" | "external_pass";
     lookupHash: string;
   },
 ): Promise<CredentialResolution> {
+  if (args.credentialKind === "external_id_barcode") {
+    const binding = await ctx.db
+      .query("attendanceExternalIdentityBindings")
+      .withIndex("by_event_lookup", (q) =>
+        q.eq("eventId", args.eventId).eq("lookupHash", args.lookupHash),
+      )
+      .unique();
+    if (!binding || binding.state !== "active") {
+      return { resolved: false, reasonCode: "external_id_not_linked" };
+    }
+    return { resolved: true, membershipId: binding.membershipId };
+  }
   if (args.credentialKind === "external_pass") {
     const pass = await ctx.db
       .query("attendanceExternalPasses")
@@ -246,7 +290,9 @@ async function resolveCredential(
     }
     const identityBinding = await ctx.db
       .query("attendanceExternalIdentityBindings")
-      .withIndex("by_membership", (index) => index.eq("membershipId", pass.membershipId))
+      .withIndex("by_membership", (index) =>
+        index.eq("membershipId", pass.membershipId),
+      )
       .unique();
     if (
       !identityBinding ||
@@ -266,18 +312,22 @@ async function resolveCredential(
       index.eq("eventId", args.eventId).eq("lookupHash", args.lookupHash),
     )
     .collect();
-  const expectedKind = args.credentialKind === "vit_id_barcode" ? "vit_id_barcode" : "badge_qr";
+  const expectedKind =
+    args.credentialKind === "vit_id_barcode" ? "vit_id_barcode" : "badge_qr";
   const active = matches.filter(
-    (credential) => credential.kind === expectedKind && credential.state === "active",
+    (credential) =>
+      credential.kind === expectedKind && credential.state === "active",
   );
   if (active.length > 1) {
     throw new ConvexError({
       code: "CREDENTIAL_CONFLICT",
-      message: "Two credentials answer to this card. Send the participant to the help desk.",
+      message:
+        "Two credentials answer to this card. Send the participant to the help desk.",
     });
   }
   const credential = active[0];
-  if (!credential) return { resolved: false, reasonCode: "credential_not_found" };
+  if (!credential)
+    return { resolved: false, reasonCode: "credential_not_found" };
   return {
     resolved: true,
     membershipId: credential.membershipId,
@@ -285,14 +335,19 @@ async function resolveCredential(
   };
 }
 
-async function participantForReceipt(ctx: MutationCtx, membershipId: Id<"eventMemberships">) {
+async function participantForReceipt(
+  ctx: MutationCtx,
+  membershipId: Id<"eventMemberships">,
+) {
   const membership = await ctx.db.get(membershipId);
   if (!membership) return null;
   const [person, profile, teamMember] = await Promise.all([
     ctx.db.get(membership.personId),
     ctx.db
       .query("participantProfiles")
-      .withIndex("by_membership", (index) => index.eq("membershipId", membership._id))
+      .withIndex("by_membership", (index) =>
+        index.eq("membershipId", membership._id),
+      )
       .unique(),
     ctx.db
       .query("teamMembers")
@@ -320,7 +375,10 @@ async function receiptForEvent(
   ctx: MutationCtx,
   event: Doc<"attendancePresenceEvents">,
 ): Promise<Receipt> {
-  if (event.transition === "manual_reconcile" || event.outcome === "reconciled") {
+  if (
+    event.transition === "manual_reconcile" ||
+    event.outcome === "reconciled"
+  ) {
     throw new ConvexError({
       code: "RECEIPT_KIND_MISMATCH",
       message:
@@ -333,9 +391,13 @@ async function receiptForEvent(
     reasonCode: event.reasonCode,
     serverTime: event.receivedAt,
     transition: event.transition,
-    ...(event.previousState !== undefined ? { previousState: event.previousState } : {}),
+    ...(event.previousState !== undefined
+      ? { previousState: event.previousState }
+      : {}),
     ...(event.nextState !== undefined ? { nextState: event.nextState } : {}),
-    participant: event.membershipId ? await participantForReceipt(ctx, event.membershipId) : null,
+    participant: event.membershipId
+      ? await participantForReceipt(ctx, event.membershipId)
+      : null,
   };
 }
 
@@ -348,6 +410,7 @@ export const recordScan = internalMutation({
     deviceSecretHash: v.string(),
     credentialKind: v.union(
       v.literal("vit_id_barcode"),
+      v.literal("external_id_barcode"),
       v.literal("badge_qr"),
       v.literal("external_pass"),
     ),
@@ -408,16 +471,22 @@ export const recordScan = internalMutation({
       deviceInstallationId: args.deviceInstallationId,
       deviceSecretHash: args.deviceSecretHash,
     });
-    if (!args.isOfflineReplay && args.deviceSequence <= (device.lastSequence ?? 0)) {
+    if (
+      !args.isOfflineReplay &&
+      args.deviceSequence <= (device.lastSequence ?? 0)
+    ) {
       throw new ConvexError({
         code: "DEVICE_SEQUENCE_STALE",
-        message: "This scan is older than the scanner's latest accepted operation.",
+        message:
+          "This scan is older than the scanner's latest accepted operation.",
       });
     }
     const sameSequence = await ctx.db
       .query("attendancePresenceEvents")
       .withIndex("by_device_sequence", (index) =>
-        index.eq("deviceInstallationId", device._id).eq("deviceSequence", args.deviceSequence),
+        index
+          .eq("deviceInstallationId", device._id)
+          .eq("deviceSequence", args.deviceSequence),
       )
       .unique();
     if (sameSequence) {
@@ -465,15 +534,37 @@ export const recordScan = internalMutation({
         message: "This station assignment is not active.",
       });
     }
-    if (!station.allowedCredentialKinds.includes(args.credentialKind)) {
+    const stationCredentialKind =
+      args.credentialKind === "external_id_barcode"
+        ? "external_pass"
+        : args.credentialKind;
+    if (!station.allowedCredentialKinds.includes(stationCredentialKind)) {
       throw new ConvexError({
         code: "CREDENTIAL_NOT_ALLOWED_AT_STATION",
         message: "This credential method is not enabled at this station.",
       });
     }
-    const transition = stationTransition(station.mode, args.rovingTransition);
+    const automaticMovement =
+      station.mode === "roving" && args.rovingTransition === undefined;
+    if (automaticMovement && args.isOfflineReplay) {
+      throw new ConvexError({
+        code: "AUTOMATIC_PRESENCE_ONLINE_REQUIRED",
+        message:
+          "Automatic presence needs a live connection. Scan the card again when online.",
+      });
+    }
+    if (automaticMovement && now - args.capturedAt > 15_000) {
+      throw new ConvexError({
+        code: "AUTOMATIC_PRESENCE_STALE",
+        message:
+          "This scan is too old to determine movement. Scan the card again.",
+      });
+    }
+    let transition = stationTransition(station.mode, args.rovingTransition);
     const usesSession =
-      transition === "session_confirm" || transition === "zone_entry" || transition === "zone_exit";
+      transition === "session_confirm" ||
+      transition === "zone_entry" ||
+      transition === "zone_exit";
     if (usesSession && station.sessionId === undefined) {
       throw new ConvexError({
         code: "STATION_SESSION_REQUIRED",
@@ -491,7 +582,9 @@ export const recordScan = internalMutation({
     let attendanceSession: Doc<"attendanceSessions"> | null = null;
     let sessionParticipant: Doc<"attendanceSessionParticipants"> | null = null;
     let openInterval: Doc<"attendancePresenceIntervals"> | null = null;
-    let rejectionReason: string | null = resolved.resolved ? null : resolved.reasonCode;
+    let rejectionReason: string | null = resolved.resolved
+      ? null
+      : resolved.reasonCode;
 
     if (resolved.resolved) {
       membership = await ctx.db.get(resolved.membershipId);
@@ -503,10 +596,12 @@ export const recordScan = internalMutation({
         membership.onboardingStatus !== "accepted"
       ) {
         rejectionReason = "participant_not_active";
-      } else if (usesSession) {
+      } else if (isSessionTransition(transition)) {
         const activeMembership = membership;
         const session =
-          station.sessionId === undefined ? null : await ctx.db.get(station.sessionId);
+          station.sessionId === undefined
+            ? null
+            : await ctx.db.get(station.sessionId);
         attendanceSession = session;
         if (
           !session ||
@@ -530,7 +625,9 @@ export const recordScan = internalMutation({
             sessionParticipant = await ctx.db
               .query("attendanceSessionParticipants")
               .withIndex("by_session_membership", (index) =>
-                index.eq("sessionId", session._id).eq("membershipId", activeMembership._id),
+                index
+                  .eq("sessionId", session._id)
+                  .eq("membershipId", activeMembership._id),
               )
               .unique();
             if (!sessionParticipant) {
@@ -550,16 +647,68 @@ export const recordScan = internalMutation({
         venueState = await ctx.db
           .query("attendanceVenueStates")
           .withIndex("by_event_membership", (index) =>
-            index.eq("eventId", event._id).eq("membershipId", activeMembership._id),
+            index
+              .eq("eventId", event._id)
+              .eq("membershipId", activeMembership._id),
           )
           .unique();
-        decision = venueDecision(venueState?.state ?? "not_arrived", transition);
+        const checkIn = automaticMovement
+          ? await latestVenueCheckIn(ctx, membership._id)
+          : null;
+        const initialDeparture =
+          automaticMovement &&
+          (!venueState || venueState.state === "not_arrived") &&
+          checkIn?.status === "checked_in";
+        if (automaticMovement) {
+          transition =
+            venueState?.state === "inside" || initialDeparture
+              ? "venue_exit"
+              : "venue_entry";
+        }
+        const previousState = initialDeparture
+          ? "inside"
+          : (venueState?.state ?? "not_arrived");
+        decision = venueDecision(previousState, transition);
+        if (automaticMovement && checkIn?.status !== "checked_in") {
+          decision = {
+            outcome: "rejected",
+            reasonCode: "staffed_check_in_required",
+            previousState,
+            nextState: previousState,
+          };
+        }
+        const lastMovement =
+          automaticMovement && venueState?.lastEventId
+            ? await ctx.db.get(venueState.lastEventId)
+            : null;
+        if (
+          automaticMovement &&
+          decision.outcome === "accepted" &&
+          lastMovement &&
+          now - lastMovement.receivedAt < 15_000
+        ) {
+          transition =
+            lastMovement.transition === "venue_exit"
+              ? "venue_exit"
+              : "venue_entry";
+          decision = {
+            outcome: "duplicate",
+            reasonCode: "movement_already_recorded",
+            previousState,
+            nextState: previousState,
+          };
+        }
         if (decision.outcome === "accepted") {
           if (transition === "venue_exit") {
             openInterval = venueState?.currentIntervalId
               ? await ctx.db.get(venueState.currentIntervalId)
               : null;
-            if (!openInterval || openInterval.status !== "open" || openInterval.kind !== "venue") {
+            if (
+              !initialDeparture &&
+              (!openInterval ||
+                openInterval.status !== "open" ||
+                openInterval.kind !== "venue")
+            ) {
               decision = {
                 outcome: "needs_review",
                 reasonCode: "venue_interval_missing",
@@ -581,7 +730,9 @@ export const recordScan = internalMutation({
 
     let offlineReplayConflict = false;
     if (args.isOfflineReplay && decision?.outcome === "accepted") {
-      const priorEventId = usesSession ? sessionParticipant?.lastEventId : venueState?.lastEventId;
+      const priorEventId = usesSession
+        ? sessionParticipant?.lastEventId
+        : venueState?.lastEventId;
       const priorEvent = priorEventId ? await ctx.db.get(priorEventId) : null;
       if (priorEventId && (!priorEvent || priorEvent.eventId !== event._id)) {
         throw new ConvexError({
@@ -607,8 +758,11 @@ export const recordScan = internalMutation({
 
     const outcome: Outcome =
       decision?.outcome ??
-      (rejectionReason === "offline_scan_needs_reconciliation" ? "needs_review" : "rejected");
-    const reasonCode = decision?.reasonCode ?? rejectionReason ?? "scan_rejected";
+      (rejectionReason === "offline_scan_needs_reconciliation"
+        ? "needs_review"
+        : "rejected");
+    const reasonCode =
+      decision?.reasonCode ?? rejectionReason ?? "scan_rejected";
     const linkedEventId =
       decision?.outcome === "duplicate"
         ? (sessionParticipant?.lastEventId ?? venueState?.lastEventId)
@@ -636,7 +790,12 @@ export const recordScan = internalMutation({
       transition,
       outcome,
       reasonCode,
-      ...(decision ? { previousState: decision.previousState, nextState: decision.nextState } : {}),
+      ...(decision
+        ? {
+            previousState: decision.previousState,
+            nextState: decision.nextState,
+          }
+        : {}),
       ...(linkedEventId !== undefined ? { linkedEventId } : {}),
     });
 
@@ -646,7 +805,11 @@ export const recordScan = internalMutation({
       decision &&
       (decision.outcome === "accepted" || decision.outcome === "needs_review")
     ) {
-      if (usesSession && sessionParticipant && attendanceSession) {
+      if (
+        isSessionTransition(transition) &&
+        sessionParticipant &&
+        attendanceSession
+      ) {
         await applySessionTransitionProjection(ctx, {
           eventId: event._id,
           session: attendanceSession,
@@ -678,17 +841,24 @@ export const recordScan = internalMutation({
       if (!usesSession) {
         let currentIntervalId = venueState?.currentIntervalId;
         if (decision.outcome === "accepted" && transition === "venue_entry") {
-          currentIntervalId = await ctx.db.insert("attendancePresenceIntervals", {
-            eventId: event._id,
-            membershipId: membership._id,
-            zoneId: station.zoneId,
-            kind: "venue",
-            status: "open",
-            openedByEventId: presenceEventId,
-            openedAt: effectiveAt,
-          });
+          currentIntervalId = await ctx.db.insert(
+            "attendancePresenceIntervals",
+            {
+              eventId: event._id,
+              membershipId: membership._id,
+              zoneId: station.zoneId,
+              kind: "venue",
+              status: "open",
+              openedByEventId: presenceEventId,
+              openedAt: effectiveAt,
+            },
+          );
         }
-        if (decision.outcome === "accepted" && transition === "venue_exit" && openInterval) {
+        if (
+          decision.outcome === "accepted" &&
+          transition === "venue_exit" &&
+          openInterval
+        ) {
           await ctx.db.patch(openInterval._id, {
             status: "closed",
             closedByEventId: presenceEventId,
@@ -748,7 +918,9 @@ export const recordScan = internalMutation({
           previousVenue: venueState
             ? {
                 state: venueState.state,
-                ...(venueState.zoneId !== undefined ? { zoneId: venueState.zoneId } : {}),
+                ...(venueState.zoneId !== undefined
+                  ? { zoneId: venueState.zoneId }
+                  : {}),
               }
             : null,
           nextVenue: {
@@ -758,6 +930,20 @@ export const recordScan = internalMutation({
           now,
         });
       }
+    }
+    if (
+      membership &&
+      decision?.outcome === "accepted" &&
+      !usesSession &&
+      transition === "venue_exit"
+    ) {
+      const queueEntry = await ctx.db
+        .query("participantServiceQueueEntries")
+        .withIndex("by_membership_kind", (q) =>
+          q.eq("membershipId", membership._id).eq("kind", "outing_permission"),
+        )
+        .unique();
+      if (queueEntry) await deleteParticipantServiceQueueEntry(ctx, queueEntry);
     }
     await ctx.db.patch(device._id, {
       lastSeenAt: now,

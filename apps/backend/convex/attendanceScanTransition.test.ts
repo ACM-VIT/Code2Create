@@ -1,6 +1,8 @@
 import betterAuthSchema from "../node_modules/@convex-dev/better-auth/src/component/schema.ts";
 import { convexTest, type TestConvex } from "convex-test";
-import { afterAll, describe, expect, test } from "vitest";
+import aggregateTest from "@convex-dev/aggregate/test";
+import { insertParticipantServiceQueueEntry } from "./lib/participantServiceQueue";
+import { afterAll, describe, expect, test, vi } from "vitest";
 
 import { api, components, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -98,18 +100,270 @@ describe("attendance scan direction", () => {
     ).rejects.toThrow("transition is fixed");
   });
 
-  test("a roving station requires an explicit transition", async () => {
+  test("automatic presence requires a staffed check-in", async () => {
+    const backend = seededBackend();
+    const fixture = await seedScannerFixture(backend);
+    const result = await asOperator(backend, fixture).mutation(
+      internal.attendanceScan.recordScan,
+      {
+        ...scanArguments(fixture),
+        clientOperationId: "roving-without-checkin",
+        deviceSequence: 1,
+      },
+    );
+    expect(result).toMatchObject({
+      outcome: "rejected",
+      reasonCode: "staffed_check_in_required",
+    });
+    expect(
+      await backend.run((ctx) => ctx.db.query("attendanceVenueStates").first()),
+    ).toBeNull();
+  });
+
+  test("washroom scans clear the queue on departure and safely record return", async () => {
     const backend = seededBackend();
     const fixture = await seedScannerFixture(backend);
     const operator = asOperator(backend, fixture);
-
-    await expect(
-      operator.mutation(internal.attendanceScan.recordScan, {
-        ...scanArguments(fixture),
-        clientOperationId: "roving-without-transition",
-        deviceSequence: 1,
+    await seedCheckIn(backend, fixture);
+    await backend.run(async (ctx) => {
+      const member = await ctx.db.get(fixture.membershipId);
+      if (!member) throw new Error("Missing fixture participant");
+      await insertParticipantServiceQueueEntry(ctx, {
+        eventId: fixture.eventId,
+        membershipId: fixture.membershipId,
+        personId: member.personId,
+        kind: "outing_permission",
+        joinedAt: fixture.now,
+      });
+    });
+    expect(
+      await operator.query(api.serviceQueues.forStation, {
+        eventSlug: fixture.eventSlug,
+        stationId: fixture.stationId,
       }),
-    ).rejects.toThrow("Choose the roving station's transition");
+    ).toMatchObject({ waitingCount: 1 });
+    const request = {
+      ...scanArguments(fixture),
+      clientOperationId: "automatic-departure",
+      deviceSequence: 1,
+    };
+    const departure = await operator.mutation(
+      internal.attendanceScan.recordScan,
+      request,
+    );
+    expect(departure).toMatchObject({
+      outcome: "accepted",
+      transition: "venue_exit",
+      nextState: "temporarily_out",
+    });
+    expect(
+      await operator.query(api.serviceQueues.forStation, {
+        eventSlug: fixture.eventSlug,
+        stationId: fixture.stationId,
+      }),
+    ).toEqual({ waitingCount: 0, next: [] });
+    expect(
+      await operator.mutation(internal.attendanceScan.recordScan, {
+        ...request,
+        isOfflineReplay: true,
+      }),
+    ).toEqual(departure);
+    expect(
+      await operator.mutation(internal.attendanceScan.recordScan, {
+        ...request,
+        clientOperationId: "second-camera-decode",
+        deviceSequence: 2,
+      }),
+    ).toMatchObject({ outcome: "duplicate", nextState: "temporarily_out" });
+    const clock = vi.spyOn(Date, "now").mockReturnValue(fixture.now + 20_000);
+    try {
+      const back = await operator.mutation(internal.attendanceScan.recordScan, {
+        ...request,
+        capturedAt: Date.now(),
+        clientOperationId: "automatic-return",
+        deviceSequence: 3,
+      });
+      expect(back).toMatchObject({
+        outcome: "accepted",
+        transition: "venue_entry",
+        nextState: "inside",
+      });
+      expect(
+        await backend.run((ctx) =>
+          ctx.db.query("attendancePresenceIntervals").first(),
+        ),
+      ).toMatchObject({ kind: "venue", status: "open" });
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  test("automatic movement is never guessed from an unsent offline scan", async () => {
+    const backend = seededBackend();
+    const fixture = await seedScannerFixture(backend);
+    await seedCheckIn(backend, fixture);
+    await expect(
+      asOperator(backend, fixture).mutation(
+        internal.attendanceScan.recordScan,
+        {
+          ...scanArguments(fixture),
+          clientOperationId: "offline-automatic",
+          deviceSequence: 1,
+          isOfflineReplay: true,
+        },
+      ),
+    ).rejects.toThrow("live connection");
+    expect(
+      await backend.run((ctx) => ctx.db.query("attendanceVenueStates").first()),
+    ).toBeNull();
+  });
+
+  test("external physical cards resolve only through their active binding", async () => {
+    const backend = seededBackend();
+    const fixture = await seedScannerFixture(backend);
+    await seedCheckIn(backend, fixture);
+    const operator = asOperator(backend, fixture);
+    const request = {
+      ...scanArguments(fixture),
+      credentialKind: "external_id_barcode" as const,
+      lookupHash: "external-card-hmac",
+      deviceSequence: 1,
+      clientOperationId: "unlinked-card",
+    };
+    expect(
+      await operator.mutation(internal.attendanceScan.recordScan, request),
+    ).toMatchObject({
+      outcome: "rejected",
+      reasonCode: "external_id_not_linked",
+    });
+    const bindingId = await backend.run(async (ctx) => {
+      await ctx.db.patch(fixture.membershipId, {
+        participantClass: "external_participant",
+      });
+      return ctx.db.insert("attendanceExternalIdentityBindings", {
+        eventId: fixture.eventId,
+        membershipId: fixture.membershipId,
+        lookupHash: request.lookupHash,
+        barcodeSymbology: "code128",
+        version: 1,
+        state: "active",
+        linkedByPersonId: fixture.operatorPersonId,
+        linkedAt: fixture.now,
+        updatedAt: fixture.now,
+      });
+    });
+    expect(
+      await operator.mutation(internal.attendanceScan.recordScan, {
+        ...request,
+        clientOperationId: "linked-card",
+        deviceSequence: 2,
+      }),
+    ).toMatchObject({
+      outcome: "accepted",
+      transition: "venue_exit",
+      participant: { membershipId: fixture.membershipId },
+    });
+    await backend.run((ctx) => ctx.db.patch(bindingId, { state: "suspended" }));
+    expect(
+      await operator.mutation(internal.attendanceScan.recordScan, {
+        ...request,
+        clientOperationId: "suspended-card",
+        deviceSequence: 3,
+      }),
+    ).toMatchObject({
+      outcome: "rejected",
+      reasonCode: "external_id_not_linked",
+    });
+  });
+
+  test("configures an unused washroom station without changing an active check-in phone", async () => {
+    const backend = seededBackend();
+    const fixture = await seedScannerFixture(backend);
+    const operator = asOperator(backend, fixture);
+    const stationId = await backend.run(async (ctx) => {
+      const source = await ctx.db.get(fixture.stationId);
+      if (!source) throw new Error("Missing fixture station");
+      const {
+        _id: _stationId,
+        _creationTime: _createdAt,
+        deviceInstallationId: _deviceId,
+        ...station
+      } = source;
+      return ctx.db.insert("attendanceStations", {
+        ...station,
+        stableKey: "unused_phone",
+        status: "inactive",
+        mode: "venue_entry",
+      });
+    });
+    const request = {
+      eventSlug: fixture.eventSlug,
+      stationId,
+      expectedConfigurationVersion: 1,
+      mode: "roving" as const,
+      name: "Washroom 1",
+      reason: "Configure the washroom scanner",
+      clientOperationId: "configure-washroom-phone",
+    };
+    await expect(
+      operator.mutation(
+        api.attendanceSecurity.configurePresenceStation,
+        request,
+      ),
+    ).rejects.toThrow();
+    await backend.run(async (ctx) => {
+      const subject = await ctx.db
+        .query("eventAccessSubjects")
+        .withIndex("by_event_person", (q) =>
+          q
+            .eq("eventId", fixture.eventId)
+            .eq("personId", fixture.operatorPersonId),
+        )
+        .unique();
+      if (!subject) throw new Error("Missing operator");
+      await insertPermissionGrant(ctx, {
+        eventId: fixture.eventId,
+        personId: fixture.operatorPersonId,
+        eventAccessSubjectId: subject._id,
+        permissionKey: "attendance.station.manage",
+        scopeType: "event",
+        sourceType: "manual",
+        sourceId: "fixture",
+        grantedByPersonId: fixture.operatorPersonId,
+        reason: "Configure test stations",
+      });
+    });
+    const changed = await operator.mutation(
+      api.attendanceSecurity.configurePresenceStation,
+      request,
+    );
+    expect(changed).toEqual({ stationId, configurationVersion: 2 });
+    expect(
+      await operator.mutation(
+        api.attendanceSecurity.configurePresenceStation,
+        request,
+      ),
+    ).toEqual(changed);
+    await expect(
+      operator.mutation(api.attendanceSecurity.configurePresenceStation, {
+        ...request,
+        clientOperationId: "stale-configuration",
+      }),
+    ).rejects.toThrow("configuration changed");
+    await expect(
+      operator.mutation(api.attendanceSecurity.configurePresenceStation, {
+        ...request,
+        stationId: fixture.stationId,
+        clientOperationId: "occupied-configuration",
+      }),
+    ).rejects.toThrow("unused");
+    expect(
+      await backend.run((ctx) => ctx.db.get(fixture.stationId)),
+    ).toMatchObject({
+      status: "active",
+      configurationVersion: 1,
+      deviceInstallationId: fixture.deviceInstallationId,
+    });
   });
 
   test("a station rejects a credential method outside its allowlist", async () => {
@@ -501,6 +755,7 @@ describe("attendance scan direction", () => {
 function seededBackend() {
   const backend = convexTest(schema, modules);
   backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+  aggregateTest.register(backend, "participantServiceQueues");
   return backend;
 }
 
@@ -869,4 +1124,20 @@ function documentId(value: unknown, label: string): string {
     throw new Error(`${label} returned an invalid document ID.`);
   }
   return id;
+}
+
+async function seedCheckIn(backend: BackendTest, fixture: Fixture) {
+  await backend.run((ctx) =>
+    ctx.db.insert("venueCheckIns", {
+      eventId: fixture.eventId,
+      membershipId: fixture.membershipId,
+      stationId: fixture.stationId,
+      zoneId: fixture.zoneId,
+      checkedInByPersonId: fixture.operatorPersonId,
+      checkedInAt: fixture.now - 60_000,
+      identityCheckMethod: "vit_id",
+      status: "checked_in",
+      version: 1,
+    }),
+  );
 }

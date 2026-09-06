@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { allowedRovingTransitions, stationAcceptsCredential } from "./attendance-station-policy";
+import { allowedRovingTransitions, stationAcceptsCredential, physicalCardKind } from "./attendance-station-policy";
 
 describe("attendance station policy", () => {
   test("does not offer a direction picker at fixed stations", () => {
@@ -30,4 +30,12 @@ describe("attendance station policy", () => {
     expect(stationAcceptsCredential(allowed, "badge_qr")).toBe(true);
     expect(stationAcceptsCredential(allowed, "external_pass")).toBe(false);
   });
+});
+
+test("recognizes the printed graVITas external registration barcode", () => {
+  expect(physicalCardKind("GR2026001861")).toBe("external_id_barcode");
+  expect(physicalCardKind("  gr2026001861\n")).toBe("external_id_barcode");
+  expect(physicalCardKind("25BCE2164")).toBe("vit_id_barcode");
+  expect(stationAcceptsCredential(["external_pass"], "external_id_barcode")).toBe(true);
+  expect(stationAcceptsCredential(["vit_id_barcode"], "external_id_barcode")).toBe(false);
 });

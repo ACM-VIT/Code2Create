@@ -465,6 +465,7 @@ export const repositoryKind = v.union(
 );
 
 export const attendanceCredentialKind = v.union(
+  v.literal("external_id_barcode"),
   v.literal("vit_id_barcode"),
   v.literal("badge_qr"),
   v.literal("external_pass"),

@@ -69,6 +69,16 @@ The schedule may contain gaps, meals, rest periods, optional workshops, and over
 
 One plan contains at most 32 zones, 64 sessions, and 128 scanner stations. Sessions can overlap for different cohorts. An optional workshop can also overlap a broader hacking block. The system evaluates presence separately for each session. Draft creation, publication, and live extension reject a schedule in which one participant could match more than four simultaneous sessions or more than one simultaneous required session. It also verifies that each required participant has a physically possible zone and checkpoint path.
 
+### Washroom presence stations
+
+An unused venue station can be renamed and set to `roving` with `attendance.station.manage`. This updates that station's configuration version without retiring the published plan or other phones. Active or session-bound stations must not be repurposed by this command.
+
+Under **Presence**, a roving station without a bound session records movement as soon as an ID is read. The server decides the direction from the participant's current presence. A checked-in participant with no presence history starts with a departure. This does not invent a historical inside interval. Subsequent returns open an inside interval, and departures close it. People without staffed check-in must complete it first.
+
+A successful departure removes that person's outing queue entry in the same transaction, including its aggregate position. The next person's position updates immediately. Returns restore venue presence and team availability. The scanner shows the waiting count and next participant. Queue opening and closing follow the published phase schedule, with event dates used when no phase schedule exists. Participants cannot rejoin while recorded outside.
+
+Automatic movement needs a live connection. A second scan within 15 seconds is a duplicate and cannot reverse the first movement. Exact operation retries return the original receipt. An unsent offline or stale automatic scan is rejected rather than guessing a direction later. The operator taps **Scan next** after reading the result.
+
 ## 4. Participant credentials
 
 Code2Create does not issue a separate attendance card to the full participant population.
@@ -121,6 +131,8 @@ At first check-in, staff:
 2. compare the returned name, institution, and team with the participant and visible physical photo ID;
 3. scan the barcode on that physical ID and bind its event-scoped HMAC to the resolved membership;
 4. record staffed venue arrival.
+
+The graVITas external card uses a Code 128 barcode such as `GR2026001861`. The app recognizes this as an external physical ID, not a VIT student registration number. After the one-time email/pass lookup, photo-ID verification, and barcode link, this physical card works directly for staffed lookup and presence. Scans use the existing event-scoped external-ID fingerprint. The raw card value is not stored in the backend. A suspended or missing binding cannot record presence.
 
 If the external institution's ID has no readable supported barcode, the authorized email lookup plus visible photo-ID check can record arrival without creating a barcode binding. A physical-ID barcode can belong to only one active external membership. The system never stores or displays its raw value.
 

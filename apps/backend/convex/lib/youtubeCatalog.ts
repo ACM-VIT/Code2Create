@@ -11,15 +11,21 @@ const apiOrigin = "https://www.googleapis.com/youtube/v3";
 
 const videoIdPattern = /^[A-Za-z0-9_-]{11}$/;
 
-function youtubeApiKey() {
-  const key = process.env.YOUTUBE_API_KEY?.trim();
-  if (!key) {
+function youtubeApiKeys() {
+  const keys = [
+    process.env.YOUTUBE_API_KEY,
+    ...(process.env.YOUTUBE_API_FALLBACK_KEYS ?? "").split(","),
+  ]
+    .map((key) => key?.trim())
+    .filter((key): key is string => Boolean(key));
+  const uniqueKeys = [...new Set(keys)];
+  if (uniqueKeys.length === 0) {
     throw new ConvexError({
       code: "YOUTUBE_NOT_CONFIGURED",
       message: "YouTube search is not configured for this deployment.",
     });
   }
-  return key;
+  return uniqueKeys;
 }
 
 // YouTube occasionally pads a video search with an item whose id is empty.
@@ -98,34 +104,43 @@ export function youtubeDurationSeconds(value: string) {
 async function youtubeGet(path: string, parameters: Record<string, string>) {
   const url = new URL(`${apiOrigin}/${path}`);
   for (const [key, value] of Object.entries(parameters)) url.searchParams.set(key, value);
-  url.searchParams.set("key", youtubeApiKey());
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
-  let response: Response;
-  try {
-    response = await fetch(url, { signal: controller.signal });
-  } catch {
+  const apiKeys = youtubeApiKeys();
+  for (const [index, apiKey] of apiKeys.entries()) {
+    url.searchParams.set("key", apiKey);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
+    let response: Response;
+    try {
+      response = await fetch(url.toString(), { signal: controller.signal });
+    } catch {
+      throw new ConvexError({
+        code: "YOUTUBE_UNAVAILABLE",
+        message: "YouTube did not answer in time. Try again in a moment.",
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+    const body = await readBoundedJsonResponse(response, maximumResponseBytes).catch(() => null);
+    if (response.ok) return body;
+    const failure = quotaFailure.safeParse(body);
+    const reasons = failure.success ? (failure.data.error.errors ?? []).map((e) => e.reason) : [];
+    const quotaLimited =
+      response.status === 429 ||
+      reasons.includes("quotaExceeded") ||
+      reasons.includes("dailyLimitExceeded");
+    if (quotaLimited && index < apiKeys.length - 1) continue;
+    if (quotaLimited) {
+      throw new ConvexError({
+        code: "YOUTUBE_QUOTA",
+        message: "YouTube search has hit today's limit. Paste a video link instead.",
+      });
+    }
     throw new ConvexError({
       code: "YOUTUBE_UNAVAILABLE",
-      message: "YouTube did not answer in time. Try again in a moment.",
-    });
-  } finally {
-    clearTimeout(timer);
-  }
-  const body = await readBoundedJsonResponse(response, maximumResponseBytes).catch(() => null);
-  if (response.ok) return body;
-  const failure = quotaFailure.safeParse(body);
-  const reasons = failure.success ? (failure.data.error.errors ?? []).map((e) => e.reason) : [];
-  if (reasons.includes("quotaExceeded") || reasons.includes("dailyLimitExceeded")) {
-    throw new ConvexError({
-      code: "YOUTUBE_QUOTA",
-      message: "YouTube search has hit today's limit. Paste a video link instead.",
+      message: `YouTube search failed (${response.status}).`,
     });
   }
-  throw new ConvexError({
-    code: "YOUTUBE_UNAVAILABLE",
-    message: `YouTube search failed (${response.status}).`,
-  });
+  throw new Error("YouTube API key resolution returned no keys.");
 }
 
 function clip(value: string, maximum: number) {

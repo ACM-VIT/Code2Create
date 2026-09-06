@@ -545,6 +545,55 @@ describe("staffed venue check-in lifecycle", () => {
       });
     });
   });
+  test("a linked external card can prove identity again without repeating enrollment", async () => {
+    const now = Date.now();
+    const backend = convexTest(schema, modules);
+    const fixture = await seedFixture(backend, now);
+    await backend.run(async (ctx) => {
+      const resolutionId = await createStaffedParticipantResolution(ctx, {
+        eventId: fixture.eventId,
+        membershipId: fixture.memberMembershipId,
+        resolutionMethod: "external_id_barcode",
+        stationId: fixture.stationId,
+        deviceInstallationId: fixture.deviceInstallationId,
+        resolvedByPersonId: fixture.operatorPersonId,
+        now,
+      });
+      const bindingId = await ctx.db.insert(
+        "attendanceExternalIdentityBindings",
+        {
+          eventId: fixture.eventId,
+          membershipId: fixture.memberMembershipId,
+          lookupHash: "external-card-hmac",
+          barcodeSymbology: "code128",
+          version: 1,
+          state: "active",
+          linkedByPersonId: fixture.operatorPersonId,
+          linkedAt: now,
+          updatedAt: now,
+        },
+      );
+      const resolution = await ctx.db.get(resolutionId);
+      const membership = await ctx.db.get(fixture.memberMembershipId);
+      if (!resolution || !membership)
+        throw new Error("Missing fixture identity");
+      await requireStaffedVenueIdentityEvidence(ctx, {
+        eventId: fixture.eventId,
+        membership,
+        resolution,
+        identityCheckKind: "class_id",
+      });
+      await ctx.db.patch(bindingId, { state: "suspended" });
+      await expect(
+        requireStaffedVenueIdentityEvidence(ctx, {
+          eventId: fixture.eventId,
+          membership,
+          resolution,
+          identityCheckKind: "class_id",
+        }),
+      ).rejects.toThrow("not actively linked");
+    });
+  });
 });
 
 async function seedFixture(backend: BackendTest, now: number) {

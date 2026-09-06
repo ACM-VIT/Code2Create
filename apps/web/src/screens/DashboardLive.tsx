@@ -79,7 +79,8 @@ export function DashboardLive({
   const queue = useQuery(api.participantReview.current, queueAllowed ? { eventSlug } : "skip",
   );
   const mintReviewCode = useMutation(api.participantReview.mintTeamQr);
-  const serviceQueues = useQuery(api.serviceQueues.current, { eventSlug });
+  const serviceQueueWindows = useQuery(api.serviceQueues.current, { eventSlug });
+  const serviceQueues = serviceQueueWindows?.filter(queue => phaseTime >= queue.opensAt && phaseTime < queue.closesAt);
   const joinServiceQueue = useMutation(api.serviceQueues.join);
   const leaveServiceQueue = useMutation(api.serviceQueues.leave);
   const supportAllowed = capabilities?.supportRead ?? false;
