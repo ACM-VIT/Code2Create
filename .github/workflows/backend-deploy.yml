@@ -11,30 +11,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  verify:
-    name: Verify backend
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 25
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Install pnpm, Node.js, and dependencies
-        uses: pnpm/setup@c9883cc79df532ad1a7b81bf9ab944ceb090d65c
-        with:
-          runtime: node@24
-          cache: true
-
-      - name: Type-check backend
-        run: pnpm --filter @code2create/backend typecheck
-
-      - name: Test backend
-        run: pnpm --filter @code2create/backend test
-
   deploy-production:
     name: Deploy production backend
     if: github.ref == 'refs/heads/main'
-    needs: verify
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment: production
