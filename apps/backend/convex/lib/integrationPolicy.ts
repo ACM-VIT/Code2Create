@@ -65,7 +65,7 @@ export function integrationPolicyChecksum(policy: IntegrationPolicy) {
   return fingerprintText(JSON.stringify(normalizeIntegrationPolicy(policy)));
 }
 
-function integrationPolicyDocumentChecksum(policy: Doc<"integrationPolicyVersions">) {
+export function integrationPolicyDocumentChecksum(policy: Doc<"integrationPolicyVersions">) {
   const normalized = normalizeIntegrationPolicy(integrationPolicyFromDocument(policy));
   if (policy.maxActiveFigmaFilesPerTeam === undefined) {
     return integrationPolicyChecksum(normalized);
