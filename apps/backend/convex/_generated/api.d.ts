@@ -331,6 +331,7 @@ import type * as system from "../system.js";
 import type * as teamRosters from "../teamRosters.js";
 import type * as teams from "../teams.js";
 import type * as values from "../values.js";
+import type * as venueDisplay from "../venueDisplay.js";
 import type * as workpools from "../workpools.js";
 
 import type {
@@ -663,6 +664,7 @@ declare const fullApi: ApiFromModules<{
   teamRosters: typeof teamRosters;
   teams: typeof teams;
   values: typeof values;
+  venueDisplay: typeof venueDisplay;
   workpools: typeof workpools;
 }>;
 

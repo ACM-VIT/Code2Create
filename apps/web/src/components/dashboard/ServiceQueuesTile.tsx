@@ -197,7 +197,7 @@ export function ServiceQueuesTile({ slot, model }: { slot: Slot; model: ServiceQ
   return (
     <Tile slot={slot}>
       <div className={`${tileBody} queue-body !gap-2`}>
-        <TileEyebrow>queues</TileEyebrow>
+        <TileEyebrow>request queue</TileEyebrow>
         {outingQueue ? (
           <OutingQueue
             service={outingQueue}

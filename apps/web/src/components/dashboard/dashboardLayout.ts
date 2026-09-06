@@ -3,7 +3,7 @@
  * one named-area template over those slots, and opening a tile swaps in a
  * template where its slot takes the big spot. Which tile sits in which slot
  * is decided by relevance: `composeDashboard` ranks whatever tiles exist and
- * seats the top seven, most relevant in the most prominent slot.
+ * reserves required tiles, then seats the most relevant remaining tiles.
  */
 export const slots = ["hero", "feature", "rose", "blossom", "garden", "center", "small"] as const;
 
@@ -138,12 +138,15 @@ export const slotShape: Record<Slot, SlotShape> = {
 export type Candidate = {
   key: TileKey;
   score: number;
+  /** Always keep a seat, without overriding the score used for placement. */
+  required?: boolean;
   /** Slot shapes the tile reads best in, best first; any shape as a last resort. */
   prefer: readonly SlotShape[];
 };
 
 /**
- * Seats the seven most relevant tiles, most relevant in the most prominent
+ * Reserves seats for required tiles, then fills the remaining seats by score.
+ * The selected tiles are placed by score, most relevant in the most prominent
  * slot. Shape preference can move a tile by one place at most: it takes the
  * best-fitting of the next two free slots, so a headline never falls to the
  * bottom because the wide spots ran out, and nothing quiet lands in a tall
@@ -153,8 +156,12 @@ export type Candidate = {
 export function composeDashboard(candidates: readonly Candidate[]): Partial<Record<TileKey, Slot>> {
   const ranked = candidates
     .map((candidate, index) => ({ ...candidate, index }))
-    .sort((left, right) => right.score - left.score || left.index - right.index)
-    .slice(0, slots.length);
+    .sort((left, right) =>
+      Number(right.required ?? false) - Number(left.required ?? false) ||
+      right.score - left.score || left.index - right.index,
+    )
+    .slice(0, slots.length)
+    .sort((left, right) => right.score - left.score || left.index - right.index);
   const free = [...slots];
   const seating: Partial<Record<TileKey, Slot>> = {};
   for (const candidate of ranked) {

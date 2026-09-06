@@ -221,8 +221,8 @@ Versioned event configuration supplies `maxActiveGitHubRepositoriesPerTeam` afte
 
 1. A team lead selects **Connect GitHub**.
 2. The portal creates a one-use setup intent bound to event, team, person, and return route.
-3. GitHub opens the App installation or repository-selection flow.
-4. The callback validates the intent and resolves the installation.
+3. GitHub opens user authorization, including for an already-installed App. The callback lists accessible, non-suspended installations of this App and offers installation on another account.
+4. The lead selects an account. A fresh account-bound authorization verifies their current access to that exact installation before connecting it. New installations use the installation callback. OAuth user tokens remain only in action memory, never browser storage or the database.
 5. The portal lists only repositories currently granted to that installation.
 6. **Add repository** asks for repository, tracked branch, optional project root, kind, custom kind when needed, purpose, and display order.
 7. The backend verifies the event cap and that the repository is not already bound to another team in the event.
@@ -236,7 +236,7 @@ One `teamIntegration` owns the ordered repository set. A GitHub installation can
 
 The backend signs a short-lived GitHub App JWT and mints an installation access token restricted to the repository needed by that job and to read permissions. Installation tokens expire after one hour. Mint one for a provider job, keep it only in action memory, and discard it after the call.
 
-Every REST request sends `Accept: application/vnd.github+json` and the pinned `X-GitHub-Api-Version: 2026-03-10` header. Each request receives a fresh 30-second abort deadline. Setup verifies the exact returned installation instead of enumerating a user's installations. Repository discovery reads 50 repositories at a time and returns an explicit continuation; the browser loads another page only on request. The API version is upgraded only after fixture and staging checks pass.
+Every REST request sends `Accept: application/vnd.github+json` and the pinned `X-GitHub-Api-Version: 2026-03-10` header. Each request receives a fresh 30-second abort deadline. Initial authorization discovers user-accessible installations in pages of 100 (at most 10 pages, with an explicit error rather than a truncated selection). Account selection verifies the exact installation again using a fresh user token. Repository discovery reads 50 repositories at a time and returns an explicit continuation; the browser loads another page only on request. The API version is upgraded only after fixture and staging checks pass.
 
 ### Webhook fast path
 

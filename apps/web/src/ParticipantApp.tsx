@@ -11,7 +11,6 @@ import { PetalCard } from "./components/portal/PetalCard";
 import { PortalButton, PortalTextButton } from "./components/portal/PortalButton";
 import { PortalError } from "./components/portal/PortalField";
 import { PortalScene } from "./components/portal/PortalScene";
-import { showcaseSamples } from "./lib/showcaseSamples";
 import { clientConfiguration, eventSlug } from "./lib/config";
 import { readableError } from "./lib/errors";
 import { useOperationRunner } from "./lib/operations";
@@ -456,7 +455,8 @@ export function ParticipantApp({
     );
   }
 
-  // ---- showcase: the project wall (sample projects until submissions feed it)
+  // No published-project feed exists yet. Keep the live wall empty; proposal
+  // and checkpoint data are private and must not be used as a gallery feed.
   if (location.pathname === "/showcase") {
     if (!acceptedFeatures) return <Navigate replace to="/" />;
     return (
@@ -466,7 +466,7 @@ export function ParticipantApp({
           members={teamMembers.results}
           teamEditable={teamEditable}
           onSignOut={signOut}
-          projects={showcaseSamples}
+          projects={[]}
         />
       </Suspense>
     );

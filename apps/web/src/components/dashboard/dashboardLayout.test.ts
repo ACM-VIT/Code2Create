@@ -53,6 +53,21 @@ test("ties keep the order the caller gave", () => {
   assert.equal(seating.benefits, undefined);
 });
 
+test("required tiles keep a seat even when every optional tile scores higher", () => {
+  const seating = composeDashboard(tileKeys.map((key, index) => ({
+    key,
+    score: key === "queues" ? 0 : 100 - index,
+    required: key === "queues",
+    prefer: [],
+  })));
+  assert.notEqual(seating.queues, undefined);
+  assert.equal(seating.event, "hero", "reserving the queue does not take the hero from urgent content");
+  assert.equal(seating.help, undefined);
+  assert.equal(seating.benefits, undefined);
+  assert.equal(Object.keys(seating).length, slots.length);
+  assert.equal(new Set(Object.values(seating)).size, slots.length);
+});
+
 test("areas render as quoted rows", () => {
   assert.equal(areasValue({ columns: "", rows: "", areas: ["a b", "c d"] }), '"a b" "c d"');
 });
