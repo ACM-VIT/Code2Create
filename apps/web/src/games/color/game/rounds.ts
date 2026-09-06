@@ -1,3 +1,4 @@
+import { shuffled } from "../../../lib/shuffle.ts";
 import type { HsvColor } from "./color.ts";
 
 /**
@@ -11,12 +12,14 @@ import type { HsvColor } from "./color.ts";
  * The first two rounds are always the event's own pinks: it is a blossom portal,
  * and a player should meet the colour they already know before the game starts
  * asking for ones they do not.
+ *
+ * A round's label is what the colour is called, and it is kept back until the
+ * guess is in: the game is played by eye, and a name to mix towards is the
+ * answer handed over.
  */
 
 export type ColorRound = {
-  readonly id: string;
   readonly label: string;
-  readonly hint: string;
   readonly target: HsvColor;
 };
 
@@ -40,27 +43,9 @@ const others: readonly { id: string; label: string; target: HsvColor }[] = [
   { id: "cinnabar", label: "cinnabar", target: { hue: 4, saturation: 80, value: 90 } },
 ];
 
-function shuffled<T>(items: readonly T[], random: () => number): T[] {
-  const list = [...items];
-  for (let index = list.length - 1; index > 0; index -= 1) {
-    const swap = Math.floor(random() * (index + 1));
-    const current = list[index];
-    const other = list[swap];
-    if (current === undefined || other === undefined) continue;
-    list[index] = other;
-    list[swap] = current;
-  }
-  return list;
-}
-
 /** Five rounds: two of the event's pinks, then three of everything else. */
 export function chooseRounds(random: () => number = Math.random): ColorRound[] {
   const pink = shuffled(pinks, random).slice(0, 2);
   const rest = shuffled(others, random).slice(0, roundsPerGame - 2);
-  return [...pink, ...rest].map((round, index) => ({
-    id: `${index + 1}-${round.id}`,
-    label: round.label,
-    hint: `Hold the ${round.label} in mind, then mix it back.`,
-    target: round.target,
-  }));
+  return [...pink, ...rest].map((round) => ({ label: round.label, target: round.target }));
 }

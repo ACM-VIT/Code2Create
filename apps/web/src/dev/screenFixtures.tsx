@@ -2085,6 +2085,8 @@ function ArcadeFixture() {
   return (
     <ArcadeView
       header={account}
+      // Catalogue order, not the live screen's shuffle: a gallery screen that
+      // dealt itself differently every time could not be compared to itself.
       tiles={gameCatalogue.map((game) => (
         <GameTile
           key={game.key}

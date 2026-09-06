@@ -21,6 +21,7 @@ import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 import { useMediaQuery } from '../lib/useMediaQuery'
 import { createRoundRecorder } from '../lib/gameRounds'
+import { shuffled } from '../lib/shuffle'
 import { formatGameScore } from '../lib/gameScore'
 import { shortPlayerName } from '../lib/playerName'
 
@@ -61,7 +62,7 @@ export function ArcadeView({
   children,
 }: {
   header: ReactNode
-  tiles: ReactNode
+  tiles: readonly ReactNode[]
   standings: ReactNode
   children?: ReactNode
 }) {
@@ -77,15 +78,58 @@ export function ArcadeView({
           </p>
         </header>
 
-        <section aria-label="Games" className="mt-5 grid flex-none grid-cols-1 gap-4 sm:grid-cols-3 lg:gap-5">
-          {tiles}
-        </section>
+        <CabinetRow tiles={tiles} />
         <section aria-label="Leaderboards" className="mt-4 flex min-h-0 flex-col lg:mt-5">
           {standings}
         </section>
       </div>
       {children}
     </PortalScene>
+  )
+}
+
+/**
+ * The cabinets, three at a time, with a way along the row.
+ *
+ * The row is three wide however many games there are, so a fourth game widens
+ * nothing and pushes nothing off: it waits one step along. The arrows wrap, so
+ * the row has no end to be stopped at — an arcade is walked past, not paged
+ * through.
+ *
+ * A phone has one column, so it shows one cabinet: three stacked would leave
+ * the arrows adrift beside a screen-and-a-half of scrolling, which is no way
+ * to reach the next game.
+ */
+function CabinetRow({ tiles }: { tiles: readonly ReactNode[] }) {
+  const [first, setFirst] = useState(0)
+  const inARow = useMediaQuery('(min-width: 640px)') ? 3 : 1
+  const walkable = tiles.length > inARow
+  const step = (by: number) => setFirst((current) => (current + by + tiles.length) % tiles.length)
+  const shown = walkable
+    ? Array.from({ length: inARow }, (_, offset) => tiles[(first + offset) % tiles.length])
+    : tiles
+  return (
+    <section aria-label="Games" className="mt-5 flex flex-none items-stretch gap-2 lg:gap-3">
+      {walkable ? <CabinetArrow direction="back" onClick={() => step(-1)} /> : null}
+      <div className="grid min-w-0 flex-1 grid-cols-1 gap-4 sm:grid-cols-3 lg:gap-5">{shown}</div>
+      {walkable ? <CabinetArrow direction="on" onClick={() => step(1)} /> : null}
+    </section>
+  )
+}
+
+/** One end of the row: a disc, drawn like the room's own. */
+function CabinetArrow({ direction, onClick }: { direction: 'back' | 'on'; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={direction === 'back' ? 'Earlier games' : 'Later games'}
+      className="arcade-arrow my-auto grid size-9 flex-none place-items-center rounded-full border border-petal-line bg-wash/60 text-fg/60 transition-[background-color,color,border-color] duration-300 hover:border-rose-light hover:bg-rose-light/20 hover:text-fg focus-visible:border-rose-light focus-visible:outline-none"
+    >
+      <svg viewBox="0 0 24 24" aria-hidden className="size-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        {direction === 'back' ? <path d="M15 5l-7 7 7 7" /> : <path d="M9 5l7 7-7 7" />}
+      </svg>
+    </button>
   )
 }
 
@@ -447,12 +491,18 @@ export function LeaderboardPanel({
  */
 export function GamesScreen({ header }: { header: ReactNode }) {
   const [playing, setPlaying] = useState<GameEntry | null>(null)
+  // The standings list every board in catalogue order — that list is looked
+  // things up in, and a picker that moves is a picker you cannot learn.
   const boards = useMemo(() => boardsOf(games), [])
+  // The row is dealt afresh each visit, so the three cabinets standing in front
+  // of you are not always the same three. Fixed for the life of the screen: a
+  // row that reshuffled under a click would be a trick, not a shuffle.
+  const row = useMemo(() => shuffled(games), [])
 
   return (
     <ArcadeView
       header={header}
-      tiles={games.map((game) => (
+      tiles={row.map((game) => (
         <GameTileLive key={game.key} game={game} onPlay={() => setPlaying(game)} />
       ))}
       standings={<StandingsColumnLive boards={boards} />}

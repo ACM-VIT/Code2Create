@@ -39,18 +39,25 @@ test("every round carries a target inside its channels' ranges", () => {
     assert.ok(hue >= 0 && hue <= 360, `${round.label} hue ${hue}`);
     assert.ok(saturation >= 0 && saturation <= 100, `${round.label} saturation ${saturation}`);
     assert.ok(value >= 0 && value <= 100, `${round.label} value ${value}`);
-    assert.ok(round.hint.length > 0, `${round.label} has no hint`);
   }
 });
 
-test("ids are unique so React keys hold even when a colour repeats across games", () => {
-  const ids = chooseRounds(sequence([0])).map((round) => round.id);
-  assert.equal(new Set(ids).size, roundsPerGame);
+test("a round never says what its colour is called until the guess is in", () => {
+  // The label is the answer in words. Anything the board shows before the guess
+  // is submitted is built here, so nothing here may carry it.
+  for (const round of chooseRounds()) {
+    const shownBeforeGuessing = { target: round.target };
+    assert.equal(
+      JSON.stringify(shownBeforeGuessing).toLowerCase().includes(round.label.toLowerCase()),
+      false,
+      `${round.label} leaks into what the board shows while it is being mixed`,
+    );
+  }
 });
 
 test("the same random stream deals the same game", () => {
   const seed = [0.1, 0.9, 0.35, 0.72, 0.04, 0.5, 0.88];
-  const first = chooseRounds(sequence(seed)).map((round) => round.id);
-  const second = chooseRounds(sequence(seed)).map((round) => round.id);
+  const first = chooseRounds(sequence(seed)).map((round) => round.label);
+  const second = chooseRounds(sequence(seed)).map((round) => round.label);
   assert.deepEqual(first, second);
 });

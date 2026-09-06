@@ -264,7 +264,10 @@ export default function Board({
         </button>
       ) : (
         <p className="m-0 font-ui text-[12.5px] lowercase text-fg/55">
-          {phase === 'memorising' ? round?.hint : 'get ready'}
+          {/* Never the colour's name: it is mixed by eye, and naming it would
+              be handing over the answer. It is named in the feedback, once the
+              guess is already in. */}
+          {phase === 'memorising' ? 'hold it in mind, then mix it back' : 'get ready'}
         </p>
       )}
     </div>
