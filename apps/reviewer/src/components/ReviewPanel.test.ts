@@ -178,7 +178,7 @@ test("arrival controls retain distinct identities and reset when the next team a
     errors.mock.calls
       .flat()
       .some(
-        (value) =>
+        (value: unknown) =>
           typeof value === "string" &&
           /same key|order of Hooks|more hooks|fewer hooks/i.test(value),
       ),
