@@ -9,7 +9,7 @@ import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
 import { requireCurrentPerson, requireEligibleMembership, requireMembership, requireEventSubject } from "./lib/identity";
 import { findOperation, operationFingerprint, recordOperation } from "./lib/operations";
-import { requirePermission } from "./lib/permissions";
+import { matchingPermissionGrantIds, requirePermission } from "./lib/permissions";
 import { outingDurationMs, outingPhase } from "./lib/outingValues";
 import {
   deleteParticipantServiceQueueEntry, insertParticipantServiceQueueEntry,
@@ -233,20 +233,24 @@ export const sweepOverdueCalls = internalMutation({
 
 export const forStation = query({
   args: { eventSlug: v.string(), stationId: v.id("attendanceStations") },
-  returns: v.object({
+  returns: v.union(v.null(), v.object({
     capacity: v.union(v.number(), v.null()), occupiedCount: v.number(), waitingCount: v.number(),
     next: v.array(v.object({ displayName: v.string() })),
-  }),
+  })),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
     const station = await ctx.db.get(args.stationId);
-    if (!station || station.eventId !== event._id || station.planVersionId !== event.publishedAttendancePlanVersionId || station.status !== "active") {
-      throw new ConvexError({ code: "STATION_NOT_ACTIVE", message: "Use your assigned presence station." });
+    if (!station || station.eventId !== event._id || station.planVersionId !== event.publishedAttendancePlanVersionId) {
+      return null;
     }
-    await requirePermission(ctx, { eventId: event._id, eventAccessSubjectId: subject._id,
-      permissionKey: "attendance.station.read", scopeType: "station", scopeId: station._id });
+    // Outing status follows event scanner access, not the retired station-claim lifecycle.
+    const grants = await matchingPermissionGrantIds(ctx, {
+      eventId: event._id, eventAccessSubjectId: subject._id,
+      permissionKey: "attendance.scan.execute", scopeType: "event",
+    });
+    if (grants.length === 0) return null;
     const policy = await outingPolicy(ctx, event._id);
     const status = await participantServiceQueueStatus(ctx, event._id, null);
     const entries = await ctx.db.query("participantServiceQueueEntries")
