@@ -348,7 +348,10 @@ describe("overdue outing calls", () => {
     expect(claims.filter(Boolean)).toHaveLength(1);
     expect(claims.find(Boolean)).toMatchObject({ requiredProvider: "sarvam" });
     expect(calls[0]!.script).toContain("15-minute");
-    expect(calls[0]!.script).toContain("scan your ID on entry");
+    expect(calls[0]!.script).toContain("other people are waiting for their turn");
+    expect(calls[0]!.script).toContain("come back now");
+    expect(calls[0]!.script).not.toMatch(/scan|\bID\b/iu);
+    expect(calls[0]!.scriptPolicyVersion).toBe("participant-outing-return-v2");
     expect(await f.person.current()).toMatchObject({ status: "overdue", occupiedCount: 1 });
     const roster = await f.ops.query(api.serviceQueues.roster, {
       eventSlug: f.eventSlug, status: "overdue", paginationOpts: { cursor: null, numItems: 25 },

@@ -41,9 +41,9 @@ export async function enqueueOverdueOutingCall(ctx: MutationCtx, entryId: Id<"pa
     sourceId: entry._id,
     purpose: "participant_event_update",
     ...(profile ? { destinationPhone: profile.phone } : {}),
-    script: "Your 15-minute Code2Create outing is over and your return has not been scanned. Please return to the checkpoint where you left and have staff scan your ID on entry. If you are already back, ask staff to record your return. If you need help returning, contact the event help desk through the app. This call cannot extend your outing or mark you returned.",
+    script: "You have exceeded your 15-minute Code2Create break, and other people are waiting for their turn. Can you please come back now?",
     locale: "en-IN",
-    scriptPolicyVersion: "participant-outing-return-v1",
+    scriptPolicyVersion: "participant-outing-return-v2",
     authorizationGrantIds: [],
     now,
   });
