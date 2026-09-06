@@ -3156,6 +3156,8 @@ export default defineSchema({
     productDomains: v.array(v.string()),
     languages: v.array(v.string()),
     criterionKeys: v.array(v.string()),
+    // Legacy storage only; training is no longer part of reviewer readiness.
+    trainingStatus: v.optional(v.union(v.literal("pending"), v.literal("complete"), v.literal("blocked"))),
     status: v.union(v.literal("active"), v.literal("inactive")),
     version: v.number(),
     createdAt: v.number(),
