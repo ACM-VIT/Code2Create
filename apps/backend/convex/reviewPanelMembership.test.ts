@@ -32,6 +32,65 @@ const originalAuthSiteUrl = process.env.AUTH_SITE_URL;
 const originalParticipantSiteUrl = process.env.PARTICIPANT_SITE_URL;
 const originalOperationsSiteUrl = process.env.OPERATIONS_SITE_URL;
 
+describe("automatic review queue configuration", () => {
+  test.each(["event", "panel"] as const)(
+    "checks %s preparation authority before enabling round-wide call-up",
+    async (scope) => {
+      const backend = seededBackend();
+      const fixture = await seedPanel(backend);
+      await backend.run(async (ctx) => {
+        const grant = {
+          eventId: fixture.eventId,
+          personId: fixture.operatorPersonId,
+          eventAccessSubjectId: fixture.operatorSubjectId,
+          sourceType: "manual" as const,
+          sourceId: "queue-configuration-test",
+          reason: "Configure automatic review call-up",
+        };
+        await insertPermissionGrant(ctx, {
+          ...grant,
+          permissionKey: "review.configuration.publish",
+          scopeType: "event",
+        });
+        await insertPermissionGrant(ctx, {
+          ...grant,
+          permissionKey: "review.prepare",
+          ...(scope === "event"
+            ? { scopeType: "event" as const }
+            : { scopeType: "panel" as const, scopeId: fixture.panelId }),
+        });
+      });
+      const operator = asOperator(backend, fixture);
+      const request = {
+        eventSlug: fixture.eventSlug,
+        roundId: fixture.roundId,
+        expectedVersion: 0,
+        routingPreference: "skills_then_wait" as const,
+        automaticCallUp: true,
+        teamHeadsUpSeconds: 300,
+        voiceCalls: false,
+        scoringBufferSeconds: 120,
+        reason: "Enable automatic call-up for the round",
+        clientOperationId: "queue-config-test",
+      };
+      if (scope === "panel") {
+        await expect(operator.mutation(api.reviewQueueAutomation.configure, request))
+          .rejects.toThrow("ACCESS_DENIED");
+        expect(await backend.run(ctx => ctx.db.query("reviewQueuePolicies").collect()))
+          .toHaveLength(0);
+      } else {
+        const result = await operator.mutation(api.reviewQueueAutomation.configure, request);
+        expect(result).toEqual({ version: 1 });
+        expect(await operator.mutation(api.reviewQueueAutomation.configure, request))
+          .toEqual(result);
+        const policies = await backend.run(ctx => ctx.db.query("reviewQueuePolicies").collect());
+        expect(policies).toHaveLength(1);
+        expect(policies[0]).toMatchObject({ automaticCallUp: true, scoringBufferSeconds: 120 });
+      }
+    },
+  );
+});
+
 process.env.AUTH_SITE_URL = "http://localhost:3211";
 process.env.PARTICIPANT_SITE_URL = "http://localhost:4173";
 process.env.OPERATIONS_SITE_URL = "http://localhost:4174";

@@ -187,8 +187,7 @@ export const configure = mutation({
         eventId: event._id,
         eventAccessSubjectId: subject._id,
         permissionKey: "review.prepare",
-        scopeType: "round",
-        scopeId: round._id,
+        scopeType: "event",
       });
     if (args.voiceCalls)
       await requirePermission(ctx, {
