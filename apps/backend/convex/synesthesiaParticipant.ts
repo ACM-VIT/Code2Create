@@ -54,7 +54,6 @@ const participantRequest = v.object({
   energyTag: v.string(),
   state: songRequestState,
   queueMode: songQueueMode,
-  publicReason: v.optional(v.string()),
   scheduledFor: v.optional(v.number()),
   playbackStartedAt: v.optional(v.number()),
   isMine: v.boolean(),
@@ -214,7 +213,6 @@ export const state = query({
           energyTag: request.energyTag,
           state: request.state,
           queueMode: request.queueMode,
-          ...(request.publicReason !== undefined ? { publicReason: request.publicReason } : {}),
           ...(request.scheduledFor !== undefined ? { scheduledFor: request.scheduledFor } : {}),
           ...(request.playbackStartedAt !== undefined
             ? { playbackStartedAt: request.playbackStartedAt }

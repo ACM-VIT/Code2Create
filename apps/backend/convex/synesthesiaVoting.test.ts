@@ -240,6 +240,14 @@ describe("Synesthesia quick Ops decisions", () => {
             reason: decision === "approve" ? "Approved from the music desk." : "Rejected from the music desk.",
           });
         });
+        if (decision === "reject") {
+          const participantState = await asAccount(backend, fixture.first).query(
+            api.synesthesiaParticipant.state,
+            { eventSlug: fixture.eventSlug },
+          );
+          expect(participantState.requests[0]).toMatchObject({ state: "rejected", isMine: true });
+          expect(participantState.requests[0]).not.toHaveProperty("publicReason");
+        }
       });
     }
   }

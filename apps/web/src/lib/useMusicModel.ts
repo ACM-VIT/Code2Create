@@ -46,7 +46,6 @@ export function useMusicModel(): MusicRoomModel {
         isMine: request.isMine,
         canReport: request.canReport,
         hasReported: request.hasReported,
-        ...(request.publicReason !== undefined ? { publicReason: request.publicReason } : {}),
         ...(request.playbackStartedAt !== undefined
           ? { playbackStartedAt: request.playbackStartedAt }
           : {}),
