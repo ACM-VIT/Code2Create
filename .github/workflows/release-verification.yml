@@ -22,11 +22,9 @@ jobs:
       C2C_EVENT_SLUG: ${{ vars.EVENT_SLUG }}
       C2C_OPERATIONS_ACCOUNT_EMAIL: ${{ vars.RELEASE_OPERATIONS_EMAIL }}
       C2C_OPERATIONS_STORAGE_STATE_BASE64: ${{ secrets.RELEASE_OPERATIONS_STORAGE_STATE_BASE64 }}
-      C2C_OPERATIONS_STORAGE_STATE_PATH: ${{ runner.temp }}/code2create-auth/operations.json
       C2C_OPERATIONS_URL: ${{ vars.OPERATIONS_SITE_URL }}
       C2C_PARTICIPANT_ACCOUNT_EMAIL: ${{ vars.RELEASE_PARTICIPANT_EMAIL }}
       C2C_PARTICIPANT_STORAGE_STATE_BASE64: ${{ secrets.RELEASE_PARTICIPANT_STORAGE_STATE_BASE64 }}
-      C2C_PARTICIPANT_STORAGE_STATE_PATH: ${{ runner.temp }}/code2create-auth/participant.json
       C2C_PARTICIPANT_URL: ${{ vars.PARTICIPANT_SITE_URL }}
       CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
     steps:
@@ -42,12 +40,18 @@ jobs:
         run: pnpm --filter @code2create/backend browser-fixtures:check:staging
 
       - name: Write protected browser sessions
+        env:
+          C2C_OPERATIONS_STORAGE_STATE_PATH: ${{ runner.temp }}/code2create-auth/operations.json
+          C2C_PARTICIPANT_STORAGE_STATE_PATH: ${{ runner.temp }}/code2create-auth/participant.json
         run: pnpm --filter @code2create/e2e auth:write
 
       - name: Install Chromium
         run: pnpm --filter @code2create/e2e install:browser:ci
 
       - name: Verify participant and operations staging surfaces
+        env:
+          C2C_OPERATIONS_STORAGE_STATE_PATH: ${{ runner.temp }}/code2create-auth/operations.json
+          C2C_PARTICIPANT_STORAGE_STATE_PATH: ${{ runner.temp }}/code2create-auth/participant.json
         run: pnpm --filter @code2create/e2e test:release
 
   providers:
@@ -65,10 +69,10 @@ jobs:
       C2C_PROVIDER_GITHUB_REPOSITORY_ID: ${{ vars.RELEASE_GITHUB_REPOSITORY_ID }}
       C2C_PROVIDER_GITHUB_REQUIRED_TOPIC: ${{ vars.RELEASE_GITHUB_REQUIRED_TOPIC }}
       C2C_PROVIDER_INTELLIGENCE_URL: ${{ vars.INTELLIGENCE_WORKER_URL }}
-      GITHUB_APP_CLIENT_ID: ${{ vars.GITHUB_APP_CLIENT_ID }}
-      GITHUB_APP_CLIENT_SECRET: ${{ secrets.GITHUB_APP_CLIENT_SECRET }}
-      GITHUB_APP_ID: ${{ vars.GITHUB_APP_ID }}
-      GITHUB_APP_PRIVATE_KEY: ${{ secrets.GITHUB_APP_PRIVATE_KEY }}
+      GITHUB_APP_CLIENT_ID: ${{ vars.C2C_GITHUB_APP_CLIENT_ID }}
+      GITHUB_APP_CLIENT_SECRET: ${{ secrets.C2C_GITHUB_APP_CLIENT_SECRET }}
+      GITHUB_APP_ID: ${{ vars.C2C_GITHUB_APP_ID }}
+      GITHUB_APP_PRIVATE_KEY: ${{ secrets.C2C_GITHUB_APP_PRIVATE_KEY }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
     steps:
       - uses: actions/checkout@v6
