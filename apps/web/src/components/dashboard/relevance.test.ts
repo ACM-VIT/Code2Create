@@ -13,8 +13,8 @@ const quiet: DashboardModels = {
   updates: { available: true, checkpoints: [], timezone: "UTC", write: () => {} },
   review: null,
   queues: {
-    available: true,
-    services: [{ kind: "outing_permission", joined: false, position: null, waitingCount: 0 }],
+    available: true, pending: false,
+    services: [{ kind: "outing_permission", status: "available", position: null, waitingCount: 0, capacity: 15, occupiedCount: 0, permissionExpiresAt: null, returnBy: null, serverNow: now, canRequest: true }],
     setServiceQueue: async () => {},
   },
   help: { discordUrl: null, support: null },
@@ -134,7 +134,7 @@ test("a completed or withdrawn review gives the hero back to the event", () => {
 test("an outing queue never becomes a project review on build night", () => {
   const seating = composeDashboard(tileRelevance({
     ...quiet,
-    queues: { ...quiet.queues, services: [{ kind: "outing_permission", joined: true, position: 3, waitingCount: 5 }] },
+    queues: { ...quiet.queues, services: [{ ...quiet.queues.services[0]!, status: "waiting", position: 3, waitingCount: 5 }] },
   }));
   assert.equal(seating.event, "hero");
   assert.equal(seating.review, undefined);

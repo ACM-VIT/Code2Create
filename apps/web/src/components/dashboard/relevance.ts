@@ -39,7 +39,7 @@ export function tileRelevance(models: DashboardModels): Candidate[] {
   const upcomingCheckpoint = updates.checkpoints.some((checkpoint) => checkpoint.state === "upcoming");
   const reviewIsActive = review !== null && ["queued", "called", "at_table", "in_review", "held", "missed"].includes(review.state);
   const reviewScore = reviewIsActive ? 98 : review?.state === "completed" ? 40 : 0;
-  const queuesScore = queues.services.some((service) => service.joined) ? 85 : queues.services.length > 0 ? 68 : 0;
+  const queuesScore = queues.services.some((service) => ["waiting", "permitted", "out", "overdue"].includes(service.status)) ? 85 : queues.services.length > 0 ? 68 : 0;
   const hasBenefits = benefits.available && benefits.benefits.length > 0;
   return [
     { key: "event", score: boundarySoon ? 95 : 90, prefer: ["wide", "box"] },

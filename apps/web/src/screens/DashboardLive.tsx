@@ -21,6 +21,7 @@ import {
   type ClusterTeam,
 } from "../components/portal/TeamCluster";
 import { eventSlug } from "../lib/config";
+import { useOperationRunner } from "../lib/operations";
 import { LiveNumber } from "../components/LiveNumber";
 import { useMusicModel } from "../lib/useMusicModel";
 import type { PublicState } from "../types";
@@ -80,7 +81,8 @@ export function DashboardLive({
   );
   const mintReviewCode = useMutation(api.participantReview.mintTeamQr);
   const serviceQueueWindows = useQuery(api.serviceQueues.current, { eventSlug });
-  const serviceQueues = serviceQueueWindows?.filter(queue => phaseTime >= queue.opensAt && phaseTime < queue.closesAt);
+  const serviceQueues = serviceQueueWindows?.filter(queue => (phaseTime >= queue.opensAt && phaseTime < queue.closesAt) || ["out", "overdue"].includes(queue.status));
+  const outingOperations = useOperationRunner<null>();
   const joinServiceQueue = useMutation(api.serviceQueues.join);
   const leaveServiceQueue = useMutation(api.serviceQueues.leave);
   const supportAllowed = capabilities?.supportRead ?? false;
@@ -208,15 +210,15 @@ export function DashboardLive({
 
   const queuesModel: ServiceQueuesTileModel = {
     available: serviceQueues !== undefined,
-    services: (serviceQueues ?? []).map((service) => ({
-      kind: service.kind,
-      joined: service.joined,
-      position: service.position,
-      waitingCount: service.waitingCount,
-    })),
+    pending: outingOperations.hasPending("outing"),
+    services: serviceQueues ?? [],
     setServiceQueue: async (kind, joined) => {
-      if (joined) await joinServiceQueue({ eventSlug, kind });
-      else await leaveServiceQueue({ eventSlug, kind });
+      await outingOperations.run("outing", (clientOperationId) => {
+        if (joined) return () => joinServiceQueue({ eventSlug, kind, clientOperationId });
+        const requestId = serviceQueues?.find((service) => service.kind === kind)?.requestId;
+        if (!requestId) throw new Error("This outing request has already changed.");
+        return () => leaveServiceQueue({ eventSlug, requestId, clientOperationId });
+      });
     },
   };
 

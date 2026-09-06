@@ -1,3 +1,4 @@
+import { outingFixture } from "./outingFixture";
 import { useState } from "react";
 import { MemoryRouter } from "react-router-dom";
 
@@ -38,8 +39,8 @@ export function DashboardVisibilityFixture() {
       updates={{ available: true, timezone: "UTC", checkpoints: [{ key: "idea", name: "Idea update", state: "open", opensAt: now - 1, dueAt: now + 60 * 60_000 }], write: () => {} }}
       review={reviewActive ? { round: "Review 1", state: "queued", paused: false, upNext: false, rank: 3, panel: "Panel 3", notice: null, estimate: null, now, session: null, showCode: null } : null}
       queues={{
-        available: true,
-        services: queueOpen ? [{ kind: "outing_permission", joined, position: joined ? 3 : null, waitingCount: joined ? 3 : 2 }] : [],
+        available: true, pending: false,
+        services: queueOpen ? [outingFixture({ status: joined ? "waiting" : "available", canRequest: !joined, position: joined ? 3 : null, waitingCount: joined ? 3 : 2, occupiedCount: 15 })] : [],
         setServiceQueue: async (_kind, nextJoined) => { setJoined(nextJoined); },
       }}
       help={{ discordUrl: null, support: { open: 1 } }}

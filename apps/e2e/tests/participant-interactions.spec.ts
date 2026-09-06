@@ -238,3 +238,56 @@ test.describe("Pac-Man touch controls", () => {
     await input.detach();
   });
 });
+
+
+test("a free outing slot grants permission without drawing a queue and requires a scanned return", async ({ page }, testInfo) => {
+  await stopClock(page);
+  await page.setViewportSize({ width: 375, height: 750 });
+  await page.goto(`${fixtureUrl}?fixture=outing`);
+  const outing = page.getByRole("region", { name: "Washroom outing" });
+  await outing.getByRole("button", { name: "Request outing" }).click();
+  await expect(outing.getByText("You can go for 15 minutes")).toBeVisible();
+  await expect(outing.getByRole("img")).toHaveCount(0);
+  await expect(outing.getByText(/Leave before/)).toBeVisible();
+  await page.getByTestId("outing-tile").screenshot({ path: testInfo.outputPath("outing-permission.png") });
+  await page.getByRole("button", { name: "Scan departure" }).click();
+  await expect(outing.getByText("Your outing is in progress")).toBeVisible();
+  await expect(outing.getByRole("button")).toHaveCount(0);
+  await expect(outing.getByText(/Return by/)).toBeVisible();
+  await page.clock.fastForward(900_200);
+  await expect(outing.getByText("Your 15 minutes are up")).toBeVisible();
+  await expect(outing.getByText(/slot stays occupied/)).toBeVisible();
+  await page.getByRole("button", { name: "Scan return" }).click();
+  await expect(outing.getByRole("button", { name: "Request outing" })).toBeVisible();
+});
+
+test("only excess outings show a queue and promotion replaces it with permission", async ({ page }) => {
+  await stopClock(page);
+  await page.goto(`${fixtureUrl}?fixture=outing&full`);
+  const outing = page.getByRole("region", { name: "Washroom outing" });
+  await outing.getByRole("button", { name: "Request outing" }).click();
+  await expect(outing.getByText("You’re number 1 in the queue")).toBeVisible();
+  await expect(outing.getByText(/All outing slots are occupied/)).toBeVisible();
+  await expect(outing.getByRole("img")).toHaveCount(1);
+  await page.getByRole("button", { name: "Release another person’s slot" }).click();
+  await expect(outing.getByText("You can go for 15 minutes")).toBeVisible();
+  await expect(outing.getByRole("img")).toHaveCount(0);
+  await expect(outing.getByRole("status")).toContainText("You can go for 15 minutes");
+  await page.clock.fastForward(900_200);
+  await expect(outing.getByText("Your permission expired")).toBeVisible();
+  await expect(outing.getByText("You can go for 15 minutes")).toHaveCount(0);
+});
+
+
+test("compact outing cards keep permission, deadline and cancellation visible without scrolling", async ({ page }, testInfo) => {
+  await stopClock(page);
+  await page.goto(`${fixtureUrl}?fixture=outing&compact`);
+  const tile = page.getByTestId("outing-tile");
+  await tile.getByRole("button", { name: "Request outing" }).click();
+  await expect(tile.getByText("You can go for 15 minutes")).toBeVisible();
+  await expect(tile.getByText(/Leave before/)).toBeVisible();
+  await expect(tile.getByRole("button", { name: "Cancel request" })).toBeVisible();
+  const dimensions = await tile.locator(".dashboard-tile-scroll").evaluate((element) => ({ height: element.clientHeight, contentHeight: element.scrollHeight }));
+  expect(dimensions.contentHeight).toBeLessThanOrEqual(dimensions.height + 1);
+  await tile.screenshot({ path: testInfo.outputPath("outing-compact.png") });
+});

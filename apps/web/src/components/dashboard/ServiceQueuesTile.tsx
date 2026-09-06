@@ -1,20 +1,19 @@
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
+import type { FunctionReturnType } from "convex/server";
+import type { api } from "@code2create/backend/api";
+import { useDeadlineReached } from "../../lib/useDeadlineReached";
 
 import { readableError } from "../../lib/errors";
 import { LiveNumber } from "../LiveNumber";
 import { Tile, TileEyebrow } from "./Tile";
 import type { Slot } from "./dashboardLayout";
-import { hiddenWhenShort, tileBody } from "./tileClasses";
+import { tileBody } from "./tileClasses";
 
 export type ServiceQueueKind = "outing_permission";
-export type ServiceQueueView = {
-  kind: ServiceQueueKind;
-  joined: boolean;
-  position: number | null;
-  waitingCount: number;
-};
+export type ServiceQueueView = Omit<FunctionReturnType<typeof api.serviceQueues.current>[number], "requestId" | "opensAt" | "closesAt">;
 export type ServiceQueuesTileModel = {
   available: boolean;
+  pending: boolean;
   services: readonly ServiceQueueView[];
   setServiceQueue: (kind: ServiceQueueKind, joined: boolean) => Promise<void>;
 };
@@ -49,7 +48,7 @@ function SakuraBlossom() {
 }
 
 function laneLabel(service: ServiceQueueView) {
-  if (service.joined) {
+  if (service.status === "waiting") {
     const position = service.position ?? 1;
     return position === 1
       ? "You are first in the outing permission queue"
@@ -66,7 +65,7 @@ function laneLabel(service: ServiceQueueView) {
  * card is idle, and no filters run under the tile's blur.
  */
 function QueueLane({ service }: { service: ServiceQueueView }) {
-  const selfIndex = service.joined && service.position !== null ? service.position - 1 : null;
+  const selfIndex = service.status === "waiting" && service.position !== null ? service.position - 1 : null;
   const taken = Math.min(QUEUE_LANE_CAPACITY, service.waitingCount);
   const overflow = Math.max(0, service.waitingCount - QUEUE_LANE_CAPACITY);
   const selfBeyondLane = selfIndex !== null && selfIndex >= QUEUE_LANE_CAPACITY;
@@ -98,81 +97,54 @@ function QueueLane({ service }: { service: ServiceQueueView }) {
   );
 }
 
-function Stat({ children, value }: { children: ReactNode; value: number }) {
-  return (
-    <span className="flex items-baseline gap-1.5 whitespace-nowrap">
-      <span className="font-display text-[15px] leading-none text-rose-light">
-        <LiveNumber value={value} />
-      </span>
-      <span>{children}</span>
-    </span>
-  );
-}
-
-function OutingQueue({
-  service,
-  busy,
-  onChange,
-}: {
+function OutingQueue({ service, busy, pending, onChange }: {
   service: ServiceQueueView;
   busy: boolean;
+  pending: boolean;
   onChange: (joined: boolean) => void;
 }) {
-  const position = service.joined ? (service.position ?? 1) : null;
-  const ahead = position !== null ? position - 1 : service.waitingCount;
-  const detail =
-    position !== null ? (
-      ahead === 0 ? (
-        "You're next"
-      ) : (
-        <>
-          <LiveNumber value={ahead} /> ahead of you
-        </>
-      )
-    ) : service.waitingCount === 0 ? (
-      "Be first in line"
-    ) : (
-      <>
-        <LiveNumber value={service.waitingCount} /> waiting now
-      </>
-    );
+  const deadline = service.status === "permitted" ? service.permissionExpiresAt : service.returnBy;
+  const deadlineReached = useDeadlineReached(service.serverNow, deadline ?? undefined);
+  const status = deadlineReached && service.status === "permitted" ? "expired"
+    : deadlineReached && service.status === "out" ? "overdue" : service.status;
+  const cancellable = status === "waiting" || status === "permitted";
+  const title = status === "permitted" ? "You can go for 15 minutes"
+    : status === "out" ? "Your outing is in progress"
+    : status === "overdue" ? "Your 15 minutes are up"
+    : status === "waiting" ? `You’re number ${service.position} in the queue`
+    : status === "expired" ? "Your permission expired"
+    : "Need a washroom break?";
+  const detail = status === "permitted" ? "Show your ID to staff on the way out. Your 15 minutes start at the exit scan."
+    : status === "out" ? "Have your ID scanned when you return."
+    : status === "overdue" ? "Please return and have your ID scanned. Your slot stays occupied until then."
+    : status === "waiting" ? "All outing slots are occupied. Keep this page open; it will tell you when you can go."
+    : status === "unconfigured" ? "Staff are setting up outing capacity."
+    : status === "offsite" ? "Have your check-in or return scanned before requesting an outing."
+    : status === "expired" ? "You did not leave in time. Request another 15-minute outing when you’re ready."
+    : "Request a 15-minute outing. If a slot is free, you can go immediately.";
+  const clockLabel = deadline !== null && (status === "permitted" || status === "out")
+    ? `${status === "permitted" ? "Leave before" : "Return by"} ${new Date(deadline).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
+    : null;
   return (
-    <section className="queue flex flex-1 flex-col justify-between gap-2" aria-label="Outing permission queue">
-      <div className="flex min-w-0 items-start justify-between gap-3">
-        <span className="min-w-0">
-          <span className="queue-title block truncate text-[12px] font-medium text-fg/90">
-            Outing permission
-          </span>
-          <span className="queue-meta block truncate text-[10.5px] text-fg/50">{detail}</span>
-        </span>
-        <button
-          type="button"
-          disabled={busy}
-          aria-busy={busy}
-          onClick={() => onChange(!service.joined)}
-          aria-label={`${service.joined ? "Leave" : "Join"} the outing permission queue`}
-          className={`queue-action h-8 min-w-[62px] shrink-0 rounded-full border px-3.5 text-[12.5px] font-semibold transition-[border-color,background-color,color,transform] hover:border-rose-light hover:text-fg active:scale-[.97] disabled:cursor-wait disabled:opacity-60 ${
-            service.joined
-              ? "border-rose-light/50 bg-rose-light/10 text-rose-light"
-              : "border-rose/40 bg-wash/20 text-fg/80"
-          }`}
-        >
-          {busy ? "…" : service.joined ? "Leave" : "Join"}
-        </button>
+    <section className="queue flex flex-1 flex-col justify-between gap-2" aria-label="Washroom outing">
+      <div role="status" aria-live="polite" aria-atomic="true">
+        <span className="queue-title block text-[14px] font-medium text-fg/90">{title}</span>
+        <p className="outing-description m-0 mt-1 text-[11px] leading-snug text-fg/65">{detail}</p>
+        {clockLabel ? <p className="m-0 mt-1 text-[12px] text-rose-light">{clockLabel}</p> : null}
       </div>
-      <QueueLane service={service} />
-      <p
-        className={`${hiddenWhenShort} m-0 flex items-baseline justify-between gap-3 text-[10.5px] text-fg/50`}
-      >
-        {position !== null ? (
-          <Stat value={position}>your place</Stat>
-        ) : (
-          <Stat value={service.waitingCount + 1}>next place</Stat>
-        )}
-        <span className="tabular-nums">
-          <LiveNumber value={service.waitingCount} /> in line
+      {status === "waiting" ? <QueueLane service={service} /> : null}
+      <div className="flex items-center justify-between gap-2">
+        <span className="outing-capacity text-[10.5px] text-fg/50">
+          {service.capacity !== null ? `${service.occupiedCount}/${service.capacity} slots occupied` : "Capacity not set"}
         </span>
-      </p>
+        {cancellable || service.canRequest || pending ? (
+          <button type="button" disabled={busy} aria-busy={busy}
+            onClick={() => onChange(!cancellable)}
+            className="queue-action h-8 shrink-0 rounded-full border border-rose/40 bg-wash/20 px-3 text-[12px] font-semibold text-fg/80 transition-colors hover:border-rose-light hover:text-fg disabled:opacity-60">
+            {busy ? "…" : pending ? "Retry" : cancellable ? "Cancel request" : "Request outing"}
+          </button>
+        ) : null}
+      </div>
     </section>
   );
 }
@@ -196,20 +168,21 @@ export function ServiceQueuesTile({ slot, model }: { slot: Slot; model: ServiceQ
 
   return (
     <Tile slot={slot}>
-      <div className={`${tileBody} queue-body !gap-2`}>
-        <TileEyebrow>request queue</TileEyebrow>
+      <div className={`${tileBody} queue-body outing-body !gap-2`}>
+        <div className="outing-eyebrow"><TileEyebrow>washroom outing</TileEyebrow></div>
         {outingQueue ? (
           <OutingQueue
             service={outingQueue}
+            pending={model.pending}
             busy={busyKind === outingQueue.kind}
             onChange={(joined) => void changeServiceQueue(outingQueue.kind, joined)}
           />
         ) : !model.available ? (
           <p className="m-0 text-[13px] leading-snug text-fg/65">
-            Queues open once your place is confirmed.
+            Loading outing permission…
           </p>
         ) : (
-          <p className="m-0 text-[13px] leading-snug text-fg/65">No queues are open right now.</p>
+          <p className="m-0 text-[13px] leading-snug text-fg/65">Outing requests are closed right now.</p>
         )}
         {serviceError ? (
           <p role="alert" className="m-0 text-[11px] text-rose-light">

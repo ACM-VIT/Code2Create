@@ -900,3 +900,7 @@ Manual incident records are reconciled after recovery under the reliability proc
 - Participant, reviewer, and operations views agree on a team’s current integration snapshot and freshness.
 - A manual provider retry is deduplicated, respects stored backoff, and cannot alter an active review’s evidence.
 - No operations response or screen contains a GitHub installation token, Figma OAuth token, webhook secret, raw VIT ID barcode value/fingerprint, or raw QR credential.
+
+## Washroom outing capacity
+
+**Check-in plan → Washroom outings** sets the event-wide maximum number of simultaneous outings. Event-scoped `configuration.manage` controls the setting and named roster. The board shows occupied slots (permissions plus people already out), waiting count, and separate lists for waiting, permitted, out, and overdue participants. Changes use the current configuration version and a stable operation ID and are audited. Lowering capacity preserves existing permissions; increasing it admits the oldest eligible waiters. Each outing lasts 15 minutes from the ID exit scan. Only its matching return scan releases an occupied slot. See [Washroom presence stations](14-attendance-and-presence.md#washroom-presence-stations).

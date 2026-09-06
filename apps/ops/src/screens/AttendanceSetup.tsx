@@ -1,3 +1,4 @@
+import { OutingCapacity } from "../components/OutingCapacity";
 import { api } from "@code2create/backend/api";
 import {
   barcodeSymbologies,
@@ -427,6 +428,8 @@ export function AttendanceSetup({ tabs }: { tabs: ConfigurationTabsVisibility })
           </p>
         </div>
       </header>
+
+      {configuration.canConfigure ? <OutingCapacity /> : null}
 
       {configuration.publishedPlan ? (
         <p className="notice">Current plan: {configuration.publishedPlan.name}</p>

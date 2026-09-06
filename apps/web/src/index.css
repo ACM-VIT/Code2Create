@@ -1345,3 +1345,15 @@ p {
 @media (min-width: 1024px) and (max-height: 680px) {
   .arcade-heading .outline-heading { font-size: clamp(36px, 9vh, 80px); }
 }
+
+/* Permission, deadline, and the action remain visible in compact dashboard slots. */
+@container (max-height: 180px) {
+  .outing-body .outing-description { display: none; }
+}
+@container (max-height: 140px) {
+  .outing-body .outing-eyebrow { display: none; }
+}
+@container (max-width: 220px) {
+  .outing-body .queue-title { font-size: 12px; }
+  .outing-body .outing-capacity { display: none; }
+}

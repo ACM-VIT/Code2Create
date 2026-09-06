@@ -33,6 +33,78 @@ afterAll(() => {
 });
 
 describe("attendance scan direction", () => {
+  test("a session outing is released only by a return scan into its owning session", async () => {
+    const backend = seededBackend();
+    const fixture = await seedScannerFixture(backend);
+    const operator = asOperator(backend, fixture);
+    await openSession(backend, fixture);
+    const scan = (rovingTransition: "session_confirm" | "zone_exit" | "venue_entry" | "zone_entry", sequence: number) =>
+      operator.mutation(internal.attendanceScan.recordScan, { ...scanArguments(fixture), rovingTransition,
+        clientOperationId: `session-outing-${sequence}`, deviceSequence: sequence });
+    await scan("session_confirm", 1);
+    expect(await scan("zone_exit", 2)).toMatchObject({ outcome: "accepted", outing: { status: "out" } });
+    await scan("venue_entry", 3);
+    expect(await backend.run((ctx) => ctx.db.query("outingPolicies").first())).toMatchObject({ occupiedCount: 1 });
+    expect(await scan("zone_entry", 4)).toMatchObject({ outcome: "accepted", outing: { status: "returned" } });
+    expect(await backend.run((ctx) => ctx.db.query("outingPolicies").first())).toMatchObject({ occupiedCount: 0 });
+  });
+
+
+  test("a washroom scan without permission leaves attendance unchanged", async () => {
+    const backend = seededBackend();
+    const fixture = await seedScannerFixture(backend, false);
+    await seedCheckIn(backend, fixture);
+    const operator = asOperator(backend, fixture);
+    const request = { ...scanArguments(fixture), clientOperationId: "no-permission", deviceSequence: 1 };
+    const receipt = await operator.mutation(internal.attendanceScan.recordScan, request);
+    expect(receipt).toMatchObject({ outcome: "rejected", reasonCode: "outing_required", outing: { status: "required" }, nextState: "inside" });
+    expect(await backend.run((ctx) => ctx.db.query("attendanceVenueStates").first())).toBeNull();
+    expect(await operator.mutation(internal.attendanceScan.recordScan, { ...request, isOfflineReplay: true })).toEqual(receipt);
+    const history = await operator.query(api.attendanceScanner.history, {
+      eventSlug: fixture.eventSlug, installationId: `fixture-device-${fixture.now}`,
+      paginationOpts: { numItems: 25, cursor: null },
+    });
+    expect(history.page[0]).toMatchObject({ outing: { status: "required" }, outcome: "rejected" });
+  });
+
+  test("scanning a queued person shows their position without marking them outside", async () => {
+    const backend = seededBackend();
+    const fixture = await seedScannerFixture(backend, false);
+    await seedCheckIn(backend, fixture);
+    await backend.run(async (ctx) => {
+      const membership = await ctx.db.get(fixture.membershipId);
+      if (!membership) throw new Error("Missing participant");
+      await insertParticipantServiceQueueEntry(ctx, {
+        eventId: fixture.eventId, membershipId: fixture.membershipId, personId: membership.personId,
+        kind: "outing_permission", joinedAt: fixture.now, phase: { status: "waiting" },
+      });
+    });
+    const receipt = await asOperator(backend, fixture).mutation(internal.attendanceScan.recordScan, {
+      ...scanArguments(fixture), clientOperationId: "waiting", deviceSequence: 1,
+    });
+    expect(receipt).toMatchObject({ outcome: "rejected", outing: { status: "waiting", position: 1 } });
+    expect(await backend.run((ctx) => ctx.db.query("attendanceVenueStates").first())).toBeNull();
+    expect(await backend.run((ctx) => ctx.db.query("participantServiceQueueEntries").first())).toMatchObject({ phase: { status: "waiting" } });
+  });
+
+  test("an expired permission cannot be used at a fixed exit or release a second slot on retry", async () => {
+    const backend = seededBackend();
+    const fixture = await seedScannerFixture(backend);
+    const operator = asOperator(backend, fixture);
+    await operator.mutation(internal.attendanceScan.recordScan, { ...scanArguments(fixture), rovingTransition: "venue_entry", clientOperationId: "entry", deviceSequence: 1 });
+    await backend.run(async (ctx) => {
+      const entry = await ctx.db.query("participantServiceQueueEntries").first();
+      await ctx.db.patch(entry!._id, { phase: { status: "permitted", expiresAt: fixture.now - 1 } });
+      await ctx.db.patch(fixture.stationId, { mode: "venue_exit" });
+    });
+    const args = { ...scanArguments(fixture), clientOperationId: "expired", deviceSequence: 2 };
+    const receipt = await operator.mutation(internal.attendanceScan.recordScan, args);
+    expect(receipt).toMatchObject({ outcome: "rejected", outing: { status: "expired" } });
+    expect(await backend.run((ctx) => ctx.db.query("attendanceVenueStates").first())).toMatchObject({ state: "inside" });
+    expect(await backend.run((ctx) => ctx.db.query("outingPolicies").first())).toMatchObject({ occupiedCount: 0 });
+    expect(await operator.mutation(internal.attendanceScan.recordScan, args)).toEqual(receipt);
+  });
+
   test.each([
     { onboardingStatus: "submitted", eligibilityStatus: "eligible" },
     { onboardingStatus: "selected", eligibilityStatus: "eligible" },
@@ -120,28 +192,17 @@ describe("attendance scan direction", () => {
     ).toBeNull();
   });
 
-  test("washroom scans clear the queue on departure and safely record return", async () => {
+  test("washroom scans consume permission, retain the slot while out, and release it on return", async () => {
     const backend = seededBackend();
     const fixture = await seedScannerFixture(backend);
     const operator = asOperator(backend, fixture);
     await seedCheckIn(backend, fixture);
-    await backend.run(async (ctx) => {
-      const member = await ctx.db.get(fixture.membershipId);
-      if (!member) throw new Error("Missing fixture participant");
-      await insertParticipantServiceQueueEntry(ctx, {
-        eventId: fixture.eventId,
-        membershipId: fixture.membershipId,
-        personId: member.personId,
-        kind: "outing_permission",
-        joinedAt: fixture.now,
-      });
-    });
     expect(
       await operator.query(api.serviceQueues.forStation, {
         eventSlug: fixture.eventSlug,
         stationId: fixture.stationId,
       }),
-    ).toMatchObject({ waitingCount: 1 });
+    ).toMatchObject({ waitingCount: 0, occupiedCount: 1, capacity: 15 });
     const request = {
       ...scanArguments(fixture),
       clientOperationId: "automatic-departure",
@@ -161,7 +222,7 @@ describe("attendance scan direction", () => {
         eventSlug: fixture.eventSlug,
         stationId: fixture.stationId,
       }),
-    ).toEqual({ waitingCount: 0, next: [] });
+    ).toMatchObject({ waitingCount: 0, occupiedCount: 1, next: [] });
     expect(
       await operator.mutation(internal.attendanceScan.recordScan, {
         ...request,
@@ -887,7 +948,7 @@ async function insertExternalIdentityBinding(backend: BackendTest, fixture: Fixt
   );
 }
 
-async function seedScannerFixture(backend: BackendTest) {
+async function seedScannerFixture(backend: BackendTest, withPermission = true) {
   // recordScan compares capture times with the current clock.
   const now = Date.now();
   const eventSlug = `attendance-scan-${crypto.randomUUID()}`;
@@ -911,6 +972,7 @@ async function seedScannerFixture(backend: BackendTest) {
     });
     const operator = await insertAccount(ctx, eventId, "operator", now, authUserId);
     const participant = await insertAccount(ctx, eventId, "participant", now);
+    await ctx.db.insert("outingPolicies", { eventId, capacity: 15, occupiedCount: withPermission ? 1 : 0, version: 1, updatedAt: now });
     const planVersionId = await ctx.db.insert("attendancePlanVersions", {
       eventId,
       version: 1,
@@ -988,6 +1050,10 @@ async function seedScannerFixture(backend: BackendTest) {
       acceptedParticipantPolicyVersionIds: [],
       createdAt: now,
       updatedAt: now,
+    });
+    if (withPermission) await insertParticipantServiceQueueEntry(ctx, {
+      eventId, membershipId, personId: participant.personId,
+      kind: "outing_permission", joinedAt: now, phase: { status: "permitted", expiresAt: now + 900_000 },
     });
     const teamId = await ctx.db.insert("teams", {
       eventId,

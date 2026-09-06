@@ -5,6 +5,7 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import type { ActionCtx } from "./_generated/server";
 import { action, internalAction } from "./_generated/server";
+import { outingScanDecision } from "./lib/outingValues";
 import { attendanceScanTransition, barcodeSymbology } from "./values";
 
 type BarcodeSymbology = Infer<typeof barcodeSymbology>;
@@ -145,6 +146,7 @@ type VenueCheckInReversalResult = {
 };
 type ScanTransition = "venue_entry" | "venue_exit" | "session_confirm" | "zone_entry" | "zone_exit";
 type ScanReceipt = {
+  outing?: Infer<typeof outingScanDecision>;
   presenceEventId: Id<"attendancePresenceEvents">;
   outcome: "accepted" | "duplicate" | "rejected" | "needs_review";
   reasonCode: string;
@@ -1739,6 +1741,7 @@ export const recordScan = action({
   },
   returns: v.object({
     presenceEventId: v.id("attendancePresenceEvents"),
+    outing: v.optional(outingScanDecision),
     outcome: v.union(
       v.literal("accepted"),
       v.literal("duplicate"),

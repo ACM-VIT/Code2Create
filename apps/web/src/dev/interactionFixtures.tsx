@@ -9,6 +9,7 @@ import { MusicRoom } from "../screens/SynesthesiaScreen";
 import MemoryBoard from "../games/memory/Board";
 import Pacman from "../games/pacman/Map";
 import Stack from "../games/stack/Board";
+import { OutingInteractionFixture } from "./OutingInteractionFixture";
 import { DashboardVisibilityFixture } from "./DashboardVisibilityFixture";
 import { IntegrationsTile } from "../components/dashboard/IntegrationsTile";
 import "../App.css";
@@ -120,6 +121,7 @@ function Fixture() {
   const fixture = new URLSearchParams(location.search).get("fixture");
   return <main className="min-h-dvh bg-wash p-4 text-fg">
     {fixture === "github-navigation" ? <GitHubNavigationFixture />
+      : fixture === "outing" ? <OutingInteractionFixture />
       : fixture === "dashboard" ? <DashboardVisibilityFixture />
       : fixture === "review" ? <ReviewFixture />
       : fixture === "music" ? <MusicFixture />

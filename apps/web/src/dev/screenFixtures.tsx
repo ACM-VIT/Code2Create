@@ -1,3 +1,4 @@
+import { outingFixture } from "./outingFixture";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AccountBadge } from "../components/portal/AccountBadge";
 import { ClassCard } from "../components/portal/ClassCard";
@@ -932,17 +933,19 @@ function DashboardFixture({ variant = "build" }: { variant?: DashboardVariant })
   const review = variant === "build" || variant === "quiet" ? null : reviewVariants[variant];
   const now = review?.now ?? eventClock(10, 2);
   const [services, setServices] = useState<ServiceQueuesTileModel["services"]>([
-    { kind: "outing_permission", joined: false, position: null, waitingCount: variant === "quiet" ? 0 : 7 },
+    outingFixture({ waitingCount: variant === "quiet" ? 0 : 7, occupiedCount: variant === "quiet" ? 0 : 15 }),
   ]);
   const queues: ServiceQueuesTileModel = {
-    available: true,
+    available: true, pending: false,
     services,
     setServiceQueue: async (kind, joined) => {
       await wait(250);
       setServices((current) => current.map((service) => {
         if (service.kind !== kind) return service;
-        if (joined) return { ...service, joined: true, position: service.waitingCount + 1, waitingCount: service.waitingCount + 1 };
-        return { ...service, joined: false, position: null, waitingCount: Math.max(0, service.waitingCount - 1) };
+        if (joined) return service.occupiedCount < (service.capacity ?? 0)
+          ? { ...service, status: "permitted", canRequest: false, permissionExpiresAt: Date.now() + 900_000, occupiedCount: service.occupiedCount + 1 }
+          : { ...service, status: "waiting", canRequest: false, position: service.waitingCount + 1, waitingCount: service.waitingCount + 1 };
+        return { ...service, status: "available", canRequest: true, position: null, waitingCount: Math.max(0, service.waitingCount - 1) };
       }));
     },
   };
