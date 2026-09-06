@@ -161,6 +161,12 @@ embedding uses the separate V8 action pool, so background novelty indexing
 cannot take the participant-facing question slots. Keep these production limits
 together so background indexing cannot consume participant-facing capacity.
 
+Production function releases analyze up to 24 modules and upload up to 16
+packages concurrently. Convex defaults both limits to four, which leaves most of
+the validated 32-vCPU VM idle and can make a production-sized push exceed the
+backend's five-minute request deadline. Keep these release limits in the runtime
+environment whenever the production container is replaced.
+
 Only ports 80 and 443 accept inbound traffic. The persistent rules admit only
 Cloudflare's published IPv4 proxy ranges; the production deployment workflow
 adds the current GitHub runner's IPv4 `/32` to port 443 and removes it in its
