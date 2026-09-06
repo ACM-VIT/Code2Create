@@ -87,6 +87,8 @@ Automatic movement needs a live connection. A second scan within 15 seconds is a
 
 At the 15-minute return deadline, the server marks the outing overdue and queues one Sarvam agent call to the participant’s registered phone. A minute-by-minute, paginated sweep recovers reminders for already-overdue outings. Waiting requests and unused permissions never trigger calls. The accepted exit scan is the authority for this automatic, exact-participant reminder; no staff member needs to request a call or hold a separate communications grant.
 
+The conversational agent explains that the participant has exceeded their 15-minute break and other people are waiting for their turn, then asks them to come back now. It does not tell the participant to scan their ID during the call.
+
 Every dispatch rechecks that the same outing is still overdue, the participant remains active, eligible and admitted, the event window is open, and the phone still matches. A return scanned before dispatch cancels the reminder. A call already sent to the provider may still connect. Duplicate deadline jobs, sweep passes and dispatch attempts reuse one delivery per outing. Busy, unanswered and failed calls are not automatically redialed. Missing or invalid phones become visible unavailable deliveries. The ops **Overdue** roster shows call progress and outcomes for staff follow-up. Provider completion or a spoken answer never marks a return, extends the outing, or frees capacity; the matching return scan remains authoritative.
 
 ## 4. Participant credentials
