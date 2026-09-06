@@ -40,6 +40,7 @@ export function tileRelevance(models: DashboardModels): Candidate[] {
   const reviewIsActive = review !== null && ["queued", "called", "at_table", "in_review", "held", "missed"].includes(review.state);
   const reviewScore = reviewIsActive ? 98 : review?.state === "completed" ? 40 : 0;
   const queuesScore = queues.services.some((service) => service.joined) ? 85 : queues.services.length > 0 ? 68 : 0;
+  const hasBenefits = benefits.available && benefits.benefits.length > 0;
   return [
     { key: "event", score: boundarySoon ? 95 : 90, prefer: ["wide", "box"] },
     { key: "music", score: musicScore, prefer: ["tall", "wide"] },
@@ -48,11 +49,9 @@ export function tileRelevance(models: DashboardModels): Candidate[] {
     { key: "updates", score: !updates.available ? 10 : openCheckpoint ? 92 : upcomingCheckpoint ? 55 : 15, prefer: ["tall", "box"] },
     ...(reviewScore > 0 ? [{ key: "review" as const, score: reviewScore, prefer: ["wide", "box"] as const }] : []),
     { key: "queues", score: queuesScore, required: true, prefer: ["box", "tall"] },
-    // Help earns a seat only while a support thread is open; otherwise it
-    // waits behind every tile that has something of the night to show.
-    { key: "help", score: help.support && help.support.open > 0 ? 50 : 8, prefer: ["box", "wide"] },
-    ...(benefits.available && benefits.benefits.length > 0
-      ? [{ key: "benefits" as const, score: 70, prefer: ["box", "tall"] as const }]
-      : []),
+    // Issued benefits replace Help, including when a support thread is open.
+    ...(hasBenefits
+      ? [{ key: "benefits" as const, score: 70, required: true, prefer: ["box", "tall"] as const }]
+      : [{ key: "help" as const, score: help.support && help.support.open > 0 ? 50 : 8, prefer: ["box", "wide"] as const }]),
   ];
 }

@@ -1,9 +1,12 @@
 import { LiveNumber } from "../LiveNumber";
 import { useState } from "react";
 
-import { Reveal, Tile, TileEyebrow } from "./Tile";
-import { hiddenWhenShort, tileBody } from "./tileClasses";
+import { BenefitRedemption } from "../benefits/BenefitRedemption";
+import { hasRevealedBenefit } from "../benefits/benefitReveal";
+import { Tile, TileEyebrow } from "./Tile";
+import { tileBody } from "./tileClasses";
 import type { Slot } from "./dashboardLayout";
+import { useReducedMotion } from "./useReducedMotion";
 
 export type BenefitView = {
   id: string;
@@ -19,75 +22,42 @@ export type BenefitsTileModel = {
   benefits: readonly BenefitView[];
 };
 
-function CopyCode({ code }: { code: string }) {
-  const [copied, setCopied] = useState(false);
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(code);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1_600);
-    } catch {
-      setCopied(false);
-    }
-  };
-  return (
-    <button
-      type="button"
-      data-ph-sensitive
-      onClick={() => void copy()}
-      aria-label={copied ? "Benefit code copied" : "Copy benefit code"}
-      className="flex h-7 max-w-full items-center gap-2 rounded-full border border-rose/55 bg-wash/45 px-3 font-mono text-[12px] tracking-[.06em] text-fg transition-colors hover:border-rose-light"
-    >
-      <span className="truncate">{code}</span>
-      <span className="text-[10.5px] font-sans tracking-normal text-fg/55">{copied ? "copied" : "copy"}</span>
-    </button>
-  );
-}
-
-/** The benefits tile: the perks the team holds; a tap shows codes and links. */
+/** Issued perks open a one-time chest reveal, then their real code and provider link. */
 export function BenefitsTile({ slot, model }: {
   slot: Slot; model: BenefitsTileModel }) {
-  const [open, setOpen] = useState(false);
+  const [selection, setSelection] = useState<{ id: string; animate: boolean } | null>(null);
+  const reducedMotion = useReducedMotion();
+  // Re-resolve from live grants so an archived/removed benefit cannot leave a stale modal.
+  const selected = model.benefits.find(benefit => benefit.id === selection?.id);
   const count = model.benefits.length;
   return (
-    <Tile slot={slot} open={open && count > 0} onToggle={() => setOpen((value) => !value)}>
+    <>
+    <Tile slot={slot} open={selected !== undefined}>
       <div className={tileBody}>
         <div className="flex items-baseline justify-between gap-3">
           <TileEyebrow>benefits</TileEyebrow>
-          {count > 0 ? <span className="text-[11px] text-fg/50"><LiveNumber value={count} /> {count === 1 ? "perk" : "perks"}</span> : null}
+          <span className="text-[11px] text-fg/50"><LiveNumber value={count} /> {count === 1 ? "perk" : "perks"}</span>
         </div>
-        {!model.available ? (
-          <p className="m-0 text-[13px] leading-snug text-fg/65">Perks arrive once your place is confirmed.</p>
-        ) : count === 0 ? (
-          <p className="m-0 text-[13px] leading-snug text-fg/65">Nothing handed out yet. Codes and links land here.</p>
-        ) : open ? (
-          <Reveal key="codes" className="flex min-h-0 flex-col">
-            {model.benefits.map((benefit) => (
-              <div key={benefit.id} className="flex flex-col gap-1.5 border-b border-rose/20 py-2 last:border-b-0">
-                <div className="flex items-baseline justify-between gap-3">
-                  <span className="min-w-0 truncate text-[13px] text-fg">{benefit.name}</span>
-                  {benefit.link ? (
-                    <a href={benefit.link} target="_blank" rel="noreferrer" className="flex-none text-[11.5px] text-rose-light underline-offset-4 hover:underline">
-                      open
-                    </a>
-                  ) : null}
-                </div>
-                {benefit.description ? (
-                  <p className="m-0 text-[10.5px] leading-snug text-fg/50">{benefit.description}</p>
-                ) : null}
-                <CopyCode code={benefit.code} />
-              </div>
-            ))}
-          </Reveal>
-        ) : (
-          <Reveal key="names" className="flex flex-col gap-1">
-            <p className="m-0 line-clamp-2 font-display text-[19px] leading-tight text-shadow-[0_6px_30px_var(--scene-text-glow)]">
-              {model.benefits.map((benefit) => benefit.name).join(" · ")}
-            </p>
-            <p className={`m-0 text-[12.5px] text-fg/65 ${hiddenWhenShort}`}>tap for codes</p>
-          </Reveal>
-        )}
+        <div className="flex min-h-0 flex-col gap-1">
+          {model.benefits.map(benefit => <button key={benefit.id} type="button"
+            aria-label={`Open ${benefit.name}`}
+            onClick={event => setSelection({
+              id: benefit.id,
+              animate: event.detail !== 0 && !reducedMotion && !hasRevealedBenefit(benefit.id),
+            })}
+            className="flex min-h-12 w-full items-center gap-3 rounded-xl border-0 bg-transparent py-2 text-left text-fg transition-colors hover:bg-fg/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-light">
+            <img src="/assets/magic-lucky-chest.webp" alt="" loading="lazy" className="h-11 w-12 shrink-0 object-contain" />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate font-display text-[19px] leading-tight">{benefit.name}</span>
+              <span className="text-[12px] text-fg/65">{hasRevealedBenefit(benefit.id) ? "View code & details" : "Reveal your benefit"}</span>
+            </span>
+            <span aria-hidden className="text-rose-light">↗</span>
+          </button>)}
+        </div>
       </div>
     </Tile>
+    {selected && selection ? <BenefitRedemption key={selected.id} benefit={selected}
+      animate={selection.animate} onClose={() => setSelection(null)} /> : null}
+    </>
   );
 }

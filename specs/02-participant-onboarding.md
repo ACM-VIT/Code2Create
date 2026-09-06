@@ -333,6 +333,25 @@ The participant cannot control playback or queue order. A music action cannot ch
 
 ## 13. Acceptance checks
 
+### Dashboard benefits
+
+Issued, active benefits replace the dashboard's Help tile, including when support
+conversations are open. Without benefits, Help is eligible again. The washroom
+request queue retains its required dashboard slot in either case.
+
+Opening an individual benefit reveals its existing grant code and provider link
+with a one-time Lucky Chest animation and a petal-framed detail card. This is a
+benefit reveal, not an admission-result animation or a claim that the provider has
+redeemed the code. Team and personal grants are labelled separately. Copy failures
+leave a selectable code and an actionable message. Closing or archiving a grant
+must not leave its old code on screen.
+
+The reveal can be skipped or dismissed immediately. Reduced-motion and keyboard
+activation show details directly. A lightweight CSS sequence handles unavailable
+or slow WebGPU; GPU resources stop on reveal, dismissal, or failure. Only completed
+reveal IDs are remembered for the browser session; benefit codes are never stored
+for animation state. Another grant receives its own reveal.
+
 - Google sign-in and server-side account classification work for both participant classes.
 - Profile fields and consent follow the published participant policy.
 - A participant without an active team cannot create, join, or accept an imported team before GitHub confirms the SGLang star.

@@ -6,6 +6,7 @@ import { DashboardScreen } from "../screens/DashboardScreen";
 /** Local-only regression fixture; never uses a live participant account. */
 export function DashboardVisibilityFixture() {
   const [hasBenefits, setHasBenefits] = useState(false);
+  const [secondBenefit, setSecondBenefit] = useState(false);
   const [queueOpen, setQueueOpen] = useState(true);
   const [joined, setJoined] = useState(false);
   const [reviewActive, setReviewActive] = useState(false);
@@ -15,6 +16,9 @@ export function DashboardVisibilityFixture() {
     <div className="flex flex-wrap gap-4" aria-label="Fixture controls">
       <button type="button" onClick={() => setHasBenefits(value => !value)}>
         {hasBenefits ? "Remove benefits" : "Issue benefit"}
+      </button>
+      <button type="button" onClick={() => setSecondBenefit(value => !value)}>
+        {secondBenefit ? "Remove second benefit" : "Issue second benefit"}
       </button>
       <button type="button" onClick={() => setQueueOpen(value => !value)}>
         {queueOpen ? "Close request queue" : "Open request queue"}
@@ -39,7 +43,10 @@ export function DashboardVisibilityFixture() {
         setServiceQueue: async (_kind, nextJoined) => { setJoined(nextJoined); },
       }}
       help={{ discordUrl: null, support: { open: 1 } }}
-      benefits={{ available: true, benefits: hasBenefits ? [{ id: "fixture-benefit", name: "Fixture credit", scope: "team", code: "TEST-CREDIT" }] : [] }}
+      benefits={{ available: true, benefits: hasBenefits ? [
+        { id: "fixture-benefit", name: "Fixture credit", description: "Build something lovely with your team’s credit.", link: "https://example.com/redeem", scope: "team", code: "TEST-CREDIT" },
+        ...(secondBenefit ? [{ id: "fixture-benefit-2", name: "Personal perk", scope: "person" as const, code: "PERSONAL-CODE" }] : []),
+      ] : [] }}
     />
   </MemoryRouter>;
 }
