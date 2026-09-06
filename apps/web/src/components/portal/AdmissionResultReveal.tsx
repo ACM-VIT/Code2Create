@@ -102,6 +102,11 @@ export function AdmissionResultReveal({
     revealTimerRef.current = null;
   }, []);
 
+  const armVideoSafetyTimer = useCallback(() => {
+    clearRevealTimer();
+    revealTimerRef.current = window.setTimeout(reveal, videoSafetyTimeoutMs);
+  }, [clearRevealTimer, reveal]);
+
   const beginStaticFallback = useCallback(() => {
     clearRevealTimer();
     setAnimationMode("static");
@@ -130,6 +135,7 @@ export function AdmissionResultReveal({
 
     if (!navigator.gpu) {
       setAnimationMode("video");
+      armVideoSafetyTimer();
       return;
     }
 
@@ -140,6 +146,7 @@ export function AdmissionResultReveal({
       if (stopped.current || usingVideo) return;
       usingVideo = true;
       setAnimationMode("video");
+      armVideoSafetyTimer();
       cleanup?.();
     };
     const startupTimer = window.setTimeout(beginVideo, animationStartupTimeoutMs);
@@ -178,12 +185,16 @@ export function AdmissionResultReveal({
       window.clearTimeout(startupTimer);
       cleanup?.();
     };
-  }, [reveal, showsChest]);
+  }, [armVideoSafetyTimer, reveal, showsChest]);
 
   const handleVideoPlaying = () => {
     setVideoPlaying(true);
+    armVideoSafetyTimer();
+  };
+
+  const handleVideoEnded = () => {
     clearRevealTimer();
-    revealTimerRef.current = window.setTimeout(reveal, videoSafetyTimeoutMs);
+    reveal();
   };
 
   return (
@@ -213,7 +224,7 @@ export function AdmissionResultReveal({
                 aria-hidden
                 className="admission-result-reveal__video"
                 src="/assets/result-chest-animation.webm"
-                onEnded={reveal}
+                onEnded={handleVideoEnded}
                 onError={beginStaticFallback}
                 onPlaying={handleVideoPlaying}
               />
