@@ -13,6 +13,8 @@ It answers four different questions:
 
 The system supports emergency roll calls and session planning. It does not score productivity, track continuous location, or disqualify a participant automatically.
 
+A valid staffed check-in, including an authorized attendance-sheet backfill, is sufficient for a never-enrolled VIT card to record later presence. The scanner resolves the card's exact registration number to the same VIT participant and checks the existing arrival record. It does not create another check-in or require the participant to repeat card setup. Existing VIT card history, including suspension, revocation, replacement and pending verification, still requires the corresponding credential workflow; registration matching cannot override it. Admission and eligibility checks remain mandatory.
+
 Reviewer presence is a separate workflow. A reviewer scans the review-presence team QR for one review session. A participant presents an attendance credential for venue and hacking-session presence. Each command rejects the QR prefix from the other workflow.
 
 ## 2. Operating concepts

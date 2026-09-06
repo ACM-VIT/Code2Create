@@ -18,6 +18,7 @@ import {
   scannerCaptureFutureToleranceMs,
 } from "./lib/attendanceOfflineReplay";
 import { latestVenueCheckIn } from "./lib/venueCheckInLifecycle";
+import { parseVitRegistrationNumber, vitIdentityReferenceYear } from "./lib/vitStudentIdentity";
 import { applyOutingScan } from "./lib/participantServiceQueue";
 import { outingScanDecision } from "./lib/outingValues";
 import { updateActiveRollCallsForVenueChange } from "./lib/attendanceRollCalls";
@@ -283,6 +284,7 @@ async function resolveCredential(
     credentialKind:
       "vit_id_barcode" | "external_id_barcode" | "badge_qr" | "external_pass";
     lookupHash: string;
+    registrationNumber?: string;
   },
 ): Promise<CredentialResolution> {
   if (args.credentialKind === "external_id_barcode") {
@@ -345,13 +347,34 @@ async function resolveCredential(
     });
   }
   const credential = active[0];
-  if (!credential)
+  if (credential) {
+    return {
+      resolved: true,
+      membershipId: credential.membershipId,
+      credentialId: credential._id,
+    };
+  }
+  // A staffed or backfilled check-in may precede the first physical card scan.
+  // Existing card history still owns suspension and replacement decisions.
+  if (args.credentialKind !== "vit_id_barcode" || !args.registrationNumber || matches.length > 0) {
     return { resolved: false, reasonCode: "credential_not_found" };
-  return {
-    resolved: true,
-    membershipId: credential.membershipId,
-    credentialId: credential._id,
-  };
+  }
+  const membership = await ctx.db.query("eventMemberships")
+    .withIndex("by_event_vit_registration", (q) => q.eq("eventId", args.eventId)
+      .eq("vitStudentIdentity.registrationNumber", args.registrationNumber))
+    .unique();
+  if (!membership || membership.participantClass !== "vit_student") {
+    return { resolved: false, reasonCode: "credential_not_found" };
+  }
+  const history = await ctx.db.query("attendanceCredentials")
+    .withIndex("by_membership_state", (q) => q.eq("membershipId", membership._id)).collect();
+  if (history.some((card) => card.kind === "vit_id_barcode")) {
+    return { resolved: false, reasonCode: "credential_not_found" };
+  }
+  if ((await latestVenueCheckIn(ctx, membership._id))?.status !== "checked_in") {
+    return { resolved: false, reasonCode: "staffed_check_in_required" };
+  }
+  return { resolved: true, membershipId: membership._id };
 }
 
 async function participantForReceipt(
@@ -424,6 +447,7 @@ async function receiptForEvent(
 
 export const recordScan = internalMutation({
   args: {
+    rawRegistrationNumber: v.optional(v.string()),
     movementReason: v.optional(attendanceMovementReason),
     eventSlug: v.string(),
     stationId: v.id("attendanceStations"),
@@ -582,10 +606,14 @@ export const recordScan = internalMutation({
         message: "This transition requires a session-bound station.",
       });
     }
+    const vitIdentity = args.credentialKind === "vit_id_barcode" && args.rawRegistrationNumber !== undefined
+      ? parseVitRegistrationNumber(args.rawRegistrationNumber, vitIdentityReferenceYear(event))
+      : null;
     const resolved = await resolveCredential(ctx, {
       eventId: event._id,
       credentialKind: args.credentialKind,
       lookupHash: args.lookupHash,
+      ...(vitIdentity ? { registrationNumber: vitIdentity.registrationNumber } : {}),
     });
     let membership: Doc<"eventMemberships"> | null = null;
     let decision: Decision | null = null;

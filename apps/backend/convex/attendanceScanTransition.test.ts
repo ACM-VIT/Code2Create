@@ -33,6 +33,71 @@ afterAll(() => {
 });
 
 describe("attendance scan direction", () => {
+  test("a backfilled VIT participant returns on their first card scan without repeating check-in", async () => {
+    const backend = seededBackend(); const fixture = await seedScannerFixture(backend, false);
+    await prepareUnenrolledBackfill(backend, fixture);
+    const before = await backend.run((ctx) => ctx.db.query("venueCheckIns").collect());
+    const operator = asOperator(backend, fixture);
+    const request = { ...scanArguments(fixture), rawRegistrationNumber: " 26bce2080 ",
+      rovingTransition: "venue_entry" as const, movementReason: "meal" as const,
+      clientOperationId: "backfilled-card-return", deviceSequence: 1 };
+    const result = await operator.mutation(internal.attendanceScan.recordScan, request);
+    expect(result).toMatchObject({ outcome: "accepted", reasonCode: "venue_entry_recorded",
+      participant: { membershipId: fixture.membershipId } });
+    expect(await operator.mutation(internal.attendanceScan.recordScan, request)).toEqual(result);
+    expect(await backend.run((ctx) => ctx.db.query("venueCheckIns").collect())).toEqual(before);
+    expect(await backend.run((ctx) => ctx.db.query("attendanceCredentials").collect())).toEqual([]);
+    expect(await backend.run((ctx) => ctx.db.query("attendancePresenceEvents").collect())).toHaveLength(1);
+  });
+
+  test.each(["missing", "reversed"] as const)("a never-enrolled card cannot use a %s check-in", async (status) => {
+    const backend = seededBackend(); const fixture = await seedScannerFixture(backend, false);
+    await prepareUnenrolledBackfill(backend, fixture);
+    await backend.run(async (ctx) => {
+      const checkIn = await ctx.db.query("venueCheckIns").first();
+      if (!checkIn) throw new Error("Missing fixture check-in");
+      if (status === "missing") await ctx.db.delete(checkIn._id);
+      else await ctx.db.patch(checkIn._id, { status: "reversed" });
+    });
+    expect(await asOperator(backend, fixture).mutation(internal.attendanceScan.recordScan, {
+      ...scanArguments(fixture), rawRegistrationNumber: "26BCE2080", rovingTransition: "venue_entry",
+      movementReason: "general", clientOperationId: "missing-backfill", deviceSequence: 1,
+    })).toMatchObject({ outcome: "rejected", reasonCode: "staffed_check_in_required" });
+  });
+
+  test.each(["26BCE2081", "not-a-registration", "99BCE2080"])("a backfill does not authorize a different or invalid registration: %s", async (rawRegistrationNumber) => {
+    const backend = seededBackend(); const fixture = await seedScannerFixture(backend, false);
+    await prepareUnenrolledBackfill(backend, fixture);
+    expect(await asOperator(backend, fixture).mutation(internal.attendanceScan.recordScan, {
+      ...scanArguments(fixture), rawRegistrationNumber, rovingTransition: "venue_entry",
+      movementReason: "general", clientOperationId: "different-backfill-id", deviceSequence: 1,
+    })).toMatchObject({ outcome: "rejected", reasonCode: "credential_not_found" });
+  });
+
+  test.each(["suspended", "revoked", "replaced", "pending_verification"] as const)("a backfill cannot bypass %s card history", async (state) => {
+    const backend = seededBackend(); const fixture = await seedScannerFixture(backend, false);
+    await prepareUnenrolledBackfill(backend, fixture);
+    await backend.run((ctx) => ctx.db.insert("attendanceCredentials", {
+      eventId: fixture.eventId, membershipId: fixture.membershipId, kind: "vit_id_barcode",
+      lookupHash: "different-historical-card", barcodeSymbology: "code128", normalizationVersion: "trim-v1",
+      version: 1, state, enrolledByPersonId: fixture.operatorPersonId, enrolledAt: fixture.now,
+    }));
+    expect(await asOperator(backend, fixture).mutation(internal.attendanceScan.recordScan, {
+      ...scanArguments(fixture), rawRegistrationNumber: "26BCE2080", rovingTransition: "venue_entry",
+      movementReason: "general", clientOperationId: "protected-card-history", deviceSequence: 1,
+    })).toMatchObject({ outcome: "rejected", reasonCode: "credential_not_found" });
+  });
+
+  test("a backfilled check-in cannot restore suspended participant eligibility", async () => {
+    const backend = seededBackend(); const fixture = await seedScannerFixture(backend, false);
+    await prepareUnenrolledBackfill(backend, fixture);
+    await backend.run((ctx) => ctx.db.patch(fixture.membershipId, { eligibilityStatus: "suspended" }));
+    expect(await asOperator(backend, fixture).mutation(internal.attendanceScan.recordScan, {
+      ...scanArguments(fixture), rawRegistrationNumber: "26BCE2080", rovingTransition: "venue_entry",
+      movementReason: "general", clientOperationId: "suspended-backfill", deviceSequence: 1,
+    })).toMatchObject({ outcome: "rejected", reasonCode: "participant_not_active" });
+  });
+
   test("a dinner return after backfilled check-in succeeds without capacity or an exit scan", async () => {
     const backend = seededBackend(); const fixture = await seedScannerFixture(backend, false);
     await backend.run(async (ctx) => {
@@ -47,6 +112,9 @@ describe("attendance scan direction", () => {
     expect(result).toMatchObject({ outcome: "accepted", transition: "venue_entry", nextState: "inside", movementReason: "meal" });
     expect(result.outing).toBeUndefined();
     expect(await operator.mutation(internal.attendanceScan.recordScan, request)).toEqual(result);
+    expect(await operator.mutation(internal.attendanceScan.recordScan, {
+      ...request, rawRegistrationNumber: "26BCE2080",
+    })).toEqual(result);
     expect(await operator.mutation(internal.attendanceScan.recordScan, { ...request, clientOperationId: "rescan-return", deviceSequence: 2 }))
       .toMatchObject({ outcome: "duplicate", nextState: "inside" });
     expect(await backend.run((ctx) => ctx.db.query("participantServiceQueueEntries").collect())).toEqual([]);
@@ -1291,6 +1359,19 @@ function documentId(value: unknown, label: string): string {
     throw new Error(`${label} returned an invalid document ID.`);
   }
   return id;
+}
+
+async function prepareUnenrolledBackfill(backend: BackendTest, fixture: Fixture) {
+  await backend.run(async (ctx) => {
+    await ctx.db.patch(fixture.membershipId, { vitStudentIdentity: {
+      fullName: "Backfilled participant", registrationNumber: "26BCE2080", programmeCode: "BCE", yearOfStudy: "first",
+    } });
+    const card = await ctx.db.query("attendanceCredentials").first();
+    const checkIn = await ctx.db.query("venueCheckIns").first();
+    if (!card || !checkIn) throw new Error("Missing fixture card or check-in");
+    await ctx.db.delete(card._id);
+    await ctx.db.patch(checkIn._id, { identityCheckMethod: "approved_exception", checkInReason: "Organizer attendance-sheet backfill" });
+  });
 }
 
 async function seedCheckIn(backend: BackendTest, fixture: Fixture) {

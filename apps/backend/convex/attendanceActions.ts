@@ -1796,6 +1796,9 @@ export const recordScan = action({
       deviceSecretHash: secretHash,
       credentialKind: args.credential.kind,
       lookupHash,
+      ...(args.credential.kind === "vit_id_barcode"
+        ? { rawRegistrationNumber: args.credential.rawBarcodeValue }
+        : {}),
       ...(args.rovingTransition !== undefined ? { rovingTransition: args.rovingTransition } : {}),
       clientOperationId: args.clientOperationId,
       deviceSequence: args.deviceSequence,
