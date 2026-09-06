@@ -3304,6 +3304,41 @@ describe("live panel membership", () => {
 });
 
 describe("round availability confirmation", () => {
+  test.each([0, 300, 1800])("clock-in uses the published opening, not the %s-second reminder", async assignmentReminderSeconds => {
+    const backend = seededBackend();
+    const fixture = await seedPanel(backend);
+    const reviewer = await prepareReviewerClockIn(backend, fixture);
+    const opening = Date.now() + 1000;
+    const startsAt = opening + 30 * 60_000;
+    const endsAt = startsAt + 4 * 60 * 60_000;
+    await backend.run(async ctx => {
+      const round = await ctx.db.get(fixture.roundId);
+      const confirmation = await ctx.db.query("reviewerRoundConfirmations")
+        .withIndex("by_roundId_and_personId", q => q.eq("roundId", fixture.roundId).eq("personId", fixture.memberPersonId)).unique();
+      if (!round || !confirmation) throw new Error("Missing confirmation fixture");
+      await ctx.db.patch(round._id, {
+        clockInOpensAt: opening, startsAt, endsAt,
+        staffing: { ...round.staffing, assignmentReminderSeconds },
+      });
+      await ctx.db.patch(confirmation._id, { status: "confirmed", windows: [{ startsAt, endsAt }] });
+    });
+    const args = {
+      eventSlug: fixture.eventSlug, roundId: fixture.roundId, installationId: reviewer.installationId,
+      expectedVersion: 0, clientOperationId: "published-opening-clock-in",
+    };
+    const clock = vi.spyOn(Date, "now");
+    try {
+      clock.mockReturnValue(opening - 1);
+      await expect(reviewer.identity.mutation(api.reviewer.clockIn, args)).rejects.toThrow("published opening");
+      clock.mockReturnValue(opening);
+      const result = await reviewer.identity.mutation(api.reviewer.clockIn, args);
+      expect(await reviewer.identity.mutation(api.reviewer.clockIn, args)).toEqual(result);
+      expect(await backend.run(ctx => ctx.db.get(result.clockInId))).toMatchObject({ status: "present", clockedInAt: opening });
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
   test.each([0, -60_000])("opening a scheduled confirmation with a %i ms offset notifies each reviewer once", async (offset) => {
     const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now());
     try {

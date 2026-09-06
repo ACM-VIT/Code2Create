@@ -101,7 +101,7 @@ The device record stores no Google password or raw OAuth token.
 
 ## 5. Clock-in
 
-Before the round, an availability card opens at the scheduled confirmation time, normally 22:00–23:00 IST the evening before the review. It offers all of the round's time windows, a whole-round selection, and an explicit unavailable response. There is no three-selection limit. Form-export hours are never prefilled as promises. Operations sees pending, confirmed, and unavailable responses separately. Only qualified reviewers with confirmed coverage may clock in for a review.
+Before the round, an availability card opens at the scheduled confirmation time, normally 22:00–23:00 IST the evening before the review. It offers all of the round's time windows, a whole-round selection, and an explicit unavailable response. There is no three-selection limit. Form-export hours are never prefilled as promises. Operations sees pending, confirmed, and unavailable responses separately. Only qualified reviewers with confirmed coverage may clock in for a review. Early arrival uses the interval between the published clock-in opening and round start, applied to each confirmed shift, and never opens before the round's published clock-in time. Reminder timing does not gate clock-in. The confirmed shift must still have enough remaining time for a complete review.
 
 The clock-in screen shows:
 

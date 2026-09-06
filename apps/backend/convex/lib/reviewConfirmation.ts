@@ -115,7 +115,7 @@ export async function requireConfirmedClockIn(
     !confirmation.windows.some(
       (window) =>
         window.startsAt <=
-          now + round.staffing.assignmentReminderSeconds * 1000 &&
+          now + Math.max(0, round.startsAt - round.clockInOpensAt) &&
         window.endsAt >=
           Math.max(now, window.startsAt) + round.reviewDurationSeconds * 1000,
     )
@@ -123,7 +123,7 @@ export async function requireConfirmedClockIn(
     throw new ConvexError({
       code: "REVIEWER_CONFIRMATION_REQUIRED",
       message:
-        "Confirm your availability in the app for a complete review, then clock in when its reminder window opens.",
+        "Confirm your availability in the app for a complete review, then clock in within the published early-arrival window for your shift.",
     });
   }
 }
