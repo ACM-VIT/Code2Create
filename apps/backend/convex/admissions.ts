@@ -3631,6 +3631,7 @@ export async function transitionOffer(
     project: Doc<"projectVersions">;
     team: Doc<"teams">;
     transition: OfferTransition;
+    notifyParticipants?: boolean;
     actorPersonId?: Id<"people">;
     reason: string;
     now: number;
@@ -3707,7 +3708,7 @@ export async function transitionOffer(
         ? "selected"
         : "submitted";
   const communicationsPolicyVersionId =
-    args.transition === "revoked"
+    args.transition === "revoked" || args.notifyParticipants === false
       ? undefined
       : await publishedCommunicationsPolicyId(ctx, args.offer.eventId);
   await ctx.scheduler.runAfter(0, internal.admissions.updateRosterOnboardingStatus, {
@@ -3729,7 +3730,7 @@ export async function transitionOffer(
     });
   }
 
-  if (args.transition !== "revoked") {
+  if (args.transition !== "revoked" && args.notifyParticipants !== false) {
     const templateKey =
       args.transition === "confirmed"
         ? "offer_confirmed"
@@ -4162,6 +4163,111 @@ export const sendOffer = mutation({
         expiresAt: args.expiresAt,
       }),
       reason: "Sent an admission offer to the locked team",
+    });
+    return result;
+  },
+});
+
+/** Records an organizer-received RSVP without impersonating the lead or sending messages. */
+export const recordManualRsvp = internalMutation({
+  args: {
+    eventSlug: v.string(), applicationId: v.id("applications"),
+    expectedApplicationVersion: v.number(), expectedOfferVersion: v.number(),
+    expectedTeamVersion: v.number(), reason: v.string(), clientOperationId: v.string(),
+  },
+  returns: offerMutationResult,
+  handler: async (ctx, args) => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    const application = await ctx.db.get(args.applicationId);
+    if (!application || application.eventId !== event._id) throw new Error("Application not found.");
+    const grantIds = await requirePermission(ctx, {
+      eventId: event._id, eventAccessSubjectId: subject._id,
+      permissionKey: "application.offer.manage", scopeType: "application", scopeId: application._id,
+    });
+    const reason = normalizedText(args.reason, "Manual RSVP evidence", 10, 2000);
+    const clientOperationId = normalizedText(args.clientOperationId, "Operation ID", 1, 200);
+    const operation = { eventId: event._id, actorPersonId: person._id, clientOperationId,
+      commandName: "admissions.rsvp.manual_confirm", requestFingerprint: operationFingerprint([
+        application._id, args.expectedApplicationVersion, args.expectedOfferVersion, args.expectedTeamVersion, reason,
+      ]) };
+    const prior = await findOperation(ctx, operation);
+    if (prior) return storedOfferOperationResult(ctx, prior.targetId, prior.resultJson);
+    const [team, project, policy, priorOffer] = await Promise.all([
+      ctx.db.get(application.teamId), ctx.db.get(application.submittedProjectVersionId),
+      ctx.db.get(application.admissionPolicyVersionId),
+      application.currentOfferId ? ctx.db.get(application.currentOfferId) : Promise.resolve(null),
+    ]);
+    const now = Date.now();
+    if (event.admissionResultsReleasedAt === undefined || application.decisionStage !== "released" ||
+      application.humanDecision !== "accept" || !team || !project || !policy || !priorOffer ||
+      team.eventId !== event._id || project.eventId !== event._id || policy.eventId !== event._id ||
+      policy.status !== "published" || priorOffer.eventId !== event._id ||
+      priorOffer.applicationId !== application._id || priorOffer.teamId !== team._id ||
+      project.teamId !== team._id || team.lockedProjectVersionId !== project._id ||
+      priorOffer.lockedRosterSnapshotId !== project.lockedRosterSnapshotId ||
+      priorOffer.participantCount !== project.lockedMemberCount || !team.membershipLocked ||
+      team.activeVitMemberCount !== project.lockedMemberCount || team.activeExternalMemberCount !== 0) {
+      throw new Error("Manual RSVP requires a released, accepted VIT team with its original locked offer and roster.");
+    }
+    if (application.state === "confirmed" && priorOffer.state === "confirmed" && team.status === "confirmed") {
+      await requireActiveOfferReservation(ctx, priorOffer);
+      return offerResult(priorOffer, application);
+    }
+    if (event.status === "complete" ||
+      (event.endsAt !== undefined && now >= event.endsAt)) throw new Error("This event has ended.");
+    if (application.version !== args.expectedApplicationVersion || priorOffer.version !== args.expectedOfferVersion ||
+      team.version !== args.expectedTeamVersion) throw new Error("RSVP changed. Refresh before recording confirmation.");
+    const expired = application.state === "offer_expired" && priorOffer.state === "expired" && team.status === "withdrawn";
+    const pending = application.state === "offer_sent" && priorOffer.state === "offered" && team.status === "admitted";
+    if (!expired && !pending) throw new Error("Only pending or expired RSVPs can be manually confirmed.");
+    const roster = await ctx.db.query("teamSubmissionMembers")
+      .withIndex("by_submission_attempt_and_ordinal", q => q.eq("submissionAttemptId", project.lockedRosterSnapshotId)).collect();
+    if (roster.length !== project.lockedMemberCount) throw new Error("The locked roster is incomplete.");
+    for (const row of roster) {
+      const membership = await ctx.db.get(row.membershipId);
+      const active = await ctx.db.query("teamMembers").withIndex("by_event_membership_status", q =>
+        q.eq("eventId", event._id).eq("membershipId", row.membershipId).eq("status", "active")).unique();
+      if (!membership || membership.eventId !== event._id || membership.eligibilityStatus !== "eligible" ||
+        membership.participantClass !== "vit_student" || active?.teamId !== team._id) {
+        throw new Error("Every locked member must remain eligible and active on this VIT team.");
+      }
+    }
+    let offer = priorOffer;
+    let pendingApplication = application;
+    if (expired) {
+      // Keep the expired offer and released reservation as history. The replacement
+      // is created and confirmed in this transaction, with no invitation or timer.
+      const offerId = await ctx.db.insert("admissionOffers", {
+        eventId: event._id, applicationId: application._id, teamId: team._id,
+        lockedRosterSnapshotId: project.lockedRosterSnapshotId, participantCount: project.lockedMemberCount,
+        source: priorOffer.source, state: "offered", sentAt: now, expiresAt: now,
+        createdByPersonId: person._id, createdByGrantIds: grantIds, version: 1,
+      });
+      await reserveAdmissionCapacity(ctx, { eventId: event._id, application, project, policy, offerId, now });
+      await ctx.db.patch(application._id, { state: "offer_sent", currentOfferId: offerId });
+      const replacement = await ctx.db.get(offerId);
+      const updatedApplication = await ctx.db.get(application._id);
+      if (!replacement || !updatedApplication) throw new Error("Manual RSVP reservation did not persist.");
+      offer = replacement;
+      pendingApplication = updatedApplication;
+    }
+    const confirmed = await transitionOffer(ctx, {
+      application: pendingApplication, offer, project, team, transition: "confirmed",
+      actorPersonId: person._id, reason, now, notifyParticipants: false,
+    });
+    const result = offerResult(confirmed.offer, confirmed.application);
+    await recordOperation(ctx, { ...operation, targetType: "admission_offer", targetId: result.offerId,
+      resultJson: offerOperationResultJson(result), createdAt: now });
+    await writeAuditEvent(ctx, {
+      eventId: event._id, actorPersonId: person._id, permissionKey: "application.offer.manage", grantIds,
+      scopeType: "application", scopeId: application._id, action: "admission.rsvp_manually_confirmed",
+      targetType: "application", targetId: application._id,
+      previousSummary: JSON.stringify({ applicationState: application.state, offerId: priorOffer._id,
+        offerState: priorOffer.state, teamStatus: team.status }),
+      nextSummary: JSON.stringify({ ...result, teamId: team._id, participantCount: project.lockedMemberCount,
+        notificationsSent: false }), reason,
     });
     return result;
   },

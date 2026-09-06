@@ -2,7 +2,8 @@ import { convexTest, type TestConvex } from "convex-test";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { defaultParticipantEmailTemplates } from "@code2create/domain";
 
-import { internal } from "./_generated/api.js";
+import { internal, components } from "./_generated/api.js";
+import betterAuthSchema from "../node_modules/@convex-dev/better-auth/src/component/schema.ts";
 import type { Id } from "./_generated/dataModel.js";
 import { createAdmissionOffer, transitionOffer } from "./admissions.ts";
 import { insertPermissionGrant } from "./lib/permissions";
@@ -19,6 +20,7 @@ import schema from "./schema.ts";
 const admissionRsvpCallDelayMs = 8.5 * 60 * 60_000;
 
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
+const authModules = import.meta.glob("../node_modules/@convex-dev/better-auth/src/component/**/*.ts");
 
 type BackendTest = TestConvex<typeof schema>;
 
@@ -29,6 +31,80 @@ afterEach(() => {
 });
 
 describe("admission offer lifecycle", () => {
+  test.each(["expired", "pending"] as const)("records a %s manual RSVP once, preserves capacity history and sends no messages", async status => {
+    const backend = convexTest(schema, modules);
+    const fixture = await seedOfferedApplication(backend, Date.now() - 1);
+    if (status === "expired") await backend.mutation(internal.admissions.expireOffer, {
+      offerId: fixture.offerId, expectedOfferVersion: 1,
+    });
+    const operator = await prepareManualRsvp(backend, fixture);
+    const before = await readOfferState(backend, fixture);
+    if (!before.application || !before.offer || !before.team) throw new Error("Missing fixture");
+    const beforeNotifications = await scheduledRosterNotificationCount(backend);
+    const args = { eventSlug: operator.eventSlug, applicationId: fixture.applicationId,
+      expectedApplicationVersion: before.application.version, expectedOfferVersion: before.offer.version,
+      expectedTeamVersion: before.team.version, reason: "Organizer received the team's manual RSVP in person.",
+      clientOperationId: `manual-${status}` };
+    const result = await operator.client.mutation(internal.admissions.recordManualRsvp, args);
+    expect(result).toMatchObject({ offerState: "confirmed", applicationState: "confirmed" });
+    expect(await operator.client.mutation(internal.admissions.recordManualRsvp, args)).toEqual(result);
+    expect(await operator.client.mutation(internal.admissions.recordManualRsvp, {
+      ...args, clientOperationId: `manual-${status}-again`,
+    })).toEqual(result);
+    // A late expiry worker for the original offer cannot undo the manual RSVP.
+    await backend.mutation(internal.admissions.expireOffer, { offerId: fixture.offerId, expectedOfferVersion: 1 });
+    await updateRosterStatus(backend, fixture, "accepted");
+    const after = await readOfferState(backend, fixture);
+    expect(after.application?.state).toBe("confirmed");
+    expect(after.team?.status).toBe("confirmed");
+    expect(after.membership?.onboardingStatus).toBe("accepted");
+    expect(after.capacity?.reserved).toBe(1);
+    expect(after.teamAvailability).not.toBeNull();
+    expect(after.audits.filter(a => a.action === "admission.rsvp_manually_confirmed")).toMatchObject([
+      { actorPersonId: operator.personId, reason: args.reason },
+    ]);
+    if (status === "expired") {
+      expect(result.offerId).not.toBe(fixture.offerId);
+      expect(after.offer).toEqual(before.offer);
+      expect(after.reservation).toEqual(before.reservation);
+    } else expect(result.offerId).toBe(fixture.offerId);
+    expect(await scheduledRosterNotificationCount(backend)).toBe(beforeNotifications);
+    expect(await rsvpCalls(backend)).toEqual([]);
+    const active = await backend.run(ctx => ctx.db.query("admissionCapacityReservations")
+      .withIndex("by_application_state", q => q.eq("applicationId", fixture.applicationId).eq("state", "active")).collect());
+    expect(active).toMatchObject([{ offerId: result.offerId, participantCount: 1 }]);
+  });
+
+  test.each(["authority", "version", "capacity", "declined", "rejected", "external", "ineligible"] as const)(
+    "refuses manual RSVP with changed %s and rolls back all writes", async invalid => {
+      const backend = convexTest(schema, modules);
+      const fixture = await seedOfferedApplication(backend, Date.now() - 1);
+      await backend.mutation(internal.admissions.expireOffer, { offerId: fixture.offerId, expectedOfferVersion: 1 });
+      const operator = await prepareManualRsvp(backend, fixture);
+      await backend.run(async ctx => {
+        if (invalid === "authority") await ctx.db.patch(operator.grantId, { status: "revoked" });
+        if (invalid === "capacity") await ctx.db.patch(fixture.capacityId, { capacity: 0 });
+        if (invalid === "declined") {
+          await ctx.db.patch(fixture.applicationId, { state: "withdrawn" });
+          await ctx.db.patch(fixture.offerId, { state: "declined" });
+        }
+        if (invalid === "rejected") await ctx.db.patch(fixture.applicationId, { humanDecision: "decline" });
+        if (invalid === "external") await ctx.db.patch(fixture.teamId, { activeVitMemberCount: 0, activeExternalMemberCount: 1 });
+        if (invalid === "ineligible") await ctx.db.patch(fixture.membershipId, { eligibilityStatus: "suspended" });
+      });
+      const before = await readOfferState(backend, fixture);
+      if (!before.application || !before.offer || !before.team) throw new Error("Missing fixture");
+      await expect(operator.client.mutation(internal.admissions.recordManualRsvp, {
+        eventSlug: operator.eventSlug, applicationId: fixture.applicationId,
+        expectedApplicationVersion: before.application.version + (invalid === "version" ? 1 : 0),
+        expectedOfferVersion: before.offer.version, expectedTeamVersion: before.team.version,
+        reason: "Manual RSVP requested by organizer.", clientOperationId: `invalid-${invalid}`,
+      })).rejects.toThrow();
+      expect(await readOfferState(backend, fixture)).toEqual(before);
+      expect(await backend.run(ctx => ctx.db.query("admissionOffers").collect())).toHaveLength(1);
+    },
+  );
+
   test("renders the event date and time in VIT RSVP confirmation emails", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-05T08:30:00Z"));
@@ -907,4 +983,36 @@ async function enqueueRosterNotification(
     cursor: null,
     processedMemberCount: 0,
   });
+}
+
+async function prepareManualRsvp(backend: BackendTest, fixture: Awaited<ReturnType<typeof seedOfferedApplication>>) {
+  backend.registerComponent("betterAuth", betterAuthSchema, authModules);
+  const now = Date.now();
+  const user: unknown = await backend.mutation(components.betterAuth.adapter.create, {
+    input: { model: "user", data: { name: "RSVP Operator", email: "rsvp.operator@vitstudent.ac.in",
+      emailVerified: true, createdAt: now, updatedAt: now } },
+  });
+  if (!user || typeof user !== "object" || !("_id" in user) || typeof user._id !== "string") throw new Error("Missing auth user");
+  const userId = user._id;
+  const session: unknown = await backend.mutation(components.betterAuth.adapter.create, {
+    input: { model: "session", data: { userId, token: "manual-rsvp-session", expiresAt: now + 86_400_000,
+      createdAt: now, updatedAt: now } },
+  });
+  if (!session || typeof session !== "object" || !("_id" in session) || typeof session._id !== "string") throw new Error("Missing auth session");
+  const data = await backend.run(async ctx => {
+    const event = await ctx.db.get(fixture.eventId);
+    if (!event) throw new Error("Missing event");
+    await ctx.db.patch(event._id, { admissionResultsReleasedAt: now - 1000, startsAt: now - 1000,
+      status: "registration_closed", endsAt: now + 86_400_000 });
+    const personId = await ctx.db.insert("people", { authUserId: userId, verifiedEmail: "rsvp.operator@vitstudent.ac.in",
+      displayName: "RSVP Operator", status: "active", createdAt: now, updatedAt: now });
+    const subjectId = await ctx.db.insert("eventAccessSubjects", { eventId: fixture.eventId, personId,
+      emailNormalized: "rsvp.operator@vitstudent.ac.in", displayName: "RSVP Operator", status: "active",
+      linkedBy: "participant_provisioning", accessVersion: 1, createdAt: now, updatedAt: now });
+    const { grantId } = await insertPermissionGrant(ctx, { eventId: fixture.eventId, personId,
+      eventAccessSubjectId: subjectId, permissionKey: "application.offer.manage", scopeType: "application",
+      scopeId: fixture.applicationId, sourceType: "manual", sourceId: "manual-rsvp-test", reason: "Record a manual RSVP" });
+    return { eventSlug: event.slug, personId, grantId };
+  });
+  return { ...data, client: backend.withIdentity({ subject: userId, sessionId: session._id }) };
 }
