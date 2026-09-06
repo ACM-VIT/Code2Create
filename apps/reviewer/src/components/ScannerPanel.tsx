@@ -69,6 +69,7 @@ import {
 } from "@/lib/pending-attendance-scans";
 import {
   allowedRovingTransitions,
+  physicalCardKind,
   stationAcceptsCredential,
   type ScanTransition,
 } from "@/lib/attendance-station-policy";
@@ -101,7 +102,7 @@ type ActiveVenueCheckInView = {
 };
 type ScanCredential =
   | AttendanceQr
-  | { kind: "vit_id_barcode"; rawBarcodeValue: string; symbology: BarcodeSymbology };
+  | { kind: "vit_id_barcode" | "external_id_barcode"; rawBarcodeValue: string; symbology: BarcodeSymbology };
 type DeviceReceipt = ScannerAssignment["recentReceipts"][number];
 type DeviceState =
   | { status: "loading" }
@@ -132,7 +133,7 @@ type CredentialSetupState =
   | {
       step: "identity";
       participant: StaffedParticipant;
-      resolutionSource: "vit_barcode" | "external_pass" | "manual";
+      resolutionSource: "vit_barcode" | "external_pass" | "external_id" | "manual";
     }
   | { step: "first_scan"; participant: StaffedParticipant }
   | {
@@ -436,6 +437,7 @@ function ScannerSurface({
   const scannerHeartbeat = useAction(api.attendanceActions.scannerHeartbeat);
   const resolveExternalPass = useAction(api.attendanceActions.resolveExternalPass);
   const resolveVitBarcode = useAction(api.attendanceActions.resolveVitBarcode);
+  const resolveExternalIdBarcode = useAction(api.attendanceActions.resolveExternalIdBarcode);
   const resolveManualParticipant = useAction(api.attendanceActions.resolveManualParticipant);
   const linkResolvedExternalIdBarcode = useAction(
     api.attendanceActions.linkResolvedExternalIdBarcode,
@@ -470,6 +472,9 @@ function ScannerSurface({
   const [busy, setBusy] = useState(false);
   const [replaying, setReplaying] = useState(false);
   const requestedTask = useLocalSearchParams<{ task?: string }>().task;
+  const washroomQueue = useQuery(api.serviceQueues.forStation,
+    assignment.station.mode === "roving" && !assignment.station.sessionId
+      ? { eventSlug, stationId: assignment.station.id } : "skip");
   const [chosenTask, setChosenTask] = useState<ScannerTask | null>(null);
   const task: ScannerTask | null =
     requestedTask === "staffed" || requestedTask === "presence" ? requestedTask : chosenTask;
@@ -774,7 +779,7 @@ function ScannerSurface({
     const credential: ScanCredential | null =
       parsedAttendanceQr ??
       (vitSymbology
-        ? { kind: "vit_id_barcode", rawBarcodeValue: scan.data, symbology: vitSymbology }
+        ? { kind: physicalCardKind(scan.data), rawBarcodeValue: scan.data, symbology: vitSymbology }
         : null);
     if (!credential) {
       throw new OperatorError(unreadableCredential(symbology, assignment));
@@ -784,7 +789,12 @@ function ScannerSurface({
         `${credentialName(credential.kind)} cannot be used at ${assignment.station.name}. Use a credential type assigned to this station.`,
       );
     }
-    setPendingScan(credential);
+    if (assignment.station.mode === "roving" && !assignment.station.sessionId) {
+      if (definitelyOffline) throw new OperatorError("Connect to the internet to record washroom movement.");
+      await sendPresenceScan(credential, undefined);
+    } else {
+      setPendingScan(credential);
+    }
   };
 
   const submitPendingScan = async (rovingTransition: ScanTransition | undefined) => {
@@ -792,7 +802,11 @@ function ScannerSurface({
     busyRef.current = true;
     setBusy(true);
     setScanError(null);
-    const credential = pendingScan;
+    try { await sendPresenceScan(pendingScan, rovingTransition); }
+    finally { busyRef.current = false; setBusy(false); }
+  };
+
+  const sendPresenceScan = async (credential: ScanCredential, rovingTransition: ScanTransition | undefined) => {
     try {
       const reserved = await reserveDeviceSequence({
         eventSlug,
@@ -879,9 +893,6 @@ function ScannerSurface({
       setPendingScan(null);
     } catch (error) {
       setScanError(errorMessage(error, "The scan could not be recorded."));
-    } finally {
-      busyRef.current = false;
-      setBusy(false);
     }
   };
 
@@ -889,7 +900,7 @@ function ScannerSurface({
     if (credentialSetup.step === "participant") {
       const participantQr = parseAttendanceQrPayload(scan.data);
       let participant: StaffedParticipant;
-      let resolutionSource: "vit_barcode" | "external_pass";
+      let resolutionSource: "vit_barcode" | "external_pass" | "external_id";
       if (participantQr?.kind === "external_pass") {
         resolutionSource = "external_pass";
         participant = await resolveExternalPass({
@@ -908,15 +919,29 @@ function ScannerSurface({
         const read = findBarcodeSymbology(scan.type);
         const symbology = allowedVitBarcode(read, assignment);
         if (!symbology) throw new OperatorError(unreadableCredential(read, assignment));
-        participant = await resolveVitBarcode({
-          eventSlug,
-          stationId: assignment.station.id,
-          expectedConfigurationVersion: assignment.station.configurationVersion,
-          deviceInstallationId: assignment.device.id,
-          deviceSecret: deviceRecord.deviceSecret,
-          rawBarcodeValue: scan.data,
-          symbology,
-        });
+        const isExternalCard = physicalCardKind(scan.data) === "external_id_barcode";
+        resolutionSource = isExternalCard ? "external_id" : "vit_barcode";
+        try {
+          participant = await (isExternalCard ? resolveExternalIdBarcode : resolveVitBarcode)({
+            eventSlug,
+            stationId: assignment.station.id,
+            expectedConfigurationVersion: assignment.station.configurationVersion,
+            deviceInstallationId: assignment.device.id,
+            deviceSecret: deviceRecord.deviceSecret,
+            rawBarcodeValue: scan.data,
+            symbology,
+          });
+        } catch (error) {
+          if (
+            isExternalCard && error instanceof ConvexError &&
+            typeof error.data === "object" && error.data !== null &&
+            "code" in error.data && error.data.code === "EXTERNAL_ID_NOT_LINKED"
+          ) {
+            setManualLookupKind("external_email");
+            setManualLookupOpen(true);
+          }
+          throw error;
+        }
       }
       setVenueReason("");
       setVenueCheckInReceipt(null);
@@ -1590,11 +1615,12 @@ function ScannerSurface({
     );
   }
 
+  const presenceAccepted = receipt?.outcome === "accepted" || receipt?.outcome === "duplicate";
   const presenceVerdict = receipt
     ? {
-        colour: receipt.outcome === "accepted" ? palette.judging : palette.urgent,
-        ink: receipt.outcome === "accepted" ? palette.onJudging : palette.text,
-        tone: (receipt.outcome === "accepted" ? "ok" : "no") as "ok" | "no",
+        colour: presenceAccepted ? palette.judging : palette.urgent,
+        ink: presenceAccepted ? palette.onJudging : palette.text,
+        tone: (presenceAccepted ? "ok" : "no") as "ok" | "no",
         ...(receipt.participant ? { name: receipt.participant.displayName } : {}),
         ...(receipt.participant?.vitRegistrationNumber
           ? { registration: receipt.participant.vitRegistrationNumber }
@@ -1661,7 +1687,7 @@ function ScannerSurface({
           }
           controls={
             <ScannerTaskContext
-              detail="Scan a linked VIT ID, event badge, or external event pass."
+              detail={assignment.station.mode === "roving" && !assignment.station.sessionId ? "Scan an ID. Leaving or returning is recorded automatically." : "Scan a linked ID or event pass."}
               onChange={chooseAnotherTask}
               title="Record presence"
             >
@@ -1675,11 +1701,15 @@ function ScannerSurface({
           {...(presenceVerdict ? { verdict: presenceVerdict } : {})}
           result={
             <>
+              {washroomQueue ? <Meta>{washroomQueue.waitingCount} waiting{washroomQueue.next[0] ? ` · Next: ${washroomQueue.next[0].displayName}` : ""}</Meta> : null}
               {receipt || scanError ? (
                 <>
                   {receipt?.participant?.teamName ? (
                     <Meta>{receipt.participant.teamName}</Meta>
                   ) : null}
+                  {receipt?.reasonCode === "external_id_not_linked" ? <Action label="Link external card" onPress={() => {
+                    startTask("staffed"); setManualLookupKind("external_email"); setManualLookupOpen(true);
+                  }} /> : null}
                   <Action
                     accent={palette.door}
                     label="Scan next"
@@ -1990,7 +2020,7 @@ function ManualLookupSheet({
   return (
     <Sheet detents={[0.72]} onClose={onClose} title="Find participant" visible={visible}>
       <Body>
-        Use this only when the participant’s VIT barcode or external event pass cannot be read.
+        Use this only when the participant’s ID barcode or event pass cannot be read.
       </Body>
       <ChipRow
         accent={palette.door}
@@ -2142,7 +2172,7 @@ function staffedScannerPrompt(credentialSetup: CredentialSetupState) {
   if (credentialSetup.step === "participant") {
     return {
       title: "First check-in",
-      detail: "Place a VIT ID barcode or external event-pass QR inside the frame.",
+      detail: "Scan a VIT ID, graVITas external ID, or event pass.",
     };
   }
   if (credentialSetup.step === "first_scan") {
@@ -2314,7 +2344,7 @@ function CredentialSetupInstructions({
       (credential.canSuspend || credential.canReissue);
     const canChangeCredential =
       credential.kind === "external_pass"
-        ? true
+        ? credentialSetup.resolutionSource !== "external_id"
         : credential.kind === "vit_id_barcode" && credential.state === "not_enrolled"
         ? credential.canEnrol && credentialSetup.resolutionSource === "vit_barcode"
         : credential.kind === "vit_id_barcode"
@@ -2324,7 +2354,7 @@ function CredentialSetupInstructions({
             : credential.canReplace;
     const suspendedVitIdRecognized = participant.vitScanRelationship === "current_suspended";
     const venueCheckInReady =
-      manualResolution || currentVitIdRecognized || suspendedVitIdRecognized;
+      manualResolution || credentialSetup.resolutionSource === "external_id" || currentVitIdRecognized || suspendedVitIdRecognized;
     return (
       <>
         <CheckInProgress current={1} />
@@ -2548,6 +2578,7 @@ function identityInstruction(
       ? "Fallback lookup found this participant. Compare the physical VIT ID with these details before recording arrival."
       : "Fallback lookup found this participant. Compare their physical photo ID with these details. You can record arrival manually or scan the ID barcode to link it.";
   }
+  if (resolutionSource === "external_id") return "Check the name and photo on this linked external card.";
   if (credential.kind === "external_pass") {
     return "Check the participant's physical photo ID matches these event-pass details, then scan its barcode to link both.";
   }
@@ -2813,6 +2844,7 @@ function allowedVitBarcode(
 }
 
 function credentialName(kind: ScanCredential["kind"]) {
+  if (kind === "external_id_barcode") return "An external ID card";
   if (kind === "external_pass") return "An external event pass";
   if (kind === "badge_qr") return "An event badge";
   return "A VIT ID barcode";
@@ -2860,6 +2892,9 @@ function reasonName(reason: string) {
     already_temporarily_out: "Already marked as stepped out.",
     credential_not_found:
       "This card is not registered yet. Send them to the help desk to get set up.",
+    movement_already_recorded: "Movement already recorded. No change.",
+    staffed_check_in_required: "Complete check-in first.",
+    external_id_not_linked: "Link this external card in Check-in using the participant’s email first.",
     external_pass_invalid: "This external event pass is invalid or suspended.",
     external_identity_not_verified:
       "First check-in is incomplete. Verify and link the participant's physical photo ID first.",

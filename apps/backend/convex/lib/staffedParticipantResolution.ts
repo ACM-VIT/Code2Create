@@ -23,7 +23,7 @@ export async function createStaffedParticipantResolution(
   args: {
     eventId: Id<"events">;
     membershipId: Id<"eventMemberships">;
-    resolutionMethod: "vit_id_barcode" | "external_pass" | "manual_lookup";
+    resolutionMethod: "vit_id_barcode" | "external_pass" | "external_id_barcode" | "manual_lookup";
     barcodeLookupHash?: string;
     barcodeSymbology?: BarcodeSymbology;
     stationId: Id<"attendanceStations">;

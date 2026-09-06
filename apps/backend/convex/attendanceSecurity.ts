@@ -753,3 +753,114 @@ export const scannerHeartbeat = internalMutation({
     return { serverNow };
   },
 });
+
+/** Change an unused door without retiring phones already scanning on the published plan. */
+export const configurePresenceStation = mutation({
+  args: {
+    eventSlug: v.string(),
+    stationId: v.id("attendanceStations"),
+    expectedConfigurationVersion: v.number(),
+    name: v.string(),
+    mode: v.union(
+      v.literal("venue_entry"),
+      v.literal("venue_exit"),
+      v.literal("roving"),
+    ),
+    reason: v.string(),
+    clientOperationId: v.string(),
+  },
+  returns: v.object({
+    stationId: v.id("attendanceStations"),
+    configurationVersion: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const name = normalizedText(args.name, "Station name", 2, 80);
+    const reason = normalizedText(args.reason, "Reason", 5, 300);
+    const clientOperationId = normalizedText(
+      args.clientOperationId,
+      "Client operation ID",
+      10,
+      100,
+    );
+    const requestFingerprint = operationFingerprint([
+      args.stationId,
+      args.expectedConfigurationVersion,
+      name,
+      args.mode,
+      reason,
+    ]);
+    const prior = await findOperation(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      clientOperationId,
+      commandName: "attendance.station.configure_presence",
+      requestFingerprint,
+    });
+    if (prior)
+      return {
+        stationId: args.stationId,
+        configurationVersion: args.expectedConfigurationVersion + 1,
+      };
+    const { station, grantIds } = await requireStationPermission(ctx, {
+      ...args,
+      permissionKey: "attendance.station.manage",
+    });
+    if (
+      station.planVersionId !== event.publishedAttendancePlanVersionId ||
+      station.status !== "inactive" ||
+      station.deviceInstallationId !== undefined ||
+      station.sessionId !== undefined
+    ) {
+      throw new ConvexError({
+        code: "STATION_IN_USE",
+        message:
+          "Choose an unused, unassigned presence station from the current plan.",
+      });
+    }
+    const configurationVersion = station.configurationVersion + 1;
+    const now = Date.now();
+    await ctx.db.patch(station._id, {
+      name,
+      mode: args.mode,
+      configurationVersion,
+      updatedAt: now,
+    });
+    await appendAttendanceStationReadFactById(ctx, station._id, now);
+    await writeAuditEvent(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      permissionKey: "attendance.station.manage",
+      grantIds,
+      scopeType: "station",
+      scopeId: station._id,
+      action: "attendance.station_configured",
+      targetType: "attendance_station",
+      targetId: station._id,
+      previousSummary: JSON.stringify({
+        name: station.name,
+        mode: station.mode,
+        configurationVersion: station.configurationVersion,
+      }),
+      nextSummary: JSON.stringify({
+        name,
+        mode: args.mode,
+        configurationVersion,
+      }),
+      reason,
+    });
+    await recordOperation(ctx, {
+      eventId: event._id,
+      actorPersonId: person._id,
+      clientOperationId,
+      commandName: "attendance.station.configure_presence",
+      requestFingerprint,
+      targetType: "attendance_station",
+      targetId: station._id,
+      resultJson: String(configurationVersion),
+      createdAt: now,
+    });
+    return { stationId: station._id, configurationVersion };
+  },
+});

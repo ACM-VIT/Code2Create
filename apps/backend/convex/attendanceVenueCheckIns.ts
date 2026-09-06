@@ -97,8 +97,8 @@ export async function requireStaffedVenueIdentityEvidence(
     return;
   }
   if (
-    args.resolution.resolutionMethod !== "external_pass" ||
-    args.resolution.credentialAction !== "link_external_id"
+    args.resolution.resolutionMethod !== "external_id_barcode" &&
+    (args.resolution.resolutionMethod !== "external_pass" || args.resolution.credentialAction !== "link_external_id")
   ) {
     throw new ConvexError({
       code: "EXTERNAL_ID_LINK_REQUIRED",

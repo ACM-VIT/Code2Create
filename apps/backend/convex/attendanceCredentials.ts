@@ -407,6 +407,7 @@ async function requireExternalBadgeCommand(
 type StaffedResolutionMethod =
   | { kind: "vit_id_barcode"; lookupHash: string; symbology: Doc<"attendanceCredentials">["barcodeSymbology"] }
   | { kind: "external_pass" }
+  | { kind: "external_id_barcode" }
   | { kind: "manual_lookup" };
 
 export function classifyVitScan(args: {
@@ -455,7 +456,7 @@ async function staffedParticipantForMembership(
   }
   if (
     (args.method.kind === "vit_id_barcode" && membership.participantClass !== "vit_student") ||
-    (args.method.kind === "external_pass" &&
+    ((args.method.kind === "external_pass" || args.method.kind === "external_id_barcode") &&
       membership.participantClass !== "external_participant")
   ) {
     throw new ConvexError({
@@ -645,6 +646,48 @@ export const resolveExternalPass = internalMutation({
       ...args,
       membership,
       method: { kind: "external_pass" },
+    });
+  },
+});
+
+export const resolveExternalIdBarcode = internalMutation({
+  args: { ...staffedResolutionArgs, lookupHash: v.string() },
+  returns: credentialParticipantResult,
+  handler: async (ctx, args): Promise<StaffedParticipantResult> => {
+    const { event, station } = await requireStationPermission(ctx, {
+      ...args,
+      permissionKey: "attendance.station.read",
+    });
+    await requireAssignedDevice(ctx, {
+      ...args,
+      eventId: event._id,
+      stationId: station._id,
+    });
+    if (!station.allowedCredentialKinds.includes("external_pass")) {
+      throw new ConvexError({
+        code: "CREDENTIAL_NOT_ALLOWED_AT_STATION",
+        message: "External cards are not enabled at this station.",
+      });
+    }
+    const binding = await ctx.db
+      .query("attendanceExternalIdentityBindings")
+      .withIndex("by_event_lookup", (q) =>
+        q.eq("eventId", event._id).eq("lookupHash", args.lookupHash),
+      )
+      .unique();
+    if (!binding || binding.state !== "active") {
+      throw new ConvexError({
+        code: "EXTERNAL_ID_NOT_LINKED",
+        message:
+          "Link this external card using the participant's email and photo ID first.",
+      });
+    }
+    const membership = await ctx.db.get(binding.membershipId);
+    if (!membership) throw new Error("External ID membership is missing.");
+    return staffedParticipantForMembership(ctx, {
+      ...args,
+      membership,
+      method: { kind: "external_id_barcode" },
     });
   },
 });

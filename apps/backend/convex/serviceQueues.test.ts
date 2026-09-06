@@ -59,6 +59,8 @@ describe("participant outing permission queue", () => {
     await expect(second.query(api.serviceQueues.current, { eventSlug })).resolves.toEqual([
       {
         kind: "outing_permission",
+        opensAt: now - 60_000,
+        closesAt: now + 60_000,
         joined: true,
         position: 2,
         waitingCount: 2,
@@ -70,12 +72,18 @@ describe("participant outing permission queue", () => {
     await expect(second.query(api.serviceQueues.current, { eventSlug })).resolves.toEqual([
       {
         kind: "outing_permission",
+        opensAt: now - 60_000,
+        closesAt: now + 60_000,
         joined: true,
         position: 1,
         waitingCount: 1,
         joinedAt: expect.any(Number),
       },
     ]);
+
+    await backend.run((ctx) => ctx.db.patch(eventId, { status: "registration_closed" }));
+    expect(await first.query(api.serviceQueues.current, { eventSlug })).toHaveLength(1);
+    await first.mutation(api.serviceQueues.join, { eventSlug, kind: "outing_permission" });
 
     await backend.run((ctx) => ctx.db.patch(eventId, { status: "complete", updatedAt: now + 2 }));
     await expect(first.query(api.serviceQueues.current, { eventSlug })).resolves.toEqual([]);
@@ -118,6 +126,8 @@ describe("participant outing permission queue", () => {
     await expect(lastParticipant.query(api.serviceQueues.current, { eventSlug })).resolves.toEqual([
       {
         kind: "outing_permission",
+        opensAt: now - 60_000,
+        closesAt: now + 60_000,
         joined: true,
         position: 80,
         waitingCount: 80,

@@ -14,7 +14,7 @@ const bearerPattern = /^[A-Za-z0-9_-]{43}$/u;
 const pendingCredentialSchema = z.discriminatedUnion("kind", [
   z
     .object({
-      kind: z.literal("vit_id_barcode"),
+      kind: z.enum(["vit_id_barcode", "external_id_barcode"]),
       rawBarcodeValue: z.string().min(1).max(512),
       symbology: z.enum(barcodeSymbologies),
     })

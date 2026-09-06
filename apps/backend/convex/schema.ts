@@ -1330,7 +1330,8 @@ export default defineSchema({
     kind: v.literal("outing_permission"),
     joinedAt: v.number(),
   })
-    .index("by_membership_kind", ["membershipId", "kind"]),
+    .index("by_membership_kind", ["membershipId", "kind"])
+    .index("by_event_kind_joined", ["eventId", "kind", "joinedAt"]),
 
   supportCases: defineTable({
     eventId: v.id("events"),
@@ -2525,6 +2526,7 @@ export default defineSchema({
     eventId: v.id("events"),
     membershipId: v.id("eventMemberships"),
     resolutionMethod: v.union(
+      v.literal("external_id_barcode"),
       v.literal("vit_id_barcode"),
       v.literal("external_pass"),
       v.literal("manual_lookup"),
