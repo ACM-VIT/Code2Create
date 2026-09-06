@@ -23,7 +23,7 @@ export function githubRepositoryAddBlocker(input: {
 }): string | null {
   if (!input.canManage) return "Only a team member with repository management access can add repositories.";
   if (input.freezeAt !== undefined && input.now >= input.freezeAt) return "Repository changes are frozen for this event.";
-  if (input.eventStatus !== "live") return "Adding repositories opens when organizers start the official build.";
+  if (input.eventStatus === "complete") return "Repository changes are closed because the event has ended.";
   if (input.repositoryCount >= input.maximumRepositories) return "Your team has reached its repository limit. Archive a repository before adding another.";
   return null;
 }

@@ -20,6 +20,15 @@ const provider = vi.hoisted(() => ({
   userClient: vi.fn(),
   user: vi.fn(async () => ({ data: { id: 789, login: "project-owner" } })),
   installation: vi.fn(),
+  installationRepository: vi.fn(async () => ({ data: { id: 900 } })),
+  repository: vi.fn(async () => ({ data: {
+    id: 900, node_id: "fixture-repository", owner: { login: "project-owner" },
+    name: "product", full_name: "project-owner/product", html_url: "https://github.com/project-owner/product",
+    private: true, fork: false, default_branch: "main", created_at: "2026-09-01T00:00:00Z",
+  } })),
+  topics: vi.fn(async () => ({ data: { names: ["code2create-7-0"] } })),
+  languages: vi.fn(async () => ({ data: { TypeScript: 100 } })),
+  branch: vi.fn(async () => ({ data: { commit: { sha: "fixture-baseline", commit: { committer: { date: "2026-09-01T00:00:00Z" } } } } })),
 }));
 
 vi.mock("./lib/githubClient", async (original) => {
@@ -27,6 +36,7 @@ vi.mock("./lib/githubClient", async (original) => {
   return {
     ...actual,
     githubConfiguration: () => ({ appId: "123", privateKey: "fixture", clientId: "fixture", clientSecret: "fixture" }),
+    repositoryOctokit: async () => ({ rest: { repos: { get: provider.installationRepository } } }),
     githubApp: () => ({
       getInstallationUrl: provider.install,
       oauth: { getWebFlowAuthorizationUrl: provider.authorize, createToken: provider.token },
@@ -34,7 +44,10 @@ vi.mock("./lib/githubClient", async (original) => {
     }),
     GitHubOctokit: class {
       constructor(options: { auth: string }) { provider.userClient(options.auth); }
-      rest = { users: { getAuthenticated: provider.user }, apps: {
+      rest = { repos: {
+        get: provider.repository, getAllTopics: provider.topics,
+        listLanguages: provider.languages, getBranch: provider.branch,
+      }, users: { getAuthenticated: provider.user }, apps: {
         listInstallationsForAuthenticatedUser: provider.list,
         listInstallationReposForAuthenticatedUser: provider.repositories,
       } };
@@ -62,6 +75,71 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("GitHub installation connection", () => {
+  test.each(["registration_closed", "live"] as const)("adds an accepted team's repository during %s and captures its baseline once", async status => {
+    const f = await connectedFixture();
+    await f.backend.run(async ctx => {
+      const event = await ctx.db.query("events").unique();
+      if (!event) throw new Error("Missing event");
+      await ctx.db.patch(event._id, { status });
+    });
+    const result = await f.add();
+    expect(await f.add()).toEqual(result);
+    expect(provider.repository).toHaveBeenCalledTimes(1);
+    expect(provider.installationRepository).toHaveBeenCalledTimes(1);
+    expect(provider.userClient).toHaveBeenLastCalledWith("fixture-user-token");
+    expect(await f.backend.run(ctx => ctx.db.query("githubRepositoryBindings").unique())).toMatchObject({
+      _id: result.bindingId, baselineSha: "fixture-baseline", state: "active", isPrivate: true,
+    });
+    expect(await f.backend.run(ctx => ctx.db.query("githubRepositorySnapshots").collect())).toMatchObject([
+      { reason: "baseline", headSha: "fixture-baseline", commitCount: 0 },
+    ]);
+    expect((await f.view())?.repositories).toHaveLength(1);
+  });
+
+  test.each(["complete", "unselected", "frozen", "no_permission", "no_authorization"] as const)("still blocks repository adds for %s", async mode => {
+    const f = await connectedFixture();
+    await f.backend.run(async ctx => {
+      const event = await ctx.db.query("events").unique();
+      const team = await ctx.db.query("teams").unique();
+      if (!event || !team) throw new Error("Missing fixture");
+      if (mode === "complete") await ctx.db.patch(event._id, { status: "complete" });
+      if (mode === "unselected") await ctx.db.patch(team._id, { status: "submitted" });
+      if (mode === "frozen") {
+        const policy = await ctx.db.query("integrationPolicyVersions").unique();
+        if (!policy) throw new Error("Missing policy");
+        await ctx.db.patch(policy._id, { githubFreezeAt: 1, checksum: integrationPolicyChecksum({ ...policy, githubFreezeAt: 1 }) });
+      }
+      if (mode === "no_permission") {
+        const grants = await ctx.db.query("permissionGrants").collect();
+        for (const grant of grants) await ctx.db.patch(grant._id, { status: "revoked" });
+      }
+      if (mode === "no_authorization") {
+        const authorization = await ctx.db.query("githubRepositoryAuthorizations").unique();
+        if (!authorization) throw new Error("Missing authorization");
+        await ctx.db.delete(authorization._id);
+      }
+    });
+    await expect(f.add()).rejects.toThrow();
+    expect(provider.repository).not.toHaveBeenCalled();
+    expect(provider.installationRepository).not.toHaveBeenCalled();
+    expect(await f.backend.run(ctx => ctx.db.query("githubRepositoryBindings").collect())).toEqual([]);
+  });
+
+  test("rechecks the repository freeze at commit if it changes during provider reads", async () => {
+    const f = await connectedFixture();
+    provider.branch.mockImplementationOnce(async () => {
+      await f.backend.run(async ctx => {
+        const policy = await ctx.db.query("integrationPolicyVersions").unique();
+        if (!policy) throw new Error("Missing policy");
+        await ctx.db.patch(policy._id, { githubFreezeAt: 1, checksum: integrationPolicyChecksum({ ...policy, githubFreezeAt: 1 }) });
+      });
+      return { data: { commit: { sha: "fixture-baseline", commit: { committer: { date: "2026-09-01T00:00:00Z" } } } } };
+    });
+    await expect(f.add()).rejects.toThrow("frozen");
+    expect(provider.repository).toHaveBeenCalledTimes(1);
+    expect(await f.backend.run(ctx => ctx.db.query("githubRepositoryBindings").collect())).toEqual([]);
+  });
+
   test("authorizes an existing App, accepts a callback without installation_id, and asks which account to connect", async () => {
     const f = await fixture();
     const state = await f.start();
@@ -299,6 +377,18 @@ describe("GitHub installation connection", () => {
     expect(view?.repositories).toMatchObject([{ fullName: "project-owner/submitted" }]);
   });
 });
+
+async function connectedFixture() {
+  const f = await fixture();
+  const connection = await f.complete(await f.start({ installationId: "456" }));
+  if (connection.kind !== "connected") throw new Error("Expected connection");
+  const args = {
+    eventSlug: "github-test", connectionId: connection.connectionId, repositoryId: "900",
+    owner: "project-owner", name: "product", kind: "full_product" as const,
+    purpose: "Whole product", trackedBranch: "main", clientOperationId: crypto.randomUUID(),
+  };
+  return { ...f, add: () => f.lead.action(api.githubActions.addRepository, args) };
+}
 
 async function fixture(grant = true) {
   const backend = convexTest(schema, modules);
