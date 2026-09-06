@@ -16,6 +16,16 @@
   pointer-events: none;
 }
 
+.admission-result-reveal__video {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+}
+
 .admission-result-reveal__chest {
   position: absolute;
   top: 49.2%;
@@ -31,6 +41,10 @@
     drop-shadow(0 0.42rem 0.3rem color-mix(in srgb, var(--color-wash) 68%, transparent))
     drop-shadow(0 0 0.9rem color-mix(in srgb, var(--color-rose) 52%, transparent));
   will-change: transform, opacity, filter;
+}
+
+.admission-result-reveal__chest--hidden {
+  opacity: 0;
 }
 
 .admission-result-reveal--fallback .admission-result-reveal__chest {
